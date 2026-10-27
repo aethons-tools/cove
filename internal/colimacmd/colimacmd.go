@@ -1,5 +1,5 @@
-// Package colimacmd serves the `colima setup-docker|check-docker` verbs shared by
-// the jam and jam-studio-manager binaries.
+// Package colimacmd serves the jam-studio-manager binary's
+// `colima setup-docker|check-docker` verbs.
 package colimacmd
 
 import (

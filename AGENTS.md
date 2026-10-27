@@ -17,7 +17,7 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
 - **This repo *builds* sandboxes — keep template files distinct from the repo's own files.**
   Everything under `internal/assemble/*/image-files/` (and the harness layer's
   `internal/harnessinstall/payload/`) is *payload*:
-  a template tree copied into the studio images Jam's launcher builds,
+  a template tree copied into the studio images a Studio Manager builds,
   not configuration for this repo.
   Likewise `images/*/image-files/`: for example,
   `images/jam-studio-base/image-files/home/agent/.init-agent-data/CLAUDE.md`

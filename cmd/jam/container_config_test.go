@@ -11,11 +11,11 @@ import (
 
 // loadContainerExample runs the example through the same load + validate path
 // cmdServe uses (no listeners, no store). credentials-file is repointed at the
-// example's sibling, since /etc/jam/credentials.yml only exists in the image.
+// example's sibling, since /etc/jam/secrets/credentials.yml only exists in the container.
 func loadContainerExample(t *testing.T, mutate func(string) string) (serveConfig, error) {
 	t.Helper()
 	dir := t.TempDir()
-	raw, err := os.ReadFile("../../dev/jam.container.yml.example")
+	raw, err := os.ReadFile("../../dev/examples/jam.container.yml.example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func loadContainerExample(t *testing.T, mutate func(string) string) (serveConfig
 		return cfg, fmt.Errorf("unknown serve config keys: %v", unknown)
 	}
 	for _, v := range []func() error{
-		cfg.validateAdminExposure, cfg.validateLauncher, cfg.validateRequisitioner,
+		cfg.validateAdminExposure, cfg.validateRequisitioner,
 		cfg.validateStorage, cfg.validateStorePostgres, cfg.validateDiscord,
 		cfg.validatePush, cfg.validateDisplayName, cfg.validateWake, cfg.validateMetrics,
 		cfg.validateSSH, cfg.validateKits, cfg.validateBlobs, cfg.validatePreviews,
@@ -45,7 +45,7 @@ func loadContainerExample(t *testing.T, mutate func(string) string) (serveConfig
 			return cfg, err
 		}
 	}
-	cfg.CredentialsFile, _ = filepath.Abs("../../dev/credentials.container.yml.example")
+	cfg.CredentialsFile, _ = filepath.Abs("../../dev/examples/credentials.container.yml.example")
 	if _, err := planCredentials(cfg); err != nil {
 		return cfg, err
 	}
@@ -60,7 +60,7 @@ func TestContainerConfigExampleValidates(t *testing.T) {
 	if !cfg.Runtime.StudioManagers {
 		t.Error("runtime.studio-managers should be true")
 	}
-	if cfg.Runtime.Launcher != nil {
+	if !cfg.Runtime.Launcher.IsZero() {
 		t.Error("runtime.launcher should be unset")
 	}
 	if cfg.DevIdentity != nil {

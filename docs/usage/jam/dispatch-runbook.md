@@ -16,7 +16,7 @@ doc that owns the detail; this runbook only owns the **order** and the
 
 ## Prerequisites
 
-- Colima running (the launcher builds each studio kit's image on its first raise — [kits.md](kits.md)).
+- Colima running with an `jam-studio-manager` connected (it builds each studio kit's image on its first raise — [kits.md](kits.md)).
 - A Linear workspace + team; a Linear API token (Jam's own).
 - Anthropic + git credentials Jam will broker.
 - A DNS name for Jam with a TLS cert (see the cert gotcha below).
@@ -29,8 +29,8 @@ doc that owns the detail; this runbook only owns the **order** and the
    and [`dev/`](../../../dev/README.md).
 2. **`jam serve`** — write the serve config: cove-facing `listen: :443` +
    `tls`, loopback `admin-listen` (no OIDC needed on loopback), `store-postgres`,
-   `credentials` (anthropic + git + the DB password), and a `runtime.launcher`
-   whose studios are built from the role's studio kit (see [the launcher](serve.md#the-launcher-runtimelauncher)). Start it (`:443` needs privilege). Full schema:
+   `credentials` (anthropic + git + the DB password), and `runtime.studio-managers: true`
+   with a connected [Studio Manager](studio-managers.md) that builds studios from the role's studio kit. Start it (`:443` needs privilege). Full schema:
    [serve.md](serve.md).
 3. **Destinations** — `jam destination add` for `anthropic` and `git`. Each `--cred-name` must resolve to a `credentials:`
    entry, **validated at add time** — so add the credential to the serve config
@@ -45,7 +45,7 @@ doc that owns the detail; this runbook only owns the **order** and the
    the cap. [requisitioner.md](requisitioner.md).
 6. **Trigger** — label a ticket `dispatch:go`, move it to your `ready` state, and
    watch `jam studio list`. The kit registry ([kits.md](kits.md)) is **not**
-   required — the launcher builds from the role's studio kit ([serve.md](serve.md#the-launcher-runtimelauncher)).
+   required — the Studio Manager builds from the role's studio kit ([studio-managers.md](studio-managers.md)).
 
 ## Gotchas (each one cost a real debugging loop)
 
@@ -61,9 +61,9 @@ doc that owns the detail; this runbook only owns the **order** and the
   through its own squid proxy; if `jam-host` isn't on the studio's egress
   allow-list, every brokered call (and the Attach stream) dies and the studio does
   nothing. Widen egress in the kit/image.
-- **The dialed name must match the TLS cert.** `runtime.launcher.jam-host` /
-  `runtime-addr` must be a name the broker cert's SAN covers — the studio validates
-  Jam's cert against its system trust store (the launcher injects no CA). A
+- **The dialed name must match the TLS cert.** The manager's `colima.jam-host` /
+  `colima.runtime-addr` ([config](../studio-manager.md#config)) must be a name the broker cert's SAN covers — the studio validates
+  Jam's cert against its system trust store (the manager injects no CA). A
   cert for `local.aethons.tools` will not satisfy a studio told to dial
   `jam.local.aethons.tools`. Match them, or reissue the cert (wildcard/SAN).
 - **`store-postgres` password must resolve.** The DB password is a named

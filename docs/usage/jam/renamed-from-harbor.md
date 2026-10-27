@@ -25,7 +25,7 @@ are now `jam` there too.
 | `AT_HARBOR_ADMIN_TOKEN` | `AT_JAM_ADMIN_TOKEN` | No — removed in the jam rename ([renamed-from-at.md](renamed-from-at.md)). |
 | `AT_HARBOR_IDENTITY_TOKEN`, `AT_HARBOR_LAUNCH_SECRET`, `AT_HARBOR_RUNTIME_ADDR` (set inside a cove) | `AT_JAM_IDENTITY_TOKEN`, `AT_JAM_LAUNCH_SECRET`, `AT_JAM_RUNTIME_ADDR` | No — removed in the jam rename ([renamed-from-at.md](renamed-from-at.md)). |
 | kit `config.yml` `harbor:` block | `jam:` | Removed with at-cove (jam-only slice 2): there is no kit `config.yml` any more. |
-| serve config `runtime.launcher.harbor-host` | `runtime.launcher.jam-host` | Yes, with a warning. Setting both is an error. |
+| serve config `runtime.launcher.harbor-host` | `runtime.launcher.jam-host`, now a Studio Manager's `colima.jam-host` | No. `runtime.launcher` itself is removed; see [Studio Managers](studio-managers.md#retiring-the-in-process-launcher). |
 | serve config `runtime.dispatcher` (the resident dispatcher) | `runtime.requisitioner` (the Requisitioner) | Yes, with a warning. Setting both is an error. |
 | `at-jam cove raise\|list\|status\|teardown` | `at-jam studio raise\|list\|status\|teardown` | Yes, with a warning. The entity is called a **Studio** in the CLI, the admin UI and the docs; ids, admin API routes (`/admin/coves…`), JSON fields and `cove-master` keep "cove". |
 | admin UI cookies `harbor_session`, `harbor_oauth_*` | `jam_session`, `jam_oauth_*` | No. **Admin UI users log in again once** after upgrading; the old cookies are simply ignored. |

@@ -237,94 +237,25 @@ func TestRuntimeListenParsed(t *testing.T) {
 	}
 }
 
-func TestRuntimeLauncherParsed(t *testing.T) {
-	c, err := parseServeConfig([]byte(`
-runtime:
-  launcher:
-    runtime-addr: jam.example.com:443
-    jam-host: jam.example.com
-    identity-file: /etc/jam/id_ed25519
-    known-hosts-dir: /etc/jam/known_hosts.d
-    dns: ["1.1.1.1", "8.8.8.8"]
-    docker: true
-    docker-context: colima-jam-b
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	lc := c.Runtime.Launcher
-	if lc == nil {
-		t.Fatal("runtime.launcher did not parse")
-	}
-	if lc.RuntimeAddr != "jam.example.com:443" ||
-		lc.JamHost != "jam.example.com" ||
-		lc.IdentityFile != "/etc/jam/id_ed25519" ||
-		lc.KnownHostsDir != "/etc/jam/known_hosts.d" ||
-		!lc.Docker || lc.DockerContext != "colima-jam-b" ||
-		len(lc.DNS) != 2 || lc.DNS[0] != "1.1.1.1" || lc.DNS[1] != "8.8.8.8" {
-		t.Fatalf("launcher config = %+v", lc)
-	}
-	// runtime.launcher is a known key (no unknown-key warning).
-	if got := unknownServeKeys([]byte("runtime:\n  launcher:\n    jam-host: h\n")); len(got) != 0 {
-		t.Fatalf("unknown keys = %v", got)
-	}
-}
-
-func TestValidateLauncherRequiredFields(t *testing.T) {
-	// no launcher block at all → no error.
-	if err := (serveConfig{}).validateLauncher(); err != nil {
-		t.Fatalf("nil launcher should not error: %v", err)
-	}
-	base := func() *launcherConfig {
-		return &launcherConfig{
-			RuntimeAddr: "h:443",
-			JamHost:     "h",
-		}
-	}
-	// all required fields present → ok, and defaults get filled in.
-	c := serveConfig{}
-	c.Runtime.Launcher = base()
-	if err := c.validateLauncher(); err != nil {
-		t.Fatalf("complete launcher block should not error: %v", err)
-	}
-	if c.Runtime.Launcher.IdentityFile == "" || c.Runtime.Launcher.KnownHostsDir == "" {
-		t.Fatalf("expected identity-file/known-hosts-dir to default, got %+v", c.Runtime.Launcher)
-	}
-
-	for field, mutate := range map[string]func(*launcherConfig){
-		"runtime-addr": func(l *launcherConfig) { l.RuntimeAddr = "" },
-		"jam-host":     func(l *launcherConfig) { l.JamHost = "" },
+// runtime.launcher is gone: Jam no longer runs studios itself, so a config
+// that still has the block (or any of its keys, harbor-host included) fails to
+// load rather than being silently ignored.
+func TestServeConfigRejectsRuntimeLauncher(t *testing.T) {
+	const want = "runtime.launcher was removed: Jam no longer runs studios itself. Run jam-studio-manager next to Colima (docs/usage/studio-manager.md) and set runtime.studio-managers: true. Studios the old launcher raised are dropped on startup and their standing sessions start fresh (docs/usage/jam/studio-managers.md#retiring-the-in-process-launcher)"
+	for name, yml := range map[string]string{
+		"block":       "listen: \":443\"\nstate-dir: /tmp/s\nruntime: {launcher: {runtime-addr: x:443, jam-host: x}}\n",
+		"harbor-host": "runtime:\n  launcher:\n    harbor-host: h.example\n",
+		"empty":       "runtime:\n  launcher: {}\n",
+		"null":        "runtime:\n  launcher:\n",
 	} {
-		bad := serveConfig{}
-		bad.Runtime.Launcher = base()
-		mutate(bad.Runtime.Launcher)
-		if err := bad.validateLauncher(); err == nil {
-			t.Fatalf("missing %s should error", field)
+		_, err := parseServeConfig([]byte(yml))
+		if err == nil || err.Error() != want {
+			t.Errorf("%s: err = %v, want %q", name, err, want)
 		}
 	}
-}
-
-// install-manifest is retired (no shim): a launcher block with only runtime-addr
-// and jam-host now validates.
-func TestValidateLauncherNoLongerRequiresInstallManifest(t *testing.T) {
-	c := serveConfig{}
-	c.Runtime.Launcher = &launcherConfig{RuntimeAddr: "jam:443", JamHost: "jam"}
-	if err := c.validateLauncher(); err != nil {
-		t.Fatalf("launcher without install-manifest must validate: %v", err)
-	}
-}
-
-func TestValidateLauncherDefaultsDontOverride(t *testing.T) {
-	c := serveConfig{}
-	c.Runtime.Launcher = &launcherConfig{
-		RuntimeAddr: "h:443", JamHost: "h",
-		IdentityFile: "/custom/id", KnownHostsDir: "/custom/kh",
-	}
-	if err := c.validateLauncher(); err != nil {
-		t.Fatal(err)
-	}
-	if c.Runtime.Launcher.IdentityFile != "/custom/id" || c.Runtime.Launcher.KnownHostsDir != "/custom/kh" {
-		t.Fatalf("explicit identity-file/known-hosts-dir must not be overridden: %+v", c.Runtime.Launcher)
+	// No block: loads.
+	if _, err := parseServeConfig([]byte("runtime:\n  studio-managers: true\n")); err != nil {
+		t.Fatalf("without runtime.launcher: %v", err)
 	}
 }
 
@@ -1221,26 +1152,6 @@ func TestCredFixHint(t *testing.T) {
 	}
 }
 
-// docker-context must be a valid docker context name: it rides as a
-// `--context` argv value, so reject anything that could read as a flag.
-func TestValidateLauncherDockerContext(t *testing.T) {
-	for ctx, ok := range map[string]bool{
-		"":             true, // unset → the default colima context
-		"colima":       true,
-		"colima-jam-b": true,
-		"my_ctx.2":     true,
-		"-x":           false,
-		"a b":          false,
-		"colima/x":     false,
-	} {
-		c := serveConfig{}
-		c.Runtime.Launcher = &launcherConfig{RuntimeAddr: "h:443", JamHost: "h", DockerContext: ctx}
-		if err := c.validateLauncher(); (err == nil) != ok {
-			t.Errorf("docker-context %q: err=%v, want ok=%v", ctx, err, ok)
-		}
-	}
-}
-
 func TestValidatePreviews(t *testing.T) {
 	const base = "admin-listen: 0.0.0.0:8443\nadmin-tls: { cert: /a.crt, key: /a.key }\noperator-auth:\n  oidc: { issuer: https://idp.example, browser-client-id: web }\n"
 	const block = "previews:\n  domain: preview.jam.example\n  tls: { cert: /p.crt, key: /p.key }\n"
@@ -1378,10 +1289,10 @@ func TestValidateBlobs(t *testing.T) {
 	}
 }
 
-// The dev sample config parses, and its blobs block (dev/docker-compose.yml's
-// Garage) validates.
+// The dev sample config parses, its blobs block (dev/docker-compose.yml's
+// Garage) validates, and it runs studios on Studio Managers.
 func TestDevSampleConfigValidates(t *testing.T) {
-	b, err := os.ReadFile("../../dev/jam.dev.yml.example")
+	b, err := os.ReadFile("../../dev/examples/jam.dev.yml.example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1391,6 +1302,9 @@ func TestDevSampleConfigValidates(t *testing.T) {
 	}
 	if err := c.validateBlobs(); err != nil || c.Blobs == nil {
 		t.Fatalf("blobs: %+v %v", c.Blobs, err)
+	}
+	if !c.Runtime.StudioManagers {
+		t.Error("runtime.studio-managers should be true")
 	}
 }
 

@@ -28,7 +28,7 @@ admin-listen: "127.0.0.1:8081" # admin API listener (operator surface)
 ui-hosts:                      # optional; extra Host values the browser UI accepts on loopback
   - jam.local.example       # a custom name that DNS-binds to 127.0.0.1
 ui-origins:                    # optional; extra origins the UI's write (CSRF) check accepts
-  - http://localhost:8090      # e.g. the `just dev-watch` live-reload proxy
+  - http://localhost:8090      # e.g. a proxy fronting the admin listener
 tls:                           # broker server cert (required for a real :443)
   cert: /etc/jam/tls/fullchain.pem
   key:  /etc/jam/tls/privkey.pem
@@ -64,14 +64,6 @@ runtime:                            # optional — supervisor lease/reconcile ti
   lease-ttl: 60s
   reconcile-interval: 30s           # must be < lease-ttl
   listen: "127.0.0.1:9090"          # OPTIONAL plaintext Attach gRPC dev listener; prod uses the :443 mux
-  launcher:                         # optional — enables the real Colima cove launcher
-    runtime-addr: jam.example.com:443        # what a raised cove dials (JAM_RUNTIME_ADDR)
-    jam-host: jam.example.com                # added to the cove's /etc/hosts; connector base host
-    identity-file: /var/lib/jam/launcher/id_ed25519  # SSH key matching the image's baked authorized_keys
-    known-hosts-dir: /var/lib/jam/known_hosts.d
-    dns: []
-    docker: false
-    docker-context: colima                   # optional — the colima instance studios run in (colima-<profile>)
   discord:
     connection: discord-main        # a `jam connection` of kind discord
   requisitioner:
@@ -93,7 +85,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `listen` | yes | Address the cove-facing endpoint serves on — **both** the broker and the [Attach](coves.md#the-attach-stream) gRPC stream, multiplexed by `content-type`. Use `:443` in production — a sealed studio can only `CONNECT` to 443. |
 | `admin-listen` | no | Address the admin API serves on. Omit to run the broker alone. |
 | `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `jam.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#signing-in-one-login-one-principal). |
-| `ui-origins` | no | Extra exact origins (`scheme://host[:port]`, no path) the browser UI's write checks (`/app/admin` and `/app/user`) accept, besides the request's own `Host`. For a proxy that fronts the admin listener on another address, such as the `just dev-watch` live-reload proxy (`http://localhost:8090`, see [`dev/README.md`](../../../dev/README.md)). Matching is exact: another port or scheme is another origin. Malformed entries fail serve at startup. They are also the only pages that may frame a preview, and framed preview pages post their status to the first entry, so list the production UI origin first ([previews.md](previews.md#framing-the-jam-pane)); serve warns when previews are on and this is empty. |
+| `ui-origins` | no | Extra exact origins (`scheme://host[:port]`, no path) the browser UI's write checks (`/app/admin` and `/app/user`) accept, besides the request's own `Host`. For a proxy that fronts the admin listener on another address (e.g. `http://localhost:8090`). Matching is exact: another port or scheme is another origin. Malformed entries fail serve at startup. They are also the only pages that may frame a preview, and framed preview pages post their status to the first entry, so list the production UI origin first ([previews.md](previews.md#framing-the-jam-pane)); serve warns when previews are on and this is empty. |
 | `dev-identity` | no | **Dev only.** `{user}` (a user's name or id; the old `{project, human}` still works, with a deprecation warning, as exactly the user that roster human became in the migration): loopback browser requests to `/app` act as that user with **no login**: an admin under the user's first login (or `local` if they have none), and a member through their first OIDC identity, so the user needs one (`jam user oidc`) and a project membership. A real login session still wins. It never applies off loopback, and the `Host` check still runs. serve refuses it unless `admin-listen` is loopback, and logs a `DEV IDENTITY ACTIVE` warning at startup. Never set it in production. |
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
@@ -111,8 +103,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `operator-auth.oidc` | to gate the admin API | OIDC operator identity — see [operators.md](operators.md). Omitted ⇒ the admin API trusts loopback only. |
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
-| `runtime.studio-managers` | no | `true` lets remote Studio Managers connect and registers the `manager` admin verbs; works with or without `runtime.launcher`. See [studio-managers.md](studio-managers.md). |
-| `runtime.launcher` | no | **Transitional:** configures only the in-process `local` manager, kept until remote [Studio Managers](studio-managers.md) are proven live; a Jam [in a container](container.md) has none. Enables the real Colima studio launcher (omit ⇒ a placeholder that records instances without a backend). Requires `runtime-addr` and `jam-host` (its pre-rename name is still accepted with a warning — see [renamed-from-harbor.md](renamed-from-harbor.md)); `identity-file`/`known-hosts-dir` default to `~/.config/jam/{id_ed25519,known_hosts.d}`. Optional `docker-context` (default `colima`) selects the colima instance — see the launcher note below. The cove's kit comes from the [studio-kit registry](kits.md) (default seeded at start). `install-manifest` was removed — see [studio-kit-migration.md](studio-kit-migration.md). See the launcher note below. |
+| `runtime.studio-managers` | no | `true` lets remote Studio Managers connect and registers the `manager` admin verbs. Studios run on Studio Managers only; the old `runtime.launcher` block is removed and refused at startup (see [studio-managers.md](studio-managers.md#retiring-the-in-process-launcher)). See [studio-managers.md](studio-managers.md). |
 | `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), exactly one of a `linear` or `github` block, and `connection`: a **connection** of that kind, whose credential must be demanded in `credentials:`. Serve refuses to start on an unknown connection, another kind, or an undemanded credential. The deprecated, Linear-only `tracker-token-cred: <credential>` still works (with a warning) by binding the implicit connection named `linear`. Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
 | `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires `connection`: a connection of kind `discord` whose credential (the bot token) is demanded in `credentials:`, resolved on the host — never logged/injected; the deprecated `bot-token-cred` binds the implicit connection named `discord`. No Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
 | `runtime.push` | no | Web Push notifications for the Jam app. `vapid-private-key-cred` (required): a `credentials:` entry holding the base64url P-256 VAPID private key, resolved on the host — never on disk, in argv or logs; `subject` (required): `mailto:` or `https:` contact for the push service; `preview` (default `true`; `false` sends the body "New message"). Runs the egress-only push relay engine (its mark lives in `relay-markers.json`). Omitted ⇒ push off. Generate a key with `jam push keygen`. |
@@ -196,7 +187,7 @@ startup log names only the host and database).
 For a local Postgres to develop against (matching this schema and the CI
 integration setup), see [`dev/`](../../../dev/README.md) — a `docker compose`
 that raises a `postgres:18` on `localhost:15432` with database/user `jam`,
-plus a sample dev serve config (`dev/jam.dev.yml`) wired to it.
+plus a sample dev serve config (`dev/examples/jam.dev.yml.example`, copied to `dev/jam.dev.yml`) wired to it.
 
 **The allocation event store is AUTHORITATIVE for the cap.** Jam always runs an
 Allocator (its capacity authority), with or without a Requisitioner. It admits each raise through an
@@ -234,29 +225,10 @@ personal grant checks two caps in the same atomic append: the role's
 `max-personal` pool and, when set, the owner's `max-personal-per-owner` share.
 Personal sessions need the ledger, which `serve` always has.
 
-### The launcher (`runtime.launcher`)
+### Running studios
 
-**Transitional.** This block configures only the in-process `local` manager; it stays until remote [Studio Managers](studio-managers.md) are proven live, then goes. A Jam [in a container](container.md) runs without it.
-
-With a `launcher` block, `jam studio raise` starts a **real** studio on the Colima
-backend from the role's [StudioKit](kits.md) (the seeded `default` when the role
-names none), built on demand by the launcher — no pre-built image or
-`install.json` is involved. It injects the connector + prompt over SSH and starts
-`jam-studio-agent` in it. The studio dials Jam's Attach stream at `runtime-addr`
-(`jam.host:443`) through its own squid proxy; `jam-host` is added to the studio's
-`/etc/hosts` so that name resolves to the host gateway. Jam must reach the Colima
-backend (run it where `docker`/Colima is available); `identity-file` is the SSH key
-Jam uses to reach the studio (defaults to `~/.config/jam/id_ed25519`; serve generates the pair on first use). Omit the
-whole block to keep the placeholder launcher (dev/tests). The launcher is Jam's
-`local` manager; see [Managers and placement](coves.md#managers-and-placement).
-
-`docker-context` picks **which colima instance** the studios run in: every docker
-call the launcher makes is pinned to that docker context. It defaults to `colima`,
-the default profile's context; `colima start --profile jam-b` creates
-`colima-jam-b`, so `docker-context: colima-jam-b` places this Jam's studios (and
-their kit images and volumes) in that VM. Use it to give each Jam on one host its
-own colima instance. The build/prepare
-handshake is in [coves.md](coves.md#the-studiokit-and-its-kit-prepare-protocol).
+Jam runs no studios itself: [Studio Managers](studio-managers.md) next to Colima host them, set up per [studio-manager.md](../studio-manager.md).
+With `runtime.studio-managers` off (dev and tests), `jam studio raise` records a placeholder instance and starts nothing.
 
 ## Layering serve configs
 
@@ -277,7 +249,6 @@ refuses to start (and `config diff`/`apply` refuse) with
 | `tls`, `admin-tls`, `previews.tls` | certificate files on this host |
 | `store-postgres` | this host's database |
 | `state-dir`, `credentials-file`, `pool.store` | paths on this host |
-| `runtime.launcher` | how this host launches coves |
 
 The config diff compares the repo's `jam.yml` with the running serve's merged
 config minus host keys: `same`, `differs (restart to apply)` with dotted key

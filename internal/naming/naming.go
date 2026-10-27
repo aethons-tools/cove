@@ -45,8 +45,8 @@ func SafeID(actorID string) string {
 func StudioContainer(actorID string) string { return "jam-studio-" + SafeID(actorID) }
 
 // StudioContainerOn names the container on a Studio Manager: StudioContainer's
-// jam-studio-<id> for the local manager (""), jam-studio.<manager>.<id> for a
-// remote one, so managers sharing a docker daemon never reuse each other's
+// jam-studio-<id> for the legacy unnamed manager (""), jam-studio.<manager>.<id>
+// for a named one, so managers sharing a docker daemon never reuse each other's
 // state. The '.' separators keep the manager part unambiguous (manager names
 // are [a-z0-9-], never '.'), so no manager/id pair names another's container.
 func StudioContainerOn(manager, actorID string) string {

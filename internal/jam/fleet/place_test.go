@@ -49,10 +49,9 @@ func TestRaiseOnDeclineMovesToNext(t *testing.T) {
 }
 
 func TestRaiseOnNoListUsesNamesOrder(t *testing.T) {
-	a := newFake("a")
-	r := placeRouter(t, Local(newFake("x")), a)
+	r := placeRouter(t, newFake("x"), newFake("a"))
 	p, err := r.RaiseOn(context.Background(), spec(0), jam.LaunchCreds{})
-	if err != nil || p.Manager != "a" {
+	if err != nil || p.Manager != "x" {
 		t.Fatalf("got %+v, %v", p, err)
 	}
 }

@@ -1,7 +1,7 @@
 ---
-summary: The manual live-test checklist for remote Studio Managers — a containerized Jam plus a bare-metal `jam-studio-manager` on a Mac, covering raise, teardown, pause, a kit build, a draft build, a Jam restart and a manager restart. Passing it gates deleting `local`.
-read_when: You are running the Studio Manager live test (a Jam container plus a manager on a Mac), checking whether `local`, `runtime.launcher` and the `jam colima` verbs may be deleted, or reproducing a manager problem end to end.
-owns: the Studio Manager live-test procedure, its expected results, and the gate it sets for deleting the in-process launcher
+summary: The manual live-test checklist for remote Studio Managers — a containerized Jam plus a bare-metal `jam-studio-manager` on a Mac, covering raise, teardown, pause, a kit build, a draft build, a Jam restart and a manager restart. It gated removing the in-process launcher (done in plan 6).
+read_when: You are running the Studio Manager live test (a Jam container plus a manager on a Mac), validating a new manager build or host, or reproducing a manager problem end to end.
+owns: the Studio Manager live-test procedure, its expected results, and the gate it set for deleting the in-process launcher (done in plan 6)
 prereqs: container.md (running Jam in a container); ../studio-manager.md (the manager's config); studio-managers.md (Jam's side)
 tier: leaf
 updated: 2026-10-27
@@ -9,17 +9,17 @@ updated: 2026-10-27
 
 # Studio Manager live test
 
-This is the one manual run that proves remote Studio Managers work without the in-process launcher.
+This is the one manual run that proves remote Studio Managers work end to end.
 It uses a Jam in its container and a bare-metal `jam-studio-manager` on a Mac with Colima.
 Do the items in order. Each one gives the command and the result to expect.
-**Passing every item gates deleting `local`, `runtime.launcher` and the `jam colima` verbs.**
+This run gated the removal of the in-process launcher (done in plan 6); the runbook stays for validating new managers.
 
 ## Setup
 
 - A Mac with Colima running, and the repo checked out.
-- A trusted cert for `jam.local.aethons.tools` in `JAM_TLS_DIR`, and the OIDC tenant from the container config ([container.md](container.md#running-it-with-the-dev-compose)).
+- A trusted cert for `jam.local.aethons.tools` in the secrets directory's `tls/`, and the OIDC tenant from the container config ([container.md](container.md#running-it-with-the-dev-compose)).
 - Jam and the manager on one version ([lockstep](container.md#version-lockstep)): `just build && just jam-image` from one checkout, or a release image with that release's `jam-studio-manager`.
-- The `anthropic` and `git` destinations need credentials in the container: uncomment the `anthropic-key` and `git-pat` placeholders in `dev/jam.container.yml` and `dev/credentials.container.yml`, fill in real values, and restart Jam (`just dev-jam-up`).
+- The `anthropic` and `git` destinations need credentials in the container: uncomment the `anthropic-key` and `git-pat` placeholders in `dev/jam.container.yml` and the secrets directory's `credentials.yml`, fill in real values, and restart Jam (`just dev-jam-up`).
 - After step 2, a project and a role that grant the `anthropic` and `git` destinations ([roster.md](roster.md), [coves.md](coves.md#raising-a-real-managed-studio)), and a kit for the role ([kits.md](kits.md)).
 - `jam` on the Mac, signed in: `jam login --admin-url https://jam.local.aethons.tools:8081` ([admin access](container.md#admin-access)).
 
@@ -29,7 +29,7 @@ The examples use the manager name `mac-1`, the role `acme/guest` and the kit `ap
 
 1. **Jam comes up in its container.**
    `just dev-jam-up`, then `just dev-jam-logs`.
-   Expect: serve starts and logs `Jam managers`, with no `Jam launcher: colima` line. `docker compose -f dev/docker-compose.yml ps` shows `jam` running.
+   Expect: serve starts and logs `Jam studio managers: accepting connections` with `registered=0`, and no launcher line. `docker compose -f dev/docker-compose.yml ps` shows `jam` running.
    `just dev-jam manager list` prints nothing and exits 0.
 
 2. **The host CLI reaches the admin API over OIDC.**
@@ -86,8 +86,8 @@ The examples use the manager name `mac-1`, the role `acme/guest` and the kit `ap
     `jam manager list`.
     Expect: `mac-1	connected=true	…	studios=0	…	strays=0`.
 
-13. **The gate.** All of items 1 to 12 passed against the containerized Jam with no `runtime.launcher`.
-    That is what clears deleting `local`, `runtime.launcher` and the `jam colima` verbs in the follow-up.
-    Record the version tested and anything that needed a workaround on the follow-up ticket.
+13. **The result.** All of items 1 to 12 passed against the containerized Jam.
+    This run gated the removal of the in-process launcher (done in plan 6).
+    For a new manager, record the version tested and anything that needed a workaround.
 
 Clean up with `just dev-down` (or `just dev-down -v` to wipe the volumes) and `jam manager revoke mac-1`.

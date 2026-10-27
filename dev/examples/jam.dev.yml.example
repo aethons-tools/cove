@@ -24,12 +24,9 @@ tls:
 # Extra Host the browser admin UI accepts on loopback (beyond localhost/127.0.0.1).
 ui-hosts:
   - jam.local.aethons.tools
-# Let the `just dev-watch` live-reload proxy make UI writes (CSRF origin check).
-ui-origins:
-  - http://localhost:8090
-# DEV ONLY: loopback /ui and /me act as this user with no login (no IdP
-# callbacks needed). The user needs a login (for /ui), an OIDC identity and a
-# project membership (for /me): jam user login|oidc, project member add.
+# DEV ONLY: loopback /app requests act as this user with no login (no IdP
+# callbacks needed). The user needs a login, an OIDC identity and a project
+# membership: jam user login|oidc, project member add.
 # dev-identity:
 #   user: you
 
@@ -108,6 +105,6 @@ operator-auth:
     device-scope: openid harbor:admin      # ensures the minted token carries the permission
 
 runtime:
-  launcher:
-    runtime-addr: jam.local.aethons.tools:443
-    jam-host: jam.local.aethons.tools
+  # Studios run on Studio Managers (jam-studio-manager next to Colima) that
+  # connect to this Jam: see docs/usage/studio-manager.md.
+  studio-managers: true

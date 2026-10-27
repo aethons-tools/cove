@@ -38,7 +38,7 @@ func colimaHome(t *testing.T, cfg string) (func(string) string, string) {
 
 func runColima(getenv func(string) string, r runner.Runner, args ...string) (int, string, string) {
 	var out, errb bytes.Buffer
-	code := Command("jam", getenv, r)(args, cli.Globals{}, &out, &errb)
+	code := Command("jam-studio-manager", getenv, r)(args, cli.Globals{}, &out, &errb)
 	return code, out.String(), errb.String()
 }
 
@@ -133,7 +133,7 @@ func TestColimaCheckDocker(t *testing.T) {
 		t.Fatalf("present: code=%d out=%q", code, out)
 	}
 	absent := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{}}`}}}
-	if code, _, errs := runColima(getenv, absent, "check-docker"); code != 1 || !strings.Contains(errs, "jam colima setup-docker") {
+	if code, _, errs := runColima(getenv, absent, "check-docker"); code != 1 || !strings.Contains(errs, "jam-studio-manager colima setup-docker") {
 		t.Fatalf("absent: code=%d stderr=%q", code, errs)
 	}
 }

@@ -22,9 +22,9 @@ func TestMergeServeConfigs(t *testing.T) {
 }
 
 func TestHostKeysAndPortable(t *testing.T) {
-	doc := map[string]any{"listen": ":1", "display-name": "A", "runtime": map[string]any{"launcher": map[string]any{}, "listen": ":2"},
+	doc := map[string]any{"listen": ":1", "display-name": "A", "runtime": map[string]any{"listen": ":2"},
 		"pool": map[string]any{"store": "/p", "cred-name": "c"}, "previews": map[string]any{"tls": map[string]any{"cert": "c"}, "domain": "d.example"}}
-	if got := ServeHostKeysIn(doc); !slices.Equal(got, []string{"listen", "runtime.launcher", "pool.store", "previews.tls"}) {
+	if got := ServeHostKeysIn(doc); !slices.Equal(got, []string{"listen", "pool.store", "previews.tls"}) {
 		t.Fatalf("host keys %v", got)
 	}
 	if r := HostKeyRefusals("jam.yml", doc); r[0] != "jam.yml: listen is a host key; put it in jam.local.yml" {

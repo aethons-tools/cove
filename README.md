@@ -37,7 +37,7 @@ at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md).
 ## Requirements
 
 - Go (to build) and [`just`](https://github.com/casey/just) (optional task runner — logic lives in `scripts/`).
-- A [Colima](https://github.com/abiosoft/colima) host for Jam's launcher to run studios in (see [serve.md](docs/usage/jam/serve.md#the-launcher-runtimelauncher)).
+- A [Colima](https://github.com/abiosoft/colima) host running `jam-studio-manager`, which runs the studios (see [studio-manager.md](docs/usage/studio-manager.md)).
 - An `ssh` client.
 
 ## Documentation

@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -1711,15 +1712,13 @@ func (s *Supervisor) ownsDecision(inst Instance, now time.Time) bool {
 // manager will ever probe and whose own lease would be renewed forever.
 // Reports whether it reaped.
 func (s *Supervisor) reapIfManagerGone(ctx context.Context, inst Instance) bool {
-	if inst.Manager == "" {
-		return false
-	}
+	name := cmp.Or(inst.Manager, LocalManager) // legacy "" records were the old local manager
 	pl, ok := s.launcher.(PlacingLauncher)
-	if !ok || pl.HasManager(inst.Manager) {
+	if !ok || pl.HasManager(name) {
 		return false
 	}
 	cur, ok := s.patchInstance(inst.ActorID, func(c *Instance) {
-		if c.Manager == inst.Manager && (c.Phase == PhaseLive || c.Phase == PhaseIdled) {
+		if cmp.Or(c.Manager, LocalManager) == name && (c.Phase == PhaseLive || c.Phase == PhaseIdled) {
 			c.Phase = PhaseLost
 		}
 	})
@@ -1727,7 +1726,7 @@ func (s *Supervisor) reapIfManagerGone(ctx context.Context, inst Instance) bool 
 		return false
 	}
 	if err := s.Teardown(ctx, inst.ActorID); err != nil && s.log != nil {
-		s.log.Warn("reconcile teardown of studio on a removed manager failed", "id", inst.ActorID, "manager", inst.Manager, "err", err.Error())
+		s.log.Warn("reconcile teardown of studio on a removed manager failed", "id", inst.ActorID, "manager", name, "err", err.Error())
 	}
 	return true
 }

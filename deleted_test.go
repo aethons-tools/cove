@@ -117,3 +117,18 @@ func TestNoMentionsOfDeletedBinaries(t *testing.T) {
 		}
 	}
 }
+
+// TestDeprecatedKitDirsStayDeleted: the at-cove (.at-cove/) and repo-kit
+// (.at-jam/) directories are deprecated, so none may be tracked anywhere —
+// tooling that still writes them (a generated .gitignore) must not get them
+// committed.
+func TestDeprecatedKitDirsStayDeleted(t *testing.T) {
+	for _, rel := range gitLsFiles(t) {
+		for _, seg := range strings.Split(rel, "/") {
+			if seg == ".at-cove" || seg == ".at-jam" {
+				t.Errorf("%s is tracked; %s/ is deprecated", rel, seg)
+				break
+			}
+		}
+	}
+}

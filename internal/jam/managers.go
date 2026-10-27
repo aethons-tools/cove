@@ -10,14 +10,15 @@ import (
 // ErrManagerExists reports that a manager name is already registered.
 var ErrManagerExists = errors.New("manager already registered")
 
-// LocalManager is the reserved name of Jam's in-process manager
-// (fleet.LocalName); package jam cannot import fleet.
+// LocalManager is the legacy name of the old in-process manager, removed in
+// plan 6 and never registered now; records with Manager "" or "local" are
+// reaped on cutover. The name stays reserved.
 const LocalManager = "local"
 
 var managerNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
 // ValidManagerName reports whether name may be registered as a Studio
-// Manager. "local" is reserved for Jam's own manager.
+// Manager. "local" is reserved (the legacy in-process manager's name).
 func ValidManagerName(name string) error {
 	if name == LocalManager {
 		return fmt.Errorf("manager name %q is reserved", name)
@@ -76,7 +77,6 @@ type ManagerReconcile struct {
 // ManagerStatus is one manager's row in the admin listing.
 type ManagerStatus struct {
 	Name        string          `json:"name"`
-	Local       bool            `json:"local,omitempty"`
 	Connected   bool            `json:"connected"`
 	Version     string          `json:"version,omitempty"`
 	Capacity    int             `json:"capacity,omitempty"`

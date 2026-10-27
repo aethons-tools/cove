@@ -77,10 +77,10 @@ A **test build** builds the draft's image the way a raise does: the parent
 chain (its stages reused as usual), the harness, the sealed hardening layer
 and the build args, with the draft's files as the kit's own stage. Nothing
 is published. The image is tagged `jam-kit-draft:<kit>-<tree[:12]>` (its own
-stage `…-stage`), never a version's image or stage tag. It needs a manager
-that builds images ([`runtime.launcher`](serve.md#the-launcher-runtimelauncher) or [Studio Managers](studio-managers.md)); without either
-the build routes answer 503
-`test builds need a launcher that builds images (runtime.launcher)`.
+stage `…-stage`), never a version's image or stage tag. It needs a connected
+[Studio Manager](studio-managers.md) that builds images; without
+`runtime.studio-managers` the build routes answer 503
+`test builds need a connected Studio Manager that builds images (runtime.studio-managers)`.
 
 - It builds the draft at the ETag you send (`If-Match`), under the default
   harness. A draft with problems is refused (400) before anything builds.

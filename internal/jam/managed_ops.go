@@ -23,7 +23,8 @@ type ManagedImageReader interface {
 }
 
 // OneDraftManager presents a single KitDraftBuilder as a ManagedDraftBuilder
-// whose only manager is name (for a Jam without a router, and for tests).
+// whose only manager is name: an adapter for tests and any single-builder
+// caller (the served Jam routes through the manager Router).
 func OneDraftManager(name string, b KitDraftBuilder) ManagedDraftBuilder {
 	return oneDraft{name: name, b: b}
 }

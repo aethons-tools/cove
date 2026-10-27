@@ -186,54 +186,6 @@ func TestMigrateDirsFailedCopyRetries(t *testing.T) {
 	}
 }
 
-// Every jam invocation copies the launcher key across before the command runs,
-// so serve's launcherPublicKey (keys.EnsureFile) at the default identity-file
-// finds the carried-over key and does not mint a fresh one.
-func TestRunAsCopiesTheLauncherKeyBeforeServeCouldMintOne(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	writeFile(t, filepath.Join(cfg, legacynames.LauncherDir, "id_ed25519"), "OLD-PRIVATE", 0o600)
-	writeFile(t, filepath.Join(cfg, legacynames.LauncherDir, "id_ed25519.pub"), "ssh-ed25519 AAAA carried\n", 0o644)
-	var out, errb bytes.Buffer
-	if code := runAs("jam", []string{"version"}, os.Getenv, &out, &errb); code != 0 {
-		t.Fatalf("exit = %d, stderr=%s", code, errb.String())
-	}
-	c, err := parseServeConfig([]byte("runtime:\n  launcher:\n    runtime-addr: jam.example.com:443\n    jam-host: jam.example.com\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := c.validateLauncher(); err != nil {
-		t.Fatal(err)
-	}
-	pub, err := launcherPublicKey(c.Runtime.Launcher.IdentityFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(pub) != "ssh-ed25519 AAAA carried\n" {
-		t.Fatalf("pub = %q, want the carried-over key", pub)
-	}
-	if got := mustRead(t, c.Runtime.Launcher.IdentityFile, 0o600); got != "OLD-PRIVATE" {
-		t.Fatalf("private key = %q", got)
-	}
-}
-
-func TestLauncherDefaultsUnderJamConfig(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	c, err := parseServeConfig([]byte("runtime:\n  launcher:\n    runtime-addr: jam.example.com:443\n    jam-host: jam.example.com\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := c.validateLauncher(); err != nil {
-		t.Fatal(err)
-	}
-	lc := c.Runtime.Launcher
-	if lc.IdentityFile != filepath.Join(cfg, "jam", "id_ed25519") || lc.KnownHostsDir != filepath.Join(cfg, "jam", "known_hosts.d") {
-		t.Fatalf("launcher defaults = %q, %q", lc.IdentityFile, lc.KnownHostsDir)
-	}
-}
-
 func TestStateDirIsJam(t *testing.T) {
 	s := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", s)

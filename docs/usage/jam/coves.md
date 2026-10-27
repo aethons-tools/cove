@@ -14,11 +14,10 @@ Worker or standing Manager — and drives their lifecycle: raise → record → 
 status → tear down, self-healing across Jam restarts. This is the spine the
 Requisitioner and standing teammates build on.
 
-> With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
-> `studio raise` starts a **real** studio on the Colima backend (see [Raising a real
-> managed studio](#raising-a-real-managed-studio)). Without it, `jam serve` uses
-> a **placeholder launcher** that records a live registry entry but starts no studio
-> — useful for exercising the registry/supervisor in dev and tests.
+> `studio raise` starts a **real** studio on a [Studio Manager](studio-managers.md) (see [Raising a real
+> managed studio](#raising-a-real-managed-studio)). With `runtime.studio-managers` off,
+> `jam serve` uses a **placeholder launcher** that records a live registry entry but
+> starts no studio — useful for exercising the registry/supervisor in dev and tests.
 
 ## The model
 
@@ -44,17 +43,14 @@ instead of abandoning them — so in-progress work survives a restart.
 
 ### Managers and placement
 
-Jam raises studios on named **managers**. Besides remote managers (see [studio-managers.md](studio-managers.md), enabled by `runtime.studio-managers`), there is `local`: the
-[`runtime.launcher`](serve.md#the-launcher-runtimelauncher) block, which Jam
-registers under that name at start (no block, no manager, placeholder studios only).
+Jam raises studios on named **managers**: remote Studio Managers (see [studio-managers.md](studio-managers.md), enabled by `runtime.studio-managers`).
 A raise may name where it may run, and how long to wait for a place:
 
 - `--manager <name>` (repeatable; the order is the preference) on `studio raise`
   and [`session request`](personal-sessions.md#the-verbs), or `managers` in the
   `POST /admin/coves` and `POST /admin/sessions/personal` bodies. Jam tries the
   named managers in that order and raises on the first that is available.
-- With none named, Jam tries every manager in registration order, with `local`
-  last.
+- With none named, Jam tries every manager in registration order.
 - `--placement-timeout <duration>` (`placement_timeout`, a Go duration such as
   `30s`) is how long to wait for a manager to become available. `0`, or leaving it
   out, means do not wait: the raise fails at once if none is available.
@@ -94,12 +90,11 @@ jam studio teardown --id spider-42
 - `studio status` reports the studio's activity; `--activity done` triggers teardown.
 - `studio teardown` tears the studio down and revokes its identity (idempotent).
 - `connector` (in `studio list` and the admin UI Agents list) is `ok` when the studio's latest agent episode (agent process) started with its role's current connector, `stale` when a destination or grant changed since (it refreshes at the next episode — a wake delivered into a live episode does not refresh it), `unknown` when it never reported (an image built before the per-spawn refresh — re-raise it), `error` when Jam cannot compute the current connector to compare against (the studio's actor is no longer on the roster, or its role's destinations conflict). Because the git route is part of the fingerprint, a studio whose git-config rewrite failed reports the route actually in effect, so it shows `stale` until the rewrite lands on a later episode.
-- `image` (in `studio list`, [`standing list`](standing-sessions.md#declaring-one), the admin UI Agents list and the role page's standing rows) is `ok` when the studio runs the image a raise for its role would run now, and `stale` when that image has changed since the raise. The comparison is against the current tag on the studio's own manager (a legacy record with no manager means `local`). The image changes when the role's kit changes a build-affecting field, its [model-spec](model-specs.md) harness changes (CLI version, plugins), Jam's own build inputs change (a new jam binary, Jam host or launcher key — the launcher's assembly fingerprint), or the role stops raising a kit at all. Each Instance records the tag it was raised on (`image_tag`) and its kit ref (`kit`); the current tag is resolved by the same code a raise uses, cached per kit version and harness. Without both tags (a studio raised before tags were recorded, or a launcher that cannot name images) Jam compares the recorded kit: a different kit or build digest is `stale`, the same one `unknown`. It is also `unknown` when the role's current kit or model-spec does not resolve; the listing never fails on it, and the reason is logged at debug level (once per role per minute). Terminating, lost and gone studios show `-`. A draft studio's status: see [kits-drafts.md](kits-drafts.md#draft-studio). A stale studio keeps its old image until it is torn down and raised again; a standing one is moved to the current image with [`standing upgrade`](standing-sessions.md#upgrading-a-standing-session). `GET /admin/coves?project=&role=` lists one role's studios. `jam role images <project>/<role>` (admin `GET /admin/roles/{project}/{role}/images` → `{"images":[{manager,kit,has_kit,tag}]}`) shows the role's current image on every connected manager, one `<manager>\t<kit>\t<tag|->` line each; 404 for a missing role, 422 for an unresolvable setup, 503 without a supervisor.
+- `image` (in `studio list`, [`standing list`](standing-sessions.md#declaring-one), the admin UI Agents list and the role page's standing rows) is `ok` when the studio runs the image a raise for its role would run now, and `stale` when that image has changed since the raise. The comparison is against the current tag on the studio's own manager (a legacy record with no manager means `local`). The image changes when the role's kit changes a build-affecting field, its [model-spec](model-specs.md) harness changes (CLI version, plugins), the manager's build inputs change (a new jam-studio-manager binary, Jam host or the manager's identity key — its assembly fingerprint), or the role stops raising a kit at all. Each Instance records the tag it was raised on (`image_tag`) and its kit ref (`kit`); the current tag is resolved by the same code a raise uses, cached per kit version and harness. Without both tags (a studio raised before tags were recorded, or a launcher that cannot name images) Jam compares the recorded kit: a different kit or build digest is `stale`, the same one `unknown`. It is also `unknown` when the role's current kit or model-spec does not resolve; the listing never fails on it, and the reason is logged at debug level (once per role per minute). Terminating, lost and gone studios show `-`. A draft studio's status: see [kits-drafts.md](kits-drafts.md#draft-studio). A stale studio keeps its old image until it is torn down and raised again; a standing one is moved to the current image with [`standing upgrade`](standing-sessions.md#upgrading-a-standing-session). `GET /admin/coves?project=&role=` lists one role's studios. `jam role images <project>/<role>` (admin `GET /admin/roles/{project}/{role}/images` → `{"images":[{manager,kit,has_kit,tag}]}`) shows the role's current image on every connected manager, one `<manager>\t<kit>\t<tag|->` line each; 404 for a missing role, 422 for an unresolvable setup, 503 without a supervisor.
 
 ### Raising a real managed studio
 
-With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
-`studio raise --prompt-file <f>` runs the whole lifecycle end to end: Jam starts a
+`studio raise --prompt-file <f>` on a Studio Manager runs the whole lifecycle end to end: Jam starts a
 Colima studio from the configured image, injects the agent connector — the client env
 and git routing declared by the role's destinations ([connector.md](connector.md)) — plus the jam-studio-agent env, your prompt and the compiled [session context](session-context.md) over SSH, and starts
 `jam-studio-agent`, which runs `claude -p` on the prompt. The studio reports
@@ -107,7 +102,7 @@ and git routing declared by the role's destinations ([connector.md](connector.md
 and the supervisor tears it down when Jam ends the session ([turn-end.md](turn-end.md)). The **role must grant the `anthropic` and `git`
 destinations** for the agent to reach them. This validates the managed-cove
 lifecycle; automated result-handling (commit/push/PR after the agent) comes with the
-Requisitioner. Without a `runtime.launcher`, `raise` records a placeholder Instance only
+Requisitioner. With `runtime.studio-managers` off, `raise` records a placeholder Instance only
 (no real studio).
 
 > **Anthropic credentialing.** How the agent's `claude` authenticates follows the
@@ -136,10 +131,10 @@ substrate: each raise carries only the kit reference (`<id>@v<n>`); on an invent
 full kit from the [registry](kits.md), calls the launcher's `PrepareKit` to build it
 **on the substrate backend** (the colima daemon, so the image lands where
 `RunEphemeral` runs it) and retries. The image is tagged by the kit's build-digest
-plus the launcher's assembly fingerprint ([kits.md](kits.md#the-studiokit)),
-so a prompt-only edit reuses the cached image while a Jam upgrade rebuilds it. An in-progress build does not block
+plus the Studio Manager's assembly fingerprint ([kits.md](kits.md#the-studiokit)),
+so a prompt-only edit reuses the cached image while a manager upgrade rebuilds it. An in-progress build does not block
 — the raise defers to the next reconcile tick. The build context is **data** (the
-kit plus resources compiled into the `jam` binary and the launcher's key), with
+kit plus resources compiled into the manager's binary and its key), with
 **no source kit directory**, so the build can move to a remote substrate. The
 [session context](session-context.md) is compiled at raise, outside the image. A kit's own stage is built
 from its directory ([kits-directory.md](kits-directory.md)).

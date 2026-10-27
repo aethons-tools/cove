@@ -35,10 +35,8 @@ import (
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/allocator/allocpg"
 	"github.com/aethons-tools/cove/internal/assemble"
-	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/cli"
-	"github.com/aethons-tools/cove/internal/colimacmd"
 	"github.com/aethons-tools/cove/internal/discord"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
@@ -59,8 +57,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/fleet"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
-	"github.com/aethons-tools/cove/internal/jam/imagefacts"
-	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/managers"
 	"github.com/aethons-tools/cove/internal/jam/managers/managerpb"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
@@ -90,7 +86,35 @@ var version = "dev"
 
 const defaultAdminURL = "http://127.0.0.1:8081"
 
+// commandName is the command cli.App.Run would dispatch argv to: the first
+// argument past the leading global flags ("" when there is none).
+func commandName(argv []string) string {
+	for i := 0; i < len(argv); i++ {
+		a := argv[i]
+		switch {
+		case a == "--":
+			if i+1 < len(argv) {
+				return argv[i+1]
+			}
+			return ""
+		case !strings.HasPrefix(a, "-"):
+			return a
+		case !strings.Contains(a, "="):
+			// The globals that take a value as the next argument.
+			switch strings.TrimLeft(a, "-") {
+			case "log-mode", "log-level":
+				i++
+			}
+		}
+	}
+	return ""
+}
+
 func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
+	if commandName(argv) == "colima" {
+		fmt.Fprintln(stderr, `jam: colima moved to jam-studio-manager: run "jam-studio-manager colima setup-docker|check-docker"`)
+		return 2
+	}
 	app := cli.App{
 		Name:    "jam",
 		Version: version,
@@ -122,7 +146,6 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
 			{Name: "context", Brief: "show, set or clear authored session context for a role, project or the Jam (show|set|clear) via the admin API; applied at the next raise", Run: cmdContext},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
-			{Name: "colima", Brief: "set up the host colima VM for docker:true kits (setup-docker|check-docker) — edits the colima config, no admin API", Run: colimacmd.Command("jam", getenv, runner.OS{})},
 			{Name: "push", Brief: "push notification helpers (keygen: print a fresh VAPID key pair)", Run: func(args []string, _ cli.Globals, stdout, stderr io.Writer) int { return cmdPush(args, stdout, stderr) }},
 			{Name: "ssh-config", Brief: "print (or --write into ~/.ssh/config) a Host jam-<studio> block for SSH into a studio, fetching its certificate", Run: cmdSSHConfig},
 			{Name: "ssh-proxy", Brief: "the ssh ProxyCommand: renew the studio's SSH certificate when under 1 h remains, then tunnel stdio through Jam (OpenSSH reads the certificate before running it, so a renewal applies from the next connection)", Run: cmdSSHProxy},
@@ -633,7 +656,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			if r.HasKit {
 				kit = r.Kit.ID
 			}
-			fmt.Fprintf(stdout, "%s\t%s\t%s\n", firstNonEmpty(r.Manager, jam.LocalManager), kit, firstNonEmpty(r.Tag, "-")) // "" = no router: local
+			fmt.Fprintf(stdout, "%s\t%s\t%s\n", firstNonEmpty(r.Manager, jam.LocalManager), kit, firstNonEmpty(r.Tag, "-")) // "" = legacy record with no manager (the old local manager)
 		}
 	default:
 		fmt.Fprintln(stderr, "jam role: unknown subcommand", sub)
@@ -1848,29 +1871,19 @@ type builtLauncher struct {
 	images         jam.ManagedImageReader // nil with the placeholder launcher: image parts unavailable
 	defaultKit     jam.KitRef
 	haveDefaultKit bool
-	local          *launcher.Launcher // the colima launcher (nil without one): the studio-name migration's target
 }
 
-// buildLauncher builds the studio launcher from runtime.launcher. With no
-// block it is placeholderLauncher{} and there is no router. With a block, the
-// Colima launcher is registered as the manager "local" in a fleet.Router,
-// which is what the supervisor drives.
-func buildLauncher(cfg serveConfig, st jam.Store, sshUserCA []byte, log *slog.Logger) (builtLauncher, error) {
+// buildLauncher builds the studio launcher. With runtime.studio-managers it is
+// a fleet.Router, empty until Studio Managers connect (the hub registers
+// them), and the built-in default studio kit is seeded. Otherwise it is
+// placeholderLauncher{} (dev spine only) and there is no router.
+func buildLauncher(cfg serveConfig, st jam.Store, log *slog.Logger) (builtLauncher, error) {
 	out := builtLauncher{launcher: placeholderLauncher{}}
-	lc := cfg.Runtime.Launcher
-	if lc == nil && !cfg.Runtime.StudioManagers {
+	if !cfg.Runtime.StudioManagers {
 		return out, nil
 	}
 	router := fleet.New(log)
-	if lc != nil {
-		local, err := addLocalManager(router, cfg, lc, sshUserCA, log)
-		if err != nil {
-			return builtLauncher{}, err
-		}
-		out.local = local
-	}
 	out.launcher, out.router, out.images = router, router, router
-	log.Info("Jam managers", "names", router.Names())
 	// Seed the built-in default studio kit (blessed base, Anthropic-free egress
 	// ceiling — COV-208) in the registry and hand its reference to the
 	// supervisor. Idempotent: an unchanged definition reuses the version across
@@ -1882,18 +1895,7 @@ func buildLauncher(cfg serveConfig, st jam.Store, sshUserCA []byte, log *slog.Lo
 		return builtLauncher{}, fmt.Errorf("seed default studio kit: %w", err)
 	}
 	out.haveDefaultKit = true
-	if lc != nil {
-		log.Info("Jam launcher: colima", "runtime-addr", lc.RuntimeAddr, "default-kit", out.defaultKit.String())
-	}
 	return out, nil
-}
-
-// localLauncher is the "local" manager's launcher: the Colima launcher
-// (embedded concretely so its optional interfaces stay reachable through
-// fleet.Local's Unwrap) plus the image reader on the same daemon.
-type localLauncher struct {
-	*launcher.Launcher
-	jam.ImageFactsReader
 }
 
 // startManagers registers every stored manager with the router (hub.Start),
@@ -1906,43 +1908,6 @@ func startManagers(hub *managers.Hub, run func()) error {
 	}
 	run()
 	return nil
-}
-
-// addLocalManager registers the Colima launcher as the manager "local".
-// It returns the Colima launcher, which the studio-name migration runs on.
-func addLocalManager(router *fleet.Router, cfg serveConfig, lc *launcherConfig, sshUserCA []byte, log *slog.Logger) (*launcher.Launcher, error) {
-	// docker-context picks the colima instance (profile) studios run in.
-	col := colima.NewWithContext(runner.OS{}, lc.DockerContext)
-	var be launcher.Backend = col
-	// The launcher builds each studio kit's image on demand, so it needs the
-	// public half of the SSH identity to bake into the image's authorized_keys
-	// (its private half is IdentityFile), generated on first use. No kit
-	// source directory: the build context comes from the kit definition
-	// (data) + resources compiled into this binary, and the FROM-base is
-	// resolved per kit on the substrate (gate ON).
-	pub, err := launcherPublicKey(lc.IdentityFile)
-	if err != nil {
-		return nil, fmt.Errorf("launcher identity public key (%s.pub): %w", lc.IdentityFile, err)
-	}
-	if err := ensureKnownHostsDir(lc.KnownHostsDir); err != nil {
-		return nil, fmt.Errorf("launcher known-hosts dir (%s): %w", lc.KnownHostsDir, err)
-	}
-	colimaLauncher := launcher.New(launcher.Config{
-		Ops: be, Runner: runner.OS{},
-		JamHost: lc.JamHost, RuntimeAddr: lc.RuntimeAddr, DockerContext: col.Context(),
-		IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
-		DNS: lc.DNS, Docker: lc.Docker,
-		PublicKey: pub,
-		// Seed raised coves in subscription mode when the pool is enabled, so
-		// their claude authenticates as a pooled subscription principal.
-		Subscription: cfg.Pool != nil,
-		Log:          log,
-		SSHUserCA:    sshUserCA,
-	})
-	if err := router.Add(fleet.Local(localLauncher{Launcher: colimaLauncher, ImageFactsReader: imagefacts.New(runner.OS{}, col)})); err != nil {
-		return nil, err
-	}
-	return colimaLauncher, nil
 }
 
 // placeholderLauncher satisfies jam.Launcher without a real backend: it
@@ -2007,10 +1972,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	}
 	if err := cfg.validateAdminExposure(); err != nil {
-		fmt.Fprintln(stderr, "jam:", err)
-		return 1
-	}
-	if err := cfg.validateLauncher(); err != nil {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
 	}
@@ -2283,27 +2244,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
 	}
-	built, err := buildLauncher(cfg, st, sshUserCA, log)
+	built, err := buildLauncher(cfg, st, log)
 	if err != nil {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
-	}
-	// The jam rename's studio migration (docs/usage/jam/renamed-from-at.md):
-	// retire pre-rename containers and move standing sessions' state volumes
-	// before anything raises, pushes egress or installs the SSH CA (the
-	// supervisor is not built yet). Fails closed until it has completed once
-	// for this docker context (recorded in the state dir); later starts skip
-	// it, so they do not need docker reachable.
-	if built.local != nil {
-		migDir, err := cfg.stateDir()
-		if err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		if err := migrateStudioNamesOnce(context.Background(), migDir, built.local.DockerContext(), st, built.local, log); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
 	}
 	lch, images := built.launcher, built.images
 	defaultRef, haveDefaultKit := built.defaultKit, built.haveDefaultKit
@@ -2319,11 +2263,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// registry is the supervisor's: the admin build routes read it there.
 	buildCtx, stopBuilds := context.WithCancel(context.Background())
 	var draftBuilds *jam.KitDraftBuilds
-	// Builds run per manager: the router's, or the one launcher's as local.
+	// Builds run per manager, through the router (the placeholder builds none).
 	if mb, ok := lch.(jam.ManagedDraftBuilder); ok {
 		draftBuilds = jam.NewKitDraftBuilds(buildCtx, st, mb, log)
-	} else if b, ok := lch.(jam.KitDraftBuilder); ok {
-		draftBuilds = jam.NewKitDraftBuilds(buildCtx, st, jam.OneDraftManager(jam.LocalManager, b), log)
 	}
 	if draftBuilds != nil {
 		sup.SetKitDraftBuilds(draftBuilds)
@@ -2565,9 +2507,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			if managerHub != nil {
 				var registered, connected int
 				for _, m := range managerHub.Statuses() {
-					if m.Local {
-						continue
-					}
 					registered++
 					if m.Connected {
 						connected++

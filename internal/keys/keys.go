@@ -1,6 +1,6 @@
-// Package keys manages the SSH keypair Jam's launcher uses to reach the
-// studios it raises (runtime.launcher.identity-file): the public half is baked
-// into each studio image's authorized_keys.
+// Package keys manages the SSH keypair a Studio Manager uses to reach the
+// studios it raises (the colima.identity-file of jam-studio-manager's config):
+// the public half is baked into each studio image's authorized_keys.
 package keys
 
 import (

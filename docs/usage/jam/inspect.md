@@ -86,7 +86,7 @@ logged, never fatal.
 
 ## Image facts
 
-Read on the manager's host (a studio's own manager; a legacy record with no manager means `local`) through that launcher's docker context, as argv
+Read on the manager's host (a studio's own manager; a legacy record with no manager means `local`) through that manager's docker context, as argv
 through the runner: `docker image inspect` (env, labels, id) and, for the seed,
 `docker create --pull=never` (never started), `docker cp <ctr>:/home/agent/.init-agent-data -`,
 `docker rm -f -v`. Only regular files; caps: 1 MiB total, 200 entries, text
