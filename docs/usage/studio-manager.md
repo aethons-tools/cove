@@ -4,7 +4,7 @@ read_when: You are setting up or running `at-studio-manager` on a host, editing 
 owns: the `at-studio-manager` binary's config file, `run` verb, TLS trust, reconnect backoff, capacity gate, container/volume labels and per-host image builds
 prereqs: jam/studio-managers.md for registering the manager and what Jam does with it
 tier: leaf
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # at-studio-manager
@@ -16,10 +16,13 @@ Registration, the token's auth, and disconnect/reconnect/revoke behaviour on Jam
 
 `install.sh` and `at-jam update` install it next to `at-jam`; the first `at-jam update` from an older `at-jam` (whose embedded installer predates this binary) skips it, so run the update once more or use `install.sh`.
 Its version must equal Jam's exactly, otherwise Jam refuses the stream.
+An update replaces the binary, not the running process: restart `at-studio-manager run` after `at-jam update` or `install.sh`, or Jam keeps refusing the old process.
 
 1. On Jam, `at-jam manager add <name>`, and save the printed token in `token-file` (whitespace is trimmed; the token is never logged).
 2. Write the config below.
 3. `at-studio-manager run [--config <path>]` serves until SIGINT or SIGTERM.
+
+The token file is reread at each connect, so after `at-jam manager rotate` ([verbs](jam/studio-managers.md)) writing the new token to `token-file` is enough; the manager reconnects with it, no restart.
 
 `at-studio-manager colima setup-docker|check-docker` are the same verbs as `at-jam colima ...`, owned by [docker-in-sandbox.md](docker-in-sandbox.md).
 
