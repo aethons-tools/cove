@@ -19,7 +19,7 @@ import (
 
 // Config is one mounted app.
 type Config struct {
-	Prefix string // the mount path, with trailing slash, e.g. "/app/next/"
+	Prefix string // the mount path, with trailing slash, e.g. "/app/user/"
 	FS     fs.FS  // the bundle root: index.html and assets/
 	// Bootstrap is the request's JSON bootstrap, injected into index.html
 	// as <script id="jam-bootstrap" type="application/json">.

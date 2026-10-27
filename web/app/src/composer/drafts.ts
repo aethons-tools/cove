@@ -1,5 +1,5 @@
 // The composer's per-recipient state in this tab's sessionStorage, under the
-// old Inbox's keys (a half-typed reply carries across the two UIs), falling
+// old Inbox's keys (so a reply typed there carries over), falling
 // back to memory where storage is unavailable. Never sent anywhere.
 export type Draft = { text: string; sel: number };
 

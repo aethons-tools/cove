@@ -17,15 +17,15 @@ import (
 )
 
 // The view models' JSON names are the app's contract (types.ts): pin them,
-// and that template-only fields stay out.
+// and that Go-only fields stay out.
 func TestConversationJSONShape(t *testing.T) {
 	at := time.Date(2026, 10, 26, 9, 5, 0, 0, time.UTC)
 	c := Conversation{ChannelID: "chn_x", Label: "eng", SendTo: "chn_x", LastSeq: 3, Earlier: true,
 		Messages: []MessageRow{{From: "bob", Body: "<p>hi</p>", Raw: "hi", At: "09:05", Time: at, Seq: 3, Card: "ask", Ask: &AskCard{ID: "a1"}},
-			{From: "bob", Time: at, Seq: 4, Card: "board", Board: &BoardCard{ID: "brd_1", Title: "Plan", Built: true}}},
+			{From: "bob", Time: at, Seq: 4, Card: "board", Board: &BoardCard{ID: "brd_1", Title: "Plan"}}},
 		Sessions:   []SessionRow{{Label: "spider", Text: "is running", Tool: "Bash", Class: "busy"}},
 		CallIn:     []NewMessageOption{{To: "user:usr_1", Label: "bob", Kind: "person"}},
-		SessionIDs: []string{"ses_1"}, HasMessages: true,
+		SessionIDs: []string{"ses_1"},
 	}
 	b, err := json.Marshal(c)
 	if err != nil {
@@ -55,7 +55,7 @@ func TestConversationJSONShape(t *testing.T) {
 		t.Errorf("message ask = %v, want the card", m["ask"])
 	}
 	m2 := got["messages"].([]any)[1].(map[string]any)
-	if bd, ok := m2["board"].(map[string]any); !ok || bd["id"] != "brd_1" || bd["title"] != "Plan" || bd["built"] != nil || bd["Built"] != nil {
+	if bd, ok := m2["board"].(map[string]any); !ok || bd["id"] != "brd_1" || bd["title"] != "Plan" {
 		t.Errorf("message board = %v, want {id, title}", m2["board"])
 	}
 	for _, k := range []string{"Ask", "files", "reAsk", "Board", "board", "Channel", "channel"} {
@@ -366,7 +366,7 @@ func TestAPIConversationAsks(t *testing.T) {
 }
 
 // A conversation names the session whose home it is (the app's header
-// and pane), with the old page's rule: a ticket session's home is its
+// and pane): a ticket session's home is its
 // ticket channel, not its own session channel; a room has none.
 func TestAPIConversationSession(t *testing.T) {
 	e, p, personal, _, _ := sessionEnv(t)

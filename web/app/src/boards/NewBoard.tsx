@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { apiPost, type ApiError } from "../api/client";
 import type { NewBoardResponse } from "../api/types";
+import { APP } from "../paths";
 
 // NewBoard is New whiteboard: a title, then the new board, opened.
 export function NewBoard({ channel }: { channel: string }) {
@@ -16,7 +17,7 @@ export function NewBoard({ channel }: { channel: string }) {
     try {
       const b = await apiPost<NewBoardResponse>("boards", { channel, title: title.trim() });
       setOpen(false);
-      void go(`/app/next/boards/${encodeURIComponent(b.board)}`);
+      void go(`${APP}boards/${encodeURIComponent(b.board)}`);
     } catch (e) {
       notifications.show({ color: "red", message: (e as ApiError).message });
     } finally {

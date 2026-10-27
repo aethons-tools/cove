@@ -20,8 +20,8 @@ type Changes interface {
 type Option func(*handler)
 
 // WithChanges enables GET /app/user/events, the live-push stream: each log change is
-// sent as a payload-free `changed` event, and the page refetches its own
-// authorized fragments. Without it the stream answers 204 and the page polls.
+// sent as a payload-free `changed` event, and the app refetches what it
+// shows through the API. Without it the stream answers 204 and the app polls.
 func WithChanges(c Changes) Option {
 	return func(h *handler) { h.changes = c }
 }
@@ -32,7 +32,7 @@ const keepAlive = 25 * time.Second
 
 // presenceGap is the least time between two `presence` events on one stream:
 // a busy session can change status several times a second, and each event
-// makes the page refetch its strip. A change inside the gap is sent when the
+// makes the app refetch its strip. A change inside the gap is sent when the
 // gap ends, so the last status always arrives.
 const presenceGap = 250 * time.Millisecond
 
@@ -42,8 +42,8 @@ const boardAccessTTL = 30 * time.Second
 
 // events streams `changed` (the log grew) and `presence` (a session status
 // changed) to the participant until they disconnect. No message content or
-// status crosses this stream — only that something changed; the page refetches
-// its own authorized fragments.
+// status crosses this stream — only that something changed; the app refetches
+// through the API, which checks access again.
 func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 	p, ok := jam.ParticipantFrom(r)
 	if !ok {

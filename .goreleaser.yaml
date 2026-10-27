@@ -26,9 +26,6 @@ before:
   hooks:
     # Build the linux cove-master binaries at-jam embeds, before goreleaser builds.
     - bash scripts/stage-covemaster.sh
-    # Build the whiteboard editor bundle at-jam embeds (git-ignored output, so
-    # the tree stays clean). Required here: a release ships the editor.
-    - bash scripts/whiteboard.sh
     # Build the Jam app bundle at-jam embeds (git-ignored output). Required
     # here: a release ships the app.
     - bash scripts/app.sh

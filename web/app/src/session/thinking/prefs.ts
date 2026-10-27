@@ -1,5 +1,5 @@
-// The Thinking tab's preferences, stored as the old Inbox stores them
-// (layout.html's meThPrefs/meThSave): localStorage "jam-thinking" holds
+// The Thinking tab's preferences, under the old Inbox's key (so saved ones
+// carry over): localStorage "jam-thinking" holds
 // {f, tool, format}; the search is never saved.
 export type Format = "narrative" | "detailed" | "raw";
 export const FORMATS: Format[] = ["narrative", "detailed", "raw"];

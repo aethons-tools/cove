@@ -83,9 +83,10 @@ privileged port needs root — run the built binary under `sudo` directly for th
 `just dev-watch` runs [air](https://github.com/air-verse/air) (version pinned in
 the recipe, fetched with `go run`; config in `../.air.toml`). It rebuilds
 `at-jam` and restarts `serve` whenever a `.go`, `.html`, `.js` or `.css` file
-changes. Templates and htmx are `go:embed`ed, so UI edits rebuild too. Browse
-**`http://localhost:8090`** (`/me/`, `/ui/`): air's proxy fronts the admin
-listener and reloads the page after each restart.
+changes. The admin templates and static assets are `go:embed`ed, so their edits
+rebuild too; the Jam app bundle isn't rebuilt (run `just app` first, or
+`just app-dev` to work on it). Browse **`http://localhost:8090`** (`/app/`):
+air's proxy fronts the admin listener and reloads the page after each restart.
 
 - **Plain-HTTP admin listener required.** air's proxy speaks plain HTTP to
   `localhost:8081`, so comment out `admin-tls` in `jam.dev.yml` (loopback admin

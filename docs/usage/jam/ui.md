@@ -4,7 +4,7 @@ read_when: You want to expose Jam in a browser, understand who may reach /app/us
 owns: the `/app` route table and the legacy `/ui`·`/me` 308 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; installing the app (manifest, service worker, icons); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-27
 ---
 
 # The Jam app (`/app/`)
@@ -19,7 +19,7 @@ http://127.0.0.1:8081/app/
 
 | Path | Holds |
 |---|---|
-| `/app/user/*` | the Inbox ([intercom-ui.md](intercom-ui.md)) and [`POST /app/user/send`](#sending-post-appusersend) |
+| `/app/user/*` | the Inbox — the Jam app ([intercom-ui.md](intercom-ui.md)) and its API — and [`POST /app/user/send`](#sending-post-appusersend) |
 | `/app/admin/*` | the admin console ([ui-console.md](ui-console.md)) |
 | `/app/auth/{login,callback,logout}` | the one browser login (ungated) |
 | `/app/static/*` | `jam.css`, htmx, `push.js`, the J mark and app icons (ungated) |
@@ -29,8 +29,10 @@ http://127.0.0.1:8081/app/
 and stay where they are. **Old URLs:** a `GET`/`HEAD` on a former `/ui/*` or
 `/me/*` page (login and static included) answers `308` to its `/app/...`
 equivalent with the query kept — `/ui/agents?project=p` →
-`/app/admin/agents?project=p`, `/me/?c=chn_x` → `/app/user/?c=chn_x`. Any other
-method on an old path is 404, never replayed. The redirects last one release.
+`/app/admin/agents?project=p`, `/me/?c=chn_x` → `/app/user/?c=chn_x` (which the app
+turns into `/app/user/c/chn_x`). Any other method on an old path is 404, never
+replayed. The redirects last one release. `/app/next/*`, the app's preview
+address, redirects to `/app/user/*` the same way.
 
 ## The title bar and look
 
@@ -46,10 +48,11 @@ holds the console's search box. The name truncates with an ellipsis when long
 and hides under 720px wide (the J mark still links home); the tabs scroll and
 the principal menu always stays visible.
 
-**One look.** The console and the Inbox take their colors (light and dark,
-following the OS setting) and typography from one stylesheet, `jam.css`, in
-`internal/jam/uiassets`, which also holds the single `htmx` copy, served at
-`/app/static/`. Each area keeps its own component styles in its layout.
+**One look.** The console takes its colors (light and dark, following the OS
+setting) and typography from one stylesheet, `jam.css`, in `internal/jam/uiassets`
+(which also holds the console's `htmx`), served at `/app/static/`. The Inbox, the
+Jam app, is Mantine with a theme carrying `jam.css`'s accent and fonts
+([web-app.md](../../web-app.md)).
 
 The console itself — its pages, the Projects rail, search, the Channel log and the
 session timeline — is in [ui-console.md](ui-console.md).

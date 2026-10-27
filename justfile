@@ -137,18 +137,13 @@ dev-watch:
 test:
     go test ./...
 
-# build the whiteboard editor bundle at-jam embeds (needs Node/npm; see
-# scripts/whiteboard.sh). `just build` runs it when npm is available.
-whiteboard:
-    ./scripts/whiteboard.sh
-
-# build the Jam app bundle at-jam embeds at /app/next/ (needs Node/npm; see
+# build the Jam app bundle at-jam embeds at /app/user/ (needs Node/npm; see
 # scripts/app.sh and docs/web-app.md). `just build` runs it when npm is available.
 app:
     ./scripts/app.sh
 
 # the Jam app's dev server (hot reload) proxying the API to a running
-# `at-jam serve` (JAM_URL, default http://localhost:8081); open http://localhost:5173/app/next/
+# `at-jam serve` (JAM_URL, default http://localhost:8081); open http://localhost:5173/app/user/
 app-dev:
     cd web/app && npm ci --no-audit --no-fund --loglevel=error && npx vite
 
