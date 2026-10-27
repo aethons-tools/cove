@@ -10,8 +10,9 @@ import (
 
 // Compile-time proof colima satisfies the dispatch surface.
 var (
-	_ backend.DispatchOps = (*Colima)(nil)
-	_ backend.VolumeOps   = (*Colima)(nil)
+	_ backend.DispatchOps     = (*Colima)(nil)
+	_ backend.VolumeOps       = (*Colima)(nil)
+	_ backend.ContainerLister = (*Colima)(nil)
 )
 
 // RunEphemeral starts a fresh, labeled container with --rm and a published sshd,

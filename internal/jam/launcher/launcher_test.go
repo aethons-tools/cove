@@ -41,6 +41,9 @@ type fakeOps struct {
 	runImage    string
 	runDigest   string
 	runAddHost  []string
+	runLabels   []string
+	containers  map[string]map[string]string // name -> labels (ListContainers)
+	volLabels   map[string]map[string]string // CreateVolume name -> labels
 	runMounts   []backend.Mount
 	removed     string
 	volsRemoved []string // RemoveVolumes names, across calls
@@ -88,6 +91,7 @@ type stageCall struct {
 
 func (f *fakeOps) RunEphemeral(image, digest, name string, labels []string, dns, addHosts []string, docker bool, mounts ...backend.Mount) (backend.Instance, error) {
 	f.ran, f.runName, f.runImage, f.runDigest, f.runAddHost, f.runMounts = true, name, image, digest, addHosts, mounts
+	f.runLabels = labels
 	if f.runErr != nil {
 		return backend.Instance{}, f.runErr
 	}
@@ -146,11 +150,52 @@ func (f *fakeOps) RemoveContainer(name string) error { f.removed = name; return 
 func (f *fakeOps) CreateVolume(name string, labels ...string) error {
 	f.created = append(f.created, strings.Join(append([]string{name}, labels...), " "))
 	f.createdRan = f.createdRan || f.ran
+	if f.volLabels == nil {
+		f.volLabels = map[string]map[string]string{}
+	}
+	f.volLabels[name] = parseLabels(labels)
 	return f.createErr
 }
 func (f *fakeOps) ListVolumes(key string, match ...string) (map[string]string, error) {
 	f.listedKey, f.listedMatch = key, match
+	if f.listed == nil && f.volLabels != nil {
+		return filterLabelled(f.volLabels, key, match), nil
+	}
 	return f.listed, nil
+}
+
+func (f *fakeOps) ListContainers(key string, match ...string) (map[string]string, error) {
+	return filterLabelled(f.containers, key, match), nil
+}
+
+func parseLabels(labels []string) map[string]string {
+	m := map[string]string{}
+	for _, l := range labels {
+		k, v, _ := strings.Cut(l, "=")
+		m[k] = v
+	}
+	return m
+}
+
+// filterLabelled maps name -> labels[key] for entries carrying key and every
+// "k=v" match.
+func filterLabelled(all map[string]map[string]string, key string, match []string) map[string]string {
+	out := map[string]string{}
+next:
+	for name, ls := range all {
+		v, ok := ls[key]
+		if !ok {
+			continue
+		}
+		for _, m := range match {
+			k, want, _ := strings.Cut(m, "=")
+			if got, has := ls[k]; !has || got != want {
+				continue next
+			}
+		}
+		out[name] = v
+	}
+	return out
 }
 func (f *fakeOps) RemoveVolumes(names ...string) error {
 	f.volsRemoved = append(f.volsRemoved, names...)
