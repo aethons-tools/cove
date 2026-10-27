@@ -283,7 +283,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Every archive must carry exactly at-cove (the tombstone an older
-      # `at-jam update` needs), at-mint and at-jam — on the PR before merge and
+      # `at-jam update` needs), at-mint, at-jam and at-studio-manager — on the PR before merge and
       # on main before the release is cut.
       - name: Check release archives
         run: bash scripts/release/check-archive.sh dist
@@ -296,7 +296,7 @@ jobs:
         run: |
           gh release create "$VERSION" \
             --title "$VERSION" \
-            --notes "Continuous release from ${GITHUB_SHA::7} (at-mint + at-jam; cove-master embedded; at-cove tombstone)." \
+            --notes "Continuous release from ${GITHUB_SHA::7} (at-mint + at-jam + at-studio-manager; cove-master embedded; at-cove tombstone)." \
             --target "$GITHUB_SHA" \
             dist/cove_*.tar.gz dist/checksums.txt
           echo "## Released \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"

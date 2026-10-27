@@ -65,11 +65,23 @@ builds:
     ldflags:
       - -s -w -X main.version={{ .Version }}
 
+  - id: at-studio-manager
+    main: ./cmd/at-studio-manager
+    binary: at-studio-manager
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
 archives:
   # One archive carrying every host binary — install.sh (and so `at-jam update`)
   # installs them together — plus the at-cove tombstone for older installers.
   - id: cove
-    ids: [at-mint, at-jam]
+    ids: [at-mint, at-jam, at-studio-manager]
     name_template: "cove_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - src: scripts/release/at-cove

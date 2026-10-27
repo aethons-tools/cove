@@ -215,16 +215,17 @@ ca_case() { # ca_case <name> <want: ok|reject> <tombstone mode> <bins...>
   chmod "$mode" "$d/stage/at-cove"
   printf 'bin\n' >"$d/stage/at-mint"
   printf 'bin\n' >"$d/stage/at-jam"
+  printf 'bin\n' >"$d/stage/at-studio-manager"
   printf 'readme\n' >"$d/stage/README.md"
   tar -C "$d/stage" -czf "$d/dist/cove_1-0101_linux_amd64.tar.gz" "$@"
   if bash "$CHECK_SH" "$d/dist" >/dev/null 2>&1; then got=ok; else got=reject; fi
   assert_eq "check-archive $name -> $want" "$want" "$got"
 }
-ca_case good ok 0755 at-cove at-mint at-jam
-ca_case missing reject 0755 at-mint at-jam
-ca_case mode reject 0644 at-cove at-mint at-jam
-ca_case altered reject 0755 at-cove at-mint at-jam
-ca_case extra reject 0755 at-cove at-mint at-jam README.md
+ca_case good ok 0755 at-cove at-mint at-jam at-studio-manager
+ca_case missing reject 0755 at-mint at-jam at-studio-manager
+ca_case mode reject 0644 at-cove at-mint at-jam at-studio-manager
+ca_case altered reject 0755 at-cove at-mint at-jam at-studio-manager
+ca_case extra reject 0755 at-cove at-mint at-jam at-studio-manager README.md
 if bash "$CHECK_SH" "$WORK/no-such-dist" >/dev/null 2>&1; then bad "check-archive no archives -> reject"; else ok "check-archive no archives -> reject"; fi
 
 echo "== e2e: tampered checksum aborts, nothing installed =="
