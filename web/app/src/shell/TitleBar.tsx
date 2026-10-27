@@ -50,7 +50,11 @@ export function TitleBar({ boot }: { boot: Bootstrap }) {
             {boot.pushKey && <PushToggle boot={boot} />}
             <Menu.Item onClick={soundsDialog.open}>Sounds…</Menu.Item>
             <Menu.Item component="a" href="/app/user/">Classic Inbox</Menu.Item>
-            {boot.signOut && <Menu.Item component="a" href="/app/auth/logout" onClick={(e) => { e.preventDefault(); void signOut(); }}>Sign out</Menu.Item>}
+            {boot.signOut && <Menu.Item component="a" href="/app/auth/logout" onClick={(e) => {
+              if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // a new tab: just the link
+              e.preventDefault();
+              void signOut();
+            }}>Sign out</Menu.Item>}
           </Menu.Dropdown>
         </Menu>
         <SoundsSettings opened={sounds} onClose={soundsDialog.close} />
