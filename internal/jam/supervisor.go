@@ -833,16 +833,33 @@ func (s *Supervisor) imageTagOn(manager string, ref KitRef) string {
 // (no supervisor, a missing role, an unresolvable kit or model-spec) are
 // returned, never guessed around, and logged at debug level once per role per
 // minute so an "unknown" image status can be explained. manager names whose
-// image tag is reported ("" = the launcher's default).
+// image tag is reported ("" — or one no longer configured — = the launcher's
+// default).
 func (s *Supervisor) CurrentImage(project, role, manager string) (CurrentImage, error) {
 	if s == nil {
 		return CurrentImage{}, fmt.Errorf("no supervisor")
 	}
-	cur, err := s.currentImage(project, role, manager)
+	cur, err := s.currentImage(project, role, s.imageManager(manager))
 	if err != nil {
 		s.logImageErr(project, role, err)
 	}
 	return cur, err
+}
+
+// imageManager is the manager image calls for manager go to: a name the
+// placing launcher no longer has is treated as a reset — the default manager
+// ("") — as applyStandingPin treats a stale pin on raise.
+func (s *Supervisor) imageManager(manager string) string {
+	if manager == "" {
+		return ""
+	}
+	if pl, ok := s.launcher.(PlacingLauncher); ok && !pl.HasManager(manager) {
+		if s.log != nil {
+			s.log.Debug("image manager is not configured; using the default manager", "manager", manager)
+		}
+		return ""
+	}
+	return manager
 }
 
 func (s *Supervisor) currentImage(project, role, manager string) (CurrentImage, error) {
@@ -1593,8 +1610,8 @@ func (s *Supervisor) StandingUpgradeState(project, role, name string) string {
 // via the launcher's PrepareKit (idempotent: an image already present returns
 // at once; otherwise it builds, which may take minutes — callers must not hold
 // a lock across it). A role that raises no kit is ready as is. manager names
-// the manager to prepare on (a PlacingLauncher's PrepareKitOn); "" is the
-// launcher's default. The returned CurrentImage identifies what was prepared
+// the manager to prepare on (a PlacingLauncher's PrepareKitOn); "" — or a
+// manager no longer configured — is the launcher's default. The returned CurrentImage identifies what was prepared
 // (its Key and Tag match CurrentImage's for the same manager).
 func (s *Supervisor) PrepareImage(ctx context.Context, project, role, manager string) (CurrentImage, KitStatus, error) {
 	r, ok := s.store.GetRole(project, role)
@@ -1608,6 +1625,7 @@ func (s *Supervisor) PrepareImage(ctx context.Context, project, role, manager st
 	if !have {
 		return CurrentImage{}, KitStatus{State: KitReady}, nil
 	}
+	manager = s.imageManager(manager)
 	cur := CurrentImage{Kit: def.Ref, HasKit: true, Tag: s.imageTagOn(manager, def.Ref)}
 	var st KitStatus
 	if pl, ok := s.launcher.(PlacingLauncher); ok && manager != "" {

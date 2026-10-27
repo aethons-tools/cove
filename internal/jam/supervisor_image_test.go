@@ -30,3 +30,28 @@ func TestPrepareImageOnNamedManager(t *testing.T) {
 		t.Errorf("unpinned prepare calls on default = %d, want 1", p.by["m0"].prepareCalls)
 	}
 }
+
+// A pin to a manager no longer configured is a reset (place fresh), as a raise
+// treats it: CurrentImage and PrepareImage use the default manager instead of
+// failing as unknown, so an upgrade does not stick in "preparing".
+func TestImageOnUnregisteredManagerUsesDefault(t *testing.T) {
+	p := newPlacingFake("m0", "m1")
+	p.by["m0"].prepareState = KitReady
+	sup, store, _ := supTestKit(t, p)
+	withDefaultKit(t, sup, store)
+	def, err := sup.CurrentImage("default", "guest", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur, err := sup.CurrentImage("default", "guest", "gone")
+	if err != nil || cur.Tag != def.Tag || cur.Tag == "" {
+		t.Fatalf("CurrentImage on gone = %+v, %v; want the default's %+v", cur, err, def)
+	}
+	cur, st, err := sup.PrepareImage(context.Background(), "default", "guest", "gone")
+	if err != nil || st.State != KitReady || cur.Tag != def.Tag {
+		t.Fatalf("PrepareImage on gone = %+v, %+v, %v; want ready on the default", cur, st, err)
+	}
+	if p.by["m0"].prepareCalls != 1 || p.by["m1"].prepareCalls != 0 {
+		t.Fatalf("prepare calls m0=%d m1=%d; want 1 and 0", p.by["m0"].prepareCalls, p.by["m1"].prepareCalls)
+	}
+}
