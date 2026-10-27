@@ -4,7 +4,7 @@ read_when: You want to know what a studio (or a raise of a role now) gets — it
 owns: setup inspection (role/studio inspect, GET …/setup routes), setup snapshots, the image-facts reader, setup redaction rules and their known limits, the admin UI Setup tab (…/setup on agent and role pages)
 prereqs: coves.md, session-context.md, connector.md
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-27
 ---
 
 # Inspecting a studio's setup
@@ -22,8 +22,13 @@ session id or the label of a live manual session; an unknown role or studio is
 Routes (operator auth, like every `/admin/*` route; each call is logged
 `setup inspected` with operator, subject and sections — never the body):
 
-- `GET /admin/roles/{project}/{role}/setup?sections=a,b`
+- `GET /admin/roles/{project}/{role}/setup?sections=a,b[&manager=M]`
 - `GET /admin/instances/{id}/setup?sections=a,b&diff=role`
+
+`role inspect <p>/<r> --manager <name>` (admin `?manager=`) reads the image
+facts from that manager instead of the default. An unknown manager is 404, an
+unavailable one 503 (checked before anything renders). `studio inspect` has no
+`--manager`: a studio's facts always come from the manager it runs on.
 
 ## In the admin UI
 
@@ -35,7 +40,7 @@ snapshot time. `context` lists each file at its real path, **raw** — never
 rendered as markdown, so nothing in it is hidden or fetched. Text is escaped
 as in the CLI (a bidi override shows as `\u202e`). The sections load after the
 page opens, so a slow image read never holds up the agent or role page. Chips
-filter to one section (`?sections=`). On a studio, a `stale vs role` badge
+filter to one section (`?sections=`). A role page's Setup tab shows a manager selector when two or more managers are connected. On a studio, a `stale vs role` badge
 opens that section's diff against a raise now, and **Diff vs role**
 (`?diff=role`) diffs every section. Read-only, behind the same admin auth;
 each load is logged `ui setup inspected` (operator, subject, sections).
@@ -78,7 +83,7 @@ logged, never fatal.
 
 ## Image facts
 
-Read on the launcher host through the launcher's docker context, as argv
+Read on the manager's host (a studio's own manager; a legacy record with no manager means `local`) through that launcher's docker context, as argv
 through the runner: `docker image inspect` (env, labels, id) and, for the seed,
 `docker create --pull=never` (never started), `docker cp <ctr>:/home/agent/.init-agent-data -`,
 `docker rm -f -v`. Only regular files; caps: 1 MiB total, 200 entries, text

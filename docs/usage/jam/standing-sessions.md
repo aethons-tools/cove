@@ -139,8 +139,9 @@ highlighted when stale). The request only records intent and answers at once:
 (unless `--force`; `unknown` is queued). The reconciler's passes then:
 
 1. **Prepare** (`preparing`): it builds the image a raise would run now, off its
-   lock, and waits until that image is ready. Nothing is torn down meanwhile,
-   and a slow or failed build doesn't count as a raise failure (no backoff).
+   lock, and waits until that image is ready. It prepares on the session's
+   [pinned manager](coves.md#managers-and-placement) only (default when unpinned),
+   and an unavailable pin keeps it `preparing`. Nothing is torn down meanwhile; a slow or failed build is no raise failure.
 2. **Wait for idle** (`waiting-for-idle: <state>`): right before the teardown
    it re-checks that the session is between episodes — `idled`, or live and
    `waiting`, `blocked` or `done`. `running`, `raising`, an unreported activity,
@@ -148,16 +149,15 @@ highlighted when stale). The request only records intent and answers at once:
    are busy: the upgrade waits, it is never refused. `--force` skips the wait.
 3. **Restart**: a plain teardown — **its volumes are kept** — then a raise of the
    same session, which **resumes its conversation and workspace** like any
-   restart (its Docker cache starts clean: it is the studio's). A failed teardown stays pending (`teardown-failed: <reason>`) and
-   is retried every pass; a failed raise backs the name off as usual. A name
-   with no studio is just raised, its backoff cleared.
+   restart (its Docker cache starts clean: it is the studio's). A failed teardown
+   stays pending (`teardown-failed: <reason>`), retried every pass; a failed
+   raise backs the name off as usual. A name with no studio is just raised.
 
 `standing list` shows a pending upgrade as `upgrade=<state>` (and the role page
 row as an **upgrade:** pill); `standing upgrade --wait` polls it until done
-(`--wait-timeout`, default 15m) and exits 0 once the studio runs an `ok` (or `unknown`) image.
+(`--wait-timeout`, default 15m), exiting 0 once the studio runs an `ok` or `unknown` image.
 A pending reset refuses an upgrade (**409**; the reset raises it fresh anyway).
-Pending upgrades are **in memory**: re-run `standing upgrade` after a Jam
-restart. Jam never upgrades on its own — a restart interrupts a teammate.
+Pending upgrades are **in memory**: re-run `standing upgrade` after a Jam restart. Jam never upgrades on its own: a restart interrupts a teammate.
 
 ## Dismissal
 
