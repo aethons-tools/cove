@@ -5,11 +5,13 @@ import { RecipientPicker } from "../compose/RecipientPicker";
 import { useChimes } from "../sounds/chimes";
 import { NavLink as RouterLink, useLocation, useParams } from "react-router";
 import { useRail } from "./useRail";
+import { useAppBadge } from "../push/useAppBadge";
 import { Problem } from "../Problem";
 
 export function Rail() {
   const { channel } = useParams();
   const { data, error, isPending, dataUpdatedAt } = useRail(channel);
+  useAppBadge(data?.unreadTotal);
   const here = useLocation();
   const [picking, picker] = useDisclosure(false);
   useChimes(data, dataUpdatedAt, channel);
