@@ -617,6 +617,47 @@ func TestInstanceSetupReadsItsManager(t *testing.T) {
 	}
 }
 
+// A studio's own manager being down or unregistered is a section reason, not
+// a failed render: the caller named no manager, and the Jam-held sections
+// (context, egress) still render.
+func TestInstanceSetupManagerErrorIsAReason(t *testing.T) {
+	for _, c := range []struct {
+		err    error
+		reason string
+	}{
+		{fmt.Errorf("%w: m1", ErrManagerUnavailable), reasonManagerUnavailable},
+		{fmt.Errorf("%w: m1", ErrUnknownManager), reasonManagerUnknown},
+	} {
+		d, inst, _, img := setupFixture(t)
+		inst.Manager = "m1"
+		if err := d.Store.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+		img.err = c.err
+		s, err := InstanceSetup(context.Background(), d, "w1", []string{SectionContext, SectionEgress, SectionEnv, SectionKit, SectionSeed}, false)
+		if err != nil {
+			t.Fatalf("%v: render failed: %v", c.err, err)
+		}
+		got := map[string]SetupSection{}
+		for _, sec := range s.Sections {
+			got[sec.Name] = sec
+		}
+		if seed := got[SectionSeed]; seed.Source != SourceUnavailable || seed.Reason != c.reason {
+			t.Errorf("%v: seed = %+v, want unavailable (%s)", c.err, seed, c.reason)
+		}
+		for _, name := range []string{SectionEnv, SectionKit} {
+			if !strings.Contains(got[name].Body, "unavailable ("+c.reason+")") {
+				t.Errorf("%v: %s lacks the reason:\n%s", c.err, name, got[name].Body)
+			}
+		}
+		for _, name := range []string{SectionContext, SectionEgress} {
+			if sec, ok := got[name]; !ok || sec.Source == SourceUnavailable || sec.Body == "" {
+				t.Errorf("%v: %s = %+v, want rendered", c.err, name, sec)
+			}
+		}
+	}
+}
+
 // A role render on a named manager reads that manager's current tag, and its
 // facts on that manager.
 func TestRoleSetupOnManager(t *testing.T) {

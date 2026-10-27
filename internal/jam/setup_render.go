@@ -32,6 +32,9 @@ const (
 	reasonModelSpec         = "the role's model-spec does not resolve; a raise would fail"
 	reasonConnectorConflict = "the role's destinations conflict; a raise would fail"
 	reasonRoleGone          = "the role no longer exists"
+	// A studio's own manager failing (InstanceSetup: the caller named none).
+	reasonManagerUnavailable = "the studio's manager is not connected"
+	reasonManagerUnknown     = "the studio's manager is no longer registered"
 )
 
 // Image-read reasons are the fixed error values' text.
@@ -93,10 +96,13 @@ func (s *Supervisor) wouldBeRaise(project string, role Role) (wouldBe, error) {
 // imageMemo reads an image at most once per render.
 type imageMemo struct {
 	manager string // the manager the image is read from
-	done    bool
-	facts   ImageFacts
-	reason  string
-	err     error // a named-manager failure (unknown or unavailable): the render fails, not the section
+	// own: manager is the studio's own (InstanceSetup), not one the caller
+	// named — its failure is a section reason, not a failed render.
+	own    bool
+	done   bool
+	facts  ImageFacts
+	reason string
+	err    error // a named-manager failure (unknown or unavailable): the render fails, not the section
 }
 
 // readImage returns tag's facts, or the fixed reason they are unavailable;
@@ -117,6 +123,10 @@ func (d SetupDeps) readImage(ctx context.Context, m *imageMemo, tag, noKit strin
 	default:
 		f, err := d.Images.ImageFactsOn(ctx, m.manager, tag)
 		switch {
+		case m.own && errors.Is(err, ErrManagerUnavailable):
+			m.reason = reasonManagerUnavailable
+		case m.own && errors.Is(err, ErrUnknownManager):
+			m.reason = reasonManagerUnknown
 		case isManagerErr(err):
 			m.err = err
 			m.reason = reasonImageError
@@ -270,7 +280,9 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 // label) got: its snapshots, else a labelled recompute; config sections as
 // of now; image facts for the image it runs. diffRole adds, per section, a
 // line diff against RoleSetup of its role. sections is validated as
-// RoleSetup's. ErrNotFound for an unknown or gone studio.
+// RoleSetup's. ErrNotFound for an unknown or gone studio. The studio's own
+// manager being unavailable or unregistered is a section reason
+// (reasonManagerUnavailable/Unknown), never a failed render.
 func InstanceSetup(ctx context.Context, d SetupDeps, ref string, sections []string, diffRole bool) (StudioSetup, error) {
 	sections, err := setupSections(sections)
 	if err != nil {
@@ -295,7 +307,7 @@ func InstanceSetup(ctx context.Context, d SetupDeps, ref string, sections []stri
 		}
 	}
 	out := StudioSetup{Subject: "studio " + id}
-	img := imageMemo{manager: instanceManager(inst)}
+	img := imageMemo{manager: instanceManager(inst), own: true}
 	for _, name := range sections {
 		var sec SetupSection
 		switch name {
@@ -331,9 +343,6 @@ func InstanceSetup(ctx context.Context, d SetupDeps, ref string, sections []stri
 			}
 		}
 		out.Sections = append(out.Sections, sec)
-	}
-	if img.err != nil {
-		return StudioSetup{}, img.err
 	}
 	if !diffRole {
 		return out, nil

@@ -28,7 +28,9 @@ Routes (operator auth, like every `/admin/*` route; each call is logged
 `role inspect <p>/<r> --manager <name>` (admin `?manager=`) reads the image
 facts from that manager instead of the default. An unknown manager is 404, an
 unavailable one 503 (checked before anything renders). `studio inspect` has no
-`--manager`: a studio's facts always come from the manager it runs on.
+`--manager`: a studio's facts always come from the manager it runs on; when
+that manager is not connected or no longer registered, the image parts render
+`unavailable` with that reason and the rest still renders.
 
 ## In the admin UI
 
