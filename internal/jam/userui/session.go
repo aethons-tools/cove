@@ -213,27 +213,10 @@ func kTokens(n int64) string {
 	return strconv.FormatInt(n, 10)
 }
 
-// sessionHeadRoute renders a session's header (its refresh target).
-func (h *handler) sessionHeadRoute(w http.ResponseWriter, r *http.Request) {
-	p, ok := jam.ParticipantFrom(r)
-	if !ok {
-		http.Error(w, "no participant", http.StatusUnauthorized)
-		return
-	}
-	inst, _, ok := h.sessionFor(p, r.PathValue("id"))
-	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	hd := h.sessionHead(r, p, inst)
-	h.render(w, "sessionhead", inboxPage{Conv: &Conversation{Head: &hd}})
-}
-
 // sessionOutcome runs action on inst for p, re-checking who may: 204, or the
 // refusal's status, API code and text. Release, restart and upgrade are
 // the owner's or an operator's; interrupt, compact and clear are anyone's
-// who can see the session, while its activity allows (else 409). Shared by
-// the HTML and API routes.
+// who can see the session, while its activity allows (else 409).
 func (h *handler) sessionOutcome(r *http.Request, p jam.Participant, inst jam.Instance, action string) (int, string, string) {
 	pr, _ := appui.PrincipalFrom(r)
 	op := pr.Admin
@@ -273,37 +256,4 @@ func (h *handler) sessionOutcome(r *http.Request, p jam.Participant, inst jam.In
 	}
 	h.lg.Info("session action", "session", inst.ActorID, "action", action, "by", string(p.UserID))
 	return http.StatusNoContent, "", ""
-}
-
-// sessionAction is the HTML route (see sessionOutcome): 204 (a page reload
-// once the session ends, a refresh after an upgrade or a command); 403; 404
-// alike for missing and unseen; 409; 502.
-func (h *handler) sessionAction(w http.ResponseWriter, r *http.Request) {
-	p, ok := jam.ParticipantFrom(r)
-	if !ok {
-		http.Error(w, "no participant", http.StatusUnauthorized)
-		return
-	}
-	inst, _, ok := h.sessionFor(p, r.PathValue("id"))
-	if !ok || h.d.Ops == nil {
-		http.NotFound(w, r)
-		return
-	}
-	action := r.PathValue("action")
-	switch status, _, msg := h.sessionOutcome(r, p, inst, action); status {
-	case http.StatusNoContent:
-	case http.StatusNotFound:
-		http.NotFound(w, r)
-		return
-	default:
-		http.Error(w, msg, status)
-		return
-	}
-	switch action {
-	case "upgrade", string(jam.CmdInterrupt), string(jam.CmdCompact), string(jam.CmdClear):
-		w.Header().Set("HX-Trigger", "meChanged")
-	default:
-		w.Header().Set("HX-Refresh", "true") // the session is going: reload rather than refresh a head that 404s
-	}
-	w.WriteHeader(http.StatusNoContent)
 }

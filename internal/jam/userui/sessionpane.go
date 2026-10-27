@@ -17,7 +17,7 @@ import (
 )
 
 // The session pane (docs/usage/jam/intercom-ui.md#the-session-view): the
-// tabbed pane beside a session's messages. Each tab is an htmx fragment.
+// tabbed pane beside a session's messages (GET api/sessions/{id}/pane/{tab}).
 
 // paneTabs are the tabs a session's pane has.
 var paneTabs = []string{"studio", "thinking", "previews", "artifacts", "status"}
@@ -25,24 +25,8 @@ var paneTabs = []string{"studio", "thinking", "previews", "artifacts", "status"}
 // maxPaneLinks bounds the Links list (the newest win).
 const maxPaneLinks = 50
 
-func (h *handler) sessionPaneRoute(w http.ResponseWriter, r *http.Request) {
-	p, ok := jam.ParticipantFrom(r)
-	if !ok {
-		http.Error(w, "no participant", http.StatusUnauthorized)
-		return
-	}
-	inst, home, ok := h.sessionFor(p, r.PathValue("id"))
-	tab := r.URL.Query().Get("tab")
-	if !ok || !slices.Contains(paneTabs, tab) {
-		http.NotFound(w, r)
-		return
-	}
-	pane := h.buildPane(r, p, inst, home, tab)
-	h.render(w, "sessionpane", inboxPage{Pane: &pane})
-}
-
 // buildPane is tab of inst's pane for p (tab one of paneTabs; home is
-// inst's home channel), shared by the HTML and API routes.
+// inst's home channel).
 func (h *handler) buildPane(r *http.Request, p jam.Participant, inst jam.Instance, home, tab string) SessionPane {
 	pane := SessionPane{ID: inst.ActorID, Tab: tab}
 	switch tab {
@@ -56,8 +40,8 @@ func (h *handler) buildPane(r *http.Request, p jam.Participant, inst jam.Instanc
 		if h.d.Events == nil {
 			pane.EventsOff = true
 		} else {
-			pane.Streams, _ = h.d.Events.Streams(inst.ActorID)
-			for _, s := range pane.Streams {
+			streams, _ := h.d.Events.Streams(inst.ActorID)
+			for _, s := range streams {
 				pane.ThinkingStreams = append(pane.ThinkingStreams, ThinkingStream{ID: s.StreamID, FirstAt: s.FirstAt, Events: s.Events})
 			}
 		}

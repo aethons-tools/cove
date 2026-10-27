@@ -10,7 +10,9 @@ tmp_dir = ".air"
   cmd = "go build -o .air/jam ./cmd/jam"
   # The wrapper runs .air/jam serve (as you; JAM_WATCH_SUDO=1 for sudo).
   entrypoint = ["./dev/watch-serve.sh"]
-  # Templates and htmx are go:embed'ed, so UI edits need a rebuild too.
+  # The admin templates and static assets are go:embed'ed, so their edits need a
+  # rebuild too. The Jam app bundle is not rebuilt here: run `just app` first
+  # (or work on it with `just app-dev`).
   include_ext = ["go", "html", "js", "css"]
   exclude_dir = [".air", ".git", ".gopath", ".worktrees", ".claude", ".jam", "dist", "docs", "dev"]
   exclude_regex = ["_test\\.go$"]

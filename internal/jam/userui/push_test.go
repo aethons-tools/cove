@@ -3,7 +3,6 @@ package userui
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -233,33 +232,5 @@ func TestPushFocusOffWithoutPush(t *testing.T) {
 		if rec := pushDo(h, p, "POST", "/app/user/push/focus", `{"channel":"`+engID+`"}`); rec.Code != http.StatusNotFound {
 			t.Errorf("focus without push = %d, want 404", rec.Code)
 		}
-	}
-	// The page reports focus only when the server takes it.
-	page := pushDo(Handler(e.Deps, nil, WithPush(testVAPIDKey), WithPushFocus(f)), p, "GET", "/app/user/?c="+engID, "").Body.String()
-	if !strings.Contains(page, `<body data-push-focus>`) {
-		t.Error("page with push focus lacks data-push-focus")
-	}
-	page = pushDo(Handler(e.Deps, nil, WithPush(testVAPIDKey)), p, "GET", "/app/user/?c="+engID, "").Body.String()
-	if strings.Contains(page, `<body data-push-focus>`) {
-		t.Error("page without push focus carries data-push-focus")
-	}
-}
-
-// The rail fragment carries the user's total unread, for the app badge.
-func TestRailCarriesUnreadTotal(t *testing.T) {
-	e, p := fixture()
-	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob"}); err != nil {
-		t.Fatal(err)
-	}
-	bobID, _ := e.st.LookupName(ident.User, "bob")
-	e.post(bobID, "one", "")
-	e.post(bobID, "two", "")
-	want := jam.UnreadTotal(e.st, e.Intercom, e.lg, p.UserID)
-	if want < 2 {
-		t.Fatalf("fixture unread = %d, want ≥ 2", want)
-	}
-	rail := pushDo(Handler(e.Deps, nil), p, "GET", "/app/user/rail", "").Body.String()
-	if attr := fmt.Sprintf(`data-unread-total="%d"`, want); !strings.Contains(rail, attr) {
-		t.Errorf("rail lacks %s:\n%s", attr, rail)
 	}
 }

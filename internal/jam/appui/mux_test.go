@@ -21,7 +21,6 @@ func testMux(t *testing.T) *http.ServeMux {
 		Gate:           NewGate(GateConfig{Sessions: testSessions(t), LoginPath: "/app/auth/login", Log: discardLog()}),
 		AuthRoutes:     echo("auth"),
 		User:           echo("user"),
-		Next:           echo("next"),
 		Admin:          echo("admin"),
 		TrustedOrigins: []string{"https://jam.example"},
 	})
@@ -135,10 +134,6 @@ func TestAreasGated(t *testing.T) {
 		{"user send, trusted origin", "POST", "/app/user/send", "alice", "", "https://jam.example", 200, "user /app/user/send"},
 		{"auth routes ungated", "GET", "/app/auth/login", "", "", "", 200, "auth /app/auth/login"},
 		{"user area, signed out", "GET", "/app/user/", "", "", "", 302, "return_to=%2Fapp%2Fuser%2F"},
-		{"next app, member", "GET", "/app/next/c/x", "alice", "", "", 200, "next /app/next/c/x"},
-		{"next app, admin only", "GET", "/app/next/", "stranger", "ok", "", 403, ""},
-		{"next app, signed out", "GET", "/app/next/", "", "", "", 302, "return_to=%2Fapp%2Fnext%2F"},
-		{"next app, cross-origin write", "POST", "/app/next/", "alice", "", "https://evil.example", 403, ""},
 	}
 	m := testMux(t)
 	for _, tc := range cases {
@@ -177,5 +172,21 @@ func TestStudiosRouteCanBeAdded(t *testing.T) {
 	m.ServeHTTP(rec, muxReq("GET", "/me/studios/x", "", ""))
 	if rec.Code != 200 || rec.Body.String() != "studios /me/studios/x" {
 		t.Fatalf("got %d %q, want the studios stub", rec.Code, rec.Body)
+	}
+}
+
+// The Jam app's pre-cutover home redirects to the same path under the user
+// area, its query kept; a write there is not redirected.
+func TestNextRedirectsToTheUserArea(t *testing.T) {
+	m := Handler(Deps{Gate: NewGate(GateConfig{Log: discardLog()})})
+	rec := httptest.NewRecorder()
+	m.ServeHTTP(rec, httptest.NewRequest("GET", "/app/next/c/chn_1?tab=status", nil))
+	if rec.Code != http.StatusPermanentRedirect || rec.Header().Get("Location") != "/app/user/c/chn_1?tab=status" {
+		t.Errorf("GET /app/next/… = %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	rec = httptest.NewRecorder()
+	m.ServeHTTP(rec, httptest.NewRequest("POST", "/app/next/c/chn_1", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("POST /app/next/… = %d", rec.Code)
 	}
 }

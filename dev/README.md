@@ -5,6 +5,7 @@ Assets for running a local dev instance of Jam.
 - **`docker-compose.yml`** — a local PostgreSQL 18 and Garage (the attachments blob store) for Jam.
 - **`garage.toml`** — Garage's dev config.
 - **`jam.dev.yml`** — a sample `jam serve` config wired to both.
+- **`jam.container.yml.example`**, **`credentials.container.yml.example`** — the config for Jam in a container (below).
 
 ## Postgres
 
@@ -82,9 +83,10 @@ privileged port needs root — run the built binary under `sudo` directly for th
 `just dev-watch` runs [air](https://github.com/air-verse/air) (version pinned in
 the recipe, fetched with `go run`; config in `../.air.toml`). It rebuilds
 `jam` and restarts `serve` whenever a `.go`, `.html`, `.js` or `.css` file
-changes. Templates and htmx are `go:embed`ed, so UI edits rebuild too. Browse
-**`http://localhost:8090`** (`/me/`, `/ui/`): air's proxy fronts the admin
-listener and reloads the page after each restart.
+changes. The admin templates and static assets are `go:embed`ed, so their edits
+rebuild too; the Jam app bundle isn't rebuilt (run `just app` first, or
+`just app-dev` to work on it). Browse **`http://localhost:8090`** (`/app/`):
+air's proxy fronts the admin listener and reloads the page after each restart.
 
 - **Plain-HTTP admin listener required.** air's proxy speaks plain HTTP to
   `localhost:8081`, so comment out `admin-tls` in `jam.dev.yml` (loopback admin
@@ -115,6 +117,11 @@ listener and reloads the page after each restart.
   host-scoped, so it carries over and survives restarts.
 - Edits under `dev/` (including `jam.dev.yml`) don't trigger a restart.
   `JAM_WATCH_CONFIG=path` points the loop at another config.
+
+## Jam in a container
+
+The compose file also has an opt-in `jam` service that runs Jam from its image (`just jam-image`, `just dev-jam-up`).
+Steps, ports, admin access and volumes are in [container.md](../docs/usage/jam/container.md).
 
 These settings (plaintext admin, inline password, self-signed cert) are for
 local dev only. The production shape — TLS, OIDC operator auth, and

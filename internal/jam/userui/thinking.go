@@ -1,13 +1,8 @@
 package userui
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
-	"strconv"
-	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -55,21 +50,8 @@ func (h *handler) thinkingSession(w http.ResponseWriter, r *http.Request) (jam.P
 	return p, inst, true
 }
 
-// thinkingFragment renders one event as the thinking-event element.
-func (h *handler) thinkingFragment(v sessionview.EventView) string {
-	var b bytes.Buffer
-	if err := pages["inbox"].ExecuteTemplate(&b, "thinking-event", inboxPage{PaneEvent: &v}); err != nil {
-		h.lg.Error("userui thinking render failed", "error", err.Error())
-		return ""
-	}
-	// html/template leaves CR raw; keep it as an entity (SSE framing is
-	// separately CR-safe in sessionview.WriteSSE).
-	return strings.ReplaceAll(b.String(), "\r", "&#13;")
-}
-
-// thinkingEventOf is v as the app's Thinking tab reads it: the
-// thinking-event template's fields (a gap shows its summary; kind other
-// keeps no detail).
+// thinkingEventOf is v as the app's Thinking tab reads it (a gap shows its
+// summary; kind other keeps no detail).
 func thinkingEventOf(v sessionview.EventView) ThinkingEvent {
 	ev := ThinkingEvent{Stream: v.StreamID, Seq: v.Seq, Turn: v.Turn, Kind: string(v.Kind), Tool: v.Tool, ToolUseID: v.ToolUseID,
 		Text: v.Narrative, Detail: v.Detail, DetailTruncated: v.DetailTruncated, IsError: v.IsError, TruncatedBytes: v.TruncatedBytes,
@@ -98,8 +80,8 @@ func (h *handler) thinkingJSON(v sessionview.EventView) string {
 
 // thinkingEvents is the session's live Thinking feed (sessionview.Serve,
 // following its newest stream), at most maxThinkingStreams per viewer; it
-// ends once the viewer loses access to the session. ?format=json sends each
-// event as ThinkingEvent JSON (the app) rather than the HTML fragment.
+// ends once the viewer loses access to the session. Each event is
+// ThinkingEvent JSON.
 func (h *handler) thinkingEvents(w http.ResponseWriter, r *http.Request) {
 	p, inst, ok := h.thinkingSession(w, r)
 	if !ok {
@@ -130,97 +112,8 @@ func (h *handler) thinkingEvents(w http.ResponseWriter, r *http.Request) {
 		again, _, ok := h.sessionFor(p, id)
 		return ok && again.ActorID == inst.ActorID
 	}
-	event := h.thinkingFragment
-	if r.URL.Query().Get("format") == "json" {
-		event = h.thinkingJSON // the Jam app (spec §2)
-	}
 	sessionview.Serve(w, r, sessionview.Source{Store: h.d.Events, Hub: h.d.Hub, ActorID: inst.ActorID,
-		Tail: thinkingTail, FollowNewest: true, Event: event, Allowed: allowed})
-}
-
-// thinkingStream is the request's ?stream=, or a 400.
-func thinkingStream(w http.ResponseWriter, r *http.Request) (string, bool) {
-	s := r.URL.Query().Get("stream")
-	if !sessionevents.ValidStreamID(s) {
-		http.Error(w, "bad stream", http.StatusBadRequest)
-		return "", false
-	}
-	return s, true
-}
-
-// thinkingUint is the request's query parameter name as a positive integer,
-// or a 400.
-func thinkingUint(w http.ResponseWriter, r *http.Request, name string) (uint64, bool) {
-	n, err := strconv.ParseUint(r.URL.Query().Get(name), 10, 64)
-	if err != nil || n == 0 {
-		http.Error(w, "bad "+name, http.StatusBadRequest)
-		return 0, false
-	}
-	return n, true
-}
-
-// thinkingPage renders the thinkingPageSize events of stream below ?before=,
-// with a "Load earlier" button on top when older ones exist.
-func (h *handler) thinkingPage(w http.ResponseWriter, r *http.Request) {
-	_, inst, ok := h.thinkingSession(w, r)
-	if !ok {
-		return
-	}
-	stream, ok := thinkingStream(w, r)
-	if !ok {
-		return
-	}
-	before, ok := thinkingUint(w, r, "before")
-	if !ok {
-		return
-	}
-	evs, below, err := h.thinkingPageOf(inst.ActorID, stream, before)
-	if err != nil {
-		h.lg.Error("thinking page: listing events failed", "session", inst.ActorID, "error", err.Error())
-		http.Error(w, "listing events failed; see the jam log", http.StatusInternalServerError)
-		return
-	}
-	page := inboxPage{PaneEvents: evs, PaneBefore: below}
-	var b bytes.Buffer
-	if err := pages["inbox"].ExecuteTemplate(&b, "thinkingpage", page); err != nil {
-		h.lg.Error("userui render failed", "tmpl", "thinkingpage", "error", err.Error())
-		http.Error(w, "render failed", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(bytes.ReplaceAll(b.Bytes(), []byte("\r"), []byte("&#13;")))
-}
-
-// thinkingRaw serves one event's pretty JSON as plain text, capped at rawMax.
-func (h *handler) thinkingRaw(w http.ResponseWriter, r *http.Request) {
-	_, inst, ok := h.thinkingSession(w, r)
-	if !ok {
-		return
-	}
-	stream, ok := thinkingStream(w, r)
-	if !ok {
-		return
-	}
-	seq, ok := thinkingUint(w, r, "seq")
-	if !ok {
-		return
-	}
-	raw, cut, found, err := h.thinkingRawOf(inst.ActorID, stream, seq)
-	if err != nil {
-		h.lg.Error("thinking raw: listing events failed", "session", inst.ActorID, "error", err.Error())
-		http.Error(w, "listing events failed; see the jam log", http.StatusInternalServerError)
-		return
-	}
-	if !found {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	_, _ = io.WriteString(w, raw)
-	if cut > 0 {
-		_, _ = fmt.Fprintf(w, "\n… truncated %d bytes", cut)
-	}
+		Tail: thinkingTail, FollowNewest: true, Event: h.thinkingJSON, Allowed: allowed})
 }
 
 // thinkingPageOf is the thinkingPageSize events of actor's stream below

@@ -4,7 +4,7 @@ read_when: You are building or testing this repo inside the egress-locked dev sa
 owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH) and build/test workarounds
 prereqs: OVERVIEW.md
 tier: leaf
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # Development notes
@@ -65,18 +65,6 @@ Two consequences worth knowing when adding a dependency:
   not allow-listed and fail with `Forbidden`. That error is about an unrelated
   transitive test-dep, not your change; `go get <mod>` + `go build ./...` already
   write correct `go.mod`/`go.sum` entries. Don't chase a mirror.
-
-## The whiteboard editor bundle
-
-The `/app/user` whiteboard editor is Excalidraw, bundled from `web/whiteboard/`
-(`package.json` + committed `package-lock.json` + `entry.jsx`) into
-`internal/jam/uiassets/whiteboard/` — git-ignored, embedded by `jam`.
-`just whiteboard` (`scripts/whiteboard.sh`: `npm ci` + esbuild) builds it;
-it needs Node 20+ and the npm registry. `just build` runs it when npm is
-present (`WHITEBOARD_OPTIONAL=1`), and the gate and the release pipeline
-always do. Without the bundle `jam` still builds and every test still
-runs; `/app/user` just hides New whiteboard. `just test-browser` drives the
-editor in headless Chrome when the bundle is built.
 
 ## Regenerating gRPC code
 

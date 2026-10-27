@@ -40,7 +40,7 @@ describe("ask cards", () => {
       c = card({ state: "answered", answeredBy: "alice", choice: "Hold", comment: "after lunch", canAnswer: false });
       return new HttpResponse(null, { status: 204 });
     });
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     expect(await screen.findByText("wait for CI")).toBeInTheDocument();
     await userEvent.type(screen.getByRole("textbox", { name: "Comment on Merge PR #12?" }), "after lunch");
     await userEvent.click(screen.getByRole("button", { name: /Hold/ }));
@@ -53,7 +53,7 @@ describe("ask cards", () => {
   it("refuses Other… without a comment", async () => {
     let posts = 0;
     serve(() => conv([card()]), () => { posts++; return new HttpResponse(null, { status: 204 }); });
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     await userEvent.click(await screen.findByRole("button", { name: "Other…" }));
     expect(await screen.findByText("Write a comment for Other…")).toBeInTheDocument();
     expect(posts).toBe(0);
@@ -65,7 +65,7 @@ describe("ask cards", () => {
       c = card({ version: 2, question: "Merge PR #12 now?", edited: true });
       return HttpResponse.json({ error: "this ask changed — review the new version", code: "ask_changed" }, { status: 409 });
     });
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     await userEvent.click(await screen.findByRole("button", { name: /Ship it/ }));
     expect(await screen.findByText("this ask changed — review the new version")).toBeInTheDocument();
     // (The open-asks panel lists the question too: look in the card.)
@@ -75,7 +75,7 @@ describe("ask cards", () => {
 
   it("is read-only, and says for whom, when the viewer may not answer", async () => {
     serve(() => conv([card({ canAnswer: false, for: "carol" })]));
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     await screen.findAllByText("for carol"); // the card's and the open-asks panel's
     expect(within(document.getElementById("ask-ask_1")!).getByText("for carol")).toBeInTheDocument();
     expect(screen.getAllByText("Ship it").every((el) => el.closest("button") === null)).toBe(true);
@@ -84,13 +84,13 @@ describe("ask cards", () => {
 
   it("shows a withdrawn ask with its reason", async () => {
     serve(() => conv([card({ state: "withdrawn", reason: "superseded", canAnswer: false })]));
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     expect(await screen.findByText("withdrawn: superseded")).toBeInTheDocument();
   });
 
   it("keeps a half-typed comment across a live refresh", async () => {
     serve(() => conv([card()]));
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     const box = await screen.findByRole("textbox", { name: "Comment on Merge PR #12?" });
     await userEvent.type(box, "half");
     act(() => { focusManager.setFocused(false); focusManager.setFocused(true); });
@@ -102,7 +102,7 @@ describe("ask cards", () => {
     const scroll = vi.fn();
     Element.prototype.scrollIntoView = scroll;
     serve(() => conv([card(), card({ id: "ask_2", question: "Deploy?", for: "carol", canAnswer: false })]));
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     expect(await screen.findByText("Open asks")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Deploy?" }));
@@ -111,7 +111,7 @@ describe("ask cards", () => {
 
   it("Discuss starts a reply about the ask in the composer", async () => {
     serve(() => conv([card()]));
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     await userEvent.click(await screen.findByRole("button", { name: "Discuss" }));
     expect(screen.getByRole("textbox", { name: "Message eng" })).toHaveValue("re: Merge PR #12?\n");
   });
@@ -125,7 +125,7 @@ describe("ask cards", () => {
       http.post("/app/user/api/asks/:id/answer", async () => { posts++; await gate; return new HttpResponse(null, { status: 204 }); }),
       http.get("/app/user/api/rail", () => { railGets++; return HttpResponse.json({ groups: [], unreadTotal: 0 }); }),
     );
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     await userEvent.click(await screen.findByRole("button", { name: /Hold/ }));
     expect(screen.getByRole("button", { name: /Ship it/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Other…" })).toBeDisabled();

@@ -34,28 +34,28 @@ const withBoards = { ...boot, boards: true };
 describe("boards in a conversation", () => {
   it("shows a board's card: title, who and when, the thumbnail, linking to the board", async () => {
     serve(conv());
-    renderApp(withBoards, "/app/next/c/chn_a");
+    renderApp(withBoards, "/app/user/c/chn_a");
     const c = (await screen.findByText(/Plan/)).closest("[data-board]") as HTMLElement;
     expect(within(c).getByText(/alice/)).toBeInTheDocument();
     expect(within(c).getByRole("img", { name: "Plan" })).toHaveAttribute("src", "/app/user/boards/brd_1/thumb.png");
-    expect(within(c).getByRole("link", { name: "Open" })).toHaveAttribute("href", "/app/next/boards/brd_1");
+    expect(within(c).getByRole("link", { name: "Open" })).toHaveAttribute("href", "/app/user/boards/brd_1");
   });
 
   it("starts a whiteboard with a title and opens it", async () => {
     const created = serve(conv());
     const user = userEvent.setup();
-    renderApp(withBoards, "/app/next/c/chn_a");
+    renderApp(withBoards, "/app/user/c/chn_a");
     await user.click(await screen.findByRole("button", { name: "New whiteboard" }));
     await user.type(await screen.findByLabelText("Title"), "Sketch");
     await user.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() => expect(created).toEqual([{ channel: "chn_a", title: "Sketch" }]));
-    expect(await screen.findByRole("link", { name: "← Back to chat" })).toHaveAttribute("href", "/app/next/c/chn_a");
+    expect(await screen.findByRole("link", { name: "← Back to chat" })).toHaveAttribute("href", "/app/user/c/chn_a");
     expect(await screen.findByTestId("editor")).toBeInTheDocument();
   });
 
   it("offers New whiteboard only where the viewer may start one", async () => {
     serve(conv({ newBoard: false }));
-    renderApp(withBoards, "/app/next/c/chn_a");
+    renderApp(withBoards, "/app/user/c/chn_a");
     await screen.findByText(/Plan/);
     expect(screen.queryByRole("button", { name: "New whiteboard" })).toBeNull();
   });

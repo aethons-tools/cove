@@ -132,7 +132,7 @@ describe("the Thinking tab", () => {
     expect(screen.getByText("— session restarted —")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("option", { name: /300 events/ })).toBeInTheDocument());
     await userEvent.selectOptions(screen.getByLabelText("Stream"), "s0");
-    expect(FakeES.last.url).toBe("/app/user/session/ses_1/thinking/events?format=json&stream=s0");
+    expect(FakeES.last.url).toBe("/app/user/session/ses_1/thinking/events?stream=s0");
     expect(screen.getByLabelText("Stream")).toHaveValue("s0");
   });
 

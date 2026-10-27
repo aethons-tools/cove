@@ -79,6 +79,9 @@ dev-cert:
       -subj "/CN=jam.local.aethons.tools" \
       -addext "subjectAltName=DNS:jam.local.aethons.tools" \
       -keyout dev/tls/key.pem -out dev/tls/cert.pem
+    # openssl writes key.pem 0600; the Jam container runs as uid 10001 and, on
+    # Colima mounts, cannot read a 0600 host file. Dev-only self-signed key.
+    chmod 644 dev/tls/key.pem
     echo "wrote dev/tls/cert.pem, dev/tls/key.pem (CN=jam.local.aethons.tools)"
 
 # raise the local dev Postgres (host port 15432) and Garage blob store (13900) for Jam; see dev/README.md
@@ -87,7 +90,24 @@ dev-up:
 
 # stop the local dev Postgres and Garage. Pass ARGS=-v to also wipe their data volumes.
 dev-down *ARGS:
-    docker compose -f dev/docker-compose.yml down {{ARGS}}
+    docker compose -f dev/docker-compose.yml --profile jam down {{ARGS}}
+
+# start Jam in its container (profile "jam") beside Postgres and Garage; see dev/docker-compose.yml
+dev-jam-up:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for f in dev/jam.container.yml dev/credentials.container.yml; do
+      [ -f "$f" ] || { echo "missing $f: cp $f.example $f (docker would create a directory at the bind source)" >&2; exit 1; }
+    done
+    docker compose -f dev/docker-compose.yml --profile jam up -d
+
+# follow the Jam container's logs
+dev-jam-logs:
+    docker compose -f dev/docker-compose.yml logs -f jam
+
+# run a jam verb inside the Jam container (loopback-trusted admin), e.g. `just dev-jam destination list`
+dev-jam *ARGS:
+    docker compose -f dev/docker-compose.yml exec jam jam {{ARGS}}
 
 # Run jam serve against the local dev config (uses the last `just build`
 # output — run `just build` + `just dev-cert` + `just dev-up` first). macOS binds a
@@ -113,18 +133,13 @@ dev-watch:
 test:
     go test ./...
 
-# build the whiteboard editor bundle jam embeds (needs Node/npm; see
-# scripts/whiteboard.sh). `just build` runs it when npm is available.
-whiteboard:
-    ./scripts/whiteboard.sh
-
-# build the Jam app bundle jam embeds at /app/next/ (needs Node/npm; see
+# build the Jam app bundle jam embeds at /app/user/ (needs Node/npm; see
 # scripts/app.sh and docs/web-app.md). `just build` runs it when npm is available.
 app:
     ./scripts/app.sh
 
 # the Jam app's dev server (hot reload) proxying the API to a running
-# `jam serve` (JAM_URL, default http://localhost:8081); open http://localhost:5173/app/next/
+# `jam serve` (JAM_URL, default http://localhost:8081); open http://localhost:5173/app/user/
 app-dev:
     cd web/app && npm ci --no-audit --no-fund --loglevel=error && npx vite
 
@@ -141,6 +156,15 @@ test-browser:
 # hermetic test for the root install.sh installer (stubs gh/uname; no network)
 test-install:
     bash install.test.sh
+
+# hermetic test for scripts/jam-image.sh, images/jam/Dockerfile and the release.yml wiring (fake docker; no daemon)
+test-jam-image:
+    bash scripts/jam-image.test.sh
+
+# build the Jam container image (jam:dev) from freshly built linux binaries
+jam-image *ARGS:
+    scripts/build.sh linux/$(go env GOARCH)
+    scripts/jam-image.sh {{ARGS}}
 
 # real-ssh integration tests of the ssh argv builders (needs ssh/sshd/ssh-keygen)
 integration:

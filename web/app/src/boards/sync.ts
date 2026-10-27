@@ -1,4 +1,4 @@
-// The board sync's rules (web/whiteboard/entry.jsx, ported): Jam merges per
+// The board sync's rules (ported from the old whiteboard bundle): Jam merges per
 // element; the editor sends only versions Jam lacks, in batches, never an
 // element over Jam's per-element cap (64 KB; 60 000 bytes of JSON here).
 export const SEND_DELAY = 300; // ms after the last change

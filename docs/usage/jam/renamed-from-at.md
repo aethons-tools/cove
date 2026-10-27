@@ -169,11 +169,25 @@ Its `authorization: Bearer` token, Jam's cove-facing :443 address and its env
 (it reads none) are unchanged; the names it changes (binary, directory, gRPC
 stream, labels) are in the tables below.
 
+## Jam in a container
+
+The [image](container.md) keeps its name, `ghcr.io/aethons-tools/jam`; only
+its binary changed. Pull the new tag and recreate the container; keep its
+`/var/lib/jam` volume. It now holds `/usr/local/bin/jam` only (`ENTRYPOINT
+["jam"]`): a `docker exec … at-jam <verb>` becomes `… jam <verb>`, and a
+`command:` credential running `at-mint` becomes `["jam", "mint", …]`. The
+local tags `cove-jam:dev` / `cove-jam:ci` are `jam:dev` / `jam:ci`. The
+directory move runs inside the container (`HOME` is `/var/lib/jam`), so a
+`.config/at-jam` or `.local/state/at-jam` in that volume is copied across on
+the first start. A container Jam has no `runtime.launcher`, so the studio
+migration does not run and docker is not needed.
+
 ## Old → new
 
 | Old | New |
 |---|---|
 | `at-jam` | `jam` |
+| Jam image `ghcr.io/aethons-tools/jam` with `at-jam` and `at-mint`; local tag `cove-jam:dev` | the same image with `jam` only (`jam mint`); `jam:dev` |
 | `at-studio-manager` (remote manager hosts), `~/.config/at-studio-manager` | `jam-studio-manager`, `~/.config/jam-studio-manager` |
 | `at-mint github\|anthropic` | `jam mint github\|anthropic` |
 | `cove-master` (in studios) | `jam-studio-agent` |

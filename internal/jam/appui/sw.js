@@ -78,28 +78,20 @@ function jamFallback(p) {
   return { title: 'Jam', options: { body: 'New message', icon: ICON, badge: BADGE, data: { channel: jamStr(p && p.channel), n: 1 } } };
 }
 
-// jamArea is the Jam area a window shows: 'next' for the Jam app
-// ('/app/next/'), else 'user'.
-function jamArea(url) {
-  try { return new URL(url).pathname.startsWith('/app/next/') ? 'next' : 'user'; } catch (_) { return 'user'; }
-}
-
-// jamTarget is the URL that opens conversation channel in area: the Jam app
-// ('next') or the Inbox (the default, until the app replaces it).
-function jamTarget(channel, area) {
-  if (area === 'next') return channel ? '/app/next/c/' + encodeURIComponent(channel) : '/app/next/';
-  return channel ? '/app/user/?c=' + encodeURIComponent(channel) : '/app/user/';
+// jamTarget is the Jam app URL that opens conversation channel.
+function jamTarget(channel) {
+  return channel ? '/app/user/c/' + encodeURIComponent(channel) : '/app/user/';
 }
 
 // jamPickClient is the index of the window (by URL) a notification click
-// should reuse — the first on the Jam app ('/app/next/') or the Inbox
-// ('/app/user/') — or -1 to open a new one. An /app/admin/ (or any other)
-// window is never navigated away.
+// should reuse — the first on the Jam app ('/app/user/', or a tab still on
+// its pre-cutover home '/app/next/') — or -1 to open a new one. An
+// /app/admin/ (or any other) window is never navigated away.
 function jamPickClient(urls) {
   for (let i = 0; i < urls.length; i++) {
     try {
       const p = new URL(urls[i]).pathname;
-      if (p.startsWith('/app/next/') || p.startsWith('/app/user/')) return i;
+      if (p.startsWith('/app/user/') || p.startsWith('/app/next/')) return i;
     } catch (_) { /* not a URL: skip */ }
   }
   return -1;
@@ -136,7 +128,7 @@ self.addEventListener('notificationclick', (e) => {
       try {
         if ('focus' in c) await c.focus();
         if (!('navigate' in c)) return;
-        await c.navigate(jamTarget(channel, jamArea(c.url)));
+        await c.navigate(jamTarget(channel));
         return;
       } catch (_) { /* uncontrolled or gone: open instead */ }
     }

@@ -70,7 +70,7 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 		row := messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID)
 		decorateAsk(&row, p, d, m)
 		if card := boardCard(d, m); card != nil {
-			row.Board, row.Channel = card, channelID
+			row.Board = card
 		}
 		switch {
 		case row.Board != nil:
@@ -87,7 +87,6 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 		conv.Messages = append(conv.Messages, row)
 	}
 	conv.OpenAsks = openAskCards(p, d, ident.ID(channelID))
-	conv.HasMessages = len(conv.Messages) > 0
 	membershipControls(&conv, p, d)
 	return conv, true
 }
@@ -154,7 +153,6 @@ func legacyConversation(p jam.Participant, d Deps, channelID string) (Conversati
 		row := messageRow(m.From.Ref, intercom.Squawk{Seq: m.Seq, Body: m.Body, At: m.At, ContentType: m.ContentType}, mine[m.From.String()])
 		conv.Messages = append(conv.Messages, row)
 	}
-	conv.HasMessages = len(conv.Messages) > 0
 	return conv, true
 }
 

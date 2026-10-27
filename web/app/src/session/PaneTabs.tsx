@@ -5,6 +5,7 @@ import type { PaneTab } from "./layout";
 import { Link } from "react-router";
 import { usePaneTab } from "./useSession";
 import { FrameView } from "./frames/FrameView";
+import { APP } from "../paths";
 
 const ASK_COLOR: Record<string, string> = { open: "yellow", answered: "green", withdrawn: "gray" };
 const enc = encodeURIComponent;
@@ -46,7 +47,7 @@ function Artifacts({ p, onAsk }: { p: SessionPane; onAsk: (id: string) => void }
       {p.boards.length > 0 && <Section title="Whiteboards">
         <SimpleGrid cols={2} spacing="xs">
           {p.boards.map((b) => (
-            <Anchor key={b.id} component={Link} to={`/app/next/boards/${enc(b.id)}`} size="xs">
+            <Anchor key={b.id} component={Link} to={`${APP}boards/${enc(b.id)}`} size="xs">
               <Image loading="lazy" src={`/app/user/boards/${enc(b.id)}/thumb.png`} alt="" radius="sm" fit="contain" h={90} bg="white" />
               {b.title}
             </Anchor>

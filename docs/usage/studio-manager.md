@@ -51,6 +51,7 @@ colima:
 
 `identity-file` and `known-hosts-dir` default to the manager's own `<dir>`, not `local`'s `~/.config/jam`.
 The `colima` fields mean what the same fields of `runtime.launcher` mean for Jam ([serve.md](jam/serve.md)).
+For a Jam in a container, `jam-addr` is the host's published 443 ([pointing managers at it](jam/container.md#pointing-studio-managers-at-it)).
 
 ## TLS
 

@@ -8,6 +8,9 @@ name: release
 #         │                                                        │
 #         ▼                                                        ▼
 #   jam-studio (FROM jam-studio-base:ci)                  jam (embeds jam-studio-agent + list)
+#                                                                │
+#                                                                ▼
+#                                                         jam image (alpine + that binary)
 #
 # Pull requests build + smoke the touched legs but NEVER publish (spec §5).
 # Versioning is <N>-<MMDD>, N = git rev-list --count HEAD (spec §5). Supersedes
@@ -31,6 +34,7 @@ permissions:
 env:
   BASE_IMAGE: ghcr.io/aethons-tools/jam-studio-base
   STUDIO_IMAGE: ghcr.io/aethons-tools/jam-studio
+  JAM_IMAGE: ghcr.io/aethons-tools/jam
 
 jobs:
   # Decide, from the push/PR diff, which DAG legs run — and stamp the version.
@@ -61,12 +65,12 @@ jobs:
               - 'go.sum'
               - '.goreleaser.yaml'
               - 'scripts/stage-studio-agent.sh'
-              - 'scripts/whiteboard.sh'
-              - 'web/whiteboard/**' # the editor bundle jam embeds
               - 'scripts/app.sh'
               - 'web/app/**' # the Jam app bundle jam embeds
               - 'install.sh' # embedded in jam (`update`)
               - 'scripts/release/**' # the archive check
+              - 'images/jam/**' # the Jam container image built in the binaries leg
+              - 'scripts/jam-image.sh' # ... and the script that builds it
       - id: legs
         # Fan the raw path filters into the DAG's legs (spec §3):
         #   base change     => rebuild base AND jam-studio (downstream) AND the binaries
@@ -292,14 +296,12 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      # The whiteboard editor bundle (a goreleaser before-hook) needs Node.
+      # The Jam app bundle (a goreleaser before-hook) needs Node.
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            web/whiteboard/package-lock.json
-            web/app/package-lock.json
+          cache-dependency-path: web/app/package-lock.json
 
       # Config sanity (absorbs the old release-validate workflow).
       - name: Validate goreleaser config
@@ -339,6 +341,54 @@ jobs:
       # before merge and on main before the release is cut.
       - name: Check release archives
         run: bash scripts/release/check-archive.sh dist
+
+      # The Jam container image is built FROM the binaries goreleaser just put in
+      # dist/ (scripts/jam-image.sh), so it carries exactly the released jam and
+      # its tag is the release version.
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      # PR: build the amd64 image into the local daemon and smoke it; never publish.
+      - name: Build Jam image (PR — load, no push)
+        if: github.event_name == 'pull_request'
+        run: bash scripts/jam-image.sh --platforms linux/amd64 --tag jam:ci
+
+      - name: Smoke-test Jam image (PR)
+        if: github.event_name == 'pull_request'
+        env:
+          VERSION: ${{ needs.changes.outputs.version }}
+        run: |
+          out="$(docker run --rm jam:ci version)"
+          echo "$out"
+          test "$out" = "jam $VERSION"
+
+      # main: publish the multi-arch image as <N>-<MMDD> + latest.
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Jam image (main)
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ needs.changes.outputs.version }}
+        run: |
+          bash scripts/jam-image.sh --platforms linux/amd64,linux/arm64 \
+            --tag "${JAM_IMAGE}:${VERSION}" --tag "${JAM_IMAGE}:latest" --push
+          echo "Image: ${JAM_IMAGE}:${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+
+      # The arm64 half of the manifest was only cross-built; run it under QEMU.
+      - name: Smoke-test Jam image (arm64, main)
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ needs.changes.outputs.version }}
+        run: |
+          out="$(docker run --rm --platform linux/arm64 "${JAM_IMAGE}:${VERSION}" version)"
+          echo "$out"
+          test "$out" = "jam $VERSION"
 
       - name: Publish release
         if: github.event_name == 'push'

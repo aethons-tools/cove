@@ -51,7 +51,6 @@ export function TitleBar({ boot }: { boot: Bootstrap }) {
             <Menu.Label>{boot.user.name} · {boot.roles}</Menu.Label>
             <PushToggle push={push} />
             <Menu.Item onClick={soundsDialog.open}>Sounds…</Menu.Item>
-            <Menu.Item component="a" href="/app/user/">Classic Inbox</Menu.Item>
             {boot.signOut && <Menu.Item component="a" href="/app/auth/logout" onClick={(e) => {
               if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // a new tab: just the link
               e.preventDefault();

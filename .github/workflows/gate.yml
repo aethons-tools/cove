@@ -56,17 +56,11 @@ jobs:
             "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-x86_64"
           sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
 
-      # Build the whiteboard editor bundle, so the tests below cover the
-      # embedded editor too (uiassets serves it; userui offers it).
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            web/whiteboard/package-lock.json
-            web/app/package-lock.json
-      - name: whiteboard bundle
-        run: ./scripts/whiteboard.sh
+          cache-dependency-path: web/app/package-lock.json
       # The Jam app (web/app): the bundle (npm ci, build, size budget) so the
       # Go tests below serve the real app, then API types current, typecheck,
       # lint and unit tests on the same install (one npm ci: the job has a
@@ -84,6 +78,11 @@ jobs:
       # (stubs gh/uname, serves a local fixture release). No network/release.
       - name: installer test
         run: bash install.test.sh
+
+      # Mirrors `just test-jam-image` — hermetic bash harness (fake docker) for
+      # scripts/jam-image.sh plus the Dockerfile and release.yml wiring checks.
+      - name: jam image script test
+        run: bash scripts/jam-image.test.sh
 
       # Mirrors `just lint` — both call scripts/lint.sh, so CI and the local
       # loop cannot drift.

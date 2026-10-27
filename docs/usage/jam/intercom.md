@@ -4,7 +4,7 @@ read_when: You want a raised studio's agent to be able to read and post comments
 owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint and its wire shapes, the `mission` tool and its `PUT /mission` endpoint, the channel log and its cutover from the legacy log, channel membership (call-in, join, leave), the inbox as a queue, the relays, wake-on, the `jam-studio-agent mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed studio a squawk is scoped to; personal-sessions.md for a ticketless studio that talks to the person who started it; requisitioner.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the studio's own ticket
 tier: leaf
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # The intercom MCP
@@ -46,7 +46,7 @@ to be read:
 Each side can opt out:
 - an agent passes `content_type: "text/plain"` to `send` (`POST /squawks` takes
   the same optional field);
-- a human ticks **Plain text** in the [`/app/user` composer](intercom-ui.md#sending-unread-and-refresh)
+- a human ticks **Plain text** in the [`/app/user` composer](intercom-ui.md#the-composer)
   (`POST /app/user/send` takes the same field).
 
 Anything else is a `400`, and nothing is appended. `read` (`GET /squawks`)

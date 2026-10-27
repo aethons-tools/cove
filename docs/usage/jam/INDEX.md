@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for the studio image and its security model
 tier: section
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # `jam` — operating the central service
@@ -62,6 +62,8 @@ five pillars), see the design history:
 | [config-git-sources.md](config-git-sources.md) | You want a Jam to follow a config repo in git (`config track\|sync\|untrack`, `--git`), are referencing a kit by its own source (`kits/<name>.source.yml`), or a config sync failed to fetch or flagged a source kit as drifted. |
 | [coves.md](coves.md) | You are raising/tearing down a managed studio, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or running the cove-side Attach client (jam-studio-agent). |
 | [studio-managers.md](studio-managers.md) | You register, rotate or revoke a remote Studio Manager (`jam manager add\|list\|rotate\|revoke`, `runtime.studio-managers`), or debug a manager connection, its strays, or a refused revoke. |
+| [container.md](container.md) | You run Jam from its container image (`ghcr.io/aethons-tools/jam`, the dev compose `jam` service), reach its admin API, decide what must persist, or point managers at it. |
+| [studio-manager-live-test.md](studio-manager-live-test.md) | You run the Studio Manager live test (Jam container plus a manager on a Mac), the gate for deleting `local` and `runtime.launcher`. |
 | [inspect.md](inspect.md) | You want to see everything a studio (or a raise of a role now) is set up with — context files, egress, destinations, env, model-spec, kit/image, seed, MCP, policy — or why a studio differs from its role: `role inspect`, `studio inspect --diff`, or an agent or role page's Setup tab. |
 | [session-context-authoring.md](session-context-authoring.md) | You want sessions of a role, a project or the whole Jam to know something at raise — rules, goals, repos — and need `jam context`, the YAML format or the limits. |
 | [session-context.md](session-context.md) | You are writing a kit prompt, debugging what a session was told at raise, or changing how session context is compiled or delivered. |
@@ -81,7 +83,7 @@ five pillars), see the design history:
 | [session-events.md](session-events.md) | You want to watch, audit, or export what a managed studio's agent did — the captured Claude Code event stream, its storage/retention config, redaction, and the export API. |
 | [intercom.md](intercom.md) | You want a raised studio's agent to read/send comments on its own ticket (the brokered intercom MCP), or you're wiring the `/squawks` endpoint + its `jam-studio-agent mcp` delivery, wake-on (`runtime.wake`), or running the intercom without a Requisitioner. |
 | [turn-end.md](turn-end.md) | You want a ticket session to report its ticket's state or a session to end itself, to be woken at a time or on a schedule (optionally gated by a check), or to be woken (or torn down) after sitting idle; or you need to know why a studio shows `holding`, what a woken agent is told about why it woke, or how Jam decides a session whose turn ended may be woken, paused, or torn down. |
-| [intercom-ui.md](intercom-ui.md) | You want a project member to read/reply to their studios and channels in a browser — the two-pane `/app/user` inbox (attention-grouped rail, conversation pane, New Message, unread) — or you're operating/extending it (routes, the 3s poll, mark-read, its wiring to `/app/user/send`). |
+| [intercom-ui.md](intercom-ui.md) | You want a project member to read/reply to their studios and channels in a browser — the `/app/user` Jam app (attention-grouped rail, conversations, New message, asks, the composer, unread, live refresh, the session status strip) — or you're operating it (its URLs and old-link redirects). |
 | [session-view.md](session-view.md) | You're using or extending a session's conversation in `/app/user` — its header and actions, the Studio (in-pane IDE)/Previews (View here)/Artifacts/Status/Thinking pane (what the agent thinks and does), its per-session layout memory, or who sees a session's cost. |
 | [push.md](push.md) | You want Jam to send push notifications to members' phones and desktops — `jam push keygen`, the VAPID credential, `runtime.push`, the push-service egress hosts — or a member asks about the Notifications menu item (missing, "Blocked", the iOS Home Screen rule), what buzzes them, lock-screen previews, the app badge, or sign-out on a shared device. |
 | [push-delivery.md](push-delivery.md) | You're debugging push delivery (`push:relay` open, `push: send refused`, a subscription vanished, a late or missing push) or extending the `/app/user/push/*` routes (key, subscriptions, focus) or the endpoint allowlist. |
@@ -90,7 +92,7 @@ five pillars), see the design history:
 | [renamed-from-at.md](renamed-from-at.md) | You are upgrading from a release whose binaries were `at-jam`/`at-mint`/`at-studio-manager`, or you have a kit, script, env var or path that still says `at-`, `cove-` or `harbor.cove`, and need the new name and the upgrade steps. |
 | [renamed-from-harbor.md](renamed-from-harbor.md) | You have a kit, config, script or env var that still says "harbor", or saw a "deprecated name" warning, and need the new name and how long the old one keeps working. |
 | [studio-kit-migration.md](studio-kit-migration.md) | Your `jam.yml` still sets `runtime.launcher.install-manifest`, or a pre-existing full-kit registry row now fails `kit show`/resolution, and you need what to change. |
-| [whiteboards.md](whiteboards.md) | You want people and agents to sketch together on a shared canvas in a conversation — board access, per-element merge, sync routes, the board_* agent tools and the server-side renderer. |
+| [whiteboards.md](whiteboards.md) | You want people and agents to sketch together on a shared canvas in a conversation — board access, per-element merge, sync routes, the board_* agent tools, the server-side renderer, and the board editor in the Jam app. |
 | [attachments.md](attachments.md) | You want people or agents to share files (screenshots, logs, PDFs) in a conversation, you're setting up the attachments bucket (Garage/S3/R2), or an upload or download is refused — upload → reference → access-checked download, `attach`/`fetch`. |
 | [asks.md](asks.md) | You want an agent to ask people a question with answers to pick from (approve, choose A/B/C) and get the answer through `read` — the `ask`/`amend`/`withdraw`/`asks` tools, who may answer, and how open asks count as asking for a person. |
 | [escalation.md](escalation.md) | You want a waiting session that asked for a person to actively reach people — configuring a Project's ordered, category-keyed escalation tiers (called into the session's channel) + per-tier timeouts, the `escalate(category)` tool, and operating the resident escalation engine. |

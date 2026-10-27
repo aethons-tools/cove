@@ -5,23 +5,10 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
-	"github.com/aethons-tools/cove/internal/jam"
-	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
 
 // Whiteboards in the user area (docs/usage/jam/intercom-ui.md#whiteboards):
-// a board's card in its conversation, New whiteboard in the header, and the
-// editor (the Excalidraw bundle) that ?board= opens in place of the stream.
-
-// whiteboardBuilt reports whether the editor bundle is in this binary (a
-// var, so tests can toggle it).
-var whiteboardBuilt = uiassets.WhiteboardBuilt
-
-// BoardEditor is the open board.
-type BoardEditor struct {
-	ID, Title, Script, Styles, AssetBase string
-	ReadOnly                             bool
-}
+// a board's card in its conversation (the app opens the editor).
 
 // boardCard is m's board card, if it carries a board part.
 func boardCard(d Deps, m intercom.Squawk) *BoardCard {
@@ -44,22 +31,7 @@ func boardCard(d Deps, m intercom.Squawk) *BoardCard {
 		} else {
 			return nil
 		}
-		return &BoardCard{ID: string(data.BoardID), Title: title, Built: whiteboardBuilt()}
+		return &BoardCard{ID: string(data.BoardID), Title: title}
 	}
 	return nil
-}
-
-// boardEditor is board id opened by p, if p may read it and the editor is built.
-func boardEditor(p jam.Participant, d Deps, chID, id string) *BoardEditor {
-	if d.Boards == nil || !whiteboardBuilt() {
-		return nil
-	}
-	b, _, ok := d.Boards.CanRead(p.UserID, ident.ID(id))
-	if !ok || string(b.Channel) != chID {
-		return nil
-	}
-	_, writable := d.Boards.CanWrite(p.UserID, ident.ID(id))
-	const prefix = "/app/static/"
-	return &BoardEditor{ID: id, Title: b.Title, Script: uiassets.WhiteboardScript(prefix), Styles: uiassets.WhiteboardStyles(prefix),
-		AssetBase: uiassets.WhiteboardBase(prefix), ReadOnly: !writable}
 }

@@ -16,7 +16,7 @@ const toJam: ProxyOptions = {
 };
 
 export default defineConfig({
-  base: "/app/next/",
+  base: "/app/user/",
   plugins: [react(), excalidrawFonts()],
   build: {
     outDir: process.env.APP_OUT_DIR ?? "dist",
@@ -25,7 +25,14 @@ export default defineConfig({
     sourcemap: false,
   },
   server: {
-    proxy: { "/app/user": toJam, "/app/auth": toJam, "/app/static": toJam },
+    // The app's pages are this server's (base /app/user/); only the routes
+    // it reads beside them go to Jam.
+    proxy: {
+      "^/app/user/(api|events|session|uploads|blobs|push)(/|$)": toJam,
+      "^/app/user/boards/[^/]+/(elements|thumb\\.png)": toJam,
+      "/app/auth": toJam,
+      "/app/static": toJam,
+    },
   },
   // Full-app renders (Mantine + router + MSW) run seconds each under a
   // parallel run: a 15 s ceiling instead of the 5 s default.

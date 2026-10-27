@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import { focusManager } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -44,7 +44,7 @@ function serve(c: Conversation | ((before: number) => Conversation), reads: numb
 describe("the conversation view", () => {
   it("shows the header, messages (server HTML), presence, and marks read", async () => {
     const reads = serve(conv());
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     expect(await screen.findByRole("heading", { name: "intercom-spider" })).toBeInTheDocument();
     expect(screen.getByText("test · agent")).toBeInTheDocument();
     expect(screen.getByText("m1")).toBeInTheDocument();
@@ -58,7 +58,7 @@ describe("the conversation view", () => {
 
   it("offers Leave and Call in to a member, Join to a non-member", async () => {
     serve(conv());
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     expect(await screen.findByRole("button", { name: "Leave" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Call in" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Join" })).toBeNull();
@@ -71,7 +71,7 @@ describe("the conversation view", () => {
       http.post("/app/user/api/conversations/chn_a/join", () => { joined = true; return new HttpResponse(null, { status: 204 }); }),
       http.get("/app/user/api/conversations/:c", () => HttpResponse.json(conv({ canJoin: !joined, canLeave: joined }))),
     );
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     await userEvent.click(await screen.findByRole("button", { name: "Join" }));
     expect(await screen.findByRole("button", { name: "Leave" })).toBeInTheDocument();
   });
@@ -79,14 +79,14 @@ describe("the conversation view", () => {
   it("shows a refused membership change as a notification", async () => {
     serve(conv());
     server.use(http.post("/app/user/api/conversations/chn_a/leave", () => HttpResponse.json({ error: "this channel's members are fixed", code: "conflict" }, { status: 409 })));
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     await userEvent.click(await screen.findByRole("button", { name: "Leave" }));
     expect(await screen.findByText("this channel's members are fixed")).toBeInTheDocument();
   });
 
   it("History is read-only: no controls, no mark-read", async () => {
     const reads = serve(conv({ channelId: "legacy:x", sendTo: "", canLeave: false, callIn: [], sessions: [] }));
-    renderApp(boot, "/app/next/c/legacy%3Ax");
+    renderApp(boot, "/app/user/c/legacy%3Ax");
     expect(await screen.findByText("m1")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Leave|Join|Call in/ })).toBeNull();
     await new Promise((r) => setTimeout(r, 50));
@@ -101,7 +101,7 @@ describe("the conversation view", () => {
       return conv({ messages: slice, earlier: upto.length > 200, lastSeq: 250 });
     };
     serve(page);
-    const { container } = renderApp(boot, "/app/next/c/chn_a");
+    const { container } = renderApp(boot, "/app/user/c/chn_a");
     expect(await screen.findByText("m250")).toBeInTheDocument();
     expect(screen.queryByText("m50")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Load earlier" }));
@@ -129,18 +129,17 @@ describe("the conversation view", () => {
       msg(3, { reAsk: { id: "ask_1", question: "Ship it?" } }),
       msg(4, { card: "ask", body: "<p>Ship it?</p>" }),
     ] }));
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     expect(await screen.findByRole("img", { name: "shot.png" })).toHaveAttribute("src", "/app/user/blobs/blb_1");
     expect(screen.getByRole("link", { name: /log\.txt/ })).toHaveAttribute("href", "/app/user/blobs/blb_2");
     expect(screen.getByText("bob answered: Yes")).toBeInTheDocument();
-    expect(screen.getByText("re: Ship it?")).toBeInTheDocument();
-    const card = screen.getByText(/This ask shows in the current Inbox/);
-    expect(within(card.closest("[data-seq]") as HTMLElement).getByRole("link", { name: /current Inbox/ })).toHaveAttribute("href", "/app/user/?c=chn_a");
+    expect(screen.getByRole("link", { name: "re: Ship it?" })).toHaveAttribute("href", expect.stringMatching(/^\/app\/user\/c\/chn_a#ask-/));
+    expect(screen.getByText("This ask can't be shown here.")).toBeInTheDocument();
   });
 
   it("gives code blocks a copy button", async () => {
     serve(conv({ messages: [msg(1, { body: "<pre><code>go test ./...\n</code></pre>" })] }));
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     expect(await screen.findByRole("button", { name: "Copy code" })).toBeInTheDocument();
   });
 
@@ -149,13 +148,13 @@ describe("the conversation view", () => {
       http.get("/app/user/api/rail", () => HttpResponse.json(rail)),
       http.get("/app/user/api/conversations/:c", () => HttpResponse.json({ error: "no such conversation", code: "not_found" }, { status: 404 })),
     );
-    renderApp(boot, "/app/next/c/chn_gone");
+    renderApp(boot, "/app/user/c/chn_gone");
     expect(await screen.findByText("no such conversation")).toBeInTheDocument();
   });
 
   it("keeps the conversation on screen when a refresh fails", async () => {
     serve(conv());
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     expect(await screen.findByText("m1")).toBeInTheDocument();
     server.use(http.get("/app/user/api/conversations/:c", () => new HttpResponse("bad gateway", { status: 502, headers: { "Content-Type": "text/plain" } })));
     act(() => { focusManager.setFocused(false); focusManager.setFocused(true); });
@@ -165,7 +164,7 @@ describe("the conversation view", () => {
 
   it("copies a message's text without the code button's icon", async () => {
     serve(conv({ messages: [msg(1, { body: "<p>run</p><pre><code>go test\n</code></pre>" })] }));
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     const btn = await screen.findByRole("button", { name: "Copy code" });
     expect(btn.textContent).toBe("");
     expect(btn.closest(".jam-body")!.textContent).toBe("rungo test\n");
@@ -183,7 +182,7 @@ describe("the conversation view", () => {
       if (new URL(request.url).searchParams.get("c") === "chn_b") await gate;
       return HttpResponse.json(railRows);
     }));
-    renderApp(boot, "/app/next/c/chn_a");
+    renderApp(boot, "/app/user/c/chn_a");
     await userEvent.click(await screen.findByRole("link", { name: /beta/ }));
     expect(screen.getByRole("link", { name: /alpha/ })).toBeInTheDocument(); // still there while rail?c=chn_b loads
     release();

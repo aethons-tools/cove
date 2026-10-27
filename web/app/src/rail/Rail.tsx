@@ -7,6 +7,7 @@ import { NavLink as RouterLink, useLocation, useParams } from "react-router";
 import { useRail } from "./useRail";
 import { useAppBadge } from "../push/useAppBadge";
 import { Problem } from "../Problem";
+import { APP } from "../paths";
 
 export function Rail() {
   const { channel } = useParams();
@@ -37,7 +38,7 @@ export function Rail() {
               <NavLink
                 key={r.id}
                 component={RouterLink}
-                to={`/app/next/c/${encodeURIComponent(r.id)}`}
+                to={`${APP}c/${encodeURIComponent(r.id)}`}
                 active={r.id === channel}
                 label={r.label}
                 description={r.mission || undefined}

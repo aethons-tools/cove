@@ -24,7 +24,7 @@ export function useLiveEvents(): void {
       if (opened) changed();
       opened = true;
     });
-    // The open board's editor listens for these (the old page's contract).
+    // The open board's editor listens for these.
     es.addEventListener("board", (e) => window.dispatchEvent(new CustomEvent("jam-board", { detail: (e as MessageEvent<string>).data })));
     es.addEventListener("presence", () => {
       void client.invalidateQueries({ queryKey: ["presence"] });

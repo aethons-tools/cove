@@ -215,6 +215,14 @@ published port; that traffic stays inside the sandbox.
 
 ## Architecture
 
+How the running pieces connect:
+
+| Piece | Runs | Links |
+|-------|------|-------|
+| Jam (`jam serve`) | anywhere, including [a container](usage/jam/container.md) | [serve.md](usage/jam/serve.md) |
+| Studio Managers (`jam-studio-manager`) | bare-metal next to their substrate (Colima), dialing Jam | [studio-manager.md](usage/studio-manager.md), [studio-managers.md](usage/jam/studio-managers.md) |
+| Studios (`jam-studio-agent`) | on a manager's host, dialing Jam's Attach stream | [coves.md](usage/jam/coves.md#jam-studio-agent-the-in-cove-client) |
+
 A pure **plan** (what to do) is separated from **execution** (doing it),
 so the interesting logic is unit-testable without Docker, SSH, or a live VM.
 A `Runner` interface abstracts process execution:
@@ -308,7 +316,7 @@ Logic lives in `scripts/` so CI never needs `just` installed.
 Common tasks (`just` to list them all):
 
 ```
-just build           # build jam + jam-studio-manager into dist/<os>-<arch>/
+just build           # build jam + jam-studio-manager into dist/<os>-<arch>/ (needs Node 22 + npm: the Jam app)
 just build-all       # cross-compile every supported target
 just jam <args>      # run the last-built jam with <args>
 just install         # install the host binaries onto your PATH (no sudo by default)

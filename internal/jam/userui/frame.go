@@ -1,7 +1,6 @@
 package userui
 
 import (
-	"encoding/json"
 	"net/http"
 	"slices"
 	"sync"
@@ -65,42 +64,10 @@ func collabPrincipal(r *http.Request, p jam.Participant) collab.Principal {
 	return cp
 }
 
-// frameRoute mints a frame URL for one of a session's framed views, form
-// name: the IDE (preview.IDEName) under the ssh right, else an exposed
-// preview under the preview right. 200 {"url", "open"} (open: the plain
-// preview URL, for Open in new tab); 404 for an unseen session, framing off
-// or a name the session doesn't expose; 403 without the right; 429 over the
-// per-user mint cap.
-func (h *handler) frameRoute(w http.ResponseWriter, r *http.Request) {
-	p, ok := jam.ParticipantFrom(r)
-	if !ok {
-		http.Error(w, "no participant", http.StatusUnauthorized)
-		return
-	}
-	inst, _, ok := h.sessionFor(p, r.PathValue("id"))
-	if !ok || h.d.Frames == nil {
-		http.NotFound(w, r)
-		return
-	}
-	fu, status, _, msg := h.frameOutcome(r, p, inst, r.PostFormValue("name"))
-	switch status {
-	case http.StatusOK:
-	case http.StatusNotFound:
-		http.NotFound(w, r)
-		return
-	default:
-		http.Error(w, msg, status)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store") // the URL carries a one-time ticket
-	_ = json.NewEncoder(w).Encode(map[string]string{"url": fu.URL, "open": fu.Open})
-}
-
 // frameOutcome mints a frame URL for one of inst's framed views: the IDE
 // (preview.IDEName) under the ssh right, else an exposed preview under the
 // preview right. It answers 200 with the URL, or a refusal's status, API
-// code and text (the HTML route writes the text, the API the envelope).
+// code and text.
 func (h *handler) frameOutcome(r *http.Request, p jam.Participant, inst jam.Instance, name string) (FrameURL, int, string, string) {
 	right := collab.SSH
 	if name != preview.IDEName {

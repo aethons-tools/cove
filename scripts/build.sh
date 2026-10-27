@@ -30,12 +30,10 @@ LDFLAGS="-s -w -X main.version=${VERSION}"
 ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
 BINARIES=(jam jam-studio-manager)
 
-# Build the whiteboard editor bundle jam embeds (skipped, with a warning,
-# where npm is missing: jam then builds without the editor).
-WHITEBOARD_OPTIONAL=1 ./scripts/whiteboard.sh
-# Build the Jam app bundle jam embeds (skipped, with a warning, when npm is
-# missing: /app/next/ then answers "not built").
-APP_OPTIONAL=1 ./scripts/app.sh
+# Build the Jam app bundle jam embeds. Required: it is the whole user area
+# (/app/user/), so a build without npm fails rather than ship a Jam no member
+# can use.
+./scripts/app.sh
 
 # Stage the linux jam-studio-agent binaries jam embeds, before jam is built —
 # shared with the goreleaser before-hook, see scripts/stage-studio-agent.sh.

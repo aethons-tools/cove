@@ -31,7 +31,7 @@ var renamedGroups = []renamedGroup{
 	{"directories and markers", []string{`\.config/at-(cove|jam|harbor)`, `state/at-jam`, `[<>]{3} at-jam`,
 		`atCoveConfigDir`, `atJamConfigDir`, `atJamStateDir`, `legacyConfigDir`}},
 	{"binaries and release", []string{`at-jam`, `at-mint`, `\bat-cove`, `at-harbor`, `cove-master`, `covemaster`,
-		`at-studio-manager`, `\batcove\b`, `cove_(\{\{|\$\{|\*)`, `\bCOVE_[A-Z]`, `\bAT_(JAM|COVE|HARBOR|MINT|LOG)_`, `atMint`}},
+		`at-studio-manager`, `\batcove\b`, `cove-jam`, `cove_(\{\{|\$\{|\*)`, `\bCOVE_[A-Z]`, `\bAT_(JAM|COVE|HARBOR|MINT|LOG)_`, `atMint`}},
 }
 
 // renamedAllow is where an old name may survive: the design history, the

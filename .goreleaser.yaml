@@ -24,9 +24,6 @@ before:
   hooks:
     # Build the linux jam-studio-agent binaries jam embeds, before goreleaser builds.
     - bash scripts/stage-studio-agent.sh
-    # Build the whiteboard editor bundle jam embeds (git-ignored output, so
-    # the tree stays clean). Required here: a release ships the editor.
-    - bash scripts/whiteboard.sh
     # Build the Jam app bundle jam embeds (git-ignored output). Required
     # here: a release ships the app.
     - bash scripts/app.sh

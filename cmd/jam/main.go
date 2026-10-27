@@ -2923,11 +2923,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Warn("DEV IDENTITY ACTIVE: loopback browser requests act as a user with no login; never use in production",
 				"user", d.User, "legacy_project", d.DeprecatedProject, "legacy_human", d.DeprecatedHuman)
 		}
-		// The user area: the inbox and the send endpoint (POST /app/user/send),
-		// the human analog of the agent send tool. It writes to the same
-		// intercom Log the agent send + relay ingress use, so a reply wakes a
-		// waiting studio; the inbox reads the same channel log, and the legacy
-		// log as History.
+		// The user area: the Jam app and its API, and the send endpoint (POST
+		// /app/user/send), the human analog of the agent send tool. Sends go to
+		// the same intercom Log the agent send + relay ingress use, so a reply
+		// wakes a waiting studio; the app reads the same channel log, and the
+		// legacy log as History.
 		userMux := http.NewServeMux()
 		// The Jam pane's one-time frame tickets (docs/usage/jam/previews.md
 		// "Framing"): the previews' login trades them for frame sessions and
@@ -2945,12 +2945,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if frames != nil && paneFramingOn(&cfg) {
 			userDeps.Frames = frameURLs{tickets: frames, domain: cfg.Previews.Domain, adminListen: cfg.AdminListen}
 		}
-		userOpts := []userui.Option{userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus)}
-		userMux.Handle("/app/user/", userui.Handler(userDeps, log, userOpts...))
-		// The Jam app (web/app) at /app/next/ while it is ported to parity
-		// (docs/superpowers/specs/2026-10-26-jam-spa-design.md); its CSP
+		// The user area is the Jam app (web/app) and its API; the app's CSP
 		// frames the preview hosts when the pane may.
-		nextApp := userui.Next(userDeps, log, appFrameSrc(&cfg), userOpts...)
+		userOpts := []userui.Option{userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus),
+			userui.WithFrameSrc(appFrameSrc(&cfg))}
+		userMux.Handle("/app/user/", userui.Handler(userDeps, log, userOpts...))
 
 		// Setup inspection: the admin API (WithSetupInspect) and the UI's Setup
 		// tabs (WithSetupDeps) render with the same deps.
@@ -2979,7 +2978,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// applies RequireSameOrigin): the session cookie alone (SameSite=Lax)
 		// lets a sibling subdomain post as the user.
 		browser := appui.Handler(appui.Deps{
-			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, User: userMux, Next: nextApp,
+			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, User: userMux,
 			Admin:          adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...),
 			TrustedOrigins: cfg.UIOrigins,
 			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil, AdminBadges: adminui.BadgeSource(st, sup, conds), Push: vapid != nil},

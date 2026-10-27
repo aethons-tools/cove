@@ -67,8 +67,8 @@ func TestAPIAnswerAskRefusals(t *testing.T) {
 	}
 }
 
-// The HTML route and the API say the same thing for every outcome.
-func TestAnswerOutcomeMatchesTheOldRoute(t *testing.T) {
+// Every refusal has a status, an API code and a message.
+func TestAnswerOutcomeRefusals(t *testing.T) {
 	e, _ := fixture()
 	for _, err := range []error{intercom.ErrAskChanged, intercom.ErrAskNotFound, intercom.ErrAskForbidden, jam.ErrSendDenied, fmt.Errorf("%w: other needs a comment", intercom.ErrInvalid)} {
 		status, code, msg := answerOutcome(e.Deps, "x", err)

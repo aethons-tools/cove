@@ -4,7 +4,7 @@ read_when: You are raising or tearing down a managed studio through Jam, inspect
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream (incl. its `OpenTunnel` push and the `Tunnel` RPC), and the `jam-studio-agent` client that dials it
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a studio is raised for
 tier: leaf
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # Managed studios (the supervisor)
@@ -220,6 +220,7 @@ Activity up, and reacts to control (teardown, wake) pushed down — reconnecting
 with backoff across transient drops. The client imports only the generated
 `attachpb` types and grpc, never `internal/jam`, so it stays a lean,
 server-free dependency for whatever process embeds it.
+For a [Jam in a container](container.md), `jam.host:443` is the host's published port.
 
 It reads its configuration from the environment (no SSH, no host
 orchestration):
