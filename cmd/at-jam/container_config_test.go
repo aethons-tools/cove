@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,12 +31,15 @@ func loadContainerExample(t *testing.T, mutate func(string) string) (serveConfig
 	if err != nil {
 		return cfg, err
 	}
+	if unknown := unknownServeKeys(data); len(unknown) > 0 {
+		return cfg, fmt.Errorf("unknown serve config keys: %v", unknown)
+	}
 	for _, v := range []func() error{
 		cfg.validateAdminExposure, cfg.validateLauncher, cfg.validateRequisitioner,
 		cfg.validateStorage, cfg.validateStorePostgres, cfg.validateDiscord,
 		cfg.validatePush, cfg.validateDisplayName, cfg.validateWake, cfg.validateMetrics,
 		cfg.validateSSH, cfg.validateKits, cfg.validateBlobs, cfg.validatePreviews,
-		cfg.validatePool, cfg.validateCredentials,
+		cfg.validatePool, cfg.validateCredentials, cfg.validateSessionEvents,
 	} {
 		if err := v(); err != nil {
 			return cfg, err

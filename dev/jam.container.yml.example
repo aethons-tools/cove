@@ -10,11 +10,14 @@
 # launcher here: remote Studio Managers dial in (runtime.studio-managers).
 
 # Broker + Attach listener. Non-root in the container, so 8443 (compose
-# publishes 443:8443). TLS files are mounted at /etc/jam/tls (JAM_TLS_DIR).
+# publishes 443:8443). TLS files are mounted at /etc/jam/tls (JAM_TLS_DIR,
+# default dev/tls, which `just dev-cert` fills with cert.pem + key.pem). To use a
+# Let's Encrypt dir, mount it with those names (symlinks, or point JAM_TLS_DIR
+# at a dir holding cert.pem and key.pem).
 listen: ":8443"
 tls:
-  cert: /etc/jam/tls/fullchain.pem
-  key:  /etc/jam/tls/privkey.pem
+  cert: /etc/jam/tls/cert.pem
+  key:  /etc/jam/tls/key.pem
 
 ui-hosts:
   - jam.local.aethons.tools
@@ -25,8 +28,8 @@ ui-hosts:
 # loopback-trusted CLI use `docker compose exec jam at-jam <verb>`.
 admin-listen: ":8081"
 admin-tls:
-  cert: /etc/jam/tls/fullchain.pem
-  key:  /etc/jam/tls/privkey.pem
+  cert: /etc/jam/tls/cert.pem
+  key:  /etc/jam/tls/key.pem
 
 # Control-plane store: the compose `postgres` service.
 store-postgres:
