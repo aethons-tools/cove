@@ -11,6 +11,11 @@
 # any other local Postgres. Point the integration tests at it with:
 #   export JAM_TEST_POSTGRES_DSN="host=localhost port=15432 dbname=jam user=jam password=jam sslmode=disable"
 #   just integration-jam
+#
+# Jam itself is an opt-in service (profile "jam"), run from the container image:
+#   just jam-image                                   (builds cove-jam:dev)
+#   cp dev/jam.container.yml.example dev/jam.container.yml; cp dev/credentials.container.yml.example dev/credentials.container.yml
+#   just dev-jam-up                                  (needs `just dev-cert` first)
 
 name: jam-dev
 
@@ -49,7 +54,28 @@ services:
       - garagemeta:/var/lib/garage/meta
       - garagedata:/var/lib/garage/data
 
+  # Jam, from the local image. Opt-in: only started with --profile jam
+  # (just dev-jam-up). Cove-facing TLS on 8443 (published as 443); admin on
+  # 8081, published to host loopback only.
+  jam:
+    profiles: ["jam"]
+    image: ${JAM_IMAGE:-cove-jam:dev}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      garage:
+        condition: service_started
+    ports:
+      - "443:8443"
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ./jam.container.yml:/etc/jam/jam.yml:ro
+      - ./credentials.container.yml:/etc/jam/credentials.yml:ro
+      - ${JAM_TLS_DIR:-./tls}:/etc/jam/tls:ro
+      - jamstate:/var/lib/jam
+
 volumes:
   pgdata:
   garagemeta:
   garagedata:
+  jamstate:

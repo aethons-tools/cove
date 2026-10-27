@@ -5,6 +5,7 @@ Assets for running a local dev instance of Jam.
 - **`docker-compose.yml`** — a local PostgreSQL 18 and Garage (the attachments blob store) for Jam.
 - **`garage.toml`** — Garage's dev config.
 - **`jam.dev.yml`** — a sample `at-jam serve` config wired to both.
+- **`jam.container.yml.example`**, **`credentials.container.yml.example`** — the config for Jam in a container (below).
 
 ## Postgres
 
@@ -115,6 +116,11 @@ listener and reloads the page after each restart.
   host-scoped, so it carries over and survives restarts.
 - Edits under `dev/` (including `jam.dev.yml`) don't trigger a restart.
   `JAM_WATCH_CONFIG=path` points the loop at another config.
+
+## Jam in a container
+
+The compose file also has an opt-in `jam` service that runs Jam from its image (`just jam-image`, `just dev-jam-up`).
+Steps, ports, admin access and volumes are in [container.md](../docs/usage/jam/container.md).
 
 These settings (plaintext admin, inline password, self-signed cert) are for
 local dev only. The production shape — TLS, OIDC operator auth, and
