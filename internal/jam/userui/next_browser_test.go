@@ -4,8 +4,8 @@ package userui
 
 import (
 	"context"
-	"io"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -455,7 +455,9 @@ func TestBrowserNextThinking(t *testing.T) {
 	}))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
 
-	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	has := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
+	}
 	text := `document.querySelector('[role="log"][aria-label="Session events"]').textContent`
 	var problems pageProblems
 	var title, status string
@@ -546,7 +548,9 @@ func TestBrowserNextThinkingFollowsBursts(t *testing.T) {
 	}
 	ctx := browserCtx(t)
 	_, home, srv, publish := thinkingApp(t, 60, 1)
-	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	has := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
+	}
 	if err := chromedp.Do(ctx, chromedp.EmulateViewport(1400, 700),
 		chromedp.Navigate(srv.URL+"/app/next/c/"+home+"?tab=thinking"),
 		has(`!!`+thinkingListJS+` && `+thinkingListJS+`.textContent.includes('event 60 line 0')`),
@@ -597,7 +601,9 @@ func TestBrowserNextThinkingEarlierKeepsPlace(t *testing.T) {
 	}
 	ctx := browserCtx(t)
 	_, home, srv, _ := thinkingApp(t, 600, 6) // the real tail and page: 300 each
-	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	has := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
+	}
 	url := srv.URL + "/app/next/c/" + home + "?tab=thinking"
 	// The row's offset from the top of the list.
 	at := func(seq int) string {

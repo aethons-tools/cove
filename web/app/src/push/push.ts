@@ -82,13 +82,28 @@ async function drop(e: Env, user: string, s: Sub) {
   try { await send(e, user, "DELETE", { endpoint }); } catch { /* pruned later */ }
 }
 
+// currentKey is Jam's VAPID key now (GET /app/user/push/key, as push.js
+// fetches it), else the page's: the page's can be stale after a restart that
+// rotated it, and subscribing under a dead key fails silently.
+async function currentKey(e: Env, pageKey: string): Promise<string> {
+  try {
+    const r = await e.fetch("/app/user/push/key", { credentials: "same-origin" });
+    if (r.ok) {
+      const k = ((await r.json()) as { key?: unknown }).key;
+      if (typeof k === "string" && k) return k;
+    }
+  } catch { /* fall back */ }
+  return pageKey;
+}
+
 async function subscribe(e: Env, user: string, reg: ServiceWorkerRegistration, key: string) {
   const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeKey(key) as BufferSource });
   await send(e, user, "POST", subJSON(s));
 }
 
-export async function turnOn(e: Env, user: string, key: string): Promise<boolean> {
+export async function turnOn(e: Env, user: string, pageKey: string): Promise<boolean> {
   if ((await e.Notification!.requestPermission()) !== "granted") return false;
+  const key = await currentKey(e, pageKey);
   const reg = await e.nav.serviceWorker!.ready;
   // subscribe() refuses while a subscription under another key exists.
   const old = await reg.pushManager.getSubscription();
@@ -110,11 +125,12 @@ export async function turnOff(e: Env, user: string): Promise<void> {
 // syncOnLoad reflects this device's state: a live subscription is re-sent
 // (once per page session per user), so the endpoint belongs to whoever is
 // signed in here now; one made under a since-rotated key is replaced.
-export async function syncOnLoad(e: Env, user: string, key: string): Promise<boolean> {
+export async function syncOnLoad(e: Env, user: string, pageKey: string): Promise<boolean> {
   const reg = await e.nav.serviceWorker!.ready;
   const s = await reg.pushManager.getSubscription();
   if (!s || e.Notification!.permission !== "granted") return false;
   if (synced(e, user) === s.endpoint) return true;
+  const key = await currentKey(e, pageKey);
   if (sameKey(s, key)) await send(e, user, "POST", subJSON(s));
   else {
     await drop(e, user, s);

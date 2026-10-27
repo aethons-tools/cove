@@ -6,11 +6,12 @@ import { server } from "../test/server";
 import { boot, renderApp } from "../test/render";
 
 const turnOn = vi.fn(async () => true);
+const syncOnLoad = vi.fn(async () => false);
 const signOutDevice = vi.fn(async () => {});
 vi.mock("../push/push", async (orig) => {
   const real = await orig<typeof import("../push/push")>();
   const env = { nav: { serviceWorker: {}, userAgent: "x", platform: "x", maxTouchPoints: 0 }, Notification: { permission: "default" }, PushManager: {}, standalone: () => false };
-  return { ...real, realEnv: () => env, syncOnLoad: async () => false, turnOn: (...a: unknown[]) => turnOn(...(a as [])), signOutDevice: (...a: unknown[]) => signOutDevice(...(a as [])) };
+  return { ...real, realEnv: () => env, syncOnLoad: (...a: unknown[]) => syncOnLoad(...(a as [])), turnOn: (...a: unknown[]) => turnOn(...(a as [])), signOutDevice: (...a: unknown[]) => signOutDevice(...(a as [])) };
 });
 
 const rail = () => server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [] })));
@@ -46,5 +47,13 @@ describe("the principal menu", () => {
     await waitFor(() => expect(assign).toHaveBeenCalledWith("/app/auth/logout"));
     expect(signOutDevice).toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+
+  it("re-syncs this device's subscription at page load, without the menu being opened", async () => {
+    rail();
+    syncOnLoad.mockClear();
+    renderApp({ ...boot, pushKey: "k" });
+    await screen.findByRole("button", { name: "Account" });
+    await waitFor(() => expect(syncOnLoad).toHaveBeenCalledTimes(1));
   });
 });

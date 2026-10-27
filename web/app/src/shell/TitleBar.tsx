@@ -3,12 +3,14 @@ import { useDisclosure } from "@mantine/hooks";
 import type { Bootstrap } from "../api/types";
 import { SoundsSettings } from "../sounds/SoundsSettings";
 import { PushToggle } from "../push/PushToggle";
+import { usePush } from "../push/usePush";
 import { realEnv, signOutDevice } from "../push/push";
 
 // TitleBar mirrors the admin's app-titlebar: brand, tabs, principal menu.
 export function TitleBar({ boot }: { boot: Bootstrap }) {
   const { colorScheme, setColorScheme } = useMantineColorScheme();
   const [sounds, soundsDialog] = useDisclosure(false);
+  const push = usePush(boot);
   const next = colorScheme === "dark" ? "light" : colorScheme === "light" ? "auto" : "dark";
   // Sign out on a shared device: unsubscribe it from push first, so the next
   // person here doesn't get this user's notifications (3 s at most).
@@ -47,7 +49,7 @@ export function TitleBar({ boot }: { boot: Bootstrap }) {
           </Menu.Target>
           <Menu.Dropdown>
             <Menu.Label>{boot.user.name} · {boot.roles}</Menu.Label>
-            {boot.pushKey && <PushToggle boot={boot} />}
+            <PushToggle push={push} />
             <Menu.Item onClick={soundsDialog.open}>Sounds…</Menu.Item>
             <Menu.Item component="a" href="/app/user/">Classic Inbox</Menu.Item>
             {boot.signOut && <Menu.Item component="a" href="/app/auth/logout" onClick={(e) => {

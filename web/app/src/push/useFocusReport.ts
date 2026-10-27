@@ -3,7 +3,8 @@ import { useEffect, useRef } from "react";
 // useFocusReport tells Jam which conversation is open in a visible, focused
 // window, so it doesn't push what you're reading (layout.html's meFocus): on
 // focus, blur and visibility changes, every 30 s while focused (Jam forgets
-// it after 60 s, so a crashed tab stops suppressing), and null on pagehide.
+// it after 60 s, so a crashed tab stops suppressing), and null on pagehide
+// and when the view goes.
 export function useFocusReport(channel: string | null, on: boolean) {
   const last = useRef<string | null>(null);
   useEffect(() => {
@@ -30,6 +31,8 @@ export function useFocusReport(channel: string | null, on: boolean) {
       document.removeEventListener("visibilitychange", check);
       window.removeEventListener("pagehide", hide);
       clearInterval(tick);
+      // The conversation goes (Home, a board, another one): stop suppressing.
+      if (last.current) post(null);
     };
   }, [channel, on]);
 }

@@ -33,7 +33,7 @@ describe("focus reporting", () => {
     focused = true;
     act(() => { window.dispatchEvent(new Event("focus")); });
     rerender(<Probe ch="chn_b" on />);
-    expect(posts).toEqual(["chn_a", "chn_a", null, "chn_a", "chn_b"]);
+    expect(posts).toEqual(["chn_a", "chn_a", null, "chn_a", null, "chn_b"]); // a switch clears, then reports
     act(() => { window.dispatchEvent(new Event("pagehide")); });
     expect(posts.at(-1)).toBeNull();
   });
@@ -41,6 +41,12 @@ describe("focus reporting", () => {
   it("reports null when the conversation goes (no channel)", () => {
     const { rerender } = render(<Probe ch="chn_a" on />);
     rerender(<Probe ch={null} on />);
+    expect(posts).toEqual(["chn_a", null]);
+  });
+
+  it("reports null when the conversation view goes away (Home, a board, /new)", () => {
+    const { unmount } = render(<Probe ch="chn_a" on />);
+    unmount();
     expect(posts).toEqual(["chn_a", null]);
   });
 

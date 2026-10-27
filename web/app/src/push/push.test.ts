@@ -4,7 +4,7 @@ import { decodeKey, signOutDevice, syncOnLoad, turnOff, turnOn, unsupportedView,
 const KEY = "BAAAAAAAAAAAAAA"; // decodes to 11 bytes
 
 // fakeEnv: a browser with Push support, a fake push service, and a fake Jam.
-function fakeEnv(over: { perm?: NotificationPermission; grant?: NotificationPermission; sub?: { key?: Uint8Array } | null; ok?: boolean } = {}) {
+function fakeEnv(over: { perm?: NotificationPermission; grant?: NotificationPermission; sub?: { key?: Uint8Array } | null; ok?: boolean; serverKey?: string | null } = {}) {
   const calls: string[] = [];
   type Sub = { endpoint: string; options: { applicationServerKey: ArrayBuffer | null }; unsubscribe: () => Promise<boolean>; toJSON: () => unknown };
   let sub: Sub | null = null;
@@ -26,7 +26,14 @@ function fakeEnv(over: { perm?: NotificationPermission; grant?: NotificationPerm
     Notification: { get permission() { return perm.value; }, requestPermission: async () => { perm.value = over.grant ?? "granted"; return perm.value; } },
     PushManager: function () {},
     standalone: () => false,
-    fetch: (async (url: string, init?: RequestInit) => { calls.push(`${init?.method ?? "GET"} ${url}`); return new Response(null, { status: over.ok === false ? 500 : 204 }); }) as unknown as typeof fetch,
+    fetch: (async (url: string, init?: RequestInit) => {
+      if (url === "/app/user/push/key") {
+        if (over.serverKey === null) return new Response("down", { status: 503 });
+        return Response.json({ key: over.serverKey ?? KEY });
+      }
+      calls.push(`${init?.method ?? "GET"} ${url}`);
+      return new Response(null, { status: over.ok === false ? 500 : 204 });
+    }) as unknown as typeof fetch,
     session: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => void store.set(k, v), removeItem: (k) => void store.delete(k) },
   };
   return { env, calls, store, perm };
@@ -90,5 +97,20 @@ describe("Web Push on this device", () => {
   it("decodes the VAPID key from base64url", () => {
     expect(decodeKey(KEY)).toHaveLength(11);
     expect(Array.from(decodeKey("_-8"))).toEqual([255, 239]);
+  });
+
+  it("uses Jam's current key, not a stale one the page loaded with (a restart rotated it)", async () => {
+    const NEW = "_____________w"; // another 10-byte key
+    const on = fakeEnv({ serverKey: NEW });
+    expect(await turnOn(on.env, "usr_1", KEY)).toBe(true);
+    expect(on.calls).toEqual([`subscribe ${decodeKey(NEW).length}`, "POST /app/user/push/subscriptions"]);
+    // A subscription already under the current key is kept, though the page's key is old.
+    const kept = fakeEnv({ perm: "granted", sub: { key: decodeKey(NEW) }, serverKey: NEW });
+    expect(await syncOnLoad(kept.env, "usr_1", KEY)).toBe(true);
+    expect(kept.calls).toEqual(["POST /app/user/push/subscriptions"]);
+    // Key route down: the page's key stands in.
+    const down = fakeEnv({ serverKey: null });
+    expect(await turnOn(down.env, "usr_1", KEY)).toBe(true);
+    expect(down.calls[0]).toBe("subscribe 11");
   });
 });
