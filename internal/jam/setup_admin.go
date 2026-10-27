@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/aethons-tools/cove/internal/textesc"
 )
 
 // WithSetupInspect mounts the setup inspection routes (inside the operator
@@ -32,7 +34,7 @@ func WithSetupInspect(d SetupDeps, log *slog.Logger) AdminOption {
 	// fail maps a render error to its fixed-string response; never echoes a body.
 	fail := func(w http.ResponseWriter, err error, subject, notFound string) {
 		if code, ok := ManagerErrStatus(err); ok {
-			http.Error(w, err.Error(), code)
+			http.Error(w, textesc.Escape(err.Error(), false), code) // it may carry the caller's ?manager=
 			return
 		}
 		switch {
