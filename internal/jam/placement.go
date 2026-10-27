@@ -85,8 +85,9 @@ func ParsePlacement(managers []string, timeout string) (Placement, error) {
 	return p, nil
 }
 
-// ManagerErrStatus is the shared admin mapper for manager errors: the HTTP status of a named-manager failure: 404 for
-// ErrUnknownManager, 503 for ErrManagerUnavailable; ok=false for any other.
+// ManagerErrStatus maps a named-manager failure to its HTTP status for every
+// admin route: 404 for ErrUnknownManager, 503 for ErrManagerUnavailable;
+// ok=false for any other error.
 func ManagerErrStatus(err error) (code int, ok bool) {
 	switch {
 	case errors.Is(err, ErrUnknownManager):
