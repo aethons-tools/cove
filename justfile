@@ -79,6 +79,9 @@ dev-cert:
       -subj "/CN=jam.local.aethons.tools" \
       -addext "subjectAltName=DNS:jam.local.aethons.tools" \
       -keyout dev/tls/key.pem -out dev/tls/cert.pem
+    # openssl writes key.pem 0600; the Jam container runs as uid 10001 and, on
+    # Colima mounts, cannot read a 0600 host file. Dev-only self-signed key.
+    chmod 644 dev/tls/key.pem
     echo "wrote dev/tls/cert.pem, dev/tls/key.pem (CN=jam.local.aethons.tools)"
 
 # raise the local dev Postgres (host port 15432) and Garage blob store (13900) for Jam; see dev/README.md
@@ -87,10 +90,15 @@ dev-up:
 
 # stop the local dev Postgres and Garage. Pass ARGS=-v to also wipe their data volumes.
 dev-down *ARGS:
-    docker compose -f dev/docker-compose.yml down {{ARGS}}
+    docker compose -f dev/docker-compose.yml --profile jam down {{ARGS}}
 
 # start Jam in its container (profile "jam") beside Postgres and Garage; see dev/docker-compose.yml
 dev-jam-up:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for f in dev/jam.container.yml dev/credentials.container.yml; do
+      [ -f "$f" ] || { echo "missing $f: cp $f.example $f (docker would create a directory at the bind source)" >&2; exit 1; }
+    done
     docker compose -f dev/docker-compose.yml --profile jam up -d
 
 # follow the Jam container's logs
@@ -153,6 +161,10 @@ test-browser:
 # hermetic test for the root install.sh installer (stubs gh/uname; no network)
 test-install:
     bash install.test.sh
+
+# hermetic test for scripts/jam-image.sh, images/jam/Dockerfile and the release.yml wiring (fake docker; no daemon)
+test-jam-image:
+    bash scripts/jam-image.test.sh
 
 # build the Jam container image (cove-jam:dev) from freshly built linux binaries
 jam-image *ARGS:

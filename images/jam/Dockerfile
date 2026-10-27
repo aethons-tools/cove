@@ -3,6 +3,8 @@
 # holds no docker, ssh or git binary.
 FROM alpine:3.22
 
+LABEL org.opencontainers.image.source="https://github.com/aethons-tools/cove"
+
 ARG TARGETARCH
 
 RUN apk add --no-cache ca-certificates

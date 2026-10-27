@@ -18,13 +18,16 @@ The image is `ghcr.io/aethons-tools/jam`. It runs only `at-jam serve`, as a non-
 |-----|----------|-----------|
 | `<N>-<MMDD>` | release CI on a push to `main` (the release version, the same as the binaries' `at-jam version`) | `linux/amd64`, `linux/arm64` |
 | `latest` | the same publish | the same |
-| `cove-jam:dev` | `just jam-image` locally | the host's arch (`linux/$(go env GOARCH)`) |
+| `cove-jam:dev` | `just jam-image` locally | the host's arch only (`linux/$(go env GOARCH)`) |
+
+The GHCR package may be private: pulling `ghcr.io/aethons-tools/jam` needs `docker login ghcr.io`.
 
 Pull requests build an amd64 image and smoke it with `docker run --rm <image> version`; they never publish.
 
 The image is built from already-built release binaries, not compiled in Docker.
 `just jam-image` runs `scripts/build.sh linux/<arch>`, then `scripts/jam-image.sh`.
 The script takes `--dist DIR` (default `dist`), `--platforms LIST`, `--tag T` (repeatable, default `cove-jam:dev`) and `--push`.
+`docker buildx` is a prerequisite (with Homebrew docker: `brew install docker-buildx`).
 Without `--push` it loads one platform into the local daemon. More than one platform needs `--push` and a docker-container buildx builder.
 
 What is inside (`images/jam/Dockerfile`):
@@ -43,7 +46,7 @@ Git fetches (kit and config sources) are in-process go-git. Jam never needs a do
 
 The `jam` service in `dev/docker-compose.yml` is opt-in (profile `jam`), beside the dev Postgres and Garage ([dev/README.md](../../../dev/README.md)).
 
-1. `just dev-cert`. This writes `dev/tls/{cert,key}.pem`. A real run needs a cert studios trust ([the cert gotcha](dispatch-runbook.md#gotchas-each-one-cost-a-real-debugging-loop)); for that, set `JAM_TLS_DIR` to a directory holding `cert.pem` and `key.pem`.
+1. `just dev-cert`. This writes `dev/tls/{cert,key}.pem` (and makes the key `0644`; see below). A real run needs a cert studios trust ([the cert gotcha](dispatch-runbook.md#gotchas-each-one-cost-a-real-debugging-loop)); for that, set `JAM_TLS_DIR` to the **absolute** path of a directory holding `cert.pem` and `key.pem` (a relative path resolves against `dev/`).
 2. `cp dev/jam.container.yml.example dev/jam.container.yml` and `cp dev/credentials.container.yml.example dev/credentials.container.yml` (both gitignored). Fill in the OIDC placeholders.
 3. `just jam-image`, or set `JAM_IMAGE=ghcr.io/aethons-tools/jam:<N>-<MMDD>` to run a release.
 4. `just dev-jam-up` starts Postgres, Garage and Jam (`docker compose --profile jam up -d`).
@@ -57,6 +60,12 @@ The container config differs from a host config in these ways:
 - TLS files under `/etc/jam/tls/`.
 
 Every path in it is inside the container.
+
+Jam runs as uid `10001`, and the mounts are read-only, so every mounted secret file must be readable by that uid.
+On Colima a `0600` host file is not, and serve exits at startup.
+Do not point `JAM_TLS_DIR` at a Let's Encrypt `live/` dir: its files are relative symlinks into `../../archive` that do not resolve in the mount, and `privkey.pem` is `0600`.
+Copy the files dereferenced into your own directory instead: `cp -L .../fullchain.pem DIR/cert.pem` and `cp -L .../privkey.pem DIR/key.pem`, then make `key.pem` readable by uid 10001 (dev: `chmod 644`, or `chown 10001`).
+The same applies to a `0600` `dev/credentials.container.yml`.
 
 ## Ports
 

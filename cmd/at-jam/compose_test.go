@@ -65,6 +65,9 @@ func TestComposeJamWiring(t *testing.T) {
 	if got := jam.DependsOn["postgres"].Condition; got != "service_healthy" {
 		t.Errorf("postgres condition = %q, want service_healthy", got)
 	}
+	if got := jam.DependsOn["garage"].Condition; got != "service_started" {
+		t.Errorf("garage condition = %q, want service_started", got)
+	}
 	have := map[string]bool{}
 	for _, v := range jam.Volumes {
 		have[v] = true

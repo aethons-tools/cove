@@ -119,7 +119,8 @@ df="$(cat "$DOCKERFILE")"
 for pat in 'FROM alpine:3.22' 'ca-certificates' 'USER jam' 'ENTRYPOINT ["at-jam"]' \
   'CMD ["serve","--config","/etc/jam/jam.yml"]' 'ARG TARGETARCH' \
   'COPY bin/linux-${TARGETARCH}/ /usr/local/bin/' 'ENV HOME=/var/lib/jam' \
-  'VOLUME /var/lib/jam' 'EXPOSE 8443 8081' 'addgroup -g 10001' '-u 10001' 'chown 10001:10001 /var/lib/jam' '= 10001:10001'; do
+  'VOLUME /var/lib/jam' 'EXPOSE 8443 8081' 'addgroup -g 10001' '-u 10001' 'chown 10001:10001 /var/lib/jam' '= 10001:10001' \
+  'LABEL org.opencontainers.image.source="https://github.com/aethons-tools/cove"'; do
   assert_contains "Dockerfile: $pat" "$df" "$pat"
 done
 if grep -E '^[[:space:]]*(RUN )?.*apk add' "$DOCKERFILE" | grep -Eiq 'docker|openssh|git'; then
@@ -144,6 +145,14 @@ assert_contains "release.yml: smoke run" "$smoke_step" "docker run --rm cove-jam
 assert_contains "release.yml: main step guarded" "$main_step" "github.event_name == 'push'"
 assert_contains "release.yml: main step pushes" "$main_step" "scripts/jam-image.sh --platforms linux/amd64,linux/arm64"
 assert_contains "release.yml: main step --push" "$main_step" "--push"
+arm_step="$(step_block 'Smoke-test Jam image (arm64')"
+assert_contains "release.yml: arm64 smoke guarded" "$arm_step" "github.event_name == 'push'"
+assert_contains "release.yml: arm64 smoke run" "$arm_step" 'docker run --rm --platform linux/arm64 "${JAM_IMAGE}:${VERSION}" version'
+assert_contains "release.yml: arm64 smoke checks version" "$arm_step" 'test "$out" = "at-jam $VERSION"'
+filter_block="$(awk '/^            go:/ {on=1; next} on && /^      - id:/ {exit} on {print}' "$rel")"
+assert_contains "release.yml: go filter has images/jam/**" "$filter_block" "- 'images/jam/**'"
+assert_contains "release.yml: go filter has jam-image.sh" "$filter_block" "- 'scripts/jam-image.sh'"
+assert_contains "release.yml: go filter is the atcove input" "$filter_block" "- 'cmd/**'"
 assert_contains "release.yml: JAM_IMAGE env" "$(cat "$rel")" "JAM_IMAGE: ghcr.io/aethons-tools/jam"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
