@@ -2,7 +2,7 @@
 summary: The comms target space and access-graph — kind-prefixed user:/chat:/channel:/ticket: targets (human: alias), each naming a channel of the channel log; a Project's members and rooms, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
 read_when: You want a studio's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a studio may address, or managing a Project's members and rooms.
 owns: the target space (user:<name|usr_id>/chat:/channel:<name>/ticket:<key> + globs; the human: alias) and which channel each names, a Project's members and rooms (incl. a user's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
-prereqs: intercom.md for the /squawks endpoint and cove-master mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
+prereqs: intercom.md for the /squawks endpoint and jam-studio-agent mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
 updated: 2026-10-26
 ---
@@ -83,21 +83,21 @@ project's record. The upgrade logs each of these.
 A Project's members also back its **escalation policy** — ordered tiers
 called into a waiting session's channel; see [escalation.md](escalation.md).
 
-Manage members and rooms with `at-jam`:
+Manage members and rooms with `jam`:
 
 ```
-at-jam user add <name> [--login 'auth0|abc123']... [--oidc <issuer>:<subject>]...
-at-jam user list | show <user> | rename <user> <new> | rm <user>
-at-jam user login <user> [<login>...]        # replaces the set; none clears it
-at-jam user oidc  <user> [<issuer>:<subject>...]
-at-jam project member add  <project> <user> [--delivery discord:<inbox-channel>]...
-at-jam project member list <project> | rm <project> <user>
-at-jam account add --connection linear --handle alice.h --user <user>     # tracker @-handle
-at-jam account list [--connection c] | link <account> <user> | unlink <account>
-at-jam connection add --kind linear|discord|github --name <n> [--cred <credential>]
-at-jam connection list | rename <c> <new> | cred <c> <credential> | rm <c>
-at-jam room add <project> <name> --ref ACME-1 [--connection <name|id|kind>]   # adds, or rebinds
-at-jam room list <project> | rename <project> <room> <new> | rm <project> <room>
+jam user add <name> [--login 'auth0|abc123']... [--oidc <issuer>:<subject>]...
+jam user list | show <user> | rename <user> <new> | rm <user>
+jam user login <user> [<login>...]        # replaces the set; none clears it
+jam user oidc  <user> [<issuer>:<subject>...]
+jam project member add  <project> <user> [--delivery discord:<inbox-channel>]...
+jam project member list <project> | rm <project> <user>
+jam account add --connection linear --handle alice.h --user <user>     # tracker @-handle
+jam account list [--connection c] | link <account> <user> | unlink <account>
+jam connection add --kind linear|discord|github --name <n> [--cred <credential>]
+jam connection list | rename <c> <new> | cred <c> <credential> | rm <c>
+jam room add <project> <name> --ref ACME-1 [--connection <name|id|kind>]   # adds, or rebinds
+jam room list <project> | rename <project> <room> <new> | rm <project> <room>
 ```
 
 A `<user>` is a name or a `usr_` id; renaming a user changes nothing else
@@ -118,7 +118,7 @@ a URL that itself contains colons, `--oidc` splits on the **final** colon: the
 subject is the text after it, the issuer everything before. `user list` shows
 each binding as `oidc=<issuer>:<subject>`. A malformed value (empty issuer or subject) exits `2`
 (the admin route answers `400`). All subcommands take the same admin-client flags
-(`--app`/`--admin-url`/`--token`) as every other `at-jam` verb — see
+(`--app`/`--admin-url`/`--token`) as every other `jam` verb — see
 [operators.md](operators.md).
 
 ## Delivery profiles & per-project chat service
@@ -136,7 +136,7 @@ alongside `Destinations`. A `Grant`'s `Override.Addressing`, when set,
 Set it at role-creation with `role add --addressing`:
 
 ```
-at-jam role add --project acme --name impl --addressing 'user:*,channel:eng-help'
+jam role add --project acme --name impl --addressing 'user:*,channel:eng-help'
 ```
 
 `--addressing` is a comma-separated list of globs, mirroring `--destinations`.
@@ -186,7 +186,7 @@ actor's authorized-**and**-resolvable targets:
 The studio's own ticket comes first (when it has one); then the people, rooms
 and other live sessions (`session:<label>`, or `<ses_id>` when the label is
 shared) its addressing allows. Handles are deliberately omitted — the agent addresses by
-`user:<name>`, not by handle. The `cove-master mcp` server exposes this as the `list_targets` tool,
+`user:<name>`, not by handle. The `jam-studio-agent mcp` server exposes this as the `list_targets` tool,
 alongside `send`'s now-optional `to` argument; see
 [intercom.md](intercom.md#what-the-tools-do) for the tool surface. The same list,
 taken at raise, appears in the session's [session context](session-context.md).

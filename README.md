@@ -9,14 +9,14 @@ studio images it builds.
 - **Credentials stay in Jam** —
   a studio holds only a scoped identity token; Jam's broker injects the real ones.
 - **The hardening is foolproof** —
-  the security-critical files ship embedded in `at-jam` and are layered on *last*,
+  the security-critical files ship embedded in `jam` and are layered on *last*,
   so they always win over anything a kit supplies.
 
 ## Quickstart
 
-Install `at-jam` and `at-mint` with the one-command installer. The repo is
+Install `jam` (one binary; minting is `jam mint`) with the one-command installer. The repo is
 private today, so it uses your GitHub CLI login (`gh auth login`) to pull the
-latest release, verify its checksum, and drop the binaries on your PATH:
+latest release, verify its checksum, and drop the binary on your PATH:
 
 ```bash
 gh api -H "Accept: application/vnd.github.raw" \
@@ -29,8 +29,8 @@ Once the repo is public this collapses to the classic anonymous form — same sc
 curl -fsSL https://raw.githubusercontent.com/aethons-tools/cove/main/install.sh | bash
 ```
 
-`at-jam update` moves to the latest release. Prefer to build from source? Use
-`just install`. Version pinning and the `BINDIR` / `COVE_SYSTEM` overrides are in
+`jam update` moves to the latest release. Prefer to build from source? Use
+`just install`. Version pinning and the `BINDIR` / `JAM_SYSTEM` overrides are in
 [the overview](docs/OVERVIEW.md#installing-the-binaries). To stand a Jam up, start
 at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md).
 
@@ -54,7 +54,7 @@ at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md).
 just test          # hermetic unit tests — no docker/network/ssh
 just integration   # real-ssh integration tests (needs ssh/sshd/ssh-keygen)
 just lint          # go vet + gofmt check + shellcheck/hadolint
-just build         # build at-mint + at-jam into dist/<os>-<arch>/
+just build         # build jam into dist/<os>-<arch>/
 ```
 
 Tests are hermetic by default — they drive a fake process runner, so no Docker,

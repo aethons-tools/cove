@@ -18,7 +18,7 @@ Drop the key from the serve config. `runtime.launcher` now needs only
 `runtime-addr` and `jam-host` (plus optional identity/DNS/docker settings — see
 [serve.md](serve.md#the-launcher-runtimelauncher)). The managed cove's base and
 config now come from the studio-kit registry: the `default` kit is seeded
-automatically at serve start; author others with `at-jam kit push` and bind them
+automatically at serve start; author others with `jam kit push` and bind them
 with `role add --kit` ([kits.md](kits.md#role-to-kit-and-the-default-kit)).
 
 ## The registry is studio-only

@@ -67,7 +67,7 @@ it as an `ensure-list-item` rule on its spec (the legacy-flag scan writes it).
 
 ## Validation
 
-At every write (`at-jam model-spec add`/`update`, the admin UI, config import),
+At every write (`jam model-spec add`/`update`, the admin UI, config import),
 each rule is checked; a refusal is a 400 naming `principal.headers[i]` and never
 echoes a value:
 

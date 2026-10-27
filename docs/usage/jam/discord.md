@@ -34,8 +34,8 @@ Set a member's inbox with `--delivery service:address` on `project member add`
 **account** on the `discord` connection:
 
 ```
-at-jam project member add <project> alice --delivery discord:<inbox-channel-id>
-at-jam account add --connection discord --uid <alice's-discord-user-id> --user alice
+jam project member add <project> alice --delivery discord:<inbox-channel-id>
+jam account add --connection discord --uid <alice's-discord-user-id> --user alice
 ```
 
 The service and address must be non-empty; a third `:user-id` part exits `2`
@@ -48,17 +48,17 @@ user id binds **one person Jam-wide** (their Discord account in the
 → Settings → Advanced → **Developer Mode** on, then right-click yourself →
 **Copy User ID**.
 
-Manage a project's chat service with `at-jam project chat-service`:
+Manage a project's chat service with `jam project chat-service`:
 
 ```
-at-jam project chat-service set   --project <project> --service discord
-at-jam project chat-service show  --project <project>
-at-jam project chat-service clear --project <project>
+jam project chat-service set   --project <project> --service discord
+jam project chat-service show  --project <project>
+jam project chat-service clear --project <project>
 ```
 
 `set` requires `--project` and `--service`; `clear` is `set` with `""` under
 the hood; `show` prints the configured service or `(none)`. All three take the
-same admin-client flags as every other `at-jam` verb.
+same admin-client flags as every other `jam` verb.
 
 ## Egress & the reply loop
 
@@ -105,7 +105,7 @@ display name (which anyone can set), in order:
    a room's) → that user, **only while they are unbound**.
 3. Otherwise → the **account** their author id is recorded as on the discord
    connection (labelled with their display name) — or, once an operator links
-   it to a user who is a member (`at-jam account list --connection discord`,
+   it to a user who is a member (`jam account list --connection discord`,
    then `account link <account> <user>`), that user.
 
 Rule 2 keeps unbound members working; once someone is bound, only their own

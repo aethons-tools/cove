@@ -1,6 +1,6 @@
 ---
-summary: Section index for the usage/reference docs of the binaries this repo ships — Jam (at-jam), the at-mint token minter, and docker-in-sandbox.
-read_when: You are running at-jam or at-mint directly (not developing them) and need its command surface, configuration, or I/O contract.
+summary: Section index for the usage/reference docs of what this repo ships — Jam (`jam`, including `jam mint`) and docker-in-sandbox.
+read_when: You are running `jam` or `jam mint` directly (not developing them) and need its command surface, configuration, or I/O contract.
 owns: the map of the per-binary usage docs
 prereqs: none — see ../OVERVIEW.md for what the project is
 tier: section
@@ -14,6 +14,6 @@ this way, see [`../OVERVIEW.md`](../OVERVIEW.md).
 
 | Doc | What it covers | Read when |
 |-----|----------------|-----------|
-| [jam/](jam/INDEX.md) | Operating the `at-jam` central service — running it (`serve`, the broker, destinations, TLS), signing operators in, the roster/RBAC, the kit registry, studios, the Requisitioner and the intercom. A section index. | You are running or administering a Jam. |
-| [at-mint.md](at-mint.md) | The `at-mint` host-side token minter — the `github` and `anthropic` subcommands, their flags/env, and the flags=non-secret/env=secret/one-token-to-stdout/fail-closed contract. | You are supplying a credential that mints a token — a GitHub App installation token or an Anthropic WIF bearer. |
-| [docker-in-sandbox.md](docker-in-sandbox.md) | Docker inside a studio — `runtime.launcher.docker`, the one-time Sysbox setup in the colima VM (`at-jam colima setup-docker`), registry allow-list recipes, nested-container egress, limitations. | You are enabling Docker inside studios, installing Sysbox, allow-listing a registry, or debugging a nested container's network. |
+| [jam/](jam/INDEX.md) | Operating the `jam` central service — running it (`serve`, the broker, destinations, TLS), signing operators in, the roster/RBAC, the kit registry, studios, the Requisitioner and the intercom. A section index. | You are running or administering a Jam. |
+| [jam-mint.md](jam-mint.md) | The `jam mint` token minter — the `github` and `anthropic` subcommands, their flags/env, and the flags=non-secret/env=secret/one-token-to-stdout/fail-closed contract. | You are supplying a credential that mints a token — a GitHub App installation token or an Anthropic WIF bearer. |
+| [docker-in-sandbox.md](docker-in-sandbox.md) | Docker inside a studio — `runtime.launcher.docker`, the one-time Sysbox setup in the colima VM (`jam colima setup-docker`), registry allow-list recipes, nested-container egress, limitations. | You are enabling Docker inside studios, installing Sysbox, allow-listing a registry, or debugging a nested container's network. |

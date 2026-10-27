@@ -9,7 +9,7 @@ updated: 2026-10-23
 
 # Operator sign-in & the admin client
 
-Every `at-jam` admin verb (`destination`, `role`, `grant`, `ungrant`, `actors`, `user`, `account`,
+Every `jam` admin verb (`destination`, `role`, `grant`, `ungrant`, `actors`, `user`, `account`,
 `enroll`, `revoke`, `kit`, `studio`) is a client of a running Jam's admin API. This doc
 covers how that client authenticates and how one machine targets several Jams.
 
@@ -54,15 +54,15 @@ Machine-to-Machine app (an M2M app returns `403` on device authorization).
 ## `login` / `logout` / `whoami`
 
 ```
-at-jam login   --admin-url https://jam.example.com   # device-flow sign-in
-at-jam whoami                                            # show the cached identity + expiry
-at-jam logout                                            # clear the cached token
+jam login   --admin-url https://jam.example.com   # device-flow sign-in
+jam whoami                                            # show the cached identity + expiry
+jam logout                                            # clear the cached token
 ```
 
 `login` self-configures from Jam's auth-exempt `GET /admin/login-config`
 (`{issuer, audience, client_id, scope}`), runs the device flow (prints a URL +
 user code to approve in a browser), and caches the resulting operator token at
-`~/.config/at-jam/{app}-admin-token.json` (mode `0600`). `whoami` prints the
+`~/.config/jam/{app}-admin-token.json` (mode `0600`). `whoami` prints the
 `sub` and expiry; an expired cache triggers a fresh `login` on the next verb.
 
 `login` against a Jam with no `operator-auth.oidc` exits cleanly (the
@@ -76,10 +76,10 @@ studio SSH and sharing — see [collaboration.md](collaboration.md).
 Each admin verb picks its operator token in this precedence:
 
 1. `--token <value>` flag,
-2. `AT_JAM_ADMIN_TOKEN` environment variable,
+2. `JAM_ADMIN_TOKEN` environment variable,
 3. the cached login session for the `--app` profile.
 
-A stale `AT_JAM_ADMIN_TOKEN` in the environment **shadows** a fresh login
+A stale `JAM_ADMIN_TOKEN` in the environment **shadows** a fresh login
 session — if a verb unexpectedly `401`s or `403`s right after a successful
 `login`, check for a leftover env var (the CLI warns when the env shadows a cached
 session).
@@ -87,7 +87,7 @@ session).
 ## App profiles (`settings.yml`, `--app`)
 
 One machine often talks to several Jams (prod, a dev Jam, …). `settings.yml`
-at `~/.config/at-jam/settings.yml` holds **named app profiles**, each with the
+at `~/.config/jam/settings.yml` holds **named app profiles**, each with the
 endpoints for one Jam:
 
 ```yaml
@@ -105,7 +105,7 @@ dev-app:
   to `login` **persists** it to the profile.
 - `--base-url` (on `enroll`) overrides `base-url` for the printed snippet.
 
-So `at-jam --app dev-app actors` lists the dev Jam's actors using the dev
+So `jam --app dev-app actors` lists the dev Jam's actors using the dev
 profile's endpoint + cached token. The admin verbs themselves are documented in
 [roster.md](roster.md) (RBAC + enrollment) and [kits.md](kits.md) (registry);
 `destination` is in [serve.md](serve.md); the managed-cove verbs are in

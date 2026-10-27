@@ -34,7 +34,7 @@ preview with its URL.
 The [four rules](collaboration.md#who-may-connect) decide, for the `preview`
 right. Project members may unless the role says `--collaborate-preview none`
 (the default is `members`). Anyone else needs a grant:
-`at-jam studio share <studio> --with user:<name> --rights preview`. Each
+`jam studio share <studio> --with user:<name> --rights preview`. Each
 request is checked live. Open connections (WebSocket, streaming) end within a
 minute of losing the right ([revocation](collaboration.md#sharing)). A paused studio is
 resumed for an allowed caller. Each viewer's first request per preview is
@@ -115,14 +115,14 @@ the UI's site planting such a cookie in the UI's partition.
 ## API clients and scripts
 
 Scripts and API clients send `Authorization: Bearer <token>` instead. Use
-an operator's `at-jam login` access token, or a participant's
+an operator's `jam login` access token, or a participant's
 `login --participant` ID token ([collaboration.md](collaboration.md#signing-in-as-a-participant-login---participant)).
 To keep the token off argv, pipe the header in:
 
 ```
-jq -r '"Authorization: Bearer " + .access_token' ~/.config/at-jam/default-admin-token.json \
+jq -r '"Authorization: Bearer " + .access_token' ~/.config/jam/default-admin-token.json \
   | curl -H @- https://app--<label>.jam-previews.example/
-# participant: .id_token from ~/.config/at-jam/default-participant-token.json
+# participant: .id_token from ~/.config/jam/default-participant-token.json
 ```
 
 ## What the app sees
@@ -152,17 +152,17 @@ HTTP/2). `CONNECT` is refused (405).
    `:<port>` when the admin listener is not on 443: previews are served on
    the admin listener, so preview URLs then carry its port (e.g.
    `https://app--…<domain>:8443/`); `:443` is the cove-facing listener.
-4. Add the [`previews:` block](serve.md) and restart `at-jam serve`. Its row
+4. Add the [`previews:` block](serve.md) and restart `jam serve`. Its row
    lists the requirements. Keep the admin API and UI on a name outside
    `<domain>`.
-5. Raise studios again (`at-jam standing upgrade` for a standing session).
-   Older cove-masters ignore the exposed ports, which gives a 504.
+5. Raise studios again (`jam standing upgrade` for a standing session).
+   Older jam-studio-agents ignore the exposed ports, which gives a 504.
 
 ## A web IDE
 
-Every studio image includes code-server. cove-master starts it on first use
+Every studio image includes code-server. jam-studio-agent starts it on first use
 (a tunnel to `127.0.0.1:13337`) and stops it after 30 idle minutes or when
-cove-master exits.
+jam-studio-agent exits.
 
 **The built-in IDE (`ide`).** `https://ide--<label>.<domain>/` is the
 studio's IDE, served without any `expose`. An IDE is a shell, so it needs the
@@ -195,6 +195,6 @@ after another lookup; reload.
 | 403 | No rule gives you `preview` (`ssh` for `ide`), or your login is not linked to a Jam user. Ask for a share. |
 | 403 "cross-site request refused" | Another page (an iframe, or another studio's fetch, form or WebSocket) used your preview session. Open the preview directly, or from the Jam pane ([Framing](#framing-the-jam-pane)). |
 | 502 "the app at port … is not answering" | Nothing is listening on that port in the studio, or the app failed. |
-| 504 "studio could not open the preview (is its image current?)" | The studio's cove-master predates previews. Raise the studio again. |
+| 504 "studio could not open the preview (is its image current?)" | The studio's jam-studio-agent predates previews. Raise the studio again. |
 | 429 "… kept for SSH" | The studio's previews hold all 12 of their tunnels (many viewers or long-polls). Retry once some close. |
 | 503 / 409 | The studio is not connected, or is pausing or stopping. Retry. |

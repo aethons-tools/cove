@@ -20,7 +20,7 @@ kits/                         # https://github.com/acme/kits
 ```
 
 ```
-$ at-jam kit track app --git https://github.com/acme/kits//app@main
+$ jam kit track app --git https://github.com/acme/kits//app@main
   web-dev v1 (with app)
 imported app v1 from https://github.com/acme/kits//app@main (0123456789ab)
 tracking https://github.com/acme/kits//app@main

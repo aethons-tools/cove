@@ -32,7 +32,7 @@ That covers `sync`, a no-flag `apply`, and `--git` naming the same repo, dir
 and ref. A sync whose repos moved without changing anything is all
 `unchanged`: no new version, mark or audit entry, but the recorded commits
 advance. The tracked source, like the marks, is **not** part of
-`at-jam export`: a restored Jam tracks nothing until `config track`.
+`jam export`: a restored Jam tracks nothing until `config track`.
 
 ## Kit references: `kits/<name>.source.yml`
 

@@ -1,5 +1,5 @@
 ---
-summary: Seeing everything a studio's agent is set up with from outside the container — `at-jam role inspect` / `studio inspect [--diff]`, their admin routes and the admin UI's Setup tab, the sections and sources, snapshots, image facts, and redaction with its known limits.
+summary: Seeing everything a studio's agent is set up with from outside the container — `jam role inspect` / `studio inspect [--diff]`, their admin routes and the admin UI's Setup tab, the sections and sources, snapshots, image facts, and redaction with its known limits.
 read_when: You want to know what a studio (or a raise of a role now) gets — its session-context files, egress, destinations, env, model-spec, kit and image, /agent-data seed, MCP servers or policy — or why a studio differs from its role — in the CLI, the admin API or the Setup tab of an agent or role page.
 owns: setup inspection (role/studio inspect, GET …/setup routes), setup snapshots, the image-facts reader, setup redaction rules and their known limits, the admin UI Setup tab (…/setup on agent and role pages)
 prereqs: coves.md, session-context.md, connector.md
@@ -9,8 +9,8 @@ updated: 2026-10-25
 
 # Inspecting a studio's setup
 
-`at-jam role inspect <project>/<role>` shows what a studio of the role raised
-**now** would get. `at-jam studio inspect <studio>` shows what a running studio
+`jam role inspect <project>/<role>` shows what a studio of the role raised
+**now** would get. `jam studio inspect <studio>` shows what a running studio
 **got**; `--diff` adds, per section, a line diff (`-` this studio, `+` a raise
 now; `identity` is never diffed; a deleted role gives a note instead). Both take
 `--json` and `--section <name>` (repeatable or comma-separated; an unknown name
@@ -50,7 +50,7 @@ In this order:
 | `context` | every [session-context](session-context.md) file at its real path under `/agent-data/context/`, sizes, each layer's core budget used, compile warnings |
 | `egress` | the effective allow-list — the role's list (marked when outside the kit ceiling) or the kit default — then the sealed base rows |
 | `destinations` | per destination in scope: route, upstream, identity-in/apply, credential **name**, git routing, allow-paths, env keys |
-| `env` | the [connector](connector.md) env an agent spawn gets (redacted), then the image `ENV` and its `COVE_SSHENV` transfer set |
+| `env` | the [connector](connector.md) env an agent spawn gets (redacted), then the image `ENV` and its `JAM_SSHENV` transfer set |
 | `model` | the resolved model-spec, as of now (never stale; not recorded at raise) |
 | `kit` | kit ref, chain root first with provenance and each link's tree (`tree <12 hex>, N files`; `1 file`; `not loadable` for a broken or unstored version), build args, image tag, image id and labels; a [draft studio](kits-drafts.md#draft-studio)'s section is headed `kit (draft @<tree[:7]>)`, names its kit `<kit> (draft @<tree[:7]>)` and its own link `<kit> (draft)`, provenance `draft, not published` |
 | `seed` | what the image seeds into `/agent-data`: `CLAUDE.md` and its `@` imports, skills, `settings.json`, the `.refresh` list; other files by path and size only |
@@ -73,7 +73,7 @@ Jam records the masked form of four parts **when it delivers them**, only when
 the fingerprint changes: `context` (raise, `GET /context`), `connector` (raise,
 `GET /connector`; shown in the `env` section), `egress` (raise, each successful re-apply), `kit` (raise).
 Only the latest per part is kept, capped at 64 KiB (truncated with a marker);
-they go with the studio and are not part of `at-jam export`. A failed write is
+they go with the studio and are not part of `jam export`. A failed write is
 logged, never fatal.
 
 ## Image facts

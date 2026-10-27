@@ -17,10 +17,10 @@ the repo, dir, ref and commit as that version's **provenance**. A kit can also
 operator asks. Nothing polls: syncs are manual.
 
 ```
-at-jam kit import --git https://github.com/acme/kits//web@v1.4 [--name web]   # once, not tracked
-at-jam kit track web --git https://github.com/acme/kits//web@main             # import + track
-at-jam kit sync web                                                          # re-import the tracked source
-at-jam kit untrack web                                                       # stop tracking; versions kept
+jam kit import --git https://github.com/acme/kits//web@v1.4 [--name web]   # once, not tracked
+jam kit track web --git https://github.com/acme/kits//web@main             # import + track
+jam kit sync web                                                          # re-import the tracked source
+jam kit untrack web                                                       # stop tracking; versions kept
 ```
 
 The admin UI does the same from the Kits list (**Import from git**) and each

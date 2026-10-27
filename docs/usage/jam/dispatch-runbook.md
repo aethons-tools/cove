@@ -27,24 +27,24 @@ doc that owns the detail; this runbook only owns the **order** and the
    Postgres; the `store-postgres` block holds the control plane *and* the
    intercom log (the durable squawk Log). See [serve.md](serve.md#postgres-store-store-postgres)
    and [`dev/`](../../../dev/README.md).
-2. **`at-jam serve`** — write the serve config: cove-facing `listen: :443` +
+2. **`jam serve`** — write the serve config: cove-facing `listen: :443` +
    `tls`, loopback `admin-listen` (no OIDC needed on loopback), `store-postgres`,
    `credentials` (anthropic + git + the DB password), and a `runtime.launcher`
    whose studios are built from the role's studio kit (see [the launcher](serve.md#the-launcher-runtimelauncher)). Start it (`:443` needs privilege). Full schema:
    [serve.md](serve.md).
-3. **Destinations** — `at-jam destination add` for `anthropic` and `git`. Each `--cred-name` must resolve to a `credentials:`
+3. **Destinations** — `jam destination add` for `anthropic` and `git`. Each `--cred-name` must resolve to a `credentials:`
    entry, **validated at add time** — so add the credential to the serve config
    and restart before adding the destination. [serve.md](serve.md#destinations).
-4. **Role** — `at-jam role add --name worker --destinations anthropic,git
+4. **Role** — `jam role add --name worker --destinations anthropic,git
    --ttl 24h`. The git credential's own scope bounds which repos it reaches. A role with **no `--ttl` mints non-expiring
    tokens** — always set one for ephemeral studios. [roster.md](roster.md).
 5. **Requisitioner** — add `runtime.requisitioner` (`role`, `max-concurrent`,
-   `connection` — a linear connection, `at-jam connection add --kind linear
+   `connection` — a linear connection, `jam connection add --kind linear
    --name linear --cred <credential>` — `linear.team` + `states`). Restart serve. It polls the
    `ready` state and raises one studio per **dispatch-labeled** ticket, bounded by
    the cap. [requisitioner.md](requisitioner.md).
 6. **Trigger** — label a ticket `dispatch:go`, move it to your `ready` state, and
-   watch `at-jam studio list`. The kit registry ([kits.md](kits.md)) is **not**
+   watch `jam studio list`. The kit registry ([kits.md](kits.md)) is **not**
    required — the launcher builds from the role's studio kit ([serve.md](serve.md#the-launcher-runtimelauncher)).
 
 ## Gotchas (each one cost a real debugging loop)
@@ -71,7 +71,7 @@ doc that owns the detail; this runbook only owns the **order** and the
   credential's name so the password resolved empty — fixed; if you see
   `password authentication failed` on a correct password, confirm you're on a
   build past that fix.)
-- **The studio image and the host `at-jam` must be the same build.** The
+- **The studio image and the host `jam` must be the same build.** The
   intercom wire endpoint was hard-renamed `/messages` → `/squawks` (no
   back-compat shim), so a post-rename studio calling `/squawks` against a
   pre-rename `serve` (or vice versa) gets a 404 and the agent silently has no
@@ -86,7 +86,7 @@ doc that owns the detail; this runbook only owns the **order** and the
 
 ## Known issues (open)
 
-- **COV-189** — a cove-master/agent that **crashes without reporting `Done`**
+- **COV-189** — a jam-studio-agent/agent that **crashes without reporting `Done`**
   (while the container's `sshd` stays alive) is not reaped, since `Probe` checks
   container liveness, not agent liveness. The normal complete-and-report path
   works; this is the crashed-without-`Done` edge case.
@@ -96,7 +96,7 @@ doc that owns the detail; this runbook only owns the **order** and the
 > **reply** routed back → agent `read` + `commit` → (on a wait-for-reply task)
 > **idle → wake-on-reply → resume** → ack → done → teardown. COV-188 (tools not
 > registering) was a *stale image* missing `/etc/claude-code/mcp.json` (since COV-240
-> cove-master generates the MCP config per episode; that file is gone); COV-190
+> jam-studio-agent generates the MCP config per episode; that file is gone); COV-190
 > (a missing `--mcp-config` now fails loud) is merged — rebuild the image **and**
 > host binary from the same commit if a studio comes up toolless.
 

@@ -1,7 +1,7 @@
 ---
-summary: The protected Jam credentials file (`~/.config/at-jam/credentials.yml`) that supplies the real secrets a Jam brokers/uses, and the demand/supply split between it and the serve config's name-only `credentials:` list.
-read_when: You are supplying the real secrets a Jam brokers or uses — writing ~/.config/at-jam/credentials.yml, choosing value/command/global/mint per credential, wiring `credentials-file`, or migrating an inline `credentials:`/`bot-token`/`tracker-token` strategy out of a serve config.
-owns: the at-jam credentials-file format and location, the value/command/global/mint source vocabulary and the minters: library, the `exchange: gcp` demand setting, the demand/supply split (serve config demands by name, the file supplies), which references must name a demanded credential, and fail-closed on an unsupplied demand
+summary: The protected Jam credentials file (`~/.config/jam/credentials.yml`) that supplies the real secrets a Jam brokers/uses, and the demand/supply split between it and the serve config's name-only `credentials:` list.
+read_when: You are supplying the real secrets a Jam brokers or uses — writing ~/.config/jam/credentials.yml, choosing value/command/global/mint per credential, wiring `credentials-file`, or migrating an inline `credentials:`/`bot-token`/`tracker-token` strategy out of a serve config.
+owns: the jam credentials-file format and location, the value/command/global/mint source vocabulary and the minters: library, the `exchange: gcp` demand setting, the demand/supply split (serve config demands by name, the file supplies), which references must name a demanded credential, and fail-closed on an unsupplied demand
 prereqs: serve.md for the serve config that demands credentials
 tier: leaf
 updated: 2026-10-26
@@ -17,14 +17,14 @@ them, each from one of four [sources](#sources) — optionally through a
 ## Location
 
 Set `credentials-file: <path>` in the [serve config](serve.md#the-serve-config).
-When omitted it defaults to `${XDG_CONFIG_HOME:-~/.config}/at-jam/credentials.yml`.
+When omitted it defaults to `${XDG_CONFIG_HOME:-~/.config}/jam/credentials.yml`.
 Keep it mode `0600` and **never commit it**. A missing file is an empty store, so
 every demand then fails closed (below).
 
 ## Format
 
 ```yaml
-# ~/.config/at-jam/credentials.yml   (mode 0600, never committed)
+# ~/.config/jam/credentials.yml   (mode 0600, never committed)
 minters:                       # inert library; reached only via a mint: reference
   anthropic-fed:
     anthropic:
@@ -57,7 +57,7 @@ config demands its name.
 | `value:` | a literal string | that string, verbatim |
 | `command:` | a host **argv array** | stdout of running it on the host, trailing newline trimmed |
 | `global: <name>` | a name | `global[<name>]`, which must itself be a `value` or `command` (a chain is an error) |
-| `mint: <name>` | a name | a token minted by `at-mint`, built from `minters[<name>]` ([below](#minters)) |
+| `mint: <name>` | a name | a token minted by `jam mint`, built from `minters[<name>]` ([below](#minters)) |
 
 A `command:` runs on the Jam host — only supply commands you trust.
 
@@ -67,21 +67,21 @@ A `command:` runs on the Jam host — only supply commands you trust.
 
 ## Minters
 
-A `minters:` profile is a structured identity for [`at-mint`](../at-mint.md),
+A `minters:` profile is a structured identity for [`jam mint`](../jam-mint.md),
 exactly one of:
 
 - `github:` — `app-id`, `install-id`, `app-key` (a `value:` is a **path** to the
   PEM, passed as `--app-key-file`; a `command:`/`global:` supplies the key
-  **contents**, passed as `AT_MINT_GITHUB_APP_KEY`).
+  **contents**, passed as `JAM_MINT_GITHUB_APP_KEY`).
 - `anthropic:` — `oidc.auth0` (`tenant`, `client-id`, `audience`,
-  `client-secret` — a source, passed as `AT_MINT_AUTH0_CLIENT_SECRET`) and
+  `client-secret` — a source, passed as `JAM_MINT_AUTH0_CLIENT_SECRET`) and
   `federation` (`org`, `rule`, `service-account`, optional `workspace`).
 
-Resolving `{ mint: <profile> }` runs `at-mint <provider>` with the non-secret
+Resolving `{ mint: <profile> }` runs `jam mint <provider>` with the non-secret
 fields as flags and the secret ones resolved on the host and passed as env —
-never argv. Jam passes no `--repo`, which `at-mint github` requires, so a
+never argv. Jam passes no `--repo`, which `jam mint github` requires, so a
 `github` profile cannot mint through `mint:`: write the invocation as a
-`command:` instead (`["at-mint", "github", "--app-id", "…", "--install-id", "…",
+`command:` instead (`["jam", "mint", "github", "--app-id", "…", "--install-id", "…",
 "--app-key-file", "/path/key.pem", "--repo", "owner/name"]`).
 
 ## Demand and supply
@@ -101,7 +101,7 @@ credential:
 | Reference | Where |
 |---|---|
 | `store-postgres.password-cred` | the DB password ([serve.md](serve.md#postgres-store-store-postgres)) |
-| a connection's credential (`at-jam connection add --cred` / `connection cred`), checked when serve starts the connection — the Discord bot token, the tracker token | [serve.md](serve.md) (`runtime.discord.connection`, `runtime.requisitioner.connection`; the deprecated `bot-token-cred` / `tracker-token-cred` name one directly) |
+| a connection's credential (`jam connection add --cred` / `connection cred`), checked when serve starts the connection — the Discord bot token, the tracker token | [serve.md](serve.md) (`runtime.discord.connection`, `runtime.requisitioner.connection`; the deprecated `bot-token-cred` / `tracker-token-cred` name one directly) |
 | a destination's `cred-name` | validated at `destination add` ([serve.md](serve.md#destinations)) |
 | `pool.cred-name` | the pool's anthropic credential ([pool.md](pool.md)) |
 | `ssh.ca-cred` | the studio-collaboration SSH CA key ([serve.md](serve.md), [collaboration.md](collaboration.md)) |

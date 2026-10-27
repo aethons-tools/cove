@@ -27,7 +27,7 @@ workload-identity-federation config) in the credentials file, and demand it with
 # serve config
 credentials:
   vertex-gcp: { exchange: gcp }
-# ~/.config/at-jam/credentials.yml
+# ~/.config/jam/credentials.yml
 credentials:
   vertex-gcp: { command: ["cat", "/run/secrets/vertex-sa.json"] }
 ```
@@ -57,7 +57,7 @@ It sends `ANTHROPIC_CUSTOM_HEADERS` on every request, which is how the identity
 travels. So both sides use the `bearer` presets:
 
 ```
-at-jam destination add --name vertex-us-east5 --route /vertex/us-east5/ \
+jam destination add --name vertex-us-east5 --route /vertex/us-east5/ \
   --upstream https://us-east5-aiplatform.googleapis.com \
   --identity-in bearer --cred-name vertex-gcp --apply bearer \
   --env 'ANTHROPIC_VERTEX_BASE_URL={url}/v1' \

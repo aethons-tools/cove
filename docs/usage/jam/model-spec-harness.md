@@ -76,7 +76,7 @@ the network-bound seed.
 
 A one-time store migration, recorded by a schema marker
 (`jam_settings` key `model_spec_schema`, now `2`), runs at the first
-`at-jam serve` startup after an upgrade — and on [import](backup.md) of a
+`jam serve` startup after an upgrade — and on [import](backup.md) of a
 backup taken before it — applying each step the marker has not recorded, so no
 step ever re-runs (an operator's later edits are never undone).
 
@@ -105,7 +105,7 @@ step ever re-runs (an operator's later edits are never undone).
 
 ### The legacy oauth_beta scan
 
-Not a marker step: at **every** `at-jam serve` startup (and on every
+Not a marker step: at **every** `jam serve` startup (and on every
 [import](backup.md)) Jam scans the destinations for the removed `oauth_beta`
 flag (COV-241) — stored rows and backups keep loading it, and an older binary
 may still write it during a rolling deploy. Each flag is cleared (the serve log

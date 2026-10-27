@@ -15,18 +15,19 @@ that outlive the container, so a restart (a crash, a Jam restart, an
 left off. Only the standing reconciler deletes them.
 
 A standing studio mounts two named Docker volumes, named after its container
-(`atcove-cove-<session id>`):
+(`jam-studio-<session id>`):
 `<container>-agent-data` at `/agent-data` (the agent's `CLAUDE_CONFIG_DIR`: its
 conversations, settings, logs) and `<container>-workspace` at the agent's working
 directory (`/home/agent/workspace` by default). They are the **session's**. A
 `docker: true` launcher's `<container>-docker` cache at `/var/lib/docker` is the
 **studio's**: every teardown removes it, so a session's new studio (restart,
 upgrade) starts with a clean Docker store. Jam creates the session's volumes
-before the container, labeled `harbor.cove.state=<session id>` and
-`harbor.cove.jam=<this Jam's runtime address>`; a Jam only ever sweeps volumes
+before the container, labeled `jam.studio.state=<session id>` and
+`jam.studio.jam=<this Jam's runtime address>`; a Jam only ever sweeps volumes
 carrying its own address, so two Jams sharing a docker host can't purge each
 other's (changing the runtime address orphans the old volumes rather than
-deleting them). The container runs with `--rm`,
+deleting them). Pre-rename volumes are moved at serve start
+([renamed-from-at.md](renamed-from-at.md)). The container runs with `--rm`,
 which removes only anonymous volumes, so these outlive it and re-attach when the
 session is set up again in a new studio (same session id). The image's entrypoint seeds
 `/agent-data` only once (its `.seeded` guard) and refreshes what the image's
@@ -34,13 +35,13 @@ session is set up again in a new studio (same session id). The image's entrypoin
 the image's agent-owned directory into an empty volume). The agent's stream log
 there (`agent-stream.jsonl`) is rotated to `.1` at start once over 16 MiB.
 
-Once the agent first replies, cove-master writes `/agent-data/.cove-conversation`.
+Once the agent first replies, jam-studio-agent writes `/agent-data/.cove-conversation`.
 When a restarted standing session finds that marker, its first episode runs
 `claude --continue` and, instead of the declared prompt (which the conversation
 already holds), gets a restart notice: it was restarted, its conversation and
 workspace are intact, `read` the intercom for what arrived meanwhile, then
 continue. If that resumed episode fails quickly without the agent replying (no
-conversation to continue), cove-master drops the marker and retries once, fresh,
+conversation to continue), jam-studio-agent drops the marker and retries once, fresh,
 with the declared prompt. Without the marker it starts fresh.
 
 No teardown deletes the session's state — a dead or Lost studio, a Jam restart, a

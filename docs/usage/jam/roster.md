@@ -40,17 +40,17 @@ All verbs below take the admin-client flags (`--app`/`--admin-url`/`--token`); s
 
 ## Roles
 
-A role's rules for its sessions: `at-jam context --role` ([session-context-authoring.md](session-context-authoring.md)).
+A role's rules for its sessions: `jam context --role` ([session-context-authoring.md](session-context-authoring.md)).
 
 ```
-at-jam role add --project acme --name guest \
+jam role add --project acme --name guest \
   --destinations anthropic,git=git-pat-acme --ttl 24h
-at-jam role add --project acme --name reviewer --destinations anthropic --kit review-kit
-at-jam role add --project acme --name worker --destinations anthropic,git --max-ephemeral 4
-at-jam role add --project acme --name pair --destinations anthropic,git \
+jam role add --project acme --name reviewer --destinations anthropic --kit review-kit
+jam role add --project acme --name worker --destinations anthropic,git --max-ephemeral 4
+jam role add --project acme --name pair --destinations anthropic,git \
   --max-personal 3 --max-personal-per-owner 1
-at-jam role list [--project acme]
-at-jam role rm   [--project acme] guest
+jam role list [--project acme]
+jam role rm   [--project acme] guest
 ```
 
 - `--destinations` is comma-separated: `name` (the destination's default
@@ -99,10 +99,10 @@ at-jam role rm   [--project acme] guest
   [collaboration.md](collaboration.md).
 - A role's **standing sessions** (named, always-running teammates) are declared
   on the role too (`allocation.standing`), but with their own verb,
-  `at-jam standing add|list|rm|reset|upgrade`, not with `role add` flags. Re-running
+  `jam standing add|list|rm|reset|upgrade`, not with `role add` flags. Re-running
   `role add` keeps them. See [standing-sessions.md](standing-sessions.md).
 - A role's **egress policy** is managed with its own verb,
-  `at-jam egress set|show|clear`, not `role add` flags. Re-running `role add`
+  `jam egress set|show|clear`, not `role add` flags. Re-running `role add`
   (or saving the role in the [admin UI](ui.md)) keeps it. See
   [Role egress](#role-egress).
 - Editing a role re-scopes every actor granted it on the next request (live).
@@ -114,10 +114,10 @@ the domains the studio's squid allows beyond the sealed base and the kit's
 always-on infra list (model provider, self-hosted GitLab, Jam host).
 
 ```
-at-jam egress set   --project acme --role fenced registry.npmjs.org,.pypi.org
-at-jam egress set   --project acme --role fenced --none   # an empty policy
-at-jam egress show  --project acme --role fenced          # "kit default", "none", or the list
-at-jam egress clear --project acme --role fenced          # back to the kit default
+jam egress set   --project acme --role fenced registry.npmjs.org,.pypi.org
+jam egress set   --project acme --role fenced --none   # an empty policy
+jam egress show  --project acme --role fenced          # "kit default", "none", or the list
+jam egress clear --project acme --role fenced          # back to the kit default
 ```
 
 - **No policy (the default) = the kit's list.** The studio gets the kit's
@@ -161,8 +161,8 @@ Admin API (the verbs wrap these; each write keeps every other role field):
 ## Grants
 
 ```
-at-jam grant   --id spider-18 --project beta --role reviewer
-at-jam ungrant --id spider-18 --project beta --role reviewer
+jam grant   --id spider-18 --project beta --role reviewer
+jam ungrant --id spider-18 --project beta --role reviewer
 ```
 
 Grants extend an existing Actor; the Actor's token stays stable as grants come and
@@ -175,9 +175,9 @@ comes from the **role** (enrollment is role-required — there are no inline
 destination/ttl flags):
 
 ```
-at-jam enroll --id spider-18 --project acme --role guest        # prints the connector snippet
-at-jam enroll --id spider-18 --role guest --json                # prints {"id","token","connector"} (for tooling)
-at-jam revoke --id spider-18                                    # removes the whole Actor
+jam enroll --id spider-18 --project acme --role guest        # prints the connector snippet
+jam enroll --id spider-18 --role guest --json                # prints {"id","token","connector"} (for tooling)
+jam revoke --id spider-18                                    # removes the whole Actor
 ```
 
 The snippet is the identity's [connector](connector.md) (also in `--json` as
@@ -185,9 +185,7 @@ The snippet is the identity's [connector](connector.md) (also in `--json` as
 
 - The role must already exist (else `enroll` fails closed).
 - Without `--json`, `enroll` prints a shell **connector snippet** the Guest studio
-  sources. The token is exported once as `AT_JAM_IDENTITY_TOKEN` (its deprecated
-  name is exported from it, for older images — see
-  [renamed-from-harbor.md](renamed-from-harbor.md)); everything else references
+  sources. The token is exported once as `JAM_IDENTITY_TOKEN`; everything else references
   it ([connector.md](connector.md)), and it never lands in gitconfig on disk.
 - `--base-url` (or the app profile's `base-url`) sets the broker base in the
   printed snippet; `--json` needs no base URL.
@@ -195,7 +193,7 @@ The snippet is the identity's [connector](connector.md) (also in `--json` as
 ## The actors
 
 ```
-at-jam actors
+jam actors
 ```
 
 Lists every Actor with its grants and each grant's **effective** destinations

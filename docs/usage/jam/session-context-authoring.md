@@ -1,7 +1,7 @@
 ---
-summary: Writing the authored layers of a Jam session's context — a role's rules, a project's goals and resources, and Jam-wide standing rules — with `at-jam context` or the admin API.
+summary: Writing the authored layers of a Jam session's context — a role's rules, a project's goals and resources, and Jam-wide standing rules — with `jam context` or the admin API.
 read_when: You want sessions of a role or project (or every session on the Jam) to know something at raise — rules, goals, repos — and need the file format, commands, limits or API.
-owns: the `at-jam context show|set|clear` command, the context YAML format, authored-layer limits, and the role/project/jam context admin routes
+owns: the `jam context show|set|clear` command, the context YAML format, authored-layer limits, and the role/project/jam context admin routes
 prereqs: session-context.md for how layers are compiled and delivered
 tier: leaf
 updated: 2026-10-07
@@ -41,11 +41,11 @@ resources:                      # --project only; at most 50
 ## Commands
 
 ```
-at-jam context set   --project acme --file acme-context.yml
-at-jam context set   --role acme/reviewer --file reviewer.yml
-at-jam context set   --jam --file jam-rules.yml
-at-jam context show  --role acme/reviewer      # prints the same YAML (bodies inline)
-at-jam context clear --jam
+jam context set   --project acme --file acme-context.yml
+jam context set   --role acme/reviewer --file reviewer.yml
+jam context set   --jam --file jam-rules.yml
+jam context show  --role acme/reviewer      # prints the same YAML (bodies inline)
+jam context clear --jam
 ```
 
 Or edit the **Agent context** card on the role page, the project page, or (for
@@ -69,4 +69,4 @@ API routes are `GET|PUT|DELETE /admin/roles/{project}/{role}/context`,
 - Raise warns in Jam's log when an authored core restates an egress host or a
   message target — the Studio layer already lists those.
 - Context is plain text in every session's prompt: **never put a credential in it.**
-- Role, project and Jam context are part of `at-jam export` ([backup.md](backup.md)).
+- Role, project and Jam context are part of `jam export` ([backup.md](backup.md)).

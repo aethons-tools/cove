@@ -44,19 +44,17 @@ var renamedAllow = []struct {
 }{
 	{"docs/superpowers/", nil},
 	{"docs/usage/jam/renamed-from-harbor.md", nil},
+	{"docs/usage/jam/renamed-from-at.md", nil},
+	{"docs/usage/jam/INDEX.md", []string{`at-jam`, `at-mint`, `harbor\.cove`}},                 // the routing row to renamed-from-at.md names what it renames
+	{"docs/OVERVIEW.md", []string{`\bat-cove`}},                                                // its interim slice-2 note; slice 4 rewrites OVERVIEW
+	{"images/jam-studio-base/image-files/home/agent/.init-agent-data/", []string{`\bat-cove`}}, // the in-image agent docs still describe a deleted CLI; slice 4 rewrites them
 	{"internal/legacynames/", nil},
 	{"renamed_test.go", nil},
 	{"deleted_test.go", nil},
-	{"testdata/install-legacy", nil},                           // the frozen pre-rename installers
-	{"install.test.sh", nil},                                   // drives the frozen pre-rename installers
-	{"install.sh", []string{`at-jam`, `at-mint`, `\bat-cove`}}, // the stale-binary notice
+	{"testdata/install-legacy", nil},                                                            // the frozen pre-rename installers
+	{"install.test.sh", nil},                                                                    // drives the frozen pre-rename installers
+	{"install.sh", []string{`at-jam`, `at-mint`, `\bat-cove`}},                                  // the stale-binary notice
 	{".gitignore", []string{`at-jam`, `at-mint`, `cove-master`, `covemaster`, `covemasterbin`}}, // keeps stale local builds out of git
-}
-
-// docsPending skips the docs until Task 9 of the slice-3 plan renames them.
-func docsPending(rel string) bool {
-	return strings.HasPrefix(rel, "docs/") || rel == "README.md" || rel == "AGENTS.md" || rel == "CLAUDE.md" ||
-		strings.Contains(rel, "/.init-agent-data/")
 }
 
 func renamedAllowed(rel, token string) bool {
@@ -88,9 +86,6 @@ func TestNoPreRenameNames(t *testing.T) {
 		}
 	}
 	for _, rel := range gitLsFiles(t) {
-		if docsPending(rel) {
-			continue
-		}
 		b, err := os.ReadFile(rel)
 		if err != nil || bytes.IndexByte(b, 0) >= 0 {
 			b = nil // gone from the tree, or binary: check its path only

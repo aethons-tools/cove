@@ -1,7 +1,7 @@
 ---
 summary: The operator guide to docker-in-sandbox — turning on `docker: true`, the one-time Sysbox VM prerequisite, registry allow-list recipes, how nested-container egress behaves, and the feature's limitations.
-read_when: You are enabling Docker inside studios (workloads that run `docker build` / `docker compose up` / testcontainers) — flipping the launcher's `docker` setting, installing Sysbox in the colima VM (`at-jam colima setup-docker`), allow-listing a registry, or debugging a nested container that can't reach the network.
-owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations, and the `at-jam colima setup-docker`/`check-docker` commands that automate it
+read_when: You are enabling Docker inside studios (workloads that run `docker build` / `docker compose up` / testcontainers) — flipping the launcher's `docker` setting, installing Sysbox in the colima VM (`jam colima setup-docker`), allow-listing a registry, or debugging a nested container that can't reach the network.
+owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations, and the `jam colima setup-docker`/`check-docker` commands that automate it
 prereqs: ../OVERVIEW.md for the image + egress model; jam/serve.md#the-launcher-runtimelauncher for the launcher's docker setting
 tier: leaf
 updated: 2026-10-26
@@ -51,19 +51,19 @@ separately, because **colima owns `/etc/docker/daemon.json` and regenerates it o
 every start** — a runtime entry written by the Sysbox `.deb` postinstall (or by
 hand) is wiped on the next boot, so register it through colima's own config.
 
-**The quick way — `at-jam colima setup-docker`.** On the colima host, run:
+**The quick way — `jam colima setup-docker`.** On the colima host, run:
 
 ```console
-$ at-jam colima setup-docker --dry-run   # show the change as a diff, write nothing
-$ at-jam colima setup-docker             # write it (backs up colima.yaml.bak first)
+$ jam colima setup-docker --dry-run   # show the change as a diff, write nothing
+$ jam colima setup-docker             # write it (backs up colima.yaml.bak first)
 $ colima restart                         # runs the hook — restarts every cove in the VM
-$ at-jam colima check-docker             # ok: sysbox-runc is registered
+$ jam colima check-docker             # ok: sysbox-runc is registered
 ```
 
 It edits the default profile's config (behind the `colima` docker context the launcher
 uses), found as colima finds it: `$COLIMA_HOME`, else `~/.colima`, else
 `$XDG_CONFIG_HOME/colima`. It writes exactly the two pieces below: one provision
-hook it owns (marked `# managed by at-jam colima setup-docker`; re-running replaces
+hook it owns (marked `# managed by jam colima setup-docker`; re-running replaces
 it, your other hooks are kept, and a hand-written Sysbox hook from the manual steps
 below is replaced by it) and the `sysbox-runc` runtime entry. With nothing to
 change the file is untouched. `--sysbox-version` (default and minimum

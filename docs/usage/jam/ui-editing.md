@@ -22,7 +22,7 @@ verbs in [roster.md](roster.md):
 - **Enroll** an agent on the Agents list (id, project, role, optional destination overrides).
   The identity token is shown **once**, right after enrolling — copy it then; it
   is never shown again, stored in a list, or logged. For the full connection
-  snippet (env vars / git config), use the CLI `at-jam enroll`.
+  snippet (env vars / git config), use the CLI `jam enroll`.
 - **Revoke** an agent and **add/remove** its grants on its
   [agent page](ui-pages.md#agent-pages); **create/delete** a role (and edit it
   on its [role page](ui-projects.md#role-pages)).
@@ -39,7 +39,7 @@ verbs in [roster.md](roster.md):
   Tab accept, Esc closes. Suggestions guide but don't restrict: the server
   still validates, so a glob like `user:*` is fine and an unknown project is
   refused (a project must exist first — [projects.md](projects.md)). Project
-  fields start at `default`. Credential suggestions are the names `at-jam serve`
+  fields start at `default`. Credential suggestions are the names `jam serve`
   is configured with (names only, never values).
 
 Create forms sit in collapsed **+ Add …** panels above each table. The
@@ -66,7 +66,7 @@ config — see [coves.md](coves.md)), the Agents list can also:
 
 - **Raise a managed studio** — a label, role, optional project/unit and a workload
   prompt. Jam handles the studio's identity token and launch secret internally;
-  they are never shown in the browser (use the CLI `at-jam studio raise` for
+  they are never shown in the browser (use the CLI `jam studio raise` for
   manual wiring).
 - **Tear down a studio** (confirmed) — from its row or its agent's page.
 
@@ -76,7 +76,7 @@ prompt `Squawk me (user:<your name>) and we will get to work.`, so the
 agent opens the conversation with you on the intercom. You must be signed in
 (`/app/auth/login`) as a login linked to a member of the role's project.
 As anonymous loopback `local`, the action asks you to sign in. Admission,
-delivery checks, and errors are exactly those of `at-jam session request`, and
+delivery checks, and errors are exactly those of `jam session request`, and
 the outcome (the new agent id, or the refusal) shows in the page's banner.
 
 Without a runtime supervisor, studios are view-only. Setting a studio's
@@ -93,7 +93,7 @@ obey the same gate, CSRF, and audit-logging as the roster edits above.
   routing and the session note) and remove one; each destination's page shows and
   edits it — see [ui-pages.md](ui-pages.md#destination-pages).
 - **Model-specs** — create, edit and delete one, validated exactly like
-  `at-jam model-spec` — see [ui-pages.md](ui-pages.md#model-spec-pages).
+  `jam model-spec` — see [ui-pages.md](ui-pages.md#model-spec-pages).
 
 A kit config references credentials by name only (no secret values), and a
 destination's `cred-name` (or a model-spec's principal) is a reference, not a secret — the UI shows the name

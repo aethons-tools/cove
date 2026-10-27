@@ -32,21 +32,21 @@ Two host constraints shape how `go` is run here:
   Set `GOPROXY=direct` and `GOSUMDB=off` so `go get gopkg.in/yaml.v3@v3.0.1` resolves directly through the allow-listed hosts —
   no module proxy, no checksum DB.
   This is why the one dependency can be fetched without a vendor tree or an allow-list change.
-- **The default `GOPATH` (`~/go` → `/home/agent/go`) works.** `cove-image` provides
+- **The default `GOPATH` (`~/go` → `/home/agent/go`) works.** `jam-studio` provides
   a writable home with `~/go` pre-created, and bakes `GOROOT`/`GOPATH`/`GOPROXY`/
-  `GOSUMDB`/`GOFLAGS` as image `ENV` surfaced into the session via `COVE_SSHENV`
+  `GOSUMDB`/`GOFLAGS` as image `ENV` surfaced into the session via `JAM_SSHENV`
   (see [`OVERVIEW.md`](#the-image-tree)). (Older sandboxes redirected
   `GOPATH` to `/home/agent/workspace/.gopath` because `~` was not writable; that
   override is now unnecessary — harmless if a stale `settings.json` still sets it.)
 
-The `cove-ic` studio kit ([`.at-jam/cove-ic/`](../.at-jam/cove-ic/kit.yml))
+The `cove-ic` studio kit ([`.jam/cove-ic/`](../.jam/cove-ic/kit.yml))
 differs: it sets `GOPROXY=https://proxy.golang.org,direct`. A studio's
-`github.com` git traffic goes through the at-jam git proxy, which serves only the
+`github.com` git traffic goes through the jam git proxy, which serves only the
 studio's own repo, so `direct` alone fails every dependency with a 403. It also
 sets the agent's git commit identity (`GIT_AUTHOR_*`/`GIT_COMMITTER_*`, carried
-into sessions via `COVE_SSHENV`), so a studio can commit without `git config`.
+into sessions via `JAM_SSHENV`), so a studio can commit without `git config`.
 
-These are already exported in this environment (via `COVE_SSHENV`), and `go` is on
+These are already exported in this environment (via `JAM_SSHENV`), and `go` is on
 `PATH`. If you need to set them inline (e.g. a non-session shell that didn't read
 `/etc/environment`), prefix the command:
 
@@ -70,11 +70,11 @@ Two consequences worth knowing when adding a dependency:
 
 The `/app/user` whiteboard editor is Excalidraw, bundled from `web/whiteboard/`
 (`package.json` + committed `package-lock.json` + `entry.jsx`) into
-`internal/jam/uiassets/whiteboard/` — git-ignored, embedded by `at-jam`.
+`internal/jam/uiassets/whiteboard/` — git-ignored, embedded by `jam`.
 `just whiteboard` (`scripts/whiteboard.sh`: `npm ci` + esbuild) builds it;
 it needs Node 20+ and the npm registry. `just build` runs it when npm is
 present (`WHITEBOARD_OPTIONAL=1`), and the gate and the release pipeline
-always do. Without the bundle `at-jam` still builds and every test still
+always do. Without the bundle `jam` still builds and every test still
 runs; `/app/user` just hides New whiteboard. `just test-browser` drives the
 editor in headless Chrome when the bundle is built.
 
@@ -93,7 +93,7 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
   directly against `github.com`.
 - That means `storage.googleapis.com` (the module proxy's blob store) must be
   egress-allow-listed alongside `proxy.golang.org` — both already are, in the
-  `egress:` list in [`.at-jam/cove-ic/kit.yml`](../.at-jam/cove-ic/kit.yml), the repo's Jam studio kit.
+  `egress:` list in [`.jam/cove-ic/kit.yml`](../.jam/cove-ic/kit.yml), the repo's Jam studio kit.
 - Generated `.pb.go` files **are committed**. CI never regenerates them — `just
   buf-gen` is a manual step a developer runs after editing the `.proto`, and
   the diff it produces is reviewed and committed like any other source change.
@@ -129,9 +129,9 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
 - `just test-browser` (`go test -tags browser ./internal/jam/userui/`) drives the
   `/app/user` page in **headless Chrome** via chromedp, covering the composer JS that
   the hermetic tests can only see as source (e.g. paste-as-code). It needs
-  `chrome-headless-shell` on `PATH` (or `COVE_BROWSER=<path>`), and each test
+  `chrome-headless-shell` on `PATH` (or `JAM_BROWSER=<path>`), and each test
   **skips** without one. The `cove-ic` studio kit
-  ([`.at-jam/cove-ic/`](../.at-jam/cove-ic/kit.yml)) installs a pinned Chrome
+  ([`.jam/cove-ic/`](../.jam/cove-ic/kit.yml)) installs a pinned Chrome
   for Testing build; the same binary can screenshot a page
   (`chrome-headless-shell --screenshot=out.png <url>`) to eyeball a UI change.
 - `just setup` installs the optional dev tooling (podman + a `docker` shim, shellcheck, hadolint, jq).
@@ -156,11 +156,11 @@ loop cannot drift.
   `just setup`; in CI that default would let the gate pass having linted
   nothing, so `STRICT=1` turns a missing linter into a failure.
 - The gate runs on the **plain runner** and installs the linters per-run — it is
-  deliberately *not* run inside `cove-image` (COV-35). A container gate would
+  deliberately *not* run inside `jam-studio` (COV-35). A container gate would
   inherit the image's sandbox-tuned `GOPROXY=direct`/`GOSUMDB=off` (see above) and
   silently stop verifying module checksums, and would add a digest-pin to chase.
   Instead the drift the container would have solved is handled directly: the
-  `hadolint` version is pinned in **three** places — this gate, `cove-image`'s
+  `hadolint` version is pinned in **three** places — this gate, `jam-studio`'s
   Dockerfile, and [`scripts/setup-test-tools.sh`](../scripts/setup-test-tools.sh)
   (local dev) — and one Renovate `customManager` ([`renovate.json`](../renovate.json))
   watches all three, so a bump lands in a single PR and image/CI/local never
@@ -174,11 +174,11 @@ loop cannot drift.
   above are a workaround for *this sandbox's* egress lock; a runner has open
   egress and should verify module checksums against `go.sum`.
 - `scripts/lint.sh` runs `hadolint` on all three Dockerfiles —
-  `images/cove-base-image/Dockerfile`, `images/cove-image/Dockerfile`, and
+  `images/jam-studio-base/Dockerfile`, `images/jam-studio/Dockerfile`, and
   `internal/assemble/hardening/Dockerfile`. `.hadolint.yaml` records the rules
   ignored for them, each with its reason. Everything else fails the gate.
 - `scripts/lint.sh` runs `shellcheck` on `scripts/*.sh` and the sealed hardening
-  helpers under `internal/assemble/hardening/image-files/usr/local/{bin,lib/cove}/`
+  helpers under `internal/assemble/hardening/image-files/usr/local/{bin,lib/jam}/`
   — so a sealed helper delivered into a sandbox (e.g. `apply-session-domains.sh`)
   is gated, not just the host scripts.
 
@@ -202,19 +202,19 @@ Jam's launcher hardens, so their tooling can't drift. See
 [the design](superpowers/specs/2026-07-16-shared-base-image-design.md) for the
 full rationale.
 
-- **`images/cove-base-image/Dockerfile`** — the universal lean floor: OS +
+- **`images/jam-studio-base/Dockerfile`** — the universal lean floor: OS +
   git/gh/sshd + the egress stack (nftables/squid) + the Docker engine & systemd
   (for the opt-in docker-in-sandbox capability, present-but-inert) + core utils.
   **Pure tools**: no language toolchains, chrome, or java — and **no
-  `cove-master`**: the launcher injects the version-locked `cove-master` into its
+  `jam-studio-agent`**: the launcher injects the version-locked `jam-studio-agent` into its
   sealed hardening layer, so the base has no Go build and rebuilds only when `images/` changes (COV-44).
-- **`images/cove-image/Dockerfile`** — `FROM cove-base-image` + the full
+- **`images/jam-studio/Dockerfile`** — `FROM jam-studio-base` + the full
   build/test/run toolchain (go, just, shellcheck, hadolint, node, chrome, java).
   Base for both CI and the sandboxes. It also clones the pinned
   [`samber/cc-skills-golang`](https://github.com/samber/cc-skills-golang) release
   and seeds its Go agent skills into `.init-agent-data/skills/` — so agents
-  working on *this* repo get Go-specific skills. This lives in `cove-image` (not
-  `cove-base-image`, which carries the generic board/docs skills and agent docs
+  working on *this* repo get Go-specific skills. This lives in `jam-studio` (not
+  `jam-studio-base`, which carries the generic board/docs skills and agent docs
   every kit inherits), so other kits are unaffected; the base seed's `.refresh`
   manifest lists `skills`, so the sealed entrypoint re-mirrors the seed's
   `skills/` into `/agent-data/skills` on every boot and a rebuilt image reaches
@@ -237,8 +237,8 @@ whatever `playwright` resolves.)
 pipeline (below); consumers **pin by `@sha256` digest**, never a moving tag
 (COV-34/COV-35). Both arches build **natively** (amd64 on `ubuntu-latest`, arm64
 on `ubuntu-24.04-arm`) and smoke-test that every tool resolves **before** any
-publish. Published (private) to `ghcr.io/aethons-tools/cove-base-image` and
-`…/cove-image`.
+publish. Published (private) to `ghcr.io/aethons-tools/jam-studio-base` and
+`…/jam-studio`.
 
 ## CI: the release pipeline
 
@@ -249,45 +249,42 @@ It runs on every push to `main` and on every PR, and **decides from the repo dif
 which artifacts to (re)build** — there is no version-tag trigger and no manual
 "cut a release" step.
 
-- **Change-detection** (path-based) selects the legs: `images/cove-base-image/**`
-  → rebuild the base **and** cove-image (downstream) **and** re-cut the host binaries (its
+- **Change-detection** (path-based) selects the legs: `images/jam-studio-base/**`
+  → rebuild the base **and** jam-studio (downstream) **and** re-cut the host binaries (its
   new digest becomes the default base + blessed-list head);
-  `images/cove-image/**` → rebuild just cove-image (FROM the current published
+  `images/jam-studio/**` → rebuild just jam-studio (FROM the current published
   base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` · `install.sh` → re-cut the host binaries
   (blessed list recomputed from the registry head). Docs-only → nothing publishes.
 - **DAG order (no cycle):** base → publish → digest **D** → [blessed-list
-  snapshot, [COV-47](../internal/blessgen)] → the host binaries (embed cove-master + list); cove-image = `FROM cove-base-image:ci`. The base
+  snapshot, [COV-47](../internal/blessgen)] → the host binaries (embed jam-studio-agent + list); jam-studio = `FROM jam-studio-base:ci`. The base
   publishes **before** the binaries leg so `gen-blessed` sees **D** as the
   registry head.
 - **PRs build + smoke the touched legs but never publish** (spec §5); only a push
   to `main` pushes to GHCR / cuts the release. Images publish as multi-arch
   manifests tagged `<N>-<MMDD>` (immutable) + `latest`; the binaries are built by
-  `goreleaser --snapshot` (one archive per os/arch carrying at-mint + at-jam + the
-  at-cove tombstone, plus checksums, stamped `<N>-<MMDD>`) and the
+  `goreleaser --snapshot` (`jam` for darwin/linux × amd64/arm64, one
+  `jam_<ver>_<os>_<arch>.tar.gz` per target holding exactly `jam` — checked by
+  `scripts/release/check-archive.sh` — plus checksums, stamped `<N>-<MMDD>`) and the
   release cut with `gh` (private). See [Versioning](#versioning).
-- **cove-master is embedded**, not shipped standalone — re-cutting the binaries
+- **jam-studio-agent is embedded**, not shipped standalone — re-cutting the binaries
   re-cuts it (the [`.goreleaser.yaml`](../.goreleaser.yaml) before-hook runs
-  `scripts/stage-covemaster.sh`). The archive also carries
-  `scripts/release/at-cove`, a tombstone that keeps an older `at-jam update` working
-  (its embedded `install.sh` installs `at-cove` unconditionally); slice 3 of the
-  jam-only design drops it.
+  `scripts/stage-studio-agent.sh`).
 
 ### Versioning
 
 `<N>-<MMDD>` — `<N>` = `git rev-list --count HEAD` is the version (globally
 monotonic, reproducible offline); `<MM><DD>` is an advisory month-day; `-` (not
 `.`) so it is never mistaken for SemVer. Every published artifact
-(`cove-base-image`, `cove-image`, the binaries release) is tagged `<N>-<MMDD>` + a moving
+(`jam-studio-base`, `jam-studio`, the binaries release) is tagged `<N>-<MMDD>` + a moving
 `latest`. Because only what changed is rebuilt, artifacts' `<N>` values may
 differ — each reflects when it was last built. Jam references the base by
 **digest**, never version, so divergent tags don't affect the gate.
 
 [`scripts/build.sh`](../scripts/build.sh) builds the host binaries locally (no
 publish) for iteration; `scripts/build-images.sh` does the same for the image
-tree. A dev `at-jam` run straight from `dist/<os>-<arch>/at-jam` invokes its
-**sibling** `dist/<os>-<arch>/at-mint` (version-matched, built by the same
-`build.sh`) rather than a PATH `at-mint`, falling back to the bare name on PATH
-when no sibling is present.
+tree. A `jam` that mints a token runs itself (`<its own path> mint …`, so the
+minter is always version-matched), falling back to `jam` on PATH when it can't
+resolve its own path.
 
 ### Adopting a new base
 
@@ -302,7 +299,7 @@ just adopt-base <tag>        # raise internal/basedigest/blessed/watermark.txt t
 just adopt-base <tag> --pr   # after editing, branch + commit + open a PR
 ```
 
-It resolves `<tag>` (e.g. `527-0808`, or `latest`) to `cove-base-image`'s
+It resolves `<tag>` (e.g. `527-0808`, or `latest`) to `jam-studio-base`'s
 multi-arch **index** digest via the GitHub packages API. It needs `GITHUB_TOKEN`
 with `read:packages` (like `gen-blessed`) and cannot run offline; preview the
 resulting set with `just gen-blessed`. Only raise the watermark for a genuinely

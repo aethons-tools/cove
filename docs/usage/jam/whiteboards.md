@@ -70,7 +70,7 @@ thumbnails and `board_snapshot`.
 A conversation's header has **New whiteboard**; a board's card (title, live
 thumbnail, **Open**) opens the editor in place of the stream — see
 [intercom-ui.md](intercom-ui.md#whiteboards). The editor is built into
-`at-jam` by `just whiteboard` ([DEVELOPMENT.md](../../DEVELOPMENT.md)); a Jam
+`jam` by `just whiteboard` ([DEVELOPMENT.md](../../DEVELOPMENT.md)); a Jam
 built without it shows cards but no editor.
 
 ## Not yet
