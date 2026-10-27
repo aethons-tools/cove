@@ -77,8 +77,8 @@ A **test build** builds the draft's image the way a raise does: the parent
 chain (its stages reused as usual), the harness, the sealed hardening layer
 and the build args, with the draft's files as the kit's own stage. Nothing
 is published. The image is tagged `cove-kit-draft:<kit>-<tree[:12]>` (its own
-stage `…-stage`), never a version's image or stage tag. It needs a launcher
-that builds images ([`runtime.launcher`](serve.md#the-launcher-runtimelauncher)); without one
+stage `…-stage`), never a version's image or stage tag. It needs a manager
+that builds images ([`runtime.launcher`](serve.md#the-launcher-runtimelauncher) or [Studio Managers](studio-managers.md)); without either
 the build routes answer 503
 `test builds need a launcher that builds images (runtime.launcher)`.
 
