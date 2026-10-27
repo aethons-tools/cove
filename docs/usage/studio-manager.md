@@ -87,4 +87,4 @@ A standing session that moves to another manager starts fresh: no state carries 
 ## Image builds
 
 Kit images are tagged with the kit digest and a fingerprint that includes the manager's identity key.
-Two managers with different `identity-file`s therefore build its own images, even on a shared daemon.
+Two managers with different `identity-file`s therefore build their own images, even on a shared daemon.
