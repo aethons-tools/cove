@@ -4,7 +4,7 @@ read_when: You need what this repo builds, the studio image's security model, th
 owns: the project overview: studio image assembly, security model, package map
 prereqs: none
 tier: leaf
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # cove — Project Overview
@@ -214,6 +214,14 @@ The `output` chain also accepts traffic onto the sandbox's own docker bridges
 published port; that traffic stays inside the sandbox.
 
 ## Architecture
+
+How the running pieces connect:
+
+| Piece | Runs | Links |
+|-------|------|-------|
+| Jam (`at-jam serve`) | anywhere, including [a container](usage/jam/container.md) | [serve.md](usage/jam/serve.md) |
+| Studio Managers (`at-studio-manager`) | bare-metal next to their substrate (Colima), dialing Jam | [studio-manager.md](usage/studio-manager.md), [studio-managers.md](usage/jam/studio-managers.md) |
+| Studios (`cove-master`) | on a manager's host, dialing Jam's Attach stream | [coves.md](usage/jam/coves.md#cove-master-the-in-cove-client) |
 
 A pure **plan** (what to do) is separated from **execution** (doing it),
 so the interesting logic is unit-testable without Docker, SSH, or a live VM.
