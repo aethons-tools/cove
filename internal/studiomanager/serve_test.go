@@ -2,6 +2,7 @@ package studiomanager
 
 import (
 	"context"
+	"crypto/tls"
 	"log/slog"
 	"net"
 	"os"
@@ -20,7 +21,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/fleet"
 	"github.com/aethons-tools/cove/internal/jam/managers"
 	"github.com/aethons-tools/cove/internal/jam/managers/managerpb"
-	"github.com/aethons-tools/cove/internal/runner"
 )
 
 // recordingReconciler records each manager inventory Jam reconciles.
@@ -118,9 +118,18 @@ func eventually(t *testing.T, what string, cond func() bool) {
 }
 
 // startServe adds m1 to the hub, writes its token and runs Serve for it
-// against e with ops, logging to logs (nil: discard); it returns the Config
-// and m1's token once Serve has been started.
-func startServe(t *testing.T, e *jamEnv, ops *fakeBackend, logs *syncBuffer) (Config, string) {
+// serveOpts adjusts startServe; the zero value is version v1, a discarded
+// log and a 10ms backoff.
+type serveOpts struct {
+	version string
+	logs    *syncBuffer
+	sleep   func(ctx context.Context, d time.Duration)
+}
+
+// startServe adds m1 to the hub, writes its token and runs Serve for it
+// against e with ops; it returns the Config and m1's token once Serve has
+// been started.
+func startServe(t *testing.T, e *jamEnv, ops *fakeBackend, o serveOpts) (Config, string) {
 	t.Helper()
 	tok, err := e.hub.Add("m1")
 	if err != nil {
@@ -150,23 +159,24 @@ func startServe(t *testing.T, e *jamEnv, ops *fakeBackend, logs *syncBuffer) (Co
 		t.Fatal(err)
 	}
 	log := slog.New(slog.DiscardHandler)
-	if logs != nil {
-		log = slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	if o.logs != nil {
+		log = slog.New(slog.NewTextHandler(o.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	}
+	if o.version == "" {
+		o.version = "v1"
+	}
+	if o.sleep == nil {
+		o.sleep = func(ctx context.Context, d time.Duration) {
+			select {
+			case <-ctx.Done():
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- Serve(ctx, cfg, "v1", log, Deps{
-			Runner: &runner.Fake{},
-			Dial:   e.dial,
-			Ops:    ops,
-			Sleep: func(ctx context.Context, d time.Duration) {
-				select {
-				case <-ctx.Done():
-				case <-time.After(10 * time.Millisecond):
-				}
-			},
-		})
+		done <- Serve(ctx, cfg, o.version, log, Deps{Runner: okRunner{}, Dial: e.dial, Ops: ops, Sleep: o.sleep})
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -186,7 +196,7 @@ func TestServeReportsRunningStudiosInHello(t *testing.T) {
 	e := newJamEnv(t, nil)
 	ops := &fakeBackend{containers: map[string]map[string]string{"cove-w1": studioOf("w1", "m1")}}
 	var logs syncBuffer
-	cfg, token := startServe(t, e, ops, &logs)
+	cfg, token := startServe(t, e, ops, serveOpts{logs: &logs})
 	eventually(t, "m1 connected", func() bool { return e.connected("m1") })
 	eventually(t, "connected logged", func() bool { return strings.Contains(logs.String(), "manager: connected to Jam") })
 	if strings.Contains(logs.String(), token) {
@@ -207,7 +217,7 @@ func TestServeReportsRunningStudiosInHello(t *testing.T) {
 func TestServeReconnectsAfterJamRestart(t *testing.T) {
 	e := newJamEnv(t, nil)
 	ops := &fakeBackend{containers: map[string]map[string]string{"cove-w1": studioOf("w1", "m1")}}
-	startServe(t, e, ops, nil)
+	startServe(t, e, ops, serveOpts{})
 	eventually(t, "m1 connected", func() bool { return e.connected("m1") })
 
 	e.stop()
@@ -228,7 +238,7 @@ func TestServeReconnectsAfterJamRestart(t *testing.T) {
 func TestServeSetsSSHUserCAFromWelcome(t *testing.T) {
 	e := newJamEnv(t, []byte("ca-line"))
 	ops := &fakeBackend{}
-	startServe(t, e, ops, nil)
+	startServe(t, e, ops, serveOpts{})
 	eventually(t, "m1 connected", func() bool { return e.connected("m1") })
 
 	placed, err := e.router.RaiseOn(context.Background(), jam.RaiseSpec{
@@ -242,4 +252,69 @@ func TestServeSetsSSHUserCAFromWelcome(t *testing.T) {
 			t.Fatalf("CA installed in %q = %q, want ca-line (all: %v)", placed.Location, got, f.caFor)
 		}
 	})
+}
+
+// Jam's version check refuses a mismatched manager; Serve logs it once at
+// Error and backs off the full 30s.
+func TestServeLogsJamRefusal(t *testing.T) {
+	e := newJamEnv(t, nil)
+	var logs syncBuffer
+	slept := make(chan time.Duration, 1)
+	startServe(t, e, &fakeBackend{}, serveOpts{version: "v2", logs: &logs, sleep: func(ctx context.Context, d time.Duration) {
+		slept <- d
+		<-ctx.Done() // one session only
+	}})
+	select {
+	case d := <-slept:
+		if d != 30*time.Second {
+			t.Fatalf("backoff = %v, want 30s", d)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Serve never backed off")
+	}
+	var errLines []string
+	for _, line := range strings.Split(logs.String(), "\n") {
+		if strings.Contains(line, "level=ERROR") {
+			errLines = append(errLines, line)
+		}
+	}
+	if len(errLines) != 1 || !strings.Contains(errLines[0], "refused") || !strings.Contains(errLines[0], "version mismatch") {
+		t.Fatalf("error lines = %q; log:\n%s", errLines, logs.String())
+	}
+	if e.connected("m1") {
+		t.Fatal("m1 connected despite the version mismatch")
+	}
+}
+
+func TestTLSConfig(t *testing.T) {
+	dir := t.TempDir()
+	notPEM := filepath.Join(dir, "not.pem")
+	if err := os.WriteFile(notPEM, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		cfg     Config
+		wantErr string
+	}{
+		{name: "missing ca-file", cfg: Config{CAFile: filepath.Join(dir, "absent.pem")}, wantErr: "read ca-file"},
+		{name: "non-PEM ca-file", cfg: Config{CAFile: notPEM}, wantErr: "holds no PEM certificate"},
+		{name: "server name", cfg: Config{ServerName: "jam.internal"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tlsConfig(tc.cfg)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.ServerName != tc.cfg.ServerName || got.RootCAs == nil || got.MinVersion != tls.VersionTLS12 {
+				t.Fatalf("tls config = ServerName %q RootCAs %v MinVersion %x", got.ServerName, got.RootCAs != nil, got.MinVersion)
+			}
+		})
+	}
 }
