@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
@@ -439,5 +440,69 @@ func TestServeTeardownReturnsAgentLog(t *testing.T) {
 func TestServeTeardownPlainLauncher(t *testing.T) {
 	if r := serveTeardown(t, &fakeLauncher{}); r.AgentLog != "" {
 		t.Fatalf("AgentLog = %q, want empty", r.AgentLog)
+	}
+}
+
+type blockingKitLauncher struct {
+	fakeLauncher
+	started chan struct{}
+	release chan struct{}
+}
+
+func (l *blockingKitLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
+	close(l.started)
+	<-l.release // ignores ctx, like a real kit build
+	return jam.KitStatus{}, nil
+}
+
+// msgHandler is a slog.Handler that reports each record's message.
+type msgHandler struct{ msgs chan string }
+
+func (h msgHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h msgHandler) Handle(_ context.Context, r slog.Record) error {
+	select {
+	case h.msgs <- r.Message:
+	default:
+	}
+	return nil
+}
+func (h msgHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h msgHandler) WithGroup(string) slog.Handler      { return h }
+
+// A dropped stream ends Run at once, even while a request that ignores ctx
+// (a kit build) is still running; its late reply is dropped harmlessly.
+func TestRunReturnsWhileRequestStillRunning(t *testing.T) {
+	l := &blockingKitLauncher{started: make(chan struct{}), release: make(chan struct{})}
+	released := false
+	defer func() {
+		if !released {
+			close(l.release)
+		}
+	}()
+	fj := &fakeJam{fn: func(_ *testing.T, s *session) {
+		s.request(1, wire.OpPrepareKit, wire.KitRequest{})
+		<-l.started // then return: the stream ends
+	}}
+	msgs := make(chan string, 16)
+	out := runAsync(t, start(t, fj), Config{Name: "m", Launcher: l, Log: slog.New(msgHandler{msgs})})
+	select {
+	case err := <-out:
+		if err != nil {
+			t.Fatalf("Run = %v, want nil after the stream ended", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return while PrepareKit was blocked")
+	}
+	released = true
+	close(l.release)
+	for {
+		select {
+		case m := <-msgs:
+			if m == "manager: send result failed" {
+				return
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("late reply was not attempted and dropped")
+		}
 	}
 }

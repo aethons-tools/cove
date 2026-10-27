@@ -40,7 +40,9 @@ type Config struct {
 
 // Run opens one Connect stream on cc, sends Hello and waits for Welcome, then
 // serves Jam's requests until the stream ends. It returns the stream's error
-// (a gRPC status from Jam when refused), or ctx.Err() after ctx ends.
+// (a gRPC status from Jam when refused), or ctx.Err() after ctx ends. It
+// returns without waiting for in-flight requests: their contexts are
+// cancelled, and any reply they send afterwards is dropped.
 func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 	if cfg.Launcher == nil {
 		return errors.New("client: Launcher is required")
@@ -86,13 +88,23 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 	dead := time.AfterFunc(cfg.DeadAfter, func() { setFatal(errors.New("heartbeat timeout")) })
 	defer dead.Stop()
 
-	var wg sync.WaitGroup
-	defer wg.Wait()
-	defer cancel() // runs first: unblock request goroutines before wg.Wait
+	// On return: cancel unblocks the heartbeat and any in-flight Send (gRPC
+	// aborts a Send once the stream's context ends); wait for the heartbeat;
+	// then close the conn under sendMu so no Send can start after Run has
+	// returned. Request goroutines are not waited for: a launcher call may
+	// ignore ctx for minutes (a kit build), and Run must return promptly so
+	// the manager can reconnect. Their late replies fail with errClosed and
+	// are dropped.
+	var hb sync.WaitGroup
+	defer func() {
+		cancel()
+		hb.Wait()
+		c.close()
+	}()
 
-	wg.Add(1)
+	hb.Add(1)
 	go func() {
-		defer wg.Done()
+		defer hb.Done()
 		t := time.NewTicker(cfg.HeartbeatEvery)
 		defer t.Stop()
 		for {
@@ -158,9 +170,7 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 		c.mu.Lock()
 		c.cancels[f.Id] = rcancel
 		c.mu.Unlock()
-		wg.Add(1)
 		go func(id uint64, op string) {
-			defer wg.Done()
 			defer func() {
 				c.mu.Lock()
 				delete(c.cancels, id)
@@ -205,7 +215,8 @@ type conn struct {
 	stream grpc.BidiStreamingClient[managerpb.ManagerUp, managerpb.ManagerDown]
 	ctx    context.Context
 
-	sendMu  sync.Mutex // serializes all sends
+	sendMu  sync.Mutex // serializes all sends; guards closed
+	closed  bool       // set once Run returns: sends fail with errClosed
 	mu      sync.Mutex
 	cancels map[uint64]context.CancelFunc
 }
@@ -220,9 +231,23 @@ func (c *conn) recvErr(err error) error {
 	return err
 }
 
+// errClosed is returned by a send after Run has returned.
+var errClosed = errors.New("client: stream closed")
+
+// close makes every later send fail with errClosed. It waits for an in-flight
+// send, so the stream's context must already be cancelled.
+func (c *conn) close() {
+	c.sendMu.Lock()
+	c.closed = true
+	c.sendMu.Unlock()
+}
+
 func (c *conn) sendUp(m *managerpb.ManagerUp) error {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
+	if c.closed {
+		return errClosed
+	}
 	return c.stream.Send(m)
 }
 
@@ -230,6 +255,9 @@ func (c *conn) sendUp(m *managerpb.ManagerUp) error {
 func (c *conn) sendFrames(frames []*managerpb.Frame) error {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
+	if c.closed {
+		return errClosed
+	}
 	for _, f := range frames {
 		if err := c.stream.Send(&managerpb.ManagerUp{Msg: &managerpb.ManagerUp_Frame{Frame: f}}); err != nil {
 			return err
