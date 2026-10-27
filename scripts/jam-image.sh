@@ -43,7 +43,7 @@ find_bin() {
   local bin="$1" arch="$2" p
   p="$dist/linux-$arch/$bin"
   [ -f "$p" ] && { printf '%s\n' "$p"; return 0; }
-  for p in "$dist"/${bin}_linux_${arch}*/"$bin"; do
+  for p in "$dist"/"${bin}"_linux_"${arch}"*/"$bin"; do
     [ -f "$p" ] && { printf '%s\n' "$p"; return 0; }
   done
   return 1

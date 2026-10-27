@@ -95,27 +95,28 @@ run --dist "$WORK/dist" --platforms linux/amd64,linux/arm64 --push
 assert_eq "missing: exit 1" 1 "$RC"
 assert_contains "missing: names platform" "$ERR" "no at-jam for linux/arm64 (looked in"
 assert_contains "missing: names paths" "$ERR" "$WORK/dist/linux-arm64/at-jam"
-[ ! -e "$DOCKER_LOG" ] && ok "missing: docker not called" || bad "missing: docker not called"
+if [ ! -e "$DOCKER_LOG" ]; then ok "missing: docker not called"; else bad "missing: docker not called"; fi
 
 # 4. --load with two platforms
 reset
 run --dist "$WORK/dist" --platforms linux/amd64,linux/arm64
 assert_eq "load multi: exit 1" 1 "$RC"
 assert_contains "load multi: message" "$ERR" "--load supports one platform; use --push"
-[ ! -e "$DOCKER_LOG" ] && ok "load multi: docker not called" || bad "load multi: docker not called"
+if [ ! -e "$DOCKER_LOG" ]; then ok "load multi: docker not called"; else bad "load multi: docker not called"; fi
 
 # 4b. unsupported platform, unknown flag
 reset
 run --dist "$WORK/dist" --platforms linux/s390x
 assert_eq "bad platform: exit 1" 1 "$RC"
 assert_contains "bad platform: message" "$ERR" "unsupported platform linux/s390x"
-[ ! -e "$DOCKER_LOG" ] && ok "bad platform: docker not called" || bad "bad platform: docker not called"
+if [ ! -e "$DOCKER_LOG" ]; then ok "bad platform: docker not called"; else bad "bad platform: docker not called"; fi
 run --bogus
 assert_eq "unknown flag: exit 2" 2 "$RC"
-[ ! -e "$DOCKER_LOG" ] && ok "unknown flag: docker not called" || bad "unknown flag: docker not called"
+if [ ! -e "$DOCKER_LOG" ]; then ok "unknown flag: docker not called"; else bad "unknown flag: docker not called"; fi
 
 # 5. Dockerfile contract
 df="$(cat "$DOCKERFILE")"
+# shellcheck disable=SC2016 # literal ${...} patterns are grep targets, not expansions
 for pat in 'FROM alpine:3.22' 'ca-certificates' 'USER jam' 'ENTRYPOINT ["at-jam"]' \
   'CMD ["serve","--config","/etc/jam/jam.yml"]' 'ARG TARGETARCH' \
   'COPY bin/linux-${TARGETARCH}/ /usr/local/bin/' 'ENV HOME=/var/lib/jam' \
@@ -147,7 +148,9 @@ assert_contains "release.yml: main step pushes" "$main_step" "scripts/jam-image.
 assert_contains "release.yml: main step --push" "$main_step" "--push"
 arm_step="$(step_block 'Smoke-test Jam image (arm64')"
 assert_contains "release.yml: arm64 smoke guarded" "$arm_step" "github.event_name == 'push'"
+# shellcheck disable=SC2016 # literal ${...} is the expected workflow text
 assert_contains "release.yml: arm64 smoke run" "$arm_step" 'docker run --rm --platform linux/arm64 "${JAM_IMAGE}:${VERSION}" version'
+# shellcheck disable=SC2016 # literal ${...} is the expected workflow text
 assert_contains "release.yml: arm64 smoke checks version" "$arm_step" 'test "$out" = "at-jam $VERSION"'
 filter_block="$(awk '/^            go:/ {on=1; next} on && /^      - id:/ {exit} on {print}' "$rel")"
 assert_contains "release.yml: go filter has images/jam/**" "$filter_block" "- 'images/jam/**'"
