@@ -229,8 +229,9 @@ func TestRunCallsOnWelcomeBeforeServing(t *testing.T) {
 	fj := &fakeJam{
 		welcome: &managerpb.Welcome{SshUserCa: []byte("ssh-ed25519 AAAA ca")},
 		fn: func(t *testing.T, s *session) {
+			// Do not wait for the reply: the test ends once the launcher has
+			// seen the CA, and a Fatal from this goroutine afterwards panics.
 			s.request(1, wire.OpRaise, wire.RaiseRequest{Spec: jam.RaiseSpec{ActorID: "a"}})
-			s.next(t)
 			<-s.srv.Context().Done()
 		},
 	}
