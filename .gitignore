@@ -7,6 +7,8 @@
 /dev/tls/
 /dev/pool.dev.json
 /dev/jam.dev.yml
+/dev/jam.container.yml
+/dev/credentials.container.yml
 /.air/
 
 # `go build ./cmd/<name>` output at the repo root
