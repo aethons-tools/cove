@@ -1,6 +1,7 @@
 // Package naming is the single source of truth for the runtime docker
 // resource names Jam's launcher derives: a studio's container
-// (atcove-cove-<id>, CoveContainer) and the volumes named after it. Every name
+// (atcove-cove-<id>, CoveContainer; atcove-<manager>-cove-<id> on a remote
+// Studio Manager, CoveContainerOn) and the volumes named after it. Every name
 // shares the product prefix `atcove-`, so it never collides with an unrelated
 // docker object and every resource of one studio sorts together. Pure (no
 // os/time), so it is hermetically testable.
@@ -31,7 +32,12 @@ func DockerVolume(container string) string { return container + "-docker" }
 
 // CoveContainer names a managed cove's container from its actor id: atcove-cove-<id>,
 // with any docker-unsafe characters replaced by '-' so the name is always valid.
-func CoveContainer(actorID string) string {
+func CoveContainer(actorID string) string { return CoveContainerOn("", actorID) }
+
+// CoveContainerOn names the container on a Studio Manager: CoveContainer's
+// atcove-cove-<id> for the local manager (""), atcove-<manager>-cove-<id> for a
+// remote one, so managers sharing a docker daemon never reuse each other's state.
+func CoveContainerOn(manager, actorID string) string {
 	safe := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '.', r == '-':
@@ -40,5 +46,8 @@ func CoveContainer(actorID string) string {
 			return '-'
 		}
 	}, actorID)
-	return prefix + "-cove-" + safe
+	if manager == "" {
+		return prefix + "-cove-" + safe
+	}
+	return prefix + "-" + manager + "-cove-" + safe
 }

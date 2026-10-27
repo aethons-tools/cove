@@ -34,3 +34,15 @@ func TestCoveContainer(t *testing.T) {
 		t.Fatalf("CoveContainer left unsafe chars: %q", got)
 	}
 }
+
+func TestCoveContainerOn(t *testing.T) {
+	for _, c := range []struct{ m, id, want string }{
+		{"", "w1", "atcove-cove-w1"},
+		{"m1", "w1", "atcove-m1-cove-w1"},
+		{"m1", "a/b", "atcove-m1-cove-a-b"},
+	} {
+		if got := CoveContainerOn(c.m, c.id); got != c.want {
+			t.Errorf("CoveContainerOn(%q,%q) = %q, want %q", c.m, c.id, got, c.want)
+		}
+	}
+}
