@@ -469,6 +469,13 @@ func (r *Reconciler) advanceUpgrade(ctx context.Context, id string, u upgrade, i
 		return
 	}
 	pin := r.pinnedManager(u.project, u.role, u.name)
+	if inst, live := insts[id]; live && pin == "" && inst.SessionKind == jam.SessionKindStanding && inst.Role == u.role && inst.Name == u.name {
+		// Raised before pins existed: its state is where its studio runs.
+		pin = inst.Manager
+		if pin == "" {
+			pin = jam.LocalManager // raised before managers existed: it ran locally
+		}
+	}
 	cur, err := r.sup.CurrentImage(project, u.role, pin)
 	if err != nil {
 		r.setUpgrade(id, jam.UpgradeError, "resolving the current image: "+err.Error())
@@ -510,7 +517,9 @@ func (r *Reconciler) advanceUpgrade(ctx context.Context, id string, u upgrade, i
 }
 
 // pinnedManager is the manager holding the session's state ("" = unpinned, the
-// default manager): the one place its upgraded image must be prepared.
+// default manager): the one place its upgraded image must be prepared. An
+// unpinned session with a live studio (raised before pins) is resolved by
+// advanceUpgrade from that studio's manager.
 func (r *Reconciler) pinnedManager(projectID, role, name string) string {
 	for _, e := range r.roster.ListStandingSessions() {
 		if string(e.ProjectID) == projectID && e.Role == role && e.Name == name {

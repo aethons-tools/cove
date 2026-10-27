@@ -988,18 +988,49 @@ func TestUpgradePreparesOnlyOnPin(t *testing.T) {
 	}
 }
 
-// An unpinned session uses the default manager ("") for both calls.
+// An unpinned session with no live studio uses the default manager ("") for
+// both calls.
 func TestUpgradeUnpinnedUsesDefault(t *testing.T) {
 	r, w, _, _ := upgradeKit(t)
 	ctx := context.Background()
+	inst := w.insts[botID]
+	inst.Phase = jam.PhaseGone
+	w.insts[botID] = inst
 	_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
 	r.Tick(ctx)
 	if w.prepares != 1 {
 		t.Fatalf("prepares = %d, want 1", w.prepares)
 	}
-	for _, m := range append(slices.Clone(w.prepMgrs), w.curMgrs[len(w.curMgrs)-2:]...) {
+	for _, m := range append(slices.Clone(w.prepMgrs), w.curMgrs...) {
 		if m != "" {
-			t.Fatalf("unpinned used manager %q, want the default", m)
+			t.Fatalf("unpinned used manager %q, want the default (prep %v cur %v)", m, w.prepMgrs, w.curMgrs)
+		}
+	}
+}
+
+// A session raised before pins existed (pin "") whose studio is live prepares
+// where its state is — its instance's manager, "" meaning local — never on
+// whichever manager happens to be the default.
+func TestUpgradeLegacyUnpinnedUsesLiveInstanceManager(t *testing.T) {
+	for _, tc := range []struct{ instMgr, want string }{{"", jam.LocalManager}, {"m2", "m2"}} {
+		r, w, _, _ := upgradeKit(t)
+		ctx := context.Background()
+		inst := w.insts[botID]
+		inst.Manager = tc.instMgr
+		w.insts[botID] = inst
+		_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
+		r.Tick(ctx)
+		r.Tick(ctx)
+		if !slices.Equal(w.torn, []string{botID}) {
+			t.Fatalf("instance manager %q: torn=%v state=%q", tc.instMgr, w.torn, r.state())
+		}
+		if len(w.prepMgrs) == 0 || len(w.curMgrs) == 0 {
+			t.Fatalf("instance manager %q: no image calls recorded", tc.instMgr)
+		}
+		for _, m := range append(slices.Clone(w.prepMgrs), w.curMgrs...) {
+			if m != tc.want {
+				t.Fatalf("instance manager %q: image calls used %q, want only %q (prep %v cur %v)", tc.instMgr, m, tc.want, w.prepMgrs, w.curMgrs)
+			}
 		}
 	}
 }
