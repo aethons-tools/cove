@@ -15,6 +15,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/studio"
+	"github.com/aethons-tools/cove/internal/textesc"
 )
 
 // registerKitDrafts mounts the kit draft API (docs/usage/jam/kits-drafts.md)
@@ -232,6 +233,10 @@ const draftInternalError = "internal error"
 func draftFail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err error) {
 	if we, ok := errors.AsType[*WriteError](err); ok {
 		http.Error(w, we.Msg, we.Status)
+		return
+	}
+	if code, ok := managerErrStatus(err); ok {
+		http.Error(w, textesc.Escape(err.Error(), false), code)
 		return
 	}
 	log.Error("kit draft: store error", "operator", OperatorID(r), "method", r.Method, "route", r.Pattern, "err", err.Error())

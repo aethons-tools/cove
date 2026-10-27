@@ -15,9 +15,13 @@ const kitDraftBuildsOff = "test builds need a launcher that builds images (runti
 // registerKitDraftBuilds mounts the draft test-build routes
 // (docs/usage/jam/kits-drafts.md#test-build) behind the operator gate:
 //
-//	POST   /admin/kits/{name}/draft/build            start (application/json, If-Match; 202)
-//	GET    /admin/kits/{name}/draft/build[?since=N]  the latest build, its log from N
-//	DELETE /admin/kits/{name}/draft/build            cancel the running build (200)
+//	POST   /admin/kits/{name}/draft/build                       start (application/json {"manager"?}, If-Match; 202)
+//	GET    /admin/kits/{name}/draft/build[?since=N][&manager=M]  the latest build (on M), its log from N
+//	DELETE /admin/kits/{name}/draft/build[?manager=M]            cancel the running build (on M) (200)
+//
+// No manager is the default: the first draft-capable one for a start, the
+// most recently started build otherwise. An unknown manager is 404 and an
+// unavailable one 503 (draftFail).
 //
 // builds is read per request: it is the supervisor's (SetKitDraftBuilds,
 // set once at wiring, before serving), the same jobs a draft studio's raise
@@ -34,8 +38,10 @@ func registerKitDraftBuilds(mux *http.ServeMux, builds func() *KitDraftBuilds, l
 		if !requireContentType(w, r, "application/json") {
 			return
 		}
-		var none struct{}
-		if !decodeOptional(w, r, &none) {
+		var req struct {
+			Manager string `json:"manager"`
+		}
+		if !decodeOptional(w, r, &req) {
 			return
 		}
 		b, ok := wired(w)
@@ -43,12 +49,12 @@ func registerKitDraftBuilds(mux *http.ServeMux, builds func() *KitDraftBuilds, l
 			return
 		}
 		name := r.PathValue("name")
-		v, err := b.Start(name, r.Header.Get("If-Match"), OperatorID(r))
+		v, err := b.Start(name, r.Header.Get("If-Match"), OperatorID(r), req.Manager)
 		if err != nil {
 			draftFail(w, r, log, err)
 			return
 		}
-		log.Info("kit draft build requested", "operator", OperatorID(r), "kit", name, "tree", shortTree(v.Tree), "build", v.ID)
+		log.Info("kit draft build requested", "operator", OperatorID(r), "kit", name, "manager", v.Manager, "tree", shortTree(v.Tree), "build", v.ID)
 		writeJSON(w, http.StatusAccepted, v)
 	})
 	mux.HandleFunc("GET /admin/kits/{name}/draft/build", func(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +71,7 @@ func registerKitDraftBuilds(mux *http.ServeMux, builds func() *KitDraftBuilds, l
 			}
 			since = n
 		}
-		v, err := b.Status(r.PathValue("name"), since)
+		v, err := b.Status(r.PathValue("name"), r.URL.Query().Get("manager"), since)
 		if err != nil {
 			draftFail(w, r, log, err)
 			return
@@ -79,11 +85,11 @@ func registerKitDraftBuilds(mux *http.ServeMux, builds func() *KitDraftBuilds, l
 			return
 		}
 		name := r.PathValue("name")
-		v, err := b.Cancel(r.Context(), name)
+		v, err := b.Cancel(r.Context(), name, r.URL.Query().Get("manager"))
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			// The request went away while the build was stopping: it was
 			// cancelled and ends on its own. The name was checked tag-safe.
-			log.Info("kit draft build cancelled", "operator", OperatorID(r), "kit", name, "build", v.ID)
+			log.Info("kit draft build cancelled", "operator", OperatorID(r), "kit", name, "manager", v.Manager, "build", v.ID)
 			http.Error(w, "kit "+name+" draft build is still stopping", http.StatusServiceUnavailable)
 			return
 		}
@@ -91,7 +97,7 @@ func registerKitDraftBuilds(mux *http.ServeMux, builds func() *KitDraftBuilds, l
 			draftFail(w, r, log, err)
 			return
 		}
-		log.Info("kit draft build cancelled", "operator", OperatorID(r), "kit", name, "build", v.ID)
+		log.Info("kit draft build cancelled", "operator", OperatorID(r), "kit", name, "manager", v.Manager, "build", v.ID)
 		writeJSON(w, http.StatusOK, v)
 	})
 }

@@ -57,7 +57,7 @@ func draftBuildServer(t *testing.T, fb *cliDraftBuilder) (string, jam.KitDraft) 
 	t.Cleanup(cancel)
 	log := slog.New(slog.DiscardHandler)
 	sup := jam.NewSupervisor(store, nil, "holder-cli-build", time.Minute, time.Minute, time.Now, log)
-	sup.SetKitDraftBuilds(jam.NewKitDraftBuilds(ctx, store, fb, log))
+	sup.SetKitDraftBuilds(jam.NewKitDraftBuilds(ctx, store, jam.OneDraftManager(jam.LocalManager, fb), log))
 	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil))
 	t.Cleanup(ts.Close)
 	return ts.URL, d
@@ -141,13 +141,13 @@ func TestKitDraftBuildInterruptLeavesBuildRunning(t *testing.T) {
 	c := adminclient.New(url, "")
 	ctx, interrupt := context.WithCancel(context.Background())
 	var out, errb bytes.Buffer
-	b, err := c.StartKitDraftBuild("app", mustETag(t, c))
+	b, err := c.StartKitDraftBuild("app", mustETag(t, c), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The first poll prints the log, then the user hits Ctrl-C.
 	polls := 0
-	code := followDraftBuild(ctx, c, "app", "app", b.ID, &out, &errb, func(time.Duration) <-chan time.Time {
+	code := followDraftBuild(ctx, c, "app", "app", b.Manager, b.ID, &out, &errb, func(time.Duration) <-chan time.Time {
 		if polls++; polls == 2 {
 			interrupt()
 		}
@@ -156,7 +156,7 @@ func TestKitDraftBuildInterruptLeavesBuildRunning(t *testing.T) {
 	if code != 130 || !strings.Contains(errb.String(), "stopped following build kdb_") || !strings.Contains(errb.String(), "still running") {
 		t.Fatalf("exit %d stderr %q", code, errb.String())
 	}
-	if b, err := c.KitDraftBuildStatus("app", 0); err != nil || b.State != jam.DraftBuildRunning {
+	if b, err := c.KitDraftBuildStatus("app", "", 0); err != nil || b.State != jam.DraftBuildRunning {
 		t.Fatalf("build after interrupt = %+v %v", b, err)
 	}
 }
@@ -200,7 +200,7 @@ func TestStudioRaiseKitDraft(t *testing.T) {
 	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, log)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	sup.SetKitDraftBuilds(jam.NewKitDraftBuilds(ctx, store, &cliDraftBuilder{}, log))
+	sup.SetKitDraftBuilds(jam.NewKitDraftBuilds(ctx, store, jam.OneDraftManager(jam.LocalManager, &cliDraftBuilder{}), log))
 	ts := httptest.NewServer(jam.NewAdminHandler(store, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil))
 	t.Cleanup(ts.Close)
 	getenv := func(string) string { return "" }
@@ -228,5 +228,36 @@ func TestStudioRaiseEscapesTheServerError(t *testing.T) {
 	code := run([]string{"studio", "raise", "--admin-url", ts.URL, "--id", "try", "--role", "guest", "--kit-draft", "app"}, func(string) string { return "" }, &out, &errb)
 	if code != 1 || strings.Contains(errb.String(), "\x1b") || !strings.Contains(errb.String(), `a\x1b[2Jb`) {
 		t.Fatalf("raise: %d %q", code, errb.String())
+	}
+}
+
+// --manager names the manager the build runs on (the POST body) and the
+// follow reads that manager's build (?manager=).
+func TestKitDraftBuildManagerFlag(t *testing.T) {
+	var postBody, getQuery string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case "POST":
+			b, _ := io.ReadAll(r.Body)
+			postBody = string(b)
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"id":"kdb_1","kit":"app","manager":"m1","state":"running"}`)
+		case "GET":
+			getQuery = r.URL.RawQuery
+			_, _ = io.WriteString(w, `{"id":"kdb_1","kit":"app","manager":"m1","state":"succeeded","tag":"t","digest":"sha256:img","current":true}`)
+		}
+	}))
+	t.Cleanup(ts.Close)
+	var out, errb bytes.Buffer
+	code := run([]string{"kit", "draft", "build", "--admin-url", ts.URL, "--etag", "e", "--manager", "m1", "app"}, func(string) string { return "" }, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit %d: %s %s", code, out.String(), errb.String())
+	}
+	if !strings.Contains(postBody, `"manager":"m1"`) {
+		t.Fatalf("POST body = %q", postBody)
+	}
+	if !strings.Contains(getQuery, "manager=m1") {
+		t.Fatalf("GET query = %q", getQuery)
 	}
 }

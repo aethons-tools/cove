@@ -2261,8 +2261,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// registry is the supervisor's: the admin build routes read it there.
 	buildCtx, stopBuilds := context.WithCancel(context.Background())
 	var draftBuilds *jam.KitDraftBuilds
-	if b, ok := lch.(jam.KitDraftBuilder); ok {
-		draftBuilds = jam.NewKitDraftBuilds(buildCtx, st, b, log)
+	// Builds run per manager: the router's, or the one launcher's as local.
+	if mb, ok := lch.(jam.ManagedDraftBuilder); ok {
+		draftBuilds = jam.NewKitDraftBuilds(buildCtx, st, mb, log)
+	} else if b, ok := lch.(jam.KitDraftBuilder); ok {
+		draftBuilds = jam.NewKitDraftBuilds(buildCtx, st, jam.OneDraftManager(jam.LocalManager, b), log)
+	}
+	if draftBuilds != nil {
 		sup.SetKitDraftBuilds(draftBuilds)
 	}
 	go stopBuildsOnSignal(shutdownSignals(), stopBuilds, draftBuilds, log, dieBySignal)

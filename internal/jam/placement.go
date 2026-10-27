@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -82,4 +83,16 @@ func ParsePlacement(managers []string, timeout string) (Placement, error) {
 	}
 	p.Timeout = d
 	return p, nil
+}
+
+// managerErrStatus is the HTTP status of a named-manager failure: 404 for
+// ErrUnknownManager, 503 for ErrManagerUnavailable; ok=false for any other.
+func managerErrStatus(err error) (code int, ok bool) {
+	switch {
+	case errors.Is(err, ErrUnknownManager):
+		return http.StatusNotFound, true
+	case errors.Is(err, ErrManagerUnavailable):
+		return http.StatusServiceUnavailable, true
+	}
+	return 0, false
 }

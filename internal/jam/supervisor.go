@@ -451,6 +451,11 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		}
 		draft = &dr
 		spec.Kit, spec.DraftImage, spec.draft, def = dr.def.Ref, &dr.image, &dr.ref, &dr.def
+		// It runs where its image is, and nowhere else. Without a placing
+		// launcher there are no manager names: the one launcher built it.
+		if _, ok := s.launcher.(PlacingLauncher); ok {
+			spec.Placement.Managers = []string{dr.manager}
+		}
 	case roleOK:
 		d, have, kerr := s.raiseKit(spec.Project, role)
 		if kerr != nil {
@@ -626,17 +631,20 @@ func (s *Supervisor) raiseKit(project string, role Role) (KitDefinition, bool, e
 const draftRaiseGone = "the raise stopped waiting for the draft's test build (it runs on: raise again to use it)"
 
 // draftRaise is what a draft studio's raise resolved: its definition, the
-// draft tree it runs, that tree's objects, and its built image.
+// draft tree it runs, that tree's objects, its built image, and the
+// manager holding that image.
 type draftRaise struct {
-	def   KitDefinition
-	ref   KitDraftRef
-	objs  KitObjects
-	image KitDraftImage
+	def     KitDefinition
+	ref     KitDraftRef
+	objs    KitObjects
+	image   KitDraftImage
+	manager string
 }
 
 // raiseDraft resolves a draft studio of kit spec.KitDraft for role: the
 // draft tree as of now under the role's harness (DraftKitDefinition), and
-// its image through the test-build jobs (Ensure), waited for.
+// its image through the test-build jobs (Ensure, over the raise's
+// placement managers), waited for.
 func (s *Supervisor) raiseDraft(ctx context.Context, spec RaiseSpec, role Role) (draftRaise, error) {
 	if s.draftBuilds == nil {
 		return draftRaise{}, writeErr(http.StatusServiceUnavailable, kitDraftBuildsOff)
@@ -649,7 +657,7 @@ func (s *Supervisor) raiseDraft(ctx context.Context, spec RaiseSpec, role Role) 
 	if err != nil {
 		return draftRaise{}, err
 	}
-	img, objs, err := s.draftBuilds.Ensure(ctx, def, ref, "studio raise "+spec.Name)
+	img, manager, objs, err := s.draftBuilds.Ensure(ctx, def, ref, "studio raise "+spec.Name, spec.Placement.Managers)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		// The raise's request went away while it waited for the build;
 		// the build runs on, for a later raise to reuse.
@@ -658,7 +666,7 @@ func (s *Supervisor) raiseDraft(ctx context.Context, spec RaiseSpec, role Role) 
 	if err != nil {
 		return draftRaise{}, err
 	}
-	return draftRaise{def: def, ref: ref, objs: objs, image: img}, nil
+	return draftRaise{def: def, ref: ref, objs: objs, image: img, manager: manager}, nil
 }
 
 // keepDraftTree re-stores a draft studio's tree should GC have collected

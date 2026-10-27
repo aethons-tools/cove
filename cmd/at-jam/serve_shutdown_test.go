@@ -53,8 +53,8 @@ func runningBuild(t *testing.T, bb blockingDraftBuilder) (*jam.KitDraftBuilds, c
 	}
 	ctx, stop := context.WithCancel(context.Background())
 	t.Cleanup(stop)
-	builds := jam.NewKitDraftBuilds(ctx, store, bb, slog.New(slog.DiscardHandler))
-	if _, err := builds.Start("app", jam.DraftETag(d.Tree), "op"); err != nil {
+	builds := jam.NewKitDraftBuilds(ctx, store, jam.OneDraftManager(jam.LocalManager, bb), slog.New(slog.DiscardHandler))
+	if _, err := builds.Start("app", jam.DraftETag(d.Tree), "op", ""); err != nil {
 		t.Fatal(err)
 	}
 	<-bb.started
@@ -75,7 +75,7 @@ func TestShutdownCancelsDraftBuilds(t *testing.T) {
 	sigs := make(chan os.Signal)
 	got := make(chan died, 1)
 	go stopBuildsOnSignal(sigs, stop, builds, slog.New(slog.DiscardHandler), func(s os.Signal) {
-		v, _ := builds.Status("app", 0)
+		v, _ := builds.Status("app", "", 0)
 		got <- died{s, v}
 	})
 	sigs <- syscall.SIGTERM
@@ -101,7 +101,7 @@ func TestShutdownSecondSignalExitsAtOnce(t *testing.T) {
 	sigs := make(chan os.Signal)
 	got := make(chan died, 1)
 	go stopBuildsOnSignal(sigs, stop, builds, slog.New(slog.DiscardHandler), func(s os.Signal) {
-		v, _ := builds.Status("app", 0)
+		v, _ := builds.Status("app", "", 0)
 		got <- died{s, v}
 	})
 	sigs <- syscall.SIGTERM

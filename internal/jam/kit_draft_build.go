@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -65,6 +67,7 @@ type KitDraftRef struct {
 type KitDraftBuild struct {
 	ID         string    `json:"id,omitempty"`
 	Kit        string    `json:"kit"`
+	Manager    string    `json:"manager"` // the manager it builds on ("": no build, none named)
 	Tree       string    `json:"tree,omitempty"`
 	State      string    `json:"state"`
 	Tag        string    `json:"tag,omitempty"`
@@ -242,42 +245,88 @@ func completeRunes(b []byte) []byte {
 // draftBuildJob is one build. The fields after done are guarded by
 // KitDraftBuilds.mu; the rest are set before the job is shared.
 type draftBuildJob struct {
-	id, kit, tree, tag, buildDigest, by string
-	started                             time.Time
-	log                                 *buildLog
-	cancel                              context.CancelFunc
-	done                                chan struct{}
+	id, kit, manager, tree, tag, buildDigest, by string
+	seq                                          uint64 // start order: the latest has the highest
+	started                                      time.Time
+	log                                          *buildLog
+	cancel                                       context.CancelFunc
+	done                                         chan struct{}
 
 	state, imageID, errText string
 	finished                time.Time
 }
 
 // KitDraftBuilds runs kit draft test builds and draft studios' images
-// (docs/usage/jam/kits-drafts.md#test-build). At most one build runs per
-// kit at a time, each in a goroutine under a context derived from the
-// serve's (cancelled on shutdown). Only the latest build per kit is kept,
-// in memory: its state, image and log are lost on restart.
+// (docs/usage/jam/kits-drafts.md#test-build) on named managers. At most one
+// build runs per (kit, manager) at a time, each in a goroutine under a
+// context derived from the serve's (cancelled on shutdown). Only the latest
+// build per (kit, manager) is kept, in memory: its state, image and log are
+// lost on restart.
 type KitDraftBuilds struct {
 	ctx     context.Context
 	store   Store
-	builder KitDraftBuilder
+	builder ManagedDraftBuilder
 	log     *slog.Logger
 	now     func() time.Time
 	logCap  int
 
 	mu     sync.Mutex
-	jobs   map[string]*draftBuildJob // kit → its latest build
+	jobs   map[string]*draftBuildJob // draftJobKey(kit, manager) → its latest build
+	seq    uint64                    // the last job's seq
 	closed bool                      // Wait has begun: no build starts
 	wg     sync.WaitGroup            // Add under mu
 }
 
-// NewKitDraftBuilds runs builds over builder under ctx (the serve's build
-// context: cancelling it stops every build).
-func NewKitDraftBuilds(ctx context.Context, store Store, builder KitDraftBuilder, log *slog.Logger) *KitDraftBuilds {
+// NewKitDraftBuilds runs builds over builder's managers under ctx (the
+// serve's build context: cancelling it stops every build).
+func NewKitDraftBuilds(ctx context.Context, store Store, builder ManagedDraftBuilder, log *slog.Logger) *KitDraftBuilds {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
 	return &KitDraftBuilds{ctx: ctx, store: store, builder: builder, log: log, now: time.Now, logCap: KitDraftLogCap, jobs: map[string]*draftBuildJob{}}
+}
+
+// draftJobKey keys a job by its kit and manager.
+func draftJobKey(kit, manager string) string { return kit + "\x00" + manager }
+
+// errNoDraftManager: no available manager can build kit drafts.
+var errNoDraftManager = fmt.Errorf("%w: no manager can build kit drafts", ErrManagerUnavailable)
+
+// buildManager is the manager a Start builds on: manager, or "" for the
+// first draft-capable one. A named one that cannot build now fails as the
+// builder says (unknown: ErrUnknownManager; away or unable:
+// ErrManagerUnavailable).
+func (b *KitDraftBuilds) buildManager(manager string) (string, error) {
+	ms := b.builder.DraftManagers()
+	if manager == "" {
+		if len(ms) == 0 {
+			return "", errNoDraftManager
+		}
+		return ms[0], nil
+	}
+	if slices.Contains(ms, manager) {
+		return manager, nil
+	}
+	// Not draft-capable now: the builder's own refusal says why.
+	if _, err := b.builder.HasKitDraftImageOn(manager, ""); err != nil {
+		return "", err
+	}
+	return manager, nil // it came up meanwhile
+}
+
+// latestLocked is kit's most recently started build (only a running one
+// when running), on any manager; nil when none. Caller holds b.mu.
+func (b *KitDraftBuilds) latestLocked(kit string, running bool) *draftBuildJob {
+	var latest *draftBuildJob
+	for _, j := range b.jobs {
+		if j.kit != kit || (running && j.state != DraftBuildRunning) {
+			continue
+		}
+		if latest == nil || j.seq > latest.seq {
+			latest = j
+		}
+	}
+	return latest
 }
 
 func errDraftBuildRunning(name string) error {
@@ -285,12 +334,18 @@ func errDraftBuildRunning(name string) error {
 }
 
 // Start starts a test build of kit name's draft at ETag ifMatch, under the
-// default harness, for by. The draft is read and its files copied under
-// kitMu. Refusals: 428/412 for If-Match, 400 for problems or a name that
-// cannot form a tag, 404 for no kit or no draft, 409 when the kit already
-// has a build running (checked before any file is copied), 503 once
-// shutdown has begun.
-func (b *KitDraftBuilds) Start(name, ifMatch, by string) (KitDraftBuild, error) {
+// default harness, for by, on manager ("" = the first draft-capable one).
+// The draft is read and its files copied under kitMu. Refusals: an unknown
+// manager (ErrUnknownManager) or one that cannot build now
+// (ErrManagerUnavailable), 428/412 for If-Match, 400 for problems or a name
+// that cannot form a tag, 404 for no kit or no draft, 409 when the kit
+// already has a build running on that manager (checked before any file is
+// copied), 503 once shutdown has begun.
+func (b *KitDraftBuilds) Start(name, ifMatch, by, manager string) (KitDraftBuild, error) {
+	manager, err := b.buildManager(manager)
+	if err != nil {
+		return KitDraftBuild{}, err
+	}
 	kitMu.Lock()
 	defer kitMu.Unlock()
 	d, tree, err := lockedDraftTree(b.store, name, ifMatch)
@@ -301,7 +356,7 @@ func (b *KitDraftBuilds) Start(name, ifMatch, by string) (KitDraftBuild, error) 
 	if err != nil {
 		return KitDraftBuild{}, err
 	}
-	if err := b.canStart(name); err != nil {
+	if err := b.canStart(name, manager); err != nil {
 		return KitDraftBuild{}, err
 	}
 	def, _, err := kitDraftDefinitionLocked(b.store, name, tree, harnessinstall.Default())
@@ -310,45 +365,47 @@ func (b *KitDraftBuilds) Start(name, ifMatch, by string) (KitDraftBuild, error) 
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if err := b.canStartLocked(name); err != nil {
+	if err := b.canStartLocked(name, manager); err != nil {
 		return KitDraftBuild{}, err
 	}
-	return b.viewLocked(b.startLocked(def, d.Tree, tag, by), 0), nil
+	return b.viewLocked(b.startLocked(def, manager, d.Tree, tag, by), 0), nil
 }
 
 // canStart is canStartLocked under b.mu.
-func (b *KitDraftBuilds) canStart(name string) error {
+func (b *KitDraftBuilds) canStart(name, manager string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.canStartLocked(name)
+	return b.canStartLocked(name, manager)
 }
 
 // canStartLocked refuses a start once shutdown has begun (503) or while kit
-// name has a build running (409). Caller holds b.mu, the lock wg.Add is
-// taken under, so no build is added once Wait has begun.
-func (b *KitDraftBuilds) canStartLocked(name string) error {
+// name has a build running on manager (409). Caller holds b.mu, the lock
+// wg.Add is taken under, so no build is added once Wait has begun.
+func (b *KitDraftBuilds) canStartLocked(name, manager string) error {
 	if b.closed || b.ctx.Err() != nil {
 		return writeErr(http.StatusServiceUnavailable, "Jam is shutting down")
 	}
-	if j := b.jobs[name]; j != nil && j.state == DraftBuildRunning {
+	if j := b.jobs[draftJobKey(name, manager)]; j != nil && j.state == DraftBuildRunning {
 		return errDraftBuildRunning(name)
 	}
 	return nil
 }
 
-// startLocked starts a build of def (kit def.Ref.ID's draft tree tree) as
-// the kit's latest. Caller holds b.mu and has checked canStartLocked.
-func (b *KitDraftBuilds) startLocked(def KitDefinition, tree, tag, by string) *draftBuildJob {
+// startLocked starts a build of def (kit def.Ref.ID's draft tree tree) on
+// manager as the kit's latest there. Caller holds b.mu and has checked
+// canStartLocked.
+func (b *KitDraftBuilds) startLocked(def KitDefinition, manager, tree, tag, by string) *draftBuildJob {
 	ctx, cancel := context.WithCancel(b.ctx)
+	b.seq++
 	j := &draftBuildJob{
-		id: newDraftBuildID(), kit: def.Ref.ID, tree: tree, tag: tag, buildDigest: def.Ref.Digest, by: by,
+		id: newDraftBuildID(), kit: def.Ref.ID, manager: manager, seq: b.seq, tree: tree, tag: tag, buildDigest: def.Ref.Digest, by: by,
 		started: b.now().UTC(), log: &buildLog{cap: b.logCap}, cancel: cancel, done: make(chan struct{}),
 		state: DraftBuildRunning,
 	}
-	b.jobs[j.kit] = j
+	b.jobs[draftJobKey(j.kit, manager)] = j
 	b.wg.Add(1)
 	go b.run(ctx, j, def)
-	b.log.Info("kit draft build started", "kit", j.kit, "tree", shortTree(tree), "build", j.id, "by", by)
+	b.log.Info("kit draft build started", "kit", j.kit, "manager", manager, "tree", shortTree(tree), "build", j.id, "by", by)
 	return j
 }
 
@@ -358,7 +415,7 @@ func (b *KitDraftBuilds) run(ctx context.Context, j *draftBuildJob, def KitDefin
 	defer b.wg.Done()
 	defer close(j.done)
 	defer j.cancel()
-	id, err := b.builder.BuildKitDraft(ctx, def, j.tag, j.log)
+	id, err := b.builder.BuildKitDraftOn(ctx, j.manager, def, j.tag, j.log)
 	state, errText := DraftBuildSucceeded, ""
 	switch {
 	case err == nil:
@@ -376,13 +433,15 @@ func (b *KitDraftBuilds) run(ctx context.Context, j *draftBuildJob, def KitDefin
 	b.mu.Lock()
 	j.state, j.imageID, j.errText, j.finished = state, id, errText, b.now().UTC()
 	b.mu.Unlock()
-	b.log.Info("kit draft build finished", "kit", j.kit, "tree", shortTree(j.tree), "build", j.id, "state", state)
+	b.log.Info("kit draft build finished", "kit", j.kit, "manager", j.manager, "tree", shortTree(j.tree), "build", j.id, "state", state)
 }
 
-// Status is kit name's latest build, its log from offset since; state
-// unknown when none ran since Jam started. 400 for an unsafe name or a
-// negative since, 404 for an unknown kit.
-func (b *KitDraftBuilds) Status(name string, since int64) (KitDraftBuild, error) {
+// Status is kit name's latest build on manager ("" = the most recently
+// started on any), its log from offset since; state unknown when none ran
+// since Jam started. 400 for an unsafe name or a negative since, 404 for an
+// unknown kit, or a named manager with no build that the builder does not
+// know (ErrUnknownManager).
+func (b *KitDraftBuilds) Status(name, manager string, since int64) (KitDraftBuild, error) {
 	if !studio.TagSafeName(name) {
 		return KitDraftBuild{}, unsafeKitName()
 	}
@@ -393,10 +452,20 @@ func (b *KitDraftBuilds) Status(name string, since int64) (KitDraftBuild, error)
 		return KitDraftBuild{}, writeErr(http.StatusNotFound, "no such kit")
 	}
 	b.mu.Lock()
+	j := b.latestLocked(name, false)
+	if manager != "" {
+		j = b.jobs[draftJobKey(name, manager)]
+	}
+	b.mu.Unlock()
+	if j == nil && manager != "" {
+		if _, err := b.buildManager(manager); errors.Is(err, ErrUnknownManager) {
+			return KitDraftBuild{}, err
+		}
+	}
+	b.mu.Lock()
 	defer b.mu.Unlock()
-	j := b.jobs[name]
 	if j == nil {
-		v := KitDraftBuild{Kit: name, State: DraftBuildUnknown}
+		v := KitDraftBuild{Kit: name, Manager: manager, State: DraftBuildUnknown}
 		if d, ok := b.store.GetKitDraft(name); ok {
 			v.DraftETag = DraftETag(d.Tree)
 		}
@@ -408,7 +477,7 @@ func (b *KitDraftBuilds) Status(name string, since int64) (KitDraftBuild, error)
 // viewLocked is j as the API shows it, its log from since. Caller holds b.mu.
 func (b *KitDraftBuilds) viewLocked(j *draftBuildJob, since int64) KitDraftBuild {
 	v := KitDraftBuild{
-		ID: j.id, Kit: j.kit, Tree: j.tree, State: j.state, Tag: j.tag, Digest: j.imageID, Error: j.errText,
+		ID: j.id, Kit: j.kit, Manager: j.manager, Tree: j.tree, State: j.state, Tag: j.tag, Digest: j.imageID, Error: j.errText,
 		By: j.by, StartedAt: j.started, FinishedAt: j.finished,
 	}
 	if d, ok := b.store.GetKitDraft(j.kit); ok {
@@ -419,19 +488,26 @@ func (b *KitDraftBuilds) viewLocked(j *draftBuildJob, since int64) KitDraftBuild
 	return v
 }
 
-// Cancel stops kit name's running build and waits (until ctx is done) for
-// it to end; it is then failed, "cancelled" — unless it completed before
-// the cancel landed, when it ends succeeded. 404 when none is running.
-// When ctx ends first the error is ctx's, with the build as it is (its id).
-func (b *KitDraftBuilds) Cancel(ctx context.Context, name string) (KitDraftBuild, error) {
+// Cancel stops kit name's running build on manager ("" = the most
+// recently started running one) and waits (until ctx is done) for it to
+// end; it is then failed, "cancelled" — unless it completed before the
+// cancel landed, when it ends succeeded. 404 when none is running. When ctx
+// ends first the error is ctx's, with the build as it is (its id).
+func (b *KitDraftBuilds) Cancel(ctx context.Context, name, manager string) (KitDraftBuild, error) {
 	if !studio.TagSafeName(name) {
 		return KitDraftBuild{}, unsafeKitName()
 	}
 	b.mu.Lock()
-	j := b.jobs[name]
+	j := b.latestLocked(name, true)
+	if manager != "" {
+		j = b.jobs[draftJobKey(name, manager)]
+	}
 	running := j != nil && j.state == DraftBuildRunning
 	b.mu.Unlock()
 	if !running {
+		if manager != "" {
+			return KitDraftBuild{}, writeErr(http.StatusNotFound, "kit %s has no draft build running on %s", name, textesc.Escape(manager, false))
+		}
 		return KitDraftBuild{}, writeErr(http.StatusNotFound, "kit %s has no draft build running", name)
 	}
 	j.cancel()
@@ -499,77 +575,96 @@ func DraftKitDefinition(store Store, name string, h harnessinstall.Install) (Kit
 // Ensure is a draft studio's image: def (DraftKitDefinition: kit ref.Kit's
 // draft tree ref.Tree under the raising role's harness), built through the
 // same jobs as a test build, for by
-// (docs/usage/jam/kits-drafts.md#draft-studio). It also returns the tree and
-// its blobs, which the raise re-stores should GC take them before its
-// instance is recorded.
-//   - The latest build of exactly that definition (tree and digest, so the
-//     harness too) is reused while it succeeded and its image is present.
-//   - A build of it already running is waited for.
-//   - Otherwise (none, a failed one, a removed image) a new build starts
-//     and is waited for, until ctx is done. The build runs on regardless,
-//     for a later raise to reuse.
+// (docs/usage/jam/kits-drafts.md#draft-studio), and the manager holding it,
+// which the studio must run on. The candidates are managers (the raise's
+// placement; empty = any) that can build drafts now, in managers' order
+// (else the builder's). It also returns the tree and its blobs, which the
+// raise re-stores should GC take them before its instance is recorded.
+//   - The first candidate whose latest build is of exactly that definition
+//     (tree and digest, so the harness too), succeeded, with its image
+//     still present there, is reused.
+//   - Otherwise, on the first candidate: a build of it already running is
+//     waited for, or a new build starts and is waited for, until ctx is
+//     done. The build runs on regardless, for a later raise to reuse.
 //
-// A running build of another tree or harness is 409 and shutdown is 503,
-// both before any file is copied. A failed build is 400, with the build's
-// failure line.
-func (b *KitDraftBuilds) Ensure(ctx context.Context, def KitDefinition, ref KitDraftRef, by string) (KitDraftImage, KitObjects, error) {
+// No candidate is ErrManagerUnavailable. A running build of another tree or
+// harness on the first candidate is 409 and shutdown is 503, both before
+// any file is copied. A failed build is 400, with the build's failure line.
+func (b *KitDraftBuilds) Ensure(ctx context.Context, def KitDefinition, ref KitDraftRef, by string, managers []string) (KitDraftImage, string, KitObjects, error) {
 	tag, err := KitDraftTag(ref.Kit, ref.Tree)
 	if err != nil {
-		return KitDraftImage{}, KitObjects{}, err
+		return KitDraftImage{}, "", KitObjects{}, err
+	}
+	candidates := b.builder.DraftManagers()
+	if len(managers) > 0 {
+		var in []string
+		for _, m := range managers {
+			if slices.Contains(candidates, m) && !slices.Contains(in, m) {
+				in = append(in, m)
+			}
+		}
+		candidates = in
+	}
+	if len(candidates) == 0 {
+		return KitDraftImage{}, "", KitObjects{}, errNoDraftManager
 	}
 	same := func(j *draftBuildJob) bool { return j != nil && j.tree == ref.Tree && j.buildDigest == def.Ref.Digest }
-	b.mu.Lock()
-	j := b.jobs[ref.Kit]
-	id := ""
-	if same(j) && j.state == DraftBuildSucceeded {
-		id = j.imageID
-	}
-	b.mu.Unlock()
-	if id != "" {
-		if ok, herr := b.builder.HasKitDraftImage(id); herr == nil && ok {
+	for _, m := range candidates {
+		b.mu.Lock()
+		j := b.jobs[draftJobKey(ref.Kit, m)]
+		id := ""
+		if same(j) && j.state == DraftBuildSucceeded {
+			id = j.imageID
+		}
+		b.mu.Unlock()
+		if id == "" {
+			continue
+		}
+		if ok, herr := b.builder.HasKitDraftImageOn(m, id); herr == nil && ok {
 			objs, err := b.draftObjects(ref)
-			return KitDraftImage{Tag: tag, ID: id}, objs, err
+			return KitDraftImage{Tag: tag, ID: id}, m, objs, err
 		}
 	}
-	if err := b.canEnsure(ref.Kit, same); err != nil {
-		return KitDraftImage{}, KitObjects{}, err
+	manager := candidates[0]
+	if err := b.canEnsure(ref.Kit, manager, same); err != nil {
+		return KitDraftImage{}, "", KitObjects{}, err
 	}
-	j, objs, err := b.waitOrStart(def, ref, tag, by, same)
+	j, objs, err := b.waitOrStart(def, ref, manager, tag, by, same)
 	if err != nil {
-		return KitDraftImage{}, KitObjects{}, err
+		return KitDraftImage{}, "", KitObjects{}, err
 	}
 	select {
 	case <-j.done:
 	case <-ctx.Done():
-		return KitDraftImage{}, KitObjects{}, ctx.Err()
+		return KitDraftImage{}, "", KitObjects{}, ctx.Err()
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if j.state != DraftBuildSucceeded {
 		line, _, _ := strings.Cut(j.errText, "\n")
-		return KitDraftImage{}, KitObjects{}, writeErr(http.StatusBadRequest, "draft %s: the test build failed (see at-jam kit draft build %s --show): %s", ref.Kit, ref.Kit, textesc.Escape(line, false))
+		return KitDraftImage{}, "", KitObjects{}, writeErr(http.StatusBadRequest, "draft %s: the test build failed (see at-jam kit draft build %s --show): %s", ref.Kit, ref.Kit, textesc.Escape(line, false))
 	}
-	return KitDraftImage{Tag: j.tag, ID: j.imageID}, objs, nil
+	return KitDraftImage{Tag: j.tag, ID: j.imageID}, manager, objs, nil
 }
 
 // canEnsure is Ensure's refusal before it copies any file: a running build
-// of kit other than same (409), or shutdown (503) when none runs.
-func (b *KitDraftBuilds) canEnsure(kit string, same func(*draftBuildJob) bool) error {
+// of kit on manager other than same (409), or shutdown (503) when none runs.
+func (b *KitDraftBuilds) canEnsure(kit, manager string, same func(*draftBuildJob) bool) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if j := b.jobs[kit]; j != nil && j.state == DraftBuildRunning {
+	if j := b.jobs[draftJobKey(kit, manager)]; j != nil && j.state == DraftBuildRunning {
 		if !same(j) {
 			return errDraftBuildRunning(kit)
 		}
 		return nil
 	}
-	return b.canStartLocked(kit)
+	return b.canStartLocked(kit, manager)
 }
 
 // waitOrStart copies def's files under kitMu, then (under b.mu, rechecked)
-// returns the running build of the same definition, or starts one. It
-// returns the draft tree's objects too.
-func (b *KitDraftBuilds) waitOrStart(def KitDefinition, ref KitDraftRef, tag, by string, same func(*draftBuildJob) bool) (*draftBuildJob, KitObjects, error) {
+// returns the running build of the same definition on manager, or starts
+// one there. It returns the draft tree's objects too.
+func (b *KitDraftBuilds) waitOrStart(def KitDefinition, ref KitDraftRef, manager, tag, by string, same func(*draftBuildJob) bool) (*draftBuildJob, KitObjects, error) {
 	kitMu.Lock()
 	defer kitMu.Unlock()
 	tree, err := b.draftTreeLocked(ref)
@@ -582,13 +677,13 @@ func (b *KitDraftBuilds) waitOrStart(def KitDefinition, ref KitDraftRef, tag, by
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if j := b.jobs[ref.Kit]; j != nil && j.state == DraftBuildRunning && same(j) {
+	if j := b.jobs[draftJobKey(ref.Kit, manager)]; j != nil && j.state == DraftBuildRunning && same(j) {
 		return j, objs, nil
 	}
-	if err := b.canStartLocked(ref.Kit); err != nil {
+	if err := b.canStartLocked(ref.Kit, manager); err != nil {
 		return nil, KitObjects{}, err
 	}
-	return b.startLocked(def, ref.Tree, tag, by), objs, nil
+	return b.startLocked(def, manager, ref.Tree, tag, by), objs, nil
 }
 
 // draftObjects is draft tree ref.Tree and its blobs, read under kitMu.
