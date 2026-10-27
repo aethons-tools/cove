@@ -7,6 +7,17 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
+	"github.com/aethons-tools/cove/internal/jam/managers/wire"
+)
+
+// client.Run discovers these by type assertion; losing one would silently
+// make Jam's requests for it fail as unsupported.
+var (
+	_ jam.Launcher          = (*gated)(nil)
+	_ jam.StateKeeper       = (*gated)(nil)
+	_ jam.ImageTagger       = (*gated)(nil)
+	_ jam.KitDraftBuilder   = (*gated)(nil)
+	_ wire.TeardownCapturer = (*gated)(nil)
 )
 
 // gated is what a manager serves: the Colima launcher (embedded concretely so
