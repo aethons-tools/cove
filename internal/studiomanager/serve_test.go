@@ -235,6 +235,24 @@ func TestServeReconnectsAfterJamRestart(t *testing.T) {
 	})
 }
 
+// After a rotate, writing the new token to token-file is enough: each session
+// reads it afresh, so the manager reconnects without a restart.
+func TestServeRereadsTokenAfterRotate(t *testing.T) {
+	e := newJamEnv(t, nil)
+	cfg, _ := startServe(t, e, &fakeBackend{}, serveOpts{})
+	eventually(t, "m1 connected", func() bool { return e.connected("m1") })
+
+	tok, err := e.hub.Rotate("m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "m1 disconnected", func() bool { return !e.connected("m1") })
+	if err := os.WriteFile(cfg.TokenFile, []byte(tok.Token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "m1 reconnected with the new token", func() bool { return e.connected("m1") })
+}
+
 func TestServeSetsSSHUserCAFromWelcome(t *testing.T) {
 	e := newJamEnv(t, []byte("ca-line"))
 	ops := &fakeBackend{}

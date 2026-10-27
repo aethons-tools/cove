@@ -40,8 +40,9 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	token, err := cfg.Token()
-	if err != nil {
+	// Fail fast on an unreadable token; each session rereads it, so after a
+	// rotate updating token-file is enough.
+	if _, err := cfg.Token(); err != nil {
 		return err
 	}
 	r := deps.Runner
@@ -86,6 +87,10 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 	g := &gated{Launcher: l, capacity: cfg.Capacity}
 
 	loop := Loop{Sleep: deps.Sleep, Log: log, Run: func(ctx context.Context, welcomed func()) error {
+		token, err := cfg.Token()
+		if err != nil {
+			return err
+		}
 		cc, err := dial(cfg)
 		if err != nil {
 			return fmt.Errorf("dial %s: %w", cfg.JamAddr, err)
