@@ -56,7 +56,7 @@ type RaiseSpec struct {
 	// Kit is the kit to raise the cove from (its light reference). The launcher
 	// consults its prepared-kit inventory: a miss returns ErrKitNotReady (the
 	// supervisor then prepares the full definition and retries), a hit raises the
-	// cove-kit:<build-digest>-<asm> image. A zero KitRef (empty ID) selects the legacy
+	// jam-kit:<build-digest>-<asm> image. A zero KitRef (empty ID) selects the legacy
 	// path that raises the launcher's statically configured image, so existing
 	// callers are unaffected (Phase-1 additive).
 	Kit KitRef
@@ -66,7 +66,7 @@ type RaiseSpec struct {
 	Connector *snippet.Connector
 	// Context is the compiled session context (sessionctx.Compile): Jam
 	// boilerplate for the session kind, then the kit layer. Supervisor.Raise
-	// always sets it; the launcher stages it for cove-master, which delivers
+	// always sets it; the launcher stages it for jam-studio-agent, which delivers
 	// its core as an appended system prompt every turn.
 	Context *sessionctx.Bundle
 	// DraftImage, set by Supervisor.Raise for a draft studio
@@ -87,7 +87,7 @@ type RaiseSpec struct {
 
 // LaunchCreds carries the per-instance credentials the supervisor mints and the
 // launcher must inject into the cove (identity token + launch secret). Passed to
-// Raise so the launcher can bootstrap cove-master without the supervisor leaking
+// Raise so the launcher can bootstrap jam-studio-agent without the supervisor leaking
 // them elsewhere.
 type LaunchCreds struct {
 	IdentityToken string
@@ -97,7 +97,7 @@ type LaunchCreds struct {
 // Launcher is the seam over "actually start/stop/probe a cove on a backend". The
 // supervisor depends only on this, so it stays kit-free and grpc-free and fully
 // hermetic. The real backend+kit implementation is a later slice, wired from
-// cmd/at-jam.
+// cmd/jam.
 type Launcher interface {
 	Raise(ctx context.Context, spec RaiseSpec, creds LaunchCreds) (location string, err error)
 	Teardown(ctx context.Context, inst Instance) error

@@ -100,7 +100,7 @@ func newPrepareLauncher(ops Backend, inv Inventory, asm func(KitDefinition, stri
 		Ops:     ops,
 		Runner:  &runner.Fake{},
 		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
-		BuildRoot: "/tmp/cove-kit-builds-test",
+		BuildRoot: "/tmp/jam-kit-builds-test",
 		Inventory: inv,
 		assemble:  asm,
 		sleep:     func(time.Duration) {},
@@ -108,7 +108,7 @@ func newPrepareLauncher(ops Backend, inv Inventory, asm func(KitDefinition, stri
 }
 
 // studioKitDef is a small studio KitDefinition for prepare tests: its ref's
-// Digest is the build-digest, so l.imageTag(ref) == cove-kit:<digest>-<asm>.
+// Digest is the build-digest, so l.imageTag(ref) == jam-kit:<digest>-<asm>.
 func studioKitDef(name string, version int, sk studio.StudioKit) KitDefinition {
 	return KitDefinition{Ref: KitRef{ID: name, Version: version, Digest: studio.BuildDigest(sk, harnessinstall.Default())}, Kit: sk, Harness: harnessinstall.Default()}
 }
@@ -145,7 +145,7 @@ func TestPrepareStudioKitBuildsByDigestWithCeiling(t *testing.T) {
 // An unblessed context base fails the prepare loudly (gate ON, fail-closed): the
 // kit image is never built.
 func TestPrepareStudioKitContextBaseGateFails(t *testing.T) {
-	ops := &fakeOps{resolveTarErr: errors.New("base does not descend from any blessed cove-base-image")}
+	ops := &fakeOps{resolveTarErr: errors.New("base does not descend from any blessed jam-studio-base")}
 	l := New(Config{
 		Ops: ops, Runner: &runner.Fake{},
 		JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
@@ -230,7 +230,7 @@ func TestPrepareKitBuildErrorSurfaces(t *testing.T) {
 }
 
 // The real assembler bakes the studio kit's mcp-servers into the image
-// (COV-240), where cove-master's claude harness reads them.
+// (COV-240), where jam-studio-agent's claude harness reads them.
 func TestDefaultAssembleBakesKitMCPServers(t *testing.T) {
 	sk := studio.StudioKit{Kind: studio.Kind, MCPServers: map[string]kit.MCPServer{
 		"linear": {Type: "http", URL: "${LINEAR_MCP_URL}"},

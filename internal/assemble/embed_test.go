@@ -17,30 +17,30 @@ func TestEmbedsContainKeyFiles(t *testing.T) {
 		"hardening/image-files/etc/nftables.conf",
 		"hardening/image-files/etc/squid/squid.conf",
 		"hardening/image-files/etc/squid/allowed_domains.session.txt",
-		"hardening/image-files/usr/local/lib/cove/apply-session-domains.sh",
-		"hardening/image-files/usr/local/lib/cove/apply-role-egress.sh",
-		"hardening/image-files/usr/local/lib/cove/install-ssh-ca.sh",
-		"hardening/image-files/etc/systemd/system/cove-egress.service",
-		"hardening/image-files/etc/systemd/system/squid.service.d/cove-egress.conf",
-		"hardening/image-files/etc/ssh/sshd_config.d/cove.conf",
-		"hardening/image-files/usr/local/lib/cove/seed-agent-data.sh",
+		"hardening/image-files/usr/local/lib/jam/apply-session-domains.sh",
+		"hardening/image-files/usr/local/lib/jam/apply-role-egress.sh",
+		"hardening/image-files/usr/local/lib/jam/install-ssh-ca.sh",
+		"hardening/image-files/etc/systemd/system/jam-egress.service",
+		"hardening/image-files/etc/systemd/system/squid.service.d/jam-egress.conf",
+		"hardening/image-files/etc/ssh/sshd_config.d/00-jam.conf",
+		"hardening/image-files/usr/local/lib/jam/seed-agent-data.sh",
 	} {
 		if _, err := fs.Stat(hardeningFS, p); err != nil {
 			t.Errorf("hardeningFS missing %s: %v", p, err)
 		}
 	}
-	// The replaceable user-settings default now ships in cove-base-image (COV-34),
+	// The replaceable user-settings default now ships in jam-studio-base (COV-34),
 	// not the sealed embed.
 	if _, err := os.Stat(baseInitAgentData("settings.json")); err != nil {
-		t.Errorf("cove-base-image missing settings.json default: %v", err)
+		t.Errorf("jam-studio-base missing settings.json default: %v", err)
 	}
 }
 
-// baseInitAgentData resolves a file the cove-base-image seeds into
+// baseInitAgentData resolves a file the jam-studio-base seeds into
 // /home/agent/.init-agent-data (the overridable startup defaults, COV-34),
 // relative to this package's directory.
 func baseInitAgentData(name string) string {
-	return filepath.Join("..", "..", "images", "cove-base-image", "image-files", "home", "agent", ".init-agent-data", name)
+	return filepath.Join("..", "..", "images", "jam-studio-base", "image-files", "home", "agent", ".init-agent-data", name)
 }
 
 // TestNftablesForwardChainContainsNestedEgress guards the always-on forward drop
@@ -123,7 +123,7 @@ func TestNftablesOutputAllowsNestedBridges(t *testing.T) {
 }
 
 // TestEntrypointExecsSystemdForDocker guards the COV-118 PID-1 branch: a docker:true
-// sandbox (COVE_DOCKER=1) hands off to systemd (exec /sbin/init), which raises the
+// sandbox (JAM_DOCKER=1) hands off to systemd (exec /sbin/init), which raises the
 // egress lock and starts sshd + the inner rootful dockerd as ordered units; a
 // non-docker sandbox keeps the script path (exec sshd), unchanged. The handoff must
 // precede the non-docker tail so the docker path never runs the script bring-up.
@@ -133,8 +133,8 @@ func TestEntrypointExecsSystemdForDocker(t *testing.T) {
 		t.Fatalf("entrypoint.sh not embedded: %v", err)
 	}
 	s := string(b)
-	if !strings.Contains(s, `[ "${COVE_DOCKER:-}" = "1" ]`) {
-		t.Errorf("entrypoint must branch on COVE_DOCKER; got:\n%s", s)
+	if !strings.Contains(s, `[ "${JAM_DOCKER:-}" = "1" ]`) {
+		t.Errorf("entrypoint must branch on JAM_DOCKER; got:\n%s", s)
 	}
 	initIdx := strings.Index(s, "exec /sbin/init")
 	sshdIdx := strings.Index(s, "exec /usr/sbin/sshd -D")
@@ -150,28 +150,28 @@ func TestEntrypointExecsSystemdForDocker(t *testing.T) {
 }
 
 // TestCoveEgressUnitAndOrdering guards the systemd egress-first invariant (COV-118)
-// and the squid-ownership fix: cove-egress raises the nftables drop-all (oneshot); the
+// and the squid-ownership fix: jam-egress raises the nftables drop-all (oneshot); the
 // egress proxy is the base image's DISTRO squid.service (it supervises squid and keeps
 // /run/squid.pid live for per-session `squid -k reconfigure`, COV-39) — we do NOT ship
 // a second squid unit (that collided with squid.service and corrupted its pid file). A
-// sealed squid.service.d drop-in orders squid After cove-egress; docker.service
+// sealed squid.service.d drop-in orders squid After jam-egress; docker.service
 // Requires+After BOTH so the inner dockerd cannot start before the lock is fully up.
 func TestCoveEgressUnitAndOrdering(t *testing.T) {
-	u, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/systemd/system/cove-egress.service")
+	u, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/systemd/system/jam-egress.service")
 	if err != nil {
-		t.Fatalf("cove-egress.service not embedded: %v", err)
+		t.Fatalf("jam-egress.service not embedded: %v", err)
 	}
 	us := string(u)
 	for _, want := range []string{"DefaultDependencies=no", "nft -f /etc/nftables.conf"} {
 		if !strings.Contains(us, want) {
-			t.Errorf("cove-egress.service must contain %q; got:\n%s", want, us)
+			t.Errorf("jam-egress.service must contain %q; got:\n%s", want, us)
 		}
 	}
 	if strings.Contains(us, "ExecStart=/usr/sbin/squid") {
-		t.Errorf("cove-egress.service must not start squid (the distro squid.service owns it); got:\n%s", us)
+		t.Errorf("jam-egress.service must not start squid (the distro squid.service owns it); got:\n%s", us)
 	}
 	if !strings.Contains(us, "Before=") || !strings.Contains(us, "docker.service") {
-		t.Errorf("cove-egress.service must be ordered Before docker.service; got:\n%s", us)
+		t.Errorf("jam-egress.service must be ordered Before docker.service; got:\n%s", us)
 	}
 
 	// We must NOT ship our own squid unit — it collides with the base image's distro
@@ -181,18 +181,18 @@ func TestCoveEgressUnitAndOrdering(t *testing.T) {
 	}
 
 	// The sealed drop-in orders the distro squid.service After + Requires the nft lock.
-	sq, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/systemd/system/squid.service.d/cove-egress.conf")
+	sq, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/systemd/system/squid.service.d/jam-egress.conf")
 	if err != nil {
-		t.Fatalf("squid.service.d/cove-egress.conf not embedded: %v", err)
+		t.Fatalf("squid.service.d/jam-egress.conf not embedded: %v", err)
 	}
 	sqs := string(sq)
-	for _, want := range []string{"After=cove-egress.service", "Requires=cove-egress.service"} {
+	for _, want := range []string{"After=jam-egress.service", "Requires=jam-egress.service"} {
 		if !strings.Contains(sqs, want) {
 			t.Errorf("squid.service drop-in must contain %q (squid up only after the nft lock); got:\n%s", want, sqs)
 		}
 	}
 
-	d, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/systemd/system/docker.service.d/cove-egress.conf")
+	d, err := fs.ReadFile(hardeningFS, "hardening/image-files/etc/systemd/system/docker.service.d/jam-egress.conf")
 	if err != nil {
 		t.Fatalf("docker.service drop-in not embedded: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestCoveEgressUnitAndOrdering(t *testing.T) {
 	if !strings.Contains(ds, "After=") || !strings.Contains(ds, "Requires=") {
 		t.Errorf("docker.service drop-in must After+Requires the egress units; got:\n%s", ds)
 	}
-	for _, want := range []string{"cove-egress.service", "squid.service"} {
+	for _, want := range []string{"jam-egress.service", "squid.service"} {
 		if !strings.Contains(ds, want) {
 			t.Errorf("docker.service drop-in must depend on %q (squid up before dockerd); got:\n%s", want, ds)
 		}
@@ -210,7 +210,7 @@ func TestCoveEgressUnitAndOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"systemctl enable cove-egress.service", "squid.service"} {
+	for _, want := range []string{"systemctl enable jam-egress.service", "squid.service"} {
 		if !strings.Contains(string(df), want) {
 			t.Errorf("hardening Dockerfile must enable %q so it runs at boot; got:\n%s", want, df)
 		}
@@ -283,7 +283,7 @@ func TestGitConfigForcesHTTPS(t *testing.T) {
 // TestGitCredentialHelperWired guards that the token credential helper is shipped
 // and referenced from the gitconfig (scoped to github.com over HTTPS).
 func TestGitCredentialHelperWired(t *testing.T) {
-	helper, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/cove-git-credential.sh")
+	helper, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/jam-git-credential.sh")
 	if err != nil {
 		t.Fatalf("credential helper not embedded: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestGitCredentialHelperWired(t *testing.T) {
 	if !strings.Contains(s, `[credential "https://github.com"]`) {
 		t.Errorf("gitconfig must scope the helper to github.com; got:\n%s", s)
 	}
-	if !strings.Contains(s, "helper = /usr/local/bin/cove-git-credential.sh") {
+	if !strings.Contains(s, "helper = /usr/local/bin/jam-git-credential.sh") {
 		t.Errorf("gitconfig must reference the credential helper; got:\n%s", s)
 	}
 }
@@ -315,11 +315,11 @@ func TestGitCredentialHelperYieldsToken(t *testing.T) {
 	}
 	dir := t.TempDir()
 
-	helperSrc, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/cove-git-credential.sh")
+	helperSrc, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/jam-git-credential.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
-	helperPath := filepath.Join(dir, "cove-git-credential.sh")
+	helperPath := filepath.Join(dir, "jam-git-credential.sh")
 	if err := os.WriteFile(helperPath, helperSrc, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestGitCredentialHelperYieldsToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Point the (absolute) helper path at the materialized copy for the test.
-	cfg := strings.ReplaceAll(string(cfgSrc), "/usr/local/bin/cove-git-credential.sh", helperPath)
+	cfg := strings.ReplaceAll(string(cfgSrc), "/usr/local/bin/jam-git-credential.sh", helperPath)
 	cfgPath := filepath.Join(dir, "gitconfig")
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
@@ -372,11 +372,11 @@ func TestGitCredentialHelperYieldsGitLabToken(t *testing.T) {
 		t.Skip("bash not available")
 	}
 	dir := t.TempDir()
-	src, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/cove-git-credential.sh")
+	src, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/bin/jam-git-credential.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
-	helperPath := filepath.Join(dir, "cove-git-credential.sh")
+	helperPath := filepath.Join(dir, "jam-git-credential.sh")
 	if err := os.WriteFile(helperPath, src, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestGitCredentialHelperYieldsGitLabToken(t *testing.T) {
 func TestClaudeJSONPrunedAndBlended(t *testing.T) {
 	cj, err := os.ReadFile(baseInitAgentData(".claude.json"))
 	if err != nil {
-		t.Fatalf(".claude.json default not found in cove-base-image: %v", err)
+		t.Fatalf(".claude.json default not found in jam-studio-base: %v", err)
 	}
 	s := string(cj)
 	for _, want := range []string{"hasCompletedOnboarding", "hasTrustDialogAccepted"} {
@@ -467,12 +467,12 @@ func TestEntrypointSeedsGenerically(t *testing.T) {
 		t.Fatalf("entrypoint.sh not embedded: %v", err)
 	}
 	s := string(b)
-	call := "/usr/local/lib/cove/seed-agent-data.sh /home/agent/.init-agent-data /agent-data"
+	call := "/usr/local/lib/jam/seed-agent-data.sh /home/agent/.init-agent-data /agent-data"
 	if !strings.Contains(s, call) || !strings.Contains(s, "chown -R agent:agent /agent-data") {
 		t.Fatalf("entrypoint must run %q and chown the volume; got:\n%s", call, s)
 	}
-	if strings.Index(s, call) > strings.Index(s, `[ "${COVE_DOCKER:-}" = "1" ]`) {
-		t.Error("seeding must run before the COVE_DOCKER branch")
+	if strings.Index(s, call) > strings.Index(s, `[ "${JAM_DOCKER:-}" = "1" ]`) {
+		t.Error("seeding must run before the JAM_DOCKER branch")
 	}
 	var code strings.Builder
 	for _, line := range strings.Split(s, "\n") {
@@ -488,7 +488,7 @@ func TestEntrypointSeedsGenerically(t *testing.T) {
 }
 
 // TestHardeningShipsNoAgentDocs guards decision B3 (COV-246): the agent docs
-// and skills seeded into /agent-data are the kit base's (cove-base-image), so a
+// and skills seeded into /agent-data are the kit base's (jam-studio-base), so a
 // kit can override them; the sealed layer ships none of them, nor the unused
 // /etc/claude-code/mcp.json (agentrun generates the MCP config since COV-240).
 func TestHardeningShipsNoAgentDocs(t *testing.T) {
@@ -552,7 +552,7 @@ func TestBaseImageSeedsAgentDocs(t *testing.T) {
 	if got, want := strings.Join(entries, " "), "CLAUDE.md PROGRESSIVE_DISCLOSURE.md SANDBOX.md reference skills"; got != want {
 		t.Errorf(".refresh = %q, want %q (runtime-owned files must never refresh)", got, want)
 	}
-	df, err := os.ReadFile(filepath.Join("..", "..", "images", "cove-base-image", "Dockerfile"))
+	df, err := os.ReadFile(filepath.Join("..", "..", "images", "jam-studio-base", "Dockerfile"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,11 +591,11 @@ func TestWorkspaceDirOwnedByAgent(t *testing.T) {
 // TestConfigDirReachesEnvironment guards that CLAUDE_CONFIG_DIR points at the
 // persistent volume for every ssh session, so the OAuth login and the agent
 // session agree on where credentials live. It is sealed-layer-owned (the
-// COVE_SSHENV redesign): apply-sshenv.sh writes it into /etc/environment, and the
+// JAM_SSHENV redesign): apply-sshenv.sh writes it into /etc/environment, and the
 // hardening Dockerfile runs that script. It is deliberately NOT an image ENV (as
 // ENV it would misdirect the build-time claude install).
 func TestConfigDirReachesEnvironment(t *testing.T) {
-	script, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/lib/cove/apply-sshenv.sh")
+	script, err := fs.ReadFile(hardeningFS, "hardening/image-files/usr/local/lib/jam/apply-sshenv.sh")
 	if err != nil {
 		t.Fatalf("apply-sshenv.sh not embedded: %v", err)
 	}
@@ -622,7 +622,7 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 	}
 	s := string(b)
 	for _, want := range []string{
-		"${COVE_SHADOW_DIRS:-}",
+		"${JAM_SHADOW_DIRS:-}",
 		`case "$d" in /*|*/../*|../*|*/..|..) continue ;; esac`,
 		"set -f", // no globbing: an entry must never be pathname-expanded (COV-132 #2)
 		// chown only a real mountpoint (the fresh volume), never host content
@@ -634,17 +634,17 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 		}
 	}
 	// The chown must precede the docker/systemd handoff so both paths run it.
-	if strings.Index(s, "COVE_SHADOW_DIRS") > strings.Index(s, `[ "${COVE_DOCKER:-}" = "1" ]`) {
-		t.Error("shadow-dir chown must run before the COVE_DOCKER branch")
+	if strings.Index(s, "JAM_SHADOW_DIRS") > strings.Index(s, `[ "${JAM_DOCKER:-}" = "1" ]`) {
+		t.Error("shadow-dir chown must run before the JAM_DOCKER branch")
 	}
 }
 
-// SANDBOX.md is the plain at-cove sandbox guide. A Jam session gets the
+// SANDBOX.md is the plain sandbox guide. A Jam session gets the
 // sandbox rules from its compiled context, so the file opens with a short guard
 // telling a Jam session (CORE.md present) to ignore the rest; nothing in the
 // sealed layer rewrites this kit-overridable file (COV-246). The body after the
 // guard carries only the local kit path.
-func TestSandboxMDIsPlainAtCoveWithJamGuard(t *testing.T) {
+func TestSandboxMDIsPlainWithJamGuard(t *testing.T) {
 	b, err := os.ReadFile(baseInitAgentData("SANDBOX.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -662,7 +662,7 @@ func TestSandboxMDIsPlainAtCoveWithJamGuard(t *testing.T) {
 	if len(head) > 300 {
 		t.Errorf("the guard is the only Jam-side cost; keep it short (%d bytes)", len(head))
 	}
-	for _, want := range []string{".at-cove/config.yml", "at-cove recreate", "http://127.0.0.1:3128", "/agent-data/reference/sandbox-kit-changes.md", "/agent-data/reference/sandbox-hardening-limits.md"} {
+	for _, want := range []string{"." + sandboxKitCLI + "/config.yml", sandboxKitCLI + " recreate", "http://127.0.0.1:3128", "/agent-data/reference/sandbox-kit-changes.md", "/agent-data/reference/sandbox-hardening-limits.md"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("SANDBOX.md missing %q:\n%s", want, s)
 		}

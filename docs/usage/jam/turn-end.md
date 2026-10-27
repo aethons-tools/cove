@@ -96,12 +96,12 @@ wakes the agent only once CI is green, at no turn cost while it isn't.
 
 - When the alarm comes due (the session `holding` or `waiting`; a paused one is
   resumed first, and re-paused by the usual warm-timeout afterwards), Jam asks
-  cove-master over the Attach stream to run it: `sh -c <gate>` in the agent's
+  jam-studio-agent over the Attach stream to run it: `sh -c <gate>` in the agent's
   workspace with the agent's environment, killed after **60s**, stdout+stderr
   capped at **4 KiB**. No agent turn is spent.
 - **exit 0** → the alarm fires and the wake includes the gate's output.
 - **timed out, exit 126/127 (not executable / not found), or no result** within
-  60s + 30s grace (an older cove-master, a dropped stream, a Jam restart) → the
+  60s + 30s grace (an older jam-studio-agent, a dropped stream, a Jam restart) → the
   alarm fires as **`gate-failed`**, and the wake says what went wrong, with the
   output. A broken gate never silently never-fires.
 - **any other exit** → not yet: a cron alarm waits for its next match; a
@@ -112,7 +112,7 @@ wakes the agent only once CI is green, at no turn cost while it isn't.
 
 ## Idle timeout
 
-A role can give its sessions an idle timeout: `at-jam role add --idle-timeout D
+A role can give its sessions an idle timeout: `jam role add --idle-timeout D
 --on-idle wake|teardown` ([roster.md](roster.md#roles) has the flag reference).
 
 - It is **armed when a turn ends** (the session leaves `running` for `holding` or
@@ -138,7 +138,7 @@ A role can give its sessions an idle timeout: `at-jam role add --idle-timeout D
 ## Holding
 
 `holding` is the Activity a studio reports when its agent's **turn has ended
-but background tasks are still running** — cove-master keeps the episode open
+but background tasks are still running** — jam-studio-agent keeps the episode open
 (up to `BackgroundWait`, 30m by default) so those tasks can finish.
 
 | | `running` | `holding` | `waiting` |

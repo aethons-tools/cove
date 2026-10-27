@@ -24,7 +24,7 @@ type taggingLauncher struct {
 }
 
 func (l taggingLauncher) ImageTag(ref jam.KitRef) string {
-	return "cove-kit:" + ref.Digest + "-" + *l.asm
+	return "jam-kit:" + ref.Digest + "-" + *l.asm
 }
 
 // A cove raised on an image its role would no longer run is flagged in the

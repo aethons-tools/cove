@@ -19,7 +19,7 @@ import (
 // allow/deny rules are rendered (TestGoldenClaudePolicyArgv), and a non-bypass
 // mode always also allows the messaging tools.
 
-const goldenMCP = "/dev/shm/cove-agent-mcp.json"
+const goldenMCP = "/dev/shm/jam-agent-mcp.json"
 const goldenCore = "/agent-data/context/CORE.md"
 
 func TestGoldenClaudeArgv(t *testing.T) {
@@ -66,7 +66,7 @@ func TestGoldenClaudeArgv(t *testing.T) {
 			want := c.want
 			if spec != nil && (len(spec.Claude.Plugins) > 0 || len(spec.Claude.Settings) > 0) {
 				i := slices.Index(want, "--strict-mcp-config") + 1
-				want = slices.Concat(want[:i], []string{"--settings", "/dev/shm/cove-agent-settings.json"}, want[i:])
+				want = slices.Concat(want[:i], []string{"--settings", "/dev/shm/jam-agent-settings.json"}, want[i:])
 			}
 			t.Run(fmt.Sprintf("%s/spec=%s", c.name, variant), func(t *testing.T) {
 				bin, args, env := goldenCommand(Episode{Continued: c.continued, ContextCore: c.core, Spec: spec})

@@ -25,7 +25,7 @@ func TestClaudeCommandUsesConfiguredMCPConfig(t *testing.T) {
 func TestClaudeZeroValueDefaultsMCPConfig(t *testing.T) {
 	_, args, _ := Claude{}.Command(Episode{})
 	i := slices.Index(args, "--mcp-config")
-	if i < 0 || args[i+1] != "/dev/shm/cove-agent-mcp.json" {
+	if i < 0 || args[i+1] != "/dev/shm/jam-agent-mcp.json" {
 		t.Fatalf("zero-value Claude must use the generated per-run MCP config: %q", args)
 	}
 	if slices.Contains(args, "/etc/claude-code/mcp.json") {
@@ -59,7 +59,7 @@ func TestClaudeValidateWritesMessagingPlusKitServers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"mcpServers":{"linear":{"type":"http","url":"${LINEAR_MCP_URL}","headers":{"Authorization":"Bearer ${LINEAR_TOKEN}"}},"messaging":{"command":"cove-master","args":["mcp"]}}}` + "\n"
+	want := `{"mcpServers":{"linear":{"type":"http","url":"${LINEAR_MCP_URL}","headers":{"Authorization":"Bearer ${LINEAR_TOKEN}"}},"messaging":{"command":"jam-studio-agent","args":["mcp"]}}}` + "\n"
 	if string(got) != want {
 		t.Fatalf("generated config:\n got %s\nwant %s", got, want)
 	}
@@ -72,7 +72,7 @@ func TestClaudeValidateNoKitServersIsMessagingOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(c.MCPConfigPath)
-	if want := `{"mcpServers":{"messaging":{"command":"cove-master","args":["mcp"]}}}` + "\n"; string(got) != want {
+	if want := `{"mcpServers":{"messaging":{"command":"jam-studio-agent","args":["mcp"]}}}` + "\n"; string(got) != want {
 		t.Fatalf("generated config:\n got %s\nwant %s", got, want)
 	}
 }

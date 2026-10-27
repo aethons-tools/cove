@@ -7,8 +7,7 @@ import (
 
 func TestRedactEnv(t *testing.T) {
 	for _, c := range []struct{ k, v, want string }{
-		{"AT_JAM_IDENTITY_TOKEN", "tok-live-123", MarkIdentityToken},
-		{"AT_HARBOR_IDENTITY_TOKEN", "{token}", MarkIdentityToken},
+		{"JAM_IDENTITY_TOKEN", "tok-live-123", MarkIdentityToken},
 		{"ANTHROPIC_API_KEY", "{token}", MarkIdentityToken},
 		{"GH_TOKEN", "Bearer {token}", "Bearer " + MarkIdentityToken},
 		{"X_AUTH", "token {token}", "token " + MarkIdentityToken},

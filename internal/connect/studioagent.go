@@ -1,0 +1,117 @@
+package connect
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/jam/snippet"
+	"github.com/aethons-tools/cove/internal/runner"
+	"github.com/aethons-tools/cove/internal/sshargs"
+)
+
+// studioAgentPromptVMPath / studioAgentEnvVMPath are tmpfs files the prompt and env
+// are staged into over ssh stdin (never argv, never persistent disk), sourced and
+// (env) removed by the detached launch — mirrors the teammate env path.
+const (
+	studioAgentPromptVMPath = "/dev/shm/jam-agent-prompt"
+	studioAgentEnvVMPath    = "/dev/shm/jam-studio-agent-env"
+	// studioAgentContextVMPath is the compiled session context
+	// (sessionctx.Bundle JSON), staged like the prompt.
+	studioAgentContextVMPath = "/dev/shm/jam-agent-context"
+	// StudioAgentLogVMPath is where jam-studio-agent's detached launch appends its
+	// combined stdout+stderr inside the cove. Exported so the launcher can grab
+	// its tail on teardown (a post-mortem for a cove that died). Single source
+	// of truth for the path.
+	StudioAgentLogVMPath = "/agent-data/jam-studio-agent.log"
+)
+
+// StudioAgentOptions carries what LaunchStudioAgent injects into a raised cove.
+type StudioAgentOptions struct {
+	Target        sshargs.Target
+	JamHost       string // jam.host — connector base is https://<JamHost>
+	RuntimeAddr   string // JAM_RUNTIME_ADDR (jam.host:443)
+	IdentityToken string // shared: JAM_IDENTITY_TOKEN + the agent connector token
+	LaunchSecret  string // JAM_LAUNCH_SECRET
+	WorkDir       string // JAM_WORKDIR
+	Prompt        string // written to tmpfs; JAM_AGENT_PROMPT_FILE points at it
+	Resident      bool   // JAM_RESIDENT=1: a personal session's agent waits for a Wake after every turn
+	Subscription  bool   // legacy fallback (no Connector): render the subscription-pool contract (identity on ANTHROPIC_AUTH_TOKEN, no ANTHROPIC_API_KEY)
+	// Connector, when set, is the cove's client env/git from its role's
+	// destinations and replaces the legacy Anthropic+git render (and Subscription).
+	Connector *snippet.Connector
+	// Context is the compiled session context; staged as JSON to tmpfs and
+	// pointed at by JAM_AGENT_CONTEXT_FILE. Nil = none (jam-studio-agent runs
+	// claude without the context flags).
+	Context *sessionctx.Bundle
+	// SessionKind ("ephemeral" | "personal" | "standing") becomes
+	// JAM_SESSION_KIND, which picks jam-studio-agent's resume prompt.
+	SessionKind string
+}
+
+// LaunchStudioAgent stages the agent connector (Anthropic + git through Jam)
+// plus the jam-studio-agent env and the prompt into tmpfs over ssh stdin, then starts
+// jam-studio-agent detached over a non-tty ssh (fire-and-forget), so it survives the
+// ssh channel closing. Secrets never touch argv or persistent disk.
+func LaunchStudioAgent(r runner.Runner, o StudioAgentOptions) error {
+	if err := writeVM(r, o.Target, o.Prompt, studioAgentPromptVMPath); err != nil {
+		return fmt.Errorf("jam-studio-agent prompt: %w", err)
+	}
+	if o.Context != nil {
+		cj, err := json.Marshal(o.Context)
+		if err != nil {
+			return fmt.Errorf("jam-studio-agent context: %w", err)
+		}
+		if err := writeVM(r, o.Target, string(cj), studioAgentContextVMPath); err != nil {
+			return fmt.Errorf("jam-studio-agent context: %w", err)
+		}
+	}
+	var script strings.Builder
+	// Agent connector (Anthropic base URL + git routing). The identity token is
+	// exported here and shared with jam-studio-agent below. In subscription-pool mode
+	// the identity rides on ANTHROPIC_AUTH_TOKEN (a static bearer — no credentials
+	// file, no OAuth session); otherwise it rides on x-api-key (ANTHROPIC_API_KEY).
+	switch {
+	case o.Connector != nil:
+		script.WriteString(o.Connector.Render("https://"+o.JamHost, o.IdentityToken))
+	case o.Subscription:
+		script.WriteString(snippet.RenderSubscription("https://"+o.JamHost, o.IdentityToken))
+	default:
+		script.WriteString(snippet.Render("https://"+o.JamHost, o.IdentityToken))
+	}
+	// jam-studio-agent's own env (JAM_IDENTITY_TOKEN already exported by Render).
+	fmt.Fprintf(&script, "export JAM_RUNTIME_ADDR=%s\n", shellQuote(o.RuntimeAddr))
+	fmt.Fprintf(&script, "export JAM_LAUNCH_SECRET=%s\n", shellQuote(o.LaunchSecret))
+	fmt.Fprintf(&script, "export JAM_WORKDIR=%s\n", shellQuote(o.WorkDir))
+	fmt.Fprintf(&script, "export JAM_AGENT_PROMPT_FILE=%s\n", shellQuote(studioAgentPromptVMPath))
+	if o.Context != nil {
+		fmt.Fprintf(&script, "export JAM_AGENT_CONTEXT_FILE=%s\n", shellQuote(studioAgentContextVMPath))
+	}
+	// Per-turn connector refresh handoff (jam-studio-agent re-fetches GET /connector
+	// before every agent spawn): the Jam base, and the raise-time connector as
+	// token-free JSON — jam-studio-agent's fallback and the env keys it owns.
+	fmt.Fprintf(&script, "export JAM_BASE_URL=%s\n", shellQuote("https://"+o.JamHost))
+	if o.Connector != nil {
+		cj, err := json.Marshal(o.Connector)
+		if err != nil {
+			return fmt.Errorf("jam-studio-agent env: connector: %w", err)
+		}
+		fmt.Fprintf(&script, "export JAM_CONNECTOR=%s\n", shellQuote(string(cj)))
+	}
+	if o.Resident {
+		script.WriteString("export JAM_RESIDENT=1\n")
+	}
+	if o.SessionKind != "" {
+		fmt.Fprintf(&script, "export JAM_SESSION_KIND=%s\n", shellQuote(o.SessionKind))
+	}
+	if err := writeVM(r, o.Target, script.String(), studioAgentEnvVMPath); err != nil {
+		return fmt.Errorf("jam-studio-agent env: %w", err)
+	}
+	cmd := "set -a; . " + studioAgentEnvVMPath + "; set +a; rm -f " + studioAgentEnvVMPath + "; " +
+		"setsid nohup jam-studio-agent </dev/null >>" + StudioAgentLogVMPath + " 2>&1 &"
+	if err := r.Run("ssh", append(sshargs.Base(o.Target), cmd)...); err != nil {
+		return fmt.Errorf("jam-studio-agent launch: %w", err)
+	}
+	return nil
+}

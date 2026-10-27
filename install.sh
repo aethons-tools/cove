@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — one-command installer for the cove host binaries: at-jam, at-mint and at-studio-manager.
+# install.sh — one-command installer for the Jam host binaries: jam and jam-studio-manager.
 #
 # Advertised:
 #   Private phase (works today, uses your gh auth):
@@ -8,17 +8,16 @@
 #   Public phase (once the repo is public — no change to this script):
 #     curl -fsSL https://raw.githubusercontent.com/aethons-tools/cove/main/install.sh | bash
 #
-# It pulls a prebuilt release archive (cove_<version>_<os>_<arch>.tar.gz) that the
+# It pulls a prebuilt release archive (jam_<version>_<os>_<arch>.tar.gz) that the
 # CI pipeline already cuts on every push to main, verifies its SHA-256 against the
-# release's checksums.txt, and drops `at-mint`, `at-jam` + `at-studio-manager` onto your PATH. The
-# archive also carries an `at-cove` tombstone (scripts/release/at-cove) for older
-# installers; this one does not install it.
+# release's checksums.txt, and drops `jam` + `jam-studio-manager` onto your PATH.
 #
 # Env knobs:
-#   COVE_VERSION=<N>-<MMDD>   pin a release (default: latest)
-#   BINDIR=<dir>             install dir (wins over everything)
-#   COVE_SYSTEM=1            install to /usr/local/bin (sudo if needed)
-#   COVE_REPO=owner/name     override the source repo (default aethons-tools/cove)
+#   JAM_VERSION=<N>-<MMDD>    pin a release (default: latest)
+#   BINDIR=<dir>              install dir (wins over everything)
+#   JAM_SYSTEM=1              install to /usr/local/bin (sudo if needed)
+#   JAM_SYSTEM_BINDIR=<dir>   the JAM_SYSTEM=1 dir (default /usr/local/bin)
+#   JAM_REPO=owner/name       override the source repo (default aethons-tools/cove)
 #
 # Download engine: prefer `gh` when installed + authenticated (handles the private
 # repo); otherwise fall back to anonymous `curl` (which only succeeds once the repo
@@ -26,7 +25,7 @@
 # `curl | bash` experience the day the repo goes public.
 set -euo pipefail
 
-REPO="${COVE_REPO:-aethons-tools/cove}"
+REPO="${JAM_REPO:-aethons-tools/cove}"
 
 err() { printf 'install: %s\n' "$*" >&2; }
 info() { printf 'install: %s\n' "$*"; }
@@ -55,12 +54,12 @@ normalize_os() {
   esac
 }
 
-# resolve_bindir -> the install directory, honouring BINDIR > COVE_SYSTEM > default.
+# resolve_bindir -> the install directory, honouring BINDIR > JAM_SYSTEM > default.
 resolve_bindir() {
   if [ -n "${BINDIR:-}" ]; then
     echo "$BINDIR"
-  elif [ "${COVE_SYSTEM:-}" = 1 ]; then
-    echo "${COVE_SYSTEM_BINDIR:-/usr/local/bin}"
+  elif [ "${JAM_SYSTEM:-}" = 1 ]; then
+    echo "${JAM_SYSTEM_BINDIR:-/usr/local/bin}"
   else
     echo "$HOME/.local/bin"
   fi
@@ -100,10 +99,10 @@ use_gh() {
   command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1
 }
 
-# resolve_version -> the release tag to install (COVE_VERSION, else latest).
+# resolve_version -> the release tag to install (JAM_VERSION, else latest).
 resolve_version() {
-  if [ -n "${COVE_VERSION:-}" ]; then
-    echo "$COVE_VERSION"
+  if [ -n "${JAM_VERSION:-}" ]; then
+    echo "$JAM_VERSION"
     return
   fi
   if use_gh; then
@@ -157,6 +156,15 @@ path_check() {
   esac
 }
 
+# stale_binaries <dir> -> the pre-rename binaries still in dir, space-separated.
+stale_binaries() {
+  local b found=()
+  for b in at-jam at-mint at-cove at-studio-manager; do
+    if [ -e "$1/$b" ]; then found+=("$b"); fi
+  done
+  echo "${found[*]:-}"
+}
+
 main() {
   # `tmp` is intentionally global: the EXIT trap that cleans it up runs after
   # main returns, in global scope, where a `local` would be gone (set -u).
@@ -169,7 +177,7 @@ main() {
     err "could not determine a release version to install"
     exit 1
   fi
-  archive="cove_${version}_${os}_${arch}.tar.gz"
+  archive="jam_${version}_${os}_${arch}.tar.gz"
   bindir="$(resolve_bindir)"
 
   tmp="$(mktemp -d)"
@@ -186,23 +194,24 @@ main() {
   mkdir -p "$tmp/extract"
   tar -C "$tmp/extract" -xzf "$tmp/$archive"
 
-  local b installed=()
-  for b in at-mint at-jam at-studio-manager; do
-    # at-jam and at-studio-manager joined the archive later: a pinned older
-    # release lacks them.
-    if [ "$b" != at-mint ] && [ ! -f "$tmp/extract/$b" ]; then continue; fi
+  local b
+  for b in jam jam-studio-manager; do
     place "$tmp/extract/$b" "$bindir"
-    installed+=("$b")
   done
-  info "installed ${installed[*]} -> $bindir"
+  info "installed jam jam-studio-manager -> $bindir"
 
   path_check "$bindir"
-  if command -v "$bindir/at-jam" >/dev/null 2>&1; then
-    info "$("$bindir/at-jam" version 2>/dev/null || echo "at-jam $version")"
+  local stale
+  stale="$(stale_binaries "$bindir")"
+  if [ -n "$stale" ]; then
+    info "pre-rename binaries still in $bindir: $stale — point your service and scripts at jam, then delete them (docs/usage/jam/renamed-from-at.md)"
+  fi
+  if command -v "$bindir/jam" >/dev/null 2>&1; then
+    info "$("$bindir/jam" version 2>/dev/null || echo "jam $version")"
   fi
 }
 
 # Run main unless sourced in lib mode (the test suite sources for unit tests).
-if [ "${COVE_INSTALL_LIB:-0}" != 1 ]; then
+if [ "${JAM_INSTALL_LIB:-0}" != 1 ]; then
   main "$@"
 fi

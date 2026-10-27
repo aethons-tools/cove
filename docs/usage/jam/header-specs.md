@@ -37,7 +37,7 @@ the UI select and every pre-existing destination use):
 ## Custom specs
 
 Set the field to `custom` and give the spec in `identity_in_spec` /
-`apply_spec` — via `at-jam destination import` YAML (or the admin API JSON):
+`apply_spec` — via `jam destination import` YAML (or the admin API JSON):
 
 ```yaml
 destinations:

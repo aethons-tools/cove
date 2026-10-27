@@ -97,7 +97,7 @@ func TestDestinationValidateEnv(t *testing.T) {
 	if err := ghAPI.ValidateEnv(); err != nil {
 		t.Fatal(err)
 	}
-	for _, env := range []map[string]string{{"lower": "x"}, {"AT_JAM_X": "x"}, {"AT_HARBOR_IDENTITY_TOKEN": "x"}, {"X": "{nope}"}} {
+	for _, env := range []map[string]string{{"lower": "x"}, {"JAM_X": "x"}, {"X": "{nope}"}} {
 		if err := (Destination{Env: env}).ValidateEnv(); err == nil {
 			t.Errorf("%v: want error", env)
 		}
@@ -107,10 +107,17 @@ func TestDestinationValidateEnv(t *testing.T) {
 // Env reaching the store other than through the admin API (config import,
 // direct writes) is still validated before it can reach a studio.
 func TestConnectorForRejectsInvalidEnv(t *testing.T) {
-	bad := Destination{Name: "x", Route: "/x/", Upstream: "https://x", Env: map[string]string{"AT_JAM_IDENTITY_TOKEN": "pwned"}}
+	bad := Destination{Name: "x", Route: "/x/", Upstream: "https://x", Env: map[string]string{"NOT-A-NAME": "v"}}
 	st := connectorStore(t, []Destination{bad}, map[string]Scope{"w": {Destinations: []string{"x"}}})
 	if _, err := ConnectorFor(st, actorWith("w")); err == nil {
-		t.Fatal("a reserved env key must fail the connector")
+		t.Fatal("a malformed env key must fail the connector")
+	}
+	// A reserved key never reaches the connector (it would clobber the
+	// identity token): dropped (TestConnectorForDropsAStoredReservedEnvKey).
+	clobber := Destination{Name: "y", Route: "/y/", Upstream: "https://y", Env: map[string]string{"JAM_IDENTITY_TOKEN": "pwned"}}
+	st = connectorStore(t, []Destination{clobber}, map[string]Scope{"w": {Destinations: []string{"y"}}})
+	if c, err := ConnectorFor(st, actorWith("w")); err != nil || len(c.Env) != 0 {
+		t.Fatalf("connector = %+v, %v", c, err)
 	}
 }
 

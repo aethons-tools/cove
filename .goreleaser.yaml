@@ -1,20 +1,18 @@
-# goreleaser config for the cove host binaries — the BUILD tool for the binaries
+# goreleaser config for the Jam host binaries — the BUILD tool for the binaries
 # leg of the monolithic pipeline (.github/workflows/release.yml, COV-44). CI runs
 # `goreleaser release --snapshot` on every main push: goreleaser builds + archives
-# at-mint + at-jam + at-studio-manager (darwin/linux × amd64/arm64) stamped <N>-<MMDD> via the VERSION
-# env; the workflow then cuts the (private) GitHub release with `gh`. Snapshot mode
-# is used deliberately — it skips goreleaser's own publishing, so the non-SemVer
-# <N>-<MMDD> version needs no git tag to satisfy goreleaser. cove-master is NOT
-# shipped standalone — it is embedded in at-jam (the before-hook stages the linux
-# cove-master binaries first). The archive also carries scripts/release/at-cove,
-# a tombstone that keeps an older `at-jam update` (whose embedded install.sh
-# installs at-cove unconditionally) working; slice 3 of the jam-only design drops it.
+# jam + jam-studio-manager (darwin/linux × amd64/arm64) stamped <N>-<MMDD> via
+# the VERSION env; the workflow then cuts the (private) GitHub release with
+# `gh`. Snapshot mode is used deliberately — it skips goreleaser's own
+# publishing, so the non-SemVer <N>-<MMDD> version needs no git tag to satisfy
+# goreleaser. jam-studio-agent is NOT shipped standalone — it is embedded in jam
+# (the before-hook stages the linux jam-studio-agent binaries first).
 #
-# Public phase (later): add a `brews:` block that installs at-mint, at-jam and at-studio-manager
-# from the single archive below.
+# Public phase (later): add a `brews:` block that installs jam and
+# jam-studio-manager from the single archive below.
 version: 2
 
-project_name: cove
+project_name: jam
 
 # The version stamped into archives + the binary. CI exports VERSION=<N>-<MMDD>;
 # a bare local `goreleaser` (no VERSION) falls back to a dev string so the config
@@ -24,13 +22,13 @@ snapshot:
 
 before:
   hooks:
-    # Build the linux cove-master binaries at-jam embeds, before goreleaser builds.
-    - bash scripts/stage-covemaster.sh
-    # Build the Jam app bundle at-jam embeds (git-ignored output). Required
+    # Build the linux jam-studio-agent binaries jam embeds, before goreleaser builds.
+    - bash scripts/stage-studio-agent.sh
+    # Build the Jam app bundle jam embeds (git-ignored output). Required
     # here: a release ships the app.
     - bash scripts/app.sh
-    # Snapshot the blessed cove-base-image digests from the registry into the
-    # embedded (gitignored) blessed/generated.txt before at-jam is built (COV-44
+    # Snapshot the blessed jam-studio-base digests from the registry into the
+    # embedded (gitignored) blessed/generated.txt before jam is built (COV-44
     # spec §4). A no-op without GITHUB_TOKEN (offline embeds the committed
     # low-watermark); release.yml grants packages:read so CI picks up every current
     # base with no commit-back loop. Writing only the gitignored file keeps the
@@ -38,9 +36,9 @@ before:
     - go run ./cmd/gen-blessed
 
 builds:
-  - id: at-mint
-    main: ./cmd/at-mint
-    binary: at-mint
+  - id: jam
+    main: ./cmd/jam
+    binary: jam
     env:
       - CGO_ENABLED=0
     goos: [linux, darwin]
@@ -50,21 +48,9 @@ builds:
     ldflags:
       - -s -w -X main.version={{ .Version }}
 
-  - id: at-jam
-    main: ./cmd/at-jam
-    binary: at-jam
-    env:
-      - CGO_ENABLED=0
-    goos: [linux, darwin]
-    goarch: [amd64, arm64]
-    flags:
-      - -trimpath
-    ldflags:
-      - -s -w -X main.version={{ .Version }}
-
-  - id: at-studio-manager
-    main: ./cmd/at-studio-manager
-    binary: at-studio-manager
+  - id: jam-studio-manager
+    main: ./cmd/jam-studio-manager
+    binary: jam-studio-manager
     env:
       - CGO_ENABLED=0
     goos: [linux, darwin]
@@ -75,16 +61,14 @@ builds:
       - -s -w -X main.version={{ .Version }}
 
 archives:
-  # One archive carrying every host binary — install.sh (and so `at-jam update`)
-  # installs them together — plus the at-cove tombstone for older installers.
-  - id: cove
-    ids: [at-mint, at-jam, at-studio-manager]
-    name_template: "cove_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  # One archive holding exactly `jam` and `jam-studio-manager` — what
+  # install.sh (and so `jam update`) installs. `none*` matches nothing, so
+  # goreleaser adds no README/LICENSE.
+  - id: jam
+    ids: [jam, jam-studio-manager]
+    name_template: "jam_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
-      - src: scripts/release/at-cove
-        strip_parent: true
-        info:
-          mode: 0755
+      - none*
 
 checksum:
   name_template: checksums.txt

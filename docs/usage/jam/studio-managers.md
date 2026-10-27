@@ -1,5 +1,5 @@
 ---
-summary: Operator guide to remote Studio Managers — enabling them, the `at-jam manager add|list|rotate|revoke` verbs, how a manager connects to Jam, and what happens on disconnect, reconnect and revoke.
+summary: Operator guide to remote Studio Managers — enabling them, the `jam manager add|list|rotate|revoke` verbs, how a manager connects to Jam, and what happens on disconnect, reconnect and revoke.
 read_when: You register, rotate or revoke a Studio Manager, upgrade from the old `runtime.launcher` (its error links here), or debug a manager connection (refused stream, version mismatch, a manager shown disconnected, strays, a revoke refused).
 owns: the operator-facing Studio Manager story — `runtime.studio-managers`, the `manager` verbs and admin API, the Connect stream's auth and lifecycle, and disconnect/reconnect/revoke behaviour
 prereqs: coves.md#managers-and-placement for how a raise picks a manager; serve.md for the serve config
@@ -10,7 +10,7 @@ updated: 2026-10-27
 # Studio Managers
 
 A **Studio Manager** is a remote process that hosts studios on another machine and dials *into* Jam; Jam registers it under a name.
-The manager binary is [at-studio-manager](../studio-manager.md); this doc covers Jam's side.
+The manager binary is [jam-studio-manager](../studio-manager.md); this doc covers Jam's side.
 How a raise chooses among managers is in [Managers and placement](coves.md#managers-and-placement).
 
 ## Enable it
@@ -29,10 +29,10 @@ All are clients of the admin API (see [operators.md](operators.md) for the clien
 
 | Verb | Does |
 |------|------|
-| `at-jam manager add <name>` | Registers a manager and prints `manager <name> token (shown once): <token>`. |
-| `at-jam manager rotate <name>` | Mints a new token, same output line; the old token stops working. |
-| `at-jam manager list` | One line per manager: `<name>\tconnected=<bool>\tversion=<v>\tstudios=<n>\tcapacity=<c>\tlast-seen=<RFC3339\|->\tstrays=<n>`. |
-| `at-jam manager revoke <name> [--force]` | Removes the manager; see Revoke. |
+| `jam manager add <name>` | Registers a manager and prints `manager <name> token (shown once): <token>`. |
+| `jam manager rotate <name>` | Mints a new token, same output line; the old token stops working. |
+| `jam manager list` | One line per manager: `<name>\tconnected=<bool>\tversion=<v>\tstudios=<n>\tcapacity=<c>\tlast-seen=<RFC3339\|->\tstrays=<n>`. |
+| `jam manager revoke <name> [--force]` | Removes the manager; see Revoke. |
 
 Admin API: `GET`/`POST /admin/managers`, `POST /admin/managers/{name}/rotate`, `DELETE /admin/managers/{name}?force=true`.
 Names match `^[a-z0-9][a-z0-9-]{0,62}$`; `local` is reserved (the retired launcher's name).
@@ -41,7 +41,7 @@ Managers are not part of config export/import ([backup.md](backup.md)); a restor
 
 ## How a manager connects
 
-The manager calls the gRPC method `cove.manager.v1.StudioManager/Connect` on the cove-facing TLS port (:443) with metadata `authorization: Bearer <token>`.
+The manager calls the gRPC method `jam.manager.v1.StudioManager/Connect` on the cove-facing TLS port (:443) with metadata `authorization: Bearer <token>`.
 
 - **Security:** the same RPC is also served on the plaintext dev listener `runtime.listen`, which is not loopback-enforced.
   Managers must use the TLS :443 endpoint, because the dev listener carries the bearer token in clear.
@@ -73,33 +73,22 @@ On reconnect the manager reports its inventory and Jam reconciles:
 `--force` forgets them: they are marked Lost at once, and the next reconcile pass revokes their identities and removes them from Jam's records.
 Their containers are left on the host for the operator to remove.
 
-A teardown returns the studio's cove-master log tail, which Jam logs as `cove agent log (tail, captured on teardown)`.
+A teardown returns the studio's jam-studio-agent log tail, which Jam logs as `cove agent log (tail, captured on teardown)`.
 
 Manager metrics are in [monitoring.md](monitoring.md#metrics).
 
 ## Retiring the in-process launcher
 
-Jam used to run studios itself under `runtime.launcher` as the `local` manager; that block, the `local` manager and the `at-jam colima` verbs are gone.
+Jam used to run studios itself under `runtime.launcher` as the `local` manager; that block, the `local` manager and the `colima` verbs of the Jam CLI are gone.
 A serve config that still has `runtime.launcher` is refused at startup with a message pointing here.
-Remove the block, run [at-studio-manager](../studio-manager.md) next to Colima, set `runtime.studio-managers: true`, and register the manager (`at-jam manager add`).
-`at-jam colima setup-docker|check-docker` are now `at-studio-manager colima ...` ([docker-in-sandbox.md](../docker-in-sandbox.md)).
+Remove the block, run [jam-studio-manager](../studio-manager.md) next to Colima, set `runtime.studio-managers: true`, and register the manager (`jam manager add`).
+`colima setup-docker|check-docker` are now `jam-studio-manager colima ...` ([docker-in-sandbox.md](../docker-in-sandbox.md)).
 
 What Jam does at the cutover:
 
 - **Old studios are reaped.** Studios recorded on `local` (or on no manager, from before managers existed) have their identity revoked and their record dropped, with no call to any host.
   Live or idled studios whose lease Jam itself holds go on the next reconcile pass; any held under another lease go when that lease expires.
-- **Their containers keep running** on the Colima daemon until you remove them (below).
+- **Their containers keep running** on the Colima daemon until you remove them.
 - **Standing sessions pinned to `local` are placed fresh** on a connected manager and re-pinned there; their state is not carried over.
 
-Clean up on the Colima host, after the first start without the block (use your old `runtime.launcher` docker-context in place of `colima` if it was not `colima`):
-
-```console
-$ docker --context colima ps -aq --filter name=^atcove-cove- | xargs -r docker --context colima rm -f
-$ docker --context colima volume ls -q --filter name=^atcove-cove-
-```
-
-The first removes the old containers (a manager's own are named `atcove.<manager>.cove-<id>`, so the filter does not match them, [naming](../studio-manager.md#names-and-moving-between-managers)).
-The second lists the old state volumes: remove them (`xargs -r docker --context colima volume rm`) only if you do not want that state, since nothing reads it any more.
-Old `cove-kit:*` images the in-process launcher built can be pruned too, once no container uses them (`docker --context colima image ls 'cove-kit*'`, then `image rm`): a manager with its own identity key builds fresh ones ([image builds](../studio-manager.md#image-builds)).
-Note the listing also matches the manager's own images when it shares that daemon; removing those only costs a rebuild.
-The old `~/.config/at-cove/id_ed25519` and `known_hosts.d` are safe to delete once no old studio remains.
+The old launcher's containers, volumes, images and SSH key carry the pre-rename names; the commands that remove them are in [renamed-from-at.md](renamed-from-at.md#remove-what-the-old-release-left).

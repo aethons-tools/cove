@@ -16,11 +16,11 @@ events and `system`/`thinking_tokens` progress events. Storage and export are
 **operator-only**; the content is also shown to the session's home-channel members in the
 Thinking tab. It carries agent output by design (see [Sensitivity](#sensitivity)).
 
-## Cove side (cove-master)
+## Cove side (jam-studio-agent)
 
 - `internal/agentrun` writes the agent's stdout to the VM-local
-  `/agent-data/agent-stream.jsonl` (append, 0600; never `cove-master.log`, which
-  Jam reads on teardown) and to a line splitter; each line goes to `covemaster` as an event tagged with its
+  `/agent-data/agent-stream.jsonl` (append, 0600; never `jam-studio-agent.log`, which
+  Jam reads on teardown) and to a line splitter; each line goes to `studioagent` as an event tagged with its
   **turn** (the episode — claude process — number, from 1; one episode can answer several prompts, see [coves.md](coves.md)).
 - **Cost is cumulative per claude session.** A `result` line's `total_cost_usd`
   (and `modelUsage`) is the running total of its `session_id`, carried across
@@ -36,7 +36,7 @@ Thinking tab. It carries agent output by design (see [Sensitivity](#sensitivity)
 - **Buffer:** in memory, 10 000 events or 64 MiB. Overflow drops the oldest;
   Jam records a **gap row** ("⚠ N events lost"). After a reconnect the cove
   replays from the last ack.
-- **Stream id:** 32 lowercase hex, random per cove-master process; Jam drops
+- **Stream id:** 32 lowercase hex, random per jam-studio-agent process; Jam drops
   events with an invalid one.
 - **Done** waits up to 5 s for the final ack. An old Jam never acks, so the cove
   still reaches Done after the 5 s delay.
@@ -103,6 +103,6 @@ and [session-view.md](session-view.md#thinking).
 Events carry tool inputs and outputs: file contents, command output, possibly
 secrets the agent read. **For now**, anyone who can see a session's home channel sees
 them in `/app/user`'s Thinking tab ([session-view.md](session-view.md#thinking)). The admin timeline and the
-NDJSON export stay operator-only. cove-master's redaction applies (exact match of the
+NDJSON export stay operator-only. jam-studio-agent's redaction applies (exact match of the
 cove's own secrets only). Raw agent output otherwise stays inside the
 studio; this audit channel is the deliberate exception.

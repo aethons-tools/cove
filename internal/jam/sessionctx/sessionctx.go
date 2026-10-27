@@ -20,7 +20,7 @@ import (
 // tell "this Jam has no /context" (an unmarked 404) from a marked one.
 const EndpointHeader = "X-Jam-Context"
 
-// Dir is where cove-master writes a bundle inside the cove.
+// Dir is where jam-studio-agent writes a bundle inside the cove.
 const Dir = "/agent-data/context"
 
 // Session kinds (mirror jam.SessionKind*; "" is ephemeral).

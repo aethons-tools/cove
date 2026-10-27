@@ -22,7 +22,7 @@ func pushTree(t *testing.T, st Store, name string, kv ...string) kittree.Tree {
 	return tr
 }
 
-const dockerfile = "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n"
+const dockerfile = "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n"
 
 func TestLoadKitVersionTree(t *testing.T) {
 	st := NewMemStore()

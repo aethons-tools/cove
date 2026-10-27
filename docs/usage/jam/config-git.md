@@ -1,7 +1,7 @@
 ---
 summary: Keeping a Jam's configuration in a git repo — the file layout, `config write|diff|apply --dir`, managed objects, drift and refusals, and replicating a Jam from a checkout.
 read_when: You want a Jam's config reviewable in git, are standing up a replica from a checkout, a config diff/apply refused, flagged drift or listed something unmanaged, or you want the repo to stop managing an object (config release).
-owns: the config repo layout and file kinds, the `at-jam config write|diff|apply|release` verbs, the plan actions and refusals, managed marks, drift and how it clears, the `/admin/config/diff|apply|export-tree|managed` routes
+owns: the config repo layout and file kinds, the `jam config write|diff|apply|release` verbs, the plan actions and refusals, managed marks, drift and how it clears, the `/admin/config/diff|apply|export-tree|managed` routes
 prereqs: serve.md (layered serve configs, host keys); backup.md (how this differs from export/import)
 tier: leaf
 updated: 2026-10-24
@@ -9,7 +9,7 @@ updated: 2026-10-24
 
 # A Jam's configuration in git
 
-`at-jam config` turns a Jam's configuration into a directory of small YAML
+`jam config` turns a Jam's configuration into a directory of small YAML
 files you review and merge like code, and plans/applies such a directory back
 onto a Jam. For a one-file snapshot instead, see [backup.md](backup.md).
 A Jam can also follow a config repo in git, and reference kits by their own
@@ -94,7 +94,7 @@ membership, pool state, credential values, the legacy roster. The file types hav
 
 ## The verbs
 
-All take `--app` (settings/token profile), `--admin-url` (overrides the app's settings) and `--token` (operator token; env `AT_JAM_ADMIN_TOKEN`).
+All take `--app` (settings/token profile), `--admin-url` (overrides the app's settings) and `--token` (operator token; env `JAM_ADMIN_TOKEN`).
 
 | Command | Does |
 |---|---|
@@ -143,7 +143,7 @@ write, so a failure writes nothing.
 
 **Managed marks** record which objects the repo owns (kind + name; a role is
 `<project>/<role>`; the Jam context is `jam`) and the commit (`dir` for `--dir`).
-They live in the Jam, not the repo, and are **not** part of `at-jam export`
+They live in the Jam, not the repo, and are **not** part of `jam export`
 ([backup.md](backup.md)): a restored Jam starts with none, and its next apply
 adopts identical objects. Errors are file-located and never echo credential
 values or unvalidated text (a type error is `line N: a value has the wrong type`).

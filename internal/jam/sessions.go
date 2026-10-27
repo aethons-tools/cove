@@ -50,7 +50,7 @@ var ErrNeedsLedger = errors.New("personal sessions need the allocation ledger (s
 // SessionAllocator is the capacity authority the personal-session routes admit
 // against: GrantPersonal reserves a slot for owner's personal session of
 // (project, role) against the role's pool and per-owner caps; RecordRelease
-// frees it. Jam does not import allocator, so cmd/at-jam adapts
+// frees it. Jam does not import allocator, so cmd/jam adapts
 // *allocator.Allocator to this interface (translating its no-ledger error to
 // ErrNeedsLedger).
 type SessionAllocator interface {
@@ -272,10 +272,10 @@ func reservePersonalName(store Store, role string) (name string, release func())
 func personalDeliveryProblem(store Store, project string, owner Member) string {
 	p, _ := store.GetProject(project)
 	if ChatKind(store, p) != "discord" {
-		return fmt.Sprintf("personal sessions need project %s's chat service set to discord (at-jam project chat-service set --project %s --service discord)", project, project)
+		return fmt.Sprintf("personal sessions need project %s's chat service set to discord (jam project chat-service set --project %s --service discord)", project, project)
 	}
 	if _, ok := owner.Inbox("discord"); !ok {
-		return fmt.Sprintf("%s has no discord delivery profile in project %s (at-jam project member add %s %s --delivery discord:<inbox-channel>)",
+		return fmt.Sprintf("%s has no discord delivery profile in project %s (jam project member add %s %s --delivery discord:<inbox-channel>)",
 			owner.User.Name, project, project, owner.User.Name)
 	}
 	return ""

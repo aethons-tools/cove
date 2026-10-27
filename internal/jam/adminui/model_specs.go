@@ -279,7 +279,7 @@ func specFromForm(r *http.Request, name string) (jam.ModelSpec, error) {
 
 // registerModelSpecs mounts the model-spec pages. Writes go through
 // jam.CreateModelSpec / jam.UpdateModelSpec (the same validation as the
-// at-jam model-spec verb); audit logs carry operator, name and type only.
+// jam model-spec verb); audit logs carry operator, name and type only.
 func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	mux.HandleFunc("GET /app/admin/model-specs", func(w http.ResponseWriter, r *http.Request) {
 		data := u.tableData()

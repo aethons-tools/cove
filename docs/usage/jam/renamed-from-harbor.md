@@ -13,14 +13,17 @@ The central service used to be called **Harbor**; it is now **Jam**. Most names 
 user, a kit or a running cove depends on keep working **for one release** as a
 **deprecated alias**: using one logs a `deprecated name` warning on stderr (once per
 process) that names the old and new name and points here. The aliases are
-**removed in a later release** — switch to the new names now.
+**removed in a later release** — switch to the new names now. Most of them
+already were, in the jam rename ([renamed-from-at.md](renamed-from-at.md)): only
+the rows below marked *Yes* still work, and the *New* column's `at-jam` names
+are now `jam` there too.
 
 | Old | New | Old name still accepted? |
 |---|---|---|
-| `at-harbor` binary | `at-jam` | Yes. `at-harbor` ships as a copy of `at-jam`; run under that name it works and warns. |
-| `~/.config/at-harbor/` (settings, cached login tokens) | `~/.config/at-jam/` | Copied across once: if `at-jam/` is missing and `at-harbor/` exists, the first `at-jam` run copies it (with a notice) and leaves the old one in place. |
-| `AT_HARBOR_ADMIN_TOKEN` | `AT_JAM_ADMIN_TOKEN` | Yes, read when the new one is unset, with a warning. |
-| `AT_HARBOR_IDENTITY_TOKEN`, `AT_HARBOR_LAUNCH_SECRET`, `AT_HARBOR_RUNTIME_ADDR` (set inside a cove) | `AT_JAM_IDENTITY_TOKEN`, `AT_JAM_LAUNCH_SECRET`, `AT_JAM_RUNTIME_ADDR` | Yes. Writers (the enroll snippet, the launcher) set both names, because older images read only the old ones; the sourceable snippet exports each old name from its new variable rather than repeating the value. `cove-master`, its MCP server and the git credential helper read the new name, then the old (no warning — a cove can't act on one). |
+| `at-harbor` binary | `at-jam` | No — removed in the jam rename ([renamed-from-at.md](renamed-from-at.md)). |
+| `~/.config/at-harbor/` (settings, cached login tokens) | `~/.config/at-jam/` | No — removed in the jam rename ([renamed-from-at.md](renamed-from-at.md)). |
+| `AT_HARBOR_ADMIN_TOKEN` | `AT_JAM_ADMIN_TOKEN` | No — removed in the jam rename ([renamed-from-at.md](renamed-from-at.md)). |
+| `AT_HARBOR_IDENTITY_TOKEN`, `AT_HARBOR_LAUNCH_SECRET`, `AT_HARBOR_RUNTIME_ADDR` (set inside a cove) | `AT_JAM_IDENTITY_TOKEN`, `AT_JAM_LAUNCH_SECRET`, `AT_JAM_RUNTIME_ADDR` | No — removed in the jam rename ([renamed-from-at.md](renamed-from-at.md)). |
 | kit `config.yml` `harbor:` block | `jam:` | Removed with at-cove (jam-only slice 2): there is no kit `config.yml` any more. |
 | serve config `runtime.launcher.harbor-host` | `runtime.launcher.jam-host`, now a Studio Manager's `colima.jam-host` | No. `runtime.launcher` itself is removed; see [Studio Managers](studio-managers.md#retiring-the-in-process-launcher). |
 | serve config `runtime.dispatcher` (the resident dispatcher) | `runtime.requisitioner` (the Requisitioner) | Yes, with a warning. Setting both is an error. |
@@ -35,10 +38,8 @@ process) that names the old and new name and points here. The aliases are
 
 **Deliberately unchanged:** the Postgres migration advisory-lock key (it spells
 "harbor"; changing it would let an old and a new binary migrate one database
-concurrently during a rollout), and three wire names older binaries and
-images depend on: the Attach gRPC service `harbor.attach.v1.Runtime` and its
-`x-harbor-launch-secret` metadata key (what cove-master in already-built images
-sends), and the `harbor.cove` docker label the launcher tags and finds its
-containers by. The Go module path, the internal "cove" identifiers, the Requisitioner's
+concurrently during a rollout). The Attach gRPC service, its launch-secret
+metadata key and the `harbor.cove` label kept their Harbor names until the jam
+rename renamed them ([renamed-from-at.md](renamed-from-at.md)). The Go module path, the internal "cove" identifiers, the Requisitioner's
 `internal/dispatcher` package and the historical design docs under
 `docs/superpowers/` are unchanged too.

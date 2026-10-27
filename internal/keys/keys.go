@@ -1,5 +1,5 @@
 // Package keys manages the SSH keypair a Studio Manager uses to reach the
-// studios it raises (the colima.identity-file of at-studio-manager's config):
+// studios it raises (the colima.identity-file of jam-studio-manager's config):
 // the public half is baked into each studio image's authorized_keys.
 package keys
 

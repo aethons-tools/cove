@@ -42,7 +42,7 @@ func (c *Colima) quietRunner() runner.Runner {
 
 // NewWithContext returns a Colima backend pinned to a docker context — typically
 // colima-<profile>, the context `colima start --profile <profile>` creates — so
-// a caller (e.g. at-studio-manager's colima.docker-context) can target a specific
+// a caller (e.g. jam-studio-manager's colima.docker-context) can target a specific
 // colima instance. Empty keeps the default colima context.
 func NewWithContext(r runner.Runner, context string) *Colima {
 	return &Colima{r: r, context: context}
@@ -92,7 +92,7 @@ func addHostArgs(hosts []string) []string {
 // dockerArgs renders the docker run flags that activate docker-in-sandbox via the
 // Sysbox runtime when the kit opts in with docker:true (COV-117): the sandbox
 // container runs under --runtime=sysbox-runc (so a rootful dockerd can run inside
-// the unprivileged container), COVE_DOCKER=1 signals the entrypoint, and a
+// the unprivileged container), JAM_DOCKER=1 signals the entrypoint, and a
 // persistent named volume backs the inner /var/lib/docker cache. When docker is
 // false it yields no flags, so the run argv is byte-for-byte unchanged. It never
 // emits --privileged, a socket mount, --device, or --security-opt — that is the
@@ -103,7 +103,7 @@ func dockerArgs(docker bool, volume string) []string {
 	}
 	return []string{
 		"--runtime=sysbox-runc",
-		"-e", "COVE_DOCKER=1",
+		"-e", "JAM_DOCKER=1",
 		"-v", volume + ":/var/lib/docker",
 	}
 }
@@ -125,7 +125,7 @@ func initArgs(docker bool) []string {
 // registers the sysbox-runc runtime a docker:true instance needs (COV-117). It
 // parses `docker info -f '{{json .Runtimes}}'`, a map of runtime name → config.
 // An unreachable daemon or unparseable output is an error. Shared by the
-// the launcher's preflight and `at-studio-manager colima check-docker`, so the two can't drift.
+// the launcher's preflight and `jam-studio-manager colima check-docker`, so the two can't drift.
 func (c *Colima) HasSysboxRuntime() (bool, error) {
 	out, err := c.r.Output("docker", c.dargs("info", "-f", "{{json .Runtimes}}")...)
 	if err != nil {
@@ -149,7 +149,7 @@ func (c *Colima) requireSysboxRuntime() error {
 		return fmt.Errorf("docker:true preflight: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. Jam detects but does not install it — run `at-studio-manager colima setup-docker` on the host (then `colima restart`), or install Sysbox CE in the colima Lima VM by hand and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/usage/docker-in-sandbox.md.")
+		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. Jam detects but does not install it — run `jam-studio-manager colima setup-docker` on the host (then `colima restart`), or install Sysbox CE in the colima Lima VM by hand and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/usage/docker-in-sandbox.md.")
 	}
 	return nil
 }
@@ -242,7 +242,7 @@ func (c *Colima) ResolveKitBase(declaredBase string) (string, error) {
 // ResolveKitBaseTar streams the studio kit's build context tar to `docker build -`
 // (docker preserves file modes natively), tags the built image, and gates it
 // (gate ON), per backend.KitImageBuilder. The build injects the blessed
-// COVE_BASE_IMAGE arg, so a context that does `FROM ${COVE_BASE_IMAGE}` descends
+// JAM_STUDIO_BASE_IMAGE arg, so a context that does `FROM ${JAM_STUDIO_BASE_IMAGE}` descends
 // from the blessed base.
 func (c *Colima) ResolveKitBaseTar(ctx io.Reader) (string, error) {
 	return c.resolveBaseTar(ctx)

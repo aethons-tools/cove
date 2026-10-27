@@ -87,7 +87,7 @@ type KitDraftBuild struct {
 const kitDraftStageSuffix = "-stage"
 
 // KitDraftTag is the image tag a build of kit's draft tree gets:
-// cove-kit-draft:<kit>-<tree[:12]>. It is never a kit version's tag. A
+// jam-kit-draft:<kit>-<tree[:12]>. It is never a kit version's tag. A
 // name that cannot make a docker tag (the tag part is at most 128
 // characters and must fit the -stage suffix; it cannot start with . or -)
 // is refused (400), unnamed.
@@ -96,7 +96,7 @@ func KitDraftTag(kit, tree string) (string, error) {
 	if !studio.TagSafeName(kit) || len(t)+len(kitDraftStageSuffix) > 128 || kit[0] == '.' || kit[0] == '-' {
 		return "", writeErr(http.StatusBadRequest, "kit name cannot form a draft image tag (at most 109 characters of [A-Za-z0-9_.-], not starting with . or -)")
 	}
-	return "cove-kit-draft:" + t, nil
+	return "jam-kit-draft:" + t, nil
 }
 
 // KitDraftStageTag is the tag of a draft build's own stage (its Dockerfile
@@ -669,7 +669,7 @@ func (b *KitDraftBuilds) Ensure(ctx context.Context, def KitDefinition, ref KitD
 	defer b.mu.Unlock()
 	if j.state != DraftBuildSucceeded {
 		line, _, _ := strings.Cut(j.errText, "\n")
-		return KitDraftImage{}, "", KitObjects{}, writeErr(http.StatusBadRequest, "draft %s: the test build failed (see at-jam kit draft build %s --show --manager %s): %s", ref.Kit, ref.Kit, manager, textesc.Escape(line, false))
+		return KitDraftImage{}, "", KitObjects{}, writeErr(http.StatusBadRequest, "draft %s: the test build failed (see jam kit draft build %s --show --manager %s): %s", ref.Kit, ref.Kit, manager, textesc.Escape(line, false))
 	}
 	return KitDraftImage{Tag: j.tag, ID: j.imageID}, manager, objs, nil
 }

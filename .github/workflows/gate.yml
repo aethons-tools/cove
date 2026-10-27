@@ -46,7 +46,7 @@ jobs:
       - name: Install linters
         env:
           # hadolint pin. Renovate keeps this in lockstep with the copies in
-          # scripts/setup-test-tools.sh and images/cove-image/Dockerfile (one
+          # scripts/setup-test-tools.sh and images/jam-studio/Dockerfile (one
           # customManager watches all three), so image/CI/local never drift.
           HADOLINT_VERSION: v2.15.1
         run: |

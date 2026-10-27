@@ -14,7 +14,7 @@ import (
 // follows its current version, "name@v<N>" pins N); Image is a prebuilt,
 // provenance-gated ref; both empty is the blessed default. A Dockerfile next
 // to kit.yml is the kit's own build context (StudioKit.BuildContext), built
-// FROM ${COVE_BASE_IMAGE}: the blessed base, or the parent's stage.
+// FROM ${JAM_STUDIO_BASE_IMAGE}: the blessed base, or the parent's stage.
 type Base struct {
 	Kit   string `yaml:"kit,omitempty" json:"kit,omitempty"`
 	Image string `yaml:"image,omitempty" json:"image,omitempty"`

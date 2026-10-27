@@ -65,7 +65,7 @@ func TestIssueCertTrustedBySSH(t *testing.T) {
 		t.Fatal("cert accepted for a principal other than agent")
 	}
 
-	// source-address pins the cert to the in-studio loopback path cove-master
+	// source-address pins the cert to the in-studio loopback path jam-studio-agent
 	// dials: a client reaching sshd any other way (a host-published port) is
 	// refused.
 	if got := cert.CriticalOptions["source-address"]; got != "127.0.0.1/32,::1/128" {

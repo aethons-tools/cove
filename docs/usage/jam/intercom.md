@@ -1,7 +1,7 @@
 ---
-summary: The intercom MCP — Jam-brokered read/commit/send/list_targets/escalate tools a managed studio's agent uses to converse in channels (its ticket's, a chat, a room) on the channel log. Tokens stay in Jam; the endpoint is broker-authorized; the tools reach claude via a `cove-master mcp` stdio server.
+summary: The intercom MCP — Jam-brokered read/commit/send/list_targets/escalate tools a managed studio's agent uses to converse in channels (its ticket's, a chat, a room) on the channel log. Tokens stay in Jam; the endpoint is broker-authorized; the tools reach claude via a `jam-studio-agent mcp` stdio server.
 read_when: You want a raised studio's agent to be able to read and post comments on the ticket it's working (ask a question, leave a status), or you're wiring/operating Jam `/squawks` endpoint and its cove-side MCP delivery, tuning wake-on (`runtime.wake`), or running the intercom on a Jam with no Requisitioner.
-owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint and its wire shapes, the `mission` tool and its `PUT /mission` endpoint, the channel log and its cutover from the legacy log, channel membership (call-in, join, leave), the inbox as a queue, the relays, wake-on, the `cove-master mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
+owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint and its wire shapes, the `mission` tool and its `PUT /mission` endpoint, the channel log and its cutover from the legacy log, channel membership (call-in, join, leave), the inbox as a queue, the relays, wake-on, the `jam-studio-agent mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed studio a squawk is scoped to; personal-sessions.md for a ticketless studio that talks to the person who started it; requisitioner.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the studio's own ticket
 tier: leaf
 updated: 2026-10-27
@@ -71,7 +71,7 @@ literally.
 
 ## Delivery to the agent
 
-The studio's `claude` is pointed at a stdio MCP server named `messaging` in the per-run `--mcp-config` that cove-master's harness generates (alongside any kit [`mcp-servers`](kits.md#mcp-servers-cov-240), which can never replace it), which launches `cove-master mcp`. That subcommand exposes `read`/`send`/`list_targets` and forwards them to Jam `/squawks` (and `/squawks/targets`) over TLS through the studio's squid proxy, using the identity token + Jam address already in the studio's environment. No new binary, no new secret in the studio.
+The studio's `claude` is pointed at a stdio MCP server named `messaging` in the per-run `--mcp-config` that jam-studio-agent's harness generates (alongside any kit [`mcp-servers`](kits.md#mcp-servers-cov-240), which can never replace it), which launches `jam-studio-agent mcp`. That subcommand exposes `read`/`send`/`list_targets` and forwards them to Jam `/squawks` (and `/squawks/targets`) over TLS through the studio's squid proxy, using the identity token + Jam address already in the studio's environment. No new binary, no new secret in the studio.
 
 ## Channel membership
 
@@ -93,7 +93,7 @@ Who hears a channel is its members. A member **calls someone in** (`call_in`, or
 >
 > An inbound author is recorded as an **account** on its connection by their
 > service user id only (labelled with their display name — never matched by it).
-> Once an operator links that account to a user (`at-jam account list
+> Once an operator links that account to a user (`jam account list
 > --connection linear`, then `account link`), a post in a project the user is a
 > member of is theirs; until then it's the account's.
 

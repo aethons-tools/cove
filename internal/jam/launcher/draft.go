@@ -14,7 +14,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-const draftTagPrefix = "cove-kit-draft:"
+const draftTagPrefix = "jam-kit-draft:"
 
 // errDraftImageID refuses a draft image id that is not a docker image id.
 // The id reaches `docker run` and `docker image inspect` argv, and colima

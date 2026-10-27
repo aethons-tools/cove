@@ -30,7 +30,7 @@ func TestDockerArgs(t *testing.T) {
 		t.Errorf("docker off must yield no flags; got %v", a)
 	}
 	got := strings.Join(dockerArgs(true, "box-docker"), " ")
-	if got != "--runtime=sysbox-runc -e COVE_DOCKER=1 -v box-docker:/var/lib/docker" {
+	if got != "--runtime=sysbox-runc -e JAM_DOCKER=1 -v box-docker:/var/lib/docker" {
 		t.Errorf("dockerArgs = %q", got)
 	}
 }
@@ -63,7 +63,7 @@ func TestDialParsesDockerPort(t *testing.T) {
 // uses a different daemon than colima.
 func TestPinsContext(t *testing.T) {
 	f := &runner.Fake{}
-	if _, err := NewWithContext(f, "").RunEphemeral("img:tag", "", "box", []string{"harbor.cove"}, nil, nil, false); err != nil {
+	if _, err := NewWithContext(f, "").RunEphemeral("img:tag", "", "box", []string{"jam.studio"}, nil, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.Calls) == 0 || !allPinned(f.Calls) {
@@ -84,7 +84,7 @@ func TestPreflightFailsActionably(t *testing.T) {
 		return &runner.Fake{Err: &runner.ExitError{Code: 1}}
 	}
 	// RunEphemeral
-	if _, err := NewWithContext(mkFail(), "").RunEphemeral("img:tag", "", "box", []string{"harbor.cove"}, nil, nil, false); err == nil || !strings.Contains(err.Error(), "colima start") {
+	if _, err := NewWithContext(mkFail(), "").RunEphemeral("img:tag", "", "box", []string{"jam.studio"}, nil, nil, false); err == nil || !strings.Contains(err.Error(), "colima start") {
 		t.Fatalf("RunEphemeral should fail actionably; err=%v", err)
 	}
 	// Dial
@@ -106,7 +106,7 @@ func TestPreflightFailsActionably(t *testing.T) {
 // the bare-runner build in T2/T3 got wrong (COV-217).
 func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}} // the post-build inspect .Id
-	digest, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:managed-v1", "cove-base@sha256:base", nil, false)
+	digest, err := NewWithContext(f, "").BuildKitImage("/b", "jam-kit:managed-v1", "jam-studio-base@sha256:base", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,8 +114,8 @@ func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
 		t.Fatalf("digest = %q, want sha256:img", digest)
 	}
 	build := dockerCall(f.Calls, "build")
-	if build == nil || !contains(build, "--build-arg") || !contains(build, "BASE=cove-base@sha256:base") ||
-		!contains(build, "-t") || !contains(build, "cove-kit:managed-v1") || !contains(build, "/b") ||
+	if build == nil || !contains(build, "--build-arg") || !contains(build, "BASE=jam-studio-base@sha256:base") ||
+		!contains(build, "-t") || !contains(build, "jam-kit:managed-v1") || !contains(build, "/b") ||
 		!contains(build, "--progress=plain") {
 		t.Fatalf("build call = %+v", f.Calls)
 	}
@@ -129,7 +129,7 @@ func TestBuildKitImageContextPinnedWithBase(t *testing.T) {
 func TestBuildKitImageNoCache(t *testing.T) {
 	for _, noCache := range []bool{false, true} {
 		f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}}
-		if _, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:managed-v1", "cove-base@sha256:base", nil, noCache); err != nil {
+		if _, err := NewWithContext(f, "").BuildKitImage("/b", "jam-kit:managed-v1", "jam-studio-base@sha256:base", nil, noCache); err != nil {
 			t.Fatal(err)
 		}
 		build := dockerCall(f.Calls, "build")
@@ -153,7 +153,7 @@ func TestResolveKitBaseDefaultsToBlessed(t *testing.T) {
 // The Dockerfile is FROM ${BASE}; a blank base can't build.
 func TestBuildKitImageRequiresBase(t *testing.T) {
 	f := &runner.Fake{}
-	if _, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:managed-v1", "", nil, false); err == nil {
+	if _, err := NewWithContext(f, "").BuildKitImage("/b", "jam-kit:managed-v1", "", nil, false); err == nil {
 		t.Fatal("BuildKitImage must require a non-empty base")
 	}
 }
@@ -162,7 +162,7 @@ func TestBuildKitImageRequiresBase(t *testing.T) {
 // alongside the required BASE arg.
 func TestBuildKitImageInjectsBuildArgs(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "sha256:img\n"}}}
-	if _, err := NewWithContext(f, "").BuildKitImage("/b", "cove-kit:deadbeef", "cove-base@sha256:base",
+	if _, err := NewWithContext(f, "").BuildKitImage("/b", "jam-kit:deadbeef", "jam-studio-base@sha256:base",
 		map[string]string{"NODE_VERSION": "20"}, false); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestBuildKitImageInjectsBuildArgs(t *testing.T) {
 	if build == nil || !contains(build, "--build-arg") || !contains(build, "NODE_VERSION=20") {
 		t.Fatalf("build must inject the kit build-arg: %+v", f.Calls)
 	}
-	if !contains(build, "BASE=cove-base@sha256:base") {
+	if !contains(build, "BASE=jam-studio-base@sha256:base") {
 		t.Fatalf("build must still inject the BASE arg: %+v", f.Calls)
 	}
 }
@@ -179,12 +179,12 @@ func TestBuildKitImageInjectsBuildArgs(t *testing.T) {
 // (absent image) is a (false, nil) miss, not an error.
 func TestHasKitImage(t *testing.T) {
 	f := &runner.Fake{}
-	ok, err := NewWithContext(f, "").HasKitImage("cove-kit:managed-v2")
+	ok, err := NewWithContext(f, "").HasKitImage("jam-kit:managed-v2")
 	if err != nil || !ok {
 		t.Fatalf("present: Has = %v, %v", ok, err)
 	}
 	insp := dockerCall(f.Calls, "image")
-	if insp == nil || !contains(insp, "inspect") || !contains(insp, "cove-kit:managed-v2") {
+	if insp == nil || !contains(insp, "inspect") || !contains(insp, "jam-kit:managed-v2") {
 		t.Fatalf("HasKitImage did not inspect the tag: %+v", f.Calls)
 	}
 	if !allPinned(f.Calls) {
@@ -192,7 +192,7 @@ func TestHasKitImage(t *testing.T) {
 	}
 
 	f2 := &runner.Fake{Err: &runner.ExitError{Code: 1}}
-	if ok, _ := NewWithContext(f2, "").HasKitImage("cove-kit:missing-v9"); ok {
+	if ok, _ := NewWithContext(f2, "").HasKitImage("jam-kit:missing-v9"); ok {
 		t.Fatal("HasKitImage must be false when the image is absent")
 	}
 }
@@ -270,10 +270,10 @@ func allPinned(calls []runner.Call) bool {
 func TestNewWithContextPinsEveryCall(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "127.0.0.1:49153\n"}}}
 	c := NewWithContext(f, "colima-jam-b")
-	if _, err := c.RunEphemeral("img", "", "atcove-cove-x", []string{"harbor.cove"}, nil, nil, false); err != nil {
+	if _, err := c.RunEphemeral("img", "", "jam-studio-x", []string{"jam.studio"}, nil, nil, false); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
-	if _, _, err := c.Dial("atcove-cove-x"); err != nil {
+	if _, _, err := c.Dial("jam-studio-x"); err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
 	if err := c.CreateVolume("v", "k=v"); err != nil {

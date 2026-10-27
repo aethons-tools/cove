@@ -90,7 +90,7 @@ func (d Destination) GitRouted() bool {
 var envPlaceholder = regexp.MustCompile(`\{[^}]*\}`)
 
 // ValidateEnv checks Env at write time: keys are env-var names outside the
-// reserved AT_JAM_/AT_HARBOR_ namespace, and templates use only the known
+// reserved JAM_ namespace, and templates use only the known
 // placeholders.
 func (d Destination) ValidateEnv() error {
 	for k, v := range d.Env {

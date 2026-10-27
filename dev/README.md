@@ -4,7 +4,7 @@ Assets for running a local dev instance of Jam.
 
 - **`docker-compose.yml`** — a local PostgreSQL 18 and Garage (the attachments blob store) for Jam.
 - **`garage.toml`** — Garage's dev config.
-- **`examples/`** — templates to copy: `jam.dev.yml.example` (a sample `at-jam serve` config wired to both, copied to `dev/jam.dev.yml`), and `jam.container.yml.example` + `credentials.container.yml.example` (Jam in a container, below).
+- **`examples/`** — templates to copy: `jam.dev.yml.example` (a sample `jam serve` config wired to both, copied to `dev/jam.dev.yml`), and `jam.container.yml.example` + `credentials.container.yml.example` (Jam in a container, below).
 - **`local/`** — git-ignored, for your own files (the container's secrets directory by default).
 
 ## Postgres
@@ -55,7 +55,7 @@ aws --endpoint-url http://localhost:13900 s3 ls s3://jam-attachments/blobs/
 
 or `docker compose -f dev/docker-compose.yml exec garage /garage bucket info jam-attachments`.
 
-## Running `at-jam serve`
+## Running `jam serve`
 
 `jam.dev.yml` (copy it from `examples/jam.dev.yml.example`; it is git-ignored) is a ready-to-edit dev serve config pointed at the Postgres
 above, with an inline dev DB password and loopback admin API. The broker
@@ -67,11 +67,11 @@ self-signed cert for that name (`just dev-cert`, written to the gitignored
 ```sh
 just dev-cert          # writes dev/tls/{cert,key}.pem (CN=jam.local.aethons.tools)
 just dev-up
-just build             # (re)build dist/<os>-<arch>/at-jam
-just dev-serve         # runs the built at-jam serve --config dev/jam.dev.yml
+just build             # (re)build dist/<os>-<arch>/jam
+just dev-serve         # runs the built jam serve --config dev/jam.dev.yml
 ```
 
-`just dev-serve` runs the **last-built** `dist/<os>-<arch>/at-jam` (run `just
+`just dev-serve` runs the **last-built** `dist/<os>-<arch>/jam` (run `just
 build` first — it does not rebuild), forwarding extra args (e.g. `just dev-serve
 --config path/to/other.yml`). For arbitrary subcommands there is also `just
 jam …` (e.g. `just jam destination list`). On macOS the wildcard
@@ -81,7 +81,7 @@ privileged port needs root — run the built binary under `sudo` directly for th
 **Skip login with `dev-identity`** (handy for UI work): set
 `dev-identity: {user: <name>}` in `jam.dev.yml`, and loopback requests to
 `/app` act as that user, with no IdP and no callbacks. The user needs a login
-(`at-jam user login`), an OIDC identity (`at-jam user oidc`) and a project
+(`jam user login`), an OIDC identity (`jam user oidc`) and a project
 membership. See `dev-identity` in [serve.md](../docs/usage/jam/serve.md). To
 work on the Jam app with hot reload, run `just app-dev` beside `just dev-serve`
 ([web-app.md](../docs/web-app.md#dev-loop)).

@@ -101,7 +101,7 @@ func (r *Refresher) RefreshDue(ctx context.Context) error {
 				Key: key, Severity: sev,
 				Summary: "pool account " + a.Name + " cannot refresh its token",
 				Detail:  err.Error(), // OAuth error code + description only (see refreshOne)
-				Fix:     "re-seed it: at-jam pool add --name " + a.Name + " --from-file <credentials.json>",
+				Fix:     "re-seed it: jam pool add --name " + a.Name + " --from-file <credentials.json>",
 			}, PoolFailThreshold)
 			continue
 		}

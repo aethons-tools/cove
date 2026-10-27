@@ -64,7 +64,7 @@ func ValidateReport(r *TicketReport) error {
 }
 
 // TicketReporter moves a session's ticket to the reported state and comments
-// on it. Implemented in cmd/at-jam over the Requisitioner's tracker.
+// on it. Implemented in cmd/jam over the Requisitioner's tracker.
 type TicketReporter interface {
 	Report(ctx context.Context, inst Instance, r TicketReport) error
 }

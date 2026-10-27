@@ -149,7 +149,7 @@ func (h *handler) resolve(w http.ResponseWriter, r *http.Request) (collab.Princi
 		return p, "", jam.Instance{}, false
 	case errors.Is(err, ErrInvalidToken):
 		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
-		http.Error(w, "invalid or expired token; sign in: at-jam login --participant", http.StatusUnauthorized)
+		http.Error(w, "invalid or expired token; sign in: jam login --participant", http.StatusUnauthorized)
 		return p, "", jam.Instance{}, false
 	case errors.Is(err, ErrUnbound):
 		http.Error(w, ErrUnbound.Error(), http.StatusForbidden)

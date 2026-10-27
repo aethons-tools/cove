@@ -81,7 +81,7 @@ type HasResult struct{ Has bool }
 // ImageFactsRequest's result is a jam.ImageFacts.
 type ImageFactsRequest struct{ Image string }
 
-// TeardownResult carries the cove-master log tail captured before removal ("" if none).
+// TeardownResult carries the jam-studio-agent log tail captured before removal ("" if none).
 type TeardownResult struct{ AgentLog string }
 
 // TeardownCapturer is implemented by launchers that can return the log tail.

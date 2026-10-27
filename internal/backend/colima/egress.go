@@ -15,7 +15,7 @@ var _ backend.RoleEgress = (*Colima)(nil)
 // roleEgressHelper is the sealed, root-only helper that replaces the active
 // egress policy list (allowed_domains.kit.txt) with a role's domains, refusing
 // any outside the kit's baked egress_ceiling.txt, then reconfigures squid.
-const roleEgressHelper = "/usr/local/lib/cove/apply-role-egress.sh"
+const roleEgressHelper = "/usr/local/lib/jam/apply-role-egress.sh"
 
 // ApplyRoleEgress delivers a Jam role's egress policy to a raised container by
 // `docker exec`ing the sealed apply-role-egress.sh as root, domains on stdin one

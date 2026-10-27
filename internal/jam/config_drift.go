@@ -25,7 +25,7 @@ const ConfigDriftKey = "config.drift:jam"
 const ConfigDriftEvery = time.Minute
 
 // configDriftFix is the condition's fix: the three ways out.
-const configDriftFix = "Review with at-jam config diff (or the Config page), then: config apply --force to restore the repo's version, " +
+const configDriftFix = "Review with jam config diff (or the Config page), then: config apply --force to restore the repo's version, " +
 	"config write + commit + config apply to keep Jam's, or config release <kind>/<name> to stop managing it."
 
 // configDriftLastErr is the error text the drift checker last warned about
@@ -126,6 +126,7 @@ func RunConfigDriftCheck(ctx context.Context, store Store, t *condition.Tracker,
 	defer tick.Stop()
 	for {
 		kitMigrateConditions(store, t)
+		ReservedDestinationEnvConditions(store, t)
 		CheckConfigDrift(store, t, log)
 		select {
 		case <-ctx.Done():

@@ -31,8 +31,8 @@ func newSSHCAEnv(t *testing.T) sshCAEnv {
 // run feeds stdin to the helper; it returns the exit code and combined output.
 func (e sshCAEnv) run(t *testing.T, stdin string) (int, string) {
 	t.Helper()
-	cmd := exec.Command("bash", "hardening/image-files/usr/local/lib/cove/install-ssh-ca.sh")
-	cmd.Env = []string{"PATH=" + e.bin + ":/usr/bin:/bin", "COVE_SSH_USER_CA_FILE=" + e.caFile}
+	cmd := exec.Command("bash", "hardening/image-files/usr/local/lib/jam/install-ssh-ca.sh")
+	cmd.Env = []string{"PATH=" + e.bin + ":/usr/bin:/bin", "JAM_SSH_USER_CA_FILE=" + e.caFile}
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	var ee *exec.ExitError

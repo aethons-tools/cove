@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/covemaster"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 // interruptAck is the acknowledge turn's text after an Interrupt; %s is who
@@ -138,9 +138,9 @@ func compactText(instructions string) string {
 // waiting (unless they are only context changes, which bring no message) and
 // names each non-squawk reason as renderWake does, but never asks the agent to
 // continue.
-func interruptPrompt(by string, rs []covemaster.WakeReason) string {
+func interruptPrompt(by string, rs []studioagent.WakeReason) string {
 	lines := []string{fmt.Sprintf(interruptAck, by)}
-	if slices.ContainsFunc(rs, func(r covemaster.WakeReason) bool { return r.Kind != "context-changed" }) {
+	if slices.ContainsFunc(rs, func(r studioagent.WakeReason) bool { return r.Kind != "context-changed" }) {
 		lines = append(lines, interruptPending)
 		for _, r := range rs {
 			if l, ok := wakeLine(r); ok {
@@ -155,7 +155,7 @@ func interruptPrompt(by string, rs []covemaster.WakeReason) string {
 // stream as a synthetic stdout-style line, so the Thinking tab and the admin
 // timeline show who pressed it. ignored is why the press was dropped ("" =
 // carried out). Every press is recorded exactly once.
-func (w *Workload) emitCommand(h covemaster.Handle, turn uint32, command, by, ignored string) {
+func (w *Workload) emitCommand(h studioagent.Handle, turn uint32, command, by, ignored string) {
 	line, _ := json.Marshal(struct {
 		Type    string `json:"type"`
 		Subtype string `json:"subtype"`
@@ -167,7 +167,7 @@ func (w *Workload) emitCommand(h covemaster.Handle, turn uint32, command, by, ig
 }
 
 // ignoreCommand logs and records a press dropped for why.
-func (w *Workload) ignoreCommand(h covemaster.Handle, turn uint32, command, by, why string) {
+func (w *Workload) ignoreCommand(h studioagent.Handle, turn uint32, command, by, why string) {
 	w.log.Info("agentrun: "+command+" ignored", "by", by, "why", why)
 	w.emitCommand(h, turn, command, by, why)
 }
@@ -175,7 +175,7 @@ func (w *Workload) ignoreCommand(h covemaster.Handle, turn uint32, command, by, 
 // dropStaleInterrupt drops an interrupt posted before the episode starting on
 // turn existed (pressed while the last one's stdin was closed): it targets a
 // turn that is gone, never this one's. Run calls it before reporting Running.
-func (w *Workload) dropStaleInterrupt(h covemaster.Handle, turn uint32) {
+func (w *Workload) dropStaleInterrupt(h studioagent.Handle, turn uint32) {
 	if by, ok := w.cmds.takeInterrupt(); ok {
 		w.ignoreCommand(h, turn, "interrupt", by, "before this episode")
 	}

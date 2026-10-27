@@ -4,10 +4,10 @@
 // - protoc             (unknown)
 // source: attach.proto
 
-// The proto package stays harbor.attach.v1 through the Harbor → Jam rename: it
-// is the gRPC wire name (/harbor.attach.v1.Runtime/Attach) that cove-master in
-// already-built cove images dials, so renaming it would break running coves.
-// See docs/usage/jam/renamed-from-harbor.md.
+// The service is jam.attach.v1.Runtime (/jam.attach.v1.Runtime/Attach), the
+// gRPC wire name a studio's agent dials. Studios built before the jam rename
+// speak the pre-rename name and cannot attach; they are retired at serve start
+// (docs/usage/jam/renamed-from-at.md).
 
 package attachpb
 
@@ -24,8 +24,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Runtime_Attach_FullMethodName = "/harbor.attach.v1.Runtime/Attach"
-	Runtime_Tunnel_FullMethodName = "/harbor.attach.v1.Runtime/Tunnel"
+	Runtime_Attach_FullMethodName = "/jam.attach.v1.Runtime/Attach"
+	Runtime_Tunnel_FullMethodName = "/jam.attach.v1.Runtime/Tunnel"
 )
 
 // RuntimeClient is the client API for Runtime service.
@@ -135,7 +135,7 @@ type Runtime_TunnelServer = grpc.BidiStreamingServer[TunnelFrame, TunnelFrame]
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var Runtime_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "harbor.attach.v1.Runtime",
+	ServiceName: "jam.attach.v1.Runtime",
 	HandlerType: (*RuntimeServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{

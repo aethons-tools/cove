@@ -22,60 +22,82 @@ func withExecPath(t *testing.T, fn func() (string, error)) {
 	t.Cleanup(func() { execPath = prev })
 }
 
-func TestAtMintBinaryPrefersSibling(t *testing.T) {
-	dir := t.TempDir()
-	sibling := filepath.Join(dir, "at-mint")
-	if err := os.WriteFile(sibling, []byte("#!/bin/sh\n"), 0o755); err != nil {
+// withSelf points execPath at an executable "jam" in a temp dir and returns
+// its path: what jamBinary should resolve to.
+func withSelf(t *testing.T) string {
+	t.Helper()
+	self := filepath.Join(t.TempDir(), "jam")
+	if err := os.WriteFile(self, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	withExecPath(t, func() (string, error) { return filepath.Join(dir, "at-cove"), nil })
-	if got := atMintBinary(); got != sibling {
-		t.Fatalf("atMintBinary() = %q, want sibling %q", got, sibling)
+	withExecPath(t, func() (string, error) { return self, nil })
+	return self
+}
+
+func TestJamBinaryIsSelf(t *testing.T) {
+	self := withSelf(t)
+	if got := jamBinary(); got != self {
+		t.Fatalf("jamBinary() = %q, want the running jam %q", got, self)
 	}
 }
 
-func TestAtMintBinaryFallsBackWhenSiblingAbsent(t *testing.T) {
-	dir := t.TempDir() // no at-mint written beside the executable
-	withExecPath(t, func() (string, error) { return filepath.Join(dir, "at-cove"), nil })
-	if got := atMintBinary(); got != "at-mint" {
-		t.Fatalf("atMintBinary() = %q, want bare fallback %q", got, "at-mint")
-	}
-}
-
-func TestAtMintBinaryFallsBackOnNonExecutableSibling(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "at-mint"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	withExecPath(t, func() (string, error) { return filepath.Join(dir, "at-cove"), nil })
-	if got := atMintBinary(); got != "at-mint" {
-		t.Fatalf("atMintBinary() = %q, want bare fallback %q", got, "at-mint")
-	}
-}
-
-func TestAtMintBinaryFallsBackOnLookupError(t *testing.T) {
+func TestJamBinaryFallsBackToPATH(t *testing.T) {
 	withExecPath(t, func() (string, error) { return "", errors.New("boom") })
-	if got := atMintBinary(); got != "at-mint" {
-		t.Fatalf("atMintBinary() = %q, want bare fallback %q", got, "at-mint")
+	if got := jamBinary(); got != "jam" {
+		t.Fatalf("jamBinary() = %q, want bare fallback %q", got, "jam")
+	}
+}
+
+// TestJamBinaryAfterReplaceUsesTheInstalledPath: once `jam update` replaces the
+// file under a running jam, Linux reports "<path> (deleted)"; the path itself
+// holds the new jam, so minting keeps working without a restart.
+func TestJamBinaryAfterReplaceUsesTheInstalledPath(t *testing.T) {
+	self := filepath.Join(t.TempDir(), "jam")
+	if err := os.WriteFile(self, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withExecPath(t, func() (string, error) { return self + " (deleted)", nil })
+	if got := jamBinary(); got != self {
+		t.Fatalf("jamBinary() = %q, want the replaced path %q", got, self)
+	}
+}
+
+func TestJamBinaryDeletedAndGoneFallsBackToPATH(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "jam")
+	withExecPath(t, func() (string, error) { return gone + " (deleted)", nil })
+	if got := jamBinary(); got != "jam" {
+		t.Fatalf("jamBinary() = %q, want bare fallback %q", got, "jam")
+	}
+}
+
+func TestJamBinaryNonExecutableFallsBackToPATH(t *testing.T) {
+	self := filepath.Join(t.TempDir(), "jam")
+	if err := os.WriteFile(self, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withExecPath(t, func() (string, error) { return self, nil })
+	if got := jamBinary(); got != "jam" {
+		t.Fatalf("jamBinary() = %q, want bare fallback %q", got, "jam")
 	}
 }
 
 func TestGithubProfilePathKeyIsFlagNotEnv(t *testing.T) {
+	self := withSelf(t)
 	m := usersecret.Minter{GitHub: &usersecret.GitHubMinter{
 		AppID: "123", InstallID: "456", AppKey: usersecret.Source{Value: strptr("/etc/cove/gh.pem")},
 	}}
-	spec, err := Expander(&runner.Fake{}, nil, "acme/widgets")("gh", m, "AT_TASK_GIT_TOKEN")
+	spec, err := Expander(&runner.Fake{}, nil, "acme/widgets")("gh", m, "GIT_TOKEN")
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := strings.Join(spec.Command, " ")
-	if got != "at-mint github --app-id 123 --install-id 456 --repo acme/widgets --app-key-file /etc/cove/gh.pem" {
+	if got != self+" mint github --app-id 123 --install-id 456 --repo acme/widgets --app-key-file /etc/cove/gh.pem" {
 		t.Fatalf("argv = %q", got)
 	}
 	if len(spec.Env) != 0 {
 		t.Fatalf("path key must not set env, got %v", spec.Env)
 	}
-	if spec.Name != "AT_TASK_GIT_TOKEN" {
+	if spec.Name != "GIT_TOKEN" {
 		t.Fatalf("name = %q", spec.Name)
 	}
 }
@@ -85,14 +107,14 @@ func TestGithubProfileCommandKeyGoesToEnv(t *testing.T) {
 	m := usersecret.Minter{GitHub: &usersecret.GitHubMinter{
 		AppID: "1", InstallID: "2", AppKey: usersecret.Source{Command: []string{"cat", "/k"}},
 	}}
-	spec, err := Expander(f, nil, "o/r")("gh", m, "AT_TASK_GIT_TOKEN")
+	spec, err := Expander(f, nil, "o/r")("gh", m, "GIT_TOKEN")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(strings.Join(spec.Command, " "), "PEMCONTENT") {
 		t.Fatal("key content leaked into argv")
 	}
-	if spec.Env["AT_MINT_GITHUB_APP_KEY"] != "PEMCONTENT" {
+	if spec.Env["JAM_MINT_GITHUB_APP_KEY"] != "PEMCONTENT" {
 		t.Fatalf("env = %v", spec.Env)
 	}
 	if strings.Contains(strings.Join(spec.Command, " "), "--app-key-file") {
@@ -101,6 +123,7 @@ func TestGithubProfileCommandKeyGoesToEnv(t *testing.T) {
 }
 
 func TestAnthropicProfileFlagsAndSecretEnv(t *testing.T) {
+	self := withSelf(t)
 	m := usersecret.Minter{Anthropic: &usersecret.AnthropicMinter{
 		OIDC: usersecret.OIDC{Auth0: &usersecret.Auth0{
 			Tenant: "t.us.auth0.com", ClientID: "cid", Audience: "aud",
@@ -113,7 +136,7 @@ func TestAnthropicProfileFlagsAndSecretEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Join(spec.Command, " ")
-	want := "at-mint anthropic --auth0-tenant t.us.auth0.com --auth0-client-id cid --auth0-audience aud " +
+	want := self + " mint anthropic --auth0-tenant t.us.auth0.com --auth0-client-id cid --auth0-audience aud " +
 		"--anthropic-org o --anthropic-rule fdrl_1 --anthropic-service-account svac_1 --anthropic-workspace wrkspc_1"
 	if got != want {
 		t.Fatalf("argv = %q", got)
@@ -121,7 +144,7 @@ func TestAnthropicProfileFlagsAndSecretEnv(t *testing.T) {
 	if strings.Contains(got, "shh") {
 		t.Fatal("client secret leaked into argv")
 	}
-	if spec.Env["AT_MINT_AUTH0_CLIENT_SECRET"] != "shh" {
+	if spec.Env["JAM_MINT_AUTH0_CLIENT_SECRET"] != "shh" {
 		t.Fatalf("env = %v", spec.Env)
 	}
 }
@@ -147,7 +170,7 @@ func TestGlobalDelegationResolvesSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Env["AT_MINT_AUTH0_CLIENT_SECRET"] != "fromglobal" {
+	if spec.Env["JAM_MINT_AUTH0_CLIENT_SECRET"] != "fromglobal" {
 		t.Fatalf("global delegation failed: %v", spec.Env)
 	}
 }

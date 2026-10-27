@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/covemaster"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 func TestCmdBoxTakesOnceAndCollapses(t *testing.T) {
@@ -52,14 +52,14 @@ func TestInterruptPrompt(t *testing.T) {
 	if got := interruptPrompt("Ann", nil); got != ack {
 		t.Fatalf("got %q\nwant %q", got, ack)
 	}
-	got := interruptPrompt("Ann", []covemaster.WakeReason{{Kind: "squawk"}, {Kind: "alarm", Alarm: "a", Note: "n"}})
+	got := interruptPrompt("Ann", []studioagent.WakeReason{{Kind: "squawk"}, {Kind: "alarm", Alarm: "a", Note: "n"}})
 	want := ack + "\nNew messages may be waiting. Read them, but don't act on any request until the person who interrupted you answers." +
 		"\nAlarm \"a\" fired: n"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
 	// A context change alone is no message: no pending line.
-	if got := interruptPrompt("Ann", []covemaster.WakeReason{{Kind: "context-changed"}}); got != ack {
+	if got := interruptPrompt("Ann", []studioagent.WakeReason{{Kind: "context-changed"}}); got != ack {
 		t.Fatalf("context-changed only: got %q\nwant %q", got, ack)
 	}
 }
@@ -81,7 +81,7 @@ func interruptRun(t *testing.T, h *recordHandle) (*Workload, *streamProc) {
 }
 
 func interrupt(w *Workload, by string) {
-	w.Control(covemaster.Control{Kind: covemaster.Interrupt, By: by})
+	w.Control(studioagent.Control{Kind: studioagent.Interrupt, By: by})
 }
 
 func TestInterruptMidTurnAcks(t *testing.T) {
@@ -100,8 +100,8 @@ func TestInterruptMidTurnAcks(t *testing.T) {
 
 func TestInterruptFoldsCoalescedWakes(t *testing.T) {
 	w, p := interruptRun(t, &recordHandle{})
-	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
-	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "alarm", Alarm: "a", Note: "n"}}})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "alarm", Alarm: "a", Note: "n"}}})
 	interrupt(w, "Ann")
 	p.in.nextCtrl(t)
 	p.emit(lnToolRes, lnResult)
@@ -141,7 +141,7 @@ func TestInterruptBetweenTurnsDropped(t *testing.T) {
 	h := &recordHandle{}
 	w, p := interruptRun(t, h)
 	p.emit(lnTasks1, lnResult) // the turn ended; a background task keeps stdin open
-	if !eventually(func() bool { return h.count(covemaster.Holding) == 1 }) {
+	if !eventually(func() bool { return h.count(studioagent.Holding) == 1 }) {
 		t.Fatal("no Holding")
 	}
 	interrupt(w, "Ann")
@@ -185,7 +185,7 @@ func TestInterruptWhileWaitingDropped(t *testing.T) {
 	p.emit(lnInit, lnResult)
 	p.in.waitClosed(t)
 	p.exit <- nil
-	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
+	if !eventually(func() bool { return h.count(studioagent.Waiting) == 1 }) {
 		t.Fatal("not waiting")
 	}
 	interrupt(w, "Ann")
@@ -198,7 +198,7 @@ func TestInterruptWhileWaitingDropped(t *testing.T) {
 		t.Fatalf("no ignored record in %+v", h.eventList())
 	}
 	// The box is drained: a later Wake starts a normal episode, not an interrupted one.
-	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
 	p2 := s.next(t)
 	if got := p2.in.next(t); got != residentResumePrompt {
 		t.Fatalf("resume prompt = %q", got)
@@ -223,7 +223,7 @@ func TestInterruptBeforeEpisodeDropped(t *testing.T) {
 	p.emit(lnInit, lnTasks1, lnResult)
 	p.in.waitClosed(t) // the cap closed stdin; the agent stops its tasks
 	interrupt(w, "Ann")
-	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
 	p.exit <- nil
 	p2 := s.next(t)
 	if got := p2.in.next(t); got != residentResumePrompt {
@@ -264,9 +264,9 @@ type pressOnRunning struct {
 	w *Workload
 }
 
-func (h pressOnRunning) Report(a covemaster.Activity) {
+func (h pressOnRunning) Report(a studioagent.Activity) {
 	h.recordHandle.Report(a)
-	if a == covemaster.Running {
+	if a == studioagent.Running {
 		interrupt(h.w, "Ann")
 	}
 }
@@ -300,11 +300,11 @@ func TestCompactText(t *testing.T) {
 }
 
 func compact(w *Workload, by, instructions string) {
-	w.Control(covemaster.Control{Kind: covemaster.Compact, By: by, Instructions: instructions})
+	w.Control(studioagent.Control{Kind: studioagent.Compact, By: by, Instructions: instructions})
 }
 
 func squawk(w *Workload) {
-	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
 }
 
 func TestCompactMidTurnWaitsForResult(t *testing.T) {
@@ -352,22 +352,22 @@ func TestCompactHoldingWritesNow(t *testing.T) {
 	h := &recordHandle{}
 	w, p := interruptRun(t, h)
 	p.emit(lnTasks1, lnResult)
-	if !eventually(func() bool { return h.count(covemaster.Holding) == 1 }) {
+	if !eventually(func() bool { return h.count(studioagent.Holding) == 1 }) {
 		t.Fatal("no Holding")
 	}
 	compact(w, "Ann", "keep X")
 	if got := p.in.next(t); got != "/compact keep X" {
 		t.Fatalf("message = %q", got)
 	}
-	running := h.count(covemaster.Running)
+	running := h.count(studioagent.Running)
 	p.emit(lnInit)
 	time.Sleep(30 * time.Millisecond) // the loop sees the compaction's turn in flight
 	p.emit(lnResult)                  // compacted; the task is still outstanding
 	p.in.staysOpen(t, 50*time.Millisecond)
-	if n := h.count(covemaster.Holding); n != 1 {
+	if n := h.count(studioagent.Holding); n != 1 {
 		t.Fatalf("Holding reported %d times; the session never left the hold", n)
 	}
-	if n := h.count(covemaster.Running); n != running {
+	if n := h.count(studioagent.Running); n != running {
 		t.Fatalf("Running reported during the compaction (%d, was %d)", n, running)
 	}
 }
@@ -441,7 +441,7 @@ func TestWakeFastResultNotWedged(t *testing.T) {
 	p.in.next(t)
 	answerOn(p, residentResumePrompt)
 	p.emit(lnInit, lnTasks1, lnResult)
-	if !eventually(func() bool { return h.count(covemaster.Holding) == 1 }) {
+	if !eventually(func() bool { return h.count(studioagent.Holding) == 1 }) {
 		t.Fatal("no Holding")
 	}
 	squawk(w)
@@ -512,7 +512,7 @@ func idleRun(t *testing.T, h *recordHandle) (*Workload, *streamSpawner, context.
 	p.emit(lnInit, lnResult)
 	p.in.waitClosed(t)
 	p.exit <- nil
-	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
+	if !eventually(func() bool { return h.count(studioagent.Waiting) == 1 }) {
 		t.Fatal("not waiting")
 	}
 	return w, s, cancel, done
@@ -533,10 +533,10 @@ func TestCompactIdleSpawnsMaintenance(t *testing.T) {
 	m.in.waitClosed(t)
 	m.exit <- nil
 	time.Sleep(50 * time.Millisecond)
-	if n := h.count(covemaster.Running); n != 1 {
+	if n := h.count(studioagent.Running); n != 1 {
 		t.Fatalf("Running reported %d times; the maintenance episode must not report it", n)
 	}
-	if n := h.count(covemaster.Waiting); n != 1 {
+	if n := h.count(studioagent.Waiting); n != 1 {
 		t.Fatalf("Waiting reported %d times; the session never left waiting", n)
 	}
 	want := `{"type":"cove","subtype":"command","command":"compact","by":"Ann"}`
@@ -566,8 +566,8 @@ func TestWakeDuringIdleCompactWaits(t *testing.T) {
 	if got := p.in.next(t); got != residentResumePrompt {
 		t.Fatalf("resume prompt = %q", got)
 	}
-	if !eventually(func() bool { return h.count(covemaster.Running) == 2 }) {
-		t.Fatalf("Running not reported for the resumed episode (running=%d)", h.count(covemaster.Running))
+	if !eventually(func() bool { return h.count(studioagent.Running) == 2 }) {
+		t.Fatalf("Running not reported for the resumed episode (running=%d)", h.count(studioagent.Running))
 	}
 }
 
@@ -614,7 +614,7 @@ func TestClearDuringIdleCompactLeftForWait(t *testing.T) {
 	compact(w, "Ann", "keep X")
 	m := s.next(t)
 	m.in.next(t)
-	w.Control(covemaster.Control{Kind: covemaster.Clear, By: "Bob"})
+	w.Control(studioagent.Control{Kind: studioagent.Clear, By: "Bob"})
 	time.Sleep(30 * time.Millisecond)
 	w.cmds.mu.Lock()
 	pending := w.cmds.clear
@@ -636,7 +636,7 @@ func TestClearedNotice(t *testing.T) {
 }
 
 func pressClear(w *Workload, by string) {
-	w.Control(covemaster.Control{Kind: covemaster.Clear, By: by})
+	w.Control(studioagent.Control{Kind: studioagent.Clear, By: by})
 }
 
 func fileExists(path string) bool {
@@ -693,7 +693,7 @@ func TestClearNextEpisodeFresh(t *testing.T) {
 		t.Fatalf("a clear started an episode: %v", p.args)
 	case <-time.After(50 * time.Millisecond):
 	}
-	if n := h.count(covemaster.Running); n != 1 {
+	if n := h.count(studioagent.Running); n != 1 {
 		t.Fatalf("Running reported %d times; a clear starts no turn", n)
 	}
 	squawk(w)
@@ -718,7 +718,7 @@ func TestClearWhileLiveDropped(t *testing.T) {
 	p.emit(lnResult)
 	p.in.waitClosed(t)
 	p.exit <- nil
-	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
+	if !eventually(func() bool { return h.count(studioagent.Waiting) == 1 }) {
 		t.Fatal("not waiting")
 	}
 	if fileExists(w.cfg.ClearMarker) {
@@ -735,7 +735,7 @@ func TestClearWhileLiveDropped(t *testing.T) {
 	}
 }
 
-// Review focus 4: a Clear pending when cove-master restarts wins over a
+// Review focus 4: a Clear pending when jam-studio-agent restarts wins over a
 // standing session's conversation marker.
 func TestClearSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
@@ -789,7 +789,7 @@ func TestClearMarkerKeptIfNoReply(t *testing.T) {
 	p.in.next(t)
 	p.emit(lnInit)
 	p.exit <- errors.New("exit status 1")
-	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
+	if !eventually(func() bool { return h.count(studioagent.Waiting) == 1 }) {
 		t.Fatal("not waiting")
 	}
 	if !fileExists(w.cfg.ClearMarker) {

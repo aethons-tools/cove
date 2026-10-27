@@ -22,10 +22,10 @@ import (
 // {token} (the identity token). Jam resolves each destination's {url} to
 // {base}<route> before handing a Connector out, so the token never sits in a
 // template — the client substitutes it in memory (Expand) or references
-// $AT_JAM_IDENTITY_TOKEN in a rendered shell snippet (Render).
+// $JAM_IDENTITY_TOKEN in a rendered shell snippet (Render).
 //
 // For a cove, ModelSpec is its role's resolved model-spec (names only — never
-// a secret value): cove-master re-reads it with every connector refresh, so an
+// a secret value): jam-studio-agent re-reads it with every connector refresh, so an
 // edit takes effect at the cove's next episode. nil = none (a Jam predating
 // model-specs, or the default spec not seeded): the harness's built-in defaults.
 type Connector struct {
@@ -54,11 +54,11 @@ func Legacy(subscription bool) Connector {
 }
 
 // Expand returns the env a client sets in memory: each template resolved, plus
-// the identity token under tokenVar and its deprecated name.
+// the identity token under tokenVar.
 func (c Connector) Expand(baseURL, token string) map[string]string {
 	baseURL = strings.TrimRight(baseURL, "/")
 	r := strings.NewReplacer("{base}", baseURL, "{host}", hostOf(baseURL), "{token}", token)
-	out := map[string]string{tokenVar: token, legacyTokenVar: token}
+	out := map[string]string{tokenVar: token}
 	for k, v := range c.Env {
 		out[k] = r.Replace(v)
 	}
@@ -66,13 +66,12 @@ func (c Connector) Expand(baseURL, token string) map[string]string {
 }
 
 // Render returns a sourceable shell snippet: the token exported once, every
-// other value double-quoted with {token} as a ${AT_JAM_IDENTITY_TOKEN} reference,
+// other value double-quoted with {token} as a ${JAM_IDENTITY_TOKEN} reference,
 // then the git config when the connector routes git.
 func (c Connector) Render(baseURL, token string) string {
 	baseURL = strings.TrimRight(baseURL, "/")
 	var b strings.Builder
 	fmt.Fprintf(&b, "export %s=%s\n", tokenVar, token)
-	fmt.Fprintf(&b, "export %s=\"$%s\"\n", legacyTokenVar, tokenVar)
 	esc := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`")
 	lit := strings.NewReplacer("{base}", baseURL, "{host}", hostOf(baseURL))
 	for _, k := range slices.Sorted(maps.Keys(c.Env)) {
@@ -89,7 +88,7 @@ func (c Connector) Render(baseURL, token string) string {
 
 // GitConfig returns the token-free `git config --global` commands routing
 // github.com through the connector's git route, or "" when it routes no git.
-// The keys come from the builders execGit (cove-master's per-turn refresh) sets
+// The keys come from the builders execGit (jam-studio-agent's per-turn refresh) sets
 // via argv, so the two cannot drift; here the subsection is shell-quoted.
 func (c Connector) GitConfig(baseURL string) string {
 	if c.GitRoute == "" {
@@ -190,7 +189,7 @@ func FetchContext(ctx context.Context, hc *http.Client, baseURL, token string) (
 // delivered model-spec, never a token — a Connector holds none): sha256 of its
 // JSON, whose map keys encoding/json sorts, so it is order-independent; nil and
 // empty Env coincide (omitempty). A model-spec edit therefore shows the cove's
-// connector as stale until its next episode applies it. cove-master reports it after applying a connector and Jam compares
+// connector as stale until its next episode applies it. jam-studio-agent reports it after applying a connector and Jam compares
 // it with the role's current one, so both sides must use this function.
 func Fingerprint(c Connector) string {
 	b, _ := json.Marshal(c) // a validated spec's settings always marshal
@@ -199,7 +198,7 @@ func Fingerprint(c Connector) string {
 }
 
 // GitHelper is the git credential-helper value GitConfig installs, unquoted —
-// for callers that set it via argv (cove-master's per-turn git refresh).
+// for callers that set it via argv (jam-studio-agent's per-turn git refresh).
 func GitHelper() string { return gitHelperValue }
 
 func hostOf(baseURL string) string {

@@ -9,32 +9,28 @@
 //   - GitConfig: the `git config --global` commands that rewrite github.com → the
 //     Jam git connector and install a credential helper reading the env-only token.
 //
-// Render composes both into a single sourceable shell snippet (what `at-jam
+// Render composes both into a single sourceable shell snippet (what `jam
 // enroll` prints for a Guest).
 package snippet
 
 const (
 	// tokenVar is the env var holding the identity token; the git credential helper
 	// reads it at run time so the token never lands in gitconfig on disk.
-	tokenVar = "AT_JAM_IDENTITY_TOKEN"
-	// legacyTokenVar is tokenVar's pre-rename name. Writers still set it (older
-	// cove images read it) for one release — see
-	// docs/usage/jam/renamed-from-harbor.md.
-	legacyTokenVar = "AT_HARBOR_IDENTITY_TOKEN"
-	anthropicPath  = "/anthropic"
-	gitPath        = "/git/"
+	tokenVar      = "JAM_IDENTITY_TOKEN"
+	anthropicPath = "/anthropic"
+	gitPath       = "/git/"
 	// gitHelperValue is a `!`-prefixed shell helper git runs with the operation
 	// as $1; it emits the identity as username + the env-only token as password,
-	// only for `get`. It reads the new name, falling back to the deprecated one.
-	gitHelperValue = `!f() { test "$1" = get && echo username=x-access-token && echo password=${` + tokenVar + `:-$` + legacyTokenVar + `}; }; f`
+	// only for `get`.
+	gitHelperValue = `!f() { test "$1" = get && echo username=x-access-token && echo password=${` + tokenVar + `}; }; f`
 	// gitHelper is gitHelperValue single-quoted for a shell snippet, so nothing
 	// expands until git invokes it in the cove.
 	gitHelper = `'` + gitHelperValue + `'`
 )
 
-// IdentityTokenVars are the env vars a studio holds its identity token in,
-// the current name first — for showing a connector's env without the token.
-func IdentityTokenVars() []string { return []string{tokenVar, legacyTokenVar} }
+// IdentityTokenVars are the env vars a studio holds its identity token in —
+// for showing a connector's env without the token.
+func IdentityTokenVars() []string { return []string{tokenVar} }
 
 // Env returns the environment variables a client sets to route Anthropic through
 // Jam at baseURL with the given identity token — the Legacy contract, expanded.
@@ -66,9 +62,8 @@ func GitConfig(baseURL string) string {
 
 // Render renders the full env + gitconfig a client sources to route Anthropic and
 // git through Jam at baseURL (the Legacy contract). The identity token is written
-// once (as AT_JAM_IDENTITY_TOKEN) and everything else references it — the
-// deprecated AT_HARBOR_IDENTITY_TOKEN is exported from it, not from the raw
-// value; Jam swaps it for the real credentials. The token stays env-only — see
+// once (as JAM_IDENTITY_TOKEN) and everything else references it; Jam
+// swaps it for the real credentials. The token stays env-only — see
 // gitHelper — so `git clone` through Jam works headlessly without the token ever
 // landing in gitconfig.
 func Render(baseURL, token string) string {

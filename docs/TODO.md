@@ -15,7 +15,7 @@ updated: 2026-10-25
     the startup experience.
 * Studio kits: resolve a tag-form `base.image` to its `@sha256` digest before `BuildDigest`,
   so a moved tag rebuilds (spec 2026-10-02-kit-build-drift).
-* Studio kits: garbage-collect superseded `cove-kit:*` images on the substrate
+* Studio kits: garbage-collect superseded `jam-kit:*` images on the substrate
   (every assembly-fingerprint change leaves the old tags).
 * Session context: show the restated-fact lint warnings to the author when saving a role,
   project or Jam layer (API/CLI/UI). Today they only reach Jam's log at raise. Needs the
@@ -38,7 +38,7 @@ updated: 2026-10-25
   per service, and its cursor/marker state files are keyed by service: re-key them by
   connection id (spec slice 1 §7) when relays run per connection.
 * Studio SSH: Jam-signed **host** certificates. Sign each studio's sshd host key with the
-  SSH CA at raise (`HostCertificate`), and have `at-jam ssh-config`/`ssh` trust it via a
+  SSH CA at raise (`HostCertificate`), and have `jam ssh-config`/`ssh` trust it via a
   `@cert-authority` known_hosts entry, so no studio's key is ever prompted for or pinned:
   a rebuilt or upgraded studio stops failing with "REMOTE HOST IDENTIFICATION HAS CHANGED".
   Today `StrictHostKeyChecking accept-new` only removes the first-connect prompt

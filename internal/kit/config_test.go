@@ -7,9 +7,6 @@ func TestIsReservedSecretName(t *testing.T) {
 		name     string
 		wantTrue bool
 	}{
-		{"AT_TASK_GIT_TOKEN", true},
-		{"AT_DISPATCH_TRACKER_TOKEN", true},
-		{"AT_DISPATCH_WEBHOOK_SECRET", true},
 		{"GOOGLE_APPLICATION_CREDENTIALS_JSON", true},
 		{"FOO", false},
 		{"MYSECRET", false},

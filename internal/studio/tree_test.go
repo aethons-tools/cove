@@ -17,7 +17,7 @@ func TestParseTreeResolvesNoteFilesAndSetsBuildContext(t *testing.T) {
 	tr, blobs := kittreetest.Tree(t,
 		"kit.yml", "kind: studio\nnotes:\n  - name: release.md\n    read-when: releasing\n    file: ./docs/release.md\n",
 		"docs/release.md", "# Release\n",
-		"Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n",
+		"Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n",
 	)
 	sk, err := ParseTree(tr, kittree.MapBlobs(blobs))
 	if err != nil {

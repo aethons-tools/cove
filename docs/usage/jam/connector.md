@@ -16,7 +16,7 @@ an identity's **connector** from the destinations its grants allow.
 ## Declaring it on a destination
 
 ```
-at-jam destination add --name github-api --route /api/v3/ --upstream https://api.github.com \
+jam destination add --name github-api --route /api/v3/ --upstream https://api.github.com \
   --identity-in bearer --cred-name gh-pat --apply bearer \
   --env GH_HOST={host} --env GH_ENTERPRISE_TOKEN={token}
 ```
@@ -24,7 +24,7 @@ at-jam destination add --name github-api --route /api/v3/ --upstream https://api
 - `--env KEY=TEMPLATE` (repeatable; `env:` in `destination import` YAML).
   Placeholders: `{url}` = broker base + this route (no trailing `/`), `{base}` =
   `https://<jam host>`, `{host}` = the Jam host, `{token}` = the studio's
-  identity token. Keys must be env-var names; `AT_JAM_*`/`AT_HARBOR_*` are
+  identity token. Keys must be env-var names; `JAM_*` is
   reserved. Validated at add time.
 - `--git` routes the studio's git for the destination's **upstream host**
   through its route (insteadOf + a credential helper that reads the token from
@@ -33,7 +33,7 @@ at-jam destination add --name github-api --route /api/v3/ --upstream https://api
   `https://gitlab.example.com/`. Only the scheme and host count (the broker
   forwards to nothing else).
 - **The token never sits in a template, the store, or a log.** Clients
-  substitute it in memory, or render it as `$AT_JAM_IDENTITY_TOKEN` in a
+  substitute it in memory, or render it as `$JAM_IDENTITY_TOKEN` in a
   sourced snippet.
 
 **Legacy defaults** (a destination with no `env`): the `/anthropic/` route sets
@@ -53,12 +53,12 @@ fail closed, never a silent pick.
 
 ## Delivery
 
-- **Jam-raised studios** get their connector at raise, and cove-master re-fetches
+- **Jam-raised studios** get their connector at raise, and jam-studio-agent re-fetches
   it before every agent **episode** (each spawn of the agent process), so edits
   reach a running studio at its next episode — not within one: a reply delivered
   into a live agent (one holding its session open, e.g. for a background task)
   runs under the env that episode started with
-  ([coves.md](coves.md#cove-master-the-in-cove-client)).
+  ([coves.md](coves.md#jam-studio-agent-the-in-cove-client)).
 - **Host-side clients** call
   `GET /connector` on the broker listener with the identity as a bearer (or
   `token`) and receive `{"env": {…}, "git_route": "/git/"}` — templates still
@@ -70,11 +70,11 @@ fail closed, never a silent pick.
   carries `model_spec`, the identity's roles' resolved
   [model-spec](model-specs.md#what-a-cove-applies) (names only; host clients ignore it).
 
-`at-jam studio inspect <studio> --section env` shows the connector a studio was last served (redacted) — see [inspect.md](inspect.md).
+`jam studio inspect <studio> --section env` shows the connector a studio was last served (redacted) — see [inspect.md](inspect.md).
 
 ## Notes for sessions
 
-A destination's optional `note` (≤ 300 bytes; `at-jam destination add --note`, or
+A destination's optional `note` (≤ 300 bytes; `jam destination add --note`, or
 the UI's edit form) is shown to every session granted it, in the Studio layer of
 its [session context](session-context.md), next to the env keys it sets. Write how
 to use the route — e.g. "`gh` goes via Jam: pass `-R $GH_HOST/<owner>/<repo>`".
@@ -89,12 +89,12 @@ cover it (the longer `/api/v3/` route wins for REST); the env on one of them
 points `gh` at Jam:
 
 ```
-at-jam destination add --name github-api --route /api/v3/ --upstream https://api.github.com \
+jam destination add --name github-api --route /api/v3/ --upstream https://api.github.com \
   --identity-in bearer --cred-name gh-pat --apply bearer \
   --env GH_HOST={host} --env GH_ENTERPRISE_TOKEN={token}
-at-jam destination add --name github-graphql --route /api/ --upstream https://api.github.com \
+jam destination add --name github-graphql --route /api/ --upstream https://api.github.com \
   --identity-in bearer --cred-name gh-pat --apply bearer
-at-jam role add --project acme --name dev \
+jam role add --project acme --name dev \
   --destinations anthropic,git=gh-pat-acme,github-api=gh-pat-acme,github-graphql=gh-pat-acme
 ```
 

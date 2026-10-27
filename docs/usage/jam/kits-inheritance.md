@@ -31,7 +31,7 @@ prompt: "You work on my-app …"
   don't affect the child.
 - **The child's own stage:** a `Dockerfile` next to the child's `kit.yml`
   makes its [directory](kits-directory.md#the-directory) the stage's build
-  context; its `FROM ${COVE_BASE_IMAGE}` now resolves to the parent's stage.
+  context; its `FROM ${JAM_STUDIO_BASE_IMAGE}` now resolves to the parent's stage.
 - **No context:** the child reuses its parent's image as it is and only adds
   definition.
 - `kit` and `image` are mutually exclusive.
@@ -95,7 +95,7 @@ launcher builds the chain from the root down:
 3. The harness and the sealed hardening layer are applied **once**, on the last
    stage.
 
-A stage is cached as `cove-kit-base:<32 hex>`, keyed on the parent stage, the
+A stage is cached as `jam-kit-base:<32 hex>`, keyed on the parent stage, the
 kit's own `base` and its build context's tree hash. So siblings of one parent share its stage, and a pinned
 parent's stage survives the parent's later pushes. A following and a pinned
 child with identical contexts still build separate stages, because their

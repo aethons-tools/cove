@@ -87,7 +87,7 @@ func TestValidateModelSpecRefusals(t *testing.T) {
 		"protected path":     {func(m *ModelSpec) { m.Claude.ProviderEnv["PATH"] = "/tmp" }, "PATH"},
 		"secret env":         {func(m *ModelSpec) { m.Claude.ProviderEnv["ANTHROPIC_API_KEY"] = "x" }, "ANTHROPIC_API_KEY"},
 		"aws secret env":     {func(m *ModelSpec) { m.Claude.ProviderEnv["AWS_SECRET_ACCESS_KEY"] = "x" }, "AWS_SECRET_ACCESS_KEY"},
-		"reserved env":       {func(m *ModelSpec) { m.Claude.ProviderEnv["AT_JAM_X"] = "1" }, "reserved"},
+		"reserved env":       {func(m *ModelSpec) { m.Claude.ProviderEnv["JAM_X"] = "1" }, "reserved"},
 		"bad env key":        {func(m *ModelSpec) { m.Claude.ProviderEnv["not-a-var"] = "1" }, "not-a-var"},
 		"settings env":       {func(m *ModelSpec) { m.Claude.Settings["env"] = map[string]any{"A": "b"} }, `"env"`},
 		"settings perms":     {func(m *ModelSpec) { m.Claude.Settings["permissions"] = map[string]any{} }, `"permissions"`},

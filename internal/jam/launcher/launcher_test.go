@@ -21,7 +21,7 @@ import (
 )
 
 // testKitRef is the prepared studio kit the raise-path tests run from; its image
-// tag is l.imageTag(ref) (cove-kit:<Digest>-<asm>).
+// tag is l.imageTag(ref) (jam-kit:<Digest>-<asm>).
 var testKitRef = jam.KitRef{ID: "web", Version: 1, Digest: studio.BuildDigest(studio.StudioKit{Kind: studio.Kind}, harnessinstall.Default())}
 
 // readyInv is an inventory with testKitRef already prepared.
@@ -131,7 +131,7 @@ func (f *fakeOps) ResolveKitBaseTarOn(ctx io.Reader, parentRef, stageTag string)
 	b, _ := io.ReadAll(ctx)
 	f.stages = append(f.stages, stageCall{parent: parentRef, stage: stageTag, tar: b})
 	if f.stageErrAt == len(f.stages) {
-		return "", errors.New("base does not descend from any blessed cove-base-image")
+		return "", errors.New("base does not descend from any blessed jam-studio-base")
 	}
 	if f.hasBase == nil {
 		f.hasBase = map[string]bool{}
@@ -201,6 +201,7 @@ func (f *fakeOps) RemoveVolumes(names ...string) error {
 	f.volsRemoved = append(f.volsRemoved, names...)
 	return f.volsErr
 }
+
 func (f *fakeOps) Pause(name string) error                           { f.paused = name; return nil }
 func (f *fakeOps) Unpause(name string) error                         { f.unpaused = name; return nil }
 func (f *fakeOps) GetStatus(container string) (backend.State, error) { return f.status, f.statusErr }
@@ -244,14 +245,14 @@ func TestRaiseRunsDialsLaunches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ops.ran || ops.runName != "atcove-cove-w1" || ops.runImage != l.imageTag(testKitRef) {
+	if !ops.ran || ops.runName != "jam-studio-w1" || ops.runImage != l.imageTag(testKitRef) {
 		t.Fatalf("RunEphemeral not called correctly: %+v", ops)
 	}
 	if len(ops.runAddHost) != 1 || ops.runAddHost[0] != "jam.example.com" {
 		t.Fatalf("addHosts = %v, want [jam.example.com]", ops.runAddHost)
 	}
-	if loc != "atcove-cove-w1" {
-		t.Fatalf("location = %q, want atcove-cove-w1", loc)
+	if loc != "jam-studio-w1" {
+		t.Fatalf("location = %q, want jam-studio-w1", loc)
 	}
 }
 
@@ -295,7 +296,7 @@ func TestRaiseRequiresKit(t *testing.T) {
 }
 
 // A studio ref with an empty build-digest is rejected (it would yield the invalid
-// image tag "cove-kit:") and creates no container.
+// image tag "jam-kit:") and creates no container.
 func TestRaiseRejectsEmptyDigest(t *testing.T) {
 	ops := &fakeOps{}
 	l := New(Config{
@@ -313,8 +314,8 @@ func TestRaiseRejectsEmptyDigest(t *testing.T) {
 	}
 }
 
-// A kit-referenced raise whose kit is prepared runs the cove-kit:<build-digest>-<asm>
-// image and launches cove-master as usual.
+// A kit-referenced raise whose kit is prepared runs the jam-kit:<build-digest>-<asm>
+// image and launches jam-studio-agent as usual.
 func TestRaiseFromPreparedKit(t *testing.T) {
 	ops := &fakeOps{}
 	inv := &fakeInv{}
@@ -338,8 +339,8 @@ func TestRaiseFromPreparedKit(t *testing.T) {
 	if ops.runDigest != "" {
 		t.Fatalf("kit raise pinned digest %q; want none (the tag already pins the build)", ops.runDigest)
 	}
-	if loc != "atcove-cove-w1" {
-		t.Fatalf("location = %q, want atcove-cove-w1", loc)
+	if loc != "jam-studio-w1" {
+		t.Fatalf("location = %q, want jam-studio-w1", loc)
 	}
 }
 
@@ -355,17 +356,17 @@ func TestRaiseRemovesContainerOnLaunchFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error on launch failure")
 	}
-	if ops.removed != "atcove-cove-w1" {
+	if ops.removed != "jam-studio-w1" {
 		t.Fatalf("container not cleaned up on failure: removed=%q", ops.removed)
 	}
 }
 
 func TestTeardownRemoves(t *testing.T) {
 	ops := &fakeOps{}
-	if err := newLauncher(ops).Teardown(context.Background(), jam.Instance{Location: "atcove-cove-w1"}); err != nil {
+	if err := newLauncher(ops).Teardown(context.Background(), jam.Instance{Location: "jam-studio-w1"}); err != nil {
 		t.Fatal(err)
 	}
-	if ops.removed != "atcove-cove-w1" {
+	if ops.removed != "jam-studio-w1" {
 		t.Fatalf("removed = %q", ops.removed)
 	}
 }
@@ -381,8 +382,8 @@ func TestRaiseMountsStateOnlyForStanding(t *testing.T) {
 		"ephemeral":             nil,
 		jam.SessionKindPersonal: nil,
 		jam.SessionKindStanding: {
-			{Volume: "atcove-cove-s1-agent-data", Target: "/agent-data"},
-			{Volume: "atcove-cove-s1-workspace", Target: "/work/here"},
+			{Volume: "jam-studio-s1-agent-data", Target: "/agent-data"},
+			{Volume: "jam-studio-s1-workspace", Target: "/work/here"},
 		},
 	} {
 		ops := &fakeOps{}
@@ -422,7 +423,7 @@ func TestRaiseDockerStandingKeepsCacheOutOfState(t *testing.T) {
 		t.Fatal(err)
 	}
 	lbl := " " + StateLabel + "=s1 " + JamLabel + "=jam-a"
-	want := []string{"atcove-cove-s1-agent-data" + lbl, "atcove-cove-s1-workspace" + lbl}
+	want := []string{"jam-studio-s1-agent-data" + lbl, "jam-studio-s1-workspace" + lbl}
 	if !slices.Equal(ops.created, want) {
 		t.Fatalf("created = %v, want %v", ops.created, want)
 	}
@@ -453,7 +454,7 @@ func TestRaiseFailureKeepsStateVolumes(t *testing.T) {
 	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "s1", Kit: testKitRef, SessionKind: jam.SessionKindStanding}, jam.LaunchCreds{}); err == nil {
 		t.Fatal("want a launch failure")
 	}
-	if ops.removed != "atcove-cove-s1" || len(ops.volsRemoved) != 0 {
+	if ops.removed != "jam-studio-s1" || len(ops.volsRemoved) != 0 {
 		t.Fatalf("removed=%q volsRemoved=%v; want the container only", ops.removed, ops.volsRemoved)
 	}
 }
@@ -461,7 +462,7 @@ func TestRaiseFailureKeepsStateVolumes(t *testing.T) {
 // TestTeardownKeepsVolumes: Teardown removes the container only.
 func TestTeardownKeepsVolumes(t *testing.T) {
 	ops := &fakeOps{}
-	if err := newLauncher(ops).Teardown(context.Background(), jam.Instance{ActorID: "s1", Location: "atcove-cove-s1"}); err != nil {
+	if err := newLauncher(ops).Teardown(context.Background(), jam.Instance{ActorID: "s1", Location: "jam-studio-s1"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(ops.volsRemoved) != 0 {
@@ -478,16 +479,16 @@ func TestTeardownRemovesDockerCache(t *testing.T) {
 		Ops: ops, Runner: &runner.Fake{}, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
 		Inventory: readyInv(), Docker: true, sleep: func(time.Duration) {},
 	})
-	if err := l.Teardown(context.Background(), jam.Instance{ActorID: "s1", Location: "atcove-cove-s1"}); err != nil {
+	if err := l.Teardown(context.Background(), jam.Instance{ActorID: "s1", Location: "jam-studio-s1"}); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(ops.volsRemoved, []string{"atcove-cove-s1-docker"}) {
+	if !slices.Equal(ops.volsRemoved, []string{"jam-studio-s1-docker"}) {
 		t.Fatalf("volsRemoved = %v, want only the -docker cache", ops.volsRemoved)
 	}
 	// A failed cache removal never fails the teardown.
 	ops = &fakeOps{volsErr: errors.New("in use")}
 	l.cfg.Ops = ops
-	if err := l.Teardown(context.Background(), jam.Instance{ActorID: "s1", Location: "atcove-cove-s1"}); err != nil {
+	if err := l.Teardown(context.Background(), jam.Instance{ActorID: "s1", Location: "jam-studio-s1"}); err != nil {
 		t.Fatalf("teardown = %v; the cache removal is best-effort", err)
 	}
 }
@@ -499,7 +500,7 @@ func TestPurgeStateRemovesVolumes(t *testing.T) {
 	if err := newLauncher(ops).PurgeState(context.Background(), "s1"); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"atcove-cove-s1-agent-data", "atcove-cove-s1-workspace", "atcove-cove-s1-docker"}; !slices.Equal(ops.volsRemoved, want) {
+	if want := []string{"jam-studio-s1-agent-data", "jam-studio-s1-workspace", "jam-studio-s1-docker"}; !slices.Equal(ops.volsRemoved, want) {
 		t.Fatalf("volsRemoved = %v, want %v", ops.volsRemoved, want)
 	}
 	ops = &fakeOps{volsErr: errors.New("in use")}
@@ -535,26 +536,26 @@ func TestTeardownCapturesAgentLog(t *testing.T) {
 		Log: slog.New(slog.NewTextHandler(&buf, nil)),
 	})
 
-	if err := l.Teardown(context.Background(), jam.Instance{Location: "atcove-cove-w1", ActorID: "w1"}); err != nil {
+	if err := l.Teardown(context.Background(), jam.Instance{Location: "jam-studio-w1", ActorID: "w1"}); err != nil {
 		t.Fatal(err)
 	}
 	// Container is still removed.
-	if ops.removed != "atcove-cove-w1" {
-		t.Fatalf("removed = %q, want atcove-cove-w1", ops.removed)
+	if ops.removed != "jam-studio-w1" {
+		t.Fatalf("removed = %q, want jam-studio-w1", ops.removed)
 	}
 	// The captured tail was logged.
 	if !strings.Contains(buf.String(), "claude auth failed") {
 		t.Errorf("teardown log missing the captured agent log; got: %s", buf.String())
 	}
-	// It read the cove-master log over ssh before removal.
+	// It read the jam-studio-agent log over ssh before removal.
 	var sawTail bool
 	for _, c := range r.Calls {
-		if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), connect.CoveMasterLogVMPath) {
+		if c.Name == "ssh" && strings.Contains(strings.Join(c.Args, " "), connect.StudioAgentLogVMPath) {
 			sawTail = true
 		}
 	}
 	if !sawTail {
-		t.Errorf("expected an ssh tail of %s; calls: %+v", connect.CoveMasterLogVMPath, r.Calls)
+		t.Errorf("expected an ssh tail of %s; calls: %+v", connect.StudioAgentLogVMPath, r.Calls)
 	}
 }
 
@@ -608,8 +609,8 @@ func TestProbeMapsState(t *testing.T) {
 	}
 }
 
-// TestRaiseResidentKinds: the launcher asks cove-master for resident mode
-// (AT_COVE_RESIDENT=1) only for resident kinds — personal and standing.
+// TestRaiseResidentKinds: the launcher asks jam-studio-agent for resident mode
+// (JAM_RESIDENT=1) only for resident kinds — personal and standing.
 func TestRaiseResidentKinds(t *testing.T) {
 	for kind, want := range map[string]bool{"": false, "ephemeral": false, jam.SessionKindPersonal: true, jam.SessionKindStanding: true} {
 		ops := &fakeOps{}
@@ -624,19 +625,19 @@ func TestRaiseResidentKinds(t *testing.T) {
 		}
 		got := false
 		for _, c := range r.Calls {
-			if strings.Contains(c.Stdin, "AT_COVE_RESIDENT=1") {
+			if strings.Contains(c.Stdin, "JAM_RESIDENT=1") {
 				got = true
 			}
 		}
 		if got != want {
-			t.Fatalf("kind %q: AT_COVE_RESIDENT set = %v, want %v", kind, got, want)
+			t.Fatalf("kind %q: JAM_RESIDENT set = %v, want %v", kind, got, want)
 		}
 	}
 }
 
 // egressOps is a fakeOps that also implements backend.RoleEgress, recording the
 // domains it was given and how many runner calls had happened by then (so a
-// test can prove the policy lands before cove-master launches).
+// test can prove the policy lands before jam-studio-agent launches).
 type egressOps struct {
 	*fakeOps
 	r          *runner.Fake
@@ -669,16 +670,16 @@ func newEgressLauncher(ops Backend, r *runner.Fake, logw io.Writer) *Launcher {
 	})
 }
 
-// isCoveMasterLaunch reports whether a runner call is part of the cove-master
+// isStudioAgentLaunch reports whether a runner call is part of the jam-studio-agent
 // bootstrap (staging its env/prompt on stdin, or starting it), not the sshd probe.
-func isCoveMasterLaunch(c runner.Call) bool {
-	return c.Stdin != "" || strings.Contains(strings.Join(c.Args, " "), "cove-master")
+func isStudioAgentLaunch(c runner.Call) bool {
+	return c.Stdin != "" || strings.Contains(strings.Join(c.Args, " "), "jam-studio-agent")
 }
 
-// A role's policy is applied in-box after sshd answers and before cove-master
+// A role's policy is applied in-box after sshd answers and before jam-studio-agent
 // (and so the agent) starts; the domains reach the op unchanged; the info log
 // carries the count, never the list.
-func TestRaiseAppliesRoleEgressBeforeCoveMaster(t *testing.T) {
+func TestRaiseAppliesRoleEgressBeforeStudioAgent(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
 	var logs bytes.Buffer
@@ -688,23 +689,23 @@ func TestRaiseAppliesRoleEgressBeforeCoveMaster(t *testing.T) {
 	if _, err := l.Raise(context.Background(), spec, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"}); err != nil {
 		t.Fatal(err)
 	}
-	if !ops.applied || ops.container != "atcove-cove-w1" || !slices.Equal(ops.domains, domains) {
-		t.Fatalf("ApplyRoleEgress = applied %v, %q, %v; want atcove-cove-w1 with %v", ops.applied, ops.container, ops.domains, domains)
+	if !ops.applied || ops.container != "jam-studio-w1" || !slices.Equal(ops.domains, domains) {
+		t.Fatalf("ApplyRoleEgress = applied %v, %q, %v; want jam-studio-w1 with %v", ops.applied, ops.container, ops.domains, domains)
 	}
 	if ops.callsAtApp == 0 {
 		t.Fatal("egress applied before sshd answered")
 	}
 	for _, c := range r.Calls[:ops.callsAtApp] {
-		if isCoveMasterLaunch(c) {
-			t.Fatal("cove-master launched before the role egress was applied")
+		if isStudioAgentLaunch(c) {
+			t.Fatal("jam-studio-agent launched before the role egress was applied")
 		}
 	}
 	launched := false
 	for _, c := range r.Calls[ops.callsAtApp:] {
-		launched = launched || isCoveMasterLaunch(c)
+		launched = launched || isStudioAgentLaunch(c)
 	}
 	if !launched {
-		t.Fatal("cove-master never launched after the egress apply")
+		t.Fatal("jam-studio-agent never launched after the egress apply")
 	}
 	out := logs.String()
 	if !strings.Contains(out, `"msg":"role egress applied"`) || !strings.Contains(out, `"domains":2`) {
@@ -742,7 +743,7 @@ func TestRaiseEmptyEgressStillApplies(t *testing.T) {
 }
 
 // A failed apply (e.g. a domain outside the kit's ceiling) fails the raise,
-// never launches cove-master, and removes the container.
+// never launches jam-studio-agent, and removes the container.
 func TestRaiseEgressApplyErrorFailsAndCleansUp(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &egressOps{fakeOps: &fakeOps{}, r: r, err: errors.New("apply-role-egress: evil.example is outside the kit's egress ceiling")}
@@ -751,12 +752,12 @@ func TestRaiseEgressApplyErrorFailsAndCleansUp(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "apply role egress") || !strings.Contains(err.Error(), "evil.example") {
 		t.Fatalf("err = %v; want apply role egress naming the domain", err)
 	}
-	if ops.removed != "atcove-cove-w1" {
+	if ops.removed != "jam-studio-w1" {
 		t.Fatalf("container not removed on egress failure: removed=%q", ops.removed)
 	}
 	for _, c := range r.Calls {
-		if isCoveMasterLaunch(c) {
-			t.Fatal("cove-master launched despite the egress failure")
+		if isStudioAgentLaunch(c) {
+			t.Fatal("jam-studio-agent launched despite the egress failure")
 		}
 	}
 }
@@ -771,12 +772,12 @@ func TestRaiseEgressFailsClosedWithoutOp(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "backend does not support role egress (required for role acme/fenced)") {
 		t.Fatalf("err = %v; want fail-closed", err)
 	}
-	if ops.removed != "atcove-cove-w1" {
+	if ops.removed != "jam-studio-w1" {
 		t.Fatalf("container not removed: removed=%q", ops.removed)
 	}
 	for _, c := range r.Calls {
-		if isCoveMasterLaunch(c) {
-			t.Fatal("cove-master launched without the role egress")
+		if isStudioAgentLaunch(c) {
+			t.Fatal("jam-studio-agent launched without the role egress")
 		}
 	}
 }
@@ -788,12 +789,12 @@ func TestApplyEgressPolicy(t *testing.T) {
 	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
 	var logs bytes.Buffer
 	l := newEgressLauncher(ops, r, &logs)
-	inst := jam.Instance{ActorID: "w1", Project: "acme", Role: "fenced", Location: "atcove-cove-w1"}
+	inst := jam.Instance{ActorID: "w1", Project: "acme", Role: "fenced", Location: "jam-studio-w1"}
 	domains := []string{".b.org", "a.com"}
 	if err := l.ApplyEgress(context.Background(), inst, &jam.EgressPolicy{Domains: domains}); err != nil {
 		t.Fatal(err)
 	}
-	if !ops.applied || ops.container != "atcove-cove-w1" || !slices.Equal(ops.domains, domains) {
+	if !ops.applied || ops.container != "jam-studio-w1" || !slices.Equal(ops.domains, domains) {
 		t.Fatalf("ApplyRoleEgress = applied %v, %q, %v", ops.applied, ops.container, ops.domains)
 	}
 	if ops.reset != "" {
@@ -809,12 +810,12 @@ func TestApplyEgressNilResets(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &egressOps{fakeOps: &fakeOps{}, r: r}
 	l := newEgressLauncher(ops, r, io.Discard)
-	inst := jam.Instance{ActorID: "w1", Role: "r", Location: "atcove-cove-w1"}
+	inst := jam.Instance{ActorID: "w1", Role: "r", Location: "jam-studio-w1"}
 	if err := l.ApplyEgress(context.Background(), inst, nil); err != nil {
 		t.Fatal(err)
 	}
-	if ops.reset != "atcove-cove-w1" || ops.applied {
-		t.Fatalf("reset=%q applied=%v; want a reset of atcove-cove-w1 only", ops.reset, ops.applied)
+	if ops.reset != "jam-studio-w1" || ops.applied {
+		t.Fatalf("reset=%q applied=%v; want a reset of jam-studio-w1 only", ops.reset, ops.applied)
 	}
 }
 
@@ -823,7 +824,7 @@ func TestApplyEgressError(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &egressOps{fakeOps: &fakeOps{}, r: r, err: errors.New("exit status 3: evil.example is outside")}
 	l := newEgressLauncher(ops, r, io.Discard)
-	inst := jam.Instance{ActorID: "w1", Role: "r", Location: "atcove-cove-w1"}
+	inst := jam.Instance{ActorID: "w1", Role: "r", Location: "jam-studio-w1"}
 	for _, p := range []*jam.EgressPolicy{nil, {Domains: []string{"evil.example"}}} {
 		if err := l.ApplyEgress(context.Background(), inst, p); err == nil || !strings.Contains(err.Error(), "exit status 3") {
 			t.Fatalf("policy %v: err = %v; want the backend error", p, err)
@@ -834,7 +835,7 @@ func TestApplyEgressError(t *testing.T) {
 // A backend without RoleEgress can't re-apply or reset: an error, never a silent no-op.
 func TestApplyEgressWithoutOpErrors(t *testing.T) {
 	l := newEgressLauncher(&fakeOps{}, &runner.Fake{}, io.Discard)
-	inst := jam.Instance{ActorID: "w1", Project: "acme", Role: "fenced", Location: "atcove-cove-w1"}
+	inst := jam.Instance{ActorID: "w1", Project: "acme", Role: "fenced", Location: "jam-studio-w1"}
 	for _, p := range []*jam.EgressPolicy{nil, {Domains: []string{"a.com"}}} {
 		if err := l.ApplyEgress(context.Background(), inst, p); err == nil || !strings.Contains(err.Error(), "backend does not support role egress") {
 			t.Fatalf("policy %v: err = %v; want fail-closed", p, err)
@@ -844,18 +845,18 @@ func TestApplyEgressWithoutOpErrors(t *testing.T) {
 
 func TestTeardownUnpausesBeforeRemoving(t *testing.T) {
 	ops := &fakeOps{}
-	if err := newLauncher(ops).Teardown(context.Background(), jam.Instance{Location: "atcove-cove-w1", ActorID: "w1"}); err != nil {
+	if err := newLauncher(ops).Teardown(context.Background(), jam.Instance{Location: "jam-studio-w1", ActorID: "w1"}); err != nil {
 		t.Fatal(err)
 	}
-	if ops.unpaused != "atcove-cove-w1" {
+	if ops.unpaused != "jam-studio-w1" {
 		t.Fatalf("Teardown must unpause first (an idled cove is paused; SSH into it hangs); unpaused=%q", ops.unpaused)
 	}
-	if ops.removed != "atcove-cove-w1" {
+	if ops.removed != "jam-studio-w1" {
 		t.Fatalf("Teardown must still remove the container; removed=%q", ops.removed)
 	}
 }
 
-// The launcher stages the compiled context and the session kind for cove-master.
+// The launcher stages the compiled context and the session kind for jam-studio-agent.
 func TestRaisePassesContextAndKind(t *testing.T) {
 	r := &runner.Fake{}
 	l := New(Config{Ops: &fakeOps{}, Runner: r, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh", Inventory: readyInv(), sleep: func(time.Duration) {}})
@@ -865,7 +866,7 @@ func TestRaisePassesContextAndKind(t *testing.T) {
 	}
 	var kind, ctx bool
 	for _, c := range r.Calls {
-		kind = kind || strings.Contains(c.Stdin, "AT_COVE_SESSION_KIND='standing'")
+		kind = kind || strings.Contains(c.Stdin, "JAM_SESSION_KIND='standing'")
 		ctx = ctx || strings.Contains(c.Stdin, `"core":"CORE-TEXT"`)
 	}
 	if !kind || !ctx {
@@ -902,8 +903,8 @@ func newSSHCALauncher(ops Backend, r *runner.Fake, logw io.Writer, ca []byte) *L
 }
 
 // The CA key is installed after sshd answers and the role egress lands, and
-// before cove-master (and so the agent) starts.
-func TestRaiseInstallsSSHUserCABeforeCoveMaster(t *testing.T) {
+// before jam-studio-agent (and so the agent) starts.
+func TestRaiseInstallsSSHUserCABeforeStudioAgent(t *testing.T) {
 	r := &runner.Fake{}
 	ops := &sshCAOps{egressOps: &egressOps{fakeOps: &fakeOps{}, r: r}}
 	l := newSSHCALauncher(ops, r, io.Discard, []byte(testSSHUserCA))
@@ -911,7 +912,7 @@ func TestRaiseInstallsSSHUserCABeforeCoveMaster(t *testing.T) {
 	if _, err := l.Raise(context.Background(), spec, jam.LaunchCreds{}); err != nil {
 		t.Fatal(err)
 	}
-	if ops.installs != 1 || ops.container != "atcove-cove-w1" || string(ops.key) != testSSHUserCA {
+	if ops.installs != 1 || ops.container != "jam-studio-w1" || string(ops.key) != testSSHUserCA {
 		t.Fatalf("InstallSSHUserCA = %d calls, %q, %q", ops.installs, ops.container, ops.key)
 	}
 	if ops.callsAtInstall == 0 {
@@ -921,8 +922,8 @@ func TestRaiseInstallsSSHUserCABeforeCoveMaster(t *testing.T) {
 		t.Fatal("CA installed before the role egress was applied")
 	}
 	for _, c := range r.Calls[:ops.callsAtInstall] {
-		if isCoveMasterLaunch(c) {
-			t.Fatal("cove-master launched before the CA was installed")
+		if isStudioAgentLaunch(c) {
+			t.Fatal("jam-studio-agent launched before the CA was installed")
 		}
 	}
 }
@@ -979,15 +980,15 @@ func TestTeardownCaptureReturnsTail(t *testing.T) {
 	r := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "boom\n"}}}
 	l := New(Config{Ops: ops, Runner: r, IdentityFile: "id", KnownHostsDir: "kh", Log: slog.New(slog.DiscardHandler)})
 
-	tail, err := l.TeardownCapture(context.Background(), jam.Instance{Location: "atcove-cove-w1", ActorID: "w1"})
+	tail, err := l.TeardownCapture(context.Background(), jam.Instance{Location: "jam-studio-w1", ActorID: "w1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if tail != "boom" {
 		t.Fatalf("tail = %q, want boom", tail)
 	}
-	if ops.removed != "atcove-cove-w1" {
-		t.Fatalf("removed = %q, want atcove-cove-w1", ops.removed)
+	if ops.removed != "jam-studio-w1" {
+		t.Fatalf("removed = %q, want jam-studio-w1", ops.removed)
 	}
 }
 
@@ -1001,20 +1002,20 @@ func TestRemoteManagerNamesItsStudio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ops.runName != "atcove.m1.cove-w1" || loc != "atcove.m1.cove-w1" {
+	if ops.runName != "jam-studio.m1.w1" || loc != "jam-studio.m1.w1" {
 		t.Fatalf("container = %q, loc = %q", ops.runName, loc)
 	}
 	var vols []string
 	for _, m := range ops.runMounts {
 		vols = append(vols, m.Volume)
 	}
-	if want := []string{"atcove.m1.cove-w1-agent-data", "atcove.m1.cove-w1-workspace"}; !slices.Equal(vols, want) {
+	if want := []string{"jam-studio.m1.w1-agent-data", "jam-studio.m1.w1-workspace"}; !slices.Equal(vols, want) {
 		t.Fatalf("volumes = %v, want %v", vols, want)
 	}
 	if err := l.PurgeState(context.Background(), "w1"); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"atcove.m1.cove-w1-agent-data", "atcove.m1.cove-w1-workspace", "atcove.m1.cove-w1-docker"}; !slices.Equal(ops.volsRemoved, want) {
+	if want := []string{"jam-studio.m1.w1-agent-data", "jam-studio.m1.w1-workspace", "jam-studio.m1.w1-docker"}; !slices.Equal(ops.volsRemoved, want) {
 		t.Fatalf("volsRemoved = %v, want %v", ops.volsRemoved, want)
 	}
 }
@@ -1028,7 +1029,7 @@ func TestLocalNamesUnchanged(t *testing.T) {
 	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Prompt: "go", SessionKind: jam.SessionKindStanding}, jam.LaunchCreds{}); err != nil {
 		t.Fatal(err)
 	}
-	if ops.runName != "atcove-cove-w1" || len(ops.runMounts) != 2 || ops.runMounts[0].Volume != "atcove-cove-w1-agent-data" || ops.runMounts[1].Volume != "atcove-cove-w1-workspace" {
+	if ops.runName != "jam-studio-w1" || len(ops.runMounts) != 2 || ops.runMounts[0].Volume != "jam-studio-w1-agent-data" || ops.runMounts[1].Volume != "jam-studio-w1-workspace" {
 		t.Fatalf("name = %q mounts = %v", ops.runName, ops.runMounts)
 	}
 }

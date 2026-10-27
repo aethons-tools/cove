@@ -1,5 +1,5 @@
 ---
-summary: The Project lifecycle on a Jam — `at-jam project create|list|rename|rm`, the rule that roles, grants, roster, escalation and chat service may only name an existing project, the `default` exception, and how pre-existing data is backfilled.
+summary: The Project lifecycle on a Jam — `jam project create|list|rename|rm`, the rule that roles, grants, roster, escalation and chat service may only name an existing project, the `default` exception, and how pre-existing data is backfilled.
 read_when: You are starting a new project on a Jam, a role/grant/roster/escalation write failed with "project not found", you want to delete a project, or you upgraded a Jam whose projects used to exist only as names.
 owns: the Project lifecycle — create/list/rename/rm, tombstones, existence enforcement, the default-project exception, the in-use refusal, and the upgrade backfill
 prereqs: roster.md for what Roles and Grants are; operators.md for the admin-client flags
@@ -21,23 +21,23 @@ it (CLI, admin API, UI), and those show names back.
 ## Verbs
 
 ```
-at-jam project create acme   # a new, empty project
-at-jam project list          # every project, one per line
-at-jam project rename acme apex   # in place: everything refers to it by id
-at-jam project rm acme       # refused while a role or grant references it
+jam project create acme   # a new, empty project
+jam project list          # every project, one per line
+jam project rename acme apex   # in place: everything refers to it by id
+jam project rm acme       # refused while a role or grant references it
 ```
 
 Each is an admin-API client; for its target and auth flags see
 [operators.md](operators.md). The admin UI does the same from the rail (**+ New project**) and each
 project's pages ([ui-projects.md](ui-projects.md)). A project's goals and resources for its
-sessions are set with `at-jam context --project` ([session-context-authoring.md](session-context-authoring.md)).
+sessions are set with `jam context --project` ([session-context-authoring.md](session-context-authoring.md)).
 
 ## Existence is enforced
 
 Every project-scoped write names a project that must already exist:
 `role add`, `grant`, `enroll`, `project member add`, `room add`,
 `project escalation set`, `project chat-service set`. Naming an unknown project
-fails (HTTP **404**, and the error says to run `at-jam project create`). Nothing
+fails (HTTP **404**, and the error says to run `jam project create`). Nothing
 is created as a side effect.
 
 **The `default` exception.** The `default` project (also what an omitted
@@ -83,5 +83,5 @@ upgrade every such name gets an empty project record, so nothing dangles:
   `projects` rows from `roles` and actor grants, then adds a foreign key from
   `roles.project` to `projects.name`. Grants live inside the actor document, so
   the store enforces their project reference itself.
-- **`at-jam import`**: an older backup whose roles or grants name projects it
+- **`jam import`**: an older backup whose roles or grants name projects it
   has no record for gets the same empty records (see [backup.md](backup.md)).

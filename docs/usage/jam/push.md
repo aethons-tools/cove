@@ -1,5 +1,5 @@
 ---
-summary: Push notifications — Jam buzzes a member's phone or desktop through standard Web Push when they get a message that's for them, even with the app closed. Enabling it (`at-jam push keygen`, the VAPID credential, `runtime.push`, outbound hosts), turning it on per device from the principal menu, the iOS Home Screen requirement, what notifies (and why the open conversation doesn't), how notifications look and behave on the device (grouping, tap-through, app badge, sign-out), the privacy/preview choice, and troubleshooting.
+summary: Push notifications — Jam buzzes a member's phone or desktop through standard Web Push when they get a message that's for them, even with the app closed. Enabling it (`jam push keygen`, the VAPID credential, `runtime.push`, outbound hosts), turning it on per device from the principal menu, the iOS Home Screen requirement, what notifies (and why the open conversation doesn't), how notifications look and behave on the device (grouping, tap-through, app badge, sign-out), the privacy/preview choice, and troubleshooting.
 read_when: You want Jam to send push notifications — setting up the VAPID key and `runtime.push`, opening the Jam host's egress to the push services — or a member asks why the Notifications item is missing, reads "Blocked in browser settings" or "Add Jam to your Home Screen", or wants to know what buzzes them, what shows on the lock screen, what the app badge counts, or what signing out does to notifications; or pushes aren't arriving.
 owns: the Web Push setup steps (keygen → credential → config → egress hosts), the per-device Notifications toggle and its states, the iOS Home Screen rule, the notify rule as members see it, focus suppression as members see it, the on-device behaviour (one notification per conversation, tap-through, app badge, sounds, sign-out unsubscribing the device), the preview/privacy behaviour, and push troubleshooting. Does NOT own how the relay sends or the `/app/user/push/*` routes — see push-delivery.md; nor the `runtime.push` key reference — see serve.md; nor installing the app — see ui.md.
 prereqs: ui.md (the Jam app, its login and installing it); credentials.md (supplying a credential); serve.md#the-serve-config (the `runtime.push` keys)
@@ -17,7 +17,7 @@ member turns them on in each browser or installed app they want buzzed.
 
 ## Enabling push on a Jam
 
-1. **Generate a key pair** — `at-jam push keygen` prints a fresh VAPID pair:
+1. **Generate a key pair** — `jam push keygen` prints a fresh VAPID pair:
    `private: …` and `public: …`. Only the private half is kept; Jam derives the
    public one from it.
 2. **Store the private key as a credential** — add it to the credentials file
@@ -42,7 +42,7 @@ member turns them on in each browser or installed app they want buzzed.
 5. **Serve over HTTPS** — browsers offer push only to a secure origin (or
    `localhost`), the same rule as [installing the app](ui.md#installing-the-app).
 
-`at-jam serve` **refuses to start** when the block is set but the credential
+`jam serve` **refuses to start** when the block is set but the credential
 can't be resolved or isn't a valid P-256 private key; the error names the
 credential, never its value. Without the block push is off: no menu item, and
 the `/app/user/push/*` routes answer 404.

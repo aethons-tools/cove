@@ -26,7 +26,7 @@ func TestLoadMinimal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := "/h/.config/at-studio-manager"
+	d := "/h/.config/jam-studio-manager"
 	if c.TokenFile != d+"/token" || c.Colima.IdentityFile != d+"/id_ed25519" ||
 		c.Colima.KnownHostsDir != d+"/known_hosts.d" || c.LogLevel != "info" {
 		t.Fatalf("defaults wrong: %+v", c)
@@ -80,10 +80,10 @@ func TestTokenTrimsAndRejectsEmpty(t *testing.T) {
 }
 
 func TestDefaultDir(t *testing.T) {
-	if got := DefaultDir(env(map[string]string{"XDG_CONFIG_HOME": "/x", "HOME": "/h"})); got != "/x/at-studio-manager" {
+	if got := DefaultDir(env(map[string]string{"XDG_CONFIG_HOME": "/x", "HOME": "/h"})); got != "/x/jam-studio-manager" {
 		t.Fatal(got)
 	}
-	if got := DefaultDir(env(map[string]string{"HOME": "/h"})); got != "/h/.config/at-studio-manager" {
+	if got := DefaultDir(env(map[string]string{"HOME": "/h"})); got != "/h/.config/jam-studio-manager" {
 		t.Fatal(got)
 	}
 }

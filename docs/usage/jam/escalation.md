@@ -1,7 +1,7 @@
 ---
 summary: The escalation engine — a per-project, category-keyed ordered policy of human tiers + per-tier timeouts that calls people into a waiting session's channel when it asks for a person, opt-in and independent of wake-on's reply/max-wait clock.
 read_when: You want a waiting session that asked for a person to actively reach people instead of passively waiting — configuring ordered tiers of people to call in with per-tier timeouts, routing by block category, or operating/tuning the resident escalation engine.
-owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), when an escalation opens (needs-input or `escalate`), tiers as call-ins and the escalation notice (immediate tier 0, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.escalation-poll-interval` config, and the `at-jam project escalation set|list|clear [--category]` commands.
+owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), when an escalation opens (needs-input or `escalate`), tiers as call-ins and the escalation notice (immediate tier 0, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.escalation-poll-interval` config, and the `jam project escalation set|list|clear [--category]` commands.
 prereqs: intercom.md for the wake-on engine, the Waiting/suspend model, home channels and call-in escalation builds on, and the other brokered studio tools `escalate` sits alongside; comms-addressing.md for the Project members tiers resolve against
 tier: leaf
 updated: 2026-10-23
@@ -53,7 +53,7 @@ waits (below). A session typically calls `escalate` before ending its turn, so t
 category is set before Jam evaluates who to call in.
 
 Operator commands take a matching `--category <name>` flag — see [Operator
-commands](#operator-commands-at-jam-project-escalation) below. Jam
+commands](#operator-commands-jam-project-escalation) below. Jam
 **auto-detecting** a category itself (e.g. stamping `infra` on an egress-wall
 denial or a `401`, without the studio calling `escalate`) is not implemented yet
 — see [Not yet](#not-yet-deferred).
@@ -135,12 +135,12 @@ read; the top-level key wins when both are set, and an invalid one stops `serve`
 at startup. The engine only does anything
 for a Project that has an escalation policy set.
 
-## Operator commands: `at-jam project escalation`
+## Operator commands: `jam project escalation`
 
 ```
-at-jam project escalation set   <project> [--category <name>] --tier 'user:alice,user:bob@15m' [--tier 'user:carol@1h' …]
-at-jam project escalation list  <project>
-at-jam project escalation clear <project> [--category <name>]
+jam project escalation set   <project> [--category <name>] --tier 'user:alice,user:bob@15m' [--tier 'user:carol@1h' …]
+jam project escalation list  <project>
+jam project escalation clear <project> [--category <name>]
 ```
 
 The admin UI's project Escalation page edits the same chains ([ui-projects.md](ui-projects.md#sections)).
@@ -158,10 +158,10 @@ The admin UI's project Escalation page edits the same chains ([ui-projects.md](u
 - `--category <name>` on `set`/`clear` targets that category's chain (see
   [Categories](#categories-routing-by-block-kind) above) instead of the
   default; omitted on either, it's the default chain. Example:
-  `at-jam project escalation set acme --category infra --tier 'user:sre@10m'`.
+  `jam project escalation set acme --category infra --tier 'user:sre@10m'`.
 
 All three take the same admin-client flags (`--app`/`--admin-url`/`--token`) as
-every other `at-jam` verb — see [operators.md](operators.md).
+every other `jam` verb — see [operators.md](operators.md).
 
 ## Not yet (deferred)
 
@@ -177,7 +177,7 @@ every other `at-jam` verb — see [operators.md](operators.md).
   about its escalation state; this is the hook for a future model where it reacts
   to its own escalation tier.
 - **Escalation observability** — surfacing a studio's current tier in
-  `at-jam studio list` or the UI is a nice-to-have follow-up, not done yet.
+  `jam studio list` or the UI is a nice-to-have follow-up, not done yet.
 
 Design rationale lives in
 [`../../superpowers/specs/2026-09-14-harbor-escalation.md`](../../superpowers/specs/2026-09-14-harbor-escalation.md)

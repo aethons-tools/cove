@@ -17,7 +17,7 @@ import (
 // dockerImg adapts colima's context-pinned docker to baseimage.Docker so the
 // resolver's selection + provenance logic stays backend-agnostic and unit-tested.
 // baseArg is the blessed base injected into a kit image/Dockerfile's
-// COVE_BASE_IMAGE build arg (see Build).
+// JAM_STUDIO_BASE_IMAGE build arg (see Build).
 type dockerImg struct {
 	c       *Colima
 	baseArg string
@@ -25,17 +25,16 @@ type dockerImg struct {
 
 func (d dockerImg) Build(contextDir string) (string, error) {
 	// Standard build args for a kit/studio base Dockerfile:
-	//   COVE_BASE_IMAGE / AT_JAM_STUDIO_BASE_IMAGE — the blessed base ref to build
-	//     FROM (write `FROM ${COVE_BASE_IMAGE}`); the two are aliases so a kit can
-	//     use the at-cove or the jam-studio name. The ARG defaults are only for a
-	//     bare manual `docker build`.
-	//   AT_JAM_STUDIO_TARGET_ARCH — "amd64" | "arm64", the build target arch.
+	//   JAM_STUDIO_BASE_IMAGE — the blessed base ref to build FROM (write
+	//     `FROM ${JAM_STUDIO_BASE_IMAGE}`). The ARG default is only for a bare
+	//     manual `docker build`.
+	//   JAM_STUDIO_TARGET_ARCH — "amd64" | "arm64", the build target arch.
+	// Jam passes these two and nothing else.
 	// -q: emit only the built image ID (a bare `sha256:<hex>`).
 	out, err := d.c.r.Output("docker", d.c.dargs(
 		"build", "-q",
-		"--build-arg", "COVE_BASE_IMAGE="+d.baseArg,
-		"--build-arg", "AT_JAM_STUDIO_BASE_IMAGE="+d.baseArg,
-		"--build-arg", "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH,
+		"--build-arg", "JAM_STUDIO_BASE_IMAGE="+d.baseArg,
+		"--build-arg", "JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH,
 		contextDir,
 	)...)
 	if err != nil {
@@ -51,7 +50,7 @@ func (d dockerImg) Build(contextDir string) (string, error) {
 	// the just-built image under a stable, content-derived local tag and hand that
 	// back — `FROM <tag>` resolves it from the local daemon (never a registry fetch,
 	// since the tag exists locally), and `docker inspect` (the gate) accepts it too.
-	tag := "cove-kit-base:" + strings.TrimPrefix(id, "sha256:")
+	tag := "jam-kit-base:" + strings.TrimPrefix(id, "sha256:")
 	if err := d.c.r.Run("docker", d.c.dargs("tag", id, tag)...); err != nil {
 		return "", err
 	}
@@ -76,7 +75,7 @@ func (d dockerImg) Layers(ref string) ([]string, error) {
 
 // resolveBase selects and verifies the base ref for a build, returning the value
 // to pass as the hardening build's BASE arg. The gate runs only for a kit-chosen
-// base; the default is a blessed cove-base-image by construction.
+// base; the default is a blessed jam-studio-base by construction.
 func (c *Colima) resolveBase(spec backend.BaseSpec) (string, error) {
 	s := baseimage.Spec{
 		Base:            spec.Base,
@@ -111,9 +110,8 @@ func (d streamDockerImg) Build(_ string) (string, error) {
 	var out, errBuf bytes.Buffer
 	if err := d.c.r.RunIO(d.ctx, &out, &errBuf, "docker", d.c.dargs(
 		"build", "-q",
-		"--build-arg", "COVE_BASE_IMAGE="+d.baseArg,
-		"--build-arg", "AT_JAM_STUDIO_BASE_IMAGE="+d.baseArg,
-		"--build-arg", "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH,
+		"--build-arg", "JAM_STUDIO_BASE_IMAGE="+d.baseArg,
+		"--build-arg", "JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH,
 		"-",
 	)...); err != nil {
 		// Surface docker's own build diagnostic (the failing Dockerfile line, etc.);
@@ -130,7 +128,7 @@ func (d streamDockerImg) Build(_ string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("docker build - (streamed context): no image id on stdout")
 	}
-	tag := "cove-kit-base:" + strings.TrimPrefix(id, "sha256:")
+	tag := "jam-kit-base:" + strings.TrimPrefix(id, "sha256:")
 	if err := d.c.r.Run("docker", d.c.dargs("tag", id, tag)...); err != nil {
 		return "", err
 	}
@@ -149,10 +147,9 @@ func (c *Colima) resolveBaseTar(ctxTar io.Reader) (string, error) {
 }
 
 // resolveBaseTarOn builds a kit-chain stage: ctxTar streams to `docker build -`
-// with parentRef (the previous stage) as COVE_BASE_IMAGE / AT_JAM_STUDIO_BASE_IMAGE,
-// and the result runs the same provenance gate against the blessed refs (gate
-// ON — the parent descends from a blessed base, so a child built on it must
-// too). Only after the gate passes is the gated image tagged stageTag, so a
+// with parentRef (the previous stage) as JAM_STUDIO_BASE_IMAGE, and the result
+// runs the same provenance gate against the blessed refs (gate ON — the parent
+// descends from a blessed base, so a child built on it must too). Only after the gate passes is the gated image tagged stageTag, so a
 // rejected stage leaves no stage tag for HasKitBase to find.
 func (c *Colima) resolveBaseTarOn(ctxTar io.Reader, parentRef, stageTag string) (string, error) {
 	if parentRef == "" || stageTag == "" {

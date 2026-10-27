@@ -10,7 +10,7 @@ import (
 )
 
 // ParticipantBearer is the /me plane's Deps.Principal: the caller presents an
-// OIDC ID token (from at-jam login --participant) as a Bearer credential;
+// OIDC ID token (from jam login --participant) as a Bearer credential;
 // verify checks it and returns its issuer and subject, which name the user
 // bound to that identity. A missing or non-Bearer Authorization header is
 // ErrNoCredentials, a token verify rejects is ErrInvalidToken, and a verified

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # build.sh — build the host binaries, host-sensitive by default.
 #
-# The binaries are pure Go (no cgo; at-jam shells out to ssh/docker), so
+# The binaries are pure Go (no cgo; jam shells out to ssh/docker), so
 # Go's built-in cross-compilation just works — no toolchain or framework
 # needed. Every binary lands in a directory keyed by its OS/arch:
 #
-#   dist/<os>-<arch>/<binary>   # e.g. dist/linux-amd64/{at-mint,at-jam,at-studio-manager}
+#   dist/<os>-<arch>/<binary>   # e.g. dist/linux-amd64/{jam,jam-studio-manager}
 #
 # The DEFAULT build targets the current host (go env GOOS/GOARCH). That keeps a
 # mac and a linux box (e.g. the cove VM) that share the same output folder from
@@ -24,28 +24,28 @@ cd "$(dirname "$0")/.."  # repo root
 OUT="${OUT:-dist}"
 VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 # -trimpath: reproducible paths; -s -w: strip symbol/debug tables (smaller
-# binary); -X main.version: stamp the version reported by `at-jam version`.
+# binary); -X main.version: stamp the version reported by `jam version`.
 LDFLAGS="-s -w -X main.version=${VERSION}"
 
 ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
-BINARIES=(at-mint at-jam at-studio-manager)
+BINARIES=(jam jam-studio-manager)
 
-# Build the Jam app bundle at-jam embeds. Required: it is the whole user area
+# Build the Jam app bundle jam embeds. Required: it is the whole user area
 # (/app/user/), so a build without npm fails rather than ship a Jam no member
 # can use.
 ./scripts/app.sh
 
-# Stage the linux cove-master binaries at-jam embeds, before at-jam is built —
-# shared with the goreleaser before-hook, see scripts/stage-covemaster.sh.
-echo "Staging embedded cove-master (linux amd64+arm64)"
-VERSION="$VERSION" ./scripts/stage-covemaster.sh
+# Stage the linux jam-studio-agent binaries jam embeds, before jam is built —
+# shared with the goreleaser before-hook, see scripts/stage-studio-agent.sh.
+echo "Staging embedded jam-studio-agent (linux amd64+arm64)"
+VERSION="$VERSION" ./scripts/stage-studio-agent.sh
 
-# Snapshot the blessed cove-base-image digests from the registry into the
-# embedded (gitignored) blessed/generated.txt, before at-jam is built (COV-44
+# Snapshot the blessed jam-studio-base digests from the registry into the
+# embedded (gitignored) blessed/generated.txt, before jam is built (COV-44
 # spec §4). With no GITHUB_TOKEN this is a no-op: the committed low-watermark is
 # embedded alone, so local/offline builds never need registry access. CI runs it
 # with a packages:read token to pick up every current base with no commit-back loop.
-echo "Snapshotting blessed cove-base-image digests (no-op offline)"
+echo "Snapshotting blessed jam-studio-base digests (no-op offline)"
 go run ./cmd/gen-blessed
 
 # Choose targets from the args (default: just the current host).
@@ -55,7 +55,7 @@ case "${1:-}" in
   *)         TARGETS=("$@") ;;
 esac
 
-echo "Building cove ${VERSION} (${BINARIES[*]})"
+echo "Building jam ${VERSION} (${BINARIES[*]})"
 built=()
 for t in "${TARGETS[@]}"; do
   os="${t%/*}"
@@ -68,11 +68,6 @@ for t in "${TARGETS[@]}"; do
       go build -trimpath -ldflags "$LDFLAGS" -o "$dir/$bin" "./cmd/$bin"
     built+=("$dir/$bin")
   done
-  # Deprecated alias (Harbor → Jam rename, one release): at-harbor is a copy
-  # of at-jam; invoked under that name it runs normally and warns. See
-  # docs/usage/jam/renamed-from-harbor.md.
-  cp "$dir/at-jam" "$dir/at-harbor"
-  built+=("$dir/at-harbor")
 done
 
 echo

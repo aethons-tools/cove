@@ -1,4 +1,4 @@
-// Package linediff is the line-level diff the admin UI and at-jam show:
+// Package linediff is the line-level diff the admin UI and jam show:
 // an LCS diff with long unchanged runs collapsed.
 package linediff
 

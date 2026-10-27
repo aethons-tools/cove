@@ -24,10 +24,9 @@ import (
 
 const (
 	mdAuthorization = "authorization"
-	// mdLaunchSecret keeps its pre-rename name: it is the gRPC metadata key
-	// cove-master in already-built images sends (see
-	// docs/usage/jam/renamed-from-harbor.md).
-	mdLaunchSecret = "x-harbor-launch-secret"
+	// mdLaunchSecret is the gRPC metadata key a studio's agent sends its
+	// launch secret under.
+	mdLaunchSecret = "x-jam-launch-secret"
 	sendBuffer     = 8
 )
 
@@ -57,7 +56,7 @@ type Server struct {
 var ackEvery = 250 * time.Millisecond
 
 // SetSessionEvents enables session-event ingest. Call before serving. Without
-// it, events are ignored (never acked) — at-jam always sets one, using a
+// it, events are ignored (never acked) — jam always sets one, using a
 // no-op store when storage is not configured.
 func (s *Server) SetSessionEvents(in *sessionevents.Ingest) { s.events = in }
 

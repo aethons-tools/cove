@@ -1,7 +1,7 @@
 ---
-summary: Model-specs — named, harness-typed descriptions of how a cove runs its agent (harness family + exact CLI version pin + runtime version-constraint, principal credential by name, model, permission policy, per-harness body incl. build-time plugins); the YAML schema and version-constraint syntax, validation, the version-split migration, what a spec builds into the image (harness layer), binding a role to one, the seeded claude-default, how a spec reaches the cove and what the claude harness applies, the `at-jam model-spec` verb and the admin API.
+summary: Model-specs — named, harness-typed descriptions of how a cove runs its agent (harness family + exact CLI version pin + runtime version-constraint, principal credential by name, model, permission policy, per-harness body incl. build-time plugins); the YAML schema and version-constraint syntax, validation, the version-split migration, what a spec builds into the image (harness layer), binding a role to one, the seeded claude-default, how a spec reaches the cove and what the claude harness applies, the `jam model-spec` verb and the admin API.
 read_when: You are authoring, listing, changing or deleting a model-spec, binding a role to one, a model-spec write or delete was refused, a cove failed its claude version check, you are bumping the harness CLI version or plugins, or you need to know which spec fields a cove actually applies and when an edit takes effect.
-owns: the model-spec entity — its schema, the version / version-constraint split and its migration, version-constraint syntax, validation rules, the spec's harness-layer build inputs, role binding and the claude-default seed, delivery to the cove and the claude harness's use of it, the `at-jam model-spec` verb and the `/admin/model-specs` admin API
+owns: the model-spec entity — its schema, the version / version-constraint split and its migration, version-constraint syntax, validation rules, the spec's harness-layer build inputs, role binding and the claude-default seed, delivery to the cove and the claude harness's use of it, the `jam model-spec` verb and the `/admin/model-specs` admin API
 prereqs: serve.md for serve-config `credentials:` and `pool:`; operators.md for `--app`/`--token`
 tier: leaf
 updated: 2026-10-26
@@ -63,7 +63,7 @@ is a 400 naming the field, and nothing is stored.
 | `note` | ≤ 300 bytes. |
 | body | The body matching `type` must be set (`claude:` for `type: claude`). |
 | `claude.provider` | Required; `anthropic`, `vertex` or `bedrock`. |
-| `claude.provider-env` | Keys are env-var names; not `AT_JAM_*`/`AT_HARBOR_*`; not a protected variable (the proxy vars, `PATH`, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS`); not a credential-carrying variable (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`). |
+| `claude.provider-env` | Keys are env-var names; not `JAM_*`; not a protected variable (the proxy vars, `PATH`, `CLAUDE_CONFIG_DIR`, `GOOGLE_APPLICATION_CREDENTIALS`); not a credential-carrying variable (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`). |
 | `claude.settings` | A JSON object without the non-preference keys: `env`, `permissions`; the credential helpers `apiKeyHelper`, `awsAuthRefresh`, `awsCredentialExport`, `otelHeadersHelper`; `hooks`, `disableAllHooks`, `statusLine` (they run commands, and hooks can override the policy); the MCP selectors `enableAllProjectMcpServers`, `enabledMcpjsonServers`, `disabledMcpjsonServers`, `allowedMcpServers`, `deniedMcpServers` (the kit owns MCP servers); `enabledPlugins`, `extraKnownMarketplaces` (`claude.plugins` owns them); and the managed sandbox-policy keys `autoUpdates`, `disableRemoteControl`, `remoteControlAtStartup`, `skipDangerousModePermissionPrompt`, `bypassPermissionsModeAccepted`, `disableAutoMode` ([why](model-spec-harness.md#managed-settings-vs-preferences-cov-245)). |
 | `claude.plugins` | No empty or duplicate entries; each `name@marketplace`, both halves `[A-Za-z0-9._-]` (they reach a build `RUN` line), and the marketplace a known one (today only `claude-plugins-official` → `anthropics/claude-plugins-official`; adding one is a code change). |
 
@@ -92,13 +92,13 @@ A pre-release/build suffix on the installed version is ignored. Anything else
 
 ## Binding a role
 
-A role names its spec with `model_spec` (`at-jam role add --model-spec NAME`, the
+A role names its spec with `model_spec` (`jam role add --model-spec NAME`, the
 role forms in the admin UI — [roster.md](roster.md#roles)). Empty means
 `claude-default`. Every role write checks the name exists (400 otherwise), and a
 spec a role resolves to — explicitly, or `claude-default` via an unbound role —
 cannot be deleted (409 naming the role).
 
-**`claude-default`** is seeded at `at-jam serve` startup when absent (an
+**`claude-default`** is seeded at `jam serve` startup when absent (an
 operator's edits to it are kept): type `claude`, provider `anthropic`,
 `policy.mode: bypassPermissions`, version `modelspec.DefaultClaudeVersion` with
 no separate constraint, plugins `[superpowers@claude-plugins-official]`, the claude-default preferences as `claude.settings` (moved out of the managed
@@ -107,8 +107,8 @@ no model/effort — exactly how coves ran before model-specs.
 `DefaultClaudeVersion` is one Renovate-bumped constant: a bump moves **new**
 seeds and raises that deliver no spec —
 **not** a `claude-default` already stored. Bump that one yourself
-(`at-jam model-spec show claude-default > s.yaml`, edit `version`,
-`at-jam model-spec update s.yaml`, or the admin UI). Its principal is `pool` when a
+(`jam model-spec show claude-default > s.yaml`, edit `version`,
+`jam model-spec update s.yaml`, or the admin UI). Its principal is `pool` when a
 [`pool:`](pool.md) is configured, else the `cred_name` of the destination named
 `anthropic` (or else routed at `/anthropic/`). With neither, nothing is seeded
 (a WARN, retried each startup) and unbound roles deliver no spec: their coves
@@ -121,8 +121,8 @@ settings, and the one-time store migration, are in
 ## What a cove applies
 
 The resolved spec rides in the role's [connector](connector.md) (`model_spec`,
-`GET /connector`), which cove-master re-fetches before every episode
-([coves.md](coves.md#cove-master-the-in-cove-client)) — so an edit or a re-binding
+`GET /connector`), which jam-studio-agent re-fetches before every episode
+([coves.md](coves.md#jam-studio-agent-the-in-cove-client)) — so an edit or a re-binding
 takes effect at each cove's **next episode**, and the cove's `connector` status
 shows `stale` until then. The spec carries names only, never a secret value.
 An actor whose roles resolve to different specs, or a binding to a missing spec,
@@ -141,7 +141,7 @@ rebuild the image or change the spec's version / version-constraint`). Then each
 | `model.effort` | `--effort LEVEL` (Claude Code's flag; `low`…`max`) |
 | `claude.provider` | `vertex` → `CLAUDE_CODE_USE_VERTEX=1` (routed through a brokered vertex destination — [vertex.md](vertex.md)); `bedrock` → `CLAUDE_CODE_USE_BEDROCK=1`; `anthropic` → nothing |
 | `claude.provider-env` | set in the agent env — never over a key the connector sets (routing and identity stay Jam's) |
-| `claude.settings` + `claude.plugins` | written to `/dev/shm/cove-agent-settings.json` — the settings, plus `enabledPlugins` for each plugin and `extraKnownMarketplaces` for their marketplaces — passed as `--settings` (only when either is non-empty) |
+| `claude.settings` + `claude.plugins` | written to `/dev/shm/jam-agent-settings.json` — the settings, plus `enabledPlugins` for each plugin and `extraKnownMarketplaces` for their marketplaces — passed as `--settings` (only when either is non-empty) |
 | `policy` | permission flags — see [model-spec-policy.md](model-spec-policy.md) |
 
 `claude.plugins` are *installed* by the [harness layer](model-spec-harness.md),
@@ -149,17 +149,17 @@ not per episode. **Not applied yet:** `principal` on the cove side — the broke
 resolves the credential and applies its [header rules](model-spec-headers.md). A Jam predating model-specs delivers none: no check,
 built-in defaults.
 
-## The `at-jam model-spec` verb
+## The `jam model-spec` verb
 
 All subcommands go through the [admin API](serve.md#exposing-the-admin-api-fail-closed)
 and take the usual `--admin-url`, `--app` and `--token` flags ([operators.md](operators.md)).
 
 ```
-at-jam model-spec add <file.yaml>      # create; fails if the name exists
-at-jam model-spec update <file.yaml>   # replace every field; fails if absent
-at-jam model-spec show <name>          # print as YAML (a valid update input)
-at-jam model-spec list                 # name, type, version, principal, provider
-at-jam model-spec delete <name>
+jam model-spec add <file.yaml>      # create; fails if the name exists
+jam model-spec update <file.yaml>   # replace every field; fails if absent
+jam model-spec show <name>          # print as YAML (a valid update input)
+jam model-spec list                 # name, type, version, principal, provider
+jam model-spec delete <name>
 ```
 
 Spec files are decoded strictly: an unknown key (e.g. a typo like `notes:`) is an

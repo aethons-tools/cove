@@ -1,7 +1,7 @@
 ---
-summary: Back up and restore a Jam's control-plane CONFIG (actors, roles, kits, destinations, model-specs, projects, Jam-wide session context) with `at-jam export` / `at-jam import` — a single file, excluding studio and intercom state.
+summary: Back up and restore a Jam's control-plane CONFIG (actors, roles, kits, destinations, model-specs, projects, Jam-wide session context) with `jam export` / `jam import` — a single file, excluding studio and intercom state.
 read_when: You are snapshotting a Jam's config for backup, or restoring it onto a fresh/rebuilt Jam.
-owns: the `at-jam export` / `at-jam import` command surface and the backup file's scope + semantics
+owns: the `jam export` / `jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
 updated: 2026-10-25
@@ -11,7 +11,7 @@ updated: 2026-10-25
 
 For a reviewable, mergeable source of the same config in git, see [config-git.md](config-git.md).
 
-`at-jam export` and `at-jam import` snapshot and restore the Jam **config** — the
+`jam export` and `jam import` snapshot and restore the Jam **config** — the
 control-plane aggregates:
 
 - **actors** (identities, their **token hashes**, and grants)
@@ -56,15 +56,15 @@ intercom's log, read cursors and channel memberships, and allocator events. A ba
 ## Export
 
 ```
-at-jam export [--format json|yaml] [FILE|-]
+jam export [--format json|yaml] [FILE|-]
 ```
 
 Writes the snapshot to `FILE` (or stdout when `FILE` is omitted or `-`). Default
 format is **JSON**; `--format yaml` emits YAML.
 
 ```
-at-jam export backup.json
-at-jam export --format yaml - > backup.yaml
+jam export backup.json
+jam export --format yaml - > backup.yaml
 ```
 
 > **The backup contains token hashes** — it is authentication material. A restored
@@ -75,7 +75,7 @@ at-jam export --format yaml - > backup.yaml
 ## Import
 
 ```
-at-jam import [--format json|yaml] <FILE|->
+jam import [--format json|yaml] <FILE|->
 ```
 
 Restores a snapshot into a **fresh** Jam. Import is **fail-closed**: if the target
@@ -84,7 +84,7 @@ half-merge or clobber a running server). Format is sniffed from the content when
 `--format` is omitted.
 
 ```
-at-jam import backup.json
+jam import backup.json
 ```
 
 A backup taken before projects were first-class may have roles or grants that
@@ -105,8 +105,8 @@ re-mint every token). The wire is JSON; YAML exists only at the file boundary.
 ## Upgrading a file-store Jam
 
 Jam is Postgres-only. For a Jam that ran on the old file store, export/import is
-the **only** upgrade path: run `at-jam export` with the old version, then
-`at-jam import` into a Jam running on `store-postgres`
+the **only** upgrade path: run `jam export` with the old version, then
+`jam import` into a Jam running on `store-postgres`
 ([serve.md](serve.md#postgres-store-store-postgres)). Squawk history and session
 events in the old files are not migrated. The relay cursor/marker/receipt files
 must also be moved into `state-dir`; see

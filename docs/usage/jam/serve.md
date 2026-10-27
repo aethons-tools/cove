@@ -1,22 +1,22 @@
 ---
-summary: Running the Jam service — `at-jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store-postgres, state-dir, credentials, the subscription account pool), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
+summary: Running the Jam service — `jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store-postgres, state-dir, credentials, the subscription account pool), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
 read_when: You are standing up or configuring a Jam service — writing its serve config, wiring the real credentials it brokers, enabling the subscription-OAuth account pool, adding the destinations studios reach, or exposing the admin API beyond loopback.
-owns: the `at-jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/kits/blobs/previews), the layered `--config` overlay + the host-key table, the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
+owns: the `jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/kits/blobs/previews), the layered `--config` overlay + the host-key table, the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
 updated: 2026-10-27
 ---
 
-# Running Jam (`at-jam serve`)
+# Running Jam (`jam serve`)
 
-`at-jam serve --config <file>` runs one process that is both the **broker**
+`jam serve --config <file>` runs one process that is both the **broker**
 (the reverse proxy studios send Anthropic/git through) and a **loopback admin API**
-(the control plane the `at-jam` admin verbs talk to). Both are backed by a
+(the control plane the `jam` admin verbs talk to). Both are backed by a
 single **Postgres** store (`store-postgres`, required). The serve config is bootstrap-only: destinations,
 roles, and enrollments are managed at runtime via the admin API, not this file.
 
 ```
-at-jam serve --config /etc/jam/jam.yml
+jam serve --config /etc/jam/jam.yml
 ```
 
 ## The serve config
@@ -42,7 +42,7 @@ store-postgres:                  # REQUIRED — the live data (identities, roles
   sslmode: verify-full
   password-cred: jam-db
 state-dir: /var/lib/jam/state    # optional; relay cursors/markers/receipts (default shown in the key table)
-credentials-file: /home/jam/.config/at-jam/credentials.yml  # optional; the XDG default shown
+credentials-file: /home/jam/.config/jam/credentials.yml  # optional; the XDG default shown
 credentials:                        # name-only DEMANDS — strategies live in the credentials file
   anthropic-key:
   git-pat:
@@ -65,9 +65,9 @@ runtime:                            # optional — supervisor lease/reconcile ti
   reconcile-interval: 30s           # must be < lease-ttl
   listen: "127.0.0.1:9090"          # OPTIONAL plaintext Attach gRPC dev listener; prod uses the :443 mux
   discord:
-    connection: discord-main        # an `at-jam connection` of kind discord
+    connection: discord-main        # a `jam connection` of kind discord
   requisitioner:
-    connection: linear-acme         # an `at-jam connection` of kind linear or github (the tracker block's)
+    connection: linear-acme         # a `jam connection` of kind linear or github (the tracker block's)
   wake:                             # optional — wake-on engine timing (see intercom.md)
     wait-max: 24h
 ```
@@ -86,13 +86,13 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `admin-listen` | no | Address the admin API serves on. Omit to run the broker alone. |
 | `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `jam.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#signing-in-one-login-one-principal). |
 | `ui-origins` | no | Extra exact origins (`scheme://host[:port]`, no path) the browser UI's write checks (`/app/admin` and `/app/user`) accept, besides the request's own `Host`. For a proxy that fronts the admin listener on another address (e.g. `http://localhost:8090`). Matching is exact: another port or scheme is another origin. Malformed entries fail serve at startup. They are also the only pages that may frame a preview, and framed preview pages post their status to the first entry, so list the production UI origin first ([previews.md](previews.md#framing-the-jam-pane)); serve warns when previews are on and this is empty. |
-| `dev-identity` | no | **Dev only.** `{user}` (a user's name or id; the old `{project, human}` still works, with a deprecation warning, as exactly the user that roster human became in the migration): loopback browser requests to `/app` act as that user with **no login**: an admin under the user's first login (or `local` if they have none), and a member through their first OIDC identity, so the user needs one (`at-jam user oidc`) and a project membership. A real login session still wins. It never applies off loopback, and the `Host` check still runs. serve refuses it unless `admin-listen` is loopback, and logs a `DEV IDENTITY ACTIVE` warning at startup. Never set it in production. |
+| `dev-identity` | no | **Dev only.** `{user}` (a user's name or id; the old `{project, human}` still works, with a deprecation warning, as exactly the user that roster human became in the migration): loopback browser requests to `/app` act as that user with **no login**: an admin under the user's first login (or `local` if they have none), and a member through their first OIDC identity, so the user needs one (`jam user oidc`) and a project membership. A real login session still wins. It never applies off loopback, and the `Host` check still runs. serve refuses it unless `admin-listen` is loopback, and logs a `DEV IDENTITY ACTIVE` warning at startup. Never set it in production. |
 | `tls.cert` / `tls.key` | for a real broker | The broker's own server certificate (it serves its own TLS per connector — no MITM CA). |
 | `admin-tls.cert` / `admin-tls.key` | no | A separate cert for the admin API; falls back to `tls:` when unset. |
 | `store-postgres` | **yes** | The Postgres store: control plane, squawk Log, session events, allocation ledger. A block of `host`, `port`, `database`, `user`, `sslmode`, and `password-cred`. `serve` refuses to start without it. See [Postgres store](#postgres-store-store-postgres) below. |
-| `state-dir` | no | Directory for the relay engines' small local files: `relay-cursors.json`, `relay-markers.json`, `relay-receipts.json`. Default `$XDG_STATE_HOME/at-jam`, else `~/.local/state/at-jam`; created `0700` when a relay needs it. Must resolve to an **absolute** path: with `HOME` unset, a relative `XDG_STATE_HOME`, or a relative `state-dir`, `serve` fails at startup rather than write under the working directory. See [Upgrading relay state](#upgrading-relay-state). |
+| `state-dir` | no | Directory for the relay engines' small local files: `relay-cursors.json`, `relay-markers.json`, `relay-receipts.json`. Default `$XDG_STATE_HOME/jam`, else `~/.local/state/jam`; created `0700` when a relay needs it. Must resolve to an **absolute** path: with `HOME` unset, a relative `XDG_STATE_HOME`, or a relative `state-dir`, `serve` fails at startup rather than write under the working directory. See [Upgrading relay state](#upgrading-relay-state). |
 | `session-events-retention` | no | How long session events are kept (`<N>d` or a Go duration; empty keeps forever); see [session-events.md](session-events.md). |
-| `credentials-file` | no | Path to the protected file that supplies the demanded credentials. Default `${XDG_CONFIG_HOME:-~/.config}/at-jam/credentials.yml`. See [credentials.md](credentials.md). |
+| `credentials-file` | no | Path to the protected file that supplies the demanded credentials. Default `${XDG_CONFIG_HOME:-~/.config}/jam/credentials.yml`. See [credentials.md](credentials.md). |
 | `credentials.<name>` | as needed | The credentials the broker injects, **named only** (an empty entry); strategies live in the credentials file — see [credentials.md](credentials.md). Referenced by a destination's `cred-name`. Values are resolved on the host, in memory — never written to the store. A demanded name the file doesn't supply aborts `serve`. |
 | `pool` | no | Enables the [subscription-OAuth account pool](pool.md): the anthropic destination's credential is resolved from a pool of subscription accounts by cove identity, coves launch in subscription mode, and a background refresher rotates pool tokens. Requires `pool.store` (the path to the pool JSON file) and `cred-name`; `refresh-interval`/`refresh-margin` default to 5m/15m and `token-url`/`client-id`/`scope` default to the probed Claude Code constants. Absent ⇒ the anthropic destination keeps its configured credential and coves launch in API-key mode. |
 | `metrics` | no | Serves the operator-attention exposition at `/metrics` on the broker listener: `token-cred` (required) names a demanded credential holding the Prometheus scrape token; `alertmanager-url` (optional) is linked from the admin UI's Health tab. Unset ⇒ no `/metrics`. See [monitoring.md](monitoring.md). |
@@ -106,7 +106,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `runtime.studio-managers` | no | `true` lets remote Studio Managers connect and registers the `manager` admin verbs. Studios run on Studio Managers only; the old `runtime.launcher` block is removed and refused at startup (see [studio-managers.md](studio-managers.md#retiring-the-in-process-launcher)). See [studio-managers.md](studio-managers.md). |
 | `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), exactly one of a `linear` or `github` block, and `connection`: a **connection** of that kind, whose credential must be demanded in `credentials:`. Serve refuses to start on an unknown connection, another kind, or an undemanded credential. The deprecated, Linear-only `tracker-token-cred: <credential>` still works (with a warning) by binding the implicit connection named `linear`. Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
 | `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires `connection`: a connection of kind `discord` whose credential (the bot token) is demanded in `credentials:`, resolved on the host — never logged/injected; the deprecated `bot-token-cred` binds the implicit connection named `discord`. No Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
-| `runtime.push` | no | Web Push notifications for the Jam app. `vapid-private-key-cred` (required): a `credentials:` entry holding the base64url P-256 VAPID private key, resolved on the host — never on disk, in argv or logs; `subject` (required): `mailto:` or `https:` contact for the push service; `preview` (default `true`; `false` sends the body "New message"). Runs the egress-only push relay engine (its mark lives in `relay-markers.json`). Omitted ⇒ push off. Generate a key with `at-jam push keygen`. |
+| `runtime.push` | no | Web Push notifications for the Jam app. `vapid-private-key-cred` (required): a `credentials:` entry holding the base64url P-256 VAPID private key, resolved on the host — never on disk, in argv or logs; `subject` (required): `mailto:` or `https:` contact for the push service; `preview` (default `true`; `false` sends the body "New message"). Runs the egress-only push relay engine (its mark lives in `relay-markers.json`). Omitted ⇒ push off. Generate a key with `jam push keygen`. |
 | `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`; and `session-wake-limit`, the agent-to-agent loop breaker (default 8; `0` = session posts never wake sessions; negative refused). Each field falls back to the matching `runtime.requisitioner` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
 | `runtime.escalation-poll-interval` | no | How often the escalation engine checks waiting sessions (default 30s; falls back to `runtime.requisitioner.escalation-poll-interval`). The engine runs with or without a Requisitioner. See [escalation.md](escalation.md). |
 
@@ -149,7 +149,7 @@ history; what this changes for agents, relays and `/app/user` is in
 them is a **hard startup error** naming the key. Operators already on
 `store-postgres` just **delete the leftover line**: those keys were ignored
 there, so no migration is needed. To move a file-backed Jam, run
-`at-jam export` with the old version and `at-jam import` into a Postgres Jam
+`jam export` with the old version and `jam import` into a Postgres Jam
 ([backup.md](backup.md)). Squawk history and session events in the old files
 are **not** migrated.
 
@@ -228,11 +228,11 @@ Personal sessions need the ledger, which `serve` always has.
 ### Running studios
 
 Jam runs no studios itself: [Studio Managers](studio-managers.md) next to Colima host them, set up per [studio-manager.md](../studio-manager.md).
-With `runtime.studio-managers` off (dev and tests), `at-jam studio raise` records a placeholder instance and starts nothing.
+With `runtime.studio-managers` off (dev and tests), `jam studio raise` records a placeholder instance and starts nothing.
 
 ## Layering serve configs
 
-`--config` is repeatable: `at-jam serve --config jam.yml --config jam.local.yml`.
+`--config` is repeatable: `jam serve --config jam.yml --config jam.local.yml`.
 Files merge in order — maps merge by key, scalars and lists replace — so a
 later file overrides an earlier one. One `--config` behaves as before.
 
@@ -278,15 +278,15 @@ to an upstream base URL plus how the identity arrives and how the real credentia
 is applied. Destinations are managed at runtime via the admin API:
 
 ```
-at-jam destination add \
+jam destination add \
   --name anthropic --route /anthropic/ --upstream https://api.anthropic.com \
   --identity-in x-api-key --cred-name anthropic-key --apply x-api-key
-at-jam destination add \
+jam destination add \
   --name git --route /git/ --upstream https://github.com \
   --identity-in basic-password --cred-name git-pat --apply basic-password
-at-jam destination list
-at-jam destination rm <name>
-at-jam destination import <file.yaml>   # bulk add from a YAML with a `destinations:` list
+jam destination list
+jam destination rm <name>
+jam destination import <file.yaml>   # bulk add from a YAML with a `destinations:` list
 ```
 
 - `--identity-in` / `--apply` are a preset, `bearer | basic-password | x-api-key | raw` —
@@ -337,7 +337,7 @@ principal** (cheaper, model-entitled) instead of the federated `anthropic-key`
 credential: the anthropic destination flips to `bearer`, each cove is seeded a
 dummy subscription credential whose access token is its own identity, and the
 broker injects a pooled account's real token per request. See
-[pool.md](pool.md) for the mechanism, the `at-jam pool` verb, broker-owned token
+[pool.md](pool.md) for the mechanism, the `jam pool` verb, broker-owned token
 refresh, and the egress it needs.
 
 ## Exposing the admin API (fail-closed)
@@ -354,4 +354,4 @@ pointer in [INDEX.md](INDEX.md).
 
 ## Push notifications
 
-`runtime.push` turns on Web Push for the Jam app; `at-jam push keygen` prints a fresh VAPID key pair (store the private half as the demanded credential). Setup, egress and behaviour: [push.md](push.md).
+`runtime.push` turns on Web Push for the Jam app; `jam push keygen` prints a fresh VAPID key pair (store the private half as the demanded credential). Setup, egress and behaviour: [push.md](push.md).

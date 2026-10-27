@@ -156,7 +156,7 @@ func TestModelSpecFor(t *testing.T) {
 }
 
 // GET /connector carries the role's resolved spec — names only — and an edit
-// is visible on the next fetch (what cove-master does before every episode).
+// is visible on the next fetch (what jam-studio-agent does before every episode).
 func TestConnectorHandlerDeliversModelSpec(t *testing.T) {
 	st := connectorStore(t, []Destination{legacyAnthropic}, map[string]Scope{"w": {Destinations: []string{"anthropic"}}})
 	putSpec(t, st, "opus", "claude-opus-5-5")

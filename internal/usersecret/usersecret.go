@@ -1,5 +1,5 @@
 // Package usersecret loads Jam's host-side credential supply file
-// (~/.config/at-jam/credentials.yml, LoadFlat): minters:/global: libraries plus
+// (~/.config/jam/credentials.yml, LoadFlat): minters:/global: libraries plus
 // a flat credentials: map, resolved to secret.Specs by PlanFlat.
 package usersecret
 
@@ -20,7 +20,7 @@ type Store struct {
 	Credentials map[string]Source // credentials.yml: name -> source
 }
 
-// file is the on-disk shape of the supply file. Kits is the retired at-cove
+// file is the on-disk shape of the supply file. Kits is the retired
 // per-kit section, still accepted (and ignored) so an older file keeps loading.
 type file struct {
 	Minters     map[string]Minter            `yaml:"minters"`
@@ -64,7 +64,7 @@ func readFile(path string) (file, error) {
 	return f, nil
 }
 
-// LoadFlat parses a single flat supply file (~/.config/at-jam/credentials.yml)
+// LoadFlat parses a single flat supply file (~/.config/jam/credentials.yml)
 // into a Store: minters:/global: inert libraries plus a flat credentials: map of
 // name -> source. A missing file yields an empty Store (the caller fails
 // closed on an unsupplied demand). It validates every minter and that every

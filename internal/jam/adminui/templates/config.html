@@ -48,7 +48,7 @@
           <input name="source" required autocomplete="off" spellcheck="false" placeholder="https://github.com/acme/jam-config@main"></label>
         <div class="form-actions"><button type="submit" class="primary">Track</button> <span class="htmx-indicator">fetching and planning…</span></div>
       </form>
-      {{else}}<p class="unset">Git actions are not available on this serve; use <code>at-jam config apply --dir</code>.</p>{{end}}
+      {{else}}<p class="unset">Git actions are not available on this serve; use <code>jam config apply --dir</code>.</p>{{end}}
     {{end}}
     </div>
   </section>
@@ -66,7 +66,7 @@
         <td>{{if eq .State "in-sync"}}<span class="unset">in sync</span>{{else if .State}}<span class="chip st-{{.State}}">{{.State}}</span>{{else}}<span class="unset">unknown</span>{{end}}</td>
         <td class="actions"><button class="small danger" hx-delete="{{.ReleaseURL}}" hx-target="#config" hx-swap="outerHTML" hx-disabled-elt="this"
           hx-confirm="Stop managing {{.Kind}} {{.Name}} from the config repo? It stays in Jam, unmanaged.">Release</button></td>
-      </tr>{{else}}<tr><td colspan="5" class="empty">Nothing is managed yet — apply a config repo, or run <code>at-jam config apply --dir</code>.</td></tr>{{end}}
+      </tr>{{else}}<tr><td colspan="5" class="empty">Nothing is managed yet — apply a config repo, or run <code>jam config apply --dir</code>.</td></tr>{{end}}
       </tbody>
     </table>
   </section>

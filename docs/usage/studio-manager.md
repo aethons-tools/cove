@@ -1,34 +1,34 @@
 ---
-summary: The `at-studio-manager` binary — a bare-metal process next to Colima that dials Jam over TLS and hosts studios; its install, config file, token, TLS, reconnect backoff, capacity, labels and image builds.
-read_when: You are setting up or running `at-studio-manager` on a host, editing its `config.yml`, or debugging why it will not connect, declines raises, or rebuilds images.
-owns: the `at-studio-manager` binary's config file, `run` verb, TLS trust, reconnect backoff, capacity gate, container/volume labels and per-host image builds
+summary: The `jam-studio-manager` binary — a bare-metal process next to Colima that dials Jam over TLS and hosts studios; its install, config file, token, TLS, reconnect backoff, capacity, labels and image builds.
+read_when: You are setting up or running `jam-studio-manager` on a host, editing its `config.yml`, or debugging why it will not connect, declines raises, or rebuilds images.
+owns: the `jam-studio-manager` binary's config file, `run` verb, TLS trust, reconnect backoff, capacity gate, container/volume labels and per-host image builds
 prereqs: jam/studio-managers.md for registering the manager and what Jam does with it
 tier: leaf
 updated: 2026-10-27
 ---
 
-# at-studio-manager
+# jam-studio-manager
 
-`at-studio-manager` runs on a host with Colima, dials *into* Jam over TLS and raises studios there on Jam's behalf.
+`jam-studio-manager` runs on a host with Colima, dials *into* Jam over TLS and raises studios there on Jam's behalf.
 Registration, the token's auth, and disconnect/reconnect/revoke behaviour on Jam's side are in [Studio Managers](jam/studio-managers.md); this doc is the manager host's side.
 
 ## Install and run
 
-`install.sh` and `at-jam update` install it next to `at-jam`; the first `at-jam update` from an older `at-jam` (whose embedded installer predates this binary) skips it, so run the update once more or use `install.sh`.
+`install.sh` and `jam update` install it next to `jam`. Upgrading a host from a pre-rename release: follow [the rename runbook](jam/renamed-from-at.md#remote-studio-managers).
 Its version must equal Jam's exactly, otherwise Jam refuses the stream.
-An update replaces the binary, not the running process: restart `at-studio-manager run` after `at-jam update` or `install.sh`, or Jam keeps refusing the old process.
+An update replaces the binary, not the running process: restart `jam-studio-manager run` after `jam update` or `install.sh`, or Jam keeps refusing the old process.
 
-1. On Jam, `at-jam manager add <name>`, and save the printed token in `token-file` (whitespace is trimmed; the token is never logged).
+1. On Jam, `jam manager add <name>`, and save the printed token in `token-file` (whitespace is trimmed; the token is never logged).
 2. Write the config below.
-3. `at-studio-manager run [--config <path>]` serves until SIGINT or SIGTERM.
+3. `jam-studio-manager run [--config <path>]` serves until SIGINT or SIGTERM.
 
-The token file is reread at each connect, so after `at-jam manager rotate` ([verbs](jam/studio-managers.md)) writing the new token to `token-file` is enough; the manager reconnects with it, no restart.
+The token file is reread at each connect, so after `jam manager rotate` ([verbs](jam/studio-managers.md)) writing the new token to `token-file` is enough; the manager reconnects with it, no restart.
 
-`at-studio-manager colima setup-docker|check-docker` prepare the Colima VM for `colima.docker: true`; they are owned by [docker-in-sandbox.md](docker-in-sandbox.md).
+`jam-studio-manager colima setup-docker|check-docker` prepare the Colima VM for `colima.docker: true`; they are owned by [docker-in-sandbox.md](docker-in-sandbox.md).
 
 ## Config
 
-Default path `<dir>/config.yml`, where `<dir>` is `$XDG_CONFIG_HOME/at-studio-manager`, else `~/.config/at-studio-manager`.
+Default path `<dir>/config.yml`, where `<dir>` is `$XDG_CONFIG_HOME/jam-studio-manager`, else `~/.config/jam-studio-manager`.
 The file is strict: unknown keys are rejected.
 
 ```yaml
@@ -50,7 +50,7 @@ colima:
 ```
 
 `identity-file` is the SSH key the manager uses to reach its studios (generated on first use); `known-hosts-dir` holds the studio host keys; both default to the manager's own `<dir>`.
-`runtime-addr` is what a studio dials (`AT_JAM_RUNTIME_ADDR`); `jam-host` is added to the studio's `/etc/hosts` so that name resolves to the host gateway.
+`runtime-addr` is what a studio dials (`JAM_RUNTIME_ADDR`); `jam-host` is added to the studio's `/etc/hosts` so that name resolves to the host gateway.
 `docker-context` picks which Colima instance studios run in: every docker call is pinned to it.
 It defaults to `colima`; `colima start --profile jam-b` creates `colima-jam-b`, so `docker-context: colima-jam-b` places this manager's studios, kit images and volumes in that VM.
 For a Jam in a container, `jam-addr` is the host's published 443 ([pointing managers at it](jam/container.md#pointing-studio-managers-at-it)).
@@ -73,14 +73,14 @@ At the limit a raise is declined with `at capacity (<n>/<cap> studios)` and Jam 
 
 ## Labels and sharing a daemon
 
-Containers carry `harbor.cove`, `harbor.cove.actor=<id>` and `harbor.cove.manager=<name>`.
-State volumes carry `harbor.cove.manager` too, and their `harbor.cove.jam` value is `<runtime-addr>#<name>`.
+Containers carry `jam.studio`, `jam.studio.actor=<id>` and `jam.studio.manager=<name>`.
+State volumes carry `jam.studio.manager` too, and their `jam.studio.jam` value is `<runtime-addr>#<name>`.
 These scope every list and sweep to one manager, so two managers can share one Colima daemon.
 A manager restart leaves its studios running and re-reports them from these labels on reconnect.
 
 ## Names and moving between managers
 
-A manager's containers are `atcove.<manager>.cove-<id>` and its volumes derive from that (`-agent-data`, `-workspace`, `-docker`).
+A manager's containers are `jam-studio.<manager>.<id>` and its volumes derive from that (`-agent-data`, `-workspace`, `-docker`).
 A manager name holds no `.`, so no two managers' names can collide on a shared daemon.
 A standing session that moves to another manager starts fresh: no state carries over.
 

@@ -60,7 +60,7 @@ While it has a studio, its **Setup** tab shows what the agent is set up with —
   (or "Previews are off on this Jam" without a [`previews:`](serve.md)
   domain). With neither SSH collaboration nor previews configured the card
   says so instead. Sharing itself is
-  `at-jam studio share` ([collaboration.md](collaboration.md#sharing)).
+  `jam studio share` ([collaboration.md](collaboration.md#sharing)).
 - **Session** — its captured event streams (start, last event, count), each
   opening the timeline on that stream ([session-events.md](session-events.md)).
 - **Squawks** — the newest 50 squawks in its conversations (and, from before
@@ -97,7 +97,7 @@ card for that layer (role, project, Jam-wide; the concept is [session
 context](session-context.md)): the core, its size as an agent receives it
 against the budget (a project's includes the resources pointer), the leaves and,
 for projects, the resources. **Edit agent context** is one YAML box in
-the [`at-jam context` format](session-context-authoring.md) with bodies inline;
+the [`jam context` format](session-context-authoring.md) with bodies inline;
 saving runs the same checks as the API, and **Clear** removes the layer.
 
 ## Destination pages
@@ -149,7 +149,7 @@ longer configured stays selected); policy mode is a select (empty = harness
 default); version is the exact `X.Y.Z` the image installs, version-constraint the optional
 runtime check; allow, deny, plugins and [principal header rules](model-spec-headers.md#in-the-admin-ui)
 take one entry per line; provider-env one `KEY=VALUE` per line; settings a JSON object. Writes go through the same
-validation as `at-jam model-spec` ([model-specs.md](model-specs.md#validation));
+validation as `jam model-spec` ([model-specs.md](model-specs.md#validation));
 a refusal shows in the page banner and stores nothing. **Delete** is on the
 page header and each table row.
 
@@ -184,7 +184,7 @@ studio kit (a pre-studio row) shows its parse error and raw text instead. A
 packed context left in its `base` is masked as `«packed context, not shown»`,
 with a note above the push form to remove it before pushing; a text the page
 cannot analyse (not one plain YAML document: anchors, aliases and merge keys
-count against it) that mentions a context is not shown at all, and the page says to get it with `at-jam config write`. A broken version,
+count against it) that mentions a context is not shown at all, and the page says to get it with `jam config write`. A broken version,
 one the migration to trees could not convert, shows its migration error.
 
 A kit built on a parent kit ([kits-inheritance.md](kits-inheritance.md)) also
@@ -203,7 +203,7 @@ gitlab hosts) — with **Sync** and **Untrack** (versions are kept), or a
 **Track…** form when the kit has none. It also notes a
 [kit set](kits-path-parents.md#where-a-set-shows). The **Versions** table lists
 each version's push time, source and commit. The import, track, sync and
-untrack controls need the git fetcher (always present in `at-jam serve`),
+untrack controls need the git fetcher (always present in `jam serve`),
 disable their button while the fetch runs, and follow the admin API's rules and
 errors ([kits-git.md](kits-git.md)); without one the page only shows
 provenance.

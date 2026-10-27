@@ -13,7 +13,7 @@ func DefaultStudioKit() StudioKit {
 	return StudioKit{
 		Kind:   Kind,
 		Egress: []string{"github.com", "pkg.go.dev"},
-		Prompt: "You are a studio agent running in a brokered at-cove sandbox. " +
+		Prompt: "You are a studio agent running in a brokered Jam studio. " +
 			"Follow the task you are given; reach external services only through the approved allow-list.",
 	}
 }

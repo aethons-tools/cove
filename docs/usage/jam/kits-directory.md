@@ -16,7 +16,7 @@ A kit version is a directory: `kit.yml` plus its files.
 A `Dockerfile` next to `kit.yml` makes the directory, **minus `kit.yml`**, the
 build context. It is streamed to `docker build -` as a deterministic tar
 (sorted, epoch mtime, fixed uid/gid), modes kept, so a script keeps its `+x`.
-The Dockerfile must start `ARG COVE_BASE_IMAGE` then `FROM ${COVE_BASE_IMAGE}`
+The Dockerfile must start `ARG JAM_STUDIO_BASE_IMAGE` then `FROM ${JAM_STUDIO_BASE_IMAGE}`
 (docker substitutes a build arg in `FROM` only when it is declared first), so
 it builds on the blessed base, or on the parent's stage for a child kit.
 
@@ -27,7 +27,7 @@ any other file of a `Dockerfile` kit rebuilds it.
 Note files (`notes[].file`) are read from the directory, relative to its root
 and inside it. `base.image` and a `Dockerfile` exclude each other.
 
-`at-jam kit push <dir>` sends the directory as an uncompressed tar to
+`jam kit push <dir>` sends the directory as an uncompressed tar to
 `POST /admin/kits/{name}/versions` (admin only, `Content-Type: application/x-tar`, else 415); `kit push --config <file>`
 sends `kit.yml` alone, a one-file version. A hand-made `tar -C dir -cf - .`
 works: a leading `./` is dropped and directory entries are skipped.
@@ -89,8 +89,8 @@ definition that no longer parses keeps its text, minus the context fields, as
 **A config repo written by an older Jam** still holds `kits/<n>/kit.yml`
 with `base.context-dir` and the files under `kits/<n>/context/`. `config
 diff`, `apply` and `sync` refuse it (the context-field error below, followed by
-`; a config repo written by an older Jam: run at-jam config write <repo> and
-commit`). After the upgrade, run `at-jam config write <repo>` once and commit:
+`; a config repo written by an older Jam: run jam config write <repo> and
+commit`). After the upgrade, run `jam config write <repo>` once and commit:
 it rewrites each `kit.yml` without the field and mirrors the migrated files to
 the kit's root, removing `context/`.
 

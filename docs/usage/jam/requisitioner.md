@@ -9,9 +9,9 @@ updated: 2026-10-26
 
 # The Requisitioner
 
-The **Requisitioner** is an always-on loop inside `at-jam serve` that
+The **Requisitioner** is an always-on loop inside `jam serve` that
 turns ready tracker tickets into managed-cove raises — the automatic counterpart
-to `at-jam studio raise` ([coves.md](coves.md)). Enable it with a
+to `jam studio raise` ([coves.md](coves.md)). Enable it with a
 `runtime.requisitioner` block; the supervisor + Launcher own everything after the
 raise (run → report → teardown).
 
@@ -66,7 +66,7 @@ runtime:
     project: acme             # optional
     max-concurrent: 5         # required, > 0 — the backpressure cap (fallback: the role's roster max-ephemeral wins when set)
     poll-interval: 30s        # optional; defaults to 30s
-    connection: linear-acme   # a connection of the tracker's kind, `linear` or `github` (`at-jam connection add --kind linear --name linear-acme --cred linear-bot`); its credential is demanded in credentials.md, never inline here
+    connection: linear-acme   # a connection of the tracker's kind, `linear` or `github` (`jam connection add --kind linear --name linear-acme --cred linear-bot`); its credential is demanded in credentials.md, never inline here
     linear:                   # the Linear team + lifecycle-state map
       team: AET
       class-label-prefix: "class:"
@@ -94,7 +94,7 @@ runtime:
   requisitioner:
     role: worker
     max-concurrent: 5
-    connection: gh-acme       # at-jam connection add --kind github --name gh-acme --cred github-bot
+    connection: gh-acme       # jam connection add --kind github --name gh-acme --cred github-bot
     github:
       repo: acme/board        # owner/name
       class-label-prefix: "class:"

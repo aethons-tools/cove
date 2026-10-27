@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/covemaster"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 const defaultGrace = 10 * time.Second
@@ -61,7 +61,7 @@ const resumeFailWindow = 2 * time.Minute
 // on its persisted /agent-data. A var so tests can shrink it.
 var streamLogCap int64 = 16 << 20
 
-// defaultConversationMarker is the file a standing session's cove-master
+// defaultConversationMarker is the file a standing session's jam-studio-agent
 // writes once its agent is first seen replying (so a conversation exists): on the persisted /agent-data
 // volume, so a restarted session knows there is a conversation to continue. A
 // var so tests can point it away from the real /agent-data.
@@ -69,7 +69,7 @@ var defaultConversationMarker = "/agent-data/.cove-conversation"
 
 // defaultClearMarker is the file a Clear pressed while waiting writes (its
 // contents are who pressed it): on the persisted /agent-data volume, so the
-// fresh start it asks for survives a cove-master restart. A var so tests can
+// fresh start it asks for survives a jam-studio-agent restart. A var so tests can
 // point it away from the real /agent-data.
 var defaultClearMarker = "/agent-data/.cove-clear-pending"
 
@@ -91,14 +91,14 @@ type Config struct {
 	// Connector, when set, refreshes the agent's connector before every spawn
 	// (episode — not per prompt: a Wake written into a live episode keeps that
 	// episode's env) (GET /connector) and reports the applied fingerprint; nil inherits
-	// cove-master's env unchanged (an older launcher).
+	// jam-studio-agent's env unchanged (an older launcher).
 	Connector *ConnectorConfig
 	// Resident marks a personal or standing session; it only picks the resume
 	// prompt now — every session waits after every episode.
 	Resident bool
 	// StreamLogPath is the VM-local file the agent's stdout is
 	// appended to; empty defaults to defaultStreamLogPath. It is deliberately
-	// not cove-master's stdout, which Jam reads into its own log.
+	// not jam-studio-agent's stdout, which Jam reads into its own log.
 	StreamLogPath string
 	// Context is the compiled session context; nil (an older launcher) runs
 	// the agent without it. Written under ContextDir once at Run start; its core
@@ -135,8 +135,8 @@ const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
 var defaultContextDir = sessionctx.Dir
 
 // Workload runs the agent (via its Harness) as a turn loop and maps its lifecycle onto
-// the covemaster Activity stream: every turn ends in Waiting until a Wake
-// arrives. It implements covemaster.Workload.
+// the studioagent Activity stream: every turn ends in Waiting until a Wake
+// arrives. It implements studioagent.Workload.
 type Workload struct {
 	cfg     Config
 	log     *slog.Logger
@@ -151,7 +151,7 @@ type Workload struct {
 	// handle results go up on, and the agent's last spawn env (nil = inherit).
 	gateMu  sync.Mutex
 	gateCtx context.Context
-	gateH   covemaster.Handle
+	gateH   studioagent.Handle
 	gateEnv []string
 	// streamOut is the stream log every episode's stdout is appended to; nil =
 	// unavailable (events only). Set once at Run start.
@@ -220,7 +220,7 @@ func (w *Workload) resumeText() string {
 // Waiting and blocks until a Wake resumes it (a new continued episode) or ctx
 // is cancelled (Jam tearing the session down: end, idle timeout, wait-max).
 // No result file is read.
-func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
+func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 	w.gateMu.Lock()
 	w.gateCtx, w.gateH = ctx, h
 	w.gateMu.Unlock()
@@ -286,7 +286,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		first := prompt
 		if w.ctxr != nil {
 			// Every episode starts on the current bundle. Episode 1 (also after a
-			// cove-master restart) gets no notice: nothing came before it.
+			// jam-studio-agent restart) gets no notice: nothing came before it.
 			if changed := w.ctxr.episode(ctx); turn > 1 {
 				first += contextNotice(changed, false)
 			}
@@ -296,7 +296,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 			return err
 		}
 		w.dropStaleInterrupt(h, t) // before Running: a press after it is this episode's
-		h.Report(covemaster.Running)
+		h.Report(studioagent.Running)
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
 		started := time.Now()
 
@@ -337,7 +337,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 		// Wake (a reply, an alarm, the idle timeout). Jam decides when the
 		// session ends (end, idle teardown, wait-max); no result file is read.
 		w.logTurn(waitErr)
-		h.Report(covemaster.Waiting)
+		h.Report(studioagent.Waiting)
 		for {
 			rs, c, ok := w.awaitWake(ctx, h, turn, nil)
 			if !ok {
@@ -369,7 +369,7 @@ func (w *Workload) Run(ctx context.Context, h covemaster.Handle) error {
 // stays waiting. Wakes stay buffered for the wait after it, and so do Clears.
 // It returns an error only when ctx ends; any other failure is logged and Run
 // goes back to waiting.
-func (w *Workload) compactIdle(ctx context.Context, h covemaster.Handle, turn uint32, c compactReq) error {
+func (w *Workload) compactIdle(ctx context.Context, h studioagent.Handle, turn uint32, c compactReq) error {
 	mctx, cancel := context.WithTimeout(ctx, compactTimeout)
 	defer cancel()
 	proc, tr, split, err := w.spawn(mctx, h, turn, true)
@@ -407,7 +407,7 @@ func (w *Workload) compactIdle(ctx context.Context, h covemaster.Handle, turn ui
 // and spawns the harness command, its stdout teed to the stream log, the
 // session event stream and a fresh idle tracker. The splitter must be flushed
 // once the process exits.
-func (w *Workload) spawn(ctx context.Context, h covemaster.Handle, turn uint32, continued bool) (Process, *idleTracker, *lineSplitter, error) {
+func (w *Workload) spawn(ctx context.Context, h studioagent.Handle, turn uint32, continued bool) (Process, *idleTracker, *lineSplitter, error) {
 	split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(turn, line, dropped) }}
 	tr := newIdleTracker(w.cfg.Harness.ParseEvent, func(msg string, a ...any) { w.log.Warn(msg, a...) })
 	// A reply means a conversation exists: a standing session's to continue
@@ -530,7 +530,7 @@ func specName(spec *modelspec.Spec) string {
 }
 
 // overlayEnv sets the harness's extra env over the spawn env (nil = inherit
-// cove-master's env), except a key the current connector sets: the connector
+// jam-studio-agent's env), except a key the current connector sets: the connector
 // owns routing and identity. Logs never carry the values.
 func (w *Workload) overlayEnv(env []string, extra map[string]string) []string {
 	if len(extra) == 0 {
@@ -571,7 +571,7 @@ func (w *Workload) overlayEnv(env []string, extra map[string]string) []string {
 //
 // A maintenance episode's prompt is a /compact: it reads no Wakes (they stay
 // buffered), takes no Clear, and closes stdin once the compaction's turn ends.
-func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32, proc Process, tr *idleTracker, prompt string, maintenance bool) error {
+func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint32, proc Process, tr *idleTracker, prompt string, maintenance bool) error {
 	exited := make(chan error, 1)
 	go func() { exited <- proc.Wait() }()
 	in := proc.Input()
@@ -607,7 +607,7 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 	held := false
 	unhold := func() {
 		if held {
-			h.Report(covemaster.Running)
+			h.Report(studioagent.Running)
 			held = false
 		}
 	}
@@ -758,7 +758,7 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 				hold = time.NewTimer(w.cfg.BackgroundWait)
 				holdC = hold.C
 				if !held { // a hold resumed after a compaction is still reported
-					h.Report(covemaster.Holding)
+					h.Report(studioagent.Holding)
 					held = true
 				}
 			}
@@ -776,7 +776,7 @@ func (w *Workload) episode(ctx context.Context, h covemaster.Handle, turn uint32
 // (compact) arrives, skipping stale signals. A Clear is handled here (see
 // takeClear). turn is the last episode's event turn, for command records. ok
 // is false when ctx ends or timeout (nil = none) fires.
-func (w *Workload) awaitWake(ctx context.Context, h covemaster.Handle, turn uint32, timeout <-chan time.Time) (rs []covemaster.WakeReason, compact *compactReq, ok bool) {
+func (w *Workload) awaitWake(ctx context.Context, h studioagent.Handle, turn uint32, timeout <-chan time.Time) (rs []studioagent.WakeReason, compact *compactReq, ok bool) {
 	for {
 		select {
 		case <-w.wake.signal():
@@ -806,7 +806,7 @@ func (w *Workload) awaitWake(ctx context.Context, h covemaster.Handle, turn uint
 // turn — the agent crashed or errored (auth/model-not-accessible/…) — and must
 // be loud, not mistaken for a healthy wait; the session still waits, and Jam
 // ends it (an unfinished ticket is then marked blocked). The cause is in the
-// agent's own log (cove-master.log).
+// agent's own log (jam-studio-agent.log).
 func (w *Workload) logTurn(waitErr error) {
 	if waitErr != nil {
 		w.log.Warn("agentrun: turn FAILED — agent exited non-zero; waiting (cause is in the agent log)", "exit", waitErr.Error())
@@ -827,22 +827,22 @@ func (w *Workload) logTurn(waitErr error) {
 // blocking: the episode loop acts on them, or awaitWake does (a Compact runs
 // a maintenance episode, a Clear writes the clear marker, an Interrupt is
 // dropped).
-func (w *Workload) Control(c covemaster.Control) {
+func (w *Workload) Control(c studioagent.Control) {
 	switch c.Kind {
-	case covemaster.Teardown:
+	case studioagent.Teardown:
 		w.log.Info("agentrun: teardown requested; run context cancelled, agent terminating")
-	case covemaster.RunGate:
+	case studioagent.RunGate:
 		w.startGate(c.Gate)
-	case covemaster.Wake:
+	case studioagent.Wake:
 		w.log.Info("agentrun: wake requested", "reasons", len(c.Reasons))
 		w.wake.post(c.Reasons)
-	case covemaster.Interrupt:
+	case studioagent.Interrupt:
 		w.log.Info("agentrun: interrupt requested", "by", c.By)
 		w.cmds.postInterrupt(c.By)
-	case covemaster.Compact:
+	case studioagent.Compact:
 		w.log.Info("agentrun: compact requested", "by", c.By)
 		w.cmds.postCompact(c.By, c.Instructions)
-	case covemaster.Clear:
+	case studioagent.Clear:
 		w.log.Info("agentrun: clear requested", "by", c.By)
 		w.cmds.postClear(c.By)
 	}
@@ -851,7 +851,7 @@ func (w *Workload) Control(c covemaster.Control) {
 // takeClear takes a Clear pressed while waiting and writes the clear marker
 // (its contents: who pressed it), so the next episode starts fresh, even
 // after a restart. No turn starts. Run's goroutine only.
-func (w *Workload) takeClear(h covemaster.Handle, turn uint32) {
+func (w *Workload) takeClear(h studioagent.Handle, turn uint32) {
 	by, ok := w.cmds.takeClear()
 	if !ok {
 		return
@@ -905,12 +905,12 @@ func (w *Workload) consumeClear() {
 	}
 }
 
-var _ covemaster.Workload = (*Workload)(nil)
+var _ studioagent.Workload = (*Workload)(nil)
 
 // startGate runs an alarm's gate in the background (see runGate) and reports
 // its result up the handle. Before Run has started there is nowhere to report:
 // the request is dropped and Jam times it out.
-func (w *Workload) startGate(req *covemaster.GateRequest) {
+func (w *Workload) startGate(req *studioagent.GateRequest) {
 	w.gateMu.Lock()
 	ctx, h, env := w.gateCtx, w.gateH, w.gateEnv
 	w.gateMu.Unlock()
@@ -922,6 +922,6 @@ func (w *Workload) startGate(req *covemaster.GateRequest) {
 	go func() {
 		exit, timedOut, out, truncated := runGate(ctx, w.cfg.WorkDir, env, req.Command, req.Timeout)
 		w.log.Info("agentrun: gate done", "alarm", req.Alarm, "run", req.RunID, "exit", exit, "timed_out", timedOut)
-		h.GateResult(covemaster.GateResult{RunID: req.RunID, Exit: exit, TimedOut: timedOut, Output: out, Truncated: truncated})
+		h.GateResult(studioagent.GateResult{RunID: req.RunID, Exit: exit, TimedOut: timedOut, Output: out, Truncated: truncated})
 	}()
 }

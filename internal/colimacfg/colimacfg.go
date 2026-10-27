@@ -2,7 +2,7 @@
 // docker:true sandboxes: a provision hook that installs Sysbox on every boot and
 // the sysbox-runc runtime registered through colima's docker: passthrough (colima
 // regenerates /etc/docker/daemon.json each start, so that is the durable seam).
-// It is pure bytes-in/bytes-out; the at-studio-manager colima command owns the file I/O.
+// It is pure bytes-in/bytes-out; the jam-studio-manager colima command owns the file I/O.
 package colimacfg
 
 import (
@@ -24,7 +24,7 @@ const SysboxRuntimePath = "/usr/bin/sysbox-runc"
 
 // Marker identifies the provision hook this package owns, so a re-run replaces
 // it rather than appending a duplicate, and leaves the operator's hooks alone.
-const Marker = "# managed by at-jam colima setup-docker — re-run it to change; edits here are overwritten"
+const Marker = "# managed by jam-studio-manager colima setup-docker — re-run it to change; edits here are overwritten"
 
 // Options parameterizes Apply.
 type Options struct {
@@ -162,8 +162,9 @@ func ensureRuntime(root *yaml.Node) ([]Change, error) {
 
 // ensureHook adds or replaces the one managed provision entry, keeping the
 // operator's other hooks and their order. A managed entry is a marked one or a
-// legacy hand-written one (it installs Sysbox from the nestybox/sysbox release
-// URL); the first is adopted in place and any further ones are dropped.
+// unmarked one that installs Sysbox from the nestybox/sysbox release URL — a
+// hand-written hook, or one this command wrote before the jam rename changed
+// Marker; the first is adopted in place and any further ones are dropped.
 func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 	prov := value(root, "provision")
 	if prov == nil || isNull(prov) {
@@ -191,7 +192,7 @@ func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 		switch {
 		case !marked:
 			*e = *hookNode(want)
-			changes = append(changes, Change{What: "replaced a hand-written Sysbox provision hook with the managed one (Sysbox " + version + ")"})
+			changes = append(changes, Change{What: "replaced an unmarked Sysbox provision hook (hand-written, or written before the jam rename) with the managed one (Sysbox " + version + ")"})
 		case value(e, "mode") == nil || value(e, "mode").Value != "system" || value(e, "script").Value != want:
 			*e = *hookNode(want)
 			changes = append(changes, Change{What: "updated the Sysbox provision hook (Sysbox " + version + ")"})
@@ -211,7 +212,8 @@ func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 
 func isMarked(e *yaml.Node) bool { return scriptContains(e, Marker) }
 
-// isLegacy matches a hand-written hook that installs Sysbox: every manual recipe
+// isLegacy matches an unmarked hook that installs Sysbox (hand-written, or
+// managed under the pre-rename Marker): every recipe
 // downloads the release from github.com/nestybox/sysbox.
 func isLegacy(e *yaml.Node) bool { return scriptContains(e, "nestybox/sysbox") }
 

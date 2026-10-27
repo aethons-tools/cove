@@ -856,7 +856,7 @@ func TestBrowserAppPush(t *testing.T) {
 }
 
 // withPWA serves the app-level routes the Jam app's page loads (appui's
-// /app/sw.js, the manifest, its icons), as at-jam does, then f.
+// /app/sw.js, the manifest, its icons), as jam does, then f.
 func withPWA(f http.HandlerFunc) http.Handler {
 	pwa := appui.Handler(appui.Deps{Gate: appui.NewGate(appui.GateConfig{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

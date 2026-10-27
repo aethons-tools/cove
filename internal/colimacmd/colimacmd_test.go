@@ -38,7 +38,7 @@ func colimaHome(t *testing.T, cfg string) (func(string) string, string) {
 
 func runColima(getenv func(string) string, r runner.Runner, args ...string) (int, string, string) {
 	var out, errb bytes.Buffer
-	code := Command("at-jam", getenv, r)(args, cli.Globals{}, &out, &errb)
+	code := Command("jam-studio-manager", getenv, r)(args, cli.Globals{}, &out, &errb)
 	return code, out.String(), errb.String()
 }
 
@@ -133,7 +133,7 @@ func TestColimaCheckDocker(t *testing.T) {
 		t.Fatalf("present: code=%d out=%q", code, out)
 	}
 	absent := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{}}`}}}
-	if code, _, errs := runColima(getenv, absent, "check-docker"); code != 1 || !strings.Contains(errs, "at-jam colima setup-docker") {
+	if code, _, errs := runColima(getenv, absent, "check-docker"); code != 1 || !strings.Contains(errs, "jam-studio-manager colima setup-docker") {
 		t.Fatalf("absent: code=%d stderr=%q", code, errs)
 	}
 }
@@ -163,7 +163,7 @@ func TestColimaNoSubcommand(t *testing.T) {
 func TestColimaGlobalDryRunWritesNothing(t *testing.T) {
 	getenv, path := colimaHome(t, freshColima)
 	var out, errb bytes.Buffer
-	code := Command("at-jam", getenv, &runner.Fake{})([]string{"setup-docker"}, cli.Globals{DryRun: true}, &out, &errb)
+	code := Command("jam", getenv, &runner.Fake{})([]string{"setup-docker"}, cli.Globals{DryRun: true}, &out, &errb)
 	if code != 0 || !strings.Contains(out.String(), "would change") {
 		t.Fatalf("code=%d out=%q err=%q", code, out.String(), errb.String())
 	}
@@ -224,8 +224,8 @@ func TestColimaSetupDockerKeepsSymlink(t *testing.T) {
 
 func TestCommandUsesProgName(t *testing.T) {
 	var out, errb bytes.Buffer
-	code := Command("at-studio-manager", func(string) string { return "" }, &runner.Fake{})(nil, cli.Globals{}, &out, &errb)
-	if code != 2 || !strings.Contains(errb.String(), "at-studio-manager colima: expected setup-docker|check-docker") {
+	code := Command("jam-studio-manager", func(string) string { return "" }, &runner.Fake{})(nil, cli.Globals{}, &out, &errb)
+	if code != 2 || !strings.Contains(errb.String(), "jam-studio-manager colima: expected setup-docker|check-docker") {
 		t.Fatalf("code=%d stderr=%q", code, errb.String())
 	}
 }

@@ -1,6 +1,6 @@
 // Package install computes the assembly identity: the digest of the sealed
-// hardening layer, harness payload and embedded cove-master that keys every
-// studio image tag (AtCoveIdentity).
+// hardening layer, harness payload and embedded jam-studio-agent that keys every
+// studio image tag (AssemblyIdentity).
 package install
 
 import (
@@ -12,8 +12,8 @@ import (
 	"sort"
 
 	"github.com/aethons-tools/cove/internal/assemble"
-	"github.com/aethons-tools/cove/internal/covemasterbin"
 	"github.com/aethons-tools/cove/internal/harnessinstall"
+	"github.com/aethons-tools/cove/internal/studioagentbin"
 )
 
 // writeField feeds a length-prefixed field into h, so a sequence of fields hashes
@@ -63,18 +63,18 @@ func HashTree(fsys fs.FS) (string, error) {
 // var so a test can swap it).
 var harnessBaseline = harnessinstall.BaselineSettings
 
-// coveMasterFS is the embedded cove-master binaries (a var so a test can swap
+// studioAgentFS is the embedded jam-studio-agent binaries (a var so a test can swap
 // them).
-var coveMasterFS = covemasterbin.BinFS
+var studioAgentFS = studioagentbin.BinFS
 
-// AtCoveIdentity hashes the binary's embedded build contributions: the sealed
+// AssemblyIdentity hashes the binary's embedded build contributions: the sealed
 // hardening layer (and assemble.Revision), the harness layer's payload (its
 // scripts and the managed settings' sandbox policy) and its rendered baseline
 // preferences — NOT any install's version/plugins, which are per-image (the
-// studio build-digest) — and the embedded cove-master binaries. An upgrade that
+// studio build-digest) — and the embedded jam-studio-agent binaries. An upgrade that
 // changes any of these flips the digest, so every studio image tag changes
 // (internal/jam/launcher asm.go keys the tag on it).
-func AtCoveIdentity() (string, error) {
+func AssemblyIdentity() (string, error) {
 	h := sha256.New()
 
 	hard, err := HashTree(assemble.HardeningFS())
@@ -95,11 +95,11 @@ func AtCoveIdentity() (string, error) {
 	writeField(h, []byte("harness-baseline"))
 	writeField(h, harnessBaseline())
 
-	cm, err := HashTree(coveMasterFS())
+	cm, err := HashTree(studioAgentFS())
 	if err != nil {
 		return "", err
 	}
-	writeField(h, []byte("covemaster"))
+	writeField(h, []byte("studioagent"))
 	writeField(h, []byte(cm))
 
 	return hex.EncodeToString(h.Sum(nil)), nil

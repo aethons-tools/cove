@@ -23,7 +23,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$platforms" ] || platforms="linux/$(go env GOARCH)"
-[ "${#tags[@]}" -gt 0 ] || tags=(cove-jam:dev)
+[ "${#tags[@]}" -gt 0 ] || tags=(jam:dev)
 
 IFS=, read -r -a plist <<<"$platforms"
 if [ "$push" -eq 0 ] && [ "${#plist[@]}" -gt 1 ]; then
@@ -55,13 +55,12 @@ for plat in "${plist[@]}"; do
     *) echo "jam-image: unsupported platform $plat (only linux/amd64, linux/arm64)" >&2; exit 1 ;;
   esac
   mkdir -p "$ctx/bin/linux-$arch"
-  for bin in at-jam at-mint; do
-    if ! src="$(find_bin "$bin" "$arch")"; then
-      echo "jam-image: no $bin for $plat (looked in $(looked_in "$bin" "$arch"))" >&2
-      exit 1
-    fi
-    cp "$src" "$ctx/bin/linux-$arch/$bin"
-  done
+  # Only jam: it is also the minter (`jam mint`).
+  if ! src="$(find_bin jam "$arch")"; then
+    echo "jam-image: no jam for $plat (looked in $(looked_in jam "$arch"))" >&2
+    exit 1
+  fi
+  cp "$src" "$ctx/bin/linux-$arch/jam"
 done
 
 # Multi-platform --push needs a docker-container buildx builder (CI runs

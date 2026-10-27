@@ -37,7 +37,7 @@ func RewriteWatermark(watermarkTxt, tag, digest, reason string) (string, error) 
 		trimmed := strings.TrimSpace(ln)
 		switch {
 		case strings.HasPrefix(trimmed, "# Current watermark:"):
-			lines[i] = fmt.Sprintf("# Current watermark: cove-base-image:%s (%s)", tag, reason)
+			lines[i] = fmt.Sprintf("# Current watermark: jam-studio-base:%s (%s)", tag, reason)
 			comments++
 		case trimmed != "" && !strings.HasPrefix(trimmed, "#"):
 			lines[i] = digest

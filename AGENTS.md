@@ -1,6 +1,6 @@
 # AGENTS.md
 
-`cove` — the Jam service (`at-jam`) and the hardened Claude Code studios it builds and runs.
+`cove` — the Jam service (`jam`) and the hardened Claude Code studios it builds and runs.
 
 **Start here:** [`docs/OVERVIEW.md`](docs/OVERVIEW.md) —
 what this repo builds, the studio image's security model, the package map, and how to build/test/run.
@@ -8,8 +8,8 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
 
 ## Quick orientation
 
-- **Module:** `github.com/aethons-tools/cove` · **Binaries:** `at-jam`, `at-mint`, `at-studio-manager`, `cove-master` (embedded in studio images); dev tools `adopt-base`, `gen-blessed`, `gen-icons`
-- **Entry points:** `cmd/at-jam/main.go` (the Jam service and its CLI — start at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md)), `cmd/cove-master/main.go` (the in-studio agent supervisor), `cmd/at-mint/main.go` (the token minter).
+- **Module:** `github.com/aethons-tools/cove` · **Binaries:** `jam` (minting is `jam mint`), `jam-studio-manager` (remote Studio Manager host process), `jam-studio-agent` (embedded in studio images); dev tools `adopt-base`, `gen-blessed`, `gen-icons`
+- **Entry points:** `cmd/jam/main.go` (the Jam service and its CLI — start at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md)), `cmd/jam-studio-agent/main.go` (the in-studio agent supervisor), `internal/mintcmd` (`jam mint`, the token minter).
 - **Packages:** see the package map in [the overview](docs/OVERVIEW.md#architecture).
 
 ## Working in this repo
@@ -20,7 +20,7 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
   a template tree copied into the studio images a Studio Manager builds,
   not configuration for this repo.
   Likewise `images/*/image-files/`: for example,
-  `images/cove-base-image/image-files/home/agent/.init-agent-data/CLAUDE.md`
+  `images/jam-studio-base/image-files/home/agent/.init-agent-data/CLAUDE.md`
   and its `SANDBOX.md` are instructions *for an agent running inside a built sandbox* —
   they are not instructions for you working in this repo (that's this file).
   When reviewing or documenting, always say which side of the line a file is on,

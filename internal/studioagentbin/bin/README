@@ -1,0 +1,6 @@
+jam-studio-agent binaries embedded into jam for version lockstep (COV-158).
+
+This placeholder keeps `//go:embed bin` compiling in a fresh checkout. The
+real per-arch binaries (jam-studio-agent-linux-amd64, jam-studio-agent-linux-arm64)
+are staged here by scripts/stage-studio-agent.sh / the release workflow before
+jam is built, and are gitignored.

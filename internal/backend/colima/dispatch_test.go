@@ -13,7 +13,7 @@ func TestRunEphemeralArgs(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
 	// No digest (legacy manifest): the ephemeral run falls back to the tag.
-	inst, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"at-cove.work"}, nil, nil, false)
+	inst, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"jam.work"}, nil, nil, false)
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestRunEphemeralArgs(t *testing.T) {
 		t.Fatalf("instance = %+v", inst)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
-	for _, want := range []string{"run -d", "--name disp-1", "--rm", "--label at-cove.work", "--init", "-p 127.0.0.1::2222", "img:tag"} {
+	for _, want := range []string{"run -d", "--name disp-1", "--rm", "--label jam.work", "--init", "-p 127.0.0.1::2222", "img:tag"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("run args missing %q:\n%s", want, got)
 		}
@@ -43,14 +43,14 @@ func TestRunEphemeralDNS(t *testing.T) {
 	c := NewWithContext(f, "")
 	// Jam add-hosts render as --add-host h:host-gateway (COV-138)
 	fh := &runner.Fake{}
-	if _, err := NewWithContext(fh, "").RunEphemeral("img:tag", "", "disp-1", []string{"at-cove.work"}, nil, []string{"jam.local"}, false); err != nil {
+	if _, err := NewWithContext(fh, "").RunEphemeral("img:tag", "", "disp-1", []string{"jam.work"}, nil, []string{"jam.local"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(dockerCall(fh.Calls, "run"), " "); !strings.Contains(got, "--add-host jam.local:host-gateway") {
 		t.Fatalf("ephemeral run must map the Jam host:\n%s", got)
 	}
 
-	if _, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"at-cove.work"}, []string{"10.0.0.53", "10.0.0.54"}, nil, false); err != nil {
+	if _, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"jam.work"}, []string{"10.0.0.53", "10.0.0.54"}, nil, false); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
@@ -67,7 +67,7 @@ func TestRunEphemeralDNS(t *testing.T) {
 func TestRunEphemeralPinsDigest(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
-	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", []string{"at-cove.work"}, nil, nil, false)
+	inst, err := c.RunEphemeral("img:tag", "sha256:cafe", "disp-1", []string{"jam.work"}, nil, nil, false)
 	if err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
@@ -81,17 +81,17 @@ func TestRunEphemeralPinsDigest(t *testing.T) {
 }
 
 // TestRunEphemeralDocker: a docker:true dispatch runs the ephemeral worker under
-// Sysbox too — --runtime=sysbox-runc, -e COVE_DOCKER=1, and a -docker cache volume
+// Sysbox too — --runtime=sysbox-runc, -e JAM_DOCKER=1, and a -docker cache volume
 // named after the worker container — after asserting the runtime is present
 // (COV-117). docker:false is byte-for-byte the pre-COV-117 argv (asserted above).
 func TestRunEphemeralDocker(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: sysboxRuntimesOutput}}}
 	c := NewWithContext(f, "")
-	if _, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"at-cove.work"}, nil, nil, true); err != nil {
+	if _, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"jam.work"}, nil, nil, true); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
 	got := strings.Join(f.Calls[len(f.Calls)-1].Args, " ")
-	for _, want := range []string{"--runtime=sysbox-runc", "-e COVE_DOCKER=1", "-v disp-1-docker:/var/lib/docker"} {
+	for _, want := range []string{"--runtime=sysbox-runc", "-e JAM_DOCKER=1", "-v disp-1-docker:/var/lib/docker"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("docker:true ephemeral run missing %q:\n%s", want, got)
 		}
@@ -112,7 +112,7 @@ func TestRunEphemeralDocker(t *testing.T) {
 func TestRunEphemeralDockerRequiresSysbox(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{"path":"runc"}}`}}}
 	c := NewWithContext(f, "")
-	_, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"at-cove.work"}, nil, nil, true)
+	_, err := c.RunEphemeral("img:tag", "", "disp-1", []string{"jam.work"}, nil, nil, true)
 	if err == nil || !strings.Contains(err.Error(), "sysbox-runc") {
 		t.Fatalf("docker:true dispatch must fail actionably without sysbox-runc; err=%v", err)
 	}
@@ -126,14 +126,14 @@ func TestRunEphemeralDockerRequiresSysbox(t *testing.T) {
 func TestRunEphemeralMounts(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
-	if _, err := c.RunEphemeral("img:tag", "", "atcove-cove-s1", []string{"harbor.cove"}, nil, nil, false,
-		backend.Mount{Volume: "atcove-cove-s1-agent-data", Target: "/agent-data"},
-		backend.Mount{Volume: "atcove-cove-s1-workspace", Target: "/home/agent/workspace"},
+	if _, err := c.RunEphemeral("img:tag", "", "jam-studio-s1", []string{"jam.studio"}, nil, nil, false,
+		backend.Mount{Volume: "jam-studio-s1-agent-data", Target: "/agent-data"},
+		backend.Mount{Volume: "jam-studio-s1-workspace", Target: "/home/agent/workspace"},
 	); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
 	got := strings.Join(dockerCall(f.Calls, "run"), " ")
-	for _, want := range []string{"--rm", "-v atcove-cove-s1-agent-data:/agent-data", "-v atcove-cove-s1-workspace:/home/agent/workspace"} {
+	for _, want := range []string{"--rm", "-v jam-studio-s1-agent-data:/agent-data", "-v jam-studio-s1-workspace:/home/agent/workspace"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("run args missing %q:\n%s", want, got)
 		}
@@ -164,10 +164,10 @@ func TestRemoveVolumes(t *testing.T) {
 func TestCreateVolumeLabels(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
-	if err := c.CreateVolume("v1", "harbor.cove.state=standing-a-b-c"); err != nil {
+	if err := c.CreateVolume("v1", "jam.studio.state=standing-a-b-c"); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(dockerCall(f.Calls, "volume"), " "); got != "volume create --label harbor.cove.state=standing-a-b-c v1" {
+	if got := strings.Join(dockerCall(f.Calls, "volume"), " "); got != "volume create --label jam.studio.state=standing-a-b-c v1" {
 		t.Errorf("args = %q", got)
 	}
 }
@@ -177,7 +177,7 @@ func TestCreateVolumeLabels(t *testing.T) {
 func TestListVolumes(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "v1\tid-1\nv2\tid-2\n\n"}}}
 	c := NewWithContext(f, "")
-	got, err := c.ListVolumes("harbor.cove.state", "harbor.cove.jam=j1")
+	got, err := c.ListVolumes("jam.studio.state", "jam.studio.jam=j1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestListVolumes(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 	args := strings.Join(dockerCall(f.Calls, "volume"), " ")
-	if !strings.Contains(args, "volume ls --filter label=harbor.cove.state --filter label=harbor.cove.jam=j1 --format") || !strings.Contains(args, `{{.Label "harbor.cove.state"}}`) {
+	if !strings.Contains(args, "volume ls --filter label=jam.studio.state --filter label=jam.studio.jam=j1 --format") || !strings.Contains(args, `{{.Label "jam.studio.state"}}`) {
 		t.Errorf("args = %q", args)
 	}
 }
@@ -235,10 +235,10 @@ func TestUnpauseIdempotentWhenNotPaused(t *testing.T) {
 func TestRunEphemeralLabels(t *testing.T) {
 	f := &runner.Fake{}
 	c := NewWithContext(f, "")
-	if _, err := c.RunEphemeral("img:tag", "", "cove-w1", []string{"harbor.cove", "harbor.cove.actor=w1"}, nil, nil, false); err != nil {
+	if _, err := c.RunEphemeral("img:tag", "", "cove-w1", []string{"jam.studio", "jam.studio.actor=w1"}, nil, nil, false); err != nil {
 		t.Fatalf("RunEphemeral: %v", err)
 	}
-	if got := strings.Join(dockerCall(f.Calls, "run"), " "); !strings.Contains(got, "--label harbor.cove --label harbor.cove.actor=w1") {
+	if got := strings.Join(dockerCall(f.Calls, "run"), " "); !strings.Contains(got, "--label jam.studio --label jam.studio.actor=w1") {
 		t.Errorf("args = %q", got)
 	}
 }
@@ -248,14 +248,14 @@ func TestRunEphemeralLabels(t *testing.T) {
 func TestListContainersArgvAndParse(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "cove-w1\tw1\ncove-w2\tw2\n"}}}
 	c := NewWithContext(f, "")
-	got, err := c.ListContainers("harbor.cove.actor", "harbor.cove.manager=m1")
+	got, err := c.ListContainers("jam.studio.actor", "jam.studio.manager=m1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 2 || got["cove-w1"] != "w1" || got["cove-w2"] != "w2" {
 		t.Fatalf("got %v", got)
 	}
-	want := "ps --filter label=harbor.cove.actor --filter label=harbor.cove.manager=m1 --format {{.Names}}\t{{.Label \"harbor.cove.actor\"}}"
+	want := "ps --filter label=jam.studio.actor --filter label=jam.studio.manager=m1 --format {{.Names}}\t{{.Label \"jam.studio.actor\"}}"
 	if a := strings.Join(dockerCall(f.Calls, "ps"), " "); a != want {
 		t.Errorf("args = %q; want %q", a, want)
 	}

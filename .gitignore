@@ -11,13 +11,20 @@
 
 # `go build ./cmd/<name>` output at the repo root
 /adopt-base
-/at-jam
-/at-mint
-/cove-master
+/jam
+/jam-studio-agent
 /gen-blessed
 
 # Per-command build outputs in cmd/*/
+/cmd/*/jam
+/cmd/*/jam-studio-agent
+
+# pre-rename local builds
+/at-jam
+/at-mint
+/cove-master
 /cmd/*/at-*
+/internal/covemasterbin/
 
 # Stale staged binaries from the removed at-task / at-switchboard
 /internal/attask/
@@ -27,7 +34,7 @@
 /deploy/monitoring/.local/
 
 # The Jam app bundle, built by `just app` (scripts/app.sh) and embedded by
-# at-jam; only its placeholder is committed.
+# jam; only its placeholder is committed.
 /internal/jam/uiassets/app/*
 /internal/jam/uiassets/app.tmp/
 /internal/jam/uiassets/app.old/

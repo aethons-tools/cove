@@ -53,10 +53,10 @@ func TestSeedPluginsFoldsIntoSeedWithRuntimePaths(t *testing.T) {
 		"-m", "claude-plugins-official=anthropics/claude-plugins-official", "-p", "superpowers@claude-plugins-official")
 	cmd.Env = append(os.Environ(),
 		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"COVE_PLUGIN_BUILD_CFG="+buildCfg,
-		"COVE_PLUGIN_SEED="+seed,
-		"COVE_PLUGIN_RUNTIME_CFG=/agent-data",
-		"COVE_PLUGIN_RUN_AS=", // run claude inline as the test user, no `su`
+		"JAM_PLUGIN_BUILD_CFG="+buildCfg,
+		"JAM_PLUGIN_SEED="+seed,
+		"JAM_PLUGIN_RUNTIME_CFG=/agent-data",
+		"JAM_PLUGIN_RUN_AS=", // run claude inline as the test user, no `su`
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("seed-plugins.sh failed: %v\n%s", err, out)
@@ -112,9 +112,9 @@ func TestSeedPluginsEnablesInSeedSettings(t *testing.T) {
 		"-m", "claude-plugins-official=anthropics/claude-plugins-official", "-p", "superpowers@claude-plugins-official")
 	cmd.Env = append(os.Environ(),
 		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"COVE_PLUGIN_BUILD_CFG="+filepath.Join(dir, "buildcfg"),
-		"COVE_PLUGIN_SEED="+seed,
-		"COVE_PLUGIN_RUN_AS=",
+		"JAM_PLUGIN_BUILD_CFG="+filepath.Join(dir, "buildcfg"),
+		"JAM_PLUGIN_SEED="+seed,
+		"JAM_PLUGIN_RUN_AS=",
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("seed-plugins.sh failed: %v\n%s", err, out)
@@ -147,7 +147,7 @@ func TestSeedPluginsRefusesBadArgs(t *testing.T) {
 	requireBash(t)
 	for _, args := range [][]string{{}, {"-x", "y"}} {
 		cmd := exec.Command("bash", append([]string{"payload/claude/seed-plugins.sh"}, args...)...)
-		cmd.Env = append(os.Environ(), "COVE_PLUGIN_BUILD_CFG="+filepath.Join(t.TempDir(), "b"), "COVE_PLUGIN_RUN_AS=")
+		cmd.Env = append(os.Environ(), "JAM_PLUGIN_BUILD_CFG="+filepath.Join(t.TempDir(), "b"), "JAM_PLUGIN_RUN_AS=")
 		if out, err := cmd.CombinedOutput(); err == nil {
 			t.Errorf("args %q accepted:\n%s", args, out)
 		}
@@ -194,7 +194,7 @@ func TestMergeBaselineSettings(t *testing.T) {
 	run := func(seed string) {
 		t.Helper()
 		cmd := exec.Command("bash", "payload/claude/merge-baseline-settings.sh", baseline)
-		cmd.Env = append(os.Environ(), "COVE_PLUGIN_SEED="+seed, "COVE_PLUGIN_RUN_AS=")
+		cmd.Env = append(os.Environ(), "JAM_PLUGIN_SEED="+seed, "JAM_PLUGIN_RUN_AS=")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("merge-baseline-settings.sh: %v\n%s", err, out)
 		}

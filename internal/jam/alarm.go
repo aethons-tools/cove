@@ -17,7 +17,7 @@ const (
 	maxAlarmNote  = 1000
 	maxAlarmAhead = 366 * 24 * time.Hour
 	maxGateBytes  = 4096
-	// GateTimeout is how long cove-master lets a gate run; GateGrace is how
+	// GateTimeout is how long jam-studio-agent lets a gate run; GateGrace is how
 	// much longer Jam waits for its result before calling the gate failed.
 	GateTimeout = 60 * time.Second
 	GateGrace   = 30 * time.Second
@@ -40,7 +40,7 @@ type Alarm struct {
 	Note     string    `json:"note,omitempty"`
 	NextAt   time.Time `json:"next_at,omitzero"`  // zero once a one-shot has fired
 	FiredAt  time.Time `json:"fired_at,omitzero"` // fired, awaiting the session's next run
-	// Gate is an optional shell command cove-master runs when the alarm comes
+	// Gate is an optional shell command jam-studio-agent runs when the alarm comes
 	// due; only its verdict decides whether the alarm fires.
 	Gate       string       `json:"gate,omitempty"`
 	GateRun    *GateRun     `json:"gate_run,omitempty"`    // a gate run in flight

@@ -10,7 +10,7 @@ import (
 func TestSecretResolverRunsConfiguredCommand(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "REAL-PAT\n"}}}
 	r := NewSecretResolver(f, map[string]secret.Spec{
-		"git-pat": {Command: []string{"at-mint", "github"}},
+		"git-pat": {Command: []string{"jam", "mint", "github"}},
 	})
 	got, err := r.Resolve("git-pat")
 	if err != nil {

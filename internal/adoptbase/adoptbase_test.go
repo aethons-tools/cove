@@ -7,9 +7,9 @@ import (
 
 const baseDigest = "sha256:b675a81c589e96fac6423ed759e727b523b8f850c6ac5c0fa139aceeb7b91726"
 
-const sampleWatermark = `# Low-watermark: the OLDEST cove-base-image still blessed.
+const sampleWatermark = `# Low-watermark: the OLDEST jam-studio-base still blessed.
 #
-# Current watermark: cove-base-image:2026.07.18-9528dd2 (post-at-task-shed, COV-46).
+# Current watermark: jam-studio-base:2026.07.18-9528dd2 (post-at-task-shed, COV-46).
 sha256:7ba377681641d4828af92e05ad97a42a6246347337908414aa4687feed73e6bb
 `
 
@@ -24,7 +24,7 @@ func TestRewriteWatermark(t *testing.T) {
 	if strings.Contains(out, "7ba377681641") {
 		t.Fatal("old digest still present")
 	}
-	wantComment := "# Current watermark: cove-base-image:527-0808 (Docker+systemd, drop podman — COV-116)"
+	wantComment := "# Current watermark: jam-studio-base:527-0808 (Docker+systemd, drop podman — COV-116)"
 	if !strings.Contains(out, wantComment) {
 		t.Fatalf("comment not updated; want %q\n---\n%s", wantComment, out)
 	}

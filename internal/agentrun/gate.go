@@ -34,7 +34,7 @@ func (c *capWriter) Write(p []byte) (int, error) {
 }
 
 // runGate runs an alarm's gate: sh -c command in dir with env (nil inherits
-// cove-master's), killed after timeout. exit is the shell's status (-1 when
+// jam-studio-agent's), killed after timeout. exit is the shell's status (-1 when
 // killed at the timeout; 128+n when killed by signal n; 127 when the shell
 // itself could not start); out is
 // the capped, UTF-8-safe combined output, marked when truncated. It never

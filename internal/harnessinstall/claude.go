@@ -42,7 +42,7 @@ const ClaudeInstallerURL = "https://claude.ai/install.sh"
 //     sandbox-wide policy every claude session in the image gets — update
 //     control, remote control, the bypass-mode acceptance, disableAutoMode,
 //     and permissions.defaultMode bypassPermissions for interactive sessions
-//     (at-cove connect/chat run claude without the harness argv; a Jam cove's
+//     (a session started without the harness argv gets these; a Jam cove's
 //     --dangerously-skip-permissions / --permission-mode flag overrides it,
 //     COV-239). It lives here, not in the sealed hardening layer, because it
 //     is Claude-specific; the kit still cannot override it (the harness stage
@@ -93,7 +93,7 @@ const baselineFile = "baseline-settings.json"
 // BaselineSettings is the harness layer's baseline Claude preferences file,
 // rendered from modelspec.DefaultClaudeSettings (the one source). It is
 // generated, not embedded payload, so the assembly identity hashes it
-// explicitly (internal/install.AtCoveIdentity).
+// explicitly (internal/install.AssemblyIdentity).
 func BaselineSettings() []byte {
 	b, _ := json.MarshalIndent(modelspec.DefaultClaudeSettings(), "", "  ") // bools and strings; never errors
 	return append(b, '\n')

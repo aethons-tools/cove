@@ -80,7 +80,7 @@ func TestLoadRefusesEscapes(t *testing.T) {
 func TestLoadResolvesInsideCheckout(t *testing.T) {
 	root := t.TempDir()
 	writeKit(t, root, "web", "name: web-dev\nnotes:\n  - name: guide.md\n    read-when: always\n    file: docs/guide.md\n")
-	writeFile(t, root, "web/Dockerfile", "FROM ${COVE_BASE_IMAGE}\nRUN true\n")
+	writeFile(t, root, "web/Dockerfile", "FROM ${JAM_STUDIO_BASE_IMAGE}\nRUN true\n")
 	writeFile(t, root, "web/docs/guide.md", "hello")
 	sk, _, hint, err := Load(root, "web")
 	if err != nil || hint != "web-dev" || sk.BuildContext == "" || sk.Notes[0].Body != "hello" {
@@ -92,7 +92,7 @@ func TestLoadReadsTheKitDirectory(t *testing.T) {
 	root := t.TempDir()
 	writeKit(t, root, "app", "notes:\n  - {name: r.md, read-when: x, file: docs/r.md}\n")
 	writeFile(t, root, "app/docs/r.md", "# R\n")
-	writeFile(t, root, "app/Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n")
+	writeFile(t, root, "app/Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n")
 	writeFile(t, root, "app/.dockerignore", "*.log\n")
 	writeFile(t, root, "app/x.log", "noise")
 	if err := os.WriteFile(filepath.Join(root, "app/run.sh"), []byte("echo"), 0o755); err != nil {

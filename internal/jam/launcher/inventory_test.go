@@ -23,8 +23,8 @@ func TestBackendInventoryHasByImageTag(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("Has = %v,%v want true,nil", ok, err)
 	}
-	if c.askedTag != "cove-kit:deadbeef-" {
-		t.Fatalf("inventory queried tag %q, want cove-kit:deadbeef-", c.askedTag)
+	if c.askedTag != "jam-kit:deadbeef-" {
+		t.Fatalf("inventory queried tag %q, want jam-kit:deadbeef-", c.askedTag)
 	}
 }
 

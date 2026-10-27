@@ -824,7 +824,7 @@ func (a *PreviewAuth) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("WWW-Authenticate", `Bearer realm="jam-preview"`)
-	http.Error(w, "Jam preview: log in in a browser, or send Authorization: Bearer <token> (at-jam login)", http.StatusUnauthorized)
+	http.Error(w, "Jam preview: log in in a browser, or send Authorization: Bearer <token> (jam login)", http.StatusUnauthorized)
 }
 
 // framedLoginPage answers a framed request r that has no credentials: 401 with

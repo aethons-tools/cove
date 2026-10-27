@@ -25,11 +25,11 @@ import (
 )
 
 // browserCtx returns a chromedp context on a fresh headless browser, skipping
-// the test when none is found. COVE_BROWSER names the binary explicitly;
+// the test when none is found. JAM_BROWSER names the binary explicitly;
 // otherwise the first of the usual names on PATH is used.
 func browserCtx(t *testing.T) context.Context {
 	t.Helper()
-	path := os.Getenv("COVE_BROWSER")
+	path := os.Getenv("JAM_BROWSER")
 	for _, name := range []string{"chrome-headless-shell", "headless-shell", "chromium", "google-chrome"} {
 		if path != "" {
 			break
@@ -37,7 +37,7 @@ func browserCtx(t *testing.T) context.Context {
 		path, _ = exec.LookPath(name)
 	}
 	if path == "" {
-		t.Skip("no headless browser found (set COVE_BROWSER or install chrome-headless-shell)")
+		t.Skip("no headless browser found (set JAM_BROWSER or install chrome-headless-shell)")
 	}
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.ExecPath(path),

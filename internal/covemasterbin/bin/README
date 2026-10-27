@@ -1,6 +1,0 @@
-cove-master binaries embedded into at-jam for version lockstep (COV-158).
-
-This placeholder keeps `//go:embed bin` compiling in a fresh checkout. The
-real per-arch binaries (cove-master-linux-amd64, cove-master-linux-arm64)
-are staged here by scripts/stage-covemaster.sh / the release workflow before
-at-jam is built, and are gitignored.

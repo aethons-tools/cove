@@ -103,7 +103,7 @@ func exportStable(st Store) ConfigSnapshot {
 
 func TestMigrateKitTreesGoldens(t *testing.T) {
 	st := NewMemStore()
-	ctx := tgz(t, "Dockerfile", "644", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\nCOPY run.sh /usr/local/bin/\n", "run.sh", "755", "echo hi\n")
+	ctx := tgz(t, "Dockerfile", "644", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\nCOPY run.sh /usr/local/bin/\n", "run.sh", "755", "echo hi\n")
 	docs := []Kit{
 		legacyDoc("context", `{"kind":"studio","base":{"context":"`+ctx+`"},"egress":["github.com"],"prompt":"p"}`),
 		legacyDoc("context-files", `{"kind":"studio","base":{"contextFiles":{"dockerfile":"FROM x\n","sub":{"a.txt":"hi\n"}}}}`),

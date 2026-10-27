@@ -310,11 +310,11 @@ func TestOrderKitEntriesAcrossGroups(t *testing.T) {
 func TestLoadKitsHintsConfigWriteForOldContextField(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"kits/app/kit.yml":            "kind: studio\nbase:\n  context-dir: context\n",
-		"kits/app/context/Dockerfile": "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n",
+		"kits/app/context/Dockerfile": "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n",
 		"kits/files/kit.yml":          "kind: studio\nbase:\n  context-files: {dockerfile: x}\n",
 		"kits/bad/kit.yml":            "kind: studio\nworkers: {}\n",
 	})
-	const hint = "; a config repo written by an older Jam: run at-jam config write <repo> and commit"
+	const hint = "; a config repo written by an older Jam: run jam config write <repo> and commit"
 	tr, _ := LoadConfigTree(root)
 	joined := strings.Join(tr.Refusals, "\n")
 	for _, want := range []string{

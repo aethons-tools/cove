@@ -34,14 +34,14 @@ func raiseLabelsOf(t *testing.T, manager string, kind string) *fakeOps {
 
 func TestRaiseLabelsLocal(t *testing.T) {
 	ops := raiseLabelsOf(t, "", "")
-	if want := []string{"harbor.cove", "harbor.cove.actor=w1"}; !slices.Equal(ops.runLabels, want) {
+	if want := []string{"jam.studio", "jam.studio.actor=w1"}; !slices.Equal(ops.runLabels, want) {
 		t.Fatalf("labels = %v, want %v", ops.runLabels, want)
 	}
 }
 
 func TestRaiseLabelsManager(t *testing.T) {
 	ops := raiseLabelsOf(t, "m1", jam.SessionKindStanding)
-	if want := []string{"harbor.cove", "harbor.cove.actor=w1", "harbor.cove.manager=m1"}; !slices.Equal(ops.runLabels, want) {
+	if want := []string{"jam.studio", "jam.studio.actor=w1", "jam.studio.manager=m1"}; !slices.Equal(ops.runLabels, want) {
 		t.Fatalf("labels = %v, want %v", ops.runLabels, want)
 	}
 	if len(ops.volLabels) != 2 {

@@ -32,16 +32,16 @@
 # sandbox never clones plugins at runtime and the race cannot occur.
 #
 # Env overrides (defaults are the real build/runtime paths; tests inject temps):
-#   COVE_PLUGIN_BUILD_CFG    throwaway CLAUDE_CONFIG_DIR used for the install
-#   COVE_PLUGIN_SEED         first-boot seed dir copied to /agent-data at boot
-#   COVE_PLUGIN_RUNTIME_CFG  runtime CLAUDE_CONFIG_DIR the recorded paths resolve to
-#   COVE_PLUGIN_RUN_AS       user to run `claude` as via `su -` (empty = inline)
+#   JAM_PLUGIN_BUILD_CFG    throwaway CLAUDE_CONFIG_DIR used for the install
+#   JAM_PLUGIN_SEED         first-boot seed dir copied to /agent-data at boot
+#   JAM_PLUGIN_RUNTIME_CFG  runtime CLAUDE_CONFIG_DIR the recorded paths resolve to
+#   JAM_PLUGIN_RUN_AS       user to run `claude` as via `su -` (empty = inline)
 set -euo pipefail
 
-BUILD_CFG="${COVE_PLUGIN_BUILD_CFG:-/tmp/cove-plugin-seed}"
-SEED="${COVE_PLUGIN_SEED:-/home/agent/.init-agent-data}"
-RUNTIME_CFG="${COVE_PLUGIN_RUNTIME_CFG:-/agent-data}"
-RUN_AS="${COVE_PLUGIN_RUN_AS-agent}"
+BUILD_CFG="${JAM_PLUGIN_BUILD_CFG:-/tmp/cove-plugin-seed}"
+SEED="${JAM_PLUGIN_SEED:-/home/agent/.init-agent-data}"
+RUNTIME_CFG="${JAM_PLUGIN_RUNTIME_CFG:-/agent-data}"
+RUN_AS="${JAM_PLUGIN_RUN_AS-agent}"
 
 MARKETPLACES=()
 PLUGINS=()

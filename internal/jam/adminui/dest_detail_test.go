@@ -133,7 +133,7 @@ func TestCreateDestinationAllFields(t *testing.T) {
 	if rec := post(t, h, "/app/admin/destinations", url.Values{"name": {"gh"}, "route": {"/x/"}, "upstream": {"https://x"}}); rec.Code != http.StatusConflict {
 		t.Errorf("re-create = %d, want 409", rec.Code)
 	}
-	for name, env := range map[string]string{"no equals": "GH_HOST", "reserved": "AT_JAM_X=1", "bad placeholder": "A={nope}", "duplicate": "A=1\nA=2"} {
+	for name, env := range map[string]string{"no equals": "GH_HOST", "reserved": "JAM_X=1", "bad placeholder": "A={nope}", "duplicate": "A=1\nA=2"} {
 		if rec := post(t, h, "/app/admin/destinations", url.Values{"name": {"n"}, "route": {"/n/"}, "upstream": {"https://n"}, "env": {env}}); rec.Code != http.StatusBadRequest {
 			t.Errorf("env %s = %d, want 400", name, rec.Code)
 		}

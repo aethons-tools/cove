@@ -53,3 +53,14 @@ func TestConnCancelDropsPartialResult(t *testing.T) {
 		t.Fatalf("buffered partials after cancel = %d, want 0", n)
 	}
 }
+
+// The manager stream's gRPC name carries the jam rename: a manager and its
+// Jam run the same release, so the old cove.* name is simply not served.
+func TestStudioManagerWireName(t *testing.T) {
+	if got := managerpb.StudioManager_ServiceDesc.ServiceName; got != "jam.manager.v1.StudioManager" {
+		t.Fatalf("service = %q", got)
+	}
+	if managerpb.StudioManager_Connect_FullMethodName != "/jam.manager.v1.StudioManager/Connect" {
+		t.Fatalf("method = %q", managerpb.StudioManager_Connect_FullMethodName)
+	}
+}

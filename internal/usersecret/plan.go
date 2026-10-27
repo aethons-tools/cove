@@ -7,7 +7,7 @@ import (
 )
 
 // MintExpander turns a resolved minter profile into a runnable secret.Spec (an
-// at-mint invocation). Injected by the caller; nil until the minting wiring lands.
+// jam mint invocation). Injected by the caller; nil until the minting wiring lands.
 type MintExpander func(profileName string, m Minter, demandName string) (secret.Spec, error)
 
 func (st Store) resolve(name string, src Source, expand MintExpander) (secret.Spec, error) {
@@ -43,7 +43,7 @@ func (st Store) resolve(name string, src Source, expand MintExpander) (secret.Sp
 			return secret.Spec{}, fmt.Errorf("mint %q is not a defined minter", src.Mint)
 		}
 		if expand == nil {
-			return secret.Spec{}, fmt.Errorf("mint %q requires at-mint (not wired in this build)", src.Mint)
+			return secret.Spec{}, fmt.Errorf("mint %q requires jam mint (not wired in this build)", src.Mint)
 		}
 		return expand(src.Mint, m, name)
 	default:

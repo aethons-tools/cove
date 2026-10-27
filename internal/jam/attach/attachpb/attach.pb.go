@@ -4,10 +4,10 @@
 // 	protoc        (unknown)
 // source: attach.proto
 
-// The proto package stays harbor.attach.v1 through the Harbor → Jam rename: it
-// is the gRPC wire name (/harbor.attach.v1.Runtime/Attach) that cove-master in
-// already-built cove images dials, so renaming it would break running coves.
-// See docs/usage/jam/renamed-from-harbor.md.
+// The service is jam.attach.v1.Runtime (/jam.attach.v1.Runtime/Attach), the
+// gRPC wire name a studio's agent dials. Studios built before the jam rename
+// speak the pre-rename name and cannot attach; they are retired at serve start
+// (docs/usage/jam/renamed-from-at.md).
 
 package attachpb
 
@@ -185,7 +185,7 @@ type isStatusUp_Msg interface {
 }
 
 type StatusUp_Status struct {
-	Status Activity `protobuf:"varint,1,opt,name=status,proto3,enum=harbor.attach.v1.Activity,oneof"`
+	Status Activity `protobuf:"varint,1,opt,name=status,proto3,enum=jam.attach.v1.Activity,oneof"`
 }
 
 type StatusUp_Heartbeat struct {
@@ -215,7 +215,7 @@ func (*StatusUp_Connector) isStatusUp_Msg() {}
 func (*StatusUp_Gate) isStatusUp_Msg() {}
 
 // ConnectorApplied reports the fingerprint (snippet.Fingerprint) of the
-// connector cove-master applied to the agent's most recent spawn. Jam compares it
+// connector jam-studio-agent applied to the agent's most recent spawn. Jam compares it
 // with the role's current connector to flag a stale studio.
 type ConnectorApplied struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -264,10 +264,10 @@ func (x *ConnectorApplied) GetFingerprint() string {
 // SessionEvent is one line of the agent's claude stream-json stdout.
 type SessionEvent struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
-	StreamId       string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`                      // random per cove-master process: 32 lowercase hex chars
+	StreamId       string                 `protobuf:"bytes,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`                      // random per jam-studio-agent process: 32 lowercase hex chars
 	Seq            uint64                 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`                                               // monotonic per stream_id, from 1
 	Turn           uint32                 `protobuf:"varint,3,opt,name=turn,proto3" json:"turn,omitempty"`                                             // claude invocation number, from 1
-	ObservedUnixMs int64                  `protobuf:"varint,4,opt,name=observed_unix_ms,json=observedUnixMs,proto3" json:"observed_unix_ms,omitempty"` // when cove-master read the line
+	ObservedUnixMs int64                  `protobuf:"varint,4,opt,name=observed_unix_ms,json=observedUnixMs,proto3" json:"observed_unix_ms,omitempty"` // when jam-studio-agent read the line
 	Raw            []byte                 `protobuf:"bytes,5,opt,name=raw,proto3" json:"raw,omitempty"`                                                // the line, no trailing newline, secrets redacted
 	TruncatedBytes uint64                 `protobuf:"varint,6,opt,name=truncated_bytes,json=truncatedBytes,proto3" json:"truncated_bytes,omitempty"`   // bytes dropped from raw; 0 = intact
 	unknownFields  protoimpl.UnknownFields
@@ -1052,7 +1052,7 @@ func (x *RotateToken) GetToken() string {
 	return ""
 }
 
-// RunGate asks cove-master to run an alarm's gate (sh -c command in the
+// RunGate asks jam-studio-agent to run an alarm's gate (sh -c command in the
 // agent's workspace, killed at timeout_s) and answer with a GateResult.
 type RunGate struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1256,7 +1256,7 @@ func (x *OpenTunnel) GetPort() int32 {
 }
 
 // SetTunnelPorts replaces the studio's dynamic tunnel allow-list: the loopback
-// ports Jam may OpenTunnel to, besides cove-master's configured ones (sshd).
+// ports Jam may OpenTunnel to, besides jam-studio-agent's configured ones (sshd).
 // Sent first on every Attach stream, then after each change.
 type SetTunnelPorts struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1492,13 +1492,13 @@ var File_attach_proto protoreflect.FileDescriptor
 
 const file_attach_proto_rawDesc = "" +
 	"\n" +
-	"\fattach.proto\x12\x10harbor.attach.v1\"\xb4\x02\n" +
-	"\bStatusUp\x124\n" +
-	"\x06status\x18\x01 \x01(\x0e2\x1a.harbor.attach.v1.ActivityH\x00R\x06status\x12;\n" +
-	"\theartbeat\x18\x02 \x01(\v2\x1b.harbor.attach.v1.HeartbeatH\x00R\theartbeat\x126\n" +
-	"\x05event\x18\x03 \x01(\v2\x1e.harbor.attach.v1.SessionEventH\x00R\x05event\x12B\n" +
-	"\tconnector\x18\x04 \x01(\v2\".harbor.attach.v1.ConnectorAppliedH\x00R\tconnector\x122\n" +
-	"\x04gate\x18\x05 \x01(\v2\x1c.harbor.attach.v1.GateResultH\x00R\x04gateB\x05\n" +
+	"\fattach.proto\x12\rjam.attach.v1\"\xa5\x02\n" +
+	"\bStatusUp\x121\n" +
+	"\x06status\x18\x01 \x01(\x0e2\x17.jam.attach.v1.ActivityH\x00R\x06status\x128\n" +
+	"\theartbeat\x18\x02 \x01(\v2\x18.jam.attach.v1.HeartbeatH\x00R\theartbeat\x123\n" +
+	"\x05event\x18\x03 \x01(\v2\x1b.jam.attach.v1.SessionEventH\x00R\x05event\x12?\n" +
+	"\tconnector\x18\x04 \x01(\v2\x1f.jam.attach.v1.ConnectorAppliedH\x00R\tconnector\x12/\n" +
+	"\x04gate\x18\x05 \x01(\v2\x19.jam.attach.v1.GateResultH\x00R\x04gateB\x05\n" +
 	"\x03msg\"4\n" +
 	"\x10ConnectorApplied\x12 \n" +
 	"\vfingerprint\x18\x01 \x01(\tR\vfingerprint\"\xb6\x01\n" +
@@ -1509,27 +1509,27 @@ const file_attach_proto_rawDesc = "" +
 	"\x10observed_unix_ms\x18\x04 \x01(\x03R\x0eobservedUnixMs\x12\x10\n" +
 	"\x03raw\x18\x05 \x01(\fR\x03raw\x12'\n" +
 	"\x0ftruncated_bytes\x18\x06 \x01(\x04R\x0etruncatedBytes\"\v\n" +
-	"\tHeartbeat\"\xf8\x04\n" +
-	"\vControlDown\x12,\n" +
-	"\x04wake\x18\x01 \x01(\v2\x16.harbor.attach.v1.WakeH\x00R\x04wake\x128\n" +
-	"\bteardown\x18\x02 \x01(\v2\x1a.harbor.attach.v1.TeardownH\x00R\bteardown\x123\n" +
-	"\x04tier\x18\x03 \x01(\v2\x1d.harbor.attach.v1.TierChangedH\x00R\x04tier\x127\n" +
-	"\x06rotate\x18\x04 \x01(\v2\x1d.harbor.attach.v1.RotateTokenH\x00R\x06rotate\x12.\n" +
-	"\x03ack\x18\x05 \x01(\v2\x1a.harbor.attach.v1.EventAckH\x00R\x03ack\x12/\n" +
-	"\x04gate\x18\x06 \x01(\v2\x19.harbor.attach.v1.RunGateH\x00R\x04gate\x12?\n" +
-	"\vopen_tunnel\x18\a \x01(\v2\x1c.harbor.attach.v1.OpenTunnelH\x00R\n" +
-	"openTunnel\x12E\n" +
-	"\ftunnel_ports\x18\b \x01(\v2 .harbor.attach.v1.SetTunnelPortsH\x00R\vtunnelPorts\x12;\n" +
-	"\tinterrupt\x18\t \x01(\v2\x1b.harbor.attach.v1.InterruptH\x00R\tinterrupt\x125\n" +
+	"\tHeartbeat\"\xd7\x04\n" +
+	"\vControlDown\x12)\n" +
+	"\x04wake\x18\x01 \x01(\v2\x13.jam.attach.v1.WakeH\x00R\x04wake\x125\n" +
+	"\bteardown\x18\x02 \x01(\v2\x17.jam.attach.v1.TeardownH\x00R\bteardown\x120\n" +
+	"\x04tier\x18\x03 \x01(\v2\x1a.jam.attach.v1.TierChangedH\x00R\x04tier\x124\n" +
+	"\x06rotate\x18\x04 \x01(\v2\x1a.jam.attach.v1.RotateTokenH\x00R\x06rotate\x12+\n" +
+	"\x03ack\x18\x05 \x01(\v2\x17.jam.attach.v1.EventAckH\x00R\x03ack\x12,\n" +
+	"\x04gate\x18\x06 \x01(\v2\x16.jam.attach.v1.RunGateH\x00R\x04gate\x12<\n" +
+	"\vopen_tunnel\x18\a \x01(\v2\x19.jam.attach.v1.OpenTunnelH\x00R\n" +
+	"openTunnel\x12B\n" +
+	"\ftunnel_ports\x18\b \x01(\v2\x1d.jam.attach.v1.SetTunnelPortsH\x00R\vtunnelPorts\x128\n" +
+	"\tinterrupt\x18\t \x01(\v2\x18.jam.attach.v1.InterruptH\x00R\tinterrupt\x122\n" +
 	"\acompact\x18\n" +
-	" \x01(\v2\x19.harbor.attach.v1.CompactH\x00R\acompact\x12/\n" +
-	"\x05clear\x18\v \x01(\v2\x17.harbor.attach.v1.ClearH\x00R\x05clearB\x05\n" +
+	" \x01(\v2\x16.jam.attach.v1.CompactH\x00R\acompact\x12,\n" +
+	"\x05clear\x18\v \x01(\v2\x14.jam.attach.v1.ClearH\x00R\x05clearB\x05\n" +
 	"\x03msg\"9\n" +
 	"\bEventAck\x12\x1b\n" +
 	"\tstream_id\x18\x01 \x01(\tR\bstreamId\x12\x10\n" +
-	"\x03seq\x18\x02 \x01(\x04R\x03seq\">\n" +
-	"\x04Wake\x126\n" +
-	"\areasons\x18\x01 \x03(\v2\x1c.harbor.attach.v1.WakeReasonR\areasons\"b\n" +
+	"\x03seq\x18\x02 \x01(\x04R\x03seq\";\n" +
+	"\x04Wake\x123\n" +
+	"\areasons\x18\x01 \x03(\v2\x19.jam.attach.v1.WakeReasonR\areasons\"b\n" +
 	"\n" +
 	"WakeReason\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x14\n" +
@@ -1566,11 +1566,11 @@ const file_attach_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\"&\n" +
 	"\x0eSetTunnelPorts\x12\x14\n" +
-	"\x05ports\x18\x01 \x03(\x05R\x05ports\"\x95\x01\n" +
-	"\vTunnelFrame\x122\n" +
-	"\x04open\x18\x01 \x01(\v2\x1c.harbor.attach.v1.TunnelOpenH\x00R\x04open\x12\x14\n" +
-	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x125\n" +
-	"\x05close\x18\x03 \x01(\v2\x1d.harbor.attach.v1.TunnelCloseH\x00R\x05closeB\x05\n" +
+	"\x05ports\x18\x01 \x03(\x05R\x05ports\"\x8f\x01\n" +
+	"\vTunnelFrame\x12/\n" +
+	"\x04open\x18\x01 \x01(\v2\x19.jam.attach.v1.TunnelOpenH\x00R\x04open\x12\x14\n" +
+	"\x04data\x18\x02 \x01(\fH\x00R\x04data\x122\n" +
+	"\x05close\x18\x03 \x01(\v2\x1a.jam.attach.v1.TunnelCloseH\x00R\x05closeB\x05\n" +
 	"\x03msg\"\x1c\n" +
 	"\n" +
 	"TunnelOpen\x12\x0e\n" +
@@ -1583,10 +1583,10 @@ const file_attach_proto_rawDesc = "" +
 	"\aWAITING\x10\x02\x12\v\n" +
 	"\aBLOCKED\x10\x03\x12\b\n" +
 	"\x04DONE\x10\x04\x12\v\n" +
-	"\aHOLDING\x10\x052\x9e\x01\n" +
-	"\aRuntime\x12G\n" +
-	"\x06Attach\x12\x1a.harbor.attach.v1.StatusUp\x1a\x1d.harbor.attach.v1.ControlDown(\x010\x01\x12J\n" +
-	"\x06Tunnel\x12\x1d.harbor.attach.v1.TunnelFrame\x1a\x1d.harbor.attach.v1.TunnelFrame(\x010\x01B<Z:github.com/aethons-tools/cove/internal/jam/attach/attachpbb\x06proto3"
+	"\aHOLDING\x10\x052\x92\x01\n" +
+	"\aRuntime\x12A\n" +
+	"\x06Attach\x12\x17.jam.attach.v1.StatusUp\x1a\x1a.jam.attach.v1.ControlDown(\x010\x01\x12D\n" +
+	"\x06Tunnel\x12\x1a.jam.attach.v1.TunnelFrame\x1a\x1a.jam.attach.v1.TunnelFrame(\x010\x01B<Z:github.com/aethons-tools/cove/internal/jam/attach/attachpbb\x06proto3"
 
 var (
 	file_attach_proto_rawDescOnce sync.Once
@@ -1603,53 +1603,53 @@ func file_attach_proto_rawDescGZIP() []byte {
 var file_attach_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_attach_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_attach_proto_goTypes = []any{
-	(Activity)(0),            // 0: harbor.attach.v1.Activity
-	(*StatusUp)(nil),         // 1: harbor.attach.v1.StatusUp
-	(*ConnectorApplied)(nil), // 2: harbor.attach.v1.ConnectorApplied
-	(*SessionEvent)(nil),     // 3: harbor.attach.v1.SessionEvent
-	(*Heartbeat)(nil),        // 4: harbor.attach.v1.Heartbeat
-	(*ControlDown)(nil),      // 5: harbor.attach.v1.ControlDown
-	(*EventAck)(nil),         // 6: harbor.attach.v1.EventAck
-	(*Wake)(nil),             // 7: harbor.attach.v1.Wake
-	(*WakeReason)(nil),       // 8: harbor.attach.v1.WakeReason
-	(*Interrupt)(nil),        // 9: harbor.attach.v1.Interrupt
-	(*Compact)(nil),          // 10: harbor.attach.v1.Compact
-	(*Clear)(nil),            // 11: harbor.attach.v1.Clear
-	(*Teardown)(nil),         // 12: harbor.attach.v1.Teardown
-	(*TierChanged)(nil),      // 13: harbor.attach.v1.TierChanged
-	(*RotateToken)(nil),      // 14: harbor.attach.v1.RotateToken
-	(*RunGate)(nil),          // 15: harbor.attach.v1.RunGate
-	(*GateResult)(nil),       // 16: harbor.attach.v1.GateResult
-	(*OpenTunnel)(nil),       // 17: harbor.attach.v1.OpenTunnel
-	(*SetTunnelPorts)(nil),   // 18: harbor.attach.v1.SetTunnelPorts
-	(*TunnelFrame)(nil),      // 19: harbor.attach.v1.TunnelFrame
-	(*TunnelOpen)(nil),       // 20: harbor.attach.v1.TunnelOpen
-	(*TunnelClose)(nil),      // 21: harbor.attach.v1.TunnelClose
+	(Activity)(0),            // 0: jam.attach.v1.Activity
+	(*StatusUp)(nil),         // 1: jam.attach.v1.StatusUp
+	(*ConnectorApplied)(nil), // 2: jam.attach.v1.ConnectorApplied
+	(*SessionEvent)(nil),     // 3: jam.attach.v1.SessionEvent
+	(*Heartbeat)(nil),        // 4: jam.attach.v1.Heartbeat
+	(*ControlDown)(nil),      // 5: jam.attach.v1.ControlDown
+	(*EventAck)(nil),         // 6: jam.attach.v1.EventAck
+	(*Wake)(nil),             // 7: jam.attach.v1.Wake
+	(*WakeReason)(nil),       // 8: jam.attach.v1.WakeReason
+	(*Interrupt)(nil),        // 9: jam.attach.v1.Interrupt
+	(*Compact)(nil),          // 10: jam.attach.v1.Compact
+	(*Clear)(nil),            // 11: jam.attach.v1.Clear
+	(*Teardown)(nil),         // 12: jam.attach.v1.Teardown
+	(*TierChanged)(nil),      // 13: jam.attach.v1.TierChanged
+	(*RotateToken)(nil),      // 14: jam.attach.v1.RotateToken
+	(*RunGate)(nil),          // 15: jam.attach.v1.RunGate
+	(*GateResult)(nil),       // 16: jam.attach.v1.GateResult
+	(*OpenTunnel)(nil),       // 17: jam.attach.v1.OpenTunnel
+	(*SetTunnelPorts)(nil),   // 18: jam.attach.v1.SetTunnelPorts
+	(*TunnelFrame)(nil),      // 19: jam.attach.v1.TunnelFrame
+	(*TunnelOpen)(nil),       // 20: jam.attach.v1.TunnelOpen
+	(*TunnelClose)(nil),      // 21: jam.attach.v1.TunnelClose
 }
 var file_attach_proto_depIdxs = []int32{
-	0,  // 0: harbor.attach.v1.StatusUp.status:type_name -> harbor.attach.v1.Activity
-	4,  // 1: harbor.attach.v1.StatusUp.heartbeat:type_name -> harbor.attach.v1.Heartbeat
-	3,  // 2: harbor.attach.v1.StatusUp.event:type_name -> harbor.attach.v1.SessionEvent
-	2,  // 3: harbor.attach.v1.StatusUp.connector:type_name -> harbor.attach.v1.ConnectorApplied
-	16, // 4: harbor.attach.v1.StatusUp.gate:type_name -> harbor.attach.v1.GateResult
-	7,  // 5: harbor.attach.v1.ControlDown.wake:type_name -> harbor.attach.v1.Wake
-	12, // 6: harbor.attach.v1.ControlDown.teardown:type_name -> harbor.attach.v1.Teardown
-	13, // 7: harbor.attach.v1.ControlDown.tier:type_name -> harbor.attach.v1.TierChanged
-	14, // 8: harbor.attach.v1.ControlDown.rotate:type_name -> harbor.attach.v1.RotateToken
-	6,  // 9: harbor.attach.v1.ControlDown.ack:type_name -> harbor.attach.v1.EventAck
-	15, // 10: harbor.attach.v1.ControlDown.gate:type_name -> harbor.attach.v1.RunGate
-	17, // 11: harbor.attach.v1.ControlDown.open_tunnel:type_name -> harbor.attach.v1.OpenTunnel
-	18, // 12: harbor.attach.v1.ControlDown.tunnel_ports:type_name -> harbor.attach.v1.SetTunnelPorts
-	9,  // 13: harbor.attach.v1.ControlDown.interrupt:type_name -> harbor.attach.v1.Interrupt
-	10, // 14: harbor.attach.v1.ControlDown.compact:type_name -> harbor.attach.v1.Compact
-	11, // 15: harbor.attach.v1.ControlDown.clear:type_name -> harbor.attach.v1.Clear
-	8,  // 16: harbor.attach.v1.Wake.reasons:type_name -> harbor.attach.v1.WakeReason
-	20, // 17: harbor.attach.v1.TunnelFrame.open:type_name -> harbor.attach.v1.TunnelOpen
-	21, // 18: harbor.attach.v1.TunnelFrame.close:type_name -> harbor.attach.v1.TunnelClose
-	1,  // 19: harbor.attach.v1.Runtime.Attach:input_type -> harbor.attach.v1.StatusUp
-	19, // 20: harbor.attach.v1.Runtime.Tunnel:input_type -> harbor.attach.v1.TunnelFrame
-	5,  // 21: harbor.attach.v1.Runtime.Attach:output_type -> harbor.attach.v1.ControlDown
-	19, // 22: harbor.attach.v1.Runtime.Tunnel:output_type -> harbor.attach.v1.TunnelFrame
+	0,  // 0: jam.attach.v1.StatusUp.status:type_name -> jam.attach.v1.Activity
+	4,  // 1: jam.attach.v1.StatusUp.heartbeat:type_name -> jam.attach.v1.Heartbeat
+	3,  // 2: jam.attach.v1.StatusUp.event:type_name -> jam.attach.v1.SessionEvent
+	2,  // 3: jam.attach.v1.StatusUp.connector:type_name -> jam.attach.v1.ConnectorApplied
+	16, // 4: jam.attach.v1.StatusUp.gate:type_name -> jam.attach.v1.GateResult
+	7,  // 5: jam.attach.v1.ControlDown.wake:type_name -> jam.attach.v1.Wake
+	12, // 6: jam.attach.v1.ControlDown.teardown:type_name -> jam.attach.v1.Teardown
+	13, // 7: jam.attach.v1.ControlDown.tier:type_name -> jam.attach.v1.TierChanged
+	14, // 8: jam.attach.v1.ControlDown.rotate:type_name -> jam.attach.v1.RotateToken
+	6,  // 9: jam.attach.v1.ControlDown.ack:type_name -> jam.attach.v1.EventAck
+	15, // 10: jam.attach.v1.ControlDown.gate:type_name -> jam.attach.v1.RunGate
+	17, // 11: jam.attach.v1.ControlDown.open_tunnel:type_name -> jam.attach.v1.OpenTunnel
+	18, // 12: jam.attach.v1.ControlDown.tunnel_ports:type_name -> jam.attach.v1.SetTunnelPorts
+	9,  // 13: jam.attach.v1.ControlDown.interrupt:type_name -> jam.attach.v1.Interrupt
+	10, // 14: jam.attach.v1.ControlDown.compact:type_name -> jam.attach.v1.Compact
+	11, // 15: jam.attach.v1.ControlDown.clear:type_name -> jam.attach.v1.Clear
+	8,  // 16: jam.attach.v1.Wake.reasons:type_name -> jam.attach.v1.WakeReason
+	20, // 17: jam.attach.v1.TunnelFrame.open:type_name -> jam.attach.v1.TunnelOpen
+	21, // 18: jam.attach.v1.TunnelFrame.close:type_name -> jam.attach.v1.TunnelClose
+	1,  // 19: jam.attach.v1.Runtime.Attach:input_type -> jam.attach.v1.StatusUp
+	19, // 20: jam.attach.v1.Runtime.Tunnel:input_type -> jam.attach.v1.TunnelFrame
+	5,  // 21: jam.attach.v1.Runtime.Attach:output_type -> jam.attach.v1.ControlDown
+	19, // 22: jam.attach.v1.Runtime.Tunnel:output_type -> jam.attach.v1.TunnelFrame
 	21, // [21:23] is the sub-list for method output_type
 	19, // [19:21] is the sub-list for method input_type
 	19, // [19:19] is the sub-list for extension type_name

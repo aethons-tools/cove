@@ -1,4 +1,4 @@
-# The sealed hardening layer. It builds FROM the HARNESS LAYER, the stage at-cove
+# The sealed hardening layer. It builds FROM the HARNESS LAYER, the stage jam
 # assemble generates from the model-spec and prepends to this file
 # (internal/harnessinstall): `ARG BASE` + `FROM ${BASE} AS harness` installs the
 # agent CLI at its exact version + its plugins on the kit-built base. So the
@@ -15,17 +15,17 @@ RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
  && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/'    /etc/ssh/sshd_config
 
-# Install the embedded, version-locked cove-master that at-jam's launcher staged
+# Install the embedded, version-locked jam-studio-agent that jam's launcher staged
 # into the build context (COV-158). Install only when the arch binary is
 # non-empty; a plain `go build` stages a 0-byte placeholder, in which case
-# cove-master is simply absent and a managed raise fails clearly at launch —
+# jam-studio-agent is simply absent and a managed raise fails clearly at launch —
 # there is no base-image fallback.
-COPY covemaster/ /tmp/covemaster/
+COPY studioagent/ /tmp/studioagent/
 RUN arch="$(dpkg --print-architecture)" \
- && if [ -s "/tmp/covemaster/cove-master-linux-${arch}" ]; then \
-      install -m 0755 "/tmp/covemaster/cove-master-linux-${arch}" /usr/local/bin/cove-master; \
+ && if [ -s "/tmp/studioagent/jam-studio-agent-linux-${arch}" ]; then \
+      install -m 0755 "/tmp/studioagent/jam-studio-agent-linux-${arch}" /usr/local/bin/jam-studio-agent; \
     fi \
- && rm -rf /tmp/covemaster
+ && rm -rf /tmp/studioagent
 
 COPY image-files/. /.
 # `COPY image-files/. /.` carries home/agent/ directory entries (for the
@@ -44,20 +44,20 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
  && mkdir -p /home/agent/workspace \
  && chown agent:agent /home/agent/workspace
 # The agent docs and skills seeded into /agent-data are NOT sealed: they ship in
-# the kit base (cove-base-image's /home/agent/.init-agent-data), so a kit
+# the kit base (jam-studio-base's /home/agent/.init-agent-data), so a kit
 # overrides them by COPY. This layer owns only the seeding mechanism
-# (entrypoint.sh -> /usr/local/lib/cove/seed-agent-data.sh).
+# (entrypoint.sh -> /usr/local/lib/jam/seed-agent-data.sh).
 
 # docker:true sandboxes boot systemd as PID 1 (COV-118); enable the sealed nftables
-# drop (cove-egress) and the base image's distro squid.service (the egress proxy) at
+# drop (jam-egress) and the base image's distro squid.service (the egress proxy) at
 # boot — before sshd and the inner dockerd — independent of any socket activation. The
-# sealed squid.service.d/cove-egress.conf drop-in orders squid After the nft drop.
+# sealed squid.service.d/jam-egress.conf drop-in orders squid After the nft drop.
 # `systemctl enable` runs offline during the build (creating the WantedBy symlinks),
 # which is why the units are enabled here rather than shipped as symlinks (go:embed
 # can't carry symlinks); squid.service is already preset-enabled, enabled again
 # idempotently. Inert for non-docker sandboxes: they never boot systemd (the
 # entrypoint execs sshd directly), so the enabled units simply never run.
-RUN systemctl enable cove-egress.service squid.service
+RUN systemctl enable jam-egress.service squid.service
 
 # Blend the install-generated ~/.claude.json (machineID, userID, first-start
 # time, migration flags, …) UNDER the base's startup-experience overrides, so
@@ -75,10 +75,10 @@ RUN seed=/home/agent/.init-agent-data/.claude.json \
 
 # SSH sessions read /etc/environment via pam_env. Bridge the image's Docker ENV
 # into it: PATH (intrinsic, ~/.local/bin prepended) + the vars named in
-# COVE_SSHENV, then the sealed egress-proxy / CLAUDE_CONFIG_DIR the hardening layer
+# JAM_SSHENV, then the sealed egress-proxy / CLAUDE_CONFIG_DIR the hardening layer
 # owns. One ENV statement feeds both `docker run`/CI and SSH sessions — no
 # separate env.d fragment to keep in sync.
-RUN /usr/local/lib/cove/apply-sshenv.sh
+RUN /usr/local/lib/jam/apply-sshenv.sh
 
 # Drop cove's build-time consumables from the final image.
 RUN rm -rf /.cove

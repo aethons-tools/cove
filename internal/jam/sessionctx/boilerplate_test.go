@@ -41,7 +41,7 @@ func TestBoilerplatePerKind(t *testing.T) {
 				t.Errorf("%s: missing common %q", c.f.Kind, common)
 			}
 		}
-		if len(l.Leaves) != 2 || l.Leaves[0].Name != "changing-the-kit.md" || !strings.Contains(l.Leaves[0].Body, "at-jam kit push") ||
+		if len(l.Leaves) != 2 || l.Leaves[0].Name != "changing-the-kit.md" || !strings.Contains(l.Leaves[0].Body, "jam kit push") ||
 			l.Leaves[1].Name != "hardening-limits.md" {
 			t.Errorf("%s: want the changing-the-kit and hardening-limits leaves, got %+v", c.f.Kind, l.Leaves)
 		}
@@ -83,7 +83,7 @@ func TestBoilerplateEphemeralWithoutUnitHasOwnChannel(t *testing.T) {
 	}
 }
 
-// The sandbox rules a plain at-cove sandbox reads from the image's SANDBOX.md
+// The sandbox rules a plain (non-Jam) sandbox reads from the image's SANDBOX.md
 // are Jam built-in boilerplate (COV-246): every compiled Jam session carries
 // them, self-contained — never pointing at the kit-overridable
 // /agent-data/reference docs — because the image's SANDBOX.md tells a Jam
@@ -105,7 +105,7 @@ func TestCompiledContextCarriesSandboxRules(t *testing.T) {
 			t.Errorf("%s: sandbox rules must be self-contained, not point at image docs:\n%s", k, b.Core)
 		}
 		lim := b.Files["boilerplate/hardening-limits.md"]
-		for _, want := range []string{"nftables", "sshd", "entrypoint", "credential helper", "CLAUDE_CONFIG_DIR", "managed-settings.json", "at-jam egress set"} {
+		for _, want := range []string{"nftables", "sshd", "entrypoint", "credential helper", "CLAUDE_CONFIG_DIR", "managed-settings.json", "jam egress set"} {
 			if !strings.Contains(lim, want) {
 				t.Errorf("%s: hardening-limits leaf missing %q:\n%s", k, want, lim)
 			}

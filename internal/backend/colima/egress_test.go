@@ -25,7 +25,7 @@ func TestApplyRoleEgressExecsHelperWithStdin(t *testing.T) {
 		t.Fatalf("exec via %q; want docker", call.Name)
 	}
 	got := strings.Join(call.Args, " ")
-	if !strings.Contains(got, "exec -i -u root cove-1 /usr/local/lib/cove/apply-role-egress.sh") {
+	if !strings.Contains(got, "exec -i -u root cove-1 /usr/local/lib/jam/apply-role-egress.sh") {
 		t.Errorf("exec args = %s; want docker exec -i -u root cove-1 <helper>", got)
 	}
 	for _, d := range []string{".example.com", "pkg.go.dev"} {
@@ -46,7 +46,7 @@ func TestApplyRoleEgressEmptyPolicy(t *testing.T) {
 		t.Fatalf("ApplyRoleEgress: %v", err)
 	}
 	call := f.Calls[len(f.Calls)-1]
-	if !strings.Contains(strings.Join(call.Args, " "), "/usr/local/lib/cove/apply-role-egress.sh") {
+	if !strings.Contains(strings.Join(call.Args, " "), "/usr/local/lib/jam/apply-role-egress.sh") {
 		t.Fatalf("empty policy must still exec the helper:\n%v", call.Args)
 	}
 	if call.Stdin != "" {
@@ -98,7 +98,7 @@ func TestResetRoleEgressExecsKitDefault(t *testing.T) {
 		t.Fatalf("exec via %q; want docker", call.Name)
 	}
 	got := strings.Join(call.Args, " ")
-	if !strings.HasSuffix(got, "exec -i -u root cove-1 /usr/local/lib/cove/apply-role-egress.sh --kit-default") {
+	if !strings.HasSuffix(got, "exec -i -u root cove-1 /usr/local/lib/jam/apply-role-egress.sh --kit-default") {
 		t.Errorf("exec args = %s; want docker exec -i -u root cove-1 <helper> --kit-default", got)
 	}
 	if call.Stdin != "" {

@@ -1,6 +1,6 @@
 ---
 summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, test builds of the draft's image, draft studios (`studio raise --kit-draft`), the `kit draft open|status|get|put|rm|sync|publish|build|discard` verbs, the open, status, discard, file read/write/remove, publish and build API. The admin UI's Draft tab is in kits-drafts-ui.md.
-read_when: You want to open, inspect, edit, discard, test-build, try in a studio or publish a kit's draft with `at-jam kit draft`, `studio raise --kit-draft`, over the admin API (`/admin/kits/{name}/draft`) or on the kit page's Draft tab in the admin UI, or a draft call answered 409, 412, 413, 415, 428 or 503.
+read_when: You want to open, inspect, edit, discard, test-build, try in a studio or publish a kit's draft with `jam kit draft`, `studio raise --kit-draft`, over the admin API (`/admin/kits/{name}/draft`) or on the kit page's Draft tab in the admin UI, or a draft call answered 409, 412, 413, 415, 428 or 503.
 owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), test builds (the draft image tag, one per kit, the in-memory log, cancel and shutdown), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files, publish and build included) and their audit lines, draft studios (the raise, its image, the `draft` image status, its tree kept stored)
 prereqs: kits.md, kits-directory.md
 tier: leaf
@@ -25,7 +25,7 @@ files in the draft, then publish it as the kit's next version, or discard it.
   the **problems**: `kit <name>: kit.yml missing at the root`, a parse or
   validation error, a missing parent, a `base.context…` field. A draft with
   problems cannot be published.
-- A draft is working state: it is not in `at-jam export`, `config write` or a
+- A draft is working state: it is not in `jam export`, `config write` or a
   config plan, and it does not block `kit rm`. Removing the kit removes its
   draft.
 - Another version may land while a draft is open: the status then shows
@@ -76,7 +76,7 @@ and closes the draft.
 A **test build** builds the draft's image the way a raise does: the parent
 chain (its stages reused as usual), the harness, the sealed hardening layer
 and the build args, with the draft's files as the kit's own stage. Nothing
-is published. The image is tagged `cove-kit-draft:<kit>-<tree[:12]>` (its own
+is published. The image is tagged `jam-kit-draft:<kit>-<tree[:12]>` (its own
 stage `…-stage`), never a version's image or stage tag. It needs a connected
 [Studio Manager](studio-managers.md) that builds images; without
 `runtime.studio-managers` the build routes answer 503
@@ -96,11 +96,11 @@ stage `…-stage`), never a version's image or stage tag. It needs a connected
   `current` says whether that is still the draft's; `draft_etag` is the ETag now.
 - Stopping Jam (SIGINT or SIGTERM) cancels builds (`failed`, `cancelled: Jam is
   shutting down`), waiting up to 15 s (a second signal stops at once). Draft
-  images are not collected: `docker image rm` old `cove-kit-draft` ones.
+  images are not collected: `docker image rm` old `jam-kit-draft` ones.
 
 ## Draft studio
 
-`at-jam studio raise --id try --role dev --kit-draft app` raises a manual
+`jam studio raise --id try --role dev --kit-draft app` raises a manual
 studio ([the studio verbs](coves.md#the-studio-verbs)) that runs the draft's
 tree as of the raise, unpublished. Admin only, like every raise; the role supplies
 all but the kit. Its session context's kit fact and setup inspect name the kit
@@ -114,7 +114,7 @@ all but the kit. Its session context's kit fact and setup inspect name the kit
   the raise waits (`studio raise` allows 30 minutes). A request gone first is 503 `the raise stopped waiting for the draft's test build (it runs on: raise again to use it)`.
 - 409 while a build of another tree or harness runs, or
   `draft <kit> changed during the raise (retry)`. A failed build is 400
-  `draft <kit>: the test build failed (see at-jam kit draft build <kit> --show): <its error's first line>`.
+  `draft <kit>: the test build failed (see jam kit draft build <kit> --show --manager <manager>): <its error's first line>`.
 - The studio runs that image by id (its setup inspect reads it by id too),
   records `kit_draft` (`kit`, `tree`), and the raise answers `kit_draft_tree`.
   Its image status is `draft`: pushing or publishing never makes it stale or
@@ -124,15 +124,15 @@ all but the kit. Its session context's kit fact and setup inspect name the kit
 ## The `kit draft` verbs
 
 ```
-at-jam kit draft open app [--from v2]                  # → opened draft app from v2 (etag "…")
-at-jam kit draft status app [--json]                   # base and current, files, changes vs the base, problems
-at-jam kit draft get app run.sh [-o run.sh]            # one file's bytes (stdout by default)
-at-jam kit draft put app run.sh ./run.sh [--mode 755]  # write a file (- reads stdin)
-at-jam kit draft rm app old.sh                         # remove a file
-at-jam kit draft sync app ./app                        # mirror a directory into the draft (needs an open draft)
-at-jam kit draft publish app [--pin]                   # → published draft app as v4 (tree 3f2a…)
-at-jam kit draft build app [--manager N] [--no-follow] # test-build the draft, following its log → built draft app @3f2a… (digest sha256:…)
-at-jam kit draft discard app                           # drop the draft
+jam kit draft open app [--from v2]                   # → opened draft app from v2 (etag "…")
+jam kit draft status app [--json]                    # base and current, files, changes vs the base, problems
+jam kit draft get app run.sh [-o run.sh]             # one file's bytes (stdout by default)
+jam kit draft put app run.sh ./run.sh [--mode 755]   # write a file (- reads stdin)
+jam kit draft rm app old.sh                          # remove a file
+jam kit draft sync app ./app                         # mirror a directory into the draft (needs an open draft)
+jam kit draft publish app [--pin]                    # → published draft app as v4 (tree 3f2a…)
+jam kit draft build app [--manager N] [--no-follow]  # test-build the draft, following its log → built draft app @3f2a… (digest sha256:…)
+jam kit draft discard app                            # drop the draft
 ```
 
 Each write, and `build` when it starts one, first fetches the status and

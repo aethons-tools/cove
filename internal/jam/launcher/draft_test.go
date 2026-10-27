@@ -19,7 +19,7 @@ import (
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
-const draftTag = "cove-kit-draft:app-0123456789ab"
+const draftTag = "jam-kit-draft:app-0123456789ab"
 
 // colimaDraftLauncher is a launcher over the real colima backend driven by
 // f, so a draft build's docker argv is asserted call by call.
@@ -68,7 +68,7 @@ func gatePasses(t *testing.T) []runner.FakeResult {
 
 // An unchained draft: the real BuildKitImage argv with the draft tag and
 // the kit's build args, the build streamed to the log, no env, no
-// cove-kit: tag anywhere, and no build-arg value in the launcher's lines.
+// jam-kit: tag anywhere, and no build-arg value in the launcher's lines.
 func TestBuildKitDraftArgv(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{
 		{}, // docker info (preflight)
@@ -90,7 +90,7 @@ func TestBuildKitDraftArgv(t *testing.T) {
 	}
 	for _, c := range f.Calls {
 		for _, a := range c.Args {
-			if strings.HasPrefix(a, "cove-kit:") {
+			if strings.HasPrefix(a, "jam-kit:") {
 				t.Fatalf("a draft build named a kit version's image tag: %v", c.Args)
 			}
 		}
@@ -113,12 +113,12 @@ func TestBuildKitDraftArgv(t *testing.T) {
 func TestBuildKitDraftStageArgv(t *testing.T) {
 	outs := []runner.FakeResult{
 		{Stdout: "sha256:child\n", Stderr: "#3 [2/2] RUN make\n"}, // docker build -q … - (the draft's stage)
-		{}, // docker tag sha256:child cove-kit-base:child
+		{}, // docker tag sha256:child jam-kit-base:child
 		{Stdout: `["sha256:a","sha256:b","sha256:c"]`}, // the stage's layers
 	}
 	outs = append(outs, gatePasses(t)...)
 	outs = append(outs,
-		runner.FakeResult{},                           // docker tag cove-kit-base:child <tag>-stage
+		runner.FakeResult{},                           // docker tag jam-kit-base:child <tag>-stage
 		runner.FakeResult{},                           // docker info
 		runner.FakeResult{},                           // docker build --progress=plain …
 		runner.FakeResult{Stdout: fakeImageID + "\n"}) // docker inspect
@@ -131,14 +131,14 @@ func TestBuildKitDraftStageArgv(t *testing.T) {
 		t.Fatal(err)
 	}
 	builds, stdin := dockerArgsAll(f.Calls, "build")
-	if len(builds) != 2 || !slices.Contains(builds[0], "-") || !slices.Contains(builds[0], "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {
+	if len(builds) != 2 || !slices.Contains(builds[0], "-") || !slices.Contains(builds[0], "JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) {
 		t.Fatalf("builds = %v", builds)
 	}
 	if got := tarNames(t, []byte(stdin[0])); got != "Dockerfile,run.sh" {
 		t.Fatalf("the stage context = %s, want the draft's files minus kit.yml", got)
 	}
 	tags, _ := dockerArgsAll(f.Calls, "tag")
-	if last := tags[len(tags)-1]; len(last) != 3 || last[1] != "cove-kit-base:child" || last[2] != jam.KitDraftStageTag(draftTag) {
+	if last := tags[len(tags)-1]; len(last) != 3 || last[1] != "jam-kit-base:child" || last[2] != jam.KitDraftStageTag(draftTag) {
 		t.Fatalf("stage tag call = %v", last)
 	}
 	normal, err := kitStageTag(l.asm, basedigest.DefaultRef(), app.Kit)
@@ -167,7 +167,7 @@ func TestBuildKitDraftReusesParentStages(t *testing.T) {
 	mid := ctxLink(t, "web-dev", 2, "base-dev", "mid")
 	draft := ctxLink(t, "my-app", 0, "web-dev", "draft")
 	def := chainDef(map[string]string{"A": "1"}, root, mid, draft)
-	const tag = "cove-kit-draft:my-app-0123456789ab"
+	const tag = "jam-kit-draft:my-app-0123456789ab"
 	if _, err := l.BuildKitDraft(context.Background(), def, tag, io.Discard); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestBuildKitDraftRefusesANonDraftTag(t *testing.T) {
 	l := newPrepareLauncher(&fakeOps{}, &fakeInv{}, noAsm)
 	link := treeLink(t, "app", 0, "kit.yml", "kind: studio\n")
 	def := KitDefinition{Ref: link.Ref, Kit: link.Kit, Chain: []jam.KitLink{link}}
-	if _, err := l.BuildKitDraft(context.Background(), def, "cove-kit:abc-def", io.Discard); err == nil {
+	if _, err := l.BuildKitDraft(context.Background(), def, "jam-kit:abc-def", io.Discard); err == nil {
 		t.Fatal("a draft build must refuse a kit version's tag")
 	}
 }
@@ -243,17 +243,17 @@ func TestRaiseDraftStudioRunsItsBuiltImage(t *testing.T) {
 
 // An unchained draft with a Dockerfile (ruling F2): its context streams FROM
 // the blessed base, is gated, and its stage is tagged <tag>-stage — the ref
-// the image builds FROM — never the content-id cove-kit-base:<id> ref a kit
+// the image builds FROM — never the content-id jam-kit-base:<id> ref a kit
 // version's own base resolves to, nor any kit version's stage tag.
 func TestBuildKitDraftUnchainedStageArgv(t *testing.T) {
 	outs := []runner.FakeResult{
 		{Stdout: "sha256:own\n"}, // docker build -q … - (the draft's stage)
-		{},                       // docker tag sha256:own cove-kit-base:own
+		{},                       // docker tag sha256:own jam-kit-base:own
 		{Stdout: `["sha256:a","sha256:b","sha256:c"]`}, // the stage's layers
 	}
 	outs = append(outs, gatePasses(t)...)
 	outs = append(outs,
-		runner.FakeResult{},                           // docker tag cove-kit-base:own <tag>-stage
+		runner.FakeResult{},                           // docker tag jam-kit-base:own <tag>-stage
 		runner.FakeResult{},                           // docker info
 		runner.FakeResult{},                           // docker build --progress=plain …
 		runner.FakeResult{Stdout: fakeImageID + "\n"}) // docker inspect
@@ -266,14 +266,14 @@ func TestBuildKitDraftUnchainedStageArgv(t *testing.T) {
 	}
 	stage := jam.KitDraftStageTag(draftTag)
 	builds, stdin := dockerArgsAll(f.Calls, "build")
-	if len(builds) != 2 || !slices.Contains(builds[0], "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {
+	if len(builds) != 2 || !slices.Contains(builds[0], "JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) {
 		t.Fatalf("builds = %v", builds)
 	}
 	if got := tarNames(t, []byte(stdin[0])); got != "Dockerfile" {
 		t.Fatalf("the stage context = %s, want the draft's files minus kit.yml", got)
 	}
 	tags, _ := dockerArgsAll(f.Calls, "tag")
-	if last := tags[len(tags)-1]; len(last) != 3 || last[1] != "cove-kit-base:own" || last[2] != stage {
+	if last := tags[len(tags)-1]; len(last) != 3 || last[1] != "jam-kit-base:own" || last[2] != stage {
 		t.Fatalf("stage tag call = %v", last)
 	}
 	if after(builds[1], "-t") != draftTag || after(builds[1], "--build-arg") != "BASE="+stage {
@@ -344,14 +344,14 @@ func TestBuildKitDraftMatchesPrepareKit(t *testing.T) {
 		!bytes.Equal(prepOps.stages[0].tar, draftOps.stages[0].tar) {
 		t.Fatalf("prepare built %+v args %v, draft %+v args %v", prepOps.stages, prepOps.builtArgs, draftOps.stages, draftOps.builtArgs)
 	}
-	if strings.HasPrefix(draftOps.builtTag, "cove-kit:") || draftOps.stages[0].stage == prepOps.stages[0].stage {
+	if strings.HasPrefix(draftOps.builtTag, "jam-kit:") || draftOps.stages[0].stage == prepOps.stages[0].stage {
 		t.Fatalf("the draft wrote a kit version's tag: image %q stage %q", draftOps.builtTag, draftOps.stages[0].stage)
 	}
 }
 
 // badDraftImageIDs are ids a draft image must never be run or inspected by:
 // empty (colima would fall back to the mutable tag), a flag, a tag.
-var badDraftImageIDs = []string{"", "-x", "cove-kit-draft:app-0123456789ab", "sha256:" + strings.Repeat("A", 64), fakeImageID + "0"}
+var badDraftImageIDs = []string{"", "-x", "jam-kit-draft:app-0123456789ab", "sha256:" + strings.Repeat("A", 64), fakeImageID + "0"}
 
 // A draft studio runs only a well-formed image id; anything else is refused
 // before any container runs.

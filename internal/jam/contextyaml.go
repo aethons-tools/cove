@@ -13,7 +13,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
-// contextFile is the authored-context YAML shared by `at-jam context set` and
+// contextFile is the authored-context YAML shared by `jam context set` and
 // the admin UI's Session context card.
 type contextFile struct {
 	Core   string `yaml:"core"`

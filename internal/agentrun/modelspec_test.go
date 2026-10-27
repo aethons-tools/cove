@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/covemaster"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 // specClaude is testClaude plus a settings file in dir and a fake
@@ -89,7 +89,7 @@ func TestClaudeEnvByProvider(t *testing.T) {
 		"bedrock": {"bedrock", map[string]string{"AWS_REGION": "us-west-2"},
 			map[string]string{"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-west-2"}},
 		// Defense in depth: what Jam refuses at write never reaches the env.
-		"refused keys dropped": {"vertex", map[string]string{"PATH": "/evil", "ANTHROPIC_API_KEY": "k", "AT_JAM_X": "1", "OK": "1"},
+		"refused keys dropped": {"vertex", map[string]string{"PATH": "/evil", "ANTHROPIC_API_KEY": "k", "JAM_X": "1", "OK": "1"},
 			map[string]string{"CLAUDE_CODE_USE_VERTEX": "1", "OK": "1"}},
 	}
 	for name, c := range cases {
@@ -253,9 +253,9 @@ func TestRunPicksUpEditedSpecNextEpisode(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := runAsync(ctx, w, h)
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
-	w.Control(covemaster.Control{Kind: covemaster.Wake})
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 2 })
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 })
+	w.Control(studioagent.Control{Kind: studioagent.Wake})
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 2 })
 	cancel()
 	<-done
 	f.mu.Lock()
@@ -287,7 +287,7 @@ func TestRunFailsOnVersionMismatch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "requires claude 3.x") || !strings.Contains(err.Error(), modelspec.DefaultClaudeVersion) {
 		t.Fatalf("Run err = %v", err)
 	}
-	if f.bin != "" || h.count(covemaster.Running) != 0 {
+	if f.bin != "" || h.count(studioagent.Running) != 0 {
 		t.Fatal("the agent was spawned despite the version mismatch")
 	}
 }
@@ -303,8 +303,8 @@ func TestRunFailsWhenEditedSpecMismatches(t *testing.T) {
 	w := specWL(t, dir, specClaude(t, dir, modelspec.DefaultClaudeVersion, nil), f, ok, src, true)
 	h := &recordHandle{}
 	done := runAsyncEpisodes(w, h, 2)
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
-	w.Control(covemaster.Control{Kind: covemaster.Wake})
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 })
+	w.Control(studioagent.Control{Kind: studioagent.Wake})
 	select {
 	case err := <-done:
 		if err == nil || !strings.Contains(err.Error(), "requires claude 9.x") {
@@ -378,9 +378,9 @@ func TestRunPicksUpEditedPolicyNextEpisode(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := runAsync(ctx, w, h)
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
-	w.Control(covemaster.Control{Kind: covemaster.Wake})
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 2 })
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 })
+	w.Control(studioagent.Control{Kind: studioagent.Wake})
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 2 })
 	cancel()
 	<-done
 	f.mu.Lock()
@@ -545,9 +545,9 @@ func TestRunRegeneratesHarnessFilesEachEpisode(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := runAsync(ctx, w, h)
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
-	w.Control(covemaster.Control{Kind: covemaster.Wake})
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 2 })
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 })
+	w.Control(studioagent.Control{Kind: studioagent.Wake})
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 2 })
 	cancel()
 	<-done
 	f.mu.Lock()

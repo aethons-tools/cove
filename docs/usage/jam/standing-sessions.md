@@ -1,6 +1,6 @@
 ---
 summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again (resuming its conversation and workspace) if it dies, and tears it down with its state when the name is removed. Covers declaring, the `standing add|list|rm|reset|upgrade` verbs and admin routes, keep-alive with backoff, reset, upgrading to the current image, dismissal, admission, and messaging.
-read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing, resetting or upgrading one (e.g. its image is stale after an at-jam, kit or model-spec change), or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
+read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing, resetting or upgrading one (e.g. its image is stale after a jam, kit or model-spec change), or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
 owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the declaration ↔ session map (session ids), the `standing add|list|rm|reset|upgrade` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (the queue, prepare-first, idle wait, `--wait`), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 prereqs: roster.md for roles; standing-state.md for what a restart keeps; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
@@ -19,11 +19,11 @@ When the name is removed, Jam tears the studio down and deletes that state. Its 
 ## Declaring one
 
 ```
-at-jam standing add  --project acme --role reviewer --name alice-bot --prompt-file alice.md
-at-jam standing list --project acme --role reviewer
-at-jam standing rm    --project acme --role reviewer alice-bot
-at-jam standing reset --project acme --role reviewer alice-bot
-at-jam standing upgrade --project acme --role reviewer alice-bot
+jam standing add  --project acme --role reviewer --name alice-bot --prompt-file alice.md
+jam standing list --project acme --role reviewer
+jam standing rm    --project acme --role reviewer alice-bot
+jam standing reset --project acme --role reviewer alice-bot
+jam standing upgrade --project acme --role reviewer alice-bot
 ```
 
 Like every admin verb they take `--app`/`--admin-url`/`--token`
@@ -70,7 +70,7 @@ confirm) beside **Dismiss** on each standing session ([ui-pages.md](ui-pages.md)
 
 ## What "kept alive" means
 
-Jam's **standing reconciler** runs whenever `at-jam serve` runs. It needs no
+Jam's **standing reconciler** runs whenever `jam serve` runs. It needs no
 Requisitioner and no config. Every 30s it walks every role's declarations. For each
 name:
 
@@ -100,7 +100,7 @@ raises the session normally, rather than failing "already exists" from then on.
 
 A standing studio is **resident**, like a personal session: it waits after every
 turn instead of ending, and it is never torn down for `wait-max` (see
-[coves.md](coves.md#cove-master-the-in-cove-client) and
+[coves.md](coves.md#jam-studio-agent-the-in-cove-client) and
 [intercom.md](intercom.md#waiting-for-a-reply-wake-on)). Past the `warm-timeout`
 it is still paused and woken on a reply. It gets **no idle nags** and is never
 reclaimed, because it has no owner. That ladder is for
@@ -130,7 +130,7 @@ state remains.
 ## Upgrading a standing session
 
 A standing studio keeps the image it was raised on. When `standing list` or the
-role page shows [`image=stale`](coves.md#the-studio-verbs) — after a new at-jam
+role page shows [`image=stale`](coves.md#the-studio-verbs) — after a new jam
 build, a build-changing kit edit, or a [model-spec](model-specs.md) change —
 queue an upgrade with `standing upgrade` (or the role page's **Upgrade** button,
 highlighted when stale). The request only records intent and answers at once:

@@ -3,7 +3,7 @@ package agentrun
 import "bytes"
 
 // maxEventLine caps one stdout line forwarded as a session event; the
-// rest is counted, not sent (the full line is still in cove-master.log).
+// rest is counted, not sent (the full line is still in jam-studio-agent.log).
 const maxEventLine = 1 << 20
 
 // lineSplitter is an io.Writer that cuts the agent's stdout into lines and emits

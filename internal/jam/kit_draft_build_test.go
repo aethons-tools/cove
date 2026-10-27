@@ -99,13 +99,13 @@ func (f *fakeDraftBuilder) builds() int {
 func draftBuildsFor(t *testing.T, fb *fakeDraftBuilder) (*KitDraftBuilds, Store, string, context.CancelFunc) {
 	t.Helper()
 	st := NewMemStore()
-	pushApp(t, st, "kit.yml", "kind: studio\n", "Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n")
+	pushApp(t, st, "kit.yml", "kind: studio\n", "Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n")
 	d, err := OpenKitDraft(st, "app", 0, "local", draftNow)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s, err := PutKitDraftFile(st, slog.New(slog.DiscardHandler), "app", "Dockerfile", 0,
-		[]byte("ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\nRUN echo one\n"), DraftETag(d.Tree), "local", draftNow)
+		[]byte("ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\nRUN echo one\n"), DraftETag(d.Tree), "local", draftNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func finished(t *testing.T, b *KitDraftBuilds) KitDraftBuild {
 func TestKitDraftTag(t *testing.T) {
 	tree := strings.Repeat("ab", 32)
 	tag, err := KitDraftTag("app", tree)
-	if err != nil || tag != "cove-kit-draft:app-abababababab" || KitDraftStageTag(tag) != "cove-kit-draft:app-abababababab-stage" {
+	if err != nil || tag != "jam-kit-draft:app-abababababab" || KitDraftStageTag(tag) != "jam-kit-draft:app-abababababab-stage" {
 		t.Fatalf("tag = %q, %v", tag, err)
 	}
 	if _, err := KitDraftTag(strings.Repeat("a", 109), tree); err != nil {
@@ -154,7 +154,7 @@ func TestDraftBuildSucceeds(t *testing.T) {
 	fb := &fakeDraftBuilder{write: "#1 FROM base\n"}
 	b, st, etag, _ := draftBuildsFor(t, fb)
 	d, _ := st.GetKitDraft("app")
-	tag := "cove-kit-draft:app-" + d.Tree[:12]
+	tag := "jam-kit-draft:app-" + d.Tree[:12]
 	v, err := b.Start("app", etag, "local", "")
 	if err != nil || v.State != DraftBuildRunning || v.Tree != d.Tree || v.Tag != tag || !strings.HasPrefix(v.ID, "kdb_") || v.By != "local" {
 		t.Fatalf("start = %+v, %v", v, err)
@@ -167,7 +167,7 @@ func TestDraftBuildSucceeds(t *testing.T) {
 		t.Fatalf("log = %q", v.Log)
 	}
 	def := fb.defs[0]
-	if fb.tags[0] != tag || strings.HasPrefix(fb.tags[0], "cove-kit:") || def.Ref.ID != "app" || def.Ref.Version != 0 || len(def.Chain) != 1 || def.Chain[0].Ref.Version != 0 {
+	if fb.tags[0] != tag || strings.HasPrefix(fb.tags[0], "jam-kit:") || def.Ref.ID != "app" || def.Ref.Version != 0 || len(def.Chain) != 1 || def.Chain[0].Ref.Version != 0 {
 		t.Fatalf("built %q from %+v", fb.tags[0], def.Ref)
 	}
 	if !reflect.DeepEqual(def.Harness, harnessinstall.Default()) {
@@ -184,7 +184,7 @@ func TestDraftBuildSucceeds(t *testing.T) {
 
 func TestDraftBuildOnAChain(t *testing.T) {
 	st := NewMemStore()
-	if _, _, err := PushKitFiles(st, "web", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n")); err != nil {
+	if _, _, err := PushKitFiles(st, "web", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n")); err != nil {
 		t.Fatal(err)
 	}
 	pushApp(t, st, "kit.yml", "kind: studio\nbase: {kit: web}\n")
@@ -220,13 +220,13 @@ func TestDraftBuildRefusals(t *testing.T) {
 	wantErr(t, err, "no such kit", 404)
 	// A build arg named like a reserved secret is a problem: nothing builds.
 	log := slog.New(slog.DiscardHandler)
-	s, err := PutKitDraftFile(st, log, "app", "kit.yml", 0, []byte("kind: studio\nbuild-args:\n  AT_TASK_GIT_TOKEN: x\n"), etag, "local", draftNow)
+	s, err := PutKitDraftFile(st, log, "app", "kit.yml", 0, []byte("kind: studio\nbuild-args:\n  GOOGLE_APPLICATION_CREDENTIALS_JSON: x\n"), etag, "local", draftNow)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = b.Start("app", s.ETag, "local", "")
 	if err == nil || WriteStatus(err, 500) != 400 || !strings.HasPrefix(err.Error(), "draft app has problems: ") ||
-		!strings.Contains(err.Error(), `build-arg "AT_TASK_GIT_TOKEN" is a reserved secret name`) {
+		!strings.Contains(err.Error(), `build-arg "GOOGLE_APPLICATION_CREDENTIALS_JSON" is a reserved secret name`) {
 		t.Fatalf("err = %v", err)
 	}
 	s, err = RemoveKitDraftFile(st, log, "app", "kit.yml", s.ETag, "local", draftNow)
@@ -344,7 +344,7 @@ func TestDraftBuildEditedWhileRunning(t *testing.T) {
 	}
 	close(fb.release)
 	v := finished(t, b)
-	if v.State != DraftBuildSucceeded || v.Tree != d1.Tree || v.Current || !strings.Contains(v.Log, "file: ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\nRUN echo one\n") {
+	if v.State != DraftBuildSucceeded || v.Tree != d1.Tree || v.Current || !strings.Contains(v.Log, "file: ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\nRUN echo one\n") {
 		t.Fatalf("finished = %+v", v)
 	}
 }

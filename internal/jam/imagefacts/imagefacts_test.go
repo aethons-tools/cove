@@ -73,12 +73,12 @@ func assertNeverStarts(t *testing.T, calls []runner.Call) {
 func TestImageFactsArgvNeverStarts(t *testing.T) {
 	tarball := seedTar(t, entry{name: ".init-agent-data/", dir: true}, entry{name: ".init-agent-data/CLAUDE.md", body: []byte("@SANDBOX.md\n")})
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: inspectJSON}, {Stdout: "0123456789abcdef\n"}, {Stdout: tarball}, {}}}
-	got, err := newReader(f).ImageFacts(context.Background(), "cove-kit:abc-asm")
+	got, err := newReader(f).ImageFacts(context.Background(), "jam-kit:abc-asm")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := [][]string{
-		{"--context", "colima-jam", "image", "inspect", "--format", "{{json .}}", "cove-kit:abc-asm"},
+		{"--context", "colima-jam", "image", "inspect", "--format", "{{json .}}", "jam-kit:abc-asm"},
 		{"--context", "colima-jam", "create", "--pull=never", imageID, "/bin/true"},
 		{"--context", "colima-jam", "cp", "0123456789abcdef:" + SeedDir, "-"},
 		{"--context", "colima-jam", "rm", "-f", "-v", "0123456789abcdef"},
@@ -141,7 +141,7 @@ func TestImageFactsCacheIsBoundedLRU(t *testing.T) {
 
 func TestImageFactsNotPresent(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Err: errors.New("exit status 1")}}}
-	if _, err := newReader(f).ImageFacts(context.Background(), "cove-kit:gone"); !errors.Is(err, jam.ErrImageNotPresent) {
+	if _, err := newReader(f).ImageFacts(context.Background(), "jam-kit:gone"); !errors.Is(err, jam.ErrImageNotPresent) {
 		t.Fatalf("err = %v, want ErrImageNotPresent", err)
 	}
 	if len(f.Calls) != 1 {

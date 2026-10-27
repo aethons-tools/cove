@@ -20,7 +20,7 @@ func TestWithBuildLogStreamsTheBuildAndKeepsItsArgv(t *testing.T) {
 	}}
 	var log bytes.Buffer
 	b := NewWithContext(f, "colima").WithBuildLog(context.Background(), &log)
-	id, err := b.BuildKitImage(t.TempDir(), "cove-kit-draft:app-0123456789ab", "base@sha256:x", map[string]string{"A": "1"}, false)
+	id, err := b.BuildKitImage(t.TempDir(), "jam-kit-draft:app-0123456789ab", "base@sha256:x", map[string]string{"A": "1"}, false)
 	if err != nil || id != "sha256:img" {
 		t.Fatalf("BuildKitImage = %q, %v", id, err)
 	}
@@ -28,7 +28,7 @@ func TestWithBuildLogStreamsTheBuildAndKeepsItsArgv(t *testing.T) {
 		t.Fatalf("log = %q", log.String())
 	}
 	build := dockerCall(f.Calls, "build")
-	if !contains(build, "--progress=plain") || !contains(build, "A=1") || !contains(build, "BASE=base@sha256:x") || !contains(build, "cove-kit-draft:app-0123456789ab") {
+	if !contains(build, "--progress=plain") || !contains(build, "A=1") || !contains(build, "BASE=base@sha256:x") || !contains(build, "jam-kit-draft:app-0123456789ab") {
 		t.Fatalf("build argv = %v", build)
 	}
 	if !allPinned(f.Calls) {
@@ -53,15 +53,15 @@ func TestWithBuildLogCancelledStopsBeforeBuilding(t *testing.T) {
 // out of the build log (F12), and still answers a miss.
 func TestWithBuildLogCacheMissIsNotLogged(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{
-		{Stderr: "Error: No such image: cove-kit-base:x\n", Err: &runner.ExitError{Code: 1}},  // docker image inspect (HasKitBase)
-		{Stderr: "Error: No such image: cove-kit-draft:x\n", Err: &runner.ExitError{Code: 1}}, // docker image inspect (HasKitImage)
+		{Stderr: "Error: No such image: jam-kit-base:x\n", Err: &runner.ExitError{Code: 1}},  // docker image inspect (HasKitBase)
+		{Stderr: "Error: No such image: jam-kit-draft:x\n", Err: &runner.ExitError{Code: 1}}, // docker image inspect (HasKitImage)
 	}}
 	var log bytes.Buffer
 	b := NewWithContext(f, "").WithBuildLog(context.Background(), &log).(*Colima)
-	if ok, err := b.HasKitBase("cove-kit-base:x"); ok || err != nil {
+	if ok, err := b.HasKitBase("jam-kit-base:x"); ok || err != nil {
 		t.Fatalf("HasKitBase = %v, %v", ok, err)
 	}
-	if ok, err := b.HasKitImage("cove-kit-draft:x"); ok || err != nil {
+	if ok, err := b.HasKitImage("jam-kit-draft:x"); ok || err != nil {
 		t.Fatalf("HasKitImage = %v, %v", ok, err)
 	}
 	if log.Len() != 0 {

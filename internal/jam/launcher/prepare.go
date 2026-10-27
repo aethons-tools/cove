@@ -20,7 +20,7 @@ import (
 )
 
 // PrepareKit builds a studio kit's image from its full definition: it assembles
-// the build context and `docker build -t cove-kit:<build-digest>-<asm>`, so a later
+// the build context and `docker build -t jam-kit:<build-digest>-<asm>`, so a later
 // Raise carrying only the KitRef finds the tagged image. It is the response to a
 // Raise that returned ErrKitNotReady.
 //
@@ -118,7 +118,7 @@ func (l *Launcher) resolveStudioBase(ops backend.KitImageBuilder, def KitDefinit
 // is built FROM the blessed default, gated the same, and tagged top
 // (ResolveKitBaseTarOn), so the image builds FROM the draft's stage tag and
 // not the content-id ref a kit version's base resolves to. colima's shared
-// streamed build still aliases the built image cove-kit-base:<64-hex image
+// streamed build still aliases the built image jam-kit-base:<64-hex image
 // id> on the way; that alias is content-addressed, disjoint from the 32-hex
 // kitStageTag tags, and never looked up by name, so it vouches for nothing.
 func (l *Launcher) resolveOwnBase(ops backend.KitImageBuilder, link jam.KitLink, top string) (string, error) {
@@ -195,7 +195,7 @@ func contextReader(link jam.KitLink) (io.Reader, error) {
 }
 
 // kitStageTag is the local tag a chain stage is cached under:
-// cove-kit-base:<first 32 hex of sha256(asm, NUL, parentRef, NUL, JSON(own
+// jam-kit-base:<first 32 hex of sha256(asm, NUL, parentRef, NUL, JSON(own
 // base)[, NUL, build-context hash])>. The build-context hash is appended only
 // when the kit has one (a stage is only built for a kit with one), and an
 // edit to kit.yml alone (prompt, notes) reuses the stage while an edit to
@@ -222,7 +222,7 @@ func kitStageTag(asm, parentRef string, sk studio.StudioKit) (string, error) {
 		h.Write([]byte{0})
 		h.Write([]byte(sk.BuildContext))
 	}
-	return "cove-kit-base:" + hex.EncodeToString(h.Sum(nil))[:32], nil
+	return "jam-kit-base:" + hex.EncodeToString(h.Sum(nil))[:32], nil
 }
 
 // lockRef returns the build lock for ref's image, held; the returned func

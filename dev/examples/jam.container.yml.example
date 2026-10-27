@@ -1,4 +1,4 @@
-# Template for `at-jam serve` running in the dev container (dev/docker-compose.yml,
+# Template for `jam serve` running in the dev container (dev/docker-compose.yml,
 # profile "jam"). Copy to `dev/jam.container.yml` (gitignored) and fill in the
 # OIDC placeholders; compose mounts it read-only at /etc/jam/jam.yml.
 #
@@ -34,7 +34,7 @@ ui-hosts:
 # Admin API on all interfaces inside the container (compose publishes it on the
 # host's 127.0.0.1:8081 only). Off-loopback, so serve requires TLS plus
 # operator-auth.oidc below. No dev-identity or loopback trust here; for a
-# loopback-trusted CLI use `docker compose exec jam at-jam <verb>`.
+# loopback-trusted CLI use `docker compose exec jam jam <verb>`.
 admin-listen: ":8081"
 admin-tls:
   cert: /etc/jam/secrets/tls/cert.pem

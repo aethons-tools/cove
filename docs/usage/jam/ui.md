@@ -1,5 +1,5 @@
 ---
-summary: The Jam app — the one browser UI `at-jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects, the title bar and shared look, installing the app, the login and Principal (user / admin / both), and the `POST /app/user/send` path; the console's pages are in ui-console.md and what it can change in ui-editing.md.
+summary: The Jam app — the one browser UI `jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects, the title bar and shared look, installing the app, the login and Principal (user / admin / both), and the `POST /app/user/send` path; the console's pages are in ui-console.md and what it can change in ui-editing.md.
 read_when: You want to expose Jam in a browser, understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), read the title bar, install the app, or follow an old /ui or /me link. For what the console pages show (agents, search, Channel log, session timeline) read ui-console.md; to change something from the UI, read ui-editing.md.
 owns: the `/app` route table and the legacy `/ui`·`/me` 308 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; installing the app (manifest, service worker, icons); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
@@ -9,7 +9,7 @@ updated: 2026-10-27
 
 # The Jam app (`/app/`)
 
-`at-jam serve` serves one browser app on the same **admin listener** as the
+`jam serve` serves one browser app on the same **admin listener** as the
 JSON admin API. Point a browser at the admin URL; `/` and `/app/` land on the
 Inbox for a roster member, else on the admin console:
 
@@ -86,7 +86,7 @@ the JSON admin API's authenticator (see the fail-closed rule in
 request to a **Principal** — a **user**, an **admin**, or both:
 
 - **User** — the login's ID token `(issuer, subject)` is bound to a Jam user
-  (`at-jam user oidc <user> <issuer>:<subject>`; see
+  (`jam user oidc <user> <issuer>:<subject>`; see
   [comms-addressing.md](comms-addressing.md)) who is a member of at least one
   project. Users are Jam-wide, so the Inbox spans all their projects.
 - **Admin** — the login's access token verifies with `require-scope`, exactly
@@ -95,7 +95,7 @@ request to a **Principal** — a **user**, an **admin**, or both:
   <a id="empty-require-scope"></a>**With `operator-auth.oidc.require-scope`
   empty, any access token for the audience verifies, so every signed-in user —
   Inbox members included — is an admin.** Set `require-scope` to keep the
-  console to operators; `at-jam serve` warns at startup when browser login is
+  console to operators; `jam serve` warns at startup when browser login is
   configured without it.
 
 `/app/user/*` needs a user, `/app/admin/*` an admin. How you reach it:

@@ -13,7 +13,7 @@ import (
 )
 
 // The default path (no image.base, no image/Dockerfile) needs no gate: the ref
-// is a blessed cove-base-image by construction, so no docker inspect runs.
+// is a blessed jam-studio-base by construction, so no docker inspect runs.
 func TestResolveBaseDefaultSkipsGate(t *testing.T) {
 	f := &runner.Fake{}
 	c := &Colima{r: f}
@@ -38,7 +38,7 @@ func TestResolveBaseTagVerified(t *testing.T) {
 		{Stdout: `["sha256:a","sha256:b"]`},            // the blessed image's layers (a prefix)
 	}}
 	c := &Colima{r: f}
-	const tag = "ghcr.io/acme/cove-image@sha256:child"
+	const tag = "ghcr.io/acme/jam-studio@sha256:child"
 	ref, err := c.resolveBase(backend.BaseSpec{Base: tag})
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	const builtID = "sha256:builtlocal"
-	const wantRef = "cove-kit-base:builtlocal"
+	const wantRef = "jam-kit-base:builtlocal"
 	f := &runner.Fake{Outputs: []runner.FakeResult{
 		{Stdout: builtID + "\n"},                       // docker build -q
 		{Stdout: `["sha256:a","sha256:b","sha256:k"]`}, // the built image's layers
@@ -116,19 +116,10 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 	if build == nil {
 		t.Fatalf("expected a docker build of the kit image/, calls: %+v", f.Calls)
 	}
-	// The launcher injects the blessed base as the kit Dockerfile's COVE_BASE_IMAGE
-	// build arg so a kit's own image/Dockerfile builds on the blessed base
-	// (its ARG default is only for a bare manual `docker build`).
-	if !contains(build, "--build-arg") || !contains(build, "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {
-		t.Fatalf("build must inject COVE_BASE_IMAGE build-arg: %+v", f.Calls)
-	}
-	// Standard studio build args: the jam-namespaced base alias and the target arch.
-	if !contains(build, "AT_JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) {
-		t.Fatalf("build must inject AT_JAM_STUDIO_BASE_IMAGE build-arg: %+v", f.Calls)
-	}
-	if !contains(build, "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH) {
-		t.Fatalf("build must inject AT_JAM_STUDIO_TARGET_ARCH build-arg: %+v", f.Calls)
-	}
+	// The launcher injects the blessed base as the kit Dockerfile's
+	// JAM_STUDIO_BASE_IMAGE build arg so a kit's own image/Dockerfile builds on
+	// the blessed base (its ARG default is only for a bare manual `docker build`).
+	assertJamBuildArgs(t, build, basedigest.DefaultRef())
 	// The built ID must be tagged under wantRef so `FROM ${BASE}` can resolve it.
 	tag := dockerCall(f.Calls, "tag")
 	if tag == nil || !contains(tag, builtID) || !contains(tag, wantRef) {
@@ -137,11 +128,11 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 }
 
 // ResolveKitBaseTar streams the context tar to `docker build -q … -` (the tar on
-// stdin), tags the built id under cove-kit-base:<hex>, and runs the provenance
-// gate. The built base must descend from a blessed cove-base-image.
+// stdin), tags the built id under jam-kit-base:<hex>, and runs the provenance
+// gate. The built base must descend from a blessed jam-studio-base.
 func TestResolveKitBaseTarStreamsAndGates(t *testing.T) {
 	const builtID = "sha256:streamed"
-	const wantRef = "cove-kit-base:streamed"
+	const wantRef = "jam-kit-base:streamed"
 	const tarBytes = "FAKE_TAR_GZ_BYTES"
 	f := &runner.Fake{Outputs: []runner.FakeResult{
 		{Stdout: builtID + "\n"},                       // docker build -q - (streamed)
@@ -160,15 +151,11 @@ func TestResolveKitBaseTarStreamsAndGates(t *testing.T) {
 	if build == nil {
 		t.Fatalf("expected a streamed docker build, calls: %+v", f.Calls)
 	}
-	// The argv builds from stdin (`-`) with the three standard studio build args.
+	// The argv builds from stdin (`-`) with the two standard studio build args.
 	if !contains(build, "-") {
 		t.Fatalf("build must read the context from stdin (`-`): %+v", build)
 	}
-	if !contains(build, "COVE_BASE_IMAGE="+basedigest.DefaultRef()) ||
-		!contains(build, "AT_JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) ||
-		!contains(build, "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH) {
-		t.Fatalf("build must inject the three standard build-args: %+v", build)
-	}
+	assertJamBuildArgs(t, build, basedigest.DefaultRef())
 	// The tar must be piped on stdin (Fake records RunIO's stdin bytes).
 	buildCall := dockerCallFull(f.Calls, "build")
 	if buildCall == nil || buildCall.Stdin != tarBytes {
@@ -205,8 +192,8 @@ func TestResolveKitBaseTarGateRejects(t *testing.T) {
 // build-args carry parentRef, never the blessed default), is gated against the
 // blessed refs, and only then is tagged with its stage tag, which it returns.
 func TestResolveKitBaseTarOnBuildsOnParentAndTagsStage(t *testing.T) {
-	const parentRef = "cove-kit-base:parentstage"
-	const stageTag = "cove-kit-base:0123456789abcdef0123456789abcdef"
+	const parentRef = "jam-kit-base:parentstage"
+	const stageTag = "jam-kit-base:0123456789abcdef0123456789abcdef"
 	f := &runner.Fake{Outputs: []runner.FakeResult{
 		{Stdout: "sha256:child\n"},                                // docker build -q - (streamed)
 		{Stdout: `["sha256:a","sha256:b","sha256:p","sha256:c"]`}, // the built stage's layers
@@ -221,13 +208,11 @@ func TestResolveKitBaseTarOnBuildsOnParentAndTagsStage(t *testing.T) {
 		t.Fatalf("ref = %q, want the stage tag %q", ref, stageTag)
 	}
 	build := dockerCall(f.Calls, "build")
-	if build == nil || !contains(build, "-") ||
-		!contains(build, "COVE_BASE_IMAGE="+parentRef) ||
-		!contains(build, "AT_JAM_STUDIO_BASE_IMAGE="+parentRef) ||
-		!contains(build, "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH) {
+	if build == nil || !contains(build, "-") {
 		t.Fatalf("stage build must stream FROM the parent stage: %+v", build)
 	}
-	if contains(build, "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {
+	assertJamBuildArgs(t, build, parentRef)
+	if contains(build, "JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) {
 		t.Fatalf("a stage must not build on the blessed default: %+v", build)
 	}
 	if bc := dockerCallFull(f.Calls, "build"); bc == nil || bc.Stdin != "CTX" {
@@ -239,8 +224,8 @@ func TestResolveKitBaseTarOnBuildsOnParentAndTagsStage(t *testing.T) {
 		t.Fatalf("the gate must inspect layers: %+v", f.Calls)
 	}
 	last := f.Calls[len(f.Calls)-1].Args[2:]
-	if len(last) != 3 || last[0] != "tag" || last[1] != "cove-kit-base:child" || last[2] != stageTag {
-		t.Fatalf("last call = %v, want `docker tag cove-kit-base:child %s`", last, stageTag)
+	if len(last) != 3 || last[0] != "tag" || last[1] != "jam-kit-base:child" || last[2] != stageTag {
+		t.Fatalf("last call = %v, want `docker tag jam-kit-base:child %s`", last, stageTag)
 	}
 	if !allPinned(f.Calls) {
 		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
@@ -250,14 +235,14 @@ func TestResolveKitBaseTarOnBuildsOnParentAndTagsStage(t *testing.T) {
 // A stage whose built image descends from no blessed base is rejected, and its
 // stage tag is never applied — so HasKitBase can never vouch for an ungated stage.
 func TestResolveKitBaseTarOnGateRejectsWithoutStageTag(t *testing.T) {
-	const stageTag = "cove-kit-base:0123456789abcdef0123456789abcdef"
+	const stageTag = "jam-kit-base:0123456789abcdef0123456789abcdef"
 	f := &runner.Fake{Outputs: []runner.FakeResult{
 		{Stdout: "sha256:child\n"},
 		{Stdout: `["sha256:x","sha256:y"]`}, // unrelated layers
 		{Stdout: `["sha256:a","sha256:b"]`}, // blessed
 	}}
 	c := &Colima{r: f}
-	ref, err := c.ResolveKitBaseTarOn(strings.NewReader("CTX"), "cove-kit-base:parent", stageTag)
+	ref, err := c.ResolveKitBaseTarOn(strings.NewReader("CTX"), "jam-kit-base:parent", stageTag)
 	if err == nil || ref != "" {
 		t.Fatalf("ResolveKitBaseTarOn = %q, %v; want a gate rejection", ref, err)
 	}
@@ -271,10 +256,10 @@ func TestResolveKitBaseTarOnGateRejectsWithoutStageTag(t *testing.T) {
 // A stage needs a parent and a stage tag; neither may be empty.
 func TestResolveKitBaseTarOnRequiresParentAndTag(t *testing.T) {
 	c := &Colima{r: &runner.Fake{}}
-	if _, err := c.ResolveKitBaseTarOn(strings.NewReader("CTX"), "", "cove-kit-base:x"); err == nil {
+	if _, err := c.ResolveKitBaseTarOn(strings.NewReader("CTX"), "", "jam-kit-base:x"); err == nil {
 		t.Fatal("an empty parentRef must be refused")
 	}
-	if _, err := c.ResolveKitBaseTarOn(strings.NewReader("CTX"), "cove-kit-base:p", ""); err == nil {
+	if _, err := c.ResolveKitBaseTarOn(strings.NewReader("CTX"), "jam-kit-base:p", ""); err == nil {
 		t.Fatal("an empty stageTag must be refused")
 	}
 }
@@ -282,16 +267,41 @@ func TestResolveKitBaseTarOnRequiresParentAndTag(t *testing.T) {
 // HasKitBase inspects the stage tag on the pinned daemon; absence is a miss.
 func TestHasKitBase(t *testing.T) {
 	f := &runner.Fake{}
-	ok, err := NewWithContext(f, "").HasKitBase("cove-kit-base:stage")
+	ok, err := NewWithContext(f, "").HasKitBase("jam-kit-base:stage")
 	if err != nil || !ok {
 		t.Fatalf("present: HasKitBase = %v, %v", ok, err)
 	}
 	insp := dockerCall(f.Calls, "image")
-	if insp == nil || !contains(insp, "inspect") || !contains(insp, "cove-kit-base:stage") || !allPinned(f.Calls) {
+	if insp == nil || !contains(insp, "inspect") || !contains(insp, "jam-kit-base:stage") || !allPinned(f.Calls) {
 		t.Fatalf("HasKitBase did not inspect the pinned tag: %+v", f.Calls)
 	}
 	f2 := &runner.Fake{Err: &runner.ExitError{Code: 1}}
-	if ok, err := NewWithContext(f2, "").HasKitBase("cove-kit-base:missing"); ok || err != nil {
+	if ok, err := NewWithContext(f2, "").HasKitBase("jam-kit-base:missing"); ok || err != nil {
 		t.Fatalf("absent: HasKitBase = %v, %v; want (false, nil)", ok, err)
+	}
+}
+
+// assertJamBuildArgs checks a kit/studio base build passes exactly the jam
+// build args, JAM_STUDIO_BASE_IMAGE=base and JAM_STUDIO_TARGET_ARCH, each once,
+// and no pre-rename build arg.
+func assertJamBuildArgs(t *testing.T, build []string, base string) {
+	t.Helper()
+	argv := strings.Join(build, " ")
+	for _, want := range []string{
+		"--build-arg JAM_STUDIO_BASE_IMAGE=" + base,
+		"--build-arg JAM_STUDIO_TARGET_ARCH=" + runtime.GOARCH,
+	} {
+		if !strings.Contains(argv, want) {
+			t.Fatalf("build must pass %q:\n%s", want, argv)
+		}
+	}
+	if n := strings.Count(argv, "--build-arg JAM_STUDIO_BASE_IMAGE="); n != 1 {
+		t.Fatalf("JAM_STUDIO_BASE_IMAGE passed %d times; want once:\n%s", n, argv)
+	}
+	if n := strings.Count(argv, "--build-arg"); n != 2 {
+		t.Fatalf("build passes %d build args; want exactly 2:\n%s", n, argv)
+	}
+	if strings.Contains(argv, "COVE_") || strings.Contains(argv, "AT_"+"JAM_") {
+		t.Fatalf("pre-rename build arg passed:\n%s", argv)
 	}
 }

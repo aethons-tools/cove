@@ -59,7 +59,7 @@ func (c *CA) PublicKey() []byte { return ssh.MarshalAuthorizedKey(c.signer.Publi
 // permitted; agent and X11 forwarding are not. The cert is usable only from
 // SourceAddress.
 // SourceAddress is every cert's source-address critical option: the studio's
-// loopback, where cove-master dials sshd for a tunnel.
+// loopback, where jam-studio-agent dials sshd for a tunnel.
 const SourceAddress = "127.0.0.1/32,::1/128"
 
 func (c *CA) Issue(userPub []byte, keyID string, now time.Time) ([]byte, time.Time, error) {
@@ -84,7 +84,7 @@ func (c *CA) Issue(userPub []byte, keyID string, now time.Time) ([]byte, time.Ti
 		ValidAfter:      uint64(now.Add(-time.Minute).Unix()),
 		ValidBefore:     uint64(exp.Unix()),
 		Permissions: ssh.Permissions{CriticalOptions: map[string]string{
-			// Only the in-studio loopback path cove-master dials: a cert must not
+			// Only the in-studio loopback path jam-studio-agent dials: a cert must not
 			// work through a host-published sshd port, around the tunnel,
 			// collab.Decide and the revocation sweep.
 			"source-address": SourceAddress,

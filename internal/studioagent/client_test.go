@@ -1,0 +1,317 @@
+package studioagent
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"net"
+	"reflect"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/attach"
+	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+)
+
+type aliveLauncher struct{}
+
+func (aliveLauncher) Raise(context.Context, jam.RaiseSpec, jam.LaunchCreds) (string, error) {
+	return "fake", nil
+}
+func (aliveLauncher) Teardown(context.Context, jam.Instance) error { return nil }
+func (aliveLauncher) Probe(context.Context, jam.Instance) (jam.Liveness, error) {
+	return jam.LivenessAlive, nil
+}
+func (aliveLauncher) Pause(context.Context, jam.Instance) error   { return nil }
+func (aliveLauncher) Unpause(context.Context, jam.Instance) error { return nil }
+func (aliveLauncher) ApplyEgress(context.Context, jam.Instance, *jam.EgressPolicy) error {
+	return nil
+}
+func (aliveLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.KitStatus, error) {
+	return jam.KitStatus{State: jam.KitReady}, nil
+}
+
+// serverHarness raises one instance and starts an in-memory attach server.
+// Returns the store, the attach server, a DialOption that reaches it, and the
+// raised actor's token + launch secret.
+func serverHarness(t *testing.T) (jam.Store, *attach.Server, grpc.DialOption, string, string) {
+	t.Helper()
+	store := jam.NewMemStore()
+	store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}})
+	sup := jam.NewSupervisor(store, aliveLauncher{}, "holder-test", time.Minute, 30*time.Second, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	_, tok, secret, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := attach.NewServer(store, sup, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	sup.SetControlSink(srv)
+
+	lis := bufconn.Listen(1 << 20)
+	gs := grpc.NewServer()
+	attachpb.RegisterRuntimeServer(gs, srv)
+	go gs.Serve(lis)
+	t.Cleanup(gs.Stop)
+	dialOpt := grpc.WithContextDialer(func(_ context.Context, _ string) (net.Conn, error) { return lis.DialContext(context.Background()) })
+	return store, srv, dialOpt, tok, secret
+}
+
+func eventually(cond func() bool) bool {
+	for i := 0; i < 200; i++ {
+		if cond() {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return cond()
+}
+
+// blockWorkload reports one activity then blocks until ctx is cancelled.
+type blockWorkload struct {
+	first    Activity
+	controls chan Control
+}
+
+func (b *blockWorkload) Run(ctx context.Context, h Handle) error {
+	h.Report(b.first)
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (b *blockWorkload) Control(c Control) {
+	select {
+	case b.controls <- c:
+	default:
+	}
+}
+
+func TestClientReportsActivity(t *testing.T) {
+	store, _, dial, tok, secret := serverHarness(t)
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret, Heartbeat: 20 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx, &blockWorkload{first: Waiting, controls: make(chan Control, 4)}) }()
+	if !eventually(func() bool { inst, ok := store.GetInstance("w1"); return ok && inst.Activity == jam.ActivityWaiting }) {
+		inst, _ := store.GetInstance("w1")
+		t.Fatalf("activity never reached waiting: %+v", inst)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after ctx cancel")
+	}
+}
+
+func TestClientTeardownFromServer(t *testing.T) {
+	_, srv, dial, tok, secret := serverHarness(t)
+	w := &blockWorkload{first: Running, controls: make(chan Control, 4)}
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret, Heartbeat: 50 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
+	done := make(chan error, 1)
+	go func() { done <- c.Run(context.Background(), w) }()
+	// wait until attached, then push teardown.
+	time.Sleep(100 * time.Millisecond)
+	srv.RequestTeardown("w1")
+	select {
+	case c := <-w.controls:
+		if c.Kind != Teardown {
+			t.Fatalf("got control %v, want Teardown", c.Kind)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("workload never got Teardown control")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned error on teardown: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after teardown")
+	}
+}
+
+// doneWorkload finishes immediately → client reports Done.
+type doneWorkload struct{}
+
+func (doneWorkload) Run(context.Context, Handle) error { return nil }
+func (doneWorkload) Control(Control)                   {}
+
+func TestClientDoneTearsDownInstance(t *testing.T) {
+	store, _, dial, tok, secret := serverHarness(t)
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret, Heartbeat: 50 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
+	if err := c.Run(context.Background(), doneWorkload{}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !eventually(func() bool { _, ok := store.GetInstance("w1"); return !ok }) {
+		t.Fatal("instance not torn down after Done")
+	}
+}
+
+func TestClientAuthFailureIsFatal(t *testing.T) {
+	_, _, dial, tok, _ := serverHarness(t)
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: "WRONG-SECRET", Heartbeat: time.Second,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
+	done := make(chan error, 1)
+	go func() {
+		done <- c.Run(context.Background(), &blockWorkload{first: Running, controls: make(chan Control, 4)})
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected fatal auth error, got nil (did it retry forever?)")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("auth failure did not fail fast (infinite retry?)")
+	}
+}
+
+// TestClientBacksOffWhenServerDown proves that once the workload has finished
+// (doneCh closed) but the server is unreachable so session() keeps returning
+// retry, the reconnect loop still honors the backoff instead of spinning in a
+// tight loop on the closed doneCh (COV-155 review fix).
+func TestClientBacksOffWhenServerDown(t *testing.T) {
+	var dialCount int32
+	failDial := grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+		atomic.AddInt32(&dialCount, 1)
+		return nil, errors.New("refused")
+	})
+	c := New(Config{Addr: "bufnet", Token: "tok", LaunchSecret: "secret", Heartbeat: 50 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), failDial}}, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx, doneWorkload{}) }()
+
+	<-ctx.Done()
+	// Give Run a moment to observe cancellation and return.
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after ctx cancel")
+	}
+
+	if got := atomic.LoadInt32(&dialCount); got >= 10 {
+		t.Fatalf("dial count = %d, want < 10 (backoff not honored — tight reconnect loop)", got)
+	} else {
+		t.Logf("dial count over 400ms with server down: %d", got)
+	}
+}
+
+func TestClientHeartbeatRenewsLease(t *testing.T) {
+	store, _, dial, tok, secret := serverHarness(t)
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret, Heartbeat: 20 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.Run(ctx, &blockWorkload{first: Running, controls: make(chan Control, 4)})
+	var first time.Time
+	eventually(func() bool {
+		inst, ok := store.GetInstance("w1")
+		if ok {
+			first = inst.Lease.Expiry
+		}
+		return ok
+	})
+	if !eventually(func() bool { inst, ok := store.GetInstance("w1"); return ok && inst.Lease.Expiry.After(first) }) {
+		t.Fatal("heartbeat did not renew the lease over time")
+	}
+}
+
+func TestEventsEndToEndWithRealAttachServer(t *testing.T) {
+	_, srv, dialOpt, tok, secret := serverHarness(t)
+	st := sessionevents.NewMemStore()
+	srv.SetSessionEvents(sessionevents.NewIngest(st, sessionevents.NewHub(), nil))
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret,
+		DialOptions: []grpc.DialOption{dialOpt, grpc.WithTransportCredentials(insecure.NewCredentials())}}, nil)
+	start := time.Now()
+	if err := c.Run(context.Background(), &eventWorkload{lines: []string{`{"type":"system"}`, `{"type":"result"}`}}); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := st.List(sessionevents.Filter{ActorID: "w1", StreamID: c.StreamID()})
+	if len(rows) != 2 {
+		t.Fatalf("rows %+v", rows)
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatal("Done waited for the flush timeout — real server did not ack")
+	}
+}
+
+func TestClientDecodesWakeReasons(t *testing.T) {
+	_, srv, dial, tok, secret := serverHarness(t)
+	w := &blockWorkload{first: Running, controls: make(chan Control, 4)}
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret, Heartbeat: 50 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.Run(ctx, w)
+	time.Sleep(100 * time.Millisecond) // attached (as TestClientTeardownFromServer)
+	srv.Wake("w1", jam.WakeReason{Kind: jam.WakeSquawk}, jam.WakeReason{Kind: jam.WakeAlarm, Alarm: "pr-watch", Note: "check the PR"})
+	select {
+	case got := <-w.controls:
+		want := Control{Kind: Wake, Reasons: []WakeReason{{Kind: "squawk"}, {Kind: "alarm", Alarm: "pr-watch", Note: "check the PR"}}}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("control = %+v, want %+v", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no Wake control delivered")
+	}
+}
+
+func TestClientDecodesSessionCommands(t *testing.T) {
+	_, srv, dial, tok, secret := serverHarness(t)
+	w := &blockWorkload{first: Running, controls: make(chan Control, 4)}
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret, Heartbeat: 50 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.Run(ctx, w)
+	time.Sleep(100 * time.Millisecond) // attached (as TestClientTeardownFromServer)
+	srv.Interrupt("w1", "Ann")
+	srv.Compact("w1", "Ann", "keep X")
+	srv.Clear("w1", "Bob")
+	for _, want := range []Control{
+		{Kind: Interrupt, By: "Ann"},
+		{Kind: Compact, By: "Ann", Instructions: "keep X"},
+		{Kind: Clear, By: "Bob"},
+	} {
+		select {
+		case got := <-w.controls:
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("control = %+v, want %+v", got, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("no %+v control delivered", want)
+		}
+	}
+}
+
+// End to end: a Holding report lands on the instance as jam.ActivityHolding.
+func TestClientReportsHolding(t *testing.T) {
+	store, _, dial, tok, secret := serverHarness(t)
+	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret, Heartbeat: 20 * time.Millisecond,
+		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.Run(ctx, &blockWorkload{first: Holding, controls: make(chan Control, 4)})
+	if !eventually(func() bool { inst, ok := store.GetInstance("w1"); return ok && inst.Activity == jam.ActivityHolding }) {
+		inst, _ := store.GetInstance("w1")
+		t.Fatalf("activity never reached holding: %+v", inst)
+	}
+}
+
+func TestToPBActivityHolding(t *testing.T) {
+	if got := toPBActivity(Holding); got != attachpb.Activity_HOLDING {
+		t.Fatalf("toPBActivity(Holding) = %v", got)
+	}
+}

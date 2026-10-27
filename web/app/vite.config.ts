@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import { excalidrawFonts } from "./build/excalidrawFonts.ts";
 
 // The dev server (`just app-dev`) proxies the API, auth and shared static
-// routes to a running `at-jam serve` (JAM_URL; dev/jam.dev.yml's admin-listen),
+// routes to a running `jam serve` (JAM_URL; dev/jam.dev.yml's admin-listen),
 // rewriting Origin so RequireSameOrigin admits the proxied writes.
 const jam = process.env.JAM_URL ?? "http://localhost:8081";
 const toJam: ProxyOptions = {

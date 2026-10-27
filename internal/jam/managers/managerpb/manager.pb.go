@@ -502,22 +502,22 @@ var File_manager_proto protoreflect.FileDescriptor
 
 const file_manager_proto_rawDesc = "" +
 	"\n" +
-	"\rmanager.proto\x12\x0fcove.manager.v1\"\xae\x01\n" +
-	"\tManagerUp\x12.\n" +
-	"\x05hello\x18\x01 \x01(\v2\x16.cove.manager.v1.HelloH\x00R\x05hello\x12.\n" +
-	"\x05frame\x18\x02 \x01(\v2\x16.cove.manager.v1.FrameH\x00R\x05frame\x12:\n" +
-	"\theartbeat\x18\x03 \x01(\v2\x1a.cove.manager.v1.HeartbeatH\x00R\theartbeatB\x05\n" +
-	"\x03msg\"\xb6\x01\n" +
-	"\vManagerDown\x124\n" +
-	"\awelcome\x18\x01 \x01(\v2\x18.cove.manager.v1.WelcomeH\x00R\awelcome\x12.\n" +
-	"\x05frame\x18\x02 \x01(\v2\x16.cove.manager.v1.FrameH\x00R\x05frame\x12:\n" +
-	"\theartbeat\x18\x03 \x01(\v2\x1a.cove.manager.v1.HeartbeatH\x00R\theartbeatB\x05\n" +
-	"\x03msg\"\xa7\x01\n" +
+	"\rmanager.proto\x12\x0ejam.manager.v1\"\xab\x01\n" +
+	"\tManagerUp\x12-\n" +
+	"\x05hello\x18\x01 \x01(\v2\x15.jam.manager.v1.HelloH\x00R\x05hello\x12-\n" +
+	"\x05frame\x18\x02 \x01(\v2\x15.jam.manager.v1.FrameH\x00R\x05frame\x129\n" +
+	"\theartbeat\x18\x03 \x01(\v2\x19.jam.manager.v1.HeartbeatH\x00R\theartbeatB\x05\n" +
+	"\x03msg\"\xb3\x01\n" +
+	"\vManagerDown\x123\n" +
+	"\awelcome\x18\x01 \x01(\v2\x17.jam.manager.v1.WelcomeH\x00R\awelcome\x12-\n" +
+	"\x05frame\x18\x02 \x01(\v2\x15.jam.manager.v1.FrameH\x00R\x05frame\x129\n" +
+	"\theartbeat\x18\x03 \x01(\v2\x19.jam.manager.v1.HeartbeatH\x00R\theartbeatB\x05\n" +
+	"\x03msg\"\xa6\x01\n" +
 	"\x05Hello\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x1a\n" +
-	"\bcapacity\x18\x03 \x01(\x05R\bcapacity\x121\n" +
-	"\astudios\x18\x04 \x03(\v2\x17.cove.manager.v1.StudioR\astudios\x12!\n" +
+	"\bcapacity\x18\x03 \x01(\x05R\bcapacity\x120\n" +
+	"\astudios\x18\x04 \x03(\v2\x16.jam.manager.v1.StudioR\astudios\x12!\n" +
 	"\fstate_owners\x18\x05 \x03(\tR\vstateOwners\"?\n" +
 	"\x06Studio\x12\x19\n" +
 	"\bactor_id\x18\x01 \x01(\tR\aactorId\x12\x1a\n" +
@@ -529,9 +529,9 @@ const file_manager_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x0e\n" +
 	"\x02op\x18\x02 \x01(\tR\x02op\x12\x12\n" +
 	"\x04data\x18\x03 \x01(\fR\x04data\x12\x12\n" +
-	"\x04more\x18\x04 \x01(\bR\x04more2X\n" +
-	"\rStudioManager\x12G\n" +
-	"\aConnect\x12\x1a.cove.manager.v1.ManagerUp\x1a\x1c.cove.manager.v1.ManagerDown(\x010\x01B?Z=github.com/aethons-tools/cove/internal/jam/managers/managerpbb\x06proto3"
+	"\x04more\x18\x04 \x01(\bR\x04more2V\n" +
+	"\rStudioManager\x12E\n" +
+	"\aConnect\x12\x19.jam.manager.v1.ManagerUp\x1a\x1b.jam.manager.v1.ManagerDown(\x010\x01B?Z=github.com/aethons-tools/cove/internal/jam/managers/managerpbb\x06proto3"
 
 var (
 	file_manager_proto_rawDescOnce sync.Once
@@ -547,24 +547,24 @@ func file_manager_proto_rawDescGZIP() []byte {
 
 var file_manager_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_manager_proto_goTypes = []any{
-	(*ManagerUp)(nil),   // 0: cove.manager.v1.ManagerUp
-	(*ManagerDown)(nil), // 1: cove.manager.v1.ManagerDown
-	(*Hello)(nil),       // 2: cove.manager.v1.Hello
-	(*Studio)(nil),      // 3: cove.manager.v1.Studio
-	(*Welcome)(nil),     // 4: cove.manager.v1.Welcome
-	(*Heartbeat)(nil),   // 5: cove.manager.v1.Heartbeat
-	(*Frame)(nil),       // 6: cove.manager.v1.Frame
+	(*ManagerUp)(nil),   // 0: jam.manager.v1.ManagerUp
+	(*ManagerDown)(nil), // 1: jam.manager.v1.ManagerDown
+	(*Hello)(nil),       // 2: jam.manager.v1.Hello
+	(*Studio)(nil),      // 3: jam.manager.v1.Studio
+	(*Welcome)(nil),     // 4: jam.manager.v1.Welcome
+	(*Heartbeat)(nil),   // 5: jam.manager.v1.Heartbeat
+	(*Frame)(nil),       // 6: jam.manager.v1.Frame
 }
 var file_manager_proto_depIdxs = []int32{
-	2, // 0: cove.manager.v1.ManagerUp.hello:type_name -> cove.manager.v1.Hello
-	6, // 1: cove.manager.v1.ManagerUp.frame:type_name -> cove.manager.v1.Frame
-	5, // 2: cove.manager.v1.ManagerUp.heartbeat:type_name -> cove.manager.v1.Heartbeat
-	4, // 3: cove.manager.v1.ManagerDown.welcome:type_name -> cove.manager.v1.Welcome
-	6, // 4: cove.manager.v1.ManagerDown.frame:type_name -> cove.manager.v1.Frame
-	5, // 5: cove.manager.v1.ManagerDown.heartbeat:type_name -> cove.manager.v1.Heartbeat
-	3, // 6: cove.manager.v1.Hello.studios:type_name -> cove.manager.v1.Studio
-	0, // 7: cove.manager.v1.StudioManager.Connect:input_type -> cove.manager.v1.ManagerUp
-	1, // 8: cove.manager.v1.StudioManager.Connect:output_type -> cove.manager.v1.ManagerDown
+	2, // 0: jam.manager.v1.ManagerUp.hello:type_name -> jam.manager.v1.Hello
+	6, // 1: jam.manager.v1.ManagerUp.frame:type_name -> jam.manager.v1.Frame
+	5, // 2: jam.manager.v1.ManagerUp.heartbeat:type_name -> jam.manager.v1.Heartbeat
+	4, // 3: jam.manager.v1.ManagerDown.welcome:type_name -> jam.manager.v1.Welcome
+	6, // 4: jam.manager.v1.ManagerDown.frame:type_name -> jam.manager.v1.Frame
+	5, // 5: jam.manager.v1.ManagerDown.heartbeat:type_name -> jam.manager.v1.Heartbeat
+	3, // 6: jam.manager.v1.Hello.studios:type_name -> jam.manager.v1.Studio
+	0, // 7: jam.manager.v1.StudioManager.Connect:input_type -> jam.manager.v1.ManagerUp
+	1, // 8: jam.manager.v1.StudioManager.Connect:output_type -> jam.manager.v1.ManagerDown
 	8, // [8:9] is the sub-list for method output_type
 	7, // [7:8] is the sub-list for method input_type
 	7, // [7:7] is the sub-list for extension type_name

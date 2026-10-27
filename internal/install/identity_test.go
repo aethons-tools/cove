@@ -48,53 +48,53 @@ func TestHashTreeDeterministicAndContentSensitive(t *testing.T) {
 	}
 }
 
-// The embedded cove-master binaries (COV-158) are hashed into the identity: a
-// cove-master rebuild must flip it, so every studio image is retagged.
-func TestAtCoveIdentityIncludesCoveMaster(t *testing.T) {
-	id, err := AtCoveIdentity()
+// The embedded jam-studio-agent binaries (COV-158) are hashed into the identity: a
+// jam-studio-agent rebuild must flip it, so every studio image is retagged.
+func TestAssemblyIdentityIncludesStudioAgent(t *testing.T) {
+	id, err := AssemblyIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}
-	orig := coveMasterFS
-	t.Cleanup(func() { coveMasterFS = orig })
-	coveMasterFS = func() fs.FS {
-		return fstest.MapFS{"bin/cove-master-linux-amd64": {Data: []byte("rebuilt")}}
+	orig := studioAgentFS
+	t.Cleanup(func() { studioAgentFS = orig })
+	studioAgentFS = func() fs.FS {
+		return fstest.MapFS{"bin/jam-studio-agent-linux-amd64": {Data: []byte("rebuilt")}}
 	}
-	other, err := AtCoveIdentity()
+	other, err := AssemblyIdentity()
 	if err != nil || other == id {
-		t.Fatalf("a cove-master change must change the identity (err %v)", err)
+		t.Fatalf("a jam-studio-agent change must change the identity (err %v)", err)
 	}
 }
 
-func TestAtCoveIdentityDeterministicAndNonEmpty(t *testing.T) {
-	id1, err := AtCoveIdentity()
+func TestAssemblyIdentityDeterministicAndNonEmpty(t *testing.T) {
+	id1, err := AssemblyIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}
-	id2, err := AtCoveIdentity()
+	id2, err := AssemblyIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if id1 == "" {
-		t.Fatal("AtCoveIdentity must be non-empty")
+		t.Fatal("AssemblyIdentity must be non-empty")
 	}
 	if id1 != id2 {
-		t.Fatalf("AtCoveIdentity must be stable: %s != %s", id1, id2)
+		t.Fatalf("AssemblyIdentity must be stable: %s != %s", id1, id2)
 	}
 }
 
 // The harness layer's rendered baseline preferences (COV-245) are generated
 // from code, not embedded payload, so the identity hashes them explicitly: a
 // change to the baseline must flip it like a payload edit does.
-func TestAtCoveIdentityIncludesHarnessBaseline(t *testing.T) {
-	id, err := AtCoveIdentity()
+func TestAssemblyIdentityIncludesHarnessBaseline(t *testing.T) {
+	id, err := AssemblyIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}
 	orig := harnessBaseline
 	t.Cleanup(func() { harnessBaseline = orig })
 	harnessBaseline = func() []byte { return []byte(`{"theme":"light"}`) }
-	other, err := AtCoveIdentity()
+	other, err := AssemblyIdentity()
 	if err != nil || other == id {
 		t.Fatalf("a baseline change must change the identity (err %v)", err)
 	}
@@ -103,19 +103,19 @@ func TestAtCoveIdentityIncludesHarnessBaseline(t *testing.T) {
 // AssembleContext's own Go output (not an embedded tree) is versioned by
 // assemble.Revision; bumping it must change the identity, so images assembled
 // by older code are never reused under an unchanged tag.
-func TestAtCoveIdentityIncludesAssembleRevision(t *testing.T) {
-	before, err := AtCoveIdentity()
+func TestAssemblyIdentityIncludesAssembleRevision(t *testing.T) {
+	before, err := AssemblyIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}
 	old := assemble.Revision
 	t.Cleanup(func() { assemble.Revision = old })
 	assemble.Revision = old + "-test"
-	after, err := AtCoveIdentity()
+	after, err := AssemblyIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if before == after {
-		t.Fatal("AtCoveIdentity did not change with assemble.Revision")
+		t.Fatal("AssemblyIdentity did not change with assemble.Revision")
 	}
 }

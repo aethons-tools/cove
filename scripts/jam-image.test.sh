@@ -55,25 +55,21 @@ run() {
 
 # 1. build.sh layout, single platform
 reset
-mkbin "$WORK/dist/linux-amd64/at-jam"
-mkbin "$WORK/dist/linux-amd64/at-mint"
+mkbin "$WORK/dist/linux-amd64/jam"
 run --dist "$WORK/dist" --platforms linux/amd64
 assert_eq "build layout: exit 0" 0 "$RC"
 case "$(cat "$DOCKER_LOG")" in
-  "buildx build --platform linux/amd64 -t cove-jam:dev --load "*) ok "build layout: argv" ;;
+  "buildx build --platform linux/amd64 -t jam:dev --load "*) ok "build layout: argv" ;;
   *) bad "build layout: argv" "actual: $(cat "$DOCKER_LOG")" ;;
 esac
 ctx="$(cat "$CTX_LOG")"
-assert_contains "build layout: at-jam" "$ctx" "bin/linux-amd64/at-jam"
-assert_contains "build layout: at-mint" "$ctx" "bin/linux-amd64/at-mint"
+assert_contains "build layout: jam" "$ctx" "bin/linux-amd64/jam"
 assert_contains "build layout: Dockerfile" "$ctx" "Dockerfile"
 
 # 2. goreleaser layout, two platforms, push
 reset
-mkbin "$WORK/dist/at-jam_linux_amd64_v1/at-jam"
-mkbin "$WORK/dist/at-mint_linux_amd64_v1/at-mint"
-mkbin "$WORK/dist/at-jam_linux_arm64_v8.0/at-jam"
-mkbin "$WORK/dist/at-mint_linux_arm64_v8.0/at-mint"
+mkbin "$WORK/dist/jam_linux_amd64_v1/jam"
+mkbin "$WORK/dist/jam_linux_arm64_v8.0/jam"
 run --dist "$WORK/dist" --platforms linux/amd64,linux/arm64 \
   --tag ghcr.io/aethons-tools/jam:1-0101 --tag ghcr.io/aethons-tools/jam:latest --push
 assert_eq "goreleaser: exit 0" 0 "$RC"
@@ -83,18 +79,17 @@ assert_contains "goreleaser: tag 1" "$argv" "-t ghcr.io/aethons-tools/jam:1-0101
 assert_contains "goreleaser: tag 2" "$argv" "-t ghcr.io/aethons-tools/jam:latest"
 assert_contains "goreleaser: push" "$argv" "--push"
 ctx="$(cat "$CTX_LOG")"
-for f in bin/linux-amd64/at-jam bin/linux-amd64/at-mint bin/linux-arm64/at-jam bin/linux-arm64/at-mint; do
+for f in bin/linux-amd64/jam bin/linux-arm64/jam; do
   assert_contains "goreleaser: ctx $f" "$ctx" "$f"
 done
 
 # 3. missing arm64 binary
 reset
-mkbin "$WORK/dist/linux-amd64/at-jam"
-mkbin "$WORK/dist/linux-amd64/at-mint"
+mkbin "$WORK/dist/linux-amd64/jam"
 run --dist "$WORK/dist" --platforms linux/amd64,linux/arm64 --push
 assert_eq "missing: exit 1" 1 "$RC"
-assert_contains "missing: names platform" "$ERR" "no at-jam for linux/arm64 (looked in"
-assert_contains "missing: names paths" "$ERR" "$WORK/dist/linux-arm64/at-jam"
+assert_contains "missing: names platform" "$ERR" "no jam for linux/arm64 (looked in"
+assert_contains "missing: names paths" "$ERR" "$WORK/dist/linux-arm64/jam"
 if [ ! -e "$DOCKER_LOG" ]; then ok "missing: docker not called"; else bad "missing: docker not called"; fi
 
 # 4. --load with two platforms
@@ -117,7 +112,7 @@ if [ ! -e "$DOCKER_LOG" ]; then ok "unknown flag: docker not called"; else bad "
 # 5. Dockerfile contract
 df="$(cat "$DOCKERFILE")"
 # shellcheck disable=SC2016 # literal ${...} patterns are grep targets, not expansions
-for pat in 'FROM alpine:3.22' 'ca-certificates' 'USER jam' 'ENTRYPOINT ["at-jam"]' \
+for pat in 'FROM alpine:3.22' 'ca-certificates' 'USER jam' 'ENTRYPOINT ["jam"]' \
   'CMD ["serve","--config","/etc/jam/jam.yml"]' 'ARG TARGETARCH' \
   'COPY bin/linux-${TARGETARCH}/ /usr/local/bin/' 'ENV HOME=/var/lib/jam' \
   'VOLUME /var/lib/jam' 'EXPOSE 8443 8081' 'addgroup -g 10001' '-u 10001' 'chown 10001:10001 /var/lib/jam' '= 10001:10001' \
@@ -130,7 +125,7 @@ else
   ok "Dockerfile: no docker/openssh/git in apk add"
 fi
 
-# 6. release.yml wiring: the atcove job builds (PR) / publishes (main) the image.
+# 6. release.yml wiring: the binaries job builds (PR) / publishes (main) the image.
 rel="$REPO/.github/workflows/release.yml"
 step_block() { # name-prefix: the step's lines, up to the next step
   awk -v p="$1" 'index($0, "- name: " p) {on=1; print; next} on && /^      - / {exit} on {print}' "$rel"
@@ -139,10 +134,10 @@ pr_step="$(step_block 'Build Jam image (PR')"
 main_step="$(step_block 'Publish Jam image (main')"
 smoke_step="$(step_block 'Smoke-test Jam image')"
 assert_contains "release.yml: PR step guarded" "$pr_step" "github.event_name == 'pull_request'"
-assert_contains "release.yml: PR step builds amd64 only" "$pr_step" "scripts/jam-image.sh --platforms linux/amd64 --tag cove-jam:ci"
+assert_contains "release.yml: PR step builds amd64 only" "$pr_step" "scripts/jam-image.sh --platforms linux/amd64 --tag jam:ci"
 case "$pr_step" in *--push*) bad "release.yml: PR step has no --push" ;; *) ok "release.yml: PR step has no --push" ;; esac
 assert_contains "release.yml: smoke guarded" "$smoke_step" "github.event_name == 'pull_request'"
-assert_contains "release.yml: smoke run" "$smoke_step" "docker run --rm cove-jam:ci version"
+assert_contains "release.yml: smoke run" "$smoke_step" "docker run --rm jam:ci version"
 assert_contains "release.yml: main step guarded" "$main_step" "github.event_name == 'push'"
 assert_contains "release.yml: main step pushes" "$main_step" "scripts/jam-image.sh --platforms linux/amd64,linux/arm64"
 assert_contains "release.yml: main step --push" "$main_step" "--push"
@@ -151,11 +146,11 @@ assert_contains "release.yml: arm64 smoke guarded" "$arm_step" "github.event_nam
 # shellcheck disable=SC2016 # literal ${...} is the expected workflow text
 assert_contains "release.yml: arm64 smoke run" "$arm_step" 'docker run --rm --platform linux/arm64 "${JAM_IMAGE}:${VERSION}" version'
 # shellcheck disable=SC2016 # literal ${...} is the expected workflow text
-assert_contains "release.yml: arm64 smoke checks version" "$arm_step" 'test "$out" = "at-jam $VERSION"'
+assert_contains "release.yml: arm64 smoke checks version" "$arm_step" 'test "$out" = "jam $VERSION"'
 filter_block="$(awk '/^            go:/ {on=1; next} on && /^      - id:/ {exit} on {print}' "$rel")"
 assert_contains "release.yml: go filter has images/jam/**" "$filter_block" "- 'images/jam/**'"
 assert_contains "release.yml: go filter has jam-image.sh" "$filter_block" "- 'scripts/jam-image.sh'"
-assert_contains "release.yml: go filter is the atcove input" "$filter_block" "- 'cmd/**'"
+assert_contains "release.yml: go filter is the binaries input" "$filter_block" "- 'cmd/**'"
 assert_contains "release.yml: JAM_IMAGE env" "$(cat "$rel")" "JAM_IMAGE: ghcr.io/aethons-tools/jam"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

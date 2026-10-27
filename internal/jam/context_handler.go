@@ -11,7 +11,7 @@ import (
 
 // NewContextHandler serves GET /context on the cove-facing listener: the calling
 // identity's session context, recompiled from the current config (ContextFor),
-// so cove-master can refresh a running session. The identity arrives as a
+// so jam-studio-agent can refresh a running session. The identity arrives as a
 // bearer (or gh's "token" scheme); unknown or expired → 401, no registered
 // instance → 404. Logs the actor id only. Records the delivered part as a
 // setup snapshot (on change).

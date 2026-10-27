@@ -27,11 +27,11 @@ One line, refreshed on push and every 30s (`GET /app/user/api/sessions/{id}`):
 - **Context:** how full the agent's context is, e.g. `ctx 84k / 200k · 42%`; the tooltip
   gives exact tokens and the model. The size comes from the main thread's latest model call
   (its input, cache and output tokens; subagents' calls don't count). The window comes from the
-  latest result's `modelUsage`. After a compaction, or a Clear or Compact press cove-master
+  latest result's `modelUsage`. After a compaction, or a Clear or Compact press jam-studio-agent
   carried out, it shows `ctx —` until the next model call.
 - **Uptime:** time since the session was raised.
 - **Tabs:** Studio (only with SSH and framing on), Thinking, Previews, Artifacts, Status. These open the pane.
-- **Copy SSH:** copies `at-jam ssh <id>`. It appears only if [collab](collaboration.md) would allow you to SSH.
+- **Copy SSH:** copies `jam ssh <id>`. It appears only if [collab](collaboration.md) would allow you to SSH.
 - **Interrupt:** a visible button beside Copy SSH, enabled while the session is running. See [Session controls](#session-controls).
 - **⋯ menu:** Compact and Clear (see [Session controls](#session-controls); only Clear asks for confirmation), then the release, restart, end and upgrade actions, each of which asks for confirmation, then `POST /app/user/api/sessions/{id}/<action>`.
   The server re-checks permission (403 otherwise). Once a session ends, its header and pane go.
@@ -44,7 +44,7 @@ One line, refreshed on push and every 30s (`GET /app/user/api/sessions/{id}`):
 
 ### Session controls
 
-Interrupt, Compact and Clear act on the session's agent; cove-master's handling is in
+Interrupt, Compact and Clear act on the session's agent; jam-studio-agent's handling is in
 [coves.md](coves.md#session-controls-interrupt-compact-clear). Anyone who can see the
 session may press them, on any session kind. Clear asks for confirmation.
 
@@ -57,7 +57,7 @@ session may press them, on any session kind. Clear asks for confirmation.
 Each press is `POST /app/user/api/sessions/{id}/interrupt|compact|clear`. The server answers 409
 when the control isn't available in the session's state, and 502 when the cove can't be reached.
 A paused studio is resumed first, so a press may take up to about 30s. The Thinking tab shows
-each press as "<Command> — pressed by <name>", and a press cove-master dropped with its reason,
+each press as "<Command> — pressed by <name>", and a press jam-studio-agent dropped with its reason,
 e.g. "Clear — pressed by Bob (ignored: live episode)".
 
 ## Pane

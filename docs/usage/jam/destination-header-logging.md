@@ -52,7 +52,7 @@ At most 60 lines per destination and direction per minute; the rest are dropped.
 ## Setting it
 
 - **UI:** the destination's *Edit* form, *Log incoming headers* / *Log outgoing headers*. The page's Broker section shows *Header logging* as on (with both levels) or off, so a destination left logging is easy to spot.
-- **CLI:** `at-jam destination add … --log-headers-in examined --log-headers-out changed`.
+- **CLI:** `jam destination add … --log-headers-in examined --log-headers-out changed`.
 - **Import, admin API, config files:** `log_headers_in: examined`, `log_headers_out: changed`.
 
 Any other value is refused 400.

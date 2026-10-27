@@ -42,7 +42,7 @@ func tarNames(t *testing.T, b []byte) string {
 	}
 }
 
-const df = "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n"
+const df = "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n"
 
 func TestTreeKitStreamsItsDirectoryMinusKitYML(t *testing.T) {
 	ops := &fakeOps{}

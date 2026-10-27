@@ -30,7 +30,7 @@ func TestAssembleContextHarnessStageBetweenBaseAndHardening(t *testing.T) {
 		"FROM harness\n",
 		"PasswordAuthentication no",
 		"COPY image-files/. /.",
-		"RUN /usr/local/lib/cove/apply-sshenv.sh",
+		"RUN /usr/local/lib/jam/apply-sshenv.sh",
 		`ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]`,
 	}
 	at := -1
@@ -98,7 +98,7 @@ func TestHardeningDockerfileHasNoHarnessInstall(t *testing.T) {
 	if !strings.Contains("\n"+df, "\nFROM harness\n") {
 		t.Errorf("hardening Dockerfile must build FROM harness:\n%s", df)
 	}
-	if _, err := fs.Stat(hardeningFS, "hardening/image-files/usr/local/lib/cove/seed-plugins.sh"); err == nil {
+	if _, err := fs.Stat(hardeningFS, "hardening/image-files/usr/local/lib/jam/seed-plugins.sh"); err == nil {
 		t.Error("seed-plugins.sh must not ship in the sealed layer")
 	}
 }

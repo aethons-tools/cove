@@ -149,9 +149,9 @@ func TestNewWrapsFileErrors(t *testing.T) {
 	}
 }
 
-// TestModeFrom covers the --log-mode/AT_LOG_MODE value mapper: the two recognized
+// TestModeFrom covers the --log-mode/JAM_LOG_MODE value mapper: the two recognized
 // modes map to their Mode, and everything else (empty, garbage) falls back to
-// Auto (TTY-detected). Shared by the at-cove and at-task CLIs (COV-94).
+// Auto (TTY-detected). Used by the jam CLI (COV-94).
 func TestModeFrom(t *testing.T) {
 	cases := map[string]Mode{
 		"attended":   Attended,
@@ -166,7 +166,7 @@ func TestModeFrom(t *testing.T) {
 	}
 }
 
-// TestLevelFrom covers the --log-level/AT_LOG_LEVEL value mapper: the recognized
+// TestLevelFrom covers the --log-level/JAM_LOG_LEVEL value mapper: the recognized
 // levels map through, and everything else (empty, "info", garbage) falls back to
 // Info.
 func TestLevelFrom(t *testing.T) {
@@ -188,14 +188,14 @@ func TestLevelFrom(t *testing.T) {
 // TestEnvOr covers the flag-else-env fallback: a non-empty flag wins verbatim
 // (env ignored), and an empty flag falls through to os.Getenv(key).
 func TestEnvOr(t *testing.T) {
-	t.Setenv("AT_TEST_ENVOR", "from-env")
-	if got := EnvOr("from-flag", "AT_TEST_ENVOR"); got != "from-flag" {
+	t.Setenv("JAM_TEST_ENVOR", "from-env")
+	if got := EnvOr("from-flag", "JAM_TEST_ENVOR"); got != "from-flag" {
 		t.Errorf("EnvOr with non-empty flag = %q; want %q", got, "from-flag")
 	}
-	if got := EnvOr("", "AT_TEST_ENVOR"); got != "from-env" {
+	if got := EnvOr("", "JAM_TEST_ENVOR"); got != "from-env" {
 		t.Errorf("EnvOr with empty flag = %q; want %q (env fallback)", got, "from-env")
 	}
-	if got := EnvOr("", "AT_TEST_ENVOR_UNSET"); got != "" {
+	if got := EnvOr("", "JAM_TEST_ENVOR_UNSET"); got != "" {
 		t.Errorf("EnvOr with empty flag and unset env = %q; want %q", got, "")
 	}
 }

@@ -21,7 +21,7 @@
           <td><button class="danger small" hx-delete="/app/admin/agents/{{$id}}/shares/{{.UserID}}" hx-swap="none"
               hx-confirm="Unshare {{$id}} from {{.User}}? Their open SSH connections close unless they have access another way."
               hx-on::after-request="if(event.detail.successful) location.reload()">Unshare</button></td></tr>
-        {{else}}<tr><td colspan="5" class="empty">Not shared with anyone. <span class="unset">at-jam studio share {{$id}} --with user:&lt;name&gt; --rights ssh</span></td></tr>{{end}}
+        {{else}}<tr><td colspan="5" class="empty">Not shared with anyone. <span class="unset">jam studio share {{$id}} --with user:&lt;name&gt; --rights ssh</span></td></tr>{{end}}
       </tbody>
     </table>
     <table>

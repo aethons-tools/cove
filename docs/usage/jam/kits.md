@@ -44,7 +44,7 @@ mcp-servers:               # extra MCP servers for the session's agent (env refs
 
 | Field | Meaning |
 |---|---|
-| `base` | The image to build FROM — **one of** (or omitted for the blessed default): `kit:` a parent kit to build on ([below](#building-on-another-kit-basekit); then `COVE_BASE_IMAGE` is the parent's stage); `image:` a gated prebuilt ref (not with a `Dockerfile`). The build context is the **kit directory** ([kits-directory.md](kits-directory.md)). Every form is provenance-gated: a Dockerfile builds on the blessed base ([how](kits-directory.md#the-directory)). The build injects standard args: `COVE_BASE_IMAGE` (and its alias `AT_JAM_STUDIO_BASE_IMAGE`) = the blessed base ref to build FROM (the parent's stage for a `kit:` child), and `AT_JAM_STUDIO_TARGET_ARCH` = `amd64`|`arm64`. The old packed-context fields are [refused](kits-directory.md#refusals). |
+| `base` | The image to build FROM — **one of** (or omitted for the blessed default): `kit:` a parent kit to build on ([below](#building-on-another-kit-basekit); then `JAM_STUDIO_BASE_IMAGE` is the parent's stage); `image:` a gated prebuilt ref (not with a `Dockerfile`). The build context is the **kit directory** ([kits-directory.md](kits-directory.md)). Every form is provenance-gated: a Dockerfile builds on the blessed base ([how](kits-directory.md#the-directory)). The build injects standard args: `JAM_STUDIO_BASE_IMAGE` = the blessed base ref to build FROM (the parent's stage for a `kit:` child), and `JAM_STUDIO_TARGET_ARCH` = `amd64`|`arm64`. The old packed-context fields are [refused](kits-directory.md#refusals). |
 | `egress` | The kit's allow-list, capped by the [ceiling](#the-egress-ceiling-cov-208). |
 | `build-args` | Image build arguments. A key may not collide with a `secrets` name — secrets reach the session at raise, never the build. |
 | `secrets` | Secret **demands** (name + description only); values are resolved at raise. In this slice demands are declarative only: per-demand env injection into the session is not wired yet (only the brokered identity token is injected today). |
@@ -57,8 +57,8 @@ A kit version is a **directory**: `kit.yml` plus its files; a `Dockerfile` besid
 
 A map of server name → `{type, url, headers}` (`type: http`) or
 `{type, command, args}` (`type: stdio`) — Claude Code's `--mcp-config` entry
-shape. Before the agent's first turn, cove-master's claude harness generates **one** config holding
-the cove's own **`messaging`** server (`cove-master mcp`, the
+shape. Before the agent's first turn, jam-studio-agent's claude harness generates **one** config holding
+the cove's own **`messaging`** server (`jam-studio-agent mcp`, the
 [intercom](intercom.md#delivery-to-the-agent)) plus these, and runs claude with
 `--strict-mcp-config`, so exactly messaging + the kit's servers load.
 
@@ -71,8 +71,8 @@ the cove's own **`messaging`** server (`cove-master mcp`, the
   — see the table — so today a variable must come from the image or connector.)
 - **Egress is separate:** an `http` server's host must also be in `egress`.
 - **Delivery:** `mcp-servers` is baked (non-secret JSON) into the image at
-  `/etc/cove/mcp-servers.json`, the same build-time path as the egress lists,
-  so it is **build-affecting** (part of the build-digest). cove-master refuses to
+  `/etc/jam/mcp-servers.json`, the same build-time path as the egress lists,
+  so it is **build-affecting** (part of the build-digest). jam-studio-agent refuses to
   start the agent if that file is missing or the generated config can't be written.
 
 ### Building on another kit (`base.kit`)
@@ -96,7 +96,7 @@ secrets-only edit reuses the cached image (the build context is the
 [kit directory](kits-directory.md#the-directory)), while the same kit version raised by roles on different model-specs
 builds one image per harness. Adding the harness (COV-242) changed every kit's
 digest once, so each kit rebuilds on its next raise. (The digest `kit show` and
-the admin UI print is the one under `claude-default`'s harness.) The tag also carries the Studio Manager's **assembly fingerprint** — the manager's embedded payload (hardening layer, cove-master), the blessed default base, the Jam host and the manager's identity key — so upgrading the manager (or moving Jam, or rotating the key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Removing at-task and at-switchboard from that payload (jam-only slice 2) changed every fingerprint once, so each kit rebuilds on its next raise after that upgrade. Superseded `cove-kit:*` images are not yet garbage-collected.
+the admin UI print is the one under `claude-default`'s harness.) The tag also carries the Studio Manager's **assembly fingerprint** — the manager's embedded payload (hardening layer, jam-studio-agent), the blessed default base, the Jam host and the manager's identity key — so upgrading the manager (or moving Jam, or rotating the key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Removing at-task and at-switchboard from that payload (jam-only slice 2) changed every fingerprint once, so each kit rebuilds on its next raise after that upgrade. Superseded `jam-kit:*` images are not yet garbage-collected.
 
 ### The egress ceiling (COV-208)
 
@@ -129,22 +129,22 @@ On `push` the directory is read, filtered by its `.dockerignore`, checked, and i
 ## The `kit` verbs
 
 ```
-at-jam kit push ./web                                       # → "pushed web v3" (name: --name, else kit.yml's name:, else the dir's)
-at-jam kit push ./web --name web-dev                        # push the directory under another name
-at-jam kit push --config ./kit.yml --name web               # push kit.yml alone (a one-file version)
-at-jam kit push --config - --name web                       # read kit.yml from stdin
-at-jam kit list                                             # name  current=vN  versions=K  [parent=base-kit[@vN]]
-at-jam kit show web                                         # current version's kit, its files (# files (tree <12 hex>):), ceiling/excluded
-at-jam kit show web --version 1                             # a specific version's config
-at-jam kit show web --own                                   # the kit's own YAML, not the merged one; `file:` notes shown with their contents
-at-jam kit versions web                                     # VERSION CURRENT PUSHED SOURCE COMMIT
-at-jam kit diff web [--from 2] [--to 3]                     # kit.yml's line diff, then the files added/removed/modified/mode (default: current vs the one before)
-at-jam kit pin web 1                                        # roll current back to v1 (409 while a kit follows web)
-at-jam kit rm web                                           # remove the kit (all versions; 409 while a kit is built on it)
-at-jam kit import --git <repo>[//dir]@<ref> [--name N]      # import a kit from git as a new version
-at-jam kit track web --git <repo>[//dir]@<ref>              # import and keep the source for sync
-at-jam kit sync web                                         # re-import from the tracked source
-at-jam kit untrack web                                      # stop tracking (versions are kept)
+jam kit push ./web                                       # → "pushed web v3" (name: --name, else kit.yml's name:, else the dir's)
+jam kit push ./web --name web-dev                        # push the directory under another name
+jam kit push --config ./kit.yml --name web               # push kit.yml alone (a one-file version)
+jam kit push --config - --name web                       # read kit.yml from stdin
+jam kit list                                             # name  current=vN  versions=K  [parent=base-kit[@vN]]
+jam kit show web                                         # current version's kit, its files (# files (tree <12 hex>):), ceiling/excluded
+jam kit show web --version 1                             # a specific version's config
+jam kit show web --own                                   # the kit's own YAML, not the merged one; `file:` notes shown with their contents
+jam kit versions web                                     # VERSION CURRENT PUSHED SOURCE COMMIT
+jam kit diff web [--from 2] [--to 3]                     # kit.yml's line diff, then the files added/removed/modified/mode (default: current vs the one before)
+jam kit pin web 1                                        # roll current back to v1 (409 while a kit follows web)
+jam kit rm web                                           # remove the kit (all versions; 409 while a kit is built on it)
+jam kit import --git <repo>[//dir]@<ref> [--name N]      # import a kit from git as a new version
+jam kit track web --git <repo>[//dir]@<ref>              # import and keep the source for sync
+jam kit sync web                                         # re-import from the tracked source
+jam kit untrack web                                      # stop tracking (versions are kept)
 ```
 
 - `kit push` **validates** the directory before sending it — a refused file or
@@ -169,7 +169,7 @@ To change a kit's files before they become a version, open a **draft** (`kit dra
 ## Binding a kit to a role
 
 ```
-at-jam role add --project acme --name builder --destinations anthropic,git --kit web
+jam role add --project acme --name builder --destinations anthropic,git --kit web
 ```
 
 `--kit` names a registered kit (it must already exist — `role add` fails closed

@@ -30,6 +30,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	runKitTreeConformance(t, newStore)
 	runKitDraftConformance(t, newStore)
 	runConfigConformance(t, newStore)
+	runRenameMigrationConformance(t, newStore)
 
 	// newStoreWithAcme returns a fresh store holding the (empty) project "acme",
 	// which most subtests write into.

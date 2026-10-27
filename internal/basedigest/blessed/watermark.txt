@@ -1,16 +1,16 @@
-# Low-watermark: the OLDEST cove-base-image (sha256 manifest digest) still blessed.
+# Low-watermark: the OLDEST jam-studio-base (sha256 manifest digest) still blessed.
 #
 # This committed file holds exactly one digest — the low-watermark. At build time
-# cmd/gen-blessed lists the published cove-base-image digests from the registry
+# cmd/gen-blessed lists the published jam-studio-base digests from the registry
 # and walks newest->oldest through this watermark, writing the result to the
 # sibling generated.txt (gitignored) for go:embed (COV-44 spec §4). A routine base
 # republish is then blessed automatically — no commit-back loop. When generated.txt
-# is absent (offline builds, fresh checkout) at-cove embeds this watermark alone.
+# is absent (offline builds, fresh checkout) jam embeds this watermark alone.
 #
 # To DROP older bases after a breaking base change (e.g. shedding at-task, which
 # changes the layer prefix), bump this to the first post-break digest — one line,
 # one deliberate commit. The watermark MUST still exist in the registry or the
 # build fails loudly.
 #
-# Current watermark: cove-base-image:732-1005 (agent docs and skills moved out of hardening into the base seed — COV-246/COV-247, breaking)
+# Current watermark: jam-studio-base:732-1005 (agent docs and skills moved out of hardening into the base seed — COV-246/COV-247, breaking)
 sha256:cf6dd78d8953328179bf13f73e38e2d3ed8f00a9a2a6b143cd46b4cb63740345

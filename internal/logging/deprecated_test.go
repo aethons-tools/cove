@@ -9,15 +9,15 @@ import (
 func TestDeprecatedWarnsOncePerOldName(t *testing.T) {
 	ResetDeprecations()
 	t.Cleanup(ResetDeprecations)
-	t.Setenv("AT_LOG_MODE", "")
+	t.Setenv("JAM_LOG_MODE", "")
 	var errb bytes.Buffer
-	Deprecated(&errb, "at-harbor", "at-jam")
-	Deprecated(&errb, "at-harbor", "at-jam")
+	Deprecated(&errb, "jam cove", "jam studio")
+	Deprecated(&errb, "jam cove", "jam studio")
 	got := errb.String()
 	if strings.Count(got, "\n") != 1 {
 		t.Fatalf("want exactly one warning line, got %q", got)
 	}
-	for _, want := range []string{`"level":"WARN"`, `"old":"at-harbor"`, `"new":"at-jam"`, RenameDoc} {
+	for _, want := range []string{`"level":"WARN"`, `"old":"jam cove"`, `"new":"jam studio"`, RenameDoc} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("warning missing %q: %q", want, got)
 		}
@@ -32,11 +32,11 @@ func TestDeprecatedWarnsOncePerOldName(t *testing.T) {
 func TestDeprecatedAttendedIsHumanText(t *testing.T) {
 	ResetDeprecations()
 	t.Cleanup(ResetDeprecations)
-	t.Setenv("AT_LOG_MODE", "attended")
+	t.Setenv("JAM_LOG_MODE", "attended")
 	var errb bytes.Buffer
-	Deprecated(&errb, "AT_HARBOR_ADMIN_TOKEN", "AT_JAM_ADMIN_TOKEN")
+	Deprecated(&errb, "OLD_NAME", "NEW_NAME")
 	got := errb.String()
-	if !strings.Contains(got, "level=WARN") || !strings.Contains(got, "AT_HARBOR_ADMIN_TOKEN") || !strings.Contains(got, "AT_JAM_ADMIN_TOKEN") {
+	if !strings.Contains(got, "level=WARN") || !strings.Contains(got, "OLD_NAME") || !strings.Contains(got, "NEW_NAME") {
 		t.Fatalf("attended warning should be human text naming both; got %q", got)
 	}
 }

@@ -20,15 +20,15 @@ import (
 
 // claudeMCPConfigPath is the per-run MCP config the harness generates
 // (messaging + the kit's servers) and passes as --mcp-config. tmpfs, like the
-// prompt/context cove-master is launched with; it holds no secret values —
+// prompt/context jam-studio-agent is launched with; it holds no secret values —
 // kit header values are ${VAR} references Claude Code expands at start.
-const claudeMCPConfigPath = "/dev/shm/cove-agent-mcp.json"
+const claudeMCPConfigPath = "/dev/shm/jam-agent-mcp.json"
 
 // claudeSettingsPath is the per-run settings file rendered from a model-spec's
 // claude.settings (preferences only — validated Jam-side) plus the enablement
 // of its claude.plugins (claudeSettings), passed as --settings; tmpfs like the
 // MCP config.
-const claudeSettingsPath = "/dev/shm/cove-agent-settings.json"
+const claudeSettingsPath = "/dev/shm/jam-agent-settings.json"
 
 // claudeVersionTimeout bounds the `claude --version` pre-flight.
 const claudeVersionTimeout = 30 * time.Second
@@ -38,7 +38,7 @@ const claudeVersionTimeout = 30 * time.Second
 var claudeMessaging = struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
-}{"cove-master", []string{"mcp"}}
+}{"jam-studio-agent", []string{"mcp"}}
 
 // Claude is the Claude Code harness: claude -p with stream-json in and out
 // (see docs/usage/jam/session-events.md). The zero value uses the production
@@ -319,7 +319,7 @@ func claudePolicy(spec *modelspec.Spec) []string {
 }
 
 // claudeEnv is the provider env a spec implies (modelspec.ProviderEnv — the
-// one rendering a plain at-cove session shares): vertex sets
+// one rendering every session shares): vertex sets
 // CLAUDE_CODE_USE_VERTEX=1, bedrock CLAUDE_CODE_USE_BEDROCK=1, anthropic
 // nothing; then claude.provider-env, minus any protected, reserved or
 // credential-carrying key. nil when there is nothing to set.

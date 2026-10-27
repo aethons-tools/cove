@@ -6,53 +6,66 @@ import (
 )
 
 func TestVolumes(t *testing.T) {
-	c := CoveContainer("abc")
-	if got := WorkspaceVolume(c); got != "atcove-cove-abc-workspace" {
-		t.Fatalf("WorkspaceVolume = %q, want atcove-cove-abc-workspace", got)
+	c := StudioContainer("abc")
+	if got := WorkspaceVolume(c); got != "jam-studio-abc-workspace" {
+		t.Fatalf("WorkspaceVolume = %q, want jam-studio-abc-workspace", got)
 	}
-	if got := AgentDataVolume(c); got != "atcove-cove-abc-agent-data" {
-		t.Fatalf("AgentDataVolume = %q, want atcove-cove-abc-agent-data", got)
+	if got := AgentDataVolume(c); got != "jam-studio-abc-agent-data" {
+		t.Fatalf("AgentDataVolume = %q, want jam-studio-abc-agent-data", got)
 	}
 }
 
 // DockerVolume backs the inner /var/lib/docker cache for a docker:true instance;
 // it hangs off the container base like the other volumes, with a -docker suffix.
 func TestDockerVolume(t *testing.T) {
-	if got := DockerVolume(CoveContainer("abc")); got != "atcove-cove-abc-docker" {
-		t.Fatalf("DockerVolume = %q, want atcove-cove-abc-docker", got)
+	if got := DockerVolume(StudioContainer("abc")); got != "jam-studio-abc-docker" {
+		t.Fatalf("DockerVolume = %q, want jam-studio-abc-docker", got)
 	}
 }
 
-// CoveContainer names a managed cove's container from its actor id, sanitizing
+// StudioContainer names a managed cove's container from its actor id, sanitizing
 // any docker-unsafe characters so the name is always valid.
-func TestCoveContainer(t *testing.T) {
-	if got := CoveContainer("w1"); got != "atcove-cove-w1" {
-		t.Fatalf("CoveContainer = %q, want atcove-cove-w1", got)
+func TestStudioContainer(t *testing.T) {
+	if got := StudioContainer("w1"); got != "jam-studio-w1" {
+		t.Fatalf("StudioContainer = %q, want jam-studio-w1", got)
 	}
 	// Unsafe chars are sanitized to a docker-safe name.
-	if got := CoveContainer("proj/worker@1"); strings.ContainsAny(got, "/@") {
-		t.Fatalf("CoveContainer left unsafe chars: %q", got)
+	if got := StudioContainer("proj/worker@1"); strings.ContainsAny(got, "/@") {
+		t.Fatalf("StudioContainer left unsafe chars: %q", got)
 	}
 }
 
-func TestCoveContainerOn(t *testing.T) {
+func TestStudioNames(t *testing.T) {
+	c := StudioContainer("ses_1/x")
+	if c != "jam-studio-ses_1-x" {
+		t.Fatalf("StudioContainer = %q", c)
+	}
+	if AgentDataVolume(c) != "jam-studio-ses_1-x-agent-data" || WorkspaceVolume(c) != "jam-studio-ses_1-x-workspace" ||
+		DockerVolume(c) != "jam-studio-ses_1-x-docker" {
+		t.Fatal("volumes must be named after the new container")
+	}
+}
+
+func TestStudioContainerOn(t *testing.T) {
 	for _, c := range []struct{ m, id, want string }{
-		{"", "w1", "atcove-cove-w1"},
-		{"m1", "w1", "atcove.m1.cove-w1"},
-		{"m1", "a/b", "atcove.m1.cove-a-b"},
+		{"", "w1", "jam-studio-w1"},
+		{"m1", "w1", "jam-studio.m1.w1"},
+		{"m1", "a/b", "jam-studio.m1.a-b"},
 	} {
-		if got := CoveContainerOn(c.m, c.id); got != c.want {
-			t.Errorf("CoveContainerOn(%q,%q) = %q, want %q", c.m, c.id, got, c.want)
+		if got := StudioContainerOn(c.m, c.id); got != c.want {
+			t.Errorf("StudioContainerOn(%q,%q) = %q, want %q", c.m, c.id, got, c.want)
 		}
 	}
 }
 
-// Managers sharing a docker daemon never collide: a local name starts atcove-,
-// a manager's atcove.<manager>. (manager names hold no '.'), so neither a
+// Managers sharing a docker daemon never collide: a local name starts jam-studio-,
+// a manager's jam-studio.<manager>. (manager names hold no '.'), so neither a
 // crafted manager name nor a crafted id can reproduce another's name.
-func TestCoveContainerOnNeverCollides(t *testing.T) {
+func TestStudioContainerOnNeverCollides(t *testing.T) {
 	cases := []struct{ m, id string }{
 		{"", "a-cove-b"},
+		{"", "m.b"},
+		{"m", "b"},
 		{"cove-a", "b"},
 		{"a", "b"},
 		{"a-cove", "b"},
@@ -65,10 +78,10 @@ func TestCoveContainerOnNeverCollides(t *testing.T) {
 	}
 	seen := map[string]string{}
 	for _, c := range cases {
-		got := CoveContainerOn(c.m, c.id)
+		got := StudioContainerOn(c.m, c.id)
 		key := c.m + "|" + c.id
 		if prev, dup := seen[got]; dup {
-			t.Errorf("CoveContainerOn(%q) = %q collides with %q", key, got, prev)
+			t.Errorf("StudioContainerOn(%q) = %q collides with %q", key, got, prev)
 		}
 		seen[got] = key
 	}

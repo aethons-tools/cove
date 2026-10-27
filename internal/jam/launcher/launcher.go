@@ -1,7 +1,7 @@
 // Package launcher is the real jam.Launcher: it raises/tears down/probes a
-// managed cove on a Colima backend and bootstraps cove-master over SSH. It lives
+// managed cove on a Colima backend and bootstraps jam-studio-agent over SSH. It lives
 // outside internal/jam core (which stays backend/connect-free) and is wired
-// from cmd/at-jam.
+// from cmd/jam.
 package launcher
 
 import (
@@ -23,19 +23,16 @@ import (
 	"github.com/aethons-tools/cove/internal/sshargs"
 )
 
-// Label is the docker label on every container the launcher raises, and the
-// filter it lists them by. It keeps its pre-rename "harbor" value: changing it
-// would hide studios an older binary raised from the new one during a rollout.
-// See docs/usage/jam/renamed-from-harbor.md.
-const Label = "harbor.cove"
+// Label tags every studio container this launcher runs.
+const Label = "jam.studio"
 
 // ActorLabel carries the actor id on every container the launcher raises, so
 // a manager can inventory its studios from docker alone.
-const ActorLabel = "harbor.cove.actor"
+const ActorLabel = "jam.studio.actor"
 
 // ManagerLabel names the remote manager that raised a container or created a
 // state volume; absent for the local manager.
-const ManagerLabel = "harbor.cove.manager"
+const ManagerLabel = "jam.studio.manager"
 
 // raiseLabels are the labels a raise passes for actorID.
 func (l *Launcher) raiseLabels(actorID string) []string {
@@ -68,7 +65,7 @@ type Config struct {
 	DNS           []string
 	Docker        bool
 	Subscription  bool   // legacy-render fallback only: the supervisor always sets RaiseSpec.Connector, whose env carries the mode
-	WorkDir       string // AT_COVE_WORKDIR; default /home/agent/workspace
+	WorkDir       string // JAM_WORKDIR; default /home/agent/workspace
 	// JamID labels the state volumes this Jam creates (JamLabel) and scopes
 	// its sweep to them. It must be stable across restarts and distinct per
 	// Jam sharing a docker host; default RuntimeAddr (the address coves dial
@@ -86,7 +83,7 @@ type Config struct {
 	Manager string
 
 	// PrepareKit inputs (studio-cove build path). BuildRoot is where per-kit
-	// build contexts are assembled (default os.TempDir()/cove-kit-builds).
+	// build contexts are assembled (default os.TempDir()/jam-kit-builds).
 	// PublicKey is the launcher's own SSH public key, baked into the built image's
 	// authorized_keys so Jam can reach the raised cove (its private half is
 	// IdentityFile). The build context comes entirely from the KitDefinition (data)
@@ -140,12 +137,12 @@ func New(cfg Config) *Launcher {
 		cfg.Log = slog.New(slog.NewTextHandler(discard{}, nil))
 	}
 	if cfg.BuildRoot == "" {
-		cfg.BuildRoot = filepath.Join(os.TempDir(), "cove-kit-builds")
+		cfg.BuildRoot = filepath.Join(os.TempDir(), "jam-kit-builds")
 	}
 	l := &Launcher{cfg: cfg, inflight: map[string]*sync.Mutex{}}
 	asm, err := currentAsmDigest(cfg)
 	if err != nil {
-		cfg.Log.Warn("launcher: at-jam build identity unreadable; image tags key on the other inputs only", "error", err.Error())
+		cfg.Log.Warn("launcher: assembly identity unreadable; image tags key on the other inputs only", "error", err.Error())
 	}
 	l.asm = asm
 	l.inv = cfg.Inventory
@@ -160,18 +157,18 @@ func New(cfg Config) *Launcher {
 
 // container names actorID's container for this launcher's manager.
 func (l *Launcher) container(actorID string) string {
-	return naming.CoveContainerOn(l.cfg.Manager, actorID)
+	return naming.StudioContainerOn(l.cfg.Manager, actorID)
 }
 
 func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (string, error) {
 	name := l.container(spec.ActorID)
-	// A studio raise always carries a kit: its image is cove-kit:<build-digest>-<asm>. A
+	// A studio raise always carries a kit: its image is jam-kit:<build-digest>-<asm>. A
 	// launcher without that kit in its inventory returns ErrKitNotReady and creates
 	// NO container, so the supervisor prepares the kit and retries.
 	if spec.Kit.ID == "" {
 		return "", fmt.Errorf("raise %s: no kit (studio raises require a kit)", name)
 	}
-	// The build-digest keys the image tag cove-kit:<Digest>; empty would yield an invalid tag.
+	// The build-digest keys the image tag jam-kit:<Digest>; empty would yield an invalid tag.
 	if spec.Kit.Digest == "" {
 		return "", fmt.Errorf("raise %s: kit %s has no build-digest", name, spec.Kit.ID)
 	}
@@ -194,7 +191,7 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 		if !ok {
 			return "", fmt.Errorf("raise %s: %w", spec.Kit, ErrKitNotReady)
 		}
-		// Run the immutable cove-kit:<build-digest>-<asm> tag. No digest pin: the tag already
+		// Run the immutable jam-kit:<build-digest>-<asm> tag. No digest pin: the tag already
 		// names the exact built image by its build-input digest.
 		image = l.imageTag(spec.Kit)
 	}
@@ -220,13 +217,13 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 		if err := l.waitForSSH(tgt); err != nil {
 			return fmt.Errorf("wait for sshd: %w", err)
 		}
-		// The role's egress policy lands before cove-master (and so the agent)
+		// The role's egress policy lands before jam-studio-agent (and so the agent)
 		// starts, so the agent never runs under the wider kit default.
 		if err := l.applyRoleEgress(name, spec); err != nil {
 			return err
 		}
 		l.installSSHUserCA(name, spec.ActorID)
-		return connect.LaunchCoveMaster(l.cfg.Runner, connect.CoveMasterOptions{
+		return connect.LaunchStudioAgent(l.cfg.Runner, connect.StudioAgentOptions{
 			Target: tgt, JamHost: l.cfg.JamHost, RuntimeAddr: l.cfg.RuntimeAddr,
 			IdentityToken: creds.IdentityToken, LaunchSecret: creds.LaunchSecret,
 			WorkDir: l.cfg.WorkDir, Prompt: spec.Prompt,
@@ -253,12 +250,12 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 // StateLabel is the docker label on a standing session's state volumes; its
 // value is the owning actor id. The standing reconciler sweeps by it: a
 // labeled volume whose actor id is no longer declared is removed.
-const StateLabel = "harbor.cove.state"
+const StateLabel = "jam.studio.state"
 
 // JamLabel scopes a state volume to the Jam that created it (its value is
 // Config.JamID), so a Jam sweeps only its own volumes, never another's on a
 // shared docker host.
-const JamLabel = "harbor.cove.jam"
+const JamLabel = "jam.studio.jam"
 
 // agentDataPath is where a standing session's agent-data volume mounts: the
 // agent's CLAUDE_CONFIG_DIR (conversations, settings, logs).
@@ -421,7 +418,7 @@ func (l *Launcher) Teardown(ctx context.Context, inst jam.Instance) error {
 	return err
 }
 
-// TeardownCapture does what Teardown does but returns the cove-master log tail
+// TeardownCapture does what Teardown does but returns the jam-studio-agent log tail
 // (possibly "") instead of logging it, so a remote manager can ship it to Jam.
 func (l *Launcher) TeardownCapture(ctx context.Context, inst jam.Instance) (string, error) {
 	// An idled cove is docker-paused; SSH into a frozen container hangs (so the
@@ -434,7 +431,7 @@ func (l *Launcher) TeardownCapture(ctx context.Context, inst jam.Instance) (stri
 	}
 	// Post-mortem insurance: before the container is removed (a standing
 	// session's agent-data and workspace volumes survive it; only PurgeState
-	// deletes them), grab the tail of cove-master's log and record it, so a cove
+	// deletes them), grab the tail of jam-studio-agent's log and record it, so a cove
 	// that died — crash, auth failure, egress-blocked, one-shot exit — leaves a
 	// reason in Jam's log instead of vanishing silently. Strictly best-effort:
 	// any failure here never blocks the teardown.
@@ -452,7 +449,7 @@ func (l *Launcher) TeardownCapture(ctx context.Context, inst jam.Instance) (stri
 	return tail, nil
 }
 
-// captureAgentLog returns the last few KB of cove-master's log from the cove, or
+// captureAgentLog returns the last few KB of jam-studio-agent's log from the cove, or
 // "" if it can't be read (container gone, no ssh, no log yet). Best-effort.
 func (l *Launcher) captureAgentLog(container string) string {
 	ep, cleanup, err := l.cfg.Ops.Dial(container)
@@ -465,7 +462,7 @@ func (l *Launcher) captureAgentLog(container string) string {
 		IdentityFile:   l.cfg.IdentityFile,
 		KnownHostsFile: filepath.Join(l.cfg.KnownHostsDir, container),
 	}
-	out, err := l.cfg.Runner.Output("ssh", append(sshargs.Base(tgt), "tail -c 4096 "+connect.CoveMasterLogVMPath+" 2>/dev/null")...)
+	out, err := l.cfg.Runner.Output("ssh", append(sshargs.Base(tgt), "tail -c 4096 "+connect.StudioAgentLogVMPath+" 2>/dev/null")...)
 	if err != nil {
 		return ""
 	}

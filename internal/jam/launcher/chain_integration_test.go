@@ -22,25 +22,25 @@ import (
 // parent's file to exist in its stage.
 var (
 	chainParentKit = kittreetest.Files("kit.yml", "kind: studio\nbase:\n  kit: default\n",
-		"Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\nRUN mkdir -p /opt && echo parent > /opt/parent\n")
+		"Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\nRUN mkdir -p /opt && echo parent > /opt/parent\n")
 	chainChildKit = kittreetest.Files("kit.yml", "kind: studio\nbase:\n  kit: chain-parent\n",
-		"Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\nRUN test -f /opt/parent && echo child > /opt/child\n")
+		"Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\nRUN test -f /opt/parent && echo child > /opt/child\n")
 )
 
 // hardeningMarker is a command only the sealed hardening layer runs (not
-// cove-base-image): the layer that re-owns the agent's .ssh. Exactly one
+// jam-studio-base): the layer that re-owns the agent's .ssh. Exactly one
 // history entry of the final image must carry it.
 const hardeningMarker = "chown -R agent:agent /home/agent/.ssh"
 
 // TestChainBuildTwoLevels builds default → chain-parent → chain-child for real
 // on a docker daemon: each stage builds FROM the previous one and the harness
 // and hardening layers are applied once, on top. It needs a reachable colima
-// docker context (COVE_DOCKER_CONTEXT, default "colima") with the blessed base
+// docker context (JAM_DOCKER_CONTEXT, default "colima") with the blessed base
 // available, and network for the harness layer; it skips without a daemon. It
-// leaves cove-kit-base:* stage tags in that daemon (they are the stage cache).
+// leaves jam-kit-base:* stage tags in that daemon (they are the stage cache).
 // Run: `go test -tags integration ./internal/jam/launcher/ -run TestChainBuildTwoLevels`.
 func TestChainBuildTwoLevels(t *testing.T) {
-	dctx := os.Getenv("COVE_DOCKER_CONTEXT")
+	dctx := os.Getenv("JAM_DOCKER_CONTEXT")
 	if dctx == "" {
 		dctx = "colima"
 	}

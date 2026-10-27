@@ -1,7 +1,7 @@
 ---
-summary: How a Jam session learns its context — the layered bundle compiled at raise and refreshed while it runs (GET /context), its always-on core and on-demand leaves, and how cove-master delivers it.
+summary: How a Jam session learns its context — the layered bundle compiled at raise and refreshed while it runs (GET /context), its always-on core and on-demand leaves, and how jam-studio-agent delivers it.
 read_when: You are writing a kit prompt, debugging what a session was told (or why an edit did or did not reach it), or changing how session context is compiled, delivered or refreshed.
-owns: session-context layers, delivery order and precedence, the SANDBOX.md vs context precedence, core budgets, the /agent-data/context layout, the AT_COVE_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
+owns: session-context layers, delivery order and precedence, the SANDBOX.md vs context precedence, core budgets, the /agent-data/context layout, the JAM_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
 prereqs: coves.md
 tier: leaf
 updated: 2026-10-26
@@ -30,7 +30,7 @@ new image needs a re-raise; for a chained kit, which chain feeds which fact is i
 Raise logs a warning when the kit prompt restates an egress host or a message
 target — those belong to the Studio layer.
 
-The authored layers are written with `at-jam context` — see [session-context-authoring.md](session-context-authoring.md). Design: [the spec](../../superpowers/specs/2026-10-02-session-context-layers-design.md).
+The authored layers are written with `jam context` — see [session-context-authoring.md](session-context-authoring.md). Design: [the spec](../../superpowers/specs/2026-10-02-session-context-layers-design.md).
 
 The **core** (`CORE.md`) states precedence once — hardening is absolute; otherwise
 later layers win — then each non-empty layer's core and a one-line pointer to each of
@@ -40,9 +40,9 @@ its leaves. **Leaves** and `INDEX.md` hold the detail. An empty layer emits noth
 
 1. `Supervisor.Raise` compiles the bundle; the launch prompt (task, brief, standing or
    personal prompt) stays the agent's first stdin message on its own.
-2. The launcher stages the bundle JSON at `/dev/shm/cove-agent-context` and exports
-   `AT_COVE_AGENT_CONTEXT_FILE`.
-3. cove-master writes it to `/agent-data/context.d/<first 12 hex of the fingerprint>/` and points the
+2. The launcher stages the bundle JSON at `/dev/shm/jam-agent-context` and exports
+   `JAM_AGENT_CONTEXT_FILE`.
+3. jam-studio-agent writes it to `/agent-data/context.d/<first 12 hex of the fingerprint>/` and points the
    symlink `/agent-data/context` at it in one rename (older versions are then
    removed, so a reader always sees one complete tree), and starts every episode
    (claude process) with
@@ -50,8 +50,8 @@ its leaves. **Leaves** and `INDEX.md` hold the detail. An empty layer emits noth
    `off` matters: by default claude replays the first turn's system prompt on every
    `--continue`. Within one episode the system prompt is fixed; see [coves.md](coves.md).
 4. No file or malformed JSON → the agent runs without context, exactly as before
-   (`cove-master.log` then has no `session context applied` line). An unwritable
-   directory is warned in `cove-master.log` and also runs without it. Either way any
+   (`jam-studio-agent.log` then has no `session context applied` line). An unwritable
+   directory is warned in `jam-studio-agent.log` and also runs without it. Either way any
    earlier bundle in `/agent-data/context/` is removed.
 
 ### The sandbox rules: context over `SANDBOX.md`
@@ -64,13 +64,13 @@ guard — if `/agent-data/context/CORE.md` exists this is a Jam session, its con
 governs, ignore the rest of the file. Nothing rewrites the file (it is the kit's,
 overridable), so the guard is the session's only cost; a kit that overrides
 `SANDBOX.md` should keep it. A session running without a bundle has no `CORE.md`
-(cove-master removes any stale one), so the file applies in full.
+(jam-studio-agent removes any stale one), so the file applies in full.
 
 ## Refresh
 
 Jam serves a running session's bundle, recompiled from the current config, at
 `GET /context` (the identity bearer, like `/connector`; 401 for an unknown
-identity, 404 without a registered instance). cove-master fetches it:
+identity, 404 without a registered instance). jam-studio-agent fetches it:
 
 - **before every later episode** — that episode's system prompt is current, and its
   first message gains: *Session context changed (role, studio) since your last turn —
@@ -81,9 +81,9 @@ identity, 404 without a registered instance). cove-master fetches it:
   catches up at your next episode.* A burst of coalesced wakes carries it once.
 
 Only changed layers are named (a leaf edit counts). The first episode refreshes
-too (after a cove-master restart, say), without a notice. Every fetch — at a
+too (after a jam-studio-agent restart, say), without a notice. Every fetch — at a
 spawn or a wake — is bounded at 3 s, so a slow Jam never stalls the session. An unreachable Jam keeps the last
-bundle (logged in `cove-master.log`); a 404 without Jam's `X-Jam-Context` marker
+bundle (logged in `jam-studio-agent.log`); a 404 without Jam's `X-Jam-Context` marker
 (an older Jam with no `/context`) stops refreshing for the run, logged once, while a
 marked 404 (the session isn't registered yet, e.g. right after raise) is retried.
 Never failing the episode either way.

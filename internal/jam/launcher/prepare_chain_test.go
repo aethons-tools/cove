@@ -23,7 +23,7 @@ func ctxLink(t *testing.T, name string, version int, parent, marker string) jam.
 	if parent != "" {
 		yml += "base: {kit: " + parent + "}\n"
 	}
-	return treeLink(t, name, version, "kit.yml", yml, "Dockerfile", "FROM ${COVE_BASE_IMAGE}\nRUN echo "+marker+"\n")
+	return treeLink(t, name, version, "kit.yml", yml, "Dockerfile", "FROM ${JAM_STUDIO_BASE_IMAGE}\nRUN echo "+marker+"\n")
 }
 
 // chainLink is one resolved chain link for kit name@vN with the given own
@@ -62,26 +62,26 @@ func mustStage(t *testing.T, parentRef string, sk studio.StudioKit) string {
 
 func noAsm(KitDefinition, string) error { return nil }
 
-// The stage tag is cove-kit-base:<first 32 hex of sha256(asm, NUL, parentRef, NUL,
+// The stage tag is jam-kit-base:<first 32 hex of sha256(asm, NUL, parentRef, NUL,
 // canonical JSON of the link's own Base[, NUL, build-context hash])>.
 func TestKitStageTagFormula(t *testing.T) {
 	b := studio.Base{Kit: "web-dev"}
 	js, _ := json.Marshal(b)
-	head := append(append(append(append([]byte("asm"), 0), []byte("cove-kit-base:p")...), 0), js...)
+	head := append(append(append(append([]byte("asm"), 0), []byte("jam-kit-base:p")...), 0), js...)
 	sum := sha256.Sum256(head)
-	want := "cove-kit-base:" + hex.EncodeToString(sum[:])[:32]
-	if got, _ := kitStageTag("asm", "cove-kit-base:p", studio.StudioKit{Base: b}); got != want {
+	want := "jam-kit-base:" + hex.EncodeToString(sum[:])[:32]
+	if got, _ := kitStageTag("asm", "jam-kit-base:p", studio.StudioKit{Base: b}); got != want {
 		t.Fatalf("stage tag = %q, want %q", got, want)
 	}
 	ctxSum := sha256.Sum256(append(append(head, 0), []byte("ctx")...))
-	wantCtx := "cove-kit-base:" + hex.EncodeToString(ctxSum[:])[:32]
-	if got, _ := kitStageTag("asm", "cove-kit-base:p", studio.StudioKit{Base: b, BuildContext: "ctx"}); got != wantCtx {
+	wantCtx := "jam-kit-base:" + hex.EncodeToString(ctxSum[:])[:32]
+	if got, _ := kitStageTag("asm", "jam-kit-base:p", studio.StudioKit{Base: b, BuildContext: "ctx"}); got != wantCtx {
 		t.Fatalf("stage tag with a build context = %q, want %q", got, wantCtx)
 	}
-	if q, _ := kitStageTag("asm", "cove-kit-base:q", studio.StudioKit{Base: b}); q == want {
+	if q, _ := kitStageTag("asm", "jam-kit-base:q", studio.StudioKit{Base: b}); q == want {
 		t.Fatal("a different parent stage must give a different stage tag")
 	}
-	if y, _ := kitStageTag("asm", "cove-kit-base:p", studio.StudioKit{Base: studio.Base{Kit: "web-dev@v2"}}); y == want {
+	if y, _ := kitStageTag("asm", "jam-kit-base:p", studio.StudioKit{Base: studio.Base{Kit: "web-dev@v2"}}); y == want {
 		t.Fatal("a different own base must give a different stage tag")
 	}
 }
@@ -119,7 +119,7 @@ func TestChainBuildsStagesRootToLeaf(t *testing.T) {
 // A root with its own context resolves by today's rule (ResolveKitBaseTar on
 // the blessed base), and the child stage builds on what that returned.
 func TestChainRootContextThenChildStage(t *testing.T) {
-	ops := &fakeOps{resolvedTarBase: "cove-kit-base:rootid"}
+	ops := &fakeOps{resolvedTarBase: "jam-kit-base:rootid"}
 	root := ctxLink(t, "base-dev", 1, "", "root")
 	leaf := ctxLink(t, "my-app", 0, "base-dev", "leaf")
 	l := newPrepareLauncher(ops, &fakeInv{}, noAsm)
@@ -129,8 +129,8 @@ func TestChainRootContextThenChildStage(t *testing.T) {
 	if !strings.Contains(untarNames(t, ops.resolvedTar)["Dockerfile"], "echo root") {
 		t.Fatal("the root's own context must go through ResolveKitBaseTar")
 	}
-	want := mustStage(t, "cove-kit-base:rootid", leaf.Kit)
-	if len(ops.stages) != 1 || ops.stages[0].parent != "cove-kit-base:rootid" || ops.builtBase != want {
+	want := mustStage(t, "jam-kit-base:rootid", leaf.Kit)
+	if len(ops.stages) != 1 || ops.stages[0].parent != "jam-kit-base:rootid" || ops.builtBase != want {
 		t.Fatalf("stages=%+v built=%q; want the leaf on the root's base", ops.stages, ops.builtBase)
 	}
 }
@@ -238,7 +238,7 @@ func TestChainStageGateFailureNamesLink(t *testing.T) {
 	}
 
 	// The root's own gate failure names the root.
-	ops := &fakeOps{resolveTarErr: errors.New("base does not descend from any blessed cove-base-image")}
+	ops := &fakeOps{resolveTarErr: errors.New("base does not descend from any blessed jam-studio-base")}
 	rootCtx := ctxLink(t, "base-dev", 1, "", "root")
 	_, err := newPrepareLauncher(ops, &fakeInv{}, noAsm).PrepareKit(context.Background(), chainDef(nil, rootCtx, leaf))
 	if err == nil || !strings.Contains(err.Error(), "base-dev@v1") || ops.builds != 0 {

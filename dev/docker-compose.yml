@@ -13,7 +13,7 @@
 #   just integration-jam
 #
 # Jam itself is an opt-in service (profile "jam"), run from the container image:
-#   just jam-image                                   (builds cove-jam:dev)
+#   just jam-image                                   (builds jam:dev)
 #   cp dev/examples/jam.container.yml.example dev/jam.container.yml
 #   mkdir -p dev/local/secrets/tls && cp dev/examples/credentials.container.yml.example dev/local/secrets/credentials.yml
 #   just dev-cert && cp dev/tls/*.pem dev/local/secrets/tls/
@@ -61,7 +61,7 @@ services:
   # 8081, published to host loopback only.
   jam:
     profiles: ["jam"]
-    image: ${JAM_IMAGE:-cove-jam:dev}
+    image: ${JAM_IMAGE:-jam:dev}
     depends_on:
       postgres:
         condition: service_healthy

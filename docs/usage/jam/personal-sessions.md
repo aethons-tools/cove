@@ -30,7 +30,7 @@ profile for the owner.
    (`/app/user` **Call in…**), and you may **leave** it ([membership](intercom.md#channel-membership)). It may message **only** you: Jam enrolls it with an addressing
    override of exactly `user:<owner's usr_id>`.
 3. Once its agent is idle — its turn over and no background task still running —
-   the studio waits for you (it is [resident](coves.md#cove-master-the-in-cove-client);
+   the studio waits for you (it is [resident](coves.md#jam-studio-agent-the-in-cove-client);
    there is no time limit). While it waits past the `warm-timeout` it is paused
    (`idled`, ≈0 CPU). If it ended its turn with a background task running (say, a
    dev server), it stays `running` and keeps the agent live instead, for up to 30m.
@@ -57,7 +57,7 @@ wake-on engine walks it up a ladder set by the role:
 2. **Nag.** Once it has waited **`idle-after`** (default **4h**), Jam messages you
    *as the session*, in your Discord inbox: "Your personal session *id* (*role*) has
    been idle for *N*. Reply to this message to pick it back up, or release
-   it with: `at-jam session release <id>`". It repeats every **`nag-every`**
+   it with: `jam session release <id>`". It repeats every **`nag-every`**
    (default **24h**). **Replying to a nag is replying to the session** — it wakes and
    carries on, and the ladder starts over.
    **Or answer the nag with a command:** reply to the nag with exactly
@@ -69,7 +69,7 @@ wake-on engine walks it up a ladder set by the role:
    - **Owner only.** The reply counts only if Jam attributes it to you, never
      by Discord display name ([the rules](discord.md#who-a-discord-reply-is-from)).
      **Bind your Discord user id (recommended):** add it as your account on
-     the `discord` connection (`at-jam account add --connection discord --uid <your-user-id> --user <you>`). Then only your own
+     the `discord` connection (`jam account add --connection discord --uid <your-user-id> --user <you>`). Then only your own
      Discord account counts as you, and `keep`/`release` works from **any**
      inbox, shared ones included.
      **Unbound**, only an inbox channel that is **exactly yours** proves it's
@@ -93,7 +93,7 @@ A nag that fails to send is retried on the next tick and never ends the session;
 a reclaim waits until its notice has been sent. The three settings are role flags:
 
 ```
-at-jam role add --project acme --name pair --max-personal 3 \
+jam role add --project acme --name pair --max-personal 3 \
   --idle-after 4h --nag-every 24h --reclaim-after 72h
 ```
 
@@ -107,11 +107,11 @@ A ticketless studio's messages can only be delivered over Discord, so a request 
 refused with **400** (before any slot is granted) unless both hold:
 
 - the project's chat service is `discord`:
-  `at-jam project chat-service set --project acme --service discord`;
+  `jam project chat-service set --project acme --service discord`;
 - you (the owner) have a Discord inbox in the project, ideally with your Discord
   account bound ([discord.md](discord.md)):
-  `at-jam project member add acme alice --delivery discord:<inbox-channel>` and
-  `at-jam account add --connection discord --uid <your-user-id> --user alice`.
+  `jam project member add acme alice --delivery discord:<inbox-channel>` and
+  `jam account add --connection discord --uid <your-user-id> --user alice`.
 
 Jam must also run the Discord relay (`runtime.discord`,
 see [serve.md](serve.md#the-serve-config)); it no longer needs a Requisitioner, and it
@@ -121,13 +121,13 @@ polls every project whose chat service is `discord`
 ## Who owns it: link your login
 
 Jam finds the owner by matching the caller's **admin login** (the operator
-identity: your OIDC `sub`, which `at-jam whoami` shows, or `local` on a
+identity: your OIDC `sub`, which `jam whoami` shows, or `local` on a
 loopback-only Jam) against the **user** holding that login, who must be a
 member of the target project:
 
 ```
-at-jam user login alice 'auth0|abc123'
-at-jam project member add acme alice
+jam user login alice 'auth0|abc123'
+jam project member add acme alice
 ```
 
 A login belongs to one user Jam-wide. `--login` is described with the
@@ -140,7 +140,7 @@ If no member of the project is linked to your login, every `session` call answer
 A role admits personal sessions only when it sets a pool cap:
 
 ```
-at-jam role add --project acme --name pair --destinations anthropic,git \
+jam role add --project acme --name pair --destinations anthropic,git \
   --max-personal 3 --max-personal-per-owner 1
 ```
 
@@ -165,10 +165,10 @@ All take the admin-client flags (`--app`/`--admin-url`/`--token`); see
 [operators.md](operators.md). `--project` defaults to `default`.
 
 ```
-at-jam session request --project acme --role pair --prompt-file task.md   # prints the session id
+jam session request --project acme --role pair --prompt-file task.md   # prints the session id
 #   [--manager NAME ...] [--placement-timeout 30s]: see coves.md#managers-and-placement
-at-jam session list    [--project acme]
-at-jam session release ses_01j9q3x8f2k7m4n6p0r2s5t8v1
+jam session list    [--project acme]
+jam session release ses_01j9q3x8f2k7m4n6p0r2s5t8v1
 ```
 
 - **request** grants a slot, then raises the studio with you as its owner, and

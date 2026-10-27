@@ -16,7 +16,7 @@ were removed **with no compatibility shim**.
 
 History: this key was dropped from the serve config, and `runtime.launcher` itself is now refused (see [Studio Managers](studio-managers.md#retiring-the-in-process-launcher)). The managed cove's base and
 config now come from the studio-kit registry: the `default` kit is seeded
-automatically at serve start; author others with `at-jam kit push` and bind them
+automatically at serve start; author others with `jam kit push` and bind them
 with `role add --kit` ([kits.md](kits.md#role-to-kit-and-the-default-kit)).
 
 ## The registry is studio-only

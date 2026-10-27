@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/legacynames"
 )
 
 // fakeDocker canned-answers Build and Layers by ref, and records what it built.
@@ -33,7 +35,7 @@ func (f *fakeDocker) Layers(ref string) ([]string, error) {
 }
 
 const (
-	blessedRef = "ghcr.io/aethons-tools/cove-base-image@sha256:blessed"
+	blessedRef = "ghcr.io/aethons-tools/jam-studio-base@sha256:blessed"
 	defaultRef = blessedRef
 )
 
@@ -60,7 +62,7 @@ func TestResolveDefault(t *testing.T) {
 
 func TestResolveBaseTag(t *testing.T) {
 	// image.base names a descendant of the blessed image → used verbatim, verifies.
-	const tag = "ghcr.io/acme/cove-image@sha256:child"
+	const tag = "ghcr.io/acme/jam-studio@sha256:child"
 	d := &fakeDocker{layers: map[string][]string{
 		blessedRef: {"sha256:a", "sha256:b"},
 		tag:        {"sha256:a", "sha256:b", "sha256:c"}, // built FROM the blessed base
@@ -174,5 +176,34 @@ func TestResolveEmptyBlessedLayersSurfaced(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no layers") {
 		t.Fatalf("must flag the empty blessed layers distinctly; got:\n%s", err.Error())
+	}
+}
+
+func TestResolveAcceptsRecutBlessedBase(t *testing.T) {
+	const kitBase = "ghcr.io/aethons-tools/jam-studio-base@sha256:older"
+	d := &fakeDocker{layers: map[string][]string{
+		blessedRef: {"sha256:a", "sha256:b"},
+		kitBase:    {"sha256:a", "sha256:b"},
+	}}
+	if ref, err := Resolve(d, Spec{Base: kitBase}, []string{blessedRef}, &bytes.Buffer{}); err != nil || ref != kitBase {
+		t.Fatalf("Resolve = %q, %v; a re-cut blessed base must pass", ref, err)
+	}
+}
+
+func TestResolveRefusesThePreRenameRepo(t *testing.T) {
+	old := legacynames.BaseImageRepo + "@sha256:blessed"
+	d := &fakeDocker{layers: map[string][]string{blessedRef: {"sha256:a"}, old: {"sha256:a"}}}
+	_, err := Resolve(d, Spec{Base: old}, []string{blessedRef}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "was renamed ghcr.io/aethons-tools/jam-studio-base") {
+		t.Fatalf("err = %v; the old repo must be refused, naming the new one", err)
+	}
+}
+
+func TestResolveRefusesThePreRenameRepoEvenUnverified(t *testing.T) {
+	old := legacynames.BaseImageRepo + ":latest"
+	d := &fakeDocker{layers: map[string][]string{blessedRef: {"sha256:a"}, old: {"sha256:a"}}}
+	var warn bytes.Buffer
+	if _, err := Resolve(d, Spec{Base: old, AllowUnverified: true}, []string{blessedRef}, &warn); err == nil {
+		t.Fatal("--allow-unverified-base downgrades provenance failures only, not the rename refusal")
 	}
 }

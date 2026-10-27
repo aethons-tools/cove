@@ -28,7 +28,7 @@
 
 set -euo pipefail
 
-# Renovate keeps this in lockstep with the gate workflow + cove-image Dockerfile.
+# Renovate keeps this in lockstep with the gate workflow + jam-studio Dockerfile.
 HADOLINT_VERSION="v2.15.1"
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }

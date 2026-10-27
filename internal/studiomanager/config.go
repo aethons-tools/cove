@@ -1,4 +1,4 @@
-// Package studiomanager holds the at-studio-manager binary's logic.
+// Package studiomanager holds the jam-studio-manager binary's logic.
 package studiomanager
 
 import (
@@ -17,7 +17,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// Config is the at-studio-manager config file.
+// Config is the jam-studio-manager config file.
 type Config struct {
 	Name       string       `yaml:"name"`        // required; jam.ValidManagerName, not "local"
 	JamAddr    string       `yaml:"jam-addr"`    // required host:port of Jam's cove-facing TLS listener
@@ -40,12 +40,12 @@ type ColimaConfig struct {
 	KnownHostsDir string   `yaml:"known-hosts-dir"` // default <dir>/known_hosts.d
 }
 
-// DefaultDir is $XDG_CONFIG_HOME/at-studio-manager, else $HOME/.config/at-studio-manager.
+// DefaultDir is $XDG_CONFIG_HOME/jam-studio-manager, else $HOME/.config/jam-studio-manager.
 func DefaultDir(getenv func(string) string) string {
 	if x := getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "at-studio-manager")
+		return filepath.Join(x, "jam-studio-manager")
 	}
-	return filepath.Join(getenv("HOME"), ".config", "at-studio-manager")
+	return filepath.Join(getenv("HOME"), ".config", "jam-studio-manager")
 }
 
 // Load reads path strictly, applies defaults, then validates.

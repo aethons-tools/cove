@@ -59,9 +59,6 @@ type StateMap struct {
 // reservedSecretNames are well-known subsystem secret names a studio kit may
 // not declare as a general secret demand (internal/studio rejects them).
 var reservedSecretNames = map[string]bool{
-	"AT_TASK_GIT_TOKEN":                   true,
-	"AT_DISPATCH_TRACKER_TOKEN":           true,
-	"AT_DISPATCH_WEBHOOK_SECRET":          true,
 	"GOOGLE_APPLICATION_CREDENTIALS_JSON": true,
 }
 

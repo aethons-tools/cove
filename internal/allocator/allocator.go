@@ -91,7 +91,7 @@ type PolicySource interface {
 }
 
 // StaticPolicy is a fixed policy table (tests, and the Requisitioner-seeded
-// fallback behind cmd/at-jam's roster-sourced policy).
+// fallback behind cmd/jam's roster-sourced policy).
 type StaticPolicy map[Key]Policy
 
 // Policy implements PolicySource.
@@ -187,7 +187,7 @@ func (a *Allocator) key(project string) string {
 // New builds an Allocator. ledger may be nil: with no event store (file-store dev)
 // Grant falls back to the registry live count and RecordRelease is a no-op. The
 // sweep clock defaults to time.Now and the logger to a discard logger (the wiring
-// in cmd/at-jam can override either after construction).
+// in cmd/jam can override either after construction).
 func New(counter Counter, policy PolicySource, ledger Ledger) *Allocator {
 	return &Allocator{
 		counter: counter,
@@ -265,7 +265,7 @@ func (a *Allocator) Grant(ctx context.Context, req Request) (bool, error) {
 }
 
 // SetLogger routes the reconcile sweep's diagnostics to log (nil is ignored). The
-// sweep is otherwise silent (New defaults to a discard logger); cmd/at-jam
+// sweep is otherwise silent (New defaults to a discard logger); cmd/jam
 // calls this so a resident SweepLoop's Info/Warn records reach the sink.
 func (a *Allocator) SetLogger(log *slog.Logger) {
 	if log != nil {

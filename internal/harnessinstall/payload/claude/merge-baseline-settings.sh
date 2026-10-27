@@ -14,13 +14,13 @@
 # them per run (--settings).
 #
 # Env overrides (defaults are the real build paths; tests inject temps):
-#   COVE_PLUGIN_SEED    first-boot seed dir copied to /agent-data at boot
-#   COVE_PLUGIN_RUN_AS  owner of the seed settings file (empty = leave as is)
+#   JAM_PLUGIN_SEED    first-boot seed dir copied to /agent-data at boot
+#   JAM_PLUGIN_RUN_AS  owner of the seed settings file (empty = leave as is)
 set -euo pipefail
 
 baseline="${1:?usage: merge-baseline-settings.sh BASELINE_JSON}"
-SEED="${COVE_PLUGIN_SEED:-/home/agent/.init-agent-data}"
-RUN_AS="${COVE_PLUGIN_RUN_AS-agent}"
+SEED="${JAM_PLUGIN_SEED:-/home/agent/.init-agent-data}"
+RUN_AS="${JAM_PLUGIN_RUN_AS-agent}"
 
 settings="$SEED/settings.json"
 mkdir -p "$SEED"

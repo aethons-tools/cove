@@ -55,7 +55,7 @@ as *publish, then write to the config repo*: after any publish that drifts
 (the kit, or a managed follower it pinned), the result card lists the
 config-repo files to expect — `kits/<name>/<path>` for each file that
 changed, `kits/<follower>/kit.yml` per managed follower pinned, paths and
-change kinds only — and says to run `at-jam config write <repo>` in the
+change kinds only — and says to run `jam config write <repo>` in the
 checkout, check `git diff`, and commit. Every publish's result card shows
 the new version, each follower pinned and any warning.
 

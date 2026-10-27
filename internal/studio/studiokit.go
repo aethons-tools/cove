@@ -38,7 +38,7 @@ type StudioKit struct {
 	Notes []KitNote `yaml:"notes,omitempty" json:"notes,omitempty"`
 	// MCPServers are MCP servers the cove's agent loads alongside its
 	// guaranteed messaging server (COV-240). Build-affecting: they are baked
-	// into the image at /etc/cove/mcp-servers.json (env references only — never
+	// into the image at /etc/jam/mcp-servers.json (env references only — never
 	// secret values; see kit.ValidateMCPServers).
 	MCPServers map[string]kit.MCPServer `yaml:"mcp-servers,omitempty" json:"mcp-servers,omitempty"`
 	// BuildContext is the tree hash of the kit's build context (its tree minus

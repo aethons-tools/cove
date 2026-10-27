@@ -1,6 +1,6 @@
 // Package baseimage holds the pure logic of COV-34's provenance gate: given the
 // OCI rootfs layer diff_ids of a resolved base image and of the blessed
-// cove-base-image(s), decide whether the base descends from a blessed one.
+// jam-studio-base(s), decide whether the base descends from a blessed one.
 //
 // An image built `FROM X` carries X's diff_ids as the exact prefix of its own,
 // so "descends from" is a prefix test — unforgeable, since matching the prefix
@@ -44,7 +44,7 @@ func DescendsFrom(child, parent []string) bool {
 }
 
 // Verify reports whether `child` descends from ANY of the blessed layer sets —
-// the rolling set of blessed cove-base-image publishes, so a base built on an
+// the rolling set of blessed jam-studio-base publishes, so a base built on an
 // earlier-but-still-blessed publish is accepted.
 func Verify(child []string, blessed [][]string) bool {
 	for _, b := range blessed {

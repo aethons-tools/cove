@@ -23,7 +23,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	StudioManager_Connect_FullMethodName = "/cove.manager.v1.StudioManager/Connect"
+	StudioManager_Connect_FullMethodName = "/jam.manager.v1.StudioManager/Connect"
 )
 
 // StudioManagerClient is the client API for StudioManager service.
@@ -104,7 +104,7 @@ type StudioManager_ConnectServer = grpc.BidiStreamingServer[ManagerUp, ManagerDo
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var StudioManager_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "cove.manager.v1.StudioManager",
+	ServiceName: "jam.manager.v1.StudioManager",
 	HandlerType: (*StudioManagerServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{

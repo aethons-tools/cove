@@ -7,17 +7,17 @@
 
 == context (config)
   FILE                                                 BYTES
-  /agent-data/context/CORE.md                          2717
+  /agent-data/context/CORE.md                          2700
   /agent-data/context/INDEX.md                         501
-  /agent-data/context/boilerplate/changing-the-kit.md  828
-  /agent-data/context/boilerplate/hardening-limits.md  1196
+  /agent-data/context/boilerplate/changing-the-kit.md  822
+  /agent-data/context/boilerplate/hardening-limits.md  1193
   /agent-data/context/kit/a.md                         73
   /agent-data/context/kit/b.md                         91
   /agent-data/context/kit/c.md                         73
   /agent-data/context/kit/tools.md                     287
 
   core budget used:
-    boilerplate 1415/2400 B
+    boilerplate 1398/2400 B
     kit 24/800 B
     studio 396/1600 B
     role 64/1200 B
@@ -30,7 +30,7 @@
   Detail lives in /agent-data/context/ — open a file only when its "read when" matches your task. Map: /agent-data/context/INDEX.md
 
   ## Boilerplate
-  You are an ephemeral worker session for role dev in project default, running in a Jam-managed at-cove sandbox.
+  You are an ephemeral worker session for role dev in project default, running in a Jam studio.
   - Sandbox: isolated filesystem; network egress is allow-listed through an in-cove proxy (`http(s)_proxy=http://127.0.0.1:3128`) and nftables drops the rest. A connection or proxy error to a host means it is not allowed — not a transient fault: don't retry or hunt for mirrors. Only /home/agent/workspace and /agent-data (your `CLAUDE_CONFIG_DIR`: settings, history, login) persist; installed packages and env tweaks reset when the cove is rebuilt.
   - Turns: each turn is one `claude -p` run. Background processes you start die when the turn ends — finish work within the turn. Ending your turn is how you wait.
   - Intercom: `send` messages people, `read` fetches your inbox, `commit` marks messages handled. `send` without `to` posts to your own channel: whoever is in it (people who joined it, or were called in with `call_in`) hears you. Pass `to` to reach anyone else (`list_targets` shows who you may message).
@@ -83,8 +83,8 @@
   You cannot rebuild your own cove or widen its access. When you need something the sandbox lacks:
 
   1. Work out the exact change: an egress domain, a tool and version, an env var.
-  2. Message a human (who started you, or a project contact) with the change and why. Name where it goes: the role's studio kit `kit.yml` (`egress:`, `build-args:`, `base:`), or the role's egress policy (`at-jam egress set`), which an operator manages.
-  3. It takes effect after the kit is pushed (`at-jam kit push`) and the cove is re-raised; an egress-policy change applies at the next raise.
+  2. Message a human (who started you, or a project contact) with the change and why. Name where it goes: the role's studio kit `kit.yml` (`egress:`, `build-args:`, `base:`), or the role's egress policy (`jam egress set`), which an operator manages.
+  3. It takes effect after the kit is pushed (`jam kit push`) and the cove is re-raised; an egress-policy change applies at the next raise.
 
   A one-off install or `export` in this session is fine for now but will not survive a rebuild.
 
@@ -99,7 +99,7 @@
 
   Your cove is built kit base → harness → hardening. The hardening layer is applied last, is a security boundary, and always wins; neither you nor the kit can alter what it owns:
 
-  - **Egress**: the proxy and the nftables rules. Your effective allow-list is your role's egress policy (`at-jam egress set`, operator-managed) inside the kit's ceiling; it is applied as root before you start and may be re-applied while you run. You cannot change it from inside.
+  - **Egress**: the proxy and the nftables rules. Your effective allow-list is your role's egress policy (`jam egress set`, operator-managed) inside the kit's ceiling; it is applied as root before you start and may be re-applied while you run. You cannot change it from inside.
   - **sshd, the entrypoint and the git credential helper.**
   - **The managed agent settings** (`/etc/claude-code/managed-settings.json`).
   - **The sealed environment**: `CLAUDE_CONFIG_DIR` (always /agent-data) and the proxy variables.
@@ -187,19 +187,18 @@
 == env (config)
   ANTHROPIC_API_KEY=«identity token»
   ANTHROPIC_BASE_URL={base}/anthropic
-  AT_HARBOR_IDENTITY_TOKEN=«identity token»
-  AT_JAM_IDENTITY_TOKEN=«identity token»
   GH_HOST={host}
   GH_TOKEN=«masked»
+  JAM_IDENTITY_TOKEN=«identity token»
   git: https://api.github.com/ → {base}/gh/
   model-spec: spec1
 
   image env (sha256:01234):
     PATH=/usr/bin
     DB_PASSWORD=«masked»
-    COVE_SSHENV=GOPATH:GOPROXY
+    JAM_SSHENV=GOPATH:GOPROXY
     API_KEY=«masked»
-  transferred into sessions (COVE_SSHENV): GOPATH, GOPROXY
+  transferred into sessions (JAM_SSHENV): GOPATH, GOPROXY
 
 == model (config)
   {
@@ -231,7 +230,7 @@
 == kit (config)
   kit: my-app@v2 digest <hex>
   chain (root first): default@v1 → web-dev@v1 → my-app@v2
-  image tag: cove-kit:<hex>-asm1
+  image tag: jam-kit:<hex>-asm1
   provenance (root first):
     KIT         SOURCE                                                                                      FILES
     default@v1  local file, pushed <time>                                                     tree <hex>, 1 file
@@ -286,7 +285,7 @@
     api     stdio  api-mcp (+2 args)            -
     docs    stdio  docs-mcp                     -
     remote  http   https://mcp.example.com/mcp  Authorization
-  intercom (cove-master mcp, always loaded): alarm_clear, alarm_list, alarm_set, amend, ask, asks, board_apply, board_create, board_read, board_snapshot, boards, call_in, commit, end, escalate, expose, exposures, fetch, idle_timeout, leave, list_targets, mission, read, report, send, unexpose, withdraw
+  intercom (jam-studio-agent mcp, always loaded): alarm_clear, alarm_list, alarm_set, amend, ask, asks, board_apply, board_create, board_read, board_snapshot, boards, call_in, commit, end, escalate, expose, exposures, fetch, idle_timeout, leave, list_targets, mission, read, report, send, unexpose, withdraw
 
 == policy (config)
   allocation: max-ephemeral unset, max-personal 0, max-personal-per-owner pool only

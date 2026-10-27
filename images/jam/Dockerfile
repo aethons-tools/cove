@@ -23,5 +23,5 @@ WORKDIR /var/lib/jam
 VOLUME /var/lib/jam
 EXPOSE 8443 8081
 
-ENTRYPOINT ["at-jam"]
+ENTRYPOINT ["jam"]
 CMD ["serve","--config","/etc/jam/jam.yml"]

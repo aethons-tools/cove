@@ -9,23 +9,23 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 default:
     @just --list
 
-# build for the current host into dist/<os>-<arch>/{at-mint,at-jam,at-studio-manager} (host-sensitive)
+# build for the current host into dist/<os>-<arch>/{jam,jam-studio-manager} (host-sensitive)
 build:
     ./scripts/build.sh
 
-# cross-compile every supported target into dist/<os>-<arch>/{at-mint,at-jam,at-studio-manager}
+# cross-compile every supported target into dist/<os>-<arch>/{jam,jam-studio-manager}
 build-all:
     ./scripts/build.sh all
 
-# Run the at-jam binary, forwarding ARGS (uses the last `just build` output —
+# Run the jam binary, forwarding ARGS (uses the last `just build` output —
 # run `just build` first). e.g. `just jam destination list`  or  `just jam version`
 jam *ARGS:
-    "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" {{ARGS}}
+    "dist/$(go env GOOS)-$(go env GOARCH)/jam" {{ARGS}}
 
 studio-manager *ARGS:
-    "dist/$(go env GOOS)-$(go env GOARCH)/at-studio-manager" {{ARGS}}
+    "dist/$(go env GOOS)-$(go env GOARCH)/jam-studio-manager" {{ARGS}}
 
-# install the host binaries (at-mint, at-jam, at-studio-manager) onto your PATH.
+# install the host binaries (jam, jam-studio-manager) onto your PATH.
 # Default dir: $(go env GOBIN) or $(go env GOPATH)/bin (~/go/bin) — no sudo.
 # Override with BINDIR, e.g. `BINDIR=/usr/local/bin just install` (may need sudo)
 install: build
@@ -35,12 +35,12 @@ install: build
     [ -n "$bin" ] || bin="$(go env GOPATH)/bin"
     plat="$(go env GOOS)-$(go env GOARCH)"
     mkdir -p "$bin"
-    for b in at-mint at-jam at-studio-manager; do
+    for b in jam jam-studio-manager; do
       install -m 0755 "dist/$plat/$b" "$bin/$b"
       echo "installed dist/$plat/$b -> $bin/$b"
     done
-    if command -v at-jam >/dev/null 2>&1; then
-      echo "on PATH: $(command -v at-jam) ($(at-jam version))"
+    if command -v jam >/dev/null 2>&1; then
+      echo "on PATH: $(command -v jam) ($(jam version))"
     else
       echo "warning: $bin is not on your PATH — add it or use BINDIR=/usr/local/bin"
     fi
@@ -70,7 +70,7 @@ buf-gen:
     (cd internal/jam/managers && PATH="$PATH:$(go env GOPATH)/bin" buf generate)
 
 # raise the blessed watermark to a published, breaking base image: resolve <tag>
-# to its cove-base-image @sha256 index digest and rewrite
+# to its jam-studio-base @sha256 index digest and rewrite
 # internal/basedigest/blessed/watermark.txt. Add --pr to branch+commit+open a PR.
 # Needs GITHUB_TOKEN (read:packages). e.g. `just adopt-base 527-0808 --pr`
 adopt-base *ARGS:
@@ -113,27 +113,27 @@ dev-jam-up:
 dev-jam-logs:
     docker compose -f dev/docker-compose.yml logs -f jam
 
-# run an at-jam verb inside the Jam container (loopback-trusted admin), e.g. `just dev-jam destination list`
+# run a jam verb inside the Jam container (loopback-trusted admin), e.g. `just dev-jam destination list`
 dev-jam *ARGS:
-    docker compose -f dev/docker-compose.yml exec jam at-jam {{ARGS}}
+    docker compose -f dev/docker-compose.yml exec jam jam {{ARGS}}
 
-# Run at-jam serve against the local dev config (uses the last `just build`
+# Run jam serve against the local dev config (uses the last `just build`
 # output — run `just build` + `just dev-cert` + `just dev-up` first). macOS binds a
 # wildcard :443 without root; on Linux, sudo the built binary directly for that.
 dev-serve *ARGS:
-    "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" serve --config dev/jam.dev.yml {{ARGS}}
+    "dist/$(go env GOOS)-$(go env GOARCH)/jam" serve --config dev/jam.dev.yml {{ARGS}}
 
 # hermetic unit tests (no docker/network/ssh)
 test:
     go test ./...
 
-# build the Jam app bundle at-jam embeds at /app/user/ (needs Node/npm; see
+# build the Jam app bundle jam embeds at /app/user/ (needs Node/npm; see
 # scripts/app.sh and docs/web-app.md). `just build` runs it when npm is available.
 app:
     ./scripts/app.sh
 
 # the Jam app's dev server (hot reload) proxying the API to a running
-# `at-jam serve` (JAM_URL, default http://localhost:8081); open http://localhost:5173/app/user/
+# `jam serve` (JAM_URL, default http://localhost:8081); open http://localhost:5173/app/user/
 app-dev:
     cd web/app && npm ci --no-audit --no-fund --loglevel=error && npx vite
 
@@ -143,7 +143,7 @@ app-check:
     cd web/app && npm ci --no-audit --no-fund --loglevel=error && npm run check
 
 # headless-Chrome tests of the /app/user UI's JS (needs chrome-headless-shell on PATH or
-# COVE_BROWSER; each test skips without one)
+# JAM_BROWSER; each test skips without one)
 test-browser:
     go test -tags browser ./internal/jam/userui/ -run Browser -v
 
@@ -155,7 +155,7 @@ test-install:
 test-jam-image:
     bash scripts/jam-image.test.sh
 
-# build the Jam container image (cove-jam:dev) from freshly built linux binaries
+# build the Jam container image (jam:dev) from freshly built linux binaries
 jam-image *ARGS:
     scripts/build.sh linux/$(go env GOARCH)
     scripts/jam-image.sh {{ARGS}}
@@ -168,7 +168,7 @@ integration:
 # (skips without sshd), kit git sources end to end (skips without git), + the
 # jam packages' tagged tests
 integration-jam:
-    go test -tags integration ./cmd/at-jam/... ./internal/jam/... ./internal/allocator/...
+    go test -tags integration ./cmd/jam/... ./internal/jam/... ./internal/allocator/...
 
 # Discord live check: a real Discord REST round-trip through internal/discord
 # (DISCORD_IT_TOKEN + DISCORD_IT_CHANNEL); skips if they are unset.

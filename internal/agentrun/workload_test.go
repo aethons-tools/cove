@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/covemaster"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
+	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 // recordHandle records the activities the workload reports. Safe for
@@ -22,22 +22,22 @@ import (
 // count() from the test goroutine.
 type recordHandle struct {
 	mu         sync.Mutex
-	got        []covemaster.Activity
+	got        []studioagent.Activity
 	events     []recordedEvent
 	connectors []string
-	gates      []covemaster.GateResult
+	gates      []studioagent.GateResult
 }
 
-func (h *recordHandle) GateResult(g covemaster.GateResult) {
+func (h *recordHandle) GateResult(g studioagent.GateResult) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.gates = append(h.gates, g)
 }
 
-func (h *recordHandle) gateResults() []covemaster.GateResult {
+func (h *recordHandle) gateResults() []studioagent.GateResult {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return append([]covemaster.GateResult(nil), h.gates...)
+	return append([]studioagent.GateResult(nil), h.gates...)
 }
 
 func (h *recordHandle) ConnectorApplied(fp string) {
@@ -64,14 +64,14 @@ func (h *recordHandle) eventList() []recordedEvent {
 	return append([]recordedEvent(nil), h.events...)
 }
 
-func (h *recordHandle) Report(a covemaster.Activity) {
+func (h *recordHandle) Report(a studioagent.Activity) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.got = append(h.got, a)
 }
 
 // count returns how many times Activity a has been reported so far.
-func (h *recordHandle) count(a covemaster.Activity) int {
+func (h *recordHandle) count(a studioagent.Activity) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	n := 0
@@ -166,10 +166,10 @@ func TestRunTeardownCancel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return after cancel")
 	}
-	if len(h.got) != 1 || h.got[0] != covemaster.Running {
+	if len(h.got) != 1 || h.got[0] != studioagent.Running {
 		t.Fatalf("activities: want [Running] (no Waiting from the ok file), got %v", h.got)
 	}
-	w.Control(covemaster.Control{Kind: covemaster.Teardown}) // must not panic
+	w.Control(studioagent.Control{Kind: studioagent.Teardown}) // must not panic
 }
 
 func TestRunSpawnArgs(t *testing.T) {
@@ -224,7 +224,7 @@ func TestNewDefaultsMCPConfigPath(t *testing.T) {
 		t.Fatalf("default Harness = %#v; want Claude{}", w.cfg.Harness)
 	}
 	_, args, _ := w.cfg.Harness.Command(Episode{})
-	if !slices.Contains(args, "/dev/shm/cove-agent-mcp.json") {
+	if !slices.Contains(args, "/dev/shm/jam-agent-mcp.json") {
 		t.Fatalf("default harness argv lacks the generated MCP config: %q", args)
 	}
 }
@@ -245,14 +245,14 @@ func TestRunFailsLoudOnMissingMCPConfig(t *testing.T) {
 	if f.bin != "" {
 		t.Fatalf("Run must NOT spawn the agent when the MCP config is missing; spawned %q", f.bin)
 	}
-	if h.count(covemaster.Running) != 0 {
+	if h.count(studioagent.Running) != 0 {
 		t.Fatalf("Run must not report Running when the MCP config is missing; got %v", h.got)
 	}
 }
 
 func TestControlWakeNoop(t *testing.T) {
 	w := New(Config{WorkDir: t.TempDir(), Prompt: "x", Spawner: &fakeSpawner{}}, nil)
-	w.Control(covemaster.Control{Kind: covemaster.Wake}) // must not panic
+	w.Control(studioagent.Control{Kind: studioagent.Wake}) // must not panic
 }
 
 // scriptedCall records one Spawn call's arguments and its stdin.
@@ -324,8 +324,8 @@ func TestRunResumesOnWake(t *testing.T) {
 	h := &recordHandle{}
 	done := make(chan error, 1)
 	go func() { done <- runEpisodes(w, h, 2) }()
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 }) // first turn reported Waiting
-	w.Control(covemaster.Control{Kind: covemaster.Wake})
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 }) // first turn reported Waiting
+	w.Control(studioagent.Control{Kind: studioagent.Wake})
 	select {
 	case err := <-done:
 		if err != nil {
@@ -357,7 +357,7 @@ func TestRunCtxCancelWhileWaiting(t *testing.T) {
 	h := &recordHandle{}
 	done := make(chan error, 1)
 	go func() { done <- w.Run(ctx, h) }()
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 })
 	cancel()
 	select {
 	case err := <-done:
@@ -380,16 +380,16 @@ func residentWL(t *testing.T, dir string, f *scriptedSpawner, maxWait time.Durat
 // n times: every episode ends in Waiting, so this is how a test ends a run
 // after n episodes.
 type stopHandle struct {
-	covemaster.Handle
+	studioagent.Handle
 	n      int
 	cancel context.CancelFunc
 	mu     sync.Mutex
 	seen   int
 }
 
-func (s *stopHandle) Report(a covemaster.Activity) {
+func (s *stopHandle) Report(a studioagent.Activity) {
 	s.Handle.Report(a)
-	if a != covemaster.Waiting {
+	if a != studioagent.Waiting {
 		return
 	}
 	s.mu.Lock()
@@ -402,12 +402,12 @@ func (s *stopHandle) Report(a covemaster.Activity) {
 
 // runEpisodes runs w for n episodes and returns Run's error (nil for the
 // cancel that ends it).
-func runEpisodes(w *Workload, h covemaster.Handle, n int) error {
+func runEpisodes(w *Workload, h studioagent.Handle, n int) error {
 	return <-runAsyncEpisodes(w, h, n)
 }
 
 // runAsyncEpisodes is runEpisodes in the background.
-func runAsyncEpisodes(w *Workload, h covemaster.Handle, n int) chan error {
+func runAsyncEpisodes(w *Workload, h studioagent.Handle, n int) chan error {
 	ctx, cancel := context.WithCancel(context.Background())
 	out := make(chan error, 1)
 	go func() {
@@ -421,7 +421,7 @@ func runAsyncEpisodes(w *Workload, h covemaster.Handle, n int) chan error {
 	return out
 }
 
-func runAsync(ctx context.Context, w *Workload, h covemaster.Handle) chan error {
+func runAsync(ctx context.Context, w *Workload, h studioagent.Handle) chan error {
 	done := make(chan error, 1)
 	go func() { done <- w.Run(ctx, h) }()
 	return done
@@ -449,7 +449,7 @@ func TestResidentWaitsAfterEveryOutcome(t *testing.T) {
 			w := New(Config{WorkDir: dir, Prompt: "p", Resident: true, Harness: testClaude(t, dir), Spawner: f}, nil)
 			h := &recordHandle{}
 			done := runAsync(ctx, w, h)
-			waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
+			waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 })
 			assertBlocked(t, done, 150*time.Millisecond)
 			cancel()
 			select {
@@ -475,10 +475,10 @@ func TestResidentResumesOnWake(t *testing.T) {
 	h := &recordHandle{}
 	done := runAsync(ctx, w, h)
 	for i := 1; i <= 2; i++ {
-		waitFor(t, func() bool { return h.count(covemaster.Waiting) == i })
-		w.Control(covemaster.Control{Kind: covemaster.Wake})
+		waitFor(t, func() bool { return h.count(studioagent.Waiting) == i })
+		w.Control(studioagent.Control{Kind: studioagent.Wake})
 	}
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 3 })
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 3 })
 	cancel()
 	<-done
 	f.mu.Lock()
@@ -509,8 +509,8 @@ func TestRunForwardsStdoutLinesWithTurns(t *testing.T) {
 	w := New(Config{WorkDir: dir, Prompt: "p", Harness: testClaude(t, dir), Spawner: f}, nil)
 	h := &recordHandle{}
 	done := runAsyncEpisodes(w, h, 2)
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
-	w.Control(covemaster.Control{Kind: covemaster.Wake})
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 })
+	w.Control(studioagent.Control{Kind: studioagent.Wake})
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
@@ -627,8 +627,8 @@ func TestRunRefreshesConnectorAcrossTurns(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runEpisodes(w, h, 3) }()
 	for n := 1; n <= 2; n++ {
-		waitFor(t, func() bool { return h.count(covemaster.Waiting) == n })
-		w.Control(covemaster.Control{Kind: covemaster.Wake})
+		waitFor(t, func() bool { return h.count(studioagent.Waiting) == n })
+		w.Control(studioagent.Control{Kind: studioagent.Wake})
 	}
 	select {
 	case err := <-done:
@@ -736,9 +736,9 @@ func TestRunRefreshesContextPerEpisode(t *testing.T) {
 		ContextSource: &seqContext{bundles: []sessionctx.Bundle{one, two}}}, nil)
 	h := &recordHandle{}
 	done := runAsync(ctx, w, h)
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 1 })
-	w.Control(covemaster.Control{Kind: covemaster.Wake})
-	waitFor(t, func() bool { return h.count(covemaster.Waiting) == 2 })
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 })
+	w.Control(studioagent.Control{Kind: studioagent.Wake})
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 2 })
 	cancel()
 	<-done
 	f.mu.Lock()
@@ -770,7 +770,7 @@ func TestRunWakeIntoLiveEpisodeCarriesNotice(t *testing.T) {
 	p.in.next(t)
 	p.emit(lnInit)
 	for i := 0; i < 3; i++ {
-		w.Control(covemaster.Control{Kind: covemaster.Wake})
+		w.Control(studioagent.Control{Kind: studioagent.Wake})
 		time.Sleep(5 * time.Millisecond)
 	}
 	p.in.noMessage(t, 50*time.Millisecond)
@@ -797,7 +797,7 @@ func TestResumeTextPerKind(t *testing.T) {
 	}
 }
 
-// The first episode refreshes too (a cove-master restart, or edits made while
+// The first episode refreshes too (a jam-studio-agent restart, or edits made while
 // the kit built), silently: its prompt carries no notice.
 func TestRunRefreshesFirstEpisodeSilently(t *testing.T) {
 	dir := t.TempDir()
@@ -857,7 +857,7 @@ func TestRunCrashedTurnWaits(t *testing.T) {
 	p := s.next(t)
 	p.in.next(t)
 	p.exit <- errors.New("exit status 1")
-	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
+	if !eventually(func() bool { return h.count(studioagent.Waiting) == 1 }) {
 		t.Fatalf("crashed turn did not report Waiting")
 	}
 	select {
@@ -865,7 +865,7 @@ func TestRunCrashedTurnWaits(t *testing.T) {
 		t.Fatalf("Run returned %v; want it to wait", err)
 	case <-time.After(50 * time.Millisecond):
 	}
-	w.Control(covemaster.Control{Kind: covemaster.Wake, Reasons: []covemaster.WakeReason{{Kind: "squawk"}}})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
 	p2 := s.next(t)
 	if !hasArg(p2.args, "--continue") || p2.in.next(t) != resumePrompt {
 		t.Fatalf("resume: args=%v", p2.args)
@@ -890,7 +890,7 @@ func TestRunNeverReadsWorkerResult(t *testing.T) {
 	p.emit(lnInit, lnResult)
 	p.in.waitClosed(t)
 	p.exit <- nil
-	if !eventually(func() bool { return h.count(covemaster.Waiting) == 1 }) {
+	if !eventually(func() bool { return h.count(studioagent.Waiting) == 1 }) {
 		t.Fatal("did not wait")
 	}
 	select {

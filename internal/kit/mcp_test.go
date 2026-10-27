@@ -65,3 +65,11 @@ func TestValidateMCPServersNeverEchoesHeaderValue(t *testing.T) {
 		t.Fatalf("want an error that does not echo the value, got %v", err)
 	}
 }
+
+// The baked mcp-servers file lives under Jam's /etc/jam, beside the other
+// build-time studio files; the harness reads it through this one constant.
+func TestMCPServersImagePathIsUnderEtcJam(t *testing.T) {
+	if MCPServersImagePath != "/etc/jam/mcp-servers.json" {
+		t.Fatalf("MCPServersImagePath = %q", MCPServersImagePath)
+	}
+}

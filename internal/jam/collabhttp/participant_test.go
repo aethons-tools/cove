@@ -106,7 +106,7 @@ func TestParticipantBearerOnRoutes(t *testing.T) {
 		bodyHint string
 	}{
 		"bound member": {"Bearer dave", http.StatusOK, false, "certificate"},
-		"bad token":    {"Bearer forged", http.StatusUnauthorized, true, "at-jam login --participant"},
+		"bad token":    {"Bearer forged", http.StatusUnauthorized, true, "jam login --participant"},
 		"unbound":      {"Bearer stranger", http.StatusForbidden, false, "not linked"},
 		"no header":    {"", http.StatusUnauthorized, false, "sign in"},
 	} {
