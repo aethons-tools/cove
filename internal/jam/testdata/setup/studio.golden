@@ -12,7 +12,7 @@
   FILE                                                 BYTES
   /agent-data/context/CORE.md                          2700
   /agent-data/context/INDEX.md                         501
-  /agent-data/context/boilerplate/changing-the-kit.md  822
+  /agent-data/context/boilerplate/changing-the-kit.md  867
   /agent-data/context/boilerplate/hardening-limits.md  1193
   /agent-data/context/kit/a.md                         73
   /agent-data/context/kit/b.md                         91
@@ -87,7 +87,7 @@
 
   1. Work out the exact change: an egress domain, a tool and version, an env var.
   2. Message a human (who started you, or a project contact) with the change and why. Name where it goes: the role's studio kit `kit.yml` (`egress:`, `build-args:`, `base:`), or the role's egress policy (`jam egress set`), which an operator manages.
-  3. It takes effect after the kit is pushed (`jam kit push`) and the cove is re-raised; an egress-policy change applies at the next raise.
+  3. It takes effect after the kit's draft is published (`jam kit draft publish <kit>`, or `jam kit push`) and the cove is re-raised; an egress-policy change applies at the next raise.
 
   A one-off install or `export` in this session is fine for now but will not survive a rebuild.
 

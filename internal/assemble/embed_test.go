@@ -529,7 +529,7 @@ func TestBaseImageSeedsAgentDocs(t *testing.T) {
 		}
 	}
 	for _, f := range []string{
-		"reference/sandbox-kit-changes.md", "reference/sandbox-hardening-limits.md", "reference/progressive-disclosure.md",
+		"reference/progressive-disclosure.md",
 		"skills/board-execute/SKILL.md", "skills/docs-audit/SKILL.md", "skills/docs-navigate/SKILL.md",
 	} {
 		if _, err := os.Stat(baseInitAgentData(f)); err != nil {
@@ -662,14 +662,14 @@ func TestSandboxMDIsPlainWithJamGuard(t *testing.T) {
 	if len(head) > 300 {
 		t.Errorf("the guard is the only Jam-side cost; keep it short (%d bytes)", len(head))
 	}
-	for _, want := range []string{"." + sandboxKitCLI + "/config.yml", sandboxKitCLI + " recreate", "http://127.0.0.1:3128", "/agent-data/reference/sandbox-kit-changes.md", "/agent-data/reference/sandbox-hardening-limits.md"} {
+	for _, want := range []string{"jam kit draft", "jam egress set", "http://127.0.0.1:3128"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("SANDBOX.md missing %q:\n%s", want, s)
 		}
 	}
-	for _, gone := range []string{"Jam", "/agent-data/context"} {
+	for _, gone := range []string{"/agent-data/reference/sandbox-kit-changes.md", "/agent-data/reference/sandbox-hardening-limits.md", "recreate"} {
 		if strings.Contains(body, gone) {
-			t.Errorf("only the guard may mention Jam (%q):\n%s", gone, body)
+			t.Errorf("SANDBOX.md must not point at a deleted doc or the removed CLI (%q):\n%s", gone, body)
 		}
 	}
 }

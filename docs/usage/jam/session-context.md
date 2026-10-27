@@ -4,7 +4,7 @@ read_when: You are writing a kit prompt, debugging what a session was told (or w
 owns: session-context layers, delivery order and precedence, the SANDBOX.md vs context precedence, core budgets, the /agent-data/context layout, the JAM_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
 prereqs: coves.md
 tier: leaf
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # Session context
@@ -56,9 +56,9 @@ its leaves. **Leaves** and `INDEX.md` hold the detail. An empty layer emits noth
 
 ### The sandbox rules: context over `SANDBOX.md`
 
-Outside a Jam session an agent learns the sandbox rules from the image's
-`SANDBOX.md`, which the seeded `CLAUDE.md` imports.
-In a Jam session the Boilerplate layer owns them (with the Jam path for changing the
+A session without a bundle (no `CORE.md`) learns the minimum rules from the
+image's fallback `SANDBOX.md`, which the seeded `CLAUDE.md` imports.
+With a bundle the Boilerplate layer owns them (with the Jam path for changing the
 kit), and they take precedence: the base image's `SANDBOX.md` opens with a two-line
 guard — if `/agent-data/context/CORE.md` exists this is a Jam session, its context
 governs, ignore the rest of the file. Nothing rewrites the file (it is the kit's,

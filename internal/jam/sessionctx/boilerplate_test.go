@@ -41,7 +41,7 @@ func TestBoilerplatePerKind(t *testing.T) {
 				t.Errorf("%s: missing common %q", c.f.Kind, common)
 			}
 		}
-		if len(l.Leaves) != 2 || l.Leaves[0].Name != "changing-the-kit.md" || !strings.Contains(l.Leaves[0].Body, "jam kit push") ||
+		if len(l.Leaves) != 2 || l.Leaves[0].Name != "changing-the-kit.md" || !strings.Contains(l.Leaves[0].Body, "jam kit draft publish") ||
 			l.Leaves[1].Name != "hardening-limits.md" {
 			t.Errorf("%s: want the changing-the-kit and hardening-limits leaves, got %+v", c.f.Kind, l.Leaves)
 		}
