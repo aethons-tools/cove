@@ -629,7 +629,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			if r.HasKit {
 				kit = r.Kit.ID
 			}
-			fmt.Fprintf(stdout, "%s\t%s\t%s\n", r.Manager, kit, firstNonEmpty(r.Tag, "-"))
+			fmt.Fprintf(stdout, "%s\t%s\t%s\n", firstNonEmpty(r.Manager, jam.LocalManager), kit, firstNonEmpty(r.Tag, "-")) // "" = no router: local
 		}
 	default:
 		fmt.Fprintln(stderr, "at-jam role: unknown subcommand", sub)

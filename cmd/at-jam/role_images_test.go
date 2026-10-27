@@ -50,3 +50,27 @@ func TestRoleImagesCLI(t *testing.T) {
 		t.Fatalf("output:\n%s", out.String())
 	}
 }
+
+// Without a router the one row's manager is "": it prints as local, never as
+// a leading tab.
+func TestRoleImagesCLINoRouterPrintsLocal(t *testing.T) {
+	st := jam.NewMemStore()
+	if _, err := jam.EnsureStudioKit(st, "web", studio.StudioKit{Kind: studio.Kind}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutRole(jam.DefaultProject, jam.Role{Name: "dev", Kit: "web", Scope: jam.Scope{TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	sup := jam.NewSupervisor(st, placeholderLauncher{}, "h", time.Minute, 30*time.Second, nil, log)
+	ts := httptest.NewServer(jam.NewAdminHandler(st, sup, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil))
+	defer ts.Close()
+	var out, errb bytes.Buffer
+	if code := run([]string{"role", "images", "default/dev", "--admin-url", ts.URL}, func(string) string { return "" }, &out, &errb); code != 0 {
+		t.Fatalf("role images = %d: %s", code, errb.String())
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "local\tweb\t") {
+		t.Fatalf("output:\n%q", out.String())
+	}
+}
