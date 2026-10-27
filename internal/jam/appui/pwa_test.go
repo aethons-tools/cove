@@ -98,7 +98,9 @@ func TestServiceWorker(t *testing.T) {
 		"getNotifications", "new messages", " · latest: ", "clients.openWindow", "matchAll",
 		// Robustness: any payload shape, any failure still shows something;
 		// a click only reuses an /app/user/ window.
-		"jamPayload(", "jamFallback(", "'New message'", "catch (_)", "jamPickClient(", "'/app/user/'"} {
+		"jamPayload(", "jamFallback(", "'New message'", "catch (_)", "jamPickClient(", "'/app/user/'",
+		// A click opens the Jam app when an app window is open.
+		"'/app/next/'", "jamArea("} {
 		if !strings.Contains(body, want) {
 			t.Errorf("sw.js missing %q", want)
 		}
@@ -170,5 +172,19 @@ func TestHeadTemplate(t *testing.T) {
 	// No shell: the brand defaults to Jam.
 	if h := HeadFor(httptest.NewRequest("GET", "/app/", nil)); h.Title != "Jam" {
 		t.Errorf("default title = %q", h.Title)
+	}
+}
+
+// The app-meta partial is the head without the inline registration (the
+// Jam app's CSP forbids inline script; it registers the worker itself).
+func TestHeadMeta(t *testing.T) {
+	got := string(HeadMeta(httptest.NewRequest("GET", "/app/next/", nil)))
+	for _, want := range []string{`rel="manifest" href="/app/manifest.webmanifest"`, `name="theme-color"`, `rel="icon"`, `rel="apple-touch-icon"`, "apple-mobile-web-app-capable"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("app-meta missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "<script") {
+		t.Errorf("app-meta has a script:\n%s", got)
 	}
 }

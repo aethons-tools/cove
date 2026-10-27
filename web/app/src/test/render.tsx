@@ -10,7 +10,7 @@ import { routes } from "../App";
 export const boot: Bootstrap = {
   brand: "Acme Jam", user: { id: "usr_1", name: "alice", initial: "A" }, roles: "member", admin: false, signOut: true,
   tabs: [{ key: "inbox", label: "Inbox", href: "/app/next/", badge: 0, badgeRed: false, badgeTitle: "" }],
-  attachMax: 0, pushKey: "", boards: false,
+  attachMax: 0, pushKey: "", boards: false, pushFocus: false,
 };
 
 export function renderApp(b: Bootstrap, path = "/app/next/", client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {

@@ -12,6 +12,7 @@ import { useBoot } from "../BootContext";
 import { Composer, type ComposerHandle } from "../composer/Composer";
 import { OpenAsks } from "../asks/OpenAsks";
 import { SessionView } from "../session/SessionView";
+import { useFocusReport } from "../push/useFocusReport";
 
 // ConversationView is one open conversation: header, messages, presence. It
 // marks the conversation read up to its newest message while the page is
@@ -27,6 +28,8 @@ export function ConversationView({ id }: { id: string }) {
   const head = q.data?.pages[0];
   const lastSeq = head?.lastSeq ?? 0;
   const canRead = !!head?.sendTo;
+  // With Web Push, the conversation you are reading isn't pushed to you.
+  useFocusReport(canRead ? id : null, boot.pushFocus);
 
   useEffect(() => {
     if (!canRead || lastSeq <= 0) return;

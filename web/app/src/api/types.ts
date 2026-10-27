@@ -24,6 +24,7 @@ export interface Bootstrap {
   tabs: NavTab[]; // the title bar's links
   attachMax: number /* int64 */; // per-file cap; 0 = attachments off
   pushKey: string; // VAPID public key; "" = Web Push off
+  pushFocus: boolean; // report the open conversation (POST /app/user/push/focus)
   boards: boolean; // whiteboards on (the app bundles its editor)
 }
 /**

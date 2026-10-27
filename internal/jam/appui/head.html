@@ -1,4 +1,4 @@
-{{define "app-head"}}
+{{define "app-meta"}}
 <link rel="manifest" href="/app/manifest.webmanifest">
 <meta name="application-name" content="{{.Title}}">
 <meta name="theme-color" content="#2F67B2" media="(prefers-color-scheme: light)">
@@ -8,5 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Jam">
+{{end}}
+{{define "app-head"}}{{template "app-meta" .}}
 <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('/app/sw.js',{scope:'/app/'}).catch(function(){});}</script>
 {{end}}

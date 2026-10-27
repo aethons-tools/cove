@@ -1,4 +1,5 @@
 import { StrictMode } from "react";
+import { registerSW } from "./push/sw";
 import { createRoot } from "react-dom/client";
 import { MantineProvider } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
@@ -15,6 +16,7 @@ import { initSounds } from "./sounds/sounds";
 export async function start(el: HTMLElement): Promise<void> {
   const root = createRoot(el);
   initSounds();
+  registerSW();
   let boot;
   try {
     boot = await loadBootstrap();

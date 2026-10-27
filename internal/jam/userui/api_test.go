@@ -6,11 +6,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
+	"github.com/aethons-tools/cove/internal/jam/push"
 )
 
 func apiGet(t *testing.T, h http.Handler, p *jam.Participant, path string) *httptest.ResponseRecorder {
@@ -151,6 +153,13 @@ func TestAPIBootstrap(t *testing.T) {
 	if len(b.Tabs) != 1 || b.Tabs[0].Key != "inbox" || b.Tabs[0].Href != "/app/next/" {
 		t.Errorf("tabs = %+v, want the Inbox pointing at /app/next/", b.Tabs)
 	}
+	if b.PushFocus {
+		t.Error("pushFocus without WithPushFocus")
+	}
+	rec = apiGet(t, Handler(e.Deps, nil, WithPush("k"), WithPushFocus(push.NewFocus(time.Now))), &p, "/app/user/api/bootstrap")
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil || !b.PushFocus {
+		t.Errorf("with push focus: bootstrap = %+v (%v)", b, err)
+	}
 	// Whiteboards on: the app bundles its own editor, so the old bundle
 	// (uiassets.WhiteboardBuilt) doesn't gate it.
 	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
@@ -171,6 +180,10 @@ func TestNextServesTheAppWithBootstrap(t *testing.T) {
 	case 200:
 		if !strings.Contains(rec.Body.String(), `"name":"alice"`) {
 			t.Errorf("index lacks alice's bootstrap: %s", rec.Body)
+		}
+		// The app head (manifest, icons), never the inline registration.
+		if !strings.Contains(rec.Body.String(), `rel="manifest"`) || strings.Contains(rec.Body.String(), "serviceWorker.register") {
+			t.Errorf("index head: %s", rec.Body)
 		}
 	default:
 		t.Errorf("GET /app/next/c/… = %d", rec.Code)

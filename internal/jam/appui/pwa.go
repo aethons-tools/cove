@@ -3,14 +3,17 @@ package appui
 import (
 	_ "embed"
 	"encoding/json"
+	"html/template"
 	"net/http"
+	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
 
 // HeadTemplate defines {{define "app-head"}} over a Head: the manifest link,
 // theme colours, icons and the service-worker registration. The admin and
-// user UIs parse it into their page templates, inside <head>.
+// user UIs parse it into their page templates, inside <head>. Its
+// {{define "app-meta"}} is the same without the registration (HeadMeta).
 //
 //go:embed head.html
 var HeadTemplate string
@@ -35,6 +38,20 @@ func HeadFor(r *http.Request) Head {
 		Favicon:    uiassets.IconHref(staticPrefix, "favicon-32.png"),
 		AppleTouch: uiassets.IconHref(staticPrefix, "apple-touch-icon.png"),
 	}
+}
+
+// headMeta is HeadTemplate, parsed for HeadMeta.
+var headMeta = template.Must(template.New("").Parse(HeadTemplate))
+
+// HeadMeta is the app head without the service-worker registration, for the
+// Jam app's page: its CSP forbids inline script, so it registers the worker
+// from its bundle.
+func HeadMeta(r *http.Request) template.HTML {
+	var b strings.Builder
+	if err := headMeta.ExecuteTemplate(&b, "app-meta", HeadFor(r)); err != nil {
+		return ""
+	}
+	return template.HTML(b.String()) // the partial's own escaping (html/template)
 }
 
 func brandOr(b string) string {

@@ -38,7 +38,7 @@ func (h *handler) apiRoutes(mux *http.ServeMux) {
 func Next(d Deps, lg *slog.Logger, frameSrc []string, opts ...Option) http.Handler {
 	h := newHandler(d, lg, opts...)
 	return webapp.Handler(webapp.Config{
-		Prefix: "/app/next/", FS: uiassets.AppFS(), FrameSrc: frameSrc, Name: "the Jam app",
+		Prefix: "/app/next/", FS: uiassets.AppFS(), FrameSrc: frameSrc, Name: "the Jam app", Head: appui.HeadMeta,
 		Bootstrap: func(r *http.Request) (any, error) {
 			b, ok := h.bootstrap(r)
 			if !ok {
@@ -61,6 +61,7 @@ func (h *handler) bootstrap(r *http.Request) (Bootstrap, bool) {
 		AttachMax: h.d.Attachments.MaxBytes(),
 		PushKey:   h.pushKey,
 		Boards:    h.d.Boards != nil, // the app bundles its own editor
+		PushFocus: h.focusOn(),
 	}
 	if pr, ok := appui.PrincipalFrom(r); ok {
 		b.Admin = pr.Admin
