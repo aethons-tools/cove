@@ -144,22 +144,27 @@ func sha256Hex(s string) string {
 }
 
 // kitMigrateConditions opens kit.migrate:<name> for each kit whose current
-// version is broken and clears every other open one. Its texts are fixed:
+// version is broken, or still on a pre-rename name (legacyKitCondition: the
+// jam rename's kit migration could not rewrite it), and clears every other
+// open one. Its texts are fixed:
 // the kit's name and version, and the reason the migration recorded. The
 // migration, the import and every RunConfigDriftCheck round call it.
 func kitMigrateConditions(store Store, t *condition.Tracker) {
 	open := map[string]bool{}
 	for _, k := range store.ListKits() {
-		reason, broken := k.Broken[k.Current]
-		if !broken {
+		key := condition.Key(KitMigrateKind, k.Name)
+		if reason, broken := k.Broken[k.Current]; broken {
+			open[key] = true
+			t.Raise(condition.Condition{Key: key, Severity: condition.Warning,
+				Summary: fmt.Sprintf("kit %s v%d could not be migrated to a tree", k.Name, k.Current),
+				Detail:  reason,
+				Fix:     "push the kit as a directory (a Dockerfile next to kit.yml), or pin a version that migrated (jam kit pin)"})
 			continue
 		}
-		key := condition.Key(KitMigrateKind, k.Name)
-		open[key] = true
-		t.Raise(condition.Condition{Key: key, Severity: condition.Warning,
-			Summary: fmt.Sprintf("kit %s v%d could not be migrated to a tree", k.Name, k.Current),
-			Detail:  reason,
-			Fix:     "push the kit as a directory (a Dockerfile next to kit.yml), or pin a version that migrated (jam kit pin)"})
+		if c, ok := legacyKitCondition(store, k); ok {
+			open[key] = true
+			t.Raise(c)
+		}
 	}
 	for _, key := range t.OpenKeys(KitMigrateKind) {
 		if !open[key] {

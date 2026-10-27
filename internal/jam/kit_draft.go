@@ -111,6 +111,11 @@ func draftProblems(store Store, name string, tree kittree.Tree) (studio.StudioKi
 	if err == nil {
 		_, err = validateKit(store, name, sk)
 	}
+	if err == nil {
+		if old, path, found := legacyKitName(store.KitBlob, tree); found {
+			err = legacyKitNameErr(name, path, old) // drafts are not migrated: publishing one refuses as a push does
+		}
+	}
 	if err != nil {
 		return studio.StudioKit{}, []string{err.Error()}
 	}

@@ -15,6 +15,8 @@ import (
 const (
 	// ContainerPrefix starts a pre-rename studio container's name: atcove-cove-<id>.
 	ContainerPrefix = "atcove-cove-"
+	// Label is the docker label on every pre-rename studio container.
+	Label = "harbor.cove"
 	// StateLabel is a pre-rename state volume's owner label (value: actor id).
 	StateLabel = "harbor.cove.state"
 	// JamLabel is a pre-rename state volume's Jam label (value: the Jam id).

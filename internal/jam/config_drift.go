@@ -126,6 +126,7 @@ func RunConfigDriftCheck(ctx context.Context, store Store, t *condition.Tracker,
 	defer tick.Stop()
 	for {
 		kitMigrateConditions(store, t)
+		ReservedDestinationEnvConditions(store, t)
 		CheckConfigDrift(store, t, log)
 		select {
 		case <-ctx.Done():

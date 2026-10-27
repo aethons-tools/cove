@@ -156,9 +156,15 @@ func (f *fakeOps) RemoveVolumes(names ...string) error {
 	f.volsRemoved = append(f.volsRemoved, names...)
 	return f.volsErr
 }
-func (f *fakeOps) Pause(name string) error                           { f.paused = name; return nil }
-func (f *fakeOps) Unpause(name string) error                         { f.unpaused = name; return nil }
-func (f *fakeOps) GetStatus(container string) (backend.State, error) { return f.status, f.statusErr }
+
+// The jam-rename migration's ops: volFake (rename_migrate_test.go) is the
+// stateful fake for them; here they find and copy nothing.
+func (f *fakeOps) VolumeExists(name string) (bool, error)                  { return false, nil }
+func (f *fakeOps) CopyVolume(image, from, to string) error                 { return nil }
+func (f *fakeOps) ListContainers(filter string) (map[string]string, error) { return nil, nil }
+func (f *fakeOps) Pause(name string) error                                 { f.paused = name; return nil }
+func (f *fakeOps) Unpause(name string) error                               { f.unpaused = name; return nil }
+func (f *fakeOps) GetStatus(container string) (backend.State, error)       { return f.status, f.statusErr }
 
 // failingRunner is a Runner whose Run/RunStdin always error, for exercising the
 // Raise cleanup-on-launch-failure path (there is no built-in runner.Failing()).

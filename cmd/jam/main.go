@@ -1822,6 +1822,7 @@ type builtLauncher struct {
 	images         jam.ImageFactsReader // nil with the placeholder launcher: image parts unavailable
 	defaultKit     jam.KitRef
 	haveDefaultKit bool
+	local          *launcher.Launcher // the colima launcher (nil without one): the studio-name migration's
 }
 
 // buildLauncher builds the studio launcher from runtime.launcher. With no
@@ -1863,6 +1864,7 @@ func buildLauncher(cfg serveConfig, st jam.Store, sshUserCA []byte, log *slog.Lo
 		Log:          log,
 		SSHUserCA:    sshUserCA,
 	})
+	out.local = colimaLauncher
 	router := fleet.New(log)
 	router.Add(fleet.Local(colimaLauncher))
 	out.launcher = router
@@ -2113,6 +2115,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	} else if len(mig.Broken) > 0 {
 		log.Warn("kit versions kept broken (their packed context could not be read)", "versions", mig.Broken)
 	}
+	// The jam rename's kit migration (docs/usage/jam/renamed-from-at.md):
+	// kits still on pre-rename build-arg/ENV names or base repository get a
+	// migration version. A store write error fails closed, like
+	// MigrateKitTrees. Destinations whose stored env uses the now-reserved
+	// JAM_ prefix get a destination.env condition (the key is dropped).
+	if mig, err := jam.MigrateKitRename(st, conds, log); err != nil {
+		fmt.Fprintln(stderr, "jam:", err)
+		return 1
+	} else if len(mig.Kept) > 0 {
+		log.Warn("kits kept on pre-rename names (kit.migrate conditions open)", "kits", mig.Kept)
+	}
+	jam.ReservedDestinationEnvConditions(st, conds)
 	if gc, err := st.GCKitObjects(); err != nil {
 		log.Warn("kit object collection failed (retried next start)", "reason", err.Error())
 	} else if gc.Trees+gc.Blobs > 0 {
@@ -2211,6 +2225,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
+	}
+	// The jam rename's studio migration (docs/usage/jam/renamed-from-at.md):
+	// retire pre-rename containers and move standing sessions' state volumes
+	// before anything raises, pushes egress or installs the SSH CA (the
+	// supervisor is not built yet). Fails closed.
+	if built.local != nil {
+		if _, err := jam.MigrateStudioNames(context.Background(), st, built.local, log); err != nil {
+			fmt.Fprintln(stderr, "jam:", err)
+			return 1
+		}
 	}
 	lch, images := built.launcher, built.images
 	defaultRef, haveDefaultKit := built.defaultKit, built.haveDefaultKit

@@ -14,7 +14,9 @@ import (
 // kitTreeOf reads files as kit name's version, the way every push does: the
 // root .dockerignore applied (ignored files are never stored), then the one
 // ingest pipeline, studio.ParseFiles (the tree limits, no packed-context
-// field, kit.yml parsed with its note files read from the tree). A refusal of
+// field, kit.yml parsed with its note files read from the tree). A kit.yml
+// or Dockerfile still naming a pre-rename name is refused, naming the new
+// one (legacyKitFilesErr; the jam rename). A refusal of
 // the files as a tree is located at the kit ("kit <name>: …"); kit.yml's own
 // errors are returned as they are. Errors are the operator's input (callers
 // map them to 400).
@@ -22,6 +24,9 @@ func kitTreeOf(name string, files []kittree.File) (kittree.Tree, KitObjects, stu
 	files, err := kittree.Ignore(files)
 	if err != nil {
 		return kittree.Tree{}, KitObjects{}, studio.StudioKit{}, fmt.Errorf("kit %s: %w", name, err)
+	}
+	if err := legacyKitFilesErr(name, files); err != nil {
+		return kittree.Tree{}, KitObjects{}, studio.StudioKit{}, err
 	}
 	tree, blobs, sk, err := studio.ParseFiles(files)
 	if err != nil {

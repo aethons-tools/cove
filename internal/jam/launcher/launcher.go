@@ -88,11 +88,17 @@ type Launcher struct {
 	inflight  map[string]*sync.Mutex // per-ref build locks (de-dupe concurrent PrepareKit)
 	asm       string                 // assembly fingerprint, part of every image tag
 	sshCAWarn sync.Once              // warn once when the backend can't install the SSH CA
+	// copyImages are the images of pre-rename studios the jam-rename
+	// migration retired (guarded by mu): on the host, so a volume copy can
+	// run on one (rename_migrate.go).
+	copyImages []string
 }
 
 var (
 	_ jam.Launcher    = (*Launcher)(nil)
 	_ jam.StateKeeper = (*Launcher)(nil)
+	// the jam-rename studio migration (rename_migrate.go)
+	_ jam.StudioRenamer = (*Launcher)(nil)
 )
 
 func New(cfg Config) *Launcher {
