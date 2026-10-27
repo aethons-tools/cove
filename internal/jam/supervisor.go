@@ -832,19 +832,20 @@ func (s *Supervisor) imageTagOn(manager string, ref KitRef) string {
 // tag the launcher names it ("" when the launcher cannot name images). Errors
 // (no supervisor, a missing role, an unresolvable kit or model-spec) are
 // returned, never guessed around, and logged at debug level once per role per
-// minute so an "unknown" image status can be explained.
-func (s *Supervisor) CurrentImage(project, role string) (CurrentImage, error) {
+// minute so an "unknown" image status can be explained. manager names whose
+// image tag is reported ("" = the launcher's default).
+func (s *Supervisor) CurrentImage(project, role, manager string) (CurrentImage, error) {
 	if s == nil {
 		return CurrentImage{}, fmt.Errorf("no supervisor")
 	}
-	cur, err := s.currentImage(project, role)
+	cur, err := s.currentImage(project, role, manager)
 	if err != nil {
 		s.logImageErr(project, role, err)
 	}
 	return cur, err
 }
 
-func (s *Supervisor) currentImage(project, role string) (CurrentImage, error) {
+func (s *Supervisor) currentImage(project, role, manager string) (CurrentImage, error) {
 	r, ok := s.store.GetRole(project, role)
 	if !ok {
 		return CurrentImage{}, fmt.Errorf("role %s/%s not found", orDefaultProject(project), role)
@@ -853,7 +854,7 @@ func (s *Supervisor) currentImage(project, role string) (CurrentImage, error) {
 	if err != nil || !have {
 		return CurrentImage{}, err
 	}
-	return CurrentImage{Kit: ref, HasKit: true, Tag: s.imageTag(ref)}, nil
+	return CurrentImage{Kit: ref, HasKit: true, Tag: s.imageTagOn(manager, ref)}, nil
 }
 
 // logImageErr logs a CurrentImage error at debug level, at most once per role
@@ -2002,3 +2003,33 @@ func (s *Supervisor) ContextForActor(actor Actor) (sessionctx.Bundle, error) {
 // ErrNoInstance means an identity has no registered instance (e.g. a
 // hand-enrolled actor), so there is no session to compile context for.
 var ErrNoInstance = errors.New("no registered instance for this identity")
+
+// RoleImage is the image a raise for a role would run on one manager.
+type RoleImage struct {
+	Manager string `json:"manager"`
+	Kit     KitRef `json:"kit"`
+	HasKit  bool   `json:"has_kit"`
+	Tag     string `json:"tag"`
+}
+
+// RoleImages is the current image of project/role on each connected manager, in
+// the launcher's candidate order. Without a manager router it is one row with
+// Manager "".
+func (s *Supervisor) RoleImages(project, role string) ([]RoleImage, error) {
+	if s == nil {
+		return nil, fmt.Errorf("no supervisor")
+	}
+	names := []string{""}
+	if a, ok := s.launcher.(interface{ AvailableNames() []string }); ok {
+		names = a.AvailableNames()
+	}
+	out := make([]RoleImage, 0, len(names))
+	for _, n := range names {
+		cur, err := s.CurrentImage(project, role, n)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, RoleImage{Manager: n, Kit: cur.Kit, HasKit: cur.HasKit, Tag: cur.Tag})
+	}
+	return out, nil
+}

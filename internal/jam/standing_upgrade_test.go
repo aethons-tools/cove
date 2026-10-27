@@ -204,7 +204,7 @@ func TestSupervisorPrepareImage(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive, asm: "asm1"}
 	sup, store := imageKit(t, fl)
 	cur, st, err := sup.PrepareImage(context.Background(), "default", "dev")
-	want, _ := sup.CurrentImage("default", "dev")
+	want, _ := sup.CurrentImage("default", "dev", "")
 	if err != nil || st.State != KitPreparing || cur.Key() != want.Key() || want.Key() == "" || fl.prepareCalls != 1 || fl.preparedDef.Ref != want.Kit {
 		t.Fatalf("PrepareImage = %+v %+v %v (want key %q, prepares %d)", cur, st, err, want.Key(), fl.prepareCalls)
 	}

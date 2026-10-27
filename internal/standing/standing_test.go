@@ -111,13 +111,13 @@ func (w *fakeWorld) ListStandingSessions() []jam.StandingSessionRef {
 	return out
 }
 
-func (w *fakeWorld) CurrentImage(string, string) (jam.CurrentImage, error) {
+func (w *fakeWorld) CurrentImage(string, string, string) (jam.CurrentImage, error) {
 	return jam.CurrentImage{Kit: jam.KitRef{ID: "web", Digest: w.tag}, HasKit: true, Tag: w.tag}, nil
 }
 
 func (w *fakeWorld) PrepareImage(_ context.Context, p, r string) (jam.CurrentImage, jam.KitStatus, error) {
 	w.prepares++
-	cur, _ := w.CurrentImage(p, r)
+	cur, _ := w.CurrentImage(p, r, "")
 	if w.prepErr != nil {
 		return cur, jam.KitStatus{State: jam.KitPreparing, Err: w.prepErr.Error()}, w.prepErr
 	}

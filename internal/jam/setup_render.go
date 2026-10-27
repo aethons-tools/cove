@@ -403,7 +403,7 @@ func (d SetupDeps) instanceKitSection(ctx context.Context, m *imageMemo, inst In
 	if s, ok := snaps[SetupPartKit]; ok {
 		sec.Source, sec.Reason, sec.At, sec.Body = SourceSnapshot, "", s.At, s.Body
 	}
-	sec.Stale = d.Sup != nil && imageStatus(d.Sup, map[[2]string]currentImage{}, inst) == "stale"
+	sec.Stale = d.Sup != nil && imageStatus(d.Sup, map[[3]string]currentImage{}, inst) == "stale"
 	if inst.Kit.ID != "" {
 		sk, _ := instanceKit(d.Store, inst)
 		sec.Body += kitDetailBody(d.Store, chainOrSelf(inst.KitChain, inst.Kit), sk.BuildArgs, inst.KitDraft)

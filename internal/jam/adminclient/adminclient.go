@@ -298,6 +298,15 @@ func (c *Client) RemoveRole(project, name string) error {
 	return c.do("DELETE", "/admin/roles/"+project+"/"+name, nil, nil)
 }
 
+// RoleImages lists the current image of project/role on each connected manager.
+func (c *Client) RoleImages(project, role string) ([]jam.RoleImage, error) {
+	var out struct {
+		Images []jam.RoleImage `json:"images"`
+	}
+	err := c.do("GET", "/admin/roles/"+url.PathEscape(project)+"/"+url.PathEscape(role)+"/images", nil, &out)
+	return out.Images, err
+}
+
 // ListProjects lists every project record.
 func (c *Client) ListProjects() ([]string, error) {
 	var out []string

@@ -62,7 +62,7 @@ type Supervisor interface {
 	PurgeState(ctx context.Context, actorID string) error
 	StateOwners(ctx context.Context) ([]string, error)
 	// CurrentImage is what a raise for the role would run now (cheap, cached).
-	CurrentImage(project, role string) (jam.CurrentImage, error)
+	CurrentImage(project, role, manager string) (jam.CurrentImage, error)
 	// PrepareImage makes that image ready; it may build for minutes, so the
 	// reconciler runs it off its lock.
 	PrepareImage(ctx context.Context, project, role string) (jam.CurrentImage, jam.KitStatus, error)
@@ -467,7 +467,7 @@ func (r *Reconciler) advanceUpgrade(ctx context.Context, id string, u upgrade, i
 		r.log.Info("standing: upgrade dropped (name dismissed or reset)", "id", id)
 		return
 	}
-	cur, err := r.sup.CurrentImage(project, u.role)
+	cur, err := r.sup.CurrentImage(project, u.role, "")
 	if err != nil {
 		r.setUpgrade(id, jam.UpgradeError, "resolving the current image: "+err.Error())
 		return
