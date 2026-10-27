@@ -185,7 +185,7 @@ func TestSSHConfigBlock(t *testing.T) {
 	if !strings.Contains(out.String(), "ssh-proxy --operator ses_a\n") {
 		t.Errorf("ProxyCommand should name the operator plane and the studio:\n%s", out.String())
 	}
-	if fi, err := os.Stat(filepath.Join(home, ".config", "at-jam", "ssh", "id_ed25519")); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(filepath.Join(home, ".config", "jam", "ssh", "id_ed25519")); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("key not created 0600: %v %v", fi, err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".ssh", "config")); err == nil {
@@ -212,7 +212,7 @@ func TestSSHConfigParticipantFetchesCert(t *testing.T) {
 	if calls, paths, tokens := j.snapshot(); calls != 1 || paths[0] != "POST /me/studios/ses_a/ssh/cert" || tokens[0] != "Bearer idtok" {
 		t.Fatalf("cert calls=%d paths=%v", calls, paths)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "at-jam", "ssh", "ses_a-cert.pub")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".config", "jam", "ssh", "ses_a-cert.pub")); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out.String()+errb.String(), "idtok") {
@@ -239,7 +239,7 @@ func TestSSHConfigWriteIsIdempotent(t *testing.T) {
 	}
 	data, _ := os.ReadFile(cfg)
 	s := string(data)
-	if !strings.HasSuffix(s, "\nHost other\n  User bob\n") || strings.Count(s, "Host jam-ses_a") != 1 || strings.Count(s, "# >>> at-jam ses_a >>>") != 1 {
+	if !strings.HasSuffix(s, "\nHost other\n  User bob\n") || strings.Count(s, "Host jam-ses_a") != 1 || strings.Count(s, "# >>> jam ses_a >>>") != 1 {
 		t.Fatalf("config:\n%s", s)
 	}
 	// A different studio gets its own block.
@@ -578,7 +578,7 @@ func TestSSHConfigWriteGoesOnTop(t *testing.T) {
 	}
 	data, _ := os.ReadFile(target)
 	s := string(data)
-	if !strings.HasPrefix(s, "# mine\r\n# >>> at-jam ses_a >>>\r\nHost jam-ses_a\r\n") || !strings.HasSuffix(s, "# <<< at-jam ses_a <<<\r\n\r\nHost *\r\n  User bob\r\n") {
+	if !strings.HasPrefix(s, "# mine\r\n# >>> jam ses_a >>>\r\nHost jam-ses_a\r\n") || !strings.HasSuffix(s, "# <<< jam ses_a <<<\r\n\r\nHost *\r\n  User bob\r\n") {
 		t.Fatalf("config:\n%q", s)
 	}
 	if strings.Count(s, "Host jam-ses_a") != 1 || strings.Contains(strings.ReplaceAll(s, "\r\n", ""), "\n") {
@@ -594,7 +594,7 @@ func TestSSHConfigWriteRefusesBrokenMarkers(t *testing.T) {
 	home := sshTestHome(t)
 	cfg := filepath.Join(home, ".ssh", "config")
 	_ = os.MkdirAll(filepath.Dir(cfg), 0o700)
-	orig := "# >>> at-jam ses_a >>>\nHost jam-ses_a\n  User agent\n"
+	orig := "# >>> jam ses_a >>>\nHost jam-ses_a\n  User agent\n"
 	_ = os.WriteFile(cfg, []byte(orig), 0o600)
 	var errb bytes.Buffer
 	if code := run([]string{"ssh-config", "--write", "ses_a"}, func(string) string { return "" }, io.Discard, &errb); code != 1 || !strings.Contains(errb.String(), "fix the file by hand") {

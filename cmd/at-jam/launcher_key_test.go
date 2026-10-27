@@ -9,13 +9,13 @@ import (
 )
 
 // serve's launcher block takes the studio images' authorized_keys from
-// launcherPublicKey: on a fresh Jam host (no key — at-cove used to make it) it
+// launcherPublicKey: on a fresh Jam host (no key, and none to copy from a pre-rename launcher dir) it
 // generates the pair at runtime.launcher.identity-file.
 func TestLauncherPublicKeyGeneratesOnFreshHost(t *testing.T) {
 	if _, err := exec.LookPath("ssh-keygen"); err != nil {
 		t.Skip("ssh-keygen not on PATH")
 	}
-	priv := filepath.Join(t.TempDir(), "fresh", "at-cove", "id_ed25519")
+	priv := filepath.Join(t.TempDir(), "fresh", "jam", "id_ed25519")
 	pub, err := launcherPublicKey(priv)
 	if err != nil {
 		t.Fatal(err)

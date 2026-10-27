@@ -28,6 +28,8 @@ var renamedGroups = []renamedGroup{
 		`cove-git-credential`, `/dev/shm/cove-`, `cove-master\.log`, `\bAT_JAM_`, `\bCOVE_BASE_IMAGE\b`, `\bCOVE_SSHENV\b`}},
 	{"images", []string{`\bcove-base\b`, `\bcove-image\b`, `\bCOVE_IMAGE\b`}},
 	{"tags, labels, containers", []string{`cove-kit`, `harbor\.cove`, `atcove-cove`, `"atcove"`, `/etc/cove/mcp-servers`}},
+	{"directories and markers", []string{`\.config/at-(cove|jam|harbor)`, `state/at-jam`, `[<>]{3} at-jam`,
+		`atCoveConfigDir`, `atJamConfigDir`, `atJamStateDir`, `legacyConfigDir`}},
 }
 
 // renamedAllow is where an old name may survive: the design history, the

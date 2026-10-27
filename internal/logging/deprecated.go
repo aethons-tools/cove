@@ -11,6 +11,10 @@ import (
 // lists each old name, its new name, and whether the old one is still accepted.
 const RenameDoc = "docs/usage/jam/renamed-from-harbor.md"
 
+// RenamedFromAtDoc is the doc the jam rename's migrations point at: each
+// pre-rename (at-*) name and its new one.
+const RenamedFromAtDoc = "docs/usage/jam/renamed-from-at.md"
+
 var deprecations sync.Map // old name → struct{}; warned already this process
 
 // Deprecated logs a WARN diagnostic to stderr that the name old is deprecated

@@ -829,7 +829,7 @@ credentials:
 func TestCredentialsFilePath_DefaultUnderXDG(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
 	var cfg serveConfig
-	if got := cfg.credentialsFilePath(); got != "/tmp/xdg/at-jam/credentials.yml" {
+	if got := cfg.credentialsFilePath(); got != "/tmp/xdg/jam/credentials.yml" {
 		t.Fatalf("default path = %q", got)
 	}
 	cfg.CredentialsFile = "/etc/jam/creds.yml"
@@ -995,12 +995,12 @@ func TestValidateStorageRequiresPostgres(t *testing.T) {
 
 func TestStateDirDefault(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
-	if got, err := (serveConfig{}).stateDir(); err != nil || got != "/xdg/state/at-jam" {
+	if got, err := (serveConfig{}).stateDir(); err != nil || got != "/xdg/state/jam" {
 		t.Fatalf("XDG: got %q, %v", got, err)
 	}
 	t.Setenv("XDG_STATE_HOME", "")
 	home, _ := os.UserHomeDir()
-	if got, err := (serveConfig{}).stateDir(); err != nil || got != filepath.Join(home, ".local", "state", "at-jam") {
+	if got, err := (serveConfig{}).stateDir(); err != nil || got != filepath.Join(home, ".local", "state", "jam") {
 		t.Fatalf("home default: got %q, %v", got, err)
 	}
 	c, _ := parseServeConfig([]byte("state-dir: /srv/jam-state\n"))

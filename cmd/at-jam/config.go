@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -83,7 +82,7 @@ type serveConfig struct {
 	IntercomLog      string `yaml:"intercom-log"`
 	SessionEventsDir string `yaml:"session-events-dir"`
 	// StateDir holds Jam's remaining file state (relay cursors, markers,
-	// receipts — no Postgres equivalent yet). Empty → atJamStateDir().
+	// receipts — no Postgres equivalent yet). Empty → jamStateDir().
 	StateDir string `yaml:"state-dir"`
 	// SessionEventsRetention bounds how long session events are kept: "<N>d"
 	// or a Go duration; empty keeps forever.
@@ -93,7 +92,7 @@ type serveConfig struct {
 	StorePostgres *storePostgresConfig `yaml:"store-postgres"`
 	// CredentialsFile is the protected supply file that resolves each demanded
 	// credential's strategy (value/command/global/mint). Empty => the XDG default
-	// (~/.config/at-jam/credentials.yml). Strategies never live in this serve
+	// (~/.config/jam/credentials.yml). Strategies never live in this serve
 	// config — see docs/usage/jam/credentials.md.
 	CredentialsFile string              `yaml:"credentials-file"`
 	Credentials     map[string]credSpec `yaml:"credentials"`
@@ -604,9 +603,9 @@ type launcherConfig struct {
 	DeprecatedHarborHost string `yaml:"harbor-host"`
 	// IdentityFile/KnownHostsDir are the SSH identity Jam uses to reach a
 	// raised cove; serve generates the key on first use and bakes its public
-	// half into every studio image. Default to the at-cove config dir's
-	// id_ed25519 / known_hosts.d when empty (the directory keeps its old name
-	// until the jam rename).
+	// half into every studio image. Default to the jam config dir's
+	// id_ed25519 / known_hosts.d when empty (configDir; a pre-rename launcher
+	// key is copied there by migrateDirs).
 	IdentityFile  string   `yaml:"identity-file"`
 	KnownHostsDir string   `yaml:"known-hosts-dir"`
 	DNS           []string `yaml:"dns"`
@@ -623,7 +622,7 @@ var dockerContextRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.+-]*$`)
 
 // validateLauncher checks runtime.launcher when present (required fields:
 // runtime-addr, jam-host) and defaults identity-file / known-hosts-dir to the
-// at-cove config dir's id_ed25519 / known_hosts.d. A no-op when runtime.launcher
+// jam config dir's id_ed25519 / known_hosts.d. A no-op when runtime.launcher
 // is unset — the placeholder launcher stays in effect, unchanged from before
 // this block existed.
 func (c serveConfig) validateLauncher() error {
@@ -641,10 +640,10 @@ func (c serveConfig) validateLauncher() error {
 		return fmt.Errorf("runtime.launcher.docker-context %q is not a valid docker context name", lc.DockerContext)
 	}
 	if lc.IdentityFile == "" {
-		lc.IdentityFile = filepath.Join(atCoveConfigDir(), "id_ed25519")
+		lc.IdentityFile = filepath.Join(configDir(), "id_ed25519")
 	}
 	if lc.KnownHostsDir == "" {
-		lc.KnownHostsDir = filepath.Join(atCoveConfigDir(), "known_hosts.d")
+		lc.KnownHostsDir = filepath.Join(configDir(), "known_hosts.d")
 	}
 	return nil
 }
@@ -727,16 +726,13 @@ func (c serveConfig) validateStorage() error {
 // resolved, so relay files are never written relative to the working directory.
 var errStateDirNotAbsolute = errors.New("state-dir: cannot resolve an absolute directory (set state-dir: in the serve config)")
 
-// atJamStateDir is $XDG_STATE_HOME/at-jam, else ~/.local/state/at-jam.
-func atJamStateDir() (string, error) {
-	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
-		return filepath.Join(x, "at-jam"), nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+// jamStateDir is $XDG_STATE_HOME/jam, else ~/.local/state/jam.
+func jamStateDir() (string, error) {
+	s := xdgStateHome()
+	if s == "" {
 		return "", errStateDirNotAbsolute
 	}
-	return filepath.Join(home, ".local", "state", "at-jam"), nil
+	return filepath.Join(s, "jam"), nil
 }
 
 // stateDir is where Jam keeps its remaining file state (relay cursors,
@@ -745,7 +741,7 @@ func (c serveConfig) stateDir() (string, error) {
 	dir := c.StateDir
 	if dir == "" {
 		var err error
-		if dir, err = atJamStateDir(); err != nil {
+		if dir, err = jamStateDir(); err != nil {
 			return "", err
 		}
 	}
@@ -858,17 +854,6 @@ func (c serveConfig) validateDiscord() error {
 		return fmt.Errorf("runtime.discord.bot-token is no longer inline — set runtime.discord.bot-token-cred: <name> and %s", credentialsFileHint)
 	}
 	return checkConnectionOrCred(c, "runtime.discord", d.Connection, "bot-token-cred", d.BotTokenCred)
-}
-
-// atCoveConfigDir is $XDG_CONFIG_HOME/at-cove, else ~/.config/at-cove — the
-// launcher's default home for its SSH identity and known_hosts, kept from the
-// deleted at-cove CLI so existing Jam hosts keep their key.
-func atCoveConfigDir() string {
-	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "at-cove")
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "at-cove")
 }
 
 // operatorLoginConfig builds the public device-flow client config Jam
@@ -1191,22 +1176,12 @@ func (c serveConfig) credNames() []string {
 }
 
 // credentialsFilePath is the supply file to load: the explicit credentials-file
-// when set, else the XDG default ~/.config/at-jam/credentials.yml.
+// when set, else the XDG default ~/.config/jam/credentials.yml.
 func (c serveConfig) credentialsFilePath() string {
 	if c.CredentialsFile != "" {
 		return c.CredentialsFile
 	}
-	return filepath.Join(atJamConfigDir(), "credentials.yml")
-}
-
-// atJamConfigDir mirrors atCoveConfigDir: $XDG_CONFIG_HOME/at-jam, else
-// ~/.config/at-jam.
-func atJamConfigDir() string {
-	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "at-jam")
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "at-jam")
+	return filepath.Join(configDir(), "credentials.yml")
 }
 
 // escalationPollInterval resolves the escalation engine's poll interval:

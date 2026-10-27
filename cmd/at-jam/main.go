@@ -133,7 +133,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 
 func cmdLogin(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
-	app := fs.String("app", defaultApp, "settings/token profile (from ~/.config/at-jam/settings.yml)")
+	app := fs.String("app", defaultApp, "settings/token profile (from ~/.config/jam/settings.yml)")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL; persisted to the app's settings when given")
 	participant := fs.Bool("participant", false, "sign in as a participant (a Jam user, not an operator) and cache the OIDC ID token for the /me routes")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
@@ -2970,15 +2970,10 @@ func main() {
 }
 
 // runAs is the process entry: invokedAs is the basename the binary was run
-// under. The deprecated at-harbor name (shipped as a copy of at-jam for one
-// release) runs normally after a one-time warning. It also carries a
-// pre-rename ~/.config/at-harbor/ across once. See
-// docs/usage/jam/renamed-from-harbor.md.
+// under. Before any command runs it copies the pre-rename directories across
+// once (migrateDirs). See docs/usage/jam/renamed-from-at.md.
 func runAs(invokedAs string, argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
-	if strings.TrimSuffix(invokedAs, ".exe") == "at-harbor" {
-		logging.Deprecated(stderr, "at-harbor", "at-jam")
-	}
-	migrateConfigDir(stderr)
+	migrateDirs(stderr)
 	return run(argv, getenv, stdout, stderr)
 }
 

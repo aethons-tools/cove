@@ -30,6 +30,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/collabwire"
+	"github.com/aethons-tools/cove/internal/legacynames"
 )
 
 // Studio SSH from the operator's/collaborator's machine: a local ed25519 key,
@@ -401,11 +402,50 @@ func (t sshTarget) sshOptions() [][2]string {
 	}
 }
 
-// sshBlockBeginPrefix starts every studio's begin marker.
-const sshBlockBeginPrefix = "# >>> at-jam "
+// sshBlockBeginPrefix and sshBlockEndPrefix start every studio's markers.
+const (
+	sshBlockBeginPrefix = "# >>> jam "
+	sshBlockEndPrefix   = "# <<< jam "
+)
 
 func sshBlockMarkers(studio string) (begin, end string) {
-	return sshBlockBeginPrefix + studio + " >>>", "# <<< at-jam " + studio + " <<<"
+	return sshBlockBeginPrefix + studio + " >>>", sshBlockEndPrefix + studio + " <<<"
+}
+
+// stripLegacySSHBlocks returns config without the complete pre-rename blocks
+// (markers legacynames.SSHBlockBegin / SSHBlockEnd) — every studio's when
+// studio is "", else only that studio's — and the blank line after each, plus
+// the studios it removed, in order. Their Host jam-<studio> would shadow the
+// new block, and their ProxyCommand names a binary that no longer exists.
+func stripLegacySSHBlocks(config, studio string) (string, []string) {
+	lines := strings.SplitAfter(config, "\n")
+	var out strings.Builder
+	var studios []string
+	for i := 0; i < len(lines); i++ {
+		got, ok := strings.CutPrefix(strings.TrimSpace(lines[i]), legacynames.SSHBlockBegin)
+		if ok {
+			got, ok = strings.CutSuffix(got, " >>>")
+		}
+		end := -1
+		if ok && (studio == "" || got == studio) {
+			for j := i + 1; j < len(lines); j++ {
+				if strings.TrimSpace(lines[j]) == legacynames.SSHBlockEnd+got+" <<<" {
+					end = j
+					break
+				}
+			}
+		}
+		if end < 0 {
+			out.WriteString(lines[i])
+			continue
+		}
+		studios = append(studios, got)
+		i = end
+		if i+1 < len(lines) && strings.TrimSpace(lines[i+1]) == "" && lines[i+1] != "" {
+			i++
+		}
+	}
+	return out.String(), studios
 }
 
 // sshConfigBlock is t's Host block, between marker comments. It ends with
@@ -427,10 +467,14 @@ func (t sshTarget) sshConfigBlock() string {
 // installSSHConfigBlock writes block into ~/.ssh/config: in place of an
 // earlier block for the same studio, else at the top (after leading comments),
 // because OpenSSH takes the first value it finds and an earlier `Host *` would
-// otherwise override ours. The file (a symlink's target) is replaced atomically
-// and keeps its line endings.
+// otherwise override ours. The studio's pre-rename block, if any, is removed
+// (other studios' stay until their own --write or --prune). The file (a
+// symlink's target) is replaced atomically and keeps its line endings.
 func installSSHConfigBlock(studio, block string) (string, error) {
-	return editSSHConfig(func(s string) (string, error) { return spliceSSHConfigBlock(s, studio, block) })
+	return editSSHConfig(func(s string) (string, error) {
+		s, _ = stripLegacySSHBlocks(s, studio)
+		return spliceSSHConfigBlock(s, studio, block)
+	})
 }
 
 // editSSHConfig rewrites ~/.ssh/config (a symlink's target) through edit,
@@ -472,8 +516,8 @@ func editSSHConfig(edit func(string) (string, error)) (string, error) {
 
 // spliceSSHConfigBlock returns config (LF line endings) with block in place
 // of the studio's marked block, or inserted before the first line that is not
-// blank or a comment — or that opens another studio's block (its marker is a
-// comment, but the block must not be split).
+// blank or a comment — or that opens another studio's block, pre-rename ones
+// included (its marker is a comment, but the block must not be split).
 func spliceSSHConfigBlock(config, studio, block string) (string, error) {
 	begin, end := sshBlockMarkers(studio)
 	lines := strings.SplitAfter(config, "\n")
@@ -499,7 +543,7 @@ func spliceSSHConfigBlock(config, studio, block string) (string, error) {
 	}
 	at := len(lines)
 	for i, l := range lines {
-		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(t, "#") || strings.HasPrefix(t, sshBlockBeginPrefix) {
+		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(t, "#") || strings.HasPrefix(t, sshBlockBeginPrefix) || strings.HasPrefix(t, legacynames.SSHBlockBegin) {
 			at = i
 			break
 		}
@@ -773,7 +817,7 @@ func sshConfigEntries(config string) []sshConfigEntry {
 					cur = &sshConfigEntry{studio: studio}
 				}
 			}
-		case t == "# <<< at-jam "+cur.studio+" <<<":
+		case t == sshBlockEndPrefix+cur.studio+" <<<":
 			out = append(out, *cur)
 			cur = nil
 		default:
@@ -885,8 +929,9 @@ func studioGone(t sshTarget) (bool, error) {
 	return false, err
 }
 
-// pruneSSHConfig removes the at-jam blocks (and their certs and pinned host
-// keys) whose studios their Jam no longer has; dry only reports.
+// pruneSSHConfig removes every pre-rename block, and the at-jam blocks (and
+// their certs and pinned host keys) whose studios their Jam no longer has; dry
+// only reports.
 func pruneSSHConfig(dry bool, stdout, stderr io.Writer) int {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -898,9 +943,27 @@ func pruneSSHConfig(dry bool, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "at-jam ssh-config:", err)
 		return 1
 	}
+	config := strings.ReplaceAll(string(data), "\r\n", "\n")
+	stripped, legacy := stripLegacySSHBlocks(config, "")
+	if len(legacy) > 0 {
+		if !dry {
+			if _, err := editSSHConfig(func(s string) (string, error) { s, _ = stripLegacySSHBlocks(s, ""); return s, nil }); err != nil {
+				fmt.Fprintln(stderr, "at-jam ssh-config:", err)
+				return 1
+			}
+		}
+		for _, studio := range legacy {
+			if dry {
+				fmt.Fprintf(stdout, "would remove pre-rename block for %s\n", sshHostAlias(studio))
+			} else {
+				fmt.Fprintf(stdout, "removed pre-rename block for %s\n", sshHostAlias(studio))
+			}
+		}
+		config = stripped
+	}
 	type goneStudio struct{ studio, app string }
 	var gone []goneStudio
-	for _, e := range sshConfigEntries(strings.ReplaceAll(string(data), "\r\n", "\n")) {
+	for _, e := range sshConfigEntries(config) {
 		t, err := pruneTarget(e, stderr)
 		if err == nil {
 			var g bool
@@ -914,7 +977,9 @@ func pruneSSHConfig(dry bool, stdout, stderr io.Writer) int {
 		}
 	}
 	if len(gone) == 0 {
-		fmt.Fprintln(stdout, "no at-jam ssh entries to prune")
+		if len(legacy) == 0 {
+			fmt.Fprintln(stdout, "no at-jam ssh entries to prune")
+		}
 		return 0
 	}
 	if dry {

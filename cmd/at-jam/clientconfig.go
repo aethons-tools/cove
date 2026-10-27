@@ -16,6 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/aethons-tools/cove/internal/legacynames"
 	"github.com/aethons-tools/cove/internal/logging"
 )
 
@@ -33,51 +34,150 @@ func validateApp(app string) error {
 	return nil
 }
 
-// configDir is the host-side config directory for the at-jam CLI, mirroring
-// at-cove: $XDG_CONFIG_HOME/at-jam, else ~/.config/at-jam.
-func configDir() string { return configDirNamed("at-jam") }
+// configDir is jam's host-side config directory: $XDG_CONFIG_HOME/jam, else
+// ~/.config/jam. It also holds the launcher's default SSH identity and
+// known_hosts.d (validateLauncher).
+func configDir() string { return filepath.Join(xdgConfigHome(), "jam") }
 
-// legacyConfigDir is the pre-rename (at-harbor) config directory, read only by
-// migrateConfigDir. See docs/usage/jam/renamed-from-harbor.md.
-func legacyConfigDir() string { return configDirNamed("at-harbor") }
-
-func configDirNamed(name string) string {
+// xdgConfigHome is $XDG_CONFIG_HOME, else ~/.config.
+func xdgConfigHome() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, name)
+		return x
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", name)
+	return filepath.Join(home, ".config")
 }
 
-// migrateConfigDir carries a pre-rename ~/.config/at-harbor/ (settings and
-// cached login tokens) across to ~/.config/at-jam/ once: only when the new
-// directory is missing and the old one exists. It copies (file modes kept, so
-// token files stay 0600), leaves the old directory in place, and logs a notice
-// naming the two paths — never file contents. A failed copy is logged and the
-// partial new directory removed, so the next run tries again.
-func migrateConfigDir(stderr io.Writer) {
-	newDir, oldDir := configDir(), legacyConfigDir()
-	if _, err := os.Stat(newDir); !errors.Is(err, os.ErrNotExist) {
-		return
+// xdgStateHome is $XDG_STATE_HOME, else ~/.local/state ("" when no home
+// directory resolves).
+func xdgStateHome() string {
+	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
+		return x
 	}
-	if fi, err := os.Stat(oldDir); err != nil || !fi.IsDir() {
-		return
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
 	}
-	lg, _ := logging.New(logging.Options{Mode: logging.ModeFrom(os.Getenv("JAM_LOG_MODE")), Stderr: stderr, Level: slog.LevelInfo})
-	if err := copyDir(oldDir, newDir); err != nil {
-		_ = os.RemoveAll(newDir)
-		lg.Warn("could not copy the at-harbor config directory to at-jam; using defaults",
-			slog.String("from", oldDir), slog.String("to", newDir), slog.String("err", err.Error()), slog.String("see", logging.RenameDoc))
-		return
-	}
-	lg.Info("copied the at-harbor config directory to at-jam (the old one is left in place)",
-		slog.String("from", oldDir), slog.String("to", newDir), slog.String("see", logging.RenameDoc))
+	return filepath.Join(home, ".local", "state")
 }
 
-// copyDir copies the regular files and directories under src to dst,
-// preserving permission bits. Symlinks and other special files are skipped.
-func copyDir(src, dst string) error {
-	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+// migrateTempPrefix names the temp files a directory copy writes before
+// renaming each into place; a run cut short may leave one, which the next
+// run removes.
+const migrateTempPrefix = ".jam-migrate-"
+
+// dirMove is one pre-rename directory copied to its new home: every entry of
+// from when entries is nil, else only the listed ones. marker, a file in to
+// written after everything else, says the copy is complete.
+type dirMove struct {
+	from, to string
+	entries  []string
+	marker   string
+}
+
+// renamedDirs are the jam rename's directory moves
+// (docs/usage/jam/renamed-from-at.md). The CLI config and the launcher's
+// identity both land in configDir.
+func renamedDirs() []dirMove {
+	cfg := xdgConfigHome()
+	moves := []dirMove{
+		{from: filepath.Join(cfg, legacynames.ConfigDir), to: configDir(), marker: ".jam-migrated-config"},
+		{from: filepath.Join(cfg, legacynames.LauncherDir), to: configDir(), marker: ".jam-migrated-launcher",
+			entries: []string{"id_ed25519", "id_ed25519.pub", "known_hosts.d"}},
+	}
+	if s := xdgStateHome(); s != "" {
+		moves = append(moves, dirMove{from: filepath.Join(s, legacynames.StateDir), to: filepath.Join(s, "jam"), marker: ".jam-migrated-state"})
+	}
+	return moves
+}
+
+// migrateDirs carries the pre-rename directories across once, at every jam
+// invocation before any command runs (so serve finds the launcher key before
+// keys.EnsureFile could mint a fresh one). It copies each file missing from
+// the new directory (modes kept, so keys and tokens stay 0600; a file already
+// there is never overwritten), each through a temp file renamed into place,
+// then writes the move's marker last. A move whose marker exists is done; one
+// without (a run cut short or failed) is finished by the next run. The old
+// directories are left in place. It logs the two paths — never file contents.
+func migrateDirs(stderr io.Writer) {
+	var lg *logging.Logger
+	logger := func() *logging.Logger {
+		if lg == nil {
+			var err error
+			if lg, err = logging.New(logging.Options{Mode: logging.ModeFrom(os.Getenv("JAM_LOG_MODE")), Stderr: stderr, Level: slog.LevelInfo}); err != nil {
+				lg = &logging.Logger{Logger: slog.New(slog.DiscardHandler)} // unreachable without a FilePath
+			}
+		}
+		return lg
+	}
+	for _, m := range renamedDirs() {
+		if fi, err := os.Stat(m.from); err != nil || !fi.IsDir() {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(m.to, m.marker)); err == nil {
+			continue
+		}
+		copied, err := m.copy()
+		if err != nil {
+			logger().Warn("could not copy a pre-rename directory; it is retried on the next run",
+				slog.String("from", m.from), slog.String("to", m.to), slog.String("err", err.Error()), slog.String("see", logging.RenamedFromAtDoc))
+			continue
+		}
+		if copied > 0 {
+			logger().Info("copied a pre-rename directory (the old one is left in place)",
+				slog.String("from", m.from), slog.String("to", m.to), slog.Int("files", copied), slog.String("see", logging.RenamedFromAtDoc))
+		}
+	}
+}
+
+// copy copies m's missing files and then writes its marker, returning how
+// many files it copied.
+func (m dirMove) copy() (int, error) {
+	fi, err := os.Stat(m.from)
+	if err != nil {
+		return 0, err
+	}
+	if err := mkdirTarget(m.to, fi.Mode().Perm()|0o700); err != nil {
+		return 0, err
+	}
+	entries := m.entries
+	if entries == nil {
+		des, err := os.ReadDir(m.from)
+		if err != nil {
+			return 0, err
+		}
+		for _, de := range des {
+			entries = append(entries, de.Name())
+		}
+	}
+	n := 0
+	for _, e := range entries {
+		c, err := copyEntry(filepath.Join(m.from, e), filepath.Join(m.to, e))
+		n += c
+		if err != nil {
+			return n, err
+		}
+	}
+	return n, migrateWriteFile(filepath.Join(m.to, m.marker), nil, 0o600)
+}
+
+// copyEntry copies src — a regular file or a directory tree; a missing src is
+// nothing to copy — to dst, keeping permission bits. Files already at dst are
+// kept; symlinks and special files inside a tree are skipped. It returns how
+// many files it copied.
+func copyEntry(src, dst string) (int, error) {
+	fi, err := os.Stat(src)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if !fi.IsDir() {
+		return copyFileIfMissing(src, dst, fi)
+	}
+	n := 0
+	err = filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -92,17 +192,82 @@ func copyDir(src, dst string) error {
 		}
 		switch {
 		case d.IsDir():
-			return os.MkdirAll(target, info.Mode().Perm())
+			return mkdirTarget(target, info.Mode().Perm())
 		case info.Mode().IsRegular():
-			data, err := os.ReadFile(p)
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(target, data, info.Mode().Perm())
+			c, err := copyFileIfMissing(p, target, info)
+			n += c
+			return err
 		default:
 			return nil
 		}
 	})
+	return n, err
+}
+
+// mkdirTarget creates dir (perm) when missing and removes any temp file an
+// earlier, interrupted copy left in it — one older than a minute, so a jam
+// running alongside (an IDE starts several ssh-proxy at once) keeps its own.
+func mkdirTarget(dir string, perm fs.FileMode) error {
+	if err := os.MkdirAll(dir, perm); err != nil {
+		return err
+	}
+	stale, _ := filepath.Glob(filepath.Join(dir, migrateTempPrefix+"*"))
+	for _, p := range stale {
+		if fi, err := os.Lstat(p); err != nil || time.Since(fi.ModTime()) < time.Minute {
+			continue
+		}
+		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyFileIfMissing copies the regular file src (info) to dst unless dst
+// exists, returning 1 when it copied.
+func copyFileIfMissing(src, dst string, info fs.FileInfo) (int, error) {
+	if !info.Mode().IsRegular() {
+		return 0, nil
+	}
+	if _, err := os.Lstat(dst); !errors.Is(err, os.ErrNotExist) {
+		return 0, err
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return 0, err
+	}
+	if err := migrateWriteFile(dst, data, info.Mode().Perm()); err != nil {
+		return 0, err
+	}
+	return 1, nil
+}
+
+// migrateWriteFile writes data to path (perm) through a temp file in the same
+// directory renamed into place, so a run cut short never leaves a truncated
+// file at path.
+func migrateWriteFile(path string, data []byte, perm fs.FileMode) error {
+	f, err := os.CreateTemp(filepath.Dir(path), migrateTempPrefix+"*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp) // no-op once renamed
+	if err := f.Chmod(perm); err != nil {
+		f.Close()
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // adminTokenEnv is the operator token from the environment
@@ -118,7 +283,7 @@ type clientSettings struct {
 	BaseURL  string `yaml:"base-url"`
 }
 
-// allSettings is the whole ~/.config/at-jam/settings.yml: a map of app name →
+// allSettings is the whole ~/.config/jam/settings.yml: a map of app name →
 // endpoint defaults, e.g. {default: {...}, dev-app: {...}}. Non-secret.
 type allSettings map[string]clientSettings
 
@@ -154,7 +319,7 @@ func saveSettings(app string, s clientSettings) error {
 	return os.WriteFile(settingsPath(), data, 0o644)
 }
 
-// cachedToken is one app's login-owned token, at ~/.config/at-jam/{app}-admin-token.json
+// cachedToken is one app's login-owned token, at ~/.config/jam/{app}-admin-token.json
 // (mode 0600). AdminURL records the Jam it was minted against, for display.
 // A participant login lives in its own file (participantTokenPath) and holds
 // only IDToken, with Expiry the ID token's exp.
@@ -169,7 +334,7 @@ type cachedToken struct {
 func tokenPath(app string) string { return filepath.Join(configDir(), app+"-admin-token.json") }
 
 // participantTokenPath is where `at-jam login --participant` caches app's
-// participant ID token: ~/.config/at-jam/{app}-participant-token.json. The
+// participant ID token: ~/.config/jam/{app}-participant-token.json. The
 // suffix differs from tokenPath's, so no app name maps one onto the other.
 func participantTokenPath(app string) string {
 	return filepath.Join(configDir(), app+"-participant-token.json")

@@ -1,5 +1,5 @@
 // Package usersecret loads Jam's host-side credential supply file
-// (~/.config/at-jam/credentials.yml, LoadFlat): minters:/global: libraries plus
+// (~/.config/jam/credentials.yml, LoadFlat): minters:/global: libraries plus
 // a flat credentials: map, resolved to secret.Specs by PlanFlat.
 package usersecret
 
@@ -64,7 +64,7 @@ func readFile(path string) (file, error) {
 	return f, nil
 }
 
-// LoadFlat parses a single flat supply file (~/.config/at-jam/credentials.yml)
+// LoadFlat parses a single flat supply file (~/.config/jam/credentials.yml)
 // into a Store: minters:/global: inert libraries plus a flat credentials: map of
 // name -> source. A missing file yields an empty Store (the caller fails
 // closed on an unsupplied demand). It validates every minter and that every
