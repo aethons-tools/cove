@@ -241,3 +241,78 @@ func TestStateDirIsJam(t *testing.T) {
 		t.Fatalf("jamStateDir = %q, %v", got, err)
 	}
 }
+
+// Symlinks are carried as symlinks — a top-level one (to a file or a
+// directory), a nested one, a dangling one — their targets verbatim, never
+// their content; a path already at the new home is kept.
+func TestMigrateDirsRecreatesSymlinks(t *testing.T) {
+	cfg, state := t.TempDir(), t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("XDG_STATE_HOME", state)
+	oldCfg := filepath.Join(cfg, legacynames.ConfigDir)
+	elsewhere := t.TempDir()
+	writeFile(t, filepath.Join(elsewhere, "settings.yml"), "shared", 0o600)
+	writeFile(t, filepath.Join(elsewhere, "tree", "f"), "tree-content", 0o600)
+	writeFile(t, filepath.Join(oldCfg, "ssh", "real"), "r", 0o600)
+	links := map[string]string{
+		"settings.yml":       filepath.Join(elsewhere, "settings.yml"), // top level, to a file
+		"shared":             filepath.Join(elsewhere, "tree"),         // top level, to a directory
+		"ssh/alias":          "real",                                   // nested, relative
+		"ssh/gone":           "../nowhere",                             // nested, dangling
+		"tokens.yml":         "/does/not/exist",                        // top level, dangling
+		"ssh/kept-new-entry": "real",
+	}
+	for p, target := range links {
+		if err := os.Symlink(target, filepath.Join(oldCfg, p)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	jam := filepath.Join(cfg, "jam")
+	writeFile(t, filepath.Join(jam, "ssh", "kept-new-entry"), "new", 0o600)
+
+	migrateDirs(&bytes.Buffer{})
+
+	for p, target := range links {
+		if p == "ssh/kept-new-entry" {
+			continue
+		}
+		got, err := os.Readlink(filepath.Join(jam, p))
+		if err != nil || got != target {
+			t.Fatalf("%s: link %q, %v; want a symlink to %q", p, got, err, target)
+		}
+	}
+	if got := mustRead(t, filepath.Join(jam, "ssh", "kept-new-entry"), 0o600); got != "new" {
+		t.Fatalf("an entry already at the new home must be kept: %q", got)
+	}
+	if _, err := os.Lstat(filepath.Join(jam, "shared", "f")); err != nil {
+		t.Fatalf("the directory link resolves: %v", err)
+	}
+	if fi, _ := os.Lstat(filepath.Join(jam, "shared")); fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("a linked directory is linked, not copied")
+	}
+}
+
+// Directories keep their modes: a 0700 tree stays 0700, at the top and nested.
+func TestMigrateDirsKeepsDirectoryModes(t *testing.T) {
+	cfg, state := t.TempDir(), t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("XDG_STATE_HOME", state)
+	oldCfg := filepath.Join(cfg, legacynames.ConfigDir)
+	writeFile(t, filepath.Join(oldCfg, "ssh", "deep", "k"), "k", 0o600)
+	for _, d := range []string{oldCfg, filepath.Join(oldCfg, "ssh"), filepath.Join(oldCfg, "ssh", "deep")} {
+		if err := os.Chmod(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	migrateDirs(&bytes.Buffer{})
+	jam := filepath.Join(cfg, "jam")
+	for _, d := range []string{jam, filepath.Join(jam, "ssh"), filepath.Join(jam, "ssh", "deep")} {
+		fi, err := os.Stat(d)
+		if err != nil || fi.Mode().Perm() != 0o700 {
+			t.Fatalf("%s: %v %v, want 0700", d, fi, err)
+		}
+	}
+	if got := mustRead(t, filepath.Join(jam, "ssh", "deep", "k"), 0o600); got != "k" {
+		t.Fatalf("k = %q", got)
+	}
+}

@@ -162,8 +162,9 @@ func ensureRuntime(root *yaml.Node) ([]Change, error) {
 
 // ensureHook adds or replaces the one managed provision entry, keeping the
 // operator's other hooks and their order. A managed entry is a marked one or a
-// legacy hand-written one (it installs Sysbox from the nestybox/sysbox release
-// URL); the first is adopted in place and any further ones are dropped.
+// unmarked one that installs Sysbox from the nestybox/sysbox release URL — a
+// hand-written hook, or one this command wrote before the jam rename changed
+// Marker; the first is adopted in place and any further ones are dropped.
 func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 	prov := value(root, "provision")
 	if prov == nil || isNull(prov) {
@@ -191,7 +192,7 @@ func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 		switch {
 		case !marked:
 			*e = *hookNode(want)
-			changes = append(changes, Change{What: "replaced a hand-written Sysbox provision hook with the managed one (Sysbox " + version + ")"})
+			changes = append(changes, Change{What: "replaced an unmarked Sysbox provision hook (hand-written, or written before the jam rename) with the managed one (Sysbox " + version + ")"})
 		case value(e, "mode") == nil || value(e, "mode").Value != "system" || value(e, "script").Value != want:
 			*e = *hookNode(want)
 			changes = append(changes, Change{What: "updated the Sysbox provision hook (Sysbox " + version + ")"})
@@ -211,7 +212,8 @@ func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 
 func isMarked(e *yaml.Node) bool { return scriptContains(e, Marker) }
 
-// isLegacy matches a hand-written hook that installs Sysbox: every manual recipe
+// isLegacy matches an unmarked hook that installs Sysbox (hand-written, or
+// managed under the pre-rename Marker): every recipe
 // downloads the release from github.com/nestybox/sysbox.
 func isLegacy(e *yaml.Node) bool { return scriptContains(e, "nestybox/sysbox") }
 

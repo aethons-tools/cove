@@ -161,12 +161,13 @@ func (m dirMove) copy() (int, error) {
 	return n, migrateWriteFile(filepath.Join(m.to, m.marker), nil, 0o600)
 }
 
-// copyEntry copies src — a regular file or a directory tree; a missing src is
-// nothing to copy — to dst, keeping permission bits. Files already at dst are
-// kept; symlinks and special files inside a tree are skipped. It returns how
-// many files it copied.
+// copyEntry copies src — a regular file, a symlink or a directory tree; a
+// missing src is nothing to copy — to dst, keeping permission bits. A symlink
+// (top level or inside a tree) is recreated as a symlink to the same target,
+// never followed. Paths already at dst are kept; special files are skipped.
+// It returns how many files and links it copied.
 func copyEntry(src, dst string) (int, error) {
-	fi, err := os.Stat(src)
+	fi, err := os.Lstat(src)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil
 	}
@@ -174,7 +175,7 @@ func copyEntry(src, dst string) (int, error) {
 		return 0, err
 	}
 	if !fi.IsDir() {
-		return copyFileIfMissing(src, dst, fi)
+		return copyLeafIfMissing(src, dst, fi)
 	}
 	n := 0
 	err = filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
@@ -186,22 +187,38 @@ func copyEntry(src, dst string) (int, error) {
 			return err
 		}
 		target := filepath.Join(dst, rel)
-		info, err := d.Info()
+		info, err := d.Info() // WalkDir's entries are lstat'd: a link is a link
 		if err != nil {
 			return err
 		}
-		switch {
-		case d.IsDir():
+		if d.IsDir() {
 			return mkdirTarget(target, info.Mode().Perm())
-		case info.Mode().IsRegular():
-			c, err := copyFileIfMissing(p, target, info)
-			n += c
-			return err
-		default:
-			return nil
 		}
+		c, err := copyLeafIfMissing(p, target, info)
+		n += c
+		return err
 	})
 	return n, err
+}
+
+// copyLeafIfMissing copies src (lstat info) to dst unless dst exists: a
+// regular file through copyFileIfMissing, a symlink recreated with the same
+// target. Anything else is skipped.
+func copyLeafIfMissing(src, dst string, info fs.FileInfo) (int, error) {
+	if info.Mode()&fs.ModeSymlink == 0 {
+		return copyFileIfMissing(src, dst, info)
+	}
+	if _, err := os.Lstat(dst); !errors.Is(err, os.ErrNotExist) {
+		return 0, err
+	}
+	target, err := os.Readlink(src)
+	if err != nil {
+		return 0, err
+	}
+	if err := os.Symlink(target, dst); err != nil {
+		return 0, err
+	}
+	return 1, nil
 }
 
 // mkdirTarget creates dir (perm) when missing and removes any temp file an

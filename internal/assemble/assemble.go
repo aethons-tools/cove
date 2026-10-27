@@ -104,7 +104,7 @@ func AssembleContext(buildDir string, pub []byte, egress Egress, gitlabHost stri
 // code is not — so bump Revision whenever a change here alters the assembled
 // context, or a stale image cached under an unchanged tag is reused.
 // 2: home/ and home/agent/ staged 0755 (a 0700 /home broke sshd key auth).
-// 3: sshd trusts Jam's SSH user CA (cove.conf TrustedUserCAKeys) and ships
+// 3: sshd trusts Jam's SSH user CA (TrustedUserCAKeys, in sshd_config.d/00-jam.conf since the jam rename) and ships
 // the sealed install-ssh-ca.sh helper.
 // 4: no attask/ or switchboard/ staging dirs (at-task and at-switchboard
 // deleted, jam-only slice 2).

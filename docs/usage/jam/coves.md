@@ -344,5 +344,5 @@ A restarted standing session resumes its conversation; others start fresh
 
 Design rationale (the package boundary, the Workload seam, the reconnect model,
 and the agent wrapper's lifecycle mapping) lives in
-[`../../superpowers/specs/2026-09-13-jam-studio-agent-client.md`](../../superpowers/specs/2026-09-13-jam-studio-agent-client.md)
+[`../../superpowers/specs/2026-09-13-cove-master-client.md`](../../superpowers/specs/2026-09-13-cove-master-client.md)
 and [`../../superpowers/specs/2026-09-13-cove-agent-wrapper.md`](../../superpowers/specs/2026-09-13-cove-agent-wrapper.md).

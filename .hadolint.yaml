@@ -8,11 +8,11 @@ ignored:
   # DL3007 "Using latest is prone to errors ... pin to a release tag".
   # A false positive here: our own locally-built images are referenced by a
   # `:latest`-style tag, not pulled from a registry. images/jam-studio/Dockerfile
-  # is `FROM jam-studio-base:${BASE_TAG}` (default `latest`), and
-  # internal/assemble/hardening/Dockerfile is `FROM jam-studio-base:latest` — each names
-  # an image built moments earlier in the same pipeline, while the real upstream
+  # is `FROM jam-studio-base:${BASE_TAG}` (default `latest`), which names the
+  # image built moments earlier in the same pipeline, while the real upstream
   # base (images/jam-studio-base/Dockerfile) pins `FROM ubuntu:24.04`. Nothing
-  # floating to pin.
+  # floating to pin. (internal/assemble/hardening/Dockerfile is `FROM harness`,
+  # a stage of the assembled Dockerfile; it ignores DL3006 inline.)
   - DL3007
 
   # DL3059 "Multiple consecutive RUN instructions. Consider consolidation."

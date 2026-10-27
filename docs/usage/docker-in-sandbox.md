@@ -65,7 +65,7 @@ uses), found as colima finds it: `$COLIMA_HOME`, else `~/.colima`, else
 `$XDG_CONFIG_HOME/colima`. It writes exactly the two pieces below: one provision
 hook it owns (marked `# managed by jam colima setup-docker`; re-running replaces
 it, your other hooks are kept, and a hand-written Sysbox hook from the manual steps
-below is replaced by it) and the `sysbox-runc` runtime entry. With nothing to
+below, or one it wrote before the jam rename changed that marker, is replaced by it) and the `sysbox-runc` runtime entry. With nothing to
 change the file is untouched. `--sysbox-version` (default and minimum
 `0.7.1`) picks the release. A changing run keeps comments but normalizes
 formatting, and edits a symlinked config's target. It never restarts colima.

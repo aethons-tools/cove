@@ -736,7 +736,7 @@ func jamStateDir() (string, error) {
 }
 
 // stateDir is where Jam keeps its remaining file state (relay cursors,
-// markers, receipts). It must resolve to an absolute path.
+// markers, receipts; the jam rename's studio-migration record). It must resolve to an absolute path.
 func (c serveConfig) stateDir() (string, error) {
 	dir := c.StateDir
 	if dir == "" {

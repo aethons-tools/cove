@@ -30,6 +30,10 @@ const (
 	// SSHBlockBegin and SSHBlockEnd prefix a pre-rename ~/.ssh/config block's markers.
 	SSHBlockBegin = "# >>> at-jam "
 	SSHBlockEnd   = "# <<< at-jam "
+	// JamBinary and MintBinary are the pre-rename CLI and minter binaries a
+	// credential command may still call (serve start warns).
+	JamBinary  = "at-jam"
+	MintBinary = "at-mint"
 	// BaseImageRepo is the pre-rename base image repository.
 	BaseImageRepo = "ghcr.io/aethons-tools/cove-base-image"
 	// newBaseImageRepo is its new name (basedigest.Image after Task 4).

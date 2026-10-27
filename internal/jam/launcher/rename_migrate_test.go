@@ -311,8 +311,16 @@ func TestMigrateStateVolumesNeedsALocalImage(t *testing.T) {
 	f.hasImage = map[string]bool{}
 	oa, _ := oldVols("s1")
 	f.addVol(oa, "precious", legacynames.StateLabel+"=s1", legacynames.JamLabel+"=j1")
-	_, err := migLauncher(t, f).MigrateStateVolumes(context.Background(), nil)
-	if err == nil || err.Error() != ErrNoCopyImage.Error() || !strings.Contains(err.Error(), "docker pull "+basedigest.DefaultRef()) {
+	l := New(Config{Ops: f, Runner: &runner.Fake{}, JamID: "j1", KnownHostsDir: t.TempDir(), DockerContext: "colima-jam"})
+	_, err := l.MigrateStateVolumes(context.Background(), nil)
+	want := "migration: no image on this host can copy the state volumes (nothing was moved); " +
+		"pull the jam base — docker --context colima-jam pull " + basedigest.DefaultRef() + " — and start jam serve again"
+	if err == nil || err.Error() != want || !errors.Is(err, ErrNoCopyImage) {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+	// Without a docker-context the command is docker's default context.
+	_, err = migLauncher(t, f).MigrateStateVolumes(context.Background(), nil)
+	if err == nil || !strings.Contains(err.Error(), "— docker pull "+basedigest.DefaultRef()+" —") || strings.Contains(err.Error(), "alpine") {
 		t.Fatalf("err = %v", err)
 	}
 	if len(f.vols) != 1 || f.data[oa] != "precious" {
@@ -450,5 +458,32 @@ func TestMigrateStateVolumesLogsEachCopy(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "migration: copying volume "+oa+" → "+na) || strings.Contains(logs.String(), "secret-bytes") {
 		t.Fatalf("log = %s", logs.String())
+	}
+}
+
+// The old volume cannot be removed after a verified copy: serve start fails
+// closed with the fixed text, both kept; the next start does not redo or
+// touch the completed copy.
+func TestMigrateStateVolumesFailedOldRemovalFailsClosed(t *testing.T) {
+	f := newVolFake()
+	oa, _ := oldVols("s1")
+	na, _ := newVols("s1")
+	f.addVol(oa, "precious", legacynames.StateLabel+"=s1", legacynames.JamLabel+"=j1")
+	f.rmFail[oa] = true
+	if _, err := migLauncher(t, f).MigrateStateVolumes(context.Background(), nil); err == nil || err.Error() != failedText(oa, na) {
+		t.Fatalf("err = %v, want %q", err, failedText(oa, na))
+	}
+	if f.data[oa] != "precious" || f.data[na] != "precious" {
+		t.Fatalf("both volumes must be kept: old %q new %q", f.data[oa], f.data[na])
+	}
+	if _, ok := f.vols[migrationMarker(na)]; ok {
+		t.Fatal("the marker is cleared once the copy verified")
+	}
+	f.data[na] = "used"
+	if _, err := migLauncher(t, f).MigrateStateVolumes(context.Background(), nil); err == nil || err.Error() != failedText(oa, na) {
+		t.Fatalf("retry err = %v, want %q", err, failedText(oa, na))
+	}
+	if f.data[na] != "used" || f.data[oa] != "precious" || len(f.copyImages) != 1 {
+		t.Fatalf("a completed copy is never redone: new %q old %q copies %v", f.data[na], f.data[oa], f.copyImages)
 	}
 }

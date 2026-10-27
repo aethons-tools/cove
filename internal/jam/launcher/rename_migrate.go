@@ -37,11 +37,24 @@ const (
 // migrationMarker is the marker volume of a copy into new volume nw.
 func migrationMarker(nw string) string { return nw + "-migration" }
 
-// ErrNoCopyImage is MigrateStateVolumes' error when no image that can run
-// the copy is on the host. Nothing is pulled at serve start: the operator
-// pulls one and starts again.
-var ErrNoCopyImage = errors.New("migration: no image on this host can copy the state volumes (nothing was moved); " +
-	"pull one — docker pull " + basedigest.DefaultRef() + ", or docker pull alpine:3 — and start jam serve again")
+// ErrNoCopyImage is MigrateStateVolumes' error (wrapped by noCopyImage)
+// when no image that can run the copy is on the host. Nothing is pulled at
+// serve start: the operator pulls the jam base and starts again.
+var ErrNoCopyImage = errors.New("migration: no image on this host can copy the state volumes (nothing was moved)")
+
+// noCopyImage is ErrNoCopyImage with the pull command for the jam base this
+// migration would use, on this launcher's docker context.
+func (l *Launcher) noCopyImage() error {
+	docker := "docker"
+	if l.cfg.DockerContext != "" {
+		docker += " --context " + l.cfg.DockerContext
+	}
+	return fmt.Errorf("%w; pull the jam base — %s pull %s — and start jam serve again", ErrNoCopyImage, docker, basedigest.DefaultRef())
+}
+
+// DockerContext is the docker context this launcher's docker calls are
+// pinned to (Config.DockerContext).
+func (l *Launcher) DockerContext() string { return l.cfg.DockerContext }
 
 // StudioLocation is actorID's container name: the Location Raise records.
 func (l *Launcher) StudioLocation(actorID string) string { return naming.StudioContainer(actorID) }
@@ -297,7 +310,7 @@ func (l *Launcher) copyImage() (string, error) {
 			return img, nil
 		}
 	}
-	return "", ErrNoCopyImage
+	return "", l.noCopyImage()
 }
 
 // renamedStateVolume is old's new name when old is one of id's pre-rename

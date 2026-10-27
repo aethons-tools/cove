@@ -13,7 +13,10 @@ The central service used to be called **Harbor**; it is now **Jam**. Most names 
 user, a kit or a running cove depends on keep working **for one release** as a
 **deprecated alias**: using one logs a `deprecated name` warning on stderr (once per
 process) that names the old and new name and points here. The aliases are
-**removed in a later release** — switch to the new names now.
+**removed in a later release** — switch to the new names now. Most of them
+already were, in the jam rename ([renamed-from-at.md](renamed-from-at.md)): only
+the rows below marked *Yes* still work, and the *New* column's `at-jam` names
+are now `jam` there too.
 
 | Old | New | Old name still accepted? |
 |---|---|---|

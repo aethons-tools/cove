@@ -1854,7 +1854,7 @@ func buildLauncher(cfg serveConfig, st jam.Store, sshUserCA []byte, log *slog.Lo
 	}
 	colimaLauncher := launcher.New(launcher.Config{
 		Ops: be, Runner: runner.OS{},
-		JamHost: lc.JamHost, RuntimeAddr: lc.RuntimeAddr,
+		JamHost: lc.JamHost, RuntimeAddr: lc.RuntimeAddr, DockerContext: col.Context(),
 		IdentityFile: lc.IdentityFile, KnownHostsDir: lc.KnownHostsDir,
 		DNS: lc.DNS, Docker: lc.Docker,
 		PublicKey: pub,
@@ -2039,6 +2039,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
 	}
+	warnPreRenameCredentialCommands(specs, log)
 
 	// Postgres is the only store backend (validateStorage guarantees
 	// store-postgres is set). The DB password is resolved on the host in memory and assembled into
@@ -2228,9 +2229,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// The jam rename's studio migration (docs/usage/jam/renamed-from-at.md):
 	// retire pre-rename containers and move standing sessions' state volumes
 	// before anything raises, pushes egress or installs the SSH CA (the
-	// supervisor is not built yet). Fails closed.
+	// supervisor is not built yet). Fails closed until it has completed once
+	// for this docker context (recorded in the state dir); later starts skip
+	// it, so they do not need docker reachable.
 	if built.local != nil {
-		if _, err := jam.MigrateStudioNames(context.Background(), st, built.local, log); err != nil {
+		migDir, err := cfg.stateDir()
+		if err != nil {
+			fmt.Fprintln(stderr, "jam:", err)
+			return 1
+		}
+		if err := migrateStudioNamesOnce(context.Background(), migDir, built.local.DockerContext(), st, built.local, log); err != nil {
 			fmt.Fprintln(stderr, "jam:", err)
 			return 1
 		}

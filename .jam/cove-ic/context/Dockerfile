@@ -1,7 +1,7 @@
-# jam-studio-image — FROM jam-studio-base-image + the full build/test/run toolchain.
-#
-# The base image for BOTH cove's CI job containers AND the agent sandboxes: an
-# agent must be able to build/test/run anything CI does. Adds go on top of the lean base.
+# The cove-ic studio kit — FROM the blessed jam-studio-base (JAM_STUDIO_BASE_IMAGE,
+# injected by the kit build) + the full build/test/run toolchain, as
+# images/jam-studio adds for CI: an agent must be able to build/test/run anything
+# CI does. Adds go on top of the lean base.
 # See docs/superpowers/specs/2026-07-16-shared-base-image-design.md.
 ARG JAM_STUDIO_BASE_IMAGE=scratch
 FROM ${JAM_STUDIO_BASE_IMAGE}

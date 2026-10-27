@@ -4,7 +4,7 @@ read_when: You are upgrading a Jam host or a workstation from a release whose bi
 owns: the at-/cove → jam old→new name table, the jam-rename upgrade runbook, and what the jam-rename serve-start migrations do
 prereqs: serve.md for running serve
 tier: leaf
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # Renamed from `at-*` and `cove-*` to `jam`
@@ -27,17 +27,39 @@ rebuilds once (the studio assembly changed).
    directory; delete them after step 3.
 3. **Point the service and your PATH at `jam`**: the unit's `ExecStart`
    becomes `jam serve --config …`; scripts call `jam …`; `AT_JAM_ADMIN_TOKEN`
-   becomes `JAM_ADMIN_TOKEN` (tables below).
-4. **Start serve.** Its migrations run first (next section); if one fails,
-   serve exits with the reason and changes nothing more — fix it and start
-   again (each migration is safe to rerun).
+   becomes `JAM_ADMIN_TOKEN` (tables below). In the
+   [credentials file](credentials.md), a `command:` that runs `at-mint …` (or
+   `at-jam mint …`) becomes `["jam", "mint", …]`, and its environment
+   `AT_MINT_GITHUB_APP_KEY` / `AT_MINT_AUTH0_CLIENT_SECRET` becomes
+   `JAM_MINT_GITHUB_APP_KEY` / `JAM_MINT_AUTH0_CLIENT_SECRET`
+   ([jam-mint.md](../jam-mint.md)). Serve start warns about any credential
+   command still running `at-mint` or `at-jam`, naming the credentials only:
+   `jam rename: credential commands still call at-mint or at-jam, which the
+   rename removed; …`.
+4. **Start serve** — with docker reachable (colima started) for this first
+   start. Its migrations run first (next section); if one fails, serve exits
+   with the reason and changes nothing more — fix it and start again (each
+   migration is safe to rerun). Until the studio migration has completed once,
+   every start needs docker and fails closed without it:
+   `jam rename: the studio migration must complete once before serve starts
+   (docs/usage/jam/renamed-from-at.md): …`. Once it completes, serve records
+   that in `~/.local/state/jam/rename-migrated` (the serve config's
+   `state-dir`, per docker context) and later starts skip it.
 5. **Re-raise every studio** that was running: its old container was removed
    (its agent could not reach the new Jam). Standing sessions come back by
    themselves, on their own state.
 6. **Run `jam ssh-config --write <studio>`** (or `jam ssh-config --prune`) on
    each workstation: `--write` replaces that studio's old `# >>> at-jam` block
    with a `# >>> jam` one; `--prune` removes every old block.
-7. **Log in to the admin UI again** if it asks.
+7. **Rename what you keep outside Jam**:
+   - a kit built `FROM` the old published `ghcr.io/aethons-tools/cove-image`
+     inherits its `ENV COVE_SSHENV`, which nothing reads now (its Go env stops
+     reaching sessions): rebuild it on `ghcr.io/aethons-tools/jam-studio`,
+     which sets `JAM_SSHENV`;
+   - a [kit source](kits-git.md) tracking `.at-jam/cove-ic` in this repo must
+     track `.jam/cove-ic`;
+   - the release workflow's `atcove` job is now `binaries`: update the
+     required-check names in branch protection.
 
 Hosts enrolled with a saved enroll snippet: fetch it again — it now exports
 `JAM_IDENTITY_TOKEN`.
@@ -75,11 +97,13 @@ Hosts enrolled with a saved enroll snippet: fetch it again — it now exports
     rollback recreated an old volume beside a completed copy.
 
   **No image to copy with** stops it with `migration: no image on this host
-  can copy the state volumes (nothing was moved)`: the copy runs on an image
-  already on the docker host (a retired studio's, or a blessed jam base),
-  never a pulled one. Pull the jam base the message names
-  (`docker --context <docker-context> pull ghcr.io/aethons-tools/jam-studio-base@sha256:…`)
-  and start again.
+  can copy the state volumes (nothing was moved); pull the jam base — docker
+  --context <docker-context> pull ghcr.io/aethons-tools/jam-studio-base@sha256:… —
+  and start jam serve again`.
+  The copy runs on an image already on the docker host, never a pulled one,
+  tried in order: a studio image retired this start, a blessed jam base
+  (newest first), then the pre-rename `cove-base-image` at the same blessed
+  digests. Run the command the message names and start again.
 
   `<docker-context>` is the launcher's `docker-context` (default `colima`).
 - **Other managers**: studios and standing sessions on a manager other than
@@ -115,7 +139,7 @@ Old images (`cove-kit:*`) are not deleted; remove them when you like:
 | labels `harbor.cove`, `harbor.cove.state`, `harbor.cove.jam` | `jam.studio`, `jam.studio.state`, `jam.studio.jam` |
 | containers `atcove-cove-<id>`, volumes `atcove-cove-<id>-{agent-data,workspace,docker}` | `jam-studio-<id>`, `jam-studio-<id>-…` |
 | build args `COVE_BASE_IMAGE`, `AT_JAM_STUDIO_BASE_IMAGE`, `AT_JAM_STUDIO_TARGET_ARCH`; kit `ENV COVE_SSHENV` | `JAM_STUDIO_BASE_IMAGE`, `JAM_STUDIO_TARGET_ARCH`; `ENV JAM_SSHENV` |
-| `/usr/local/lib/cove/`, `cove-egress.service` (and its `cove-egress.conf` drop-ins), `/etc/ssh/sshd_config.d/cove.conf`, `cove-git-credential.sh`, `/etc/cove/mcp-servers.json`, `/dev/shm/cove-*`, `/agent-data/cove-master.log` | `/usr/local/lib/jam/`, `jam-egress.service` (`jam-egress.conf`), `/etc/ssh/sshd_config.d/00-jam.conf`, `jam-git-credential.sh`, `/etc/jam/mcp-servers.json`, `/dev/shm/jam-*`, `/agent-data/jam-studio-agent.log` |
+| `/usr/local/lib/cove/`, `cove-egress.service` (and its `cove-egress.conf` drop-ins), `/etc/ssh/sshd_config.d/cove.conf`, `cove-git-credential.sh`, `/etc/cove/mcp-servers.json`, `/dev/shm/cove-*`, `/agent-data/cove-master.log` | `/usr/local/lib/jam/`, `jam-egress.service` (`jam-egress.conf`), `/etc/ssh/sshd_config.d/00-jam.conf`, `jam-git-credential.sh`, `/etc/jam/mcp-servers.json`, `/dev/shm/jam-*` (except `/dev/shm/cove-master-env` → `/dev/shm/jam-studio-agent-env`), `/agent-data/jam-studio-agent.log` |
 | `~/.config/at-jam`, `~/.local/state/at-jam`, `~/.config/at-cove` (launcher key) | `~/.config/jam`, `~/.local/state/jam`, `~/.config/jam` |
 | `~/.ssh/config` `# >>> at-jam <studio> >>>` | `# >>> jam <studio> >>>` |
 | release `cove_<ver>_<os>_<arch>.tar.gz` (at-cove, at-mint, at-jam) | `jam_<ver>_<os>_<arch>.tar.gz` (`jam`) |

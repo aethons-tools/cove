@@ -54,7 +54,10 @@ type Config struct {
 	// Jam sharing a docker host; default RuntimeAddr (the address coves dial
 	// this Jam at — two Jams can't share it).
 	JamID string
-	Log   *slog.Logger // nil → discard
+	// DockerContext is the docker context Ops is pinned to ("" = docker's
+	// default), named in operator-facing commands and DockerContext.
+	DockerContext string
+	Log           *slog.Logger // nil → discard
 	// SSHUserCA is Jam's SSH user-CA public key (one authorized_keys line),
 	// installed in every raised studio so its sshd accepts the short-lived
 	// certs Jam issues for human collaborators. Empty = SSH collaboration off.

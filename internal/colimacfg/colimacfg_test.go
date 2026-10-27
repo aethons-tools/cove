@@ -199,7 +199,7 @@ func TestApplyAdoptsLegacyHook(t *testing.T) {
 	}
 	var found bool
 	for _, c := range ch {
-		found = found || strings.Contains(c.What, "replaced a hand-written Sysbox provision hook with the managed one (Sysbox "+MinSysboxVersion+")")
+		found = found || strings.Contains(c.What, "replaced an unmarked Sysbox provision hook (hand-written, or written before the jam rename) with the managed one (Sysbox "+MinSysboxVersion+")")
 	}
 	if !found {
 		t.Fatalf("replacement not reported: %+v", ch)
