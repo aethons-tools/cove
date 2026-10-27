@@ -3,7 +3,6 @@ package jam
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -84,14 +83,16 @@ func TestSetupRoutesNeedOperatorAuth(t *testing.T) {
 	}
 }
 
-// ?manager= is passed to the render; an unknown manager is a 404 naming it.
+// ?manager= is validated up front: an unknown manager is a 404 naming it.
 func TestRoleSetupUnknownManager404(t *testing.T) {
-	d, _, _, img := setupFixture(t)
-	img.err = fmt.Errorf("%w: nope", ErrUnknownManager)
+	p := newPlacingFake("m0")
+	sup, store, _ := supTestKit(t, p)
+	withDefaultKit(t, sup, store)
+	d := SetupDeps{Store: store, Sup: sup, Images: checkedImages{&fakeImages{}, p}}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ts := httptest.NewServer(NewAdminHandler(d.Store, d.Sup, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, WithSetupInspect(d, log)))
 	defer ts.Close()
-	resp, err := http.Get(ts.URL + "/admin/roles/default/dev/setup?sections=seed&manager=nope")
+	resp, err := http.Get(ts.URL + "/admin/roles/default/guest/setup?sections=identity&manager=nope")
 	if err != nil {
 		t.Fatal(err)
 	}

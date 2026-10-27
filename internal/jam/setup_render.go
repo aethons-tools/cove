@@ -171,6 +171,9 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 	if !ok {
 		return StudioSetup{}, fmt.Errorf("role %s/%s: %w", orDefaultProject(project), roleName, ErrNotFound)
 	}
+	if err := d.checkManager(manager); err != nil {
+		return StudioSetup{}, err
+	}
 	out := StudioSetup{Subject: "role " + ProjectName(d.Store, orDefaultProject(project)) + "/" + r.Name}
 	wb, wbErr := d.Sup.wouldBeRaise(project, r)
 	actor := wb.actor
@@ -193,11 +196,13 @@ func RoleSetup(ctx context.Context, d SetupDeps, project, roleName string, secti
 		noKit = reasonLauncherUntagged // a role render has no recorded tag to be missing
 	}
 	if manager != "" && wbErr == nil && wb.kitErr == nil && wb.haveKit {
-		if cur, err := d.Sup.CurrentImage(project, roleName, manager); err == nil {
-			wb.imageTag = cur.Tag
-			if cur.Tag == "" {
-				noKit = reasonLauncherUntagged
-			}
+		cur, err := d.Sup.CurrentImage(project, roleName, manager)
+		if err != nil {
+			return StudioSetup{}, fmt.Errorf("role %s/%s on manager %s: %w", orDefaultProject(project), roleName, manager, err)
+		}
+		wb.imageTag = cur.Tag
+		if cur.Tag == "" {
+			noKit = reasonLauncherUntagged
 		}
 	}
 	img := imageMemo{manager: manager}
@@ -438,6 +443,25 @@ func instanceManager(inst Instance) string {
 		return LocalManager
 	}
 	return inst.Manager
+}
+
+// managerChecker is what an image reader that knows its managers offers
+// (fleet.Router).
+type managerChecker interface{ ManagerErr(name string) error }
+
+// checkManager validates a named manager up front, whether or not an image is
+// read. Without a checker only LocalManager is known.
+func (d SetupDeps) checkManager(manager string) error {
+	if manager == "" {
+		return nil
+	}
+	if c, ok := d.Images.(managerChecker); ok {
+		return c.ManagerErr(manager)
+	}
+	if manager != LocalManager {
+		return fmt.Errorf("%w: %s", ErrUnknownManager, manager)
+	}
+	return nil
 }
 
 // isManagerErr reports a named-manager failure (unknown or unavailable).

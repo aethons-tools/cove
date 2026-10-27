@@ -327,6 +327,13 @@ func (r *Router) AvailableNames() []string {
 	return names
 }
 
+// ManagerErr is nil when name is registered and available; else it wraps
+// jam.ErrUnknownManager or jam.ErrManagerUnavailable naming it.
+func (r *Router) ManagerErr(name string) error {
+	_, err := r.named(name)
+	return err
+}
+
 // DraftManagers lists the available managers that can build kit drafts, in
 // candidate order.
 func (r *Router) DraftManagers() []string {

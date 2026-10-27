@@ -630,7 +630,7 @@ func TestRoleSetupOnManager(t *testing.T) {
 		t.Fatalf("CurrentImage on m1 = %+v, %v", cur, err)
 	}
 	img := &fakeImages{facts: map[string]ImageFacts{cur.Tag: {Env: []string{"ON=m1"}}}}
-	d := SetupDeps{Store: store, Sup: sup, Images: img}
+	d := SetupDeps{Store: store, Sup: sup, Images: checkedImages{img, p}}
 	s, err := RoleSetup(context.Background(), d, "default", "guest", []string{SectionEnv}, "m1")
 	if err != nil {
 		t.Fatal(err)
@@ -648,8 +648,64 @@ func TestRoleSetupManagerErrorFailsRender(t *testing.T) {
 	p := newPlacingFake("m0")
 	sup, store, _ := supTestKit(t, p)
 	withDefaultKit(t, sup, store)
-	d := SetupDeps{Store: store, Sup: sup, Images: &fakeImages{err: fmt.Errorf("%w: nope", ErrUnknownManager)}}
-	if _, err := RoleSetup(context.Background(), d, "default", "guest", []string{SectionSeed}, "m0"); !errors.Is(err, ErrUnknownManager) {
-		t.Fatalf("err = %v, want ErrUnknownManager", err)
+	d := SetupDeps{Store: store, Sup: sup, Images: checkedImages{&fakeImages{err: fmt.Errorf("%w: m0", ErrManagerUnavailable)}, p}}
+	if _, err := RoleSetup(context.Background(), d, "default", "guest", []string{SectionSeed}, "m0"); !errors.Is(err, ErrManagerUnavailable) {
+		t.Fatalf("err = %v, want ErrManagerUnavailable", err)
+	}
+}
+
+// checkedImages is a ManagedImageReader that validates manager names against a
+// placing fake, as fleet.Router does.
+type checkedImages struct {
+	*fakeImages
+	p *placingFake
+}
+
+func (c checkedImages) ManagerErr(name string) error {
+	if !c.p.HasManager(name) {
+		return fmt.Errorf("%w: %s", ErrUnknownManager, name)
+	}
+	return nil
+}
+
+// bareLauncher cannot name its images (no ImageTagger).
+type bareLauncher struct{ Launcher }
+
+// An unregistered manager is ErrUnknownManager whether the role has a kit, has
+// none, or runs on a launcher that cannot name images; a registered one is fine.
+func TestRoleSetupUnknownManagerEveryPath(t *testing.T) {
+	ctx := context.Background()
+	p := newPlacingFake("m0")
+	imgs := checkedImages{&fakeImages{}, p}
+	// kitful
+	sup, store, _ := supTestKit(t, p)
+	withDefaultKit(t, sup, store)
+	d := SetupDeps{Store: store, Sup: sup, Images: imgs}
+	if _, err := RoleSetup(ctx, d, "default", "guest", []string{SectionSeed}, "nope"); !errors.Is(err, ErrUnknownManager) {
+		t.Errorf("kitful: %v", err)
+	}
+	if _, err := RoleSetup(ctx, d, "default", "guest", []string{SectionSeed}, "m0"); err != nil {
+		t.Errorf("kitful on m0: %v", err)
+	}
+	// kit-less
+	sup2, store2, _ := supTestKit(t, p)
+	d2 := SetupDeps{Store: store2, Sup: sup2, Images: imgs}
+	if _, err := RoleSetup(ctx, d2, "default", "guest", []string{SectionKit}, "nope"); !errors.Is(err, ErrUnknownManager) {
+		t.Errorf("kit-less: %v", err)
+	}
+	// untagged
+	sup3, store3, _ := supTestKit(t, bareLauncher{&fakeLauncher{liveness: LivenessAlive}})
+	withDefaultKit(t, sup3, store3)
+	d3 := SetupDeps{Store: store3, Sup: sup3, Images: imgs}
+	if _, err := RoleSetup(ctx, d3, "default", "guest", []string{SectionKit}, "nope"); !errors.Is(err, ErrUnknownManager) {
+		t.Errorf("untagged: %v", err)
+	}
+	// no checker: only local is known
+	d4 := SetupDeps{Store: store, Sup: sup, Images: &fakeImages{}}
+	if _, err := RoleSetup(ctx, d4, "default", "guest", []string{SectionIdentity}, "nope"); !errors.Is(err, ErrUnknownManager) {
+		t.Errorf("no checker: %v", err)
+	}
+	if _, err := RoleSetup(ctx, d4, "default", "guest", []string{SectionIdentity}, LocalManager); err != nil {
+		t.Errorf("no checker, local: %v", err)
 	}
 }

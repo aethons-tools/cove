@@ -89,3 +89,10 @@ func TestRoleInspectManagerFlag(t *testing.T) {
 		t.Errorf("query = %q, want manager=m1", got)
 	}
 }
+
+func TestStudioInspectRejectsManagerFlag(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := run([]string{"studio", "inspect", "s1", "--manager", "m1"}, func(string) string { return "" }, &out, &errb); code == 0 {
+		t.Fatalf("studio inspect --manager accepted: %s", out.String())
+	}
+}

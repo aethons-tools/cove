@@ -363,3 +363,23 @@ func TestImageFactsOnDefaultIsFirstAvailable(t *testing.T) {
 		t.Fatalf("ImageFacts: %v", err)
 	}
 }
+
+func TestRouterManagerErr(t *testing.T) {
+	up, down := newFake("up"), newFake("down")
+	down.avail.Store(false)
+	r := New(nil)
+	for _, m := range []Manager{up, down} {
+		if err := r.Add(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.ManagerErr("up"); err != nil {
+		t.Errorf("up: %v", err)
+	}
+	if err := r.ManagerErr("nope"); !errors.Is(err, jam.ErrUnknownManager) || !strings.Contains(err.Error(), "nope") {
+		t.Errorf("nope: %v", err)
+	}
+	if err := r.ManagerErr("down"); !errors.Is(err, jam.ErrManagerUnavailable) || !strings.Contains(err.Error(), "down") {
+		t.Errorf("down: %v", err)
+	}
+}
