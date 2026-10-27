@@ -201,14 +201,18 @@ func TestCutoverReapsLocalInstances(t *testing.T) {
 	m1 := newFake("m1")
 	sup, store, clk, _ := cutoverSupervisor(t, m1)
 	ctx := context.Background()
-	for _, id := range []string{"w-local", "w-legacy"} {
+	ids := []string{"w-local", "w-legacy", "w-idled-legacy", "w-idled-local"}
+	for _, id := range ids {
 		inst, _, _, err := sup.Raise(ctx, jam.RaiseSpec{ActorID: id, Role: "guest"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		inst.Manager = jam.LocalManager
-		if id == "w-legacy" {
+		if id == "w-legacy" || id == "w-idled-legacy" {
 			inst.Manager = ""
+		}
+		if id == "w-idled-legacy" || id == "w-idled-local" {
+			inst.Phase = jam.PhaseIdled
 		}
 		if err := store.PutInstance(inst); err != nil {
 			t.Fatal(err)
@@ -225,7 +229,7 @@ func TestCutoverReapsLocalInstances(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, id := range []string{"w-local", "w-legacy"} {
+	for _, id := range ids {
 		if got, ok := store.GetInstance(id); ok && got.Phase != jam.PhaseGone {
 			t.Fatalf("%s = %+v, want gone or dropped", id, got)
 		}

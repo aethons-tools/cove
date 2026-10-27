@@ -32,7 +32,7 @@
   <tbody>
     {{range .Managers}}
     <tr data-manager="{{.Name}}">
-      <td><b class="mono">{{.Name}}</b>{{if .Local}} <span class="sub">in-process</span>{{end}}</td>
+      <td><b class="mono">{{.Name}}</b></td>
       <td>{{if .Connected}}<span class="pill phase-live">connected</span>{{else}}<span class="pill phase-lost">disconnected</span>{{end}}</td>
       <td>{{if .Version}}<span class="mono">{{.Version}}</span>{{else}}<span class="none">—</span>{{end}}</td>
       <td>{{.Studios}}{{if .Capacity}}/{{.Capacity}}{{end}}</td>

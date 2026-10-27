@@ -240,18 +240,14 @@ func (h *Hub) Revoke(name string, force bool) error {
 }
 
 // Statuses lists every registered manager in Router order. Studios counts
-// non-Gone instances ("" counts as local, which is never registered).
+// non-Gone instances per recorded manager.
 func (h *Hub) Statuses() []jam.ManagerStatus {
 	counts := map[string]int{}
 	for _, inst := range h.cfg.Instances() {
 		if inst.Phase == jam.PhaseGone {
 			continue
 		}
-		m := inst.Manager
-		if m == "" {
-			m = fleet.LocalName
-		}
-		counts[m]++
+		counts[inst.Manager]++
 	}
 	names := h.cfg.Router.Names()
 	out := make([]jam.ManagerStatus, 0, len(names))

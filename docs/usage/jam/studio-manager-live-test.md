@@ -29,7 +29,7 @@ The examples use the manager name `mac-1`, the role `acme/guest` and the kit `ap
 
 1. **Jam comes up in its container.**
    `just dev-jam-up`, then `just dev-jam-logs`.
-   Expect: serve starts and logs `Jam managers`, and no launcher line. `docker compose -f dev/docker-compose.yml ps` shows `jam` running.
+   Expect: serve starts and logs `Jam studio managers: accepting connections` with `registered=0`, and no launcher line. `docker compose -f dev/docker-compose.yml ps` shows `jam` running.
    `just dev-jam manager list` prints nothing and exits 0.
 
 2. **The host CLI reaches the admin API over OIDC.**

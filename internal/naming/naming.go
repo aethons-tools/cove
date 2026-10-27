@@ -37,8 +37,8 @@ func DockerVolume(container string) string { return container + "-docker" }
 func CoveContainer(actorID string) string { return CoveContainerOn("", actorID) }
 
 // CoveContainerOn names the container on a Studio Manager: CoveContainer's
-// atcove-cove-<id> for the local manager (""), atcove.<manager>.cove-<id> for a
-// remote one, so managers sharing a docker daemon never reuse each other's
+// atcove-cove-<id> for the legacy unnamed manager (""), atcove.<manager>.cove-<id>
+// for a named one, so managers sharing a docker daemon never reuse each other's
 // state. The '.' separators keep the manager part unambiguous (manager names
 // are [a-z0-9-], never '.'), so no manager/id pair names another's container.
 func CoveContainerOn(manager, actorID string) string {

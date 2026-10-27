@@ -612,7 +612,7 @@ func TestHubStatusesCountsStudiosPerManager(t *testing.T) {
 		}
 	}
 	sts := e.hub.Statuses()
-	if len(sts) != 1 || sts[0].Name != "m1" || sts[0].Studios != 1 || sts[0].Connected || sts[0].Local {
+	if len(sts) != 1 || sts[0].Name != "m1" || sts[0].Studios != 1 || sts[0].Connected {
 		t.Fatalf("statuses = %+v", sts)
 	}
 }

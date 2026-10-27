@@ -652,7 +652,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			if r.HasKit {
 				kit = r.Kit.ID
 			}
-			fmt.Fprintf(stdout, "%s\t%s\t%s\n", firstNonEmpty(r.Manager, jam.LocalManager), kit, firstNonEmpty(r.Tag, "-")) // "" = no router: local
+			fmt.Fprintf(stdout, "%s\t%s\t%s\n", firstNonEmpty(r.Manager, jam.LocalManager), kit, firstNonEmpty(r.Tag, "-")) // "" = legacy record with no manager (the old local manager)
 		}
 	default:
 		fmt.Fprintln(stderr, "at-jam role: unknown subcommand", sub)
@@ -2491,9 +2491,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			if managerHub != nil {
 				var registered, connected int
 				for _, m := range managerHub.Statuses() {
-					if m.Local {
-						continue
-					}
 					registered++
 					if m.Connected {
 						connected++

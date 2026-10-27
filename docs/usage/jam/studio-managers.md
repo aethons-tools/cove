@@ -87,11 +87,11 @@ Remove the block, run [at-studio-manager](../studio-manager.md) next to Colima, 
 What Jam does at the cutover:
 
 - **Old studios are reaped.** Studios recorded on `local` (or on no manager, from before managers existed) have their identity revoked and their record dropped, with no call to any host.
-  Records with no manager go once their lease expires.
+  Live or idled studios whose lease Jam itself holds go on the next reconcile pass; any held under another lease go when that lease expires.
 - **Their containers keep running** on the Colima daemon until you remove them (below).
 - **Standing sessions pinned to `local` are placed fresh** on a connected manager and re-pinned there; their state is not carried over.
 
-Clean up on the Colima host, after the first start without the block:
+Clean up on the Colima host, after the first start without the block (use your old `runtime.launcher` docker-context in place of `colima` if it was not `colima`):
 
 ```console
 $ docker --context colima ps -aq --filter name=^atcove-cove- | xargs -r docker --context colima rm -f
@@ -101,3 +101,5 @@ $ docker --context colima volume ls -q --filter name=^atcove-cove-
 The first removes the old containers (a manager's own are named `atcove.<manager>.cove-<id>`, so the filter does not match them, [naming](../studio-manager.md#names-and-moving-between-managers)).
 The second lists the old state volumes: remove them (`xargs -r docker --context colima volume rm`) only if you do not want that state, since nothing reads it any more.
 Old `cove-kit:*` images the in-process launcher built can be pruned too, once no container uses them (`docker --context colima image ls 'cove-kit*'`, then `image rm`): a manager with its own identity key builds fresh ones ([image builds](../studio-manager.md#image-builds)).
+Note the listing also matches the manager's own images when it shares that daemon; removing those only costs a rebuild.
+The old `~/.config/at-cove/id_ed25519` and `known_hosts.d` are safe to delete once no old studio remains.
