@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { boot, renderApp } from "../test/render";
 import type { Conversation, MessageRow } from "../api/types";
+
+vi.mock("./BoardEditor", () => ({ default: () => <div data-testid="editor" /> }));
 
 const card: MessageRow = { from: "alice", body: "", raw: "", plain: false, at: "09:00", time: new Date(2026, 9, 26, 9, 0).toISOString(), mine: false, seq: 4,
   system: false, sysText: "", card: "board", board: { id: "brd_1", title: "Plan" } };
@@ -47,6 +49,8 @@ describe("boards in a conversation", () => {
     await user.type(await screen.findByLabelText("Title"), "Sketch");
     await user.click(screen.getByRole("button", { name: "Start" }));
     await waitFor(() => expect(created).toEqual([{ channel: "chn_a", title: "Sketch" }]));
+    expect(await screen.findByRole("link", { name: "← Back to chat" })).toHaveAttribute("href", "/app/next/c/chn_a");
+    expect(await screen.findByTestId("editor")).toBeInTheDocument();
   });
 
   it("offers New whiteboard only where the viewer may start one", async () => {
