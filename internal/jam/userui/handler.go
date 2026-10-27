@@ -73,7 +73,6 @@ type inboxPage struct {
 func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	h := newHandler(d, lg, opts...)
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /app/user/{$}", h.full)
 	mux.HandleFunc("GET /app/user/rail", h.rail)
 	mux.HandleFunc("GET /app/user/stream", h.stream)
 	mux.HandleFunc("POST /app/user/read", h.markRead)
@@ -98,6 +97,11 @@ func Handler(d Deps, lg *slog.Logger, opts ...Option) http.Handler {
 	mux.HandleFunc("POST /app/user/session/{id}/{action}", h.sessionAction)
 	h.pushRoutes(mux)
 	h.apiRoutes(mux)
+	// Every other path is the Jam app (web/app): its client routes deep-link.
+	// The routes above are more specific, so they win; webapp answers 405 to
+	// anything but GET and HEAD. (No method in the pattern: one would
+	// conflict with the method-less routes above.)
+	mux.Handle("/app/user/", h.app())
 	return mux
 }
 
@@ -129,6 +133,8 @@ type handler struct {
 	streams map[ident.ID]int
 
 	mints *mintLimiter // frame URLs minted per user (frameRoute)
+
+	frameSrc []string // the origins the app's pages may frame (WithFrameSrc)
 }
 
 // build assembles the page for the request's participant and ?c selection.

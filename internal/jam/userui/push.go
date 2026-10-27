@@ -45,6 +45,8 @@ type pushSubscriptionJSON struct {
 
 func (h *handler) pushRoutes(mux *http.ServeMux) {
 	if h.pushKey == "" {
+		// Off: 404, not the app's catch-all (its page, or 405).
+		mux.Handle("/app/user/push/", http.NotFoundHandler())
 		return
 	}
 	mux.HandleFunc("GET /app/user/push/key", h.pushKeyRoute)
@@ -52,6 +54,8 @@ func (h *handler) pushRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /app/user/push/subscriptions", h.pushUnsubscribe)
 	if h.pushFocus != nil {
 		mux.HandleFunc("POST /app/user/push/focus", h.pushFocusRoute)
+	} else {
+		mux.Handle("/app/user/push/focus", http.NotFoundHandler()) // off: not the app's catch-all
 	}
 }
 

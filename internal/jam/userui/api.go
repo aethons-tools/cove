@@ -5,7 +5,6 @@ package userui
 import (
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -32,21 +31,25 @@ func (h *handler) apiRoutes(mux *http.ServeMux) {
 	})
 }
 
-// Next serves the Jam app at /app/next/ (mount it behind the user gate):
-// webapp with this participant's bootstrap. frameSrc are the origins its
-// panes may frame (none yet: the Studio slice passes the preview origins).
-func Next(d Deps, lg *slog.Logger, frameSrc []string, opts ...Option) http.Handler {
-	h := newHandler(d, lg, opts...)
+// app serves the Jam app (web/app) for the user area's page paths: webapp,
+// with this participant's bootstrap and the app's CSP.
+func (h *handler) app() http.Handler {
 	return webapp.Handler(webapp.Config{
-		Prefix: "/app/next/", FS: uiassets.AppFS(), FrameSrc: frameSrc, Name: "the Jam app", Head: appui.HeadMeta,
+		Prefix: "/app/user/", FS: uiassets.AppFS(), FrameSrc: h.frameSrc, Name: "the Jam app", Head: appui.HeadMeta,
 		Bootstrap: func(r *http.Request) (any, error) {
 			b, ok := h.bootstrap(r)
 			if !ok {
-				return nil, errors.New("userui: no participant on the request (mount Next behind the user gate)")
+				return nil, errors.New("userui: no participant on the request (mount the handler behind the user gate)")
 			}
 			return b, nil
 		},
 	})
+}
+
+// WithFrameSrc lets the app's pages frame origins (CSP frame-src): the
+// preview hosts, when the session pane may frame them. None = 'none'.
+func WithFrameSrc(origins []string) Option {
+	return func(h *handler) { h.frameSrc = origins }
 }
 
 func (h *handler) bootstrap(r *http.Request) (Bootstrap, bool) {
@@ -67,11 +70,7 @@ func (h *handler) bootstrap(r *http.Request) (Bootstrap, bool) {
 		b.Admin = pr.Admin
 	}
 	for _, t := range tb.Tabs {
-		href := t.Href
-		if t.Key == "inbox" {
-			href = "/app/next/" // the app's own Inbox while it lives here
-		}
-		b.Tabs = append(b.Tabs, NavTab{Key: t.Key, Label: t.Label, Href: href, Badge: t.Badge.N, BadgeRed: t.Badge.Red, BadgeTitle: t.Badge.Title})
+		b.Tabs = append(b.Tabs, NavTab{Key: t.Key, Label: t.Label, Href: t.Href, Badge: t.Badge.N, BadgeRed: t.Badge.Red, BadgeTitle: t.Badge.Title})
 	}
 	return b, true
 }

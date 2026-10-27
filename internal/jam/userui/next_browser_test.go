@@ -81,25 +81,21 @@ func TestBrowserNextAppShowsRail(t *testing.T) {
 	}
 	ctx := browserCtx(t)
 	e, p := fixture()
-	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	api := Handler(e.Deps, nil)
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
-		if strings.HasPrefix(r.URL.Path, "/app/next/") {
-			app.ServeHTTP(w, r)
-			return
-		}
 		api.ServeHTTP(w, r)
 	}))
 	t.Cleanup(srv.Close)
 
 	var problems pageProblems
-	rail := chromedp.CSS(`a[href="/app/next/c/` + engID + `"]`)
+	rail := chromedp.CSS(`a[href="/app/user/c/` + engID + `"]`)
 	var label string
 	err := chromedp.Do(ctx,
 		problems.watch(ctx),
 		call(cdplog.Enable, cdp.Empty{}),
 		call(runtime.Enable, cdp.Empty{}),
-		chromedp.Navigate(srv.URL+"/app/next/c/"+engID),
+		chromedp.Navigate(srv.URL+"/app/user/c/"+engID),
 		chromedp.WaitVisible(rail),
 		into(&label, chromedp.Text(rail)),
 		chromedp.WaitVisible(chromedp.CSS(`h2`)), // the conversation opened from the deep link
@@ -155,13 +151,9 @@ func TestBrowserNextConversation(t *testing.T) {
 	}
 	e.post(p.UserID, "```\ngo test ./...\n```\n<img src=x onerror=\"window.__pwned=1\"> <script>window.__pwned=2</script>", "")
 	changes := &testChanges{}
-	api, app := Handler(e.Deps, nil, WithChanges(changes)), Next(e.Deps, nil, nil)
+	api := Handler(e.Deps, nil, WithChanges(changes))
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
-		if strings.HasPrefix(r.URL.Path, "/app/next/") {
-			app.ServeHTTP(w, r)
-			return
-		}
 		api.ServeHTTP(w, r)
 	}))
 	// The open events stream would hold srv.Close until it times out.
@@ -174,7 +166,7 @@ func TestBrowserNextConversation(t *testing.T) {
 		problems.watch(ctx),
 		call(cdplog.Enable, cdp.Empty{}),
 		call(runtime.Enable, cdp.Empty{}),
-		chromedp.Navigate(srv.URL+"/app/next/c/"+engID),
+		chromedp.Navigate(srv.URL+"/app/user/c/"+engID),
 		chromedp.WaitVisible(chromedp.CSS(`button[aria-label="Copy code"]`)),
 		into(&codeButtons, chromedp.Evaluate[int](`document.querySelectorAll('button[aria-label="Copy code"]').length`)),
 		into(&pwned, chromedp.Evaluate[bool](`!!window.__pwned || !!document.querySelector('[data-seq] img[onerror], [data-seq] script')`)),
@@ -227,13 +219,9 @@ func TestBrowserNextComposerSends(t *testing.T) {
 	e, p := fixture()
 	e.Send = jam.NewParticipantSendHandler(e.st, e.Intercom, nil)
 	changes := &testChanges{}
-	api, app := Handler(e.Deps, nil, WithChanges(changes)), Next(e.Deps, nil, nil)
+	api := Handler(e.Deps, nil, WithChanges(changes))
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
-		if strings.HasPrefix(r.URL.Path, "/app/next/") {
-			app.ServeHTTP(w, r)
-			return
-		}
 		api.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
@@ -245,7 +233,7 @@ func TestBrowserNextComposerSends(t *testing.T) {
 		problems.watch(ctx),
 		call(cdplog.Enable, cdp.Empty{}),
 		call(runtime.Enable, cdp.Empty{}),
-		chromedp.Navigate(srv.URL+"/app/next/c/"+engID),
+		chromedp.Navigate(srv.URL+"/app/user/c/"+engID),
 		chromedp.WaitVisible(box),
 		chromedp.SendKeys(box, "sent from the app"),
 		chromedp.KeyEvent("\r", chromedp.KeyModifiers(chromedp.ModifierCtrl)),
@@ -300,13 +288,9 @@ func TestBrowserNextAnswersAnAsk(t *testing.T) {
 	e, p := fixture()
 	m := e.ask(intercom.AskEvent{Question: "Merge PR #12?", Options: yesNoOpts})
 	changes := &testChanges{}
-	api, app := Handler(e.Deps, nil, WithChanges(changes)), Next(e.Deps, nil, nil)
+	api := Handler(e.Deps, nil, WithChanges(changes))
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
-		if strings.HasPrefix(r.URL.Path, "/app/next/") {
-			app.ServeHTTP(w, r)
-			return
-		}
 		api.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
@@ -318,7 +302,7 @@ func TestBrowserNextAnswersAnAsk(t *testing.T) {
 		problems.watch(ctx),
 		call(cdplog.Enable, cdp.Empty{}),
 		call(runtime.Enable, cdp.Empty{}),
-		chromedp.Navigate(srv.URL+"/app/next/c/"+engID),
+		chromedp.Navigate(srv.URL+"/app/user/c/"+engID),
 		chromedp.WaitVisible(hold),
 		chromedp.Click(hold),
 		chromedp.WaitVisible(chromedp.CSS(`#ask-`+m.ID+` b`)),
@@ -347,13 +331,9 @@ func TestBrowserNextSessionPane(t *testing.T) {
 	}
 	ctx := browserCtx(t)
 	e, p, personal, standing, _ := sessionEnv(t)
-	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	api := Handler(e.Deps, nil)
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = asPrincipal(r, p, false)
-		if strings.HasPrefix(r.URL.Path, "/app/next/") {
-			app.ServeHTTP(w, r)
-			return
-		}
 		api.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
@@ -381,7 +361,7 @@ func TestBrowserNextSessionPane(t *testing.T) {
 		call(cdplog.Enable, cdp.Empty{}),
 		call(runtime.Enable, cdp.Empty{}),
 		chromedp.EmulateViewport(1400, 900),
-		chromedp.Navigate(srv.URL+"/app/next/c/"+e.homeOf(t, personal)),
+		chromedp.Navigate(srv.URL+"/app/user/c/"+e.homeOf(t, personal)),
 		chromedp.WaitVisible(tab),
 		chromedp.Click(tab),
 		waitBody("Turns"),
@@ -406,7 +386,7 @@ func TestBrowserNextSessionPane(t *testing.T) {
 		t.Fatalf("after ⇄: %+v", l)
 	}
 	// A session never opened starts from that layout.
-	if err := chromedp.Do(ctx, chromedp.Navigate(srv.URL+"/app/next/c/"+e.homeOf(t, standing)), waitBody("Up"), read); err != nil {
+	if err := chromedp.Do(ctx, chromedp.Navigate(srv.URL+"/app/user/c/"+e.homeOf(t, standing)), waitBody("Up"), read); err != nil {
 		t.Fatal(err)
 	}
 	if !l.Open || l.Place != "below" {
@@ -444,13 +424,9 @@ func TestBrowserNextThinking(t *testing.T) {
 	add(6, assistantBlock(map[string]any{"type": "tool_use", "id": "tu1", "name": "Bash", "input": map[string]any{"command": "go test ./..."}}), sessionevents.Index{Type: "assistant", ToolName: "Bash"}, 2*time.Second)
 	add(7, toolResultBlock("tu1", "ok  \tpkg\t0.1s", false), sessionevents.Index{Type: "user", ToolName: "Bash"}, 5100*time.Millisecond)
 
-	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	api := Handler(e.Deps, nil)
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = asPrincipal(r, p, false)
-		if strings.HasPrefix(r.URL.Path, "/app/next/") {
-			app.ServeHTTP(w, r)
-			return
-		}
 		api.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
@@ -466,7 +442,7 @@ func TestBrowserNextThinking(t *testing.T) {
 		call(cdplog.Enable, cdp.Empty{}),
 		call(runtime.Enable, cdp.Empty{}),
 		chromedp.EmulateViewport(1400, 900),
-		chromedp.Navigate(srv.URL+"/app/next/c/"+e.homeOf(t, personal)+"?tab=thinking"),
+		chromedp.Navigate(srv.URL+"/app/user/c/"+e.homeOf(t, personal)+"?tab=thinking"),
 		has(`!!document.querySelector('[role="log"][aria-label="Session events"]') && `+text+`.includes('go test')`),
 		into(&status, chromedp.Text(chromedp.CSS(`[data-kind="tool_call"] .te-status`))),
 		into(&title, chromedp.Evaluate[string](`document.title`)),
@@ -525,13 +501,9 @@ func thinkingApp(t *testing.T, n, lines int) (*env, string, *httptest.Server, fu
 		}
 		hub.Publish(ev)
 	}
-	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	api := Handler(e.Deps, nil)
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = asPrincipal(r, p, false)
-		if strings.HasPrefix(r.URL.Path, "/app/next/") {
-			app.ServeHTTP(w, r)
-			return
-		}
 		api.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
@@ -552,7 +524,7 @@ func TestBrowserNextThinkingFollowsBursts(t *testing.T) {
 		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
 	}
 	if err := chromedp.Do(ctx, chromedp.EmulateViewport(1400, 700),
-		chromedp.Navigate(srv.URL+"/app/next/c/"+home+"?tab=thinking"),
+		chromedp.Navigate(srv.URL+"/app/user/c/"+home+"?tab=thinking"),
 		has(`!!`+thinkingListJS+` && `+thinkingListJS+`.textContent.includes('event 60 line 0')`),
 		chromedp.Sleep(300*time.Millisecond)); err != nil {
 		t.Fatal(err)
@@ -604,7 +576,7 @@ func TestBrowserNextThinkingEarlierKeepsPlace(t *testing.T) {
 	has := func(js string) step {
 		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
 	}
-	url := srv.URL + "/app/next/c/" + home + "?tab=thinking"
+	url := srv.URL + "/app/user/c/" + home + "?tab=thinking"
 	// The row's offset from the top of the list.
 	at := func(seq int) string {
 		return fmt.Sprintf(`(function(){var L=%s, r=L.querySelector('[data-testid="te"][data-seq="%d"]'); return r ? Math.round(r.getBoundingClientRect().top-L.getBoundingClientRect().top) : -9999;})()`, thinkingListJS, seq)
@@ -645,13 +617,9 @@ func TestBrowserNextStudio(t *testing.T) {
 	t.Cleanup(pv.Close)
 	ff := &studioFrames{base: pv.URL, n: map[string]int{}, next: map[string][]string{}}
 	e.Deps.Frames = ff
-	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, []string{pv.URL})
+	api := Handler(e.Deps, nil, WithFrameSrc([]string{pv.URL}))
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = asPrincipal(r, p, false)
-		if strings.HasPrefix(r.URL.Path, "/app/next/") {
-			app.ServeHTTP(w, r)
-			return
-		}
 		api.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
@@ -666,7 +634,7 @@ func TestBrowserNextStudio(t *testing.T) {
 		call(cdplog.Enable, cdp.Empty{}),
 		call(runtime.Enable, cdp.Empty{}),
 		chromedp.EmulateViewport(1400, 900),
-		chromedp.Navigate(srv.URL+"/app/next/c/"+e.homeOf(t, personal)),
+		chromedp.Navigate(srv.URL+"/app/user/c/"+e.homeOf(t, personal)),
 		chromedp.Click(chromedp.CSS(`[role="tab"][data-tab="studio"]`)),
 		has(`!!document.querySelector('#studio iframe.st-iframe') && `+st+`===''`), // loaded
 		chromedp.Evaluate[chromedp.Void](`window.postMessage({jam:'frame-error',status:403},'*')`),
@@ -713,13 +681,9 @@ func TestBrowserNextBoard(t *testing.T) {
 	if _, _, err := e.Deps.Boards.Apply(e.alice.ID, b.ID, []jam.BoardOp{{Op: "add", Type: "ellipse", ID: "first", Text: "hello"}}); err != nil {
 		t.Fatal(err)
 	}
-	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	api := Handler(e.Deps, nil)
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
-		if strings.HasPrefix(r.URL.Path, "/app/next/") {
-			app.ServeHTTP(w, r)
-			return
-		}
 		api.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
@@ -735,7 +699,7 @@ func TestBrowserNextBoard(t *testing.T) {
 		call(cdplog.Enable, cdp.Empty{}),
 		call(runtime.Enable, cdp.Empty{}),
 		chromedp.EmulateViewport(1400, 1000),
-		chromedp.Navigate(srv.URL+"/app/next/boards/"+string(b.ID)),
+		chromedp.Navigate(srv.URL+"/app/user/boards/"+string(b.ID)),
 		chromedp.WaitVisible(chromedp.CSS(`.excalidraw canvas`)),
 		chromedp.Poll[chromedp.Void](`!!document.querySelector('[data-board-editor]') && document.querySelector('[data-board-editor]').jamElementCount() >= 2`, chromedp.WithPollingTimeout(5*time.Second)),
 		chromedp.Click(chromedp.CSS(`[data-testid="toolbar-rectangle"]`)),
@@ -747,7 +711,7 @@ func TestBrowserNextBoard(t *testing.T) {
 		chromedp.Sleep(800*time.Millisecond),
 		into(&f, chromedp.Evaluate[fonts](`(async function(){ await document.fonts.ready;
 			var r = performance.getEntriesByType('resource').map(function(e){ return e.name; });
-			return {local: r.some(function(n){ return n.indexOf(location.origin + '/app/next/assets/excalidraw/fonts/') === 0; }),
+			return {local: r.some(function(n){ return n.indexOf(location.origin + '/app/user/assets/excalidraw/fonts/') === 0; }),
 				foreign: r.filter(function(n){ return n.indexOf(location.origin) !== 0; })}; })()`, chromedp.EvalAwaitPromise)),
 	)
 	if err != nil {
@@ -794,19 +758,15 @@ func TestBrowserNextBoardFlushesOnLeave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	api := Handler(e.Deps, nil)
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
-		if strings.HasPrefix(r.URL.Path, "/app/next/") {
-			app.ServeHTTP(w, r)
-			return
-		}
 		api.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
 	err = chromedp.Do(ctx,
 		chromedp.EmulateViewport(1400, 1000),
-		chromedp.Navigate(srv.URL+"/app/next/boards/"+string(b.ID)),
+		chromedp.Navigate(srv.URL+"/app/user/boards/"+string(b.ID)),
 		chromedp.WaitVisible(chromedp.CSS(`.excalidraw canvas`)),
 		chromedp.Click(chromedp.CSS(`[data-testid="toolbar-rectangle"]`)),
 		chromedp.MouseEvent(chromedp.MouseMoved, 700, 450),
@@ -849,13 +809,9 @@ func TestBrowserNextPush(t *testing.T) {
 	e, p := fixture()
 	focus := push.NewFocus(time.Now)
 	opts := []Option{WithPush("BAAAAAAAAAAAAAA"), WithPushFocus(focus)}
-	api, app := Handler(e.Deps, nil, opts...), Next(e.Deps, nil, nil, opts...)
+	api := Handler(e.Deps, nil, opts...)
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
-		if strings.HasPrefix(r.URL.Path, "/app/next/") {
-			app.ServeHTTP(w, r)
-			return
-		}
 		api.ServeHTTP(w, r)
 	}))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
@@ -870,7 +826,7 @@ func TestBrowserNextPush(t *testing.T) {
 		call(cdplog.Enable, cdp.Empty{}),
 		call(runtime.Enable, cdp.Empty{}),
 		onNewDocument(pushStub),
-		chromedp.Navigate(srv.URL+"/app/next/c/"+engID),
+		chromedp.Navigate(srv.URL+"/app/user/c/"+engID),
 		chromedp.WaitVisible(chromedp.CSS(`h2`)),
 		into(&manifest, chromedp.Evaluate[string](`(document.querySelector('link[rel="manifest"]')||{}).href||''`)),
 		into(&swScope, chromedp.Evaluate[string](`navigator.serviceWorker.ready.then(function(r){ return r.scope; })`, chromedp.EvalAwaitPromise)),

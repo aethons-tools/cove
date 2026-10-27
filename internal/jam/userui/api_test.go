@@ -150,8 +150,8 @@ func TestAPIBootstrap(t *testing.T) {
 	if b.PushKey != "vapid-key" || b.Admin || b.Boards || b.AttachMax != 0 {
 		t.Errorf("bootstrap = %+v", b)
 	}
-	if len(b.Tabs) != 1 || b.Tabs[0].Key != "inbox" || b.Tabs[0].Href != "/app/next/" {
-		t.Errorf("tabs = %+v, want the Inbox pointing at /app/next/", b.Tabs)
+	if len(b.Tabs) != 1 || b.Tabs[0].Key != "inbox" || b.Tabs[0].Href != "/app/user/" {
+		t.Errorf("tabs = %+v, want the Inbox at /app/user/", b.Tabs)
 	}
 	if b.PushFocus {
 		t.Error("pushFocus without WithPushFocus")
@@ -169,23 +169,41 @@ func TestAPIBootstrap(t *testing.T) {
 	}
 }
 
-func TestNextServesTheAppWithBootstrap(t *testing.T) {
+// The user area serves the Jam app at every page path, and every kept route
+// still answers itself (none is shadowed by the app's catch-all).
+func TestUserAreaServesTheApp(t *testing.T) {
 	e, p := fixture()
-	h := Next(e.Deps, nil, nil)
-	rec := apiGet(t, h, &p, "/app/next/c/"+engID)
-	// Without a built bundle, 503 (webapp's not-built page); with one, the
-	// index carrying alice's bootstrap. Either way, never a 404.
-	switch rec.Code {
-	case 503:
-	case 200:
-		if !strings.Contains(rec.Body.String(), `"name":"alice"`) {
-			t.Errorf("index lacks alice's bootstrap: %s", rec.Body)
+	h := Handler(e.Deps, nil, WithPush("k"))
+	for _, path := range []string{"/app/user/", "/app/user/c/" + engID, "/app/user/boards/brd_x", "/app/user/new"} {
+		rec := apiGet(t, h, &p, path)
+		switch {
+		case rec.Code == 503: // the bundle isn't built: webapp's not-built page
+		case rec.Code == 200 && strings.Contains(rec.Body.String(), `"name":"alice"`) && strings.Contains(rec.Header().Get("Content-Security-Policy"), "script-src 'self'"):
+			// The app head (manifest, icons), never an inline registration.
+			if !strings.Contains(rec.Body.String(), `rel="manifest"`) || strings.Contains(rec.Body.String(), "serviceWorker.register") {
+				t.Errorf("GET %s head: %s", path, rec.Body)
+			}
+		default:
+			t.Errorf("GET %s = %d %v", path, rec.Code, rec.Header())
 		}
-		// The app head (manifest, icons), never the inline registration.
-		if !strings.Contains(rec.Body.String(), `rel="manifest"`) || strings.Contains(rec.Body.String(), "serviceWorker.register") {
-			t.Errorf("index head: %s", rec.Body)
+	}
+	for _, tc := range []struct {
+		method, path string
+		code         int
+		ctype        string
+	}{
+		{"GET", "/app/user/api/rail", 200, "application/json"},
+		{"GET", "/app/user/api/nope", 404, "application/json"},
+		{"GET", "/app/user/push/key", 200, "application/json"},
+		{"GET", "/app/user/blobs/blb_01j9q3zzzzzzzzzzzzzzzzzz", 503, ""}, // no attachment store here
+		{"POST", "/app/user/c/x", 405, ""},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req = appui.WithPrincipal(jam.WithParticipant(req, p), appui.Principal{User: &p})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != tc.code || (tc.ctype != "" && !strings.HasPrefix(rec.Header().Get("Content-Type"), tc.ctype)) || strings.Contains(rec.Body.String(), `id="jam-bootstrap"`) {
+			t.Errorf("%s %s = %d %q (want %d %s, not the app's page)", tc.method, tc.path, rec.Code, rec.Header().Get("Content-Type"), tc.code, tc.ctype)
 		}
-	default:
-		t.Errorf("GET /app/next/c/… = %d", rec.Code)
 	}
 }

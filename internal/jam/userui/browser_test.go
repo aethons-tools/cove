@@ -900,7 +900,7 @@ func TestBrowserServiceWorkerNotice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `["bob · eng","hello","chn_1",true,1,"2 new messages · latest: again",2,"/app/user/?c=chn_1"]`
+	want := `["bob · eng","hello","chn_1",true,1,"2 new messages · latest: again",2,"/app/user/c/chn_1"]`
 	if got != want {
 		t.Errorf("notice = %s\nwant     %s", got, want)
 	}
@@ -942,10 +942,10 @@ func TestBrowserServiceWorkerRobust(t *testing.T) {
 	}
 }
 
-// A notification click reuses an open Jam app window (/app/next/), opening
-// the conversation there; with only an old Inbox window, that one; never an
-// admin window; a new window opens the old Inbox (until the cutover).
-func TestBrowserServiceWorkerAppWindow(t *testing.T) {
+// A notification click reuses an open Jam app window (/app/user/, or a tab
+// still on its pre-cutover /app/next/), opening the conversation there;
+// never an admin window.
+func TestBrowserServiceWorkerClickWindow(t *testing.T) {
 	ctx := browserCtx(t)
 	m := appui.Handler(appui.Deps{Gate: appui.NewGate(appui.GateConfig{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})})
 	srv := httptest.NewServer(m)
@@ -958,17 +958,17 @@ func TestBrowserServiceWorkerAppWindow(t *testing.T) {
   var o = 'https://jam.example';
   return JSON.stringify([
     jamPickClient([o + '/app/admin/', o + '/app/next/c/x', o + '/app/user/']),
-    jamPickClient([o + '/app/admin/', o + '/app/user/']),
-    jamArea(o + '/app/next/c/x'), jamArea(o + '/app/user/'), jamArea('not a url'),
-    jamTarget('chn_1', 'next'), jamTarget('', 'next'), jamTarget('chn_1', 'user'), jamTarget('chn_1')]);
+    jamPickClient([o + '/app/admin/', o + '/app/user/c/y']),
+    jamPickClient([o + '/app/admin/']),
+    jamTarget('chn_1'), jamTarget('')]);
 })`, chromedp.EvalAwaitPromise)),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `[1,1,"next","user","user","/app/next/c/chn_1","/app/next/","/app/user/?c=chn_1","/app/user/?c=chn_1"]`
+	want := `[1,1,-1,"/app/user/c/chn_1","/app/user/"]`
 	if got != want {
-		t.Errorf("app window = %s\nwant          %s", got, want)
+		t.Errorf("click window = %s\nwant            %s", got, want)
 	}
 }
 

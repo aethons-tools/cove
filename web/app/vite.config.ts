@@ -16,7 +16,7 @@ const toJam: ProxyOptions = {
 };
 
 export default defineConfig({
-  base: "/app/next/",
+  base: "/app/user/",
   plugins: [react(), excalidrawFonts()],
   build: {
     outDir: process.env.APP_OUT_DIR ?? "dist",

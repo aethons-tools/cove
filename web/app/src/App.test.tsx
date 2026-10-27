@@ -23,7 +23,7 @@ describe("the app shell", () => {
     expect(screen.getByText("eng")).toBeInTheDocument();
     expect(screen.getByText("SPA slice 1")).toBeInTheDocument();
     expect(screen.getByLabelText("2 unread")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /eng/ })).toHaveAttribute("href", "/app/next/c/chn_b");
+    expect(screen.getByRole("link", { name: /eng/ })).toHaveAttribute("href", "/app/user/c/chn_b");
   });
 
   it("shows an empty state for a member with no channels", async () => {
@@ -38,7 +38,7 @@ describe("the app shell", () => {
     expect(await screen.findByText("Your sign-in has expired.")).toBeInTheDocument();
     // Back through the gate at the same page: it sends a login redirect with
     // return_to, or its own "Sign in again" (via logout) when only one token expired.
-    expect(screen.getByRole("link", { name: "Sign in again" })).toHaveAttribute("href", "/app/next/");
+    expect(screen.getByRole("link", { name: "Sign in again" })).toHaveAttribute("href", "/app/user/");
   });
 
   it("offers admin tabs and sign out from the bootstrap", async () => {

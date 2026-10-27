@@ -315,7 +315,7 @@ func paneFramingOn(c *serveConfig) bool {
 	return c.Previews != nil && len(c.UIOrigins) > 0
 }
 
-// appFrameSrc is the Jam app page's CSP frame-src (userui.Next): the preview
+// appFrameSrc is the Jam app page's CSP frame-src (userui.WithFrameSrc): the preview
 // hosts, any name under the domain on the admin port, when the pane may
 // frame them; none otherwise.
 func appFrameSrc(c *serveConfig) []string {

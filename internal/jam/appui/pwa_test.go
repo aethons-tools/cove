@@ -94,13 +94,13 @@ func TestServiceWorker(t *testing.T) {
 	for _, want := range []string{"skipWaiting", "clients.claim",
 		// Push display and click-through (spec §8).
 		"addEventListener('push'", "addEventListener('notificationclick'", "setAppBadge", "tag:",
-		"renotify: true", "/app/user/?c=", "/app/static/icons/icon-192.png", "/app/static/icons/favicon-32.png",
+		"renotify: true", "/app/user/c/", "/app/static/icons/icon-192.png", "/app/static/icons/favicon-32.png",
 		"getNotifications", "new messages", " · latest: ", "clients.openWindow", "matchAll",
 		// Robustness: any payload shape, any failure still shows something;
 		// a click only reuses an /app/user/ window.
 		"jamPayload(", "jamFallback(", "'New message'", "catch (_)", "jamPickClient(", "'/app/user/'",
-		// A click opens the Jam app when an app window is open.
-		"'/app/next/'", "jamArea("} {
+		// A tab still on the app's pre-cutover home counts as an app window.
+		"'/app/next/'"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("sw.js missing %q", want)
 		}

@@ -2,6 +2,7 @@ import { Stack, Text, Title } from "@mantine/core";
 import { useNavigate, useSearchParams } from "react-router";
 import { useBoot } from "../BootContext";
 import { Composer } from "../composer/Composer";
+import { APP } from "../paths";
 
 // NewMessage starts a conversation with ?to=; the first send lands in it.
 export function NewMessage() {
@@ -18,7 +19,7 @@ export function NewMessage() {
       </div>
       <Text c="dimmed" flex={1} p="md">New conversation with {label}.</Text>
       <Composer key={to} to={to} label={label} attachMax={boot.attachMax}
-        onSent={(s) => nav(`/app/next/c/${encodeURIComponent(s.channel)}`, { replace: true })} />
+        onSent={(s) => nav(`${APP}c/${encodeURIComponent(s.channel)}`, { replace: true })} />
     </Stack>
   );
 }
