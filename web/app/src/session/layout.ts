@@ -1,5 +1,5 @@
-// The session pane's layout, stored as the old Inbox stores it (layout.html's
-// mePaneLoad/mePaneSave), so both UIs share it: localStorage
+// The session pane's layout, under the old Inbox's keys (so a layout saved
+// there carries over): localStorage
 // "jam-pane:<session>" and "jam-pane:last" (the layout a session never
 // opened starts from) hold {tab, place, w, h}.
 

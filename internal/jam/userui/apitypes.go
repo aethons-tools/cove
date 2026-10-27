@@ -129,7 +129,7 @@ type Conversation struct {
 	Project   string          `json:"project"`
 	Phase     string          `json:"phase"`
 	NeedsYou  bool            `json:"needsYou"`
-	SendTo    string          `json:"sendTo"` // what the composer POSTs to /app/user/send ("" = read-only History)
+	SendTo    string          `json:"sendTo"` // the composer's POST api/messages "to" ("" = read-only History)
 	Messages  []MessageRow    `json:"messages"`
 	LastSeq   int64           `json:"lastSeq"`
 	// Earlier: the API page has older messages before its first (GET
@@ -155,7 +155,7 @@ type Conversation struct {
 
 // NewMessageOption is one recipient offered in the New Message picker.
 type NewMessageOption struct {
-	To      string `json:"to"` // what to POST to /app/user/send: user:<id>, session:<id>, or a channel id
+	To      string `json:"to"` // POST api/messages' "to": user:<id>, session:<id>, or a channel id
 	Label   string `json:"label"`
 	Kind    string `json:"kind"`
 	Project string `json:"project"`

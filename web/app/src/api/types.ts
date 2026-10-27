@@ -141,7 +141,7 @@ export interface Conversation {
   project: string;
   phase: string;
   needsYou: boolean;
-  sendTo: string; // what the composer POSTs to /app/user/send ("" = read-only History)
+  sendTo: string; // the composer's POST api/messages "to" ("" = read-only History)
   messages: MessageRow[];
   lastSeq: number /* int64 */;
   /**
@@ -178,7 +178,7 @@ export interface Conversation {
  * NewMessageOption is one recipient offered in the New Message picker.
  */
 export interface NewMessageOption {
-  to: string; // what to POST to /app/user/send: user:<id>, session:<id>, or a channel id
+  to: string; // POST api/messages' "to": user:<id>, session:<id>, or a channel id
   label: string;
   kind: string;
   project: string;
