@@ -38,6 +38,7 @@ import (
 	"github.com/aethons-tools/cove/internal/backend/colima"
 	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/cli"
+	"github.com/aethons-tools/cove/internal/colimacmd"
 	"github.com/aethons-tools/cove/internal/discord"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
@@ -120,7 +121,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
 			{Name: "context", Brief: "show, set or clear authored session context for a role, project or the Jam (show|set|clear) via the admin API; applied at the next raise", Run: cmdContext},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
-			{Name: "colima", Brief: "set up the host colima VM for docker:true kits (setup-docker|check-docker) — edits the colima config, no admin API", Run: cmdColima(getenv, runner.OS{})},
+			{Name: "colima", Brief: "set up the host colima VM for docker:true kits (setup-docker|check-docker) — edits the colima config, no admin API", Run: colimacmd.Command("at-jam", getenv, runner.OS{})},
 			{Name: "push", Brief: "push notification helpers (keygen: print a fresh VAPID key pair)", Run: func(args []string, _ cli.Globals, stdout, stderr io.Writer) int { return cmdPush(args, stdout, stderr) }},
 			{Name: "ssh-config", Brief: "print (or --write into ~/.ssh/config) a Host jam-<studio> block for SSH into a studio, fetching its certificate", Run: cmdSSHConfig},
 			{Name: "ssh-proxy", Brief: "the ssh ProxyCommand: renew the studio's SSH certificate when under 1 h remains, then tunnel stdio through Jam (OpenSSH reads the certificate before running it, so a renewal applies from the next connection)", Run: cmdSSHProxy},

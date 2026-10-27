@@ -274,3 +274,8 @@ func set(m *yaml.Node, key string, v *yaml.Node) {
 func setScalar(m *yaml.Node, key, v string) {
 	set(m, key, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v})
 }
+
+var dockerContextRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.+-]*$`)
+
+// ValidDockerContext reports whether name satisfies docker's own context-name rule.
+func ValidDockerContext(name string) bool { return dockerContextRe.MatchString(name) }
