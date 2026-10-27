@@ -20,7 +20,7 @@ func WithPush(publicKey string) Option {
 	return func(h *handler) { h.pushKey = publicKey }
 }
 
-// WithPushFocus enables POST /app/user/push/focus, where the Inbox reports
+// WithPushFocus enables POST /app/user/push/focus, where the app reports
 // the conversation it has open and focused, so f suppresses pushes for it.
 // It takes effect only with WithPush; nil leaves it off.
 func WithPushFocus(f *push.Focus) Option {
@@ -45,6 +45,8 @@ type pushSubscriptionJSON struct {
 
 func (h *handler) pushRoutes(mux *http.ServeMux) {
 	if h.pushKey == "" {
+		// Off: 404, not the app's catch-all (its page, or 405).
+		mux.Handle("/app/user/push/", http.NotFoundHandler())
 		return
 	}
 	mux.HandleFunc("GET /app/user/push/key", h.pushKeyRoute)
@@ -52,6 +54,8 @@ func (h *handler) pushRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /app/user/push/subscriptions", h.pushUnsubscribe)
 	if h.pushFocus != nil {
 		mux.HandleFunc("POST /app/user/push/focus", h.pushFocusRoute)
+	} else {
+		mux.Handle("/app/user/push/focus", http.NotFoundHandler()) // off: not the app's catch-all
 	}
 }
 

@@ -37,7 +37,7 @@ describe("useThinkingFeed", () => {
     vi.stubGlobal("EventSource", FakeES);
     render(<Probe />);
     const es = FakeES.last;
-    expect(es.url).toBe("/app/user/session/ses_1/thinking/events?format=json");
+    expect(es.url).toBe("/app/user/session/ses_1/thinking/events");
     act(() => {
       es.emit("stream", "s1");
       es.emit("ev", JSON.stringify(tev(4)));
@@ -58,7 +58,7 @@ describe("useThinkingFeed", () => {
     act(() => first.emit("newstream", "s2"));
     expect(first.closed).toBe(true);
     expect(FakeES.all).toHaveLength(2);
-    expect(FakeES.last.url).toBe("/app/user/session/ses_1/thinking/events?format=json");
+    expect(FakeES.last.url).toBe("/app/user/session/ses_1/thinking/events");
     act(() => { FakeES.last.emit("stream", "s2"); FakeES.last.emit("ev", JSON.stringify(tev(1, { stream: "s2" }))); });
     expect(seqs()).toEqual(["s1:1", "restart", "s2:1"]);
     // A late event from the closed feed is ignored.

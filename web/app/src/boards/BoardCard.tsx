@@ -2,12 +2,13 @@ import { Anchor, Image, Paper, Text } from "@mantine/core";
 import { Link } from "react-router";
 import type { MessageRow } from "../api/types";
 import { timeOf } from "../conversation/days";
+import { APP } from "../paths";
 
 // BoardCard is a board's card where it was started: its thumbnail (the
 // server's render) and a link into the board.
 export function BoardCard({ m }: { m: MessageRow }) {
   const b = m.board!;
-  const href = `/app/next/boards/${encodeURIComponent(b.id)}`;
+  const href = `${APP}boards/${encodeURIComponent(b.id)}`;
   return (
     <Paper data-seq={m.seq} data-board={b.id} withBorder p="xs" my={4} maw={360}>
       <Text size="sm" fw={600}>🖍 {b.title} <Text span size="xs" c="dimmed" fw={400}>{m.mine ? "you" : m.from} · {timeOf(m.time)}</Text></Text>

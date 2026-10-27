@@ -11,7 +11,7 @@ type Restored = ReturnType<typeof restoreElements>;
 interface Root extends HTMLDivElement { jamElementCount?: () => number }
 
 // BoardEditor is a board in Excalidraw (a lazy chunk), synced with Jam by
-// element as web/whiteboard/entry.jsx is: edits send only the elements whose
+// element as the old whiteboard bundle was: edits send only the elements whose
 // version changed (debounced; one request in flight); Jam merges them and
 // answers with the stored winners of any that lost, reconciled back in.
 // Other people's and agents' edits arrive as jam-board window events (the

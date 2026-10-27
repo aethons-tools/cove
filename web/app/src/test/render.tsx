@@ -9,18 +9,18 @@ import { routes } from "../App";
 
 export const boot: Bootstrap = {
   brand: "Acme Jam", user: { id: "usr_1", name: "alice", initial: "A" }, roles: "member", admin: false, signOut: true,
-  tabs: [{ key: "inbox", label: "Inbox", href: "/app/next/", badge: 0, badgeRed: false, badgeTitle: "" }],
+  tabs: [{ key: "inbox", label: "Inbox", href: "/app/user/", badge: 0, badgeRed: false, badgeTitle: "" }],
   attachMax: 0, pushKey: "", boards: false, pushFocus: false,
 };
 
-export function renderApp(b: Bootstrap, path = "/app/next/", client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+export function renderApp(b: Bootstrap, path = "/app/user/", client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   const router = createMemoryRouter(routes(b), { initialEntries: [path] });
-  return render(
+  return Object.assign(render(
     <MantineProvider theme={theme} env="test">
       <Notifications />
       <QueryClientProvider client={client}>
         <RouterProvider router={router} />
       </QueryClientProvider>
     </MantineProvider>,
-  );
+  ), { router });
 }

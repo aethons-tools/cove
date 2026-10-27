@@ -3,7 +3,6 @@ package userui
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -68,54 +67,8 @@ func openAskCards(p jam.Participant, d Deps, ch ident.ID) []AskCard {
 	return out
 }
 
-// askPanel renders only the open conversation's open-asks panel (its
-// refresh target), for a channel the viewer may see.
-func (h *handler) askPanel(w http.ResponseWriter, r *http.Request) {
-	p, ok := jam.ParticipantFrom(r)
-	if !ok {
-		http.Error(w, "no participant", http.StatusUnauthorized)
-		return
-	}
-	var page inboxPage
-	sel := r.URL.Query().Get("c")
-	if h.d.Intercom != nil && h.d.Log != nil {
-		if _, ok := jam.UserChannel(h.d.Store, h.d.Intercom, h.d.Log, p.UserID, ident.ID(sel)); ok {
-			page.Conv = &Conversation{ChannelID: sel, OpenAsks: openAskCards(p, h.d, ident.ID(sel))}
-		}
-	}
-	h.render(w, "askpanel", page)
-}
-
-// answerAsk records the viewer's answer: 204 (and a meChanged refresh), 409
-// with why (changed, already answered), 403, or 404.
-func (h *handler) answerAsk(w http.ResponseWriter, r *http.Request) {
-	p, ok := jam.ParticipantFrom(r)
-	if !ok {
-		http.Error(w, "no participant", http.StatusUnauthorized)
-		return
-	}
-	if h.d.Intercom == nil {
-		http.Error(w, "messaging not configured", http.StatusServiceUnavailable)
-		return
-	}
-	id := r.PathValue("id")
-	version, _ := strconv.Atoi(r.FormValue("version"))
-	_, err := h.d.Intercom.AnswerAsk(p.UserID, id, version, r.FormValue("choice"), r.FormValue("comment"))
-	status, _, msg := answerOutcome(h.d, id, err)
-	switch {
-	case status == http.StatusNoContent:
-		w.Header().Set("HX-Trigger", "meChanged")
-		w.WriteHeader(http.StatusNoContent)
-	case status == http.StatusInternalServerError:
-		h.lg.Error("userui answer failed", "ask", id, "error", err.Error())
-		http.Error(w, msg, status)
-	default:
-		http.Error(w, msg, status)
-	}
-}
-
-// answerOutcome maps an AnswerAsk result to the HTTP status, API code and
-// message both answer routes give (the HTML route writes msg as text).
+// answerOutcome maps an AnswerAsk result to the API's HTTP status, code
+// and message.
 func answerOutcome(d Deps, id string, err error) (int, string, string) {
 	switch {
 	case err == nil:

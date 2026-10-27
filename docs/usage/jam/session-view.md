@@ -1,23 +1,23 @@
 ---
-summary: The session view in the `/app/user` inbox — a session's home channel adds a header (identity, state, cost, context use, uptime, quick actions) and a tabbed pane (Studio, Thinking, Previews, Artifacts, Status) that can sit right of or below the messages, with its layout remembered per session.
-read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Interrupt, Compact, Clear, Release, Restart/End, Upgrade), the side pane and its tabs, the Studio tab (the in-pane IDE) and viewing a preview in the pane, the pane's layout memory and `&tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
-owns: the session header (`GET /app/user/session/{id}/head`) and its actions (`POST /app/user/session/{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/session/{id}/pane?tab=`) and its tabs, the Studio tab and a preview's View here (`POST /app/user/session/{id}/frame`), the Thinking tab (`GET /app/user/session/{id}/thinking/events|page|raw`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
-prereqs: intercom-ui.md for the inbox this extends; session-events.md for the events the aggregates come from; previews.md for exposed ports; collaboration.md for who may SSH or open a preview; previews.md#framing-the-jam-pane for the frame tickets and cookie
+summary: The session view in the `/app/user` Jam app — a session's home channel adds a header (identity, state, cost, context use, uptime, quick actions) and a tabbed pane (Studio, Thinking, Previews, Artifacts, Status) that can sit right of or below the messages, with its layout remembered per session.
+read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Interrupt, Compact, Clear, Release, Restart/End, Upgrade), the side pane and its tabs, the Studio tab (the in-pane IDE) and viewing a preview in the pane, the pane's layout memory and `?tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
+owns: the session header (`GET /app/user/api/sessions/{id}`) and its actions (`POST /app/user/api/sessions/{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/api/sessions/{id}/pane/{tab}`) and its tabs, the Studio tab and a preview's View here (`POST /app/user/api/sessions/{id}/frame`), the Thinking tab (`GET /app/user/session/{id}/thinking/events`, `GET /app/user/api/sessions/{id}/thinking[/raw]`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
+prereqs: intercom-ui.md for the user area this extends; session-events.md for the events the aggregates come from; previews.md for exposed ports; collaboration.md for who may SSH or open a preview; previews.md#framing-the-jam-pane for the frame tickets and cookie
 tier: leaf
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # The session view
 
 When the open conversation is a live session's **home channel** (its session channel, or the
-ticket channel of the ticket it works), the [inbox](intercom-ui.md) adds a header above
-it and a pane beside it. The view is served by `internal/jam/userui` (`session.go`,
-`sessionpane.go`). Anyone who can see the home channel sees both. Anyone else gets
-404 from every route below.
+ticket channel of the ticket it works), the [Jam app](intercom-ui.md) adds a header above
+it and a pane beside it (`web/app/src/session/`), from the API in `internal/jam/userui`
+(`api_sessions.go`, `session.go`, `sessionpane.go`). Anyone who can see the home channel
+sees both. Anyone else gets 404 from every route below.
 
 ## Header
 
-One line, refreshed on push and every 30s (`GET /app/user/session/{id}/head`):
+One line, refreshed on push and every 30s (`GET /app/user/api/sessions/{id}`):
 
 - **Identity:** the name (or actor id), kind (standing, personal, ticket, session), ticket,
   role, project, and owner. Under them, the session's [mission](intercom.md#what-the-tools-do) (one truncated line), when it has one.
@@ -33,9 +33,8 @@ One line, refreshed on push and every 30s (`GET /app/user/session/{id}/head`):
 - **Tabs:** Studio (only with SSH and framing on), Thinking, Previews, Artifacts, Status. These open the pane.
 - **Copy SSH:** copies `at-jam ssh <id>`. It appears only if [collab](collaboration.md) would allow you to SSH.
 - **Interrupt:** a visible button beside Copy SSH, enabled while the session is running. See [Session controls](#session-controls).
-- **⋯ menu:** Compact and Clear (see [Session controls](#session-controls); only Clear asks for confirmation), then the release, restart, end and upgrade actions, each of which asks for confirmation, then `POST /app/user/session/{id}/<action>`.
-  The server re-checks permission (403 otherwise). Ending a session reloads the page.
-  The header doesn't refresh while the menu is open.
+- **⋯ menu:** Compact and Clear (see [Session controls](#session-controls); only Clear asks for confirmation), then the release, restart, end and upgrade actions, each of which asks for confirmation, then `POST /app/user/api/sessions/{id}/<action>`.
+  The server re-checks permission (403 otherwise). Once a session ends, its header and pane go.
 
 | Action | Offered to | Does |
 |--------|------------|------|
@@ -55,7 +54,7 @@ session may press them, on any session kind. Clear asks for confirmation.
 | Compact | running, holding (a turn ended with background tasks outstanding) or waiting | shrinks the conversation with Claude's `/compact` |
 | Clear | waiting, including paused | starts the next turn as a blank conversation, and resets the session's mission (a failed reset is logged and doesn't fail the Clear) |
 
-Each press is `POST /app/user/session/{id}/interrupt|compact|clear`. The server answers 409
+Each press is `POST /app/user/api/sessions/{id}/interrupt|compact|clear`. The server answers 409
 when the control isn't available in the session's state, and 502 when the cove can't be reached.
 A paused studio is resumed first, so a press may take up to about 30s. The Thinking tab shows
 each press as "<Command> — pressed by <name>", and a press cove-master dropped with its reason,
@@ -68,8 +67,8 @@ The pane is closed until a tab opens it. Clicking the open tab again, or **×**,
 sits below. Drag the divider to resize it, or focus the divider and use the arrow keys. The
 composer stays under the messages.
 
-Each tab is an htmx fragment (`GET /app/user/session/{id}/pane?tab=`). The open tab reloads
-on push and every 30s.
+Each tab is `GET /app/user/api/sessions/{id}/pane/{tab}`. The open tab reloads on push and
+every 30s.
 
 - **Studio:** the session's IDE, in the pane. See [Studio](#studio).
 - **Previews:** the session's exposed ports ([previews.md](previews.md)). Each link opens in a
@@ -90,10 +89,10 @@ Studio. The tab says
 
 **Layout memory:** the open tab, placement and size are saved in `localStorage` under
 `jam-pane:<session id>`. A session you have never opened starts from the last layout you
-used (`jam-pane:last`). `&tab=studio|previews|artifacts|status|thinking` on a conversation URL opens that
-tab. A remembered or linked Studio tab stays closed when the header has no Studio (no SSH, or
-framing off). A tab clicked while a whiteboard is open goes back to the chat with that tab open.
-A page restored with the browser's Back or Forward lays the pane out again and reloads its tab.
+used (`jam-pane:last`). `?tab=studio|previews|artifacts|status|thinking` on a conversation URL
+(`/app/user/c/<channel>?tab=`) opens that tab. A remembered or linked Studio tab stays closed when
+the header has no Studio (no SSH, or framing off). A page restored with the browser's Back or
+Forward reloads a framed view.
 
 ## Studio
 
@@ -103,13 +102,13 @@ framing is on: previews are on and [`ui-origins`](serve.md) is set, since previe
 other framer ([previews.md](previews.md#framing-the-jam-pane)). There is no browse-only mode.
 A kit's own `ide` exposure replaces the built-in IDE ([previews.md](previews.md#a-web-ide)).
 
-- **First start:** opening the tab asks `POST /app/user/session/{id}/frame` (form field `name`;
+- **First start:** opening the tab asks `POST /app/user/api/sessions/{id}/frame` (`{"name"}`;
   `ide` is checked against the ssh right, any other name against the preview right) for a
   one-time frame URL, and loads it. It reads "Starting the IDE…" until the frame loads; the
   first start can take several seconds while code-server starts.
 - **Kept across tabs:** switching to another pane tab hides the IDE without unloading it. Going
   back shows it as it was. Closing the pane (**×**, or clicking Studio again) unloads the IDE.
-- **Conversation switch:** a different conversation is a full page load, so the IDE reloads
+- **Conversation switch:** leaving the conversation unloads the IDE; coming back reloads it
   (1–3 s). code-server and VS Code state (open files, terminals) live in the studio and survive.
 - **Width:** the first open takes 60% of the split, unless you have a saved size for that placement.
 - **Reload** mints a fresh URL and reloads; the old frame is removed while the new URL is minted.
@@ -149,15 +148,15 @@ session and reads only events newer than those it has seen. Event content is sho
 
 The **Thinking** tab shows what the session's agent thinks and does, live, beside the chat.
 Anyone who can see the home channel sees it ([Sensitivity](session-events.md#sensitivity)).
-The server renders each event as a fragment (`internal/jam/userui/thinking.go`, using
-`internal/jam/sessionview`); the browser filters and formats them. Without recorded events
-the tab says so.
+The server sends each event as `ThinkingEvent` JSON (`internal/jam/userui/thinking.go`, using
+`internal/jam/sessionview`); the app (`web/app/src/session/thinking/`) filters and formats
+them in a virtualized list. Without recorded events the tab says so.
 
-| Route (`/app/user/session/{id}/thinking/`) | Returns |
+| Route | Returns |
 |-------|---------|
-| `events` | A live SSE stream of new event fragments; 429 beyond 4 streams per viewer |
-| `page` | An older page of 300 events (Load earlier) |
-| `raw` | One event's raw JSON, capped at 1 MB |
+| `GET /app/user/session/{id}/thinking/events` | A live SSE stream of new events; 429 beyond 4 streams per viewer |
+| `GET /app/user/api/sessions/{id}/thinking?stream=&before=` | An older page of 300 events (Load earlier) |
+| `GET /app/user/api/sessions/{id}/thinking/raw?stream=&seq=` | One event's raw JSON, capped at 1 MB |
 
 All three give 404 to anyone who can't see the home channel (as for every route above), and 204 when events aren't recorded.
 An open `events` stream re-checks access every 25s (its keep-alive) and ends once the viewer loses it.

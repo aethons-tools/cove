@@ -319,7 +319,7 @@ Logic lives in `scripts/` so CI never needs `just` installed.
 Common tasks (`just` to list them all):
 
 ```
-just build           # build at-mint + at-jam + at-studio-manager into dist/<os>-<arch>/
+just build           # build at-mint + at-jam + at-studio-manager into dist/<os>-<arch>/ (needs Node 22 + npm: the Jam app)
 just build-all       # cross-compile every supported target
 just jam <args>      # run the last-built at-jam with <args>
 just install         # install the host binaries onto your PATH (no sudo by default)

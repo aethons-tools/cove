@@ -1,5 +1,7 @@
 import { Anchor, Group, Image, Paper, Text, UnstyledButton } from "@mantine/core";
 import { useRef } from "react";
+import { Link } from "react-router";
+import { APP } from "../paths";
 import type { AskCard, MessageRow } from "../api/types";
 import { AskCardView } from "../asks/AskCard";
 import { BoardCard } from "../boards/BoardCard";
@@ -22,9 +24,7 @@ export function Message({ m, channel, onDiscuss }: { m: MessageRow; channel: str
   if (m.card) {
     return (
       <Paper data-seq={m.seq} withBorder p="xs" my={4} maw="80%">
-        <Text size="sm">This {CARD_NAME[m.card] ?? m.card} shows in the current Inbox for now.{" "}
-          <Anchor href={`/app/user/?c=${encodeURIComponent(channel)}`}>Open it in the current Inbox</Anchor>
-        </Text>
+        <Text size="sm" c="dimmed">This {CARD_NAME[m.card] ?? m.card} can't be shown here.</Text>
       </Paper>
     );
   }
@@ -39,7 +39,7 @@ export function Message({ m, channel, onDiscuss }: { m: MessageRow; channel: str
           <Text size="xs" c="dimmed">{timeOf(m.time)}</Text>
         </Group>
       </Group>
-      {m.reAsk && <Anchor size="xs" href={`/app/user/?c=${encodeURIComponent(channel)}#ask-${m.reAsk.id}`}>re: {m.reAsk.question}</Anchor>}
+      {m.reAsk && <Anchor size="xs" component={Link} to={`${APP}c/${encodeURIComponent(channel)}#ask-${m.reAsk.id}`}>re: {m.reAsk.question}</Anchor>}
       <div ref={bodyRef}>{m.body && <MessageBody html={m.body} plain={m.plain} />}</div>
       {m.files && (
         <Group gap="xs" mt={4}>

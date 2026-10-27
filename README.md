@@ -54,7 +54,7 @@ at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md).
 just test          # hermetic unit tests — no docker/network/ssh
 just integration   # real-ssh integration tests (needs ssh/sshd/ssh-keygen)
 just lint          # go vet + gofmt check + shellcheck/hadolint
-just build         # build at-mint + at-jam into dist/<os>-<arch>/
+just build         # build at-mint + at-jam into dist/<os>-<arch>/ (needs Node 22 + npm for the Jam app)
 ```
 
 Tests are hermetic by default — they drive a fake process runner, so no Docker,

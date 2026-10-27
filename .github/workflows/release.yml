@@ -65,8 +65,6 @@ jobs:
               - 'go.sum'
               - '.goreleaser.yaml'
               - 'scripts/stage-covemaster.sh'
-              - 'scripts/whiteboard.sh'
-              - 'web/whiteboard/**' # the editor bundle at-jam embeds
               - 'scripts/app.sh'
               - 'web/app/**' # the Jam app bundle at-jam embeds
               - 'install.sh' # embedded in at-jam (`update`)
@@ -245,14 +243,12 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      # The whiteboard editor bundle (a goreleaser before-hook) needs Node.
+      # The Jam app bundle (a goreleaser before-hook) needs Node.
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            web/whiteboard/package-lock.json
-            web/app/package-lock.json
+          cache-dependency-path: web/app/package-lock.json
 
       # Config sanity (absorbs the old release-validate workflow).
       - name: Validate goreleaser config

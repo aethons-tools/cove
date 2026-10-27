@@ -151,6 +151,7 @@ func TestAPISessionActions(t *testing.T) {
 		{personal, "explode", false, 404, `"code":"not_found"`},
 		{personal, "release", false, 204, ""},
 		{standing, "upgrade", true, 204, ""},
+		{standing, "restart", true, 204, ""},
 	} {
 		rec := sessAPI(t, e, p, "POST", tc.inst.ActorID+"/"+tc.action, "{}", tc.admin)
 		if rec.Code != tc.code || !strings.Contains(rec.Body.String(), tc.want) {
@@ -160,7 +161,7 @@ func TestAPISessionActions(t *testing.T) {
 			checkJSONHeaders(t, rec)
 		}
 	}
-	if len(ops.torn) != 1 || ops.torn[0] != personal.ActorID || len(ops.upgraded) != 1 {
+	if len(ops.torn) != 2 || ops.torn[0] != personal.ActorID || ops.torn[1] != standing.ActorID || len(ops.upgraded) != 1 {
 		t.Errorf("ops: torn %v, upgraded %v", ops.torn, ops.upgraded)
 	}
 	// A command that fails upstream says so; a form post is refused.
@@ -326,5 +327,37 @@ func TestAPIPaneStudio(t *testing.T) {
 	}
 	if no := decodeAs[SessionPane](t, sessAPI(t, e, p, "GET", standing.ActorID+"/pane/studio", "", false)); no.Studio || no.IDEOpen != "" {
 		t.Errorf("studio without ssh = %+v", no)
+	}
+}
+
+// The head carries the session's mission ("" without one).
+func TestAPISessionHeadMission(t *testing.T) {
+	e, p, personal, _, _ := sessionEnv(t)
+	if hd := decodeAs[SessionHead](t, sessAPI(t, e, p, "GET", personal.ActorID, "", false)); hd.Mission != "" {
+		t.Errorf("mission without one = %q", hd.Mission)
+	}
+	personal.Mission = "triaging ACME-7"
+	if err := e.st.PutInstance(personal); err != nil {
+		t.Fatal(err)
+	}
+	if hd := decodeAs[SessionHead](t, sessAPI(t, e, p, "GET", personal.ActorID, "", false)); hd.Mission != "triaging ACME-7" {
+		t.Errorf("mission = %q", hd.Mission)
+	}
+}
+
+// With a preview host, the owner's previews list each exposure's URL.
+func TestAPISessionPanePreviews(t *testing.T) {
+	e, p, personal, _, _ := sessionEnv(t)
+	e.Deps.PreviewURL = func(actorID, name string) (string, error) {
+		return "https://" + name + "--" + actorID + ".preview.test/", nil
+	}
+	personal.Exposures = []jam.Exposure{{Name: "web", Port: 5173}}
+	if err := e.st.PutInstance(personal); err != nil {
+		t.Fatal(err)
+	}
+	pv := decodeAs[SessionPane](t, sessAPI(t, e, p, "GET", personal.ActorID+"/pane/previews", "", false))
+	if pv.PreviewsOff || len(pv.Previews) != 1 || pv.Previews[0].Name != "web" || pv.Previews[0].Port != 5173 ||
+		pv.Previews[0].URL != "https://web--"+personal.ActorID+".preview.test/" {
+		t.Errorf("previews = %+v", pv)
 	}
 }

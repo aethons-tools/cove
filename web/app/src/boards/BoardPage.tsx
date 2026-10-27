@@ -7,11 +7,12 @@ import type { BoardInfo } from "../api/types";
 // Set in the main chunk, so it is in place before the editor chunk (and
 // Excalidraw's font faces) load.
 import "./assetPath";
+import { APP } from "../paths";
 
 // BoardEditor is its own chunk (Excalidraw), loaded when a board opens.
 const BoardEditor = lazy(() => import("./BoardEditor"));
 
-// BoardPage is /app/next/boards/:id: the board under a bar back to its
+// BoardPage is /app/user/boards/:id: the board under a bar back to its
 // conversation; a board the viewer may not read never loads the editor.
 export function BoardPage() {
   const { id = "" } = useParams();
@@ -22,7 +23,7 @@ export function BoardPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - var(--app-shell-header-height) - 2 * var(--app-shell-padding))" }}>
       <Group gap="sm" px="sm" py={6} style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
-        <Anchor component={Link} to={`/app/next/c/${encodeURIComponent(b.channel)}`} size="sm">← Back to chat</Anchor>
+        <Anchor component={Link} to={`${APP}c/${encodeURIComponent(b.channel)}`} size="sm">← Back to chat</Anchor>
         <Text fw={700} size="sm">{b.title}</Text>
         {b.readOnly && <Badge size="xs" variant="light">view only</Badge>}
       </Group>

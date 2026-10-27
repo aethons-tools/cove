@@ -214,8 +214,8 @@ func (h *handler) apiCallIn(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// apiMembership runs a membership change and answers as the HTML route does,
-// in the API's envelope: never saying whether a refused channel exists.
+// apiMembership runs a membership change and answers in the API's envelope,
+// never saying whether a refused channel exists.
 func (h *handler) apiMembership(w http.ResponseWriter, r *http.Request, act func(jam.Participant, ident.ID) error) {
 	p, ok := jam.ParticipantFrom(r)
 	if !ok || h.d.Intercom == nil {
