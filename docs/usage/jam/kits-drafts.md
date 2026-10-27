@@ -85,7 +85,7 @@ the build routes answer 503
 - It builds the draft at the ETag you send (`If-Match`), under the default
   harness. A draft with problems is refused (400) before anything builds.
 - One build per (kit, manager), the latest kept (the view has `manager`); a second start is 409
-  `kit <kit> already has a draft build running`. `--manager` (start body
+  `a draft build of <kit> is already running on <manager>`. `--manager` (start body
   `{"manager"}`) picks the manager, else the first draft-capable; `--show`,
   `--cancel` and the routes (`?manager=`) default to the latest started build.
   Unknown manager 404; unavailable or unable to build 503.

@@ -65,12 +65,12 @@ func TestKitDraftBuildClient(t *testing.T) {
 // A refused start is the server's status and text.
 func TestKitDraftBuildClientRefused(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "kit app already has a draft build running", http.StatusConflict)
+		http.Error(w, "a draft build of app is already running on local", http.StatusConflict)
 	}))
 	defer ts.Close()
 	_, err := New(ts.URL, "").StartKitDraftBuild("app", `"t"`, "")
 	se, ok := errors.AsType[*StatusError](err)
-	if !ok || se.Code != http.StatusConflict || !strings.Contains(se.Error(), "kit app already has a draft build running") {
+	if !ok || se.Code != http.StatusConflict || !strings.Contains(se.Error(), "a draft build of app is already running on local") {
 		t.Fatalf("err = %#v", err)
 	}
 }
