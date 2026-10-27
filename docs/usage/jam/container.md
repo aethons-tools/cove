@@ -46,26 +46,27 @@ Git fetches (kit and config sources) are in-process go-git. Jam never needs a do
 
 The `jam` service in `dev/docker-compose.yml` is opt-in (profile `jam`), beside the dev Postgres and Garage ([dev/README.md](../../../dev/README.md)).
 
-1. `just dev-cert`. This writes `dev/tls/{cert,key}.pem` (and makes the key `0644`; see below). A real run needs a cert studios trust ([the cert gotcha](dispatch-runbook.md#gotchas-each-one-cost-a-real-debugging-loop)); for that, set `JAM_TLS_DIR` to the **absolute** path of a directory holding `cert.pem` and `key.pem` (a relative path resolves against `dev/`).
-2. `cp dev/jam.container.yml.example dev/jam.container.yml` and `cp dev/credentials.container.yml.example dev/credentials.container.yml` (both gitignored). Fill in the OIDC placeholders.
-3. `just jam-image`, or set `JAM_IMAGE=ghcr.io/aethons-tools/jam:<N>-<MMDD>` to run a release.
-4. `just dev-jam-up` starts Postgres, Garage and Jam (`docker compose --profile jam up -d`).
-5. `just dev-jam-logs` follows Jam's log.
+1. Make the secrets directory, `dev/local/secrets` (git-ignored; set `JAM_SECRETS_DIR` to the **absolute** path of another, since a relative one resolves against `dev/`). It holds `credentials.yml` and `tls/{cert,key}.pem`.
+2. `cp dev/examples/credentials.container.yml.example dev/local/secrets/credentials.yml`, and `cp dev/examples/jam.container.yml.example dev/jam.container.yml` (git-ignored). Fill in the OIDC placeholders.
+3. TLS: `just dev-cert` writes `dev/tls/{cert,key}.pem` (and makes the key `0644`; see below); copy them into `dev/local/secrets/tls/`. A real run needs a cert studios trust ([the cert gotcha](dispatch-runbook.md#gotchas-each-one-cost-a-real-debugging-loop)); put that one there instead.
+4. `just jam-image`, or set `JAM_IMAGE=ghcr.io/aethons-tools/jam:<N>-<MMDD>` to run a release.
+5. `just dev-jam-up` checks those files exist, then starts Postgres, Garage and Jam (`docker compose --profile jam up -d`).
+6. `just dev-jam-logs` follows Jam's log.
 
 The container config differs from a host config in these ways:
 
 - `runtime.studio-managers: true` and no `runtime.launcher`, so there is no `local` manager;
 - `store-postgres.host: postgres` and `blobs.endpoint: http://garage:3900`, the compose service names;
-- `credentials-file: /etc/jam/credentials.yml`;
-- TLS files under `/etc/jam/tls/`.
+- `credentials-file: /etc/jam/secrets/credentials.yml`;
+- TLS files under `/etc/jam/secrets/tls/`.
 
 Every path in it is inside the container.
 
 Jam runs as uid `10001`, and the mounts are read-only, so every mounted secret file must be readable by that uid.
 On Colima a `0600` host file is not, and serve exits at startup.
-Do not point `JAM_TLS_DIR` at a Let's Encrypt `live/` dir: its files are relative symlinks into `../../archive` that do not resolve in the mount, and `privkey.pem` is `0600`.
-Copy the files dereferenced into your own directory instead: `cp -L .../fullchain.pem DIR/cert.pem` and `cp -L .../privkey.pem DIR/key.pem`, then make `key.pem` readable by uid 10001 (dev: `chmod 644`, or `chown 10001`).
-The same applies to a `0600` `dev/credentials.container.yml`.
+Do not symlink a Let's Encrypt `live/` dir into the secrets directory: its files are relative symlinks into `../../archive` that do not resolve in the mount, and `privkey.pem` is `0600`.
+Copy the files dereferenced instead: `cp -L .../fullchain.pem DIR/tls/cert.pem` and `cp -L .../privkey.pem DIR/tls/key.pem`, then make `key.pem` readable by uid 10001 (dev: `chmod 644`, or `chown 10001`).
+The same applies to a `0600` `credentials.yml`.
 
 ## Ports
 
@@ -94,8 +95,7 @@ Keep `dev-identity` and loopback trust out of the container config: the publishe
 | the Postgres volume (`pgdata` in dev) | the control plane: roster, kits, studios, managers, the message log | yes, this is Jam's state ([backup.md](backup.md)) |
 | `jamstate:/var/lib/jam` | `$HOME`, so the default [`state-dir`](serve.md#upgrading-relay-state) (relay cursors, markers, receipts), plus the [pool](pool.md) store if one is used | yes |
 | `./jam.container.yml:/etc/jam/jam.yml:ro` | the serve config | your source of truth; keep it |
-| `./credentials.container.yml:/etc/jam/credentials.yml:ro` | the credentials file | your source of truth; keep it |
-| `${JAM_TLS_DIR:-./tls}:/etc/jam/tls:ro` | `cert.pem`, `key.pem` | yes |
+| `${JAM_SECRETS_DIR:-./local/secrets}:/etc/jam/secrets:ro` | `credentials.yml`, `tls/cert.pem`, `tls/key.pem` | your source of truth; keep it |
 
 A `pool.store` path must be inside `/var/lib/jam`. Anywhere else, it is lost when the container is recreated.
 

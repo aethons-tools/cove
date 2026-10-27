@@ -69,7 +69,7 @@ type serveConfig struct {
 	UIHosts []string `yaml:"ui-hosts"`
 	// UIOrigins are extra exact origins (scheme://host[:port]) the browser UI's
 	// CSRF write check accepts besides the request's own Host — e.g. the
-	// `just dev-watch` proxy (http://localhost:8090) fronting the admin listener.
+	// a proxy on another address (http://localhost:8090) fronting the admin listener.
 	UIOrigins []string `yaml:"ui-origins"`
 	// DevIdentity — DEV ONLY: loopback browser requests to /app act as
 	// this user with no login (see browserauth.DevIdentity). serve

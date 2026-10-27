@@ -1,5 +1,8 @@
 # Aethon's Tools — cove. Thin task runner over the scripts; run `just` to list.
 # Build/lint logic lives in scripts/ so CI never needs `just` installed.
+
+import? "dev/local/justfile.local"
+
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 # list available recipes
@@ -18,6 +21,9 @@ build-all:
 # run `just build` first). e.g. `just jam destination list`  or  `just jam version`
 jam *ARGS:
     "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" {{ARGS}}
+
+studio-manager *ARGS:
+    "dist/$(go env GOOS)-$(go env GOARCH)/at-studio-manager" {{ARGS}}
 
 # install the host binaries (at-mint, at-jam, at-studio-manager) onto your PATH.
 # Default dir: $(go env GOBIN) or $(go env GOPATH)/bin (~/go/bin) — no sudo.
@@ -96,8 +102,10 @@ dev-down *ARGS:
 dev-jam-up:
     #!/usr/bin/env bash
     set -euo pipefail
-    for f in dev/jam.container.yml dev/credentials.container.yml; do
-      [ -f "$f" ] || { echo "missing $f: cp $f.example $f (docker would create a directory at the bind source)" >&2; exit 1; }
+    secrets="${JAM_SECRETS_DIR:-dev/local/secrets}"
+    # Docker would create a directory at a missing bind source, so check first.
+    for f in dev/jam.container.yml "$secrets/credentials.yml" "$secrets/tls/cert.pem" "$secrets/tls/key.pem"; do
+      [ -f "$f" ] || { echo "missing $f: see the setup in dev/docker-compose.yml (templates in dev/examples/)" >&2; exit 1; }
     done
     docker compose -f dev/docker-compose.yml --profile jam up -d
 
@@ -114,20 +122,6 @@ dev-jam *ARGS:
 # wildcard :443 without root; on Linux, sudo the built binary directly for that.
 dev-serve *ARGS:
     "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" serve --config dev/jam.dev.yml {{ARGS}}
-
-# Config in .air.toml; needs a plain-HTTP admin listener (no admin-tls). Runs
-# Jam as you (macOS wildcard :443 bind); JAM_WATCH_SUDO=1 uses sudo. See dev/README.md.
-# live-reload at-jam serve (air): rebuild+restart on change, browse http://localhost:8090
-dev-watch:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cfg="${JAM_WATCH_CONFIG:-dev/jam.dev.yml}"
-    if grep -q '^admin-tls:' "$cfg"; then
-        echo "dev-watch: $cfg sets admin-tls; air's browser-reload proxy can only front a plain-HTTP admin listener. Comment out admin-tls (loopback admin may be plain HTTP) — see dev/README.md." >&2
-        exit 1
-    fi
-    if [ -n "${JAM_WATCH_SUDO:-}" ]; then sudo -v; fi
-    go run github.com/air-verse/air@v1.67.4 -c .air.toml
 
 # hermetic unit tests (no docker/network/ssh)
 test:

@@ -39,8 +39,7 @@ Two host constraints shape how `go` is run here:
   `GOPATH` to `/home/agent/workspace/.gopath` because `~` was not writable; that
   override is now unnecessary — harmless if a stale `settings.json` still sets it.)
 
-The `cove-ic` studio kit ([`.at-jam/cove-ic/`](../.at-jam/cove-ic/kit.yml))
-differs: it sets `GOPROXY=https://proxy.golang.org,direct`. A studio's
+The `cove-ic` studio kit (kept in Jam, not in this repo) differs: it sets `GOPROXY=https://proxy.golang.org,direct`. A studio's
 `github.com` git traffic goes through the at-jam git proxy, which serves only the
 studio's own repo, so `direct` alone fails every dependency with a 403. It also
 sets the agent's git commit identity (`GIT_AUTHOR_*`/`GIT_COMMITTER_*`, carried
@@ -81,7 +80,7 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
   directly against `github.com`.
 - That means `storage.googleapis.com` (the module proxy's blob store) must be
   egress-allow-listed alongside `proxy.golang.org` — both already are, in the
-  `egress:` list in [`.at-jam/cove-ic/kit.yml`](../.at-jam/cove-ic/kit.yml), the repo's Jam studio kit.
+  `egress:` list of the `cove-ic` studio kit (kept in Jam).
 - Generated `.pb.go` files **are committed**. CI never regenerates them — `just
   buf-gen` is a manual step a developer runs after editing the `.proto`, and
   the diff it produces is reviewed and committed like any other source change.
@@ -115,11 +114,10 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
   The sandbox has no Postgres, so run this against your own instance; CI provides one
   (see [CI: the store integration job](#ci-the-store-integration-job)).
 - `just test-browser` (`go test -tags browser ./internal/jam/userui/`) drives the
-  `/app/user` page in **headless Chrome** via chromedp, covering the composer JS that
-  the hermetic tests can only see as source (e.g. paste-as-code). It needs
+  Jam app at `/app/user` in **headless Chrome** via chromedp (it needs the bundle:
+  `just app`). It needs
   `chrome-headless-shell` on `PATH` (or `COVE_BROWSER=<path>`), and each test
-  **skips** without one. The `cove-ic` studio kit
-  ([`.at-jam/cove-ic/`](../.at-jam/cove-ic/kit.yml)) installs a pinned Chrome
+  **skips** without one. The `cove-ic` studio kit installs a pinned Chrome
   for Testing build; the same binary can screenshot a page
   (`chrome-headless-shell --screenshot=out.png <url>`) to eyeball a UI change.
 - `just setup` installs the optional dev tooling (podman + a `docker` shim, shellcheck, hadolint, jq).

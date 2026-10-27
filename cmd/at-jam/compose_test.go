@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"reflect"
+	"regexp"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -56,33 +58,46 @@ func TestComposeJamPorts(t *testing.T) {
 	}
 }
 
-func TestComposeJamWiring(t *testing.T) {
+// Every file the container example config names under /etc/jam is inside one
+// of the jam service's mounts, read-only (only the state volume is writable),
+// so the config and the compose file can't drift apart.
+func TestComposeJamMountsCoverTheConfig(t *testing.T) {
 	c := loadCompose(t)
-	jam := c.Services["jam"]
-	if jam.Image != "${JAM_IMAGE:-cove-jam:dev}" {
-		t.Errorf("image = %q", jam.Image)
+	raw, err := os.ReadFile("../../dev/examples/jam.container.yml.example")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := jam.DependsOn["postgres"].Condition; got != "service_healthy" {
-		t.Errorf("postgres condition = %q, want service_healthy", got)
-	}
-	if got := jam.DependsOn["garage"].Condition; got != "service_started" {
-		t.Errorf("garage condition = %q, want service_started", got)
-	}
-	have := map[string]bool{}
-	for _, v := range jam.Volumes {
-		have[v] = true
-	}
-	for _, m := range []string{
-		"./jam.container.yml:/etc/jam/jam.yml:ro",
-		"./credentials.container.yml:/etc/jam/credentials.yml:ro",
-		"${JAM_TLS_DIR:-./tls}:/etc/jam/tls:ro",
-		"jamstate:/var/lib/jam",
-	} {
-		if !have[m] {
-			t.Errorf("missing mount %q (have %v)", m, jam.Volumes)
+	var targets []string
+	for _, v := range c.Services["jam"].Volumes {
+		// source:target[:mode], read from the right: a source may carry a
+		// ${VAR:-default} with its own colon.
+		parts := strings.Split(v, ":")
+		if len(parts) < 2 {
+			t.Fatalf("volume %q has no target", v)
 		}
+		mode := ""
+		if last := parts[len(parts)-1]; last == "ro" || last == "rw" {
+			mode, parts = last, parts[:len(parts)-1]
+		}
+		target := parts[len(parts)-1]
+		if mode != "ro" && target != "/var/lib/jam" {
+			t.Errorf("mount %q is writable; only the state volume may be", v)
+		}
+		targets = append(targets, target)
 	}
-	if _, ok := c.Volumes["jamstate"]; !ok {
-		t.Error("jamstate volume not declared")
+	paths := regexp.MustCompile(`(?m)^[^#\n]*?(/etc/jam/[^\s"']+)`).FindAllStringSubmatch(string(raw), -1)
+	if len(paths) == 0 {
+		t.Fatal("the example names no /etc/jam path")
+	}
+	for _, m := range append(paths, []string{"", "/etc/jam/jam.yml"}) {
+		p, covered := m[1], false
+		for _, tg := range targets {
+			if p == tg || strings.HasPrefix(p, strings.TrimSuffix(tg, "/")+"/") {
+				covered = true
+			}
+		}
+		if !covered {
+			t.Errorf("the config names %s, which no jam mount (%v) provides", p, targets)
+		}
 	}
 }

@@ -14,8 +14,10 @@
 #
 # Jam itself is an opt-in service (profile "jam"), run from the container image:
 #   just jam-image                                   (builds cove-jam:dev)
-#   cp dev/jam.container.yml.example dev/jam.container.yml; cp dev/credentials.container.yml.example dev/credentials.container.yml
-#   just dev-jam-up                                  (needs `just dev-cert` first)
+#   cp dev/examples/jam.container.yml.example dev/jam.container.yml
+#   mkdir -p dev/local/secrets/tls && cp dev/examples/credentials.container.yml.example dev/local/secrets/credentials.yml
+#   just dev-cert && cp dev/tls/*.pem dev/local/secrets/tls/
+#   just dev-jam-up       (JAM_SECRETS_DIR overrides dev/local/secrets)
 
 name: jam-dev
 
@@ -70,8 +72,7 @@ services:
       - "127.0.0.1:8081:8081"
     volumes:
       - ./jam.container.yml:/etc/jam/jam.yml:ro
-      - ./credentials.container.yml:/etc/jam/credentials.yml:ro
-      - ${JAM_TLS_DIR:-./tls}:/etc/jam/tls:ro
+      - ${JAM_SECRETS_DIR:-./local/secrets}:/etc/jam/secrets:ro
       - jamstate:/var/lib/jam
 
 volumes:
