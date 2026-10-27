@@ -628,7 +628,7 @@ func egressPath(project, role string) string {
 // SetEgress sets project's role's egress policy to domains (nil or empty = a
 // set-but-empty policy: nothing beyond the sealed base + the kit's infra
 // domains). Jam normalizes the list; a bad domain is a 400 naming it. It takes
-// effect at the role's next raise.
+// effect on running studios within one reconcile pass.
 func (c *Client) SetEgress(project, role string, domains []string) error {
 	if domains == nil {
 		domains = []string{}

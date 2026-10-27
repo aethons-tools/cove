@@ -500,12 +500,6 @@ func TestSeedAgentDataRejectsUnsafeEntries(t *testing.T) {
 	}
 }
 
-// sandboxKitCLI is the kit CLI the in-image SANDBOX.md (a plain sandbox's
-// guide) still names: the pre-rename one, until slice 4 of the jam-only design
-// rewrites those agent docs. Spelled split so the rename guard
-// (renamed_test.go) flags only real leftovers.
-const sandboxKitCLI = "at-" + "cove"
-
 // A plain cove (no Jam session context) boots the real base-image seed:
 // it gets CLAUDE.md, the trimmed SANDBOX.md it imports and the reference set,
 // and an updated SANDBOX.md reaches an existing volume on the next boot.
@@ -516,14 +510,27 @@ func TestSeedAgentDataWithBaseImageSeed(t *testing.T) {
 		t.Fatalf("copy seed: %v\n%s", err, out)
 	}
 	dest := filepath.Join(t.TempDir(), "agent-data")
+	seedAgentData(t, seed, dest) // first boot
+	if err := os.MkdirAll(filepath.Join(dest, "reference"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "reference", "sandbox-kit-changes.md"), []byte("old"), 0o644); err != nil { // seeded by an older image
+		t.Fatal(err)
+	}
 	seedAgentData(t, seed, dest)
+	if _, err := os.Lstat(filepath.Join(dest, "reference", "sandbox-kit-changes.md")); !os.IsNotExist(err) {
+		t.Errorf("a reference file the image no longer ships must be removed: %v", err)
+	}
+	if !strings.HasPrefix(read(t, filepath.Join(dest, "SANDBOX.md")), "If `/agent-data/context/CORE.md` exists, this is a Jam session:\nits session context governs the sandbox rules — ignore the rest of this file.\n") {
+		t.Error("SANDBOX.md must open with the Jam-session guard")
+	}
 	if !strings.Contains(read(t, filepath.Join(dest, "CLAUDE.md")), "@SANDBOX.md") {
 		t.Fatal("CLAUDE.md must import SANDBOX.md in a plain cove")
 	}
-	if !strings.Contains(read(t, filepath.Join(dest, "SANDBOX.md")), sandboxKitCLI+" recreate") {
+	if !strings.Contains(read(t, filepath.Join(dest, "SANDBOX.md")), "jam kit draft") {
 		t.Fatal("a plain cove must get the plain SANDBOX.md")
 	}
-	for _, p := range []string{"reference/sandbox-kit-changes.md", "skills/docs-audit/SKILL.md", "settings.json", "COLLABORATOR.md"} {
+	for _, p := range []string{"reference/progressive-disclosure.md", "skills/docs-audit/SKILL.md", "settings.json", "COLLABORATOR.md"} {
 		if _, err := os.Stat(filepath.Join(dest, p)); err != nil {
 			t.Errorf("seeded volume missing %s: %v", p, err)
 		}
@@ -535,7 +542,7 @@ func TestSeedAgentDataWithBaseImageSeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedAgentData(t, seed, dest)
-	if !strings.Contains(read(t, filepath.Join(dest, "SANDBOX.md")), sandboxKitCLI+" recreate") {
+	if !strings.Contains(read(t, filepath.Join(dest, "SANDBOX.md")), "jam kit draft") {
 		t.Fatal("SANDBOX.md must be restored from the image every boot")
 	}
 	if read(t, filepath.Join(dest, "COLLABORATOR.md")) != "role" {

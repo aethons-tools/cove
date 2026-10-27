@@ -47,8 +47,6 @@ var renamedAllow = []struct {
 	{"docs/usage/jam/renamed-from-at.md", nil},
 	{"docs/usage/jam/INDEX.md", []string{`at-jam`, `at-mint`, `at-studio-manager`, `harbor\.cove`}}, // the routing row to renamed-from-at.md names what it renames
 	{"docs/usage/jam/coves.md", []string{`cove-master`}},                                            // its link to the 2026-09-13-cove-master-client.md design spec (history keeps its name)
-	{"docs/OVERVIEW.md", []string{`\bat-cove`}},                                                     // its interim slice-2 note; slice 4 rewrites OVERVIEW
-	{"images/jam-studio-base/image-files/home/agent/.init-agent-data/", []string{`\bat-cove`}},      // the in-image agent docs still describe a deleted CLI; slice 4 rewrites them
 	{"internal/legacynames/", nil},
 	{"renamed_test.go", nil},
 	{"deleted_test.go", nil},

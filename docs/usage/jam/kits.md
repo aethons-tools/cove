@@ -96,7 +96,7 @@ secrets-only edit reuses the cached image (the build context is the
 [kit directory](kits-directory.md#the-directory)), while the same kit version raised by roles on different model-specs
 builds one image per harness. Adding the harness (COV-242) changed every kit's
 digest once, so each kit rebuilds on its next raise. (The digest `kit show` and
-the admin UI print is the one under `claude-default`'s harness.) The tag also carries the Studio Manager's **assembly fingerprint** — the manager's embedded payload (hardening layer, jam-studio-agent), the blessed default base, the Jam host and the manager's identity key — so upgrading the manager (or moving Jam, or rotating the key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Removing at-task and at-switchboard from that payload (jam-only slice 2) changed every fingerprint once, so each kit rebuilds on its next raise after that upgrade. Superseded `jam-kit:*` images are not yet garbage-collected.
+the admin UI print is the one under `claude-default`'s harness.) The tag also carries the Studio Manager's **assembly fingerprint** — the manager's embedded payload (hardening layer, jam-studio-agent), the blessed default base, the Jam host and the manager's identity key — so upgrading the manager (or moving Jam, or rotating the key) rebuilds each kit lazily on its next raise; running studios keep their image until re-raised. Superseded `jam-kit:*` images are not yet garbage-collected.
 
 ### The egress ceiling (COV-208)
 

@@ -168,7 +168,7 @@ jobs:
             test -f /usr/share/doc/cc-skills-golang/LICENSE
             # Agent docs/skills seeded by jam-studio-base (COV-246), agent-owned.
             seed=/home/agent/.init-agent-data
-            for f in CLAUDE.md SANDBOX.md .refresh reference/sandbox-kit-changes.md skills/docs-audit/SKILL.md; do
+            for f in CLAUDE.md SANDBOX.md .refresh reference/progressive-disclosure.md skills/docs-audit/SKILL.md; do
               test -f "$seed/$f"
             done
             test -x "$seed/skills/docs-audit/scripts/docs_audit.py"

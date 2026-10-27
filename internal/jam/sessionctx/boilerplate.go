@@ -8,8 +8,8 @@ import (
 // Boilerplate is the always-present first layer: who this session is, the
 // sandbox and turn model, and the intercom rules for its kind. It owns the
 // facts the old per-kind preambles (standing.Prompt, personalPrompt) carried,
-// and — for a Jam session — the sandbox rules a plain (non-Jam) sandbox reads
-// from the image's SANDBOX.md (COV-246). That file's guard tells a Jam session
+// and — for a Jam session — the sandbox rules the image's fallback SANDBOX.md
+// gives a session without a bundle (COV-246). That file's guard tells a Jam session
 // (CORE.md present) to ignore it, so these are the rules the session follows.
 func Boilerplate(f SessionFacts) Layer {
 	const ownChannel = "`send` without `to` posts to your own channel: whoever is in it (people who joined it, or were called in with `call_in`) hears you. Pass `to` to reach anyone else (`list_targets` shows who you may message). "
@@ -64,7 +64,7 @@ You cannot rebuild your own cove or widen its access. When you need something th
 
 1. Work out the exact change: an egress domain, a tool and version, an env var.
 2. Message a human (who started you, or a project contact) with the change and why. Name where it goes: the role's studio kit ` + "`kit.yml`" + ` (` + "`egress:`" + `, ` + "`build-args:`" + `, ` + "`base:`" + `), or the role's egress policy (` + "`jam egress set`" + `), which an operator manages.
-3. It takes effect after the kit is pushed (` + "`jam kit push`" + `) and the cove is re-raised; an egress-policy change applies at the next raise.
+3. It takes effect after the kit's draft is published (` + "`jam kit draft publish <kit>`" + `, or ` + "`jam kit push`" + `) and the cove is re-raised; an egress-policy change reaches a running cove within a reconcile pass.
 
 A one-off install or ` + "`export`" + ` in this session is fine for now but will not survive a rebuild.`
 
