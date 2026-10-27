@@ -2,7 +2,7 @@ import { Excalidraw, reconcileElements, restoreElements, CaptureUpdateAction } f
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
 import { Loader, Text } from "@mantine/core";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { body, MAX_WAIT, nextRetry, POLL, SEND_DELAY, snapshot } from "./sync";
 
 type Scene = ReturnType<ExcalidrawImperativeAPI["getSceneElementsIncludingDeleted"]>;
@@ -29,6 +29,12 @@ export default function BoardEditor({ id, readOnly }: { id: string; readOnly: bo
   const inFlight = useRef(false);
   const dirty = useRef(false);
   const retry = useRef(1000);
+  // mounted: false from the moment the editor starts to go — before
+  // Excalidraw's own teardown, which empties its scene — so a save sent on
+  // leaving uses latest, the scene as it last was.
+  const mounted = useRef(true);
+  const latest = useRef<Scene>([]);
+  const leftTries = useRef(0); // saves retried after leaving
   const url = `/app/user/boards/${encodeURIComponent(id)}/elements`;
 
   const remember = (els: readonly { id: string; version: number }[]) => els.forEach((e) => sent.current.set(e.id, e.version));
@@ -72,12 +78,13 @@ export default function BoardEditor({ id, readOnly }: { id: string; readOnly: bo
     const a = apiRef.current;
     timer.current = null;
     if (!a) return;
+    const scene = () => (mounted.current ? a.getSceneElementsIncludingDeleted() : latest.current);
     if (inFlight.current) { dirty.current = true; return; }
     inFlight.current = true;
     dirty.current = false;
     let failed = false;
     try {
-      const s = snapshot(a.getSceneElementsIncludingDeleted() as Scene, sent.current);
+      const s = snapshot(scene(), sent.current);
       if (s.tooLarge) setError("a drawing is too large to save; split it into smaller strokes");
       for (const batch of s.batches) {
         const r = await fetch(url, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: body(batch) });
@@ -85,10 +92,10 @@ export default function BoardEditor({ id, readOnly }: { id: string; readOnly: bo
         batch.forEach((b) => sent.current.set(b.id, b.version));
         const res = (await r.json()) as { lost: unknown[] };
         const lost = restoreElements(res.lost as Remote, null);
-        apply(lost);
+        if (mounted.current) apply(lost);
         // Whatever the scene now holds for a lost element counts as settled,
         // so it isn't re-sent (and lost again) until it changes.
-        const now = new Map(a.getSceneElementsIncludingDeleted().map((e) => [e.id, e.version]));
+        const now = new Map(scene().map((e) => [e.id, e.version]));
         lost.forEach((e) => sent.current.set(e.id, now.get(e.id) ?? e.version));
       }
       retry.current = 1000;
@@ -99,7 +106,9 @@ export default function BoardEditor({ id, readOnly }: { id: string; readOnly: bo
       retry.current = nextRetry(retry.current);
     } finally {
       inFlight.current = false;
-      if (dirty.current && !timer.current) timer.current = setTimeout(() => void send(), failed ? retry.current : SEND_DELAY);
+      // After leaving, a failing save gets a few more tries, not forever.
+      const giveUp = failed && !mounted.current && ++leftTries.current > 3;
+      if (dirty.current && !timer.current && !giveUp) timer.current = setTimeout(() => void send(), failed ? retry.current : SEND_DELAY);
     }
   }, [url, apply]);
 
@@ -107,6 +116,7 @@ export default function BoardEditor({ id, readOnly }: { id: string; readOnly: bo
   // during a long drag.
   const onChange = () => {
     if (readOnly || !apiRef.current) return;
+    latest.current = apiRef.current.getSceneElementsIncludingDeleted();
     const now = Date.now();
     if (!timer.current) firstChange.current = now;
     if (timer.current) clearTimeout(timer.current);
@@ -114,8 +124,7 @@ export default function BoardEditor({ id, readOnly }: { id: string; readOnly: bo
     timer.current = setTimeout(() => void send(), wait);
   };
 
-  // Leaving: warn before unloading with edits not yet saved; on an in-app
-  // navigation (unmount), send a debounced save now rather than drop it.
+  // Leaving: warn before unloading with edits not yet saved.
   useEffect(() => {
     if (readOnly) return;
     const warn = (ev: BeforeUnloadEvent) => {
@@ -125,8 +134,19 @@ export default function BoardEditor({ id, readOnly }: { id: string; readOnly: bo
       if (unsaved) { ev.preventDefault(); ev.returnValue = ""; }
     };
     window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [readOnly]);
+
+  // On an in-app navigation (unmount), send a pending save now rather than
+  // drop it. A layout-effect cleanup runs before Excalidraw's teardown, while
+  // its scene is still whole.
+  useLayoutEffect(() => {
+    mounted.current = true; // again, after a StrictMode remount
     return () => {
-      window.removeEventListener("beforeunload", warn);
+      const a = apiRef.current;
+      if (a) latest.current = a.getSceneElementsIncludingDeleted();
+      mounted.current = false;
+      if (readOnly) return;
       if (timer.current) { clearTimeout(timer.current); timer.current = null; void send(); }
     };
   }, [readOnly, send]);

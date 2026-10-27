@@ -771,3 +771,59 @@ func TestBrowserNextBoard(t *testing.T) {
 		t.Errorf("page problem: %s", pr)
 	}
 }
+
+// An edit made just before "← Back to chat" is saved, not dropped: leaving
+// the board in the app flushes the pending (debounced) save.
+func TestBrowserNextBoardFlushesOnLeave(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p := fixture()
+	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
+	b, err := e.Deps.Boards.Create(jam.Poster{ID: e.alice.ID}, engID, "Arch", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+	err = chromedp.Do(ctx,
+		chromedp.EmulateViewport(1400, 1000),
+		chromedp.Navigate(srv.URL+"/app/next/boards/"+string(b.ID)),
+		chromedp.WaitVisible(chromedp.CSS(`.excalidraw canvas`)),
+		chromedp.Click(chromedp.CSS(`[data-testid="toolbar-rectangle"]`)),
+		chromedp.MouseEvent(chromedp.MouseMoved, 700, 450),
+		chromedp.MouseEvent(chromedp.MousePressed, 700, 450, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 760, 500, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 820, 540, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseReleased, 820, 540, chromedp.ButtonLeft),
+		// At once: within the 300 ms debounce, so the save is still pending.
+		chromedp.Evaluate[chromedp.Void](`Array.from(document.querySelectorAll('a')).find(function(a){ return a.textContent.indexOf('Back to chat') >= 0; }).click()`),
+		chromedp.WaitVisible(chromedp.CSS(`h2`)), // the conversation
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rect bool
+	for range 30 {
+		els, _, _ := e.Deps.Boards.Elements(e.alice.ID, b.ID, 0)
+		for _, el := range els {
+			rect = rect || strings.Contains(string(el), `"type":"rectangle"`)
+		}
+		if rect {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !rect {
+		t.Fatal("the rectangle drawn just before Back to chat was lost")
+	}
+}

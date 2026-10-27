@@ -40,7 +40,7 @@ Until the cutover it is served at **`/app/next/`** beside the current inbox, beh
 
 - `just app` (`scripts/app.sh`) runs `npm ci`, `vite build` and the size budget, then swaps the result into `internal/jam/uiassets/app/`. That directory is git-ignored and embedded by at-jam. `just build` runs it when npm is present (`APP_OPTIONAL=1`).
 - The size budget: the shell route's initial JS (entry plus modulepreloads) must stay ≤ 350 KB gzipped. Lazy-load anything big with `React.lazy`.
-- Excalidraw's fonts: `scripts/app.sh` copies them into `assets/excalidraw/fonts/` (without the CJK Xiaolai set), `src/boards/assetPath.ts` points `EXCALIDRAW_ASSET_PATH` there, and `vite.config.ts`'s `excalidrawFonts` rewrites Excalidraw's CDN fallback (esm.sh) to the same bundle, failing the build if its pattern changes. So no font comes from another origin (the CSP is `font-src 'self'`).
+- Excalidraw's fonts: `scripts/app.sh` copies them into `assets/excalidraw/fonts/` (without the CJK Xiaolai set), `src/boards/assetPath.ts` points `EXCALIDRAW_ASSET_PATH` there, and `build/excalidrawFonts.ts` (a Vite plugin) rewrites Excalidraw's CDN fallback (esm.sh) to the same bundle, failing the build if the pattern changes, if nothing was rewritten, or if any chunk still names esm.sh. So no font comes from another origin (the CSP is `font-src 'self'`).
 - CI (`gate.yml`) runs the types check, `npm run check` and `scripts/app.sh` before `go test`. Releases build the bundle as a goreleaser hook.
 - Dependencies: Renovate (`renovate.json`) updates `web/app` like any npm project. TypeScript is held below 6.1 there, matching typescript-eslint's peer range. Raise that cap when typescript-eslint supports a newer TypeScript.
 
