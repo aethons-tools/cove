@@ -1840,8 +1840,8 @@ func cmdActors(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 // drives, the image reader for setup inspection, and the default studio kit.
 type builtLauncher struct {
 	launcher       jam.Launcher
-	router         *fleet.Router        // nil with the placeholder launcher
-	images         jam.ImageFactsReader // nil with the placeholder launcher: image parts unavailable
+	router         *fleet.Router          // nil with the placeholder launcher
+	images         jam.ManagedImageReader // nil with the placeholder launcher: image parts unavailable
 	defaultKit     jam.KitRef
 	haveDefaultKit bool
 }
@@ -2923,6 +2923,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		setupDeps := jam.SetupDeps{Store: st, Sup: sup, Images: images, SealedEgress: sealed}
 		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithDisplayName(cfg.displayName()), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps)}
+		if built.router != nil {
+			uiOpts = append(uiOpts, adminui.WithSetupManagers(built.router.AvailableNames))
+		}
 		if managerHub != nil {
 			uiOpts = append(uiOpts, adminui.WithManagers(managerHub.Statuses))
 		}

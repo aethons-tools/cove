@@ -17,6 +17,7 @@ type inspectFlags struct {
 	app, adminURL, token *string
 	json                 *bool
 	sections             multiFlag
+	manager              *string
 }
 
 func addInspectFlags(fs *flag.FlagSet, stderr io.Writer) *inspectFlags {
@@ -26,6 +27,7 @@ func addInspectFlags(fs *flag.FlagSet, stderr io.Writer) *inspectFlags {
 		token:    fs.String("token", adminTokenEnv(stderr), "operator token (env: AT_JAM_ADMIN_TOKEN)"),
 		json:     fs.Bool("json", false, "print the setup as JSON"),
 	}
+	f.manager = fs.String("manager", "", "read the image facts from this manager (role inspect; default: the default manager)")
 	fs.Var(&f.sections, "section", "only these sections (repeatable or comma-separated): "+strings.Join(jam.SetupSectionNames(), ", "))
 	return f
 }
@@ -69,7 +71,7 @@ func cmdRoleInspect(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if len(pos) != 1 || pos[0] == "" {
-		fmt.Fprintln(stderr, "usage: at-jam role inspect <project>/<role> [--json] [--section name]…")
+		fmt.Fprintln(stderr, "usage: at-jam role inspect <project>/<role> [--manager name] [--json] [--section name]…")
 		return 2
 	}
 	project, role, found := strings.Cut(pos[0], "/")
@@ -80,7 +82,7 @@ func cmdRoleInspect(args []string, stdout, stderr io.Writer) int {
 	if code != 0 {
 		return code
 	}
-	s, err := c.RoleSetup(project, role, sections)
+	s, err := c.RoleSetup(project, role, sections, *f.manager)
 	if err != nil {
 		fmt.Fprintln(stderr, "at-jam:", err)
 		return 1

@@ -235,7 +235,7 @@ func draftFail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err err
 		http.Error(w, we.Msg, we.Status)
 		return
 	}
-	if code, ok := managerErrStatus(err); ok {
+	if code, ok := ManagerErrStatus(err); ok {
 		http.Error(w, textesc.Escape(err.Error(), false), code)
 		return
 	}

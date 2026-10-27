@@ -168,6 +168,7 @@ type options struct {
 	previewURL      func(actorID, name string) (string, error)
 	kitFetcher      jam.KitFetcher
 	configEnv       jam.ConfigEnv
+	setupManagers   func() []string            // nil: no manager selector on a role's Setup tab (WithSetupManagers)
 	setup           *jam.SetupDeps             // nil: no Setup tabs (WithSetupDeps)
 	managers        func() []jam.ManagerStatus // nil: no Managers panel (WithManagers)
 }
@@ -299,7 +300,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerJamContext(mux, store, log, guardWrite)
 	registerUsers(mux, store, log, guardWrite)
 	registerAccess(mux, store, o.live, log, guardWrite)
-	registerSetup(mux, store, o.setup, log)
+	registerSetup(mux, store, o.setup, o.setupManagers, log)
 	cfgEnv := o.configEnv
 	if cfgEnv.CredExists == nil {
 		cfgEnv.CredExists = credExists

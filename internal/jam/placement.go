@@ -85,9 +85,9 @@ func ParsePlacement(managers []string, timeout string) (Placement, error) {
 	return p, nil
 }
 
-// managerErrStatus is the HTTP status of a named-manager failure: 404 for
+// ManagerErrStatus is the HTTP status of a named-manager failure: 404 for
 // ErrUnknownManager, 503 for ErrManagerUnavailable; ok=false for any other.
-func managerErrStatus(err error) (code int, ok bool) {
+func ManagerErrStatus(err error) (code int, ok bool) {
 	switch {
 	case errors.Is(err, ErrUnknownManager):
 		return http.StatusNotFound, true

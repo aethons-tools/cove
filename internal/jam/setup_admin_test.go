@@ -3,6 +3,7 @@ package jam
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -80,5 +81,23 @@ func TestSetupRoutesNeedOperatorAuth(t *testing.T) {
 		if resp.StatusCode != http.StatusForbidden {
 			t.Errorf("%s = %d, want 403", p, resp.StatusCode)
 		}
+	}
+}
+
+// ?manager= is passed to the render; an unknown manager is a 404 naming it.
+func TestRoleSetupUnknownManager404(t *testing.T) {
+	d, _, _, img := setupFixture(t)
+	img.err = fmt.Errorf("%w: nope", ErrUnknownManager)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	ts := httptest.NewServer(NewAdminHandler(d.Store, d.Sup, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil, WithSetupInspect(d, log)))
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/admin/roles/default/dev/setup?sections=seed&manager=nope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 404 || !strings.Contains(string(b), "unknown manager: nope") {
+		t.Fatalf("= %d %s, want 404 unknown manager: nope", resp.StatusCode, b)
 	}
 }

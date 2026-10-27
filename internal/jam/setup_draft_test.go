@@ -38,7 +38,7 @@ func TestDraftStudioSetupGolden(t *testing.T) {
 		t.Fatalf("a draft studio must not show its kit as v0:\n%s", text)
 	}
 	checkGolden(t, "studio-draft", got)
-	role, err := RoleSetup(context.Background(), d, "default", "dev", []string{SectionKit})
+	role, err := RoleSetup(context.Background(), d, "default", "dev", []string{SectionKit}, "")
 	if err != nil || role.Sections[0].Title != "" {
 		t.Fatalf("the role render must be unchanged: %+v %v", role.Sections[0], err)
 	}

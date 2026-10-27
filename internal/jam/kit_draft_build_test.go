@@ -787,7 +787,7 @@ func TestEnsureRespectsRequestedManagers(t *testing.T) {
 	if !errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "nope") {
 		t.Fatalf("unknown requested = %v", err)
 	}
-	if code, _ := managerErrStatus(err); code != 404 {
+	if code, _ := ManagerErrStatus(err); code != 404 {
 		t.Fatalf("unknown requested status = %d", code)
 	}
 	fm.setAway("m1", true)

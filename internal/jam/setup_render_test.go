@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -27,10 +28,12 @@ type fakeImages struct {
 	facts map[string]ImageFacts
 	err   error
 	calls []string
+	mgrs  []string // the manager of each call
 }
 
-func (f *fakeImages) ImageFacts(_ context.Context, tag string) (ImageFacts, error) {
+func (f *fakeImages) ImageFactsOn(_ context.Context, manager, tag string) (ImageFacts, error) {
 	f.calls = append(f.calls, tag)
+	f.mgrs = append(f.mgrs, manager)
 	if f.err != nil {
 		return ImageFacts{}, f.err
 	}
@@ -158,7 +161,7 @@ func checkGolden(t *testing.T, name string, s StudioSetup) {
 
 func TestRoleSetupGolden(t *testing.T) {
 	d, _, _, _ := setupFixture(t)
-	s, err := RoleSetup(context.Background(), d, "default", "dev", SetupSectionNames())
+	s, err := RoleSetup(context.Background(), d, "default", "dev", SetupSectionNames(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +179,7 @@ func TestInstanceSetupGolden(t *testing.T) {
 
 func TestSetupNeverShowsSecrets(t *testing.T) {
 	d, inst, toks, _ := setupFixture(t)
-	role, err := RoleSetup(context.Background(), d, "default", "dev", SetupSectionNames())
+	role, err := RoleSetup(context.Background(), d, "default", "dev", SetupSectionNames(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +304,7 @@ func TestSetupImageUnavailable(t *testing.T) {
 	seedErr := seedFacts()
 	seedErr.Seed, seedErr.SeedErr = nil, true
 	for _, c := range []struct {
-		images    ImageFactsReader
+		images    ManagedImageReader
 		reason    string
 		envReason string
 	}{
@@ -343,7 +346,7 @@ func TestSetupDoesNotMutateImageFacts(t *testing.T) {
 	if _, err := InstanceSetup(context.Background(), d, "w1", SetupSectionNames(), true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RoleSetup(context.Background(), d, "default", "dev", SetupSectionNames()); err != nil {
+	if _, err := RoleSetup(context.Background(), d, "default", "dev", SetupSectionNames(), ""); err != nil {
 		t.Fatal(err)
 	}
 	if after, _ := json.Marshal(img.facts[inst.ImageTag]); string(after) != string(before) {
@@ -378,21 +381,21 @@ func TestInstanceSetupRoleGone(t *testing.T) {
 func TestSetupSectionsFilterAndNotFound(t *testing.T) {
 	d, _, _, img := setupFixture(t)
 	img.calls = nil
-	s, err := RoleSetup(context.Background(), d, "default", "dev", []string{SectionEgress})
+	s, err := RoleSetup(context.Background(), d, "default", "dev", []string{SectionEgress}, "")
 	if err != nil || len(s.Sections) != 1 || s.Sections[0].Name != SectionEgress || !strings.Contains(s.Sections[0].Body, ".anthropic.com  sealed") {
 		t.Fatalf("filtered = %+v, %v", s, err)
 	}
 	if len(img.calls) != 0 {
 		t.Fatalf("an egress-only inspect read the image: %v", img.calls)
 	}
-	if _, err := RoleSetup(context.Background(), d, "default", "nope", nil); !errors.Is(err, ErrNotFound) {
+	if _, err := RoleSetup(context.Background(), d, "default", "nope", nil, ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown role err = %v", err)
 	}
 	if _, err := InstanceSetup(context.Background(), d, "nope", nil, false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown studio err = %v", err)
 	}
 	d.Sup = nil
-	s, err = RoleSetup(context.Background(), d, "default", "dev", []string{SectionContext, SectionKit})
+	s, err = RoleSetup(context.Background(), d, "default", "dev", []string{SectionContext, SectionKit}, "")
 	if err != nil || s.Sections[0].Reason != reasonNoSupervisor || s.Sections[1].Reason != reasonNoSupervisor {
 		t.Fatalf("no supervisor = %+v, %v", s, err)
 	}
@@ -481,7 +484,7 @@ func TestSetupHasNoSideEffects(t *testing.T) {
 	actors, _ := json.Marshal(d.Store.ListActors())
 	insts, _ := json.Marshal(d.Store.ListInstances())
 	snaps, _ := json.Marshal(d.Store.SetupSnapshots("w1"))
-	if _, err := RoleSetup(context.Background(), d, "default", "dev", SetupSectionNames()); err != nil {
+	if _, err := RoleSetup(context.Background(), d, "default", "dev", SetupSectionNames(), ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := InstanceSetup(context.Background(), d, "w1", SetupSectionNames(), true); err != nil {
@@ -564,7 +567,7 @@ func TestRoleSetupUntaggedImage(t *testing.T) {
 	d, _, _, _ := setupFixture(t)
 	d.Sup = NewSupervisor(d.Store, untaggedLauncher{&fakeLauncher{liveness: LivenessAlive}}, "holder-A", 60*time.Second, 30*time.Second,
 		func() time.Time { return time.Unix(1000, 0).UTC() }, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	s, err := RoleSetup(context.Background(), d, "default", "dev", []string{SectionSeed})
+	s, err := RoleSetup(context.Background(), d, "default", "dev", []string{SectionSeed}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +578,7 @@ func TestRoleSetupUntaggedImage(t *testing.T) {
 
 func TestSetupRejectsUnknownSections(t *testing.T) {
 	d, _, _, _ := setupFixture(t)
-	if _, err := RoleSetup(context.Background(), d, "default", "dev", []string{SectionEgress, "bogus"}); !errors.Is(err, ErrUnknownSection) {
+	if _, err := RoleSetup(context.Background(), d, "default", "dev", []string{SectionEgress, "bogus"}, ""); !errors.Is(err, ErrUnknownSection) {
 		t.Errorf("role err = %v", err)
 	}
 	if _, err := InstanceSetup(context.Background(), d, "w1", []string{"bogus"}, false); !errors.Is(err, ErrUnknownSection) {
@@ -586,8 +589,67 @@ func TestSetupRejectsUnknownSections(t *testing.T) {
 		t.Errorf("sections must be deduped and in render order: %+v, %v", s.Sections, err)
 	}
 	for _, empty := range [][]string{nil, {}} {
-		if s, err := RoleSetup(context.Background(), d, "default", "dev", empty); err != nil || len(s.Sections) != len(SetupSectionNames()) {
+		if s, err := RoleSetup(context.Background(), d, "default", "dev", empty, ""); err != nil || len(s.Sections) != len(SetupSectionNames()) {
 			t.Errorf("empty sections must mean all: %d, %v", len(s.Sections), err)
 		}
+	}
+}
+
+// An instance reads its image facts from its own manager; "" means local.
+func TestInstanceSetupReadsItsManager(t *testing.T) {
+	for _, c := range []struct{ manager, want string }{{"m1", "m1"}, {"", LocalManager}} {
+		d, inst, _, img := setupFixture(t)
+		inst.Manager = c.manager
+		if err := d.Store.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := InstanceSetup(context.Background(), d, "w1", []string{SectionKit, SectionSeed}, false); err != nil {
+			t.Fatal(err)
+		}
+		if len(img.mgrs) == 0 {
+			t.Fatal("no image read")
+		}
+		for _, m := range img.mgrs {
+			if m != c.want {
+				t.Errorf("Manager %q: read on %q, want %q", c.manager, m, c.want)
+			}
+		}
+	}
+}
+
+// A role render on a named manager reads that manager's current tag, and its
+// facts on that manager.
+func TestRoleSetupOnManager(t *testing.T) {
+	p := newPlacingFake("m0", "m1")
+	p.by["m0"].asm = "zero"
+	p.by["m1"].asm = "one"
+	sup, store, _ := supTestKit(t, p)
+	withDefaultKit(t, sup, store)
+	cur, err := sup.CurrentImage("default", "guest", "m1")
+	if err != nil || cur.Tag == "" || cur.Tag == p.by["m0"].ImageTag(cur.Kit) {
+		t.Fatalf("CurrentImage on m1 = %+v, %v", cur, err)
+	}
+	img := &fakeImages{facts: map[string]ImageFacts{cur.Tag: {Env: []string{"ON=m1"}}}}
+	d := SetupDeps{Store: store, Sup: sup, Images: img}
+	s, err := RoleSetup(context.Background(), d, "default", "guest", []string{SectionEnv}, "m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(s.Sections[0].Body, "ON=m1") {
+		t.Errorf("env section lacks m1's facts:\n%s", s.Sections[0].Body)
+	}
+	if len(img.calls) != 1 || img.calls[0] != cur.Tag || img.mgrs[0] != "m1" {
+		t.Errorf("reads = %v on %v, want [%s] on [m1]", img.calls, img.mgrs, cur.Tag)
+	}
+}
+
+// A named-manager failure fails the render rather than becoming a section reason.
+func TestRoleSetupManagerErrorFailsRender(t *testing.T) {
+	p := newPlacingFake("m0")
+	sup, store, _ := supTestKit(t, p)
+	withDefaultKit(t, sup, store)
+	d := SetupDeps{Store: store, Sup: sup, Images: &fakeImages{err: fmt.Errorf("%w: nope", ErrUnknownManager)}}
+	if _, err := RoleSetup(context.Background(), d, "default", "guest", []string{SectionSeed}, "m0"); !errors.Is(err, ErrUnknownManager) {
+		t.Fatalf("err = %v, want ErrUnknownManager", err)
 	}
 }

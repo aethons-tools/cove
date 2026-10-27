@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -69,5 +70,22 @@ func TestRoleAndStudioInspect(t *testing.T) {
 		if code := run1(c.args...); code != c.code {
 			t.Errorf("%v = %d (%s), want %d", c.args, code, errb.String(), c.code)
 		}
+	}
+}
+
+func TestRoleInspectManagerFlag(t *testing.T) {
+	var got string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"subject":"role default/dev"}`))
+	}))
+	defer ts.Close()
+	var out, errb bytes.Buffer
+	if code := run([]string{"role", "inspect", "default/dev", "--admin-url", ts.URL, "--manager", "m1"}, func(string) string { return "" }, &out, &errb); code != 0 {
+		t.Fatalf("= %d: %s", code, errb.String())
+	}
+	if got != "manager=m1" {
+		t.Errorf("query = %q, want manager=m1", got)
 	}
 }
