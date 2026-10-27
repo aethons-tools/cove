@@ -11,11 +11,11 @@ import (
 
 // loadContainerExample runs the example through the same load + validate path
 // cmdServe uses (no listeners, no store). credentials-file is repointed at the
-// example's sibling, since /etc/jam/credentials.yml only exists in the image.
+// example's sibling, since /etc/jam/secrets/credentials.yml only exists in the container.
 func loadContainerExample(t *testing.T, mutate func(string) string) (serveConfig, error) {
 	t.Helper()
 	dir := t.TempDir()
-	raw, err := os.ReadFile("../../dev/jam.container.yml.example")
+	raw, err := os.ReadFile("../../dev/examples/jam.container.yml.example")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func loadContainerExample(t *testing.T, mutate func(string) string) (serveConfig
 			return cfg, err
 		}
 	}
-	cfg.CredentialsFile, _ = filepath.Abs("../../dev/credentials.container.yml.example")
+	cfg.CredentialsFile, _ = filepath.Abs("../../dev/examples/credentials.container.yml.example")
 	if _, err := planCredentials(cfg); err != nil {
 		return cfg, err
 	}

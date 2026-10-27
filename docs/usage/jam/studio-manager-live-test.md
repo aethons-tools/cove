@@ -17,9 +17,9 @@ Do the items in order. Each one gives the command and the result to expect.
 ## Setup
 
 - A Mac with Colima running, and the repo checked out.
-- A trusted cert for `jam.local.aethons.tools` in `JAM_TLS_DIR`, and the OIDC tenant from the container config ([container.md](container.md#running-it-with-the-dev-compose)).
+- A trusted cert for `jam.local.aethons.tools` in the secrets directory's `tls/`, and the OIDC tenant from the container config ([container.md](container.md#running-it-with-the-dev-compose)).
 - Jam and the manager on one version ([lockstep](container.md#version-lockstep)): `just build && just jam-image` from one checkout, or a release image with that release's `at-studio-manager`.
-- The `anthropic` and `git` destinations need credentials in the container: uncomment the `anthropic-key` and `git-pat` placeholders in `dev/jam.container.yml` and `dev/credentials.container.yml`, fill in real values, and restart Jam (`just dev-jam-up`).
+- The `anthropic` and `git` destinations need credentials in the container: uncomment the `anthropic-key` and `git-pat` placeholders in `dev/jam.container.yml` and the secrets directory's `credentials.yml`, fill in real values, and restart Jam (`just dev-jam-up`).
 - After step 2, a project and a role that grant the `anthropic` and `git` destinations ([roster.md](roster.md), [coves.md](coves.md#raising-a-real-managed-studio)), and a kit for the role ([kits.md](kits.md)).
 - `at-jam` on the Mac, signed in: `at-jam login --admin-url https://jam.local.aethons.tools:8081` ([admin access](container.md#admin-access)).
 

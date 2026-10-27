@@ -1381,7 +1381,7 @@ func TestValidateBlobs(t *testing.T) {
 // The dev sample config parses, and its blobs block (dev/docker-compose.yml's
 // Garage) validates.
 func TestDevSampleConfigValidates(t *testing.T) {
-	b, err := os.ReadFile("../../dev/jam.dev.yml.example")
+	b, err := os.ReadFile("../../dev/examples/jam.dev.yml.example")
 	if err != nil {
 		t.Fatal(err)
 	}

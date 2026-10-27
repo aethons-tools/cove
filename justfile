@@ -102,7 +102,11 @@ dev-down *ARGS:
 dev-jam-up:
     #!/usr/bin/env bash
     set -euo pipefail
-    #[ -f "dev/jam.container.yml" ] || { echo "missing dev/jam.container.yml" }
+    secrets="${JAM_SECRETS_DIR:-dev/local/secrets}"
+    # Docker would create a directory at a missing bind source, so check first.
+    for f in dev/jam.container.yml "$secrets/credentials.yml" "$secrets/tls/cert.pem" "$secrets/tls/key.pem"; do
+      [ -f "$f" ] || { echo "missing $f: see the setup in dev/docker-compose.yml (templates in dev/examples/)" >&2; exit 1; }
+    done
     docker compose -f dev/docker-compose.yml --profile jam up -d
 
 # follow the Jam container's logs
@@ -118,20 +122,6 @@ dev-jam *ARGS:
 # wildcard :443 without root; on Linux, sudo the built binary directly for that.
 dev-serve *ARGS:
     "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" serve --config dev/jam.dev.yml {{ARGS}}
-
-# Config in .air.toml; needs a plain-HTTP admin listener (no admin-tls). Runs
-# Jam as you (macOS wildcard :443 bind); JAM_WATCH_SUDO=1 uses sudo. See dev/README.md.
-# live-reload at-jam serve (air): rebuild+restart on change, browse http://localhost:8090
-dev-watch:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cfg="${JAM_WATCH_CONFIG:-dev/jam.dev.yml}"
-    if grep -q '^admin-tls:' "$cfg"; then
-        echo "dev-watch: $cfg sets admin-tls; air's browser-reload proxy can only front a plain-HTTP admin listener. Comment out admin-tls (loopback admin may be plain HTTP) — see dev/README.md." >&2
-        exit 1
-    fi
-    if [ -n "${JAM_WATCH_SUDO:-}" ]; then sudo -v; fi
-    go run github.com/air-verse/air@v1.67.4 -c .air.toml
 
 # hermetic unit tests (no docker/network/ssh)
 test:

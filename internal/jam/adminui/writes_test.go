@@ -215,8 +215,8 @@ func TestEnrollValidationError(t *testing.T) {
 	}
 }
 
-// TestTrustedOriginsAcceptedForWrites: a configured extra origin (e.g. the
-// dev-watch proxy at :8090 fronting the admin listener at :8081) passes the
+// TestTrustedOriginsAcceptedForWrites: a configured extra origin (e.g. a
+// proxy at :8090 fronting the admin listener at :8081) passes the
 // write check by exact match, via Origin or Referer; anything else is still
 // refused, and without the option the proxied write is refused.
 func TestTrustedOriginsAcceptedForWrites(t *testing.T) {
