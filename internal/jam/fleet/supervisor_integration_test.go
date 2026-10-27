@@ -1,9 +1,11 @@
 package fleet
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -174,5 +176,107 @@ func TestReconcileLeavesOtherHoldersLeaseOnMissingManager(t *testing.T) {
 	}
 	if got, ok := store.GetInstance("w1"); !ok || got.Phase != jam.PhaseLive {
 		t.Fatalf("instance = %+v ok=%v, want untouched", got, ok)
+	}
+}
+
+// cutoverSupervisor is routedSupervisor with a movable clock and a captured log.
+func cutoverSupervisor(t *testing.T, m1 *fakeManager) (*jam.Supervisor, jam.Store, *time.Time, *bytes.Buffer) {
+	t.Helper()
+	store := jam.NewMemStore()
+	if err := store.PutRole("default", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	r := newRouter()
+	mustAdd(t, r, m1)
+	clk := time.Unix(1000, 0).UTC()
+	var buf bytes.Buffer
+	sup := jam.NewSupervisor(store, r, "holder-A", time.Minute, 30*time.Second,
+		func() time.Time { return clk }, slog.New(slog.NewTextHandler(&buf, nil)))
+	return sup, store, &clk, &buf
+}
+
+// Studios the removed in-process launcher raised are recorded on "local" or on
+// "" (legacy). "local" is never registered now, so neither may reach a manager.
+func TestCutoverReapsLocalInstances(t *testing.T) {
+	m1 := newFake("m1")
+	sup, store, clk, _ := cutoverSupervisor(t, m1)
+	ctx := context.Background()
+	for _, id := range []string{"w-local", "w-legacy"} {
+		inst, _, _, err := sup.Raise(ctx, jam.RaiseSpec{ActorID: id, Role: "guest"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		inst.Manager = jam.LocalManager
+		if id == "w-legacy" {
+			inst.Manager = ""
+		}
+		if err := store.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Manager "" is skipped by the named-manager reap and is only reaped when
+	// its lease has expired and Probe (routed to the unregistered "local")
+	// reports it dead, so move the clock past the lease TTL.
+	*clk = clk.Add(time.Hour)
+	// Snapshot after the raises: only calls made during Reconcile matter.
+	tornBefore := len(m1.get(&m1.tornDown))
+	for i := 0; i < 2; i++ {
+		if err := sup.Reconcile(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"w-local", "w-legacy"} {
+		if got, ok := store.GetInstance(id); ok && got.Phase != jam.PhaseGone {
+			t.Fatalf("%s = %+v, want gone or dropped", id, got)
+		}
+		for _, a := range store.ListActors() {
+			if a.ID == id {
+				t.Fatalf("actor %s still stored", id)
+			}
+		}
+	}
+	if got := m1.get(&m1.tornDown); len(got) != tornBefore {
+		t.Fatalf("m1 Teardown calls = %v, want none for local studios", got)
+	}
+	if got := m1.get(&m1.probed); len(got) != 0 {
+		t.Fatalf("m1 Probe calls = %v, want none", got)
+	}
+	if got := m1.get(&m1.paused); len(got) != 0 {
+		t.Fatalf("m1 Pause calls = %v, want none", got)
+	}
+}
+
+// A standing session pinned to the retired "local" manager is placed fresh on
+// a connected manager, and the stale pin is replaced with that manager.
+func TestCutoverResetsLocalPin(t *testing.T) {
+	m1 := newFake("m1")
+	sup, store, _, logs := cutoverSupervisor(t, m1)
+	pid, ok := jam.ProjectIDOf(store, "default")
+	if !ok {
+		t.Fatal("no default project")
+	}
+	sid := string(ident.New(ident.Session))
+	if err := store.PutStandingSession(pid, "guest", "spider", sid); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetStandingSessionManager(pid, "guest", "spider", jam.LocalManager); err != nil {
+		t.Fatal(err)
+	}
+	inst, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{
+		ActorID: sid, Role: "guest", Name: "spider", SessionKind: jam.SessionKindStanding,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Manager != "m1" {
+		t.Fatalf("manager = %q, want m1", inst.Manager)
+	}
+	if got := store.StandingSessionManager(pid, "guest", "spider"); got != "m1" {
+		t.Fatalf("pin = %q, want m1", got)
+	}
+	want := "standing session's pinned manager is not configured; placing fresh, state not carried over"
+	out := logs.String()
+	if !strings.Contains(out, "level=WARN") || !strings.Contains(out, want) || !strings.Contains(out, "pin=local") {
+		t.Fatalf("log missing the pin warning:\n%s", out)
 	}
 }
