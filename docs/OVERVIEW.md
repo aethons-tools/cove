@@ -260,7 +260,7 @@ The one-command installer ([`install.sh`](../install.sh) at the repo root) is th
 fastest way to get `at-jam`, `at-mint` and `at-studio-manager`: it pulls the prebuilt archive from the
 latest release the [release pipeline](DEVELOPMENT.md#ci-the-release-pipeline) cuts
 on every push to `main`, verifies its SHA-256 against the release `checksums.txt`,
-and installs both (the archive also holds an `at-cove` tombstone, kept only so an
+and installs all three (the archive also holds an `at-cove` tombstone, kept only so an
 older `at-jam update` can install it; this installer skips it). `cove-master`
 ships **embedded** in `at-jam`.
 

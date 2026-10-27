@@ -129,7 +129,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "login", Brief: "sign in via OIDC device flow and cache the operator token", Run: cmdLogin},
 			{Name: "logout", Brief: "clear the cached operator token", Run: cmdLogout},
 			{Name: "whoami", Brief: "show the cached operator identity", Run: cmdWhoami},
-			{Name: "update", Brief: "update the cove installation (at-jam, at-mint) to the latest release", Run: cmdUpdate(getenv)},
+			{Name: "update", Brief: "update the cove installation (at-jam, at-mint, at-studio-manager) to the latest release", Run: cmdUpdate(getenv)},
 		},
 	}
 	return app.Run(argv, stdout, stderr)

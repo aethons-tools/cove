@@ -14,7 +14,7 @@ Registration, the token's auth, and disconnect/reconnect/revoke behaviour on Jam
 
 ## Install and run
 
-`install.sh` installs it next to `at-jam` (`at-jam update` does not yet).
+`install.sh` and `at-jam update` install it next to `at-jam`; the first `at-jam update` from an older `at-jam` (whose embedded installer predates this binary) skips it, so run the update once more or use `install.sh`.
 Its version must equal Jam's exactly, otherwise Jam refuses the stream.
 
 1. On Jam, `at-jam manager add <name>`, and save the printed token in `token-file` (whitespace is trimmed; the token is never logged).
@@ -46,6 +46,7 @@ colima:
   known-hosts-dir: ""                # default <dir>/known_hosts.d
 ```
 
+`identity-file` and `known-hosts-dir` default to the manager's own `<dir>`, not `local`'s at-cove directory.
 The `colima` fields mean what the same fields of `runtime.launcher` mean for Jam ([serve.md](jam/serve.md)).
 
 ## TLS

@@ -1,7 +1,7 @@
 # goreleaser config for the cove host binaries — the BUILD tool for the binaries
 # leg of the monolithic pipeline (.github/workflows/release.yml, COV-44). CI runs
 # `goreleaser release --snapshot` on every main push: goreleaser builds + archives
-# at-mint + at-jam (darwin/linux × amd64/arm64) stamped <N>-<MMDD> via the VERSION
+# at-mint + at-jam + at-studio-manager (darwin/linux × amd64/arm64) stamped <N>-<MMDD> via the VERSION
 # env; the workflow then cuts the (private) GitHub release with `gh`. Snapshot mode
 # is used deliberately — it skips goreleaser's own publishing, so the non-SemVer
 # <N>-<MMDD> version needs no git tag to satisfy goreleaser. cove-master is NOT
@@ -10,7 +10,7 @@
 # a tombstone that keeps an older `at-jam update` (whose embedded install.sh
 # installs at-cove unconditionally) working; slice 3 of the jam-only design drops it.
 #
-# Public phase (later): add a `brews:` block that installs at-mint and at-jam
+# Public phase (later): add a `brews:` block that installs at-mint, at-jam and at-studio-manager
 # from the single archive below.
 version: 2
 
