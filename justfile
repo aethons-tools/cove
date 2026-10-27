@@ -89,6 +89,18 @@ dev-up:
 dev-down *ARGS:
     docker compose -f dev/docker-compose.yml down {{ARGS}}
 
+# start Jam in its container (profile "jam") beside Postgres and Garage; see dev/docker-compose.yml
+dev-jam-up:
+    docker compose -f dev/docker-compose.yml --profile jam up -d
+
+# follow the Jam container's logs
+dev-jam-logs:
+    docker compose -f dev/docker-compose.yml logs -f jam
+
+# run an at-jam verb inside the Jam container (loopback-trusted admin), e.g. `just dev-jam destination list`
+dev-jam *ARGS:
+    docker compose -f dev/docker-compose.yml exec jam at-jam {{ARGS}}
+
 # Run at-jam serve against the local dev config (uses the last `just build`
 # output — run `just build` + `just dev-cert` + `just dev-up` first). macOS binds a
 # wildcard :443 without root; on Linux, sudo the built binary directly for that.
