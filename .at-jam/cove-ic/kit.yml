@@ -27,5 +27,7 @@ egress:
   # from gstatic), so headless-Chrome screenshots render the real typeface
   - fonts.googleapis.com
   - fonts.gstatic.com
+  - registry.npmjs.org
+
 prompt: |
   This studio kit has everything you should need to work on the aethons.tools/cove project.

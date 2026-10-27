@@ -1,5 +1,8 @@
 # Aethon's Tools — cove. Thin task runner over the scripts; run `just` to list.
 # Build/lint logic lives in scripts/ so CI never needs `just` installed.
+
+import? "dev/local/justfile.local"
+
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 # list available recipes
@@ -18,6 +21,9 @@ build-all:
 # run `just build` first). e.g. `just jam destination list`  or  `just jam version`
 jam *ARGS:
     "dist/$(go env GOOS)-$(go env GOARCH)/at-jam" {{ARGS}}
+
+studio-manager *ARGS:
+    "dist/$(go env GOOS)-$(go env GOARCH)/at-studio-manager" {{ARGS}}
 
 # install the host binaries (at-mint, at-jam, at-studio-manager) onto your PATH.
 # Default dir: $(go env GOBIN) or $(go env GOPATH)/bin (~/go/bin) — no sudo.
@@ -96,9 +102,7 @@ dev-down *ARGS:
 dev-jam-up:
     #!/usr/bin/env bash
     set -euo pipefail
-    for f in dev/jam.container.yml dev/credentials.container.yml; do
-      [ -f "$f" ] || { echo "missing $f: cp $f.example $f (docker would create a directory at the bind source)" >&2; exit 1; }
-    done
+    #[ -f "dev/jam.container.yml" ] || { echo "missing dev/jam.container.yml" }
     docker compose -f dev/docker-compose.yml --profile jam up -d
 
 # follow the Jam container's logs

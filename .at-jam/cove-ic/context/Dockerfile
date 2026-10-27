@@ -34,7 +34,8 @@ RUN case "${AT_JAM_STUDIO_TARGET_ARCH}" in \
 # Language toolchain: golang
 COPY image-files/. /.
 WORKDIR /install
-RUN TARGETARCH="${AT_JAM_STUDIO_TARGET_ARCH}" GO_VERSION="${GO_VERSION}" ./install-go.sh
+RUN TARGETARCH="${AT_JAM_STUDIO_TARGET_ARCH}" GO_VERSION="${GO_VERSION}" ./install-go.sh &&  \
+    bash ./install-node.sh
 WORKDIR /
 RUN rm -rf /install
 

@@ -67,11 +67,10 @@ services:
         condition: service_started
     ports:
       - "443:8443"
-      - "127.0.0.1:8081:8081"
+      - "8081:8081"
     volumes:
       - ./jam.container.yml:/etc/jam/jam.yml:ro
-      - ./credentials.container.yml:/etc/jam/credentials.yml:ro
-      - ${JAM_TLS_DIR:-./tls}:/etc/jam/tls:ro
+      - ${JAM_SECRETS_DIR}:/etc/jam/secrets
       - jamstate:/var/lib/jam
 
 volumes:
