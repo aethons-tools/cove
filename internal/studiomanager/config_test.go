@@ -35,17 +35,19 @@ func TestLoadMinimal(t *testing.T) {
 
 func TestLoadRejects(t *testing.T) {
 	cases := []struct{ name, body, want string }{
-		{"no name", strings.Replace(minimal, "name: mac1\n", "", 1), "name"},
-		{"local", strings.Replace(minimal, "mac1", "local", 1), "name"},
-		{"bad name", strings.Replace(minimal, "mac1", "Bad_Name", 1), "name"},
-		{"no jam-addr", strings.Replace(minimal, "jam-addr: jam.example.com:8443\n", "", 1), "jam-addr"},
-		{"no port", strings.Replace(minimal, "jam.example.com:8443", "jam.example.com", 1), "jam-addr"},
-		{"capacity", minimal + "capacity: -1\n", "capacity"},
-		{"no runtime-addr", strings.Replace(minimal, "  runtime-addr: 10.0.0.1:8443\n", "", 1), "runtime-addr"},
-		{"no jam-host", strings.Replace(minimal, "  jam-host: jam.example.com\n", "", 1), "jam-host"},
-		{"docker-context", minimal + "  docker-context: \"a b\"\n", "docker-context"},
-		{"log-level", minimal + "log-level: loud\n", "log-level"},
-		{"unknown key", minimal + "colour: red\n", "colour"},
+		{"no name", strings.Replace(minimal, "name: mac1\n", "", 1), "name is required"},
+		{"local", strings.Replace(minimal, "mac1", "local", 1), "reserved"},
+		{"bad name", strings.Replace(minimal, "mac1", "Bad_Name", 1), `invalid manager name "Bad_Name"`},
+		{"no jam-addr", strings.Replace(minimal, "jam-addr: jam.example.com:8443\n", "", 1), "jam-addr is required"},
+		{"no port", strings.Replace(minimal, "jam.example.com:8443", "jam.example.com", 1), `jam-addr "jam.example.com" must be host:port`},
+		{"capacity", minimal + "capacity: -1\n", "capacity must not be negative"},
+		{"no runtime-addr", strings.Replace(minimal, "  runtime-addr: 10.0.0.1:8443\n", "", 1), "colima.runtime-addr is required"},
+		{"no jam-host", strings.Replace(minimal, "  jam-host: jam.example.com\n", "", 1), "colima.jam-host is required"},
+		{"docker-context", minimal + "  docker-context: \"a b\"\n", `colima.docker-context "a b"`},
+		{"log-level", minimal + "log-level: loud\n", `log-level "loud" must be`},
+		{"unknown key", minimal + "colour: red\n", "field colour not found"},
+		{"empty file", "", "name is required"},
+		{"comment only", "# nothing\n", "name is required"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -60,11 +62,15 @@ func TestLoadRejects(t *testing.T) {
 func TestTokenTrimsAndRejectsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "token")
-	os.WriteFile(p, []byte("tok123\n"), 0o600)
+	if err := os.WriteFile(p, []byte("tok123\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if got, err := (Config{TokenFile: p}).Token(); err != nil || got != "tok123" {
 		t.Fatalf("got %q, %v", got, err)
 	}
-	os.WriteFile(p, []byte(" \n\t"), 0o600)
+	if err := os.WriteFile(p, []byte(" \n\t"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := (Config{TokenFile: p}).Token(); err == nil || !strings.Contains(err.Error(), p) {
 		t.Fatalf("empty: %v", err)
 	}

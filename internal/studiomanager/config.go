@@ -3,7 +3,9 @@ package studiomanager
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -55,7 +57,7 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
-	if err := dec.Decode(&c); err != nil {
+	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
 		return Config{}, fmt.Errorf("parse %s: %w", path, err)
 	}
 	dir := DefaultDir(getenv)
