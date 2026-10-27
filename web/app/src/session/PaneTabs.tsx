@@ -2,6 +2,7 @@ import { Anchor, Badge, Button, Group, Image, Loader, SimpleGrid, Stack, Text, T
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import type { SessionPane } from "../api/types";
 import type { PaneTab } from "./layout";
+import { Link } from "react-router";
 import { usePaneTab } from "./useSession";
 import { FrameView } from "./frames/FrameView";
 
@@ -38,15 +39,14 @@ function Previews({ p }: { p: SessionPane }) {
   );
 }
 
-function Artifacts({ p, channel, onAsk }: { p: SessionPane; channel: string; onAsk: (id: string) => void }) {
+function Artifacts({ p, onAsk }: { p: SessionPane; onAsk: (id: string) => void }) {
   if (!p.boards.length && !p.files.length && !p.asks.length && !p.links.length) return <Text size="sm" c="dimmed">Nothing shared here yet.</Text>;
   return (
     <Stack gap="xs">
       {p.boards.length > 0 && <Section title="Whiteboards">
         <SimpleGrid cols={2} spacing="xs">
-          {/* Boards open in the current Inbox until the app has them (slice 7). */}
           {p.boards.map((b) => (
-            <Anchor key={b.id} href={`/app/user/?c=${enc(b.channel || channel)}&board=${enc(b.id)}`} size="xs">
+            <Anchor key={b.id} component={Link} to={`/app/next/boards/${enc(b.id)}`} size="xs">
               <Image loading="lazy" src={`/app/user/boards/${enc(b.id)}/thumb.png`} alt="" radius="sm" fit="contain" h={90} bg="white" />
               {b.title}
             </Anchor>
@@ -83,12 +83,12 @@ function Status({ p }: { p: SessionPane }) {
   );
 }
 
-function Loaded({ id, channel, tab, onAsk }: { id: string; channel: string; tab: "previews" | "artifacts" | "status"; onAsk: (id: string) => void }) {
+function Loaded({ id, tab, onAsk }: { id: string; tab: "previews" | "artifacts" | "status"; onAsk: (id: string) => void }) {
   const q = usePaneTab(id, tab);
   if (q.isPending) return <Loader size="sm" />;
   if (!q.data) return <Text size="sm" c="red">{q.error?.message}</Text>;
   if (tab === "previews") return <Previews p={q.data} />;
-  if (tab === "artifacts") return <Artifacts p={q.data} channel={channel} onAsk={onAsk} />;
+  if (tab === "artifacts") return <Artifacts p={q.data} onAsk={onAsk} />;
   return <Status p={q.data} />;
 }
 
@@ -97,7 +97,7 @@ const ThinkingTab = lazy(() => import("./thinking/ThinkingTab"));
 
 // PaneBody is one tab of the session pane (Studio lives in SessionView's
 // keep, so it outlives tab switches).
-export function PaneBody({ id, channel, tab, busy, onAsk }: { id: string; channel: string; tab: Exclude<PaneTab, "studio">; busy: boolean; onAsk: (id: string) => void }) {
+export function PaneBody({ id, tab, busy, onAsk }: { id: string; tab: Exclude<PaneTab, "studio">; busy: boolean; onAsk: (id: string) => void }) {
   if (tab === "thinking") return <Suspense fallback={<Loader size="sm" m="sm" />}><ThinkingTab id={id} busy={busy} /></Suspense>;
-  return <Loaded id={id} channel={channel} tab={tab} onAsk={onAsk} />;
+  return <Loaded id={id} tab={tab} onAsk={onAsk} />;
 }

@@ -685,3 +685,145 @@ func TestBrowserNextStudio(t *testing.T) {
 		t.Errorf("page problem: %s", pr)
 	}
 }
+
+// The app's board route mounts Excalidraw under the app's CSP, loading every
+// font from the app's own bundle (no CDN), saves a drawn rectangle, and shows
+// an agent's edit pushed live.
+func TestBrowserNextBoard(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p := fixture()
+	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
+	b, err := e.Deps.Boards.Create(jam.Poster{ID: e.alice.ID}, engID, "Arch", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A labelled shape first, so the board draws text (fonts load per use).
+	if _, _, err := e.Deps.Boards.Apply(e.alice.ID, b.ID, []jam.BoardOp{{Op: "add", Type: "ellipse", ID: "first", Text: "hello"}}); err != nil {
+		t.Fatal(err)
+	}
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+
+	type fonts struct {
+		Local   bool     `json:"local"`
+		Foreign []string `json:"foreign"`
+	}
+	var f fonts
+	var problems pageProblems
+	err = chromedp.Do(ctx,
+		problems.watch(ctx),
+		call(cdplog.Enable, cdp.Empty{}),
+		call(runtime.Enable, cdp.Empty{}),
+		chromedp.EmulateViewport(1400, 1000),
+		chromedp.Navigate(srv.URL+"/app/next/boards/"+string(b.ID)),
+		chromedp.WaitVisible(chromedp.CSS(`.excalidraw canvas`)),
+		chromedp.Poll[chromedp.Void](`!!document.querySelector('[data-board-editor]') && document.querySelector('[data-board-editor]').jamElementCount() >= 2`, chromedp.WithPollingTimeout(5*time.Second)),
+		chromedp.Click(chromedp.CSS(`[data-testid="toolbar-rectangle"]`)),
+		chromedp.MouseEvent(chromedp.MouseMoved, 700, 450),
+		chromedp.MouseEvent(chromedp.MousePressed, 700, 450, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 760, 500, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 820, 540, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseReleased, 820, 540, chromedp.ButtonLeft),
+		chromedp.Sleep(800*time.Millisecond),
+		into(&f, chromedp.Evaluate[fonts](`(async function(){ await document.fonts.ready;
+			var r = performance.getEntriesByType('resource').map(function(e){ return e.name; });
+			return {local: r.some(function(n){ return n.indexOf(location.origin + '/app/next/assets/excalidraw/fonts/') === 0; }),
+				foreign: r.filter(function(n){ return n.indexOf(location.origin) !== 0; })}; })()`, chromedp.EvalAwaitPromise)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.Local || len(f.Foreign) > 0 {
+		t.Errorf("fonts from the bundle: %v; requests elsewhere: %v", f.Local, f.Foreign)
+	}
+	var rect bool
+	for range 50 {
+		els, _, _ := e.Deps.Boards.Elements(e.alice.ID, b.ID, 0)
+		for _, el := range els {
+			rect = rect || strings.Contains(string(el), `"type":"rectangle"`)
+		}
+		if rect {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !rect {
+		t.Fatal("the drawn rectangle wasn't saved")
+	}
+	if _, _, err := e.Deps.Boards.Apply(e.alice.ID, b.ID, []jam.BoardOp{{Op: "add", Type: "ellipse", ID: "agent-shape", Text: "from an agent"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := chromedp.Do(ctx, chromedp.Poll[chromedp.Void](`document.querySelector('[data-board-editor]').jamElementCount() >= 5`, chromedp.WithPollingTimeout(5*time.Second))); err != nil {
+		t.Fatalf("the agent's edit didn't arrive: %v", err)
+	}
+	for _, pr := range problems.all() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// An edit made just before "← Back to chat" is saved, not dropped: leaving
+// the board in the app flushes the pending (debounced) save.
+func TestBrowserNextBoardFlushesOnLeave(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p := fixture()
+	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
+	b, err := e.Deps.Boards.Create(jam.Poster{ID: e.alice.ID}, engID, "Arch", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+	err = chromedp.Do(ctx,
+		chromedp.EmulateViewport(1400, 1000),
+		chromedp.Navigate(srv.URL+"/app/next/boards/"+string(b.ID)),
+		chromedp.WaitVisible(chromedp.CSS(`.excalidraw canvas`)),
+		chromedp.Click(chromedp.CSS(`[data-testid="toolbar-rectangle"]`)),
+		chromedp.MouseEvent(chromedp.MouseMoved, 700, 450),
+		chromedp.MouseEvent(chromedp.MousePressed, 700, 450, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 760, 500, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseMoved, 820, 540, chromedp.ButtonLeft),
+		chromedp.MouseEvent(chromedp.MouseReleased, 820, 540, chromedp.ButtonLeft),
+		// At once: within the 300 ms debounce, so the save is still pending.
+		chromedp.Evaluate[chromedp.Void](`Array.from(document.querySelectorAll('a')).find(function(a){ return a.textContent.indexOf('Back to chat') >= 0; }).click()`),
+		chromedp.WaitVisible(chromedp.CSS(`h2`)), // the conversation
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rect bool
+	for range 30 {
+		els, _, _ := e.Deps.Boards.Elements(e.alice.ID, b.ID, 0)
+		for _, el := range els {
+			rect = rect || strings.Contains(string(el), `"type":"rectangle"`)
+		}
+		if rect {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !rect {
+		t.Fatal("the rectangle drawn just before Back to chat was lost")
+	}
+}

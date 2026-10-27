@@ -32,7 +32,7 @@ type Bootstrap struct {
 	Tabs      []NavTab `json:"tabs"`      // the title bar's links
 	AttachMax int64    `json:"attachMax"` // per-file cap; 0 = attachments off
 	PushKey   string   `json:"pushKey"`   // VAPID public key; "" = Web Push off
-	Boards    bool     `json:"boards"`    // whiteboards on and the editor built
+	Boards    bool     `json:"boards"`    // whiteboards on (the app bundles its editor)
 }
 
 // BootUser is the signed-in member.
@@ -101,7 +101,7 @@ type MessageRow struct {
 	// Files are the message's attachments.
 	Files []FileChip `json:"files,omitempty"`
 	// Board is a board's card (the squawk that started it).
-	Board *BoardCard `json:"-"` // the app shows boards from slice 7 (Card says which rows)
+	Board *BoardCard `json:"board,omitempty"` // the board's card (Card == "board")
 	// Channel is the conversation's id (a board card links into it).
 	Channel string `json:"-"`
 	// Card names the card this row is ("ask" or "board"; "" = none), so the
@@ -150,7 +150,7 @@ type Conversation struct {
 	CallIn   []NewMessageOption `json:"callIn"`
 	// Whiteboards: NewBoard offers New whiteboard (the viewer may post here
 	// and the editor is built); Board is the board ?board= opened.
-	NewBoard bool         `json:"-"`
+	NewBoard bool         `json:"newBoard"`
 	Board    *BoardEditor `json:"-"`
 	// Session is the actor id of the session whose home this channel is,
 	// when the viewer may see it ("" = none): the app's session header and
@@ -390,4 +390,33 @@ type FrameRequest struct {
 type FrameURL struct {
 	URL  string `json:"url"`
 	Open string `json:"open"`
+}
+
+// BoardCard is a board's card in its conversation (MessageRow.Board).
+type BoardCard struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Built bool   `json:"-"` // the old page's editor bundle is built
+}
+
+// BoardInfo is GET api/boards/{id}: the board the app's board route opens,
+// its conversation, and whether the viewer may only look.
+type BoardInfo struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Channel  string `json:"channel"`
+	ReadOnly bool   `json:"readOnly"`
+}
+
+// NewBoardRequest is POST api/boards: a whiteboard in a conversation the
+// viewer may post to.
+type NewBoardRequest struct {
+	Channel string `json:"channel"`
+	Title   string `json:"title"`
+}
+
+// NewBoardResponse is the new board and its conversation.
+type NewBoardResponse struct {
+	Board   string `json:"board"`
+	Channel string `json:"channel"`
 }

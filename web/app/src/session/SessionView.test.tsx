@@ -21,7 +21,7 @@ const pane = (tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
 const conv: Conversation = {
   channelId: "chn_s", label: "intercom-spider", kind: "session", project: "test", phase: "live", needsYou: false, sendTo: "chn_s",
   messages: [], lastSeq: 0, earlier: false, sessionIds: ["ses_1"], sessions: [], canJoin: false, canLeave: false, callIn: [], openAsks: [],
-  session: "ses_1",
+  session: "ses_1", newBoard: false,
 };
 
 // serve answers the conversation, its session head (null = 404) and pane
@@ -222,7 +222,7 @@ describe("the session pane", () => {
     expect(web).toHaveAttribute("target", "_blank");
     expect(web).toHaveAttribute("rel", "noopener");
     await user.click(screen.getByRole("tab", { name: "Artifacts" }));
-    expect(await screen.findByRole("link", { name: /Plan/ })).toHaveAttribute("href", "/app/user/?c=chn_s&board=brd_1");
+    expect(await screen.findByRole("link", { name: /Plan/ })).toHaveAttribute("href", "/app/next/boards/brd_1");
     expect(screen.getByRole("img", { name: "shot.png" })).toHaveAttribute("src", "/app/user/blobs/blb_1");
     expect(screen.getByRole("link", { name: /log\.txt/ })).toHaveAttribute("download");
     expect(screen.getByRole("link", { name: "cove PR #472" })).toHaveAttribute("title", "https://github.com/aethons-tools/cove/pull/472");

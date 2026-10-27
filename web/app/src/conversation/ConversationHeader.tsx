@@ -4,11 +4,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { apiPost, ApiError } from "../api/client";
 import type { Conversation } from "../api/types";
+import { useBoot } from "../BootContext";
+import { NewBoard } from "../boards/NewBoard";
 
 // ConversationHeader: title, project · kind, Needs you, and the membership
 // controls (Join / Leave / Call in), which refetch the conversation and rail.
 export function ConversationHeader({ c }: { c: Conversation }) {
   const client = useQueryClient();
+  const boot = useBoot();
   const [who, setWho] = useState<string | null>(null);
   const act = useMutation<void, ApiError, { path: string; body: unknown }>({
     mutationFn: ({ path, body }) => apiPost(`conversations/${encodeURIComponent(c.channelId)}/${path}`, body),
@@ -26,6 +29,7 @@ export function ConversationHeader({ c }: { c: Conversation }) {
       </div>
       <Group gap="xs" wrap="nowrap">
         {c.needsYou && <Badge color="yellow">Needs you</Badge>}
+        {c.newBoard && boot.boards && <NewBoard channel={c.channelId} />}
         {c.callIn.length > 0 && (
           <Group gap={4} wrap="nowrap">
             <Select size="xs" placeholder="Call in…" aria-label="Who to call in" value={who} onChange={setWho}

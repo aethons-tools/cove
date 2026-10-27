@@ -1,6 +1,6 @@
 # Jam UI as a single-page app — design
 
-**Status:** approved (#496); slices 1–6a merged; slice 6b (Studio) in progress ([plan](../plans/2026-10-26-jam-spa-6b-studio.md)).
+**Status:** approved (#496); slices 1–6 merged; slice 7 (boards) in progress ([plan](../plans/2026-10-26-jam-spa-7-boards.md)).
 **Context:** `/app/user` (package `userui`) is server-rendered Go `html/template` plus htmx and inline JS. Its `layout.html` alone is about 1,300 lines, and the session view, inbox and live panes are hard to grow that way. This spec moves `/app/user` to a React single-page app (SPA) built on off-the-shelf components and themes. `/app/admin` (`adminui`) follows later as its own sub-project, on the same foundation.
 
 ## Decisions (2026-10-26)

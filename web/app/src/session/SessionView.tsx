@@ -18,8 +18,8 @@ const border = "1px solid var(--mantine-color-default-border)";
 // (its head 404s), it is the plain conversation. Its shape never changes
 // with id, so the conversation (composer, reading place) stays mounted
 // when a session ends or appears.
-export function SessionView({ id, channel, linked, onAsk, header, children }: {
-  id: string | null; channel: string; linked: string | null; onAsk: (id: string) => void; header: ReactNode; children: ReactNode;
+export function SessionView({ id, linked, onAsk, header, children }: {
+  id: string | null; linked: string | null; onAsk: (id: string) => void; header: ReactNode; children: ReactNode;
 }) {
   const q = useSessionHead(id);
   // A failed refetch keeps the last data; a 404 means the session is gone.
@@ -98,7 +98,7 @@ export function SessionView({ id, channel, linked, onAsk, header, children }: {
               {tab !== "studio" && (
                 <div id="session-pane-body" role="tabpanel" aria-label={TAB_LABEL[tab]}
                   style={tab === "thinking" ? { flex: 1, minHeight: 0, overflow: "hidden" } : { flex: 1, minHeight: 0, overflow: "auto", padding: "8px 12px 14px" }}>
-                  <PaneBody id={h!.id} channel={channel} tab={tab} busy={h!.state.class === "busy"} onAsk={onAsk} />
+                  <PaneBody id={h!.id} tab={tab} busy={h!.state.class === "busy"} onAsk={onAsk} />
                 </div>
               )}
               {studioKept && (

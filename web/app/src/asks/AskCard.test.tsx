@@ -18,7 +18,7 @@ const row = (c: AskCard, seq = 1): MessageRow => ({
 const conv = (cards: AskCard[]): Conversation => ({
   channelId: "chn_a", label: "eng", kind: "room", project: "test", phase: "", needsYou: true, sendTo: "chn_a",
   messages: cards.map((c, i) => row(c, i + 1)), lastSeq: cards.length, earlier: false, sessionIds: [], sessions: [],
-  canJoin: false, canLeave: true, callIn: [], openAsks: cards.filter((c) => c.state === "open"), session: "",
+  canJoin: false, canLeave: true, callIn: [], openAsks: cards.filter((c) => c.state === "open"), session: "", newBoard: false,
 });
 
 function serve(get: () => Conversation, answer?: (body: unknown) => Response) {

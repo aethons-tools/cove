@@ -24,7 +24,7 @@ export interface Bootstrap {
   tabs: NavTab[]; // the title bar's links
   attachMax: number /* int64 */; // per-file cap; 0 = attachments off
   pushKey: string; // VAPID public key; "" = Web Push off
-  boards: boolean; // whiteboards on and the editor built
+  boards: boolean; // whiteboards on (the app bundles its editor)
 }
 /**
  * BootUser is the signed-in member.
@@ -105,6 +105,10 @@ export interface MessageRow {
    */
   files?: FileChip[];
   /**
+   * Board is a board's card (the squawk that started it).
+   */
+  board?: BoardCard; // the board's card (Card == "board")
+  /**
    * Card names the card this row is ("ask" or "board"; "" = none), so the
    * app can place what it doesn't render yet.
    */
@@ -158,6 +162,11 @@ export interface Conversation {
   canJoin: boolean;
   canLeave: boolean;
   callIn: NewMessageOption[];
+  /**
+   * Whiteboards: NewBoard offers New whiteboard (the viewer may post here
+   * and the editor is built); Board is the board ?board= opened.
+   */
+  newBoard: boolean;
   /**
    * Session is the actor id of the session whose home this channel is,
    * when the viewer may see it ("" = none): the app's session header and
@@ -425,4 +434,36 @@ export interface FrameRequest {
 export interface FrameURL {
   url: string;
   open: string;
+}
+/**
+ * BoardCard is a board's card in its conversation (MessageRow.Board).
+ */
+export interface BoardCard {
+  id: string;
+  title: string;
+}
+/**
+ * BoardInfo is GET api/boards/{id}: the board the app's board route opens,
+ * its conversation, and whether the viewer may only look.
+ */
+export interface BoardInfo {
+  id: string;
+  title: string;
+  channel: string;
+  readOnly: boolean;
+}
+/**
+ * NewBoardRequest is POST api/boards: a whiteboard in a conversation the
+ * viewer may post to.
+ */
+export interface NewBoardRequest {
+  channel: string;
+  title: string;
+}
+/**
+ * NewBoardResponse is the new board and its conversation.
+ */
+export interface NewBoardResponse {
+  board: string;
+  channel: string;
 }

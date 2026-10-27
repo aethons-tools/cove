@@ -26,6 +26,7 @@ func (h *handler) apiRoutes(mux *http.ServeMux) {
 	h.composeRoutes(mux)
 	h.askRoutes(mux)
 	h.sessionRoutes(mux)
+	h.boardRoutes(mux)
 	mux.HandleFunc("/app/user/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "no such API route")
 	})
@@ -59,7 +60,7 @@ func (h *handler) bootstrap(r *http.Request) (Bootstrap, bool) {
 		User:      BootUser{ID: string(p.UserID), Name: p.Name, Initial: initial(p.Name)},
 		AttachMax: h.d.Attachments.MaxBytes(),
 		PushKey:   h.pushKey,
-		Boards:    h.d.Boards != nil && uiassets.WhiteboardBuilt(),
+		Boards:    h.d.Boards != nil, // the app bundles its own editor
 	}
 	if pr, ok := appui.PrincipalFrom(r); ok {
 		b.Admin = pr.Admin
