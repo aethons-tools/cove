@@ -1,22 +1,23 @@
 ---
 summary: Operator guide to remote Studio Managers — enabling them, the `at-jam manager add|list|rotate|revoke` verbs, how a manager connects to Jam, and what happens on disconnect, reconnect and revoke.
-read_when: You register, rotate or revoke a Studio Manager, or debug a manager connection (refused stream, version mismatch, a manager shown disconnected, strays, a revoke refused).
+read_when: You register, rotate or revoke a Studio Manager, upgrade from the old `runtime.launcher` (its error links here), or debug a manager connection (refused stream, version mismatch, a manager shown disconnected, strays, a revoke refused).
 owns: the operator-facing Studio Manager story — `runtime.studio-managers`, the `manager` verbs and admin API, the Connect stream's auth and lifecycle, and disconnect/reconnect/revoke behaviour
 prereqs: coves.md#managers-and-placement for how a raise picks a manager; serve.md for the serve config
 tier: leaf
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 # Studio Managers
 
-A **Studio Manager** is a remote process that hosts studios on another machine and dials *into* Jam; Jam registers it under a name next to the in-process `local` manager.
+A **Studio Manager** is a remote process that hosts studios on another machine and dials *into* Jam; Jam registers it under a name.
 The manager binary is [at-studio-manager](../studio-manager.md); this doc covers Jam's side.
 How a raise chooses among managers is in [Managers and placement](coves.md#managers-and-placement).
 
 ## Enable it
 
 Set `runtime.studio-managers: true` in the [serve config](serve.md).
-It works with or without a `runtime.launcher` block; with neither, Jam keeps the placeholder launcher.
+Studios run on managers only; a serve config that still has `runtime.launcher` is refused ([retiring it](#retiring-the-in-process-launcher)).
+Without this setting Jam keeps a placeholder launcher that starts no studios.
 The admin UI dashboard then shows a read-only Managers panel (name, connected, version, studios/capacity, last seen, strays) and the studios table gains a Manager column.
 
 **Warning:** turning `runtime.studio-managers` off while remote studios exist makes Jam treat them as dead, because their manager is no longer registered.
@@ -34,7 +35,7 @@ All are clients of the admin API (see [operators.md](operators.md) for the clien
 | `at-jam manager revoke <name> [--force]` | Removes the manager; see Revoke. |
 
 Admin API: `GET`/`POST /admin/managers`, `POST /admin/managers/{name}/rotate`, `DELETE /admin/managers/{name}?force=true`.
-Names match `^[a-z0-9][a-z0-9-]{0,62}$`; `local` is reserved.
+Names match `^[a-z0-9][a-z0-9-]{0,62}$`; `local` is reserved (the retired launcher's name).
 Jam stores only a hash of the token, so a lost token means `rotate`.
 Managers are not part of config export/import ([backup.md](backup.md)); a restored Jam re-registers them with `manager add`.
 
@@ -75,3 +76,28 @@ Their containers are left on the host for the operator to remove.
 A teardown returns the studio's cove-master log tail, which Jam logs as `cove agent log (tail, captured on teardown)`.
 
 Manager metrics are in [monitoring.md](monitoring.md#metrics).
+
+## Retiring the in-process launcher
+
+Jam used to run studios itself under `runtime.launcher` as the `local` manager; that block, the `local` manager and the `at-jam colima` verbs are gone.
+A serve config that still has `runtime.launcher` is refused at startup with a message pointing here.
+Remove the block, run [at-studio-manager](../studio-manager.md) next to Colima, set `runtime.studio-managers: true`, and register the manager (`at-jam manager add`).
+`at-jam colima setup-docker|check-docker` are now `at-studio-manager colima ...` ([docker-in-sandbox.md](../docker-in-sandbox.md)).
+
+What Jam does at the cutover:
+
+- **Old studios are reaped.** Studios recorded on `local` (or on no manager, from before managers existed) have their identity revoked and their record dropped, with no call to any host.
+  Records with no manager go once their lease expires.
+- **Their containers keep running** on the Colima daemon until you remove them (below).
+- **Standing sessions pinned to `local` are placed fresh** on a connected manager and re-pinned there; their state is not carried over.
+
+Clean up on the Colima host, after the first start without the block:
+
+```console
+$ docker --context colima ps -aq --filter name=^atcove-cove- | xargs -r docker --context colima rm -f
+$ docker --context colima volume ls -q --filter name=^atcove-cove-
+```
+
+The first removes the old containers (a manager's own are named `atcove.<manager>.cove-<id>`, so the filter does not match them, [naming](../studio-manager.md#names-and-moving-between-managers)).
+The second lists the old state volumes: remove them (`xargs -r docker --context colima volume rm`) only if you do not want that state, since nothing reads it any more.
+Old `cove-kit:*` images the in-process launcher built can be pruned too, once no container uses them (`docker --context colima image ls 'cove-kit*'`, then `image rm`): a manager with its own identity key builds fresh ones ([image builds](../studio-manager.md#image-builds)).

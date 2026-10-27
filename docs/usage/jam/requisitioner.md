@@ -2,7 +2,7 @@
 summary: The Requisitioner — Jam's always-on poll loop that turns ready tracker tickets (Linear or GitHub Issues) into managed-cove raises, bounded by a concurrency cap. Covers the flow, the `runtime.requisitioner` serve-config block, and the elastic-raise-under-a-cap model.
 read_when: You are enabling or operating Jam's automatic intake — having it poll a tracker (Linear or GitHub Issues) and raise a managed studio per ready ticket — or tuning its concurrency cap and poll interval.
 owns: the operator-facing Requisitioner story — the poll→claim→raise flow, the `runtime.requisitioner` serve-config block, and the concurrency-cap model
-prereqs: coves.md for what a raised managed studio does (the supervisor + Launcher own its lifecycle); serve.md for the `runtime.launcher` a raised studio needs; roster.md for the role tickets are raised for
+prereqs: coves.md for what a raised managed studio does (the supervisor + Launcher own its lifecycle); studio-managers.md for the Studio Manager a raised studio needs; roster.md for the role tickets are raised for
 tier: leaf
 updated: 2026-10-26
 ---
@@ -55,9 +55,9 @@ between the old single-task dispatcher and raising unboundedly.
 ## Config (`runtime.requisitioner`)
 
 Add a `runtime.requisitioner` block to the serve config (see [serve.md](serve.md));
-omit it and Jam runs no intake. The Requisitioner needs a real
-[`runtime.launcher`](serve.md#the-launcher-runtimelauncher) to raise real studios
-(against a placeholder launcher it exercises intake only).
+omit it and Jam runs no intake. The Requisitioner needs a connected
+[Studio Manager](studio-managers.md) to raise real studios
+(without `runtime.studio-managers` it exercises intake only).
 
 ```yaml
 runtime:

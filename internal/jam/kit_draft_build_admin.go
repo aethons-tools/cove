@@ -9,8 +9,8 @@ import (
 )
 
 // kitDraftBuildsOff answers a build route (and a draft studio's raise) on a
-// Jam whose launcher cannot build images (no runtime.launcher).
-const kitDraftBuildsOff = "test builds need a launcher that builds images (runtime.launcher)"
+// Jam with no connected Studio Manager that builds images.
+const kitDraftBuildsOff = "test builds need a connected Studio Manager that builds images (runtime.studio-managers)"
 
 // registerKitDraftBuilds mounts the draft test-build routes
 // (docs/usage/jam/kits-drafts.md#test-build) behind the operator gate:

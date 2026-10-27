@@ -42,7 +42,7 @@ func (c *Colima) quietRunner() runner.Runner {
 
 // NewWithContext returns a Colima backend pinned to a docker context — typically
 // colima-<profile>, the context `colima start --profile <profile>` creates — so
-// a caller (e.g. a Jam's runtime.launcher.docker-context) can target a specific
+// a caller (e.g. at-studio-manager's colima.docker-context) can target a specific
 // colima instance. Empty keeps the default colima context.
 func NewWithContext(r runner.Runner, context string) *Colima {
 	return &Colima{r: r, context: context}
@@ -125,7 +125,7 @@ func initArgs(docker bool) []string {
 // registers the sysbox-runc runtime a docker:true instance needs (COV-117). It
 // parses `docker info -f '{{json .Runtimes}}'`, a map of runtime name → config.
 // An unreachable daemon or unparseable output is an error. Shared by the
-// the launcher's preflight and `at-jam colima check-docker`, so the two can't drift.
+// the launcher's preflight and `at-studio-manager colima check-docker`, so the two can't drift.
 func (c *Colima) HasSysboxRuntime() (bool, error) {
 	out, err := c.r.Output("docker", c.dargs("info", "-f", "{{json .Runtimes}}")...)
 	if err != nil {
@@ -149,7 +149,7 @@ func (c *Colima) requireSysboxRuntime() error {
 		return fmt.Errorf("docker:true preflight: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. Jam detects but does not install it — run `at-jam colima setup-docker` on the host (then `colima restart`), or install Sysbox CE in the colima Lima VM by hand and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/usage/docker-in-sandbox.md.")
+		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. Jam detects but does not install it — run `at-studio-manager colima setup-docker` on the host (then `colima restart`), or install Sysbox CE in the colima Lima VM by hand and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/usage/docker-in-sandbox.md.")
 	}
 	return nil
 }

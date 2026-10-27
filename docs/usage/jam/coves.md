@@ -14,11 +14,10 @@ Worker or standing Manager — and drives their lifecycle: raise → record → 
 status → tear down, self-healing across Jam restarts. This is the spine the
 Requisitioner and standing teammates build on.
 
-> With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
-> `studio raise` starts a **real** studio on the Colima backend (see [Raising a real
-> managed studio](#raising-a-real-managed-studio)). Without it, `at-jam serve` uses
-> a **placeholder launcher** that records a live registry entry but starts no studio
-> — useful for exercising the registry/supervisor in dev and tests.
+> `studio raise` starts a **real** studio on a [Studio Manager](studio-managers.md) (see [Raising a real
+> managed studio](#raising-a-real-managed-studio)). With `runtime.studio-managers` off,
+> `at-jam serve` uses a **placeholder launcher** that records a live registry entry but
+> starts no studio — useful for exercising the registry/supervisor in dev and tests.
 
 ## The model
 
@@ -44,17 +43,14 @@ instead of abandoning them — so in-progress work survives a restart.
 
 ### Managers and placement
 
-Jam raises studios on named **managers**. Besides remote managers (see [studio-managers.md](studio-managers.md), enabled by `runtime.studio-managers`), there is `local`: the
-[`runtime.launcher`](serve.md#the-launcher-runtimelauncher) block, which Jam
-registers under that name at start (no block, no manager, placeholder studios only).
+Jam raises studios on named **managers**: remote Studio Managers (see [studio-managers.md](studio-managers.md), enabled by `runtime.studio-managers`).
 A raise may name where it may run, and how long to wait for a place:
 
 - `--manager <name>` (repeatable; the order is the preference) on `studio raise`
   and [`session request`](personal-sessions.md#the-verbs), or `managers` in the
   `POST /admin/coves` and `POST /admin/sessions/personal` bodies. Jam tries the
   named managers in that order and raises on the first that is available.
-- With none named, Jam tries every manager in registration order, with `local`
-  last.
+- With none named, Jam tries every manager in registration order.
 - `--placement-timeout <duration>` (`placement_timeout`, a Go duration such as
   `30s`) is how long to wait for a manager to become available. `0`, or leaving it
   out, means do not wait: the raise fails at once if none is available.
@@ -98,8 +94,7 @@ at-jam studio teardown --id spider-42
 
 ### Raising a real managed studio
 
-With a [`runtime.launcher`](serve.md#the-launcher-runtimelauncher) configured,
-`studio raise --prompt-file <f>` runs the whole lifecycle end to end: Jam starts a
+`studio raise --prompt-file <f>` on a Studio Manager runs the whole lifecycle end to end: Jam starts a
 Colima studio from the configured image, injects the agent connector — the client env
 and git routing declared by the role's destinations ([connector.md](connector.md)) — plus the cove-master env, your prompt and the compiled [session context](session-context.md) over SSH, and starts
 `cove-master`, which runs `claude -p` on the prompt. The studio reports
@@ -107,7 +102,7 @@ and git routing declared by the role's destinations ([connector.md](connector.md
 and the supervisor tears it down when Jam ends the session ([turn-end.md](turn-end.md)). The **role must grant the `anthropic` and `git`
 destinations** for the agent to reach them. This validates the managed-cove
 lifecycle; automated result-handling (commit/push/PR after the agent) comes with the
-Requisitioner. Without a `runtime.launcher`, `raise` records a placeholder Instance only
+Requisitioner. With `runtime.studio-managers` off, `raise` records a placeholder Instance only
 (no real studio).
 
 > **Anthropic credentialing.** How the agent's `claude` authenticates follows the

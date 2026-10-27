@@ -2,7 +2,7 @@
 // docker:true sandboxes: a provision hook that installs Sysbox on every boot and
 // the sysbox-runc runtime registered through colima's docker: passthrough (colima
 // regenerates /etc/docker/daemon.json each start, so that is the durable seam).
-// It is pure bytes-in/bytes-out; the at-jam colima command owns the file I/O.
+// It is pure bytes-in/bytes-out; the at-studio-manager colima command owns the file I/O.
 package colimacfg
 
 import (

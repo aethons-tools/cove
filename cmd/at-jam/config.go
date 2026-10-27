@@ -989,7 +989,7 @@ func (c serveConfig) runtimeDurations() (ttl, reconcile time.Duration, err error
 
 // errRuntimeLauncherRemoved refuses a config that still has runtime.launcher:
 // Studio Managers run studios now, so the block has no meaning left.
-var errRuntimeLauncherRemoved = errors.New("runtime.launcher was removed: Jam no longer runs studios itself. Run at-studio-manager next to Colima (docs/usage/studio-manager.md) and set runtime.studio-managers: true. Studios the old launcher raised are dropped on startup and their standing sessions start fresh (docs/usage/studio-managers.md#retiring-the-in-process-launcher)")
+var errRuntimeLauncherRemoved = errors.New("runtime.launcher was removed: Jam no longer runs studios itself. Run at-studio-manager next to Colima (docs/usage/studio-manager.md) and set runtime.studio-managers: true. Studios the old launcher raised are dropped on startup and their standing sessions start fresh (docs/usage/jam/studio-managers.md#retiring-the-in-process-launcher)")
 
 // parseServeConfig parses the serve config YAML, folding deprecated key
 // aliases into their new names (recorded in c.deprecated for serve to warn

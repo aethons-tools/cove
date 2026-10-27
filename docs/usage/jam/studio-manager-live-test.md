@@ -1,7 +1,7 @@
 ---
-summary: The manual live-test checklist for remote Studio Managers — a containerized Jam plus a bare-metal `at-studio-manager` on a Mac, covering raise, teardown, pause, a kit build, a draft build, a Jam restart and a manager restart. Passing it gates deleting `local`.
-read_when: You are running the Studio Manager live test (a Jam container plus a manager on a Mac), checking whether `local`, `runtime.launcher` and the `at-jam colima` verbs may be deleted, or reproducing a manager problem end to end.
-owns: the Studio Manager live-test procedure, its expected results, and the gate it sets for deleting the in-process launcher
+summary: The manual live-test checklist for remote Studio Managers — a containerized Jam plus a bare-metal `at-studio-manager` on a Mac, covering raise, teardown, pause, a kit build, a draft build, a Jam restart and a manager restart. It gated removing the in-process launcher (done in plan 6).
+read_when: You are running the Studio Manager live test (a Jam container plus a manager on a Mac), validating a new manager build or host, or reproducing a manager problem end to end.
+owns: the Studio Manager live-test procedure, its expected results, and the gate it set for deleting the in-process launcher (done in plan 6)
 prereqs: container.md (running Jam in a container); ../studio-manager.md (the manager's config); studio-managers.md (Jam's side)
 tier: leaf
 updated: 2026-10-27
@@ -9,10 +9,10 @@ updated: 2026-10-27
 
 # Studio Manager live test
 
-This is the one manual run that proves remote Studio Managers work without the in-process launcher.
+This is the one manual run that proves remote Studio Managers work end to end.
 It uses a Jam in its container and a bare-metal `at-studio-manager` on a Mac with Colima.
 Do the items in order. Each one gives the command and the result to expect.
-**Passing every item gates deleting `local`, `runtime.launcher` and the `at-jam colima` verbs.**
+This run gated the removal of the in-process launcher (done in plan 6); the runbook stays for validating new managers.
 
 ## Setup
 
@@ -29,7 +29,7 @@ The examples use the manager name `mac-1`, the role `acme/guest` and the kit `ap
 
 1. **Jam comes up in its container.**
    `just dev-jam-up`, then `just dev-jam-logs`.
-   Expect: serve starts and logs `Jam managers`, with no `Jam launcher: colima` line. `docker compose -f dev/docker-compose.yml ps` shows `jam` running.
+   Expect: serve starts and logs `Jam managers`, and no launcher line. `docker compose -f dev/docker-compose.yml ps` shows `jam` running.
    `just dev-jam manager list` prints nothing and exits 0.
 
 2. **The host CLI reaches the admin API over OIDC.**
@@ -86,8 +86,8 @@ The examples use the manager name `mac-1`, the role `acme/guest` and the kit `ap
     `at-jam manager list`.
     Expect: `mac-1	connected=true	…	studios=0	…	strays=0`.
 
-13. **The gate.** All of items 1 to 12 passed against the containerized Jam with no `runtime.launcher`.
-    That is what clears deleting `local`, `runtime.launcher` and the `at-jam colima` verbs in the follow-up.
-    Record the version tested and anything that needed a workaround on the follow-up ticket.
+13. **The result.** All of items 1 to 12 passed against the containerized Jam.
+    This run gated the removal of the in-process launcher (done in plan 6).
+    For a new manager, record the version tested and anything that needed a workaround.
 
 Clean up with `just dev-down` (or `just dev-down -v` to wipe the volumes) and `at-jam manager revoke mac-1`.

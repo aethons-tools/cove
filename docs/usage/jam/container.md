@@ -9,7 +9,7 @@ updated: 2026-10-27
 
 # Jam in a container
 
-Jam can run as a container because a serve with no `runtime.launcher` drives no local Docker: remote [Studio Managers](studio-managers.md) next to Colima dial in and host the studios.
+Jam can run as a container because Jam drives no Docker itself: remote [Studio Managers](studio-managers.md) next to Colima dial in and host the studios.
 The image is `ghcr.io/aethons-tools/jam`. It runs only `at-jam serve`, as a non-root user, with no docker, ssh or git binary.
 
 ## The image
@@ -38,7 +38,7 @@ What is inside (`images/jam/Dockerfile`):
 - `VOLUME /var/lib/jam`, `EXPOSE 8443 8081`;
 - `ENTRYPOINT ["at-jam"]`, `CMD ["serve","--config","/etc/jam/jam.yml"]`.
 
-Why nothing else is needed: a launcher-free serve runs no external programs except two kinds of [credential](credentials.md) resolvers.
+Why nothing else is needed: `at-jam serve` runs no external programs except two kinds of [credential](credentials.md) resolvers.
 `command:` entries are exec'd directly, with no shell. `mint:` entries run `at-mint`, which ships in the image.
 Git fetches (kit and config sources) are in-process go-git. Jam never needs a docker socket, SSH keys, `host-gateway` or loopback access to studios.
 
@@ -55,7 +55,7 @@ The `jam` service in `dev/docker-compose.yml` is opt-in (profile `jam`), beside 
 
 The container config differs from a host config in these ways:
 
-- `runtime.studio-managers: true` and no `runtime.launcher`, so there is no `local` manager;
+- `runtime.studio-managers: true`, the only way studios run;
 - `store-postgres.host: postgres` and `blobs.endpoint: http://garage:3900`, the compose service names;
 - `credentials-file: /etc/jam/secrets/credentials.yml`;
 - TLS files under `/etc/jam/secrets/tls/`.
