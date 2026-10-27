@@ -491,28 +491,33 @@ func TestMigrateStateVolumesFailedOldRemovalFailsClosed(t *testing.T) {
 // A remote manager of this Jam sharing the local docker daemon labels its
 // state volumes RuntimeAddr#<manager>, so the local launcher's migration
 // (JamID = RuntimeAddr) never retires its pre-rename containers nor moves
-// its volumes: remote studios are re-raised once their manager is upgraded.
+// its volumes, whether they carry the shared pre-rename name or the
+// per-manager one (legacynames.ManagerContainer): remote studios are re-raised
+// once their manager is upgraded.
 func TestRenameMigrationLeavesARemoteManagersStudios(t *testing.T) {
-	f := newVolFake()
-	remote := legacynames.Container("r1")
-	f.containers[remote], f.labelled[remote] = "img-r", true
-	ra, rw := oldVols("r1")
-	f.addVol(ra, "remote-agent", legacynames.StateLabel+"=r1", legacynames.JamLabel+"=j1#m1", legacynames.Label+".manager=m1")
-	f.addVol(rw, "remote-ws", legacynames.StateLabel+"=r1", legacynames.JamLabel+"=j1#m1", legacynames.Label+".manager=m1")
-	f.mounts[remote] = []string{ra, rw}
-	l := migLauncher(t, f)
-	got, err := l.RetireLegacyContainers(context.Background(), []string{"s1"})
-	if err != nil || len(got) != 0 {
-		t.Fatalf("retired = %v, %v", got, err)
-	}
-	if _, ok := f.containers[remote]; !ok {
-		t.Fatal("a remote manager's pre-rename container must be left running")
-	}
-	moved, err := l.MigrateStateVolumes(context.Background(), nil)
-	if err != nil || len(moved) != 0 {
-		t.Fatalf("moved = %v, %v", moved, err)
-	}
-	if f.data[ra] != "remote-agent" || f.data[rw] != "remote-ws" {
-		t.Fatal("a remote manager's state volumes must be untouched")
+	for _, remote := range []string{legacynames.Container("r1"), legacynames.ManagerContainer("m1", "r1")} {
+		t.Run(remote, func(t *testing.T) {
+			f := newVolFake()
+			f.containers[remote], f.labelled[remote] = "img-r", true
+			ra, rw := naming.AgentDataVolume(remote), naming.WorkspaceVolume(remote)
+			f.addVol(ra, "remote-agent", legacynames.StateLabel+"=r1", legacynames.JamLabel+"=j1#m1", legacynames.Label+".manager=m1")
+			f.addVol(rw, "remote-ws", legacynames.StateLabel+"=r1", legacynames.JamLabel+"=j1#m1", legacynames.Label+".manager=m1")
+			f.mounts[remote] = []string{ra, rw}
+			l := migLauncher(t, f)
+			got, err := l.RetireLegacyContainers(context.Background(), []string{"s1"})
+			if err != nil || len(got) != 0 {
+				t.Fatalf("retired = %v, %v", got, err)
+			}
+			if _, ok := f.containers[remote]; !ok {
+				t.Fatal("a remote manager's pre-rename container must be left running")
+			}
+			moved, err := l.MigrateStateVolumes(context.Background(), nil)
+			if err != nil || len(moved) != 0 {
+				t.Fatalf("moved = %v, %v", moved, err)
+			}
+			if f.data[ra] != "remote-agent" || f.data[rw] != "remote-ws" {
+				t.Fatal("a remote manager's state volumes must be untouched")
+			}
+		})
 	}
 }

@@ -998,3 +998,45 @@ func TestTeardownCaptureReturnsTail(t *testing.T) {
 		t.Fatalf("removed = %q, want jam-studio-w1", ops.removed)
 	}
 }
+
+func TestRemoteManagerNamesItsStudio(t *testing.T) {
+	ops := &fakeOps{}
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{}, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: readyInv(), WorkDir: "/work/here", Manager: "m1", sleep: func(time.Duration) {},
+	})
+	loc, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Prompt: "go", SessionKind: jam.SessionKindStanding}, jam.LaunchCreds{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ops.runName != "jam-studio.m1.w1" || loc != "jam-studio.m1.w1" {
+		t.Fatalf("container = %q, loc = %q", ops.runName, loc)
+	}
+	var vols []string
+	for _, m := range ops.runMounts {
+		vols = append(vols, m.Volume)
+	}
+	if want := []string{"jam-studio.m1.w1-agent-data", "jam-studio.m1.w1-workspace"}; !slices.Equal(vols, want) {
+		t.Fatalf("volumes = %v, want %v", vols, want)
+	}
+	if err := l.PurgeState(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"jam-studio.m1.w1-agent-data", "jam-studio.m1.w1-workspace", "jam-studio.m1.w1-docker"}; !slices.Equal(ops.volsRemoved, want) {
+		t.Fatalf("volsRemoved = %v, want %v", ops.volsRemoved, want)
+	}
+}
+
+func TestLocalNamesUnchanged(t *testing.T) {
+	ops := &fakeOps{}
+	l := New(Config{
+		Ops: ops, Runner: &runner.Fake{}, JamHost: "h", RuntimeAddr: "h:443", IdentityFile: "k", KnownHostsDir: "/kh",
+		Inventory: readyInv(), WorkDir: "/work/here", sleep: func(time.Duration) {},
+	})
+	if _, err := l.Raise(context.Background(), jam.RaiseSpec{ActorID: "w1", Kit: testKitRef, Prompt: "go", SessionKind: jam.SessionKindStanding}, jam.LaunchCreds{}); err != nil {
+		t.Fatal(err)
+	}
+	if ops.runName != "jam-studio-w1" || len(ops.runMounts) != 2 || ops.runMounts[0].Volume != "jam-studio-w1-agent-data" || ops.runMounts[1].Volume != "jam-studio-w1-workspace" {
+		t.Fatalf("name = %q mounts = %v", ops.runName, ops.runMounts)
+	}
+}

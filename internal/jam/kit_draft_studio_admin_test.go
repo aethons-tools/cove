@@ -75,7 +75,7 @@ func TestAdminDraftRaiseRequestGone(t *testing.T) {
 	if got := store.ListActors(); len(got) != actorsBefore {
 		t.Fatalf("actors = %+v, want the raise's identity rolled back (%d before)", got, actorsBefore)
 	}
-	if st, err := sup.KitDraftBuilds().Status("my-app", 0); err != nil || st.State != DraftBuildRunning || st.Tree != s.Tree {
+	if st, err := sup.KitDraftBuilds().Status("my-app", "", 0); err != nil || st.State != DraftBuildRunning || st.Tree != s.Tree {
 		t.Fatalf("build = %+v %v, want it still running on %s", st, err, s.Tree)
 	}
 	release()

@@ -5,6 +5,8 @@ package userui
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +23,7 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
+	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
@@ -79,7 +82,7 @@ func TestBrowserNextAppShowsRail(t *testing.T) {
 	ctx := browserCtx(t)
 	e, p := fixture()
 	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
 		if strings.HasPrefix(r.URL.Path, "/app/next/") {
 			app.ServeHTTP(w, r)
@@ -153,7 +156,7 @@ func TestBrowserNextConversation(t *testing.T) {
 	e.post(p.UserID, "```\ngo test ./...\n```\n<img src=x onerror=\"window.__pwned=1\"> <script>window.__pwned=2</script>", "")
 	changes := &testChanges{}
 	api, app := Handler(e.Deps, nil, WithChanges(changes)), Next(e.Deps, nil, nil)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
 		if strings.HasPrefix(r.URL.Path, "/app/next/") {
 			app.ServeHTTP(w, r)
@@ -225,7 +228,7 @@ func TestBrowserNextComposerSends(t *testing.T) {
 	e.Send = jam.NewParticipantSendHandler(e.st, e.Intercom, nil)
 	changes := &testChanges{}
 	api, app := Handler(e.Deps, nil, WithChanges(changes)), Next(e.Deps, nil, nil)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
 		if strings.HasPrefix(r.URL.Path, "/app/next/") {
 			app.ServeHTTP(w, r)
@@ -298,7 +301,7 @@ func TestBrowserNextAnswersAnAsk(t *testing.T) {
 	m := e.ask(intercom.AskEvent{Question: "Merge PR #12?", Options: yesNoOpts})
 	changes := &testChanges{}
 	api, app := Handler(e.Deps, nil, WithChanges(changes)), Next(e.Deps, nil, nil)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
 		if strings.HasPrefix(r.URL.Path, "/app/next/") {
 			app.ServeHTTP(w, r)
@@ -345,7 +348,7 @@ func TestBrowserNextSessionPane(t *testing.T) {
 	ctx := browserCtx(t)
 	e, p, personal, standing, _ := sessionEnv(t)
 	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = asPrincipal(r, p, false)
 		if strings.HasPrefix(r.URL.Path, "/app/next/") {
 			app.ServeHTTP(w, r)
@@ -442,7 +445,7 @@ func TestBrowserNextThinking(t *testing.T) {
 	add(7, toolResultBlock("tu1", "ok  \tpkg\t0.1s", false), sessionevents.Index{Type: "user", ToolName: "Bash"}, 5100*time.Millisecond)
 
 	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = asPrincipal(r, p, false)
 		if strings.HasPrefix(r.URL.Path, "/app/next/") {
 			app.ServeHTTP(w, r)
@@ -452,7 +455,9 @@ func TestBrowserNextThinking(t *testing.T) {
 	}))
 	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
 
-	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	has := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
+	}
 	text := `document.querySelector('[role="log"][aria-label="Session events"]').textContent`
 	var problems pageProblems
 	var title, status string
@@ -521,7 +526,7 @@ func thinkingApp(t *testing.T, n, lines int) (*env, string, *httptest.Server, fu
 		hub.Publish(ev)
 	}
 	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = asPrincipal(r, p, false)
 		if strings.HasPrefix(r.URL.Path, "/app/next/") {
 			app.ServeHTTP(w, r)
@@ -543,7 +548,9 @@ func TestBrowserNextThinkingFollowsBursts(t *testing.T) {
 	}
 	ctx := browserCtx(t)
 	_, home, srv, publish := thinkingApp(t, 60, 1)
-	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	has := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
+	}
 	if err := chromedp.Do(ctx, chromedp.EmulateViewport(1400, 700),
 		chromedp.Navigate(srv.URL+"/app/next/c/"+home+"?tab=thinking"),
 		has(`!!`+thinkingListJS+` && `+thinkingListJS+`.textContent.includes('event 60 line 0')`),
@@ -594,7 +601,9 @@ func TestBrowserNextThinkingEarlierKeepsPlace(t *testing.T) {
 	}
 	ctx := browserCtx(t)
 	_, home, srv, _ := thinkingApp(t, 600, 6) // the real tail and page: 300 each
-	has := func(js string) step { return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second)) }
+	has := func(js string) step {
+		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
+	}
 	url := srv.URL + "/app/next/c/" + home + "?tab=thinking"
 	// The row's offset from the top of the list.
 	at := func(seq int) string {
@@ -637,7 +646,7 @@ func TestBrowserNextStudio(t *testing.T) {
 	ff := &studioFrames{base: pv.URL, n: map[string]int{}, next: map[string][]string{}}
 	e.Deps.Frames = ff
 	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, []string{pv.URL})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = asPrincipal(r, p, false)
 		if strings.HasPrefix(r.URL.Path, "/app/next/") {
 			app.ServeHTTP(w, r)
@@ -705,7 +714,7 @@ func TestBrowserNextBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
 		if strings.HasPrefix(r.URL.Path, "/app/next/") {
 			app.ServeHTTP(w, r)
@@ -786,7 +795,7 @@ func TestBrowserNextBoardFlushesOnLeave(t *testing.T) {
 		t.Fatal(err)
 	}
 	api, app := Handler(e.Deps, nil), Next(e.Deps, nil, nil)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
 		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
 		if strings.HasPrefix(r.URL.Path, "/app/next/") {
 			app.ServeHTTP(w, r)
@@ -826,4 +835,75 @@ func TestBrowserNextBoardFlushesOnLeave(t *testing.T) {
 	if !rect {
 		t.Fatal("the rectangle drawn just before Back to chat was lost")
 	}
+}
+
+// The Jam app is a PWA under its CSP: its head links the manifest, it
+// registers the /app/ service worker from its bundle, the Notifications item
+// subscribes this device (stored with Jam), and the open conversation is
+// reported for push focus.
+func TestBrowserNextPush(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browserCtx(t)
+	e, p := fixture()
+	focus := push.NewFocus(time.Now)
+	opts := []Option{WithPush("BAAAAAAAAAAAAAA"), WithPushFocus(focus)}
+	api, app := Handler(e.Deps, nil, opts...), Next(e.Deps, nil, nil, opts...)
+	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
+		r = appui.WithPrincipal(jam.WithParticipant(r, p), appui.Principal{User: &p})
+		if strings.HasPrefix(r.URL.Path, "/app/next/") {
+			app.ServeHTTP(w, r)
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() { srv.CloseClientConnections(); srv.Close() })
+
+	var problems pageProblems
+	var swScope, manifest string
+	clickItem := func(label string) step {
+		return chromedp.Poll[chromedp.Void](`(function(){ var b = Array.from(document.querySelectorAll('[role="menuitem"]')).find(function(x){ return x.textContent === `+"`"+label+"`"+` && !x.disabled && !x.hasAttribute('data-disabled'); }); if (b) { b.click(); return true; } return false; })()`, chromedp.WithPollingTimeout(5*time.Second))
+	}
+	err := chromedp.Do(ctx,
+		problems.watch(ctx),
+		call(cdplog.Enable, cdp.Empty{}),
+		call(runtime.Enable, cdp.Empty{}),
+		onNewDocument(pushStub),
+		chromedp.Navigate(srv.URL+"/app/next/c/"+engID),
+		chromedp.WaitVisible(chromedp.CSS(`h2`)),
+		into(&manifest, chromedp.Evaluate[string](`(document.querySelector('link[rel="manifest"]')||{}).href||''`)),
+		into(&swScope, chromedp.Evaluate[string](`navigator.serviceWorker.ready.then(function(r){ return r.scope; })`, chromedp.EvalAwaitPromise)),
+		chromedp.Click(chromedp.CSS(`[aria-label="Account"]`)),
+		clickItem("Notifications: Off"),
+		chromedp.Poll[chromedp.Void](`Array.from(document.querySelectorAll('[role="menuitem"]')).some(function(b){ return b.textContent === 'Notifications: On'; })`, chromedp.WithPollingTimeout(5*time.Second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(manifest, "/app/manifest.webmanifest") || !strings.HasSuffix(swScope, "/app/") {
+		t.Errorf("manifest %q, worker scope %q", manifest, swScope)
+	}
+	if subs := e.st.PushSubscriptions(p.UserID); len(subs) != 1 || subs[0].Endpoint != "https://fcm.googleapis.com/fcm/send/device-1" {
+		t.Errorf("stored = %+v", subs)
+	}
+	if !focus.Focused(p.UserID, engID) {
+		t.Errorf("the open conversation %s isn't reported as focused", engID)
+	}
+	for _, pr := range problems.all() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// withPWA serves the app-level routes the Jam app's page loads (appui's
+// /app/sw.js, the manifest, its icons), as jam does, then f.
+func withPWA(f http.HandlerFunc) http.Handler {
+	pwa := appui.Handler(appui.Deps{Gate: appui.NewGate(appui.GateConfig{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app/sw.js" || r.URL.Path == "/app/manifest.webmanifest" || strings.HasPrefix(r.URL.Path, "/app/static/") {
+			pwa.ServeHTTP(w, r)
+			return
+		}
+		f(w, r)
+	})
 }

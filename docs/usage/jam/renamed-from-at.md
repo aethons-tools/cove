@@ -128,7 +128,7 @@ Hosts enrolled with a saved enroll snippet: fetch it again — it now exports
   `destination.env:<name>` condition, `env key <K> is reserved (JAM_*); rename
   it`.
 
-Old images (`cove-kit:*`) are not deleted; remove them when you like:
+Old images (`cove-kit:*`, here and on each manager host) are not deleted; remove them when you like:
 `docker --context <docker-context> image ls --filter 'reference=cove-kit*' -q | xargs -r docker --context <docker-context> image rm`.
 
 ## Remote Studio Managers
@@ -153,12 +153,14 @@ On each host, after Jam is upgraded:
    `docker --context <docker-context> ps -a --filter label=harbor.cove.manager=<name>`.
 6. **Standing sessions pinned to it start fresh** (Jam warns `pinned standing
    session's state is missing on its manager`): their state stays in the old
-   `atcove-cove-<id>-agent-data` and `-workspace` volumes on that host. To keep
+   `<old>-agent-data` and `-workspace` volumes on that host, where `<old>` is
+   `atcove-cove-<id>`, or `atcove.<name>.cove-<id>` from a release with
+   per-manager names. A manager's new names are `jam-studio.<name>.<id>`. To keep
    it, before step 4 create each new volume and copy into it, as root, on an
    image already on the host (for example the old studio's, `docker --context <docker-context> inspect
-   --format '{{.Config.Image}}' atcove-cove-<id>`):
-   `docker --context <docker-context> volume create --label jam.studio.state=<id> --label jam.studio.jam=<runtime-addr>#<name> --label jam.studio.manager=<name> jam-studio-<id>-agent-data`,
-   then `docker --context <docker-context> run --rm --network none --user 0:0 --entrypoint /bin/sh -v atcove-cove-<id>-agent-data:/from:ro -v jam-studio-<id>-agent-data:/to <image> -c 'cp -a /from/. /to/'`
+   --format '{{.Config.Image}}' <old>`):
+   `docker --context <docker-context> volume create --label jam.studio.state=<id> --label jam.studio.jam=<runtime-addr>#<name> --label jam.studio.manager=<name> jam-studio.<name>.<id>-agent-data`,
+   then `docker --context <docker-context> run --rm --network none --user 0:0 --entrypoint /bin/sh -v <old>-agent-data:/from:ro -v jam-studio.<name>.<id>-agent-data:/to <image> -c 'cp -a /from/. /to/'`
    (and the same for `-workspace`); remove the old volumes once you have
    checked the new ones. `<runtime-addr>` and `<docker-context>` are the manager's
    `colima.runtime-addr` and `colima.docker-context` (default `colima`).
@@ -179,6 +181,7 @@ stream, labels) are in the tables below.
 | tags `cove-kit:`, `cove-kit-base:`, `cove-kit-draft:`; `$TMP/cove-kit-builds` | `jam-kit:`, `jam-kit-base:`, `jam-kit-draft:`; `$TMP/jam-kit-builds` |
 | labels `harbor.cove`, `harbor.cove.state`, `harbor.cove.jam`, `harbor.cove.actor`, `harbor.cove.manager` | `jam.studio`, `jam.studio.state`, `jam.studio.jam`, `jam.studio.actor`, `jam.studio.manager` |
 | containers `atcove-cove-<id>`, volumes `atcove-cove-<id>-{agent-data,workspace,docker}` | `jam-studio-<id>`, `jam-studio-<id>-…` |
+| a remote manager's containers `atcove.<manager>.cove-<id>` (and their volumes) | `jam-studio.<manager>.<id>`, `jam-studio.<manager>.<id>-…` |
 | build args `COVE_BASE_IMAGE`, `AT_JAM_STUDIO_BASE_IMAGE`, `AT_JAM_STUDIO_TARGET_ARCH`; kit `ENV COVE_SSHENV` | `JAM_STUDIO_BASE_IMAGE`, `JAM_STUDIO_TARGET_ARCH`; `ENV JAM_SSHENV` |
 | `/usr/local/lib/cove/`, `cove-egress.service` (and its `cove-egress.conf` drop-ins), `/etc/ssh/sshd_config.d/cove.conf`, `cove-git-credential.sh`, `/etc/cove/mcp-servers.json`, `/dev/shm/cove-*`, `/agent-data/cove-master.log` | `/usr/local/lib/jam/`, `jam-egress.service` (`jam-egress.conf`), `/etc/ssh/sshd_config.d/00-jam.conf`, `jam-git-credential.sh`, `/etc/jam/mcp-servers.json`, `/dev/shm/jam-*` (except `/dev/shm/cove-master-env` → `/dev/shm/jam-studio-agent-env`), `/agent-data/jam-studio-agent.log` |
 | `~/.config/at-jam`, `~/.local/state/at-jam`, `~/.config/at-cove` (launcher key) | `~/.config/jam`, `~/.local/state/jam`, `~/.config/jam` |

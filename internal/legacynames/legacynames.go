@@ -59,6 +59,14 @@ var kitNameRe = regexp.MustCompile(`\b(AT_JAM_STUDIO_BASE_IMAGE|AT_JAM_STUDIO_TA
 // Container is actorID's pre-rename container name.
 func Container(actorID string) string { return ContainerPrefix + naming.SafeID(actorID) }
 
+// ManagerContainer is actorID's pre-rename container name on remote Studio
+// Manager manager, as a release with per-manager names (Studio Manager plan 4)
+// spelled it: atcove.<manager>.cove-<id>. Earlier releases used Container's
+// name on every manager.
+func ManagerContainer(manager, actorID string) string {
+	return "atcove." + manager + ".cove-" + naming.SafeID(actorID)
+}
+
 // NewKitName is old's new name (old itself when it is not a KitRenames name).
 func NewKitName(old string) string {
 	for _, r := range KitRenames {

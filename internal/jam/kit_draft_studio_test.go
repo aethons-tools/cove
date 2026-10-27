@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -32,7 +33,7 @@ func draftStudioSetup(t *testing.T, fb *fakeDraftBuilder) (*Supervisor, Store, *
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	sup.SetKitDraftBuilds(NewKitDraftBuilds(ctx, store, fb, slog.New(slog.DiscardHandler)))
+	sup.SetKitDraftBuilds(NewKitDraftBuilds(ctx, store, OneDraftManager("local", fb), slog.New(slog.DiscardHandler)))
 	return sup, store, fl, s
 }
 
@@ -140,7 +141,7 @@ func TestDraftStudioDoesNotReuseAnotherHarness(t *testing.T) {
 	if err := store.PutRole("default", role); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sup.KitDraftBuilds().Start("my-app", s.ETag, "op"); err != nil {
+	if _, err := sup.KitDraftBuilds().Start("my-app", s.ETag, "op", ""); err != nil {
 		t.Fatal(err)
 	}
 	waitDraftBuild(t, sup.KitDraftBuilds(), "my-app")
@@ -156,7 +157,7 @@ func TestDraftStudioDoesNotReuseAnotherHarness(t *testing.T) {
 func waitDraftBuild(t *testing.T, b *KitDraftBuilds, kit string) {
 	t.Helper()
 	b.mu.Lock()
-	j := b.jobs[kit]
+	j := b.jobs[draftJobKey(kit, "local")]
 	b.mu.Unlock()
 	<-j.done
 }
@@ -165,7 +166,7 @@ func TestDraftStudioRefusals(t *testing.T) {
 	fb := &fakeDraftBuilder{err: errors.New("RUN make: exit 2\nmore detail")}
 	sup, store, _, s := draftStudioSetup(t, fb)
 	_, err := raiseDraftStudio(t, sup, "d1")
-	if err == nil || !strings.Contains(err.Error(), "draft my-app: the test build failed (see jam kit draft build my-app --show): RUN make: exit 2") ||
+	if err == nil || !strings.Contains(err.Error(), "draft my-app: the test build failed (see jam kit draft build my-app --show --manager local): RUN make: exit 2") ||
 		strings.Contains(err.Error(), "more detail") || WriteStatus(err, 500) != 400 {
 		t.Fatalf("failed build: %v", err)
 	}
@@ -226,7 +227,7 @@ func TestDraftStudioRefusesWhileAnotherTreeBuilds(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := raiseDraftStudio(t, sup, "d1")
-	if err == nil || !strings.Contains(err.Error(), "kit my-app already has a draft build running") || WriteStatus(err, 500) != 409 {
+	if err == nil || !strings.Contains(err.Error(), "a draft build of my-app is already running on local") || WriteStatus(err, 500) != 409 {
 		t.Fatalf("err = %v", err)
 	}
 	if fb.builds() != 1 {
@@ -348,5 +349,36 @@ func TestDraftStudioRaiseReservesItsLabel(t *testing.T) {
 	}
 	if sup.labelPending("other") {
 		t.Fatal("a failed raise kept its label reserved")
+	}
+}
+
+// A draft studio runs on the manager whose build it uses: Ensure picks m1,
+// so the raise is placed on m1 alone, its timeout kept.
+func TestDraftStudioPlacedOnBuilder(t *testing.T) {
+	p := newPlacingFake("local", "m1")
+	sup, store, _ := supTestKit(t, p)
+	mustEnsure(t, store, "my-app", studio.StudioKit{Kind: studio.Kind, Prompt: "leaf"})
+	if err := store.PutRole("default", Role{Name: "dev", Kit: "my-app", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenKitDraft(store, "my-app", 0, "op", draftNow); err != nil {
+		t.Fatal(err)
+	}
+	fm := newFakeManagedDraft("local", "m1")
+	fm.setAway("local", true) // local cannot build drafts now: Ensure picks m1
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	sup.SetKitDraftBuilds(NewKitDraftBuilds(ctx, store, fm, slog.New(slog.DiscardHandler)))
+	inst, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "d1", Project: "default", Role: "dev", Name: "d1", KitDraft: "my-app",
+		Placement: Placement{Timeout: 5 * time.Second}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := p.by["m1"].gotSpec.Placement
+	if inst.Manager != "m1" || !slices.Equal(got.Managers, []string{"m1"}) || got.Timeout != 5*time.Second || len(p.by["local"].raised) != 0 {
+		t.Fatalf("manager %q, placement %+v, local raised %v", inst.Manager, got, p.by["local"].raised)
+	}
+	if fm.by["m1"].builds() != 1 || inst.ImageTag == "" {
+		t.Fatalf("m1 builds = %d, image %q", fm.by["m1"].builds(), inst.ImageTag)
 	}
 }

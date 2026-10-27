@@ -153,7 +153,7 @@ func TestSetupTabOffWithoutDeps(t *testing.T) {
 // countingImages is an image reader that counts its reads (and finds nothing).
 type countingImages struct{ n atomic.Int32 }
 
-func (c *countingImages) ImageFacts(context.Context, string) (jam.ImageFacts, error) {
+func (c *countingImages) ImageFactsOn(context.Context, string, string) (jam.ImageFacts, error) {
 	c.n.Add(1)
 	return jam.ImageFacts{}, jam.ErrImageNotPresent
 }
@@ -385,5 +385,32 @@ func TestStudioSetupErrors(t *testing.T) {
 	}
 	if body := get(t, h, "/app/admin/agents/gone-1").Body.String(); strings.Contains(body, ">Setup</a>") {
 		t.Error("Setup tab on a gone studio")
+	}
+}
+
+// A role's Setup tab offers a manager selector only with two or more managers;
+// the current one is bold and the choice rides on the sections request.
+func TestRoleSetupTabManagerSelector(t *testing.T) {
+	build := func(names ...string) http.Handler {
+		store := newStore(t)
+		mustCreateProject(t, store, "acme")
+		if err := store.PutRole("acme", jam.Role{Name: "dev"}); err != nil {
+			t.Fatal(err)
+		}
+		return adminui.Handler(store, testLogger(), nil, nil, anyCred, nil,
+			adminui.WithSetupDeps(jam.SetupDeps{Store: store, Images: &countingImages{}}),
+			adminui.WithSetupManagers(func() []string { return names }))
+	}
+	h := build("local", "m1")
+	body := get(t, h, "/app/admin/projects/acme/roles/dev/setup?manager=m1").Body.String()
+	wantAll(t, "selector", body,
+		`<b class="chip accent">m1</b>`,
+		`<a class="chip" href="/app/admin/projects/acme/roles/dev/setup?manager=local">local</a>`,
+		`hx-get="/app/admin/projects/acme/roles/dev/setup/sections?manager=m1"`)
+	if body := get(t, h, "/app/admin/projects/acme/roles/dev/setup").Body.String(); !strings.Contains(body, `<b class="chip accent">local</b>`) {
+		t.Errorf("no manager chosen: the first should be current:\n%s", body)
+	}
+	if body := get(t, build("local"), "/app/admin/projects/acme/roles/dev/setup").Body.String(); strings.Contains(body, "Image manager") {
+		t.Error("selector shown with one manager")
 	}
 }

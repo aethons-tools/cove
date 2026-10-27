@@ -56,6 +56,7 @@ var renamedAllow = []struct {
 	{"install.test.sh", nil},                                                                    // drives the frozen pre-rename installers
 	{"install.sh", []string{`at-jam`, `at-mint`, `\bat-cove`, `at-studio-manager`}},             // the stale-binary notice
 	{".gitignore", []string{`at-jam`, `at-mint`, `cove-master`, `covemaster`, `covemasterbin`}}, // keeps stale local builds out of git
+	{".github/workflows/release.yml", []string{`\bcove-base\b`}},                                // the one-time re-cut copies the blessed bases out of the pre-rename repo
 }
 
 func renamedAllowed(rel, token string) bool {

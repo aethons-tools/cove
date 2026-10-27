@@ -75,6 +75,12 @@ State volumes carry `jam.studio.manager` too, and their `jam.studio.jam` value i
 These scope every list and sweep to one manager, so `local` and a manager (or two managers) can share one Colima daemon.
 A manager restart leaves its studios running and re-reports them from these labels on reconnect.
 
+## Names and moving between managers
+
+A remote manager's containers are `jam-studio.<manager>.<id>` and its volumes derive from that (`-agent-data`, `-workspace`, `-docker`); `local` keeps `jam-studio-<id>`.
+Local names start `jam-studio-` and a manager's `jam-studio.`, and a manager name holds no `.`, so no two managers' names (or `local`'s) can collide on a shared daemon.
+So a standing session that moves from `local` to a manager on a shared daemon starts fresh: no state carries over.
+
 ## Image builds
 
 Kit images are tagged with the kit digest and a fingerprint that includes the launcher's identity key.

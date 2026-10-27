@@ -16,7 +16,7 @@ func TestClientSetup(t *testing.T) {
 	}))
 	defer ts.Close()
 	c := New(ts.URL, "")
-	s, err := c.RoleSetup("my proj", "dev", []string{"egress", "kit"})
+	s, err := c.RoleSetup("my proj", "dev", []string{"egress", "kit"}, "")
 	if err != nil || s.Subject != "x" || s.Sections[0].Body != "b" {
 		t.Fatalf("RoleSetup = %+v, %v", s, err)
 	}

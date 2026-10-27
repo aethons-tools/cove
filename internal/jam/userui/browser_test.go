@@ -942,6 +942,36 @@ func TestBrowserServiceWorkerRobust(t *testing.T) {
 	}
 }
 
+// A notification click reuses an open Jam app window (/app/next/), opening
+// the conversation there; with only an old Inbox window, that one; never an
+// admin window; a new window opens the old Inbox (until the cutover).
+func TestBrowserServiceWorkerAppWindow(t *testing.T) {
+	ctx := browserCtx(t)
+	m := appui.Handler(appui.Deps{Gate: appui.NewGate(appui.GateConfig{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})})
+	srv := httptest.NewServer(m)
+	t.Cleanup(srv.Close)
+	var got string
+	err := chromedp.Do(ctx,
+		chromedp.Navigate(srv.URL+"/app/manifest.webmanifest"),
+		into(&got, chromedp.Evaluate[string](`fetch('/app/sw.js').then(function(r){ return r.text(); }).then(function(src){
+  (0, eval)(src);
+  var o = 'https://jam.example';
+  return JSON.stringify([
+    jamPickClient([o + '/app/admin/', o + '/app/next/c/x', o + '/app/user/']),
+    jamPickClient([o + '/app/admin/', o + '/app/user/']),
+    jamArea(o + '/app/next/c/x'), jamArea(o + '/app/user/'), jamArea('not a url'),
+    jamTarget('chn_1', 'next'), jamTarget('', 'next'), jamTarget('chn_1', 'user'), jamTarget('chn_1')]);
+})`, chromedp.EvalAwaitPromise)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `[1,1,"next","user","user","/app/next/c/chn_1","/app/next/","/app/user/?c=chn_1","/app/user/?c=chn_1"]`
+	if got != want {
+		t.Errorf("app window = %s\nwant          %s", got, want)
+	}
+}
+
 // Shift+Enter inserts a newline; Ctrl+Enter (headless Chrome reports Linux)
 // sends.
 func TestBrowserComposerSendKey(t *testing.T) {

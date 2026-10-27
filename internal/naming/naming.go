@@ -1,8 +1,11 @@
 // Package naming is the single source of truth for the runtime docker
 // resource names Jam's launcher derives: a studio's container
-// (jam-studio-<id>, StudioContainer) and the volumes named after it; every
-// name starts `jam-studio-`, so one studio's resources sort together and never
-// collide with an unrelated docker object. Pure (no os/time), so it is
+// (jam-studio-<id>, StudioContainer; jam-studio.<manager>.<id> on a remote
+// Studio Manager, StudioContainerOn) and the volumes named after it. Every
+// name starts `jam-studio`, so one studio's resources sort together and never
+// collide with an unrelated docker object. Local names continue `jam-studio-`,
+// a manager's `jam-studio.`: the two never meet, and since a manager name
+// holds no '.', no manager's names meet another's. Pure (no os/time), so it is
 // hermetically testable.
 package naming
 
@@ -40,3 +43,15 @@ func SafeID(actorID string) string {
 // StudioContainer names a managed studio's container from its actor id,
 // docker-safe (SafeID).
 func StudioContainer(actorID string) string { return "jam-studio-" + SafeID(actorID) }
+
+// StudioContainerOn names the container on a Studio Manager: StudioContainer's
+// jam-studio-<id> for the local manager (""), jam-studio.<manager>.<id> for a
+// remote one, so managers sharing a docker daemon never reuse each other's
+// state. The '.' separators keep the manager part unambiguous (manager names
+// are [a-z0-9-], never '.'), so no manager/id pair names another's container.
+func StudioContainerOn(manager, actorID string) string {
+	if manager == "" {
+		return StudioContainer(actorID)
+	}
+	return "jam-studio." + manager + "." + SafeID(actorID)
+}

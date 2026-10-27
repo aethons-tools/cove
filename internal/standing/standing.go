@@ -61,11 +61,12 @@ type Supervisor interface {
 	Teardown(ctx context.Context, actorID string) error
 	PurgeState(ctx context.Context, actorID string) error
 	StateOwners(ctx context.Context) ([]string, error)
-	// CurrentImage is what a raise for the role would run now (cheap, cached).
-	CurrentImage(project, role string) (jam.CurrentImage, error)
+	// CurrentImage is what a raise for the role would run now (cheap, cached) on
+	// manager ("" = the default).
+	CurrentImage(project, role, manager string) (jam.CurrentImage, error)
 	// PrepareImage makes that image ready; it may build for minutes, so the
 	// reconciler runs it off its lock.
-	PrepareImage(ctx context.Context, project, role string) (jam.CurrentImage, jam.KitStatus, error)
+	PrepareImage(ctx context.Context, project, role, manager string) (jam.CurrentImage, jam.KitStatus, error)
 }
 
 // Actors is the actor store, used to clear a leftover identity. A crash between
@@ -467,14 +468,22 @@ func (r *Reconciler) advanceUpgrade(ctx context.Context, id string, u upgrade, i
 		r.log.Info("standing: upgrade dropped (name dismissed or reset)", "id", id)
 		return
 	}
-	cur, err := r.sup.CurrentImage(project, u.role)
+	pin := r.pinnedManager(u.project, u.role, u.name)
+	if inst, live := insts[id]; live && pin == "" && inst.SessionKind == jam.SessionKindStanding && inst.Role == u.role && inst.Name == u.name {
+		// Raised before pins existed: its state is where its studio runs.
+		pin = inst.Manager
+		if pin == "" {
+			pin = jam.LocalManager // raised before managers existed: it ran locally
+		}
+	}
+	cur, err := r.sup.CurrentImage(project, u.role, pin)
 	if err != nil {
 		r.setUpgrade(id, jam.UpgradeError, "resolving the current image: "+err.Error())
 		return
 	}
 	if key := cur.Key(); cur.HasKit && u.readyKey != key {
 		if !u.preparing {
-			r.startPrepare(ctx, id, project, u.role)
+			r.startPrepare(ctx, id, project, u.role, pin)
 		}
 		r.stMu.Lock()
 		if p, ok := r.upgrades[id]; ok {
@@ -507,16 +516,29 @@ func (r *Reconciler) advanceUpgrade(ctx context.Context, id string, u upgrade, i
 	r.log.Info("standing: session upgraded", "id", id, "image", cur.Key())
 }
 
-// startPrepare runs PrepareImage for (project, role) off the lock, recording
-// the outcome on id's upgrade and kicking a pass.
-func (r *Reconciler) startPrepare(ctx context.Context, id, project, role string) {
+// pinnedManager is the manager holding the session's state ("" = unpinned, the
+// default manager): the one place its upgraded image must be prepared. An
+// unpinned session with a live studio (raised before pins) is resolved by
+// advanceUpgrade from that studio's manager.
+func (r *Reconciler) pinnedManager(projectID, role, name string) string {
+	for _, e := range r.roster.ListStandingSessions() {
+		if string(e.ProjectID) == projectID && e.Role == role && e.Name == name {
+			return e.Manager
+		}
+	}
+	return ""
+}
+
+// startPrepare runs PrepareImage for (project, role) on manager off the lock,
+// recording the outcome on id's upgrade and kicking a pass.
+func (r *Reconciler) startPrepare(ctx context.Context, id, project, role, manager string) {
 	r.stMu.Lock()
 	if p, ok := r.upgrades[id]; ok {
 		p.preparing = true
 	}
 	r.stMu.Unlock()
 	r.spawn(func() {
-		cur, st, err := r.sup.PrepareImage(ctx, project, role)
+		cur, st, err := r.sup.PrepareImage(ctx, project, role, manager)
 		r.stMu.Lock()
 		if p, ok := r.upgrades[id]; ok {
 			p.preparing = false

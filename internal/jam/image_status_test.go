@@ -168,7 +168,7 @@ func TestCoveSummariesImageUnknown(t *testing.T) {
 		Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sup.CurrentImage("default", "dev"); err == nil {
+	if _, err := sup.CurrentImage("default", "dev", ""); err == nil {
 		t.Fatal("CurrentImage with a missing model-spec must error")
 	}
 	if s := summaryImage(t, store, sup, "w1"); s != "unknown" {
@@ -206,7 +206,7 @@ func TestCoveSummariesImageFallsBackToKit(t *testing.T) {
 	t.Run("pre-tag instance", func(t *testing.T) {
 		fl := &fakeLauncher{liveness: LivenessAlive, asm: "asm1"}
 		sup, store := imageKit(t, fl)
-		cur, err := sup.CurrentImage("default", "dev")
+		cur, err := sup.CurrentImage("default", "dev", "")
 		if err != nil || !cur.HasKit {
 			t.Fatalf("current = %+v, %v", cur, err)
 		}
@@ -293,7 +293,7 @@ func TestCurrentImageErrorLoggedOncePerRolePerMinute(t *testing.T) {
 	}
 	logged := func() int { return strings.Count(buf.String(), "image status unresolvable") }
 	for range 3 {
-		if _, err := sup.CurrentImage("default", "dev"); err == nil {
+		if _, err := sup.CurrentImage("default", "dev", ""); err == nil {
 			t.Fatal("want an error")
 		}
 	}
@@ -301,7 +301,7 @@ func TestCurrentImageErrorLoggedOncePerRolePerMinute(t *testing.T) {
 		t.Fatalf("logged %d times:\n%s", n, buf.String())
 	}
 	clk = clk.Add(time.Minute)
-	if _, err := sup.CurrentImage("default", "dev"); err == nil {
+	if _, err := sup.CurrentImage("default", "dev", ""); err == nil {
 		t.Fatal("want an error")
 	}
 	if n := logged(); n != 2 {
@@ -375,7 +375,7 @@ func TestRaiseAndCurrentImageAgreeUnderPinnedHarness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cur, err := sup.CurrentImage("default", "dev")
+	cur, err := sup.CurrentImage("default", "dev", "")
 	if err != nil || cur.Tag != inst.ImageTag || cur.Kit != inst.Kit {
 		t.Fatalf("current = %+v (%v), raised tag %q kit %+v", cur, err, inst.ImageTag, inst.Kit)
 	}

@@ -298,6 +298,15 @@ func (c *Client) RemoveRole(project, name string) error {
 	return c.do("DELETE", "/admin/roles/"+project+"/"+name, nil, nil)
 }
 
+// RoleImages lists the current image of project/role on each connected manager.
+func (c *Client) RoleImages(project, role string) ([]jam.RoleImage, error) {
+	var out struct {
+		Images []jam.RoleImage `json:"images"`
+	}
+	err := c.do("GET", "/admin/roles/"+url.PathEscape(project)+"/"+url.PathEscape(role)+"/images", nil, &out)
+	return out.Images, err
+}
+
 // ListProjects lists every project record.
 func (c *Client) ListProjects() ([]string, error) {
 	var out []string
@@ -645,8 +654,11 @@ func (c *Client) ClearEgress(project, role string) error {
 const setupTimeout = 60 * time.Second
 
 // setupPath is a setup route with its sections and diff query.
-func setupPath(path string, sections []string, diff bool) string {
+func setupPath(path string, sections []string, diff bool, manager string) string {
 	q := url.Values{}
+	if manager != "" {
+		q.Set("manager", manager)
+	}
 	if len(sections) > 0 {
 		q.Set("sections", strings.Join(sections, ","))
 	}
@@ -666,10 +678,10 @@ func (c *Client) doSetup(path string, out *jam.StudioSetup) error {
 }
 
 // RoleSetup is what a studio of project/role raised now would get (sections
-// nil = all).
-func (c *Client) RoleSetup(project, role string, sections []string) (jam.StudioSetup, error) {
+// nil = all; manager "" = the default) read from manager's image.
+func (c *Client) RoleSetup(project, role string, sections []string, manager string) (jam.StudioSetup, error) {
 	var out jam.StudioSetup
-	err := c.doSetup(setupPath("/admin/roles/"+url.PathEscape(project)+"/"+url.PathEscape(role)+"/setup", sections, false), &out)
+	err := c.doSetup(setupPath("/admin/roles/"+url.PathEscape(project)+"/"+url.PathEscape(role)+"/setup", sections, false, manager), &out)
 	return out, err
 }
 
@@ -677,7 +689,7 @@ func (c *Client) RoleSetup(project, role string, sections []string) (jam.StudioS
 // each section's line diff against its role's render.
 func (c *Client) StudioSetup(studio string, sections []string, diff bool) (jam.StudioSetup, error) {
 	var out jam.StudioSetup
-	err := c.doSetup(setupPath("/admin/instances/"+url.PathEscape(studio)+"/setup", sections, diff), &out)
+	err := c.doSetup(setupPath("/admin/instances/"+url.PathEscape(studio)+"/setup", sections, diff, ""), &out)
 	return out, err
 }
 

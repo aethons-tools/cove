@@ -3,6 +3,7 @@ package standing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -29,6 +30,13 @@ type fakeWorld struct {
 	notReady  bool   // PrepareImage reports the current image still preparing
 	prepErr   error  // PrepareImage fails
 	prepares  int    // PrepareImage calls
+	// pins maps "project/role/name" to the manager its session is pinned to;
+	// curMgrs and prepMgrs record the manager each CurrentImage/PrepareImage got;
+	// prepFail makes PrepareImage on that manager fail as unavailable.
+	pins     map[string]string
+	curMgrs  []string
+	prepMgrs []string
+	prepFail string
 	// sessions is the standing-session map, keyed "project/role/name".
 	sessions map[string]string
 	// renamed maps a renamed project's name to the name its id was made from.
@@ -106,18 +114,24 @@ func (w *fakeWorld) ListStandingSessions() []jam.StandingSessionRef {
 	for k, id := range w.sessions {
 		p, rest, _ := strings.Cut(k, "/")
 		role, name, _ := strings.Cut(rest, "/")
-		out = append(out, jam.StandingSessionRef{ProjectID: ident.ID("prj-" + p), Role: role, Name: name, SessionID: id})
+		out = append(out, jam.StandingSessionRef{ProjectID: ident.ID("prj-" + p), Role: role, Name: name, SessionID: id, Manager: w.pins[k]})
 	}
 	return out
 }
 
-func (w *fakeWorld) CurrentImage(string, string) (jam.CurrentImage, error) {
+func (w *fakeWorld) CurrentImage(_, _, manager string) (jam.CurrentImage, error) {
+	w.curMgrs = append(w.curMgrs, manager)
 	return jam.CurrentImage{Kit: jam.KitRef{ID: "web", Digest: w.tag}, HasKit: true, Tag: w.tag}, nil
 }
 
-func (w *fakeWorld) PrepareImage(_ context.Context, p, r string) (jam.CurrentImage, jam.KitStatus, error) {
+func (w *fakeWorld) PrepareImage(_ context.Context, p, r, manager string) (jam.CurrentImage, jam.KitStatus, error) {
 	w.prepares++
-	cur, _ := w.CurrentImage(p, r)
+	w.prepMgrs = append(w.prepMgrs, manager)
+	cur, _ := w.CurrentImage(p, r, manager)
+	if w.prepFail != "" && manager == w.prepFail {
+		err := fmt.Errorf("manager %s: %w", manager, jam.ErrManagerUnavailable)
+		return cur, jam.KitStatus{State: jam.KitPreparing, Err: err.Error()}, err
+	}
 	if w.prepErr != nil {
 		return cur, jam.KitStatus{State: jam.KitPreparing, Err: w.prepErr.Error()}, w.prepErr
 	}
@@ -944,5 +958,79 @@ func TestReset_PendingSurvivesProjectRename(t *testing.T) {
 	}
 	if last := w.raised[len(w.raised)-1]; last.ActorID == botID || last.Project != "acme2" {
 		t.Fatalf("raised %+v; want a new session under acme2", last)
+	}
+}
+
+// The upgrade prepares on the session's pinned manager and no other: while the
+// pin is unavailable it stays preparing and retries there; once it answers the
+// upgrade proceeds.
+func TestUpgradePreparesOnlyOnPin(t *testing.T) {
+	r, w, _, _ := upgradeKit(t)
+	ctx := context.Background()
+	w.pins = map[string]string{"acme/reviewer/alice-bot": "m1"}
+	w.prepFail = "m1"
+	_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
+	r.Tick(ctx)
+	r.Tick(ctx)
+	if !strings.HasPrefix(r.state(), "preparing") || len(w.torn) != 0 || w.prepares != 2 {
+		t.Fatalf("pin down: state=%q torn=%v prepares=%d", r.state(), w.torn, w.prepares)
+	}
+	w.prepFail = ""
+	r.Tick(ctx)
+	r.Tick(ctx)
+	if !slices.Equal(w.torn, []string{botID}) {
+		t.Fatalf("once the pin answers: torn=%v state=%q", w.torn, r.state())
+	}
+	for _, m := range append(slices.Clone(w.prepMgrs), w.curMgrs...) {
+		if m != "m1" {
+			t.Fatalf("image calls used manager %q, want only m1 (prep %v cur %v)", m, w.prepMgrs, w.curMgrs)
+		}
+	}
+}
+
+// An unpinned session with no live studio uses the default manager ("") for
+// both calls.
+func TestUpgradeUnpinnedUsesDefault(t *testing.T) {
+	r, w, _, _ := upgradeKit(t)
+	ctx := context.Background()
+	inst := w.insts[botID]
+	inst.Phase = jam.PhaseGone
+	w.insts[botID] = inst
+	_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
+	r.Tick(ctx)
+	if w.prepares != 1 {
+		t.Fatalf("prepares = %d, want 1", w.prepares)
+	}
+	for _, m := range append(slices.Clone(w.prepMgrs), w.curMgrs...) {
+		if m != "" {
+			t.Fatalf("unpinned used manager %q, want the default (prep %v cur %v)", m, w.prepMgrs, w.curMgrs)
+		}
+	}
+}
+
+// A session raised before pins existed (pin "") whose studio is live prepares
+// where its state is — its instance's manager, "" meaning local — never on
+// whichever manager happens to be the default.
+func TestUpgradeLegacyUnpinnedUsesLiveInstanceManager(t *testing.T) {
+	for _, tc := range []struct{ instMgr, want string }{{"", jam.LocalManager}, {"m2", "m2"}} {
+		r, w, _, _ := upgradeKit(t)
+		ctx := context.Background()
+		inst := w.insts[botID]
+		inst.Manager = tc.instMgr
+		w.insts[botID] = inst
+		_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
+		r.Tick(ctx)
+		r.Tick(ctx)
+		if !slices.Equal(w.torn, []string{botID}) {
+			t.Fatalf("instance manager %q: torn=%v state=%q", tc.instMgr, w.torn, r.state())
+		}
+		if len(w.prepMgrs) == 0 || len(w.curMgrs) == 0 {
+			t.Fatalf("instance manager %q: no image calls recorded", tc.instMgr)
+		}
+		for _, m := range append(slices.Clone(w.prepMgrs), w.curMgrs...) {
+			if m != tc.want {
+				t.Fatalf("instance manager %q: image calls used %q, want only %q (prep %v cur %v)", tc.instMgr, m, tc.want, w.prepMgrs, w.curMgrs)
+			}
+		}
 	}
 }

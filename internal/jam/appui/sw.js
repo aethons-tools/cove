@@ -78,18 +78,28 @@ function jamFallback(p) {
   return { title: 'Jam', options: { body: 'New message', icon: ICON, badge: BADGE, data: { channel: jamStr(p && p.channel), n: 1 } } };
 }
 
-// jamTarget is the Inbox URL that opens conversation channel.
-function jamTarget(channel) {
+// jamArea is the Jam area a window shows: 'next' for the Jam app
+// ('/app/next/'), else 'user'.
+function jamArea(url) {
+  try { return new URL(url).pathname.startsWith('/app/next/') ? 'next' : 'user'; } catch (_) { return 'user'; }
+}
+
+// jamTarget is the URL that opens conversation channel in area: the Jam app
+// ('next') or the Inbox (the default, until the app replaces it).
+function jamTarget(channel, area) {
+  if (area === 'next') return channel ? '/app/next/c/' + encodeURIComponent(channel) : '/app/next/';
   return channel ? '/app/user/?c=' + encodeURIComponent(channel) : '/app/user/';
 }
 
 // jamPickClient is the index of the window (by URL) a notification click
-// should reuse — the first on the Inbox ('/app/user/') — or -1 to open a
-// new one. An /app/admin/ (or any other) window is never navigated away.
+// should reuse — the first on the Jam app ('/app/next/') or the Inbox
+// ('/app/user/') — or -1 to open a new one. An /app/admin/ (or any other)
+// window is never navigated away.
 function jamPickClient(urls) {
   for (let i = 0; i < urls.length; i++) {
     try {
-      if (new URL(urls[i]).pathname.startsWith('/app/user/')) return i;
+      const p = new URL(urls[i]).pathname;
+      if (p.startsWith('/app/next/') || p.startsWith('/app/user/')) return i;
     } catch (_) { /* not a URL: skip */ }
   }
   return -1;
@@ -117,7 +127,7 @@ self.addEventListener('push', (e) => {
 
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const url = jamTarget(jamStr(e.notification.data && e.notification.data.channel));
+  const channel = jamStr(e.notification.data && e.notification.data.channel);
   e.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const i = jamPickClient(all.map((c) => c.url));
@@ -126,10 +136,10 @@ self.addEventListener('notificationclick', (e) => {
       try {
         if ('focus' in c) await c.focus();
         if (!('navigate' in c)) return;
-        await c.navigate(url);
+        await c.navigate(jamTarget(channel, jamArea(c.url)));
         return;
       } catch (_) { /* uncontrolled or gone: open instead */ }
     }
-    await self.clients.openWindow(url);
+    await self.clients.openWindow(jamTarget(channel));
   })());
 });

@@ -2,6 +2,7 @@ package webapp
 
 import (
 	"errors"
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -134,5 +135,21 @@ func TestNotBuiltPage(t *testing.T) {
 	}
 	if rec := serve(t, c, "GET", "/app/next/assets/x.js"); rec.Code != 404 {
 		t.Errorf("asset without bundle = %d, want 404", rec.Code)
+	}
+}
+
+// Head markup (the app's manifest link and icons) lands at <!--jam:head-->;
+// without a Head the marker goes quietly.
+func TestHandlerInjectsHead(t *testing.T) {
+	fsys := fstest.MapFS{"index.html": {Data: []byte("<head><!--jam:head--></head><body><!--jam:bootstrap--></body>")}}
+	c := Config{Prefix: "/app/next/", FS: fsys, Name: "x",
+		Bootstrap: func(*http.Request) (any, error) { return map[string]string{}, nil },
+		Head:      func(*http.Request) template.HTML { return `<link rel="manifest" href="/m">` }}
+	if rec := serve(t, c, "GET", "/app/next/c/x"); !strings.Contains(rec.Body.String(), `<head><link rel="manifest" href="/m"></head>`) {
+		t.Errorf("page = %s", rec.Body)
+	}
+	c.Head = nil
+	if rec := serve(t, c, "GET", "/app/next/"); strings.Contains(rec.Body.String(), "jam:head") {
+		t.Errorf("marker left: %s", rec.Body)
 	}
 }

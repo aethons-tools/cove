@@ -36,7 +36,7 @@ var kitDraftVerbs = map[string]struct {
 	"discard": {"<kit>", 1},
 	"publish": {"<kit> [--pin]", 1},
 	"sync":    {"<kit> <dir>", 2},
-	"build":   {"<kit> [--etag e] [--no-follow] [--show] [--cancel]", 1},
+	"build":   {"<kit> [--manager m] [--etag e] [--no-follow] [--show] [--cancel]", 1},
 }
 
 const kitDraftUsage = "jam kit draft: expected open|status|get|put|rm|discard|publish|sync|build"
@@ -68,7 +68,7 @@ func cmdKitDraft(args []string, stdout, stderr io.Writer) int {
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	// Each verb defines only its own flags, so another verb's is a usage error.
 	from, asJSON, outFile, mode, pin, etag := new(string), new(bool), new(string), new(string), new(bool), new(string)
-	noFollow, show, cancelBuild := new(bool), new(bool), new(bool)
+	noFollow, show, cancelBuild, manager := new(bool), new(bool), new(bool), new(string)
 	switch verb {
 	case "open":
 		from = fs.String("from", "", "the version to open the draft from (vN; default: current)")
@@ -84,6 +84,7 @@ func cmdKitDraft(args []string, stdout, stderr io.Writer) int {
 		noFollow = fs.Bool("no-follow", false, "start the build and return without following its log")
 		show = fs.Bool("show", false, "print the latest build and its log; start nothing")
 		cancelBuild = fs.Bool("cancel", false, "stop the running build")
+		manager = fs.String("manager", "", "the manager to build on (default: the first that can build drafts; with --show or --cancel: the latest build's)")
 	}
 	if verb == "put" || verb == "rm" || verb == "discard" || verb == "publish" || verb == "sync" || verb == "build" {
 		etag = fs.String("etag", "", "write against this draft etag (default: fetch the draft's status first)")
@@ -124,7 +125,7 @@ func cmdKitDraft(args []string, stdout, stderr io.Writer) int {
 	}
 	switch verb {
 	case "build":
-		return kitDraftBuild(c, kit, name, etagFor, *noFollow, *show, *cancelBuild, stdout, stderr)
+		return kitDraftBuild(c, kit, name, *manager, etagFor, *noFollow, *show, *cancelBuild, stdout, stderr)
 	case "open":
 		v, err := parseDraftVersion(*from)
 		if err != nil {
@@ -342,9 +343,11 @@ var draftBuildPoll = time.Second
 // (at its etag) and follows its log until the build ends: exit 0 on
 // success (with the tag and digest), 1 on failure. --no-follow returns
 // once the build started; --show prints the latest build without starting
-// one; --cancel stops it. The log and every server string are printed
+// one; --cancel stops it. manager is the one it builds on ("" = Jam's
+// default; for --show and --cancel, the latest build's); the follow reads
+// the build's own manager. The log and every server string are printed
 // escaped. Ctrl-C stops the following, never the build.
-func kitDraftBuild(c *adminclient.Client, kit, name string, etagFor func() (string, error), noFollow, show, cancel bool, stdout, stderr io.Writer) int {
+func kitDraftBuild(c *adminclient.Client, kit, name, manager string, etagFor func() (string, error), noFollow, show, cancel bool, stdout, stderr io.Writer) int {
 	fail := func(err error) int {
 		fmt.Fprintln(stderr, "jam:", textesc.Escape(err.Error(), false))
 		return 1
@@ -354,14 +357,14 @@ func kitDraftBuild(c *adminclient.Client, kit, name string, etagFor func() (stri
 		fmt.Fprintln(stderr, "jam kit draft build: --show and --cancel cannot be combined")
 		return 2
 	case cancel:
-		b, err := c.CancelKitDraftBuild(kit)
+		b, err := c.CancelKitDraftBuild(kit, manager)
 		if err != nil {
 			return fail(err)
 		}
 		fmt.Fprintf(stdout, "cancelled draft build %s of %s @%s\n", textesc.Escape(b.ID, false), name, textesc.Escape(treePrefix(b.Tree), false))
 		return 0
 	case show:
-		b, err := c.KitDraftBuildStatus(kit, 0)
+		b, err := c.KitDraftBuildStatus(kit, manager, 0)
 		if err != nil {
 			return fail(err)
 		}
@@ -372,7 +375,7 @@ func kitDraftBuild(c *adminclient.Client, kit, name string, etagFor func() (stri
 	if err != nil {
 		return fail(err)
 	}
-	b, err := c.StartKitDraftBuild(kit, tag)
+	b, err := c.StartKitDraftBuild(kit, tag, manager)
 	if err != nil {
 		return fail(err)
 	}
@@ -382,7 +385,7 @@ func kitDraftBuild(c *adminclient.Client, kit, name string, etagFor func() (stri
 	}
 	ctx, stop := followContext()
 	defer stop()
-	return followDraftBuild(ctx, c, kit, name, b.ID, stdout, stderr, time.After)
+	return followDraftBuild(ctx, c, kit, name, b.Manager, b.ID, stdout, stderr, time.After)
 }
 
 // followContext is done on the first SIGINT or SIGTERM, which then stops
@@ -394,17 +397,17 @@ func followContext() (context.Context, context.CancelFunc) {
 	return ctx, stop
 }
 
-// followDraftBuild polls build id's log (every draftBuildPoll, waited with
-// after) and prints it until the build ends. When ctx is done it stops
-// following, leaves the build running and exits 130.
-func followDraftBuild(ctx context.Context, c *adminclient.Client, kit, name, id string, stdout, stderr io.Writer, after func(time.Duration) <-chan time.Time) int {
+// followDraftBuild polls build id's log on manager (every draftBuildPoll,
+// waited with after) and prints it until the build ends. When ctx is done
+// it stops following, leaves the build running and exits 130.
+func followDraftBuild(ctx context.Context, c *adminclient.Client, kit, name, manager, id string, stdout, stderr io.Writer, after func(time.Duration) <-chan time.Time) int {
 	since := int64(0)
 	for {
 		if ctx.Err() != nil {
 			fmt.Fprintf(stderr, "jam: stopped following build %s of draft %s; it is still running (jam kit draft build %s --show | --cancel)\n", textesc.Escape(id, false), name, name)
 			return 130
 		}
-		b, err := c.KitDraftBuildStatus(kit, since)
+		b, err := c.KitDraftBuildStatus(kit, manager, since)
 		if err != nil {
 			fmt.Fprintln(stderr, "jam:", textesc.Escape(err.Error(), false))
 			return 1
