@@ -38,11 +38,38 @@ func TestCoveContainer(t *testing.T) {
 func TestCoveContainerOn(t *testing.T) {
 	for _, c := range []struct{ m, id, want string }{
 		{"", "w1", "atcove-cove-w1"},
-		{"m1", "w1", "atcove-m1-cove-w1"},
-		{"m1", "a/b", "atcove-m1-cove-a-b"},
+		{"m1", "w1", "atcove.m1.cove-w1"},
+		{"m1", "a/b", "atcove.m1.cove-a-b"},
 	} {
 		if got := CoveContainerOn(c.m, c.id); got != c.want {
 			t.Errorf("CoveContainerOn(%q,%q) = %q, want %q", c.m, c.id, got, c.want)
 		}
+	}
+}
+
+// Managers sharing a docker daemon never collide: a local name starts atcove-,
+// a manager's atcove.<manager>. (manager names hold no '.'), so neither a
+// crafted manager name nor a crafted id can reproduce another's name.
+func TestCoveContainerOnNeverCollides(t *testing.T) {
+	cases := []struct{ m, id string }{
+		{"", "a-cove-b"},
+		{"cove-a", "b"},
+		{"a", "b"},
+		{"a-cove", "b"},
+		{"a", "cove-b"},
+		{"a", "x.cove-b"},
+		{"a", "b.c"},
+		{"a-cove-b", "c"},
+		{"", "b"},
+		{"", "a.cove-b"},
+	}
+	seen := map[string]string{}
+	for _, c := range cases {
+		got := CoveContainerOn(c.m, c.id)
+		key := c.m + "|" + c.id
+		if prev, dup := seen[got]; dup {
+			t.Errorf("CoveContainerOn(%q) = %q collides with %q", key, got, prev)
+		}
+		seen[got] = key
 	}
 }

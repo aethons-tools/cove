@@ -77,7 +77,8 @@ A manager restart leaves its studios running and re-reports them from these labe
 
 ## Names and moving between managers
 
-A remote manager's containers are `atcove-<manager>-cove-<id>` and its volumes derive from that (`-agent-data`, `-workspace`, `-docker`); `local` keeps `atcove-cove-<id>`.
+A remote manager's containers are `atcove.<manager>.cove-<id>` and its volumes derive from that (`-agent-data`, `-workspace`, `-docker`); `local` keeps `atcove-cove-<id>`.
+Local names start `atcove-` and a manager's `atcove.`, and a manager name holds no `.`, so no two managers' names (or `local`'s) can collide on a shared daemon.
 So a standing session that moves from `local` to a manager on a shared daemon starts fresh: no state carries over.
 
 ## Image builds

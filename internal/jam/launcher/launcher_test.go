@@ -1001,20 +1001,20 @@ func TestRemoteManagerNamesItsStudio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ops.runName != "atcove-m1-cove-w1" || loc != "atcove-m1-cove-w1" {
+	if ops.runName != "atcove.m1.cove-w1" || loc != "atcove.m1.cove-w1" {
 		t.Fatalf("container = %q, loc = %q", ops.runName, loc)
 	}
 	var vols []string
 	for _, m := range ops.runMounts {
 		vols = append(vols, m.Volume)
 	}
-	if want := []string{"atcove-m1-cove-w1-agent-data", "atcove-m1-cove-w1-workspace"}; !slices.Equal(vols, want) {
+	if want := []string{"atcove.m1.cove-w1-agent-data", "atcove.m1.cove-w1-workspace"}; !slices.Equal(vols, want) {
 		t.Fatalf("volumes = %v, want %v", vols, want)
 	}
 	if err := l.PurgeState(context.Background(), "w1"); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"atcove-m1-cove-w1-agent-data", "atcove-m1-cove-w1-workspace", "atcove-m1-cove-w1-docker"}; !slices.Equal(ops.volsRemoved, want) {
+	if want := []string{"atcove.m1.cove-w1-agent-data", "atcove.m1.cove-w1-workspace", "atcove.m1.cove-w1-docker"}; !slices.Equal(ops.volsRemoved, want) {
 		t.Fatalf("volsRemoved = %v, want %v", ops.volsRemoved, want)
 	}
 }
