@@ -143,7 +143,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "studio", Brief: "manage studios (raise|list|status|teardown|inspect) via the admin API, and who may reach one (share|unshare|access)", Run: cmdStudio},
 			{Name: "cove", Brief: "deprecated alias for studio", Run: cmdCove},
 			{Name: "standing", Brief: "declare, list, dismiss, reset or upgrade a role's named standing sessions (add|list|rm|reset|upgrade) via the admin API", Run: cmdStanding},
-			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; applied at the role's next raise", Run: cmdEgress},
+			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; pushed to running studios shortly", Run: cmdEgress},
 			{Name: "context", Brief: "show, set or clear authored session context for a role, project or the Jam (show|set|clear) via the admin API; applied at the next raise", Run: cmdContext},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
 			{Name: "push", Brief: "push notification helpers (keygen: print a fresh VAPID key pair)", Run: func(args []string, _ cli.Globals, stdout, stderr io.Writer) int { return cmdPush(args, stdout, stderr) }},
@@ -1699,7 +1699,7 @@ func egressState(p *jam.EgressPolicy) string {
 
 // cmdEgress manages a role's raw-egress policy: the list Jam pushes into each
 // cove of the role at raise, replacing the kit's policy list within the kit's
-// ceiling. A change takes effect at the role's next raise.
+// ceiling. A change reaches running studios within one reconcile pass.
 func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "jam egress: expected set|show|clear")
@@ -1759,7 +1759,7 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "jam:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "set egress policy for %s/%s; applies at the next raise\n", proj, *role)
+		fmt.Fprintf(stdout, "set egress policy for %s/%s; running studios pick it up shortly\n", proj, *role)
 	case "show":
 		v, err := c.ShowEgress(proj, *role)
 		if err != nil {
@@ -1781,7 +1781,7 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "jam:", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "cleared egress policy for %s/%s (kit default); applies at the next raise\n", proj, *role)
+		fmt.Fprintf(stdout, "cleared egress policy for %s/%s (kit default); running studios pick it up shortly\n", proj, *role)
 	}
 	return 0
 }

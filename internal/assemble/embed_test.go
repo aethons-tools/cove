@@ -639,11 +639,10 @@ func TestEntrypointChownsShadowDirs(t *testing.T) {
 	}
 }
 
-// SANDBOX.md is the plain sandbox guide. A Jam session gets the
+// SANDBOX.md is the fallback for a session without a session-context bundle. A Jam session gets the
 // sandbox rules from its compiled context, so the file opens with a short guard
 // telling a Jam session (CORE.md present) to ignore the rest; nothing in the
-// sealed layer rewrites this kit-overridable file (COV-246). The body after the
-// guard carries only the local kit path.
+// sealed layer rewrites this kit-overridable file (COV-246).
 func TestSandboxMDIsPlainWithJamGuard(t *testing.T) {
 	b, err := os.ReadFile(baseInitAgentData("SANDBOX.md"))
 	if err != nil {

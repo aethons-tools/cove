@@ -25,8 +25,8 @@ for the domain to be added.
 its access, and must never weaken the hardening. Ask a human (whoever started you,
 or the project contact) for the exact change and why. An operator makes it in the
 role's studio kit — a kit draft (`jam kit draft …`) published as the kit's next
-version — or in the role's egress policy (`jam egress set`), and it takes effect
-when the studio is re-raised. The hardening layer (proxy, nftables, sshd,
-entrypoint, credential helper, managed settings, and the `PATH`, `CLAUDE_CONFIG_DIR`
-and proxy env) cannot be changed by any kit; if you think it must change, stop and
+version, which takes effect when the studio is re-raised — or in the role's egress
+policy (`jam egress set`), which reaches a running studio shortly. The hardening
+layer (proxy, nftables, sshd, entrypoint, credential helper, managed settings, and
+the `CLAUDE_CONFIG_DIR` and proxy env) cannot be changed by any kit; if you think it must change, stop and
 explain why to a human.

@@ -55,7 +55,7 @@ Linear MCP or API, or `gh` for GitHub Issues).
 ## Deliberately unlike the autonomous path
 
 - **Needs-input is resolved by asking you**, not by parking the ticket.
-- **No reaper** — you manage an abandoned or stuck claim; nothing reaps it.
+- **No reaper** — Jam does not release a stale claim you made; you manage it.
 - **Collision on claim is accepted** for now; the claim narrows but doesn't close
   the window.
 - **You are the reviewer** — the loop ends at in-review, never done.

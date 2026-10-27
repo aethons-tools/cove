@@ -48,7 +48,7 @@ default branch). So each dispatchable issue must be:
 Pick the **lane** for each unit and label it accordingly:
 
 - **Autonomous** — a self-contained unit a session finishes alone → a
-  `dispatch:` label. Jam's Requisitioner picks it up from the ready state. Use
+  `dispatch:` label (any `dispatch:*` works; Jam checks only presence, so use the project's existing one). Jam's Requisitioner picks it up from the ready state. Use
   this whenever the issue's contract is complete enough to execute with **no
   human in the loop**.
 - **Attended** — a unit that wants a human in the loop (UX/design choices,

@@ -58,8 +58,7 @@ its leaves. **Leaves** and `INDEX.md` hold the detail. An empty layer emits noth
 
 A session without a bundle (no `CORE.md`) learns the minimum rules from the
 image's fallback `SANDBOX.md`, which the seeded `CLAUDE.md` imports.
-With a bundle the Boilerplate layer owns them (with the Jam path for changing the
-kit), and they take precedence: the base image's `SANDBOX.md` opens with a two-line
+With a bundle the Boilerplate layer owns them (kit-change path included), and they take precedence: the base image's `SANDBOX.md` opens with a two-line
 guard — if `/agent-data/context/CORE.md` exists this is a Jam session, its context
 governs, ignore the rest of the file. Nothing rewrites the file (it is the kit's,
 overridable), so the guard is the session's only cost; a kit that overrides

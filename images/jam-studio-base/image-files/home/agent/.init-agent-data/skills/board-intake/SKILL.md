@@ -13,7 +13,7 @@ produce a well-formed issue it (or a ticket session) can act on.
 
 The board is not configured in a workspace file. An operator configures Jam's
 Requisitioner with one tracker (a Linear team or a GitHub repo), its state
-names, and two label prefixes: `class:` (routes an issue to a handler) and
+names, and two label prefixes: `class:` (Jam parses it into the brief; it does not gate on it) and
 `dispatch:` (opts an issue into autonomous dispatch). You learn the team or
 repo and the real state names (ready, in-progress, in-review, done,
 needs-input, blocked) from your session context (the Project layer) or from the
@@ -47,7 +47,7 @@ contract and does exactly what it says.
    dispatchable is board-plan's job.
 2. **Fast path** (only if the request is already a single session-sized unit —
    one PR's worth, no decomposition): you may label it and move it to the ready
-   state yourself. Use a `dispatch:` label for autonomous work that Jam's
+   state yourself. Use a `dispatch:` label (any `dispatch:*` works; Jam checks only that one is present, so use the project's existing one) for autonomous work that Jam's
    Requisitioner raises into a ticket session, or `class:attended` for
    supervised work the **board-attend** loop runs. Otherwise, hand off — tell
    the user it's ready for **board-plan**.

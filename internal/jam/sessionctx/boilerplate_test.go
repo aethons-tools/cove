@@ -83,8 +83,8 @@ func TestBoilerplateEphemeralWithoutUnitHasOwnChannel(t *testing.T) {
 	}
 }
 
-// The sandbox rules a plain (non-Jam) sandbox reads from the image's SANDBOX.md
-// are Jam built-in boilerplate (COV-246): every compiled Jam session carries
+// The sandbox rules the image's fallback SANDBOX.md gives a session without a
+// bundle are Jam built-in boilerplate (COV-246): every compiled Jam session carries
 // them, self-contained — never pointing at the kit-overridable
 // /agent-data/reference docs — because the image's SANDBOX.md tells a Jam
 // session to ignore it.
