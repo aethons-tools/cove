@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# jam-image.test.sh — hermetic tests for scripts/jam-image.sh.
+# A fake `docker` on PATH records its argv and the build context's file list.
+# Run: bash scripts/jam-image.test.sh
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
+SCRIPT="$HERE/jam-image.sh"
+DOCKERFILE="$REPO/images/jam/Dockerfile"
+
+pass=0
+fail=0
+ok() { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+bad() {
+  fail=$((fail + 1))
+  printf 'FAIL - %s\n' "$1"
+  shift || true
+  for line in "$@"; do printf '  %s\n' "$line"; done
+}
+assert_eq() {
+  if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "expected: $2" "actual:   $3"; fi
+}
+assert_contains() { # name haystack needle
+  case "$2" in *"$3"*) ok "$1" ;; *) bad "$1" "missing: $3" "in: $2" ;; esac
+}
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+STUB="$WORK/stubbin"
+mkdir -p "$STUB"
+export DOCKER_LOG="$WORK/docker.log"
+export CTX_LOG="$WORK/ctx.log"
+
+# Fake docker: log argv on one line, list the context dir (last arg).
+cat >"$STUB/docker" <<'EOS'
+#!/bin/sh
+echo "$*" >>"$DOCKER_LOG"
+for a; do ctx="$a"; done
+(cd "$ctx" && find . -type f | sed 's|^\./||' | sort) >"$CTX_LOG"
+EOS
+chmod +x "$STUB/docker"
+export PATH="$STUB:$PATH"
+
+mkbin() { mkdir -p "$(dirname "$1")"; printf '#!/bin/sh\n' >"$1"; chmod +x "$1"; }
+reset() { rm -rf "$WORK/dist" "$DOCKER_LOG" "$CTX_LOG"; mkdir -p "$WORK/dist"; }
+
+# run <args...>: sets RC, ERR
+run() {
+  set +e
+  ERR="$(cd "$REPO" && bash "$SCRIPT" "$@" 2>&1 >/dev/null)"
+  RC=$?
+  set -e
+}
+
+# 1. build.sh layout, single platform
+reset
+mkbin "$WORK/dist/linux-amd64/at-jam"
+mkbin "$WORK/dist/linux-amd64/at-mint"
+run --dist "$WORK/dist" --platforms linux/amd64
+assert_eq "build layout: exit 0" 0 "$RC"
+assert_eq "build layout: argv" \
+  "buildx build --platform linux/amd64 -t cove-jam:dev --load $(grep -o '[^ ]*$' "$DOCKER_LOG")" \
+  "$(cat "$DOCKER_LOG")"
+ctx="$(cat "$CTX_LOG")"
+assert_contains "build layout: at-jam" "$ctx" "bin/linux-amd64/at-jam"
+assert_contains "build layout: at-mint" "$ctx" "bin/linux-amd64/at-mint"
+assert_contains "build layout: Dockerfile" "$ctx" "Dockerfile"
+
+# 2. goreleaser layout, two platforms, push
+reset
+mkbin "$WORK/dist/at-jam_linux_amd64_v1/at-jam"
+mkbin "$WORK/dist/at-mint_linux_amd64_v1/at-mint"
+mkbin "$WORK/dist/at-jam_linux_arm64_v8.0/at-jam"
+mkbin "$WORK/dist/at-mint_linux_arm64_v8.0/at-mint"
+run --dist "$WORK/dist" --platforms linux/amd64,linux/arm64 \
+  --tag ghcr.io/aethons-tools/jam:1-0101 --tag ghcr.io/aethons-tools/jam:latest --push
+assert_eq "goreleaser: exit 0" 0 "$RC"
+argv="$(cat "$DOCKER_LOG")"
+assert_contains "goreleaser: platforms" "$argv" "--platform linux/amd64,linux/arm64"
+assert_contains "goreleaser: tag 1" "$argv" "-t ghcr.io/aethons-tools/jam:1-0101"
+assert_contains "goreleaser: tag 2" "$argv" "-t ghcr.io/aethons-tools/jam:latest"
+assert_contains "goreleaser: push" "$argv" "--push"
+ctx="$(cat "$CTX_LOG")"
+for f in bin/linux-amd64/at-jam bin/linux-amd64/at-mint bin/linux-arm64/at-jam bin/linux-arm64/at-mint; do
+  assert_contains "goreleaser: ctx $f" "$ctx" "$f"
+done
+
+# 3. missing arm64 binary
+reset
+mkbin "$WORK/dist/linux-amd64/at-jam"
+mkbin "$WORK/dist/linux-amd64/at-mint"
+run --dist "$WORK/dist" --platforms linux/amd64,linux/arm64 --push
+assert_eq "missing: exit 1" 1 "$RC"
+assert_contains "missing: names platform" "$ERR" "no at-jam for linux/arm64 (looked in"
+assert_contains "missing: names paths" "$ERR" "$WORK/dist/linux-arm64/at-jam"
+[ ! -e "$DOCKER_LOG" ] && ok "missing: docker not called" || bad "missing: docker not called"
+
+# 4. --load with two platforms
+reset
+run --dist "$WORK/dist" --platforms linux/amd64,linux/arm64
+assert_eq "load multi: exit 1" 1 "$RC"
+assert_contains "load multi: message" "$ERR" "--load supports one platform; use --push"
+[ ! -e "$DOCKER_LOG" ] && ok "load multi: docker not called" || bad "load multi: docker not called"
+
+# 5. Dockerfile contract
+df="$(cat "$DOCKERFILE")"
+for pat in 'FROM alpine:3.22' 'ca-certificates' 'USER jam' 'ENTRYPOINT ["at-jam"]' \
+  'CMD ["serve","--config","/etc/jam/jam.yml"]' 'ARG TARGETARCH' \
+  'COPY bin/linux-${TARGETARCH}/ /usr/local/bin/' 'ENV HOME=/var/lib/jam' \
+  'VOLUME /var/lib/jam' 'EXPOSE 8443 8081' '10001'; do
+  assert_contains "Dockerfile: $pat" "$df" "$pat"
+done
+if grep -E '^[[:space:]]*(RUN )?.*apk add' "$DOCKERFILE" | grep -Eiq 'docker|openssh|git'; then
+  bad "Dockerfile: no docker/openssh/git in apk add"
+else
+  ok "Dockerfile: no docker/openssh/git in apk add"
+fi
+
+printf '\n%d passed, %d failed\n' "$pass" "$fail"
+[ "$fail" -eq 0 ]

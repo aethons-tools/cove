@@ -142,6 +142,11 @@ test-browser:
 test-install:
     bash install.test.sh
 
+# build the Jam container image (cove-jam:dev) from freshly built linux binaries
+jam-image *ARGS:
+    scripts/build.sh linux/$(go env GOARCH)
+    scripts/jam-image.sh {{ARGS}}
+
 # real-ssh integration tests of the ssh argv builders (needs ssh/sshd/ssh-keygen)
 integration:
     go test -tags integration ./internal/sshargs/ -v
