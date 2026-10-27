@@ -57,7 +57,7 @@ The immediate goal is to **run Jam in a container** next to its dependencies (Po
 - **The seam is already there.** `jam.Launcher` has seven methods: `Raise`, `Teardown`, `Probe`, `Pause`, `Unpause`, `ApplyEgress`, and `PrepareKit`. There are also optional interfaces, detected by type assertion: `ImageTagger`, `StateKeeper`, and `KitDraftBuilder`. `internal/jam` never imports the backend. All wiring is at `cmd/at-jam/main.go:2126-2169`.
 - **Colima work that bypasses the seam.**
   - `imagefacts` (`internal/jam/imagefacts`, wired at `main.go:2133`) runs `docker create` and `docker cp` against the Colima context. It backs the studio setup inspection page.
-  - `at-jam colima setup-docker|check-docker` (`cmd/at-jam/colima.go`).
+  - `at-jam colima setup-docker|check-docker` (`internal/colimacmd`).
   - The `runtime.launcher` config block (`cmd/at-jam/config.go:592-617`): `docker-context`, `docker`, `dns`, `identity-file`, `known-hosts-dir`, `jam-host`, and `runtime-addr`.
 - **SSH from Jam into studios happens only inside the launcher.**
   - At raise: wait for sshd, then `connect.LaunchCoveMaster`.

@@ -395,3 +395,20 @@ func TestRemoteLogStopsAfterCancel(t *testing.T) {
 		t.Fatalf("log written after cancel: %q", buf.String())
 	}
 }
+
+func TestRemoteTeardownLogsAgentLog(t *testing.T) {
+	var buf bytes.Buffer
+	r := NewRemote("m1", slog.New(slog.NewTextHandler(&buf, nil)))
+	s := newFakeStream()
+	r.attach(s.c)
+	go s.serve(t, wire.TeardownResult{AgentLog: "why"})
+	if err := r.Teardown(context.Background(), jam.Instance{ActorID: "actor-1"}); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"cove agent log (tail, captured on teardown)", "manager=m1", "id=actor-1", "why"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log missing %q: %s", want, out)
+		}
+	}
+}

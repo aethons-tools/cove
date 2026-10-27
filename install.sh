@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — one-command installer for the cove host binaries: at-jam and at-mint.
+# install.sh — one-command installer for the cove host binaries: at-jam, at-mint and at-studio-manager.
 #
 # Advertised:
 #   Private phase (works today, uses your gh auth):
@@ -10,7 +10,7 @@
 #
 # It pulls a prebuilt release archive (cove_<version>_<os>_<arch>.tar.gz) that the
 # CI pipeline already cuts on every push to main, verifies its SHA-256 against the
-# release's checksums.txt, and drops `at-mint` + `at-jam` onto your PATH. The
+# release's checksums.txt, and drops `at-mint`, `at-jam` + `at-studio-manager` onto your PATH. The
 # archive also carries an `at-cove` tombstone (scripts/release/at-cove) for older
 # installers; this one does not install it.
 #
@@ -187,9 +187,10 @@ main() {
   tar -C "$tmp/extract" -xzf "$tmp/$archive"
 
   local b installed=()
-  for b in at-mint at-jam; do
-    # at-jam joined the archive later: a pinned older release lacks it.
-    if [ "$b" = at-jam ] && [ ! -f "$tmp/extract/$b" ]; then continue; fi
+  for b in at-mint at-jam at-studio-manager; do
+    # at-jam and at-studio-manager joined the archive later: a pinned older
+    # release lacks them.
+    if [ "$b" != at-mint ] && [ ! -f "$tmp/extract/$b" ]; then continue; fi
     place "$tmp/extract/$b" "$bindir"
     installed+=("$b")
   done

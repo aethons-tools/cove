@@ -31,12 +31,18 @@ type Config struct {
 	DeadAfter            time.Duration                                          // 0: wire.DeadAfter
 	Log                  *slog.Logger                                           // nil: discard
 
+	// OnWelcome, if set, is called synchronously with Jam's Welcome, before
+	// any request is served.
+	OnWelcome func(w *managerpb.Welcome)
+
 	maxMessage int // test override for wire.MaxMessageBytes
 }
 
 // Run opens one Connect stream on cc, sends Hello and waits for Welcome, then
 // serves Jam's requests until the stream ends. It returns the stream's error
-// (a gRPC status from Jam when refused), or ctx.Err() after ctx ends.
+// (a gRPC status from Jam when refused), or ctx.Err() after ctx ends. It
+// returns without waiting for in-flight requests: their contexts are
+// cancelled, and any reply they send afterwards is dropped.
 func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 	if cfg.Launcher == nil {
 		return errors.New("client: Launcher is required")
@@ -82,13 +88,23 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 	dead := time.AfterFunc(cfg.DeadAfter, func() { setFatal(errors.New("heartbeat timeout")) })
 	defer dead.Stop()
 
-	var wg sync.WaitGroup
-	defer wg.Wait()
-	defer cancel() // runs first: unblock request goroutines before wg.Wait
+	// On return: cancel unblocks the heartbeat and any in-flight Send (gRPC
+	// aborts a Send once the stream's context ends); wait for the heartbeat;
+	// then close the conn under sendMu so no Send can start after Run has
+	// returned. Request goroutines are not waited for: a launcher call may
+	// ignore ctx for minutes (a kit build), and Run must return promptly so
+	// the manager can reconnect. Their late replies fail with errClosed and
+	// are dropped.
+	var hb sync.WaitGroup
+	defer func() {
+		cancel()
+		hb.Wait()
+		c.close()
+	}()
 
-	wg.Add(1)
+	hb.Add(1)
 	go func() {
-		defer wg.Done()
+		defer hb.Done()
 		t := time.NewTicker(cfg.HeartbeatEvery)
 		defer t.Stop()
 		for {
@@ -127,6 +143,9 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 			if m.GetWelcome() == nil {
 				return errors.New("client: expected Welcome from Jam")
 			}
+			if cfg.OnWelcome != nil {
+				cfg.OnWelcome(m.GetWelcome())
+			}
 			welcomed = true
 			continue
 		}
@@ -151,9 +170,7 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 		c.mu.Lock()
 		c.cancels[f.Id] = rcancel
 		c.mu.Unlock()
-		wg.Add(1)
 		go func(id uint64, op string) {
-			defer wg.Done()
 			defer func() {
 				c.mu.Lock()
 				delete(c.cancels, id)
@@ -198,7 +215,8 @@ type conn struct {
 	stream grpc.BidiStreamingClient[managerpb.ManagerUp, managerpb.ManagerDown]
 	ctx    context.Context
 
-	sendMu  sync.Mutex // serializes all sends
+	sendMu  sync.Mutex // serializes all sends; guards closed
+	closed  bool       // set once Run returns: sends fail with errClosed
 	mu      sync.Mutex
 	cancels map[uint64]context.CancelFunc
 }
@@ -213,9 +231,23 @@ func (c *conn) recvErr(err error) error {
 	return err
 }
 
+// errClosed is returned by a send after Run has returned.
+var errClosed = errors.New("client: stream closed")
+
+// close makes every later send fail with errClosed. It waits for an in-flight
+// send, so the stream's context must already be cancelled.
+func (c *conn) close() {
+	c.sendMu.Lock()
+	c.closed = true
+	c.sendMu.Unlock()
+}
+
 func (c *conn) sendUp(m *managerpb.ManagerUp) error {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
+	if c.closed {
+		return errClosed
+	}
 	return c.stream.Send(m)
 }
 
@@ -223,6 +255,9 @@ func (c *conn) sendUp(m *managerpb.ManagerUp) error {
 func (c *conn) sendFrames(frames []*managerpb.Frame) error {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
+	if c.closed {
+		return errClosed
+	}
 	for _, f := range frames {
 		if err := c.stream.Send(&managerpb.ManagerUp{Msg: &managerpb.ManagerUp_Frame{Frame: f}}); err != nil {
 			return err
@@ -288,19 +323,32 @@ func (c *conn) serve(ctx context.Context, id uint64, op string, data []byte) {
 		}
 		loc, err := l.Raise(ctx, r.Spec, r.Creds)
 		c.reply(id, wire.RaiseResult{Location: loc}, err)
-	case wire.OpTeardown, wire.OpPause, wire.OpUnpause:
+	case wire.OpTeardown:
+		var r wire.InstanceRequest
+		if err := decodeReq(data, &r); err != nil {
+			c.reply(id, nil, err)
+			return
+		}
+		var (
+			tail string
+			err  error
+		)
+		if tc, ok := l.(wire.TeardownCapturer); ok {
+			tail, err = tc.TeardownCapture(ctx, r.Instance)
+		} else {
+			err = l.Teardown(ctx, r.Instance)
+		}
+		c.reply(id, wire.TeardownResult{AgentLog: tail}, err)
+	case wire.OpPause, wire.OpUnpause:
 		var r wire.InstanceRequest
 		if err := decodeReq(data, &r); err != nil {
 			c.reply(id, nil, err)
 			return
 		}
 		var err error
-		switch op {
-		case wire.OpTeardown:
-			err = l.Teardown(ctx, r.Instance)
-		case wire.OpPause:
+		if op == wire.OpPause {
 			err = l.Pause(ctx, r.Instance)
-		default:
+		} else {
 			err = l.Unpause(ctx, r.Instance)
 		}
 		c.reply(id, wire.Empty{}, err)

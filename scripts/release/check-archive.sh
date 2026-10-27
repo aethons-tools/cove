@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # check-archive.sh — assert every release archive goreleaser built
 # (dist/cove_*_<os>_<arch>.tar.gz) holds exactly at-cove (the tombstone, mode
-# 0755, byte-identical to scripts/release/at-cove), at-mint and at-jam. An older
+# 0755, byte-identical to scripts/release/at-cove), at-mint, at-jam and at-studio-manager. An older
 # `at-jam update` places at-cove unconditionally, so an archive without the
 # tombstone breaks every pre-slice-2 updater (install.test.sh's compat case).
 # Run after `goreleaser release --snapshot` (release.yml, PR and main).
@@ -25,8 +25,8 @@ trap 'rm -rf "$tmp"' EXIT
 for a in "${archives[@]}"; do
   bad=0
   names="$(tar -tzf "$a" | sort | tr '\n' ' ')"
-  if [ "$names" != "at-cove at-jam at-mint " ]; then
-    echo "check-archive: $a holds [${names% }], want [at-cove at-jam at-mint]" >&2
+  if [ "$names" != "at-cove at-jam at-mint at-studio-manager " ]; then
+    echo "check-archive: $a holds [${names% }], want [at-cove at-jam at-mint at-studio-manager]" >&2
     fail=1
     continue
   fi
@@ -42,7 +42,7 @@ for a in "${archives[@]}"; do
     bad=1
   fi
   if [ "$bad" = 0 ]; then
-    echo "check-archive: $a ok (at-cove tombstone + at-mint + at-jam)"
+    echo "check-archive: $a ok (at-cove tombstone + at-mint + at-jam + at-studio-manager)"
   else
     fail=1
   fi

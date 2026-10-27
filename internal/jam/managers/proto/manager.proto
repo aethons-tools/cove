@@ -38,7 +38,10 @@ message Studio {
   string location = 2;
 }
 
-message Welcome {}
+message Welcome {
+  // The OpenSSH user CA public key studios trust for SSH logins.
+  bytes ssh_user_ca = 1;
+}
 
 message Heartbeat {}
 
