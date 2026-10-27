@@ -8,6 +8,9 @@ name: release
 #         │                                                        │
 #         ▼                                                        ▼
 #   cove-image (FROM cove-base-image:ci)                  at-jam (embeds cove-master + list), at-mint
+#                                                                │
+#                                                                ▼
+#                                                         jam image (alpine + those binaries)
 #
 # Pull requests build + smoke the touched legs but NEVER publish (spec §5).
 # Versioning is <N>-<MMDD>, N = git rev-list --count HEAD (spec §5). Supersedes
@@ -31,6 +34,7 @@ permissions:
 env:
   BASE_IMAGE: ghcr.io/aethons-tools/cove-base-image
   COVE_IMAGE: ghcr.io/aethons-tools/cove-image
+  JAM_IMAGE: ghcr.io/aethons-tools/jam
 
 jobs:
   # Decide, from the push/PR diff, which DAG legs run — and stamp the version.
@@ -287,6 +291,44 @@ jobs:
       # on main before the release is cut.
       - name: Check release archives
         run: bash scripts/release/check-archive.sh dist
+
+      # The Jam container image is built FROM the binaries goreleaser just put in
+      # dist/ (scripts/jam-image.sh), so it carries exactly the released at-jam /
+      # at-mint and its tag is the release version.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # PR: build the amd64 image into the local daemon and smoke it; never publish.
+      - name: Build Jam image (PR — load, no push)
+        if: github.event_name == 'pull_request'
+        run: bash scripts/jam-image.sh --platforms linux/amd64 --tag cove-jam:ci
+
+      - name: Smoke-test Jam image (PR)
+        if: github.event_name == 'pull_request'
+        env:
+          VERSION: ${{ needs.changes.outputs.version }}
+        run: |
+          out="$(docker run --rm cove-jam:ci version)"
+          echo "$out"
+          test "$out" = "at-jam $VERSION"
+
+      # main: publish the multi-arch image as <N>-<MMDD> + latest.
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Jam image (main)
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ needs.changes.outputs.version }}
+        run: |
+          bash scripts/jam-image.sh --platforms linux/amd64,linux/arm64 \
+            --tag "${JAM_IMAGE}:${VERSION}" --tag "${JAM_IMAGE}:latest" --push
+          echo "Image: ${JAM_IMAGE}:${VERSION}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish release
         if: github.event_name == 'push'

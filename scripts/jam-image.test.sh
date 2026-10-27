@@ -128,5 +128,23 @@ else
   ok "Dockerfile: no docker/openssh/git in apk add"
 fi
 
+# 6. release.yml wiring: the atcove job builds (PR) / publishes (main) the image.
+rel="$REPO/.github/workflows/release.yml"
+step_block() { # name-prefix: the step's lines, up to the next step
+  awk -v p="$1" 'index($0, "- name: " p) {on=1; print; next} on && /^      - / {exit} on {print}' "$rel"
+}
+pr_step="$(step_block 'Build Jam image (PR')"
+main_step="$(step_block 'Publish Jam image (main')"
+smoke_step="$(step_block 'Smoke-test Jam image')"
+assert_contains "release.yml: PR step guarded" "$pr_step" "github.event_name == 'pull_request'"
+assert_contains "release.yml: PR step builds amd64 only" "$pr_step" "scripts/jam-image.sh --platforms linux/amd64 --tag cove-jam:ci"
+case "$pr_step" in *--push*) bad "release.yml: PR step has no --push" ;; *) ok "release.yml: PR step has no --push" ;; esac
+assert_contains "release.yml: smoke guarded" "$smoke_step" "github.event_name == 'pull_request'"
+assert_contains "release.yml: smoke run" "$smoke_step" "docker run --rm cove-jam:ci version"
+assert_contains "release.yml: main step guarded" "$main_step" "github.event_name == 'push'"
+assert_contains "release.yml: main step pushes" "$main_step" "scripts/jam-image.sh --platforms linux/amd64,linux/arm64"
+assert_contains "release.yml: main step --push" "$main_step" "--push"
+assert_contains "release.yml: JAM_IMAGE env" "$(cat "$rel")" "JAM_IMAGE: ghcr.io/aethons-tools/jam"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
