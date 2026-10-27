@@ -25,6 +25,13 @@ rm -rf "$out.tmp" "$out.old"
 npm ci --no-audit --no-fund --loglevel=error
 APP_OUT_DIR="$out.tmp" npx vite build --logLevel warn
 node scripts/size-budget.mjs "$out.tmp"
+# Excalidraw's fonts, served from the bundle (no CDN: the app's CSP allows
+# font-src 'self' only), without the 13 MB CJK Xiaolai set (as web/whiteboard).
+fonts=node_modules/@excalidraw/excalidraw/dist/prod/fonts
+mkdir -p "$out.tmp/assets/excalidraw/fonts"
+for f in "$fonts"/*; do
+  [ "$(basename "$f")" = Xiaolai ] || cp -R "$f" "$out.tmp/assets/excalidraw/fonts/"
+done
 cp "$out/.keep" "$out.tmp/.keep"
 mv "$out" "$out.old"
 mv "$out.tmp" "$out"

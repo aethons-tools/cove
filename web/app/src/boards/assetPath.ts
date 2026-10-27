@@ -1,6 +1,6 @@
-// Excalidraw loads its fonts from window.EXCALIDRAW_ASSET_PATH + "fonts/…";
-// scripts/app.sh copies them into the bundle there. Imported before
-// Excalidraw itself, so it is set when Excalidraw's modules evaluate.
+// Excalidraw loads its fonts from window.EXCALIDRAW_ASSET_PATH + "fonts/…",
+// then from its fallback (rewritten from a CDN to this same bundle by
+// vite.config.ts's excalidrawFonts); scripts/app.sh copies them there.
 declare global {
   interface Window { EXCALIDRAW_ASSET_PATH?: string | string[] }
 }

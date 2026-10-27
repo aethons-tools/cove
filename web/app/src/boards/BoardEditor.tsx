@@ -1,4 +1,3 @@
-import "./assetPath"; // before Excalidraw: its fonts load from the bundle
 import { Excalidraw, reconcileElements, restoreElements, CaptureUpdateAction } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";

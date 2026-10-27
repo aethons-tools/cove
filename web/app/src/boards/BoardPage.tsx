@@ -4,6 +4,9 @@ import { lazy, Suspense } from "react";
 import { Link, useParams } from "react-router";
 import { apiGet, type ApiError } from "../api/client";
 import type { BoardInfo } from "../api/types";
+// Set in the main chunk, so it is in place before the editor chunk (and
+// Excalidraw's font faces) load.
+import "./assetPath";
 
 // BoardEditor is its own chunk (Excalidraw), loaded when a board opens.
 const BoardEditor = lazy(() => import("./BoardEditor"));
