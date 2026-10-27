@@ -2,7 +2,7 @@
 # app.sh — build the Jam app bundle (web/app) that at-jam embeds, into
 # internal/jam/uiassets/app/ (git-ignored). Needs Node and npm with access to
 # the npm registry; the lockfile pins every package. Without the bundle at-jam
-# still builds: /app/next/ answers "not built". See docs/web-app.md.
+# still builds: /app/user/ answers "not built". See docs/web-app.md.
 #
 #   scripts/app.sh                  # build (npm ci + vite build + size budget)
 #   APP_OPTIONAL=1 scripts/app.sh   # skip, with a warning, when npm is missing
@@ -26,7 +26,7 @@ npm ci --no-audit --no-fund --loglevel=error
 APP_OUT_DIR="$out.tmp" npx vite build --logLevel warn
 node scripts/size-budget.mjs "$out.tmp"
 # Excalidraw's fonts, served from the bundle (no CDN: the app's CSP allows
-# font-src 'self' only), without the 13 MB CJK Xiaolai set (as web/whiteboard).
+# font-src 'self' only), without the 13 MB CJK Xiaolai set.
 fonts=node_modules/@excalidraw/excalidraw/dist/prod/fonts
 mkdir -p "$out.tmp/assets/excalidraw/fonts"
 for f in "$fonts"/*; do

@@ -84,12 +84,12 @@ export interface RailGroup {
 export interface MessageRow {
   from: string;
   body: string; // rendered per the squawk's content type (squawkrender): the app inserts it as HTML
-  raw: string; // the body as sent, for the Markdown copy (escaped by the template)
+  raw: string; // the body as sent, for the Markdown copy (text, never markup)
   /**
    * Plain marks a text/plain squawk, shown literally with its whitespace.
    */
   plain: boolean;
-  at: string; // server-local "15:04" (the templates)
+  at: string; // server-local "15:04"
   time: string; // when it was sent (the app's day dividers and local times)
   mine: boolean;
   seq: number /* int64 */;
@@ -164,8 +164,7 @@ export interface Conversation {
   canLeave: boolean;
   callIn: NewMessageOption[];
   /**
-   * Whiteboards: NewBoard offers New whiteboard (the viewer may post here
-   * and the editor is built); Board is the board ?board= opened.
+   * NewBoard offers New whiteboard (the viewer may start one here).
    */
   newBoard: boolean;
   /**
@@ -321,6 +320,10 @@ export interface SessionPane {
   asks: PaneAsk[];
   links: PaneLink[];
   status: StatusRow[];
+  /**
+   * ThinkingStreams are the session's recorded event streams; EventsOff:
+   * this jam records no session events.
+   */
   streams: ThinkingStream[];
   eventsOff: boolean;
   /**
@@ -372,7 +375,7 @@ export interface StatusRow {
 }
 /**
  * ThinkingEvent is one session event as the Thinking tab shows it: an `ev`
- * of the feed with ?format=json, and a row of a page. Every string is agent
+ * of the feed, and a row of a page. Every string is agent
  * text, shown as text, never as markup.
  */
 export interface ThinkingEvent {

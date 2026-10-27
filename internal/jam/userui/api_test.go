@@ -160,8 +160,7 @@ func TestAPIBootstrap(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil || !b.PushFocus {
 		t.Errorf("with push focus: bootstrap = %+v (%v)", b, err)
 	}
-	// Whiteboards on: the app bundles its own editor, so the old bundle
-	// (uiassets.WhiteboardBuilt) doesn't gate it.
+	// Whiteboards on: the bootstrap says so (the app bundles its own editor).
 	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
 	rec = apiGet(t, Handler(e.Deps, nil), &p, "/app/user/api/bootstrap")
 	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil || !b.Boards {
