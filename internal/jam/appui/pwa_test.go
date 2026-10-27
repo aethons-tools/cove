@@ -98,7 +98,9 @@ func TestServiceWorker(t *testing.T) {
 		"getNotifications", "new messages", " · latest: ", "clients.openWindow", "matchAll",
 		// Robustness: any payload shape, any failure still shows something;
 		// a click only reuses an /app/user/ window.
-		"jamPayload(", "jamFallback(", "'New message'", "catch (_)", "jamPickClient(", "'/app/user/'"} {
+		"jamPayload(", "jamFallback(", "'New message'", "catch (_)", "jamPickClient(", "'/app/user/'",
+		// A click opens the Jam app when an app window is open.
+		"'/app/next/'", "jamArea("} {
 		if !strings.Contains(body, want) {
 			t.Errorf("sw.js missing %q", want)
 		}
