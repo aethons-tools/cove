@@ -1619,10 +1619,12 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 			continue
 		}
 		if inst.Phase == PhaseIdled {
-			if s.ownsDecision(inst, now) && s.reapIfManagerGone(ctx, inst) {
-				continue
+			// Paused on purpose: the wake-on engine owns its lifecycle
+			// (resume/teardown), unless its manager is gone.
+			if s.ownsDecision(inst, now) {
+				s.reapIfManagerGone(ctx, inst)
 			}
-			continue // paused on purpose; the wake-on engine owns its lifecycle (resume/teardown)
+			continue
 		}
 		if inst.Phase == PhaseTerminating || inst.Phase == PhaseLost {
 			// An instance already mid-teardown (Done reported, or reconciler-

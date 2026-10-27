@@ -117,7 +117,6 @@ func eventually(t *testing.T, what string, cond func() bool) {
 	}
 }
 
-// startServe adds m1 to the hub, writes its token and runs Serve for it
 // serveOpts adjusts startServe; the zero value is version v1, a discarded
 // log and a 10ms backoff.
 type serveOpts struct {
