@@ -242,7 +242,7 @@ func (c *Colima) ResolveKitBase(declaredBase string) (string, error) {
 // ResolveKitBaseTar streams the studio kit's build context tar to `docker build -`
 // (docker preserves file modes natively), tags the built image, and gates it
 // (gate ON), per backend.KitImageBuilder. The build injects the blessed
-// COVE_BASE_IMAGE arg, so a context that does `FROM ${COVE_BASE_IMAGE}` descends
+// JAM_STUDIO_BASE_IMAGE arg, so a context that does `FROM ${JAM_STUDIO_BASE_IMAGE}` descends
 // from the blessed base.
 func (c *Colima) ResolveKitBaseTar(ctx io.Reader) (string, error) {
 	return c.resolveBaseTar(ctx)

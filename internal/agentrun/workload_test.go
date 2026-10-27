@@ -224,7 +224,7 @@ func TestNewDefaultsMCPConfigPath(t *testing.T) {
 		t.Fatalf("default Harness = %#v; want Claude{}", w.cfg.Harness)
 	}
 	_, args, _ := w.cfg.Harness.Command(Episode{})
-	if !slices.Contains(args, "/dev/shm/cove-agent-mcp.json") {
+	if !slices.Contains(args, "/dev/shm/jam-agent-mcp.json") {
 		t.Fatalf("default harness argv lacks the generated MCP config: %q", args)
 	}
 }

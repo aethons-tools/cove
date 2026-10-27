@@ -97,13 +97,13 @@ func (f *fakeDraftBuilder) builds() int {
 func draftBuildsFor(t *testing.T, fb *fakeDraftBuilder) (*KitDraftBuilds, Store, string, context.CancelFunc) {
 	t.Helper()
 	st := NewMemStore()
-	pushApp(t, st, "kit.yml", "kind: studio\n", "Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n")
+	pushApp(t, st, "kit.yml", "kind: studio\n", "Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n")
 	d, err := OpenKitDraft(st, "app", 0, "local", draftNow)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s, err := PutKitDraftFile(st, slog.New(slog.DiscardHandler), "app", "Dockerfile", 0,
-		[]byte("ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\nRUN echo one\n"), DraftETag(d.Tree), "local", draftNow)
+		[]byte("ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\nRUN echo one\n"), DraftETag(d.Tree), "local", draftNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestDraftBuildSucceeds(t *testing.T) {
 
 func TestDraftBuildOnAChain(t *testing.T) {
 	st := NewMemStore()
-	if _, _, err := PushKitFiles(st, "web", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n")); err != nil {
+	if _, _, err := PushKitFiles(st, "web", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n")); err != nil {
 		t.Fatal(err)
 	}
 	pushApp(t, st, "kit.yml", "kind: studio\nbase: {kit: web}\n")
@@ -342,7 +342,7 @@ func TestDraftBuildEditedWhileRunning(t *testing.T) {
 	}
 	close(fb.release)
 	v := finished(t, b)
-	if v.State != DraftBuildSucceeded || v.Tree != d1.Tree || v.Current || !strings.Contains(v.Log, "file: ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\nRUN echo one\n") {
+	if v.State != DraftBuildSucceeded || v.Tree != d1.Tree || v.Current || !strings.Contains(v.Log, "file: ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\nRUN echo one\n") {
 		t.Fatalf("finished = %+v", v)
 	}
 }

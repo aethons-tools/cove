@@ -46,18 +46,18 @@ RUN chmod +x /usr/local/bin/entrypoint.sh \
 # The agent docs and skills seeded into /agent-data are NOT sealed: they ship in
 # the kit base (cove-base-image's /home/agent/.init-agent-data), so a kit
 # overrides them by COPY. This layer owns only the seeding mechanism
-# (entrypoint.sh -> /usr/local/lib/cove/seed-agent-data.sh).
+# (entrypoint.sh -> /usr/local/lib/jam/seed-agent-data.sh).
 
 # docker:true sandboxes boot systemd as PID 1 (COV-118); enable the sealed nftables
-# drop (cove-egress) and the base image's distro squid.service (the egress proxy) at
+# drop (jam-egress) and the base image's distro squid.service (the egress proxy) at
 # boot — before sshd and the inner dockerd — independent of any socket activation. The
-# sealed squid.service.d/cove-egress.conf drop-in orders squid After the nft drop.
+# sealed squid.service.d/jam-egress.conf drop-in orders squid After the nft drop.
 # `systemctl enable` runs offline during the build (creating the WantedBy symlinks),
 # which is why the units are enabled here rather than shipped as symlinks (go:embed
 # can't carry symlinks); squid.service is already preset-enabled, enabled again
 # idempotently. Inert for non-docker sandboxes: they never boot systemd (the
 # entrypoint execs sshd directly), so the enabled units simply never run.
-RUN systemctl enable cove-egress.service squid.service
+RUN systemctl enable jam-egress.service squid.service
 
 # Blend the install-generated ~/.claude.json (machineID, userID, first-start
 # time, migration flags, …) UNDER the base's startup-experience overrides, so
@@ -75,10 +75,10 @@ RUN seed=/home/agent/.init-agent-data/.claude.json \
 
 # SSH sessions read /etc/environment via pam_env. Bridge the image's Docker ENV
 # into it: PATH (intrinsic, ~/.local/bin prepended) + the vars named in
-# COVE_SSHENV, then the sealed egress-proxy / CLAUDE_CONFIG_DIR the hardening layer
+# JAM_SSHENV, then the sealed egress-proxy / CLAUDE_CONFIG_DIR the hardening layer
 # owns. One ENV statement feeds both `docker run`/CI and SSH sessions — no
 # separate env.d fragment to keep in sync.
-RUN /usr/local/lib/cove/apply-sshenv.sh
+RUN /usr/local/lib/jam/apply-sshenv.sh
 
 # Drop cove's build-time consumables from the final image.
 RUN rm -rf /.cove

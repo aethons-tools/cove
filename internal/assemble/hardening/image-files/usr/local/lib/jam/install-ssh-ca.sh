@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install Jam's SSH user-CA public key as /etc/ssh/jam_user_ca.pub, the file
-# sshd's TrustedUserCAKeys (sshd_config.d/cove.conf) points at: certs that CA
+# sshd's TrustedUserCAKeys (sshd_config.d/00-jam.conf) points at: certs that CA
 # issues for principal "agent" may then log in as agent.
 #
 # Reads exactly one authorized_keys line from STDIN: `ssh-ed25519 <base64>

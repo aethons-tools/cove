@@ -196,9 +196,9 @@
   image env (sha256:01234):
     PATH=/usr/bin
     DB_PASSWORD=«masked»
-    COVE_SSHENV=GOPATH:GOPROXY
+    JAM_SSHENV=GOPATH:GOPROXY
     API_KEY=«masked»
-  transferred into sessions (COVE_SSHENV): GOPATH, GOPROXY
+  transferred into sessions (JAM_SSHENV): GOPATH, GOPROXY
 
 == model (config)
   {

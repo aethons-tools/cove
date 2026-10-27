@@ -171,7 +171,7 @@ func writeGitLabGitConfig(buildDir, host string) error {
 		b.WriteString("\tinsteadOf = git://" + host + "/\n")
 		b.WriteString("[credential \"https://" + host + "\"]\n")
 		b.WriteString("\thelper = \"\"\n")
-		b.WriteString("\thelper = /usr/local/bin/cove-git-credential.sh\n")
+		b.WriteString("\thelper = /usr/local/bin/jam-git-credential.sh\n")
 	}
 	return os.WriteFile(dst, []byte(b.String()), 0o644)
 }

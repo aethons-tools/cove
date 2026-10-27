@@ -158,14 +158,14 @@ func refreshEntries(text string) []string {
 }
 
 // imageEnvBody renders an image's baked ENV (redacted) and the names its
-// COVE_SSHENV transfers into sessions.
+// JAM_SSHENV transfers into sessions.
 func imageEnvBody(f ImageFacts) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "image env (%s):\n", flat(shortDigest(f.ID)))
 	var transfer string
 	for _, kv := range f.Env {
 		k, v, _ := strings.Cut(kv, "=")
-		if k == "COVE_SSHENV" {
+		if k == "JAM_SSHENV" {
 			transfer = v
 		}
 		fmt.Fprintf(&sb, "  %s=%s\n", flat(k), flat(RedactEnv(k, v)))
@@ -174,7 +174,7 @@ func imageEnvBody(f ImageFacts) string {
 	for i, n := range names {
 		names[i] = flat(n)
 	}
-	fmt.Fprintf(&sb, "transferred into sessions (COVE_SSHENV): %s\n", joinOr(names, "none"))
+	fmt.Fprintf(&sb, "transferred into sessions (JAM_SSHENV): %s\n", joinOr(names, "none"))
 	return sb.String()
 }
 

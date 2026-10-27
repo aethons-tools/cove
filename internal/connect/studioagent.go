@@ -15,16 +15,16 @@ import (
 // are staged into over ssh stdin (never argv, never persistent disk), sourced and
 // (env) removed by the detached launch — mirrors the teammate env path.
 const (
-	studioAgentPromptVMPath = "/dev/shm/cove-agent-prompt"
-	studioAgentEnvVMPath    = "/dev/shm/cove-master-env"
+	studioAgentPromptVMPath = "/dev/shm/jam-agent-prompt"
+	studioAgentEnvVMPath    = "/dev/shm/jam-studio-agent-env"
 	// studioAgentContextVMPath is the compiled session context
 	// (sessionctx.Bundle JSON), staged like the prompt.
-	studioAgentContextVMPath = "/dev/shm/cove-agent-context"
+	studioAgentContextVMPath = "/dev/shm/jam-agent-context"
 	// StudioAgentLogVMPath is where cove-master's detached launch appends its
 	// combined stdout+stderr inside the cove. Exported so the launcher can grab
 	// its tail on teardown (a post-mortem for a cove that died). Single source
 	// of truth for the path.
-	StudioAgentLogVMPath = "/agent-data/cove-master.log"
+	StudioAgentLogVMPath = "/agent-data/jam-studio-agent.log"
 )
 
 // StudioAgentOptions carries what LaunchStudioAgent injects into a raised cove.

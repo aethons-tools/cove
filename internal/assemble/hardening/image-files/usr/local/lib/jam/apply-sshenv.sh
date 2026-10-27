@@ -9,7 +9,7 @@
 # What transfers:
 #   - PATH is ALWAYS included (intrinsic), with /home/agent/.local/bin (where
 #     `claude` installs) prepended to whatever the image's ENV PATH resolved to.
-#   - Every variable NAMED in COVE_SSHENV (colon-separated), using its live value.
+#   - Every variable NAMED in JAM_SSHENV (colon-separated), using its live value.
 #
 # What does NOT come from the image: the egress proxy vars and CLAUDE_CONFIG_DIR.
 # The sealed hardening layer writes those itself, LAST (so they always win), and
@@ -22,9 +22,9 @@ set -euo pipefail
 env_file="${JAM_ENV_FILE:-/etc/environment}"
 : >"$env_file" # the sealed layer owns this file — start clean and deterministic
 
-# 1) Image-provided session env: PATH (intrinsic) + the COVE_SSHENV names.
+# 1) Image-provided session env: PATH (intrinsic) + the JAM_SSHENV names.
 printf 'PATH=%s\n' "/home/agent/.local/bin:${PATH}" >>"$env_file"
-IFS=':' read -r -a names <<<"${COVE_SSHENV:-}"
+IFS=':' read -r -a names <<<"${JAM_SSHENV:-}"
 for n in "${names[@]}"; do
 	case "$n" in '' | PATH) continue ;; esac # empty entry / PATH already emitted
 	[ -n "${!n+isset}" ] && printf '%s=%s\n' "$n" "${!n}" >>"$env_file"

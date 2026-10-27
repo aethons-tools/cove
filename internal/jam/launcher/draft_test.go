@@ -131,7 +131,7 @@ func TestBuildKitDraftStageArgv(t *testing.T) {
 		t.Fatal(err)
 	}
 	builds, stdin := dockerArgsAll(f.Calls, "build")
-	if len(builds) != 2 || !slices.Contains(builds[0], "-") || !slices.Contains(builds[0], "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {
+	if len(builds) != 2 || !slices.Contains(builds[0], "-") || !slices.Contains(builds[0], "JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) {
 		t.Fatalf("builds = %v", builds)
 	}
 	if got := tarNames(t, []byte(stdin[0])); got != "Dockerfile,run.sh" {
@@ -266,7 +266,7 @@ func TestBuildKitDraftUnchainedStageArgv(t *testing.T) {
 	}
 	stage := jam.KitDraftStageTag(draftTag)
 	builds, stdin := dockerArgsAll(f.Calls, "build")
-	if len(builds) != 2 || !slices.Contains(builds[0], "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {
+	if len(builds) != 2 || !slices.Contains(builds[0], "JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) {
 		t.Fatalf("builds = %v", builds)
 	}
 	if got := tarNames(t, []byte(stdin[0])); got != "Dockerfile" {

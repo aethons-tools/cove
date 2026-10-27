@@ -50,7 +50,7 @@ func packCtx(t *testing.T, name, body string) string {
 func seedTreeKit(t *testing.T) jam.Store {
 	t.Helper()
 	store := newStore(t)
-	df := "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n"
+	df := "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n"
 	for _, kv := range [][]string{
 		{"kit.yml", "kind: studio\nprompt: one\n", "Dockerfile", df, "keep.txt", "same\n", "mod.txt", "a\n", "gone.txt", "bye\n", "run.sh", "echo\n", "blob.bin", "\x00\x01", "big.txt", bigText},
 		{"kit.yml", "kind: studio\nprompt: two\n", "Dockerfile", df, "keep.txt", "same\n", "mod.txt", "a\nbb\n", "new.txt", "hello\n", "run.sh*", "echo\n", "blob.bin", "\x00\x02", "big.txt", bigText + "more\n", "html.txt", "<b>hi</b>\n"},

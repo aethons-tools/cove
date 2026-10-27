@@ -9,7 +9,7 @@ set -euxo pipefail
 # state such as the OAuth login in .credentials.json), then an every-boot
 # re-copy of the entries the seed's own .refresh manifest lists (none without
 # one), so a rebuilt image's updated docs reach an existing sandbox.
-/usr/local/lib/cove/seed-agent-data.sh /home/agent/.init-agent-data /agent-data
+/usr/local/lib/jam/seed-agent-data.sh /home/agent/.init-agent-data /agent-data
 chown -R agent:agent /agent-data
 
 # A share-repo-dir class may overmount transient dirs (.venv, node_modules) with
@@ -33,7 +33,7 @@ set +f
 
 # docker:true sandboxes boot systemd as PID 1 (Sysbox gives the unprivileged
 # container a real init environment), and systemd raises the egress lock via
-# cove-egress.service (nftables drop) + the distro squid.service BEFORE it starts
+# jam-egress.service (nftables drop) + the distro squid.service BEFORE it starts
 # sshd or the inner rootful dockerd — see the sealed units under /etc/systemd/system.
 # The backend runs these sandboxes WITHOUT --init, so this exec makes systemd PID 1
 # (COV-118, COV-125). The seed/refresh above ran

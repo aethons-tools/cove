@@ -25,7 +25,7 @@ func TestClaudeCommandUsesConfiguredMCPConfig(t *testing.T) {
 func TestClaudeZeroValueDefaultsMCPConfig(t *testing.T) {
 	_, args, _ := Claude{}.Command(Episode{})
 	i := slices.Index(args, "--mcp-config")
-	if i < 0 || args[i+1] != "/dev/shm/cove-agent-mcp.json" {
+	if i < 0 || args[i+1] != "/dev/shm/jam-agent-mcp.json" {
 		t.Fatalf("zero-value Claude must use the generated per-run MCP config: %q", args)
 	}
 	if slices.Contains(args, "/etc/claude-code/mcp.json") {

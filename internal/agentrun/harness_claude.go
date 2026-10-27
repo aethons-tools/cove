@@ -22,13 +22,13 @@ import (
 // (messaging + the kit's servers) and passes as --mcp-config. tmpfs, like the
 // prompt/context cove-master is launched with; it holds no secret values —
 // kit header values are ${VAR} references Claude Code expands at start.
-const claudeMCPConfigPath = "/dev/shm/cove-agent-mcp.json"
+const claudeMCPConfigPath = "/dev/shm/jam-agent-mcp.json"
 
 // claudeSettingsPath is the per-run settings file rendered from a model-spec's
 // claude.settings (preferences only — validated Jam-side) plus the enablement
 // of its claude.plugins (claudeSettings), passed as --settings; tmpfs like the
 // MCP config.
-const claudeSettingsPath = "/dev/shm/cove-agent-settings.json"
+const claudeSettingsPath = "/dev/shm/jam-agent-settings.json"
 
 // claudeVersionTimeout bounds the `claude --version` pre-flight.
 const claudeVersionTimeout = 30 * time.Second

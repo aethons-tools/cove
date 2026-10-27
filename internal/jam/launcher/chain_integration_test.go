@@ -22,9 +22,9 @@ import (
 // parent's file to exist in its stage.
 var (
 	chainParentKit = kittreetest.Files("kit.yml", "kind: studio\nbase:\n  kit: default\n",
-		"Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\nRUN mkdir -p /opt && echo parent > /opt/parent\n")
+		"Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\nRUN mkdir -p /opt && echo parent > /opt/parent\n")
 	chainChildKit = kittreetest.Files("kit.yml", "kind: studio\nbase:\n  kit: chain-parent\n",
-		"Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\nRUN test -f /opt/parent && echo child > /opt/child\n")
+		"Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\nRUN test -f /opt/parent && echo child > /opt/child\n")
 )
 
 // hardeningMarker is a command only the sealed hardening layer runs (not

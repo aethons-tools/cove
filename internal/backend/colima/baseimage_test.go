@@ -116,19 +116,10 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 	if build == nil {
 		t.Fatalf("expected a docker build of the kit image/, calls: %+v", f.Calls)
 	}
-	// The launcher injects the blessed base as the kit Dockerfile's COVE_BASE_IMAGE
-	// build arg so a kit's own image/Dockerfile builds on the blessed base
-	// (its ARG default is only for a bare manual `docker build`).
-	if !contains(build, "--build-arg") || !contains(build, "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {
-		t.Fatalf("build must inject COVE_BASE_IMAGE build-arg: %+v", f.Calls)
-	}
-	// Standard studio build args: the jam-namespaced base alias and the target arch.
-	if !contains(build, "AT_JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) {
-		t.Fatalf("build must inject AT_JAM_STUDIO_BASE_IMAGE build-arg: %+v", f.Calls)
-	}
-	if !contains(build, "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH) {
-		t.Fatalf("build must inject AT_JAM_STUDIO_TARGET_ARCH build-arg: %+v", f.Calls)
-	}
+	// The launcher injects the blessed base as the kit Dockerfile's
+	// JAM_STUDIO_BASE_IMAGE build arg so a kit's own image/Dockerfile builds on
+	// the blessed base (its ARG default is only for a bare manual `docker build`).
+	assertJamBuildArgs(t, build, basedigest.DefaultRef())
 	// The built ID must be tagged under wantRef so `FROM ${BASE}` can resolve it.
 	tag := dockerCall(f.Calls, "tag")
 	if tag == nil || !contains(tag, builtID) || !contains(tag, wantRef) {
@@ -160,15 +151,11 @@ func TestResolveKitBaseTarStreamsAndGates(t *testing.T) {
 	if build == nil {
 		t.Fatalf("expected a streamed docker build, calls: %+v", f.Calls)
 	}
-	// The argv builds from stdin (`-`) with the three standard studio build args.
+	// The argv builds from stdin (`-`) with the two standard studio build args.
 	if !contains(build, "-") {
 		t.Fatalf("build must read the context from stdin (`-`): %+v", build)
 	}
-	if !contains(build, "COVE_BASE_IMAGE="+basedigest.DefaultRef()) ||
-		!contains(build, "AT_JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) ||
-		!contains(build, "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH) {
-		t.Fatalf("build must inject the three standard build-args: %+v", build)
-	}
+	assertJamBuildArgs(t, build, basedigest.DefaultRef())
 	// The tar must be piped on stdin (Fake records RunIO's stdin bytes).
 	buildCall := dockerCallFull(f.Calls, "build")
 	if buildCall == nil || buildCall.Stdin != tarBytes {
@@ -221,13 +208,11 @@ func TestResolveKitBaseTarOnBuildsOnParentAndTagsStage(t *testing.T) {
 		t.Fatalf("ref = %q, want the stage tag %q", ref, stageTag)
 	}
 	build := dockerCall(f.Calls, "build")
-	if build == nil || !contains(build, "-") ||
-		!contains(build, "COVE_BASE_IMAGE="+parentRef) ||
-		!contains(build, "AT_JAM_STUDIO_BASE_IMAGE="+parentRef) ||
-		!contains(build, "AT_JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH) {
+	if build == nil || !contains(build, "-") {
 		t.Fatalf("stage build must stream FROM the parent stage: %+v", build)
 	}
-	if contains(build, "COVE_BASE_IMAGE="+basedigest.DefaultRef()) {
+	assertJamBuildArgs(t, build, parentRef)
+	if contains(build, "JAM_STUDIO_BASE_IMAGE="+basedigest.DefaultRef()) {
 		t.Fatalf("a stage must not build on the blessed default: %+v", build)
 	}
 	if bc := dockerCallFull(f.Calls, "build"); bc == nil || bc.Stdin != "CTX" {
@@ -293,5 +278,30 @@ func TestHasKitBase(t *testing.T) {
 	f2 := &runner.Fake{Err: &runner.ExitError{Code: 1}}
 	if ok, err := NewWithContext(f2, "").HasKitBase("cove-kit-base:missing"); ok || err != nil {
 		t.Fatalf("absent: HasKitBase = %v, %v; want (false, nil)", ok, err)
+	}
+}
+
+// assertJamBuildArgs checks a kit/studio base build passes exactly the jam
+// build args, JAM_STUDIO_BASE_IMAGE=base and JAM_STUDIO_TARGET_ARCH, each once,
+// and no pre-rename build arg.
+func assertJamBuildArgs(t *testing.T, build []string, base string) {
+	t.Helper()
+	argv := strings.Join(build, " ")
+	for _, want := range []string{
+		"--build-arg JAM_STUDIO_BASE_IMAGE=" + base,
+		"--build-arg JAM_STUDIO_TARGET_ARCH=" + runtime.GOARCH,
+	} {
+		if !strings.Contains(argv, want) {
+			t.Fatalf("build must pass %q:\n%s", want, argv)
+		}
+	}
+	if n := strings.Count(argv, "--build-arg JAM_STUDIO_BASE_IMAGE="); n != 1 {
+		t.Fatalf("JAM_STUDIO_BASE_IMAGE passed %d times; want once:\n%s", n, argv)
+	}
+	if n := strings.Count(argv, "--build-arg"); n != 2 {
+		t.Fatalf("build passes %d build args; want exactly 2:\n%s", n, argv)
+	}
+	if strings.Contains(argv, "COVE_") || strings.Contains(argv, "AT_"+"JAM_") {
+		t.Fatalf("pre-rename build arg passed:\n%s", argv)
 	}
 }

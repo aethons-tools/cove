@@ -136,11 +136,11 @@ type KitImageBuilder interface {
 	// on stdin and preserves file modes natively (so a +x script keeps its exec
 	// bit). The gate is ON (same as ResolveKitBase) — the built base must descend
 	// from a blessed cove-base-image or this errors. The context's Dockerfile builds
-	// FROM the blessed base via the injected COVE_BASE_IMAGE build arg.
+	// FROM the blessed base via the injected JAM_STUDIO_BASE_IMAGE build arg.
 	ResolveKitBaseTar(ctx io.Reader) (resolvedBase string, err error)
 	// ResolveKitBaseTarOn builds one stage of a kit chain: like ResolveKitBaseTar,
 	// but the context builds FROM parentRef (the parent stage, injected as
-	// COVE_BASE_IMAGE / AT_JAM_STUDIO_BASE_IMAGE) instead of the blessed default.
+	// JAM_STUDIO_BASE_IMAGE) instead of the blessed default.
 	// The gate is ON and unchanged — the built stage must descend from a blessed
 	// cove-base-image (the parent does, so a child built on it does too). Only
 	// once the gate passes is the result tagged stageTag, which is returned; a

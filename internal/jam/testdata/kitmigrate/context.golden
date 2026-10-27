@@ -1,6 +1,6 @@
 == Dockerfile 0644
-ARG COVE_BASE_IMAGE
-FROM ${COVE_BASE_IMAGE}
+ARG JAM_STUDIO_BASE_IMAGE
+FROM ${JAM_STUDIO_BASE_IMAGE}
 COPY run.sh /usr/local/bin/
 
 == kit.yml 0644

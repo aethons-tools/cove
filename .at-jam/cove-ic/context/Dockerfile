@@ -3,9 +3,9 @@
 # The base image for BOTH cove's CI job containers AND the agent sandboxes: an
 # agent must be able to build/test/run anything CI does. Adds go on top of the lean base.
 # See docs/superpowers/specs/2026-07-16-shared-base-image-design.md.
-ARG AT_JAM_STUDIO_BASE_IMAGE=scratch
-FROM ${AT_JAM_STUDIO_BASE_IMAGE}
-ARG AT_JAM_STUDIO_TARGET_ARCH
+ARG JAM_STUDIO_BASE_IMAGE=scratch
+FROM ${JAM_STUDIO_BASE_IMAGE}
+ARG JAM_STUDIO_TARGET_ARCH
 # Toolchain versions — pinned for reproducibility; Renovate keeps them current.
 ARG GO_VERSION=1.27.1
 ARG HADOLINT_VERSION=v2.15.1
@@ -22,10 +22,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # hadolint (Dockerfile linter) — no apt package; fetch the release binary.
-RUN case "${AT_JAM_STUDIO_TARGET_ARCH}" in \
+RUN case "${JAM_STUDIO_TARGET_ARCH}" in \
       arm64) HADO_ARCH=arm64 ;; \
       amd64) HADO_ARCH=x86_64 ;; \
-      *) echo "unsupported AT_JAM_STUDIO_TARGET_ARCH: ${AT_JAM_STUDIO_TARGET_ARCH}" >&2; exit 1 ;; \
+      *) echo "unsupported JAM_STUDIO_TARGET_ARCH: ${JAM_STUDIO_TARGET_ARCH}" >&2; exit 1 ;; \
     esac \
  && curl -fsSL "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-Linux-${HADO_ARCH}" \
       -o /usr/local/bin/hadolint \
@@ -34,17 +34,17 @@ RUN case "${AT_JAM_STUDIO_TARGET_ARCH}" in \
 # Language toolchain: golang
 COPY image-files/. /.
 WORKDIR /install
-RUN TARGETARCH="${AT_JAM_STUDIO_TARGET_ARCH}" GO_VERSION="${GO_VERSION}" ./install-go.sh
+RUN TARGETARCH="${JAM_STUDIO_TARGET_ARCH}" GO_VERSION="${GO_VERSION}" ./install-go.sh
 WORKDIR /
 RUN rm -rf /install
 
 # Put the go toolchain on PATH via ENV, so it works for BOTH usages with no
 # duplication: a bare `docker run` / CI container reads ENV directly, and at-cove's
-# hardening layer copies the live PATH (intrinsic in COVE_SSHENV) into
+# hardening layer copies the live PATH (intrinsic in JAM_SSHENV) into
 # /etc/environment for SSH agent sessions. One statement, both contexts.
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Go dev env. COVE_SSHENV names the vars the hardening layer transfers from this
+# Go dev env. JAM_SSHENV names the vars the hardening layer transfers from this
 # image's ENV into the SSH-session environment (PATH is intrinsic, so the go bin
 # above already flows through — these are the rest of the Go toolchain env).
 # GOPROXY goes through the module proxy first: a studio's github.com git traffic
@@ -61,7 +61,7 @@ ENV GIT_AUTHOR_NAME=claude-aethon \
     GIT_AUTHOR_EMAIL=claude+brent@lcbm.life \
     GIT_COMMITTER_NAME=claude-aethon \
     GIT_COMMITTER_EMAIL=claude+brent@lcbm.life
-ENV COVE_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS:GIT_AUTHOR_NAME:GIT_AUTHOR_EMAIL:GIT_COMMITTER_NAME:GIT_COMMITTER_EMAIL"
+ENV JAM_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS:GIT_AUTHOR_NAME:GIT_AUTHOR_EMAIL:GIT_COMMITTER_NAME:GIT_COMMITTER_EMAIL"
 
 # Headless Chrome for the browser tests of the /me UI (`just test-browser`) and
 # for agents to screenshot UI changes. The official Chrome for Testing
@@ -73,10 +73,10 @@ ENV COVE_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS:GIT_AUTHOR_NAME:GIT_AUTHO
 # the list falls behind a new Chrome.
 ARG CHROME_VERSION=153.0.8010.12
 # hadolint ignore=DL3008
-RUN case "${AT_JAM_STUDIO_TARGET_ARCH}" in \
+RUN case "${JAM_STUDIO_TARGET_ARCH}" in \
       arm64) CFT_PLATFORM=linux-arm64 ;; \
       amd64) CFT_PLATFORM=linux64 ;; \
-      *) echo "unsupported AT_JAM_STUDIO_TARGET_ARCH: ${AT_JAM_STUDIO_TARGET_ARCH}" >&2; exit 1 ;; \
+      *) echo "unsupported JAM_STUDIO_TARGET_ARCH: ${JAM_STUDIO_TARGET_ARCH}" >&2; exit 1 ;; \
     esac \
  && apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

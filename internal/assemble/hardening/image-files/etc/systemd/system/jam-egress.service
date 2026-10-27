@@ -5,7 +5,7 @@
 # distro `squid.service`, ordered After this unit via a sealed drop-in (it supervises
 # squid and keeps /run/squid.pid live for per-session reconfigure). Ordering here is
 # the load-bearing security invariant; docker.service / ssh.service declare
-# Requires+After on BOTH cove-egress and squid (see their drop-ins) so they cannot
+# Requires+After on BOTH jam-egress and squid (see their drop-ins) so they cannot
 # start until the lock is fully up.
 Description=cove egress lock — nftables drop-all (raised before any network-capable service)
 DefaultDependencies=no

@@ -65,7 +65,7 @@ func TestKitGitEndToEnd(t *testing.T) {
 	const token = "s3cret-kit-token-e2e"
 	repo, first, update := gittest.Serve(t, map[string]string{
 		"web/kit.yml":       "kind: studio\nnotes:\n  - name: guide.md\n    read-when: always\n    file: docs/guide.md\n",
-		"web/Dockerfile":    "FROM ${COVE_BASE_IMAGE}\nRUN true\n",
+		"web/Dockerfile":    "FROM ${JAM_STUDIO_BASE_IMAGE}\nRUN true\n",
 		"web/docs/guide.md": "the first guide",
 	}, gittest.WithAuth("git", token))
 	store := jam.NewMemStore()

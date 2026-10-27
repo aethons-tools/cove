@@ -806,7 +806,7 @@ func (w *Workload) awaitWake(ctx context.Context, h studioagent.Handle, turn uin
 // turn — the agent crashed or errored (auth/model-not-accessible/…) — and must
 // be loud, not mistaken for a healthy wait; the session still waits, and Jam
 // ends it (an unfinished ticket is then marked blocked). The cause is in the
-// agent's own log (cove-master.log).
+// agent's own log (jam-studio-agent.log).
 func (w *Workload) logTurn(waitErr error) {
 	if waitErr != nil {
 		w.log.Warn("agentrun: turn FAILED — agent exited non-zero; waiting (cause is in the agent log)", "exit", waitErr.Error())

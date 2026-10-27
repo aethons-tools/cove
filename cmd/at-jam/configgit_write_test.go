@@ -213,7 +213,7 @@ func TestWriteConfigTreeRefusesUnsafePaths(t *testing.T) {
 // kit drops is removed by the next write.
 func TestConfigWriteKitDirRoundTrip(t *testing.T) {
 	srcURL, src := configServer(t)
-	if _, _, err := jam.PushKitFiles(src, "builder", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n",
+	if _, _, err := jam.PushKitFiles(src, "builder", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n",
 		"run.sh*", "#!/bin/sh\n", "lib/deep/blob.bin", "\xff\xfe\x00\x80")); err != nil {
 		t.Fatal(err)
 	}
@@ -422,12 +422,12 @@ func TestWriteConfigTreeRefusesSymlinkedFilesParents(t *testing.T) {
 // kit.yml rewritten, context/ gone — and apply has nothing left to do.
 func TestConfigWriteRewritesOldContextDirRepo(t *testing.T) {
 	url, st := configServer(t)
-	if _, _, err := jam.PushKitFiles(st, "app", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n", "run.sh*", "echo\n")); err != nil {
+	if _, _, err := jam.PushKitFiles(st, "app", kittreetest.Files("kit.yml", "kind: studio\n", "Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n", "run.sh*", "echo\n")); err != nil {
 		t.Fatal(err)
 	}
 	repo := gitDir(t)
 	mustWrite(t, filepath.Join(repo, "kits/app/kit.yml"), "kind: studio\nbase:\n  context-dir: context\n", 0o644)
-	mustWrite(t, filepath.Join(repo, "kits/app/context/Dockerfile"), "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n", 0o644)
+	mustWrite(t, filepath.Join(repo, "kits/app/context/Dockerfile"), "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n", 0o644)
 	mustWrite(t, filepath.Join(repo, "kits/app/context/run.sh"), "echo\n", 0o755)
 	code, out, errs := runJam("config", "apply", "--dir", repo, "--admin-url", url)
 	if code == 0 || !strings.Contains(out+errs, "base.context-dir is no longer supported; put a Dockerfile next to kit.yml; a config repo written by an older Jam: run at-jam config write <repo> and commit") {

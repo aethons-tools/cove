@@ -22,8 +22,8 @@ func TestInstallSSHUserCAExecsHelperWithStdin(t *testing.T) {
 	call := f.Calls[len(f.Calls)-1]
 	got := strings.Join(call.Args, " ")
 	if call.Name != "docker" || !strings.Contains(got, "--context colima") ||
-		!strings.HasSuffix(got, "exec -i -u root sbx-1 /usr/local/lib/cove/install-ssh-ca.sh") {
-		t.Fatalf("exec = %s %s; want docker --context colima exec -i -u root sbx-1 /usr/local/lib/cove/install-ssh-ca.sh", call.Name, got)
+		!strings.HasSuffix(got, "exec -i -u root sbx-1 /usr/local/lib/jam/install-ssh-ca.sh") {
+		t.Fatalf("exec = %s %s; want docker --context colima exec -i -u root sbx-1 /usr/local/lib/jam/install-ssh-ca.sh", call.Name, got)
 	}
 	if strings.Contains(got, "AAAAC3") {
 		t.Fatalf("key leaked onto argv: %s", got)

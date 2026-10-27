@@ -1309,7 +1309,7 @@ func TestKitPushRefusesTheOldDirField(t *testing.T) {
 	if err := os.MkdirAll(ctx, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(ctx, "Dockerfile"), []byte("FROM ${COVE_BASE_IMAGE}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(ctx, "Dockerfile"), []byte("FROM ${JAM_STUDIO_BASE_IMAGE}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	kitFile := filepath.Join(dir, "kit.yml")

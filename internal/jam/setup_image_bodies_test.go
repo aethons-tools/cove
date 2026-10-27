@@ -11,7 +11,7 @@ import (
 func seedFacts() ImageFacts {
 	text := func(p, s string) SeedFile { return SeedFile{Path: p, Size: int64(len(s)), Text: s, HasText: true} }
 	return ImageFacts{ID: "sha256:0123456789abcdef", SeedNote: "seed listing truncated at 200 entries",
-		Env:    []string{"PATH=/usr/bin", "DB_PASSWORD=hunter2", "COVE_SSHENV=GOPATH:GOPROXY"},
+		Env:    []string{"PATH=/usr/bin", "DB_PASSWORD=hunter2", "JAM_SSHENV=GOPATH:GOPROXY"},
 		Labels: map[string]string{"org.opencontainers.image.source": "https://u:p@github.com/x/y", "evil": "a\nb"},
 		Seed: []SeedFile{
 			{Path: ".claude.json", Size: 210, Text: `{"oauthAccount":"secret"}`, HasText: true},
@@ -45,7 +45,7 @@ func TestSeedBody(t *testing.T) {
 
 func TestImageEnvAndLabelBodies(t *testing.T) {
 	got := imageEnvBody(seedFacts())
-	if !strings.Contains(got, "  PATH=/usr/bin\n") || !strings.Contains(got, "  DB_PASSWORD=«masked»\n") || !strings.Contains(got, "transferred into sessions (COVE_SSHENV): GOPATH, GOPROXY\n") {
+	if !strings.Contains(got, "  PATH=/usr/bin\n") || !strings.Contains(got, "  DB_PASSWORD=«masked»\n") || !strings.Contains(got, "transferred into sessions (JAM_SSHENV): GOPATH, GOPROXY\n") {
 		t.Errorf("env:\n%s", got)
 	}
 	got = imageLabelsBody(seedFacts())

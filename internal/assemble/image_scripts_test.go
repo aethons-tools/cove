@@ -18,20 +18,20 @@ func requireBash(t *testing.T) {
 
 // apply-sshenv.sh bridges the image's Docker ENV into /etc/environment (pam_env →
 // SSH sessions): PATH is intrinsic (with ~/.local/bin prepended); the vars named
-// in COVE_SSHENV transfer their live values; then the sealed runtime env
+// in JAM_SSHENV transfer their live values; then the sealed runtime env
 // (CLAUDE_CONFIG_DIR + egress proxy) is written last so it always wins.
 func TestApplySshEnv(t *testing.T) {
 	requireBash(t)
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, "environment")
 
-	cmd := exec.Command("bash", "hardening/image-files/usr/local/lib/cove/apply-sshenv.sh")
+	cmd := exec.Command("bash", "hardening/image-files/usr/local/lib/jam/apply-sshenv.sh")
 	cmd.Env = []string{
 		"PATH=/usr/local/go/bin:/usr/bin:/bin", // the image's live PATH (go already on it)
-		"COVE_SSHENV=GOROOT:GOPATH",
+		"JAM_SSHENV=GOROOT:GOPATH",
 		"GOROOT=/usr/local/go",
 		"GOPATH=/home/agent/go",
-		"FOO=nope", // set but NOT named in COVE_SSHENV → must not transfer
+		"FOO=nope", // set but NOT named in JAM_SSHENV → must not transfer
 		"JAM_ENV_FILE=" + envFile,
 	}
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -43,13 +43,13 @@ func TestApplySshEnv(t *testing.T) {
 	if !strings.Contains(got, "PATH=/home/agent/.local/bin:/usr/local/go/bin:/usr/bin:/bin\n") {
 		t.Fatalf("PATH must prepend ~/.local/bin to the live PATH; got:\n%s", got)
 	}
-	// COVE_SSHENV-named vars transfer with their live values.
+	// JAM_SSHENV-named vars transfer with their live values.
 	if !strings.Contains(got, "GOROOT=/usr/local/go\n") || !strings.Contains(got, "GOPATH=/home/agent/go\n") {
-		t.Fatalf("COVE_SSHENV vars must transfer; got:\n%s", got)
+		t.Fatalf("JAM_SSHENV vars must transfer; got:\n%s", got)
 	}
-	// A var not named in COVE_SSHENV must NOT leak in.
+	// A var not named in JAM_SSHENV must NOT leak in.
 	if strings.Contains(got, "FOO=") {
-		t.Fatalf("only COVE_SSHENV-named vars transfer; got:\n%s", got)
+		t.Fatalf("only JAM_SSHENV-named vars transfer; got:\n%s", got)
 	}
 	// Sealed runtime env is written (last, so it wins) and is never image-settable.
 	for _, want := range []string{"CLAUDE_CONFIG_DIR=/agent-data\n", "http_proxy=http://127.0.0.1:3128\n", "NO_PROXY=localhost,127.0.0.1,::1,.internal\n"} {
@@ -114,7 +114,7 @@ func (e roleEgressEnv) run(t *testing.T, stdin string) (int, string) {
 // runArgs is run with argv for the helper (e.g. --kit-default).
 func (e roleEgressEnv) runArgs(t *testing.T, stdin string, args ...string) (int, string) {
 	t.Helper()
-	cmd := exec.Command("bash", append([]string{"hardening/image-files/usr/local/lib/cove/apply-role-egress.sh"}, args...)...)
+	cmd := exec.Command("bash", append([]string{"hardening/image-files/usr/local/lib/jam/apply-role-egress.sh"}, args...)...)
 	cmd.Env = []string{
 		"PATH=" + filepath.Join(e.dir, "bin") + ":/usr/bin:/bin",
 		"JAM_KIT_DOMAINS_FILE=" + e.kit,
@@ -382,7 +382,7 @@ func TestApplyRoleEgress_KitDefaultNonRootRefused(t *testing.T) {
 func seedAgentData(t *testing.T, seed, dest string) string {
 	t.Helper()
 	requireBash(t)
-	out, err := exec.Command("bash", "hardening/image-files/usr/local/lib/cove/seed-agent-data.sh", seed, dest).CombinedOutput()
+	out, err := exec.Command("bash", "hardening/image-files/usr/local/lib/jam/seed-agent-data.sh", seed, dest).CombinedOutput()
 	if err != nil {
 		t.Fatalf("seed-agent-data.sh failed: %v\n%s", err, out)
 	}

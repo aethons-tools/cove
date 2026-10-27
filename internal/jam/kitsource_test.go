@@ -362,7 +362,7 @@ func TestKitLocksPruned(t *testing.T) {
 func TestImportRootKitDirIsDeterministic(t *testing.T) {
 	url, _, _ := gittest.Serve(t, map[string]string{
 		"kit.yml":    "kind: studio\nname: rootkit\n",
-		"Dockerfile": "FROM ${COVE_BASE_IMAGE}\nRUN true\n",
+		"Dockerfile": "FROM ${JAM_STUDIO_BASE_IMAGE}\nRUN true\n",
 	})
 	st := NewMemStore()
 	f := &gitsource.Fetcher{Timeout: 30 * time.Second}

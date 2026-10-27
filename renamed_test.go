@@ -24,6 +24,8 @@ var renamedGroups = []renamedGroup{
 		`\bAT_JAM_(ADMIN|IDENTITY|RUNTIME|LAUNCH|BASE|CONNECTOR|SHUTDOWN|SIGNAL|TOKEN|TEST|X)`,
 		`\bCOVE_(DOCKER|SHADOW_DIRS|PLUGIN_|RUN_|KIT_DOMAINS_FILE|SESSION_DOMAINS_FILE|EGRESS_CEILING_FILE|ENV_FILE|SSH_USER_CA_FILE|BROWSER|BOARD_SCREENSHOT|RUNNER_TEST_HELPER)`,
 		`harbor\.attach\.v1`, `x-harbor-launch-secret`}},
+	{"in-image paths and build args", []string{`lib/cove\b`, `cove-egress`, `sshd_config\.d/cove\.conf`,
+		`cove-git-credential`, `/dev/shm/cove-`, `cove-master\.log`, `\bAT_JAM_`, `\bCOVE_BASE_IMAGE\b`, `\bCOVE_SSHENV\b`}},
 }
 
 // renamedAllow is where an old name may survive: the design history, the

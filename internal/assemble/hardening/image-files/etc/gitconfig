@@ -17,7 +17,7 @@
 # GITHUB_TOKEN as a secret in config.yml to enable private-repo access.
 [credential "https://github.com"]
 	helper = ""
-	helper = /usr/local/bin/cove-git-credential.sh
+	helper = /usr/local/bin/jam-git-credential.sh
 
 # GitLab source-control kits need the same insteadOf rewrites and credential-helper
 # scoping for their host (gitlab.com or a self-hosted host), which is not fixed like

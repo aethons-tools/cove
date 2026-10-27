@@ -21,7 +21,7 @@ func TestKitPushDirectory(t *testing.T) {
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	dir := filepath.Join(t.TempDir(), "web")
-	for p, body := range map[string]string{"kit.yml": "kind: studio\n", "Dockerfile": "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n", "run.sh": "echo\n"} {
+	for p, body := range map[string]string{"kit.yml": "kind: studio\n", "Dockerfile": "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n", "run.sh": "echo\n"} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}

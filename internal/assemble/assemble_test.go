@@ -161,7 +161,7 @@ func TestAssembleGeneratesGitLabGitConfig(t *testing.T) {
 		"insteadOf = git@gitlab.example.com:",
 		"insteadOf = ssh://git@gitlab.example.com/",
 		`[credential "https://gitlab.example.com"]`,
-		"helper = /usr/local/bin/cove-git-credential.sh",
+		"helper = /usr/local/bin/jam-git-credential.sh",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated GitLab gitconfig missing %q; got:\n%s", want, got)
@@ -359,8 +359,8 @@ func TestAssembleContextStagesOnlyStudioAgent(t *testing.T) {
 		"PermitRootLogin no",
 		"COPY covemaster/ /tmp/covemaster/",
 		"COPY image-files/. /.",
-		"systemctl enable cove-egress.service squid.service",
-		"/usr/local/lib/cove/apply-sshenv.sh",
+		"systemctl enable jam-egress.service squid.service",
+		"/usr/local/lib/jam/apply-sshenv.sh",
 		"RUN rm -rf /.cove",
 		`ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]`,
 	} {

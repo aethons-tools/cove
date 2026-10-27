@@ -310,7 +310,7 @@ func TestOrderKitEntriesAcrossGroups(t *testing.T) {
 func TestLoadKitsHintsConfigWriteForOldContextField(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"kits/app/kit.yml":            "kind: studio\nbase:\n  context-dir: context\n",
-		"kits/app/context/Dockerfile": "ARG COVE_BASE_IMAGE\nFROM ${COVE_BASE_IMAGE}\n",
+		"kits/app/context/Dockerfile": "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n",
 		"kits/files/kit.yml":          "kind: studio\nbase:\n  context-files: {dockerfile: x}\n",
 		"kits/bad/kit.yml":            "kind: studio\nworkers: {}\n",
 	})

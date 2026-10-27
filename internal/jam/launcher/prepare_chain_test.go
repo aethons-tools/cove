@@ -23,7 +23,7 @@ func ctxLink(t *testing.T, name string, version int, parent, marker string) jam.
 	if parent != "" {
 		yml += "base: {kit: " + parent + "}\n"
 	}
-	return treeLink(t, name, version, "kit.yml", yml, "Dockerfile", "FROM ${COVE_BASE_IMAGE}\nRUN echo "+marker+"\n")
+	return treeLink(t, name, version, "kit.yml", yml, "Dockerfile", "FROM ${JAM_STUDIO_BASE_IMAGE}\nRUN echo "+marker+"\n")
 }
 
 // chainLink is one resolved chain link for kit name@vN with the given own

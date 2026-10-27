@@ -53,7 +53,7 @@ func (s execSpawner) Spawn(ctx context.Context, bin string, args []string, dir s
 	if stdout != nil {
 		// Not an *os.File, so exec copies through a pipe and Wait returns only
 		// after the copy drains — every line reaches stdout before Wait returns.
-		// Deliberately NOT also os.Stdout: that is cove-master.log, which Jam
+		// Deliberately NOT also os.Stdout: that is jam-studio-agent.log, which Jam
 		// tails into its own log; raw agent output must stay out of it.
 		cmd.Stdout = stdout
 	}

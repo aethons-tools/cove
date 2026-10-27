@@ -29,11 +29,11 @@ RUN rm -rf /install
 
 # Put the go toolchain on PATH via ENV, so it works for BOTH usages with no
 # duplication: a bare `docker run` / CI container reads ENV directly, and at-cove's
-# hardening layer copies the live PATH (intrinsic in COVE_SSHENV) into
+# hardening layer copies the live PATH (intrinsic in JAM_SSHENV) into
 # /etc/environment for SSH agent sessions. One statement, both contexts.
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Go dev env. COVE_SSHENV names the vars the hardening layer transfers from this
+# Go dev env. JAM_SSHENV names the vars the hardening layer transfers from this
 # image's ENV into the SSH-session environment (PATH is intrinsic, so the go bin
 # above already flows through — these are the rest of the Go toolchain env).
 ENV GOROOT=/usr/local/go \
@@ -41,7 +41,7 @@ ENV GOROOT=/usr/local/go \
     GOPROXY=direct \
     GOSUMDB=off \
     GOFLAGS=-mod=mod
-ENV COVE_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS"
+ENV JAM_SSHENV="GOROOT:GOPATH:GOPROXY:GOSUMDB:GOFLAGS"
 
 # Go agent skills (samber/cc-skills-golang) — clone the pinned release and seed
 # its skill files into the first-boot skills set. Scoped to cove-image (this
