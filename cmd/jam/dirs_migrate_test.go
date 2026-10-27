@@ -37,19 +37,17 @@ func mustRead(t *testing.T, path string, perm os.FileMode) string {
 	return string(b)
 }
 
-// One jam run copies the pre-rename config, state and launcher directories to
+// One jam run copies the pre-rename config and state directories to
 // their new homes (modes kept, old ones left, contents never logged); a second
 // run copies nothing.
-func TestMigrateDirsCopiesConfigStateAndLauncher(t *testing.T) {
+func TestMigrateDirsCopiesConfigAndState(t *testing.T) {
 	cfg, state := t.TempDir(), t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	t.Setenv("XDG_STATE_HOME", state)
-	oldCfg, oldLaunch, oldState := filepath.Join(cfg, legacynames.ConfigDir), filepath.Join(cfg, legacynames.LauncherDir), filepath.Join(state, legacynames.StateDir)
+	oldCfg, oldState := filepath.Join(cfg, legacynames.ConfigDir), filepath.Join(state, legacynames.StateDir)
 	writeFile(t, filepath.Join(oldCfg, "settings.yml"), "token: SECRET-VALUE\n", 0o600)
 	writeFile(t, filepath.Join(oldCfg, "ssh", "s1-cert.pub"), "cert", 0o600)
-	writeFile(t, filepath.Join(oldLaunch, "id_ed25519"), "PRIVATE-KEY", 0o600)
-	writeFile(t, filepath.Join(oldLaunch, "id_ed25519.pub"), "ssh-ed25519 AAAA", 0o644)
-	writeFile(t, filepath.Join(oldLaunch, "known_hosts.d", "x"), "kh", 0o600)
+	writeFile(t, filepath.Join(oldCfg, "known_hosts.d", "x"), "kh", 0o600)
 	writeFile(t, filepath.Join(oldState, "relay.cursor"), "42", 0o600)
 
 	var log bytes.Buffer
@@ -60,16 +58,14 @@ func TestMigrateDirsCopiesConfigStateAndLauncher(t *testing.T) {
 		t.Fatalf("settings = %q", got)
 	}
 	mustRead(t, filepath.Join(jam, "ssh", "s1-cert.pub"), 0o600)
-	mustRead(t, filepath.Join(jam, "id_ed25519"), 0o600)
-	mustRead(t, filepath.Join(jam, "id_ed25519.pub"), 0o644)
 	mustRead(t, filepath.Join(jam, "known_hosts.d", "x"), 0o600)
 	mustRead(t, filepath.Join(state, "jam", "relay.cursor"), 0o600)
-	for _, old := range []string{oldCfg, oldLaunch, oldState} {
+	for _, old := range []string{oldCfg, oldState} {
 		if _, err := os.Stat(old); err != nil {
 			t.Fatalf("old %s must be left in place: %v", old, err)
 		}
 	}
-	if s := log.String(); !strings.Contains(s, "copied a pre-rename directory") || strings.Contains(s, "SECRET-VALUE") || strings.Contains(s, "PRIVATE-KEY") {
+	if s := log.String(); !strings.Contains(s, "copied a pre-rename directory") || strings.Contains(s, "SECRET-VALUE") {
 		t.Fatalf("log = %q", s)
 	}
 	for _, d := range []string{jam, filepath.Join(jam, "ssh"), filepath.Join(jam, "known_hosts.d"), filepath.Join(state, "jam")} {
@@ -86,39 +82,15 @@ func TestMigrateDirsCopiesConfigStateAndLauncher(t *testing.T) {
 	}
 }
 
-// A Jam host with only the launcher directory gets its key under ~/.config/jam
-// (before serve's keys.EnsureFile could mint a fresh one); an existing new key
-// is never overwritten.
-func TestMigrateDirsLauncherOnlyAndNewWins(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	writeFile(t, filepath.Join(cfg, legacynames.LauncherDir, "id_ed25519"), "OLD", 0o600)
-	migrateDirs(&bytes.Buffer{})
-	if got := mustRead(t, filepath.Join(cfg, "jam", "id_ed25519"), 0o600); got != "OLD" {
-		t.Fatalf("key = %q", got)
-	}
-	writeFile(t, filepath.Join(cfg, "jam", "id_ed25519"), "NEW", 0o600)
-	migrateDirs(&bytes.Buffer{})
-	if got := mustRead(t, filepath.Join(cfg, "jam", "id_ed25519"), 0o600); got != "NEW" {
-		t.Fatalf("an existing new key was overwritten: %q", got)
-	}
-}
-
 // A new file already in place before the first copy (say a credentials.yml
 // put there by hand) is kept; the copy only fills in what is missing.
 func TestMigrateDirsNeverOverwritesANewFile(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	writeFile(t, filepath.Join(cfg, legacynames.LauncherDir, "id_ed25519"), "OLD", 0o600)
 	writeFile(t, filepath.Join(cfg, legacynames.ConfigDir, "settings.yml"), "old: 1\n", 0o600)
-	writeFile(t, filepath.Join(cfg, "jam", "id_ed25519"), "NEW", 0o600)
 	writeFile(t, filepath.Join(cfg, "jam", "settings.yml"), "new: 1\n", 0o600)
 	migrateDirs(&bytes.Buffer{})
-	if got := mustRead(t, filepath.Join(cfg, "jam", "id_ed25519"), 0o600); got != "NEW" {
-		t.Fatalf("key = %q", got)
-	}
 	if got := mustRead(t, filepath.Join(cfg, "jam", "settings.yml"), 0o600); got != "new: 1\n" {
 		t.Fatalf("settings = %q", got)
 	}

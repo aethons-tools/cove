@@ -30,9 +30,3 @@ func TestFindKitNameAndScannedFiles(t *testing.T) {
 		}
 	}
 }
-
-func TestContainer(t *testing.T) {
-	if got := Container("ses_1/x"); got != "atcove-cove-ses_1-x" {
-		t.Fatalf("Container = %q", got)
-	}
-}

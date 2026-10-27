@@ -52,17 +52,6 @@ type DispatchOps interface {
 	RemoveContainer(name string) error // docker rm -f; no image/volume removal
 	Pause(name string) error           // docker pause; freeze an idle container (cgroup freezer)
 	Unpause(name string) error         // docker unpause; thaw it
-	// FindContainers lists every container, running or not, matching one
-	// docker ps filter ("label=<key>", "name=<substring>"): name → its image
-	// and mounted volumes. The jam-rename migration finds pre-rename studios
-	// with it.
-	FindContainers(filter string) (map[string]ContainerInfo, error)
-}
-
-// ContainerInfo is what FindContainers reports of one container.
-type ContainerInfo struct {
-	Image  string   // the image it was run from
-	Mounts []string // the volumes (or bind sources) it mounts
 }
 
 // ContainerLister lists studio containers by label (docker ps, so paused ones
@@ -94,14 +83,6 @@ type VolumeOps interface {
 	// ListVolumes returns the volumes carrying label key, name → its value,
 	// narrowed to those also carrying every match label ("key=value").
 	ListVolumes(key string, match ...string) (map[string]string, error)
-	// VolumeExists reports whether the named volume exists.
-	VolumeExists(name string) (bool, error)
-	// CopyVolume copies every file of volume from into volume to (both must
-	// exist), ownership and modes kept, and verifies the copy, with a
-	// throwaway no-network root container of image, which must already be
-	// on the host (never pulled). The jam-rename migration's copy
-	// (docs/usage/jam/renamed-from-at.md).
-	CopyVolume(image, from, to string) error
 }
 
 // RoleEgress replaces a running container's active egress policy list with a

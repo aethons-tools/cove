@@ -35,8 +35,7 @@ func validateApp(app string) error {
 }
 
 // configDir is jam's host-side config directory: $XDG_CONFIG_HOME/jam, else
-// ~/.config/jam. It also holds the launcher's default SSH identity and
-// known_hosts.d (validateLauncher).
+// ~/.config/jam.
 func configDir() string { return filepath.Join(xdgConfigHome(), "jam") }
 
 // xdgConfigHome is $XDG_CONFIG_HOME, else ~/.config.
@@ -66,24 +65,20 @@ func xdgStateHome() string {
 // run removes.
 const migrateTempPrefix = ".jam-migrate-"
 
-// dirMove is one pre-rename directory copied to its new home: every entry of
-// from when entries is nil, else only the listed ones. marker, a file in to
-// written after everything else, says the copy is complete.
+// dirMove is one pre-rename directory copied to its new home, every entry of
+// from. marker, a file in to written after everything else, says the copy is
+// complete.
 type dirMove struct {
 	from, to string
-	entries  []string
 	marker   string
 }
 
 // renamedDirs are the jam rename's directory moves
-// (docs/usage/jam/renamed-from-at.md). The CLI config and the launcher's
-// identity both land in configDir.
+// (docs/usage/jam/renamed-from-at.md): the CLI config and the state dir.
 func renamedDirs() []dirMove {
 	cfg := xdgConfigHome()
 	moves := []dirMove{
 		{from: filepath.Join(cfg, legacynames.ConfigDir), to: configDir(), marker: ".jam-migrated-config"},
-		{from: filepath.Join(cfg, legacynames.LauncherDir), to: configDir(), marker: ".jam-migrated-launcher",
-			entries: []string{"id_ed25519", "id_ed25519.pub", "known_hosts.d"}},
 	}
 	if s := xdgStateHome(); s != "" {
 		moves = append(moves, dirMove{from: filepath.Join(s, legacynames.StateDir), to: filepath.Join(s, "jam"), marker: ".jam-migrated-state"})
@@ -92,8 +87,7 @@ func renamedDirs() []dirMove {
 }
 
 // migrateDirs carries the pre-rename directories across once, at every jam
-// invocation before any command runs (so serve finds the launcher key before
-// keys.EnsureFile could mint a fresh one). It copies each file missing from
+// invocation before any command runs. It copies each file missing from
 // the new directory (modes kept, so keys and tokens stay 0600; a file already
 // there is never overwritten), each through a temp file renamed into place,
 // then writes the move's marker last. A move whose marker exists is done; one
@@ -140,19 +134,13 @@ func (m dirMove) copy() (int, error) {
 	if err := mkdirTarget(m.to, fi.Mode().Perm()|0o700); err != nil {
 		return 0, err
 	}
-	entries := m.entries
-	if entries == nil {
-		des, err := os.ReadDir(m.from)
-		if err != nil {
-			return 0, err
-		}
-		for _, de := range des {
-			entries = append(entries, de.Name())
-		}
+	des, err := os.ReadDir(m.from)
+	if err != nil {
+		return 0, err
 	}
 	n := 0
-	for _, e := range entries {
-		c, err := copyEntry(filepath.Join(m.from, e), filepath.Join(m.to, e))
+	for _, de := range des {
+		c, err := copyEntry(filepath.Join(m.from, de.Name()), filepath.Join(m.to, de.Name()))
 		n += c
 		if err != nil {
 			return n, err

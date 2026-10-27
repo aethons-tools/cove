@@ -48,10 +48,6 @@ func NewWithContext(r runner.Runner, context string) *Colima {
 	return &Colima{r: r, context: context}
 }
 
-// Context is the docker context every docker call is pinned to (the
-// configured one, else colima's default).
-func (c *Colima) Context() string { return c.contextName() }
-
 // contextName is the context every docker call is pinned to.
 func (c *Colima) contextName() string {
 	if c.context == "" {

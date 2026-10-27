@@ -8,25 +8,13 @@ import (
 	"path"
 	"regexp"
 	"strings"
-
-	"github.com/aethons-tools/cove/internal/naming"
 )
 
 const (
-	// ContainerPrefix starts a pre-rename studio container's name: atcove-cove-<id>.
-	ContainerPrefix = "atcove-cove-"
-	// Label is the docker label on every pre-rename studio container.
-	Label = "harbor.cove"
-	// StateLabel is a pre-rename state volume's owner label (value: actor id).
-	StateLabel = "harbor.cove.state"
-	// JamLabel is a pre-rename state volume's Jam label (value: the Jam id).
-	JamLabel = "harbor.cove.jam"
 	// ConfigDir is the pre-rename CLI config directory under $XDG_CONFIG_HOME.
 	ConfigDir = "at-jam"
 	// StateDir is the pre-rename state directory under $XDG_STATE_HOME.
 	StateDir = "at-jam"
-	// LauncherDir held the launcher's id_ed25519 and known_hosts.d.
-	LauncherDir = "at-cove"
 	// SSHBlockBegin and SSHBlockEnd prefix a pre-rename ~/.ssh/config block's markers.
 	SSHBlockBegin = "# >>> at-jam "
 	SSHBlockEnd   = "# <<< at-jam "
@@ -55,17 +43,6 @@ var KitRenames = []KitRename{
 
 var kitNameRe = regexp.MustCompile(`\b(AT_JAM_STUDIO_BASE_IMAGE|AT_JAM_STUDIO_TARGET_ARCH|COVE_BASE_IMAGE|COVE_SSHENV)\b|` +
 	regexp.QuoteMeta(BaseImageRepo))
-
-// Container is actorID's pre-rename container name.
-func Container(actorID string) string { return ContainerPrefix + naming.SafeID(actorID) }
-
-// ManagerContainer is actorID's pre-rename container name on remote Studio
-// Manager manager, as a release with per-manager names (Studio Manager plan 4)
-// spelled it: atcove.<manager>.cove-<id>. Earlier releases used Container's
-// name on every manager.
-func ManagerContainer(manager, actorID string) string {
-	return "atcove." + manager + ".cove-" + naming.SafeID(actorID)
-}
 
 // NewKitName is old's new name (old itself when it is not a KitRenames name).
 func NewKitName(old string) string {

@@ -71,10 +71,7 @@ type Config struct {
 	// Jam sharing a docker host; default RuntimeAddr (the address coves dial
 	// this Jam at — two Jams can't share it).
 	JamID string
-	// DockerContext is the docker context Ops is pinned to ("" = docker's
-	// default), named in operator-facing commands and DockerContext.
-	DockerContext string
-	Log           *slog.Logger // nil → discard
+	Log   *slog.Logger // nil → discard
 	// SSHUserCA is Jam's SSH user-CA public key (one authorized_keys line),
 	// installed in every raised studio so its sshd accepts the short-lived
 	// certs Jam issues for human collaborators. Empty = SSH collaboration off. The initial value; SetSSHUserCA changes it.
@@ -113,20 +110,14 @@ type Launcher struct {
 	inflight  map[string]*sync.Mutex // per-ref build locks (de-dupe concurrent PrepareKit)
 	asm       string                 // assembly fingerprint, part of every image tag
 	sshCAWarn sync.Once              // warn once when the backend can't install the SSH CA
-	// copyImages are the images of pre-rename studios the jam-rename
-	// migration retired (guarded by mu): on the host, so a volume copy can
-	// run on one (rename_migrate.go).
-	copyImages []string
-	caMu       sync.Mutex // guards ca/caSet
-	ca         []byte     // SetSSHUserCA value, once caSet
-	caSet      bool
+	caMu      sync.Mutex             // guards ca/caSet
+	ca        []byte                 // SetSSHUserCA value, once caSet
+	caSet     bool
 }
 
 var (
 	_ jam.Launcher    = (*Launcher)(nil)
 	_ jam.StateKeeper = (*Launcher)(nil)
-	// the jam-rename studio migration (rename_migrate.go)
-	_ jam.StudioRenamer = (*Launcher)(nil)
 )
 
 func New(cfg Config) *Launcher {

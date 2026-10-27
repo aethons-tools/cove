@@ -94,11 +94,6 @@ func (f *fakeBackend) CreateVolume(string, ...string) error                     
 func (f *fakeBackend) RemoveVolumes(...string) error                            { return nil }
 func (f *fakeBackend) ListVolumes(string, ...string) (map[string]string, error) { return nil, nil }
 func (f *fakeBackend) GetStatus(string) (backend.State, error)                  { return backend.StateRunning, nil }
-func (f *fakeBackend) VolumeExists(string) (bool, error)                        { return false, nil }
-func (f *fakeBackend) CopyVolume(string, string, string) error                  { return nil }
-func (f *fakeBackend) FindContainers(string) (map[string]backend.ContainerInfo, error) {
-	return nil, nil
-}
 
 func (f *fakeBackend) ListContainers(key string, match ...string) (map[string]string, error) {
 	f.mu.Lock()

@@ -349,14 +349,3 @@ func TestGetStatus(t *testing.T) {
 		}
 	}
 }
-
-// Context names the docker context calls are pinned to: the configured one,
-// else colima's default.
-func TestContextIsThePinnedOne(t *testing.T) {
-	if got := NewWithContext(nil, "").Context(); got != dockerContext {
-		t.Fatalf("default context = %q, want %q", got, dockerContext)
-	}
-	if got := NewWithContext(nil, "colima-jam").Context(); got != "colima-jam" {
-		t.Fatalf("context = %q", got)
-	}
-}
