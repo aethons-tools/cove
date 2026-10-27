@@ -5,6 +5,7 @@ import { Home } from "./routes/Home";
 import { Conversation } from "./routes/Conversation";
 import { NewMessage } from "./compose/NewMessage";
 import { BoardPage } from "./boards/BoardPage";
+import { NotFound } from "./routes/NotFound";
 import { APP } from "./paths";
 
 // routes are the app's client routes under /app/user/ (webapp serves
@@ -18,6 +19,7 @@ export function routes(boot: Bootstrap): RouteObject[] {
       { path: "c/:channel", element: <Conversation /> },
       { path: "new", element: <NewMessage /> },
       { path: "boards/:id", element: <BoardPage /> },
+      { path: "*", element: <NotFound /> },
     ],
   }];
 }

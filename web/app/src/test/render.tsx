@@ -15,12 +15,12 @@ export const boot: Bootstrap = {
 
 export function renderApp(b: Bootstrap, path = "/app/user/", client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   const router = createMemoryRouter(routes(b), { initialEntries: [path] });
-  return render(
+  return Object.assign(render(
     <MantineProvider theme={theme} env="test">
       <Notifications />
       <QueryClientProvider client={client}>
         <RouterProvider router={router} />
       </QueryClientProvider>
     </MantineProvider>,
-  );
+  ), { router });
 }

@@ -2886,11 +2886,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Warn("DEV IDENTITY ACTIVE: loopback browser requests act as a user with no login; never use in production",
 				"user", d.User, "legacy_project", d.DeprecatedProject, "legacy_human", d.DeprecatedHuman)
 		}
-		// The user area: the inbox and the send endpoint (POST /app/user/send),
-		// the human analog of the agent send tool. It writes to the same
-		// intercom Log the agent send + relay ingress use, so a reply wakes a
-		// waiting studio; the inbox reads the same channel log, and the legacy
-		// log as History.
+		// The user area: the Jam app and its API, and the send endpoint (POST
+		// /app/user/send), the human analog of the agent send tool. Sends go to
+		// the same intercom Log the agent send + relay ingress use, so a reply
+		// wakes a waiting studio; the app reads the same channel log, and the
+		// legacy log as History.
 		userMux := http.NewServeMux()
 		// The Jam pane's one-time frame tickets (docs/usage/jam/previews.md
 		// "Framing"): the previews' login trades them for frame sessions and

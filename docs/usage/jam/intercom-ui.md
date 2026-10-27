@@ -28,7 +28,8 @@ tested: [web-app.md](../../web-app.md).
 
 Old links still work: the old Inbox's `/app/user/?c=<channel>` (with `&board=`
 or `&tab=`) redirects to the new form, and `/app/next/…` (the app's preview
-address) redirects to `/app/user/…`.
+address) redirects to `/app/user/…`. Any other path says "Nothing here." with a
+link back.
 
 ## What it shows
 

@@ -151,6 +151,7 @@ func TestAPISessionActions(t *testing.T) {
 		{personal, "explode", false, 404, `"code":"not_found"`},
 		{personal, "release", false, 204, ""},
 		{standing, "upgrade", true, 204, ""},
+		{standing, "restart", true, 204, ""},
 	} {
 		rec := sessAPI(t, e, p, "POST", tc.inst.ActorID+"/"+tc.action, "{}", tc.admin)
 		if rec.Code != tc.code || !strings.Contains(rec.Body.String(), tc.want) {
@@ -160,7 +161,7 @@ func TestAPISessionActions(t *testing.T) {
 			checkJSONHeaders(t, rec)
 		}
 	}
-	if len(ops.torn) != 1 || ops.torn[0] != personal.ActorID || len(ops.upgraded) != 1 {
+	if len(ops.torn) != 2 || ops.torn[0] != personal.ActorID || ops.torn[1] != standing.ActorID || len(ops.upgraded) != 1 {
 		t.Errorf("ops: torn %v, upgraded %v", ops.torn, ops.upgraded)
 	}
 	// A command that fails upstream says so; a form post is refused.

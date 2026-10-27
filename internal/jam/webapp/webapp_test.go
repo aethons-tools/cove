@@ -10,7 +10,7 @@ import (
 	"testing/fstest"
 )
 
-const indexHTML = `<!doctype html><html><head><!--jam:bootstrap--><script type="module" src="/app/next/assets/index-abc.js"></script></head><body><div id="root"></div></body></html>`
+const indexHTML = `<!doctype html><html><head><!--jam:bootstrap--><script type="module" src="/app/user/assets/index-abc.js"></script></head><body><div id="root"></div></body></html>`
 
 func bundle() fstest.MapFS {
 	return fstest.MapFS{
@@ -29,12 +29,12 @@ func serve(t *testing.T, c Config, method, path string) *httptest.ResponseRecord
 }
 
 func cfg() Config {
-	return Config{Prefix: "/app/next/", FS: bundle(), Name: "the Jam app",
+	return Config{Prefix: "/app/user/", FS: bundle(), Name: "the Jam app",
 		Bootstrap: func(*http.Request) (any, error) { return map[string]string{"brand": "Acme Jam"}, nil }}
 }
 
 func TestIndexCarriesBootstrapAndCSP(t *testing.T) {
-	for _, path := range []string{"/app/next/", "/app/next/c/chn_x", "/app/next/session/ses_1/thinking"} {
+	for _, path := range []string{"/app/user/", "/app/user/c/chn_x", "/app/user/session/ses_1/thinking"} {
 		rec := serve(t, cfg(), "GET", path)
 		if rec.Code != 200 {
 			t.Fatalf("GET %s = %d", path, rec.Code)
@@ -65,7 +65,7 @@ func TestIndexCarriesBootstrapAndCSP(t *testing.T) {
 func TestFrameSrcListsOrigins(t *testing.T) {
 	c := cfg()
 	c.FrameSrc = []string{"https://a.preview.example", "https://*.preview.example:8081"}
-	csp := serve(t, c, "GET", "/app/next/").Header().Get("Content-Security-Policy")
+	csp := serve(t, c, "GET", "/app/user/").Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "frame-src https://a.preview.example https://*.preview.example:8081;") {
 		t.Errorf("CSP = %q", csp)
 	}
@@ -76,7 +76,7 @@ func TestBootstrapCannotBreakOutOfScript(t *testing.T) {
 	c.Bootstrap = func(*http.Request) (any, error) {
 		return map[string]string{"brand": `</script><script>alert(1)</script><!--`}, nil
 	}
-	body := serve(t, c, "GET", "/app/next/").Body.String()
+	body := serve(t, c, "GET", "/app/user/").Body.String()
 	if strings.Count(body, "</script>") != 2 { // the bootstrap's own and the module script's
 		t.Errorf("bootstrap broke out of its script:\n%s", body)
 	}
@@ -88,21 +88,21 @@ func TestBootstrapCannotBreakOutOfScript(t *testing.T) {
 func TestBootstrapErrorIs500(t *testing.T) {
 	c := cfg()
 	c.Bootstrap = func(*http.Request) (any, error) { return nil, errors.New("store down") }
-	if rec := serve(t, c, "GET", "/app/next/"); rec.Code != 500 {
+	if rec := serve(t, c, "GET", "/app/user/"); rec.Code != 500 {
 		t.Errorf("code = %d, want 500", rec.Code)
 	}
 }
 
 func TestAssetsImmutableAndMissingAssets404(t *testing.T) {
-	rec := serve(t, cfg(), "GET", "/app/next/assets/index-abc.js")
+	rec := serve(t, cfg(), "GET", "/app/user/assets/index-abc.js")
 	if rec.Code != 200 || rec.Body.String() != "console.log(1)" {
 		t.Fatalf("asset = %d %q", rec.Code, rec.Body)
 	}
 	if got := rec.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
 		t.Errorf("asset Cache-Control = %q", got)
 	}
-	for _, path := range []string{"/app/next/assets/old-999.js", "/app/next/assets/", "/app/next/assets/.keep", "/app/next/.keep", "/app/next/index.html"} {
-		if rec := serve(t, cfg(), "GET", path); path == "/app/next/index.html" {
+	for _, path := range []string{"/app/user/assets/old-999.js", "/app/user/assets/", "/app/user/assets/.keep", "/app/user/.keep", "/app/user/index.html"} {
+		if rec := serve(t, cfg(), "GET", path); path == "/app/user/index.html" {
 			if rec.Code != 301 && rec.Code != 308 && rec.Code != 200 {
 				t.Errorf("GET %s = %d", path, rec.Code)
 			}
@@ -113,10 +113,10 @@ func TestAssetsImmutableAndMissingAssets404(t *testing.T) {
 }
 
 func TestOnlyGetAndHead(t *testing.T) {
-	if rec := serve(t, cfg(), "POST", "/app/next/"); rec.Code != 405 {
+	if rec := serve(t, cfg(), "POST", "/app/user/"); rec.Code != 405 {
 		t.Errorf("POST = %d, want 405", rec.Code)
 	}
-	if rec := serve(t, cfg(), "HEAD", "/app/next/"); rec.Code != 200 {
+	if rec := serve(t, cfg(), "HEAD", "/app/user/"); rec.Code != 200 {
 		t.Errorf("HEAD = %d, want 200", rec.Code)
 	}
 }
@@ -124,7 +124,7 @@ func TestOnlyGetAndHead(t *testing.T) {
 func TestNotBuiltPage(t *testing.T) {
 	c := cfg()
 	c.FS = fstest.MapFS{".keep": {Data: []byte("x")}}
-	for _, path := range []string{"/app/next/", "/app/next/c/x"} {
+	for _, path := range []string{"/app/user/", "/app/user/c/x"} {
 		rec := serve(t, c, "GET", path)
 		if rec.Code != 503 {
 			t.Errorf("GET %s = %d, want 503", path, rec.Code)
@@ -133,7 +133,7 @@ func TestNotBuiltPage(t *testing.T) {
 			t.Errorf("not-built page = %q", body)
 		}
 	}
-	if rec := serve(t, c, "GET", "/app/next/assets/x.js"); rec.Code != 404 {
+	if rec := serve(t, c, "GET", "/app/user/assets/x.js"); rec.Code != 404 {
 		t.Errorf("asset without bundle = %d, want 404", rec.Code)
 	}
 }
@@ -142,14 +142,14 @@ func TestNotBuiltPage(t *testing.T) {
 // without a Head the marker goes quietly.
 func TestHandlerInjectsHead(t *testing.T) {
 	fsys := fstest.MapFS{"index.html": {Data: []byte("<head><!--jam:head--></head><body><!--jam:bootstrap--></body>")}}
-	c := Config{Prefix: "/app/next/", FS: fsys, Name: "x",
+	c := Config{Prefix: "/app/user/", FS: fsys, Name: "x",
 		Bootstrap: func(*http.Request) (any, error) { return map[string]string{}, nil },
 		Head:      func(*http.Request) template.HTML { return `<link rel="manifest" href="/m">` }}
-	if rec := serve(t, c, "GET", "/app/next/c/x"); !strings.Contains(rec.Body.String(), `<head><link rel="manifest" href="/m"></head>`) {
+	if rec := serve(t, c, "GET", "/app/user/c/x"); !strings.Contains(rec.Body.String(), `<head><link rel="manifest" href="/m"></head>`) {
 		t.Errorf("page = %s", rec.Body)
 	}
 	c.Head = nil
-	if rec := serve(t, c, "GET", "/app/next/"); strings.Contains(rec.Body.String(), "jam:head") {
+	if rec := serve(t, c, "GET", "/app/user/"); strings.Contains(rec.Body.String(), "jam:head") {
 		t.Errorf("marker left: %s", rec.Body)
 	}
 }

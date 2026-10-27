@@ -19,7 +19,7 @@ http://127.0.0.1:8081/app/
 
 | Path | Holds |
 |---|---|
-| `/app/user/*` | the Inbox, the Jam app ([intercom-ui.md](intercom-ui.md)), its API, and [`POST /app/user/send`](#sending-post-appusersend) |
+| `/app/user/*` | the Inbox — the Jam app ([intercom-ui.md](intercom-ui.md)) and its API — and [`POST /app/user/send`](#sending-post-appusersend) |
 | `/app/admin/*` | the admin console ([ui-console.md](ui-console.md)) |
 | `/app/auth/{login,callback,logout}` | the one browser login (ungated) |
 | `/app/static/*` | `jam.css`, htmx, `push.js`, the J mark and app icons (ungated) |
@@ -48,10 +48,11 @@ holds the console's search box. The name truncates with an ellipsis when long
 and hides under 720px wide (the J mark still links home); the tabs scroll and
 the principal menu always stays visible.
 
-**One look.** The console and the Inbox take their colors (light and dark,
-following the OS setting) and typography from one stylesheet, `jam.css`, in
-`internal/jam/uiassets`, which also holds the single `htmx` copy, served at
-`/app/static/`. Each area keeps its own component styles in its layout.
+**One look.** The console takes its colors (light and dark, following the OS
+setting) and typography from one stylesheet, `jam.css`, in `internal/jam/uiassets`
+(which also holds the console's `htmx`), served at `/app/static/`. The Inbox, the
+Jam app, is Mantine with a theme carrying `jam.css`'s accent and fonts
+([web-app.md](../../web-app.md)).
 
 The console itself — its pages, the Projects rail, search, the Channel log and the
 session timeline — is in [ui-console.md](ui-console.md).

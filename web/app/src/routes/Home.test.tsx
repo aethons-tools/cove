@@ -27,6 +27,19 @@ describe("old Inbox links", () => {
     renderApp(boot, "/app/user/?c=chn_a&board=brd_1");
     expect(await screen.findByTestId("editor")).toBeInTheDocument();
   });
+  it("&tab= and the hash carry over", async () => {
+    serve();
+    const { router } = renderApp(boot, "/app/user/?c=chn_a&tab=status#ask-a1");
+    expect(await screen.findByRole("heading", { name: "eng" })).toBeInTheDocument();
+    const l = router.state.location;
+    expect(l.pathname + l.search + l.hash).toBe("/app/user/c/chn_a?tab=status#ask-a1");
+  });
+  it("an unknown path says so, with a way back", async () => {
+    serve();
+    renderApp(boot, "/app/user/rail");
+    expect(await screen.findByText("Nothing here.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to the inbox" })).toHaveAttribute("href", "/app/user/");
+  });
   it("with neither, asks for a conversation", async () => {
     serve();
     renderApp(boot, "/app/user/");
