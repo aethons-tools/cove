@@ -1,6 +1,9 @@
 package jam
 
 import (
+	"context"
+	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -197,5 +200,44 @@ func TestKitDraftProblemsNamePreRenameNames(t *testing.T) {
 	_, problems := draftProblems(st, "k", cur.Tree)
 	if len(problems) != 1 || !strings.Contains(problems[0], "renamed JAM_STUDIO_BASE_IMAGE") {
 		t.Fatalf("problems = %v", problems)
+	}
+}
+
+// The kept-kit warning carries the kit's name and a fixed reason, never the
+// parse or validation text (which quotes the kit's own content).
+func TestMigrateKitRenameLogsNamesOnly(t *testing.T) {
+	st := NewMemStore()
+	seedKit(t, st, "orphan", map[string]string{"kit.yml": "kind: studio\nbase:\n  kit: nosuch-parent-xyz\n", "Dockerfile": oldDockerfile})
+	var logs strings.Builder
+	if _, err := MigrateKitRename(st, nil, slog.New(slog.NewTextHandler(&logs, nil))); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logs.String(), "orphan") || !strings.Contains(logs.String(), kitKeptReason) || strings.Contains(logs.String(), "nosuch-parent-xyz") {
+		t.Fatalf("log = %s", logs.String())
+	}
+}
+
+// A config apply (inline kits) refuses a kit still on a pre-rename name, with
+// the same text as a push.
+func TestConfigPlanRefusesPreRenameKitNames(t *testing.T) {
+	st := NewMemStore()
+	tr := treeOf(t, map[string]string{"kits/web/kit.yml": parentYML, "kits/web/Dockerfile": oldDockerfile})
+	p := gitPlanOn(t, st, tr, cfgSrc, "c1", false)
+	want := "kit web: Dockerfile uses " + legacynames.KitRenames[2].Old + ", renamed JAM_STUDIO_BASE_IMAGE (docs/usage/jam/renamed-from-at.md)"
+	if !slices.ContainsFunc(p.Refusals, func(r string) bool { return strings.Contains(r, want) }) {
+		t.Fatalf("refusals = %v, want one containing %q", p.Refusals, want)
+	}
+}
+
+// A kit-set import from git refuses the same way.
+func TestKitImportRefusesPreRenameKitNames(t *testing.T) {
+	st := NewMemStore()
+	f := setFixture(t, map[string]string{"app/kit.yml": parentYML, "app/Dockerfile": oldDockerfile})
+	_, err := ImportKit(context.Background(), st, f, nil, "", setSrc("app"), time.Unix(10, 0))
+	if err == nil || !strings.Contains(err.Error(), "Dockerfile uses "+legacynames.KitRenames[2].Old+", renamed JAM_STUDIO_BASE_IMAGE") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, ok := st.GetKit("app"); ok {
+		t.Fatal("nothing may be stored")
 	}
 }

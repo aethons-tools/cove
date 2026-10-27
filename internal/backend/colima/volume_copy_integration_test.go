@@ -63,3 +63,48 @@ func TestCopyVolumeRealDockerNeverPulls(t *testing.T) {
 		t.Fatal("a copy with an absent image must fail, not pull")
 	}
 }
+
+// The verification step fails a copy whose content, owner or mode differs
+// from the source (each tampered after a good copy). Skips without docker.
+func TestCopyVolumeVerificationCatchesTampering(t *testing.T) {
+	if exec.Command("docker", "info").Run() != nil {
+		t.Skip("no docker daemon")
+	}
+	if exec.Command("docker", "pull", "-q", "alpine:3").Run() != nil {
+		t.Skip("alpine:3 unavailable")
+	}
+	c := NewWithContext(runner.OS{}, "")
+	for name, tamper := range map[string]string{
+		"content": "echo changed > /v/ws/f",
+		"owner":   "chown 0:0 /v/ws/f",
+		"mode":    "chmod 644 /v/ws/f",
+		"extra":   "touch /v/ws/extra",
+	} {
+		t.Run(name, func(t *testing.T) {
+			from, to := "jam-copytest-tamper-from", "jam-copytest-tamper-to"
+			_ = exec.Command("docker", "volume", "rm", "-f", from, to).Run()
+			t.Cleanup(func() { _ = exec.Command("docker", "volume", "rm", "-f", from, to).Run() })
+			for _, v := range []string{from, to} {
+				if err := c.CreateVolume(v); err != nil {
+					t.Fatal(err)
+				}
+			}
+			seed := exec.Command("docker", "run", "--rm", "-v", from+":/v", "alpine:3", "sh", "-c",
+				"mkdir -p /v/ws && echo hello > /v/ws/f && chown -R 1000:1000 /v/ws && chmod 600 /v/ws/f")
+			if out, err := seed.CombinedOutput(); err != nil {
+				t.Fatalf("seed: %v %s", err, out)
+			}
+			if err := c.CopyVolume("alpine:3", from, to); err != nil {
+				t.Fatal(err)
+			}
+			if out, err := exec.Command("docker", "run", "--rm", "-v", to+":/v", "alpine:3", "sh", "-c", tamper).CombinedOutput(); err != nil {
+				t.Fatalf("tamper: %v %s", err, out)
+			}
+			out, err := exec.Command("docker", "run", "--rm", "--pull", "never", "--network", "none", "--user", "0:0", "--entrypoint", "/bin/sh",
+				"-v", from+":/from:ro", "-v", to+":/to", "alpine:3", "-c", copyVolumeVerify).CombinedOutput()
+			if err == nil || !strings.Contains(string(out), "copy verification failed") {
+				t.Fatalf("verification passed a tampered copy: %v %s", err, out)
+			}
+		})
+	}
+}

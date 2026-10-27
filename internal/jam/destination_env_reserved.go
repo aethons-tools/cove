@@ -52,13 +52,16 @@ func ReservedDestinationEnvConditions(store Store, t *condition.Tracker) {
 		}
 		key := condition.Key(DestinationEnvKind, d.Name)
 		open[key] = true
-		summary := fmt.Sprintf("env key %s is reserved (JAM_*); rename it", keys[0])
+		list := strings.Join(keys, ", ")
+		summary := fmt.Sprintf("env key %s is reserved (JAM_*); rename it", list)
+		detail := fmt.Sprintf("destination %s sets %s; Jam drops it from every connector, as JAM_* names are Jam's own", d.Name, list)
 		if len(keys) > 1 {
-			summary = fmt.Sprintf("env keys %s are reserved (JAM_*); rename them", strings.Join(keys, ", "))
+			summary = fmt.Sprintf("env keys %s are reserved (JAM_*); rename them", list)
+			detail = fmt.Sprintf("destination %s sets %s; Jam drops them from every connector, as JAM_* names are Jam's own", d.Name, list)
 		}
 		t.Raise(condition.Condition{Key: key, Severity: condition.Warning,
 			Summary: summary,
-			Detail:  fmt.Sprintf("destination %s sets it; Jam drops it from every connector, as JAM_* names are Jam's own", d.Name),
+			Detail:  detail,
 			Fix:     "rename the key in the destination's env (" + renamedFromAtDoc + ")"})
 	}
 	for _, key := range t.OpenKeys(DestinationEnvKind) {

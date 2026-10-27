@@ -3,6 +3,7 @@ package launcher
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -24,6 +25,8 @@ type volFake struct {
 	vols       map[string]map[string]string // name → labels
 	data       map[string]string            // name → content
 	containers map[string]string            // name → image
+	mounts     map[string][]string          // container → the volumes it mounts
+	imageErr   map[string]bool              // image → HasKitImage errors
 	labelled   map[string]bool              // containers carrying the pre-rename label
 	copyFail   map[string]bool              // from volume → copy fails
 	rmFail     map[string]bool              // volume → removal fails
@@ -33,7 +36,7 @@ type volFake struct {
 func newVolFake() *volFake {
 	return &volFake{fakeOps: &fakeOps{hasImage: map[string]bool{basedigest.DefaultRef(): true}},
 		vols: map[string]map[string]string{}, data: map[string]string{},
-		containers: map[string]string{}, labelled: map[string]bool{}, copyFail: map[string]bool{}, rmFail: map[string]bool{}}
+		containers: map[string]string{}, mounts: map[string][]string{}, imageErr: map[string]bool{}, labelled: map[string]bool{}, copyFail: map[string]bool{}, rmFail: map[string]bool{}}
 }
 
 func (f *volFake) addVol(name, content string, labels ...string) {
@@ -91,16 +94,22 @@ func (f *volFake) CopyVolume(image, from, to string) error {
 	f.data[to] = f.data[from]
 	return nil
 }
-func (f *volFake) ListContainers(filter string) (map[string]string, error) {
-	out := map[string]string{}
+func (f *volFake) ListContainers(filter string) (map[string]backend.ContainerInfo, error) {
+	out := map[string]backend.ContainerInfo{}
 	for n, img := range f.containers {
 		switch {
 		case filter == "label="+legacynames.Label && f.labelled[n],
 			strings.HasPrefix(filter, "name=") && strings.Contains(n, strings.TrimPrefix(filter, "name=")):
-			out[n] = img
+			out[n] = backend.ContainerInfo{Image: img, Mounts: f.mounts[n]}
 		}
 	}
 	return out, nil
+}
+func (f *volFake) HasKitImage(tag string) (bool, error) {
+	if f.imageErr[tag] {
+		return false, errors.New("daemon hiccup")
+	}
+	return f.hasImage[tag], nil
 }
 func (f *volFake) GetStatus(c string) (backend.State, error) {
 	if _, ok := f.containers[c]; ok {
@@ -326,19 +335,25 @@ func TestMigrateStateVolumesUsesAnImageAlreadyOnTheHost(t *testing.T) {
 		t.Fatalf("copy images = %v", f.copyImages)
 	}
 
+	// A retired studio's image goes first, even with the jam base local; an
+	// image check that errors is skipped, not taken for absence of all.
 	g := newVolFake()
-	g.hasImage = map[string]bool{"kit-image@sha256:1": true}
-	g.containers[legacynames.Container("s2")], g.labelled[legacynames.Container("s2")] = "kit-image@sha256:1", true
+	g.hasImage = map[string]bool{"kit-image@sha256:1": true, "kit-image@sha256:2": true, basedigest.DefaultRef(): true}
+	g.imageErr["kit-image@sha256:1"] = true
+	for i, id := range []string{"s2", "s3"} {
+		c := legacynames.Container(id)
+		g.containers[c], g.labelled[c] = "kit-image@sha256:"+string(rune('1'+i)), true
+	}
 	ob, _ := oldVols("s2")
 	g.addVol(ob, "data", legacynames.StateLabel+"=s2", legacynames.JamLabel+"=j1")
 	l := migLauncher(t, g)
-	if _, err := l.RetireLegacyContainers(context.Background()); err != nil {
+	if _, err := l.RetireLegacyContainers(context.Background(), []string{"s2", "s3"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := l.MigrateStateVolumes(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(g.copyImages, []string{"kit-image@sha256:1"}) {
+	if !slices.Equal(g.copyImages, []string{"kit-image@sha256:2"}) {
 		t.Fatalf("copy images = %v", g.copyImages)
 	}
 }
@@ -373,55 +388,67 @@ func TestRetireLegacyStudioRemovesContainerCacheAndKnownHosts(t *testing.T) {
 	}
 }
 
-// Pre-rename containers the store does not know are found by the old label
-// and by the old name prefix; nothing else is touched.
-func TestRetireLegacyContainersFindsByLabelAndPrefix(t *testing.T) {
+// Pre-rename containers are found by the old label and by the old name
+// prefix, but only this Jam's are retired: the legacy name of one of its
+// instances, or one mounting a state volume labelled with this Jam's id.
+// Another Jam's, on the same docker host, is left running and named in one
+// warning.
+func TestRetireLegacyContainersRetiresOnlyThisJams(t *testing.T) {
 	f := newVolFake()
-	byLabel, byName := "renamed-by-hand", legacynames.Container("orphan")
-	f.containers[byLabel], f.labelled[byLabel] = "img-a", true
-	f.containers[byName] = "img-b"
+	ours, mounting := legacynames.Container("s1"), "renamed-by-hand"
+	theirs, theirsLabelled := legacynames.Container("x9"), "their-renamed"
+	f.containers[ours] = "img-a"
+	f.containers[mounting], f.labelled[mounting] = "img-b", true
+	oa, _ := oldVols("s7")
+	f.addVol(oa, "ours", legacynames.StateLabel+"=s7", legacynames.JamLabel+"=j1")
+	f.mounts[mounting] = []string{oa}
+	f.containers[theirs] = "img-c"
+	ox, _ := oldVols("x9")
+	f.addVol(ox, "theirs", legacynames.StateLabel+"=x9", legacynames.JamLabel+"=j2")
+	f.mounts[theirs] = []string{ox}
+	f.containers[theirsLabelled], f.labelled[theirsLabelled] = "img-d", true
 	f.containers[naming.StudioContainer("n1")] = "jam-img"
 	f.containers["unrelated"] = "x"
-	f.addVol(naming.DockerVolume(byName), "cache")
-	l := migLauncher(t, f)
-	got, err := l.RetireLegacyContainers(context.Background())
+	f.addVol(naming.DockerVolume(ours), "cache")
+	var logs strings.Builder
+	l := New(Config{Ops: f, Runner: &runner.Fake{}, JamID: "j1", KnownHostsDir: t.TempDir(),
+		Log: slog.New(slog.NewTextHandler(&logs, nil))})
+	got, err := l.RetireLegacyContainers(context.Background(), []string{"s1", "n1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(got, []string{byName, byLabel}) {
+	if !slices.Equal(got, []string{ours, mounting}) {
 		t.Fatalf("retired = %v", got)
 	}
-	if _, ok := f.containers[naming.StudioContainer("n1")]; !ok || len(f.containers) != 2 {
-		t.Fatalf("containers left = %v", slices.Sorted(maps.Keys(f.containers)))
+	left := slices.Sorted(maps.Keys(f.containers))
+	if !slices.Equal(left, slices.Sorted(slices.Values([]string{naming.StudioContainer("n1"), theirs, theirsLabelled, "unrelated"}))) {
+		t.Fatalf("containers left = %v", left)
 	}
-	if _, ok := f.vols[naming.DockerVolume(byName)]; ok {
+	if _, ok := f.vols[naming.DockerVolume(ours)]; ok {
 		t.Fatal("its -docker cache must go too")
 	}
-	if again, err := l.RetireLegacyContainers(context.Background()); err != nil || len(again) != 0 {
+	if !strings.Contains(logs.String(), "pre-rename containers not owned by this Jam left running") ||
+		!strings.Contains(logs.String(), theirs) || !strings.Contains(logs.String(), theirsLabelled) {
+		t.Fatalf("log = %s", logs.String())
+	}
+	if again, err := l.RetireLegacyContainers(context.Background(), []string{"s1", "n1"}); err != nil || len(again) != 0 {
 		t.Fatalf("second run = %v, %v", again, err)
 	}
 }
 
-// The old volume cannot be removed after a verified copy: serve start fails
-// closed with the fixed text, both kept; the next start does not touch the
-// completed copy.
-func TestMigrateStateVolumesFailedOldRemovalFailsClosed(t *testing.T) {
+// Each copy is logged, by name, before it runs.
+func TestMigrateStateVolumesLogsEachCopy(t *testing.T) {
 	f := newVolFake()
 	oa, _ := oldVols("s1")
 	na, _ := newVols("s1")
-	f.addVol(oa, "precious", legacynames.StateLabel+"=s1", legacynames.JamLabel+"=j1")
-	f.rmFail[oa] = true
-	if _, err := migLauncher(t, f).MigrateStateVolumes(context.Background(), nil); err == nil || err.Error() != failedText(oa, na) {
-		t.Fatalf("err = %v", err)
+	f.addVol(oa, "secret-bytes", legacynames.StateLabel+"=s1", legacynames.JamLabel+"=j1")
+	var logs strings.Builder
+	l := New(Config{Ops: f, Runner: &runner.Fake{}, JamID: "j1", KnownHostsDir: t.TempDir(),
+		Log: slog.New(slog.NewTextHandler(&logs, nil))})
+	if _, err := l.MigrateStateVolumes(context.Background(), nil); err != nil {
+		t.Fatal(err)
 	}
-	if f.data[oa] != "precious" || f.data[na] != "precious" {
-		t.Fatalf("old %q new %q", f.data[oa], f.data[na])
-	}
-	if _, ok := f.vols[migrationMarker(na)]; ok {
-		t.Fatal("the marker is cleared once the copy verified")
-	}
-	f.data[na] = "used"
-	if _, err := migLauncher(t, f).MigrateStateVolumes(context.Background(), nil); err == nil || f.data[na] != "used" {
-		t.Fatalf("a completed copy is never redone: %v, %q", err, f.data[na])
+	if !strings.Contains(logs.String(), "migration: copying volume "+oa+" → "+na) || strings.Contains(logs.String(), "secret-bytes") {
+		t.Fatalf("log = %s", logs.String())
 	}
 }

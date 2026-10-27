@@ -3,7 +3,6 @@ package jam
 import (
 	"fmt"
 	"log/slog"
-	"maps"
 	"slices"
 
 	"github.com/aethons-tools/cove/internal/jam/condition"
@@ -19,6 +18,15 @@ const KitOriginMigration = "migration"
 // renamedFromAtDoc is the runbook every jam-rename refusal and condition
 // points at.
 const renamedFromAtDoc = "docs/usage/jam/renamed-from-at.md"
+
+// kitKeptReason is the fixed reason the kit-kept warning gives: the error
+// itself (parse or validation text quoting the kit) is not logged; the kit's
+// kit.migrate condition and a push show it.
+const kitKeptReason = "its rewritten version did not parse or validate"
+
+// kitPinKeptReason is the fixed reason for a kit kept on its pin to a
+// parent version still on a pre-rename name.
+const kitPinKeptReason = "it pins a parent version still on a pre-rename name"
 
 // KitRenameMigration reports a MigrateKitRename run.
 type KitRenameMigration struct {
@@ -43,13 +51,13 @@ func MigrateKitRename(store Store, t *condition.Tracker, log *slog.Logger) (KitR
 	kitMu.Lock()
 	defer kitMu.Unlock()
 	var rep KitRenameMigration
-	failed := map[string]string{} // kit → why its rewrite failed (last pass)
+	failed := map[string]bool{} // kits whose rewrite failed (last pass)
 	for pass := 0; pass <= len(store.ListKits()); pass++ {
 		var pend []pendingKitVersion
 		for _, k := range store.ListKits() {
 			p, ok, err := renamedKitVersionLocked(store, k)
 			if err != nil {
-				failed[k.Name] = err.Error()
+				failed[k.Name] = true
 				continue
 			}
 			delete(failed, k.Name)
@@ -74,11 +82,15 @@ func MigrateKitRename(store Store, t *condition.Tracker, log *slog.Logger) (KitR
 	}
 	slices.Sort(rep.Kept)
 	if log != nil {
-		for _, name := range slices.Sorted(maps.Keys(failed)) {
-			log.Warn("kit kept on its pre-rename names", "kit", name, "error", failed[name])
-		}
 		if len(rep.Rewritten) > 0 {
-			log.Info("kits migrated to the jam names", "versions", rep.Rewritten, "kept", rep.Kept, "see", renamedFromAtDoc)
+			log.Info("kits migrated to the jam names", "versions", rep.Rewritten, "see", renamedFromAtDoc)
+		}
+		for _, name := range rep.Kept {
+			reason := kitPinKeptReason
+			if failed[name] {
+				reason = kitKeptReason
+			}
+			log.Warn("kit kept on a pre-rename name (kit.migrate open)", "kit", name, "reason", reason)
 		}
 	}
 	kitMigrateConditions(store, t)

@@ -193,6 +193,10 @@ func resolveKitEntries(store Store, set []kitSetEntry, check func(i int, e kitSe
 				return nil, err
 			}
 		}
+		// A config apply or kit import refuses pre-rename names as a push does.
+		if err := legacyKitFilesErr(e.Name, e.files); err != nil {
+			return nil, writeErr(http.StatusBadRequest, "%s", err.Error())
+		}
 		chain, err := validateKit(ov, e.Name, e.Kit)
 		if err != nil {
 			return nil, err

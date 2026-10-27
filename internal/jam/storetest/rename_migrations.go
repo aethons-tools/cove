@@ -17,7 +17,9 @@ type recordRenamer struct {
 	also    []string
 }
 
-func (r *recordRenamer) RetireLegacyContainers(context.Context) ([]string, error) { return nil, nil }
+func (r *recordRenamer) RetireLegacyContainers(context.Context, []string) ([]string, error) {
+	return nil, nil
+}
 func (r *recordRenamer) RetireLegacyStudio(_ context.Context, id string) error {
 	r.retired = append(r.retired, id)
 	return nil

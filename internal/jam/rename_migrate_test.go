@@ -13,7 +13,7 @@ import (
 
 type fakeRenamer struct {
 	containers []string // RetireLegacyContainers' answer
-	sweeps     int
+	owned      []string // the ids RetireLegacyContainers was given
 	retired    []string
 	also       []string
 	moved      []string
@@ -21,8 +21,8 @@ type fakeRenamer struct {
 	calls      []string // method names, in order
 }
 
-func (f *fakeRenamer) RetireLegacyContainers(context.Context) ([]string, error) {
-	f.sweeps++
+func (f *fakeRenamer) RetireLegacyContainers(_ context.Context, ids []string) ([]string, error) {
+	f.owned = ids
 	f.calls = append(f.calls, "containers")
 	return f.containers, nil
 }
@@ -64,6 +64,9 @@ func TestMigrateStudioNamesRetiresAndRewrites(t *testing.T) {
 	}
 	if r.calls[0] != "containers" || r.calls[len(r.calls)-1] != "volumes" {
 		t.Fatalf("calls = %v: every pre-rename container goes first, the volumes last", r.calls)
+	}
+	if !slices.Equal(r.owned, []string{"e1", "n1", "s1", "s2"}) {
+		t.Fatalf("owned ids = %v (local, not gone; standing sessions too)", r.owned)
 	}
 	slices.Sort(r.retired)
 	if !slices.Equal(r.retired, []string{"e1", "s1"}) {

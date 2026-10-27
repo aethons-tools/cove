@@ -1,18 +1,37 @@
 package colima
 
-import "strings"
+import (
+	"strings"
 
-// copyVolumeScript copies /from into /to with cp -a (ownership, modes,
-// symlinks and times kept), then verifies the copy: every path's owner and
-// mode and every regular file's content must list the same on both sides,
-// else it exits non-zero. Fixed text: only the volume names vary, and they
-// are mount sources, never part of the script.
-const copyVolumeScript = `set -e
+	"github.com/aethons-tools/cove/internal/backend"
+)
+
+// copyVolumeCopy copies /from into /to with cp -a (ownership, modes,
+// symlinks, hard links within the copy and times kept).
+const copyVolumeCopy = `set -e
 cp -a /from/. /to/
-list() { cd "$1" && { find . -exec stat -c '%n %u:%g %a' {} + ; find . -type f -exec md5sum {} + ; } | LC_ALL=C sort; }
-list /from > /tmp/from.list
-list /to > /tmp/to.list
-cmp -s /tmp/from.list /tmp/to.list || { echo "copy verification failed" >&2; exit 1; }`
+`
+
+// copyVolumeVerify checks the copy: every path's name, owner and mode, and
+// every regular file's content (md5sum), must list the same on both sides,
+// else it exits non-zero. It does NOT check hard-link structure, xattrs,
+// ACLs, timestamps or symlink targets (cp -a carries them; they are not
+// re-checked). No pipelines: each step's failure stops the script under
+// set -e on its own (dash, the Debian /bin/sh, has no pipefail), so a failed
+// listing on both sides cannot pass as two equal empty lists.
+const copyVolumeVerify = `set -e
+for side in from to; do
+cd /$side
+find . -exec stat -c '%n %u:%g %a' {} + > /tmp/$side.stat
+find . -type f -exec md5sum {} + > /tmp/$side.sum
+LC_ALL=C sort /tmp/$side.stat /tmp/$side.sum > /tmp/$side.list
+done
+cmp -s /tmp/from.list /tmp/to.list || { echo "copy verification failed" >&2; exit 1; }
+`
+
+// copyVolumeScript is the copy, then its verification. Fixed text: only the
+// volume names vary, and they are mount sources, never part of the script.
+const copyVolumeScript = copyVolumeCopy + copyVolumeVerify
 
 // VolumeExists reports whether the named volume exists (`docker volume ls`
 // filters by substring, so the name is matched exactly here).
@@ -35,7 +54,9 @@ func (c *Colima) VolumeExists(name string) (bool, error) {
 // CopyVolume copies every file of volume from into volume to (both exist)
 // with a throwaway root container of image — no network, from mounted
 // read-only, never pulled (--pull never: image must already be on the
-// host) — and verifies the copy (copyVolumeScript). Only names reach argv.
+// host) — and verifies the copy (copyVolumeVerify: names, owners, modes and
+// file contents; not hard links, xattrs, ACLs, times or symlink targets).
+// Only names reach argv.
 func (c *Colima) CopyVolume(image, from, to string) error {
 	if err := c.preflight(); err != nil {
 		return err
@@ -45,22 +66,30 @@ func (c *Colima) CopyVolume(image, from, to string) error {
 }
 
 // ListContainers lists every container (running or not) matching one
-// `docker ps` filter ("label=<key>", "name=<substring>"), name → the image it
-// was run from.
-func (c *Colima) ListContainers(filter string) (map[string]string, error) {
+// `docker ps` filter ("label=<key>", "name=<substring>"): name → the image it
+// was run from and the volumes it mounts.
+func (c *Colima) ListContainers(filter string) (map[string]backend.ContainerInfo, error) {
 	if err := c.preflight(); err != nil {
 		return nil, err
 	}
-	out, err := c.r.Output("docker", c.dargs("ps", "--all", "--no-trunc", "--filter", filter, "--format", "{{.Names}}\t{{.Image}}")...)
+	out, err := c.r.Output("docker", c.dargs("ps", "--all", "--no-trunc", "--filter", filter, "--format", "{{.Names}}\t{{.Image}}\t{{.Mounts}}")...)
 	if err != nil {
 		return nil, err
 	}
-	got := map[string]string{}
+	got := map[string]backend.ContainerInfo{}
 	for _, line := range strings.Split(out, "\n") {
-		name, image, _ := strings.Cut(strings.TrimSpace(line), "\t")
-		if name != "" {
-			got[name] = image
+		f := strings.Split(strings.TrimSpace(line), "\t")
+		if f[0] == "" {
+			continue
 		}
+		info := backend.ContainerInfo{}
+		if len(f) > 1 {
+			info.Image = f[1]
+		}
+		if len(f) > 2 && f[2] != "" {
+			info.Mounts = strings.Split(f[2], ",")
+		}
+		got[f[0]] = info
 	}
 	return got, nil
 }

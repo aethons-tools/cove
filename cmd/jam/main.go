@@ -2120,11 +2120,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// migration version. A store write error fails closed, like
 	// MigrateKitTrees. Destinations whose stored env uses the now-reserved
 	// JAM_ prefix get a destination.env condition (the key is dropped).
-	if mig, err := jam.MigrateKitRename(st, conds, log); err != nil {
+	// It logs what it rewrote and kept itself.
+	if _, err := jam.MigrateKitRename(st, conds, log); err != nil {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
-	} else if len(mig.Kept) > 0 {
-		log.Warn("kits kept on pre-rename names (kit.migrate conditions open)", "kits", mig.Kept)
 	}
 	jam.ReservedDestinationEnvConditions(st, conds)
 	if gc, err := st.GCKitObjects(); err != nil {

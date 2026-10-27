@@ -59,39 +59,64 @@ func (l *Launcher) RetireLegacyStudio(ctx context.Context, actorID string) error
 	return l.retireContainer(old, st != backend.StateAbsent)
 }
 
-// RetireLegacyContainers retires every pre-rename container left on the
-// docker host — found by the pre-rename label and by the pre-rename name
-// prefix, so one the store no longer knows goes too — as RetireLegacyStudio
-// does. Each one's image is kept as a candidate to copy the state volumes
-// with (it is on the host). It returns the names retired, sorted.
-func (l *Launcher) RetireLegacyContainers(ctx context.Context) ([]string, error) {
-	found := map[string]string{}
+// RetireLegacyContainers retires this Jam's pre-rename containers left on
+// the docker host, as RetireLegacyStudio does. Candidates are found by the
+// pre-rename label and by the pre-rename name prefix (so one the store no
+// longer tracks is found too); one is this Jam's when its name is the
+// pre-rename name of one of ids (the store's instance and standing session
+// ids), or it mounts a pre-rename state volume labelled with this Jam's id.
+// Any other — another Jam's, on a shared docker host — is left running and
+// named in one warning. Each retired one's image is kept as the first
+// candidate to copy the state volumes with (it is on the host). It returns
+// the names retired, sorted.
+func (l *Launcher) RetireLegacyContainers(ctx context.Context, ids []string) ([]string, error) {
+	found := map[string]backend.ContainerInfo{}
 	for _, filter := range []string{"label=" + legacynames.Label, "name=" + legacynames.ContainerPrefix} {
 		got, err := l.cfg.Ops.ListContainers(filter)
 		if err != nil {
 			return nil, fmt.Errorf("migration: list pre-rename containers: %w", err)
 		}
-		for name, image := range got {
+		for name, info := range got {
 			// docker's name filter matches a substring: keep the prefixed ones.
 			if strings.HasPrefix(filter, "label=") || strings.HasPrefix(name, legacynames.ContainerPrefix) {
-				found[name] = image
+				found[name] = info
 			}
 		}
 	}
-	names := slices.Sorted(maps.Keys(found))
-	for _, name := range names {
-		if img := found[name]; img != "" {
+	if len(found) == 0 {
+		return nil, nil
+	}
+	mine := map[string]bool{}
+	for _, id := range ids {
+		mine[legacynames.Container(id)] = true
+	}
+	ourVols, err := l.cfg.Ops.ListVolumes(legacynames.StateLabel, legacynames.JamLabel+"="+l.cfg.JamID)
+	if err != nil {
+		return nil, fmt.Errorf("migration: list pre-rename volumes: %w", err)
+	}
+	var retired, foreign []string
+	for _, name := range slices.Sorted(maps.Keys(found)) {
+		info := found[name]
+		if !mine[name] && !slices.ContainsFunc(info.Mounts, func(v string) bool { _, ok := ourVols[v]; return ok }) {
+			foreign = append(foreign, name)
+			continue
+		}
+		if info.Image != "" {
 			l.mu.Lock()
-			if !slices.Contains(l.copyImages, img) {
-				l.copyImages = append(l.copyImages, img)
+			if !slices.Contains(l.copyImages, info.Image) {
+				l.copyImages = append(l.copyImages, info.Image)
 			}
 			l.mu.Unlock()
 		}
 		if err := l.retireContainer(name, true); err != nil {
 			return nil, err
 		}
+		retired = append(retired, name)
 	}
-	return names, nil
+	if len(foreign) > 0 {
+		l.cfg.Log.Warn("migration: pre-rename containers not owned by this Jam left running: "+strings.Join(foreign, ", "), "containers", foreign)
+	}
+	return retired, nil
 }
 
 // retireContainer removes pre-rename container old (when present), then
@@ -164,6 +189,7 @@ func (l *Launcher) MigrateStateVolumes(ctx context.Context, also []string) ([]st
 				return done, err
 			}
 		}
+		l.cfg.Log.Info("migration: copying volume "+old+" → "+nw, "image", image)
 		if err := l.moveVolume(image, id, old, nw); err != nil {
 			return done, err
 		}
@@ -249,19 +275,25 @@ func (l *Launcher) partialCopy(old, nw, marker string) (bool, error) {
 }
 
 // copyImage is the first image already on the host that can run the volume
-// copy: the jam base (blessed, newest first), the pre-rename base at the
-// same digests, then the image of a pre-rename studio retired this run.
-// Nothing is pulled: none on the host is ErrNoCopyImage.
+// copy: the image of a pre-rename studio retired this run (on the host by
+// construction), the jam base (blessed, newest first), then the pre-rename
+// base at the same digests. An image check that errors is logged and the
+// next tried. Nothing is pulled: none on the host is ErrNoCopyImage.
 func (l *Launcher) copyImage() (string, error) {
-	candidates := basedigest.BlessedRefs()
+	l.mu.Lock()
+	candidates := slices.Clone(l.copyImages)
+	l.mu.Unlock()
+	candidates = append(candidates, basedigest.BlessedRefs()...)
 	for _, d := range basedigest.Blessed() {
 		candidates = append(candidates, legacynames.BaseImageRepo+"@"+d)
 	}
-	l.mu.Lock()
-	candidates = append(candidates, l.copyImages...)
-	l.mu.Unlock()
 	for _, img := range candidates {
-		if ok, err := l.cfg.Ops.HasKitImage(img); err == nil && ok {
+		ok, err := l.cfg.Ops.HasKitImage(img)
+		if err != nil {
+			l.cfg.Log.Warn("migration: checking a copy image failed; trying the next", "image", img, "error", err.Error())
+			continue
+		}
+		if ok {
 			return img, nil
 		}
 	}

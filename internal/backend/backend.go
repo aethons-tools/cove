@@ -53,9 +53,16 @@ type DispatchOps interface {
 	Pause(name string) error           // docker pause; freeze an idle container (cgroup freezer)
 	Unpause(name string) error         // docker unpause; thaw it
 	// ListContainers lists every container, running or not, matching one
-	// docker ps filter ("label=<key>", "name=<substring>"): name → the image
-	// it runs. The jam-rename migration finds pre-rename studios with it.
-	ListContainers(filter string) (map[string]string, error)
+	// docker ps filter ("label=<key>", "name=<substring>"): name → its image
+	// and mounted volumes. The jam-rename migration finds pre-rename studios
+	// with it.
+	ListContainers(filter string) (map[string]ContainerInfo, error)
+}
+
+// ContainerInfo is what ListContainers reports of one container.
+type ContainerInfo struct {
+	Image  string   // the image it was run from
+	Mounts []string // the volumes (or bind sources) it mounts
 }
 
 // Mount is a named docker volume mounted into an ephemeral container at

@@ -13,7 +13,7 @@ import (
 // StudioRenamer is the launcher surface the studio-name migration drives
 // (the local launcher; *launcher.Launcher).
 type StudioRenamer interface {
-	RetireLegacyContainers(ctx context.Context) ([]string, error)
+	RetireLegacyContainers(ctx context.Context, ids []string) ([]string, error)
 	RetireLegacyStudio(ctx context.Context, actorID string) error
 	MigrateStateVolumes(ctx context.Context, also []string) ([]string, error)
 	StudioLocation(actorID string) string
@@ -25,16 +25,21 @@ type StudioRenameMigration struct {
 	Volumes []string // "old → new" per state volume moved
 }
 
+// LocalManagerName is fleet.LocalName, the in-process manager's name, which
+// this package cannot import (cmd/jam's test pins the two equal).
+const LocalManagerName = "local"
+
 // localManager reports whether an instance or standing session raised by
-// manager is the local launcher's ("" = raised before managers; "local" is
-// fleet.LocalName, which this package cannot import).
-func localManager(manager string) bool { return manager == "" || manager == "local" }
+// manager is the local launcher's ("" = raised before managers).
+func localManager(manager string) bool { return manager == "" || manager == LocalManagerName }
 
 // MigrateStudioNames is the jam rename's studio migration
 // (docs/usage/jam/renamed-from-at.md), run at serve start before the
 // supervisor, the standing reconciler or any egress or SSH CA push can reach
-// a studio. Every pre-rename container on the local docker host is retired
-// first (an old image's agent can never attach to this Jam). Then each local
+// a studio. This Jam's pre-rename containers on the local docker host are
+// retired first (an old image's agent can never attach to this Jam): those
+// named for its local instances (not gone) and standing sessions, or
+// mounting its pre-rename state volumes; another Jam's are left. Then each local
 // instance not gone whose Location is a pre-rename container is retired
 // (its cache and known hosts pin removed) and rewritten — the new container
 // name as Location, ImageTag and KitDraftImage cleared (stale), Phase lost
@@ -45,17 +50,25 @@ func localManager(manager string) bool { return manager == "" || manager == "loc
 // closed. Logs carry names and counts only.
 func MigrateStudioNames(ctx context.Context, store Store, r StudioRenamer, log *slog.Logger) (StudioRenameMigration, error) {
 	var rep StudioRenameMigration
-	containers, err := r.RetireLegacyContainers(ctx)
-	if err != nil {
-		return rep, err
-	}
-	var standing []string
+	var standing, owned []string
 	for _, ref := range store.ListStandingSessions() {
 		if localManager(ref.Manager) {
 			standing = append(standing, ref.SessionID)
 		}
 	}
-	for _, inst := range store.ListInstances() {
+	instances := store.ListInstances()
+	for _, inst := range instances {
+		if localManager(inst.Manager) && inst.Phase != PhaseGone {
+			owned = append(owned, inst.ActorID)
+		}
+	}
+	owned = append(owned, standing...)
+	slices.Sort(owned)
+	containers, err := r.RetireLegacyContainers(ctx, slices.Compact(owned))
+	if err != nil {
+		return rep, err
+	}
+	for _, inst := range instances {
 		if !localManager(inst.Manager) {
 			continue
 		}

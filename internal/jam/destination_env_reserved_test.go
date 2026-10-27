@@ -47,3 +47,23 @@ func TestReservedDestinationEnvConditions(t *testing.T) {
 		t.Fatal("the condition must clear once the key is renamed")
 	}
 }
+
+func TestReservedDestinationEnvConditionsNameEveryKey(t *testing.T) {
+	d := ghAPI
+	d.Env = map[string]string{"JAM_B": "{token}", "JAM_A": "{host}"}
+	st := connectorStore(t, []Destination{d}, nil)
+	tr := condition.New(condition.Options{})
+	ReservedDestinationEnvConditions(st, tr)
+	c, _ := tr.Get(condition.Key(DestinationEnvKind, "github-api"))
+	if c.Summary != "env keys JAM_A, JAM_B are reserved (JAM_*); rename them" ||
+		c.Detail != "destination github-api sets JAM_A, JAM_B; Jam drops them from every connector, as JAM_* names are Jam's own" {
+		t.Fatalf("condition = %+v", c)
+	}
+	d.Env = map[string]string{"JAM_A": "{host}"}
+	_ = st.RemoveDestination(d.Name)
+	_ = st.AddDestination(d)
+	ReservedDestinationEnvConditions(st, tr)
+	if c, _ := tr.Get(condition.Key(DestinationEnvKind, "github-api")); c.Detail != "destination github-api sets JAM_A; Jam drops it from every connector, as JAM_* names are Jam's own" {
+		t.Fatalf("one key: %+v", c)
+	}
+}

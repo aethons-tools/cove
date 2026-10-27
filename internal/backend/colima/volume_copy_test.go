@@ -26,6 +26,12 @@ func TestCopyVolumeArgv(t *testing.T) {
 // The script copies with cp -a, then verifies the copy (every path's owner
 // and mode, every file's content) and fails when the two differ.
 func TestCopyVolumeScriptVerifies(t *testing.T) {
+	if copyVolumeScript != copyVolumeCopy+copyVolumeVerify {
+		t.Fatal("the copy script is the copy, then the verification")
+	}
+	if strings.Contains(strings.ReplaceAll(copyVolumeVerify, "||", ""), "|") {
+		t.Fatalf("no pipelines in the verification (a failure on one side could be masked; dash has no pipefail):\n%s", copyVolumeVerify)
+	}
 	for _, want := range []string{"set -e", "cp -a /from/. /to/", "stat -c '%n %u:%g %a'", "md5sum", "cmp -s"} {
 		if !strings.Contains(copyVolumeScript, want) {
 			t.Errorf("copy script lacks %q:\n%s", want, copyVolumeScript)
@@ -47,16 +53,17 @@ func TestVolumeExistsMatchesExactly(t *testing.T) {
 	}
 }
 
-func TestListContainersParsesNamesAndImages(t *testing.T) {
-	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "box-a\timg-a@sha256:1\nbox-b\timg-b\n\n"}}}
+func TestListContainersParsesNamesImagesAndMounts(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "box-a\timg-a@sha256:1\tvol-1,vol-2\nbox-b\timg-b\t\n\n"}}}
 	got, err := NewWithContext(f, "").ListContainers("label=some.label")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got["box-a"] != "img-a@sha256:1" || got["box-b"] != "img-b" {
-		t.Fatalf("containers = %v", got)
+	a, b := got["box-a"], got["box-b"]
+	if len(got) != 2 || a.Image != "img-a@sha256:1" || strings.Join(a.Mounts, " ") != "vol-1 vol-2" || b.Image != "img-b" || len(b.Mounts) != 0 {
+		t.Fatalf("containers = %+v", got)
 	}
-	want := "ps --all --no-trunc --filter label=some.label --format {{.Names}}\t{{.Image}}"
+	want := "ps --all --no-trunc --filter label=some.label --format {{.Names}}\t{{.Image}}\t{{.Mounts}}"
 	if args := strings.Join(dockerCall(f.Calls, "ps"), " "); args != want {
 		t.Fatalf("argv = %q, want %q", args, want)
 	}
