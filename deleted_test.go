@@ -31,13 +31,11 @@ var deletedMentions = []string{
 	"at-cove ssh-proxy",
 }
 
-// mentionExempt are paths whose mentions are history or owned by a later
-// slice: the design history, the in-image agent docs (slice 4), the frozen
+// mentionExempt are paths whose mentions are history: the design history, the frozen
 // legacy installer fixture, and this file.
 func mentionExempt(rel string) bool {
 	for _, p := range []string{
 		"docs/superpowers/",
-		"images/jam-studio-base/image-files/home/agent/.init-agent-data/",
 		"testdata/install-legacy.sh",
 		"deleted_test.go",
 		".gitignore", // names the stale staged dirs so they are never committed
