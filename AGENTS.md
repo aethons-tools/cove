@@ -64,4 +64,4 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
 ## Design history
 
 Authoritative design docs and the implementation plans live under [`docs/superpowers/`](docs/superpowers/).
-Read `specs/2026-10-26-jam-only-design.md` for the current direction before making structural changes.
+`specs/2026-10-26-jam-only-design.md` is the record of why Jam is the only mode; read it before making structural changes.

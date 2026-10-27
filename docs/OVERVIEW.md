@@ -9,15 +9,6 @@ updated: 2026-10-27
 
 # cove — Project Overview
 
-> **Interim (jam-only slice 2).** The standalone `at-cove` CLI, the in-sandbox
-> `at-task` worker and the `at-switchboard` Discord conductor are deleted; Jam
-> (`jam`) is the only way this repo runs agents. This overview keeps what is
-> still true — the image every studio is built from, its hardening and egress
-> tiers, the package map, building and testing — and still uses some
-> at-cove-era words (a kit's `config.yml`, `image.allowed-domains`) where a
-> studio kit now has `kit.yml` and `egress:`. Slice 4 of the
-> [jam-only design](superpowers/specs/2026-10-26-jam-only-design.md) rewrites it.
-
 This repo builds Jam and the **hardened Claude Code studios** it runs: a Studio
 Manager assembles each studio image (a kit base, the harness layer, then the
 sealed hardening layer), raises it in Colima, brokers its credentials, and
@@ -146,7 +137,7 @@ model is in [the release-pipeline spec](superpowers/specs/2026-07-17-monolithic-
 Because hardening trusts the base, `jam-studio-base` carries the overridable
 defaults every sandbox needs in `/home/agent/.init-agent-data`: the startup
 settings (`settings.json`, `.claude.json`), the agent docs (`CLAUDE.md`,
-`PROGRESSIVE_DISCLOSURE.md`, `SANDBOX.md`, `COLLABORATOR.md`, `reference/`), the
+`PROGRESSIVE_DISCLOSURE.md`, `SANDBOX.md`, `COLLABORATOR.md`, and `reference/`, which holds `progressive-disclosure.md`), the
 generic board/docs `skills/`, and the `.refresh` manifest. It also installs `code-server` (a pinned, SHA-256-verified release `.deb`) for the built-in Studio IDE. The sealed layer then, last: installs the
 embedded version-locked `jam-studio-agent`; populates `/etc/environment` (so `pam_env`
 exposes it to every SSH session) via `apply-sshenv.sh`; and re-asserts the
@@ -173,7 +164,7 @@ the sealed base or the `nftables` lock:
 | `allowed_domains.txt` | sealed hardening | baked | base, unconditional |
 | `allowed_domains.infra.txt` | the Jam host (the manager's `colima.jam-host`) | baked at build | every studio; a role can't remove it |
 | `allowed_domains.kit.txt` | the **active policy list**: the studio kit's `egress:` by default | baked at build; replaced at raise for a Jam role with a policy | every studio |
-| `allowed_domains.session.txt` | baked **empty** (its per-session tier went with at-cove) | baked | — |
+| `allowed_domains.session.txt` | baked **empty** (the per-session tier is unused) | baked | — |
 
 A fifth file, **`egress_ceiling.txt`**, is an immutable baked copy of
 the kit's egress list. Squid never reads it; it is the bound a Jam role's list
