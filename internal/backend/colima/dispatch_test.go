@@ -1,6 +1,7 @@
 package colima
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -277,5 +278,19 @@ func TestRemoveContainerAbsentIsSuccess(t *testing.T) {
 	g := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: boom", Err: &runner.ExitError{Code: 1}}}}
 	if err := NewWithContext(g, "").RemoveContainer("cove-w1"); err == nil {
 		t.Fatal("other failures must propagate")
+	}
+}
+
+// TestDockerIdempotentErrorCarriesOutput: a non-benign failure keeps docker's
+// own message (trimmed) and still wraps the exit error.
+func TestDockerIdempotentErrorCarriesOutput(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "Error response from daemon: removal of container cove-w1 is already in progress\n", Err: &runner.ExitError{Code: 1}}}}
+	err := NewWithContext(f, "").RemoveContainer("cove-w1")
+	if err == nil || !strings.HasSuffix(err.Error(), ": Error response from daemon: removal of container cove-w1 is already in progress") {
+		t.Fatalf("err = %q, want docker's message", err)
+	}
+	var ee *runner.ExitError
+	if !errors.As(err, &ee) || ee.Code != 1 {
+		t.Fatalf("err = %v, want it to wrap the exit error", err)
 	}
 }

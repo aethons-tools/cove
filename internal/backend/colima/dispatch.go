@@ -2,6 +2,7 @@ package colima
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/backend"
@@ -166,14 +167,19 @@ func (c *Colima) Unpause(name string) error {
 // container (or unpausing a running one) is a no-op, not an error. Without this
 // the idle ladder fails on every reconcile against a cove it already paused
 // ("container … is already paused"), never records the Idled phase, and retries
-// forever. The daemon writes that message to stderr, so capture both streams.
+// forever. The daemon writes that message to stderr, so capture both streams;
+// any other failure carries that output, which says why.
 func (c *Colima) dockerIdempotent(benign string, args ...string) error {
 	var buf bytes.Buffer
 	if err := c.r.RunIO(nil, &buf, &buf, "docker", args...); err != nil {
-		if strings.Contains(buf.String(), benign) {
+		out := strings.TrimSpace(buf.String())
+		if strings.Contains(out, benign) {
 			return nil
 		}
-		return err
+		if out == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, out)
 	}
 	return nil
 }
