@@ -40,8 +40,9 @@ snapshot time. `context` lists each file at its real path, **raw** — never
 rendered as markdown, so nothing in it is hidden or fetched. Text is escaped
 as in the CLI (a bidi override shows as `\u202e`). The sections load after the
 page opens, so a slow image read never holds up the agent or role page. Chips
-filter to one section (`?sections=`). A role page's Setup tab shows a manager selector when two or more managers are connected. On a studio, a `stale vs role` badge
-opens that section's diff against a raise now, and **Diff vs role**
+filter to one section (`?sections=`). A role page's Setup tab shows a manager
+selector when two or more managers are connected. On a studio, a `stale vs role`
+badge opens that section's diff against a raise now, and **Diff vs role**
 (`?diff=role`) diffs every section. Read-only, behind the same admin auth;
 each load is logged `ui setup inspected` (operator, subject, sections).
 

@@ -102,16 +102,16 @@ the build routes answer 503
 
 `at-jam studio raise --id try --role dev --kit-draft app` raises a manual
 studio ([the studio verbs](coves.md#the-studio-verbs)) that runs the draft's
-tree as of the raise, unpublished. Admin only, like every raise; the role
-supplies all but the kit. Its session context's kit fact and its setup
-inspect name the kit `<kit> (draft @<tree[:7]>)`.
+tree as of the raise, unpublished. Admin only, like every raise; the role supplies
+all but the kit. Its session context's kit fact and setup inspect name the kit
+`<kit> (draft @<tree[:7]>)`.
 
-- The raise reads the draft (problems refuse it), resolves its parents as a
-  push would, and test-builds it under the role's model-spec harness. The studio
-  runs on the manager whose build it uses: a build on any candidate (`managers`
-  honoured) is reused, else one starts on the first. The last build of the same tree **and** harness is reused while it succeeded and its
-  image exists; otherwise (none, failed, image gone) a build starts and the raise waits (`studio raise` allows 30 minutes). A request gone
-  first is 503 `the raise stopped waiting for the draft's test build (it runs on: raise again to use it)`.
+- The raise reads the draft (problems refuse it), resolves its parents as a push would, and
+  test-builds it under the role's model-spec harness. The studio runs on the manager whose
+  build it uses: a build on any candidate (`managers` honoured) is reused, else one starts
+  on the first. The last build of the same tree **and** harness is reused while it
+  succeeded and its image exists; otherwise (none, failed, image gone) a build starts and
+  the raise waits (`studio raise` allows 30 minutes). A request gone first is 503 `the raise stopped waiting for the draft's test build (it runs on: raise again to use it)`.
 - 409 while a build of another tree or harness runs, or
   `draft <kit> changed during the raise (retry)`. A failed build is 400
   `draft <kit>: the test build failed (see at-jam kit draft build <kit> --show): <its error's first line>`.
@@ -131,7 +131,7 @@ at-jam kit draft put app run.sh ./run.sh [--mode 755]  # write a file (- reads s
 at-jam kit draft rm app old.sh                         # remove a file
 at-jam kit draft sync app ./app                        # mirror a directory into the draft (needs an open draft)
 at-jam kit draft publish app [--pin]                   # → published draft app as v4 (tree 3f2a…)
-at-jam kit draft build app [--manager NAME] [--no-follow]               # test-build the draft, following its log → built draft app @3f2a… (digest sha256:…)
+at-jam kit draft build app [--manager N] [--no-follow] # test-build the draft, following its log → built draft app @3f2a… (digest sha256:…)
 at-jam kit draft discard app                           # drop the draft
 ```
 
