@@ -324,6 +324,7 @@ func TestOnFormsErrors(t *testing.T) {
 	calls := map[string]func(name string) error{
 		"build": func(n string) error { _, err := r.BuildKitDraftOn(ctx, n, jam.KitDefinition{}, "t", nil); return err },
 		"has":   func(n string) error { _, err := r.HasKitDraftImageOn(n, "id"); return err },
+		"draft": r.DraftManagerErr,
 		"facts": func(n string) error { _, err := r.ImageFactsOn(ctx, n, "img"); return err },
 	}
 	for what, call := range calls {
@@ -337,6 +338,7 @@ func TestOnFormsErrors(t *testing.T) {
 	for what, want := range map[string]string{
 		"build": "manager plain cannot build kit drafts",
 		"has":   "manager plain cannot build kit drafts",
+		"draft": "manager plain cannot build kit drafts",
 		"facts": "manager plain cannot read image facts",
 	} {
 		err := calls[what]("plain")

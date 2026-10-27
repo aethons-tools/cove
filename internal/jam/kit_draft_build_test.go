@@ -266,7 +266,7 @@ func TestDraftBuildOnePerKit(t *testing.T) {
 	if refused == nil {
 		refused = e2
 	}
-	wantErr(t, refused, "kit app already has a draft build running", 409)
+	wantErr(t, refused, "a draft build of app is already running on local", 409)
 	<-fb.started
 	close(fb.release)
 	if v := finished(t, b); v.State != DraftBuildSucceeded {
@@ -428,7 +428,7 @@ func TestDraftBuildRunningRefusedBeforeCopying(t *testing.T) {
 	reads := &countingBlobs{Store: st, sha: df.SHA256}
 	b.store = reads
 	_, err := b.Start("app", etag, "local", "")
-	wantErr(t, err, "kit app already has a draft build running", 409)
+	wantErr(t, err, "a draft build of app is already running on local", 409)
 	if n := reads.count(); n != 0 {
 		t.Fatalf("the refused start read the Dockerfile blob %d times", n)
 	}
@@ -526,6 +526,7 @@ type fakeManagedDraft struct {
 	order []string
 	by    map[string]*fakeDraftBuilder
 	away  map[string]bool
+	empty int // HasKitDraftImageOn calls with no image id: none may reach a manager
 }
 
 func newFakeManagedDraft(names ...string) *fakeManagedDraft {
@@ -575,7 +576,23 @@ func (f *fakeManagedDraft) BuildKitDraftOn(ctx context.Context, manager string, 
 	return fb.BuildKitDraft(ctx, def, tag, log)
 }
 
+func (f *fakeManagedDraft) DraftManagerErr(manager string) error {
+	_, err := f.on(manager)
+	return err
+}
+
+func (f *fakeManagedDraft) emptyProbes() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.empty
+}
+
 func (f *fakeManagedDraft) HasKitDraftImageOn(manager, id string) (bool, error) {
+	if id == "" {
+		f.mu.Lock()
+		f.empty++
+		f.mu.Unlock()
+	}
 	fb, err := f.on(manager)
 	if err != nil {
 		return false, err
@@ -627,7 +644,7 @@ func TestDraftBuildKeyedByManager(t *testing.T) {
 	<-fm.by["local"].started
 	<-fm.by["m1"].started
 	_, err := b.Start("app", etag, "op", "m1")
-	wantErr(t, err, "kit app already has a draft build running", 409)
+	wantErr(t, err, "a draft build of app is already running on m1", 409)
 	for _, m := range []string{"local", "m1"} {
 		v, err := b.Status("app", m, 0)
 		if err != nil || v.Manager != m || v.State != DraftBuildRunning {
@@ -661,6 +678,14 @@ func TestDraftBuildStatusLatestAcrossManagers(t *testing.T) {
 	if !errors.Is(err, ErrUnknownManager) {
 		t.Fatalf("status nope = %v", err)
 	}
+	// Equal start times: the later start is the latest.
+	if _, err := b.Start("app", etag, "op", "local"); err != nil {
+		t.Fatal(err)
+	}
+	waitJob(t, b, "app", "local")
+	if v, err := b.Status("app", "", 0); err != nil || v.Manager != "local" || !v.StartedAt.Equal(t0.Add(time.Minute)) {
+		t.Fatalf("status at an equal time = %+v, %v", v, err)
+	}
 }
 
 func TestDraftBuildStartDefaultManager(t *testing.T) {
@@ -683,6 +708,17 @@ func TestDraftBuildStartDefaultManager(t *testing.T) {
 	_, err = b.Start("app", etag, "op", "m1")
 	if !errors.Is(err, ErrManagerUnavailable) || !strings.Contains(err.Error(), "m1") {
 		t.Fatalf("away m1 = %v", err)
+	}
+	_, err = b.Start("app", etag, "op", "nope")
+	if !errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("unknown = %v", err)
+	}
+	_, err = b.Cancel(context.Background(), "app", "nope")
+	if !errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("cancel unknown = %v", err)
+	}
+	if n := fm.emptyProbes(); n != 0 {
+		t.Fatalf("%d image checks with no image id reached a manager", n)
 	}
 }
 
@@ -746,8 +782,26 @@ func TestEnsureRespectsRequestedManagers(t *testing.T) {
 	if err != nil || m != "m1" || img.ID != "sha256:m1" || fm.by["m1"].builds() != 1 {
 		t.Fatalf("ensure = %+v %q %v (m1 builds %d)", img, m, err, fm.by["m1"].builds())
 	}
+	// No requested manager can build: the first one's own refusal.
 	_, _, _, err = b.Ensure(context.Background(), def, ref, "raise", []string{"nope"})
+	if !errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("unknown requested = %v", err)
+	}
+	if code, _ := managerErrStatus(err); code != 404 {
+		t.Fatalf("unknown requested status = %d", code)
+	}
+	fm.setAway("m1", true)
+	_, _, _, err = b.Ensure(context.Background(), def, ref, "raise", []string{"m1"})
+	if !errors.Is(err, ErrManagerUnavailable) || errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "m1") {
+		t.Fatalf("away requested = %v", err)
+	}
+	// Nothing requested and nothing can build: the generic refusal.
+	fm.setAway("local", true)
+	_, _, _, err = b.Ensure(context.Background(), def, ref, "raise", nil)
 	if !errors.Is(err, ErrManagerUnavailable) || !strings.Contains(err.Error(), "no manager can build kit drafts") {
 		t.Fatalf("no candidates = %v", err)
+	}
+	if n := fm.emptyProbes(); n != 0 {
+		t.Fatalf("%d image checks with no image id reached a manager", n)
 	}
 }

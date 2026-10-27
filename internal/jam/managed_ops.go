@@ -11,6 +11,10 @@ type ManagedDraftBuilder interface {
 	DraftManagers() []string // available, draft-capable, in router order
 	BuildKitDraftOn(ctx context.Context, manager string, def KitDefinition, tag string, log io.Writer) (string, error)
 	HasKitDraftImageOn(manager, imageID string) (bool, error)
+	// DraftManagerErr is why a named manager cannot build kit drafts now
+	// (unknown: ErrUnknownManager; away or incapable: ErrManagerUnavailable;
+	// both name it), nil when it can. It asks no manager anything.
+	DraftManagerErr(manager string) error
 }
 
 // ManagedImageReader reads image facts on a named manager; "" = the first available reader.
@@ -37,6 +41,8 @@ func (o oneDraft) check(manager string) error {
 	}
 	return nil
 }
+
+func (o oneDraft) DraftManagerErr(manager string) error { return o.check(manager) }
 
 func (o oneDraft) BuildKitDraftOn(ctx context.Context, manager string, def KitDefinition, tag string, log io.Writer) (string, error) {
 	if err := o.check(manager); err != nil {

@@ -376,6 +376,13 @@ func (r *Router) draftBuilderOn(name string) (jam.KitDraftBuilder, error) {
 	return b, nil
 }
 
+// DraftManagerErr is why the named manager cannot build kit drafts now
+// (unknown, unavailable or incapable), nil when it can; it asks no manager.
+func (r *Router) DraftManagerErr(name string) error {
+	_, err := r.draftBuilderOn(name)
+	return err
+}
+
 // BuildKitDraft forwards to the first available draft-capable manager.
 func (r *Router) BuildKitDraft(ctx context.Context, def jam.KitDefinition, tag string, log io.Writer) (string, error) {
 	return r.BuildKitDraftOn(ctx, "", def, tag, log)

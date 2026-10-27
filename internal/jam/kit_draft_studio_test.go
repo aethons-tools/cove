@@ -166,7 +166,7 @@ func TestDraftStudioRefusals(t *testing.T) {
 	fb := &fakeDraftBuilder{err: errors.New("RUN make: exit 2\nmore detail")}
 	sup, store, _, s := draftStudioSetup(t, fb)
 	_, err := raiseDraftStudio(t, sup, "d1")
-	if err == nil || !strings.Contains(err.Error(), "draft my-app: the test build failed (see at-jam kit draft build my-app --show): RUN make: exit 2") ||
+	if err == nil || !strings.Contains(err.Error(), "draft my-app: the test build failed (see at-jam kit draft build my-app --show --manager local): RUN make: exit 2") ||
 		strings.Contains(err.Error(), "more detail") || WriteStatus(err, 500) != 400 {
 		t.Fatalf("failed build: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestDraftStudioRefusesWhileAnotherTreeBuilds(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := raiseDraftStudio(t, sup, "d1")
-	if err == nil || !strings.Contains(err.Error(), "kit my-app already has a draft build running") || WriteStatus(err, 500) != 409 {
+	if err == nil || !strings.Contains(err.Error(), "a draft build of my-app is already running on local") || WriteStatus(err, 500) != 409 {
 		t.Fatalf("err = %v", err)
 	}
 	if fb.builds() != 1 {

@@ -66,7 +66,7 @@ func TestDraftBuildRoutes(t *testing.T) {
 	if s, err := b.Status("app", "", 0); err != nil || s.ID != v.ID {
 		t.Fatalf("supervisor's builds = %+v %v, want build %s", s, err, v.ID)
 	}
-	if w := draftDo(t, h, "POST", path, "application/json", etag, nil); w.Code != http.StatusConflict || body(w) != "kit app already has a draft build running" {
+	if w := draftDo(t, h, "POST", path, "application/json", etag, nil); w.Code != http.StatusConflict || body(w) != "a draft build of app is already running on local" {
 		t.Fatalf("second start = %d %s", w.Code, w.Body)
 	}
 	<-fb.started // the fake wrote its log line before signalling
@@ -238,5 +238,8 @@ func TestDraftBuildStartUnknownManager404(t *testing.T) {
 	}
 	if d := draftDo(t, h, "DELETE", path+"?manager=m1", "", "", nil); d.Code != http.StatusNotFound || body(d) != "kit app has no draft build running on m1" {
 		t.Fatalf("cancel m1 = %d %s", d.Code, d.Body)
+	}
+	if d := draftDo(t, h, "DELETE", path+"?manager=nope", "", "", nil); d.Code != http.StatusNotFound || body(d) != "unknown manager: nope" {
+		t.Fatalf("cancel nope = %d %s", d.Code, d.Body)
 	}
 }

@@ -113,7 +113,7 @@ func TestKitDraftBuildNoFollowShowCancel(t *testing.T) {
 	if code, out, _ := kit("app", "--no-follow"); code != 0 || !strings.HasPrefix(out, "building draft app @") {
 		t.Fatalf("--no-follow: %d %q", code, out)
 	}
-	if code, _, errs := kit("app", "--no-follow"); code != 1 || !strings.Contains(errs, "kit app already has a draft build running") {
+	if code, _, errs := kit("app", "--no-follow"); code != 1 || !strings.Contains(errs, "a draft build of app is already running on local") {
 		t.Fatalf("second start: %d %q", code, errs)
 	}
 	if code, out, _ := kit("app", "--show"); code != 0 || !strings.Contains(out, "running") {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -45,5 +46,11 @@ func TestOneDraftManager(t *testing.T) {
 	}
 	if _, err := m.HasKitDraftImageOn("y", "id"); !errors.Is(err, ErrUnknownManager) {
 		t.Fatalf("other has: %v", err)
+	}
+	if err := m.DraftManagerErr("x"); err != nil {
+		t.Fatalf("classify x: %v", err)
+	}
+	if err := m.DraftManagerErr("y"); !errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "y") {
+		t.Fatalf("classify other: %v", err)
 	}
 }

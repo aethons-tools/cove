@@ -293,9 +293,8 @@ func draftJobKey(kit, manager string) string { return kit + "\x00" + manager }
 var errNoDraftManager = fmt.Errorf("%w: no manager can build kit drafts", ErrManagerUnavailable)
 
 // buildManager is the manager a Start builds on: manager, or "" for the
-// first draft-capable one. A named one that cannot build now fails as the
-// builder says (unknown: ErrUnknownManager; away or unable:
-// ErrManagerUnavailable).
+// first draft-capable one. A named one that cannot build now fails as
+// managerErr says.
 func (b *KitDraftBuilds) buildManager(manager string) (string, error) {
 	ms := b.builder.DraftManagers()
 	if manager == "" {
@@ -307,11 +306,26 @@ func (b *KitDraftBuilds) buildManager(manager string) (string, error) {
 	if slices.Contains(ms, manager) {
 		return manager, nil
 	}
-	// Not draft-capable now: the builder's own refusal says why.
-	if _, err := b.builder.HasKitDraftImageOn(manager, ""); err != nil {
+	if err := b.managerErr(manager); err != nil {
 		return "", err
 	}
 	return manager, nil // it came up meanwhile
+}
+
+// managerErr is why named manager, absent from DraftManagers, cannot
+// build kit drafts: the builder's classification (unknown:
+// ErrUnknownManager; away or incapable: ErrManagerUnavailable), asking no
+// manager anything. nil only when it is draft-capable on a re-read (it came
+// up meanwhile); a classification of nil while it is still absent is
+// ErrManagerUnavailable, naming it.
+func (b *KitDraftBuilds) managerErr(manager string) error {
+	if err := b.builder.DraftManagerErr(manager); err != nil {
+		return err
+	}
+	if slices.Contains(b.builder.DraftManagers(), manager) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrManagerUnavailable, manager)
 }
 
 // latestLocked is kit's most recently started build (only a running one
@@ -329,8 +343,8 @@ func (b *KitDraftBuilds) latestLocked(kit string, running bool) *draftBuildJob {
 	return latest
 }
 
-func errDraftBuildRunning(name string) error {
-	return writeErr(http.StatusConflict, "kit %s already has a draft build running", name)
+func errDraftBuildRunning(name, manager string) error {
+	return writeErr(http.StatusConflict, "a draft build of %s is already running on %s", name, manager)
 }
 
 // Start starts a test build of kit name's draft at ETag ifMatch, under the
@@ -386,7 +400,7 @@ func (b *KitDraftBuilds) canStartLocked(name, manager string) error {
 		return writeErr(http.StatusServiceUnavailable, "Jam is shutting down")
 	}
 	if j := b.jobs[draftJobKey(name, manager)]; j != nil && j.state == DraftBuildRunning {
-		return errDraftBuildRunning(name)
+		return errDraftBuildRunning(name, manager)
 	}
 	return nil
 }
@@ -457,8 +471,8 @@ func (b *KitDraftBuilds) Status(name, manager string, since int64) (KitDraftBuil
 		j = b.jobs[draftJobKey(name, manager)]
 	}
 	b.mu.Unlock()
-	if j == nil && manager != "" {
-		if _, err := b.buildManager(manager); errors.Is(err, ErrUnknownManager) {
+	if j == nil && manager != "" && !slices.Contains(b.builder.DraftManagers(), manager) {
+		if err := b.builder.DraftManagerErr(manager); errors.Is(err, ErrUnknownManager) {
 			return KitDraftBuild{}, err
 		}
 	}
@@ -505,6 +519,11 @@ func (b *KitDraftBuilds) Cancel(ctx context.Context, name, manager string) (KitD
 	running := j != nil && j.state == DraftBuildRunning
 	b.mu.Unlock()
 	if !running {
+		if manager != "" && j == nil && !slices.Contains(b.builder.DraftManagers(), manager) {
+			if err := b.builder.DraftManagerErr(manager); errors.Is(err, ErrUnknownManager) {
+				return KitDraftBuild{}, err
+			}
+		}
 		if manager != "" {
 			return KitDraftBuild{}, writeErr(http.StatusNotFound, "kit %s has no draft build running on %s", name, textesc.Escape(manager, false))
 		}
@@ -606,7 +625,15 @@ func (b *KitDraftBuilds) Ensure(ctx context.Context, def KitDefinition, ref KitD
 		candidates = in
 	}
 	if len(candidates) == 0 {
-		return KitDraftImage{}, "", KitObjects{}, errNoDraftManager
+		if len(managers) > 0 {
+			// None requested can build: the first one's own refusal.
+			if err := b.managerErr(managers[0]); err != nil {
+				return KitDraftImage{}, "", KitObjects{}, err
+			}
+			candidates = []string{managers[0]} // it came up meanwhile
+		} else {
+			return KitDraftImage{}, "", KitObjects{}, errNoDraftManager
+		}
 	}
 	same := func(j *draftBuildJob) bool { return j != nil && j.tree == ref.Tree && j.buildDigest == def.Ref.Digest }
 	for _, m := range candidates {
@@ -642,7 +669,7 @@ func (b *KitDraftBuilds) Ensure(ctx context.Context, def KitDefinition, ref KitD
 	defer b.mu.Unlock()
 	if j.state != DraftBuildSucceeded {
 		line, _, _ := strings.Cut(j.errText, "\n")
-		return KitDraftImage{}, "", KitObjects{}, writeErr(http.StatusBadRequest, "draft %s: the test build failed (see at-jam kit draft build %s --show): %s", ref.Kit, ref.Kit, textesc.Escape(line, false))
+		return KitDraftImage{}, "", KitObjects{}, writeErr(http.StatusBadRequest, "draft %s: the test build failed (see at-jam kit draft build %s --show --manager %s): %s", ref.Kit, ref.Kit, manager, textesc.Escape(line, false))
 	}
 	return KitDraftImage{Tag: j.tag, ID: j.imageID}, manager, objs, nil
 }
@@ -654,7 +681,7 @@ func (b *KitDraftBuilds) canEnsure(kit, manager string, same func(*draftBuildJob
 	defer b.mu.Unlock()
 	if j := b.jobs[draftJobKey(kit, manager)]; j != nil && j.state == DraftBuildRunning {
 		if !same(j) {
-			return errDraftBuildRunning(kit)
+			return errDraftBuildRunning(kit, manager)
 		}
 		return nil
 	}
