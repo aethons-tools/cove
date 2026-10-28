@@ -107,8 +107,11 @@ func buildAgentConfig(getenv func(string) string) (agentrun.Config, error) {
 	}
 	cfg.SessionKind = getenv("JAM_SESSION_KIND")
 	// Live refresh (GET /context) needs a raise-time bundle to start from.
+	// The structured turn end rides on it: it turns on only once the refreshed
+	// context carries its guidance.
 	if base := getenv("JAM_BASE_URL"); base != "" && cfg.Context != nil {
 		cfg.ContextSource = agentrun.HTTPContextSource(base, jamEnv(getenv, "IDENTITY_TOKEN"))
+		cfg.TurnIO = agentrun.HTTPTurnIO(base, jamEnv(getenv, "IDENTITY_TOKEN"))
 	}
 	return cfg, nil
 }

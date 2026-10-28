@@ -1997,8 +1997,30 @@ func (s *Supervisor) ContextFor(actorID string) (sessionctx.Bundle, error) {
 
 // ContextForActor is ContextFor for an already-authenticated actor (the
 // GET /context handler has it from the token lookup).
+// It compiles for the turn protocol the cove last fetched its context with.
 func (s *Supervisor) ContextForActor(actor Actor) (sessionctx.Bundle, error) {
-	return s.ContextForTurns(actor, 0)
+	inst, ok := s.store.GetInstance(actor.ID)
+	if !ok {
+		return sessionctx.Bundle{}, ErrNoInstance
+	}
+	return s.ContextForTurns(actor, inst.TurnProtocol)
+}
+
+// SetTurnProtocol records the turn protocol the cove fetched its context with
+// (GET /context), so later recompiles (setup inspection) match what it was
+// served.
+func (s *Supervisor) SetTurnProtocol(actorID string, p int) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return ErrNoInstance
+	}
+	if inst.TurnProtocol == p {
+		return nil
+	}
+	inst.TurnProtocol = p
+	return s.store.PutInstance(inst)
 }
 
 // ContextForTurns is ContextForActor for a cove that speaks turnProtocol

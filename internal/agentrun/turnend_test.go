@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
@@ -60,8 +61,11 @@ func (f *fakeTurnIO) Post(_ context.Context, text, to string) error {
 	f.rec("Post %q %q", text, to)
 	return nil
 }
-func (f *fakeTurnIO) Commit(_ context.Context, upTo string) error { f.rec("Commit %s", upTo); return nil }
-func (f *fakeTurnIO) End(_ context.Context, reason string) error  { f.rec("End %q", reason); return nil }
+func (f *fakeTurnIO) Commit(_ context.Context, upTo string) error {
+	f.rec("Commit %s", upTo)
+	return nil
+}
+func (f *fakeTurnIO) End(_ context.Context, reason string) error { f.rec("End %q", reason); return nil }
 func (f *fakeTurnIO) SetAlarm(_ context.Context, name, at, note string) error {
 	f.rec("SetAlarm %s %s %q", name, at, note)
 	return nil
@@ -86,7 +90,7 @@ const lnResultErr = `{"type":"result","subtype":"error_during_execution","is_err
 
 func turnWL(t *testing.T, s *streamSpawner, io *fakeTurnIO) *Workload {
 	t.Helper()
-	return streamWL(t, t.TempDir(), s, func(c *Config) { c.TurnIO = io })
+	return streamWL(t, t.TempDir(), s, func(c *Config) { c.TurnIO = io; structuredContext(t, c) })
 }
 
 func wantCalls(t *testing.T, got []string, want ...string) {
@@ -271,7 +275,7 @@ func directiveTurn(t *testing.T, d Directives, text string) ([]string, *Workload
 	s := newStreamSpawner()
 	io := &fakeTurnIO{pages: [][]InboxEntry{{entry("m1", "hello")}}}
 	sock := shortSock(t)
-	w := streamWL(t, t.TempDir(), s, func(c *Config) { c.TurnIO, c.AgentSocket = io, sock })
+	w := streamWL(t, t.TempDir(), s, func(c *Config) { c.TurnIO, c.AgentSocket = io, sock; structuredContext(t, c) })
 	done := runAsyncEpisodes(w, &recordHandle{}, 1)
 	p := s.next(t)
 	p.in.next(t)
@@ -343,12 +347,17 @@ func TestTurnEndDirectivesResetAndUnmute(t *testing.T) {
 func TestAgentSocketValidates(t *testing.T) {
 	sock := shortSock(t)
 	w := New(Config{TurnIO: &fakeTurnIO{}}, nil)
+	c0 := DialAgentSocket(sock)
 	stop, err := serveAgentSocket(sock, w.agentSocketHandler(), w.log)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer stop()
-	c := DialAgentSocket(sock)
+	if err := c0.SetTurnEnd(context.Background(), Directives{}); err == nil || !strings.Contains(err.Error(), "doesn't support turn_end yet") {
+		t.Fatalf("legacy context: %v", err)
+	}
+	w.structuredOn.Store(true)
+	c := c0
 	for _, d := range []Directives{{Next: "end"}, {Next: "later"}, {WakeAt: &WakeAt{At: "tomorrow"}}} {
 		if err := c.SetTurnEnd(context.Background(), d); err == nil {
 			t.Errorf("%+v: want an error", d)
@@ -366,6 +375,7 @@ func TestAgentSocketValidates(t *testing.T) {
 func TestTurnEndRefusedToFallsBackHome(t *testing.T) {
 	io := &refusingIO{fakeTurnIO: &fakeTurnIO{}}
 	w := New(Config{TurnIO: io}, nil)
+	w.ctxr = &contextRefresher{last: sessionctx.Bundle{TurnProtocol: TurnProtocol}}
 	w.directives = &Directives{To: "user:nobody"}
 	w.finishTurn(context.Background(), TurnResult{Text: "hi", OK: true})
 	wantCalls(t, io.callList(), `Post "hi" "user:nobody"`, `Post "hi" ""`)
@@ -382,4 +392,41 @@ func (r *refusingIO) Post(ctx context.Context, text, to string) error {
 		return errors.New("POST /squawks: 404 Not Found")
 	}
 	return nil
+}
+
+// structuredContext gives c a session context compiled for the structured
+// turn end, so its Workload turns it on.
+func structuredContext(t *testing.T, c *Config) {
+	t.Helper()
+	b := sessionctx.Compile(sessionctx.Inputs{Session: sessionctx.SessionFacts{Kind: "standing", Name: "n", Project: "p", Role: "r", TurnProtocol: TurnProtocol}})
+	c.Context, c.ContextDir = &b, filepath.Join(t.TempDir(), "context")
+	c.ContextSource = &seqContext{bundles: []sessionctx.Bundle{b}}
+}
+
+func TestLegacyContextKeepsLegacyTurns(t *testing.T) {
+	s := newStreamSpawner()
+	io := &fakeTurnIO{pages: [][]InboxEntry{{entry("m1", "hello")}}}
+	one := compileRole("ONE") // protocol 0: an older Jam's guidance
+	w := streamWL(t, t.TempDir(), s, func(c *Config) {
+		c.TurnIO = io
+		c.Context, c.ContextDir = &one, filepath.Join(t.TempDir(), "context")
+		c.ContextSource = &seqContext{bundles: []sessionctx.Bundle{one}}
+	})
+	done := runAsyncEpisodes(w, &recordHandle{}, 1)
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit)
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
+	time.Sleep(10 * time.Millisecond)
+	p.emit(resultLine("hi"))
+	if got := p.in.next(t); got != resumePrompt {
+		t.Fatalf("resume = %q, want the legacy prompt", got)
+	}
+	p.emit(lnInit, resultLine("bye"))
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	wantCalls(t, io.callList())
 }

@@ -3,10 +3,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -746,5 +750,45 @@ func TestMCPMissionForwardsText(t *testing.T) {
 	}
 	if m != "PUT" || p != "/mission" || !strings.Contains(b, `"text":"fixing login"`) {
 		t.Fatalf("%s %s %s", m, p, b)
+	}
+}
+
+func TestMCPTurnEndForwardsToAgentSocket(t *testing.T) {
+	dir, err := os.MkdirTemp("", "as")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := filepath.Join(dir, "a.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/turn-end" {
+			t.Errorf("got %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusNoContent)
+	})}
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	env := map[string]string{"JAM_RUNTIME_ADDR": "http://127.0.0.1:1", "JAM_IDENTITY_TOKEN": "tok", "JAM_AGENT_SOCKET": sock}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "turn_end", Arguments: map[string]any{"commit": false, "next": "end", "reason": "done"}})
+	if err != nil || res.IsError {
+		t.Fatalf("turn_end: %v %+v", err, res)
+	}
+	if got["commit"] != false || got["next"] != "end" || got["reason"] != "done" {
+		t.Fatalf("socket got %v", got)
+	}
+
+	env["JAM_AGENT_SOCKET"] = filepath.Join(dir, "none.sock")
+	sess = connectMCP(t, func(k string) string { return env[k] })
+	res, err = sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "turn_end", Arguments: map[string]any{}})
+	if err != nil || !res.IsError || !strings.Contains(fmt.Sprint(res.Content[0]), "upgrade the studio") {
+		t.Fatalf("no socket: %v %+v", err, res)
 	}
 }

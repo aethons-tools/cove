@@ -85,6 +85,10 @@ func (w *Workload) agentSocketHandler() http.Handler {
 			http.Error(rw, "invalid request", http.StatusBadRequest)
 			return
 		}
+		if !w.structuredOn.Load() {
+			http.Error(rw, "this session's Jam doesn't support turn_end yet: end your turn as usual and send your reply with send", http.StatusConflict)
+			return
+		}
 		if err := d.Validate(); err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return

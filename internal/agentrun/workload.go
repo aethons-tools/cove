@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
@@ -181,6 +182,8 @@ type Workload struct {
 	// muted: Jam was last asked not to wake the session on messages (Run's
 	// goroutine only).
 	muted bool
+	// structuredOn mirrors structured() for the agent socket's goroutine.
+	structuredOn atomic.Bool
 	// note is a line the next delivered prompt opens with (a reply that
 	// could not go where turn_end asked). Run's goroutine only.
 	note string

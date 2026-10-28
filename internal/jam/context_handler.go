@@ -45,6 +45,9 @@ func NewContextHandler(store Store, sup *Supervisor, now func() time.Time, log *
 		if r.URL.Query().Get("turn-protocol") == strconv.Itoa(sessionctx.TurnProtocolStructured) {
 			turnProtocol = sessionctx.TurnProtocolStructured
 		}
+		if err := sup.SetTurnProtocol(a.ID, turnProtocol); err != nil && !errors.Is(err, ErrNoInstance) {
+			log.Warn("context: turn protocol not recorded", "actor", a.ID, "err", err.Error())
+		}
 		b, err := sup.ContextForTurns(a, turnProtocol)
 		switch {
 		case errors.Is(err, ErrNoInstance):

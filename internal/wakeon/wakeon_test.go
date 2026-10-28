@@ -2063,3 +2063,16 @@ func TestRepliesMuted(t *testing.T) {
 		t.Fatalf("muted with a due alarm: woke=%v reasons=%v", aw.woke, aw.reasons)
 	}
 }
+
+func TestReplyToAct_ReleaseWhileMuted(t *testing.T) {
+	var events []string
+	reap := &orderedReaper{log: &events}
+	inst := waitingPersonal()
+	inst.MessagesMuted = true
+	k := newCmdKit(t, reap, inst, reply("p1", 6, "alice", nagID("p1"), "release"))
+	k.n.log = &events
+	k.e.tick(context.Background())
+	if len(events) != 2 || events[0] != "teardown:p1" {
+		t.Fatalf("a muted session's owner can still release it; events=%v", events)
+	}
+}

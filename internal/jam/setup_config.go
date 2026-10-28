@@ -19,7 +19,7 @@ import (
 // (TestIntercomToolsMatchJam).
 var IntercomTools = []string{"alarm_clear", "alarm_list", "alarm_set", "amend", "ask", "asks", "board_apply", "board_create",
 	"board_read", "board_snapshot", "boards", "call_in", "commit", "end", "escalate", "expose", "exposures", "fetch",
-	"idle_timeout", "leave", "list_targets", "mission", "read", "report", "send", "unexpose", "withdraw"}
+	"idle_timeout", "leave", "list_targets", "mission", "read", "report", "send", "turn_end", "unexpose", "withdraw"}
 
 // destinationsBody renders each destination in a's scopes: how it is reached
 // and authenticated, by credential NAME, and which env keys it sets.

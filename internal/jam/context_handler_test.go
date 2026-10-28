@@ -95,3 +95,26 @@ func TestContextHandlerTurnProtocol(t *testing.T) {
 		t.Fatal("an unknown turn protocol changed the context")
 	}
 }
+
+func TestContextForRemembersTurnProtocol(t *testing.T) {
+	sup, store, clk := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	_, tok, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewContextHandler(store, sup, func() time.Time { return *clk }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	req := httptest.NewRequest(http.MethodGet, "/context?turn-protocol=2", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var served sessionctx.Bundle
+	if err := json.Unmarshal(rec.Body.Bytes(), &served); err != nil {
+		t.Fatal(err)
+	}
+	// Setup inspection recompiles what the cove was served, not the legacy
+	// guidance (which would show its context as stale).
+	again, err := sup.ContextFor("w1")
+	if err != nil || again.Fingerprint != served.Fingerprint {
+		t.Fatalf("ContextFor after a structured fetch: %v, fingerprint %s want %s", err, again.Fingerprint, served.Fingerprint)
+	}
+}

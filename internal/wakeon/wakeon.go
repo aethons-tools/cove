@@ -365,7 +365,9 @@ func (e *Engine) tick(ctx context.Context) {
 			if inst.SessionKind == jam.SessionKindPersonal && e.command(ctx, inst, rs) {
 				continue
 			}
-			reasons = append([]jam.WakeReason{{Kind: jam.WakeSquawk}}, reasons...)
+			if !inst.MessagesMuted { // muted (PUT /mute): alarms and idle still wake
+				reasons = append([]jam.WakeReason{{Kind: jam.WakeSquawk}}, reasons...)
+			}
 		}
 		if len(reasons) > 0 {
 			if inst.Phase == jam.PhaseIdled {
@@ -407,6 +409,9 @@ func (e *Engine) wakeRunning(inst jam.Instance, extra []jam.WakeReason) bool {
 		return false
 	}
 	rs := e.replies(inst)
+	if inst.MessagesMuted {
+		rs = nil // muted (PUT /mute): only the extra reasons wake it
+	}
 	if len(rs) == 0 {
 		if len(extra) == 0 {
 			return false
@@ -633,7 +638,7 @@ func (e *Engine) idleLadder(ctx context.Context, inst jam.Instance) bool {
 // unconfigured) always returns none — reply-waking is off, but the max-wait
 // teardown and warm-timeout Idle above still run.
 func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
-	if e.inbox == nil || inst.MessagesMuted { // muted (PUT /mute): alarms and idle still wake
+	if e.inbox == nil {
 		return nil
 	}
 	var out []intercom.Squawk

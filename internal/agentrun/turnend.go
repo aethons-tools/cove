@@ -35,11 +35,21 @@ type turnMeta struct {
 	quiet bool
 }
 
+// structured reports whether the structured turn end is on: TurnIO is set
+// and the session context in effect was compiled for it (an older Jam sends
+// legacy guidance, which tells the agent to send its replies itself). Run's
+// goroutine; it also publishes the answer for the agent socket.
+func (w *Workload) structured() bool {
+	on := w.cfg.TurnIO != nil && w.ctxr != nil && w.ctxr.last.TurnProtocol == TurnProtocol
+	w.structuredOn.Store(on)
+	return on
+}
+
 // batch fetches and renders the session's pending messages; ok is false when
 // TurnIO is unset or the fetch failed (the caller falls back to the legacy
 // read prompt). An empty inbox is ok with no text.
 func (w *Workload) batch(ctx context.Context) (text, upTo string, ok bool) {
-	if w.cfg.TurnIO == nil {
+	if !w.structured() {
 		return "", "", false
 	}
 	ctx, cancel := context.WithTimeout(ctx, turnIOTimeout)
@@ -129,7 +139,7 @@ func (w *Workload) restartText(ctx context.Context) string {
 func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) {
 	meta := w.inflight
 	w.inflight = turnMeta{}
-	if w.cfg.TurnIO == nil || meta.quiet {
+	if !w.structured() || meta.quiet {
 		return false
 	}
 	d := w.takeDirectives()

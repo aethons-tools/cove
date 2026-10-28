@@ -171,11 +171,11 @@ func TestBuildAgentConfigContextRefreshAndKind(t *testing.T) {
 	env := map[string]string{"JAM_AGENT_PROMPT_FILE": pf, "JAM_AGENT_CONTEXT_FILE": cf,
 		"JAM_BASE_URL": "https://jam.example", "JAM_IDENTITY_TOKEN": "tok", "JAM_SESSION_KIND": "standing"}
 	cfg, err := buildAgentConfig(func(k string) string { return env[k] })
-	if err != nil || cfg.ContextSource == nil || cfg.SessionKind != "standing" {
-		t.Fatalf("cfg = source %v kind %q, err %v", cfg.ContextSource, cfg.SessionKind, err)
+	if err != nil || cfg.ContextSource == nil || cfg.TurnIO == nil || cfg.SessionKind != "standing" {
+		t.Fatalf("cfg = source %v turn io %v kind %q, err %v", cfg.ContextSource, cfg.TurnIO, cfg.SessionKind, err)
 	}
 	delete(env, "JAM_AGENT_CONTEXT_FILE")
-	if cfg, _ := buildAgentConfig(func(k string) string { return env[k] }); cfg.ContextSource != nil {
-		t.Fatal("no initial bundle → no refresh source")
+	if cfg, _ := buildAgentConfig(func(k string) string { return env[k] }); cfg.ContextSource != nil || cfg.TurnIO != nil {
+		t.Fatal("no initial bundle → no refresh source, and no structured turn end (its guidance comes with the context)")
 	}
 }

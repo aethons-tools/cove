@@ -96,6 +96,7 @@ type Instance struct {
 	EndRequested       *EndRequest   `json:"end_requested,omitempty"`       // the cove asked to end (POST /end); wake-on tears it down once Waiting
 	MessagesMuted      bool          `json:"messages_muted,omitempty"`      // new messages don't wake the session (PUT /mute); cleared when its next turn starts
 	Report             *TicketReport `json:"report,omitempty"`              // the session's last ticket report (POST /report, or blocked by wake-on)
+	TurnProtocol       int           `json:"turn_protocol,omitempty"`       // the turn protocol the cove last fetched its context with (GET /context); 0 = legacy
 }
 
 // InstanceCounter counts live instances in a Store — the slice-1 capacity signal
