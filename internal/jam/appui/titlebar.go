@@ -66,13 +66,11 @@ func WithShell(next http.Handler, s Shell) http.Handler {
 
 var userTabs = []Tab{{Key: "inbox", Label: "Inbox", Href: "/app/user/"}}
 
+// adminTabs are the admin app's title-bar tabs, in both areas.
 var adminTabs = []Tab{
 	{Key: "dashboard", Label: "Dashboard", Href: "/app/admin/"},
-	{Key: "projects", Label: "Projects", Href: "/app/admin/projects"},
+	{Key: "config", Label: "Config", Href: "/app/admin/config/tracking"},
 	{Key: "agents", Label: "Agents", Href: "/app/admin/agents"},
-	{Key: "users", Label: "Users", Href: "/app/admin/users"},
-	{Key: "specs", Label: "Specs", Href: "/app/admin/specs"},
-	{Key: "config", Label: "Config", Href: "/app/admin/config"},
 	{Key: "health", Label: "Health", Href: "/app/admin/health"},
 }
 

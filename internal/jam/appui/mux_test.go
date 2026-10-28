@@ -131,6 +131,7 @@ func TestAreasGated(t *testing.T) {
 		{"user area, admin only", "GET", "/app/user/x", "stranger", "ok", "", 403, ""},
 		{"admin area, admin", "GET", "/app/admin/x", "stranger", "ok", "", 200, "admin /app/admin/x"},
 		{"admin area, member only", "GET", "/app/admin/x", "alice", "", "", 403, ""},
+		{"old admin page, member only", "GET", "/app/admin/users/u", "alice", "", "", 403, ""}, // refused before any redirect
 		{"user send, cross-origin", "POST", "/app/user/send", "alice", "", "https://evil.example", 403, ""},
 		{"user send, trusted origin", "POST", "/app/user/send", "alice", "", "https://jam.example", 200, "user /app/user/send"},
 		{"auth routes ungated", "GET", "/app/auth/login", "", "", "", 200, "auth /app/auth/login"},

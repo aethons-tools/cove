@@ -1,7 +1,7 @@
 import { Navigate, type RouteObject } from "react-router";
 import type { Bootstrap } from "./api/types";
 import { AdminShell } from "./AdminShell";
-import { NotMovedYet } from "./NotMovedYet";
+import { NoSuchPage } from "./NoSuchPage";
 import { ADMIN } from "./paths";
 import { UsersPage } from "./users/UsersPage";
 import { TrackingPage } from "./tracking/TrackingPage";
@@ -29,7 +29,7 @@ import { TimelinePage } from "./agents/TimelinePage";
 import { UserPage } from "./users/UserPage";
 
 // adminRoutes are the admin area's client routes under ADMIN (webapp serves
-// index.html for every one of them). Pages not ported yet are NotMovedYet.
+// index.html for every one of them). An unknown path is NoSuchPage.
 export function adminRoutes(boot: Bootstrap): RouteObject[] {
   return [{
     path: ADMIN,
@@ -54,15 +54,13 @@ export function adminRoutes(boot: Bootstrap): RouteObject[] {
       { path: "config/kits/:kit", element: <KitPage /> },
       { path: "config/users", element: <UsersPage /> },
       { path: "config/users/:user", element: <UserPage /> },
-      { path: "config/*", element: <NotMovedYet /> },
       { path: "agents", element: <AgentsTab /> },
       { path: "agents/:id", element: <AgentPage /> },
       { path: "agents/:id/session", element: <TimelinePage /> },
-      { path: "agents/*", element: <NotMovedYet /> },
       { path: "health", element: <HealthPage /> },
       { path: "health/intercom", element: <ChannelLogPage /> },
       { path: "search", element: <SearchPage /> },
-      { path: "*", element: <NotMovedYet /> },
+      { path: "*", element: <NoSuchPage /> },
     ],
   }];
 }

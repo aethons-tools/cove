@@ -55,8 +55,17 @@ func appPath(old string) string {
 			return ""
 		}
 	case s[0] == "agents":
-		q.Del("project") // the Agents tab has no project scope
+		q.Del("project")                    // the Agents tab has no project scope
+		if len(s) == 3 && s[2] == "setup" { // an agent's Setup is a section of its page
+			s = s[:2]
+		}
 		path = strings.Join(s, "/")
+	case s[0] == "specs" && len(s) == 1:
+		path = "config/kits"
+	case s[0] == "roles" && len(s) == 1:
+		return ""
+	case s[0] == "roles" && len(s) == 3:
+		path = "config/projects/" + s[1] + "/agents/" + s[2]
 	case s[0] == "intercom" && len(s) == 1:
 		path = "health/intercom"
 	case (s[0] == "health" || s[0] == "search") && len(s) == 1:

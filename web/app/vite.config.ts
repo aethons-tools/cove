@@ -27,12 +27,11 @@ export default defineConfig({
   },
   server: {
     // The app's pages and /app/assets/ are this server's (base /app/); only
-    // the routes it reads beside them go to Jam, and the old admin pages
-    // (the admin app is at /app/admin/next/ until its cutover).
+    // the routes it reads beside them go to Jam.
     proxy: {
       "^/app/user/(api|events|session|uploads|blobs|push)(/|$)": toJam,
       "^/app/user/boards/[^/]+/(elements|thumb\\.png)": toJam,
-      "^/app/admin/(?!next/)": toJam,
+      "^/app/admin/(api|suggest)(/|$)": toJam,
       "/app/auth": toJam,
       "/app/static": toJam,
     },

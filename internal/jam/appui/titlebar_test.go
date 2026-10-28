@@ -32,7 +32,20 @@ func keys(tb appui.Titlebar) []string {
 	return k
 }
 
-var adminKeys = []string{"dashboard", "projects", "agents", "users", "specs", "config", "health"}
+var adminKeys = []string{"dashboard", "config", "agents", "health"}
+
+// The admin tabs open the admin app's pages (the user area shows them too).
+func TestTitlebarAdminHrefs(t *testing.T) {
+	tb := titlebarFor(t, appui.Principal{Admin: true, Operator: jam.Operator{ID: "op"}}, "")
+	got := map[string]string{}
+	for _, tab := range tb.Tabs {
+		got[tab.Key] = tab.Href
+	}
+	want := map[string]string{"dashboard": "/app/admin/", "config": "/app/admin/config/tracking", "agents": "/app/admin/agents", "health": "/app/admin/health"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("hrefs = %v", got)
+	}
+}
 
 func TestTitlebarTabsAndRoles(t *testing.T) {
 	u := &jam.Participant{Name: "Ada"}

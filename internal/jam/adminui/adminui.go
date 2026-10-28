@@ -231,90 +231,17 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	}
 	src := frameSource{store: store, img: sup, name: o.displayName, conds: o.conds}
 	mux := http.NewServeMux()
-	canEdit := sup != nil
-
-	// The shared assets (jam.css, htmx) — templates are never reachable here.
-
-	mux.HandleFunc("GET /app/admin/{$}", func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("HX-Request") == "true" { // the studio table's poll
-			renderFragment(w, r, "dashboard", "coves-table", map[string]any{"Coves": jam.CoveSummaries(store, sup)})
-			return
-		}
-		var mgrs []jam.ManagerStatus
-		if o.managers != nil {
-			mgrs = o.managers()
-		}
-		render(w, r, "dashboard", map[string]any{
-			"Title":       "Dashboard",
-			"HasManagers": o.managers != nil,
-			"Managers":    mgrs,
-			"Coves":       jam.CoveSummaries(store, sup),
-			"Stats":       dashboardStats(store),
-			"JamContext":  jamPanel(store),
-		})
-	})
-
-	registerAgents(mux, store, sup, canEdit)
-	registerHealth(mux, o.conds, o.alertmanagerURL)
-	// The rail's project list, re-fetched by its own poll so badges stay
-	// live on the Projects pages.
-	mux.HandleFunc("GET /app/admin/rail", func(w http.ResponseWriter, r *http.Request) {
-		renderFragment(w, r, "dashboard", "rail-entries", railFor(r, src, src.items()))
-	})
-	// Specs has no page of its own: it opens on its first sub-tab.
-	mux.HandleFunc("GET /app/admin/specs", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/app/admin/kits", http.StatusFound)
-	})
-	// The global roles list and role pages moved into the project tree.
-	mux.HandleFunc("GET /app/admin/roles", func(w http.ResponseWriter, r *http.Request) {
-		redirect(w, r, "/app/admin/")
-	})
-	mux.HandleFunc("GET /app/admin/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
-		redirect(w, r, roleURL(r.PathValue("project"), r.PathValue("name")))
-	})
-	mux.HandleFunc("GET /app/admin/projects/{project}/roles/{name}", func(w http.ResponseWriter, r *http.Request) {
-		handleRoleDetail(w, r, store, sup, canEdit, o.setup != nil)
-	})
-	mux.HandleFunc("GET /app/admin/intercom", func(w http.ResponseWriter, r *http.Request) {
-		handleIntercom(w, r, msgs)
-	})
-	registerSession(mux, o.sessStore, o.sessHub)
-	registerAgent(mux, store, msgs, o.sessStore, accessDeps{o.live, o.exposures, o.previewURL}, canEdit, o.setup != nil)
-	registerSearch(mux, store, msgs)
 	registerSuggest(mux, store, o.credNames)
-
-	guardWrite := originGuard(o.trustedOrigins)
-	registerWrites(mux, store, log, sup, credExists, guardWrite)
-	registerRoleRequest(mux, store, log, sup, alloc, guardWrite)
-	registerProjects(mux, store, sup, msgs, canEdit, log, guardWrite)
-	registerProjectEdits(mux, store, sup, msgs, log, guardWrite)
-	registerKits(mux, store, o.kitFetcher, log, guardWrite)
-	registerKitDraft(mux, store, log, guardWrite)
-	registerDraftEditor(mux, store, log, guardWrite)
-	registerDraftUploads(mux, store, log, guardWrite)
-	registerDraftPaths(mux, store, log, guardWrite)
-	registerDraftPublish(mux, store, log, guardWrite)
-	registerDestinations(mux, store, log, credExists, guardWrite)
-	registerModelSpecs(mux, specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured}, log, guardWrite)
-	registerRoleEdits(mux, store, sup, log, sup, credExists, canEdit, guardWrite)
-	registerJamContext(mux, store, log, guardWrite)
-	registerUsers(mux, store, log, guardWrite)
-	registerAccess(mux, store, o.live, log, guardWrite)
-	registerSetup(mux, store, o.setup, o.setupManagers, log)
 	cfgEnv := o.configEnv
 	if cfgEnv.CredExists == nil {
 		cfgEnv.CredExists = credExists
 	}
 	cfgEnv.PoolConfigured = cfgEnv.PoolConfigured || o.poolConfigured
-	registerConfig(mux, store, o.kitFetcher, cfgEnv, log, guardWrite)
 	registerApp(mux, src, msgs, roleAPI{sup: sup, alloc: alloc, credExists: credExists, setup: o.setup, managers: o.setupManagers},
 		specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured},
 		agentAPI{sup: sup, msgs: msgs, sess: o.sessStore, hub: o.sessHub, acc: accessDeps{o.live, o.exposures, o.previewURL}, setup: o.setup, credExists: credExists},
 		dashAPI{managers: o.managers, sup: sup, amURL: o.alertmanagerURL}, o.trustedOrigins, o.kitFetcher, cfgEnv, log)
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mux.ServeHTTP(w, withFrameSource(r, src))
-	})
+	return mux
 }
 
 // render executes the named page's "layout" template inside its frame.

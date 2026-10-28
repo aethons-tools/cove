@@ -63,8 +63,8 @@ func TestAdminBootstrap(t *testing.T) {
 	if !b.Member || b.Roles != "member · admin" || b.Name != "alice" || b.Initial != "A" {
 		t.Errorf("bootstrap = %+v", b)
 	}
-	want := map[string]string{"inbox": "/app/user/", "dashboard": "/app/admin/next/", "config": "/app/admin/next/config/tracking",
-		"agents": "/app/admin/next/agents", "health": "/app/admin/next/health"}
+	want := map[string]string{"inbox": "/app/user/", "dashboard": "/app/admin/", "config": "/app/admin/config/tracking",
+		"agents": "/app/admin/agents", "health": "/app/admin/health"}
 	for _, tab := range b.Tabs {
 		if tab.Href != want[tab.Key] {
 			t.Errorf("tab %s href = %q, want %q", tab.Key, tab.Href, want[tab.Key])
@@ -110,7 +110,7 @@ func TestAdminAPICrossOrigin(t *testing.T) {
 
 func TestAdminAppServed(t *testing.T) {
 	h, _ := adminHandler(t)
-	rec := apiGet(t, h, "/app/admin/next/config/projects/x", appui.Principal{Admin: true, Local: true})
+	rec := apiGet(t, h, "/app/admin/config/projects/x", appui.Principal{Admin: true, Local: true})
 	if !uiassets.AppBuilt() {
 		if rec.Code != 503 {
 			t.Errorf("without a bundle = %d, want 503", rec.Code)

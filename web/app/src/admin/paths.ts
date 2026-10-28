@@ -1,8 +1,7 @@
 import { apiAt } from "../api/client";
 
-// ADMIN is the admin area's mount while it is built beside the old admin
-// pages (adminui's appMount); the cutover moves it to /app/admin/.
-export const ADMIN = "/app/admin/next/";
+// ADMIN is the admin area's mount (adminui's appMount).
+export const ADMIN = "/app/admin/";
 
 // adminApi is the /app/admin/api client.
 export const adminApi = apiAt("/app/admin/api/");
