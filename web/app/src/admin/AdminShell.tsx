@@ -7,6 +7,7 @@ import type { Bootstrap } from "./api/types";
 import { TitleBar } from "../shell/TitleBar";
 import { ConfigTree } from "./config/ConfigTree";
 import { ADMIN } from "./paths";
+import { SearchBox } from "./search/SearchBox";
 
 // tabOf is the title-bar tab a page path (under ADMIN) sits under.
 function tabOf(path: string): string {
@@ -30,6 +31,7 @@ export function AdminShell({ boot }: { boot: Bootstrap }) {
       <AppShell header={{ height: 48 }} navbar={tree ? { width: 300, breakpoint: "sm", collapsed: { mobile: !opened } } : undefined} padding="md">
         <AppShell.Header>
           <TitleBar brand={boot.brand} tabs={boot.tabs} mount={ADMIN} current={tab} name={boot.name} initial={boot.initial} roles={boot.roles}
+            search={<SearchBox />}
             start={tree ? <Burger opened={opened} onClick={drawer.toggle} hiddenFrom="sm" size="sm" aria-label="Config tree" /> : undefined}
             menu={boot.signOut ? <Menu.Item component="a" href="/app/auth/logout">Sign out</Menu.Item> : null} />
         </AppShell.Header>

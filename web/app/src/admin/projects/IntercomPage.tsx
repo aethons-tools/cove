@@ -1,6 +1,8 @@
 import { Anchor, Badge, Card, Group, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useState } from "react";
+import { Link } from "react-router";
 import type { ProjectDetail } from "../api/types";
+import { nodeHref } from "../paths";
 import { ConfirmAction } from "../ui/ConfirmAction";
 import { DataTable } from "../ui/DataTable";
 import { EditForm } from "../ui/EditForm";
@@ -33,7 +35,7 @@ function Intercom({ d }: { d: ProjectDetail }) {
           <Text size="sm" c="dimmed">{p}'s rooms and its recent messages</Text>
         </div>
         {/* The full channel log moves with Health (slice 8). */}
-        <Anchor href={`/app/admin/intercom?project=${enc(p)}`} size="sm">Full log</Anchor>
+        <Anchor component={Link} to={nodeHref(`health/intercom?project=${enc(p)}`)} size="sm">Full log</Anchor>
       </Group>
       <Section title="Rooms">
         <DataTable rows={d.rooms} rowKey={(r) => r.name} empty="No rooms." columns={[

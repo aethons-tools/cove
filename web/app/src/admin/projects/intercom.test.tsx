@@ -10,7 +10,7 @@ import type { SquawkRow } from "../api/types";
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const at = ADMIN + "config/projects/acme/intercom";
-const sq = (s: Partial<SquawkRow>): SquawkRow => ({ at: "Oct 28 10:00", from: "alice", fromId: "usr_1", agentId: "", channel: "eng", channelId: "chn_1", project: "acme", body: "", plain: false, ...s });
+const sq = (s: Partial<SquawkRow>): SquawkRow => ({ at: "Oct 28 10:00", from: "alice", fromId: "usr_1", agentId: "", channel: "eng", channelId: "chn_1", project: "acme", body: "", plain: false, to: [], ...s });
 
 describe("project intercom", () => {
   it("adds and removes rooms", async () => {
@@ -47,7 +47,7 @@ describe("project intercom", () => {
     renderAdmin(adminBoot, at);
     expect((await screen.findByText("bold")).tagName).toBe("STRONG");
     expect(screen.getByText("<script>alert(1)</script>")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Full log" })).toHaveAttribute("href", "/app/admin/intercom?project=acme");
+    expect(screen.getByRole("link", { name: "Full log" })).toHaveAttribute("href", ADMIN + "health/intercom?project=acme");
   });
 
   it("says when the log is unavailable", async () => {

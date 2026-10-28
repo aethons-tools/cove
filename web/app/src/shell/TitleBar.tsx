@@ -19,10 +19,11 @@ export type TitleBarProps = {
   roles: string;
   menu: ReactNode; // the principal menu's items
   start?: ReactNode; // before the brand (a narrow screen's navbar toggle)
+  search?: ReactNode; // before the theme toggle
 };
 
 // TitleBar is both areas' header: brand, tabs, theme toggle, principal menu.
-export function TitleBar({ brand, tabs, mount, current, name, initial, roles, menu, start }: TitleBarProps) {
+export function TitleBar({ brand, tabs, mount, current, name, initial, roles, menu, start, search }: TitleBarProps) {
   const { colorScheme, setColorScheme } = useMantineColorScheme();
   const next = colorScheme === "dark" ? "light" : colorScheme === "light" ? "auto" : "dark";
   return (
@@ -48,6 +49,7 @@ export function TitleBar({ brand, tabs, mount, current, name, initial, roles, me
         </Group>
       </Group>
       <Group gap="sm" wrap="nowrap">
+        {search}
         <ActionIcon variant="subtle" aria-label={`Theme: ${colorScheme} (switch to ${next})`} onClick={() => setColorScheme(next)}>
           {colorScheme === "dark" ? "☾" : colorScheme === "light" ? "☀" : "◐"}
         </ActionIcon>

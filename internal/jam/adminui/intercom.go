@@ -3,6 +3,7 @@ package adminui
 import (
 	"html/template"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -206,16 +207,28 @@ func handleIntercom(w http.ResponseWriter, r *http.Request, msgs SquawkReader) {
 	q := r.URL.Query()
 	data := squawksData{Title: "Channel log", Configured: msgs != nil}
 	data.Legacy = q.Get("log") == "legacy"
+	data.RawQuery = r.URL.RawQuery
 	if msgs == nil {
 		render(w, r, "intercom", data)
 		return
 	}
+	f := parseSquawkQuery(q, &data)
+	data.squawkTable = filterSquawks(msgs, f, 0)
+	// A bad date still counts as filtering (the old view did): the "no
+	// match" empty state.
+	data.Filtered = data.Filtered || data.Since != "" || data.Until != ""
+	render(w, r, "intercom", data)
+}
+
+// parseSquawkQuery reads the channel log's filters from q into data (the
+// fields echoed back; BadDate when a date doesn't parse) and returns the
+// filter they select. data.Legacy is already set.
+func parseSquawkQuery(q url.Values, data *squawksData) squawkFilter {
 	data.Project = strings.TrimSpace(q.Get("project"))
 	data.Participant = strings.TrimSpace(q.Get("participant"))
 	data.Q = q.Get("q")
 	data.Since = strings.TrimSpace(q.Get("since"))
 	data.Until = strings.TrimSpace(q.Get("until"))
-	data.RawQuery = r.URL.RawQuery
 
 	// Date bounds are UTC day boundaries; an unparseable one is surfaced and
 	// left unbounded.
@@ -234,11 +247,7 @@ func handleIntercom(w http.ResponseWriter, r *http.Request, msgs SquawkReader) {
 			data.BadDate = true
 		}
 	}
-	data.squawkTable = filterSquawks(msgs, f, 0)
-	// A bad date still counts as filtering (the old view did): the "no
-	// match" empty state.
-	data.Filtered = data.Filtered || data.Since != "" || data.Until != ""
-	render(w, r, "intercom", data)
+	return f
 }
 
 // matchesParticipant reports whether p is m's author or channel (a legacy

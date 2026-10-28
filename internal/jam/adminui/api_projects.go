@@ -45,11 +45,19 @@ func chainRowOf(c chainView) ChainRow {
 	return out
 }
 
+func toCellsOf(cs []toCell) []ToCell {
+	out := []ToCell{}
+	for _, c := range cs {
+		out = append(out, ToCell{Target: c.Target, External: c.External})
+	}
+	return out
+}
+
 func squawkRowsOf(t squawkTable) []SquawkRow {
 	out := []SquawkRow{}
 	for _, r := range t.Rows {
 		out = append(out, SquawkRow{At: r.At, From: r.From, FromID: r.FromID, AgentID: r.AgentID, Channel: r.Channel, ChannelID: r.ChannelID,
-			Project: r.Project, Body: string(r.Body), Plain: r.Plain})
+			Project: r.Project, Body: string(r.Body), Plain: r.Plain, To: toCellsOf(r.To)})
 	}
 	return out
 }
