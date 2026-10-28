@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
+import { QueryClient } from "@tanstack/react-query";
+import { shouldRetry } from "../../api/client";
 import { server } from "../../test/server";
 import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
@@ -60,6 +62,21 @@ describe("a role's Setup", () => {
     renderAdmin(adminBoot, at);
     await user.click(await screen.findByText(/^Setup/, { selector: "summary" }));
     expect(await screen.findByText('unknown section "x"')).toBeInTheDocument();
+  });
+
+  it("doesn't re-inspect on focus, nor retry a refused inspection", async () => {
+    base();
+    let reads = 0;
+    server.use(http.get("/app/admin/api/projects/acme/roles/coder/setup", () => { reads++; return HttpResponse.json({ error: "manager unavailable", code: "internal" }, { status: 503 }); }));
+    const user = userEvent.setup();
+    // The app's own retry policy (outages retried), not the tests' retry: false.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: shouldRetry, staleTime: 0 } } });
+    renderAdmin(adminBoot, at, client);
+    await user.click(await screen.findByText(/^Setup/, { selector: "summary" }));
+    expect(await screen.findByText("manager unavailable", {}, { timeout: 2000 })).toBeInTheDocument();
+    window.dispatchEvent(new Event("focus"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reads).toBe(1);
   });
 
   it("is not offered without setup", async () => {

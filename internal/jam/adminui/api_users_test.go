@@ -17,6 +17,12 @@ import (
 // admin, same-origin, and decodes a JSON reply into out (nil: skip).
 func apiDo(t *testing.T, h http.Handler, method, path string, body, out any) *httptest.ResponseRecorder {
 	t.Helper()
+	return apiDoAs(t, h, appui.Principal{Admin: true, Local: true}, method, path, body, out)
+}
+
+// apiDoAs is apiDo as principal p.
+func apiDoAs(t *testing.T, h http.Handler, p appui.Principal, method, path string, body, out any) *httptest.ResponseRecorder {
+	t.Helper()
 	var rd *bytes.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -30,7 +36,7 @@ func apiDo(t *testing.T, h http.Handler, method, path string, body, out any) *ht
 	}
 	r.Header.Set("Origin", "http://example.com") // httptest's Host
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, appui.WithPrincipal(r, appui.Principal{Admin: true, Local: true}))
+	h.ServeHTTP(rec, appui.WithPrincipal(r, p))
 	if out != nil && rec.Code < 300 {
 		if err := json.Unmarshal(rec.Body.Bytes(), out); err != nil {
 			t.Fatalf("%s %s: %v in %s", method, path, err, rec.Body)

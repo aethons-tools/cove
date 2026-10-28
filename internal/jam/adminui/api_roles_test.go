@@ -2,6 +2,8 @@ package adminui_test
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/jam/appui"
 )
 
 func TestRolesAPI(t *testing.T) {
@@ -91,11 +94,15 @@ func TestRoleRequestLocal(t *testing.T) {
 	if !d.CanRequest {
 		t.Error("canRequest false with a supervisor")
 	}
-	rec := apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/coder/request", map[string]string{}, nil)
+	// The gate names a loopback admin's operator "local".
+	local := appui.Principal{Admin: true, Local: true, Operator: jam.Operator{ID: "local"}}
+	rec := apiDoAs(t, h, local, "POST", "/app/admin/api/projects/acme/roles/coder/request", map[string]string{}, nil)
 	wantErr(t, rec, 403, "forbidden")
-	// Without a login the operator is no member: the same refusal the HTML route gives.
-	if b := rec.Body.String(); !strings.Contains(b, "sign in to request an agent") && !strings.Contains(b, "is linked to your login") {
+	if !strings.Contains(rec.Body.String(), "sign in to request an agent (/app/auth/login)") {
 		t.Errorf("request = %s", rec.Body)
+	}
+	if len(store.ListInstances()) != 0 {
+		t.Error("a refused request raised something")
 	}
 }
 
@@ -144,4 +151,21 @@ func TestRoleSetup(t *testing.T) {
 	}
 	wantErr(t, apiDo(t, h, "GET", "/app/admin/api/projects/acme/roles/dev/setup?sections=bogus", nil, nil), 400, "bad_request")
 	wantErr(t, apiDo(t, h, "GET", "/app/admin/api/projects/acme/roles/nope/setup", nil, nil), 404, "not_found")
+}
+
+// A pending standing reset answers 200 with the reason as the message.
+func TestRoleStandingResetPending(t *testing.T) {
+	store := seedRichRole(t)
+	sup := newSup(t, store)
+	sup.SetStandingResetter(&teardownResetter{sup: sup, err: errors.New("volume in use")})
+	id := jam.SeedStandingSession(store, "acme", "review", "nightly")
+	if _, _, _, err := sup.Raise(context.Background(), jam.RaiseSpec{ActorID: id, Project: "acme", Role: "review", Name: "nightly", SessionKind: jam.SessionKindStanding}); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), sup, nil, credKnown, nil)
+	var res adminui.RoleResult
+	if rec := apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/review/standing/nightly/reset", nil, &res); rec.Code != 200 || !strings.Contains(res.Message, "volume in use") {
+		t.Errorf("pending reset = %d %+v", rec.Code, res.Message)
+	}
+	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/review/standing/nobody/reset", nil, nil), 404, "not_found")
 }

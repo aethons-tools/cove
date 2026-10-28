@@ -1,5 +1,5 @@
 import { Alert, Badge, Button, Code, Group, Loader, Stack, Text } from "@mantine/core";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ApiError } from "../../api/client";
 import type { SetupResponse, SetupSection } from "../api/types";
@@ -17,8 +17,12 @@ export function SetupView({ path }: { path: string }) {
   if (only) q.set("sections", only);
   if (manager) q.set("manager", manager);
   const qs = q.toString();
-  const { data, error, isPending } = useQuery<SetupResponse, ApiError>({
+  // An inspection reads images on the launcher host and is audit-logged:
+  // only when asked (opened, or a selector changed) — never on focus, never
+  // retried — keeping the chips while the next one loads.
+  const { data, error, isPending, isPlaceholderData } = useQuery<SetupResponse, ApiError>({
     queryKey: ["admin", "setup", path, only, manager], queryFn: () => adminApi.get(path + (qs ? `?${qs}` : "")),
+    staleTime: Infinity, refetchOnWindowFocus: false, retry: false, placeholderData: keepPreviousData,
   });
   const chip = (label: string, on: boolean, pick: () => void) =>
     <Button key={label} size="compact-xs" variant={on ? "filled" : "light"} color={on ? "jam" : "gray"} onClick={pick}>{label}</Button>;
@@ -33,7 +37,7 @@ export function SetupView({ path }: { path: string }) {
         {chip("All", only === "", () => setOnly(""))}
         {(data?.sectionNames ?? []).map((n) => chip(n, only === n, () => setOnly(n)))}
       </Group>
-      {isPending ? <Group gap="xs"><Loader size="xs" /><Text size="sm" c="dimmed">Loading the setup… (a first read of the image on the launcher host can take a few seconds)</Text></Group>
+      {isPending || isPlaceholderData ? <Group gap="xs"><Loader size="xs" /><Text size="sm" c="dimmed">Loading the setup… (a first read of the image on the launcher host can take a few seconds)</Text></Group>
         : error ? <Alert color="red">{error.message}</Alert>
         : <Sections s={data} />}
     </Stack>
