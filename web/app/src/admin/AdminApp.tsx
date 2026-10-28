@@ -5,6 +5,8 @@ import { NotMovedYet } from "./NotMovedYet";
 import { ADMIN } from "./paths";
 import { UsersPage } from "./users/UsersPage";
 import { TrackingPage } from "./tracking/TrackingPage";
+import { ProjectsPage } from "./projects/ProjectsPage";
+import { ProjectPage } from "./projects/ProjectPage";
 import { UserPage } from "./users/UserPage";
 
 // adminRoutes are the admin area's client routes under ADMIN (webapp serves
@@ -17,6 +19,8 @@ export function adminRoutes(boot: Bootstrap): RouteObject[] {
       { index: true, element: <NotMovedYet /> },
       { path: "config", element: <Navigate to="tracking" replace /> },
       { path: "config/tracking", element: <TrackingPage /> },
+      { path: "config/projects", element: <ProjectsPage /> },
+      { path: "config/projects/:project", element: <ProjectPage /> },
       { path: "config/users", element: <UsersPage /> },
       { path: "config/users/:user", element: <UserPage /> },
       { path: "config/*", element: <NotMovedYet /> },
