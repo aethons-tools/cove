@@ -4,7 +4,7 @@ read_when: You want a Jam to follow a config repo (track, sync, untrack, `--git`
 owns: the tracked config source (record, sync, untrack), the `--git` verbs, the `/admin/config/source|sync` routes and `{source}` bodies, `kits/<name>.source.yml` and how it is fetched, planned and written, config-applied kit provenance and tracking
 prereqs: config-git.md (layout, plan actions, marks); kits-git.md (source syntax, kits.git credentials, fetch limits)
 tier: leaf
-updated: 2026-10-22
+updated: 2026-10-28
 ---
 
 # Config from git: the tracked source and kit references
@@ -101,7 +101,7 @@ Statuses: refused (including the 16-source cap), stale or untracked 409; bad sou
 auth, limit or timeout (`config fetch timed out`) failure 502; a serve with
 no fetcher 503.
 
-The admin UI's Config tab tracks, untracks, diffs and applies the tracked source too: [ui-config.md](ui-config.md).
+The admin console's Tracking page (Config › Tracking) tracks, untracks, diffs and applies the tracked source too: [ui-config.md](ui-config.md).
 
 ## Locks
 

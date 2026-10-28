@@ -1,15 +1,16 @@
 ---
-summary: The admin UI's Config tab (/app/admin/config) — the tracked config source and its last apply, the managed objects and their state (in sync, drifted, missing), Diff/Apply/Track/Untrack/Release — and the `managed · config @<commit>` badge and drift warning on object pages.
-read_when: You are using the admin UI's Config tab to review or apply the tracked config repo, see a `managed · config @…` badge or a "This will drift from the config repo" prompt on an object page, or want to stop the repo managing an object from the UI.
-owns: the Config page (source card, managed-objects table and states, the rendered plan, Apply's digest binding and force checkbox, Track/Untrack/Release from the UI), the managed badge and the drift-on-save warning
+summary: The admin console's Tracking page (Config › Tracking, /app/admin/config/tracking) — the tracked config source and its last apply, the managed objects and their state (in sync, drifted, missing), Diff/Apply/Track/Untrack/Release — and the `managed · config @<commit>` badge and drift warning on object pages.
+read_when: You are using the admin console's Tracking page to review or apply the tracked config repo, see a `managed · config @…` badge or a "This will drift from the config repo" prompt on an object page, or want to stop the repo managing an object from the UI.
+owns: the Tracking page (source card, managed-objects table and states, the rendered plan, Apply's digest binding and force checkbox, Track/Untrack/Release from the UI), the managed badge and the drift-on-save warning
 prereqs: config-git.md (plan actions, marks, drift); config-git-sources.md (the tracked source); ui-editing.md (the write banner, CSRF and audit rules)
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-28
 ---
 
-# The Config tab and managed objects
+# The Tracking page and managed objects
 
-Jam's **Config** tab (`/app/admin/config`, between Specs and Intercom) is the UI for
+The **Tracking** page (`/app/admin/config/tracking`, the first node of the
+[Config tree](ui-console.md#finding-a-page) and where the **Config** tab opens) is the UI for
 a Jam's configuration in git ([config-git.md](config-git.md)). It works on the
 **tracked source** ([config-git-sources.md](config-git-sources.md)); `--git`
 other sources and `--dir` checkouts stay in the CLI.
@@ -40,7 +41,7 @@ deadline of 4 minutes ([locks](config-git-sources.md#locks)).
 with its file and a line diff (a drifted op opens Jam's side against the
 repo's; a kit's config is shown indented), kit sources and their commits,
 forgotten marks, unmanaged objects, the serve-config comparison, and any
-refusals. **Apply** sends back the digest of the plan on screen: if Jam or
+refusals. **Apply this plan** sends back the digest of the plan on screen: if Jam or
 the repo changed since, it answers 409 and writes nothing — Diff again. It
 is offered only when nothing is refused.
 
@@ -52,17 +53,17 @@ git fetcher on the serve, Diff, Apply and Track are not offered.
 ## Badges and the drift warning
 
 An object the repo manages shows a **`managed · config @<commit[:7]>`** badge
-(`@dir` for a `--dir` apply) by its name, linking here: destinations,
+(`@dir` for a `--dir` apply) by its name, linking to Tracking: destinations,
 model-specs, kits, users, projects, roles, and the Jam context card on the
 Dashboard. Every write to one — save, delete, rename, member, room,
 escalation and context edits, kit push, pin, sync, track and untrack — first
 asks **"This will drift from the config repo (managed · config @…).
-Save anyway?"**. Fields and actions the repo does not hold do not ask: a
+Save anyway?"** (a confirm action adds it to its own question). Fields and actions the repo does not hold do not ask: a
 user's OIDC identities and accounts, standing reset/upgrade and request,
-grants, creating a role, kit import, and the create forms. The prompt is the
-browser's; the admin API and CLI do not ask. A drifted object raises
+grants, creating a role, kit import, and the create forms. The question is the
+console's; the admin API and CLI do not ask. A drifted object raises
 `config.drift` within a minute ([config-git.md](config-git.md#drift-and-release)).
 
 Every write here obeys the UI's gate, CSRF origin check and audit logging
-([ui-editing.md](ui-editing.md)); errors show in the page banner with the
-admin API's error text.
+([ui-editing.md](ui-editing.md)); a refusal shows the admin API's error
+text ([where](ui-editing.md#roster-and-roles)).

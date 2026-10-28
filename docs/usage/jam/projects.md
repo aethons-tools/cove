@@ -4,7 +4,7 @@ read_when: You are starting a new project on a Jam, a role/grant/roster/escalati
 owns: the Project lifecycle — create/list/rename/rm, tombstones, existence enforcement, the default-project exception, the in-use refusal, and the upgrade backfill
 prereqs: roster.md for what Roles and Grants are; operators.md for the admin-client flags
 tier: leaf
-updated: 2026-10-07
+updated: 2026-10-28
 ---
 
 # Projects
@@ -28,7 +28,7 @@ jam project rm acme       # refused while a role or grant references it
 ```
 
 Each is an admin-API client; for its target and auth flags see
-[operators.md](operators.md). The admin UI does the same from the rail (**+ New project**) and each
+[operators.md](operators.md). The admin console does the same from Config › Projects (**New project**) and each
 project's pages ([ui-projects.md](ui-projects.md)). A project's goals and resources for its
 sessions are set with `jam context --project` ([session-context-authoring.md](session-context-authoring.md)).
 
