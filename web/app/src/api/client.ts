@@ -1,4 +1,5 @@
-// The /app/user/api client. Every error is an ApiError; a non-JSON refusal
+// The Jam app's API clients (/app/user/api, and the admin area's
+// /app/admin/api through apiAt). Every error is an ApiError; a non-JSON refusal
 // (the gate's HTML 403 or a login redirect) means the sign-in has expired.
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -16,10 +17,10 @@ export function shouldRetry(failureCount: number, error: unknown): boolean {
   return failureCount < 3;
 }
 
-async function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+async function request<T>(base: string, method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(API + path, {
+    res = await fetch(base + path, {
       method,
       headers: body === undefined ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -45,8 +46,17 @@ async function request<T>(method: "GET" | "POST", path: string, body?: unknown):
   return data as T;
 }
 
-export const apiGet = <T>(path: string) => request<T>("GET", path);
-export const apiPost = <T = void>(path: string, body: unknown) => request<T>("POST", path, body);
+// apiAt is a client for the API at base (a path ending in "/").
+export function apiAt(base: string) {
+  return {
+    get: <T>(path: string) => request<T>(base, "GET", path),
+    post: <T = void>(path: string, body: unknown) => request<T>(base, "POST", path, body),
+  };
+}
+
+const user = apiAt(API);
+export const apiGet = user.get;
+export const apiPost = user.post;
 
 // POLL_MS is the live queries' fallback refresh (the old Inbox's 30 s poll),
 // for when the event stream is down or absent.

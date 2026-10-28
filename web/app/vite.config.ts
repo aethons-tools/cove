@@ -23,6 +23,7 @@ export default defineConfig({
     emptyOutDir: true,
     assetsDir: "assets",
     sourcemap: false,
+    manifest: true, // read by scripts/size-budget.mjs, then removed
   },
   server: {
     // The app's pages and /app/assets/ are this server's (base /app/); only
