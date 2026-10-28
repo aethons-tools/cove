@@ -290,15 +290,22 @@ type ChainRow struct {
 
 // SquawkRow is one logged message.
 type SquawkRow struct {
-	At        string `json:"at"`
-	From      string `json:"from"`
-	FromID    string `json:"fromId"`
-	AgentID   string `json:"agentId"` // the author's agent, else ""
-	Channel   string `json:"channel"`
-	ChannelID string `json:"channelId"`
-	Project   string `json:"project"`
-	Body      string `json:"body"` // squawkrender's sanitized HTML
-	Plain     bool   `json:"plain"`
+	At        string   `json:"at"`
+	From      string   `json:"from"`
+	FromID    string   `json:"fromId"`
+	AgentID   string   `json:"agentId"` // the author's agent, else ""
+	Channel   string   `json:"channel"`
+	ChannelID string   `json:"channelId"`
+	Project   string   `json:"project"`
+	Body      string   `json:"body"` // squawkrender's sanitized HTML
+	Plain     bool     `json:"plain"`
+	To        []ToCell `json:"to"` // a legacy squawk's recipients
+}
+
+// ToCell is a legacy squawk's recipient and its reach.
+type ToCell struct {
+	Target   string `json:"target"` // kind:ref
+	External bool   `json:"external"`
 }
 
 // ProjectDetail is a project's pages: its overview and sections.
@@ -1158,4 +1165,62 @@ type Dashboard struct {
 	HasManagers bool         `json:"hasManagers"`
 	Managers    []ManagerRow `json:"managers"`
 	Coves       []CoveRow    `json:"coves"`
+}
+
+// HealthRow is one operator condition: open (Age: for how long) or resolved
+// (Age: since when; Lasted: how long it was open).
+type HealthRow struct {
+	Key      string `json:"key"`
+	Severity string `json:"severity"` // critical, warning, info
+	Summary  string `json:"summary"`
+	Fix      string `json:"fix"`
+	Detail   string `json:"detail"`
+	Age      string `json:"age"`
+	Lasted   string `json:"lasted"`
+}
+
+// Health is the Health tab: open conditions and the last 7 days' resolved.
+type Health struct {
+	Open     []HealthRow `json:"open"`
+	Resolved []HealthRow `json:"resolved"`
+	Silences string      `json:"silences"` // Alertmanager's silences page; "" = not configured
+}
+
+// ChannelLog is the channel log (or the frozen legacy log), newest first,
+// as its filters select.
+type ChannelLog struct {
+	Configured bool        `json:"configured"`
+	Legacy     bool        `json:"legacy"`
+	Filtered   bool        `json:"filtered"` // which empty state
+	BadDate    bool        `json:"badDate"`  // a date didn't parse (left unbounded)
+	Rows       []SquawkRow `json:"rows"`
+}
+
+// SearchHit is one search result: its name, context and app path. Exact:
+// its name is the whole query.
+type SearchHit struct {
+	Title string `json:"title"`
+	Sub   string `json:"sub"`
+	Path  string `json:"path"`
+	Exact bool   `json:"exact"`
+}
+
+// SearchGroup is one kind's hits: Count is every match, Hits capped; More
+// is where the rest are (squawks: the channel log), else "".
+type SearchGroup struct {
+	Key   string      `json:"key"`
+	Name  string      `json:"name"`
+	Hits  []SearchHit `json:"hits"`
+	Count int         `json:"count"`
+	More  string      `json:"more"`
+}
+
+// SearchResult is a search. Jump is the app path of the single exact hit,
+// else "".
+type SearchResult struct {
+	Q        string        `json:"q"`
+	TooShort bool          `json:"tooShort"`
+	Total    int           `json:"total"`
+	Groups   []SearchGroup `json:"groups"`
+	Jump     string        `json:"jump"`
 }

@@ -8,7 +8,8 @@ import (
 )
 
 // The JSON API of the admin's own pages: the dashboard and the Jam context
-// card's writes — dashboard.html's and context_edit.go's twins.
+// card's writes, Health, the channel log and search — the twins of
+// dashboard.html, context_edit.go, health.go, intercom.go and search.go.
 
 // dashAPI is what the dashboard reads beside the store: the Studio Managers
 // (nil: no Managers panel), the supervisor (the studio table) and
@@ -42,7 +43,30 @@ func managerRowsOf(ms []jam.ManagerStatus) []ManagerRow {
 	return out
 }
 
-func apiDash(api *http.ServeMux, src frameSource, da dashAPI, log *slog.Logger) {
+func healthRowsOf(rows []healthRow) []HealthRow {
+	out := []HealthRow{}
+	for _, c := range rows {
+		out = append(out, HealthRow{Key: c.Key, Severity: string(c.Severity), Summary: c.Summary, Fix: c.Fix, Detail: c.Detail, Age: c.Age, Lasted: c.Lasted})
+	}
+	return out
+}
+
+func searchResultOf(d searchData) SearchResult {
+	out := SearchResult{Q: d.Q, TooShort: d.TooShort, Total: d.Total, Groups: []SearchGroup{}, Jump: appPath(d.exactJump())}
+	for _, g := range d.Groups {
+		sg := SearchGroup{Key: g.Key, Name: g.Name, Count: g.Count, Hits: []SearchHit{}}
+		if g.MoreURL != "" {
+			sg.More = appPath(g.MoreURL)
+		}
+		for _, h := range g.Hits {
+			sg.Hits = append(sg.Hits, SearchHit{Title: h.Title, Sub: h.Sub, Path: appPath(h.URL), Exact: h.Exact})
+		}
+		out.Groups = append(out.Groups, sg)
+	}
+	return out
+}
+
+func apiDash(api *http.ServeMux, src frameSource, msgs SquawkReader, da dashAPI, log *slog.Logger) {
 	store := src.store
 	jamContext := func() ContextPanel { return contextPanelOf(jamPanel(store), src.marks()) }
 	api.HandleFunc("GET "+apiPrefix+"dashboard", func(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +82,29 @@ func apiDash(api *http.ServeMux, src frameSource, da dashAPI, log *slog.Logger) 
 			d.Managers = managerRowsOf(da.managers())
 		}
 		writeJSON(w, http.StatusOK, d)
+	})
+	api.HandleFunc("GET "+apiPrefix+"health", func(w http.ResponseWriter, r *http.Request) {
+		h := healthData(src.conds, da.amURL)
+		open, _ := h["Open"].([]healthRow)
+		resolved, _ := h["Resolved"].([]healthRow)
+		silences, _ := h["Silences"].(string)
+		writeJSON(w, http.StatusOK, Health{Open: healthRowsOf(open), Resolved: healthRowsOf(resolved), Silences: silences})
+	})
+	api.HandleFunc("GET "+apiPrefix+"intercom", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		data := squawksData{Configured: msgs != nil}
+		data.Legacy = q.Get("log") == "legacy"
+		out := ChannelLog{Configured: msgs != nil, Legacy: data.Legacy, Rows: []SquawkRow{}}
+		if msgs != nil {
+			t := filterSquawks(msgs, parseSquawkQuery(q, &data), 0)
+			out.Rows = squawkRowsOf(t)
+			// A bad date still counts as filtering, as on the old page.
+			out.Filtered, out.BadDate = t.Filtered || data.Since != "" || data.Until != "", data.BadDate
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
+	api.HandleFunc("GET "+apiPrefix+"search", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, searchResultOf(search(store, msgs, r.URL.Query().Get("q"))))
 	})
 	api.HandleFunc("POST "+apiPrefix+"jam/context", func(w http.ResponseWriter, r *http.Request) {
 		var f struct {

@@ -84,3 +84,101 @@ func TestJamContextAPI(t *testing.T) {
 		t.Errorf("cross-origin = %d", rec.Code)
 	}
 }
+
+func TestHealthAPI(t *testing.T) {
+	now := time.Now()
+	conds := condition.New(condition.Options{Now: func() time.Time { return now }})
+	conds.Raise(condition.Condition{Key: "mgr:m1", Severity: condition.Critical, Summary: "manager m1 is down", Fix: "jam manager restart m1", Detail: "dial refused"})
+	conds.Raise(condition.Condition{Key: "kit:k", Severity: condition.Warning, Summary: "kit k stale"})
+	now = now.Add(time.Hour)
+	conds.Clear("kit:k")
+	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil, adminui.WithConditions(conds, "http://am.example/"))
+	var d adminui.Health
+	if rec := apiDo(t, h, "GET", "/app/admin/api/health", nil, &d); rec.Code != 200 {
+		t.Fatalf("health = %d %s", rec.Code, rec.Body)
+	}
+	if len(d.Open) != 1 || d.Open[0].Severity != "critical" || d.Open[0].Fix != "jam manager restart m1" || d.Open[0].Detail != "dial refused" || d.Open[0].Key != "mgr:m1" || d.Open[0].Age == "" {
+		t.Errorf("open = %+v", d.Open)
+	}
+	if len(d.Resolved) != 1 || d.Resolved[0].Summary != "kit k stale" || d.Resolved[0].Lasted == "" {
+		t.Errorf("resolved = %+v", d.Resolved)
+	}
+	if d.Silences != "http://am.example/#/silences" {
+		t.Errorf("silences = %q", d.Silences)
+	}
+	var none adminui.Health
+	apiDo(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "GET", "/app/admin/api/health", nil, &none)
+	if none.Open == nil || none.Resolved == nil || none.Silences != "" {
+		t.Errorf("no tracker = %+v", none)
+	}
+}
+
+func TestChannelLogAPI(t *testing.T) {
+	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, fixtureLog(t))
+	var l adminui.ChannelLog
+	apiDo(t, h, "GET", "/app/admin/api/intercom?log=legacy&q=hold", nil, &l)
+	if !l.Configured || !l.Legacy || !l.Filtered || len(l.Rows) != 1 || l.Rows[0].Body == "" || len(l.Rows[0].To) != 1 || l.Rows[0].To[0].Target != "actor:cove-1" {
+		t.Errorf("q=hold = %+v", l)
+	}
+	l = adminui.ChannelLog{}
+	apiDo(t, h, "GET", "/app/admin/api/intercom?log=legacy&since=bad&project=beta", nil, &l)
+	if !l.BadDate || !l.Filtered || len(l.Rows) != 1 {
+		t.Errorf("bad date = %+v", l)
+	}
+	l = adminui.ChannelLog{}
+	apiDo(t, h, "GET", "/app/admin/api/intercom?log=legacy", nil, &l)
+	if l.Filtered || len(l.Rows) != 3 || l.Rows[0].At < l.Rows[2].At {
+		t.Errorf("all = %+v", l)
+	}
+	var off adminui.ChannelLog
+	apiDo(t, adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil), "GET", "/app/admin/api/intercom", nil, &off)
+	if off.Configured || off.Rows == nil {
+		t.Errorf("no log = %+v", off)
+	}
+}
+
+func TestSearchAPI(t *testing.T) {
+	store := newStore(t)
+	alice, err := store.CreateUser(jam.User{Name: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateUser(jam.User{Name: "acme"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, fixtureLog(t))
+	var r adminui.SearchResult
+	apiDo(t, h, "GET", "/app/admin/api/search?q=a", nil, &r)
+	if !r.TooShort || r.Groups == nil {
+		t.Errorf("q=a = %+v", r)
+	}
+	r = adminui.SearchResult{}
+	apiDo(t, h, "GET", "/app/admin/api/search?q=alice", nil, &r)
+	if r.Jump != "config/users/"+string(alice.ID) || r.Total != 1 {
+		t.Errorf("q=alice = %+v", r)
+	}
+	r = adminui.SearchResult{}
+	apiDo(t, h, "GET", "/app/admin/api/search?q=acme", nil, &r)
+	if r.Jump != "" || len(r.Groups) < 2 {
+		t.Errorf("q=acme (two exact) = %+v", r)
+	}
+	r = adminui.SearchResult{}
+	apiDo(t, h, "GET", "/app/admin/api/search?q=deploy+started", nil, &r)
+	var squawks *adminui.SearchGroup
+	for i, g := range r.Groups {
+		if g.Key == "squawks" {
+			squawks = &r.Groups[i]
+		}
+		for _, hit := range g.Hits {
+			if strings.HasPrefix(hit.Path, "/") || strings.Contains(hit.Path, "/app/admin") {
+				t.Errorf("hit path %q is not an app path", hit.Path)
+			}
+		}
+	}
+	if squawks == nil || squawks.More != "health/intercom?q=deploy+started" {
+		t.Errorf("squawks = %+v", squawks)
+	}
+}
