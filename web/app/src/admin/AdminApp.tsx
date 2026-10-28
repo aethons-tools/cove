@@ -20,6 +20,7 @@ import { ModelSpecPage } from "./specs/ModelSpecPage";
 import { KitsPage } from "./kits/KitsPage";
 import { KitPage } from "./kits/KitPage";
 import { AgentsPage as AgentsTab } from "./agents/AgentsPage";
+import { AgentPage } from "./agents/AgentPage";
 import { UserPage } from "./users/UserPage";
 
 // adminRoutes are the admin area's client routes under ADMIN (webapp serves
@@ -50,6 +51,7 @@ export function adminRoutes(boot: Bootstrap): RouteObject[] {
       { path: "config/users/:user", element: <UserPage /> },
       { path: "config/*", element: <NotMovedYet /> },
       { path: "agents", element: <AgentsTab /> },
+      { path: "agents/:id", element: <AgentPage /> },
       { path: "agents/*", element: <NotMovedYet /> },
       { path: "health/*", element: <NotMovedYet /> },
       { path: "*", element: <NotMovedYet /> },
