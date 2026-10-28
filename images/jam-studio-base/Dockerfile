@@ -52,11 +52,11 @@ RUN install -m 0755 -d /etc/apt/keyrings \
       > /etc/apt/sources.list.d/docker.list \
  && apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      docker-ce=5:29.7.2-1~ubuntu.24.04~noble \
-      docker-ce-cli=5:29.7.2-1~ubuntu.24.04~noble \
+      docker-ce=5:29.9.2-1~ubuntu.24.04~noble \
+      docker-ce-cli=5:29.9.2-1~ubuntu.24.04~noble \
       containerd.io=2.3.3-1~ubuntu.24.04~noble \
-      docker-buildx-plugin=0.36.1-1~ubuntu.24.04~noble \
-      docker-compose-plugin=5.5.1-1~ubuntu.24.04~noble \
+      docker-buildx-plugin=0.38.1-1~ubuntu.24.04~noble \
+      docker-compose-plugin=5.6.1-1~ubuntu.24.04~noble \
  && rm -rf /var/lib/apt/lists/*
 
 # code-server: the built-in Studio IDE (docs/superpowers/specs/2026-10-25-session-studio-view-design.md).
