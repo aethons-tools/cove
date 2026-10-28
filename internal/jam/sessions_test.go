@@ -287,32 +287,17 @@ func TestPersonalSessionRequestsAreNewSessions(t *testing.T) {
 	}
 }
 
-// A personal session is delivered over Discord, so a project whose chat service
-// isn't discord is refused at request time — before any grant.
-func TestPersonalSessionRequest_NonDiscordProject400(t *testing.T) {
+// A personal session talks to its owner over the intercom, which the user
+// area always delivers: neither a non-discord project nor an owner without a
+// discord delivery profile is refused.
+func TestPersonalSessionRequest_NoDiscordNeeded(t *testing.T) {
 	k := newSessionKit(t)
 	if err := k.store.SetChatService("acme", ""); err != nil {
 		t.Fatal(err)
 	}
-	_, code, body := k.request(t)
-	if code != http.StatusBadRequest || !strings.Contains(body, "chat service") || !strings.Contains(body, "chat-service set") {
-		t.Fatalf("non-discord project = %d %q, want 400 naming the chat-service fix", code, body)
-	}
-	if len(k.alloc.grants) != 0 || len(k.launcher.raised) != 0 {
-		t.Fatalf("must neither grant nor raise: grants=%v raised=%v", k.alloc.grants, k.launcher.raised)
-	}
-}
-
-// An owner with no discord delivery profile can't be messaged: 400, no grant.
-func TestPersonalSessionRequest_OwnerWithoutDiscordProfile400(t *testing.T) {
-	k := newSessionKit(t)
-	*k.op = "auth0|dave"
-	_, code, body := k.request(t)
-	if code != http.StatusBadRequest || !strings.Contains(body, "dave has no discord delivery profile") || !strings.Contains(body, "--delivery discord:") {
-		t.Fatalf("no discord profile = %d %q, want 400 naming the --delivery fix", code, body)
-	}
-	if len(k.alloc.grants) != 0 || len(k.launcher.raised) != 0 {
-		t.Fatalf("must neither grant nor raise: grants=%v raised=%v", k.alloc.grants, k.launcher.raised)
+	*k.op = "auth0|dave" // linked, but no discord delivery profile
+	if res, code, body := k.request(t); code != http.StatusCreated || res.Owner != "dave" {
+		t.Fatalf("no discord = %d %s, want 201 owned by dave", code, body)
 	}
 }
 

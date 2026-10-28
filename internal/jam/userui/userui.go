@@ -6,6 +6,7 @@
 package userui
 
 import (
+	"context"
 	"sort"
 	"strings"
 
@@ -45,6 +46,15 @@ type Deps struct {
 	// Send posts the viewer's messages (POST api/messages): the same
 	// *jam.ParticipantSendHandler as /app/user/send (nil: 503).
 	Send Sender
+	// Personal starts the viewer's personal sessions (New session; nil: not
+	// offered).
+	Personal PersonalStarter
+}
+
+// PersonalStarter starts a personal session owned by owner:
+// jam.StartPersonalSession with the runtime's supervisor and allocator.
+type PersonalStarter interface {
+	StartPersonal(ctx context.Context, owner jam.Member, by string, b jam.PersonalSessionBody) (jam.PersonalSessionResult, error)
 }
 
 // Sender posts a participant's message: *jam.ParticipantSendHandler.

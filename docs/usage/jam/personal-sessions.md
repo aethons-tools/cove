@@ -1,20 +1,20 @@
 ---
-summary: Personal sessions — a human operator's own long-lived session of a role, admitted against the role's pool and per-owner caps, owned by the project member linked to their login, conversed with over Discord, and released by that owner (or reclaimed by the idle ladder); the idle ladder; the `session request|list|release` verbs and their admin routes.
-read_when: You (a human operator) want Jam to raise a session of a role for you personally, or you are setting a role's personal caps, or a `session` command answered 400/403/409 and you need to know why, or you want to know how to talk to your session, or your session is nagging you (or was reclaimed) and you want to know why, how to tune it, or how to answer a nag with `keep`/`release`.
-owns: the personal-session story — owner resolution (project member ↔ login), the Discord delivery requirement, admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
+summary: Personal sessions — a person's own long-lived session of a role, started from the Inbox's New session (any project member) or by an operator, admitted against the role's pool and per-owner caps, conversed with in its session channel (the Inbox, and Discord when set up), and released by that owner (or reclaimed by the idle ladder); the idle ladder; the `session request|list|release` verbs and their admin routes.
+read_when: You want Jam to raise a session of a role for you personally (from the Inbox or the CLI), or you are setting a role's personal caps, or a `session` command answered 400/403/409 and you need to know why, or you want to know how to talk to your session, or your session is nagging you (or was reclaimed) and you want to know why, how to tune it, or how to answer a nag with `keep`/`release`.
+owns: the personal-session story — New session in the Inbox, owner resolution (project member ↔ login), admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
 prereqs: comms-addressing.md for a Project's members and a user's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-26
+updated: 2026-10-28
 ---
 
 # Personal sessions
 
-A **personal session** is a long-lived managed studio that a human operator asks
-Jam for directly: Jam admits it against the role's personal caps, raises it
-**owned by that human**, and only the owner can list or release it. The owner talks
-to it over **Discord**, and it stays until the owner releases it. It needs
-`store-postgres`, a Discord chat service on the project, and a Discord delivery
-profile for the owner.
+A **personal session** is a long-lived managed studio that a person asks Jam
+for directly — with **New session** in the Inbox, or as an operator from the CLI
+or admin UI. Jam admits it against the role's personal caps, raises it **owned by
+that person**, and only the owner can list or release it. The owner talks to it in
+its session channel (the [Inbox](intercom-ui.md), and Discord when set up), and it
+stays until the owner releases it. It needs `store-postgres`.
 
 ## The conversation
 
@@ -101,22 +101,17 @@ jam role add --project acme --name pair --max-personal 3 \
 ([roster.md](roster.md#roles)). Nags need the Discord relay to deliver them; without it there are no nags, but a configured reclaim still
 happens.
 
-## Discord is required
+## Starting one from the Inbox
 
-A ticketless studio's messages can only be delivered over Discord, so a request is
-refused with **400** (before any slot is granted) unless both hold:
-
-- the project's chat service is `discord`:
-  `jam project chat-service set --project acme --service discord`;
-- you (the owner) have a Discord inbox in the project, ideally with your Discord
-  account bound ([discord.md](discord.md)):
-  `jam project member add acme alice --delivery discord:<inbox-channel>` and
-  `jam account add --connection discord --uid <your-user-id> --user alice`.
-
-Jam must also run the Discord relay (`runtime.discord`,
-see [serve.md](serve.md#the-serve-config)); it no longer needs a Requisitioner, and it
-polls every project whose chat service is `discord`
-([intercom.md](intercom.md#enabling-it)).
+**New session**, beside New message in the [Inbox](intercom-ui.md) rail, offers
+every role with `--max-personal` above 0 in each of your projects (a full one is
+shown greyed, with why). Pick one, optionally write a first message, and
+**Start**: Jam starts the session owned by you (the same admission as below; no
+login link needed, you are signed in), opens its session channel with you in it,
+posts your first message there, and takes you to that conversation. The button
+is hidden when Jam runs no supervisor. Discord is optional: to also talk to it
+over Discord, set the project's chat service to `discord` and give yourself a
+Discord inbox ([discord.md](discord.md)).
 
 ## Who owns it: link your login
 
@@ -150,8 +145,9 @@ jam role add --project acme --name pair --destinations anthropic,git \
 - `--max-personal-per-owner` caps one owner's share. `0` means only the pool
   cap applies.
 
-The flags themselves are described in [roster.md](roster.md#roles). In this
-release any linked operator may request any role, bounded by these caps.
+The flags themselves are described in [roster.md](roster.md#roles). Any member
+of the project may start any role (New session), as may any linked operator,
+bounded by these caps.
 
 Jam's Allocator checks both caps inside the allocation ledger's single atomic
 grant (see [serve.md](serve.md#postgres-store-store-postgres)), so concurrent requests
@@ -189,7 +185,7 @@ jam session release ses_01j9q3x8f2k7m4n6p0r2s5t8v1
 
 | Route | Result |
 |---|---|
-| `POST /admin/sessions/personal` `{project, role, prompt}` | **201** `{id, name, owner, project, role, phase}`. **403** if your login is not linked. **400** for an unknown role, a project whose chat service isn't `discord`, or an owner with no Discord delivery profile. **409** at capacity, or with no ledger. **502** if the grant errors or the raise fails. A failed raise releases the grant, so no slot leaks. |
+| `POST /admin/sessions/personal` `{project, role, prompt}` | **201** `{id, name, owner, project, role, phase}`. **403** if your login is not linked. **400** for an unknown role. **409** at capacity, or with no ledger. **502** if the grant errors or the raise fails. A failed raise releases the grant, so no slot leaks. |
 | `GET /admin/sessions/personal?project=P` | **200** with your own personal sessions in P. **403** if your login is not linked. |
 | `DELETE /admin/sessions/personal/{id}` | **204** after the teardown. **404** if the id does not exist or is not a personal session. **403** unless you are its owner. |
 

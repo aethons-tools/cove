@@ -9,10 +9,12 @@ import { BootContext } from "../BootContext";
 export function Shell({ boot }: { boot: Bootstrap }) {
   useLiveEvents();
   return (
-    <AppShell header={{ height: 48 }} navbar={{ width: 300, breakpoint: "sm" }} padding="md">
-      <AppShell.Header><TitleBar boot={boot} /></AppShell.Header>
-      <AppShell.Navbar><Rail /></AppShell.Navbar>
-      <AppShell.Main><BootContext value={boot}><Outlet /></BootContext></AppShell.Main>
-    </AppShell>
+    <BootContext value={boot}>
+      <AppShell header={{ height: 48 }} navbar={{ width: 300, breakpoint: "sm" }} padding="md">
+        <AppShell.Header><TitleBar boot={boot} /></AppShell.Header>
+        <AppShell.Navbar><Rail /></AppShell.Navbar>
+        <AppShell.Main><Outlet /></AppShell.Main>
+      </AppShell>
+    </BootContext>
   );
 }

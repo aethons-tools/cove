@@ -173,11 +173,28 @@ func PersonalSessionStatus(err error) int {
 }
 
 // RequestPersonalSession admits and raises a personal session of b.Role for the
-// roster Human in b.Project whose Login is login: validate, check delivery,
-// reserve a slot (GrantPersonal), then raise — releasing the slot if the raise
-// fails. It is the one path behind both POST /admin/sessions/personal and the
-// operator UI's role Request action. Refusals are *PersonalSessionError.
+// member of b.Project whose Login is login (StartPersonalSession). It is the
+// path behind POST /admin/sessions/personal and the operator UI's role Request
+// action. Refusals are *PersonalSessionError.
 func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, alloc SessionAllocator, log *slog.Logger, login string, b PersonalSessionBody) (PersonalSessionResult, error) {
+	if sup == nil || alloc == nil {
+		return PersonalSessionResult{}, &PersonalSessionError{Status: http.StatusServiceUnavailable, Msg: "runtime supervisor or allocator not configured"}
+	}
+	project := orDefaultProject(b.Project)
+	human, ok := MemberByLogin(store, project, login)
+	if !ok {
+		return PersonalSessionResult{}, &PersonalSessionError{Status: http.StatusForbidden, Msg: fmt.Sprintf("no member of %s is linked to your login", project)}
+	}
+	b.Project = project
+	return StartPersonalSession(ctx, store, sup, alloc, log, human, login, b)
+}
+
+// StartPersonalSession admits and raises a personal session of b.Role owned by
+// owner, a member of b.Project: validate, reserve a slot (GrantPersonal), then
+// raise — releasing the slot if the raise fails. by names who asked, for the
+// log. Callers must have checked owner is a member of b.Project. It is the one path behind RequestPersonalSession and the user area's
+// New session. Refusals are *PersonalSessionError.
+func StartPersonalSession(ctx context.Context, store Store, sup *Supervisor, alloc SessionAllocator, log *slog.Logger, owner Member, by string, b PersonalSessionBody) (PersonalSessionResult, error) {
 	refuse := func(status int, format string, a ...any) (PersonalSessionResult, error) {
 		return PersonalSessionResult{}, &PersonalSessionError{Status: status, Msg: fmt.Sprintf(format, a...)}
 	}
@@ -192,47 +209,36 @@ func RequestPersonalSession(ctx context.Context, store Store, sup *Supervisor, a
 		return refuse(http.StatusBadRequest, "%s", err.Error())
 	}
 	project := orDefaultProject(b.Project)
-	human, ok := MemberByLogin(store, project, login)
-	if !ok {
-		return refuse(http.StatusForbidden, "no member of %s is linked to your login", project)
-	}
 	if _, ok := store.GetRole(project, b.Role); !ok {
 		return refuse(http.StatusBadRequest, "role %s/%s does not exist", project, b.Role)
 	}
-	// A personal session talks to its owner over the intercom, and a
-	// ticketless cove's messages can only be delivered via Discord (the
-	// Linear fallback needs a ticket): fail now, before any grant, rather
-	// than silently later.
-	if msg := personalDeliveryProblem(store, project, human); msg != "" {
-		return refuse(http.StatusBadRequest, "%s", msg)
-	}
 	id := string(ident.New(ident.Session)) // each request starts a new session
-	granted, err := alloc.GrantPersonal(ctx, project, b.Role, id, string(human.User.ID))
+	granted, err := alloc.GrantPersonal(ctx, project, b.Role, id, string(owner.User.ID))
 	switch {
 	case errors.Is(err, ErrNeedsLedger):
 		return refuse(http.StatusConflict, "%s", ErrNeedsLedger.Error())
 	case err != nil:
-		log.Warn("personal session grant failed", "operator", login, "project", project, "role", b.Role, "owner", human.User.Name, "err", err.Error())
+		log.Warn("personal session grant failed", "by", by, "project", project, "role", b.Role, "owner", owner.User.Name, "err", err.Error())
 		return refuse(http.StatusBadGateway, "allocation failed: %s", err.Error())
 	case !granted:
-		return refuse(http.StatusConflict, "at capacity: no personal session of %s/%s available for %s", project, b.Role, human.User.Name)
+		return refuse(http.StatusConflict, "at capacity: no personal session of %s/%s available for %s", project, b.Role, owner.User.Name)
 	}
 	name, release := reservePersonalName(store, b.Role)
 	defer release()
 	inst, _, _, err := sup.Raise(ctx, RaiseSpec{
 		ActorID: id, Name: name, Project: project, Role: b.Role, Prompt: b.Prompt,
-		Owner: human.User.Name, OwnerID: human.User.ID, SessionKind: SessionKindPersonal, Placement: placement,
+		Owner: owner.User.Name, OwnerID: owner.User.ID, SessionKind: SessionKindPersonal, Placement: placement,
 	})
 	if err != nil {
 		// Grant, then raise, then compensate: free the reserved slot.
 		if rerr := alloc.RecordRelease(context.WithoutCancel(ctx), project, b.Role, id); rerr != nil {
 			log.Warn("personal session: compensating release failed", "id", id, "err", rerr.Error())
 		}
-		log.Warn("personal session raise failed", "operator", login, "id", id, "err", err.Error())
+		log.Warn("personal session raise failed", "by", by, "id", id, "err", err.Error())
 		return refuse(http.StatusBadGateway, "raise failed: %s", err.Error())
 	}
-	log.Info("admin personal session raised", "operator", login, "id", id, "owner", human.User.Name, "project", project, "role", b.Role)
-	return PersonalSessionResult{ID: id, Name: name, Owner: human.User.Name, Project: project, Role: b.Role, Phase: string(inst.Phase)}, nil
+	log.Info("personal session raised", "by", by, "id", id, "owner", owner.User.Name, "project", project, "role", b.Role)
+	return PersonalSessionResult{ID: id, Name: name, Owner: owner.User.Name, Project: project, Role: b.Role, Phase: string(inst.Phase)}, nil
 }
 
 // personalName is a personal session's n-th candidate name: <role>-01, -02, …
@@ -263,22 +269,6 @@ func reservePersonalName(store Store, role string) (name string, release func())
 		defer pendingNames.Unlock()
 		delete(pendingNames.m, name)
 	}
-}
-
-// personalDeliveryProblem returns why the owner of a personal session in
-// project could not be messaged — the project's chat service isn't discord, or
-// the owner has no discord delivery profile — with the command that fixes it;
-// "" when delivery is possible.
-func personalDeliveryProblem(store Store, project string, owner Member) string {
-	p, _ := store.GetProject(project)
-	if ChatKind(store, p) != "discord" {
-		return fmt.Sprintf("personal sessions need project %s's chat service set to discord (jam project chat-service set --project %s --service discord)", project, project)
-	}
-	if _, ok := owner.Inbox("discord"); !ok {
-		return fmt.Sprintf("%s has no discord delivery profile in project %s (jam project member add %s %s --delivery discord:<inbox-channel>)",
-			owner.User.Name, project, project, owner.User.Name)
-	}
-	return ""
 }
 
 // safeIDPart maps characters outside [A-Za-z0-9._-] to '-', so s can be part of
