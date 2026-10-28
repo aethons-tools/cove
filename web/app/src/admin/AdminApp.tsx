@@ -21,6 +21,7 @@ import { KitsPage } from "./kits/KitsPage";
 import { KitPage } from "./kits/KitPage";
 import { AgentsPage as AgentsTab } from "./agents/AgentsPage";
 import { AgentPage } from "./agents/AgentPage";
+import { TimelinePage } from "./agents/TimelinePage";
 import { UserPage } from "./users/UserPage";
 
 // adminRoutes are the admin area's client routes under ADMIN (webapp serves
@@ -52,6 +53,7 @@ export function adminRoutes(boot: Bootstrap): RouteObject[] {
       { path: "config/*", element: <NotMovedYet /> },
       { path: "agents", element: <AgentsTab /> },
       { path: "agents/:id", element: <AgentPage /> },
+      { path: "agents/:id/session", element: <TimelinePage /> },
       { path: "agents/*", element: <NotMovedYet /> },
       { path: "health/*", element: <NotMovedYet /> },
       { path: "*", element: <NotMovedYet /> },

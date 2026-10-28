@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/server";
 import { tev } from "./testing";
+import { userThinkingSource } from "./source";
 import { useThinkingFeed, type ThinkingFeed } from "./useThinkingFeed";
 
 class FakeES {
@@ -23,7 +24,7 @@ class FakeES {
 const box: { feed?: ThinkingFeed } = {};
 const BACKOFF_FAST = [1, 1];
 function Probe({ backoff }: { backoff?: number[] }) {
-  const f = useThinkingFeed("ses_1", { max: 100, backoff, following: () => true });
+  const f = useThinkingFeed(userThinkingSource("ses_1"), { max: 100, backoff, following: () => true });
   useEffect(() => { box.feed = f; });
   return null;
 }

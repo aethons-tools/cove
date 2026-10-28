@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef, useState, type Dispatch } from "react";
-import { apiGet, ApiError } from "../../api/client";
-import type { ThinkingEvent, ThinkingPage } from "../../api/types";
+import type { ThinkingEvent } from "../../api/types";
 import { emptyFeed, feedReducer, type Feed, type FeedAction } from "./feed";
+import type { ThinkingSource } from "./source";
 
 export interface ThinkingFeed {
   feed: Feed;
@@ -12,14 +12,13 @@ export interface ThinkingFeed {
   seen(): void;
 }
 
-const enc = encodeURIComponent;
 export const BACKOFF = [2000, 5000, 15000];
 export const MAX_ROWS = 2000;
 
 // Conn is one tab's feed connection; gen counts its connections, so a
 // closed feed's late messages and a stale retry are ignored.
 interface Conn {
-  id: string;
+  src: ThinkingSource;
   es: EventSource | null;
   tries: number;
   retry: ReturnType<typeof setTimeout> | undefined;
@@ -38,7 +37,7 @@ function open(c: Conn, stream: string, clear: boolean) {
   const gen = ++c.gen;
   c.setPinned(stream);
   if (clear) c.dispatch({ type: "reset" });
-  const es = new EventSource(`/app/user/session/${enc(c.id)}/thinking/events${stream ? `?stream=${enc(stream)}` : ""}`);
+  const es = new EventSource(c.src.events(stream));
   c.es = es;
   const on = (name: string, fn: (e: MessageEvent<string>) => void) =>
     es.addEventListener(name, (e) => { if (c.gen === gen) fn(e as MessageEvent<string>); });
@@ -55,15 +54,14 @@ function open(c: Conn, stream: string, clear: boolean) {
   });
   on("newstream", () => {
     c.dispatch({ type: "restart" });
-    open(c, "", false);
+    open(c, c.src.pinned ?? "", false);
   });
   on("open", () => { c.tries = 0; });
   on("error", () => {
     if (es.readyState !== EventSource.CLOSED) return; // EventSource retries by itself
     es.close();
     c.es = null;
-    void apiGet(`sessions/${enc(c.id)}/pane/thinking`)
-      .then(() => 0, (err: unknown) => (err instanceof ApiError ? err.status : 0))
+    void c.src.check()
       .then((st) => {
         if (c.gen !== gen) return;
         if (st === 404) { c.dispatch({ type: "note", text: "This session is no longer available to you" }); return; }
@@ -75,18 +73,19 @@ function open(c: Conn, stream: string, clear: boolean) {
 }
 
 // useThinkingFeed is a session's Thinking feed: the JSON form of
-// …/thinking/events (signals and rows; each row is data, rendered as text),
-// older pages from api/sessions/{id}/thinking. A feed the server refuses
-// (EventSource can't say why) is checked against the pane: 404 means the
+// the source's events (signals and rows; each row is data, rendered as
+// text) and older pages. A feed the server refuses (EventSource can't say
+// why) is checked against the source: 404 means the
 // viewer lost the session; anything else (429 too many feeds, a 502)
 // retries after each backoff delay, then says so — never looping.
-export function useThinkingFeed(id: string, opts: { max?: number; backoff?: number[]; following: () => boolean }): ThinkingFeed {
+export function useThinkingFeed(src: ThinkingSource, opts: { max?: number; backoff?: number[]; following: () => boolean }): ThinkingFeed {
   const [feed, dispatch] = useReducer(feedReducer(opts.max ?? MAX_ROWS), emptyFeed);
   const [pinned, setPinned] = useState("");
-  const conn = useRef<Conn>({ id, es: null, tries: 0, retry: undefined, gen: 0, dispatch, setPinned,
+  const conn = useRef<Conn>({ src, es: null, tries: 0, retry: undefined, gen: 0, dispatch, setPinned,
     following: opts.following, backoff: opts.backoff ?? BACKOFF });
   const feedNow = useRef(feed);
   useEffect(() => {
+    conn.current.src = src;
     conn.current.following = opts.following;
     conn.current.backoff = opts.backoff ?? BACKOFF;
     feedNow.current = feed;
@@ -94,14 +93,16 @@ export function useThinkingFeed(id: string, opts: { max?: number; backoff?: numb
 
   useEffect(() => {
     const c = conn.current;
-    c.id = id;
-    open(c, "", false);
+    c.src = src;
+    open(c, src.pinned ?? "", false);
     return () => { c.gen++; c.es?.close(); clearTimeout(c.retry); };
-  }, [id]);
+    // src.key names the session: a new source object for it is the same feed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src.key]);
 
   const page = async (before: number, at: string | null, from: number, stream: string) => {
     if (!stream || !before) return;
-    const p = await apiGet<ThinkingPage>(`sessions/${enc(id)}/thinking?stream=${enc(stream)}&before=${before}`);
+    const p = await conn.current.src.page(stream, before);
     dispatch({ type: "page", events: p.events, at, from, before: p.before });
   };
 
