@@ -200,26 +200,27 @@ func parseAllowPaths(s string) []string {
 	return out
 }
 
-// destFromForm reads every destination field but the name from the form.
-func destFromForm(r *http.Request, name string) (jam.Destination, error) {
-	env, err := parseEnv(r.FormValue("env"))
+// destFromFields reads every destination field but the name from its form
+// fields (get reads one by its form name).
+func destFromFields(get func(string) string, name string) (jam.Destination, error) {
+	env, err := parseEnv(get("env"))
 	if err != nil {
 		return jam.Destination{}, err
 	}
 	return jam.Destination{
 		Name:       name,
-		Route:      strings.TrimSpace(r.FormValue("route")),
-		Upstream:   strings.TrimSpace(r.FormValue("upstream")),
-		IdentityIn: jam.ApplyMethod(strings.TrimSpace(r.FormValue("identity-in"))),
-		CredName:   strings.TrimSpace(r.FormValue("cred-name")),
-		Apply:      jam.ApplyMethod(strings.TrimSpace(r.FormValue("apply"))),
+		Route:      strings.TrimSpace(get("route")),
+		Upstream:   strings.TrimSpace(get("upstream")),
+		IdentityIn: jam.ApplyMethod(strings.TrimSpace(get("identity-in"))),
+		CredName:   strings.TrimSpace(get("cred-name")),
+		Apply:      jam.ApplyMethod(strings.TrimSpace(get("apply"))),
 		Env:        env,
-		AllowPaths: parseAllowPaths(r.FormValue("allow-paths")),
-		Git:        r.FormValue("git") != "",
-		Note:       strings.TrimSpace(r.FormValue("note")),
+		AllowPaths: parseAllowPaths(get("allow-paths")),
+		Git:        get("git") != "",
+		Note:       strings.TrimSpace(get("note")),
 		// "none" is the default; store it as unset.
-		LogHeadersIn:  headerLogField(r.FormValue("log-headers-in")),
-		LogHeadersOut: headerLogField(r.FormValue("log-headers-out")),
+		LogHeadersIn:  headerLogField(get("log-headers-in")),
+		LogHeadersOut: headerLogField(get("log-headers-out")),
 	}, nil
 }
 
@@ -258,7 +259,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 			return
 		}
 		name := strings.TrimSpace(r.FormValue("name"))
-		d, err := destFromForm(r, name)
+		d, err := destFromFields(r.FormValue, name)
 		if err == nil {
 			err = jam.CreateDestination(store, d, credExists)
 		}
@@ -283,7 +284,7 @@ func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger,
 			renderError(w, http.StatusBadRequest, "invalid form")
 			return
 		}
-		d, err := destFromForm(r, r.PathValue("name"))
+		d, err := destFromFields(r.FormValue, r.PathValue("name"))
 		if err == nil {
 			err = jam.UpdateDestinationKeepSpecs(store, d, credExists) // the form can't edit custom specs: keep them
 		}

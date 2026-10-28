@@ -552,3 +552,173 @@ export interface SetupResponse {
   managers: string[]; // two or more: the image's manager is chosen
   manager: string; // the chosen one
 }
+/**
+ * DestListRow is one destination in the list.
+ */
+export interface DestListRow {
+  name: string;
+  route: string;
+  upstream: string;
+  identityIn: string;
+  apply: string;
+  credName: string;
+  envKeys: string[];
+  gitRouted: boolean;
+  usedBy: number /* int */; // roles whose scope lists it
+  managed?: Managed | null;
+  attn?: AttnFlag | null;
+}
+/**
+ * DestinationsResponse is GET /app/admin/api/destinations.
+ */
+export interface DestinationsResponse {
+  destinations: DestListRow[];
+  methods: string[]; // the identity-in / apply presets
+}
+/**
+ * EnvRow is one client-env entry an agent sets for a destination.
+ */
+export interface EnvRow {
+  key: string;
+  template: string;
+}
+/**
+ * DestUse is a role whose scope lists the destination, and its credential.
+ */
+export interface DestUse {
+  project: string;
+  role: string;
+  cred: string;
+  credIsRole: boolean;
+}
+/**
+ * DestConflict is a role whose connector this destination breaks.
+ */
+export interface DestConflict {
+  project: string;
+  role: string;
+  other: string; // the other destination
+  what: string;
+}
+/**
+ * DestFields are a destination's form values ("none" = header logging off).
+ */
+export interface DestFields {
+  route: string;
+  upstream: string;
+  identityIn: string;
+  apply: string;
+  credName: string;
+  env: string; // KEY=TEMPLATE lines, the declared env only
+  allowPaths: string; // one pattern per line
+  note: string;
+  logHeadersIn: string;
+  logHeadersOut: string;
+  git: boolean;
+}
+/**
+ * DestDetail is a destination's page.
+ */
+export interface DestDetail {
+  name: string;
+  managed?: Managed | null;
+  fields: DestFields;
+  methods: string[];
+  identityInSpec: string; // a custom spec as the Broker section shows it; "" = none
+  applySpec: string;
+  allowPaths: string[];
+  env: EnvRow[];
+  envImplied: boolean; // no env declared: the route's legacy default applies
+  gitRouted: boolean;
+  gitImplied: boolean; // routed only by the legacy /git/ rule
+  uses: DestUse[];
+  conflicts: DestConflict[];
+  conflictRoles: string[];
+}
+/**
+ * SpecListRow is one model-spec in the list.
+ */
+export interface SpecListRow {
+  name: string;
+  type: string;
+  version: string;
+  versionConstraint: string;
+  principal: string;
+  modelId: string;
+  effort: string;
+  mode: string;
+  provider: string; // "" = no claude body
+  usedBy: number /* int */;
+  managed?: Managed | null;
+}
+/**
+ * SpecChoices are the model-spec form's select options; principals are
+ * credential names only.
+ */
+export interface SpecChoices {
+  types: string[];
+  principals: string[];
+  modes: string[];
+  providers: string[];
+}
+/**
+ * SpecFields are a model-spec's form values.
+ */
+export interface SpecFields {
+  type: string;
+  version: string;
+  versionConstraint: string;
+  principal: string;
+  modelId: string;
+  effort: string;
+  mode: string;
+  provider: string;
+  headers: string; // NAME = VALUE / NAME += ITEM lines
+  allow: string;
+  deny: string;
+  providerEnv: string; // KEY=VALUE lines (non-secret by rule)
+  plugins: string;
+  settings: string; // a JSON object
+  note: string;
+}
+/**
+ * SpecUse is a role that runs the model-spec; Implicit: it names none (the default).
+ */
+export interface SpecUse {
+  project: string;
+  role: string;
+  implicit: boolean;
+}
+/**
+ * HeaderRuleRow is one principal header rule.
+ */
+export interface HeaderRuleRow {
+  name: string;
+  op: string; // "=" or "+="
+  value: string;
+}
+/**
+ * SpecDetail is a model-spec's page.
+ */
+export interface SpecDetail {
+  name: string;
+  managed?: Managed | null;
+  fields: SpecFields;
+  choices: SpecChoices;
+  headerRules: HeaderRuleRow[];
+  allow: string[];
+  deny: string[];
+  hasClaude: boolean;
+  providerEnvKeys: string[];
+  plugins: string[];
+  settingsKeys: string[];
+  uses: SpecUse[];
+}
+/**
+ * SpecsResponse is GET /app/admin/api/model-specs; New seeds the create form.
+ */
+export interface SpecsResponse {
+  specs: SpecListRow[];
+  new: SpecFields;
+  choices: SpecChoices;
+}
