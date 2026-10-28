@@ -1,6 +1,7 @@
 package adminui
 
 import (
+	"context"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -90,6 +91,90 @@ func splitList(s string) []string {
 
 func badRequest(msg string) error { return &jam.WriteError{Status: http.StatusBadRequest, Msg: msg} }
 
+// setRoleScope sets a role's scope section from its form fields (get reads
+// one by its form name: destinations, addressing, ttl, kit, model-spec).
+func setRoleScope(store jam.Store, credExists func(string) bool, project, name string, get func(string) string) error {
+	dests, creds, err := jam.ParseDestinations(get("destinations"))
+	if err != nil {
+		return badRequest(err.Error())
+	}
+	ttl, err := parseDur("TTL", get("ttl"))
+	if err != nil {
+		return err
+	}
+	kit := strings.TrimSpace(get("kit"))
+	if kit != "" {
+		if _, ok := store.GetKit(kit); !ok {
+			return badRequest("kit " + strconv.Quote(kit) + " does not exist")
+		}
+	}
+	spec := strings.TrimSpace(get("model-spec"))
+	addressing := splitList(get("addressing"))
+	return jam.UpdateRole(store, project, name, func(role *jam.Role) error {
+		// Fresh slices/maps: never mutate what the stored role may alias.
+		scope := role.Scope
+		scope.Destinations, scope.Credentials, scope.Addressing, scope.TTL = dests, creds, addressing, ttl
+		if err := jam.ValidateCredentials(scope, credExists); err != nil {
+			return badRequest(err.Error())
+		}
+		role.Scope, role.Kit, role.ModelSpec = scope, kit, spec // UpdateRole checks spec exists
+		return nil
+	})
+}
+
+// setRoleAllocation sets a role's allocation section from its form fields
+// (get reads one by its form name); its standing sessions are kept.
+func setRoleAllocation(store jam.Store, project, name string, get func(string) string) error {
+	var a jam.RoleAllocation
+	var err error
+	for _, c := range []struct {
+		field string
+		dst   *int
+	}{{"max-ephemeral", &a.MaxEphemeral}, {"max-personal", &a.MaxPersonal}, {"max-personal-per-owner", &a.MaxPersonalPerOwner}} {
+		if *c.dst, err = parseCount(c.field, get(c.field)); err != nil {
+			return err
+		}
+	}
+	for _, d := range []struct {
+		field string
+		dst   *time.Duration
+	}{{"idle-after", &a.IdleAfter}, {"nag-every", &a.NagEvery}, {"reclaim-after", &a.ReclaimAfter}} {
+		if *d.dst, err = parseDur(d.field, get(d.field)); err != nil {
+			return err
+		}
+	}
+	return jam.UpdateRole(store, project, name, func(role *jam.Role) error {
+		a.Standing = role.Allocation.Standing // managed by the standing section
+		role.Allocation = a
+		return nil
+	})
+}
+
+// resetStandingMsg runs a standing reset: a pending one is accepted with its
+// reason as the message.
+func resetStandingMsg(ctx context.Context, store jam.Store, sup *jam.Supervisor, project, name, session string) (string, error) {
+	res, err := jam.ResetStanding(ctx, store, sup, project, name, session)
+	switch {
+	case err != nil:
+		return "", err
+	case res.Pending:
+		return res.Reason, nil
+	}
+	return "reset standing agent " + session + "; Jam raises it fresh", nil
+}
+
+// upgradeStandingMsg queues a standing upgrade (never forced from the UI).
+func upgradeStandingMsg(store jam.Store, sup *jam.Supervisor, project, name, session string) (string, error) {
+	res, err := jam.UpgradeStanding(store, sup, project, name, session, false)
+	switch {
+	case err != nil:
+		return "", err
+	case !res.Pending:
+		return "standing agent " + session + " already runs the current image; nothing restarted", nil
+	}
+	return "upgrade of standing agent " + session + " " + res.State + "; Jam restarts it once the image is ready and the agent is idle", nil
+}
+
 // registerRoleEdits mounts the role page's per-section writes. Each goes
 // through jam's role read-modify-write functions (one shared lock with the JSON
 // API) and answers with the re-rendered role body.
@@ -133,60 +218,11 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 	}
 
 	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/scope", edit("scope set", func(r *http.Request, project, name string) error {
-		dests, creds, err := jam.ParseDestinations(r.FormValue("destinations"))
-		if err != nil {
-			return badRequest(err.Error())
-		}
-		ttl, err := parseDur("TTL", r.FormValue("ttl"))
-		if err != nil {
-			return err
-		}
-		kit := strings.TrimSpace(r.FormValue("kit"))
-		if kit != "" {
-			if _, ok := store.GetKit(kit); !ok {
-				return badRequest("kit " + strconv.Quote(kit) + " does not exist")
-			}
-		}
-		spec := strings.TrimSpace(r.FormValue("model-spec"))
-		addressing := splitList(r.FormValue("addressing"))
-		return jam.UpdateRole(store, project, name, func(role *jam.Role) error {
-			// Fresh slices/maps: never mutate what the stored role may alias.
-			scope := role.Scope
-			scope.Destinations, scope.Credentials, scope.Addressing, scope.TTL = dests, creds, addressing, ttl
-			if err := jam.ValidateCredentials(scope, credExists); err != nil {
-				return badRequest(err.Error())
-			}
-			role.Scope, role.Kit, role.ModelSpec = scope, kit, spec // UpdateRole checks spec exists
-			return nil
-		})
+		return setRoleScope(store, credExists, project, name, r.FormValue)
 	}))
-
 	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/allocation", edit("allocation set", func(r *http.Request, project, name string) error {
-		var a jam.RoleAllocation
-		var err error
-		for _, c := range []struct {
-			field string
-			dst   *int
-		}{{"max-ephemeral", &a.MaxEphemeral}, {"max-personal", &a.MaxPersonal}, {"max-personal-per-owner", &a.MaxPersonalPerOwner}} {
-			if *c.dst, err = parseCount(c.field, r.FormValue(c.field)); err != nil {
-				return err
-			}
-		}
-		for _, d := range []struct {
-			field string
-			dst   *time.Duration
-		}{{"idle-after", &a.IdleAfter}, {"nag-every", &a.NagEvery}, {"reclaim-after", &a.ReclaimAfter}} {
-			if *d.dst, err = parseDur(d.field, r.FormValue(d.field)); err != nil {
-				return err
-			}
-		}
-		return jam.UpdateRole(store, project, name, func(role *jam.Role) error {
-			a.Standing = role.Allocation.Standing // managed by the standing section
-			role.Allocation = a
-			return nil
-		})
+		return setRoleAllocation(store, project, name, r.FormValue)
 	}))
-
 	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/context", edit("context set", func(r *http.Request, project, name string) error {
 		b, err := parseContextForm(r)
 		if err != nil {
@@ -218,28 +254,12 @@ func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolve
 	// declaration kept — Jam raises it fresh on its next standing pass. A
 	// pending reset is accepted (flashed), not an error.
 	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/standing/{session}/reset", editFlash("standing reset", func(r *http.Request, project, name string) (string, error) {
-		session := r.PathValue("session")
-		res, err := jam.ResetStanding(r.Context(), store, sup, project, name, session)
-		switch {
-		case err != nil:
-			return "", err
-		case res.Pending:
-			return res.Reason, nil
-		}
-		return "reset standing agent " + session + "; Jam raises it fresh", nil
+		return resetStandingMsg(r.Context(), store, sup, project, name, r.PathValue("session"))
 	}))
 	// Upgrade: queued with the standing reconciler, which prepares the current
 	// image, waits for the session to be idle, and re-raises it keeping its
 	// conversation and workspace (the UI never forces; the CLI's --force does).
 	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/standing/{session}/upgrade", editFlash("standing upgrade", func(r *http.Request, project, name string) (string, error) {
-		session := r.PathValue("session")
-		res, err := jam.UpgradeStanding(store, sup, project, name, session, false)
-		switch {
-		case err != nil:
-			return "", err
-		case !res.Pending:
-			return "standing agent " + session + " already runs the current image; nothing restarted", nil
-		}
-		return "upgrade of standing agent " + session + " " + res.State + "; Jam restarts it once the image is ready and the agent is idle", nil
+		return upgradeStandingMsg(store, sup, project, name, r.PathValue("session"))
 	}))
 }

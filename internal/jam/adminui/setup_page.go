@@ -239,6 +239,23 @@ func setupFail(w http.ResponseWriter, log *slog.Logger, err error, subject, notF
 	}
 }
 
+// setupFailJSON is setupFail for the JSON API.
+func setupFailJSON(w http.ResponseWriter, log *slog.Logger, err error, subject, notFound string) {
+	if code, ok := jam.ManagerErrStatus(err); ok {
+		writeAPIError(w, code, apiCode(code), jam.SetupDisplayText(err.Error()))
+		return
+	}
+	switch {
+	case errors.Is(err, jam.ErrNotFound):
+		writeAPIError(w, http.StatusNotFound, "not_found", notFound)
+	case errors.Is(err, jam.ErrUnknownSection):
+		writeAPIError(w, http.StatusBadRequest, "bad_request", jam.SetupDisplayText(err.Error()))
+	default:
+		log.Warn("ui setup inspect failed", "subject", subject, "err", err.Error())
+		writeAPIError(w, http.StatusInternalServerError, "internal", "setup unavailable")
+	}
+}
+
 // registerSetup mounts the Setup tabs (nothing without deps):
 //
 //	GET /app/admin/projects/{project}/roles/{name}/setup[/sections]

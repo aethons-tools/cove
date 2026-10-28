@@ -1,6 +1,7 @@
 package adminui
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -15,6 +16,25 @@ func requestPrompt(owner string) string {
 	return fmt.Sprintf("Squawk me (user:%s) and we will get to work.", owner)
 }
 
+// requestRole raises a personal session of project/role for login, who must
+// be linked to a member of the project; refusals carry their status.
+func requestRole(ctx context.Context, store jam.Store, sup *jam.Supervisor, alloc jam.SessionAllocator, log *slog.Logger, login, project, role string) (jam.PersonalSessionResult, error) {
+	human, ok := jam.MemberByLogin(store, project, login)
+	if !ok {
+		msg := fmt.Sprintf("no member of %s is linked to your login", project)
+		if login == "local" {
+			msg = "sign in to request an agent (/app/auth/login): Jam needs to know which member you are"
+		}
+		return jam.PersonalSessionResult{}, &jam.WriteError{Status: http.StatusForbidden, Msg: msg}
+	}
+	res, err := jam.RequestPersonalSession(ctx, store, sup, alloc, log, login,
+		jam.PersonalSessionBody{Project: project, Role: role, Prompt: requestPrompt(human.User.Name)})
+	if err != nil {
+		return res, &jam.WriteError{Status: jam.PersonalSessionStatus(err), Msg: err.Error()}
+	}
+	return res, nil
+}
+
 // registerRoleRequest mounts the roles screen's Request action: raise a
 // personal session of the role for the operator, who must be signed in (a
 // loopback request is anonymous "local") and linked to a roster human in the
@@ -25,21 +45,9 @@ func registerRoleRequest(mux *http.ServeMux, store jam.Store, log *slog.Logger, 
 		if !guardWrite(w, r) {
 			return
 		}
-		project, role := r.PathValue("project"), r.PathValue("name")
-		login := jam.OperatorID(r)
-		human, ok := jam.MemberByLogin(store, project, login)
-		if !ok {
-			msg := fmt.Sprintf("no member of %s is linked to your login", project)
-			if login == "local" {
-				msg = "sign in to request an agent (/app/auth/login): Jam needs to know which member you are"
-			}
-			renderError(w, http.StatusForbidden, msg)
-			return
-		}
-		res, err := jam.RequestPersonalSession(r.Context(), store, sup, alloc, log, login,
-			jam.PersonalSessionBody{Project: project, Role: role, Prompt: requestPrompt(human.User.Name)})
+		res, err := requestRole(r.Context(), store, sup, alloc, log, jam.OperatorID(r), r.PathValue("project"), r.PathValue("name"))
 		if err != nil {
-			renderError(w, jam.PersonalSessionStatus(err), err.Error())
+			renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

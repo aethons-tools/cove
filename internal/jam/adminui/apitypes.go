@@ -319,3 +319,186 @@ type ProjectDetail struct {
 	LogConfigured bool         `json:"logConfigured"`
 	Squawks       []SquawkRow  `json:"squawks"` // ?section=intercom: the newest in this project
 }
+
+// AttnFlag is a row's attention: its worst item's kind and why.
+type AttnFlag struct {
+	Kind string `json:"kind"` // broken, stale, config, alert
+	Why  string `json:"why"`
+}
+
+// CoveRow is one running studio (the studio table).
+type CoveRow struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Project     string    `json:"project"`
+	Role        string    `json:"role"`
+	Unit        string    `json:"unit"`
+	Status      string    `json:"status"` // the display status (jam.StatusOf)
+	Connector   string    `json:"connector"`
+	Image       string    `json:"image"`
+	Manager     string    `json:"manager"`
+	LeaseHolder string    `json:"leaseHolder"`
+	RaisedAt    string    `json:"raisedAt"` // "Jan 2 15:04"
+	LastSeen    string    `json:"lastSeen"` // "15:04:05"; "" = never
+	Attn        *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
+}
+
+// AgentRow is one agent of a project: running in it or holding a grant into it.
+type AgentRow struct {
+	ID       string    `json:"id"`
+	Name     string    `json:"name"`
+	Kind     string    `json:"kind"`
+	Unit     string    `json:"unit"`
+	Status   string    `json:"status"`
+	Image    string    `json:"image"`
+	LastSeen string    `json:"lastSeen"` // "Jan 2 15:04:05"; "" = never
+	Roles    []string  `json:"roles"`
+	Attn     *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
+}
+
+// DestCred is a destination in a role's scope and its credential ("" = the
+// destination's default).
+type DestCred struct {
+	Name string `json:"name"`
+	Cred string `json:"cred"`
+}
+
+// RoleRow is one role in a project's Agents view.
+type RoleRow struct {
+	Name         string     `json:"name"`
+	Destinations []DestCred `json:"destinations"`
+	TTL          string     `json:"ttl"` // "—" = none
+	Kit          string     `json:"kit"` // "" = the default kit
+	Attn         *AttnFlag  `json:"attn" tstype:"AttnFlag | null"`
+}
+
+// ProjectAgents is a project's Agents view: its roles and its agents.
+type ProjectAgents struct {
+	Project    string     `json:"project"`
+	Roles      []RoleRow  `json:"roles"`
+	Agents     []AgentRow `json:"agents"`
+	CanRequest bool       `json:"canRequest"` // a supervisor runs: Request is offered
+}
+
+// DestRow is a destination in a role's scope with the credential the broker
+// would inject.
+type DestRow struct {
+	Name       string `json:"name"`
+	Cred       string `json:"cred"`
+	CredIsRole bool   `json:"credIsRole"` // the role's mapping, not the destination default
+	Route      string `json:"route"`
+	Missing    bool   `json:"missing"` // not a registered destination
+}
+
+// Setting is an allocation value with how an unset one reads.
+type Setting struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Unset bool   `json:"unset"`
+}
+
+// StandingRow is a declared standing session and its studio, if any.
+type StandingRow struct {
+	Name    string `json:"name"`
+	Prompt  string `json:"prompt"`
+	ActorID string `json:"actorId"`
+	Status  string `json:"status"` // "" = not running
+	Image   string `json:"image"`
+	Upgrade string `json:"upgrade"` // a pending upgrade's state; "" = none
+}
+
+// HolderRow is an agent holding a grant on the role.
+type HolderRow struct {
+	ID       string `json:"id"`
+	Override bool   `json:"override"` // the grant replaces part of the role's scope
+}
+
+// RoleForm is a role's current values in its edit forms' syntax.
+type RoleForm struct {
+	Destinations        string `json:"destinations"`
+	Addressing          string `json:"addressing"`
+	TTL                 string `json:"ttl"`
+	Kit                 string `json:"kit"`
+	ModelSpec           string `json:"modelSpec"`
+	MaxEphemeral        string `json:"maxEphemeral"`
+	MaxPersonal         string `json:"maxPersonal"`
+	MaxPersonalPerOwner string `json:"maxPersonalPerOwner"`
+	IdleAfter           string `json:"idleAfter"`
+	NagEvery            string `json:"nagEvery"`
+	ReclaimAfter        string `json:"reclaimAfter"`
+	Egress              string `json:"egress"` // one domain per line
+}
+
+// RoleDetail is a role's page.
+type RoleDetail struct {
+	Project          string        `json:"project"`
+	Name             string        `json:"name"`
+	Managed          *Managed      `json:"managed" tstype:"Managed | null"`
+	Kit              string        `json:"kit"`       // "" = no kit
+	ModelSpec        string        `json:"modelSpec"` // the spec it runs (the default's name when unset)
+	ModelSpecDefault bool          `json:"modelSpecDefault"`
+	TTL              string        `json:"ttl"`
+	Dests            []DestRow     `json:"dests"`
+	Addressing       []string      `json:"addressing"`
+	EgressManaged    bool          `json:"egressManaged"`
+	EgressDomains    []string      `json:"egressDomains"`
+	Allocation       []Setting     `json:"allocation"`
+	Standing         []StandingRow `json:"standing"`
+	Holders          []HolderRow   `json:"holders"`
+	Running          []CoveRow     `json:"running"`
+	Form             RoleForm      `json:"form"`
+	Context          ContextPanel  `json:"context"`
+	CanRequest       bool          `json:"canRequest"`
+	SetupEnabled     bool          `json:"setupEnabled"`
+	Attn             *AttnFlag     `json:"attn" tstype:"AttnFlag | null"`
+}
+
+// RoleResult answers a role write: the role after it and a message ("" = none).
+type RoleResult struct {
+	Role    RoleDetail `json:"role"`
+	Message string     `json:"message"`
+}
+
+// Requested answers a Request: the personal session raised.
+type Requested struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Message string `json:"message"`
+}
+
+// SetupFile is one context file of a setup section.
+type SetupFile struct {
+	Path  string `json:"path"`
+	Body  string `json:"body"`
+	Bytes int    `json:"bytes"`
+}
+
+// SetupSection is one section of a studio's or a role's setup. Its text has
+// been through jam.SetupDisplayText.
+type SetupSection struct {
+	Name         string      `json:"name"`
+	Source       string      `json:"source"`
+	Reason       string      `json:"reason"`
+	At           string      `json:"at"` // the snapshot time; "" = none
+	Stale        bool        `json:"stale"`
+	Open         bool        `json:"open"`
+	Body         string      `json:"body"`
+	Head         string      `json:"head"`  // context: the file table, budgets and warnings
+	Files        []SetupFile `json:"files"` // context: each file (none: Body is whole)
+	Diffed       bool        `json:"diffed"`
+	DiffTooLarge bool        `json:"diffTooLarge"`
+	DiffSame     bool        `json:"diffSame"`
+	Diff         []DiffLine  `json:"diff"`
+	DiffNote     string      `json:"diffNote"`
+	DiffPath     string      `json:"diffPath"` // a stale section's diff, under the API; "" = none
+}
+
+// SetupResponse is a setup: its sections and the selectors' choices.
+type SetupResponse struct {
+	Note         string         `json:"note"`
+	Stale        int            `json:"stale"`
+	Sections     []SetupSection `json:"sections"`
+	SectionNames []string       `json:"sectionNames"`
+	Managers     []string       `json:"managers"` // two or more: the image's manager is chosen
+	Manager      string         `json:"manager"`  // the chosen one
+}

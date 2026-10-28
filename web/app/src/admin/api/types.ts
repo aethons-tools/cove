@@ -352,3 +352,203 @@ export interface ProjectDetail {
   logConfigured: boolean;
   squawks: SquawkRow[]; // ?section=intercom: the newest in this project
 }
+/**
+ * AttnFlag is a row's attention: its worst item's kind and why.
+ */
+export interface AttnFlag {
+  kind: string; // broken, stale, config, alert
+  why: string;
+}
+/**
+ * CoveRow is one running studio (the studio table).
+ */
+export interface CoveRow {
+  id: string;
+  name: string;
+  project: string;
+  role: string;
+  unit: string;
+  status: string; // the display status (jam.StatusOf)
+  connector: string;
+  image: string;
+  manager: string;
+  leaseHolder: string;
+  raisedAt: string; // "Jan 2 15:04"
+  lastSeen: string; // "15:04:05"; "" = never
+  attn?: AttnFlag | null;
+}
+/**
+ * AgentRow is one agent of a project: running in it or holding a grant into it.
+ */
+export interface AgentRow {
+  id: string;
+  name: string;
+  kind: string;
+  unit: string;
+  status: string;
+  image: string;
+  lastSeen: string; // "Jan 2 15:04:05"; "" = never
+  roles: string[];
+  attn?: AttnFlag | null;
+}
+/**
+ * DestCred is a destination in a role's scope and its credential ("" = the
+ * destination's default).
+ */
+export interface DestCred {
+  name: string;
+  cred: string;
+}
+/**
+ * RoleRow is one role in a project's Agents view.
+ */
+export interface RoleRow {
+  name: string;
+  destinations: DestCred[];
+  ttl: string; // "—" = none
+  kit: string; // "" = the default kit
+  attn?: AttnFlag | null;
+}
+/**
+ * ProjectAgents is a project's Agents view: its roles and its agents.
+ */
+export interface ProjectAgents {
+  project: string;
+  roles: RoleRow[];
+  agents: AgentRow[];
+  canRequest: boolean; // a supervisor runs: Request is offered
+}
+/**
+ * DestRow is a destination in a role's scope with the credential the broker
+ * would inject.
+ */
+export interface DestRow {
+  name: string;
+  cred: string;
+  credIsRole: boolean; // the role's mapping, not the destination default
+  route: string;
+  missing: boolean; // not a registered destination
+}
+/**
+ * Setting is an allocation value with how an unset one reads.
+ */
+export interface Setting {
+  label: string;
+  value: string;
+  unset: boolean;
+}
+/**
+ * StandingRow is a declared standing session and its studio, if any.
+ */
+export interface StandingRow {
+  name: string;
+  prompt: string;
+  actorId: string;
+  status: string; // "" = not running
+  image: string;
+  upgrade: string; // a pending upgrade's state; "" = none
+}
+/**
+ * HolderRow is an agent holding a grant on the role.
+ */
+export interface HolderRow {
+  id: string;
+  override: boolean; // the grant replaces part of the role's scope
+}
+/**
+ * RoleForm is a role's current values in its edit forms' syntax.
+ */
+export interface RoleForm {
+  destinations: string;
+  addressing: string;
+  ttl: string;
+  kit: string;
+  modelSpec: string;
+  maxEphemeral: string;
+  maxPersonal: string;
+  maxPersonalPerOwner: string;
+  idleAfter: string;
+  nagEvery: string;
+  reclaimAfter: string;
+  egress: string; // one domain per line
+}
+/**
+ * RoleDetail is a role's page.
+ */
+export interface RoleDetail {
+  project: string;
+  name: string;
+  managed?: Managed | null;
+  kit: string; // "" = no kit
+  modelSpec: string; // the spec it runs (the default's name when unset)
+  modelSpecDefault: boolean;
+  ttl: string;
+  dests: DestRow[];
+  addressing: string[];
+  egressManaged: boolean;
+  egressDomains: string[];
+  allocation: Setting[];
+  standing: StandingRow[];
+  holders: HolderRow[];
+  running: CoveRow[];
+  form: RoleForm;
+  context: ContextPanel;
+  canRequest: boolean;
+  setupEnabled: boolean;
+  attn?: AttnFlag | null;
+}
+/**
+ * RoleResult answers a role write: the role after it and a message ("" = none).
+ */
+export interface RoleResult {
+  role: RoleDetail;
+  message: string;
+}
+/**
+ * Requested answers a Request: the personal session raised.
+ */
+export interface Requested {
+  id: string;
+  name: string;
+  message: string;
+}
+/**
+ * SetupFile is one context file of a setup section.
+ */
+export interface SetupFile {
+  path: string;
+  body: string;
+  bytes: number /* int */;
+}
+/**
+ * SetupSection is one section of a studio's or a role's setup. Its text has
+ * been through jam.SetupDisplayText.
+ */
+export interface SetupSection {
+  name: string;
+  source: string;
+  reason: string;
+  at: string; // the snapshot time; "" = none
+  stale: boolean;
+  open: boolean;
+  body: string;
+  head: string; // context: the file table, budgets and warnings
+  files: SetupFile[]; // context: each file (none: Body is whole)
+  diffed: boolean;
+  diffTooLarge: boolean;
+  diffSame: boolean;
+  diff: DiffLine[];
+  diffNote: string;
+  diffPath: string; // a stale section's diff, under the API; "" = none
+}
+/**
+ * SetupResponse is a setup: its sections and the selectors' choices.
+ */
+export interface SetupResponse {
+  note: string;
+  stale: number /* int */;
+  sections: SetupSection[];
+  sectionNames: string[];
+  managers: string[]; // two or more: the image's manager is chosen
+  manager: string; // the chosen one
+}
