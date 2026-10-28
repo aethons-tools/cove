@@ -1,6 +1,7 @@
 package adminui
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -136,6 +137,56 @@ func createRole(store jam.Store, credExists func(string) bool, project string, g
 	return nil
 }
 
+// enrollActor enrolls id with a grant of project/role (dests: destination
+// overrides, name=cred,…) and returns its identity token — shown once, never
+// logged.
+func enrollActor(store jam.Store, credExists func(string) bool, id, project, role, dests string) (string, error) {
+	if id == "" {
+		return "", badRequest("id is required")
+	}
+	if role == "" {
+		return "", badRequest("role is required")
+	}
+	overrides, err := overridesFrom(store, project, role, dests, credExists)
+	if err != nil {
+		return "", badRequest(err.Error())
+	}
+	token, err := jam.Enroll(store, id, project, role, overrides, time.Now())
+	if err != nil {
+		return "", badRequest(err.Error())
+	}
+	return token, nil
+}
+
+// addActorGrant grants actor id project/role, with dests as overrides.
+func addActorGrant(store jam.Store, credExists func(string) bool, id, project, role, dests string) error {
+	if role == "" {
+		return badRequest("role is required")
+	}
+	overrides, err := overridesFrom(store, project, role, dests, credExists)
+	if err != nil {
+		return badRequest(err.Error())
+	}
+	if err := store.AddGrant(id, jam.Grant{Project: project, Role: role, Overrides: overrides}); err != nil {
+		return &jam.WriteError{Status: http.StatusNotFound, Msg: err.Error()}
+	}
+	return nil
+}
+
+// raiseManual raises a manual studio labelled label and returns its session
+// id. The identity token and launch secret RaiseManual returns are dropped:
+// with a real launcher Jam consumes them; they never reach a browser or log.
+func raiseManual(ctx context.Context, store jam.Store, sup *jam.Supervisor, label, project, role, unit, prompt string) (string, error) {
+	if label == "" {
+		return "", badRequest("id is required")
+	}
+	if role == "" {
+		return "", badRequest("role is required")
+	}
+	_, sid, _, _, err := jam.RaiseManual(ctx, store, sup, label, jam.RaiseSpec{Project: project, Role: role, Unit: unit, Prompt: prompt})
+	return sid, err
+}
+
 func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *jam.Supervisor, credExists func(string) bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	mux.HandleFunc("POST /app/admin/enrollments", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
@@ -145,25 +196,10 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			renderError(w, http.StatusBadRequest, "invalid form")
 			return
 		}
-		id := strings.TrimSpace(r.FormValue("id"))
-		if id == "" {
-			renderError(w, http.StatusBadRequest, "id is required")
-			return
-		}
-		role := strings.TrimSpace(r.FormValue("role"))
-		if role == "" {
-			renderError(w, http.StatusBadRequest, "role is required")
-			return
-		}
-		project := strings.TrimSpace(r.FormValue("project"))
-		overrides, err := overridesFrom(store, project, role, r.FormValue("destinations"), credExists)
+		id, project, role := strings.TrimSpace(r.FormValue("id")), strings.TrimSpace(r.FormValue("project")), strings.TrimSpace(r.FormValue("role"))
+		token, err := enrollActor(store, credExists, id, project, role, r.FormValue("destinations"))
 		if err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		token, err := jam.Enroll(store, id, project, role, overrides, time.Now())
-		if err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
 			return
 		}
 		log.Info("ui enrolled", "operator", jam.OperatorID(r), "id", id, "project", project, "role", role)
@@ -211,20 +247,9 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			renderError(w, http.StatusBadRequest, "invalid form")
 			return
 		}
-		role := strings.TrimSpace(r.FormValue("role"))
-		if role == "" {
-			renderError(w, http.StatusBadRequest, "role is required")
-			return
-		}
-		project := strings.TrimSpace(r.FormValue("project"))
-		overrides, err := overridesFrom(store, project, role, r.FormValue("destinations"), credExists)
-		if err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		g := jam.Grant{Project: project, Role: role, Overrides: overrides}
-		if err := store.AddGrant(r.PathValue("id"), g); err != nil {
-			renderError(w, http.StatusNotFound, err.Error())
+		project, role := strings.TrimSpace(r.FormValue("project")), strings.TrimSpace(r.FormValue("role"))
+		if err := addActorGrant(store, credExists, r.PathValue("id"), project, role, r.FormValue("destinations")); err != nil {
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
 			return
 		}
 		log.Info("ui grant added", "operator", jam.OperatorID(r), "id", r.PathValue("id"), "project", orDefaultProject(project), "role", role)
@@ -271,23 +296,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			renderError(w, http.StatusBadRequest, "invalid form")
 			return
 		}
-		id := strings.TrimSpace(r.FormValue("id"))
-		if id == "" {
-			renderError(w, http.StatusBadRequest, "id is required")
-			return
-		}
-		role := strings.TrimSpace(r.FormValue("role"))
-		if role == "" {
-			renderError(w, http.StatusBadRequest, "role is required")
-			return
-		}
-		project := strings.TrimSpace(r.FormValue("project"))
-		// Discard the returned identity token + launch secret: with a real launcher
-		// Jam consumes them internally; they must never reach the browser or a log.
-		_, sid, _, _, err := jam.RaiseManual(r.Context(), store, sup, id, jam.RaiseSpec{
-			Project: project, Role: role,
-			Unit: strings.TrimSpace(r.FormValue("unit")), Prompt: r.FormValue("prompt"),
-		})
+		id, project, role := strings.TrimSpace(r.FormValue("id")), strings.TrimSpace(r.FormValue("project")), strings.TrimSpace(r.FormValue("role"))
+		sid, err := raiseManual(r.Context(), store, sup, id, project, role, strings.TrimSpace(r.FormValue("unit")), r.FormValue("prompt"))
 		if err != nil {
 			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
 			return

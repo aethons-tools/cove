@@ -931,3 +931,187 @@ type DraftResult struct {
 	Page    DraftPage `json:"page"`
 	Message string    `json:"message"`
 }
+
+// AgentListRow is one agent in the Agents list: an enrolled identity, a
+// studio, or both.
+type AgentListRow struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Kind       string    `json:"kind"`
+	Project    string    `json:"project"`
+	Role       string    `json:"role"`
+	Unit       string    `json:"unit"`
+	Status     string    `json:"status"`
+	Connector  string    `json:"connector"`
+	Image      string    `json:"image"`
+	LastSeen   string    `json:"lastSeen"`   // "Jan 2 15:04:05"; "" = never
+	MoreGrants int       `json:"moreGrants"` // grants beyond the first
+	HasStudio  bool      `json:"hasStudio"`
+	Attn       *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
+}
+
+// AgentsResponse is GET /app/admin/api/agents.
+type AgentsResponse struct {
+	Agents  []AgentListRow `json:"agents"`
+	Filters []KV           `json:"filters"` // status group key → label, in order ("" = all)
+	Status  string         `json:"status"`  // the group shown
+	CanEdit bool           `json:"canEdit"` // a supervisor runs: Raise and Teardown
+}
+
+// Enrolled answers an enrollment: the identity token, shown this once.
+type Enrolled struct {
+	ID    string `json:"id"`
+	Token string `json:"token"`
+}
+
+// GrantRow is one grant an agent's token carries.
+type GrantRow struct {
+	Project      string   `json:"project"`
+	Role         string   `json:"role"`
+	Destinations []string `json:"destinations"`
+}
+
+// ShareRow is one share grant on a studio.
+type ShareRow struct {
+	UserID    string   `json:"userId"`
+	User      string   `json:"user"`
+	Rights    []string `json:"rights"`
+	ExpiresAt string   `json:"expiresAt"`
+	Expired   bool     `json:"expired"`
+	GrantedBy string   `json:"grantedBy"`
+}
+
+// LiveRow is one open connection into a studio.
+type LiveRow struct {
+	Name  string `json:"name"`
+	Right string `json:"right"`
+	Since string `json:"since"`
+}
+
+// PreviewRow is one preview a studio exposes.
+type PreviewRow struct {
+	Name string `json:"name"`
+	Port int    `json:"port"`
+	URL  string `json:"url"`
+}
+
+// UserRefRow names a user.
+type UserRefRow struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// AccessCard is who can reach a running studio and why.
+type AccessCard struct {
+	Enabled        bool         `json:"enabled"` // studio collaboration is on
+	Requester      *UserRefRow  `json:"requester" tstype:"UserRefRow | null"`
+	MembersPreview string       `json:"membersPreview"`
+	MembersSSH     string       `json:"membersSsh"`
+	RoleProject    string       `json:"roleProject"`
+	RoleName       string       `json:"roleName"`
+	Shares         []ShareRow   `json:"shares"`
+	Live           []LiveRow    `json:"live"`
+	PreviewsOn     bool         `json:"previewsOn"`
+	Previews       []PreviewRow `json:"previews"`
+}
+
+// StreamRow is one captured session event stream.
+type StreamRow struct {
+	StreamID  string `json:"streamId"`
+	Started   string `json:"started"`
+	LastEvent string `json:"lastEvent"`
+	Events    int    `json:"events"`
+}
+
+// AgentDetail is an agent's page: its identity, its studio while it runs,
+// and its session's audit trail.
+type AgentDetail struct {
+	ID                 string      `json:"id"`
+	Running            bool        `json:"running"`
+	Status             string      `json:"status"`
+	Kind               string      `json:"kind"`
+	Owner              string      `json:"owner"`
+	OwnerID            string      `json:"ownerId"`
+	Name               string      `json:"name"`
+	Project            string      `json:"project"`
+	Role               string      `json:"role"`
+	Unit               string      `json:"unit"`
+	HasActor           bool        `json:"hasActor"`
+	Grants             []GrantRow  `json:"grants"`
+	TokenExpiry        string      `json:"tokenExpiry"` // "" = none
+	Raised             string      `json:"raised"`
+	LastSeen           string      `json:"lastSeen"`
+	Lease              string      `json:"lease"`
+	Backend            string      `json:"backend"`
+	Location           string      `json:"location"`
+	WaitingSince       string      `json:"waitingSince"` // "" = not waiting
+	WaitSeq            int64       `json:"waitSeq"`
+	EscalationTier     int         `json:"escalationTier"`
+	TierPingedAt       string      `json:"tierPingedAt"` // "" = none open
+	EscalationCategory string      `json:"escalationCategory"`
+	Nags               int         `json:"nags"`
+	LastNagAt          string      `json:"lastNagAt"`
+	CommitSeq          int64       `json:"commitSeq"`
+	EgressID           string      `json:"egressId"`
+	EgressKnown        bool        `json:"egressKnown"`
+	EgressFailures     int         `json:"egressFailures"`
+	Access             AccessCard  `json:"access"`
+	SessionsEnabled    bool        `json:"sessionsEnabled"`
+	Streams            []StreamRow `json:"streams"`
+	SquawksConfigured  bool        `json:"squawksConfigured"`
+	Squawks            []SquawkRow `json:"squawks"`
+	SquawksMore        bool        `json:"squawksMore"`
+	CanEdit            bool        `json:"canEdit"`
+	SetupEnabled       bool        `json:"setupEnabled"`
+}
+
+// SessionEvent is one event of an agent's session timeline: the same JSON as
+// the user area's Thinking tab rows, so both render through one component.
+type SessionEvent struct {
+	Stream          string  `json:"stream"`
+	Seq             uint64  `json:"seq"`
+	Turn            uint32  `json:"turn"`
+	At              int64   `json:"at"`   // unix ms; 0 = unknown
+	Kind            string  `json:"kind"` // thinking | text | prompt | tool_call | tool_result | result | progress | gap | other
+	Tool            string  `json:"tool"`
+	ToolUseID       string  `json:"toolUseId"`
+	Text            string  `json:"text"`
+	Detail          string  `json:"detail"`
+	DetailTruncated int     `json:"detailTruncated"`
+	IsError         bool    `json:"isError"`
+	TruncatedBytes  uint64  `json:"truncatedBytes"`
+	CostUSD         float64 `json:"costUsd"`
+	DurationMS      int64   `json:"durationMs"`
+	ClaudeSession   string  `json:"claudeSession"`
+}
+
+// SessionTotals is a session's running totals.
+type SessionTotals struct {
+	Turns        uint32  `json:"turns"`
+	Episodes     uint32  `json:"episodes"`
+	ToolCalls    int     `json:"toolCalls"`
+	InputTokens  int64   `json:"inputTokens"`
+	OutputTokens int64   `json:"outputTokens"`
+	CostUSD      float64 `json:"costUsd"`
+}
+
+// SessionInfo is an agent's timeline: its streams (newest first), the one
+// shown, and its totals.
+type SessionInfo struct {
+	Enabled bool          `json:"enabled"` // session events are recorded on this Jam
+	Streams []StreamRow   `json:"streams"`
+	Stream  string        `json:"stream"`
+	Totals  SessionTotals `json:"totals"`
+}
+
+// SessionPage is a page of a stream's events below a seq.
+type SessionPage struct {
+	Events []SessionEvent `json:"events"`
+	Before uint64         `json:"before"` // older ones exist below it; 0 = none
+}
+
+// SessionRaw is one event's raw JSON (Truncated: bytes cut).
+type SessionRaw struct {
+	Raw       string `json:"raw"`
+	Truncated int    `json:"truncated"`
+}

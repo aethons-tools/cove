@@ -10,18 +10,20 @@ import { DiffView } from "./DiffView";
 // API: one collapsible block per section, with a section filter and (two or
 // more managers) the image's manager. Every text in it is the server's
 // SetupDisplayText.
-export function SetupView({ path }: { path: string }) {
+export function SetupView({ path, diffToggle = false }: { path: string; diffToggle?: boolean }) {
   const [only, setOnly] = useState("");
   const [manager, setManager] = useState("");
+  const [diff, setDiff] = useState(false);
   const q = new URLSearchParams();
   if (only) q.set("sections", only);
   if (manager) q.set("manager", manager);
+  if (diff) q.set("diff", "role");
   const qs = q.toString();
   // An inspection reads images on the launcher host and is audit-logged:
   // only when asked (opened, or a selector changed) — never on focus, never
   // retried — keeping the chips while the next one loads.
   const { data, error, isPending, isPlaceholderData } = useQuery<SetupResponse, ApiError>({
-    queryKey: ["admin", "setup", path, only, manager], queryFn: () => adminApi.get(path + (qs ? `?${qs}` : "")),
+    queryKey: ["admin", "setup", path, only, manager, diff], queryFn: () => adminApi.get(path + (qs ? `?${qs}` : "")),
     staleTime: Infinity, refetchOnWindowFocus: false, retry: false, placeholderData: keepPreviousData,
   });
   const chip = (label: string, on: boolean, pick: () => void) =>
@@ -36,6 +38,7 @@ export function SetupView({ path }: { path: string }) {
       <Group gap={4}>
         {chip("All", only === "", () => setOnly(""))}
         {(data?.sectionNames ?? []).map((n) => chip(n, only === n, () => setOnly(n)))}
+        {diffToggle && <Button size="compact-xs" variant="default" ml="auto" onClick={() => setDiff(!diff)}>{diff ? "Hide diff" : "Diff vs role"}</Button>}
       </Group>
       {isPending || isPlaceholderData ? <Group gap="xs"><Loader size="xs" /><Text size="sm" c="dimmed">Loading the setup… (a first read of the image on the launcher host can take a few seconds)</Text></Group>
         : error ? <Alert color="red">{error.message}</Alert>

@@ -3,6 +3,8 @@
 package adminui_test
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -291,6 +293,53 @@ func TestBrowserAdminKitDraft(t *testing.T) {
 // adminServer serves store's admin UI to a loopback admin, with the app-level
 // routes the page loads (/app/assets/, the service worker) from appui, as jam
 // does.
+// An enrollment from the Agents tab mints the actor and shows its token
+// once (admin SPA slice 7).
+func TestBrowserAdminEnroll(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browsertest.Ctx(t)
+	store := jam.NewMemStore()
+	if err := store.CreateProject("default"); err != nil && !errors.Is(err, jam.ErrProjectExists) {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("default", jam.Role{Name: "coder"}); err != nil {
+		t.Fatal(err)
+	}
+	srv := adminServer(t, store)
+	// The open form's inputs, in order: Agent id, Role, Project, Destination overrides.
+	in := func(n int) string {
+		return fmt.Sprintf(`details[open] form .mantine-InputWrapper-root:nth-of-type(%d) input`, n)
+	}
+	var problems browsertest.Problems
+	err := chromedp.Do(ctx,
+		problems.Watch(ctx),
+		chromedp.Navigate(srv.URL+"/app/admin/next/agents"),
+		browsertest.ClickText("summary", "Enroll agent"),
+		chromedp.WaitVisible(chromedp.CSS(in(1))),
+		browsertest.SetInput(in(1), "bot-1"),
+		browsertest.SetInput(in(2), "coder"),
+		browsertest.ClickText("button", "Enroll"),
+		browsertest.WaitText("b", "Enrolled bot-1."),
+	)
+	if err != nil {
+		t.Fatalf("%v (problems %v)", err, problems.All())
+	}
+	var got *jam.Actor
+	for _, a := range store.ListActors() {
+		if a.ID == "bot-1" {
+			got = &a
+		}
+	}
+	if got == nil || len(got.Grants) != 1 || got.Grants[0].Role != "coder" {
+		t.Errorf("enrolled actor = %+v", got)
+	}
+	for _, pr := range problems.All() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
 func adminServer(t *testing.T, store jam.Store) *httptest.Server {
 	t.Helper()
 	admin := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil)

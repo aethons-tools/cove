@@ -26,7 +26,7 @@ const apiPrefix = "/app/admin/api/"
 
 // registerApp mounts the admin app's pages and its JSON API on mux. The API
 // refuses cross-origin writes before any of its handlers runs.
-func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra roleAPI, su specUI, trustedOrigins []string, f jam.KitFetcher, env jam.ConfigEnv, log *slog.Logger) {
+func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra roleAPI, su specUI, aa agentAPI, trustedOrigins []string, f jam.KitFetcher, env jam.ConfigEnv, log *slog.Logger) {
 	api := http.NewServeMux()
 	api.HandleFunc("GET "+apiPrefix+"bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, adminBootstrap(r, src.items()))
@@ -39,6 +39,8 @@ func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra role
 	apiSpecs(api, src, su, ra.credExists, log)
 	apiKits(api, src, f, log)
 	apiKitDraft(api, src.store, log)
+	apiAgents(api, src, aa, log)
+	apiSession(api, aa.sess, aa.hub, log)
 	api.HandleFunc(apiPrefix, func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "no such API route")
 	})
