@@ -24,9 +24,9 @@ describe("the admin app", () => {
   });
 
   it("links a page that hasn't moved to the old admin", async () => {
-    renderAdmin(adminBoot, ADMIN + "agents");
+    renderAdmin(adminBoot, ADMIN + "health");
     expect(await screen.findByText("This page hasn't moved yet")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open it in the current admin" })).toHaveAttribute("href", "/app/admin/agents");
+    expect(screen.getByRole("link", { name: "Open it in the current admin" })).toHaveAttribute("href", "/app/admin/health");
   });
 
   it("offers Sign out only when signed in through the browser", async () => {
