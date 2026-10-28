@@ -4,6 +4,20 @@
 **Scope:** Jam-managed sessions (ticket, personal, standing): the wake-on engine and Wake wire, `agentrun`'s episode loop and Claude harness, the intercom MCP tools, the session context's agent guidance.
 **Builds on:** the [turn-end lifecycle](2026-10-05-turn-end-lifecycle-design.md) (alarms, gates, idle timeout, `end`, `holding`), the intercom channel log and per-session inbox, the Compact session control.
 
+## As built (2026-10-28)
+
+The behavior below was built as written, with these changes of mechanism. The studio side was moved into the cove, where the code turned out to make it cheaper:
+
+- **The studio does the turn-end work itself, over Jam's existing endpoints.** jam-studio-agent fetches the batch (`GET /squawks`), posts (`POST /squawks` with `auto`), and commits, ends, sets alarms and overrides idle. There is no TurnEnd or batch message on the attach proto, and no `PUT /turn-end` or `PendingTurnEnd` on Jam.
+- **`turn_end` and `keep_*` reach the Workload over a local unix socket** (`/dev/shm/jam-agent.sock`). They don't go through Jam, and kept processes are not recorded on the Instance.
+- **The capability is the context's turn protocol.** The cove asks for `GET /context?turn-protocol=2`, and the structured turn end turns on only when the bundle answers `turn_protocol: 2`. Guidance and behavior therefore always match.
+- **Mute is cleared when the session next starts a turn,** and the cove unmutes at the next default turn end. It never blocks an owner's keep/release reply.
+- **The auto-post marker is a part** (`application/vnd.jam.turn-end+json`), not a column. The "N more" count became "more are waiting".
+- **A non-normal turn posts nothing** (§2 said its text was still posted).
+- **A `process-exited` wake is raised locally** by the cove; it isn't sent by Jam.
+
+The operator-facing description is [structured-turn-end.md](../../usage/jam/structured-turn-end.md).
+
 ## Why
 
 The intercom asks an agent to do in tool calls what an agent loop does natively, and pays for it every turn:

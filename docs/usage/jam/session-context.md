@@ -4,7 +4,7 @@ read_when: You are writing a kit prompt, debugging what a session was told (or w
 owns: session-context layers, delivery order and precedence, the SANDBOX.md vs context precedence, core budgets, the /agent-data/context layout, the JAM_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
 prereqs: coves.md
 tier: leaf
-updated: 2026-10-27
+updated: 2026-10-28
 ---
 
 # Session context
@@ -49,7 +49,10 @@ its leaves. **Leaves** and `INDEX.md` hold the detail. An empty layer emits noth
    `--append-system-prompt-file /agent-data/context/CORE.md --system-prompt-snapshot off`.
    `off` matters: by default claude replays the first turn's system prompt on every
    `--continue`. Within one episode the system prompt is fixed; see [coves.md](coves.md).
-4. No file or malformed JSON → the agent runs without context, exactly as before
+4. Every live refresh asks for `?turn-protocol=2`; a Jam that honors it compiles the
+   [structured turn end](structured-turn-end.md)'s guidance and marks the bundle
+   `turn_protocol: 2`.
+5. No file or malformed JSON → the agent runs without context, exactly as before
    (`jam-studio-agent.log` then has no `session context applied` line). An unwritable
    directory is warned in `jam-studio-agent.log` and also runs without it. Either way any
    earlier bundle in `/agent-data/context/` is removed.

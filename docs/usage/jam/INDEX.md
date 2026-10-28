@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for the studio image and its security model
 tier: section
-updated: 2026-10-27
+updated: 2026-10-28
 ---
 
 # `jam` — operating the central service
@@ -82,6 +82,7 @@ five pillars), see the design history:
 | [ui-config.md](ui-config.md) | You are using the admin UI's Config tab (tracked config repo, managed objects and drift, Diff/Apply/Track/Untrack/Release), or see a `managed · config @…` badge or a drift prompt on an object page. |
 | [session-events.md](session-events.md) | You want to watch, audit, or export what a managed studio's agent did — the captured Claude Code event stream, its storage/retention config, redaction, and the export API. |
 | [intercom.md](intercom.md) | You want a raised studio's agent to read/send comments on its own ticket (the brokered intercom MCP), or you're wiring the `/squawks` endpoint + its `jam-studio-agent mcp` delivery, wake-on (`runtime.wake`), or running the intercom without a Requisitioner. |
+| [structured-turn-end.md](structured-turn-end.md) | You want to know what a woken agent is shown, why a session's reply was (or wasn't) posted or its messages committed, how an agent keeps a preview running between turns, or you're changing `turn_end`/`keep_*` or the turn-protocol switch. |
 | [turn-end.md](turn-end.md) | You want a ticket session to report its ticket's state or a session to end itself, to be woken at a time or on a schedule (optionally gated by a check), or to be woken (or torn down) after sitting idle; or you need to know why a studio shows `holding`, what a woken agent is told about why it woke, or how Jam decides a session whose turn ended may be woken, paused, or torn down. |
 | [intercom-ui.md](intercom-ui.md) | You want a project member to read/reply to their studios and channels in a browser — the `/app/user` Jam app (attention-grouped rail, conversations, New message, asks, the composer, unread, live refresh, the session status strip) — or you're operating it (its URLs and old-link redirects). |
 | [session-view.md](session-view.md) | You're using or extending a session's conversation in `/app/user` — its header and actions, the Studio (in-pane IDE)/Previews (View here)/Artifacts/Status/Thinking pane (what the agent thinks and does), its per-session layout memory, or who sees a session's cost. |
