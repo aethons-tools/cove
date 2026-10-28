@@ -214,6 +214,39 @@ func TestBrowserAdminDestinationNote(t *testing.T) {
 	}
 }
 
+// Pinning an older kit version from the rail makes it current (admin SPA
+// slice 6a).
+func TestBrowserAdminKitPin(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browsertest.Ctx(t)
+	store := jam.NewMemStore()
+	for _, p := range []string{"one", "two"} {
+		if _, err := store.PushKit("k", "kind: studio\nprompt: "+p+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := adminServer(t, store)
+	var problems browsertest.Problems
+	err := chromedp.Do(ctx,
+		problems.Watch(ctx),
+		chromedp.Navigate(srv.URL+"/app/admin/next/config/kits/k"),
+		browsertest.ClickText(`nav[aria-label="Versions"] button`, "Pin"),
+		browsertest.ClickText(`[role="dialog"] button`, "Pin"),
+		browsertest.WaitText(".mantine-Badge-label", "current v1"),
+	)
+	if err != nil {
+		t.Fatalf("%v (problems %v)", err, problems.All())
+	}
+	if k, _ := store.GetKit("k"); k.Current != 1 {
+		t.Errorf("current = %d", k.Current)
+	}
+	for _, pr := range problems.All() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
 // adminServer serves store's admin UI to a loopback admin, with the app-level
 // routes the page loads (/app/assets/, the service worker) from appui, as jam
 // does.

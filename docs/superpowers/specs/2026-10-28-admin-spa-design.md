@@ -1,6 +1,6 @@
 # The admin UI in the Jam app, with a Config tree — design
 
-**Status:** approved by the user 2026-10-28; slices 1 (foundation, Config tree), 2 (Tracking, Users), 3 (Projects), 4 (a project's Agents, roles) and 5 (Destinations, Model Specs) built.
+**Status:** approved by the user 2026-10-28; slices 1 (foundation, Config tree), 2 (Tracking, Users), 3 (Projects), 4 (a project's Agents, roles) 5 (Destinations, Model Specs) and 6a (Kits, without the Draft) built; slice 6 is split into 6a and 6b (the Draft).
 **Context:** the user area (`/app/user/`) is the React app in `web/app` (the
 [Jam SPA design](2026-10-26-jam-spa-design.md), slices 1–9, merged). The admin area
 (`/app/admin/`, package `adminui`) is still server-rendered Go templates plus htmx:
