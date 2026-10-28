@@ -307,7 +307,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	}
 	cfgEnv.PoolConfigured = cfgEnv.PoolConfigured || o.poolConfigured
 	registerConfig(mux, store, o.kitFetcher, cfgEnv, log, guardWrite)
-	registerApp(mux, src, o.trustedOrigins)
+	registerApp(mux, src, o.trustedOrigins, log)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mux.ServeHTTP(w, withFrameSource(r, src))

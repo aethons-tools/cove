@@ -63,3 +63,48 @@ type DiffLine struct {
 	Op   string `json:"op"`
 	Text string `json:"text"`
 }
+
+// Created answers a create: the new object's id and its page (under the
+// app's mount).
+type Created struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+}
+
+// AccountRow is one of a user's accounts on a connected service.
+type AccountRow struct {
+	ID         string `json:"id"`
+	Connection string `json:"connection"` // the connection's name
+	ServiceUID string `json:"serviceUid"`
+	Handle     string `json:"handle"`
+}
+
+// UserRow is one user.
+type UserRow struct {
+	ID       string       `json:"id"`
+	Name     string       `json:"name"`
+	Logins   []string     `json:"logins"`
+	Accounts []AccountRow `json:"accounts"`
+	Projects []string     `json:"projects"`
+	Managed  *Managed     `json:"managed"` // nil: the config repo doesn't manage it
+}
+
+// UsersResponse is GET /app/admin/api/users.
+type UsersResponse struct {
+	Users []UserRow `json:"users"`
+}
+
+// ConnectionChoice is a connection an account can be added on.
+type ConnectionChoice struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+// UserDetail is a user's page; a removed user's is read-only.
+type UserDetail struct {
+	User        UserRow            `json:"user"`
+	Removed     bool               `json:"removed"`
+	LoginSpec   string             `json:"loginSpec"` // the logins, one per line
+	OIDCSpec    string             `json:"oidcSpec"`  // the OIDC identities, one per line
+	Connections []ConnectionChoice `json:"connections"`
+}

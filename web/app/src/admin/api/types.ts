@@ -68,3 +68,54 @@ export interface DiffLine {
   op: string;
   text: string;
 }
+/**
+ * Created answers a create: the new object's id and its page (under the
+ * app's mount).
+ */
+export interface Created {
+  id: string;
+  path: string;
+}
+/**
+ * AccountRow is one of a user's accounts on a connected service.
+ */
+export interface AccountRow {
+  id: string;
+  connection: string; // the connection's name
+  serviceUid: string;
+  handle: string;
+}
+/**
+ * UserRow is one user.
+ */
+export interface UserRow {
+  id: string;
+  name: string;
+  logins: string[];
+  accounts: AccountRow[];
+  projects: string[];
+  managed?: Managed; // nil: the config repo doesn't manage it
+}
+/**
+ * UsersResponse is GET /app/admin/api/users.
+ */
+export interface UsersResponse {
+  users: UserRow[];
+}
+/**
+ * ConnectionChoice is a connection an account can be added on.
+ */
+export interface ConnectionChoice {
+  name: string;
+  kind: string;
+}
+/**
+ * UserDetail is a user's page; a removed user's is read-only.
+ */
+export interface UserDetail {
+  user: UserRow;
+  removed: boolean;
+  loginSpec: string; // the logins, one per line
+  oidcSpec: string; // the OIDC identities, one per line
+  connections: ConnectionChoice[];
+}
