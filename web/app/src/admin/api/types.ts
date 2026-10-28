@@ -1221,3 +1221,51 @@ export interface SessionRaw {
   raw: string;
   truncated: number /* int */;
 }
+/**
+ * AttnRow is one Needs-attention item: its kind (broken, stale, config,
+ * alert), why, and the app path where it's fixed.
+ */
+export interface AttnRow {
+  kind: string;
+  why: string;
+  path: string;
+}
+/**
+ * ManagerRow is one Studio Manager on the dashboard.
+ */
+export interface ManagerRow {
+  name: string;
+  connected: boolean;
+  version: string;
+  studios: number /* int */;
+  capacity: number /* int */; // 0 = unbounded
+  lastSeen: string; // "15:04:05"; "" = never
+  strays: string[]; // its stray studios' actor ids
+}
+/**
+ * DashStats is the dashboard's tiles: studios by status group (Attention:
+ * lost or terminating) and the control-plane objects.
+ */
+export interface DashStats {
+  studios: number /* int */;
+  running: number /* int */;
+  waiting: number /* int */;
+  settingUp: number /* int */;
+  idled: number /* int */;
+  attention: number /* int */;
+  projects: number /* int */;
+  agents: number /* int */;
+  users: number /* int */;
+  specs: number /* int */; // kits + destinations + model-specs
+}
+/**
+ * Dashboard is the admin area's root page.
+ */
+export interface Dashboard {
+  stats: DashStats;
+  attention: AttnRow[]; // Jam-scope items
+  jamContext: ContextPanel;
+  hasManagers: boolean;
+  managers: ManagerRow[];
+  coves: CoveRow[];
+}

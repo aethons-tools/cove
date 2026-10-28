@@ -1115,3 +1115,47 @@ type SessionRaw struct {
 	Raw       string `json:"raw"`
 	Truncated int    `json:"truncated"`
 }
+
+// AttnRow is one Needs-attention item: its kind (broken, stale, config,
+// alert), why, and the app path where it's fixed.
+type AttnRow struct {
+	Kind string `json:"kind"`
+	Why  string `json:"why"`
+	Path string `json:"path"`
+}
+
+// ManagerRow is one Studio Manager on the dashboard.
+type ManagerRow struct {
+	Name      string   `json:"name"`
+	Connected bool     `json:"connected"`
+	Version   string   `json:"version"`
+	Studios   int      `json:"studios"`
+	Capacity  int      `json:"capacity"` // 0 = unbounded
+	LastSeen  string   `json:"lastSeen"` // "15:04:05"; "" = never
+	Strays    []string `json:"strays"`   // its stray studios' actor ids
+}
+
+// DashStats is the dashboard's tiles: studios by status group (Attention:
+// lost or terminating) and the control-plane objects.
+type DashStats struct {
+	Studios   int `json:"studios"`
+	Running   int `json:"running"`
+	Waiting   int `json:"waiting"`
+	SettingUp int `json:"settingUp"`
+	Idled     int `json:"idled"`
+	Attention int `json:"attention"`
+	Projects  int `json:"projects"`
+	Agents    int `json:"agents"`
+	Users     int `json:"users"`
+	Specs     int `json:"specs"` // kits + destinations + model-specs
+}
+
+// Dashboard is the admin area's root page.
+type Dashboard struct {
+	Stats       DashStats    `json:"stats"`
+	Attention   []AttnRow    `json:"attention"` // Jam-scope items
+	JamContext  ContextPanel `json:"jamContext"`
+	HasManagers bool         `json:"hasManagers"`
+	Managers    []ManagerRow `json:"managers"`
+	Coves       []CoveRow    `json:"coves"`
+}
