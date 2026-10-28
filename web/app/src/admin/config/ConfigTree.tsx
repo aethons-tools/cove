@@ -40,7 +40,7 @@ export function ConfigTree() {
           {n.group
             ? <ActionIcon variant="subtle" size="sm" color="gray" aria-label={`${expanded ? "Collapse" : "Expand"} ${n.label}`} aria-expanded={expanded} onClick={() => toggle(n.path)}>{expanded ? "▾" : "▸"}</ActionIcon>
             : <Box w={22} />}
-          <NavLink component={RouterLink} to={nodeHref(n.path)} end active={here} aria-current={here ? "page" : undefined} label={n.label} py={4}
+          <NavLink component={RouterLink} to={nodeHref(n.path)} end caseSensitive active={here} label={n.label} py={4}
             rightSection={n.badge > 0 ? <Badge size="sm" color={n.badgeRed ? "red" : "yellow"} aria-label={n.badgeTitle || `${n.badge}`}>{n.badge}</Badge> : null} />
         </Group>
         {n.group && expanded && rows(n.children, depth + 1)}

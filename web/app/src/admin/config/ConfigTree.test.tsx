@@ -75,6 +75,16 @@ describe("the Config tree", () => {
     expect(screen.getByText("This page hasn't moved yet")).toBeInTheDocument();
   });
 
+  it("marks only the exact node current (names differing in case)", async () => {
+    server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [
+      n("config/projects", "Projects", [n("config/projects/Acme", "Acme"), n("config/projects/acme", "acme")]),
+    ] })));
+    renderAdmin(adminBoot, ADMIN + "config/projects/acme");
+    await screen.findByRole("link", { name: "Acme" });
+    expect(within(tree()).getByRole("link", { name: "acme" })).toHaveAttribute("aria-current", "page");
+    expect(within(tree()).getByRole("link", { name: "Acme" })).not.toHaveAttribute("aria-current");
+  });
+
   it("shows why the tree can't load", async () => {
     server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ error: "boom", code: "internal" }, { status: 500 })));
     renderAdmin(adminBoot, ADMIN + "config/tracking");
