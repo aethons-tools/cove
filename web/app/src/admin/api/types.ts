@@ -52,3 +52,19 @@ export interface TreeNode {
 export interface TreeResponse {
   nodes: TreeNode[];
 }
+/**
+ * Managed marks an object the tracked config repo manages: the commit it was
+ * applied from (7 chars) and when.
+ */
+export interface Managed {
+  commit: string;
+  applied: string;
+}
+/**
+ * DiffLine is one line of a line diff (linediff.Line): Op is " " (context),
+ * "+", "-" or "…" (a collapsed run of unchanged lines).
+ */
+export interface DiffLine {
+  op: string;
+  text: string;
+}

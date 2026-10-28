@@ -49,3 +49,17 @@ type TreeNode struct {
 type TreeResponse struct {
 	Nodes []TreeNode `json:"nodes"`
 }
+
+// Managed marks an object the tracked config repo manages: the commit it was
+// applied from (7 chars) and when.
+type Managed struct {
+	Commit  string `json:"commit"`
+	Applied string `json:"applied"`
+}
+
+// DiffLine is one line of a line diff (linediff.Line): Op is " " (context),
+// "+", "-" or "…" (a collapsed run of unchanged lines).
+type DiffLine struct {
+	Op   string `json:"op"`
+	Text string `json:"text"`
+}
