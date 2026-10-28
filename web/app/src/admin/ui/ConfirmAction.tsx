@@ -5,8 +5,8 @@ import { Confirm } from "./Confirm";
 
 // ConfirmAction is a destructive (or weighty) admin action behind a confirm:
 // it runs once per confirmation and shows a refusal as a notification.
-export function ConfirmAction({ label, confirm, onConfirm, color = "red", size = "xs", variant, disabled }: {
-  label: string; confirm: string; onConfirm: () => Promise<unknown>; color?: string; size?: string; variant?: string; disabled?: boolean;
+export function ConfirmAction({ label, confirm, onConfirm, color = "red", size = "xs", variant, disabled, title }: {
+  label: string; confirm: string; onConfirm: () => Promise<unknown>; color?: string; size?: string; variant?: string; disabled?: boolean; title?: string;
 }) {
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -29,7 +29,7 @@ export function ConfirmAction({ label, confirm, onConfirm, color = "red", size =
   };
   return (
     <>
-      <Button size={size} color={color} variant={variant ?? "light"} loading={busy} disabled={busy || disabled} onClick={() => setAsking(true)}>{label}</Button>
+      <Button size={size} color={color} variant={variant ?? "light"} loading={busy} disabled={busy || disabled} title={title} onClick={() => setAsking(true)}>{label}</Button>
       <Confirm opened={asking} text={confirm} action={label} color={color} busy={busy} onCancel={() => setAsking(false)} onConfirm={() => void run()} />
     </>
   );
