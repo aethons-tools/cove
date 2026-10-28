@@ -176,6 +176,44 @@ func TestBrowserAdminRoleScope(t *testing.T) {
 	}
 }
 
+// A destination's edit from its page reaches the store (admin SPA slice 5).
+func TestBrowserAdminDestinationNote(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browsertest.Ctx(t)
+	store := jam.NewMemStore()
+	if err := store.AddDestination(jam.Destination{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer}); err != nil {
+		t.Fatal(err)
+	}
+	srv := adminServer(t, store)
+	var problems browsertest.Problems
+	err := chromedp.Do(ctx,
+		problems.Watch(ctx),
+		chromedp.Navigate(srv.URL+"/app/admin/next/config/destinations/gh"),
+		browsertest.ClickText("summary", "Edit destination"),
+		chromedp.WaitVisible(chromedp.CSS(`input[maxlength="300"]`)),
+		browsertest.SetInput(`input[maxlength="300"]`, "use gh for GitHub"),
+		browsertest.ClickText("button", "Save destination"),
+		browsertest.WaitText("div", "use gh for GitHub"),
+	)
+	if err != nil {
+		t.Fatalf("%v (problems %v)", err, problems.All())
+	}
+	note := "(no destination gh)"
+	for _, d := range store.ListDestinations() {
+		if d.Name == "gh" {
+			note = d.Note
+		}
+	}
+	if note != "use gh for GitHub" {
+		t.Errorf("stored note = %q", note)
+	}
+	for _, pr := range problems.All() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
 // adminServer serves store's admin UI to a loopback admin, with the app-level
 // routes the page loads (/app/assets/, the service worker) from appui, as jam
 // does.

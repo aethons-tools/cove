@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 )
 
 // WithPoolConfigured says whether the serve-config enables a subscription
@@ -151,7 +152,9 @@ func parseProviderEnv(s string) (map[string]string, error) {
 		}
 		k, v, ok := strings.Cut(line, "=")
 		k = strings.TrimSpace(k)
-		if !ok || k == "" {
+		// A key that is no env-var name is no KEY=VALUE line — likely a pasted
+		// value with "=" in it: name the line, never the text.
+		if !ok || k == "" || !modelspec.ValidEnvKey(k) {
 			return nil, badRequest("provider-env line " + strconv.Itoa(n) + " is not KEY=VALUE")
 		}
 		if _, dup := env[k]; dup {
@@ -234,44 +237,45 @@ func parseSettings(s string) (map[string]any, error) {
 	return obj, nil
 }
 
-// specFromForm reads every model-spec field but the name from the form. It
-// only parses; jam.ValidateModelSpec owns the rules.
-func specFromForm(r *http.Request, name string) (jam.ModelSpec, error) {
-	env, err := parseProviderEnv(r.FormValue("provider-env"))
+// specFromFields reads every model-spec field but the name from its form
+// fields (get reads one by its form name). It only parses;
+// jam.ValidateModelSpec owns the rules.
+func specFromFields(get func(string) string, name string) (jam.ModelSpec, error) {
+	env, err := parseProviderEnv(get("provider-env"))
 	if err != nil {
 		return jam.ModelSpec{}, err
 	}
-	settings, err := parseSettings(r.FormValue("settings"))
+	settings, err := parseSettings(get("settings"))
 	if err != nil {
 		return jam.ModelSpec{}, err
 	}
-	headers, err := parseHeaderRules(r.FormValue("headers"))
+	headers, err := parseHeaderRules(get("headers"))
 	if err != nil {
 		return jam.ModelSpec{}, err
 	}
 	m := jam.ModelSpec{
 		Name:              name,
-		Type:              jam.HarnessType(strings.TrimSpace(r.FormValue("type"))),
-		Version:           strings.TrimSpace(r.FormValue("version")),
-		VersionConstraint: strings.TrimSpace(r.FormValue("version-constraint")),
-		Principal:         jam.ModelPrincipal{Credential: strings.TrimSpace(r.FormValue("principal")), Headers: headers},
+		Type:              jam.HarnessType(strings.TrimSpace(get("type"))),
+		Version:           strings.TrimSpace(get("version")),
+		VersionConstraint: strings.TrimSpace(get("version-constraint")),
+		Principal:         jam.ModelPrincipal{Credential: strings.TrimSpace(get("principal")), Headers: headers},
 		Model: jam.ModelChoice{
-			ID:     strings.TrimSpace(r.FormValue("model-id")),
-			Effort: strings.TrimSpace(r.FormValue("effort")),
+			ID:     strings.TrimSpace(get("model-id")),
+			Effort: strings.TrimSpace(get("effort")),
 		},
 		Policy: jam.ModelPolicy{
-			Mode:  strings.TrimSpace(r.FormValue("mode")),
-			Allow: formLines(r.FormValue("allow")),
-			Deny:  formLines(r.FormValue("deny")),
+			Mode:  strings.TrimSpace(get("mode")),
+			Allow: formLines(get("allow")),
+			Deny:  formLines(get("deny")),
 		},
-		Note: strings.TrimSpace(r.FormValue("note")),
+		Note: strings.TrimSpace(get("note")),
 	}
 	if m.Type == jam.HarnessClaude {
 		m.Claude = &jam.ClaudeSpec{
-			Provider:    strings.TrimSpace(r.FormValue("provider")),
+			Provider:    strings.TrimSpace(get("provider")),
 			ProviderEnv: env,
 			Settings:    settings,
-			Plugins:     formLines(r.FormValue("plugins")),
+			Plugins:     formLines(get("plugins")),
 		}
 	}
 	return m, nil
@@ -305,7 +309,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 			renderError(w, http.StatusBadRequest, "invalid form")
 			return
 		}
-		m, err := specFromForm(r, strings.TrimSpace(r.FormValue("name")))
+		m, err := specFromFields(r.FormValue, strings.TrimSpace(r.FormValue("name")))
 		if err == nil {
 			err = jam.CreateModelSpec(u.store, m, u.credExists, u.pool)
 		}
@@ -330,7 +334,7 @@ func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWri
 			renderError(w, http.StatusBadRequest, "invalid form")
 			return
 		}
-		m, err := specFromForm(r, r.PathValue("name"))
+		m, err := specFromFields(r.FormValue, r.PathValue("name"))
 		if err == nil {
 			err = jam.UpdateModelSpec(u.store, m, u.credExists, u.pool)
 		}

@@ -502,3 +502,159 @@ type SetupResponse struct {
 	Managers     []string       `json:"managers"` // two or more: the image's manager is chosen
 	Manager      string         `json:"manager"`  // the chosen one
 }
+
+// DestListRow is one destination in the list.
+type DestListRow struct {
+	Name       string    `json:"name"`
+	Route      string    `json:"route"`
+	Upstream   string    `json:"upstream"`
+	IdentityIn string    `json:"identityIn"`
+	Apply      string    `json:"apply"`
+	CredName   string    `json:"credName"`
+	EnvKeys    []string  `json:"envKeys"`
+	GitRouted  bool      `json:"gitRouted"`
+	UsedBy     int       `json:"usedBy"` // roles whose scope lists it
+	Managed    *Managed  `json:"managed" tstype:"Managed | null"`
+	Attn       *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
+}
+
+// DestinationsResponse is GET /app/admin/api/destinations.
+type DestinationsResponse struct {
+	Destinations []DestListRow `json:"destinations"`
+	Methods      []string      `json:"methods"` // the identity-in / apply presets
+}
+
+// EnvRow is one client-env entry an agent sets for a destination.
+type EnvRow struct {
+	Key      string `json:"key"`
+	Template string `json:"template"`
+}
+
+// DestUse is a role whose scope lists the destination, and its credential.
+type DestUse struct {
+	Project    string `json:"project"`
+	Role       string `json:"role"`
+	Cred       string `json:"cred"`
+	CredIsRole bool   `json:"credIsRole"`
+}
+
+// DestConflict is a role whose connector this destination breaks.
+type DestConflict struct {
+	Project string `json:"project"`
+	Role    string `json:"role"`
+	Other   string `json:"other"` // the other destination
+	What    string `json:"what"`
+}
+
+// DestFields are a destination's form values ("none" = header logging off).
+type DestFields struct {
+	Route         string `json:"route"`
+	Upstream      string `json:"upstream"`
+	IdentityIn    string `json:"identityIn"`
+	Apply         string `json:"apply"`
+	CredName      string `json:"credName"`
+	Env           string `json:"env"`        // KEY=TEMPLATE lines, the declared env only
+	AllowPaths    string `json:"allowPaths"` // one pattern per line
+	Note          string `json:"note"`
+	LogHeadersIn  string `json:"logHeadersIn"`
+	LogHeadersOut string `json:"logHeadersOut"`
+	Git           bool   `json:"git"`
+}
+
+// DestDetail is a destination's page.
+type DestDetail struct {
+	Name           string         `json:"name"`
+	Managed        *Managed       `json:"managed" tstype:"Managed | null"`
+	Fields         DestFields     `json:"fields"`
+	Methods        []string       `json:"methods"`
+	IdentityInSpec string         `json:"identityInSpec"` // a custom spec as the Broker section shows it; "" = none
+	ApplySpec      string         `json:"applySpec"`
+	AllowPaths     []string       `json:"allowPaths"`
+	Env            []EnvRow       `json:"env"`
+	EnvImplied     bool           `json:"envImplied"` // no env declared: the route's legacy default applies
+	GitRouted      bool           `json:"gitRouted"`
+	GitImplied     bool           `json:"gitImplied"` // routed only by the legacy /git/ rule
+	Uses           []DestUse      `json:"uses"`
+	Conflicts      []DestConflict `json:"conflicts"`
+	ConflictRoles  []string       `json:"conflictRoles"`
+}
+
+// SpecListRow is one model-spec in the list.
+type SpecListRow struct {
+	Name              string   `json:"name"`
+	Type              string   `json:"type"`
+	Version           string   `json:"version"`
+	VersionConstraint string   `json:"versionConstraint"`
+	Principal         string   `json:"principal"`
+	ModelID           string   `json:"modelId"`
+	Effort            string   `json:"effort"`
+	Mode              string   `json:"mode"`
+	Provider          string   `json:"provider"` // "" = no claude body
+	UsedBy            int      `json:"usedBy"`
+	Managed           *Managed `json:"managed" tstype:"Managed | null"`
+}
+
+// SpecChoices are the model-spec form's select options; principals are
+// credential names only.
+type SpecChoices struct {
+	Types      []string `json:"types"`
+	Principals []string `json:"principals"`
+	Modes      []string `json:"modes"`
+	Providers  []string `json:"providers"`
+}
+
+// SpecFields are a model-spec's form values.
+type SpecFields struct {
+	Type              string `json:"type"`
+	Version           string `json:"version"`
+	VersionConstraint string `json:"versionConstraint"`
+	Principal         string `json:"principal"`
+	ModelID           string `json:"modelId"`
+	Effort            string `json:"effort"`
+	Mode              string `json:"mode"`
+	Provider          string `json:"provider"`
+	Headers           string `json:"headers"` // NAME = VALUE / NAME += ITEM lines
+	Allow             string `json:"allow"`
+	Deny              string `json:"deny"`
+	ProviderEnv       string `json:"providerEnv"` // KEY=VALUE lines (non-secret by rule)
+	Plugins           string `json:"plugins"`
+	Settings          string `json:"settings"` // a JSON object
+	Note              string `json:"note"`
+}
+
+// SpecUse is a role that runs the model-spec; Implicit: it names none (the default).
+type SpecUse struct {
+	Project  string `json:"project"`
+	Role     string `json:"role"`
+	Implicit bool   `json:"implicit"`
+}
+
+// HeaderRuleRow is one principal header rule.
+type HeaderRuleRow struct {
+	Name  string `json:"name"`
+	Op    string `json:"op"` // "=" or "+="
+	Value string `json:"value"`
+}
+
+// SpecDetail is a model-spec's page.
+type SpecDetail struct {
+	Name            string          `json:"name"`
+	Managed         *Managed        `json:"managed" tstype:"Managed | null"`
+	Fields          SpecFields      `json:"fields"`
+	Choices         SpecChoices     `json:"choices"`
+	HeaderRules     []HeaderRuleRow `json:"headerRules"`
+	Allow           []string        `json:"allow"`
+	Deny            []string        `json:"deny"`
+	HasClaude       bool            `json:"hasClaude"`
+	ProviderEnvKeys []string        `json:"providerEnvKeys"`
+	Plugins         []string        `json:"plugins"`
+	SettingsKeys    []string        `json:"settingsKeys"`
+	Uses            []SpecUse       `json:"uses"`
+}
+
+// SpecsResponse is GET /app/admin/api/model-specs; New seeds the create form.
+type SpecsResponse struct {
+	Specs   []SpecListRow `json:"specs"`
+	New     SpecFields    `json:"new"`
+	Choices SpecChoices   `json:"choices"`
+}
