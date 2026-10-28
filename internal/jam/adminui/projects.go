@@ -61,24 +61,11 @@ func projectRef(store jam.Store, project string) string {
 	return ""
 }
 
-// crumb is one breadcrumb segment.
-type crumb struct{ Label, Href string }
-
-// projectCrumbs is the trail below a project's tab: on a role page, Agents /
-// dev; none on a tab's own page (the tab strip names it).
-func projectCrumbs(project string, section projectSection, role string) []crumb {
-	if role == "" {
-		return nil
-	}
-	return []crumb{{"Agents", projectSectionURL(project, sectionAgents)}, {role, roleURL(project, role)}}
-}
-
 // projectDetail is the payload of every project page: Section picks which
 // section's content renders under the project's tabs.
 type projectDetail struct {
 	Title        string
 	Section      projectSection
-	Crumbs       []crumb
 	Project      jam.Project
 	Roles        []roleRow
 	Coves        []jam.CoveSummary
@@ -112,7 +99,6 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 		return projectDetail{}, false
 	}
 	d := projectDetail{Title: name, Section: section, Project: p, InUseBy: projectRef(store, name)}
-	d.Crumbs = projectCrumbs(name, section, "")
 	d.Context = newContextPanel("project", p.Context, p.Resources, sessionctx.BudgetProject, true)
 	d.Context.Kind, d.Context.Name = jam.ConfigKindProject, name
 	for _, r := range roleRows(store) {

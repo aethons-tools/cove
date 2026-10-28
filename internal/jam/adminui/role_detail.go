@@ -44,7 +44,6 @@ type setting struct {
 // roleDetail is the role page's payload.
 type roleDetail struct {
 	Title, Project, Name string
-	Crumbs               []crumb
 	WriteBase            string // the role's write endpoints (roleWriteBase)
 	RolesHref            string // the project's Agents tab, which lists its roles (where a delete lands)
 	ConfigName           string // "<project>/<role>": the role's config name (badge, drift warning)
