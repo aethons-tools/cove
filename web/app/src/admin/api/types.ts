@@ -922,3 +922,102 @@ export interface KitResult {
   kit: KitDetail;
   message: string;
 }
+/**
+ * DraftRow is one row of a draft's file tree: a directory or a file.
+ */
+export interface DraftRow {
+  depth: number /* int */;
+  name: string; // the last segment, as shown
+  dir: boolean;
+  path: string; // stored (the file= value); "" for a directory
+  label: string; // the whole path, as shown
+  mode: string;
+  size: number /* int64 */;
+  change: string; // against the base: added, modified, mode, removed; "" unchanged
+}
+/**
+ * DraftEditor is one draft file, opened: its text, or why it isn't editable.
+ */
+export interface DraftEditor {
+  path: string; // stored
+  label: string;
+  mode: string;
+  exec: boolean;
+  size: number /* int64 */;
+  etag: string; // the draft's etag it was read at
+  editable: boolean;
+  text: string;
+  invisible: boolean; // the text holds control or format characters
+  note: string; // why it isn't editable
+}
+/**
+ * DraftYAMLDiff is kit.yml's diff against the draft's base.
+ */
+export interface DraftYAMLDiff {
+  from: number /* int */;
+  lines: DiffLine[];
+  tooLarge: boolean;
+  hidden: boolean;
+  note: string;
+}
+/**
+ * ConfigFileRow is a config-repo file a drifting publish changes.
+ */
+export interface ConfigFileRow {
+  path: string;
+  change: string;
+}
+/**
+ * Published is a just-published draft.
+ */
+export interface Published {
+  version: number /* int */;
+  base: number /* int */;
+  pinned: string[];
+  warning: string;
+  drift: boolean;
+  configFiles: ConfigFileRow[];
+}
+/**
+ * DraftView is a kit's open draft.
+ */
+export interface DraftView {
+  base: number /* int */;
+  current: number /* int */;
+  superseded: boolean; // the kit's current version isn't the base
+  etag: string;
+  actor: string;
+  updated: string;
+  managed: boolean; // config-managed: publishing drifts
+  driftWarning: string;
+  driftConfirm: string;
+  pinDrift: string[]; // managed followers Pin followers would rewrite
+  pinDriftNote: string;
+  maxFile: string;
+  problems: string[];
+  size: string;
+  tree: DraftRow[];
+  removed: DraftRow[];
+  editor?: DraftEditor | null;
+  fileMissing: boolean;
+  changes?: FilesDiff | null;
+  yamlDiff?: DraftYAMLDiff | null;
+  fileDiff?: KitFile | null;
+}
+/**
+ * DraftPage is a kit's Draft section; Draft nil = no draft.
+ */
+export interface DraftPage {
+  name: string;
+  current: number /* int */;
+  versions: number /* int */[];
+  draft?: DraftView | null;
+  published?: Published | null;
+}
+/**
+ * DraftResult answers a draft write: the section after it and its message.
+ */
+export interface DraftResult {
+  page: DraftPage;
+  message: string;
+}

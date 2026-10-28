@@ -840,3 +840,94 @@ type KitResult struct {
 	Kit     KitDetail `json:"kit"`
 	Message string    `json:"message"`
 }
+
+// DraftRow is one row of a draft's file tree: a directory or a file.
+type DraftRow struct {
+	Depth  int    `json:"depth"`
+	Name   string `json:"name"` // the last segment, as shown
+	Dir    bool   `json:"dir"`
+	Path   string `json:"path"`  // stored (the file= value); "" for a directory
+	Label  string `json:"label"` // the whole path, as shown
+	Mode   string `json:"mode"`
+	Size   int64  `json:"size"`
+	Change string `json:"change"` // against the base: added, modified, mode, removed; "" unchanged
+}
+
+// DraftEditor is one draft file, opened: its text, or why it isn't editable.
+type DraftEditor struct {
+	Path      string `json:"path"` // stored
+	Label     string `json:"label"`
+	Mode      string `json:"mode"`
+	Exec      bool   `json:"exec"`
+	Size      int64  `json:"size"`
+	ETag      string `json:"etag"` // the draft's etag it was read at
+	Editable  bool   `json:"editable"`
+	Text      string `json:"text"`
+	Invisible bool   `json:"invisible"` // the text holds control or format characters
+	Note      string `json:"note"`      // why it isn't editable
+}
+
+// DraftYAMLDiff is kit.yml's diff against the draft's base.
+type DraftYAMLDiff struct {
+	From     int        `json:"from"`
+	Lines    []DiffLine `json:"lines"`
+	TooLarge bool       `json:"tooLarge"`
+	Hidden   bool       `json:"hidden"`
+	Note     string     `json:"note"`
+}
+
+// ConfigFileRow is a config-repo file a drifting publish changes.
+type ConfigFileRow struct {
+	Path   string `json:"path"`
+	Change string `json:"change"`
+}
+
+// Published is a just-published draft.
+type Published struct {
+	Version     int             `json:"version"`
+	Base        int             `json:"base"`
+	Pinned      []string        `json:"pinned"`
+	Warning     string          `json:"warning"`
+	Drift       bool            `json:"drift"`
+	ConfigFiles []ConfigFileRow `json:"configFiles"`
+}
+
+// DraftView is a kit's open draft.
+type DraftView struct {
+	Base         int            `json:"base"`
+	Current      int            `json:"current"`
+	Superseded   bool           `json:"superseded"` // the kit's current version isn't the base
+	ETag         string         `json:"etag"`
+	Actor        string         `json:"actor"`
+	Updated      string         `json:"updated"`
+	Managed      bool           `json:"managed"` // config-managed: publishing drifts
+	DriftWarning string         `json:"driftWarning"`
+	DriftConfirm string         `json:"driftConfirm"`
+	PinDrift     []string       `json:"pinDrift"` // managed followers Pin followers would rewrite
+	PinDriftNote string         `json:"pinDriftNote"`
+	MaxFile      string         `json:"maxFile"`
+	Problems     []string       `json:"problems"`
+	Size         string         `json:"size"`
+	Tree         []DraftRow     `json:"tree"`
+	Removed      []DraftRow     `json:"removed"`
+	Editor       *DraftEditor   `json:"editor" tstype:"DraftEditor | null"`
+	FileMissing  bool           `json:"fileMissing"`
+	Changes      *FilesDiff     `json:"changes" tstype:"FilesDiff | null"`
+	YAMLDiff     *DraftYAMLDiff `json:"yamlDiff" tstype:"DraftYAMLDiff | null"`
+	FileDiff     *KitFile       `json:"fileDiff" tstype:"KitFile | null"`
+}
+
+// DraftPage is a kit's Draft section; Draft nil = no draft.
+type DraftPage struct {
+	Name      string     `json:"name"`
+	Current   int        `json:"current"`
+	Versions  []int      `json:"versions"`
+	Draft     *DraftView `json:"draft" tstype:"DraftView | null"`
+	Published *Published `json:"published" tstype:"Published | null"`
+}
+
+// DraftResult answers a draft write: the section after it and its message.
+type DraftResult struct {
+	Page    DraftPage `json:"page"`
+	Message string    `json:"message"`
+}

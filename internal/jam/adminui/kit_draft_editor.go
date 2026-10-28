@@ -179,17 +179,23 @@ func registerDraftEditor(mux *http.ServeMux, store jam.Store, log *slog.Logger, 
 			draftUIFail(w, r, log, err)
 			return
 		}
-		h := w.Header()
-		h.Set("Content-Type", "application/octet-stream")
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Cache-Control", "no-store")
-		disp := mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(p)})
-		if disp == "" {
-			disp = "attachment"
-		}
-		h.Set("Content-Disposition", disp)
-		_, _ = w.Write(data)
+		writeDraftDownload(w, p, data)
 	})
+}
+
+// writeDraftDownload answers a draft file's download: its bytes as an
+// attachment named after the file, never sniffed or cached.
+func writeDraftDownload(w http.ResponseWriter, p string, data []byte) {
+	h := w.Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Cache-Control", "no-store")
+	disp := mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(p)})
+	if disp == "" {
+		disp = "attachment"
+	}
+	h.Set("Content-Disposition", disp)
+	_, _ = w.Write(data)
 }
 
 // editorKeptText tells the operator a refused save left their text unsaved
