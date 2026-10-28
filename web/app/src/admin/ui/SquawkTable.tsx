@@ -15,7 +15,9 @@ export function SquawkTable({ rows, filtered = false }: { rows: SquawkRow[]; fil
         { key: "f", label: "From", render: (r) => r.agentId
           ? <Anchor component={Link} to={nodeHref("agents/" + encodeURIComponent(r.agentId))} ff="monospace" size="sm" title={r.fromId}>{r.from}</Anchor>
           : <Text size="sm" ff="monospace" title={r.fromId}>{r.from}</Text> },
-        { key: "c", label: "Channel", render: (r) => <Text size="sm" ff="monospace" title={r.channelId}>{r.channel}</Text> },
+        { key: "c", label: "Channel", render: (r) => r.channelId
+          ? <Anchor component={Link} to={nodeHref("health/intercom?participant=" + encodeURIComponent(r.channelId))} ff="monospace" size="sm" title={r.channelId}>{r.channel}</Anchor>
+          : <Text size="sm" ff="monospace">{r.channel}</Text> },
         { key: "p", label: "Project", render: (r) => r.project },
         { key: "b", label: "Body", render: (r) => <div style={{ maxWidth: 560 }}><MessageBody html={r.body} plain={r.plain} />{r.plain && <Badge size="xs" variant="light" color="gray">text/plain</Badge>}</div> },
       ]} />

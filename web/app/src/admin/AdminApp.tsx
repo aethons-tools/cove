@@ -21,6 +21,7 @@ import { KitsPage } from "./kits/KitsPage";
 import { KitPage } from "./kits/KitPage";
 import { AgentsPage as AgentsTab } from "./agents/AgentsPage";
 import { AgentPage } from "./agents/AgentPage";
+import { DashboardPage } from "./dash/DashboardPage";
 import { TimelinePage } from "./agents/TimelinePage";
 import { UserPage } from "./users/UserPage";
 
@@ -31,7 +32,7 @@ export function adminRoutes(boot: Bootstrap): RouteObject[] {
     path: ADMIN,
     element: <AdminShell boot={boot} />,
     children: [
-      { index: true, element: <NotMovedYet /> },
+      { index: true, element: <DashboardPage /> },
       { path: "config", element: <Navigate to="tracking" replace /> },
       { path: "config/tracking", element: <TrackingPage /> },
       { path: "config/projects", element: <ProjectsPage /> },
