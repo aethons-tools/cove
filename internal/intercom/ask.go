@@ -31,6 +31,21 @@ type Part struct {
 // AskPartType is the inline part carrying an AskEvent.
 const AskPartType = "application/vnd.jam.ask+json"
 
+// TurnEndPartType marks a squawk a cove auto-posted from a session's turn
+// end (its final text): no data, at most one. Wake-on skips a session's
+// auto-posts, so replies never bounce between sessions.
+const TurnEndPartType = "application/vnd.jam.turn-end+json"
+
+// IsTurnEnd reports whether m was auto-posted from a turn end.
+func IsTurnEnd(m Squawk) bool {
+	for _, p := range m.Parts {
+		if p.Type == TurnEndPartType && p.Ref == "" {
+			return true
+		}
+	}
+	return false
+}
+
 // AskOption is one answer an ask offers.
 type AskOption struct {
 	ID     string `json:"id"`
@@ -163,9 +178,9 @@ func withAsk(m Squawk, ev AskEvent) Squawk {
 }
 
 // validateParts checks m's parts: inline only (no attachments yet), known
-// types, at most one ask whose data decodes.
+// types, at most one ask whose data decodes, at most one turn-end mark.
 func validateParts(parts []Part) error {
-	asks, refs, boards := 0, 0, 0
+	asks, refs, boards, turnEnds := 0, 0, 0, 0
 	for _, p := range parts {
 		if p.Ref != "" {
 			if err := validateRef(p); err != nil {
@@ -185,6 +200,12 @@ func validateParts(parts []Part) error {
 			}
 			if err := json.Unmarshal(p.Data, &d); err != nil || d.BoardID.Kind() != ident.Board {
 				return fmt.Errorf("%w: board part", ErrInvalid)
+			}
+			continue
+		}
+		if p.Type == TurnEndPartType {
+			if turnEnds++; turnEnds > 1 || len(p.Data) > 0 {
+				return fmt.Errorf("%w: turn-end part", ErrInvalid)
 			}
 			continue
 		}

@@ -646,6 +646,9 @@ func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 		if m.From == ident.ID(inst.ActorID) || strings.HasPrefix(string(m.From), "actor:") {
 			continue
 		}
+		if isSession(m.From) && intercom.IsTurnEnd(m) {
+			continue // another session's auto-posted turn end: a `send` wakes, a reply doesn't
+		}
 		if isSession(m.From) && (e.history == nil || jam.IsNotice(m.ID) && !jam.IsCallInNotice(m.ID) || e.loopTripped(inst, m)) {
 			continue // a session's notice (a nag, the breaker's) is for people
 		}
