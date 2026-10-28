@@ -124,9 +124,12 @@ type errorCapture struct {
 	body   []byte
 }
 
-func (c *errorCapture) WriteHeader(status int)      { c.status = status }
-func (c *errorCapture) Write(b []byte) (int, error) { c.body = append(c.body, b...); return len(b), nil }
-func (c *errorCapture) Header() http.Header         { return http.Header{} }
+func (c *errorCapture) WriteHeader(status int) { c.status = status }
+func (c *errorCapture) Write(b []byte) (int, error) {
+	c.body = append(c.body, b...)
+	return len(b), nil
+}
+func (c *errorCapture) Header() http.Header { return http.Header{} }
 
 // text is renderError's message, unwrapped from its <p class="error">.
 func (c *errorCapture) text() string {
