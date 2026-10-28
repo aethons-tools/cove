@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -98,6 +99,29 @@ func (w *Workload) agentSocketHandler() http.Handler {
 		w.dirMu.Unlock()
 		rw.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /keeps", func(rw http.ResponseWriter, r *http.Request) {
+		var in struct{ Name, Command, Workdir string }
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
+			http.Error(rw, "invalid request", http.StatusBadRequest)
+			return
+		}
+		p, err := w.keep.Start(in.Name, in.Command, in.Workdir)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeSockJSON(rw, http.StatusCreated, p)
+	})
+	mux.HandleFunc("DELETE /keeps/{name}", func(rw http.ResponseWriter, r *http.Request) {
+		if err := w.keep.Stop(r.PathValue("name")); err != nil {
+			http.Error(rw, err.Error(), http.StatusNotFound)
+			return
+		}
+		rw.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /keeps", func(rw http.ResponseWriter, _ *http.Request) {
+		writeSockJSON(rw, http.StatusOK, w.keep.List())
+	})
 	return mux
 }
 
@@ -151,6 +175,7 @@ var ErrNoAgentSocket = errors.New("this studio's agent doesn't support it (upgra
 // DialAgentSocket returns a client for the agent socket at path.
 func DialAgentSocket(path string) *AgentClient {
 	return &AgentClient{hc: &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{
+		DisableKeepAlives: true, // each call dials: a restarted agent is found at once
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", path)
 		},
@@ -191,6 +216,32 @@ func (c *AgentClient) do(ctx context.Context, method, path string, in, out any) 
 		return json.Unmarshal(b, out)
 	}
 	return nil
+}
+
+func writeSockJSON(rw http.ResponseWriter, status int, v any) {
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(status)
+	_ = json.NewEncoder(rw).Encode(v)
+}
+
+// KeepStart starts command as the kept process name (workdir "" = the
+// agent's working directory).
+func (c *AgentClient) KeepStart(ctx context.Context, name, command, workdir string) (KeptProcess, error) {
+	var p KeptProcess
+	err := c.do(ctx, http.MethodPost, "/keeps", struct{ Name, Command, Workdir string }{name, command, workdir}, &p)
+	return p, err
+}
+
+// KeepStop stops the kept process name.
+func (c *AgentClient) KeepStop(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/keeps/"+url.PathEscape(name), nil, nil)
+}
+
+// KeepList lists the kept processes.
+func (c *AgentClient) KeepList(ctx context.Context) ([]KeptProcess, error) {
+	var out []KeptProcess
+	err := c.do(ctx, http.MethodGet, "/keeps", nil, &out)
+	return out, err
 }
 
 // SetTurnEnd records the current turn's directives.

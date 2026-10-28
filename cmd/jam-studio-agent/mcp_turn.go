@@ -43,3 +43,48 @@ func addTurnTools(s *mcp.Server, getenv func(string) string) {
 			Reason: in.Reason, WakeOnMessage: in.WakeOnMessage, WakeAt: in.WakeAt, IdleTimeout: in.IdleTimeout})
 	})
 }
+
+// keepStartIn is the "keep_start" tool's typed input.
+type keepStartIn struct {
+	Name    string `json:"name" jsonschema:"a short name: lowercase letters, digits, - and _ (at most 32)"`
+	Command string `json:"command" jsonschema:"the shell command to keep running (sh -c), e.g. npm run dev -- --port 5173"`
+	Workdir string `json:"workdir,omitempty" jsonschema:"optional working directory; default your workspace"`
+}
+
+// keepStopIn is the "keep_stop" tool's typed input.
+type keepStopIn struct {
+	Name string `json:"name" jsonschema:"the kept process to stop"`
+}
+
+// keepListOut is the "keep_list" tool's typed output.
+type keepListOut struct {
+	Processes []agentrun.KeptProcess `json:"processes"`
+}
+
+// addKeepTools registers keep_start, keep_stop and keep_list, served by the
+// agent socket.
+func addKeepTools(s *mcp.Server, getenv func(string) string) {
+	ac := agentrun.DialAgentSocket(agentSocket(getenv))
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "keep_start",
+		Description: "Start a process that keeps running after your turn ends (shell background jobs die with the turn), e.g. a preview server. " +
+			"Its output goes to the log it returns; if it exits on its own, you are woken with its last lines. It stops with your session or with keep_stop. " +
+			"Agree with the person how long it should run, and set a wake (turn_end wake_at) to ask them then.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in keepStartIn) (*mcp.CallToolResult, agentrun.KeptProcess, error) {
+		p, err := ac.KeepStart(ctx, in.Name, in.Command, in.Workdir)
+		return nil, p, err
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "keep_stop",
+		Description: "Stop a process started with keep_start (SIGTERM to its process group, SIGKILL after 10s).",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in keepStopIn) (*mcp.CallToolResult, any, error) {
+		return nil, nil, ac.KeepStop(ctx, in.Name)
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "keep_list",
+		Description: "List the processes kept running with keep_start.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, keepListOut, error) {
+		ps, err := ac.KeepList(ctx)
+		return nil, keepListOut{Processes: ps}, err
+	})
+}

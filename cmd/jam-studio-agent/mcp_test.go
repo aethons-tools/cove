@@ -792,3 +792,46 @@ func TestMCPTurnEndForwardsToAgentSocket(t *testing.T) {
 		t.Fatalf("no socket: %v %+v", err, res)
 	}
 }
+
+func TestMCPKeepToolsForwardToAgentSocket(t *testing.T) {
+	dir, err := os.MkdirTemp("", "as")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := filepath.Join(dir, "a.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen []string
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		switch r.Method {
+		case http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"name":"preview","command":"serve","pid":42,"log":"/agent-data/keep/preview.log"}`)
+		case http.MethodGet:
+			_, _ = io.WriteString(w, `[{"name":"preview","command":"serve","pid":42}]`)
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})}
+	go srv.Serve(ln)
+	defer srv.Close()
+	env := map[string]string{"JAM_RUNTIME_ADDR": "http://127.0.0.1:1", "JAM_IDENTITY_TOKEN": "tok", "JAM_AGENT_SOCKET": sock}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+	for _, call := range []*mcp.CallToolParams{
+		{Name: "keep_start", Arguments: map[string]any{"name": "preview", "command": "serve"}},
+		{Name: "keep_list", Arguments: map[string]any{}},
+		{Name: "keep_stop", Arguments: map[string]any{"name": "preview"}},
+	} {
+		res, err := sess.CallTool(context.Background(), call)
+		if err != nil || res.IsError {
+			t.Fatalf("%s: %v %+v", call.Name, err, res)
+		}
+	}
+	if strings.Join(seen, ",") != "POST /keeps,GET /keeps,DELETE /keeps/preview" {
+		t.Fatalf("socket saw %v", seen)
+	}
+}

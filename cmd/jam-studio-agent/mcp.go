@@ -636,6 +636,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 	addAttachTools(s, client, cfgErr)
 	addBoardTools(s, client, cfgErr)
 	addTurnTools(s, getenv)
+	addKeepTools(s, getenv)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",

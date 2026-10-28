@@ -135,6 +135,9 @@ type Config struct {
 	// AgentSocket is where the agent socket is served (with TurnIO set);
 	// empty defaults to AgentSocketPath.
 	AgentSocket string
+	// KeepDir is where kept processes' logs and registry live; empty
+	// defaults to defaultKeepDir.
+	KeepDir string
 }
 
 const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
@@ -184,6 +187,8 @@ type Workload struct {
 	muted bool
 	// structuredOn mirrors structured() for the agent socket's goroutine.
 	structuredOn atomic.Bool
+	// keep owns the kept processes (with TurnIO set; nil otherwise).
+	keep *keeper
 	// note is a line the next delivered prompt opens with (a reply that
 	// could not go where turn_end asked). Run's goroutine only.
 	note string
@@ -274,7 +279,15 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 			}
 		}
 	}
+	var keptLost []string
 	if w.cfg.TurnIO != nil {
+		dir := w.cfg.KeepDir
+		if dir == "" {
+			dir = defaultKeepDir
+		}
+		w.keep = newKeeper(dir, w.cfg.WorkDir, w.agentEnv, w.keptExited, w.log)
+		keptLost = w.keep.CleanupStale()
+		defer w.keep.StopAll()
 		path := w.cfg.AgentSocket
 		if path == "" {
 			path = AgentSocketPath
@@ -312,6 +325,9 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 			prompt, continued, resuming = w.restartText(ctx), true, true
 			w.log.Info("agentrun: resuming the prior conversation", "marker", w.cfg.ConversationMarker)
 		}
+	}
+	if len(keptLost) > 0 {
+		prompt += "\n\n" + fmt.Sprintf(keptLostNotice, strings.Join(keptLost, ", "))
 	}
 	var turn uint32
 	for {
