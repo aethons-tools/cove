@@ -48,6 +48,14 @@ Overview/Draft sub-tabs, no Projects rail.
 - **Dashboard, Agents and Health stay standalone title-bar tabs** for now, beside Config.
 - **All of them move to the app** in this sub-project, Config and the three tabs alike,
   for a consistent look and so components are shared as they're built.
+- **Running agents live under the Agents tab only.** They are not tree leaves. A
+  running agent clicked anywhere (a project's Agents view, an attention card) opens
+  `agents/{id}` on the Agents tab, full width, leaving Config.
+- **Badges split by kind.** Runtime trouble (a lost, terminating or egress-failing
+  studio; a stale image or connector) counts on the **Agents** badge. Config trouble
+  (a role naming a missing kit or model spec, an escalation target naming nobody, a
+  broken kit, a conflicted destination) counts on the **Config** badge and its tree
+  nodes. Health keeps its conditions; Dashboard keeps the total.
 
 ## Goals, non-goals, anti-goals
 
@@ -85,7 +93,8 @@ Overview/Draft sub-tabs, no Projects rail.
   admin would be refused).
 - **Title bar.** For an admin: `Inbox` (members only) · `Dashboard` · `Config` ·
   `Agents` · `Health`, plus today's search box. Projects, Users and Specs leave the
-  title bar. The Config badge sums the items on its nodes.
+  title bar. Badges follow the split in Decisions: Config sums its nodes' config
+  items, Agents counts runtime items, and Dashboard is the total.
 - **Migration: parallel, then one cutover**, as for the user area. The new admin grows
   at **`/app/admin/next/`** (inside the admin gate), slice by slice, while
   `/app/admin/` stays the old UI. Until cutover the old UI's title bar is unchanged,
@@ -109,7 +118,7 @@ elsewhere work. After cutover (`next/` dropped):
 | Destinations, one | `config/destinations`, `config/destinations/{name}` |
 | Model Specs, one | `config/model-specs`, `config/model-specs/{name}` |
 | Dashboard | `` (the area root) |
-| Agents, an agent, its timeline | `agents`, `agents/{id}`, `agents/{id}/session` |
+| Agents, an agent, its timeline | `agents`, `agents/{id}`, `agents/{id}/session` (today's `?project=` scope is dropped; old links with it redirect without it) |
 | Health, the channel log | `health`, `health/intercom` |
 | Search | `search?q=` |
 
@@ -122,9 +131,11 @@ redirects to its new path, query kept, so bookmarks and pasted links keep workin
 
 - **Data:** one `GET /app/admin/api/tree`: the projects with their members and roles,
   the users, kits, destinations and model specs, and each node's attention badge
-  (today's `attention.go` items mapped to nodes: a kit or destination item to that
-  node, a project's Agents items to its Agents node and the role or agent, Escalation
-  items to Escalation; a group shows the sum of its children). It's polled every 3 s
+  (today's `attention.go` config items mapped to nodes: a kit or destination item to
+  that node, a role's missing kit or model spec to the role and its project's Agents
+  node, Escalation items to Escalation; a group shows the sum of its children).
+  Runtime (studio) items are not on the tree: they badge the Agents tab, and the
+  project Agents page still flags its running agents' rows. It's polled every 3 s
   while visible, as today's rail is.
 - **Behaviour (my calls):**
   - Group nodes (Projects, Members, Agents, Users, Kits, Destinations, Model Specs)
@@ -255,3 +266,15 @@ screen did works in the new one; new features wait until after cutover.
   routes until cutover.
 - The exact attention-to-node mapping where today's item names no single node (fall
   back to the nearest ancestor).
+
+## Calls I made (for the user to check)
+
+- One bundle for both areas; hashed assets moved to an ungated `/app/assets/`.
+- The parallel admin at `/app/admin/next/`, then one cutover with redirects.
+- URL scheme under `config/…` (§2); `config` opens Tracking.
+- A tree filter box; expansion remembered; group nodes open list pages with "+ Add".
+- A member leaf opens the user's page scoped to the project, with "Remove from project".
+- Role Setup, agent Setup and kit Draft become page sections.
+- No new live stream for admin: polling at today's rates; the agent timeline reuses
+  the Thinking tab's components.
+- Slice order in §6.
