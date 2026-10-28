@@ -123,3 +123,12 @@ func TestAdminAppServed(t *testing.T) {
 		t.Errorf("CSP = %q", csp)
 	}
 }
+
+func TestTreeAPI(t *testing.T) {
+	h, _ := adminHandler(t)
+	rec := apiGet(t, h, "/app/admin/api/tree", appui.Principal{Admin: true, Local: true})
+	var tr adminui.TreeResponse
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &tr) != nil || len(tr.Nodes) == 0 || tr.Nodes[0].Path != "config/tracking" {
+		t.Errorf("GET api/tree = %d %s", rec.Code, rec.Body)
+	}
+}

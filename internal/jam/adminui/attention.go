@@ -237,8 +237,9 @@ func BadgeSource(store jam.Store, img jam.ImageResolver, conds *condition.Tracke
 func appTabBadges(items []attnItem) map[string]attnBadge {
 	var config, agents, health []attnItem
 	for _, it := range items {
+		_, onTree := treePath(it)
 		switch {
-		case it.Kind == attnConfig:
+		case onTree:
 			config = append(config, it)
 		case it.Tab == "agents" && (it.Kind == attnBroken || it.Kind == attnStale):
 			agents = append(agents, it)

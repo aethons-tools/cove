@@ -28,6 +28,7 @@ func registerApp(mux *http.ServeMux, src frameSource, trustedOrigins []string) {
 	api.HandleFunc("GET "+apiPrefix+"bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, adminBootstrap(r, src.items()))
 	})
+	api.HandleFunc("GET "+apiPrefix+"tree", treeHandler(src))
 	api.HandleFunc(apiPrefix, func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "no such API route")
 	})
