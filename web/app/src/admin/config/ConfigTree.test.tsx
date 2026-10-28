@@ -61,11 +61,12 @@ describe("the Config tree", () => {
 
   it("navigates to a group's page", async () => {
     serveTree();
+    server.use(http.get("/app/admin/api/kits", () => HttpResponse.json({ kits: [], canSource: false })));
     const user = userEvent.setup();
     const { router } = renderAdmin(adminBoot, ADMIN + "config/tracking");
     await user.click(await screen.findByRole("link", { name: "Kits" }));
     await waitFor(() => expect(router.state.location.pathname).toBe(ADMIN + "config/kits"));
-    expect(screen.getByRole("link", { name: "Open it in the current admin" })).toHaveAttribute("href", "/app/admin/kits");
+    expect(await screen.findByText("No kits.")).toBeInTheDocument();
   });
 
   it("still renders for a path that names nothing", async () => {
