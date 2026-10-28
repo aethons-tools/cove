@@ -126,6 +126,14 @@ type Config struct {
 	// episode starts a fresh conversation, whatever the session kind, with the
 	// raise prompt and clearedNotice; its first reply removes it.
 	ClearMarker string
+	// TurnIO, when set, turns on the structured turn end: wakes deliver the
+	// session's pending messages, and each turn's final text is posted and the
+	// messages it was shown committed (see turnend.go). nil = the legacy read
+	// prompt; the agent posts and commits itself.
+	TurnIO TurnIO
+	// AgentSocket is where the agent socket is served (with TurnIO set);
+	// empty defaults to AgentSocketPath.
+	AgentSocket string
 }
 
 const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
@@ -164,6 +172,18 @@ type Workload struct {
 	// compared with each delivered spec to re-validate on a change.
 	spec    *modelspec.Spec
 	specKey string
+	// inflight is the turn in flight's batch and kind (structured turn end).
+	inflight turnMeta
+	// directives are the current turn's turn_end call (nil = defaults), set
+	// on the agent socket's goroutine.
+	dirMu      sync.Mutex
+	directives *Directives
+	// muted: Jam was last asked not to wake the session on messages (Run's
+	// goroutine only).
+	muted bool
+	// note is a line the next delivered prompt opens with (a reply that
+	// could not go where turn_end asked). Run's goroutine only.
+	note string
 }
 
 // New builds a Workload. A nil Spawner uses the real os/exec-backed spawner; a
@@ -251,6 +271,17 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 			}
 		}
 	}
+	if w.cfg.TurnIO != nil {
+		path := w.cfg.AgentSocket
+		if path == "" {
+			path = AgentSocketPath
+		}
+		if stop, err := serveAgentSocket(path, w.agentSocketHandler(), w.log); err != nil {
+			w.log.Warn("agentrun: agent socket not served; turn_end and keep are unavailable", "path", path, "err", err.Error())
+		} else {
+			defer stop()
+		}
+	}
 	logPath := w.cfg.StreamLogPath
 	if logPath == "" {
 		logPath = defaultStreamLogPath
@@ -275,7 +306,7 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 		prompt = fresh
 	} else if persists {
 		if _, err := os.Stat(w.cfg.ConversationMarker); err == nil {
-			prompt, continued, resuming = standingRestartPrompt, true, true
+			prompt, continued, resuming = w.restartText(ctx), true, true
 			w.log.Info("agentrun: resuming the prior conversation", "marker", w.cfg.ConversationMarker)
 		}
 	}
@@ -302,6 +333,11 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 
 		waitErr := w.episode(ctx, h, t, proc, tr, first, false)
 		split.Flush()
+		if r, ok := tr.TakeTurnEnd(); ok && ctx.Err() == nil && w.finishTurn(ctx, r) {
+			// The last turn ended as the process exited; the compact it asked
+			// for runs as a maintenance episode before the next wake.
+			w.cmds.postCompact(agentBy, "")
+		}
 		if tr.ResumeOwed() {
 			// The last resume prompt was written but the agent never started the
 			// turn it asked for: its reasons are owed again.
@@ -344,7 +380,7 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 				return ctx.Err()
 			}
 			if c == nil {
-				prompt, continued = renderWake(w.resumeText(), rs), true
+				prompt, continued = w.deliverText(ctx, rs), true
 				if fresh, ok := w.clearedStart(prompt); ok {
 					prompt, continued = fresh, false
 				}
@@ -617,7 +653,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 	// plus a notice when the refreshed context changed (once per write, so a
 	// burst of coalesced wakes carries it once).
 	resume := func() string {
-		text := renderWake(w.resumeText(), w.wake.take())
+		text := w.deliverText(ctx, w.wake.take())
 		if w.ctxr != nil {
 			text += contextNotice(w.ctxr.live(ctx), true)
 		}
@@ -704,6 +740,13 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			closeInput("background-wait elapsed")
 			unhold() // the agent now stops its tasks: busy until the episode exits
 		}
+		if r, ok := tr.TakeTurnEnd(); ok {
+			// A turn ended: finish it before anything else is written, so the
+			// next prompt's batch starts past what this turn committed.
+			if !maintenance && w.finishTurn(ctx, r) && !compacting {
+				compact = &compactReq{by: agentBy}
+			}
+		}
 		if !open {
 			continue
 		}
@@ -711,7 +754,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			// The interrupted turn ended: one acknowledge turn, which also
 			// answers any wakes coalesced into the interrupted one.
 			stopHold()
-			text := interruptPrompt(ackBy, w.wake.take())
+			text := w.ackText(ctx, ackBy, w.wake.take())
 			if w.ctxr != nil {
 				text += contextNotice(w.ctxr.live(ctx), true)
 			}
@@ -741,6 +784,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			stopHold()
 			w.log.Info("agentrun: compacting the conversation", "by", compact.by)
 			tr.MarkBusy() // before the write, as above
+			w.inflight = turnMeta{quiet: true}
 			write(compactText(compact.instructions))
 			compacting = true
 			w.emitCommand(h, turn, "compact", compact.by, "")
