@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/collabwire"
@@ -61,24 +60,8 @@ func registerAccess(mux *http.ServeMux, store jam.Store, live *collabhttp.Live, 
 		if !guardWrite(w, r) {
 			return
 		}
-		user, err := ident.Parse(r.PathValue("user"))
-		if err != nil || user.Kind() != ident.User {
-			renderError(w, http.StatusNotFound, "no such user")
-			return
-		}
-		grantor := "op:" + cmp.Or(jam.OperatorID(r), "local")
-		g, found := collabhttp.GrantOf(store, r.PathValue("id"), user)
-		if !found {
-			renderError(w, http.StatusNotFound, "no such share on this studio")
-			return
-		}
-		removed, err := collabhttp.Unshare(store, live, log, time.Now(), grantor, g)
-		switch {
-		case err != nil:
-			renderError(w, http.StatusInternalServerError, "could not remove the grant")
-			return
-		case !removed:
-			renderError(w, http.StatusConflict, "the grant changed while being removed; reload and retry")
+		if err := unshareStudio(store, live, log, cmp.Or(jam.OperatorID(r), "local"), r.PathValue("id"), r.PathValue("user")); err != nil {
+			renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
 			return
 		}
 		// The agent page reloads on success.

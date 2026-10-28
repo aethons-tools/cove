@@ -1021,3 +1021,147 @@ export interface DraftResult {
   page: DraftPage;
   message: string;
 }
+/**
+ * AgentListRow is one agent in the Agents list: an enrolled identity, a
+ * studio, or both.
+ */
+export interface AgentListRow {
+  id: string;
+  name: string;
+  kind: string;
+  project: string;
+  role: string;
+  unit: string;
+  status: string;
+  connector: string;
+  image: string;
+  lastSeen: string; // "Jan 2 15:04:05"; "" = never
+  moreGrants: number /* int */; // grants beyond the first
+  hasStudio: boolean;
+  attn?: AttnFlag | null;
+}
+/**
+ * AgentsResponse is GET /app/admin/api/agents.
+ */
+export interface AgentsResponse {
+  agents: AgentListRow[];
+  filters: KV[]; // status group key → label, in order ("" = all)
+  status: string; // the group shown
+  canEdit: boolean; // a supervisor runs: Raise and Teardown
+}
+/**
+ * Enrolled answers an enrollment: the identity token, shown this once.
+ */
+export interface Enrolled {
+  id: string;
+  token: string;
+}
+/**
+ * GrantRow is one grant an agent's token carries.
+ */
+export interface GrantRow {
+  project: string;
+  role: string;
+  destinations: string[];
+}
+/**
+ * ShareRow is one share grant on a studio.
+ */
+export interface ShareRow {
+  userId: string;
+  user: string;
+  rights: string[];
+  expiresAt: string;
+  expired: boolean;
+  grantedBy: string;
+}
+/**
+ * LiveRow is one open connection into a studio.
+ */
+export interface LiveRow {
+  name: string;
+  right: string;
+  since: string;
+}
+/**
+ * PreviewRow is one preview a studio exposes.
+ */
+export interface PreviewRow {
+  name: string;
+  port: number /* int */;
+  url: string;
+}
+/**
+ * UserRefRow names a user.
+ */
+export interface UserRefRow {
+  id: string;
+  name: string;
+}
+/**
+ * AccessCard is who can reach a running studio and why.
+ */
+export interface AccessCard {
+  enabled: boolean; // studio collaboration is on
+  requester?: UserRefRow | null;
+  membersPreview: string;
+  membersSsh: string;
+  roleProject: string;
+  roleName: string;
+  shares: ShareRow[];
+  live: LiveRow[];
+  previewsOn: boolean;
+  previews: PreviewRow[];
+}
+/**
+ * StreamRow is one captured session event stream.
+ */
+export interface StreamRow {
+  streamId: string;
+  started: string;
+  lastEvent: string;
+  events: number /* int */;
+}
+/**
+ * AgentDetail is an agent's page: its identity, its studio while it runs,
+ * and its session's audit trail.
+ */
+export interface AgentDetail {
+  id: string;
+  running: boolean;
+  status: string;
+  kind: string;
+  owner: string;
+  ownerId: string;
+  name: string;
+  project: string;
+  role: string;
+  unit: string;
+  hasActor: boolean;
+  grants: GrantRow[];
+  tokenExpiry: string; // "" = none
+  raised: string;
+  lastSeen: string;
+  lease: string;
+  backend: string;
+  location: string;
+  waitingSince: string; // "" = not waiting
+  waitSeq: number /* int64 */;
+  escalationTier: number /* int */;
+  tierPingedAt: string; // "" = none open
+  escalationCategory: string;
+  nags: number /* int */;
+  lastNagAt: string;
+  commitSeq: number /* int64 */;
+  egressId: string;
+  egressKnown: boolean;
+  egressFailures: number /* int */;
+  access: AccessCard;
+  sessionsEnabled: boolean;
+  streams: StreamRow[];
+  squawksConfigured: boolean;
+  squawks: SquawkRow[];
+  squawksMore: boolean;
+  canEdit: boolean;
+  setupEnabled: boolean;
+}

@@ -931,3 +931,136 @@ type DraftResult struct {
 	Page    DraftPage `json:"page"`
 	Message string    `json:"message"`
 }
+
+// AgentListRow is one agent in the Agents list: an enrolled identity, a
+// studio, or both.
+type AgentListRow struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Kind       string    `json:"kind"`
+	Project    string    `json:"project"`
+	Role       string    `json:"role"`
+	Unit       string    `json:"unit"`
+	Status     string    `json:"status"`
+	Connector  string    `json:"connector"`
+	Image      string    `json:"image"`
+	LastSeen   string    `json:"lastSeen"`   // "Jan 2 15:04:05"; "" = never
+	MoreGrants int       `json:"moreGrants"` // grants beyond the first
+	HasStudio  bool      `json:"hasStudio"`
+	Attn       *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
+}
+
+// AgentsResponse is GET /app/admin/api/agents.
+type AgentsResponse struct {
+	Agents  []AgentListRow `json:"agents"`
+	Filters []KV           `json:"filters"` // status group key → label, in order ("" = all)
+	Status  string         `json:"status"`  // the group shown
+	CanEdit bool           `json:"canEdit"` // a supervisor runs: Raise and Teardown
+}
+
+// Enrolled answers an enrollment: the identity token, shown this once.
+type Enrolled struct {
+	ID    string `json:"id"`
+	Token string `json:"token"`
+}
+
+// GrantRow is one grant an agent's token carries.
+type GrantRow struct {
+	Project      string   `json:"project"`
+	Role         string   `json:"role"`
+	Destinations []string `json:"destinations"`
+}
+
+// ShareRow is one share grant on a studio.
+type ShareRow struct {
+	UserID    string   `json:"userId"`
+	User      string   `json:"user"`
+	Rights    []string `json:"rights"`
+	ExpiresAt string   `json:"expiresAt"`
+	Expired   bool     `json:"expired"`
+	GrantedBy string   `json:"grantedBy"`
+}
+
+// LiveRow is one open connection into a studio.
+type LiveRow struct {
+	Name  string `json:"name"`
+	Right string `json:"right"`
+	Since string `json:"since"`
+}
+
+// PreviewRow is one preview a studio exposes.
+type PreviewRow struct {
+	Name string `json:"name"`
+	Port int    `json:"port"`
+	URL  string `json:"url"`
+}
+
+// UserRefRow names a user.
+type UserRefRow struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// AccessCard is who can reach a running studio and why.
+type AccessCard struct {
+	Enabled        bool         `json:"enabled"` // studio collaboration is on
+	Requester      *UserRefRow  `json:"requester" tstype:"UserRefRow | null"`
+	MembersPreview string       `json:"membersPreview"`
+	MembersSSH     string       `json:"membersSsh"`
+	RoleProject    string       `json:"roleProject"`
+	RoleName       string       `json:"roleName"`
+	Shares         []ShareRow   `json:"shares"`
+	Live           []LiveRow    `json:"live"`
+	PreviewsOn     bool         `json:"previewsOn"`
+	Previews       []PreviewRow `json:"previews"`
+}
+
+// StreamRow is one captured session event stream.
+type StreamRow struct {
+	StreamID  string `json:"streamId"`
+	Started   string `json:"started"`
+	LastEvent string `json:"lastEvent"`
+	Events    int    `json:"events"`
+}
+
+// AgentDetail is an agent's page: its identity, its studio while it runs,
+// and its session's audit trail.
+type AgentDetail struct {
+	ID                 string      `json:"id"`
+	Running            bool        `json:"running"`
+	Status             string      `json:"status"`
+	Kind               string      `json:"kind"`
+	Owner              string      `json:"owner"`
+	OwnerID            string      `json:"ownerId"`
+	Name               string      `json:"name"`
+	Project            string      `json:"project"`
+	Role               string      `json:"role"`
+	Unit               string      `json:"unit"`
+	HasActor           bool        `json:"hasActor"`
+	Grants             []GrantRow  `json:"grants"`
+	TokenExpiry        string      `json:"tokenExpiry"` // "" = none
+	Raised             string      `json:"raised"`
+	LastSeen           string      `json:"lastSeen"`
+	Lease              string      `json:"lease"`
+	Backend            string      `json:"backend"`
+	Location           string      `json:"location"`
+	WaitingSince       string      `json:"waitingSince"` // "" = not waiting
+	WaitSeq            int64       `json:"waitSeq"`
+	EscalationTier     int         `json:"escalationTier"`
+	TierPingedAt       string      `json:"tierPingedAt"` // "" = none open
+	EscalationCategory string      `json:"escalationCategory"`
+	Nags               int         `json:"nags"`
+	LastNagAt          string      `json:"lastNagAt"`
+	CommitSeq          int64       `json:"commitSeq"`
+	EgressID           string      `json:"egressId"`
+	EgressKnown        bool        `json:"egressKnown"`
+	EgressFailures     int         `json:"egressFailures"`
+	Access             AccessCard  `json:"access"`
+	SessionsEnabled    bool        `json:"sessionsEnabled"`
+	Streams            []StreamRow `json:"streams"`
+	SquawksConfigured  bool        `json:"squawksConfigured"`
+	Squawks            []SquawkRow `json:"squawks"`
+	SquawksMore        bool        `json:"squawksMore"`
+	CanEdit            bool        `json:"canEdit"`
+	SetupEnabled       bool        `json:"setupEnabled"`
+}
