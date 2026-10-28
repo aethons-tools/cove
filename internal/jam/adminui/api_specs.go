@@ -276,4 +276,3 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
-
