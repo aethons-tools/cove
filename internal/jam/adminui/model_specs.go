@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/modelspec"
 )
 
 // WithPoolConfigured says whether the serve-config enables a subscription
@@ -151,7 +152,9 @@ func parseProviderEnv(s string) (map[string]string, error) {
 		}
 		k, v, ok := strings.Cut(line, "=")
 		k = strings.TrimSpace(k)
-		if !ok || k == "" {
+		// A key that is no env-var name is no KEY=VALUE line — likely a pasted
+		// value with "=" in it: name the line, never the text.
+		if !ok || k == "" || !modelspec.ValidEnvKey(k) {
 			return nil, badRequest("provider-env line " + strconv.Itoa(n) + " is not KEY=VALUE")
 		}
 		if _, dup := env[k]; dup {

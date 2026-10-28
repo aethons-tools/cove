@@ -200,10 +200,14 @@ func TestBrowserAdminDestinationNote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v (problems %v)", err, problems.All())
 	}
+	note := "(no destination gh)"
 	for _, d := range store.ListDestinations() {
-		if d.Name == "gh" && d.Note != "use gh for GitHub" {
-			t.Errorf("stored note = %q", d.Note)
+		if d.Name == "gh" {
+			note = d.Note
 		}
+	}
+	if note != "use gh for GitHub" {
+		t.Errorf("stored note = %q", note)
 	}
 	for _, pr := range problems.All() {
 		t.Errorf("page problem: %s", pr)

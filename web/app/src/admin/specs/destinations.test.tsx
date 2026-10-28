@@ -36,6 +36,33 @@ describe("destinations", () => {
     expect(sent).toMatchObject({ name: "ant", route: "/anthropic/", identityIn: "bearer", apply: "bearer", logHeadersIn: "none", git: "" });
   });
 
+  it("shows a refused create inline", async () => {
+    base();
+    server.use(
+      http.get("/app/admin/api/destinations", () => HttpResponse.json({ destinations: [row], methods: ["bearer"] })),
+      http.post("/app/admin/api/destinations", () => HttpResponse.json({ error: 'destination "gh" exists; edit it on its page', code: "conflict" }, { status: 409 })),
+    );
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, ADMIN + "config/destinations");
+    await user.click(await screen.findByText("New destination", { selector: "summary" }));
+    await user.type(screen.getByLabelText(/^Name/), "gh");
+    await user.type(screen.getByLabelText(/^Route \*/), "/gh/");
+    await user.type(screen.getByLabelText(/^Upstream URL/), "https://api.github.com");
+    await user.click(screen.getByRole("button", { name: "Create destination" }));
+    expect(await screen.findByText('destination "gh" exists; edit it on its page')).toBeInTheDocument();
+  });
+
+  it("keeps custom offered after switching away from it", async () => {
+    base();
+    server.use(http.get("/app/admin/api/destinations/gh", () => HttpResponse.json(dest({ fields: destFields({ identityIn: "custom" }), identityInSpec: "header X" }))));
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at);
+    await user.click(await screen.findByText("Edit destination", { selector: "summary" }));
+    const identity = screen.getByLabelText(/^Identity in/) as HTMLSelectElement;
+    await user.selectOptions(identity, "bearer");
+    expect([...identity.options].map((o) => o.value)).toContain("custom");
+  });
+
   it("confirms a delete with how many roles use it", async () => {
     base();
     server.use(

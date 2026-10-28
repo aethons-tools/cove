@@ -111,7 +111,7 @@ function EditDest({ d, confirm, onSave }: { d: DestDetail; confirm?: string; onS
   const [v, setV] = useState<DestValues>({ ...d.fields });
   return (
     <EditForm submit="Save destination" confirm={confirm} onSubmit={() => onSave(v)}>
-      <DestFields value={v} onChange={setV} methods={d.methods} />
+      <DestFields value={v} onChange={setV} methods={d.methods} stored={d.fields} />
     </EditForm>
   );
 }

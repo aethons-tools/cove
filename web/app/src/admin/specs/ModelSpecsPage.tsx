@@ -36,7 +36,7 @@ function Specs({ d }: { d: SpecsResponse }) {
     <Stack>
       <div>
         <Title order={2}>Model-specs</Title>
-        <Text size="sm" c="dimmed">How agents' harnesses run — who as, on what model, under which policy — open one to edit it</Text>
+        <Text size="sm" c="dimmed">How an agent runs — harness, principal, model and policy; open one to edit it</Text>
       </div>
       <details>
         <summary style={{ cursor: "pointer" }}>New model-spec</summary>

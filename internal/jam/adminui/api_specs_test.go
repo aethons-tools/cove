@@ -118,8 +118,12 @@ func TestModelSpecsAPI(t *testing.T) {
 	if err := store.PutRole("acme", jam.Role{Name: "coder", ModelSpec: "fast"}); err != nil {
 		t.Fatal(err)
 	}
-	if rec := apiDo(t, h, "DELETE", "/app/admin/api/model-specs/fast", nil, nil); rec.Code < 400 {
-		t.Errorf("deleting a used spec = %d", rec.Code)
+	wantErr(t, apiDo(t, h, "DELETE", "/app/admin/api/model-specs/fast", nil, nil), 409, "conflict")
+	// A pasted secret with "=" in it is no KEY=VALUE line; the refusal names the line only.
+	rec = apiDo(t, h, "POST", "/app/admin/api/model-specs/fast", specBody(map[string]string{"providerEnv": "sk-ant-api03-SECRETXYZ=="}), nil)
+	wantErr(t, rec, 400, "bad_request")
+	if strings.Contains(rec.Body.String(), "SECRETXYZ") {
+		t.Errorf("the pasted value was echoed: %s", rec.Body)
 	}
 	apiDo(t, h, "GET", "/app/admin/api/model-specs/fast", nil, &d)
 	if len(d.Uses) != 1 || d.Uses[0].Implicit {
@@ -131,6 +135,10 @@ func TestModelSpecsAPI(t *testing.T) {
 		t.Errorf("list = %+v", list)
 	}
 	wantErr(t, apiDo(t, h, "GET", "/app/admin/api/model-specs/nope", nil, nil), 404, "not_found")
+	apiDo(t, h, "POST", "/app/admin/api/model-specs", specBody(map[string]string{"name": "spare"}), nil)
+	if rec := apiDo(t, h, "DELETE", "/app/admin/api/model-specs/spare", nil, nil); rec.Code != 204 {
+		t.Errorf("deleting an unused spec = %d %s", rec.Code, rec.Body)
+	}
 }
 
 func TestModelSpecStalePrincipal(t *testing.T) {
