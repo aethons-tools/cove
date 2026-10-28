@@ -1,7 +1,7 @@
 # The Jam image: built FROM already-built release binaries (scripts/jam-image.sh
 # stages them into bin/linux-<arch>/), not compiled here. Never runs as root;
 # holds no docker, ssh or git binary.
-FROM alpine:3.22
+FROM alpine:3.24
 
 LABEL org.opencontainers.image.source="https://github.com/aethons-tools/cove"
 
