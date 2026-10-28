@@ -70,9 +70,10 @@ describe("the Config tree", () => {
 
   it("still renders for a path that names nothing", async () => {
     serveTree();
+    server.use(http.get("/app/admin/api/projects/gone", () => HttpResponse.json({ error: "no such project", code: "not_found" }, { status: 404 })));
     renderAdmin(adminBoot, ADMIN + "config/projects/gone");
     expect(await screen.findByRole("link", { name: /^Projects/ })).toBeInTheDocument();
-    expect(screen.getByText("This page hasn't moved yet")).toBeInTheDocument();
+    expect(await screen.findByText("Project not found")).toBeInTheDocument();
   });
 
   it("marks only the exact node current (names differing in case)", async () => {
