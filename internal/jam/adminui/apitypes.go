@@ -67,8 +67,9 @@ type DiffLine struct {
 // Created answers a create: the new object's id and its page (under the
 // app's mount).
 type Created struct {
-	ID   string `json:"id"`
-	Path string `json:"path"`
+	ID      string `json:"id"`
+	Path    string `json:"path"`
+	Message string `json:"message,omitempty"` // what it did, when worth saying (an import)
 }
 
 // AccountRow is one of a user's accounts on a connected service.
@@ -657,4 +658,185 @@ type SpecsResponse struct {
 	Specs   []SpecListRow `json:"specs"`
 	New     SpecFields    `json:"new"`
 	Choices SpecChoices   `json:"choices"`
+}
+
+// KitRow is one kit in the list.
+type KitRow struct {
+	Name    string    `json:"name"`
+	Current int       `json:"current"`
+	Count   int       `json:"count"`
+	Base    string    `json:"base"` // the base's kind; "" when invalid
+	Egress  int       `json:"egress"`
+	UsedBy  int       `json:"usedBy"`
+	Invalid bool      `json:"invalid"` // the current version isn't a valid studio kit
+	Draft   bool      `json:"draft"`   // an open draft
+	Managed *Managed  `json:"managed" tstype:"Managed | null"`
+	Attn    *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
+}
+
+// KitsResponse is GET /app/admin/api/kits.
+type KitsResponse struct {
+	Kits      []KitRow `json:"kits"`
+	CanSource bool     `json:"canSource"` // import, track and sync are offered
+}
+
+// SourceInfo is a git source: where a kit or version came from.
+type SourceInfo struct {
+	Repo       string `json:"repo"`
+	RepoLink   string `json:"repoLink"`
+	Dir        string `json:"dir"`
+	Ref        string `json:"ref"`
+	Commit     string `json:"commit"`
+	CommitLink string `json:"commitLink"`
+}
+
+// KitVersionRow is one version in a kit's rail.
+type KitVersionRow struct {
+	N       int         `json:"n"`
+	Prev    int         `json:"prev"` // the version before it; 0 = none
+	Current bool        `json:"current"`
+	Digest  string      `json:"digest"` // short build digest; "" = invalid
+	Pushed  string      `json:"pushed"`
+	Source  *SourceInfo `json:"source" tstype:"SourceInfo | null"`
+}
+
+// KV is a key and a value.
+type KV struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// KitView is one version as shown, or (Effective) a chain merged.
+type KitView struct {
+	N          int      `json:"n"`
+	ParseErr   string   `json:"parseErr"`
+	RawShown   string   `json:"rawShown"` // an unparsable kit.yml as shown (masked)
+	Masked     bool     `json:"masked"`
+	Hidden     bool     `json:"hidden"`
+	PushText   string   `json:"pushText"` // the push box's prefill
+	YAML       string   `json:"yaml"`
+	Base       string   `json:"base"`
+	Image      string   `json:"image"`
+	Egress     []string `json:"egress"`
+	Ceiling    []string `json:"ceiling"`
+	Excluded   []string `json:"excluded"`
+	BuildArgs  []KV     `json:"buildArgs"`
+	Secrets    []KV     `json:"secrets"`
+	MCPServers []KV     `json:"mcpServers"`
+	Notes      []KV     `json:"notes"`
+	Prompt     string   `json:"prompt"`
+	Digest     string   `json:"digest"`
+}
+
+// KitDiff compares two versions' kit.yml.
+type KitDiff struct {
+	From          int        `json:"from"`
+	To            int        `json:"to"`
+	Lines         []DiffLine `json:"lines"`
+	DigestChanged bool       `json:"digestChanged"`
+	TooLarge      bool       `json:"tooLarge"`
+}
+
+// KitUse is a role that raises the kit; Implicit: it names none (the default).
+type KitUse struct {
+	Project  string `json:"project"`
+	Role     string `json:"role"`
+	Implicit bool   `json:"implicit"`
+}
+
+// KitParent is one link of a kit's "Built on" chain.
+type KitParent struct {
+	Name    string `json:"name"`
+	Version int    `json:"version"`
+	Follow  bool   `json:"follow"`
+}
+
+// KitChild is a kit built on this one.
+type KitChild struct {
+	Name   string `json:"name"`
+	Pinned bool   `json:"pinned"`
+}
+
+// FileRow is one file of a version's directory.
+type FileRow struct {
+	Path  string `json:"path"`  // stored: the file= value
+	Label string `json:"label"` // as shown
+	Mode  string `json:"mode"`
+	Size  int64  `json:"size"`
+}
+
+// FileList is a version's directory.
+type FileList struct {
+	N      int       `json:"n"`
+	Size   string    `json:"size"`
+	Rows   []FileRow `json:"rows"`
+	Hidden int       `json:"hidden"` // files not listed
+}
+
+// FileChange is one changed file between two versions.
+type FileChange struct {
+	Change string `json:"change"` // added, removed, modified, mode
+	Path   string `json:"path"`
+	Label  string `json:"label"`
+	Mode   string `json:"mode"`
+	Size   string `json:"size"`
+}
+
+// FilesDiff compares two versions' directories.
+type FilesDiff struct {
+	From      int          `json:"from"`
+	To        int          `json:"to"`
+	Rows      []FileChange `json:"rows"`
+	More      int          `json:"more"` // changed, not listed
+	Unchanged int          `json:"unchanged"`
+}
+
+// KitFile is one file: its content, its diff, or why neither.
+type KitFile struct {
+	Path     string     `json:"path"`
+	Diff     bool       `json:"diff"`
+	From     int        `json:"from"`
+	To       int        `json:"to"`
+	Lines    []DiffLine `json:"lines"`
+	TooLarge bool       `json:"tooLarge"`
+	Content  string     `json:"content"`
+	Note     string     `json:"note"`
+	Missing  bool       `json:"missing"`
+	Masked   bool       `json:"masked"`
+	Hidden   bool       `json:"hidden"`
+}
+
+// DraftInfo is a kit's open draft.
+type DraftInfo struct {
+	Base int `json:"base"`
+}
+
+// KitDetail is a kit's page at a version (?v=), a diff (?diff=) and a file (?file=).
+type KitDetail struct {
+	Name       string          `json:"name"`
+	Managed    *Managed        `json:"managed" tstype:"Managed | null"`
+	Current    int             `json:"current"`
+	Versions   []KitVersionRow `json:"versions"`
+	View       KitView         `json:"view"`
+	Diff       *KitDiff        `json:"diff" tstype:"KitDiff | null"`
+	Uses       []KitUse        `json:"uses"`
+	Chain      []KitParent     `json:"chain"`
+	ChainErr   string          `json:"chainErr"`
+	Effective  *KitView        `json:"effective" tstype:"KitView | null"`
+	UsedByKits []KitChild      `json:"usedByKits"`
+	IsDefault  bool            `json:"isDefault"`
+	Source     *SourceInfo     `json:"source" tstype:"SourceInfo | null"`
+	SetWith    string          `json:"setWith"`
+	CanSource  bool            `json:"canSource"`
+	Draft      *DraftInfo      `json:"draft" tstype:"DraftInfo | null"`
+	Files      *FileList       `json:"files" tstype:"FileList | null"`
+	FilesDiff  *FilesDiff      `json:"filesDiff" tstype:"FilesDiff | null"`
+	File       *KitFile        `json:"file" tstype:"KitFile | null"`
+	Attn       *AttnFlag       `json:"attn" tstype:"AttnFlag | null"`
+}
+
+// KitResult answers a kit write: the kit after it and its message.
+type KitResult struct {
+	Kit     KitDetail `json:"kit"`
+	Message string    `json:"message"`
 }
