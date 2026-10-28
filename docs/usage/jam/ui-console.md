@@ -17,7 +17,8 @@ folded into a **Config** tree
 cutover, the new console is a preview at **`/app/admin/next/`**: the Config
 tree, Tracking (this Config page), Users, Projects (with each project's
 Agents and roles, a role's Setup as a section), Destinations, Model Specs and
-Kits (a kit's Draft as a section) work there, and a page that hasn't moved yet
+Kits (a kit's Draft as a section) work there, and so does the **Agents** tab
+(the list, enroll and raise, an agent's page, and its live session timeline), and a page that hasn't moved yet
 links to its page here.
 
 **Projects** (`/app/admin/projects`, the project list) keeps a left **rail** of
