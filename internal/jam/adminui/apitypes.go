@@ -108,3 +108,94 @@ type UserDetail struct {
 	OIDCSpec    string             `json:"oidcSpec"`  // the OIDC identities, one per line
 	Connections []ConnectionChoice `json:"connections"`
 }
+
+// TrackingSource is the config repo this Jam follows.
+type TrackingSource struct {
+	Label      string `json:"label"` // <repo>[//<dir>]@<ref>; "invalid" when it doesn't parse
+	Repo       string `json:"repo"`
+	RepoLink   string `json:"repoLink"`
+	Dir        string `json:"dir"`
+	Ref        string `json:"ref"`
+	Commit     string `json:"commit"` // 7 chars
+	CommitLink string `json:"commitLink"`
+	Applied    string `json:"applied"` // the last apply from it; "" = none since tracked
+}
+
+// ManagedRow is one object the config repo manages.
+type ManagedRow struct {
+	Kind    string `json:"kind"`
+	Name    string `json:"name"`
+	Path    string `json:"path"` // its page under the app's mount; "" = none
+	Commit  string `json:"commit"`
+	Applied string `json:"applied"`
+	State   string `json:"state"` // in-sync, drifted, missing; "" = unknown
+}
+
+// ConfigKeyRow names a config object.
+type ConfigKeyRow struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
+// KitSourceRow is a kit's git source in a plan.
+type KitSourceRow struct {
+	Path   string `json:"path"`
+	Source string `json:"source"`
+	Commit string `json:"commit"`
+}
+
+// PlanOpRow is one change a plan makes.
+type PlanOpRow struct {
+	Action    string     `json:"action"`
+	Kind      string     `json:"kind"`
+	Name      string     `json:"name"`
+	Path      string     `json:"path"` // the object's page; "" for a create or none
+	File      string     `json:"file"` // in the repo
+	Drift     bool       `json:"drift"`
+	Unmanaged bool       `json:"unmanaged"`
+	Lines     []DiffLine `json:"lines"`    // Jam → repo
+	TooLarge  bool       `json:"tooLarge"` // too large to diff here
+	Diff      string     `json:"diff"`     // a kit update's version diff (text)
+}
+
+// ServeDiff compares the repo's serve config with this serve's.
+type ServeDiff struct {
+	State string   `json:"state"` // same, differs, absent, unknown; "" = not compared
+	Keys  []string `json:"keys"`
+}
+
+// Plan is a config plan for review; Apply posts its Digest back.
+type Plan struct {
+	Source     string         `json:"source"`
+	Commit     string         `json:"commit"`
+	Digest     string         `json:"digest"`
+	Forced     bool           `json:"forced"`
+	HasDrift   bool           `json:"hasDrift"` // offer Force
+	Changes    int            `json:"changes"`
+	Unchanged  int            `json:"unchanged"`
+	Ops        []PlanOpRow    `json:"ops"`
+	Forget     []ConfigKeyRow `json:"forget"`
+	Unmanaged  []ConfigKeyRow `json:"unmanaged"`
+	KitSources []KitSourceRow `json:"kitSources"`
+	Refusals   []string       `json:"refusals"` // any one blocks Apply
+	Serve      ServeDiff      `json:"serve"`
+}
+
+// Tracking is Config › Tracking: the tracked source, the managed objects and
+// (after a Track) the plan.
+type Tracking struct {
+	Source      *TrackingSource `json:"source" tstype:"TrackingSource | null"` // nil = none tracked
+	Rows        []ManagedRow    `json:"rows"`
+	Drifted     int             `json:"drifted"`
+	StatesErr   bool            `json:"statesErr"` // could not compare with the live Jam
+	LastCommit  string          `json:"lastCommit"`
+	LastApplied string          `json:"lastApplied"`
+	CanGit      bool            `json:"canGit"` // Diff, Apply and Track are offered
+	Plan        *Plan           `json:"plan" tstype:"Plan | null"`
+}
+
+// TrackingResult answers a tracking write: the page after it and its message.
+type TrackingResult struct {
+	Tracking Tracking `json:"tracking"`
+	Message  string   `json:"message"`
+}

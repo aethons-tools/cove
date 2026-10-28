@@ -119,3 +119,103 @@ export interface UserDetail {
   oidcSpec: string; // the OIDC identities, one per line
   connections: ConnectionChoice[];
 }
+/**
+ * TrackingSource is the config repo this Jam follows.
+ */
+export interface TrackingSource {
+  label: string; // <repo>[//<dir>]@<ref>; "invalid" when it doesn't parse
+  repo: string;
+  repoLink: string;
+  dir: string;
+  ref: string;
+  commit: string; // 7 chars
+  commitLink: string;
+  applied: string; // the last apply from it; "" = none since tracked
+}
+/**
+ * ManagedRow is one object the config repo manages.
+ */
+export interface ManagedRow {
+  kind: string;
+  name: string;
+  path: string; // its page under the app's mount; "" = none
+  commit: string;
+  applied: string;
+  state: string; // in-sync, drifted, missing; "" = unknown
+}
+/**
+ * ConfigKeyRow names a config object.
+ */
+export interface ConfigKeyRow {
+  kind: string;
+  name: string;
+}
+/**
+ * KitSourceRow is a kit's git source in a plan.
+ */
+export interface KitSourceRow {
+  path: string;
+  source: string;
+  commit: string;
+}
+/**
+ * PlanOpRow is one change a plan makes.
+ */
+export interface PlanOpRow {
+  action: string;
+  kind: string;
+  name: string;
+  path: string; // the object's page; "" for a create or none
+  file: string; // in the repo
+  drift: boolean;
+  unmanaged: boolean;
+  lines: DiffLine[]; // Jam → repo
+  tooLarge: boolean; // too large to diff here
+  diff: string; // a kit update's version diff (text)
+}
+/**
+ * ServeDiff compares the repo's serve config with this serve's.
+ */
+export interface ServeDiff {
+  state: string; // same, differs, absent, unknown; "" = not compared
+  keys: string[];
+}
+/**
+ * Plan is a config plan for review; Apply posts its Digest back.
+ */
+export interface Plan {
+  source: string;
+  commit: string;
+  digest: string;
+  forced: boolean;
+  hasDrift: boolean; // offer Force
+  changes: number /* int */;
+  unchanged: number /* int */;
+  ops: PlanOpRow[];
+  forget: ConfigKeyRow[];
+  unmanaged: ConfigKeyRow[];
+  kitSources: KitSourceRow[];
+  refusals: string[]; // any one blocks Apply
+  serve: ServeDiff;
+}
+/**
+ * Tracking is Config › Tracking: the tracked source, the managed objects and
+ * (after a Track) the plan.
+ */
+export interface Tracking {
+  source?: TrackingSource | null; // nil = none tracked
+  rows: ManagedRow[];
+  drifted: number /* int */;
+  statesErr: boolean; // could not compare with the live Jam
+  lastCommit: string;
+  lastApplied: string;
+  canGit: boolean; // Diff, Apply and Track are offered
+  plan?: Plan | null;
+}
+/**
+ * TrackingResult answers a tracking write: the page after it and its message.
+ */
+export interface TrackingResult {
+  tracking: Tracking;
+  message: string;
+}
