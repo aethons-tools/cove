@@ -1,7 +1,7 @@
 ---
 summary: The structured turn end — a woken session finds its pending messages in its prompt, its final text is posted for it and what it was shown is committed for it; the optional `turn_end` tool changes those defaults (deny, recipient, quiet, compact, end, mute, wake time, idle timeout), and `keep_*` keeps processes running across turns. Covers the turn-protocol switch, `PUT /mute`, the auto-post marker and the agent socket.
 read_when: You want to know what a woken agent is shown, why a session's reply was (or wasn't) posted or its messages committed, how an agent keeps a preview server running between turns, or you are changing the turn-end defaults, `turn_end`/`keep_*`, or how a studio and Jam agree on the turn protocol.
-owns: the structured turn end — inbox batches in the wake prompt (caps, rendering, fallback), auto-posting the final text and auto-commit, the `turn_end` tool and its directives, `PUT /mute`, the auto-post marker part and wake-on's skip of it, the duplicate-reply skip, the turn-protocol switch (`GET /context?turn-protocol=2`, `Bundle.turn_protocol`), the agent socket, kept processes (`keep_start`/`keep_stop`/`keep_list`) and the `process-exited` wake. Does NOT own wake-on's other rules (intercom.md), alarms/idle/`end` (turn-end.md) or the context compile (session-context.md).
+owns: the structured turn end — inbox batches in the wake prompt (caps, rendering, fallback), auto-posting the final text and auto-commit, the `turn_end` tool and its directives, `PUT /mute`, `PUT /kept`, the auto-post marker part and wake-on's skip of it, the duplicate-reply skip, the turn-protocol switch (`GET /context?turn-protocol=2`, `Bundle.turn_protocol`), the agent socket, kept processes (`keep_start`/`keep_stop`/`keep_list`) and the `process-exited` wake. Does NOT own wake-on's other rules (intercom.md), alarms/idle/`end` (turn-end.md) or the context compile (session-context.md).
 prereqs: intercom.md for the inbox, commit cursor and wake-on; turn-end.md for what a turn end is and the wake reasons
 tier: leaf
 updated: 2026-10-28
@@ -73,7 +73,7 @@ A turn that didn't end normally posts, commits and applies nothing: an interrupt
 
 ## Kept processes
 
-Shell background jobs die with the agent's turn. `keep_start(name, command, workdir?)` starts a process that keeps running instead, owned by jam-studio-agent itself (the long-lived Workload), not by the agent CLI.
+A background process the agent starts in a shell outlives its turn (claude exits at a quiet turn end, and the process is reparented to init), but it freezes while the studio is paused, and nothing watches or stops it. `keep_start(name, command, workdir?)` starts a process that keeps running while the session waits, owned by jam-studio-agent itself (the long-lived Workload), not by the agent CLI.
 
 - **How it runs.** It runs as `sh -c` in its own process group, with the agent's environment, and starts in the workspace unless `workdir` says otherwise.
 - **Output** goes to `/agent-data/keep/<name>.log`. The log is capped at 1 MiB, with one `.1` rotation.
@@ -83,7 +83,7 @@ Shell background jobs die with the agent's turn. `keep_start(name, command, work
 - **They stop with the session** (teardown, `end`).
 - **When the shell exits,** whatever it left in its process group is killed with it.
 - **After a jam-studio-agent restart,** whatever its predecessor kept is stopped (found through `/agent-data/keep/registry.json`), and the first prompt names those processes. A process is stopped only when its boot id and start time match the registry, so a reused pid is never signalled.
-- **Pausing.** A waiting session with kept processes is still paused at `warm-timeout`, which freezes them. A preview request resumes the studio ([previews.md](previews.md)).
+- **Not paused.** While any kept process runs, a waiting session isn't paused at `warm-timeout`, so its kept processes keep running. The studio reports the count to Jam (`PUT /kept {"count": n}`, recorded as the Instance's `kept_processes`). An older Jam ignores it, and the processes then freeze with the pause.
 
 The agent tends what it keeps: its guidance tells it to agree with the person how long a preview should run, and to set a `wake_at` to ask them then. Jam imposes no lifetime.
 

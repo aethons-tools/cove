@@ -1179,6 +1179,22 @@ func (s *Supervisor) SetMessagesMuted(actorID string, on bool) error {
 	return s.store.PutInstance(inst)
 }
 
+// SetKeptProcesses records how many processes the cove keeps running across
+// turns; wake-on doesn't pause a waiting session while any run.
+func (s *Supervisor) SetKeptProcesses(actorID string, n int) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	if inst.KeptProcesses == n {
+		return nil
+	}
+	inst.KeptProcesses = n
+	return s.store.PutInstance(inst)
+}
+
 // SetAlarm validates and schedules the named alarm on the cove (replacing one
 // of the same name), in its role's time zone.
 func (s *Supervisor) SetAlarm(actorID, name, schedule, note, gate string) (Alarm, error) {

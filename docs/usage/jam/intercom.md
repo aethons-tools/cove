@@ -150,7 +150,7 @@ paused or torn down for this.
 
 While waiting, a studio doesn't stay live-and-idle indefinitely: once it's been waiting
 past a **`warm-timeout`** with no reply, the engine **pauses** it (`docker pause`, ≈0
-CPU) and moves it to the `idled` [phase](coves.md#the-model) — a paused, intentionally
+CPU; not while a tunnel is open or it [keeps processes](structured-turn-end.md#kept-processes) running) and moves it to the `idled` [phase](coves.md#the-model) — a paused, intentionally
 idle studio whose lease-reaping is suspended (see [coves.md](coves.md) for the phase
 chain). When a reply then lands, the engine **unpauses** it (`Resume`) and sends `Wake`
 on a subsequent tick once it's reconnected and reporting Live + `waiting` again.

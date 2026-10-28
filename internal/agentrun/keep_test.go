@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -170,6 +171,11 @@ func TestKeptProcessOutlivesEpisodeAndWakes(t *testing.T) {
 	if !strings.Contains(got, "Kept process `preview` exited (status 0); last lines:\nserved") {
 		t.Fatalf("wake prompt = %q", got)
 	}
+	// Jam heard each change in the count (so it doesn't pause the studio).
+	waitFor(t, func() bool { return lastKept(io) == "SetKept 0" })
+	if !slices.Contains(io.callList(), "SetKept 1") {
+		t.Fatalf("calls %v: want SetKept 1 while it ran", io.callList())
+	}
 	// Teardown stops whatever is still kept.
 	kp2, err := c.KeepStart(context.Background(), "other", "sleep 30", "")
 	if err != nil {
@@ -185,4 +191,15 @@ func TestWakeLineProcessExited(t *testing.T) {
 	if !ok || l != "Kept process `x` exited (status 3); last lines:\nlast\nlines" {
 		t.Fatalf("line = %q", l)
 	}
+}
+
+// lastKept is the last SetKept call io recorded ("" = none).
+func lastKept(io *fakeTurnIO) string {
+	last := ""
+	for _, c := range io.callList() {
+		if strings.HasPrefix(c, "SetKept ") {
+			last = c
+		}
+	}
+	return last
 }

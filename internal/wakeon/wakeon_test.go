@@ -2076,3 +2076,22 @@ func TestReplyToAct_ReleaseWhileMuted(t *testing.T) {
 		t.Fatalf("a muted session's owner can still release it; events=%v", events)
 	}
 }
+
+func TestKeptProcessesNotPaused(t *testing.T) {
+	inst := jam.Instance{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, SessionKind: jam.SessionKindStanding,
+		WaitingSince: time.Unix(1000, 0), KeptProcesses: 1}
+	idler := &fakeIdler{}
+	e := New(&fakeReg{insts: []jam.Instance{inst}}, &fakeWaker{}, &fakeReaper{}, idler, nil, Config{MaxWait: time.Hour, WarmTimeout: time.Minute}, nil)
+	e.now = func() time.Time { return time.Unix(9000, 0) }
+	e.tick(context.Background())
+	if len(idler.idled) != 0 {
+		t.Fatalf("a waiting session with kept processes was paused: %v", idler.idled)
+	}
+	inst.KeptProcesses = 0
+	e = New(&fakeReg{insts: []jam.Instance{inst}}, &fakeWaker{}, &fakeReaper{}, idler, nil, Config{MaxWait: time.Hour, WarmTimeout: time.Minute}, nil)
+	e.now = func() time.Time { return time.Unix(9000, 0) }
+	e.tick(context.Background())
+	if len(idler.idled) != 1 {
+		t.Fatalf("without kept processes it is paused at warm-timeout: %v", idler.idled)
+	}
+}

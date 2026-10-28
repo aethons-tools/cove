@@ -192,8 +192,10 @@ type Workload struct {
 	muted bool
 	// structuredOn mirrors structured() for the agent socket's goroutine.
 	structuredOn atomic.Bool
-	// keep owns the kept processes (with TurnIO set; nil otherwise).
-	keep *keeper
+	// keep owns the kept processes (with TurnIO set; nil otherwise); keptMu
+	// serializes reporting their count to Jam.
+	keep   *keeper
+	keptMu sync.Mutex
 	// note is a line the next delivered prompt opens with (a reply that
 	// could not go where turn_end asked). Run's goroutine only.
 	note string
@@ -291,7 +293,11 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 			dir = defaultKeepDir
 		}
 		w.keep = newKeeper(dir, w.cfg.WorkDir, w.agentEnv, w.keptExited, w.log)
+		w.keep.onChange = w.reportKept
 		keptLost = w.keep.CleanupStale()
+		if len(keptLost) > 0 {
+			go w.reportKept() // none kept now: Jam may pause the studio again
+		}
 		defer w.keep.StopAll()
 		path := w.cfg.AgentSocket
 		if path == "" {

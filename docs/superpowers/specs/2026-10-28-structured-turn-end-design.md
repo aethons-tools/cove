@@ -17,6 +17,7 @@ The behavior below was built as written, with these changes of mechanism. The st
 - **Commit is tied to the prompt.** Each prompt has a generation, the turn answering it carries that generation, and only that turn commits the prompt's batch. Nothing is committed after a failed post, and a cut entry is never committed.
 - **The duplicate check** compares only against `send`s since the session's previous auto-post.
 - **A `process-exited` wake is raised locally** by the cove; it isn't sent by Jam.
+- **Kept processes keep the studio unpaused** (a follow-up, after an in-studio experiment showed plain background processes already outlive the turn, and that the warm-timeout pause is what freezes them). The cove reports the count with `PUT /kept`, and wake-on skips the pause while it's non-zero. §5's "still paused" is superseded.
 
 The operator-facing description is [structured-turn-end.md](../../usage/jam/structured-turn-end.md).
 

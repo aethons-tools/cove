@@ -62,6 +62,7 @@ func TestHTTPTurnIO(t *testing.T) {
 		func() error { return io.SetAlarm(ctx, "turn-end", "2026-10-28T01:00:00Z", "ask about the preview") },
 		func() error { return io.SetIdle(ctx, "2h") },
 		func() error { return io.Mute(ctx, true) },
+		func() error { return io.SetKept(ctx, 2) },
 	} {
 		if err := step(); err != nil {
 			t.Fatal(err)
@@ -79,6 +80,7 @@ func TestHTTPTurnIO(t *testing.T) {
 		{"PUT", "/alarms/turn-end", map[string]any{"schedule": "2026-10-28T01:00:00Z", "note": "ask about the preview"}},
 		{"PUT", "/idle", map[string]any{"duration": "2h", "scope": "next"}},
 		{"PUT", "/mute", map[string]any{"on": true}},
+		{"PUT", "/kept", map[string]any{"count": float64(2)}},
 	}
 	if len(*seen) != len(want) {
 		t.Fatalf("requests = %+v", *seen)
