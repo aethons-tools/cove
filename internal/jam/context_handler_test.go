@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,5 +54,44 @@ func TestContextHandler(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST = %d", rec.Code)
+	}
+}
+
+// A cove that speaks the structured turn end asks for its guidance with
+// ?turn-protocol=2; anything else gets the legacy boilerplate.
+func TestContextHandlerTurnProtocol(t *testing.T) {
+	sup, store, clk := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	_, tok, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewContextHandler(store, sup, func() time.Time { return *clk }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	get := func(query string) sessionctx.Bundle {
+		req := httptest.NewRequest(http.MethodGet, "/context"+query, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var b sessionctx.Bundle
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &b) != nil {
+			t.Fatalf("GET /context%s = %d %s", query, rec.Code, rec.Body)
+		}
+		want := 0
+		if query == "?turn-protocol=2" {
+			want = 2
+		}
+		if b.TurnProtocol != want || (want == 0) != !strings.Contains(rec.Body.String(), `"turn_protocol"`) {
+			t.Fatalf("GET /context%s: turn_protocol = %d, want %d (absent at 0)", query, b.TurnProtocol, want)
+		}
+		return b
+	}
+	legacy, structured := get(""), get("?turn-protocol=2")
+	if structured.Fingerprint == legacy.Fingerprint || !strings.Contains(structured.Core, "End your turn with your reply") {
+		t.Fatalf("turn-protocol=2 left the context unchanged:\n%s", structured.Core)
+	}
+	if strings.Contains(legacy.Core, "End your turn with your reply") {
+		t.Fatal("the legacy context carries the structured guidance")
+	}
+	if other := get("?turn-protocol=3"); other.Fingerprint != legacy.Fingerprint {
+		t.Fatal("an unknown turn protocol changed the context")
 	}
 }

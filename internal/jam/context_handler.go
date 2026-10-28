@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
@@ -13,8 +14,9 @@ import (
 // identity's session context, recompiled from the current config (ContextFor),
 // so jam-studio-agent can refresh a running session. The identity arrives as a
 // bearer (or gh's "token" scheme); unknown or expired → 401, no registered
-// instance → 404. Logs the actor id only. Records the delivered part as a
-// setup snapshot (on change).
+// instance → 404. ?turn-protocol=2 asks for the structured turn end's guidance
+// (the bundle's TurnProtocol confirms it). Logs the actor id only. Records the
+// delivered part as a setup snapshot (on change).
 func NewContextHandler(store Store, sup *Supervisor, now func() time.Time, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(sessionctx.EndpointHeader, "1")
@@ -37,7 +39,13 @@ func NewContextHandler(store Store, sup *Supervisor, now func() time.Time, log *
 			http.Error(w, "no session context on this Jam", http.StatusNotFound)
 			return
 		}
-		b, err := sup.ContextForActor(a)
+		// Only the structured turn end ("2") is recognized; anything else
+		// gets the legacy guidance.
+		turnProtocol := 0
+		if r.URL.Query().Get("turn-protocol") == strconv.Itoa(sessionctx.TurnProtocolStructured) {
+			turnProtocol = sessionctx.TurnProtocolStructured
+		}
+		b, err := sup.ContextForTurns(a, turnProtocol)
 		switch {
 		case errors.Is(err, ErrNoInstance):
 			http.Error(w, err.Error(), http.StatusNotFound)

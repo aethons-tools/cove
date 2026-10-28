@@ -77,6 +77,10 @@ type SessionFacts struct {
 	Unit     string // ephemeral work unit (ticket); "" = none, so no default recipient
 	Kit      string // KitRef.String(), "" = no kit
 	Previews bool   // studio previews are enabled on this Jam (expose/unexpose/exposures)
+	// TurnProtocol is the turn end the cove speaks: 0 = legacy (the agent
+	// `send`s and `commit`s), 2 = structured (messages arrive in the prompt,
+	// the final text is posted and what was shown committed for it).
+	TurnProtocol int
 }
 
 // Inputs are everything Compile needs. Later slices add Studio/Project/Role/Jam.
@@ -105,6 +109,10 @@ type Bundle struct {
 	// Budgets is each emitted layer's core size and budget (setup inspection);
 	// not part of the fingerprint.
 	Budgets map[string]LayerBudget `json:"budgets,omitempty"`
+	// TurnProtocol is the turn end the guidance was compiled for
+	// (SessionFacts.TurnProtocol; 0 = legacy), so a cove turns the structured
+	// turn end on only when Jam sent the matching guidance.
+	TurnProtocol int `json:"turn_protocol,omitempty"`
 }
 
 var leafNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*\.md$`)
@@ -136,7 +144,7 @@ func Compile(in Inputs) Bundle {
 		{LayerRole, titled("Role", in.Session.Role), in.Role, BudgetRole},
 		{LayerJam, "Jam", in.Jam, BudgetJam},
 	}
-	b := Bundle{Files: map[string]string{}, Layers: map[string]string{}, Budgets: map[string]LayerBudget{}}
+	b := Bundle{Files: map[string]string{}, Layers: map[string]string{}, Budgets: map[string]LayerBudget{}, TurnProtocol: in.Session.TurnProtocol}
 	var core strings.Builder
 	fmt.Fprintf(&core, "# Session context\n\n%s\n\nDetail lives in %s/ — open a file only when its \"read when\" matches your task. Map: %s/INDEX.md\n", Precedence, Dir, Dir)
 	type row struct{ path, when string }
