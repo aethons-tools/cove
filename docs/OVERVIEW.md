@@ -138,7 +138,7 @@ Because hardening trusts the base, `jam-studio-base` carries the overridable
 defaults every sandbox needs in `/home/agent/.init-agent-data`: the startup
 settings (`settings.json`, `.claude.json`), the agent docs (`CLAUDE.md`,
 `PROGRESSIVE_DISCLOSURE.md`, `SANDBOX.md`, `COLLABORATOR.md`, and `reference/`, which holds `progressive-disclosure.md`), the
-generic board/docs `skills/`, and the `.refresh` manifest. It also installs `code-server` (a pinned, SHA-256-verified release `.deb`) for the built-in Studio IDE. The sealed layer then, last: installs the
+generic board/docs `skills/`, and the `.refresh` manifest. It also installs `code-server` (a pinned, SHA-256-verified release `.deb`) for the built-in Studio IDE. `just` comes from its upstream release (pinned, SHA-256-verified), not the Ubuntu archive, whose 1.21 is too old for current justfiles. The sealed layer then, last: installs the
 embedded version-locked `jam-studio-agent`; populates `/etc/environment` (so `pam_env`
 exposes it to every SSH session) via `apply-sshenv.sh`; and re-asserts the
 egress/sshd hardening.
