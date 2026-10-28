@@ -19,7 +19,7 @@ export function excalidrawFonts(): Plugin {
       if (!code.includes("ASSETS_FALLBACK_URL")) return null;
       if (!FALLBACK.test(code)) throw new Error("excalidrawFonts: Excalidraw's font fallback changed shape; update build/excalidrawFonts.ts");
       rewrote++;
-      return { code: code.replace(FALLBACK, "`${location.origin}/app/user/assets/excalidraw/`"), map: null };
+      return { code: code.replace(FALLBACK, "`${location.origin}/app/assets/excalidraw/`"), map: null };
     },
     generateBundle(_, bundle) {
       if (excalidraw && rewrote !== 1) this.error(`excalidrawFonts: rewrote ${rewrote} font fallbacks, want 1 (did Excalidraw rename ASSETS_FALLBACK_URL?)`);
