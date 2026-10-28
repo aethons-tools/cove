@@ -164,6 +164,7 @@ func fileHref(kit string, v, diff int, p string) string {
 // ctxRow is one file of a version's tree.
 type ctxRow struct {
 	Path, Href, Mode string
+	Raw              string // the stored path (the JSON API's file= value)
 	Size             int64
 }
 
@@ -185,7 +186,7 @@ func ctxList(kit string, v kitView) *ctxListView {
 			l.Hidden = len(v.ctx.files) - i
 			break
 		}
-		l.Rows = append(l.Rows, ctxRow{Path: pathText(f.Path), Href: fileHref(kit, v.N, 0, f.Path), Mode: modeText(f), Size: f.Size})
+		l.Rows = append(l.Rows, ctxRow{Path: pathText(f.Path), Href: fileHref(kit, v.N, 0, f.Path), Mode: modeText(f), Raw: f.Path, Size: f.Size})
 	}
 	return l
 }
@@ -194,6 +195,7 @@ func ctxList(kit string, v kitView) *ctxListView {
 type ctxChange struct {
 	Change     string // added | removed | modified | mode
 	Path, Href string
+	Raw        string // the stored path (the JSON API's file= value)
 	Mode, Size string // "0644 → 0755" / "2 B → 5 B" when changed
 }
 
@@ -230,7 +232,7 @@ func ctxDiffLinked(from, to kitView, href func(p string) string) *ctxDiffView {
 	for _, p := range slices.Compact(paths) {
 		a, inA := from.ctx.get(p)
 		b, inB := to.ctx.get(p)
-		row := ctxChange{Path: pathText(p), Href: href(p)}
+		row := ctxChange{Path: pathText(p), Href: href(p), Raw: p}
 		switch {
 		case !inA:
 			row.Change, row.Mode, row.Size = "added", modeText(b), bytesText(b.Size)

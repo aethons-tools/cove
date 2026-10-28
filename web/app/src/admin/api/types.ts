@@ -75,6 +75,7 @@ export interface DiffLine {
 export interface Created {
   id: string;
   path: string;
+  message?: string; // what it did, when worth saying (an import)
 }
 /**
  * AccountRow is one of a user's accounts on a connected service.
@@ -721,4 +722,203 @@ export interface SpecsResponse {
   specs: SpecListRow[];
   new: SpecFields;
   choices: SpecChoices;
+}
+/**
+ * KitRow is one kit in the list.
+ */
+export interface KitRow {
+  name: string;
+  current: number /* int */;
+  count: number /* int */;
+  base: string; // the base's kind; "" when invalid
+  egress: number /* int */;
+  usedBy: number /* int */;
+  invalid: boolean; // the current version isn't a valid studio kit
+  draft: boolean; // an open draft
+  managed?: Managed | null;
+  attn?: AttnFlag | null;
+}
+/**
+ * KitsResponse is GET /app/admin/api/kits.
+ */
+export interface KitsResponse {
+  kits: KitRow[];
+  canSource: boolean; // import, track and sync are offered
+}
+/**
+ * SourceInfo is a git source: where a kit or version came from.
+ */
+export interface SourceInfo {
+  repo: string;
+  repoLink: string;
+  dir: string;
+  ref: string;
+  commit: string;
+  commitLink: string;
+}
+/**
+ * KitVersionRow is one version in a kit's rail.
+ */
+export interface KitVersionRow {
+  n: number /* int */;
+  prev: number /* int */; // the version before it; 0 = none
+  current: boolean;
+  digest: string; // short build digest; "" = invalid
+  pushed: string;
+  source?: SourceInfo | null;
+}
+/**
+ * KV is a key and a value.
+ */
+export interface KV {
+  key: string;
+  value: string;
+}
+/**
+ * KitView is one version as shown, or (Effective) a chain merged.
+ */
+export interface KitView {
+  n: number /* int */;
+  parseErr: string;
+  rawShown: string; // an unparsable kit.yml as shown (masked)
+  masked: boolean;
+  hidden: boolean;
+  pushText: string; // the push box's prefill
+  yaml: string;
+  base: string;
+  image: string;
+  egress: string[];
+  ceiling: string[];
+  excluded: string[];
+  buildArgs: KV[];
+  secrets: KV[];
+  mcpServers: KV[];
+  notes: KV[];
+  prompt: string;
+  digest: string;
+}
+/**
+ * KitDiff compares two versions' kit.yml.
+ */
+export interface KitDiff {
+  from: number /* int */;
+  to: number /* int */;
+  lines: DiffLine[];
+  digestChanged: boolean;
+  tooLarge: boolean;
+}
+/**
+ * KitUse is a role that raises the kit; Implicit: it names none (the default).
+ */
+export interface KitUse {
+  project: string;
+  role: string;
+  implicit: boolean;
+}
+/**
+ * KitParent is one link of a kit's "Built on" chain.
+ */
+export interface KitParent {
+  name: string;
+  version: number /* int */;
+  follow: boolean;
+}
+/**
+ * KitChild is a kit built on this one.
+ */
+export interface KitChild {
+  name: string;
+  pinned: boolean;
+}
+/**
+ * FileRow is one file of a version's directory.
+ */
+export interface FileRow {
+  path: string; // stored: the file= value
+  label: string; // as shown
+  mode: string;
+  size: number /* int64 */;
+}
+/**
+ * FileList is a version's directory.
+ */
+export interface FileList {
+  n: number /* int */;
+  size: string;
+  rows: FileRow[];
+  hidden: number /* int */; // files not listed
+}
+/**
+ * FileChange is one changed file between two versions.
+ */
+export interface FileChange {
+  change: string; // added, removed, modified, mode
+  path: string;
+  label: string;
+  mode: string;
+  size: string;
+}
+/**
+ * FilesDiff compares two versions' directories.
+ */
+export interface FilesDiff {
+  from: number /* int */;
+  to: number /* int */;
+  rows: FileChange[];
+  more: number /* int */; // changed, not listed
+  unchanged: number /* int */;
+}
+/**
+ * KitFile is one file: its content, its diff, or why neither.
+ */
+export interface KitFile {
+  path: string;
+  diff: boolean;
+  from: number /* int */;
+  to: number /* int */;
+  lines: DiffLine[];
+  tooLarge: boolean;
+  content: string;
+  note: string;
+  missing: boolean;
+  masked: boolean;
+  hidden: boolean;
+}
+/**
+ * DraftInfo is a kit's open draft.
+ */
+export interface DraftInfo {
+  base: number /* int */;
+}
+/**
+ * KitDetail is a kit's page at a version (?v=), a diff (?diff=) and a file (?file=).
+ */
+export interface KitDetail {
+  name: string;
+  managed?: Managed | null;
+  current: number /* int */;
+  versions: KitVersionRow[];
+  view: KitView;
+  diff?: KitDiff | null;
+  uses: KitUse[];
+  chain: KitParent[];
+  chainErr: string;
+  effective?: KitView | null;
+  usedByKits: KitChild[];
+  isDefault: boolean;
+  source?: SourceInfo | null;
+  setWith: string;
+  canSource: boolean;
+  draft?: DraftInfo | null;
+  files?: FileList | null;
+  filesDiff?: FilesDiff | null;
+  file?: KitFile | null;
+  attn?: AttnFlag | null;
+}
+/**
+ * KitResult answers a kit write: the kit after it and its message.
+ */
+export interface KitResult {
+  kit: KitDetail;
+  message: string;
 }
