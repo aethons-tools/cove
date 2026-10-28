@@ -81,9 +81,9 @@ export function FilesCard({ f, fileHref }: { f: FileList; fileHref: (path: strin
 }
 
 // FilesDiffCard is two versions' directories compared file by file.
-export function FilesDiffCard({ d, fileHref }: { d: FilesDiff; fileHref: (path: string) => string }) {
+export function FilesDiffCard({ d, fileHref, title, sub }: { d: FilesDiff; fileHref: (path: string) => string; title?: string; sub?: string }) {
   return (
-    <Section title={`Files v${d.from} → v${d.to}`} sub="the kit directory, file by file">
+    <Section title={title ?? `Files v${d.from} → v${d.to}`} sub={sub ?? "the kit directory, file by file"}>
       {d.rows.length > 0 && (
         <Table>
           <Table.Thead><Table.Tr><Table.Th>Change</Table.Th><Table.Th>Path</Table.Th><Table.Th>Mode</Table.Th><Table.Th>Size</Table.Th></Table.Tr></Table.Thead>

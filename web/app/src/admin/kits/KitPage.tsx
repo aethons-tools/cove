@@ -18,6 +18,7 @@ import { useAdminMutation } from "../ui/useAdminMutation";
 import { FileCard, FilesCard, FilesDiffCard, VersionCard, hiddenNote, maskedNote } from "./KitParts";
 import { deleteKitConfirm, kitsKey, mono } from "./KitsPage";
 import { VersionRail } from "./VersionRail";
+import { DraftSection } from "./DraftSection";
 
 const enc = encodeURIComponent;
 
@@ -71,7 +72,7 @@ function Kit({ k }: { k: KitDetail }) {
           <AttnFlag flag={k.attn} />
           <Badge>current v{k.current}</Badge>
           <Text size="sm" c="dimmed">{k.versions.length} version(s)</Text>
-          {k.draft && <Badge variant="light" color="gray">draft · base v{k.draft.base}</Badge>}
+          {k.draft && <Badge component="a" href="#draft" variant="light" color="gray" style={{ cursor: "pointer" }}>draft · base v{k.draft.base}</Badge>}
         </Group>
         {del}
       </Group>
@@ -115,6 +116,7 @@ function Kit({ k }: { k: KitDetail }) {
                 ))}</Table.Tbody>
               </Table>
             </Section>
+            <DraftSection kit={k.name} />
             <Card withBorder>
               <details>
                 <summary style={{ cursor: "pointer", fontWeight: 600 }}>Push new version</summary>
