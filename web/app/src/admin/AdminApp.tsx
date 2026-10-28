@@ -11,6 +11,7 @@ import { MembersPage } from "./projects/MembersPage";
 import { MemberPage } from "./projects/MemberPage";
 import { IntercomPage } from "./projects/IntercomPage";
 import { EscalationPage } from "./projects/EscalationPage";
+import { AgentsPage } from "./roles/AgentsPage";
 import { UserPage } from "./users/UserPage";
 
 // adminRoutes are the admin area's client routes under ADMIN (webapp serves
@@ -29,6 +30,7 @@ export function adminRoutes(boot: Bootstrap): RouteObject[] {
       { path: "config/projects/:project/members/:user", element: <MemberPage /> },
       { path: "config/projects/:project/intercom", element: <IntercomPage /> },
       { path: "config/projects/:project/escalation", element: <EscalationPage /> },
+      { path: "config/projects/:project/agents", element: <AgentsPage /> },
       { path: "config/users", element: <UsersPage /> },
       { path: "config/users/:user", element: <UserPage /> },
       { path: "config/*", element: <NotMovedYet /> },
