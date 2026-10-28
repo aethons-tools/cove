@@ -72,7 +72,7 @@ services:
       - "127.0.0.1:8081:8081"
     volumes:
       - ./jam.container.yml:/etc/jam/jam.yml:ro
-      - ${JAM_SECRETS_DIR:-./local/secrets}:/etc/jam/secrets:ro
+      - ${JAM_SECRETS_DIR:-./local/secrets}:/etc/jam/secrets
       - jamstate:/var/lib/jam
 
 volumes:
@@ -80,3 +80,4 @@ volumes:
   garagemeta:
   garagedata:
   jamstate:
+

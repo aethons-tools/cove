@@ -104,7 +104,7 @@ dev-jam-up:
     set -euo pipefail
     secrets="${JAM_SECRETS_DIR:-dev/local/secrets}"
     # Docker would create a directory at a missing bind source, so check first.
-    for f in dev/jam.container.yml "$secrets/credentials.yml" "$secrets/tls/cert.pem" "$secrets/tls/key.pem"; do
+    for f in dev/jam.container.yml; do
       [ -f "$f" ] || { echo "missing $f: see the setup in dev/docker-compose.yml (templates in dev/examples/)" >&2; exit 1; }
     done
     docker compose -f dev/docker-compose.yml --profile jam up -d

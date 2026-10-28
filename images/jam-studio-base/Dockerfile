@@ -36,7 +36,7 @@ RUN apt-get update \
       unzip=6.0-28ubuntu4.1 \
       python3=3.12.3-0ubuntu2.1  \
       shellcheck=0.9.0-1 \
-      just=1.21.0-1 \
+      just=1.45.0-1 \
  && rm -rf /var/lib/apt/lists/*
 
 # Docker engine, from Docker's official apt repo, for the opt-in docker-in-sandbox
