@@ -1165,3 +1165,59 @@ export interface AgentDetail {
   canEdit: boolean;
   setupEnabled: boolean;
 }
+/**
+ * SessionEvent is one event of an agent's session timeline: the same JSON as
+ * the user area's Thinking tab rows, so both render through one component.
+ */
+export interface SessionEvent {
+  stream: string;
+  seq: number /* uint64 */;
+  turn: number /* uint32 */;
+  at: number /* int64 */; // unix ms; 0 = unknown
+  kind: string; // thinking | text | prompt | tool_call | tool_result | result | progress | gap | other
+  tool: string;
+  toolUseId: string;
+  text: string;
+  detail: string;
+  detailTruncated: number /* int */;
+  isError: boolean;
+  truncatedBytes: number /* uint64 */;
+  costUsd: number /* float64 */;
+  durationMs: number /* int64 */;
+  claudeSession: string;
+}
+/**
+ * SessionTotals is a session's running totals.
+ */
+export interface SessionTotals {
+  turns: number /* uint32 */;
+  episodes: number /* uint32 */;
+  toolCalls: number /* int */;
+  inputTokens: number /* int64 */;
+  outputTokens: number /* int64 */;
+  costUsd: number /* float64 */;
+}
+/**
+ * SessionInfo is an agent's timeline: its streams (newest first), the one
+ * shown, and its totals.
+ */
+export interface SessionInfo {
+  enabled: boolean; // session events are recorded on this Jam
+  streams: StreamRow[];
+  stream: string;
+  totals: SessionTotals;
+}
+/**
+ * SessionPage is a page of a stream's events below a seq.
+ */
+export interface SessionPage {
+  events: SessionEvent[];
+  before: number /* uint64 */; // older ones exist below it; 0 = none
+}
+/**
+ * SessionRaw is one event's raw JSON (Truncated: bytes cut).
+ */
+export interface SessionRaw {
+  raw: string;
+  truncated: number /* int */;
+}

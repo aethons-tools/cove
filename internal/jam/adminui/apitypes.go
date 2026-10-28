@@ -1064,3 +1064,54 @@ type AgentDetail struct {
 	CanEdit            bool        `json:"canEdit"`
 	SetupEnabled       bool        `json:"setupEnabled"`
 }
+
+// SessionEvent is one event of an agent's session timeline: the same JSON as
+// the user area's Thinking tab rows, so both render through one component.
+type SessionEvent struct {
+	Stream          string  `json:"stream"`
+	Seq             uint64  `json:"seq"`
+	Turn            uint32  `json:"turn"`
+	At              int64   `json:"at"`   // unix ms; 0 = unknown
+	Kind            string  `json:"kind"` // thinking | text | prompt | tool_call | tool_result | result | progress | gap | other
+	Tool            string  `json:"tool"`
+	ToolUseID       string  `json:"toolUseId"`
+	Text            string  `json:"text"`
+	Detail          string  `json:"detail"`
+	DetailTruncated int     `json:"detailTruncated"`
+	IsError         bool    `json:"isError"`
+	TruncatedBytes  uint64  `json:"truncatedBytes"`
+	CostUSD         float64 `json:"costUsd"`
+	DurationMS      int64   `json:"durationMs"`
+	ClaudeSession   string  `json:"claudeSession"`
+}
+
+// SessionTotals is a session's running totals.
+type SessionTotals struct {
+	Turns        uint32  `json:"turns"`
+	Episodes     uint32  `json:"episodes"`
+	ToolCalls    int     `json:"toolCalls"`
+	InputTokens  int64   `json:"inputTokens"`
+	OutputTokens int64   `json:"outputTokens"`
+	CostUSD      float64 `json:"costUsd"`
+}
+
+// SessionInfo is an agent's timeline: its streams (newest first), the one
+// shown, and its totals.
+type SessionInfo struct {
+	Enabled bool          `json:"enabled"` // session events are recorded on this Jam
+	Streams []StreamRow   `json:"streams"`
+	Stream  string        `json:"stream"`
+	Totals  SessionTotals `json:"totals"`
+}
+
+// SessionPage is a page of a stream's events below a seq.
+type SessionPage struct {
+	Events []SessionEvent `json:"events"`
+	Before uint64         `json:"before"` // older ones exist below it; 0 = none
+}
+
+// SessionRaw is one event's raw JSON (Truncated: bytes cut).
+type SessionRaw struct {
+	Raw       string `json:"raw"`
+	Truncated int    `json:"truncated"`
+}

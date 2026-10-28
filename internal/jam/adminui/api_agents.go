@@ -23,6 +23,7 @@ type agentAPI struct {
 	sup        *jam.Supervisor
 	msgs       SquawkReader
 	sess       sessionevents.Store
+	hub        *sessionevents.Hub
 	acc        accessDeps
 	setup      *jam.SetupDeps
 	credExists func(string) bool

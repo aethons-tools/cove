@@ -40,6 +40,7 @@ func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra role
 	apiKits(api, src, f, log)
 	apiKitDraft(api, src.store, log)
 	apiAgents(api, src, aa, log)
+	apiSession(api, aa.sess, aa.hub, log)
 	api.HandleFunc(apiPrefix, func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "no such API route")
 	})
