@@ -133,9 +133,9 @@ func TestBuildDigestGolden(t *testing.T) {
 		sk   StudioKit
 		want string
 	}{
-		"image+egress+args": {StudioKit{Kind: Kind, Base: Base{Image: "r"}, Egress: []string{"b.com", "a.com"}, BuildArgs: map[string]string{"X": "1"}}, "1915cb8e1a82fbd5f222c8fd0c2d910699e36194ab1f32d701debf4bd0026714"},
-		"default":           {StudioKit{Kind: Kind}, "cd00c6dec5989c87e379152d3ae88575c27ff25782a85fc7de5ca6ca17af5066"},
-		"mcp server":        {StudioKit{Kind: Kind, MCPServers: map[string]kit.MCPServer{"m": {Command: "x"}}}, "b5de6fee794b6344ea5d57cfb2a6e2861221e817fe4b5e332725c9d8d1045161"},
+		"image+egress+args": {StudioKit{Kind: Kind, Base: Base{Image: "r"}, Egress: []string{"b.com", "a.com"}, BuildArgs: map[string]string{"X": "1"}}, "8600e2d97ecfca45d42b8346f6383b41302d3f6e028b07c167a539c5f3f30343"},
+		"default":           {StudioKit{Kind: Kind}, "c1dccde5521502f0f99cc671d60d96cef5398fad0eac915cfd49d6947cefa908"},
+		"mcp server":        {StudioKit{Kind: Kind, MCPServers: map[string]kit.MCPServer{"m": {Command: "x"}}}, "307b1ca35c7c9da059e2637694303b2054c0ddb40f9b9e55d864b688bfd1c02c"},
 	} {
 		if got := BuildDigest(tc.sk, dh); got != tc.want {
 			t.Errorf("%s: digest %s, want %s", name, got, tc.want)
