@@ -16,8 +16,9 @@ folded into a **Config** tree
 ([design](../../superpowers/specs/2026-10-28-admin-spa-design.md)). Until its
 cutover, the new console is a preview at **`/app/admin/next/`**: the Config
 tree, Tracking (this Config page), Users, Projects (with each project's
-Agents and roles, a role's Setup as a section), Destinations and Model Specs
-work there, and a page that hasn't moved yet links to its page here.
+Agents and roles, a role's Setup as a section), Destinations, Model Specs and
+Kits (all but a kit's Draft) work there, and a page that hasn't moved yet links
+to its page here.
 
 **Projects** (`/app/admin/projects`, the project list) keeps a left **rail** of
 every project with **+ New project**; selecting one puts its tabs — **Overview ·
