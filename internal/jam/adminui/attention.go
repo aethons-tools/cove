@@ -208,24 +208,13 @@ func conditionItems(cs []condition.Condition) []attnItem {
 }
 
 // BadgeSource is the admin title-bar tabs' attention badges (appui.Shell's
-// AdminBadges), keyed by tab: dashboard is Jam's total, projects every
-// project's items, each other tab Jam's items on it.
+// AdminBadges), keyed by tab as appTabBadges.
 func BadgeSource(store jam.Store, img jam.ImageResolver, conds *condition.Tracker) func(*http.Request) map[string]appui.Badge {
 	src := frameSource{store: store, img: img, conds: conds}
 	return func(*http.Request) map[string]appui.Badge {
-		items := src.items()
-		var projects []attnItem
-		for _, it := range items {
-			if it.Scope != "" {
-				projects = append(projects, it)
-			}
-		}
-		out := map[string]appui.Badge{
-			"dashboard": badgeOf(inScope(items, "", "")).app(),
-			"projects":  badgeOf(projects).app(),
-		}
-		for _, tab := range []string{"agents", "users", "specs", "config", "health"} {
-			out[tab] = badgeOf(inScope(items, "", tab)).app()
+		out := map[string]appui.Badge{}
+		for k, b := range appTabBadges(src.items()) {
+			out[k] = b.app()
 		}
 		return out
 	}

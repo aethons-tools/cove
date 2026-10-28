@@ -2,7 +2,6 @@ package adminui
 
 import (
 	"html/template"
-	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -197,27 +196,6 @@ type squawksData struct {
 	Until       string
 	RawQuery    string
 	BadDate     bool // a non-empty since/until failed to parse (surfaced, treated as unbounded)
-}
-
-// handleIntercom renders the read-only, newest-first message view of the
-// channel log (or, ?log=legacy, the frozen legacy log). participant matches
-// a squawk's author or channel id (a legacy squawk's kind:ref author or
-// recipient). A nil reader means no log is configured.
-func handleIntercom(w http.ResponseWriter, r *http.Request, msgs SquawkReader) {
-	q := r.URL.Query()
-	data := squawksData{Title: "Channel log", Configured: msgs != nil}
-	data.Legacy = q.Get("log") == "legacy"
-	data.RawQuery = r.URL.RawQuery
-	if msgs == nil {
-		render(w, r, "intercom", data)
-		return
-	}
-	f := parseSquawkQuery(q, &data)
-	data.squawkTable = filterSquawks(msgs, f, 0)
-	// A bad date still counts as filtering (the old view did): the "no
-	// match" empty state.
-	data.Filtered = data.Filtered || data.Since != "" || data.Until != ""
-	render(w, r, "intercom", data)
 }
 
 // parseSquawkQuery reads the channel log's filters from q into data (the

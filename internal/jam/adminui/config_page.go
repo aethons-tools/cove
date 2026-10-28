@@ -1,11 +1,8 @@
 package adminui
 
 import (
-	"errors"
 	"fmt"
-	"html/template"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -136,58 +133,6 @@ func buildConfigPage(store jam.Store, canGit bool, log *slog.Logger) configPage 
 	return d
 }
 
-// renderConfigBody answers a Config-page write with the re-rendered body,
-// plus an out-of-band #flash message when msg is set.
-func renderConfigBody(w http.ResponseWriter, r *http.Request, d configPage, msg string) {
-	renderFragment(w, r, "config", "config-body", d)
-	if msg != "" {
-		_, _ = w.Write([]byte(`<div id="flash" hx-swap-oob="innerHTML"><p class="ok">` + template.HTMLEscapeString(msg) + `</p></div>`))
-	}
-}
-
-// configFail answers a config operation's error as the admin API maps it
-// (jam.ConfigStatus), logging store failures.
-func configFail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err error) {
-	status, msg := jam.ConfigStatus(err)
-	if status == http.StatusInternalServerError {
-		log.Error("ui config: store error", "operator", jam.OperatorID(r), "err", err.Error())
-	}
-	renderError(w, status, msg)
-}
-
-func registerConfig(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.ConfigEnv, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	canGit := f != nil
-	mux.HandleFunc("GET /app/admin/config", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "config", buildConfigPage(store, canGit, log))
-	})
-	mux.HandleFunc("DELETE /app/admin/config/source", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := jam.UntrackConfigSource(store, log, jam.OperatorID(r)); err != nil {
-			configFail(w, r, log, err)
-			return
-		}
-		log.Info("ui config untracked", "operator", jam.OperatorID(r))
-		renderConfigBody(w, r, buildConfigPage(store, canGit, log), "config source untracked; managed objects and their marks stay")
-	})
-	mux.HandleFunc("DELETE /app/admin/config/managed/{kind}/{name...}", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		key := jam.ConfigKey{Kind: r.PathValue("kind"), Name: r.PathValue("name")}
-		if err := jam.ReleaseConfigMark(store, key, env.Conditions, log, jam.OperatorID(r)); err != nil {
-			configFail(w, r, log, err)
-			return
-		}
-		log.Info("ui config released", "operator", jam.OperatorID(r), "kind", key.Kind, "name", key.Name)
-		renderConfigBody(w, r, buildConfigPage(store, canGit, log), "released "+key.Kind+" "+key.Name+"; it stays in Jam, unmanaged")
-	})
-	if canGit {
-		registerConfigGit(mux, store, f, env, log, guardWrite)
-	}
-}
-
 // planOpView is one op the plan changes, as the Config page shows it.
 type planOpView struct {
 	jam.ConfigOp
@@ -257,78 +202,3 @@ func applyMsg(res jam.ConfigApplyResult) string {
 // configPlanStaleMsg is the page's answer to an Apply whose reviewed plan is
 // no longer the plan (the Jam or the repo changed since the Diff).
 const configPlanStaleMsg = "The Jam or the config repo changed since this plan was shown; nothing was applied. Run Diff again and review the new plan."
-
-// registerConfigGit mounts the Config page's git actions on the tracked
-// source: Diff (a dry run), Apply (the reviewed plan's digest), Track.
-func registerConfigGit(mux *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.ConfigEnv, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("POST /app/admin/config/diff", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		force := r.FormValue("force") == "1" // plans as a forced apply would, so the digests match
-		res, err := jam.ApplyConfigSource(r.Context(), store, f, gitsource.Source{}, env,
-			jam.ConfigApplyOptions{DryRun: true, Force: force, Now: time.Now()}, log, jam.OperatorID(r))
-		if err != nil {
-			configFail(w, r, log, err)
-			return
-		}
-		renderFragment(w, r, "config", "config-plan", newPlanView(res, force))
-	})
-	mux.HandleFunc("POST /app/admin/config/apply", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		digest := strings.TrimSpace(r.FormValue("plan"))
-		if digest == "" {
-			renderError(w, http.StatusBadRequest, "plan is required: run Diff, review it, then Apply")
-			return
-		}
-		force := r.FormValue("force") == "1"
-		res, err := jam.ApplyConfigSource(r.Context(), store, f, gitsource.Source{}, env,
-			jam.ConfigApplyOptions{Force: force, WantDigest: digest, Now: time.Now()}, log, jam.OperatorID(r))
-		if errors.Is(err, jam.ErrConfigPlanChanged) {
-			log.Info("ui config apply refused: plan changed since reviewed", "operator", jam.OperatorID(r), "forced", force)
-			renderError(w, http.StatusConflict, configPlanStaleMsg)
-			return
-		}
-		if err != nil {
-			configFail(w, r, log, err)
-			return
-		}
-		log.Info("ui config applied", "operator", jam.OperatorID(r), "source", res.Source, "commit", res.Commit, "applied", res.Applied, "forced", force)
-		renderConfigBody(w, r, buildConfigPage(store, true, log), applyMsg(res))
-	})
-	mux.HandleFunc("POST /app/admin/config/source", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		// Track only when nothing is tracked (the page hides the form
-		// otherwise): a stale tab must not replace a source and lose its
-		// commit and apply record. Switching is Untrack, then Track.
-		if cs, tracked := store.GetConfigSource(); tracked {
-			renderError(w, http.StatusConflict, "a config source is already tracked ("+newConfigSourceView(cs).Label+"); Untrack it first")
-			return
-		}
-		src, ok := formSource(w, r)
-		if !ok {
-			return
-		}
-		res, err := jam.TrackConfigSource(r.Context(), store, f, src, env, time.Now(), log, jam.OperatorID(r))
-		if err != nil {
-			configFail(w, r, log, err)
-			return
-		}
-		log.Info("ui config tracked", "operator", jam.OperatorID(r), "source", res.Source, "commit", res.Commit)
-		d := buildConfigPage(store, true, log)
-		d.Plan = newPlanView(res, false)
-		renderConfigBody(w, r, d, "tracking "+res.Source)
-	})
-}

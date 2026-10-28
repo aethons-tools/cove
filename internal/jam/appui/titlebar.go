@@ -2,19 +2,10 @@ package appui
 
 import (
 	"context"
-	_ "embed"
 	"net/http"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/aethons-tools/cove/internal/jam/uiassets"
 )
-
-// TitlebarTemplate defines {{define "app-titlebar"}} over a Titlebar; the
-// admin and user UIs parse it into their page templates.
-//
-//go:embed titlebar.html
-var TitlebarTemplate string
 
 // Badge is a count pill on a tab; N == 0 renders nothing.
 type Badge struct {
@@ -30,7 +21,7 @@ type Tab struct {
 	Badge            Badge
 }
 
-// Titlebar is the data the "app-titlebar" template renders.
+// Titlebar is a principal's title bar: what both areas' bootstraps carry.
 type Titlebar struct {
 	Brand   string // "{display name} Jam", else "Jam"
 	Tabs    []Tab
@@ -38,13 +29,6 @@ type Titlebar struct {
 	Initial string // first letter of Name for the avatar; "?" when empty
 	Roles   string // "member", "admin" or "member · admin"
 	SignOut bool   // false for a Local admin or with no browser login
-	// PushScript is push.js's URL when the menu offers this device's
-	// Notifications toggle (a member, push configured); "" hides it.
-	PushScript string
-	PushUser   string // the member's user id, so push.js keys its per-session state by user
-	// SoundsScript is sounds.js's URL for a member: the menu's per-device
-	// Sounds settings, and the chimes the Inbox plays.
-	SoundsScript string
 }
 
 // Shell is what the gate puts on the context for the title bar.
@@ -52,7 +36,6 @@ type Shell struct {
 	Brand       string
 	SignOut     bool                                 // browser login configured
 	AdminBadges func(*http.Request) map[string]Badge // nil = none
-	Push        bool                                 // Web Push configured: members get the Notifications toggle
 }
 
 type shellKey struct{}
@@ -66,13 +49,11 @@ func WithShell(next http.Handler, s Shell) http.Handler {
 
 var userTabs = []Tab{{Key: "inbox", Label: "Inbox", Href: "/app/user/"}}
 
+// adminTabs are the admin app's title-bar tabs, in both areas.
 var adminTabs = []Tab{
 	{Key: "dashboard", Label: "Dashboard", Href: "/app/admin/"},
-	{Key: "projects", Label: "Projects", Href: "/app/admin/projects"},
+	{Key: "config", Label: "Config", Href: "/app/admin/config/tracking"},
 	{Key: "agents", Label: "Agents", Href: "/app/admin/agents"},
-	{Key: "users", Label: "Users", Href: "/app/admin/users"},
-	{Key: "specs", Label: "Specs", Href: "/app/admin/specs"},
-	{Key: "config", Label: "Config", Href: "/app/admin/config"},
 	{Key: "health", Label: "Health", Href: "/app/admin/health"},
 }
 
@@ -90,11 +71,6 @@ func TitlebarFor(r *http.Request, current string) Titlebar {
 	if p.User != nil {
 		roles = append(roles, "member")
 		tb.Tabs = append(tb.Tabs, userTabs...)
-		tb.SoundsScript = uiassets.ScriptHref("/app/static/", "sounds.js")
-		if sh.Push {
-			tb.PushScript = uiassets.ScriptHref("/app/static/", "push.js")
-			tb.PushUser = string(p.User.UserID)
-		}
 	}
 	if p.Admin {
 		roles = append(roles, "admin")

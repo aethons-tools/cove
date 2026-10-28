@@ -2,8 +2,6 @@ package adminui
 
 import (
 	"context"
-	"html/template"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -173,93 +171,4 @@ func upgradeStandingMsg(store jam.Store, sup *jam.Supervisor, project, name, ses
 		return "standing agent " + session + " already runs the current image; nothing restarted", nil
 	}
 	return "upgrade of standing agent " + session + " " + res.State + "; Jam restarts it once the image is ready and the agent is idle", nil
-}
-
-// registerRoleEdits mounts the role page's per-section writes. Each goes
-// through jam's role read-modify-write functions (one shared lock with the JSON
-// API) and answers with the re-rendered role body.
-func registerRoleEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, log *slog.Logger, sup *jam.Supervisor, credExists func(string) bool, canRequest bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	// editFlash wraps one section write: guard, parse the form, run apply, log,
-	// and render the role body — plus a success flash when apply returns a
-	// message — or the refusal, with its status. Every success (including an
-	// accepted-but-pending standing reset or upgrade) is a 200 role body;
-	// renderError is for refusals only.
-	editFlash := func(what string, apply func(r *http.Request, project, name string) (string, error)) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if !guardWrite(w, r) {
-				return
-			}
-			if err := r.ParseForm(); err != nil {
-				renderError(w, http.StatusBadRequest, "invalid form")
-				return
-			}
-			project, name := r.PathValue("project"), r.PathValue("name")
-			msg, err := apply(r, project, name)
-			if err != nil {
-				renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
-				return
-			}
-			log.Info("ui role "+what, "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
-			d, ok := buildRoleDetail(store, img, project, name)
-			if !ok { // deleted between the write and the read
-				renderError(w, http.StatusNotFound, "role no longer exists")
-				return
-			}
-			d.CanRequest = canRequest
-			renderFragment(w, r, "role", "role-body", d)
-			if msg != "" {
-				_, _ = w.Write([]byte(`<div id="flash" hx-swap-oob="innerHTML"><p class="ok">` + template.HTMLEscapeString(msg) + `</p></div>`))
-			}
-		}
-	}
-	// edit is editFlash for writes with no message.
-	edit := func(what string, apply func(r *http.Request, project, name string) error) http.HandlerFunc {
-		return editFlash(what, func(r *http.Request, project, name string) (string, error) { return "", apply(r, project, name) })
-	}
-
-	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/scope", edit("scope set", func(r *http.Request, project, name string) error {
-		return setRoleScope(store, credExists, project, name, r.FormValue)
-	}))
-	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/allocation", edit("allocation set", func(r *http.Request, project, name string) error {
-		return setRoleAllocation(store, project, name, r.FormValue)
-	}))
-	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/context", edit("context set", func(r *http.Request, project, name string) error {
-		b, err := parseContextForm(r)
-		if err != nil {
-			return err
-		}
-		return jam.SetRoleContextChecked(store, project, name, b)
-	}))
-	mux.HandleFunc("DELETE /app/admin/roles/{project}/{name}/context", edit("context cleared", func(r *http.Request, project, name string) error {
-		return jam.ClearRoleContext(store, project, name)
-	}))
-
-	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/egress", edit("egress set", func(r *http.Request, project, name string) error {
-		_, err := jam.SetRoleEgress(store, project, name, splitList(r.FormValue("domains")))
-		return err
-	}))
-	mux.HandleFunc("DELETE /app/admin/roles/{project}/{name}/egress", edit("egress cleared", func(_ *http.Request, project, name string) error {
-		return jam.ClearRoleEgress(store, project, name)
-	}))
-
-	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/standing", edit("standing declared", func(r *http.Request, project, name string) error {
-		return jam.AddStanding(store, project, name, jam.StandingSession{
-			Name: strings.TrimSpace(r.FormValue("name")), Prompt: strings.TrimSpace(r.FormValue("prompt")),
-		})
-	}))
-	mux.HandleFunc("DELETE /app/admin/roles/{project}/{name}/standing/{session}", edit("standing dismissed", func(r *http.Request, project, name string) error {
-		return jam.RemoveStanding(store, project, name, r.PathValue("session"))
-	}))
-	// Reset: the session's studio and persisted state are deleted, the
-	// declaration kept — Jam raises it fresh on its next standing pass. A
-	// pending reset is accepted (flashed), not an error.
-	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/standing/{session}/reset", editFlash("standing reset", func(r *http.Request, project, name string) (string, error) {
-		return resetStandingMsg(r.Context(), store, sup, project, name, r.PathValue("session"))
-	}))
-	// Upgrade: queued with the standing reconciler, which prepares the current
-	// image, waits for the session to be idle, and re-raises it keeping its
-	// conversation and workspace (the UI never forces; the CLI's --force does).
-	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/standing/{session}/upgrade", editFlash("standing upgrade", func(r *http.Request, project, name string) (string, error) {
-		return upgradeStandingMsg(store, sup, project, name, r.PathValue("session"))
-	}))
 }

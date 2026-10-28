@@ -2,6 +2,7 @@ package adminui_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,8 +64,8 @@ func TestAdminBootstrap(t *testing.T) {
 	if !b.Member || b.Roles != "member · admin" || b.Name != "alice" || b.Initial != "A" {
 		t.Errorf("bootstrap = %+v", b)
 	}
-	want := map[string]string{"inbox": "/app/user/", "dashboard": "/app/admin/next/", "config": "/app/admin/next/config/tracking",
-		"agents": "/app/admin/next/agents", "health": "/app/admin/next/health"}
+	want := map[string]string{"inbox": "/app/user/", "dashboard": "/app/admin/", "config": "/app/admin/config/tracking",
+		"agents": "/app/admin/agents", "health": "/app/admin/health"}
 	for _, tab := range b.Tabs {
 		if tab.Href != want[tab.Key] {
 			t.Errorf("tab %s href = %q, want %q", tab.Key, tab.Href, want[tab.Key])
@@ -108,9 +109,47 @@ func TestAdminAPICrossOrigin(t *testing.T) {
 	}
 }
 
+// WithTrustedOrigins lets a write from an exact trusted origin (a dev proxy
+// on another port) through the API's CSRF check; any other origin — another
+// port, another scheme — is still refused before a handler runs.
+func TestAdminAPITrustedOrigins(t *testing.T) {
+	write := func(h http.Handler, header, value, project string) int {
+		r := httptest.NewRequest(http.MethodPost, "/app/admin/api/projects", strings.NewReader(`{"name":"`+project+`"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set(header, value)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, appui.WithPrincipal(r, appui.Principal{Admin: true, Local: true}))
+		return rec.Code
+	}
+	plain, _ := adminHandler(t)
+	if got := write(plain, "Origin", "http://localhost:8090", "p0"); got != http.StatusForbidden {
+		t.Errorf("proxied write without trusted origins = %d, want 403", got)
+	}
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil, adminui.WithTrustedOrigins("http://localhost:8090"))
+	for i, tc := range []struct {
+		header, value string
+		want          int
+	}{
+		{"Origin", "http://localhost:8090", http.StatusCreated},
+		{"Referer", "http://localhost:8090/app/admin/config/projects", http.StatusCreated},
+		{"Origin", "http://localhost:8091", http.StatusForbidden},  // another port is another origin
+		{"Origin", "https://localhost:8090", http.StatusForbidden}, // so is another scheme
+		{"Origin", "http://evil.example", http.StatusForbidden},
+	} {
+		project := fmt.Sprintf("p%d", i+1)
+		if got := write(h, tc.header, tc.value, project); got != tc.want {
+			t.Errorf("%s: %s → %d, want %d", tc.header, tc.value, got, tc.want)
+		}
+		if _, ok := store.GetProject(project); ok != (tc.want == http.StatusCreated) {
+			t.Errorf("%s: %s: project stored = %v, want %v", tc.header, tc.value, ok, tc.want == http.StatusCreated)
+		}
+	}
+}
+
 func TestAdminAppServed(t *testing.T) {
 	h, _ := adminHandler(t)
-	rec := apiGet(t, h, "/app/admin/next/config/projects/x", appui.Principal{Admin: true, Local: true})
+	rec := apiGet(t, h, "/app/admin/config/projects/x", appui.Principal{Admin: true, Local: true})
 	if !uiassets.AppBuilt() {
 		if rec.Code != 503 {
 			t.Errorf("without a bundle = %d, want 503", rec.Code)

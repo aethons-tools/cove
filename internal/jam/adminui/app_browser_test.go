@@ -45,15 +45,15 @@ func TestBrowserAdminTree(t *testing.T) {
 	srv := adminServer(t, store)
 
 	var problems browsertest.Problems
-	coder := chromedp.CSS(`nav[aria-label="Config"] a[href="/app/admin/next/config/projects/acme/agents/coder"][aria-current="page"]`)
-	users := chromedp.CSS(`nav[aria-label="Config"] a[href="/app/admin/next/config/users"]`)
+	coder := chromedp.CSS(`nav[aria-label="Config"] a[href="/app/admin/config/projects/acme/agents/coder"][aria-current="page"]`)
+	users := chromedp.CSS(`nav[aria-label="Config"] a[href="/app/admin/config/users"]`)
 	var atUsers, back string
 	err := chromedp.Do(ctx,
 		problems.Watch(ctx),
-		chromedp.Navigate(srv.URL+"/app/admin/next/config/projects/acme/agents/coder"),
+		chromedp.Navigate(srv.URL+"/app/admin/config/projects/acme/agents/coder"),
 		chromedp.WaitVisible(coder),
 		chromedp.Click(users),
-		chromedp.WaitVisible(chromedp.CSS(`nav[aria-label="Config"] a[href="/app/admin/next/config/users"][aria-current="page"]`)),
+		chromedp.WaitVisible(chromedp.CSS(`nav[aria-label="Config"] a[href="/app/admin/config/users"][aria-current="page"]`)),
 		browsertest.Into(&atUsers, chromedp.Location()),
 		chromedp.NavigateBack(),
 		chromedp.WaitVisible(coder),
@@ -62,7 +62,7 @@ func TestBrowserAdminTree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v (at %q; problems %v)", err, atUsers, problems.All())
 	}
-	if !strings.HasSuffix(atUsers, "/app/admin/next/config/users") || !strings.HasSuffix(back, "/agents/coder") {
+	if !strings.HasSuffix(atUsers, "/app/admin/config/users") || !strings.HasSuffix(back, "/agents/coder") {
 		t.Errorf("locations = %q then %q", atUsers, back)
 	}
 	for _, pr := range problems.All() {
@@ -88,7 +88,7 @@ func TestBrowserAdminUserRename(t *testing.T) {
 	nameInput := chromedp.CSS(`input[value="alice"]`)
 	err = chromedp.Do(ctx,
 		problems.Watch(ctx),
-		chromedp.Navigate(srv.URL+"/app/admin/next/config/users/"+string(alice.ID)),
+		chromedp.Navigate(srv.URL+"/app/admin/config/users/"+string(alice.ID)),
 		chromedp.WaitVisible(nameInput),
 		browsertest.SetInput(`input[value="alice"]`, "alicia"),
 		browsertest.ClickText("button", "Rename"),
@@ -123,7 +123,7 @@ func TestBrowserAdminProjectRename(t *testing.T) {
 	var at string
 	err := chromedp.Do(ctx,
 		problems.Watch(ctx),
-		chromedp.Navigate(srv.URL+"/app/admin/next/config/projects/acme"),
+		chromedp.Navigate(srv.URL+"/app/admin/config/projects/acme"),
 		chromedp.WaitVisible(chromedp.CSS(`input[aria-label="New name"]`)),
 		browsertest.SetInput(`input[aria-label="New name"]`, "acme2"),
 		browsertest.ClickText("button", "Rename"),
@@ -134,7 +134,7 @@ func TestBrowserAdminProjectRename(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v (problems %v)", err, problems.All())
 	}
-	if !strings.HasSuffix(at, "/app/admin/next/config/projects/acme2") {
+	if !strings.HasSuffix(at, "/app/admin/config/projects/acme2") {
 		t.Errorf("location = %q", at)
 	}
 	if _, ok := store.GetProject("acme2"); !ok {
@@ -162,7 +162,7 @@ func TestBrowserAdminRoleScope(t *testing.T) {
 	var problems browsertest.Problems
 	err := chromedp.Do(ctx,
 		problems.Watch(ctx),
-		chromedp.Navigate(srv.URL+"/app/admin/next/config/projects/acme/agents/coder"),
+		chromedp.Navigate(srv.URL+"/app/admin/config/projects/acme/agents/coder"),
 		browsertest.ClickText("summary", "Edit scope"),
 		chromedp.WaitVisible(chromedp.CSS(`input[value="1h"]`)),
 		browsertest.SetInput(`input[value="1h"]`, "2h"),
@@ -194,7 +194,7 @@ func TestBrowserAdminDestinationNote(t *testing.T) {
 	var problems browsertest.Problems
 	err := chromedp.Do(ctx,
 		problems.Watch(ctx),
-		chromedp.Navigate(srv.URL+"/app/admin/next/config/destinations/gh"),
+		chromedp.Navigate(srv.URL+"/app/admin/config/destinations/gh"),
 		browsertest.ClickText("summary", "Edit destination"),
 		chromedp.WaitVisible(chromedp.CSS(`input[maxlength="300"]`)),
 		browsertest.SetInput(`input[maxlength="300"]`, "use gh for GitHub"),
@@ -235,7 +235,7 @@ func TestBrowserAdminKitPin(t *testing.T) {
 	var problems browsertest.Problems
 	err := chromedp.Do(ctx,
 		problems.Watch(ctx),
-		chromedp.Navigate(srv.URL+"/app/admin/next/config/kits/k"),
+		chromedp.Navigate(srv.URL+"/app/admin/config/kits/k"),
 		browsertest.ClickText(`nav[aria-label="Versions"] button`, "Pin"),
 		browsertest.ClickText(`[role="dialog"] button`, "Pin"),
 		browsertest.WaitText(".mantine-Badge-label", "current v1"),
@@ -266,7 +266,7 @@ func TestBrowserAdminKitDraft(t *testing.T) {
 	var problems browsertest.Problems
 	err := chromedp.Do(ctx,
 		problems.Watch(ctx),
-		chromedp.Navigate(srv.URL+"/app/admin/next/config/kits/k"),
+		chromedp.Navigate(srv.URL+"/app/admin/config/kits/k"),
 		browsertest.ClickText("button", "Open draft"),
 		browsertest.ClickText(`table[aria-label="Draft files"] a`, "kit.yml"),
 		chromedp.WaitVisible(chromedp.CSS(`textarea[aria-label="kit.yml"]`)),
@@ -316,7 +316,7 @@ func TestBrowserAdminEnroll(t *testing.T) {
 	var problems browsertest.Problems
 	err := chromedp.Do(ctx,
 		problems.Watch(ctx),
-		chromedp.Navigate(srv.URL+"/app/admin/next/agents"),
+		chromedp.Navigate(srv.URL+"/app/admin/agents"),
 		browsertest.ClickText("summary", "Enroll agent"),
 		chromedp.WaitVisible(chromedp.CSS(in(1))),
 		browsertest.SetInput(in(1), "bot-1"),
@@ -357,7 +357,7 @@ func TestBrowserAdminDashboardSearch(t *testing.T) {
 	var problems browsertest.Problems
 	err := chromedp.Do(ctx,
 		problems.Watch(ctx),
-		chromedp.Navigate(srv.URL+"/app/admin/next/"),
+		chromedp.Navigate(srv.URL+"/app/admin/"),
 		browsertest.WaitText("h2", "Dashboard"),
 		browsertest.SetInput("textarea", "core: be kind\n"),
 		browsertest.ClickText("button", "Save context"),

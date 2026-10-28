@@ -3,7 +3,6 @@ package adminui
 import (
 	"context"
 	"fmt"
-	"html/template"
 	"log/slog"
 	"net/http"
 
@@ -33,25 +32,4 @@ func requestRole(ctx context.Context, store jam.Store, sup *jam.Supervisor, allo
 		return res, &jam.WriteError{Status: jam.PersonalSessionStatus(err), Msg: err.Error()}
 	}
 	return res, nil
-}
-
-// registerRoleRequest mounts the roles screen's Request action: raise a
-// personal session of the role for the operator, who must be signed in (a
-// loopback request is anonymous "local") and linked to a roster human in the
-// role's project. It shares jam.RequestPersonalSession with POST
-// /admin/sessions/personal, so capacity, delivery checks, and rollback match.
-func registerRoleRequest(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.SessionAllocator, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("POST /app/admin/roles/{project}/{name}/request", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		res, err := requestRole(r.Context(), store, sup, alloc, log, jam.OperatorID(r), r.PathValue("project"), r.PathValue("name"))
-		if err != nil {
-			renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(`<p class="ok">Requested agent ` + template.HTMLEscapeString(res.Name) + ` (` + template.HTMLEscapeString(res.ID) + `)` +
-			`; it will squawk you on the intercom.</p>`))
-	})
 }

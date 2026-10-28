@@ -1,8 +1,6 @@
 package adminui
 
 import (
-	"log/slog"
-	"net/http"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -158,73 +156,4 @@ func setEscalation(store jam.Store, project, category, tiersSpec string) error {
 		return badRequest("a chain needs at least one tier (targets@timeout); use Clear to remove it")
 	}
 	return store.SetEscalationPolicy(project, strings.TrimSpace(category), tiers)
-}
-
-// registerProjectEdits mounts the project page's section writes. Each answers
-// with the re-rendered section body plus the tree, out of band (a write can
-// change what the tree lists, e.g. its rooms).
-func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, msgs SquawkReader, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	// edit applies one project write and answers with the section it belongs
-	// to re-rendered, for the page's #project swap.
-	edit := func(what string, section projectSection, apply func(r *http.Request, project string) error) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if !guardWrite(w, r) {
-				return
-			}
-			if err := r.ParseForm(); err != nil {
-				renderError(w, http.StatusBadRequest, "invalid form")
-				return
-			}
-			project := r.PathValue("project")
-			if _, ok := store.GetProject(project); !ok {
-				renderError(w, http.StatusNotFound, "project "+`"`+project+`"`+" not found")
-				return
-			}
-			if err := apply(r, project); err != nil {
-				renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
-				return
-			}
-			log.Info("ui project "+what, "operator", jam.OperatorID(r), "project", project)
-			d, ok := buildProjectDetail(store, img, msgs, project, section)
-			if !ok {
-				renderError(w, http.StatusNotFound, "project no longer exists")
-				return
-			}
-			renderFragment(w, r, "project", "project-"+string(section), d)
-		}
-	}
-
-	mux.HandleFunc("POST /app/admin/projects/{project}/context", edit("context set", sectionOverview, func(r *http.Request, project string) error {
-		b, err := parseContextForm(r)
-		if err != nil {
-			return err
-		}
-		return jam.SetProjectContextChecked(store, project, b)
-	}))
-	mux.HandleFunc("DELETE /app/admin/projects/{project}/context", edit("context cleared", sectionOverview, func(r *http.Request, project string) error {
-		return jam.SetProjectContextChecked(store, project, jam.ContextBody{})
-	}))
-
-	mux.HandleFunc("POST /app/admin/projects/{project}/members", edit("member put", sectionMembers, func(r *http.Request, project string) error {
-		return putMember(store, project, r.FormValue("user"), r.FormValue("delivery"), r.FormValue("add") != "")
-	}))
-	mux.HandleFunc("DELETE /app/admin/projects/{project}/members/{user}", edit("member removed", sectionMembers, func(r *http.Request, project string) error {
-		return removeMember(store, project, r.PathValue("user"))
-	}))
-	mux.HandleFunc("POST /app/admin/projects/{project}/channels", edit("room put", sectionIntercom, func(r *http.Request, project string) error {
-		return putRoom(store, project, r.FormValue("name"), r.FormValue("service"), r.FormValue("ref"))
-	}))
-	mux.HandleFunc("DELETE /app/admin/projects/{project}/channels/{name}", edit("room removed", sectionIntercom, func(r *http.Request, project string) error {
-		return registryErr(jam.RemoveRoom(store, project, r.PathValue("name")))
-	}))
-	mux.HandleFunc("POST /app/admin/projects/{project}/escalation", edit("escalation set", sectionEscalation, func(r *http.Request, project string) error {
-		return setEscalation(store, project, r.FormValue("category"), r.FormValue("tiers"))
-	}))
-	mux.HandleFunc("DELETE /app/admin/projects/{project}/escalation", edit("escalation cleared", sectionEscalation, func(r *http.Request, project string) error {
-		return store.SetEscalationPolicy(project, r.URL.Query().Get("category"), nil)
-	}))
-
-	mux.HandleFunc("POST /app/admin/projects/{project}/chat-service", edit("chat service set", sectionOverview, func(r *http.Request, project string) error {
-		return store.SetChatService(project, strings.TrimSpace(r.FormValue("service")))
-	}))
 }

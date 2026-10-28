@@ -23,21 +23,21 @@ describe("the admin app", () => {
     expect(within(nav).getByRole("link", { name: "Agents" })).not.toHaveAttribute("aria-current");
   });
 
-  it("links a page that hasn't moved to the old admin", async () => {
+  it("says when there's no such page, linking the Dashboard", async () => {
     renderAdmin(adminBoot, ADMIN + "nonsense");
-    expect(await screen.findByText("This page hasn't moved yet")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open it in the current admin" })).toHaveAttribute("href", "/app/admin/nonsense");
+    expect(await screen.findByRole("heading", { name: "No such page" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to the Dashboard" })).toHaveAttribute("href", "/app/admin/");
   });
 
   it("offers Sign out only when signed in through the browser", async () => {
     const { unmount } = renderAdmin(adminBoot, ADMIN + "nonsense");
-    await screen.findByText("This page hasn't moved yet");
+    await screen.findByRole("heading", { name: "No such page" });
     screen.getByRole("button", { name: "Account" }).click();
     await screen.findByText("local admin · admin");
     expect(screen.queryByRole("menuitem", { name: "Sign out" })).toBeNull();
     unmount();
     renderAdmin({ ...adminBoot, signOut: true }, ADMIN + "nonsense");
-    await screen.findByText("This page hasn't moved yet");
+    await screen.findByRole("heading", { name: "No such page" });
     screen.getByRole("button", { name: "Account" }).click();
     expect(await screen.findByRole("menuitem", { name: "Sign out" })).toHaveAttribute("href", "/app/auth/logout");
   });

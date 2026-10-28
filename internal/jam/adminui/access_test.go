@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/sshca"
@@ -55,78 +55,55 @@ func accessFixture(t *testing.T) (jam.Store, ident.ID, time.Time) {
 	return store, carol.ID, exp
 }
 
-func TestAccessPanelShowsWhoAndWhy(t *testing.T) {
+// The agent page's Access card says who can reach the studio and why; it
+// is off without SSH collaboration.
+func TestAccessAPIWhoAndWhy(t *testing.T) {
 	store, carol, exp := accessFixture(t)
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(collabhttp.NewLive()))
-	rec := get(t, h, "/app/admin/agents/sess-1")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("page = %d", rec.Code)
+	var d adminui.AgentDetail
+	apiDo(t, h, "GET", "/app/admin/api/agents/sess-1", nil, &d)
+	a := d.Access
+	if !a.Enabled || a.Requester == nil || a.Requester.ID != string(mustLookup(t, store, "alice")) || a.MembersPreview != "members" || a.MembersSSH != "members" {
+		t.Fatalf("access = %+v", a)
 	}
-	body := rec.Body.String()
-	for _, want := range []string{
-		"<h2>Access</h2>",
-		"Operators</dt><dd>always",
-		`href="/app/admin/users/` + string(mustLookup(t, store, "alice")) + `">alice</a>`,
-		"preview: members · ssh: members",
-		`>carol</a>`, "<td>ssh</td>", exp.Format("2006-01-02 15:04 MST"), "op:local",
-		`hx-delete="/app/admin/agents/sess-1/shares/` + string(carol) + `"`,
-		"No open connections.",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("access panel lacks %q", want)
-		}
+	if len(a.Shares) != 1 || a.Shares[0].UserID != string(carol) || a.Shares[0].User != "carol" || a.Shares[0].ExpiresAt != exp.Format("2006-01-02 15:04 MST") ||
+		a.Shares[0].GrantedBy != "op:local" || len(a.Live) != 0 {
+		t.Errorf("shares = %+v live = %+v", a.Shares, a.Live)
 	}
-	// The card follows the Egress card.
-	if e, a := strings.Index(body, "<h2>Egress</h2>"), strings.Index(body, "<h2>Access</h2>"); e < 0 || a < e {
-		t.Errorf("Access card (at %d) not after Egress (at %d)", a, e)
+	var off adminui.AgentDetail
+	apiDo(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "GET", "/app/admin/api/agents/sess-1", nil, &off)
+	if off.Access.Enabled {
+		t.Errorf("without SSH collaboration: %+v", off.Access)
 	}
 }
 
-func TestAccessPanelOffWithoutSSH(t *testing.T) {
-	store, _, _ := accessFixture(t)
-	body := get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil), "/app/admin/agents/sess-1").Body.String()
-	if !strings.Contains(body, "Studio collaboration is off") || strings.Contains(body, "/shares/") {
-		t.Fatalf("panel without SSH collaboration:\n%s", body)
-	}
-}
-
-// The Unshare button is a CSRF-guarded write: refused cross-origin, and when
-// allowed removes the grant and closes carol's live SSH connection, which the
-// panel lists while it is open.
-func TestAccessPanelUnshare(t *testing.T) {
+// Unshare is a same-origin write: refused cross-origin, and when allowed it
+// removes the grant and closes carol's live SSH connection, which the page
+// lists while it is open.
+func TestAccessAPIUnshareClosesConnections(t *testing.T) {
 	store, carol, _ := accessFixture(t)
 	live := collabhttp.NewLive()
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(live))
 	conn, br := sshAs(t, store, live, "carol")
 
-	if body := get(t, h, "/app/admin/agents/sess-1").Body.String(); !strings.Contains(body, "<td>carol</td>") || strings.Contains(body, "No open connections.") {
-		t.Fatalf("live connection not listed:\n%s", body)
+	var d adminui.AgentDetail
+	apiDo(t, h, "GET", "/app/admin/api/agents/sess-1", nil, &d)
+	if len(d.Access.Live) != 1 || d.Access.Live[0].Name != "carol" {
+		t.Fatalf("live connections = %+v", d.Access.Live)
 	}
-
-	del := func(origin string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodDelete, "/app/admin/agents/sess-1/shares/"+string(carol), nil)
-		if origin != "" {
-			req.Header.Set("Origin", origin)
-		}
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		return rec
-	}
-	if rec := del("http://evil.example"); rec.Code != http.StatusForbidden || len(store.ShareGrants("sess-1")) != 1 {
+	req := httptest.NewRequest(http.MethodDelete, "/app/admin/api/agents/sess-1/shares/"+string(carol), nil)
+	req.Header.Set("Origin", "http://evil.example")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, appui.WithPrincipal(req, appui.Principal{Admin: true, Local: true}))
+	if rec.Code != http.StatusForbidden || len(store.ShareGrants("sess-1")) != 1 {
 		t.Fatalf("cross-origin unshare = %d, grants %v", rec.Code, store.ShareGrants("sess-1"))
 	}
-	if rec := del(""); rec.Code != http.StatusForbidden {
-		t.Fatalf("no-origin unshare = %d", rec.Code)
-	}
-	if rec := del("http://example.com"); rec.Code != http.StatusOK || len(store.ShareGrants("sess-1")) != 0 {
-		t.Fatalf("unshare = %d %s, grants %v", rec.Code, rec.Body, store.ShareGrants("sess-1"))
+	if rec := apiDo(t, h, "DELETE", "/app/admin/api/agents/sess-1/shares/"+string(carol), nil, nil); rec.Code != http.StatusOK || len(store.ShareGrants("sess-1")) != 0 {
+		t.Fatalf("unshare = %d %s", rec.Code, rec.Body)
 	}
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	if _, err := br.ReadByte(); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatal("carol's SSH connection survived the unshare")
-	}
-	if rec := del("http://example.com"); rec.Code != http.StatusNotFound {
-		t.Fatalf("second unshare = %d", rec.Code)
 	}
 }
 
@@ -192,7 +169,7 @@ func sshAs(t *testing.T, store jam.Store, live *collabhttp.Live, name string) (n
 // With previews on the card lists each exposure as a new-tab link (names
 // escaped), and a live preview connection shows with right preview; with them
 // off it says so.
-func TestAccessPanelPreviews(t *testing.T) {
+func TestAccessAPIPreviews(t *testing.T) {
 	store, _, _ := accessFixture(t)
 	exposures := func(string) []jam.Exposure {
 		return []jam.Exposure{{Name: "app", Port: 5173}, {Name: "<b>x</b>", Port: 3000}}
@@ -200,20 +177,14 @@ func TestAccessPanelPreviews(t *testing.T) {
 	urlFor := func(_, name string) (string, error) { return "https://" + name + "--x.preview.jam.example/", nil }
 	live := collabhttp.NewLive()
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(live), adminui.WithStudioPreviews(exposures, urlFor))
-	body := get(t, h, "/app/admin/agents/sess-1").Body.String()
-	for _, want := range []string{
-		`<a href="https://app--x.preview.jam.example/" target="_blank" rel="noopener noreferrer">app</a>`,
-		`&lt;b&gt;x&lt;/b&gt;</a>`, "<td>5173</td>",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("previews list lacks %q", want)
-		}
+	var d adminui.AgentDetail
+	apiDo(t, h, "GET", "/app/admin/api/agents/sess-1", nil, &d)
+	p := d.Access.Previews
+	if !d.Access.PreviewsOn || len(p) != 2 || p[0].URL != "https://app--x.preview.jam.example/" || p[0].Port != 5173 || p[1].Name != "<b>x</b>" {
+		t.Errorf("previews = %+v", d.Access)
 	}
-	if strings.Contains(body, "<b>x</b>") || strings.Contains(body, "Previews are off") {
-		t.Errorf("unescaped name or off notice:\n%s", body)
-	}
-	body = get(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(live)), "/app/admin/agents/sess-1").Body.String()
-	if !strings.Contains(body, "Previews are off on this Jam") {
-		t.Errorf("no off notice:\n%s", body)
+	apiDo(t, adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, nil, adminui.WithStudioAccess(live)), "GET", "/app/admin/api/agents/sess-1", nil, &d)
+	if d.Access.PreviewsOn {
+		t.Error("previews on without previews configured")
 	}
 }

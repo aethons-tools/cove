@@ -1,10 +1,10 @@
 ---
-summary: The Jam app — the one browser UI `jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects, the title bar and shared look, installing the app, the login and Principal (user / admin / both), and the `POST /app/user/send` path; the console's pages are in ui-console.md and what it can change in ui-editing.md.
-read_when: You want to expose Jam in a browser, understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), read the title bar, install the app, or follow an old /ui or /me link. For what the console pages show (agents, search, Channel log, session timeline) read ui-console.md; to change something from the UI, read ui-editing.md.
-owns: the `/app` route table and the legacy `/ui`·`/me` 308 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; installing the app (manifest, service worker, icons); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
+summary: The Jam app — the one browser UI `jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects (old `/ui`·`/me` URLs and the old admin pages' paths), the title bar and shared look, installing the app, the login and Principal (user / admin / both), and the `POST /app/user/send` path; the console's pages are in ui-console.md and what it can change in ui-editing.md.
+read_when: You want to expose Jam in a browser, understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), read the title bar, install the app, or follow an old /ui, /me or old admin-page link. For what the console pages show (agents, search, Channel log, session timeline) read ui-console.md; to change something from the UI, read ui-editing.md.
+owns: the `/app` route table, the legacy `/ui`·`/me` 308 redirects and the old admin pages' 302 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; installing the app (manifest, service worker, icons); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-10-27
+updated: 2026-10-28
 ---
 
 # The Jam app (`/app/`)
@@ -20,42 +20,61 @@ http://127.0.0.1:8081/app/
 | Path | Holds |
 |---|---|
 | `/app/user/*` | the Inbox — the Jam app ([intercom-ui.md](intercom-ui.md)) and its API — and [`POST /app/user/send`](#sending-post-appusersend) |
-| `/app/admin/*` | the admin console ([ui-console.md](ui-console.md)) |
+| `/app/admin/*` | the admin console, the Jam app's admin area ([ui-console.md](ui-console.md)); its JSON API is `/app/admin/api/` ([web-app.md](../../web-app.md#admin-area)) |
 | `/app/auth/{login,callback,logout}` | the one browser login (ungated) |
-| `/app/static/*` | `jam.css`, htmx, `push.js`, the J mark and app icons (ungated) |
+| `/app/static/*` | `jam.css` (for the 403 page), the brand mark and app icons (ungated) |
 | `/app/manifest.webmanifest`, `/app/sw.js` | the [installable app](#installing-the-app)'s manifest and service worker (ungated) |
 
 `/me/studios/*` ([collaboration.md](collaboration.md)) and `/admin/*` are APIs
 and stay where they are. **Old URLs:** a `GET`/`HEAD` on a former `/ui/*` or
 `/me/*` page (login and static included) answers `308` to its `/app/...`
-equivalent with the query kept — `/ui/agents?project=p` →
-`/app/admin/agents?project=p`, `/me/?c=chn_x` → `/app/user/?c=chn_x` (which the app
+equivalent with the query kept — `/ui/agents?status=running` →
+`/app/admin/agents?status=running`, `/ui/users/u` → `/app/admin/users/u`
+(which [goes on](#old-admin-pages) to `/app/admin/config/users/u`), `/me/?c=chn_x` → `/app/user/?c=chn_x` (which the app
 turns into `/app/user/c/chn_x`). Any other method on an old path is 404, never
 replayed. The redirects last one release. `/app/next/*`, the app's preview
 address, redirects to `/app/user/*` the same way.
 
+### Old admin pages
+
+The console's server-rendered pages are gone; a `GET` or `HEAD`
+on an old page path answers `302` to its new page, with the query kept
+(except `project` on an agent path; a draft's `file` and `diff` become the
+kit page's `dfile` and `ddiff`). The gate runs first, so a non-admin
+gets its 403 and learns nothing. A write there gets a 405, never a page.
+
+| Old path (under `/app/admin/`) | New path |
+|---|---|
+| `config` | `config/tracking` |
+| `users[/…]`, `destinations[/…]`, `model-specs[/…]` | `config/` + the same |
+| `projects/<p>[/members\|agents\|intercom\|escalation]` | `config/projects/<p>[/…]` |
+| `projects/<p>/roles` | `config/projects/<p>/agents` |
+| `projects/<p>/roles/<r>[/setup]`, `roles/<p>/<r>` | `config/projects/<p>/agents/<r>` |
+| `kits/<k>[/draft]` | `config/kits/<k>` |
+| `specs` | `config/kits` |
+| `intercom` | `health/intercom` |
+| `agents/<id>/setup` | `agents/<id>` |
+| `coves[/<id>[/session]]`, `actors` | `agents[/<id>[/session]]` |
+| `roles`, or any other old path | the Dashboard |
+| `next/<path>` (the app's preview address) | `<path>` |
+
 ## The title bar and look
 
-Every `/app` page opens with one **title bar**: the J mark (to `/app/`), the
-Jam's name (`<name> Jam` with a [`display-name`](serve.md#the-serve-config),
-else `Jam`), the **tabs** you may use, and your principal menu at the far
-right (name, roles — member / admin — a member's per-device
-**Notifications** toggle when [push](push.md) is on, and **Sign out**; a
-loopback admin with no login reads "Local admin" and has no sign-out). The tabs are blended:
-**Inbox** for a user; **Dashboard · Projects · Agents · Users · Specs · Config ·
-Health** for an admin; the page's own tab is highlighted. Under it, a slim bar
-holds the console's search box. The name truncates with an ellipsis when long
-and hides under 720px wide (the J mark still links home); the tabs scroll and
-the principal menu always stays visible.
+Every `/app` page opens with one **title bar**: the Jam's name (`<name> Jam`
+with a [`display-name`](serve.md#the-serve-config), else `Jam`), the **tabs**
+you may use, then a theme toggle (light, dark or the OS setting) and your
+account menu (name and roles — member / admin — and **Sign out**; a member's
+per-device **Notifications** and sounds in the Inbox when [push](push.md) is
+on; a loopback admin with no login reads "Local admin" and has no sign-out).
+The tabs are blended: **Inbox** for a member; **Dashboard · Config · Agents ·
+Health** for an admin, each with its [attention badge](ui-attention.md); the
+page's own tab is highlighted. In the console the bar also holds the
+[search box](ui-console.md#search).
 
-**One look.** The console takes its colors (light and dark, following the OS
-setting) and typography from one stylesheet, `jam.css`, in `internal/jam/uiassets`
-(which also holds the console's `htmx`), served at `/app/static/`. The Inbox, the
-Jam app, is Mantine with a theme carrying `jam.css`'s accent and fonts
-([web-app.md](../../web-app.md)).
-
-The console itself — its pages, the Projects rail, search, the Channel log and the
-session timeline — is in [ui-console.md](ui-console.md).
+**One look.** Both areas are the Jam app (React and Mantine, built from
+`web/app` — [web-app.md](../../web-app.md)), with a theme carrying the
+accent and fonts of `jam.css` (`internal/jam/uiassets`), which now styles
+only the server-rendered 403 page.
 
 ## Installing the app
 

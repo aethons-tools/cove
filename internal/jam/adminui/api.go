@@ -16,10 +16,10 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/webapp"
 )
 
-// appMount is where the admin area of the Jam app (web/app) is served while
-// it is built beside the old pages; the cutover moves it to /app/admin/
-// (docs/superpowers/specs/2026-10-28-admin-spa-design.md).
-const appMount = "/app/admin/next/"
+// appMount is where the admin area of the Jam app (web/app) is served
+// (docs/superpowers/specs/2026-10-28-admin-spa-design.md); an old page's
+// path redirects to its page here (redirectOld).
+const appMount = "/app/admin/"
 
 // apiPrefix is the admin app's JSON API.
 const apiPrefix = "/app/admin/api/"
@@ -46,7 +46,7 @@ func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra role
 		writeAPIError(w, http.StatusNotFound, "not_found", "no such API route")
 	})
 	mux.Handle(apiPrefix, sameOriginAPI(trustedOrigins, api))
-	mux.Handle("GET "+appMount, webapp.Handler(webapp.Config{
+	app := webapp.Handler(webapp.Config{
 		Prefix: appMount, FS: uiassets.AppFS(), Name: "the Jam app", Head: appui.HeadMeta,
 		Bootstrap: func(r *http.Request) (any, error) {
 			if _, ok := appui.PrincipalFrom(r); !ok {
@@ -54,6 +54,17 @@ func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra role
 			}
 			return adminBootstrap(r, src.items()), nil
 		},
+	})
+	// Every method, so the API's prefix (any method) stays the more specific
+	// pattern; a write here is an old page's form, which is gone.
+	mux.Handle(appMount, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method != http.MethodGet && r.Method != http.MethodHead:
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		case !redirectOld(w, r):
+			app.ServeHTTP(w, r)
+		}
 	}))
 }
 
@@ -63,15 +74,10 @@ func adminBootstrap(r *http.Request, items []attnItem) Bootstrap {
 	tb := appui.TitlebarFor(r, "")
 	p, _ := appui.PrincipalFrom(r)
 	b := Bootstrap{Brand: tb.Brand, Name: tb.Name, Initial: tb.Initial, Roles: tb.Roles, Member: p.User != nil, SignOut: tb.SignOut, Tabs: []NavTab{}}
-	if b.Member {
-		b.Tabs = append(b.Tabs, NavTab{Key: "inbox", Label: "Inbox", Href: "/app/user/"})
-	}
-	badges := appTabBadges(items)
-	for _, t := range []struct{ key, label, path string }{
-		{"dashboard", "Dashboard", ""}, {"config", "Config", "config/tracking"}, {"agents", "Agents", "agents"}, {"health", "Health", "health"},
-	} {
-		bd := badges[t.key]
-		b.Tabs = append(b.Tabs, NavTab{Key: t.key, Label: t.label, Href: appMount + t.path, Badge: bd.N, BadgeRed: bd.Red, BadgeTitle: bd.Title})
+	badges := appTabBadges(items) // the admin tabs' (the Inbox has none here)
+	for _, t := range tb.Tabs {
+		bd := badges[t.Key]
+		b.Tabs = append(b.Tabs, NavTab{Key: t.Key, Label: t.Label, Href: t.Href, Badge: bd.N, BadgeRed: bd.Red, BadgeTitle: bd.Title})
 	}
 	return b
 }

@@ -1,7 +1,6 @@
 package adminui
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/condition"
@@ -26,16 +25,4 @@ func healthData(t *condition.Tracker, amURL string) map[string]any {
 		silences = amURL + "/#/silences"
 	}
 	return map[string]any{"Title": "Health", "Open": open, "Resolved": resolved, "Silences": silences}
-}
-
-// registerHealth serves the Jam Health tab; an htmx poll gets the body fragment.
-func registerHealth(mux *http.ServeMux, t *condition.Tracker, amURL string) {
-	mux.HandleFunc("GET /app/admin/health", func(w http.ResponseWriter, r *http.Request) {
-		data := healthData(t, amURL)
-		if r.Header.Get("HX-Request") == "true" {
-			renderFragment(w, r, "health", "health-body", data)
-			return
-		}
-		render(w, r, "health", data)
-	})
 }

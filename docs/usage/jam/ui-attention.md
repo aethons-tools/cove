@@ -1,37 +1,39 @@
 ---
-summary: The admin UI's attention badges — what counts as needing attention (broken studios, out-of-date studios, config that names something missing), which scope and tab each item belongs to, how the title-bar tabs, project rail, tabs and rows show it, and the Needs attention cards.
-read_when: You see a red or amber badge in the admin UI's title bar, Projects rail, on a tab or on a row and want to know what it counts and where to fix it, or you want to know why a project or Jam is (or isn't) flagged.
-owns: the attention model (kinds, severity, scope and tab of each item), the title-bar/rail/tab/row badges and the Needs attention cards
-prereqs: ui.md for the rail and tabs; ui-projects.md for a project's tabs; coves.md for studio phases, image and connector status
+summary: The admin console's attention badges — what counts as needing attention (broken or out-of-date studios, config that names something missing, open Health conditions), where each item is counted, how the title-bar tabs, Config tree nodes and rows show it, and the Dashboard's Needs attention card.
+read_when: You see a red or amber badge in the admin console's title bar or on a Config tree node, or a ⚠ on a row, and want to know what it counts and where to fix it, or you want to know why a project or Jam is (or isn't) flagged.
+owns: the attention model (kinds, severity, where each item is counted), the title-bar/tree/row badges and the Needs attention card
+prereqs: ui-console.md for the tabs and the Config tree; coves.md for studio phases, image and connector status
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-28
 ---
 
 # Attention badges
 
-The admin UI computes one list of things that need an operator's attention and
-shows it in three places: a **badge** on the title-bar tabs and on each
-project's rail entry, a badge on the tab that owns each item, and a **⚠** on
-the row it names. A badge is a count of
-items, **red** when any of them is broken, **amber** otherwise; hover for the
-breakdown (`1 broken · 2 out of date`). The rail's entries refresh every 3
-seconds (a half-typed **+ New project** survives it), so its badges stay live
-on the Projects pages; the title-bar badges refresh with each page load; a table re-rendered by its poll or by an edit keeps its ⚠ flags.
+The admin console computes one list of things that need an operator's
+attention and shows it as a **badge** on the title-bar tabs and on the
+[Config tree](ui-console.md#finding-a-page)'s nodes, and as a **⚠** on the row
+it names. A badge is a count of items, **red** when any of them is broken,
+**amber** otherwise; hover for the breakdown (`1 broken · 2 out of date`). The
+tree refreshes every 3 seconds, and at once after a write, so its badges stay
+live; the title-bar badges refresh with each page load.
 
-| Kind | Severity | Raised when | Scope · tab |
+| Kind | Severity | Raised when | Counted at |
 |---|---|---|---|
-| broken | red | a studio is `lost` or `terminating`, or its egress re-apply is failing | its project · Agents |
-| out of date | amber | a studio runs a stale image or connector ([coves.md](coves.md#the-studio-verbs)) | its project · Agents |
-| config | amber | an escalation target names nobody on the project | the project · Escalation |
-| config | amber | a role's kit or model-spec no longer exists | the project · Agents (its roles) |
-| config | amber | a destination is in a connector conflict ([ui-pages.md](ui-pages.md#destination-pages)) | Jam · Specs |
-| config | amber | a kit's current version does not parse | Jam · Specs |
+| broken | red | a studio is `lost` or `terminating`, or its egress re-apply is failing | Agents |
+| out of date | amber | a studio runs a stale image or connector ([coves.md](coves.md#the-studio-verbs)) | Agents |
+| config | amber | an escalation target names nobody on the project | the project's Escalation node |
+| config | amber | a role's kit or model-spec no longer exists | the role's node |
+| config | amber | a destination is in a connector conflict ([ui-pages.md](ui-pages.md#destination-pages)) | the destination's node |
+| config | amber | a kit's current version does not parse | the kit's node |
+| condition | red (critical) · amber (warning) | an open operator [condition](monitoring.md) | Health |
 
 One studio counts once, at its worst (a lost studio on a stale image is one
-broken item). On the title bar, **Dashboard** counts all of Jam's own items,
-**Projects** every project's, and each other admin tab Jam's items on it
-(Specs, Health); each project's rail badge counts that project's.
+broken item). On the title bar, **Config** counts the config items (the
+tree's), **Agents** the studios' broken and out-of-date items, **Health** the
+open conditions, and **Dashboard** everything. A tree node counts the config
+items at it or under it, so a project's node sums its roles' and its
+Escalation's.
 
-**Needs attention.** A project's Overview and Jam's Dashboard each list their
-scope's items, with why and a link to where to fix it, or say nothing needs
-attention. An agent linked from there opens under its project.
+**Needs attention.** The Dashboard lists Jam's own items — open conditions,
+kits and destinations — each with why and a link to where to fix it, or says
+nothing needs attention.

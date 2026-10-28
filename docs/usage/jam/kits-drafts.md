@@ -1,10 +1,10 @@
 ---
-summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, test builds of the draft's image, draft studios (`studio raise --kit-draft`), the `kit draft open|status|get|put|rm|sync|publish|build|discard` verbs, the open, status, discard, file read/write/remove, publish and build API. The admin UI's Draft tab is in kits-drafts-ui.md.
-read_when: You want to open, inspect, edit, discard, test-build, try in a studio or publish a kit's draft with `jam kit draft`, `studio raise --kit-draft`, over the admin API (`/admin/kits/{name}/draft`) or on the kit page's Draft tab in the admin UI, or a draft call answered 409, 412, 413, 415, 428 or 503.
+summary: A kit's draft — one mutable tree per kit, opened from a version, with its problems listed; the ETag/If-Match rule, test builds of the draft's image, draft studios (`studio raise --kit-draft`), the `kit draft open|status|get|put|rm|sync|publish|build|discard` verbs, the open, status, discard, file read/write/remove, publish and build API. The admin console's Draft section is in kits-drafts-ui.md.
+read_when: You want to open, inspect, edit, discard, test-build, try in a studio or publish a kit's draft with `jam kit draft`, `studio raise --kit-draft`, over the admin API (`/admin/kits/{name}/draft`) or in the Draft section of a kit's page in the admin console, or a draft call answered 409, 412, 413, 415, 428 or 503.
 owns: kit drafts — opening one, the draft's status and problems, the ETag/If-Match rule, publishing a draft (origin draft, pin, drift), test builds (the draft image tag, one per kit, the in-memory log, cancel and shutdown), the `kit draft` CLI verbs, the /admin/kits/{name}/draft routes (files, publish and build included) and their audit lines, draft studios (the raise, its image, the `draft` image status, its tree kept stored)
 prereqs: kits.md, kits-directory.md
 tier: leaf
-updated: 2026-10-27
+updated: 2026-10-28
 ---
 
 # Kit drafts

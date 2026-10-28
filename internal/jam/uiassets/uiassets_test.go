@@ -24,10 +24,6 @@ func TestServesSharedAssetsUnderAnyPrefix(t *testing.T) {
 		if css.Code != http.StatusOK || !strings.HasPrefix(css.Header().Get("Content-Type"), "text/css") {
 			t.Fatalf("%sjam.css = %d %q", prefix, css.Code, css.Header().Get("Content-Type"))
 		}
-		js := get(t, h, prefix+"htmx.min.js")
-		if js.Code != http.StatusOK || !strings.HasPrefix(js.Header().Get("Content-Type"), "text/javascript") {
-			t.Fatalf("%shtmx.min.js = %d %q", prefix, js.Code, js.Header().Get("Content-Type"))
-		}
 	}
 }
 
@@ -72,49 +68,6 @@ func TestServesBrandMark(t *testing.T) {
 	}
 }
 
-// A long brand truncates (and hides on phones) rather than squeezing the tabs
-// and the principal menu off-screen.
-func TestStylesheetTitlebarSurvivesNarrowScreens(t *testing.T) {
-	css := get(t, uiassets.Handler("/s/"), "/s/jam.css").Body.String()
-	for _, want := range []string{
-		"white-space:nowrap;min-width:0;max-width:35%;flex-shrink:1}",
-		"flex:1;min-width:120px;overflow-x:auto}",
-		".app-logo span{overflow:hidden;text-overflow:ellipsis}",
-		".app-principal{position:relative;margin-left:auto;flex-shrink:0}",
-		".app-principal .nm,.app-logo span{display:none}",
-	} {
-		if !strings.Contains(css, want) {
-			t.Errorf("jam.css missing %q", want)
-		}
-	}
-}
-
-// Title-bar badges wear the rail's colours: amber, red when broken, bold.
-func TestStylesheetTitlebarBadgesMatchRail(t *testing.T) {
-	css := get(t, uiassets.Handler("/s/"), "/s/jam.css").Body.String()
-	for _, want := range []string{
-		"background:var(--wait-soft);color:var(--wait);font-size:11px;font-weight:700",
-		".app-tabs .badge.red{background:var(--bad-soft);color:var(--bad)}",
-	} {
-		if !strings.Contains(css, want) {
-			t.Errorf("jam.css missing %q", want)
-		}
-	}
-	if strings.Contains(css, ".app-tabs .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--idle-soft)") {
-		t.Error("title-bar badge is still grey")
-	}
-}
-
-// The chrome's height has one source, which the rail's sticky offset reads.
-func TestStylesheetChromeHeightIsDerived(t *testing.T) {
-	css := get(t, uiassets.Handler("/s/"), "/s/jam.css").Body.String()
-	for _, want := range []string{"--chrome-h:calc(var(--titlebar-h) + var(--subbar-h))", "height:var(--titlebar-h)"} {
-		if !strings.Contains(css, want) {
-			t.Errorf("jam.css missing %q", want)
-		}
-	}
-}
-
 func TestServesIcons(t *testing.T) {
 	rec := get(t, uiassets.Handler("/app/static/"), "/app/static/icons/icon-192.png")
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
@@ -136,21 +89,4 @@ func TestIconHrefPanicsOnUnknownIcon(t *testing.T) {
 		}
 	}()
 	uiassets.IconHref("/app/static/", "nope.png")
-}
-
-func TestScriptHrefVersionsPushJS(t *testing.T) {
-	href := uiassets.ScriptHref("/s/", "push.js")
-	if !regexp.MustCompile(`^/s/push\.js\?v=[0-9a-f]{12}$`).MatchString(href) {
-		t.Fatalf("href = %q", href)
-	}
-	js := get(t, uiassets.Handler("/s/"), "/s/push.js")
-	if js.Code != http.StatusOK || !strings.Contains(js.Body.String(), "push-toggle") {
-		t.Fatalf("push.js = %d", js.Code)
-	}
-	defer func() {
-		if recover() == nil {
-			t.Error("unknown script should panic")
-		}
-	}()
-	uiassets.ScriptHref("/s/", "nope.js")
 }

@@ -1,9 +1,6 @@
 package adminui
 
 import (
-	"cmp"
-	"log/slog"
-	"net/http"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -47,24 +44,4 @@ func buildAccessCard(store jam.Store, a accessDeps, inst jam.Instance) accessCar
 		c.View = collabhttp.AccessOf(store, live, time.Now(), inst, a.exposures, a.urlFor)
 	}
 	return c
-}
-
-// registerAccess serves the Unshare button: DELETE
-// /app/admin/agents/{id}/shares/{user} (a CSRF-guarded write), which removes the
-// grant and closes the user's SSH connections when it was their way in.
-func registerAccess(mux *http.ServeMux, store jam.Store, live *collabhttp.Live, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	if live == nil {
-		return
-	}
-	mux.HandleFunc("DELETE /app/admin/agents/{id}/shares/{user}", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := unshareStudio(store, live, log, cmp.Or(jam.OperatorID(r), "local"), r.PathValue("id"), r.PathValue("user")); err != nil {
-			renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
-			return
-		}
-		// The agent page reloads on success.
-		w.WriteHeader(http.StatusOK)
-	})
 }

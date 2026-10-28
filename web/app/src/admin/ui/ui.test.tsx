@@ -103,7 +103,7 @@ describe("display pieces", () => {
 
   it("ManagedBadge links Tracking", () => {
     wrap(<ManagedBadge managed={{ commit: "abc1234", applied: "2026-10-28 10:00 UTC" }} />);
-    expect(screen.getByRole("link", { name: "managed · config @abc1234" })).toHaveAttribute("href", "/app/admin/next/config/tracking");
+    expect(screen.getByRole("link", { name: "managed · config @abc1234" })).toHaveAttribute("href", "/app/admin/config/tracking");
     expect(driftNote({ commit: "abc1234", applied: "" })).toBe("This will drift from the config repo (managed · config @abc1234).");
     expect(driftNote(null)).toBe("");
   });

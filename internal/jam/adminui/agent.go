@@ -1,8 +1,6 @@
 package adminui
 
 import (
-	"net/http"
-	"net/url"
 	"sort"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -41,7 +39,6 @@ type agentDetail struct {
 	SquawksConfigured bool
 	Squawks           []squawkRow
 	SquawksMore       bool
-	IntercomURL       string
 
 	NotFound bool
 }
@@ -86,11 +83,9 @@ func studioSquawks(store jam.Store, msgs SquawkReader, id string) ([]squawkRow, 
 // buildAgentDetail gathers an agent's page; false when nothing at all is
 // known about id (no actor, not running, no session streams, no squawks).
 func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Store, acc accessDeps, id string, canEdit bool) (agentDetail, bool) {
-	participant := id // the session: its squawks in the channel log, and as actor:<id> in the legacy log
 	d := agentDetail{
 		Title: id, ID: id, CanEdit: canEdit,
 		SessionsEnabled: sess != nil, SquawksConfigured: msgs != nil,
-		IntercomURL: "/app/admin/intercom?participant=" + url.QueryEscape(participant),
 	}
 	d.Inst, d.Running = store.GetInstance(id)
 	if d.Running {
@@ -115,17 +110,4 @@ func buildAgentDetail(store jam.Store, msgs SquawkReader, sess sessionevents.Sto
 		d.Squawks, d.SquawksMore = studioSquawks(store, msgs, id)
 	}
 	return d, d.HasActor || d.Running || len(d.Streams) > 0 || len(d.Squawks) > 0
-}
-
-func registerAgent(mux *http.ServeMux, store jam.Store, msgs SquawkReader, sess sessionevents.Store, acc accessDeps, canEdit, setupOn bool) {
-	mux.HandleFunc("GET /app/admin/agents/{id}", func(w http.ResponseWriter, r *http.Request) {
-		d, ok := buildAgentDetail(store, msgs, sess, acc, r.PathValue("id"), canEdit)
-		if !ok {
-			d.NotFound = true
-			renderStatus(w, r, http.StatusNotFound, "agent", d)
-			return
-		}
-		d.SetupEnabled = setupOn && d.Running && d.Inst.Phase != jam.PhaseGone
-		render(w, r, "agent", d)
-	})
 }
