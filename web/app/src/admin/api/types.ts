@@ -219,3 +219,136 @@ export interface TrackingResult {
   tracking: Tracking;
   message: string;
 }
+/**
+ * ProjectRow is one project in the list.
+ */
+export interface ProjectRow {
+  name: string;
+  members: number /* int */;
+  roles: number /* int */;
+  rooms: number /* int */;
+  managed?: Managed | null;
+}
+/**
+ * ProjectsResponse is GET /app/admin/api/projects.
+ */
+export interface ProjectsResponse {
+  projects: ProjectRow[];
+}
+/**
+ * ContextLeaf is one leaf of an agent context: read when ReadWhen.
+ */
+export interface ContextLeaf {
+  name: string;
+  readWhen: string;
+}
+/**
+ * ContextResource is one resource of a project's agent context.
+ */
+export interface ContextResource {
+  name: string;
+  kind: string;
+  ref: string;
+  note: string;
+}
+/**
+ * ContextPanel is an agent-context card (Jam, a project or a role): what
+ * every agent there is told when raised, and its YAML for the editor.
+ */
+export interface ContextPanel {
+  scope: string; // "Jam-wide", "project", "role"
+  core: string;
+  coreBytes: number /* int */; // as delivered
+  budget: number /* int */;
+  over: boolean;
+  empty: boolean;
+  showResources: boolean;
+  leaves: ContextLeaf[];
+  resources: ContextResource[];
+  yaml: string;
+  managed?: Managed | null; // its config object's mark
+}
+/**
+ * DeliveryRow is where a member gets DMs: service:address.
+ */
+export interface DeliveryRow {
+  service: string;
+  address: string;
+}
+/**
+ * MemberRow is one project member.
+ */
+export interface MemberRow {
+  userId: string;
+  name: string;
+  handle: string; // tracker @-handle; "" = none
+  delivery: DeliveryRow[];
+  deliverySpec: string; // the edit form's lines
+}
+/**
+ * RoomRow is one room of a project.
+ */
+export interface RoomRow {
+  name: string;
+  connection: string;
+  kind: string;
+  ref: string;
+  postOnly: boolean; // another channel receives this ref's replies
+}
+/**
+ * TargetRow is one escalation target; Unknown names nobody on the roster.
+ */
+export interface TargetRow {
+  text: string;
+  unknown: boolean;
+}
+/**
+ * TierRow is one escalation tier: its targets, then the wait.
+ */
+export interface TierRow {
+  targets: TargetRow[];
+  timeout: string;
+}
+/**
+ * ChainRow is one escalation chain ("" category = the default).
+ */
+export interface ChainRow {
+  category: string;
+  tiers: TierRow[];
+  spec: string; // the editor's lines
+}
+/**
+ * SquawkRow is one logged message.
+ */
+export interface SquawkRow {
+  at: string;
+  from: string;
+  fromId: string;
+  agentId: string; // the author's agent, else ""
+  channel: string;
+  channelId: string;
+  project: string;
+  body: string; // squawkrender's sanitized HTML
+  plain: boolean;
+}
+/**
+ * ProjectDetail is a project's pages: its overview and sections.
+ */
+export interface ProjectDetail {
+  name: string;
+  managed?: Managed | null;
+  inUseBy: string; // what still references it ("" = deletable)
+  renamable: boolean;
+  chatService: string; // "" = none
+  chatServices: string[]; // the select's options, "" first
+  members: MemberRow[];
+  rooms: RoomRow[];
+  roles: number /* int */;
+  agents: number /* int */;
+  liveAgents: number /* int */;
+  escalation: ChainRow[]; // chains with tiers
+  defaultChain: ChainRow;
+  context: ContextPanel;
+  logConfigured: boolean;
+  squawks: SquawkRow[]; // ?section=intercom: the newest in this project
+}
