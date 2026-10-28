@@ -2,6 +2,7 @@ package adminui_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -105,6 +106,44 @@ func TestAdminAPICrossOrigin(t *testing.T) {
 	var e adminui.APIError
 	if rec.Code != 403 || json.Unmarshal(rec.Body.Bytes(), &e) != nil || e.Code != "forbidden" {
 		t.Errorf("cross-origin POST = %d %s, want a JSON 403 forbidden before any handler", rec.Code, rec.Body)
+	}
+}
+
+// WithTrustedOrigins lets a write from an exact trusted origin (a dev proxy
+// on another port) through the API's CSRF check; any other origin — another
+// port, another scheme — is still refused before a handler runs.
+func TestAdminAPITrustedOrigins(t *testing.T) {
+	write := func(h http.Handler, header, value, project string) int {
+		r := httptest.NewRequest(http.MethodPost, "/app/admin/api/projects", strings.NewReader(`{"name":"`+project+`"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set(header, value)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, appui.WithPrincipal(r, appui.Principal{Admin: true, Local: true}))
+		return rec.Code
+	}
+	plain, _ := adminHandler(t)
+	if got := write(plain, "Origin", "http://localhost:8090", "p0"); got != http.StatusForbidden {
+		t.Errorf("proxied write without trusted origins = %d, want 403", got)
+	}
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil, adminui.WithTrustedOrigins("http://localhost:8090"))
+	for i, tc := range []struct {
+		header, value string
+		want          int
+	}{
+		{"Origin", "http://localhost:8090", http.StatusCreated},
+		{"Referer", "http://localhost:8090/app/admin/config/projects", http.StatusCreated},
+		{"Origin", "http://localhost:8091", http.StatusForbidden},  // another port is another origin
+		{"Origin", "https://localhost:8090", http.StatusForbidden}, // so is another scheme
+		{"Origin", "http://evil.example", http.StatusForbidden},
+	} {
+		project := fmt.Sprintf("p%d", i+1)
+		if got := write(h, tc.header, tc.value, project); got != tc.want {
+			t.Errorf("%s: %s → %d, want %d", tc.header, tc.value, got, tc.want)
+		}
+		if _, ok := store.GetProject(project); ok != (tc.want == http.StatusCreated) {
+			t.Errorf("%s: %s: project stored = %v, want %v", tc.header, tc.value, ok, tc.want == http.StatusCreated)
+		}
 	}
 }
 
