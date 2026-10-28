@@ -24,6 +24,7 @@ import { AgentPage } from "./agents/AgentPage";
 import { DashboardPage } from "./dash/DashboardPage";
 import { ChannelLogPage } from "./health/ChannelLogPage";
 import { HealthPage } from "./health/HealthPage";
+import { SearchPage } from "./search/SearchPage";
 import { TimelinePage } from "./agents/TimelinePage";
 import { UserPage } from "./users/UserPage";
 
@@ -60,6 +61,7 @@ export function adminRoutes(boot: Bootstrap): RouteObject[] {
       { path: "agents/*", element: <NotMovedYet /> },
       { path: "health", element: <HealthPage /> },
       { path: "health/intercom", element: <ChannelLogPage /> },
+      { path: "search", element: <SearchPage /> },
       { path: "*", element: <NotMovedYet /> },
     ],
   }];
