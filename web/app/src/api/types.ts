@@ -26,6 +26,10 @@ export interface Bootstrap {
   pushKey: string; // VAPID public key; "" = Web Push off
   pushFocus: boolean; // report the open conversation (POST /app/user/push/focus)
   boards: boolean; // whiteboards on (the app bundles its editor)
+  /**
+   * NewSession offers New session (personal sessions can be started here).
+   */
+  newSession: boolean;
 }
 /**
  * BootUser is the signed-in member.
@@ -469,5 +473,43 @@ export interface NewBoardRequest {
  */
 export interface NewBoardResponse {
   board: string;
+  channel: string;
+}
+/**
+ * SessionRolesResponse is GET api/session-roles: the roles the viewer may
+ * start a personal session of (the New session picker).
+ */
+export interface SessionRolesResponse {
+  roles: SessionRole[];
+}
+/**
+ * SessionRole is one role offered in the New session picker.
+ */
+export interface SessionRole {
+  project: string;
+  role: string;
+  /**
+   * Full says why none can start now ("" = one can): the role's pool, or
+   * the viewer's share of it, is taken.
+   */
+  full: string;
+}
+/**
+ * StartSessionRequest is POST api/sessions: start a personal session of
+ * Project's Role, owned by the viewer; Message, when set, is posted as the
+ * viewer's first message in its session channel.
+ */
+export interface StartSessionRequest {
+  project: string;
+  role: string;
+  message?: string;
+}
+/**
+ * SessionStarted is POST api/sessions's answer: the new session and its
+ * session channel (its conversation).
+ */
+export interface SessionStarted {
+  id: string;
+  name: string;
   channel: string;
 }

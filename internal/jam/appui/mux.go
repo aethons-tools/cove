@@ -1,10 +1,12 @@
 package appui
 
 import (
+	"io/fs"
 	"net/http"
 
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
+	"github.com/aethons-tools/cove/internal/jam/webapp"
 )
 
 // Deps are the parts of the browser app Handler composes.
@@ -15,6 +17,7 @@ type Deps struct {
 	Admin          http.Handler // serves /app/admin/*
 	TrustedOrigins []string
 	Shell          Shell // title-bar context for the pages
+	App            fs.FS // the Jam app bundle (its assets/ at /app/assets/); nil = uiassets.AppFS()
 }
 
 // legacy maps the pre-/app browser prefixes to their new homes; the longest
@@ -29,8 +32,15 @@ var legacy = []struct{ from, to string }{
 func Handler(d Deps) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("GET /app/static/", uiassets.Handler("/app/static/"))
+	// The Jam app's hashed bundle files, for both areas: code, not data.
+	app := d.App
+	if app == nil {
+		app = uiassets.AppFS()
+	}
+	mux.Handle("GET "+webapp.AssetsPrefix, webapp.Assets(app))
 	// Installable-app files are public (the browser fetches them without
-	// credentials); exact paths, so nothing else under /app/ is ungated.
+	// credentials); exact paths, so nothing else under /app/ but the static
+	// and bundle assets is ungated.
 	mux.Handle("GET /app/manifest.webmanifest", manifestHandler(d.Shell.Brand))
 	mux.Handle("GET /app/sw.js", serviceWorker())
 	if d.AuthRoutes != nil {

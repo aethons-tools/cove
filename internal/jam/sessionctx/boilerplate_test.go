@@ -178,7 +178,8 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 		}
 	}
 	// The legacy boilerplate, pinned: these hashes are the output before the
-	// structured turn end existed.
+	// structured turn end existed, but for the background-process sentence
+	// corrected since (processes outlive the turn; the pause freezes them).
 	for i, c := range []struct {
 		f    SessionFacts
 		hash string
@@ -188,7 +189,12 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 		{SessionFacts{Project: "acme", Role: "r", Unit: "AET-9"}, "323aff5c7f71baefc3380f5985f4b22c2a0348c03cdf8d6ca135cff7373a7151"},
 		{SessionFacts{Project: "acme", Role: "r"}, "295eb04930f3015be4ce3f2eaba7e8eb1f6704c043f69017b276e714bc96a1a5"},
 	} {
-		if got := fmt.Sprintf("%x", sha256.Sum256([]byte(Boilerplate(c.f).Core))); got != c.hash {
+		core := Boilerplate(c.f).Core
+		if !strings.Contains(core, legacyBackground) {
+			t.Errorf("legacy case %d lacks the corrected background-process sentence", i)
+		}
+		core = strings.Replace(core, legacyBackground, "Background processes you start die when the turn ends — finish work within the turn.", 1)
+		if got := fmt.Sprintf("%x", sha256.Sum256([]byte(core))); got != c.hash {
 			t.Errorf("legacy case %d changed:\n%s", i, Boilerplate(c.f).Core)
 		}
 	}

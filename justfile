@@ -142,10 +142,10 @@ app-check:
     ./scripts/app-types-check.sh
     cd web/app && npm ci --no-audit --no-fund --loglevel=error && npm run check
 
-# headless-Chrome tests of the /app/user UI's JS (needs chrome-headless-shell on PATH or
+# headless-Chrome tests of the Jam app (both areas) and the service worker (needs chrome-headless-shell on PATH or
 # JAM_BROWSER; each test skips without one)
 test-browser:
-    go test -tags browser ./internal/jam/userui/ -run Browser -v
+    go test -tags browser ./internal/jam/userui/ ./internal/jam/adminui/ -run Browser -v
 
 # hermetic test for the root install.sh installer (stubs gh/uname; no network)
 test-install:

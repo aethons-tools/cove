@@ -1,18 +1,18 @@
 import { Loader, NativeSelect, Text, TextInput } from "@mantine/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { apiGet, ApiError } from "../../api/client";
-import type { ThinkingRaw } from "../../api/types";
+import { ApiError } from "../../api/client";
+import type { ThinkingStream } from "../../api/types";
 import { usePaneTab } from "../useSession";
 import { clock, num } from "./format";
 import { FORMATS, loadPrefs, savePrefs, type Chip, type Format, type ThinkingPrefs } from "./prefs";
 import { deriveRows, toolsIn, type Row } from "./rows";
-import { useThinkingFeed } from "./useThinkingFeed";
+import { userThinkingSource, type ThinkingSource } from "./source";
+import { useThinkingFeed, type FeedCallbacks } from "./useThinkingFeed";
 import "./thinking.css";
 
 const CHIPS: [Chip, string][] = [["thinking", "Thinking"], ["text", "Text"], ["tools", "Tools"], ["errors", "Errors only"], ["progress", "Progress"]];
 const CLIP = 40;
-const enc = encodeURIComponent;
 
 // rawCache keeps fetched raw JSON across scrolls (a virtual row remounts),
 // the newest RAW_KEEP entries.
@@ -36,21 +36,21 @@ function Output({ text }: { text: string }) {
 }
 
 // Raw fetches one event's JSON when its line is first shown.
-function Raw({ id, row }: { id: string; row: Row }) {
-  const k = `${id}:${row.key}`;
+function Raw({ src, row }: { src: ThinkingSource; row: Row }) {
+  const k = `${src.key}:${row.key}`;
   const [text, setText] = useState(() => rawCache.get(k) ?? "…");
   useEffect(() => {
     if (rawCache.has(k) || !row.ev) return;
     let live = true;
-    apiGet<ThinkingRaw>(`sessions/${enc(id)}/thinking/raw?stream=${enc(row.ev.stream)}&seq=${row.ev.seq}`).then(
+    src.raw(row.ev.stream, row.ev.seq).then(
       (r) => { const s = r.truncated ? `${r.raw}\n… truncated ${num(r.truncated)} bytes` : r.raw; remember(k, s); if (live) setText(s); },
       (e: unknown) => { if (live) setText(`(raw JSON unavailable: ${e instanceof ApiError ? e.status : "error"})`); });
     return () => { live = false; };
-  }, [id, k, row.ev]);
+  }, [src, k, row.ev]);
   return <pre className="te-raw">{text}</pre>;
 }
 
-function Line({ id, row, format, open, onToggle }: { id: string; row: Row; format: Format; open: boolean; onToggle: () => void }) {
+function Line({ src, row, format, open, onToggle }: { src: ThinkingSource; row: Row; format: Format; open: boolean; onToggle: () => void }) {
   const e = row.ev!;
   const details = format === "detailed" || (format === "narrative" && open);
   return (
@@ -66,7 +66,7 @@ function Line({ id, row, format, open, onToggle }: { id: string; row: Row; forma
       {details && e.detailTruncated > 0 && <div className="te-note">… {num(e.detailTruncated)} more bytes</div>}
       {details && row.output && <Output text={row.output} />}
       {details && row.outputTruncated > 0 && <div className="te-note">… {num(row.outputTruncated)} more bytes</div>}
-      {format === "raw" && <Raw id={id} row={row} />}
+      {format === "raw" && <Raw src={src} row={row} />}
     </div>
   );
 }
@@ -78,6 +78,16 @@ const streamLabel = (firstAt: string, events: number) =>
 // session's events, live, filtered and formatted as the viewer chose.
 export default function ThinkingTab({ id, busy, max, backoff }: { id: string; busy: boolean; max?: number; backoff?: number[] }) {
   const pane = usePaneTab(id, "thinking");
+  const src = useMemo(() => userThinkingSource(id), [id]);
+  if (pane.data?.eventsOff) return <Text size="sm" c="dimmed" p="sm">Session events aren't recorded on this jam.</Text>;
+  return <ThinkingView source={src} busy={busy} max={max} backoff={backoff} streams={pane.data?.streams ?? []} />;
+}
+
+// ThinkingView renders a source's events. streams, when given, offers the
+// stream select (else the source is pinned to one stream by its caller).
+export function ThinkingView({ source, busy, max, backoff, streams, onTotals, onStream }: {
+  source: ThinkingSource; busy: boolean; max?: number; backoff?: number[]; streams?: ThinkingStream[];
+} & FeedCallbacks) {
   const [prefs, setPrefs] = useState(loadPrefs);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Set<string>>(() => new Set());
@@ -90,7 +100,7 @@ export default function ThinkingTab({ id, busy, max, backoff }: { id: string; bu
   // anchor: the row (and its offset in the view) a Load earlier keeps in
   // place while the rows above it arrive and are measured (until: ms).
   const anchor = useRef<{ key: string; offset: number; until: number } | null>(null);
-  const t = useThinkingFeed(id, { max, backoff, following: () => follow.current });
+  const t = useThinkingFeed(source, { max, backoff, following: () => follow.current, onTotals, onStream });
   const rows = useMemo(() => deriveRows(t.feed.items, prefs, q), [t.feed.items, prefs, q]);
   const tools = useMemo(() => {
     const x = toolsIn(t.feed.items);
@@ -125,7 +135,6 @@ export default function ThinkingTab({ id, busy, max, backoff }: { id: string; bu
     lastTop.current = el.scrollTop;
   });
 
-  if (pane.data?.eventsOff) return <Text size="sm" c="dimmed" p="sm">Session events aren't recorded on this jam.</Text>;
   const keepPlace = (fn: () => Promise<void>) => () => {
     const el = list.current;
     const first = el && v.getVirtualItems().find((vi) => vi.index >= extra && vi.end > el.scrollTop);
@@ -152,7 +161,7 @@ export default function ThinkingTab({ id, busy, max, backoff }: { id: string; bu
       return <div className="te-skip">⚠ events {r.skip!.from}-{r.skip!.to} skipped —{" "}
         <button type="button" className="te-small" onClick={keepPlace(() => t.fill(r.key))}>Load earlier</button></div>;
     }
-    return <Line id={id} row={r} format={prefs.format} open={open.has(r.key)} onToggle={() => toggle(r.key)} />;
+    return <Line src={source} row={r} format={prefs.format} open={open.has(r.key)} onToggle={() => toggle(r.key)} />;
   };
   return (
     <div className="th" data-thinking>
@@ -168,8 +177,8 @@ export default function ThinkingTab({ id, busy, max, backoff }: { id: string; bu
           style={{ flex: 1, minWidth: 90 }} />
         <NativeSelect size="xs" aria-label="Format" value={prefs.format} onChange={(e) => update({ ...prefs, format: e.currentTarget.value as Format })}
           data={FORMATS.map((f) => ({ value: f, label: f[0]!.toUpperCase() + f.slice(1) }))} />
-        <NativeSelect size="xs" aria-label="Stream" value={t.pinned} onChange={(e) => t.connect(e.currentTarget.value)}
-          data={[{ value: "", label: "Current" }, ...(pane.data?.streams ?? []).map((s) => ({ value: s.id, label: streamLabel(s.firstAt, s.events) }))]} />
+        {streams && <NativeSelect size="xs" aria-label="Stream" value={t.pinned} onChange={(e) => t.connect(e.currentTarget.value)}
+          data={[{ value: "", label: "Current" }, ...streams.map((s) => ({ value: s.id, label: streamLabel(s.firstAt, s.events) }))]} />}
       </div>
       <div ref={list} className="th-list" role="log" aria-live="polite" aria-label="Session events"
         onWheel={letGo} onTouchStart={letGo} onKeyDown={letGo}

@@ -1,7 +1,9 @@
-import { Badge, Button, Loader, NavLink, ScrollArea, Stack, Text } from "@mantine/core";
+import { Badge, Button, Group, Loader, NavLink, ScrollArea, Stack, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import type { ReactNode } from "react";
 import { RecipientPicker } from "../compose/RecipientPicker";
+import { NewSession } from "../compose/NewSession";
+import { useBoot } from "../BootContext";
 import { useChimes } from "../sounds/chimes";
 import { NavLink as RouterLink, useLocation, useParams } from "react-router";
 import { useRail } from "./useRail";
@@ -15,13 +17,19 @@ export function Rail() {
   useAppBadge(data?.unreadTotal);
   const here = useLocation();
   const [picking, picker] = useDisclosure(false);
+  const [starting, starter] = useDisclosure(false);
+  const boot = useBoot();
   useChimes(data, dataUpdatedAt, channel);
-  // The New message button heads every state of the rail, so a member with
-  // no conversations yet can start one.
+  // The New message (and New session) buttons head every state of the rail,
+  // so a member with no conversations yet can start one.
   const frame = (body: ReactNode) => (
     <>
-      <Button size="xs" variant="light" m="xs" onClick={picker.open}>New message</Button>
+      <Group gap="xs" m="xs">
+        <Button size="xs" variant="light" onClick={picker.open}>New message</Button>
+        {boot.newSession && <Button size="xs" variant="light" onClick={starter.open}>New session</Button>}
+      </Group>
       <RecipientPicker opened={picking} onClose={picker.close} />
+      {boot.newSession && <NewSession opened={starting} onClose={starter.close} />}
       {body}
     </>
   );

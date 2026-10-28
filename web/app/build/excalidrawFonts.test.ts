@@ -18,7 +18,7 @@ function run(modules: [string, string][], chunks: Record<string, string>) {
 describe("the Excalidraw font plugin", () => {
   it("points the CDN fallback at the app's own bundle", () => {
     const [out] = run([[ID, SRC]], { "BoardEditor.js": "fine" });
-    expect(out).toContain("`${location.origin}/app/user/assets/excalidraw/`");
+    expect(out).toContain("`${location.origin}/app/assets/excalidraw/`");
     expect(out).not.toContain("esm.sh");
   });
 

@@ -167,3 +167,17 @@ func personalOwners(st jam.Store) map[string]string {
 	}
 	return out
 }
+
+// personalStarter is the user area's New session (userui.PersonalStarter):
+// jam.StartPersonalSession with the runtime's supervisor and allocator.
+type personalStarter struct {
+	st    jam.Store
+	sup   *jam.Supervisor
+	alloc jam.SessionAllocator
+	log   *slog.Logger
+}
+
+// StartPersonal implements userui.PersonalStarter.
+func (p personalStarter) StartPersonal(ctx context.Context, owner jam.Member, by string, b jam.PersonalSessionBody) (jam.PersonalSessionResult, error) {
+	return jam.StartPersonalSession(ctx, p.st, p.sup, p.alloc, p.log, owner, by, b)
+}

@@ -1,10 +1,10 @@
 ---
 summary: The user area under `/app/user` — the Jam app, a single-page web app where a person reads and replies to their intercom channels (and their legacy History), grouped by attention (Needs you → Sessions → Channels), with New message, asks, attachments, whiteboards, per-(participant,channel) unread and a live status strip for the sessions in each conversation. It reads the user area's JSON API (`/app/user/api/`) and refreshes live over an SSE signal stream (`GET /app/user/events`), with a 30 s poll as fallback.
 read_when: You want a project member to read/reply to their studios and channels in a browser (not via the Discord/tracker relays), or you're operating the `/app/user` area — what it shows, its URLs, the composer and copy controls, unread, membership, the live refresh, or the session status strip.
-owns: what the `/app/user` user area shows and does — the rail attention grouping, the conversation view, New message, asks in a conversation, the composer (keys, saved reply, draft stack, attachments) and copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
+owns: what the `/app/user` user area shows and does — the rail attention grouping, the conversation view, New message, New session, asks in a conversation, the composer (keys, saved reply, draft stack, attachments) and copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
 prereqs: web-app.md for how the app is built and served; session-events.md for the event stream the status strip derives from; ui.md for the `/app` login and who counts as a user; intercom.md for the squawk Log + wake-on; coves.md for the session phases and activity the "Needs you" treatment reflects; escalation.md for asking for a person
 tier: leaf
-updated: 2026-10-27
+updated: 2026-10-28
 ---
 
 # The user area (`/app/user`)
@@ -46,7 +46,7 @@ principal menu; see [ui.md](ui.md)) with **Inbox** current.
   across their projects. Leaving a project takes its channels away at once.
   Each row shows the label, a presence pin, its open asks and an **unread**
   badge. Last, **History (before the upgrade)**: the conversations of the
-  frozen legacy log, read-only. **New message** sits in the rail's header.
+  frozen legacy log, read-only. **New message** (and **New session**) sit in the rail's header.
   - **Mission:** a row may show a session's [mission](intercom.md#what-the-tools-do)
     as a muted second line. A session channel shows its own active session's; a
     ticket channel the most recently raised active session's; a chat only when
@@ -68,6 +68,8 @@ principal menu; see [ui.md](ui.md)) with **Inbox** current.
   may reach (a standing or ticket session; a personal session only if they're
   already in its channel), live sessions' tickets, and rooms. A message to a
   session goes to its home channel, which the person joins.
+- **New session:** start a [personal session](personal-sessions.md#starting-one-from-the-inbox)
+  of a role, with an optional first message, and land in its conversation.
 
 **Writes are same-origin only.** Every `/app/user` write is refused (`403`)
 unless its `Origin` (or `Referer`) is the page's own host or one of

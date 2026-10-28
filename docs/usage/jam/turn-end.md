@@ -152,6 +152,9 @@ but background tasks are still running** — jam-studio-agent keeps the episode 
   a turn) is the **same run resuming**: Jam keeps the wake baseline (`WaitSeq`), so a
   reply that landed while holding still wakes the agent. Only a run that starts from
   `waiting` (or a raise) re-baselines.
+- Only the agent's own background tasks (those listed in `background_tasks_changed`)
+  count: a Workflow subagent's tool calls also emit `task_notification`, but start no
+  turn, so they leave the hold — and its `BackgroundWait` timer — alone.
 - When the episode finally ends, the studio reports `waiting` as before.
 - In `/app/user`, a holding session reads "is working in the background".
 

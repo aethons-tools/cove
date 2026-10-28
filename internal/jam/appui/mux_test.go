@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // echo stubs an area handler: it answers with the path it was asked for.
@@ -162,6 +163,27 @@ func TestStaticUngated(t *testing.T) {
 	}
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/css") {
 		t.Errorf("Content-Type = %q, want text/css", ct)
+	}
+}
+
+// The app bundle's assets are code, not data: served to anyone signed in
+// or not, for both areas.
+func TestAssetsUngated(t *testing.T) {
+	mux := Handler(Deps{
+		Gate:  NewGate(GateConfig{Sessions: testSessions(t), LoginPath: "/app/auth/login", Log: discardLog()}),
+		User:  echo("user"),
+		Admin: echo("admin"),
+		App:   fstest.MapFS{"index.html": {Data: []byte("x")}, "assets/x.js": {Data: []byte("js")}},
+	})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, muxReq("GET", "/app/assets/x.js", "", ""))
+	if rec.Code != 200 || rec.Body.String() != "js" {
+		t.Fatalf("GET /app/assets/x.js = %d %q (Location %q), want 200 js", rec.Code, rec.Body, rec.Header().Get("Location"))
+	}
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, muxReq("POST", "/app/assets/x.js", "", ""))
+	if rec.Code == 200 {
+		t.Errorf("POST /app/assets/x.js = 200, want refused")
 	}
 }
 

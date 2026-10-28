@@ -33,6 +33,8 @@ type Bootstrap struct {
 	PushKey   string   `json:"pushKey"`   // VAPID public key; "" = Web Push off
 	PushFocus bool     `json:"pushFocus"` // report the open conversation (POST /app/user/push/focus)
 	Boards    bool     `json:"boards"`    // whiteboards on (the app bundles its editor)
+	// NewSession offers New session (personal sessions can be started here).
+	NewSession bool `json:"newSession"`
 }
 
 // BootUser is the signed-in member.
@@ -408,5 +410,37 @@ type NewBoardRequest struct {
 // NewBoardResponse is the new board and its conversation.
 type NewBoardResponse struct {
 	Board   string `json:"board"`
+	Channel string `json:"channel"`
+}
+
+// SessionRolesResponse is GET api/session-roles: the roles the viewer may
+// start a personal session of (the New session picker).
+type SessionRolesResponse struct {
+	Roles []SessionRole `json:"roles"`
+}
+
+// SessionRole is one role offered in the New session picker.
+type SessionRole struct {
+	Project string `json:"project"`
+	Role    string `json:"role"`
+	// Full says why none can start now ("" = one can): the role's pool, or
+	// the viewer's share of it, is taken.
+	Full string `json:"full"`
+}
+
+// StartSessionRequest is POST api/sessions: start a personal session of
+// Project's Role, owned by the viewer; Message, when set, is posted as the
+// viewer's first message in its session channel.
+type StartSessionRequest struct {
+	Project string `json:"project"`
+	Role    string `json:"role"`
+	Message string `json:"message,omitempty"`
+}
+
+// SessionStarted is POST api/sessions's answer: the new session and its
+// session channel (its conversation).
+type SessionStarted struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
 	Channel string `json:"channel"`
 }

@@ -1,5 +1,6 @@
-# Generates the Jam app's API types from Go (docs/web-app.md). Only
-# apitypes.go is read; jam's string kinds map to string.
+# Generates the Jam app's API types from Go (docs/web-app.md), one file per
+# area (user, admin). Only each package's apitypes.go is read; jam's string
+# kinds map to string.
 packages:
   - path: github.com/aethons-tools/cove/internal/jam/userui
     include_files: [apitypes.go]
@@ -10,3 +11,6 @@ packages:
       template.HTML: string
       time.Time: string
       intercom.AskOption: "{ id: string; label: string; detail?: string }"
+  - path: github.com/aethons-tools/cove/internal/jam/adminui
+    include_files: [apitypes.go]
+    output_path: web/app/src/admin/api/types.ts

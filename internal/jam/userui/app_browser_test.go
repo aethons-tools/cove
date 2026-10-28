@@ -715,7 +715,7 @@ func TestBrowserAppBoard(t *testing.T) {
 		chromedp.Sleep(800*time.Millisecond),
 		into(&f, chromedp.Evaluate[fonts](`(async function(){ await document.fonts.ready;
 			var r = performance.getEntriesByType('resource').map(function(e){ return e.name; });
-			return {local: r.some(function(n){ return n.indexOf(location.origin + '/app/user/assets/excalidraw/fonts/') === 0; }),
+			return {local: r.some(function(n){ return n.indexOf(location.origin + '/app/assets/excalidraw/fonts/') === 0; }),
 				foreign: r.filter(function(n){ return n.indexOf(location.origin) !== 0; })}; })()`, chromedp.EvalAwaitPromise)),
 	)
 	if err != nil {
@@ -856,11 +856,12 @@ func TestBrowserAppPush(t *testing.T) {
 }
 
 // withPWA serves the app-level routes the Jam app's page loads (appui's
-// /app/sw.js, the manifest, its icons), as jam does, then f.
+// /app/sw.js, the manifest, its icons, the bundle's /app/assets/), as jam
+// does, then f.
 func withPWA(f http.HandlerFunc) http.Handler {
 	pwa := appui.Handler(appui.Deps{Gate: appui.NewGate(appui.GateConfig{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/app/sw.js" || r.URL.Path == "/app/manifest.webmanifest" || strings.HasPrefix(r.URL.Path, "/app/static/") {
+		if r.URL.Path == "/app/sw.js" || r.URL.Path == "/app/manifest.webmanifest" || strings.HasPrefix(r.URL.Path, "/app/static/") || strings.HasPrefix(r.URL.Path, "/app/assets/") {
 			pwa.ServeHTTP(w, r)
 			return
 		}

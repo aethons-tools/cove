@@ -67,7 +67,7 @@ func addKeepTools(s *mcp.Server, getenv func(string) string) {
 	ac := agentrun.DialAgentSocket(agentSocket(getenv))
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "keep_start",
-		Description: "Start a process that keeps running after your turn ends (shell background jobs die with the turn), e.g. a preview server. " +
+		Description: "Start a process that keeps running while you wait, e.g. a preview server (a plain background job outlives your turn too, but freezes while the studio is paused and nothing watches it). The studio isn't paused while a kept process runs. " +
 			"Its output goes to the log it returns; if it exits on its own, you are woken with its last lines. It stops with your session or with keep_stop. " +
 			"Agree with the person how long it should run, and set a wake (turn_end wake_at) to ask them then.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in keepStartIn) (*mcp.CallToolResult, agentrun.KeptProcess, error) {

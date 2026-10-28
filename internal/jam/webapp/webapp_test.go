@@ -10,7 +10,7 @@ import (
 	"testing/fstest"
 )
 
-const indexHTML = `<!doctype html><html><head><!--jam:bootstrap--><script type="module" src="/app/user/assets/index-abc.js"></script></head><body><div id="root"></div></body></html>`
+const indexHTML = `<!doctype html><html><head><!--jam:bootstrap--><script type="module" src="/app/assets/index-abc.js"></script></head><body><div id="root"></div></body></html>`
 
 func bundle() fstest.MapFS {
 	return fstest.MapFS{
@@ -93,22 +93,44 @@ func TestBootstrapErrorIs500(t *testing.T) {
 	}
 }
 
-func TestAssetsImmutableAndMissingAssets404(t *testing.T) {
-	rec := serve(t, cfg(), "GET", "/app/user/assets/index-abc.js")
+func serveAssets(t *testing.T, fsys fstest.MapFS, method, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	Assets(fsys).ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+	return rec
+}
+
+func TestAssets(t *testing.T) {
+	rec := serveAssets(t, bundle(), "GET", "/app/assets/index-abc.js")
 	if rec.Code != 200 || rec.Body.String() != "console.log(1)" {
 		t.Fatalf("asset = %d %q", rec.Code, rec.Body)
 	}
 	if got := rec.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
 		t.Errorf("asset Cache-Control = %q", got)
 	}
-	for _, path := range []string{"/app/user/assets/old-999.js", "/app/user/assets/", "/app/user/assets/.keep", "/app/user/.keep", "/app/user/index.html"} {
-		if rec := serve(t, cfg(), "GET", path); path == "/app/user/index.html" {
-			if rec.Code != 301 && rec.Code != 308 && rec.Code != 200 {
-				t.Errorf("GET %s = %d", path, rec.Code)
-			}
-		} else if rec.Code != 404 {
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("asset without nosniff")
+	}
+	for _, path := range []string{"/app/assets/old-999.js", "/app/assets/", "/app/assets/.keep", "/app/assets/../index.html", "/app/index.html"} {
+		if rec := serveAssets(t, bundle(), "GET", path); rec.Code != 404 {
 			t.Errorf("GET %s = %d, want 404", path, rec.Code)
 		}
+	}
+	if rec := serveAssets(t, fstest.MapFS{".keep": {Data: []byte("x")}}, "GET", "/app/assets/index-abc.js"); rec.Code != 404 {
+		t.Errorf("asset without bundle = %d, want 404", rec.Code)
+	}
+}
+
+// Assets live at /app/assets/ only: under an area a stale asset path is a
+// 404, never the app's index.
+func TestHandlerNoAreaAssets(t *testing.T) {
+	for _, path := range []string{"/app/user/assets/index-abc.js", "/app/user/assets/old-999.js", "/app/user/assets/", "/app/user/.keep"} {
+		if rec := serve(t, cfg(), "GET", path); rec.Code != 404 {
+			t.Errorf("GET %s = %d, want 404", path, rec.Code)
+		}
+	}
+	if rec := serve(t, cfg(), "GET", "/app/user/index.html"); rec.Code != 301 && rec.Code != 308 && rec.Code != 200 {
+		t.Errorf("GET /app/user/index.html = %d", rec.Code)
 	}
 }
 

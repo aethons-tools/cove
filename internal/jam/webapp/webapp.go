@@ -1,6 +1,6 @@
 // Package webapp serves a single-page app bundle built by Vite (web/app,
-// embedded via uiassets): hashed files under assets/ as immutable, and every
-// other path as index.html with a per-request bootstrap and a strict CSP, so
+// embedded via uiassets): hashed files at /app/assets/ (Assets) as
+// immutable, and every other path under an area as index.html with a per-request bootstrap and a strict CSP, so
 // the app's client-side routes deep-link. It knows nothing about who may see
 // what: mount it behind the area's gate. See docs/web-app.md.
 package webapp
@@ -42,7 +42,6 @@ const headMarker = "<!--jam:head-->"
 func Handler(c Config) http.Handler {
 	index, _ := fs.ReadFile(c.FS, "index.html")
 	csp := policy(c.FrameSrc)
-	assets := http.FileServer(http.FS(c.FS))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
@@ -58,20 +57,9 @@ func Handler(c Config) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		if strings.HasPrefix(rest, "assets/") || (rest != "" && strings.HasPrefix(path.Base(rest), ".")) {
-			// Files only: no listings, no dotfiles, and never index.html for a
-			// missing asset (a stale chunk must fail as a 404, not as HTML).
-			if index == nil || strings.HasSuffix(rest, "/") || strings.HasPrefix(path.Base(rest), ".") {
-				http.NotFound(w, r)
-				return
-			}
-			if _, err := fs.Stat(c.FS, rest); err != nil {
-				http.NotFound(w, r)
-				return
-			}
-			h.Set("Cache-Control", "public, max-age=31536000, immutable")
-			r2 := r.Clone(r.Context())
-			r2.URL.Path = "/" + rest
-			assets.ServeHTTP(w, r2)
+			// Assets live at /app/assets/ (Assets), never under an area: a
+			// stale chunk must fail as a 404, not as the index. No dotfiles.
+			http.NotFound(w, r)
 			return
 		}
 		if index == nil {
@@ -99,6 +87,36 @@ func Handler(c Config) http.Handler {
 		h.Set("Cache-Control", "no-store")
 		h.Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(page)
+	})
+}
+
+// AssetsPrefix is where the bundle's hashed files are served, for both areas
+// (Vite's base is /app/): they are code, not data, so they sit outside the
+// area gates (an admin needn't be a member).
+const AssetsPrefix = "/app/assets/"
+
+// Assets serves the bundle's assets/ at AssetsPrefix: files only, immutable,
+// never index.html for a missing one, no listings, no dotfiles. GET and HEAD
+// (mount it on a GET route).
+func Assets(fsys fs.FS) http.Handler {
+	files := http.FileServer(http.FS(fsys))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rest, ok := strings.CutPrefix(r.URL.Path, AssetsPrefix)
+		if !ok || rest == "" || strings.HasSuffix(rest, "/") || strings.HasPrefix(path.Base(rest), ".") || path.Clean("/"+rest) != "/"+rest {
+			http.NotFound(w, r)
+			return
+		}
+		name := "assets/" + rest
+		if st, err := fs.Stat(fsys, name); err != nil || st.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Cache-Control", "public, max-age=31536000, immutable")
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/" + name
+		files.ServeHTTP(w, r2)
 	})
 }
 

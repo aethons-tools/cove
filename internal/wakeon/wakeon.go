@@ -390,7 +390,8 @@ func (e *Engine) tick(ctx context.Context) {
 		if inst.SessionKind == jam.SessionKindPersonal && !e.tunnelsInUse(inst) && e.idleLadder(ctx, inst) {
 			continue // reclaimed
 		}
-		if inst.Phase != jam.PhaseIdled && e.now().Sub(inst.WaitingSince) > e.cfg.WarmTimeout && !gateInFlight(inst) && !e.tunnelsInUse(inst) {
+		// Kept processes (keep_start) keep running while it waits: never frozen.
+		if inst.Phase != jam.PhaseIdled && e.now().Sub(inst.WaitingSince) > e.cfg.WarmTimeout && !gateInFlight(inst) && !e.tunnelsInUse(inst) && inst.KeptProcesses == 0 {
 			// ErrStudioInUse: a tunnel opened since the check above; not a failure.
 			if err := e.idler.Idle(ctx, inst.ActorID); err != nil && !errors.Is(err, jam.ErrStudioInUse) {
 				e.log.Warn("wakeon: idle (pause) failed", "actor", inst.ActorID, "error", err.Error())

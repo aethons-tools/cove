@@ -122,26 +122,6 @@ func TestDiscordAuthorOfRoomOnAnyConnectionOrMode(t *testing.T) {
 	}
 }
 
-// An owner with a Discord account but no inbox in a discord-chat project
-// can't be reached: a personal session for them is refused up front.
-func TestPersonalDeliveryProblemWithoutInbox(t *testing.T) {
-	s := NewMemStore()
-	mustCreateProject(t, s, "acme")
-	if err := s.SetChatService("acme", "discord"); err != nil {
-		t.Fatal(err)
-	}
-	if err := AddPerson(s, "acme", Human{Name: "alice", Login: "local", Delivery: []DeliveryProfile{{Service: "discord", UserID: "111"}}}); err != nil {
-		t.Fatal(err)
-	}
-	owner, ok := MemberByLogin(s, "acme", "local")
-	if !ok || owner.DiscordUID != "111" {
-		t.Fatalf("owner = %+v, %v", owner, ok)
-	}
-	if msg := personalDeliveryProblem(s, "acme", owner); msg == "" {
-		t.Fatal("an owner with a Discord account but no inbox in the project can't receive DMs")
-	}
-}
-
 // MemberOf hands out copies: mutating one never reaches the store.
 func TestMemberOfCopiesDelivery(t *testing.T) {
 	s, p := peopleFixture(t)

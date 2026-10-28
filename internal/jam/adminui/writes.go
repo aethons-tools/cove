@@ -1,6 +1,7 @@
 package adminui
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -85,6 +86,107 @@ func renderError(w http.ResponseWriter, status int, msg string) {
 	_, _ = w.Write([]byte(`<p class="error">` + template.HTMLEscapeString(msg) + `</p>`))
 }
 
+// createRole creates a role in project from the New role form's fields (get
+// reads one by its form name: name, destinations, ttl-seconds, kit,
+// model-spec). Create only: an existing role is a 409 that says to edit it on
+// its page.
+func createRole(store jam.Store, credExists func(string) bool, project string, get func(string) string) error {
+	name := strings.TrimSpace(get("name"))
+	if name == "" {
+		return badRequest("name is required")
+	}
+	kit := strings.TrimSpace(get("kit"))
+	if kit != "" {
+		if _, ok := store.GetKit(kit); !ok {
+			return badRequest("kit does not exist")
+		}
+	}
+	ttl := 0
+	if v := strings.TrimSpace(get("ttl-seconds")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return badRequest("ttl-seconds must be an integer")
+		}
+		ttl = n
+	}
+	dests, creds, err := jam.ParseDestinations(get("destinations"))
+	if err != nil {
+		return badRequest(err.Error())
+	}
+	role := jam.Role{
+		Name: name,
+		Scope: jam.Scope{
+			Destinations: dests,
+			Credentials:  creds,
+			TTL:          time.Duration(ttl) * time.Second,
+		},
+		Kit:       kit,
+		ModelSpec: strings.TrimSpace(get("model-spec")), // CreateRole checks it exists
+	}
+	if err := jam.ValidateCredentials(role.Scope, credExists); err != nil {
+		return badRequest(err.Error())
+	}
+	if err := jam.CreateRole(store, project, role); err != nil {
+		status := jam.WriteStatus(err, http.StatusBadRequest)
+		msg := err.Error()
+		if status == http.StatusConflict {
+			msg += "; edit it on its page"
+		}
+		return &jam.WriteError{Status: status, Msg: msg}
+	}
+	return nil
+}
+
+// enrollActor enrolls id with a grant of project/role (dests: destination
+// overrides, name=cred,…) and returns its identity token — shown once, never
+// logged.
+func enrollActor(store jam.Store, credExists func(string) bool, id, project, role, dests string) (string, error) {
+	if id == "" {
+		return "", badRequest("id is required")
+	}
+	if role == "" {
+		return "", badRequest("role is required")
+	}
+	overrides, err := overridesFrom(store, project, role, dests, credExists)
+	if err != nil {
+		return "", badRequest(err.Error())
+	}
+	token, err := jam.Enroll(store, id, project, role, overrides, time.Now())
+	if err != nil {
+		return "", badRequest(err.Error())
+	}
+	return token, nil
+}
+
+// addActorGrant grants actor id project/role, with dests as overrides.
+func addActorGrant(store jam.Store, credExists func(string) bool, id, project, role, dests string) error {
+	if role == "" {
+		return badRequest("role is required")
+	}
+	overrides, err := overridesFrom(store, project, role, dests, credExists)
+	if err != nil {
+		return badRequest(err.Error())
+	}
+	if err := store.AddGrant(id, jam.Grant{Project: project, Role: role, Overrides: overrides}); err != nil {
+		return &jam.WriteError{Status: http.StatusNotFound, Msg: err.Error()}
+	}
+	return nil
+}
+
+// raiseManual raises a manual studio labelled label and returns its session
+// id. The identity token and launch secret RaiseManual returns are dropped:
+// with a real launcher Jam consumes them; they never reach a browser or log.
+func raiseManual(ctx context.Context, store jam.Store, sup *jam.Supervisor, label, project, role, unit, prompt string) (string, error) {
+	if label == "" {
+		return "", badRequest("id is required")
+	}
+	if role == "" {
+		return "", badRequest("role is required")
+	}
+	_, sid, _, _, err := jam.RaiseManual(ctx, store, sup, label, jam.RaiseSpec{Project: project, Role: role, Unit: unit, Prompt: prompt})
+	return sid, err
+}
+
 func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *jam.Supervisor, credExists func(string) bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	mux.HandleFunc("POST /app/admin/enrollments", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
@@ -94,25 +196,10 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			renderError(w, http.StatusBadRequest, "invalid form")
 			return
 		}
-		id := strings.TrimSpace(r.FormValue("id"))
-		if id == "" {
-			renderError(w, http.StatusBadRequest, "id is required")
-			return
-		}
-		role := strings.TrimSpace(r.FormValue("role"))
-		if role == "" {
-			renderError(w, http.StatusBadRequest, "role is required")
-			return
-		}
-		project := strings.TrimSpace(r.FormValue("project"))
-		overrides, err := overridesFrom(store, project, role, r.FormValue("destinations"), credExists)
+		id, project, role := strings.TrimSpace(r.FormValue("id")), strings.TrimSpace(r.FormValue("project")), strings.TrimSpace(r.FormValue("role"))
+		token, err := enrollActor(store, credExists, id, project, role, r.FormValue("destinations"))
 		if err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		token, err := jam.Enroll(store, id, project, role, overrides, time.Now())
-		if err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
 			return
 		}
 		log.Info("ui enrolled", "operator", jam.OperatorID(r), "id", id, "project", project, "role", role)
@@ -141,54 +228,9 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			renderError(w, http.StatusBadRequest, "invalid form")
 			return
 		}
-		name := strings.TrimSpace(r.FormValue("name"))
-		if name == "" {
-			renderError(w, http.StatusBadRequest, "name is required")
-			return
-		}
-		kit := strings.TrimSpace(r.FormValue("kit"))
-		if kit != "" {
-			if _, ok := store.GetKit(kit); !ok {
-				renderError(w, http.StatusBadRequest, "kit does not exist")
-				return
-			}
-		}
-		ttl := 0
-		if v := strings.TrimSpace(r.FormValue("ttl-seconds")); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				renderError(w, http.StatusBadRequest, "ttl-seconds must be an integer")
-				return
-			}
-			ttl = n
-		}
-		project := strings.TrimSpace(r.FormValue("project"))
-		dests, creds, err := jam.ParseDestinations(r.FormValue("destinations"))
-		if err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		role := jam.Role{
-			Name: name,
-			Scope: jam.Scope{
-				Destinations: dests,
-				Credentials:  creds,
-				TTL:          time.Duration(ttl) * time.Second,
-			},
-			Kit:       kit,
-			ModelSpec: strings.TrimSpace(r.FormValue("model-spec")), // CreateRole checks it exists
-		}
-		if err := jam.ValidateCredentials(role.Scope, credExists); err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		// Create only: an existing role is edited section by section on its page.
-		if err := jam.CreateRole(store, project, role); err != nil {
-			msg := err.Error()
-			if jam.WriteStatus(err, 0) == http.StatusConflict {
-				msg += "; edit it on its page"
-			}
-			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), msg)
+		project, name := strings.TrimSpace(r.FormValue("project")), strings.TrimSpace(r.FormValue("name"))
+		if err := createRole(store, credExists, project, r.FormValue); err != nil {
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
 			return
 		}
 		// The new role's page is where it is edited; htmx follows the redirect.
@@ -205,20 +247,9 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			renderError(w, http.StatusBadRequest, "invalid form")
 			return
 		}
-		role := strings.TrimSpace(r.FormValue("role"))
-		if role == "" {
-			renderError(w, http.StatusBadRequest, "role is required")
-			return
-		}
-		project := strings.TrimSpace(r.FormValue("project"))
-		overrides, err := overridesFrom(store, project, role, r.FormValue("destinations"), credExists)
-		if err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		g := jam.Grant{Project: project, Role: role, Overrides: overrides}
-		if err := store.AddGrant(r.PathValue("id"), g); err != nil {
-			renderError(w, http.StatusNotFound, err.Error())
+		project, role := strings.TrimSpace(r.FormValue("project")), strings.TrimSpace(r.FormValue("role"))
+		if err := addActorGrant(store, credExists, r.PathValue("id"), project, role, r.FormValue("destinations")); err != nil {
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
 			return
 		}
 		log.Info("ui grant added", "operator", jam.OperatorID(r), "id", r.PathValue("id"), "project", orDefaultProject(project), "role", role)
@@ -265,23 +296,8 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			renderError(w, http.StatusBadRequest, "invalid form")
 			return
 		}
-		id := strings.TrimSpace(r.FormValue("id"))
-		if id == "" {
-			renderError(w, http.StatusBadRequest, "id is required")
-			return
-		}
-		role := strings.TrimSpace(r.FormValue("role"))
-		if role == "" {
-			renderError(w, http.StatusBadRequest, "role is required")
-			return
-		}
-		project := strings.TrimSpace(r.FormValue("project"))
-		// Discard the returned identity token + launch secret: with a real launcher
-		// Jam consumes them internally; they must never reach the browser or a log.
-		_, sid, _, _, err := jam.RaiseManual(r.Context(), store, sup, id, jam.RaiseSpec{
-			Project: project, Role: role,
-			Unit: strings.TrimSpace(r.FormValue("unit")), Prompt: r.FormValue("prompt"),
-		})
+		id, project, role := strings.TrimSpace(r.FormValue("id")), strings.TrimSpace(r.FormValue("project")), strings.TrimSpace(r.FormValue("role"))
+		sid, err := raiseManual(r.Context(), store, sup, id, project, role, strings.TrimSpace(r.FormValue("unit")), r.FormValue("prompt"))
 		if err != nil {
 			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
 			return

@@ -106,6 +106,13 @@ func (t *idleTracker) Observe(line []byte) {
 		}
 		t.tasks = next
 	case EventBackgroundDone:
+		_, listed := t.tasks[ev.TaskID]
+		_, awaited := t.awaiting[ev.TaskID]
+		if !listed && !awaited {
+			// Not one of our background tasks (a Workflow subagent's own tool
+			// call): its notification starts no turn, so it must not end a hold.
+			break
+		}
 		delete(t.awaiting, ev.TaskID)
 		t.busy = true
 		if !t.inTurn {

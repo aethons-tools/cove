@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,8 +69,11 @@ type keeper struct {
 	workdir string                                     // default working directory
 	env     func() []string                            // the agent's env (nil or a nil result = inherit)
 	onExit  func(name string, status int, tail string) // a process exited on its own
-	log     *slog.Logger
-	procs   map[string]*kept
+	// onChange, when set, runs (in its own goroutine) after the kept set
+	// changes; it reads the current set itself, so late runs converge.
+	onChange func()
+	log      *slog.Logger
+	procs    map[string]*kept
 }
 
 func newKeeper(dir, workdir string, env func() []string, onExit func(string, int, string), log *slog.Logger) *keeper {
@@ -125,6 +129,7 @@ func (k *keeper) Start(name, command, workdir string) (KeptProcess, error) {
 		BootID: bootID(), StartTicks: startTicks(pid)}, done: make(chan struct{})}
 	k.procs[name] = p
 	k.saveLocked()
+	k.changed()
 	k.log.Info("agentrun: kept process started", "name", name, "pid", p.PID)
 	go func() {
 		err := cmd.Wait()
@@ -140,6 +145,7 @@ func (k *keeper) Start(name, command, workdir string) (KeptProcess, error) {
 		if k.procs[name] == p {
 			delete(k.procs, name)
 			k.saveLocked()
+			k.changed()
 		}
 		k.mu.Unlock()
 		close(p.done) // after the registry no longer lists it
@@ -224,6 +230,14 @@ func (k *keeper) CleanupStale() []string {
 	k.saveLocked()
 	k.mu.Unlock()
 	return names
+}
+
+// changed reports a change of the kept set. Caller holds mu (onChange runs
+// later, without it).
+func (k *keeper) changed() {
+	if k.onChange != nil {
+		go k.onChange()
+	}
 }
 
 func (k *keeper) registry() string { return filepath.Join(k.dir, "registry.json") }
@@ -342,6 +356,24 @@ func (w *Workload) agentEnv() []string {
 	w.gateMu.Lock()
 	defer w.gateMu.Unlock()
 	return slices.Clone(w.gateEnv)
+}
+
+// reportKept tells Jam how many processes are kept, so it doesn't pause the
+// studio while any run. Calls are serialized and each sends the count at the
+// time it runs, so the last one sent is current.
+func (w *Workload) reportKept() {
+	w.keptMu.Lock()
+	defer w.keptMu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), turnIOTimeout)
+	defer cancel()
+	n := len(w.keep.List())
+	if err := w.cfg.TurnIO.SetKept(ctx, n); err != nil {
+		if errors.Is(err, ErrUnsupported) {
+			w.log.Warn("agentrun: this Jam can't keep the studio unpaused for kept processes; they freeze while the session waits")
+			return
+		}
+		w.log.Warn("agentrun: kept-process count not reported", "count", n, "err", err.Error())
+	}
 }
 
 // keptExited wakes the session when a kept process exits on its own.

@@ -4,5 +4,5 @@
 declare global {
   interface Window { EXCALIDRAW_ASSET_PATH?: string | string[] }
 }
-window.EXCALIDRAW_ASSET_PATH = `${location.origin}/app/user/assets/excalidraw/`;
+window.EXCALIDRAW_ASSET_PATH = `${location.origin}/app/assets/excalidraw/`;
 export {};
