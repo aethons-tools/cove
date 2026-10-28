@@ -141,12 +141,22 @@ function Role({ d }: { d: RoleDetail }) {
         ) : <Text size="sm" c="dimmed">No agents hold this role.</Text>}
       </Section>
       <Section title="Running" sub="this role's running agents"><CovesTable rows={d.running} /></Section>
-      {d.setupEnabled && (
-        <Section title="Setup" sub="what a studio of this role raised now would get">
-          <SetupView path={`projects/${enc(p)}/roles/${enc(r)}/setup`} />
-        </Section>
-      )}
+      {d.setupEnabled && <SetupSection path={`projects/${enc(p)}/roles/${enc(r)}/setup`} />}
     </Stack>
+  );
+}
+
+// SetupSection reads the role's setup only once opened: an inspection reads
+// images on the launcher host and is audit-logged.
+function SetupSection({ path }: { path: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card withBorder>
+      <details onToggle={(e) => setOpen(e.currentTarget.open)}>
+        <summary style={{ cursor: "pointer", fontWeight: 600 }}>Setup — what a studio of this role raised now would get</summary>
+        {open && <SetupView path={path} />}
+      </details>
+    </Card>
   );
 }
 
