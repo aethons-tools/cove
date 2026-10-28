@@ -89,7 +89,7 @@ func TestAdminDraftRaiseRequestGone(t *testing.T) {
 // is set by POST /admin/coves only. Every other raise path — the admin UI's
 // raise, personal and standing sessions, the requisitioner — builds its
 // RaiseSpec without it, and the one other assignment is a context refresh
-// of an already-raised draft studio (ContextForActor), which never raises.
+// of an already-raised draft studio (ContextForTurns), which never raises.
 // It walks every non-test Go file in the module.
 func TestOnlyTheAdminRaiseSetsKitDraft(t *testing.T) {
 	root, err := filepath.Abs("../..")
@@ -169,7 +169,7 @@ func TestOnlyTheAdminRaiseSetsKitDraft(t *testing.T) {
 	want := map[site]bool{
 		{filepath.Join("internal", "jam", "admin.go"), adminRaiseFunc(t, root), "RaiseSpec{KitDraft: …}"}: true,
 		{filepath.Join("internal", "jam", "supervisor.go"), "Raise", "inst.KitDraft ="}:                   true, // the instance record, not the spec
-		{filepath.Join("internal", "jam", "supervisor.go"), "ContextForActor", "spec.KitDraft ="}:         true, // a refresh of a raised draft studio
+		{filepath.Join("internal", "jam", "supervisor.go"), "ContextForTurns", "spec.KitDraft ="}:         true, // a refresh of a raised draft studio
 	}
 	seen := map[site]bool{}
 	for _, s := range got {

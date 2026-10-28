@@ -188,3 +188,20 @@ func TestPreparePartsRules(t *testing.T) {
 		}
 	}
 }
+
+// A turn-end part marks an auto-posted turn end: no data, at most one.
+func TestValidatePartsTurnEnd(t *testing.T) {
+	te := Part{Type: TurnEndPartType}
+	if err := validateParts([]Part{te}); err != nil {
+		t.Fatalf("one turn-end part: %v", err)
+	}
+	if err := validateParts([]Part{te, te}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("two turn-end parts: %v, want ErrInvalid", err)
+	}
+	if err := validateParts([]Part{{Type: TurnEndPartType, Data: []byte(`{}`)}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a turn-end part with data: %v, want ErrInvalid", err)
+	}
+	if !IsTurnEnd(Squawk{Parts: []Part{te}}) || IsTurnEnd(Squawk{Body: "x"}) {
+		t.Fatal("IsTurnEnd")
+	}
+}

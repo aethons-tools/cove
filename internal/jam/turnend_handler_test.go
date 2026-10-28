@@ -13,6 +13,8 @@ type fakeTurnEndSetter struct {
 	endActor, endReason string
 	idleActor           string
 	idle                IdleOverride
+	muteActor           string
+	muted               bool
 	err                 error
 }
 
@@ -22,6 +24,11 @@ func (f *fakeTurnEndSetter) SetEndRequested(a, r string) error {
 }
 func (f *fakeTurnEndSetter) SetIdleOverride(a string, o IdleOverride) error {
 	f.idleActor, f.idle = a, o
+	return f.err
+}
+
+func (f *fakeTurnEndSetter) SetMessagesMuted(a string, on bool) error {
+	f.muteActor, f.muted = a, on
 	return f.err
 }
 
@@ -121,5 +128,26 @@ func TestTurnEndSetterErrorIs502(t *testing.T) {
 	set.err = errors.New("store down")
 	if rec := doTurnEnd(h, "POST", "/end", "tok", `{"reason":"x"}`); rec.Code != http.StatusBadGateway {
 		t.Fatalf("status %d, want 502", rec.Code)
+	}
+}
+
+func TestMuteHandler(t *testing.T) {
+	h, set := turnEndFixture()
+	if rec := doTurnEnd(h, "PUT", "/mute", "tok", `{"on":true}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if set.muteActor != "cove-1" || !set.muted {
+		t.Fatalf("muted = %q %v", set.muteActor, set.muted)
+	}
+	if rec := doTurnEnd(h, "PUT", "/mute", "tok", `{"on":false}`); rec.Code != http.StatusNoContent || set.muted {
+		t.Fatalf("unmute: status %d, muted %v", rec.Code, set.muted)
+	}
+	for _, body := range []string{`not json`, `{}`, `{"on":"yes"}`} {
+		if rec := doTurnEnd(h, "PUT", "/mute", "tok", body); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s → %d, want 400", body, rec.Code)
+		}
+	}
+	if rec := doTurnEnd(h, "POST", "/mute", "tok", `{"on":true}`); rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /mute → %d, want 405", rec.Code)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -146,5 +147,22 @@ func TestWriteContextRefusesCoreKeyVariants(t *testing.T) {
 		if err := writeContext(filepath.Join(t.TempDir(), "context"), sessionctx.Bundle{Core: "C", Files: map[string]string{p: "X"}, Fingerprint: "ab"}); err == nil {
 			t.Errorf("%q must not overwrite the core", p)
 		}
+	}
+}
+
+// The cove asks for the guidance of the turn protocol it speaks.
+func TestHTTPContextSourceSendsTurnProtocol(t *testing.T) {
+	var got string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query().Get("turn-protocol")
+		w.Header().Set(ContextEndpointHeader, "1")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer ts.Close()
+	if _, err := HTTPContextSource(ts.URL, "tok").Fetch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got != strconv.Itoa(TurnProtocol) || TurnProtocol != 2 {
+		t.Fatalf("turn-protocol = %q, want 2", got)
 	}
 }

@@ -2011,3 +2011,55 @@ func TestIdleLadder_TunnelInUseHoldsNagsAndReclaim(t *testing.T) {
 		t.Fatalf("ladder after the tunnel closed: events=%v", events)
 	}
 }
+
+// Another session's auto-posted turn end never wakes a session (a reply
+// would otherwise bounce between them); its plain post does; a person's post
+// carrying the part (only possible via the store) still wakes.
+func TestRepliesSkipSessionAutoPosts(t *testing.T) {
+	const ses = ident.ID("ses_01j9q3bbbbbbbbbbbbbbbbbbbb")
+	const person = ident.ID("usr_01j9q3aaaaaaaaaaaaaaaaaaaa")
+	const ch = ident.ID("chn_01j9q3cccccccccccccccccccc")
+	auto := []intercom.Part{{Type: intercom.TurnEndPartType}}
+	for name, tc := range map[string]struct {
+		from  ident.ID
+		parts []intercom.Part
+		wake  bool
+	}{
+		"session auto-post": {ses, auto, false},
+		"session post":      {ses, nil, true},
+		"person with part":  {person, auto, true},
+	} {
+		reg := &fakeReg{insts: []jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: 6}}}
+		m := intercom.Squawk{Seq: 7, ID: "m7", Channel: ch, From: tc.from, Body: "x", Parts: tc.parts}
+		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {m}}}
+		wake := &fakeWaker{}
+		e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+		e.SetSessionWakes(fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{ch: {m}}}, &fakeBreaker{}, 8)
+		e.now = func() time.Time { return time.Unix(2000, 0) }
+		e.tick(context.Background())
+		if got := contains(wake.woke, "a1"); got != tc.wake {
+			t.Errorf("%s: woke = %v, want %v", name, got, tc.wake)
+		}
+	}
+}
+
+// A muted session (PUT /mute) isn't woken by a new message; a fired alarm
+// still wakes it.
+func TestRepliesMuted(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: 5, MessagesMuted: true}}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {{Seq: 6, ID: "m6", From: "usr_01j9q3aaaaaaaaaaaaaaaaaaaa", Body: "x"}}}}
+	wake := &fakeWaker{}
+	e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
+	e.tick(context.Background())
+	if contains(wake.woke, "a1") {
+		t.Fatal("a muted session was woken by a message")
+	}
+	alarmed, aw, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindStanding, WaitingSince: time.Unix(9000, 0), WaitSeq: 5, MessagesMuted: true,
+		Alarms: []jam.Alarm{{Name: "nightly", Schedule: dueAt, NextAt: due}}}}, inbox, nil)
+	alarmed.tick(context.Background())
+	if len(aw.woke) != 1 || len(aw.reasons[0]) != 1 || aw.reasons[0][0].Kind != jam.WakeAlarm {
+		t.Fatalf("muted with a due alarm: woke=%v reasons=%v", aw.woke, aw.reasons)
+	}
+}

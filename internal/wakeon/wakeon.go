@@ -633,7 +633,7 @@ func (e *Engine) idleLadder(ctx context.Context, inst jam.Instance) bool {
 // unconfigured) always returns none — reply-waking is off, but the max-wait
 // teardown and warm-timeout Idle above still run.
 func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
-	if e.inbox == nil {
+	if e.inbox == nil || inst.MessagesMuted { // muted (PUT /mute): alarms and idle still wake
 		return nil
 	}
 	var out []intercom.Squawk
@@ -645,6 +645,9 @@ func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 		// next read. A legacy squawk from another session never wakes.
 		if m.From == ident.ID(inst.ActorID) || strings.HasPrefix(string(m.From), "actor:") {
 			continue
+		}
+		if isSession(m.From) && intercom.IsTurnEnd(m) {
+			continue // another session's auto-posted turn end: a `send` wakes, a reply doesn't
 		}
 		if isSession(m.From) && (e.history == nil || jam.IsNotice(m.ID) && !jam.IsCallInNotice(m.ID) || e.loopTripped(inst, m)) {
 			continue // a session's notice (a nag, the breaker's) is for people

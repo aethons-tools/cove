@@ -81,6 +81,9 @@ type RaiseSpec struct {
 	// draft is the draft tree a draft studio runs (Raise and a context
 	// refresh set it), for the kit fact; nil for every other raise.
 	draft *KitDraftRef
+	// turnProtocol is the turn end the cove speaks (a context refresh sets
+	// it from GET /context?turn-protocol=); 0 = legacy, as at every raise.
+	turnProtocol int
 	// Placement is where a raise may land: managers in preference order, and how long to look.
 	Placement Placement
 }
@@ -1067,6 +1070,8 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 		// Whatever woke it answered this turn end, so the idle deadline is
 		// disarmed until the next one.
 		inst.IdleDeadline = time.Time{}
+		// A mute (PUT /mute) lasts only until the session next runs.
+		inst.MessagesMuted = false
 		// Fired alarms were answered too: retire one-shots, re-arm the rest.
 		var kept []Alarm
 		for _, al := range inst.Alarms {
@@ -1158,6 +1163,19 @@ func (s *Supervisor) SetIdleOverride(actorID string, o IdleOverride) error {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
 	inst.IdleOverride = &o
+	return s.store.PutInstance(inst)
+}
+
+// SetMessagesMuted sets whether new messages wake the cove; the mute is
+// cleared when its next turn starts.
+func (s *Supervisor) SetMessagesMuted(actorID string, on bool) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.MessagesMuted = on
 	return s.store.PutInstance(inst)
 }
 
@@ -1912,7 +1930,7 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 	// studio, project, role, jam). The prompt stays the launch text alone.
 	in := sessionctx.Inputs{Session: sessionctx.SessionFacts{
 		Kind: spec.SessionKind, Name: spec.Name, Project: ProjectName(s.store, spec.Project), Role: spec.Role, Owner: spec.Owner, Unit: spec.Unit,
-		Previews: s.previews,
+		Previews: s.previews, TurnProtocol: spec.turnProtocol,
 	}}
 	var kitEgress []string
 	var warnings []string
@@ -1980,6 +1998,12 @@ func (s *Supervisor) ContextFor(actorID string) (sessionctx.Bundle, error) {
 // ContextForActor is ContextFor for an already-authenticated actor (the
 // GET /context handler has it from the token lookup).
 func (s *Supervisor) ContextForActor(actor Actor) (sessionctx.Bundle, error) {
+	return s.ContextForTurns(actor, 0)
+}
+
+// ContextForTurns is ContextForActor for a cove that speaks turnProtocol
+// (sessionctx.SessionFacts.TurnProtocol; GET /context?turn-protocol=).
+func (s *Supervisor) ContextForTurns(actor Actor, turnProtocol int) (sessionctx.Bundle, error) {
 	actorID := actor.ID
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
@@ -1987,7 +2011,7 @@ func (s *Supervisor) ContextForActor(actor Actor) (sessionctx.Bundle, error) {
 	}
 	// The cove runs the kit image it was raised with (inst.Kit); only the
 	// current version's prompt and notes are picked up.
-	spec := RaiseSpec{ActorID: actorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner, OwnerID: inst.OwnerID, Name: inst.Name, SessionKind: inst.SessionKind, Kit: inst.Kit}
+	spec := RaiseSpec{ActorID: actorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit, Owner: inst.Owner, OwnerID: inst.OwnerID, Name: inst.Name, SessionKind: inst.SessionKind, Kit: inst.Kit, turnProtocol: turnProtocol}
 	promptKit := inst.Kit
 	if inst.KitDraft != nil {
 		spec.KitDraft, spec.draft = inst.KitDraft.Kit, inst.KitDraft

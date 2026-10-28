@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,10 @@ type ContextSource interface {
 
 // ContextEndpointHeader marks Jam's /context responses (sessionctx.EndpointHeader).
 const ContextEndpointHeader = sessionctx.EndpointHeader
+
+// TurnProtocol is the turn end this cove speaks, asked for on GET /context
+// (?turn-protocol=) so Jam sends the matching guidance.
+const TurnProtocol = 2
 
 // ErrNoContextEndpoint is a Jam without GET /context (older than live refresh):
 // the session keeps its raise-time bundle and stops asking.
@@ -39,7 +44,7 @@ type httpContextSource struct {
 }
 
 func (s httpContextSource) Fetch(ctx context.Context) (sessionctx.Bundle, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(s.base, "/")+"/context", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(s.base, "/")+"/context?turn-protocol="+strconv.Itoa(TurnProtocol), nil)
 	if err != nil {
 		return sessionctx.Bundle{}, err
 	}

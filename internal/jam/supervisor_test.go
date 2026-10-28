@@ -1724,6 +1724,23 @@ func TestReportRunningClearsIdleDeadline(t *testing.T) {
 	}
 }
 
+// Muting new-message wakes (PUT /mute) lasts until the next turn starts.
+func TestRecordActivityClearsMuteAtTurnStart(t *testing.T) {
+	sup, store, _ := raiseWithTurnEnd(t, TurnEndPolicy{})
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	if err := sup.SetMessagesMuted("w1", true); err != nil {
+		t.Fatal(err)
+	}
+	_ = sup.Report(context.Background(), "w1", ActivityWaiting)
+	if inst, _ := store.GetInstance("w1"); !inst.MessagesMuted {
+		t.Fatal("running→waiting cleared the mute")
+	}
+	_ = sup.Report(context.Background(), "w1", ActivityRunning)
+	if inst, _ := store.GetInstance("w1"); inst.MessagesMuted {
+		t.Fatal("the mute survived the next turn starting")
+	}
+}
+
 func TestSetAlarmSchedulesInRoleZone(t *testing.T) {
 	sup, store, now := raiseWithTurnEnd(t, TurnEndPolicy{TimeZone: "America/New_York"})
 	*now = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
