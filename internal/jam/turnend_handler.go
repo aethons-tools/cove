@@ -20,12 +20,14 @@ const (
 type turnEndSetter interface {
 	SetEndRequested(actorID, reason string) error
 	SetIdleOverride(actorID string, o IdleOverride) error
+	SetMessagesMuted(actorID string, on bool) error
 }
 
 // TurnEndHandler is Jam's brokered turn-end endpoint pair, self-scoped to the
 // caller's OWN instance like /escalate: POST /end records that the session
-// asked to end (wake-on tears it down once it is Waiting), and PUT /idle sets
-// its idle-timeout override. Implements http.Handler.
+// asked to end (wake-on tears it down once it is Waiting), PUT /idle sets
+// its idle-timeout override, and PUT /mute stops new messages waking it until
+// it next runs. Implements http.Handler.
 type TurnEndHandler struct {
 	store  escalateStore
 	setter turnEndSetter
@@ -39,7 +41,7 @@ func NewTurnEndHandler(store escalateStore, setter turnEndSetter, log *slog.Logg
 
 func (h *TurnEndHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	method := http.MethodPost
-	if r.URL.Path == "/idle" {
+	if r.URL.Path == "/idle" || r.URL.Path == "/mute" {
 		method = http.MethodPut
 	}
 	if r.Method != method {
@@ -56,6 +58,7 @@ func (h *TurnEndHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Reason   string `json:"reason"`
 		Duration string `json:"duration"`
 		Scope    string `json:"scope"`
+		On       *bool  `json:"on"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
@@ -67,7 +70,15 @@ func (h *TurnEndHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var err error
-	if r.URL.Path == "/idle" {
+	switch r.URL.Path {
+	case "/mute":
+		if req.On == nil {
+			http.Error(w, `"on" is required`, http.StatusBadRequest)
+			return
+		}
+		err = h.setter.SetMessagesMuted(actor.ID, *req.On)
+		h.log.Info("turn-end: messages muted", "actor", actor.ID, "on", *req.On)
+	case "/idle":
 		o, perr := parseIdle(req.Duration, req.Scope)
 		if perr != nil {
 			http.Error(w, perr.Error(), http.StatusBadRequest)
@@ -75,7 +86,7 @@ func (h *TurnEndHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		err = h.setter.SetIdleOverride(actor.ID, o)
 		h.log.Info("turn-end: idle override", "actor", actor.ID, "duration", o.Duration.String(), "scope", o.Scope)
-	} else {
+	default:
 		req.Reason = strings.TrimSpace(req.Reason)
 		if req.Reason == "" || len(req.Reason) > maxEndReason {
 			http.Error(w, fmt.Sprintf("reason is required, at most %d bytes", maxEndReason), http.StatusBadRequest)
@@ -94,7 +105,7 @@ func (h *TurnEndHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // authenticateCove resolves the caller's identity token to an actor with a
 // live instance, writing the 401/403 itself. Same lookup primitive as
-// /escalate. Shared by /end, /idle and /alarms.
+// /escalate. Shared by /end, /idle, /mute and /alarms.
 func authenticateCove(w http.ResponseWriter, r *http.Request, store escalateStore) (Actor, bool) {
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || tok == "" {

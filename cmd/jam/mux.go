@@ -32,7 +32,7 @@ func serveMux(lis net.Listener, tlsCfg *tls.Config, gs *grpc.Server, httpHandler
 }
 
 // squawksMux routes exactly "/squawks" and its subpaths (targets, commit,
-// call-in, leave, and the ask routes) to squawksH, "/escalate" to escH, and "/end" and "/idle"
+// call-in, leave, and the ask routes) to squawksH, "/escalate" to escH, "/end", "/idle" and "/mute"
 // to turnEndH, "/alarms" and "/alarms/{name}" to alarmH, "/exposures" and "/exposures/{name}" to exposureH, "/report" to
 // reportH, and "/mission" to missionH; every other path goes
 // to broker unchanged. Used to mount Jam's brokered ticket-squawk
@@ -59,7 +59,7 @@ func squawksMux(squawksH, escH, turnEndH, alarmH, exposureH, reportH, missionH, 
 			squawksH.ServeHTTP(w, r)
 		case "/escalate":
 			escH.ServeHTTP(w, r)
-		case "/end", "/idle":
+		case "/end", "/idle", "/mute":
 			turnEndH.ServeHTTP(w, r)
 		case "/report":
 			reportH.ServeHTTP(w, r)
@@ -124,7 +124,7 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg
 	missionH := jam.NewMissionHandler(st, sup, log)
 	log.Info("Jam mission: mounted", "path", "/mission")
 	log.Info("Jam escalate: mounted", "path", "/escalate")
-	log.Info("Jam turn-end: mounted", "paths", "/end,/idle")
+	log.Info("Jam turn-end: mounted", "paths", "/end,/idle,/mute")
 	log.Info("Jam alarms: mounted", "paths", "/alarms,/alarms/{name}")
 	log.Info("Jam exposures: mounted", "paths", "/exposures,/exposures/{name}", "previews", previewURL != nil)
 	log.Info("Jam report: mounted", "path", "/report")

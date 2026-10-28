@@ -1067,6 +1067,8 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 		// Whatever woke it answered this turn end, so the idle deadline is
 		// disarmed until the next one.
 		inst.IdleDeadline = time.Time{}
+		// A mute (PUT /mute) lasts only until the session next runs.
+		inst.MessagesMuted = false
 		// Fired alarms were answered too: retire one-shots, re-arm the rest.
 		var kept []Alarm
 		for _, al := range inst.Alarms {
@@ -1158,6 +1160,19 @@ func (s *Supervisor) SetIdleOverride(actorID string, o IdleOverride) error {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
 	inst.IdleOverride = &o
+	return s.store.PutInstance(inst)
+}
+
+// SetMessagesMuted sets whether new messages wake the cove; the mute is
+// cleared when its next turn starts.
+func (s *Supervisor) SetMessagesMuted(actorID string, on bool) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	inst.MessagesMuted = on
 	return s.store.PutInstance(inst)
 }
 

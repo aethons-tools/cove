@@ -2042,3 +2042,24 @@ func TestRepliesSkipSessionAutoPosts(t *testing.T) {
 		}
 	}
 }
+
+// A muted session (PUT /mute) isn't woken by a new message; a fired alarm
+// still wakes it.
+func TestRepliesMuted(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: 5, MessagesMuted: true}}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {{Seq: 6, ID: "m6", From: "usr_01j9q3aaaaaaaaaaaaaaaaaaaa", Body: "x"}}}}
+	wake := &fakeWaker{}
+	e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
+	e.tick(context.Background())
+	if contains(wake.woke, "a1") {
+		t.Fatal("a muted session was woken by a message")
+	}
+	alarmed, aw, _, _, _ := turnEndEngine([]jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
+		SessionKind: jam.SessionKindStanding, WaitingSince: time.Unix(9000, 0), WaitSeq: 5, MessagesMuted: true,
+		Alarms: []jam.Alarm{{Name: "nightly", Schedule: dueAt, NextAt: due}}}}, inbox, nil)
+	alarmed.tick(context.Background())
+	if len(aw.woke) != 1 || len(aw.reasons[0]) != 1 || aw.reasons[0][0].Kind != jam.WakeAlarm {
+		t.Fatalf("muted with a due alarm: woke=%v reasons=%v", aw.woke, aw.reasons)
+	}
+}

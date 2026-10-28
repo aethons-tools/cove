@@ -633,7 +633,7 @@ func (e *Engine) idleLadder(ctx context.Context, inst jam.Instance) bool {
 // unconfigured) always returns none — reply-waking is off, but the max-wait
 // teardown and warm-timeout Idle above still run.
 func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
-	if e.inbox == nil {
+	if e.inbox == nil || inst.MessagesMuted { // muted (PUT /mute): alarms and idle still wake
 		return nil
 	}
 	var out []intercom.Squawk
