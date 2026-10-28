@@ -199,3 +199,123 @@ type TrackingResult struct {
 	Tracking Tracking `json:"tracking"`
 	Message  string   `json:"message"`
 }
+
+// ProjectRow is one project in the list.
+type ProjectRow struct {
+	Name    string   `json:"name"`
+	Members int      `json:"members"`
+	Roles   int      `json:"roles"`
+	Rooms   int      `json:"rooms"`
+	Managed *Managed `json:"managed" tstype:"Managed | null"`
+}
+
+// ProjectsResponse is GET /app/admin/api/projects.
+type ProjectsResponse struct {
+	Projects []ProjectRow `json:"projects"`
+}
+
+// ContextLeaf is one leaf of an agent context: read when ReadWhen.
+type ContextLeaf struct {
+	Name     string `json:"name"`
+	ReadWhen string `json:"readWhen"`
+}
+
+// ContextResource is one resource of a project's agent context.
+type ContextResource struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	Ref  string `json:"ref"`
+	Note string `json:"note"`
+}
+
+// ContextPanel is an agent-context card (Jam, a project or a role): what
+// every agent there is told when raised, and its YAML for the editor.
+type ContextPanel struct {
+	Scope         string            `json:"scope"` // "Jam-wide", "project", "role"
+	Core          string            `json:"core"`
+	CoreBytes     int               `json:"coreBytes"` // as delivered
+	Budget        int               `json:"budget"`
+	Over          bool              `json:"over"`
+	Empty         bool              `json:"empty"`
+	ShowResources bool              `json:"showResources"`
+	Leaves        []ContextLeaf     `json:"leaves"`
+	Resources     []ContextResource `json:"resources"`
+	YAML          string            `json:"yaml"`
+	Managed       *Managed          `json:"managed" tstype:"Managed | null"` // its config object's mark
+}
+
+// DeliveryRow is where a member gets DMs: service:address.
+type DeliveryRow struct {
+	Service string `json:"service"`
+	Address string `json:"address"`
+}
+
+// MemberRow is one project member.
+type MemberRow struct {
+	UserID       string        `json:"userId"`
+	Name         string        `json:"name"`
+	Handle       string        `json:"handle"` // tracker @-handle; "" = none
+	Delivery     []DeliveryRow `json:"delivery"`
+	DeliverySpec string        `json:"deliverySpec"` // the edit form's lines
+}
+
+// RoomRow is one room of a project.
+type RoomRow struct {
+	Name       string `json:"name"`
+	Connection string `json:"connection"`
+	Kind       string `json:"kind"`
+	Ref        string `json:"ref"`
+	PostOnly   bool   `json:"postOnly"` // another channel receives this ref's replies
+}
+
+// TargetRow is one escalation target; Unknown names nobody on the roster.
+type TargetRow struct {
+	Text    string `json:"text"`
+	Unknown bool   `json:"unknown"`
+}
+
+// TierRow is one escalation tier: its targets, then the wait.
+type TierRow struct {
+	Targets []TargetRow `json:"targets"`
+	Timeout string      `json:"timeout"`
+}
+
+// ChainRow is one escalation chain ("" category = the default).
+type ChainRow struct {
+	Category string    `json:"category"`
+	Tiers    []TierRow `json:"tiers"`
+	Spec     string    `json:"spec"` // the editor's lines
+}
+
+// SquawkRow is one logged message.
+type SquawkRow struct {
+	At        string `json:"at"`
+	From      string `json:"from"`
+	FromID    string `json:"fromId"`
+	AgentID   string `json:"agentId"` // the author's agent, else ""
+	Channel   string `json:"channel"`
+	ChannelID string `json:"channelId"`
+	Project   string `json:"project"`
+	Body      string `json:"body"` // squawkrender's sanitized HTML
+	Plain     bool   `json:"plain"`
+}
+
+// ProjectDetail is a project's pages: its overview and sections.
+type ProjectDetail struct {
+	Name          string       `json:"name"`
+	Managed       *Managed     `json:"managed" tstype:"Managed | null"`
+	InUseBy       string       `json:"inUseBy"` // what still references it ("" = deletable)
+	Renamable     bool         `json:"renamable"`
+	ChatService   string       `json:"chatService"`  // "" = none
+	ChatServices  []string     `json:"chatServices"` // the select's options, "" first
+	Members       []MemberRow  `json:"members"`
+	Rooms         []RoomRow    `json:"rooms"`
+	Roles         int          `json:"roles"`
+	Agents        int          `json:"agents"`
+	LiveAgents    int          `json:"liveAgents"`
+	Escalation    []ChainRow   `json:"escalation"` // chains with tiers
+	DefaultChain  ChainRow     `json:"defaultChain"`
+	Context       ContextPanel `json:"context"`
+	LogConfigured bool         `json:"logConfigured"`
+	Squawks       []SquawkRow  `json:"squawks"` // ?section=intercom: the newest in this project
+}

@@ -81,19 +81,11 @@ func TestBrowserAdminUserRename(t *testing.T) {
 
 	var problems browsertest.Problems
 	nameInput := chromedp.CSS(`input[value="alice"]`)
-	// React tracks input values itself: set it through the native setter and
-	// fire input, as typing would.
-	setName := chromedp.Evaluate[bool](`(() => {
-		const el = document.querySelector('input[value="alice"]');
-		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, "alicia");
-		el.dispatchEvent(new Event("input", { bubbles: true }));
-		return true;
-	})()`)
 	err = chromedp.Do(ctx,
 		problems.Watch(ctx),
 		chromedp.Navigate(srv.URL+"/app/admin/next/config/users/"+string(alice.ID)),
 		chromedp.WaitVisible(nameInput),
-		browsertest.Into(new(bool), setName),
+		browsertest.SetInput(`input[value="alice"]`, "alicia"),
 		browsertest.ClickText("button", "Rename"),
 		browsertest.WaitText("h2", "alicia"),
 		// The open page's branch (Users) is open; the tree refetches after the write.
@@ -104,6 +96,44 @@ func TestBrowserAdminUserRename(t *testing.T) {
 	}
 	if u, _ := store.GetUser(alice.ID); u.Name != "alicia" {
 		t.Errorf("stored name = %q", u.Name)
+	}
+	for _, pr := range problems.All() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// A project rename moves the page to the new name and the tree follows
+// (admin SPA slice 3).
+func TestBrowserAdminProjectRename(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browsertest.Ctx(t)
+	store := jam.NewMemStore()
+	if err := store.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	srv := adminServer(t, store)
+	var problems browsertest.Problems
+	var at string
+	err := chromedp.Do(ctx,
+		problems.Watch(ctx),
+		chromedp.Navigate(srv.URL+"/app/admin/next/config/projects/acme"),
+		chromedp.WaitVisible(chromedp.CSS(`input[aria-label="New name"]`)),
+		browsertest.SetInput(`input[aria-label="New name"]`, "acme2"),
+		browsertest.ClickText("button", "Rename"),
+		browsertest.WaitText("h2", "acme2"),
+		browsertest.WaitText(`nav[aria-label="Config"] a`, "acme2"),
+		browsertest.Into(&at, chromedp.Location()),
+	)
+	if err != nil {
+		t.Fatalf("%v (problems %v)", err, problems.All())
+	}
+	if !strings.HasSuffix(at, "/app/admin/next/config/projects/acme2") {
+		t.Errorf("location = %q", at)
+	}
+	if _, ok := store.GetProject("acme2"); !ok {
+		t.Error("the store has no acme2")
 	}
 	for _, pr := range problems.All() {
 		t.Errorf("page problem: %s", pr)

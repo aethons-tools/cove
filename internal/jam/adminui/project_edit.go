@@ -85,11 +85,11 @@ func splitSpecLines(s string) []string {
 	return out
 }
 
-// memberDeliveryFromForm parses a member's delivery lines (service:address;
-// a Discord user id is an account, bound on the user's page).
-func memberDeliveryFromForm(r *http.Request) ([]jam.DeliveryProfile, error) {
+// deliveryFromSpec parses a member's delivery lines (service:address; a
+// Discord user id is an account, bound on the user's page).
+func deliveryFromSpec(spec string) ([]jam.DeliveryProfile, error) {
 	var out []jam.DeliveryProfile
-	for _, l := range splitSpecLines(r.FormValue("delivery")) {
+	for _, l := range splitSpecLines(spec) {
 		p, err := jam.ParseDeliverySpec(l)
 		if err != nil {
 			return nil, badRequest("delivery " + `"` + l + `": ` + err.Error())
@@ -100,6 +100,64 @@ func memberDeliveryFromForm(r *http.Request) ([]jam.DeliveryProfile, error) {
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// putMember adds or updates a member of project with delivery (the edit
+// form's lines). add is "Add member": for someone already a member, an empty
+// delivery keeps theirs (the per-member edit replaces it).
+func putMember(store jam.Store, project, user, deliverySpec string, add bool) error {
+	uid, err := jam.ResolveRegistryRef(store, ident.User, strings.TrimSpace(user))
+	if err != nil {
+		return registryErr(err)
+	}
+	delivery, err := deliveryFromSpec(deliverySpec)
+	if err != nil {
+		return err
+	}
+	p, _ := store.GetProject(project)
+	if add && delivery == nil {
+		if ms, ok := store.GetMembership(p.ID, uid); ok {
+			delivery = ms.Delivery
+		}
+	}
+	return registryErr(store.PutMembership(jam.Membership{ProjectID: p.ID, UserID: uid, Delivery: delivery}))
+}
+
+// removeMember removes user (a name or id) from project.
+func removeMember(store jam.Store, project, user string) error {
+	uid, err := jam.ResolveRegistryRef(store, ident.User, user)
+	if err != nil {
+		return registryErr(err)
+	}
+	p, _ := store.GetProject(project)
+	return registryErr(store.RemoveMember(p.ID, uid))
+}
+
+// putRoom adds or rebinds a room of project.
+func putRoom(store jam.Store, project, name, connection, ref string) error {
+	b := jam.RoomBody{Name: strings.TrimSpace(name), Connection: strings.TrimSpace(connection), Ref: strings.TrimSpace(ref)}
+	if b.Name == "" || b.Connection == "" || b.Ref == "" {
+		return badRequest("room name, connection and ref are required")
+	}
+	_, _, err := jam.PutRoom(store, project, b)
+	return registryErr(err)
+}
+
+// setEscalation sets project's chain for category ("" = the default) from
+// the editor's lines (targets@timeout, tier 0 first).
+func setEscalation(store jam.Store, project, category, tiersSpec string) error {
+	var tiers []jam.EscalationTier
+	for _, l := range splitSpecLines(tiersSpec) {
+		t, err := jam.ParseEscalationTierSpec(l)
+		if err != nil {
+			return badRequest(err.Error())
+		}
+		tiers = append(tiers, t)
+	}
+	if len(tiers) == 0 {
+		return badRequest("a chain needs at least one tier (targets@timeout); use Clear to remove it")
+	}
+	return store.SetEscalationPolicy(project, strings.TrimSpace(category), tiers)
 }
 
 // registerProjectEdits mounts the project page's section writes. Each answers
@@ -148,62 +206,19 @@ func registerProjectEdits(mux *http.ServeMux, store jam.Store, img jam.ImageReso
 	}))
 
 	mux.HandleFunc("POST /app/admin/projects/{project}/members", edit("member put", sectionMembers, func(r *http.Request, project string) error {
-		uid, err := jam.ResolveRegistryRef(store, ident.User, strings.TrimSpace(r.FormValue("user")))
-		if err != nil {
-			return registryErr(err)
-		}
-		delivery, err := memberDeliveryFromForm(r)
-		if err != nil {
-			return err
-		}
-		p, _ := store.GetProject(project)
-		// "Add member" for someone already a member, with no delivery given,
-		// keeps their delivery (the per-member Edit form replaces it).
-		if r.FormValue("add") != "" && delivery == nil {
-			if ms, ok := store.GetMembership(p.ID, uid); ok {
-				delivery = ms.Delivery
-			}
-		}
-		return registryErr(store.PutMembership(jam.Membership{ProjectID: p.ID, UserID: uid, Delivery: delivery}))
+		return putMember(store, project, r.FormValue("user"), r.FormValue("delivery"), r.FormValue("add") != "")
 	}))
 	mux.HandleFunc("DELETE /app/admin/projects/{project}/members/{user}", edit("member removed", sectionMembers, func(r *http.Request, project string) error {
-		uid, err := jam.ResolveRegistryRef(store, ident.User, r.PathValue("user"))
-		if err != nil {
-			return registryErr(err)
-		}
-		p, _ := store.GetProject(project)
-		return registryErr(store.RemoveMember(p.ID, uid))
+		return removeMember(store, project, r.PathValue("user"))
 	}))
-
 	mux.HandleFunc("POST /app/admin/projects/{project}/channels", edit("room put", sectionIntercom, func(r *http.Request, project string) error {
-		b := jam.RoomBody{
-			Name:       strings.TrimSpace(r.FormValue("name")),
-			Connection: strings.TrimSpace(r.FormValue("service")),
-			Ref:        strings.TrimSpace(r.FormValue("ref")),
-		}
-		if b.Name == "" || b.Connection == "" || b.Ref == "" {
-			return badRequest("room name, connection and ref are required")
-		}
-		_, _, err := jam.PutRoom(store, project, b)
-		return registryErr(err)
+		return putRoom(store, project, r.FormValue("name"), r.FormValue("service"), r.FormValue("ref"))
 	}))
 	mux.HandleFunc("DELETE /app/admin/projects/{project}/channels/{name}", edit("room removed", sectionIntercom, func(r *http.Request, project string) error {
 		return registryErr(jam.RemoveRoom(store, project, r.PathValue("name")))
 	}))
-
 	mux.HandleFunc("POST /app/admin/projects/{project}/escalation", edit("escalation set", sectionEscalation, func(r *http.Request, project string) error {
-		var tiers []jam.EscalationTier
-		for _, l := range splitSpecLines(r.FormValue("tiers")) {
-			t, err := jam.ParseEscalationTierSpec(l)
-			if err != nil {
-				return badRequest(err.Error())
-			}
-			tiers = append(tiers, t)
-		}
-		if len(tiers) == 0 {
-			return badRequest("a chain needs at least one tier (targets@timeout); use Clear to remove it")
-		}
-		return store.SetEscalationPolicy(project, strings.TrimSpace(r.FormValue("category")), tiers)
+		return setEscalation(store, project, r.FormValue("category"), r.FormValue("tiers"))
 	}))
 	mux.HandleFunc("DELETE /app/admin/projects/{project}/escalation", edit("escalation cleared", sectionEscalation, func(r *http.Request, project string) error {
 		return store.SetEscalationPolicy(project, r.URL.Query().Get("category"), nil)

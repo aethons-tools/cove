@@ -139,3 +139,17 @@ func ClickText(sel, text string) Step {
 		Into(new(bool), chromedp.Evaluate[bool]("(("+byText(sel, text)+").click(), true)")),
 	)
 }
+
+// SetInput sets the first input or textarea matching sel to value as typing
+// would: through the native setter, then an input event (React tracks values
+// itself, so assigning .value alone is ignored).
+func SetInput(sel, value string) Step {
+	js := fmt.Sprintf(`(() => {
+		const el = document.querySelector(%q);
+		const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+		Object.getOwnPropertyDescriptor(proto, "value").set.call(el, %q);
+		el.dispatchEvent(new Event("input", { bubbles: true }));
+		return true;
+	})()`, sel, value)
+	return Into(new(bool), chromedp.Evaluate[bool](js))
+}
