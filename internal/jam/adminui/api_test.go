@@ -102,8 +102,9 @@ func TestAdminAPICrossOrigin(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, appui.WithPrincipal(r, appui.Principal{Admin: true, Local: true}))
-	if rec.Code != 403 || strings.Contains(rec.Body.String(), "not_found") {
-		t.Errorf("cross-origin POST = %d %s, want a 403 before any handler", rec.Code, rec.Body)
+	var e adminui.APIError
+	if rec.Code != 403 || json.Unmarshal(rec.Body.Bytes(), &e) != nil || e.Code != "forbidden" {
+		t.Errorf("cross-origin POST = %d %s, want a JSON 403 forbidden before any handler", rec.Code, rec.Body)
 	}
 }
 

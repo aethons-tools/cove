@@ -7,6 +7,7 @@ package browsertest
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"sync"
@@ -117,5 +118,24 @@ func (p *Problems) Watch(ctx context.Context) Step {
 		}),
 		Call(cdplog.Enable, cdp.Empty{}),
 		Call(runtime.Enable, cdp.Empty{}),
+	)
+}
+
+// byText is a JS expression for the first sel element whose trimmed text is
+// text (null when none).
+func byText(sel, text string) string {
+	return fmt.Sprintf(`[...document.querySelectorAll(%q)].find((e) => e.textContent.trim() === %q) ?? null`, sel, text)
+}
+
+// WaitText waits until an element matching sel has exactly text.
+func WaitText(sel, text string) Step {
+	return Into(new(chromedp.Void), chromedp.Poll[chromedp.Void]("("+byText(sel, text)+") !== null"))
+}
+
+// ClickText waits for, then clicks, the sel element with exactly text.
+func ClickText(sel, text string) Step {
+	return chromedp.Steps(
+		WaitText(sel, text),
+		Into(new(bool), chromedp.Evaluate[bool]("(("+byText(sel, text)+").click(), true)")),
 	)
 }
