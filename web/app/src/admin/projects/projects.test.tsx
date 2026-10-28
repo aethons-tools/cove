@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
+import { QueryClient } from "@tanstack/react-query";
 import { server } from "../../test/server";
 import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
@@ -82,6 +83,17 @@ describe("a project's overview", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(sent).toEqual({ service: "disc" }));
     expect(await screen.findByText("chat: disc")).toBeInTheDocument();
+  });
+
+  it("shows the server's chat service after a refetch", async () => {
+    tree();
+    let n = 0;
+    server.use(http.get("/app/admin/api/projects/acme", () => HttpResponse.json(project({ chatService: ++n === 1 ? "" : "disc" }))));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderAdmin(adminBoot, at, client);
+    expect(await screen.findByLabelText("Chat service")).toHaveValue("");
+    await client.refetchQueries({ queryKey: ["admin", "project", "acme"] });
+    await waitFor(() => expect(screen.getByLabelText("Chat service")).toHaveValue("disc"));
   });
 
   it("edits and clears the agent context", async () => {

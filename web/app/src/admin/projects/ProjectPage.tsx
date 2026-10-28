@@ -39,6 +39,16 @@ export function ProjectPage() {
   return <ProjectGate body={(d) => <Overview key={d.name} d={d} />} />;
 }
 
+function ChatService({ d, confirm, onSave }: { d: ProjectDetail; confirm?: string; onSave: (service: string) => Promise<unknown> }) {
+  const [service, setService] = useState(d.chatService);
+  return (
+    <EditForm submit="Save" confirm={confirm} onSubmit={() => onSave(service)}>
+      <NativeSelect label="Chat service" value={service} onChange={(e) => setService(e.currentTarget.value)}
+        data={d.chatServices.map((s) => ({ value: s, label: s || "none — tracker @-mentions only" }))} />
+    </EditForm>
+  );
+}
+
 function Overview({ d }: { d: ProjectDetail }) {
   const navigate = useNavigate();
   const p = d.name;
@@ -46,7 +56,6 @@ function Overview({ d }: { d: ProjectDetail }) {
   const drift = driftNote(d.managed);
   const write = useProjectWrite(p);
   const [name, setName] = useState(p);
-  const [service, setService] = useState(d.chatService);
   const rename = useAdminMutation((n: string) => adminApi.post<Created>(`projects/${enc(p)}/rename`, { name: n }), {
     invalidate: [projectsKey], onSuccess: (c) => void navigate(nodeHref(c.path), { replace: true }),
   });
@@ -86,10 +95,9 @@ function Overview({ d }: { d: ProjectDetail }) {
       </SimpleGrid>
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Section title="Chat service" sub="what backs human DMs">
-          <EditForm submit="Save" confirm={drift ? `${drift} Save anyway?` : undefined} onSubmit={() => write.mutateAsync({ path: "chat-service", body: { service } })}>
-            <NativeSelect label="Chat service" value={service} onChange={(e) => setService(e.currentTarget.value)}
-              data={d.chatServices.map((s) => ({ value: s, label: s || "none — tracker @-mentions only" }))} />
-          </EditForm>
+          {/* Keyed by the stored value: a refetch resets the select to it. */}
+          <ChatService key={d.chatService} d={d} confirm={drift ? `${drift} Save anyway?` : undefined}
+            onSave={(service) => write.mutateAsync({ path: "chat-service", body: { service } })} />
         </Section>
       </SimpleGrid>
       <ContextPanel key={d.context.yaml} panel={d.context} onSave={(yaml) => write.mutateAsync({ path: "context", body: { yaml } })}

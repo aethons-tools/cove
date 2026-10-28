@@ -32,5 +32,8 @@ export function useProjectWrite(name: string, section = "") {
       void client.invalidateQueries({ queryKey: ["admin", "project", name], refetchType: "none" });
       client.setQueryData(["admin", "project", name, section], d);
     },
+    // A 404 may mean the project itself is gone (removed in another tab):
+    // re-read it, and the page turns into "Project not found" if so.
+    onError: (e) => { if (e.code === "not_found") void client.invalidateQueries({ queryKey: ["admin", "project", name] }); },
   });
 }

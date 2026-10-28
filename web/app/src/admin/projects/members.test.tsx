@@ -49,6 +49,37 @@ describe("project members", () => {
     await waitFor(() => expect(sent).toEqual({ user: "usr_1", delivery: "discord:chan-2", add: false }));
   });
 
+  it("switches to Project not found when a write finds the project gone", async () => {
+    tree();
+    let gets = 0;
+    server.use(
+      http.get("/app/admin/api/projects/acme", () => (++gets === 1 ? HttpResponse.json(project()) : HttpResponse.json({ error: "no such project", code: "not_found" }, { status: 404 }))),
+      http.post("/app/admin/api/projects/acme/members", () => HttpResponse.json({ error: 'project "acme" not found', code: "not_found" }, { status: 404 })),
+    );
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at);
+    await user.click(await screen.findByText("Edit"));
+    await user.click(screen.getByRole("button", { name: "Save alice" }));
+    expect(await screen.findByText("Project not found")).toBeInTheDocument();
+  });
+
+  it("refreshes a member's edit box when their delivery changes", async () => {
+    tree();
+    server.use(
+      http.get("/app/admin/api/projects/acme", () => HttpResponse.json(project())),
+      http.get("/app/admin/suggest", () => HttpResponse.json([])),
+      http.post("/app/admin/api/projects/acme/members", () => HttpResponse.json(project({ members: [{ ...project().members[0]!, deliverySpec: "discord:new", delivery: [{ service: "discord", address: "new" }] }] }))),
+    );
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at);
+    await user.click(await screen.findByText("Add member", { selector: "summary" }));
+    await user.type(screen.getByLabelText(/^User/), "alice");
+    await user.click(screen.getByRole("button", { name: "Add member" }));
+    await screen.findByText("new");
+    await user.click(screen.getByText("Edit"));
+    expect(screen.getByDisplayValue("discord:new")).toBeInTheDocument();
+  });
+
   it("removes a member after confirming", async () => {
     tree();
     server.use(

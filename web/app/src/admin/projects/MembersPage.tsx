@@ -38,7 +38,7 @@ function Members({ d }: { d: ProjectDetail }) {
         { key: "d", label: "Delivery", render: (m) => <Delivery m={m} /> },
         { key: "x", label: "", render: (m) => (
           <Group gap="xs" align="flex-start" wrap="nowrap">
-            <EditDelivery m={m} confirm={save} onSave={(spec) => write.mutateAsync({ path: "members", body: { user: m.userId, delivery: spec, add: false } })} />
+            <EditDelivery key={m.deliverySpec} m={m} confirm={save} onSave={(spec) => write.mutateAsync({ path: "members", body: { user: m.userId, delivery: spec, add: false } })} />
             <ConfirmAction label="Remove" confirm={`Remove ${m.name} from ${p}?${drift ? " " + drift : ""}`}
               onConfirm={() => write.mutateAsync({ path: `members/${enc(m.userId)}`, del: true })} />
           </Group>
