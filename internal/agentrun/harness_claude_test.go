@@ -157,6 +157,30 @@ func TestClaudeParseEvent(t *testing.T) {
 	}
 }
 
+func TestParseEventResultText(t *testing.T) {
+	cases := []struct {
+		name, line string
+		text       string
+		ok         bool
+	}{
+		{"success", `{"type":"result","subtype":"success","is_error":false,"result":"hi"}`, "hi", true},
+		{"no is_error", `{"type":"result","subtype":"success","result":"hi"}`, "hi", true},
+		{"error subtype", `{"type":"result","subtype":"error_during_execution","is_error":true}`, "", false},
+		{"is_error", `{"type":"result","subtype":"success","is_error":true,"result":"API Error"}`, "API Error", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Claude{}.ParseEvent([]byte(c.line))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Kind != EventTurnEnd || got.Text != c.text || got.OK != c.ok {
+				t.Fatalf("got %+v, want text %q ok %v", got, c.text, c.ok)
+			}
+		})
+	}
+}
+
 func TestClaudeEncodeInterrupt(t *testing.T) {
 	b := Claude{}.EncodeInterrupt("r1")
 	if len(b) == 0 || b[len(b)-1] != '\n' {

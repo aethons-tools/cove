@@ -355,6 +355,8 @@ func (Claude) EncodeInterrupt(requestID string) []byte {
 type claudeEvent struct {
 	Type            string `json:"type"`
 	Subtype         string `json:"subtype"`
+	IsError         bool   `json:"is_error"`
+	Result          string `json:"result"`
 	TaskID          string `json:"task_id"`
 	QueuedTurnCount int    `json:"queued_turn_count"`
 	Tasks           []struct {
@@ -364,7 +366,8 @@ type claudeEvent struct {
 }
 
 // ParseEvent maps one claude stream-json stdout line:
-//   - result → TurnEnd (QueuedEmpty when queued_turn_count is 0)
+//   - result → TurnEnd (QueuedEmpty when queued_turn_count is 0; Text is its
+//     result, OK when its subtype is success and is_error is unset)
 //   - system/background_tasks_changed → BackgroundTasks (the full list).
 //     claude empties the list BEFORE the task's task_notification arrives.
 //   - system/task_notification → BackgroundDone (the notification starts a turn)
@@ -377,7 +380,8 @@ func (Claude) ParseEvent(line []byte) (Event, error) {
 	}
 	switch {
 	case ev.Type == "result":
-		return Event{Kind: EventTurnEnd, QueuedEmpty: ev.QueuedTurnCount == 0}, nil
+		return Event{Kind: EventTurnEnd, QueuedEmpty: ev.QueuedTurnCount == 0,
+			Text: ev.Result, OK: ev.Subtype == "success" && !ev.IsError}, nil
 	case ev.Type == "system" && ev.Subtype == "background_tasks_changed":
 		tasks := make([]BackgroundTask, len(ev.Tasks))
 		for i, k := range ev.Tasks {

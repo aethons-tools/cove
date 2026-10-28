@@ -1,6 +1,8 @@
 package sessionctx
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -146,6 +148,48 @@ func TestBoilerplateMissionLine(t *testing.T) {
 		}
 		if len(l.Core) > BudgetBoilerplate {
 			t.Errorf("%s: boilerplate %d bytes > budget %d", f.Kind, len(l.Core), BudgetBoilerplate)
+		}
+	}
+}
+
+// A cove that speaks the structured turn end (TurnProtocol 2) is told its
+// final text is its reply and how to keep a process alive; a legacy one
+// (0) gets exactly today's boilerplate.
+func TestBoilerplateStructuredTurns(t *testing.T) {
+	for _, f := range []SessionFacts{
+		{Kind: KindStanding, Name: "bot", Project: "acme", Role: "r", TurnProtocol: 2},
+		{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "r", TurnProtocol: 2},
+		{Project: "acme", Role: "r", Unit: "AET-9", TurnProtocol: 2},
+	} {
+		core := Boilerplate(f).Core
+		for _, w := range []string{"End your turn with your reply", "`keep_start`"} {
+			if !strings.Contains(core, w) {
+				t.Errorf("%q: missing %q in\n%s", f.Kind, w, core)
+			}
+		}
+		if strings.Contains(core, "Background processes you start die") {
+			t.Errorf("%q: still says background processes die", f.Kind)
+		}
+		if got := strings.Contains(core, "comment on your ticket"); got != (f.Unit != "") {
+			t.Errorf("%q: ticket comment line = %v", f.Kind, got)
+		}
+		if len(core) > BudgetBoilerplate {
+			t.Errorf("%q: boilerplate %d bytes > budget %d", f.Kind, len(core), BudgetBoilerplate)
+		}
+	}
+	// The legacy boilerplate, pinned: these hashes are the output before the
+	// structured turn end existed.
+	for i, c := range []struct {
+		f    SessionFacts
+		hash string
+	}{
+		{SessionFacts{Kind: KindStanding, Name: "bot", Project: "acme", Role: "r", Previews: true}, "812818fbdc362ff2068cf13a277f21ecb61222fd1d1037d572838378e9d825aa"},
+		{SessionFacts{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "r"}, "6a61d6a0a93880f67e6cb19fe14f4059ce8c9404191eff602d5e4f913819c3e5"},
+		{SessionFacts{Project: "acme", Role: "r", Unit: "AET-9"}, "323aff5c7f71baefc3380f5985f4b22c2a0348c03cdf8d6ca135cff7373a7151"},
+		{SessionFacts{Project: "acme", Role: "r"}, "295eb04930f3015be4ce3f2eaba7e8eb1f6704c043f69017b276e714bc96a1a5"},
+	} {
+		if got := fmt.Sprintf("%x", sha256.Sum256([]byte(Boilerplate(c.f).Core))); got != c.hash {
+			t.Errorf("legacy case %d changed:\n%s", i, Boilerplate(c.f).Core)
 		}
 	}
 }

@@ -15,22 +15,35 @@ func Boilerplate(f SessionFacts) Layer {
 	const ownChannel = "`send` without `to` posts to your own channel: whoever is in it (people who joined it, or were called in with `call_in`) hears you. Pass `to` to reach anyone else (`list_targets` shows who you may message). "
 	var who, comms, turns string
 	turns = "- Turns: each turn is one `claude -p` run. Background processes you start die when the turn ends — finish work within the turn."
+	structured := f.TurnProtocol == TurnProtocolStructured
+	if structured {
+		turns = structuredTurns
+	}
 	switch f.Kind {
 	case KindStanding:
 		who = fmt.Sprintf("the standing session %q for role %s in project %s", f.Name, f.Role, f.Project)
 		comms = ownChannel + "A message to you wakes you. You run until an operator removes you."
-		turns += " Ending your turn is how you wait."
+		if !structured {
+			turns += " Ending your turn is how you wait."
+		}
 	case KindPersonal:
 		who = fmt.Sprintf("a personal session for %s (role %s, project %s)", f.Owner, f.Role, f.Project)
 		comms = fmt.Sprintf("You were started by %[1]s: `send` without `to` posts to your own channel, which %[1]s is in, and their reply wakes you. "+
 			"Pass `to` to reach anyone else (`list_targets`). You stay open until %[1]s releases you.", f.Owner)
-		turns += " Ending your turn is how you wait."
+		if !structured {
+			turns += " Ending your turn is how you wait."
+		}
 	default:
 		who = fmt.Sprintf("an ephemeral worker session for role %s in project %s", f.Role, f.Project)
-		turns += " Ending your turn is how you wait."
+		if !structured {
+			turns += " Ending your turn is how you wait."
+		}
 		if f.Unit != "" {
 			comms = "`send` without `to` posts to your ticket."
 			turns += "\n- Your ticket: keep its state current with `report` (in-review with the PR link, needs-input, blocked, done), and call `end` as your last action once it is finished."
+			if structured {
+				turns += " " + structuredTicket
+			}
 		} else {
 			comms = strings.TrimSpace(ownChannel)
 		}
@@ -57,6 +70,17 @@ func Boilerplate(f SessionFacts) Layer {
 		Body:     hardeningLimits,
 	}}}
 }
+
+// TurnProtocolStructured is SessionFacts.TurnProtocol for a cove that speaks
+// the structured turn end (agentrun.TurnProtocol).
+const TurnProtocolStructured = 2
+
+// structuredTurns replaces the legacy turns line for a cove that speaks the
+// structured turn end; structuredTicket is a ticket session's extra.
+const (
+	structuredTurns  = "- Turns: each turn is one `claude -p` run; ending your turn is how you wait. New messages arrive in your prompt. End your turn with your reply — your final text is posted for you (to your own channel unless `turn_end` names another recipient); end with no text when there is nothing to say, and don't also `send` it. It doesn't wake other sessions: to get one to act, `send` to it. Ending your turn marks the messages you were shown as handled; `turn_end` changes that, what wakes you, or what happens next (compact, end). Shell background jobs die with the turn: to keep something running (a preview), use `keep_start` — it survives your turns and wakes you if it exits; agree with the person how long it should run and set a `wake_at` to ask them then."
+	structuredTicket = "Your final text is a comment on your ticket: end with no text when your `report` already says it."
+)
 
 const changingTheKit = `# Changing the kit
 

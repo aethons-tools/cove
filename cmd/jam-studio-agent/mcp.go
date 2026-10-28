@@ -635,10 +635,12 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 	addAskTools(s, client, cfgErr)
 	addAttachTools(s, client, cfgErr)
 	addBoardTools(s, client, cfgErr)
+	addTurnTools(s, getenv)
+	addKeepTools(s, getenv)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
-		Description: "Post a message. Omit 'to' to post in your own channel — your ticket's, or your session's, where whoever started you and anyone called in hear it; set to=user:<name> to talk with a person (their reply reaches you), chat:user:<a>,user:<b> for a group, channel:<room> for a room, ticket:<key> for a ticket's conversation, or session:<name> for another session's channel (you join it). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally.",
+		Description: "Post a message. Omit 'to' to post in your own channel — your ticket's, or your session's, where whoever started you and anyone called in hear it; set to=user:<name> to talk with a person (their reply reaches you), chat:user:<a>,user:<b> for a group, channel:<room> for a room, ticket:<key> for a ticket's conversation, or session:<name> for another session's channel (you join it). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally. If your context says your final message is posted for you, don't also send it: send is for messaging elsewhere or mid-turn.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, sendOut, error) {
 		if cfgErr != nil {
 			return nil, sendOut{}, cfgErr
@@ -652,7 +654,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read",
-		Description: "Read your inbox as a queue: messages to you, each with the channel it's in and who sent it. Default: the next unprocessed messages after your commit cursor (oldest first). Use anchor/dir/limit to seek (start/end/id, forward/backward). Reading does NOT mark anything processed — call `commit` for that.",
+		Description: "Read your inbox as a queue: messages to you, each with the channel it's in and who sent it. Default: the next unprocessed messages after your commit cursor (oldest first). Use anchor/dir/limit to seek (start/end/id, forward/backward). Reading does NOT mark anything processed — call `commit` for that. If your context says new messages arrive in your prompt, use read only to page past them or catch up mid-turn: ending your turn marks the ones in your prompt handled.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in readIn) (*mcp.CallToolResult, readOut, error) {
 		if cfgErr != nil {
 			return nil, readOut{}, cfgErr

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
@@ -411,5 +412,58 @@ func TestSquawksCallInAndLeave(t *testing.T) {
 	}
 	if rec := f.do(http.MethodGet, "/squawks/call-in", f.ticket, ``); rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET call-in = %d", rec.Code)
+	}
+}
+
+// An auto post (a cove posting a session's turn-end text) carries exactly
+// one turn-end part.
+func TestSquawksAutoPostMarked(t *testing.T) {
+	f := newSqFixture(t)
+	code, r := f.send(f.personal, `{"body":"Done.","auto":true}`)
+	if code != http.StatusOK || r.ID == "" {
+		t.Fatalf("auto post = %d %+v", code, r)
+	}
+	got := f.log.ChannelBefore(r.Channel.ID, 0, 1)
+	if len(got) != 1 || len(got[0].Parts) != 1 || got[0].Parts[0].Type != intercom.TurnEndPartType || !intercom.IsTurnEnd(got[0]) {
+		t.Fatalf("stored = %+v", got)
+	}
+}
+
+// An auto post repeating, trimmed, what the session posted in the same
+// channel within ten minutes is skipped: the agent `send`s its reply and
+// then ends its turn with it. Later, or elsewhere, it posts.
+func TestSquawksAutoPostSkipsDuplicate(t *testing.T) {
+	f := newSqFixture(t, "channel:eng")
+	code, r := f.send(f.standing, `{"body":"Hi"}`)
+	if code != http.StatusOK {
+		t.Fatalf("send = %d", code)
+	}
+	rec := f.do(http.MethodPost, "/squawks", f.standing, `{"body":"  Hi\n","auto":true}`)
+	var skip struct {
+		ID      string `json:"id"`
+		Skipped bool   `json:"skipped"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &skip); rec.Code != http.StatusOK || err != nil || !skip.Skipped || skip.ID != "" {
+		t.Fatalf("duplicate auto post = %d %s", rec.Code, rec.Body)
+	}
+	if got := f.log.ChannelBefore(r.Channel.ID, 0, 0); len(got) != 1 {
+		t.Fatalf("channel holds %d squawks, want 1", len(got))
+	}
+	if code, r2 := f.send(f.standing, `{"body":"Hi","auto":true,"to":"channel:eng"}`); code != http.StatusOK || r2.ID == "" {
+		t.Fatalf("auto post to another channel = %d %+v", code, r2)
+	}
+	f.h.now = func() time.Time { return time.Now().Add(11 * time.Minute) }
+	if code, r2 := f.send(f.standing, `{"body":"Hi","auto":true}`); code != http.StatusOK || r2.ID == "" {
+		t.Fatalf("auto post after ten minutes = %d %+v", code, r2)
+	}
+}
+
+func TestSquawksAutoPostRepeatedAnswerPosts(t *testing.T) {
+	f := newSqFixture(t, "channel:eng")
+	// The same short answer at two turn ends is two replies, not a duplicate.
+	for i := range 2 {
+		if code, r := f.send(f.standing, `{"body":"Done.","auto":true}`); code != http.StatusOK || r.ID == "" {
+			t.Fatalf("auto post %d = %d %+v", i, code, r)
+		}
 	}
 }

@@ -134,6 +134,9 @@ func wakeLine(r studioagent.WakeReason) (line string, ok bool) {
 		return l, true
 	case "idle":
 		return "Idle timeout: no other wake arrived.", true
+	case "process-exited":
+		status, tail, _ := strings.Cut(r.Detail, "\n")
+		return fmt.Sprintf("Kept process `%s` exited (%s); last lines:\n%s", r.Note, status, tail), true
 	default:
 		return fmt.Sprintf("Woken (%s): %s", r.Kind, r.Detail), true
 	}

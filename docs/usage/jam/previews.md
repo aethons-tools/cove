@@ -4,7 +4,7 @@ read_when: You want to open or script against a studio preview, set up previews 
 owns: studio previews — expose/unexpose behaviour and limits, preview hosts and labels, the login host and the __Host-jam_preview session, framing in the Jam pane (frame tickets, __Host-jam_frame, frame-ancestors), bearer access to previews, request/response handling by the preview proxy, the previews setup steps, the built-in code-server IDE and a kit's own, preview limits and troubleshooting
 prereqs: collaboration.md (who may connect, sharing, the tunnel), serve.md (the previews: block)
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-28
 ---
 
 # Studio previews
@@ -24,7 +24,7 @@ exposing a name again moves it to the new port. `unexpose(name)` removes one
 and closes its open connections at once. `exposures()` lists them. Changes
 are logged (`preview exposed` / `preview unexposed`: session, name, port).
 Raising the studio again (a restart or upgrade) clears them, so the agent
-exposes again. `<label>` is the session id without `ses_` (26 chars). Any
+exposes again. The server behind one is kept running with `keep_start` ([kept processes](structured-turn-end.md#kept-processes)). `<label>` is the session id without `ses_` (26 chars). Any
 other actor id (a legacy `standing-…` id, a manual `--id`) gets a 26-char
 hash of the id. `studio access` and the agent page's Access card list each
 preview with its URL.

@@ -365,7 +365,9 @@ func (e *Engine) tick(ctx context.Context) {
 			if inst.SessionKind == jam.SessionKindPersonal && e.command(ctx, inst, rs) {
 				continue
 			}
-			reasons = append([]jam.WakeReason{{Kind: jam.WakeSquawk}}, reasons...)
+			if !inst.MessagesMuted { // muted (PUT /mute): alarms and idle still wake
+				reasons = append([]jam.WakeReason{{Kind: jam.WakeSquawk}}, reasons...)
+			}
 		}
 		if len(reasons) > 0 {
 			if inst.Phase == jam.PhaseIdled {
@@ -407,6 +409,9 @@ func (e *Engine) wakeRunning(inst jam.Instance, extra []jam.WakeReason) bool {
 		return false
 	}
 	rs := e.replies(inst)
+	if inst.MessagesMuted {
+		rs = nil // muted (PUT /mute): only the extra reasons wake it
+	}
 	if len(rs) == 0 {
 		if len(extra) == 0 {
 			return false
@@ -645,6 +650,9 @@ func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 		// next read. A legacy squawk from another session never wakes.
 		if m.From == ident.ID(inst.ActorID) || strings.HasPrefix(string(m.From), "actor:") {
 			continue
+		}
+		if isSession(m.From) && intercom.IsTurnEnd(m) {
+			continue // another session's auto-posted turn end: a `send` wakes, a reply doesn't
 		}
 		if isSession(m.From) && (e.history == nil || jam.IsNotice(m.ID) && !jam.IsCallInNotice(m.ID) || e.loopTripped(inst, m)) {
 			continue // a session's notice (a nag, the breaker's) is for people

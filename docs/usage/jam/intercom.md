@@ -4,7 +4,7 @@ read_when: You want a raised studio's agent to be able to read and post comments
 owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint and its wire shapes, the `mission` tool and its `PUT /mission` endpoint, the channel log and its cutover from the legacy log, channel membership (call-in, join, leave), the inbox as a queue, the relays, wake-on, the `jam-studio-agent mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed studio a squawk is scoped to; personal-sessions.md for a ticketless studio that talks to the person who started it; requisitioner.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the studio's own ticket
 tier: leaf
-updated: 2026-10-27
+updated: 2026-10-28
 ---
 
 # The intercom MCP
@@ -118,7 +118,8 @@ delivered to it, a conversation to process in order, not an email list.
   — re-read processed history, jump to the start/end, walk from an id.
 - **Explicit commit.** `commit(up_to)` advances the cursor (monotonic,
   forward-only, idempotent); a studio that restarts before committing
-  re-consumes (at-least-once).
+  re-consumes (at-least-once). Under the [structured turn end](structured-turn-end.md)
+  the studio commits what a wake showed when the turn ends.
 - **Nothing is pruned** — backward/`start` reads always work.
 
 ## Waiting for a reply (wake-on)

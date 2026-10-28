@@ -188,6 +188,8 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		To          string   `json:"to"`
 		ContentType string   `json:"content_type,omitempty"` // "" = text/markdown
 		Attachments []string `json:"attachments,omitempty"`  // uploaded blob refs
+		// Auto marks the cove posting the session's turn-end text for it.
+		Auto bool `json:"auto,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
@@ -235,6 +237,15 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		http.Error(w, "send failed", http.StatusInternalServerError)
 		return
 	}
+	if req.Auto {
+		if h.repeats(pl.Channel.ID, ident.ID(actor.ID), req.Body) {
+			h.log.Info("intercom", "actor", actor.ID, "op", "send", "auto", true, "skipped", "duplicate", "channel", string(pl.Channel.ID))
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"skipped":true}` + "\n"))
+			return
+		}
+		parts = append(parts, intercom.Part{Type: intercom.TurnEndPartType})
+	}
 	m, err := h.ic.Post(pl, intercom.Squawk{From: ident.ID(actor.ID), Body: req.Body, ContentType: req.ContentType, Parts: parts})
 	if errors.Is(err, intercom.ErrInvalid) {
 		http.Error(w, "invalid attachments: "+err.Error(), http.StatusBadRequest)
@@ -254,6 +265,37 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 	}{ID: m.ID, Channel: ch}); err != nil {
 		h.log.Error("intercom: encode send response failed", "actor", actor.ID, "error", err.Error())
 	}
+}
+
+// autoDupWindow and autoDupScan bound the duplicate check on an auto post:
+// the channel's last autoDupScan squawks, within autoDupWindow.
+const (
+	autoDupWindow = 10 * time.Minute
+	autoDupScan   = 20
+)
+
+// repeats reports whether from already `send`s body (trimmed) in ch during
+// this turn: an agent that sends its reply and then ends its turn with the
+// same text would otherwise post it twice. Only sends since from's last auto
+// post (its previous turn end) count, so the same short answer to two
+// questions ("Done.") is never swallowed.
+func (h *SquawksHandler) repeats(ch, from ident.ID, body string) bool {
+	body = strings.TrimSpace(body)
+	since := h.now().Add(-autoDupWindow)
+	recent := h.inbox.Log.ChannelBefore(ch, 0, autoDupScan) // oldest first
+	for i := len(recent) - 1; i >= 0; i-- {
+		m := recent[i]
+		if m.From != from {
+			continue
+		}
+		if intercom.IsTurnEnd(m) || m.At.Before(since) {
+			return false
+		}
+		if strings.TrimSpace(m.Body) == body {
+			return true
+		}
+	}
+	return false
 }
 
 // targetOut is one entry in the GET /squawks/targets response. Handles are

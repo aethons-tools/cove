@@ -4,7 +4,7 @@ read_when: You want a ticket session to report its ticket's state or a session t
 owns: the turn-end model, the `end`, `idle_timeout`, `report` and `alarm_*` tools and their `/end`, `/idle`, `/report`, `/alarms` endpoints, how a ticket session finishes (blocked when ended without a final report), the alarm limits, firing rules and gates (`RunGate`/`GateResult`), the role's turn-end policy (`--idle-timeout`/`--on-idle`/`--time-zone` semantics), the `holding` activity (its wake/pause/teardown semantics and the WaitSeq rule), and wake reasons (kinds, rendering, the legacy fallback). Does NOT own reply detection, wait-max, or warm-timeout pausing — see intercom.md.
 prereqs: coves.md for Phase vs Activity; intercom.md for the wake-on engine and how a reply is detected
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-28
 ---
 
 # Turn end
@@ -161,7 +161,8 @@ A Wake carries a list of reasons; the agent's resume prompt names them.
 
 | Kind | Rendered as |
 |------|-------------|
-| `squawk` | the session kind's usual "a message may have arrived — `read`…" prompt |
+| `squawk` | the pending messages ([structured turn end](structured-turn-end.md)), else the session kind's usual "a message may have arrived — `read`…" prompt |
+| `process-exited` | ``Kept process `<name>` exited (status N); last lines:`` — a [kept process](structured-turn-end.md#kept-processes) (raised in the studio, not by Jam) |
 | `alarm` | `Alarm "<name>" fired: <note>` (plus the gate's output, when gated) |
 | `gate-failed` | `Alarm "<name>" gate could not run: <detail>` |
 | `idle` | `Idle timeout: no other wake arrived.` |
@@ -173,4 +174,6 @@ A Wake carries a list of reasons; the agent's resume prompt names them.
 - When no `squawk` is among the reasons, the prompt ends with `Continue.` instead of
   the read-your-inbox prompt.
 - A Wake with **no** reasons (from an older Jam) gets the session kind's usual prompt,
-  unchanged. Today Jam only sends `squawk`.
+  unchanged.
+- `turn_end` sets a turn's ending in one call (deny, recipient, compact, end, mute, wake
+  time, idle timeout) — see [structured-turn-end.md](structured-turn-end.md#turn_end).
