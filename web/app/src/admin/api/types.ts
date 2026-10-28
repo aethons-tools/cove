@@ -94,7 +94,7 @@ export interface UserRow {
   logins: string[];
   accounts: AccountRow[];
   projects: string[];
-  managed?: Managed; // nil: the config repo doesn't manage it
+  managed?: Managed | null; // nil: the config repo doesn't manage it
 }
 /**
  * UsersResponse is GET /app/admin/api/users.

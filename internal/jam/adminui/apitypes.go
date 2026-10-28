@@ -86,7 +86,7 @@ type UserRow struct {
 	Logins   []string     `json:"logins"`
 	Accounts []AccountRow `json:"accounts"`
 	Projects []string     `json:"projects"`
-	Managed  *Managed     `json:"managed"` // nil: the config repo doesn't manage it
+	Managed  *Managed     `json:"managed" tstype:"Managed | null"` // nil: the config repo doesn't manage it
 }
 
 // UsersResponse is GET /app/admin/api/users.
