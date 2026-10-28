@@ -297,9 +297,9 @@ jobs:
         with:
           go-version-file: go.mod
       # The Jam app bundle (a goreleaser before-hook) needs Node.
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
           cache-dependency-path: web/app/package-lock.json
 

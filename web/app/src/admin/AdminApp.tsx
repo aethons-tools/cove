@@ -21,6 +21,10 @@ import { KitsPage } from "./kits/KitsPage";
 import { KitPage } from "./kits/KitPage";
 import { AgentsPage as AgentsTab } from "./agents/AgentsPage";
 import { AgentPage } from "./agents/AgentPage";
+import { DashboardPage } from "./dash/DashboardPage";
+import { ChannelLogPage } from "./health/ChannelLogPage";
+import { HealthPage } from "./health/HealthPage";
+import { SearchPage } from "./search/SearchPage";
 import { TimelinePage } from "./agents/TimelinePage";
 import { UserPage } from "./users/UserPage";
 
@@ -31,7 +35,7 @@ export function adminRoutes(boot: Bootstrap): RouteObject[] {
     path: ADMIN,
     element: <AdminShell boot={boot} />,
     children: [
-      { index: true, element: <NotMovedYet /> },
+      { index: true, element: <DashboardPage /> },
       { path: "config", element: <Navigate to="tracking" replace /> },
       { path: "config/tracking", element: <TrackingPage /> },
       { path: "config/projects", element: <ProjectsPage /> },
@@ -55,7 +59,9 @@ export function adminRoutes(boot: Bootstrap): RouteObject[] {
       { path: "agents/:id", element: <AgentPage /> },
       { path: "agents/:id/session", element: <TimelinePage /> },
       { path: "agents/*", element: <NotMovedYet /> },
-      { path: "health/*", element: <NotMovedYet /> },
+      { path: "health", element: <HealthPage /> },
+      { path: "health/intercom", element: <ChannelLogPage /> },
+      { path: "search", element: <SearchPage /> },
       { path: "*", element: <NotMovedYet /> },
     ],
   }];

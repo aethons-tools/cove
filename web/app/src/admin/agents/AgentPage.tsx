@@ -108,7 +108,7 @@ function Agent({ d }: { d: AgentDetail }) {
         ) : <Text size="sm" c="dimmed">Session capture is not configured on this Jam.</Text>}
       </Section>
       <Section title="Squawks" sub="in its conversations, newest first"
-        actions={d.squawksConfigured ? <Anchor href={`/app/admin/intercom?participant=${enc(d.id)}`} size="sm">{d.squawksMore && "all "}in Intercom</Anchor> : undefined}>
+        actions={d.squawksConfigured ? <Anchor component={Link} to={nodeHref(`health/intercom?participant=${enc(d.id)}`)} size="sm">{d.squawksMore && "all "}in Intercom</Anchor> : undefined}>
         {d.squawksConfigured ? <SquawkTable rows={d.squawks} /> : <Text size="sm" c="dimmed">Squawk log not configured.</Text>}
       </Section>
       {d.setupEnabled && <SetupCard path={`agents/${enc(d.id)}/setup`} />}
