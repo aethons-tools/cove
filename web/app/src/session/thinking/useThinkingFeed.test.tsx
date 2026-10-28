@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/server";
 import { tev } from "./testing";
-import { userThinkingSource } from "./source";
+import { adminSessionSource, userThinkingSource, type ThinkingSource } from "./source";
 import { useThinkingFeed, type ThinkingFeed } from "./useThinkingFeed";
 
 class FakeES {
@@ -23,8 +23,10 @@ class FakeES {
 
 const box: { feed?: ThinkingFeed } = {};
 const BACKOFF_FAST = [1, 1];
-function Probe({ backoff }: { backoff?: number[] }) {
-  const f = useThinkingFeed(userThinkingSource("ses_1"), { max: 100, backoff, following: () => true });
+function Probe({ backoff, src = userThinkingSource("ses_1"), onTotals, onStream }: {
+  backoff?: number[]; src?: ThinkingSource; onTotals?: (t: unknown) => void; onStream?: (s: string) => void;
+}) {
+  const f = useThinkingFeed(src, { max: 100, backoff, following: () => true, onTotals, onStream });
   useEffect(() => { box.feed = f; });
   return null;
 }
@@ -129,5 +131,32 @@ describe("useThinkingFeed", () => {
     const { unmount } = render(<Probe />);
     unmount();
     expect(FakeES.last.closed).toBe(true);
+  });
+
+  it("a pinned source stays on its stream: its feed, earlier pages, and a newstream", async () => {
+    vi.stubGlobal("EventSource", FakeES);
+    let asked = "";
+    server.use(http.get("/app/admin/api/agents/:id/session/page", ({ request }) => {
+      asked = new URL(request.url).search;
+      return HttpResponse.json({ events: [tev(1, { stream: "s0" })], before: 0 });
+    }));
+    render(<Probe src={adminSessionSource("ses_1", "s0")} />);
+    expect(FakeES.last.url).toBe("/app/admin/api/agents/ses_1/session/events?stream=s0");
+    act(() => { FakeES.last.emit("stream", "s0"); FakeES.last.emit("ev", JSON.stringify(tev(2, { stream: "s0" }))); FakeES.last.emit("more", "2"); });
+    await act(() => feed.earlier());
+    expect(asked).toBe("?stream=s0&before=2");
+    expect(seqs()).toEqual(["s0:1", "s0:2"]);
+    act(() => FakeES.last.emit("newstream", "s9"));
+    expect(FakeES.last.url).toBe("/app/admin/api/agents/ses_1/session/events?stream=s0");
+  });
+
+  it("hands the feed's totals and stream to the caller", () => {
+    vi.stubGlobal("EventSource", FakeES);
+    const totals = vi.fn(), stream = vi.fn();
+    render(<Probe onTotals={totals} onStream={stream} />);
+    act(() => { FakeES.last.emit("stream", "s1"); FakeES.last.emit("totals", '{"turns":2}'); FakeES.last.emit("totals", "not json"); });
+    expect(stream).toHaveBeenCalledWith("s1");
+    expect(totals).toHaveBeenCalledTimes(1);
+    expect(totals).toHaveBeenCalledWith({ turns: 2 });
   });
 });

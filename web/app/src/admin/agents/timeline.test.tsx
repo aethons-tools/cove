@@ -46,10 +46,13 @@ afterAll(() => {
 afterEach(() => { vi.unstubAllGlobals(); FakeES.all = []; });
 
 describe("an agent's session timeline", () => {
-  it("shows the totals and the pinned stream's events through the Thinking rows", async () => {
+  it("shows the stream's live totals and its events through the Thinking rows", async () => {
     mount(info());
-    expect(await screen.findByText(/3 turns · 2 episodes · 1,234 tool calls · 1,500,000 in \/ 2,000 out · \$4\.50/)).toBeInTheDocument();
     await waitFor(() => expect(last().url).toBe(api + "/events?stream=s1"));
+    last().emit("totals", JSON.stringify({ turns: 3, episodes: 2, toolCalls: 1234, inputTokens: 1500000, outputTokens: 2000, costUsd: 4.5 }));
+    expect(await screen.findByText(/3 turns · 2 episodes · 1,234 tool calls · 1,500,000 in \/ 2,000 out · \$4\.50/)).toBeInTheDocument();
+    last().emit("totals", JSON.stringify({ turns: 4, episodes: 2, toolCalls: 1235, inputTokens: 1500000, outputTokens: 2100, costUsd: 4.75 }));
+    expect(await screen.findByText(/4 turns · .* · \$4\.75/)).toBeInTheDocument();
     last().emit("ev", JSON.stringify(tev(1, { text: "<b>hello</b>" })));
     expect(await screen.findByText("<b>hello</b>")).toBeInTheDocument();
     expect(document.querySelector(".te-text b")).toBeNull();
@@ -59,10 +62,27 @@ describe("an agent's session timeline", () => {
     const { router } = mount(info());
     const sel = await screen.findByRole("combobox", { name: "Stream" });
     expect(screen.getByRole("option", { name: "2026-10-27 09:00:00 · 300 events" })).toBeInTheDocument();
+    server.use(http.get(api, () => HttpResponse.json(info({ stream: "s0" }))));
     await userEvent.selectOptions(sel, "s0");
     await waitFor(() => expect(router.state.location.search).toBe("?stream=s0"));
-    server.use(http.get(api, () => HttpResponse.json(info({ stream: "s0" }))));
     await waitFor(() => expect(last().url).toBe(api + "/events?stream=s0"));
+  });
+
+  it("shows the stream the server chose for an unknown ?stream=", async () => {
+    mount(info(), ADMIN + "agents/ses_1/session?stream=nope");
+    await waitFor(() => expect(last().url).toBe(api + "/events?stream=s1"));
+    expect(FakeES.all.some((e) => e.url.includes("nope"))).toBe(false);
+  });
+
+  it("with no streams yet, follows the first one and fills the select when it starts", async () => {
+    let calls = 0;
+    mount(info({ streams: [], stream: "" }));
+    server.use(http.get(api, () => (++calls, HttpResponse.json(calls === 1 ? info({ streams: [], stream: "" }) : info()))));
+    await waitFor(() => expect(last().url).toBe(api + "/events"));
+    last().emit("stream", "s1");
+    last().emit("ev", JSON.stringify(tev(1, { text: "first words" })));
+    expect(await screen.findByText("first words")).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "2026-10-28 09:00:00 · 12 events" })).toBeInTheDocument();
   });
 
   it("says when session events are not configured", async () => {

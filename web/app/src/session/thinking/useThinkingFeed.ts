@@ -27,6 +27,14 @@ interface Conn {
   setPinned: (s: string) => void;
   following: () => boolean;
   backoff: number[];
+  on: FeedCallbacks;
+}
+
+// FeedCallbacks hand the caller what the feed carries beside its rows: the
+// stream it follows, and the stream's running totals (parsed JSON).
+export interface FeedCallbacks {
+  onTotals?: (t: unknown) => void;
+  onStream?: (stream: string) => void;
 }
 
 // open (re)connects c to stream ("" = the newest), clearing the list first
@@ -41,7 +49,12 @@ function open(c: Conn, stream: string, clear: boolean) {
   c.es = es;
   const on = (name: string, fn: (e: MessageEvent<string>) => void) =>
     es.addEventListener(name, (e) => { if (c.gen === gen) fn(e as MessageEvent<string>); });
-  on("stream", (e) => c.dispatch({ type: "stream", stream: e.data }));
+  on("stream", (e) => { c.dispatch({ type: "stream", stream: e.data }); c.on.onStream?.(e.data); });
+  on("totals", (e) => {
+    let t: unknown;
+    try { t = JSON.parse(e.data); } catch { return; }
+    c.on.onTotals?.(t);
+  });
   on("ev", (e) => {
     let ev: ThinkingEvent;
     try { ev = JSON.parse(e.data) as ThinkingEvent; } catch { return; }
@@ -78,16 +91,17 @@ function open(c: Conn, stream: string, clear: boolean) {
 // why) is checked against the source: 404 means the
 // viewer lost the session; anything else (429 too many feeds, a 502)
 // retries after each backoff delay, then says so — never looping.
-export function useThinkingFeed(src: ThinkingSource, opts: { max?: number; backoff?: number[]; following: () => boolean }): ThinkingFeed {
+export function useThinkingFeed(src: ThinkingSource, opts: { max?: number; backoff?: number[]; following: () => boolean } & FeedCallbacks): ThinkingFeed {
   const [feed, dispatch] = useReducer(feedReducer(opts.max ?? MAX_ROWS), emptyFeed);
   const [pinned, setPinned] = useState("");
   const conn = useRef<Conn>({ src, es: null, tries: 0, retry: undefined, gen: 0, dispatch, setPinned,
-    following: opts.following, backoff: opts.backoff ?? BACKOFF });
+    following: opts.following, backoff: opts.backoff ?? BACKOFF, on: opts });
   const feedNow = useRef(feed);
   useEffect(() => {
     conn.current.src = src;
     conn.current.following = opts.following;
     conn.current.backoff = opts.backoff ?? BACKOFF;
+    conn.current.on = { onTotals: opts.onTotals, onStream: opts.onStream };
     feedNow.current = feed;
   });
 

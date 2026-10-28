@@ -8,7 +8,7 @@ import { clock, num } from "./format";
 import { FORMATS, loadPrefs, savePrefs, type Chip, type Format, type ThinkingPrefs } from "./prefs";
 import { deriveRows, toolsIn, type Row } from "./rows";
 import { userThinkingSource, type ThinkingSource } from "./source";
-import { useThinkingFeed } from "./useThinkingFeed";
+import { useThinkingFeed, type FeedCallbacks } from "./useThinkingFeed";
 import "./thinking.css";
 
 const CHIPS: [Chip, string][] = [["thinking", "Thinking"], ["text", "Text"], ["tools", "Tools"], ["errors", "Errors only"], ["progress", "Progress"]];
@@ -85,9 +85,9 @@ export default function ThinkingTab({ id, busy, max, backoff }: { id: string; bu
 
 // ThinkingView renders a source's events. streams, when given, offers the
 // stream select (else the source is pinned to one stream by its caller).
-export function ThinkingView({ source, busy, max, backoff, streams }: {
+export function ThinkingView({ source, busy, max, backoff, streams, onTotals, onStream }: {
   source: ThinkingSource; busy: boolean; max?: number; backoff?: number[]; streams?: ThinkingStream[];
-}) {
+} & FeedCallbacks) {
   const [prefs, setPrefs] = useState(loadPrefs);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Set<string>>(() => new Set());
@@ -100,7 +100,7 @@ export function ThinkingView({ source, busy, max, backoff, streams }: {
   // anchor: the row (and its offset in the view) a Load earlier keeps in
   // place while the rows above it arrive and are measured (until: ms).
   const anchor = useRef<{ key: string; offset: number; until: number } | null>(null);
-  const t = useThinkingFeed(source, { max, backoff, following: () => follow.current });
+  const t = useThinkingFeed(source, { max, backoff, following: () => follow.current, onTotals, onStream });
   const rows = useMemo(() => deriveRows(t.feed.items, prefs, q), [t.feed.items, prefs, q]);
   const tools = useMemo(() => {
     const x = toolsIn(t.feed.items);
