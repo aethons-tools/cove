@@ -15,7 +15,14 @@ type fakeTurnEndSetter struct {
 	idle                IdleOverride
 	muteActor           string
 	muted               bool
+	keptActor           string
+	kept                int
 	err                 error
+}
+
+func (f *fakeTurnEndSetter) SetKeptProcesses(a string, n int) error {
+	f.keptActor, f.kept = a, n
+	return f.err
 }
 
 func (f *fakeTurnEndSetter) SetEndRequested(a, r string) error {
@@ -149,5 +156,23 @@ func TestMuteHandler(t *testing.T) {
 	}
 	if rec := doTurnEnd(h, "POST", "/mute", "tok", `{"on":true}`); rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /mute → %d, want 405", rec.Code)
+	}
+}
+
+func TestKeptHandler(t *testing.T) {
+	h, set := turnEndFixture()
+	if rec := doTurnEnd(h, "PUT", "/kept", "tok", `{"count":2}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if set.keptActor != "cove-1" || set.kept != 2 {
+		t.Fatalf("kept = %q %d", set.keptActor, set.kept)
+	}
+	for _, body := range []string{`not json`, `{}`, `{"count":-1}`, `{"count":99}`} {
+		if rec := doTurnEnd(h, "PUT", "/kept", "tok", body); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s → %d, want 400", body, rec.Code)
+		}
+	}
+	if rec := doTurnEnd(h, "POST", "/kept", "tok", `{"count":1}`); rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /kept → %d, want 405", rec.Code)
 	}
 }

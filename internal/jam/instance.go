@@ -94,6 +94,7 @@ type Instance struct {
 	Alarms             []Alarm       `json:"alarms,omitempty"`              // the cove's alarms (alarm_* tools)
 	Exposures          []Exposure    `json:"exposures,omitempty"`           // ports the session exposed as studio previews; cleared by Raise
 	EndRequested       *EndRequest   `json:"end_requested,omitempty"`       // the cove asked to end (POST /end); wake-on tears it down once Waiting
+	KeptProcesses      int           `json:"kept_processes,omitempty"`      // processes the cove keeps running across turns (PUT /kept); while any run, a waiting session isn't paused
 	MessagesMuted      bool          `json:"messages_muted,omitempty"`      // new messages don't wake the session (PUT /mute); cleared when its next turn starts
 	Report             *TicketReport `json:"report,omitempty"`              // the session's last ticket report (POST /report, or blocked by wake-on)
 	TurnProtocol       int           `json:"turn_protocol,omitempty"`       // the turn protocol the cove last fetched its context with (GET /context); 0 = legacy

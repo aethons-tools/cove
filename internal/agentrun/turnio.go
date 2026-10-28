@@ -34,6 +34,9 @@ type TurnIO interface {
 	// Mute sets whether new messages stop waking the session until it next
 	// runs; ErrUnsupported from a Jam without it.
 	Mute(ctx context.Context, on bool) error
+	// SetKept tells Jam how many processes the cove keeps running, so it
+	// doesn't pause the studio while any run; ErrUnsupported from an older Jam.
+	SetKept(ctx context.Context, n int) error
 }
 
 // ErrUnsupported is a TurnIO call this Jam doesn't serve (an older Jam).
@@ -106,7 +109,7 @@ func (c httpTurnIO) do(ctx context.Context, method, path string, in any) ([]byte
 	out, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	switch {
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed:
-		if path == "/mute" {
+		if path == "/mute" || path == "/kept" {
 			return nil, ErrUnsupported
 		}
 		return nil, fmt.Errorf("%s %s: %s", method, path, resp.Status)
@@ -170,6 +173,13 @@ func (c httpTurnIO) SetIdle(ctx context.Context, duration string) error {
 		Duration string `json:"duration"`
 		Scope    string `json:"scope"`
 	}{duration, "next"})
+	return err
+}
+
+func (c httpTurnIO) SetKept(ctx context.Context, n int) error {
+	_, err := c.do(ctx, http.MethodPut, "/kept", struct {
+		Count int `json:"count"`
+	}{n})
 	return err
 }
 

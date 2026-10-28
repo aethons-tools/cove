@@ -14,7 +14,7 @@ import (
 func Boilerplate(f SessionFacts) Layer {
 	const ownChannel = "`send` without `to` posts to your own channel: whoever is in it (people who joined it, or were called in with `call_in`) hears you. Pass `to` to reach anyone else (`list_targets` shows who you may message). "
 	var who, comms, turns string
-	turns = "- Turns: each turn is one `claude -p` run. Background processes you start die when the turn ends — finish work within the turn."
+	turns = "- Turns: each turn is one `claude -p` run. " + legacyBackground
 	structured := f.TurnProtocol == TurnProtocolStructured
 	if structured {
 		turns = structuredTurns
@@ -75,10 +75,13 @@ func Boilerplate(f SessionFacts) Layer {
 // the structured turn end (agentrun.TurnProtocol).
 const TurnProtocolStructured = 2
 
+// legacyBackground is the legacy turns line's word on background processes.
+const legacyBackground = "Background processes you start outlive the turn but freeze while the studio is paused as you wait — finish work within the turn."
+
 // structuredTurns replaces the legacy turns line for a cove that speaks the
 // structured turn end; structuredTicket is a ticket session's extra.
 const (
-	structuredTurns  = "- Turns: each turn is one `claude -p` run; ending your turn is how you wait. New messages arrive in your prompt. End your turn with your reply — your final text is posted for you (to your own channel unless `turn_end` names another recipient); end with no text when there is nothing to say, and don't also `send` it. It doesn't wake other sessions: to get one to act, `send` to it. Ending your turn marks the messages you were shown as handled; `turn_end` changes that, what wakes you, or what happens next (compact, end). Shell background jobs die with the turn: to keep something running (a preview), use `keep_start` — it survives your turns and wakes you if it exits; agree with the person how long it should run and set a `wake_at` to ask them then."
+	structuredTurns  = "- Turns: each turn is one `claude -p` run; ending your turn is how you wait. New messages arrive in your prompt. End your turn with your reply — your final text is posted for you (to your own channel unless `turn_end` names another recipient); end with no text when there is nothing to say, and don't also `send` it. It doesn't wake other sessions: to get one to act, `send` to it. Ending your turn marks the messages you were shown as handled; `turn_end` changes that, what wakes you, or what happens next (compact, end). Background processes you start outlive your turn but freeze while the studio is paused as you wait. To keep something running (a preview), use `keep_start`: the studio isn't paused while it runs, it wakes you if it exits, and it stops with your session; agree with the person how long it should run and set a `wake_at` to ask them then."
 	structuredTicket = "Your final text is a comment on your ticket: end with no text when your `report` already says it."
 )
 

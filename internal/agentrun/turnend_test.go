@@ -71,6 +71,11 @@ func (f *fakeTurnIO) SetAlarm(_ context.Context, name, at, note string) error {
 	return nil
 }
 func (f *fakeTurnIO) SetIdle(_ context.Context, d string) error { f.rec("SetIdle %s", d); return nil }
+func (f *fakeTurnIO) SetKept(_ context.Context, n int) error {
+	f.rec("SetKept %d", n)
+	return nil
+}
+
 func (f *fakeTurnIO) Mute(_ context.Context, on bool) error {
 	f.rec("Mute %v", on)
 	return f.muteErr

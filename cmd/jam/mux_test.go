@@ -79,6 +79,7 @@ func TestSquawksMuxRouting(t *testing.T) {
 		{"/end", "turn-end"},
 		{"/idle", "turn-end"},
 		{"/mute", "turn-end"},
+		{"/kept", "turn-end"},
 		{"/end/extra", "broker"},
 		{"/alarms", "alarms"},
 		{"/report", "report"},
