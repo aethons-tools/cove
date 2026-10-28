@@ -1,10 +1,10 @@
 ---
-summary: How the Jam app (web/app — React + TypeScript + Vite + Mantine) is built, embedded, served at /app/user/, typed from Go, and tested; the dev loop.
-read_when: You are changing the Jam app in web/app, adding a /app/user/api route it reads, or building/testing it locally or in CI.
-owns: the web/app source layout, `just app` / `app-dev` / `app-check`, scripts/app.sh and the size budget, the webapp serving package (bootstrap, CSP, not-built page), the tygo type generation, and the app's test layers
+summary: How the Jam app (web/app — React + TypeScript + Vite + Mantine) is built, embedded, served at /app/user/ and (the admin area, in preview) /app/admin/next/, typed from Go, and tested; the dev loop.
+read_when: You are changing the Jam app in web/app, adding a /app/user/api or /app/admin/api route it reads, or building/testing it locally or in CI.
+owns: the web/app source layout, the admin area's mount, API and Config tree plumbing, the shared /app/assets/ path, `just app` / `app-dev` / `app-check`, scripts/app.sh and the size budget, the webapp serving package (bootstrap, CSP, not-built page), the tygo type generation, and the app's test layers
 prereqs: usage/jam/intercom-ui.md for what the user area does; superpowers/specs/2026-10-26-jam-spa-design.md for why
 tier: leaf
-updated: 2026-10-27
+updated: 2026-10-28
 ---
 
 # The Jam app (`web/app`)
@@ -35,30 +35,37 @@ Inbox at the cutover. Old links keep working: `src/routes/Home.tsx` redirects th
   - `src/live/useLiveEvents.ts` is the one `EventSource`: each signal invalidates query keys (`rail`, `conversation`, `presence`, `session`), with the 30 s `POLL_MS` as the fallback.
   - An expired sign-in links back to the current page, so the gate decides how to sign in again; queries never retry an expired sign-in or a 4xx (`shouldRetry`).
 - `internal/jam/webapp`: serves a built bundle.
-  - Files under `assets/` are served immutable, and a missing one is a 404.
-  - Every other path gets `index.html`, with the request's bootstrap replacing `<!--jam:bootstrap-->` and a strict CSP.
+  - `Assets` serves the bundle's hashed files at **`/app/assets/`** for both areas (Vite's `base` is `/app/`), immutable; a missing one is a 404. `appui` mounts it ungated, like `/app/static/`: it is code, not data, and an admin needn't be a member.
+  - `Handler` serves an area: every page path gets `index.html`, with the request's bootstrap replacing `<!--jam:bootstrap-->` and a strict CSP; an `assets/` path under an area is a 404.
   - Without a bundle it answers 503 "not built".
 - `internal/jam/userui`: `Handler` serves the user area. `api*.go` hold the JSON routes; beside them sit the byte and stream routes (events, uploads, blobs, board elements and thumbnails, the Thinking feed, push), and every other `/app/user/` path is `webapp` with the member's bootstrap (`app()`, the mux's method-less catch-all).
+
+## Admin area
+
+The admin console is moving into the app ([design](superpowers/specs/2026-10-28-admin-spa-design.md)). Until its cutover it is served at **`/app/admin/next/`** (`adminui.appMount`, `src/admin/paths.ts`' `ADMIN`), behind the admin gate, beside the old pages.
+- One bundle: `src/main.tsx` lazily imports `src/admin/start.tsx` on `/app/admin/` paths, so the user area's initial load doesn't carry it.
+- `src/admin/`: `AdminApp.tsx` (routes), `AdminShell.tsx` (the title bar — `shell/TitleBar.tsx`, shared with the user area's `UserTitleBar` — and, on `config/` pages, the Config tree as the navbar, a drawer on narrow screens), `config/` (the tree: `ConfigTree`, polled every 3 s, with `treeState.ts`' filter, ancestors and remembered open branches in localStorage `jam-admin-tree`), `legacy.ts` (`oldHref`: a new path's old admin page, linked by `NotMovedYet` for pages not ported yet).
+- The API is `/app/admin/api/` (`adminui/api.go`, `tree.go`), wrapped whole in `RequireSameOrigin`, with the user API's error envelope and headers: `GET bootstrap` (title-bar tabs and badges) and `GET tree` (the Config tree with its attention badges: configuration trouble only; a studio's runtime trouble badges the Agents tab). Its types are `adminui/apitypes.go`, generated into `src/admin/api/types.ts`.
 
 ## Build
 
 - `just app` (`scripts/app.sh`) runs `npm ci`, `vite build` and the size budget, then swaps the result into `internal/jam/uiassets/app/`. That directory is git-ignored and embedded by jam. `just build` always runs it, so building jam needs Node 22 and npm (the bundle is the whole user area); `APP_OPTIONAL=1 scripts/app.sh` skips it where npm is missing, and that Jam's `/app/user/` answers "not built". `just dev-serve` runs the last `just build`, bundle included.
-- The size budget: the shell route's initial JS (entry plus modulepreloads) must stay ≤ 350 KB gzipped. Lazy-load anything big with `React.lazy`.
+- The size budget: each area's initial JS must stay ≤ 350 KB gzipped — the user area's is the entry plus its modulepreloads; the admin area's adds `src/admin/start.tsx`'s chunk and its static imports (read from Vite's manifest, which the check then deletes). Lazy-load anything big with `React.lazy`.
 - Excalidraw's fonts: `scripts/app.sh` copies them into `assets/excalidraw/fonts/` (without the CJK Xiaolai set), `src/boards/assetPath.ts` points `EXCALIDRAW_ASSET_PATH` there, and `build/excalidrawFonts.ts` (a Vite plugin) rewrites Excalidraw's CDN fallback (esm.sh) to the same bundle, failing the build if the pattern changes, if nothing was rewritten, or if any chunk still names esm.sh. So no font comes from another origin (the CSP is `font-src 'self'`).
 - CI (`gate.yml`) runs the types check, `npm run check` and `scripts/app.sh` before `go test`. Releases build the bundle as a goreleaser hook.
 - Dependencies: Renovate (`renovate.json`) updates `web/app` like any npm project. TypeScript is held below 6.1 there, matching typescript-eslint's peer range. Raise that cap when typescript-eslint supports a newer TypeScript.
 
 ## Dev loop
 
-Run `just dev-serve`, then `just app-dev`, and open `http://localhost:5173/app/user/`.
-- Vite serves the app's pages and hot-reloads them, and proxies to `JAM_URL` the routes the app reads beside them (`/app/user/api`, `events`, `session`, `uploads`, `blobs`, `push`, board elements and thumbnails), `/app/auth` and `/app/static` (default `http://localhost:8081`, `dev/jam.dev.yml`'s admin-listen).
+Run `just dev-serve`, then `just app-dev`, and open `http://localhost:5173/app/user/` (the admin area: `/app/admin/next/`).
+- Vite serves the app's pages and hot-reloads them, and proxies to `JAM_URL` the routes the app reads beside them (`/app/user/api`, `events`, `session`, `uploads`, `blobs`, `push`, board elements and thumbnails), the old admin pages and `/app/admin/api` (everything under `/app/admin/` but `next/`), `/app/auth` and `/app/static` (default `http://localhost:8081`, `dev/jam.dev.yml`'s admin-listen).
 - The proxy rewrites `Origin`, so writes pass the same-origin check.
 - With the dev identity on, loopback requests are already signed in.
 
 ## Types
 
-Go is the source of truth. JSON types live in `internal/jam/userui/apitypes.go`, the only file tygo reads (`tygo.yaml`).
-After changing them, run `go generate ./internal/jam/userui/` and commit `types.ts`. `scripts/app-types-check.sh` (CI) fails when it's stale.
+Go is the source of truth. JSON types live in `internal/jam/userui/apitypes.go` and, for the admin area, `internal/jam/adminui/apitypes.go`: the only files tygo reads (`tygo.yaml`).
+After changing them, run `go generate ./internal/jam/userui/` (it regenerates both) and commit `src/api/types.ts` and `src/admin/api/types.ts`. `scripts/app-types-check.sh` (CI) fails when it's stale.
 Rules:
 - every field has a `json` tag;
 - lists are never `nil` in a response;
@@ -75,7 +82,7 @@ Rules:
 
 - **Go:** `internal/jam/userui`'s `api*_test.go` (shared fixture in `fixture_test.go`) and `webapp_test.go` (plain `go test`).
 - **App:** `npm run check` in `web/app` (typecheck, ESLint, Vitest with Testing Library and MSW). Mock the API with MSW handlers typed from `types.ts`. `renderApp` (`src/test/render.tsx`) mounts the whole app with Mantine's `env="test"`: jsdom has no layout, and without it Mantine hides menus and popovers whose anchor looks detached.
-- **Browser:** `just test-browser` runs `app_browser_test.go`'s `TestBrowserApp*` tests (rail, conversation, composer, asks, session pane, Thinking, Studio, boards, push) and the service worker's. It needs the bundle (`just app`) and a headless Chrome, and skips without either.
+- **Browser:** `just test-browser` runs adminui's `TestBrowserAdmin*` (helpers in `internal/jam/browsertest`) and userui's `app_browser_test.go` `TestBrowserApp*` tests (rail, conversation, composer, asks, session pane, Thinking, Studio, boards, push) and the service worker's. It needs the bundle (`just app`) and a headless Chrome, and skips without either.
 
 ## Security
 

@@ -11,6 +11,12 @@ updated: 2026-10-24
 
 The pages behind the [title bar](ui.md#the-title-bar-and-look)'s admin tabs.
 
+The admin console is moving into the Jam app, with Projects, Users and Specs
+folded into a **Config** tree
+([design](../../superpowers/specs/2026-10-28-admin-spa-design.md)). Until its
+cutover, the new console is a preview at **`/app/admin/next/`**: the Config
+tree works there, and a page that hasn't moved yet links to its page here.
+
 **Projects** (`/app/admin/projects`, the project list) keeps a left **rail** of
 every project with **+ New project**; selecting one puts its tabs — **Overview ·
 Members · Agents · Intercom · Escalation** — over its pages

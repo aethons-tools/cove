@@ -231,5 +231,24 @@ func BadgeSource(store jam.Store, img jam.ImageResolver, conds *condition.Tracke
 	}
 }
 
+// appTabBadges are the admin app's title-bar badges, keyed by tab: config is
+// the configuration trouble the Config tree shows, agents the studios'
+// runtime trouble, health the open conditions, dashboard everything.
+func appTabBadges(items []attnItem) map[string]attnBadge {
+	var config, agents, health []attnItem
+	for _, it := range items {
+		_, onTree := treePath(it)
+		switch {
+		case onTree:
+			config = append(config, it)
+		case it.Tab == "agents" && (it.Kind == attnBroken || it.Kind == attnStale):
+			agents = append(agents, it)
+		case it.Tab == "health":
+			health = append(health, it)
+		}
+	}
+	return map[string]attnBadge{"dashboard": badgeOf(items), "config": badgeOf(config), "agents": badgeOf(agents), "health": badgeOf(health)}
+}
+
 // app is b as a title-bar badge.
 func (b attnBadge) app() appui.Badge { return appui.Badge(b) }
