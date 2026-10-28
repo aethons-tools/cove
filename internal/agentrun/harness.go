@@ -57,13 +57,13 @@ const (
 // Event is a harness-neutral agent stdout event, consumed by the idle tracker.
 type Event struct {
 	Kind        EventKind
-	QueuedEmpty bool             // EventTurnEnd
+	QueuedEmpty bool // EventTurnEnd
 	// Text is the turn's final text and OK whether it ended normally (not
 	// interrupted, not an error): EventTurnEnd only.
-	Text string
-	OK   bool
-	Tasks       []BackgroundTask // EventBackgroundTasks
-	TaskID      string           // EventBackgroundDone
+	Text   string
+	OK     bool
+	Tasks  []BackgroundTask // EventBackgroundTasks
+	TaskID string           // EventBackgroundDone
 	// Reply marks the agent's own output (a model reply): its conversation
 	// exists and can be continued.
 	Reply bool

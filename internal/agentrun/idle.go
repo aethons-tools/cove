@@ -46,9 +46,9 @@ type idleTracker struct {
 	// before changed is signalled, so the episode loop sees it at the boundary.
 	turnEnd    TurnResult
 	hasTurnEnd bool
-	changed chan struct{} // cap 1; signalled on every state change from Observe
-	parse   func(line []byte) (Event, error)
-	warn    func(msg string, args ...any)
+	changed    chan struct{} // cap 1; signalled on every state change from Observe
+	parse      func(line []byte) (Event, error)
+	warn       func(msg string, args ...any)
 }
 
 // newIdleTracker builds a tracker that maps stdout lines to Events with parse
