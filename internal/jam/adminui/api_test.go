@@ -1,0 +1,125 @@
+package adminui_test
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/jam/appui"
+	"github.com/aethons-tools/cove/internal/jam/uiassets"
+)
+
+// apiGet serves GET path to h as principal p.
+func apiGet(t *testing.T, h http.Handler, path string, p appui.Principal) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, appui.WithPrincipal(httptest.NewRequest(http.MethodGet, path, nil), p))
+	return rec
+}
+
+func adminHandler(t *testing.T) (http.Handler, jam.Store) {
+	t.Helper()
+	store := newStore(t)
+	return adminui.Handler(store, testLogger(), nil, nil, anyCred, nil), store
+}
+
+func decodeBootstrap(t *testing.T, rec *httptest.ResponseRecorder) adminui.Bootstrap {
+	t.Helper()
+	if rec.Code != 200 {
+		t.Fatalf("bootstrap = %d %s", rec.Code, rec.Body)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	if rec.Header().Get("Cache-Control") != "no-store" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("headers = %v, want no-store and nosniff", rec.Header())
+	}
+	var b adminui.Bootstrap
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func tabKeys(b adminui.Bootstrap) string {
+	var ks []string
+	for _, t := range b.Tabs {
+		ks = append(ks, t.Key)
+	}
+	return strings.Join(ks, ",")
+}
+
+func TestAdminBootstrap(t *testing.T) {
+	h, _ := adminHandler(t)
+	p := appui.Principal{Admin: true, User: &jam.Participant{Name: "alice", UserID: "usr_1"}}
+	b := decodeBootstrap(t, apiGet(t, h, "/app/admin/api/bootstrap", p))
+	if got := tabKeys(b); got != "inbox,dashboard,config,agents,health" {
+		t.Errorf("tabs = %s", got)
+	}
+	if !b.Member || b.Roles != "member · admin" || b.Name != "alice" || b.Initial != "A" {
+		t.Errorf("bootstrap = %+v", b)
+	}
+	want := map[string]string{"inbox": "/app/user/", "dashboard": "/app/admin/next/", "config": "/app/admin/next/config/tracking",
+		"agents": "/app/admin/next/agents", "health": "/app/admin/next/health"}
+	for _, tab := range b.Tabs {
+		if tab.Href != want[tab.Key] {
+			t.Errorf("tab %s href = %q, want %q", tab.Key, tab.Href, want[tab.Key])
+		}
+	}
+}
+
+func TestAdminBootstrapLocal(t *testing.T) {
+	h, _ := adminHandler(t)
+	p := appui.Principal{Admin: true, Local: true}
+	b := decodeBootstrap(t, apiGet(t, h, "/app/admin/api/bootstrap", p))
+	if got := tabKeys(b); got != "dashboard,config,agents,health" {
+		t.Errorf("tabs = %s, want no Inbox for a non-member", got)
+	}
+	if b.Member || b.Roles != "admin" || b.Name != p.DisplayName() || b.SignOut {
+		t.Errorf("bootstrap = %+v", b)
+	}
+}
+
+func TestAdminAPINotFound(t *testing.T) {
+	h, _ := adminHandler(t)
+	rec := apiGet(t, h, "/app/admin/api/nope", appui.Principal{Admin: true, Local: true})
+	var e adminui.APIError
+	if rec.Code != 404 || json.Unmarshal(rec.Body.Bytes(), &e) != nil || e.Code != "not_found" {
+		t.Errorf("GET api/nope = %d %s, want a JSON 404 not_found", rec.Code, rec.Body)
+	}
+}
+
+// A cross-origin write never reaches an API handler: here, the catch-all's
+// JSON 404 would show it had.
+func TestAdminAPICrossOrigin(t *testing.T) {
+	h, _ := adminHandler(t)
+	r := httptest.NewRequest(http.MethodPost, "/app/admin/api/nope", strings.NewReader("{}"))
+	r.Header.Set("Origin", "https://evil.example")
+	r.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, appui.WithPrincipal(r, appui.Principal{Admin: true, Local: true}))
+	if rec.Code != 403 || strings.Contains(rec.Body.String(), "not_found") {
+		t.Errorf("cross-origin POST = %d %s, want a 403 before any handler", rec.Code, rec.Body)
+	}
+}
+
+func TestAdminAppServed(t *testing.T) {
+	h, _ := adminHandler(t)
+	rec := apiGet(t, h, "/app/admin/next/config/projects/x", appui.Principal{Admin: true, Local: true})
+	if !uiassets.AppBuilt() {
+		if rec.Code != 503 {
+			t.Errorf("without a bundle = %d, want 503", rec.Code)
+		}
+		return
+	}
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `id="jam-bootstrap"`) {
+		t.Fatalf("app page = %d", rec.Code)
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "frame-src 'none'") {
+		t.Errorf("CSP = %q", csp)
+	}
+}
