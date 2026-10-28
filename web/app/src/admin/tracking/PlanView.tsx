@@ -49,7 +49,7 @@ export function PlanView({ plan, busy, onForce, onApply }: { plan: Plan; busy: b
         {plan.unmanaged.length > 0 && <Text size="sm" c="dimmed">Unmanaged (left alone): {keys(plan.unmanaged)}</Text>}
         {plan.serve.state === "differs" ? <Text size="sm" c="dimmed">Serve config: differs (restart to apply): {plan.serve.keys.join(", ")}</Text>
           : plan.serve.state && <Text size="sm" c="dimmed">Serve config: {plan.serve.state}</Text>}
-        {plan.refusals.length === 0 && <Group><ConfirmAction label="Apply this plan" color="jam" variant="filled" size="sm" confirm={confirm} onConfirm={onApply} /></Group>}
+        {plan.refusals.length === 0 && <Group><ConfirmAction label="Apply this plan" color="jam" variant="filled" size="sm" disabled={busy} confirm={confirm} onConfirm={onApply} /></Group>}
       </Stack>
     </Section>
   );

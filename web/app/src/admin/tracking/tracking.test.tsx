@@ -109,6 +109,23 @@ describe("Tracking", () => {
     await waitFor(() => expect(body).toEqual({ force: true }));
   });
 
+  it("holds Apply, Untrack and Release while a re-plan runs", async () => {
+    tree();
+    let calls = 0;
+    server.use(
+      http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, rows }))),
+      http.post("/app/admin/api/tracking/diff", async () => { calls++; if (calls > 1) await delay(300); return HttpResponse.json(plan({ hasDrift: true })); }),
+    );
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at);
+    await user.click(await screen.findByRole("button", { name: "Diff" }));
+    await user.click(await screen.findByRole("checkbox", { name: /Force/ }));
+    expect(screen.getByRole("button", { name: "Apply this plan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Untrack" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Release" })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Apply this plan" })).toBeEnabled());
+  });
+
   it("offers no Apply for a refused plan", async () => {
     tree();
     server.use(

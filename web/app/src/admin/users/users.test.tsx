@@ -68,6 +68,22 @@ describe("a user's page", () => {
     expect(name).toHaveValue("bob");
   });
 
+  it("moves to the id's page after renaming a user opened by name", async () => {
+    tree();
+    server.use(
+      http.get("/app/admin/api/users/alice", () => HttpResponse.json(detail())),
+      http.get("/app/admin/api/users/usr_1", () => HttpResponse.json(detail({ name: "alicia" }))),
+      http.post("/app/admin/api/users/usr_1/name", () => HttpResponse.json(detail({ name: "alicia" }))),
+    );
+    const user = userEvent.setup();
+    const { router } = renderAdmin(adminBoot, ADMIN + "config/users/alice");
+    const name = await screen.findByLabelText(/^Name/);
+    await user.clear(name);
+    await user.type(name, "alicia");
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(ADMIN + "config/users/usr_1"));
+  });
+
   it("confirms a managed user's rename with the drift note", async () => {
     tree();
     server.use(http.get("/app/admin/api/users/usr_1", () => HttpResponse.json(detail({ managed: { commit: "abc1234", applied: "x" } }))));

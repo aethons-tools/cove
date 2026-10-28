@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import { cleanup, configure } from "@testing-library/react";
+import { notifications } from "@mantine/notifications";
 import { server } from "./server";
 
 // Mantine reads these; jsdom has neither.
@@ -20,5 +21,7 @@ if (!("fonts" in document)) {
 configure({ asyncUtilTimeout: 5000 });
 
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
-afterEach(() => { server.resetHandlers(); cleanup(); document.getElementById("jam-bootstrap")?.remove(); });
+// Notifications live in a global store: a persistent one (a refusal) would
+// otherwise carry into the next test.
+afterEach(() => { server.resetHandlers(); cleanup(); notifications.clean(); document.getElementById("jam-bootstrap")?.remove(); });
 afterAll(() => server.close());

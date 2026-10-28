@@ -34,10 +34,10 @@ export function UserPage() {
   }
   if (error) return <Problem error={error} here={here.pathname} />;
   // Keyed by user: another user's page starts with fresh forms.
-  return <UserBody key={data.user.id} d={data} refKey={key} />;
+  return <UserBody key={data.user.id} d={data} refKey={key} byName={ref !== data.user.id} />;
 }
 
-function UserBody({ d, refKey }: { d: UserDetail; refKey: unknown[] }) {
+function UserBody({ d, refKey, byName }: { d: UserDetail; refKey: unknown[]; byName: boolean }) {
   const u = d.user;
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -69,7 +69,11 @@ function UserBody({ d, refKey }: { d: UserDetail; refKey: unknown[] }) {
       ) : (
         <SimpleGrid cols={{ base: 1, md: 2 }}>
           <Section title="Name" sub="Jam-wide; escalation tiers still name people (human:<name>) — update them after a rename">
-            <EditForm submit="Rename" confirm={drift ? `${drift} Rename anyway?` : undefined} onSubmit={() => write.mutateAsync({ path: `${base}/name`, body: { name } })}>
+            <EditForm submit="Rename" confirm={drift ? `${drift} Rename anyway?` : undefined} onSubmit={async () => {
+              await write.mutateAsync({ path: `${base}/name`, body: { name } });
+              // Opened by name: that name is gone now; the id's page stays.
+              if (byName) void navigate(nodeHref("config/users/" + enc(u.id)), { replace: true });
+            }}>
               <TextInput label="Name" required value={name} onChange={(e) => setName(e.currentTarget.value)} />
             </EditForm>
           </Section>

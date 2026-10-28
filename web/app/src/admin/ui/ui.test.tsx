@@ -63,6 +63,27 @@ describe("ConfirmAction", () => {
     await waitFor(() => expect(run).toHaveBeenCalledOnce());
   });
 
+  it("can be disabled", () => {
+    wrap(<ConfirmAction label="Remove" confirm="Remove it?" onConfirm={async () => {}} disabled />);
+    expect(screen.getByRole("button", { name: "Remove" })).toBeDisabled();
+  });
+
+  it("keeps a refusal on screen until dismissed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      wrap(<ConfirmAction label="Remove" confirm="Remove it?" onConfirm={async () => { throw new ApiError(409, "conflict", "in use"); }} />);
+      await user.click(screen.getByRole("button", { name: "Remove" }));
+      const buttons = await screen.findAllByRole("button", { name: "Remove" });
+      await user.click(buttons[buttons.length - 1]!);
+      expect(await screen.findByText("in use")).toBeInTheDocument();
+      vi.advanceTimersByTime(10_000);
+      expect(screen.getByText("in use")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows a refusal as a notification", async () => {
     const user = userEvent.setup();
     wrap(<ConfirmAction label="Remove" confirm="Remove it?" onConfirm={async () => { throw new ApiError(409, "conflict", "in use"); }} />);

@@ -60,7 +60,7 @@ function TrackingBody({ t }: { t: Tracking }) {
               <SourceFacts s={t.source} />
               <Group>
                 {t.canGit && <Button size="xs" onClick={() => runDiff(false)} loading={diff.isPending} disabled={busy}>Diff</Button>}
-                <ConfirmAction label="Untrack" confirm={`Stop following ${t.source.label}? Managed objects and their marks stay.`}
+                <ConfirmAction label="Untrack" disabled={busy} confirm={`Stop following ${t.source.label}? Managed objects and their marks stay.`}
                   onConfirm={() => write.mutateAsync({ path: "tracking/source", del: true })} />
               </Group>
             </Stack>
@@ -84,7 +84,7 @@ function TrackingBody({ t }: { t: Tracking }) {
           { key: "f", label: "From", render: (r) => <Text size="sm" ff="monospace">@{r.commit}</Text> },
           { key: "a", label: "Applied", render: (r) => r.applied },
           { key: "s", label: "State", render: (r) => r.state === "in-sync" ? <Text c="dimmed" size="sm">in sync</Text> : r.state ? <Badge color="yellow">{r.state}</Badge> : <Text c="dimmed" size="sm">unknown</Text> },
-          { key: "x", label: "", render: (r) => <ConfirmAction label="Release" confirm={`Stop managing ${r.kind} ${r.name} from the config repo? It stays in Jam, unmanaged.`}
+          { key: "x", label: "", render: (r) => <ConfirmAction label="Release" disabled={busy} confirm={`Stop managing ${r.kind} ${r.name} from the config repo? It stays in Jam, unmanaged.`}
             onConfirm={() => write.mutateAsync({ path: `tracking/managed/${encodeURIComponent(r.kind)}/${r.name.split("/").map(encodeURIComponent).join("/")}`, del: true })} /> },
         ]} />
       </Section>
