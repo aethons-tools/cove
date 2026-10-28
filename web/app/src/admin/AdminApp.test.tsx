@@ -24,19 +24,19 @@ describe("the admin app", () => {
   });
 
   it("links a page that hasn't moved to the old admin", async () => {
-    renderAdmin(adminBoot, ADMIN + "health");
+    renderAdmin(adminBoot, ADMIN + "nonsense");
     expect(await screen.findByText("This page hasn't moved yet")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open it in the current admin" })).toHaveAttribute("href", "/app/admin/health");
+    expect(screen.getByRole("link", { name: "Open it in the current admin" })).toHaveAttribute("href", "/app/admin/nonsense");
   });
 
   it("offers Sign out only when signed in through the browser", async () => {
-    const { unmount } = renderAdmin(adminBoot, ADMIN + "health");
+    const { unmount } = renderAdmin(adminBoot, ADMIN + "nonsense");
     await screen.findByText("This page hasn't moved yet");
     screen.getByRole("button", { name: "Account" }).click();
     await screen.findByText("local admin · admin");
     expect(screen.queryByRole("menuitem", { name: "Sign out" })).toBeNull();
     unmount();
-    renderAdmin({ ...adminBoot, signOut: true }, ADMIN + "health");
+    renderAdmin({ ...adminBoot, signOut: true }, ADMIN + "nonsense");
     await screen.findByText("This page hasn't moved yet");
     screen.getByRole("button", { name: "Account" }).click();
     expect(await screen.findByRole("menuitem", { name: "Sign out" })).toHaveAttribute("href", "/app/auth/logout");
