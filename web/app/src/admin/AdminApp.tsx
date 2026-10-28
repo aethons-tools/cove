@@ -15,6 +15,8 @@ import { AgentsPage } from "./roles/AgentsPage";
 import { RolePage } from "./roles/RolePage";
 import { DestinationsPage } from "./specs/DestinationsPage";
 import { DestinationPage } from "./specs/DestinationPage";
+import { ModelSpecsPage } from "./specs/ModelSpecsPage";
+import { ModelSpecPage } from "./specs/ModelSpecPage";
 import { UserPage } from "./users/UserPage";
 
 // adminRoutes are the admin area's client routes under ADMIN (webapp serves
@@ -37,6 +39,8 @@ export function adminRoutes(boot: Bootstrap): RouteObject[] {
       { path: "config/projects/:project/agents/:role", element: <RolePage /> },
       { path: "config/destinations", element: <DestinationsPage /> },
       { path: "config/destinations/:name", element: <DestinationPage /> },
+      { path: "config/model-specs", element: <ModelSpecsPage /> },
+      { path: "config/model-specs/:name", element: <ModelSpecPage /> },
       { path: "config/users", element: <UsersPage /> },
       { path: "config/users/:user", element: <UserPage /> },
       { path: "config/*", element: <NotMovedYet /> },
