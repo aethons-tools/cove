@@ -19,11 +19,13 @@ export function shouldRetry(failureCount: number, error: unknown): boolean {
 
 async function request<T>(base: string, method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
   let res: Response;
+  // A FormData body is sent as multipart (the browser sets its boundary).
+  const form = body instanceof FormData;
   try {
     res = await fetch(base + path, {
       method,
-      headers: body === undefined ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: body === undefined || form ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
+      body: body === undefined ? undefined : form ? body : JSON.stringify(body),
       credentials: "same-origin",
       redirect: "manual",
     });
@@ -52,6 +54,7 @@ export function apiAt(base: string) {
     get: <T>(path: string) => request<T>(base, "GET", path),
     post: <T = void>(path: string, body: unknown) => request<T>(base, "POST", path, body),
     del: <T = void>(path: string, body?: unknown) => request<T>(base, "DELETE", path, body),
+    postForm: <T = void>(path: string, form: FormData) => request<T>(base, "POST", path, form),
   };
 }
 

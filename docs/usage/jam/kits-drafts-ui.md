@@ -4,10 +4,16 @@ read_when: You are using or changing the kit page's Draft tab in the admin UI (`
 owns: the admin UI Draft tab (/app/admin/kits/<name>/draft), its editor rules, its config-managed publish confirmation and config-repo panel, its ui kit draft log lines
 prereqs: kits-drafts.md, ui-editing.md for the admin UI's write rules
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-28
 ---
 
 # The kit Draft tab
+
+In the new admin app (the preview at `/app/admin/next/`), the Draft is a
+section of the kit's page (`config/kits/<name>`) rather than a tab: the same
+actions, texts and limits as below, with the opened file as `?dfile=` (its
+diff `&ddiff=1`). A save another tab or the CLI overtook is refused and your
+text stays in the editor, with **Reload** to re-read the draft.
 
 A kit's page (`/app/admin/kits/<name>`) has, while no draft is open, an
 **Open draft from v<N>** button for the version on view, and a **Draft** tab

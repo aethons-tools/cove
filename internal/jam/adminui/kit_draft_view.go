@@ -69,6 +69,8 @@ type draftView struct {
 // draftRow is one row of the Draft tab's file tree: a directory or a file.
 type draftRow struct {
 	Pad    string // two spaces per level
+	Depth  int    // its directory depth
+	Raw    string // the stored path (the JSON API's file= value); "" for a directory
 	Name   string // the last segment (display text)
 	Dir    bool
 	Path   string // the whole path (display text)
@@ -92,10 +94,10 @@ func draftTree(kit string, entries []jam.DraftEntry, kinds map[string]string) []
 			same++
 		}
 		for i := same; i < len(dirs); i++ {
-			out = append(out, draftRow{Pad: strings.Repeat("  ", i), Name: pathText(dirs[i]), Dir: true, Path: pathText(strings.Join(dirs[:i+1], "/"))})
+			out = append(out, draftRow{Pad: strings.Repeat("  ", i), Depth: i, Name: pathText(dirs[i]), Dir: true, Path: pathText(strings.Join(dirs[:i+1], "/"))})
 		}
 		out = append(out, draftRow{
-			Pad: strings.Repeat("  ", len(dirs)), Name: pathText(segs[len(segs)-1]), Path: pathText(e.Path),
+			Pad: strings.Repeat("  ", len(dirs)), Depth: len(dirs), Raw: e.Path, Name: pathText(segs[len(segs)-1]), Path: pathText(e.Path),
 			Href: draftFileHref(kit, e.Path, false), Mode: e.Mode, Size: e.Size, Change: kinds[e.Path],
 		})
 		prev = dirs
@@ -128,7 +130,7 @@ func newDraftView(kit string, st jam.KitDraftStatus, base kittree.Tree) *draftVi
 		}
 		e, _ := base.Lookup(c.Path)
 		v.Removed = append(v.Removed, draftRow{
-			Name: pathText(c.Path), Path: pathText(c.Path), Href: draftFileHref(kit, c.Path, true),
+			Name: pathText(c.Path), Path: pathText(c.Path), Raw: c.Path, Href: draftFileHref(kit, c.Path, true),
 			Mode: fileModeText(e.Mode), Size: e.Size, Change: kittree.ChangeRemoved,
 		})
 	}
