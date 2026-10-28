@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chromedp/chromedp"
 
@@ -134,6 +135,41 @@ func TestBrowserAdminProjectRename(t *testing.T) {
 	}
 	if _, ok := store.GetProject("acme2"); !ok {
 		t.Error("the store has no acme2")
+	}
+	for _, pr := range problems.All() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// A role's scope edit from its page reaches the store (admin SPA slice 4).
+func TestBrowserAdminRoleScope(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browsertest.Ctx(t)
+	store := jam.NewMemStore()
+	if err := store.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("acme", jam.Role{Name: "coder", Scope: jam.Scope{TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	srv := adminServer(t, store)
+	var problems browsertest.Problems
+	err := chromedp.Do(ctx,
+		problems.Watch(ctx),
+		chromedp.Navigate(srv.URL+"/app/admin/next/config/projects/acme/agents/coder"),
+		browsertest.ClickText("summary", "Edit scope"),
+		chromedp.WaitVisible(chromedp.CSS(`input[value="1h"]`)),
+		browsertest.SetInput(`input[value="1h"]`, "2h"),
+		browsertest.ClickText("button", "Save scope"),
+		browsertest.WaitText("p", "TTL 2h"),
+	)
+	if err != nil {
+		t.Fatalf("%v (problems %v)", err, problems.All())
+	}
+	if r, _ := store.GetRole("acme", "coder"); r.Scope.TTL != 2*time.Hour {
+		t.Errorf("stored TTL = %v", r.Scope.TTL)
 	}
 	for _, pr := range problems.All() {
 		t.Errorf("page problem: %s", pr)

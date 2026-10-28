@@ -85,6 +85,57 @@ func renderError(w http.ResponseWriter, status int, msg string) {
 	_, _ = w.Write([]byte(`<p class="error">` + template.HTMLEscapeString(msg) + `</p>`))
 }
 
+// createRole creates a role in project from the New role form's fields (get
+// reads one by its form name: name, destinations, ttl-seconds, kit,
+// model-spec). Create only: an existing role is a 409 that says to edit it on
+// its page.
+func createRole(store jam.Store, credExists func(string) bool, project string, get func(string) string) error {
+	name := strings.TrimSpace(get("name"))
+	if name == "" {
+		return badRequest("name is required")
+	}
+	kit := strings.TrimSpace(get("kit"))
+	if kit != "" {
+		if _, ok := store.GetKit(kit); !ok {
+			return badRequest("kit does not exist")
+		}
+	}
+	ttl := 0
+	if v := strings.TrimSpace(get("ttl-seconds")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return badRequest("ttl-seconds must be an integer")
+		}
+		ttl = n
+	}
+	dests, creds, err := jam.ParseDestinations(get("destinations"))
+	if err != nil {
+		return badRequest(err.Error())
+	}
+	role := jam.Role{
+		Name: name,
+		Scope: jam.Scope{
+			Destinations: dests,
+			Credentials:  creds,
+			TTL:          time.Duration(ttl) * time.Second,
+		},
+		Kit:       kit,
+		ModelSpec: strings.TrimSpace(get("model-spec")), // CreateRole checks it exists
+	}
+	if err := jam.ValidateCredentials(role.Scope, credExists); err != nil {
+		return badRequest(err.Error())
+	}
+	if err := jam.CreateRole(store, project, role); err != nil {
+		status := jam.WriteStatus(err, http.StatusBadRequest)
+		msg := err.Error()
+		if status == http.StatusConflict {
+			msg += "; edit it on its page"
+		}
+		return &jam.WriteError{Status: status, Msg: msg}
+	}
+	return nil
+}
+
 func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *jam.Supervisor, credExists func(string) bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
 	mux.HandleFunc("POST /app/admin/enrollments", func(w http.ResponseWriter, r *http.Request) {
 		if !guardWrite(w, r) {
@@ -141,54 +192,9 @@ func registerWrites(mux *http.ServeMux, store jam.Store, log *slog.Logger, sup *
 			renderError(w, http.StatusBadRequest, "invalid form")
 			return
 		}
-		name := strings.TrimSpace(r.FormValue("name"))
-		if name == "" {
-			renderError(w, http.StatusBadRequest, "name is required")
-			return
-		}
-		kit := strings.TrimSpace(r.FormValue("kit"))
-		if kit != "" {
-			if _, ok := store.GetKit(kit); !ok {
-				renderError(w, http.StatusBadRequest, "kit does not exist")
-				return
-			}
-		}
-		ttl := 0
-		if v := strings.TrimSpace(r.FormValue("ttl-seconds")); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				renderError(w, http.StatusBadRequest, "ttl-seconds must be an integer")
-				return
-			}
-			ttl = n
-		}
-		project := strings.TrimSpace(r.FormValue("project"))
-		dests, creds, err := jam.ParseDestinations(r.FormValue("destinations"))
-		if err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		role := jam.Role{
-			Name: name,
-			Scope: jam.Scope{
-				Destinations: dests,
-				Credentials:  creds,
-				TTL:          time.Duration(ttl) * time.Second,
-			},
-			Kit:       kit,
-			ModelSpec: strings.TrimSpace(r.FormValue("model-spec")), // CreateRole checks it exists
-		}
-		if err := jam.ValidateCredentials(role.Scope, credExists); err != nil {
-			renderError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		// Create only: an existing role is edited section by section on its page.
-		if err := jam.CreateRole(store, project, role); err != nil {
-			msg := err.Error()
-			if jam.WriteStatus(err, 0) == http.StatusConflict {
-				msg += "; edit it on its page"
-			}
-			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), msg)
+		project, name := strings.TrimSpace(r.FormValue("project")), strings.TrimSpace(r.FormValue("name"))
+		if err := createRole(store, credExists, project, r.FormValue); err != nil {
+			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
 			return
 		}
 		// The new role's page is where it is edited; htmx follows the redirect.
