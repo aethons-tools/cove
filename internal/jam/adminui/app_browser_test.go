@@ -3,6 +3,7 @@
 package adminui_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -334,6 +335,61 @@ func TestBrowserAdminEnroll(t *testing.T) {
 	}
 	if got == nil || len(got.Grants) != 1 || got.Grants[0].Role != "coder" {
 		t.Errorf("enrolled actor = %+v", got)
+	}
+	for _, pr := range problems.All() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// The dashboard's Jam context card saves to the store, and "/" then Enter in
+// the title-bar search jumps to a single exact match (admin SPA slice 8).
+func TestBrowserAdminDashboardSearch(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browsertest.Ctx(t)
+	store := jam.NewMemStore()
+	if _, err := store.CreateUser(jam.User{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	srv := adminServer(t, store)
+	var focused bool
+	var problems browsertest.Problems
+	err := chromedp.Do(ctx,
+		problems.Watch(ctx),
+		chromedp.Navigate(srv.URL+"/app/admin/next/"),
+		browsertest.WaitText("h2", "Dashboard"),
+		browsertest.SetInput("textarea", "core: be kind\n"),
+		browsertest.ClickText("button", "Save context"),
+	)
+	if err != nil {
+		t.Fatalf("save: %v (problems %v)", err, problems.All())
+	}
+	pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err = chromedp.Do(pctx,
+		browsertest.Into(new(bool), chromedp.Poll[bool](`document.querySelector("textarea").value === "core: be kind\n" && [...document.querySelectorAll("pre")].some((c) => c.textContent.includes("be kind"))`)),
+	)
+	if err != nil {
+		var body string
+		_ = chromedp.Do(ctx, browsertest.Into(&body, chromedp.Evaluate[string](`document.querySelector("textarea").value + " || " + document.body.innerText.slice(0, 800)`)))
+		t.Fatalf("saved: %v %s", err, body)
+	}
+	err = chromedp.Do(ctx,
+		browsertest.Into(&focused, chromedp.Evaluate[bool](`(document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "/", bubbles: true, cancelable: true })),
+			document.activeElement === document.querySelector('input[aria-label="Search"]'))`)),
+		browsertest.SetInput(`input[aria-label="Search"]`, "alice"),
+		browsertest.Into(new(bool), chromedp.Evaluate[bool](`(document.querySelector('form[role="search"]').requestSubmit(), true)`)),
+		browsertest.WaitText("h2", "alice"),
+	)
+	if err != nil {
+		t.Fatalf("%v (problems %v)", err, problems.All())
+	}
+	if !focused {
+		t.Error("/ didn't focus the search box")
+	}
+	if got := store.GetJamContext().Core; !strings.Contains(got, "be kind") {
+		t.Errorf("stored Jam context core = %q", got)
 	}
 	for _, pr := range problems.All() {
 		t.Errorf("page problem: %s", pr)

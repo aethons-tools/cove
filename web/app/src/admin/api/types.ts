@@ -331,6 +331,14 @@ export interface SquawkRow {
   project: string;
   body: string; // squawkrender's sanitized HTML
   plain: boolean;
+  to: ToCell[]; // a legacy squawk's recipients
+}
+/**
+ * ToCell is a legacy squawk's recipient and its reach.
+ */
+export interface ToCell {
+  target: string; // kind:ref
+  external: boolean;
 }
 /**
  * ProjectDetail is a project's pages: its overview and sections.
@@ -1220,4 +1228,116 @@ export interface SessionPage {
 export interface SessionRaw {
   raw: string;
   truncated: number /* int */;
+}
+/**
+ * AttnRow is one Needs-attention item: its kind (broken, stale, config,
+ * alert), why, and the app path where it's fixed.
+ */
+export interface AttnRow {
+  kind: string;
+  why: string;
+  path: string;
+}
+/**
+ * ManagerRow is one Studio Manager on the dashboard.
+ */
+export interface ManagerRow {
+  name: string;
+  connected: boolean;
+  version: string;
+  studios: number /* int */;
+  capacity: number /* int */; // 0 = unbounded
+  lastSeen: string; // "15:04:05"; "" = never
+  strays: string[]; // its stray studios' actor ids
+}
+/**
+ * DashStats is the dashboard's tiles: studios by status group (Attention:
+ * lost or terminating) and the control-plane objects.
+ */
+export interface DashStats {
+  studios: number /* int */;
+  running: number /* int */;
+  waiting: number /* int */;
+  settingUp: number /* int */;
+  idled: number /* int */;
+  attention: number /* int */;
+  projects: number /* int */;
+  agents: number /* int */;
+  users: number /* int */;
+  specs: number /* int */; // kits + destinations + model-specs
+}
+/**
+ * Dashboard is the admin area's root page.
+ */
+export interface Dashboard {
+  stats: DashStats;
+  attention: AttnRow[]; // Jam-scope items
+  jamContext: ContextPanel;
+  hasManagers: boolean;
+  managers: ManagerRow[];
+  coves: CoveRow[];
+}
+/**
+ * HealthRow is one operator condition: open (Age: for how long) or resolved
+ * (Age: since when; Lasted: how long it was open).
+ */
+export interface HealthRow {
+  key: string;
+  severity: string; // critical, warning, info
+  summary: string;
+  fix: string;
+  detail: string;
+  age: string;
+  lasted: string;
+}
+/**
+ * Health is the Health tab: open conditions and the last 7 days' resolved.
+ */
+export interface Health {
+  open: HealthRow[];
+  resolved: HealthRow[];
+  silences: string; // Alertmanager's silences page; "" = not configured
+}
+/**
+ * ChannelLog is the channel log (or the frozen legacy log), newest first,
+ * as its filters select.
+ */
+export interface ChannelLog {
+  configured: boolean;
+  legacy: boolean;
+  filtered: boolean; // which empty state
+  badDate: boolean; // a date didn't parse (left unbounded)
+  rows: SquawkRow[];
+}
+/**
+ * SearchHit is one search result: its name, context and app path. Exact:
+ * its name is the whole query.
+ */
+export interface SearchHit {
+  title: string;
+  sub: string;
+  path: string;
+  exact: boolean;
+}
+/**
+ * SearchGroup is one kind's hits: Count is every match, Hits capped; More
+ * is where the rest are (squawks: the channel log), else "".
+ */
+export interface SearchGroup {
+  key: string;
+  name: string;
+  hits: SearchHit[];
+  count: number /* int */;
+  more: string;
+}
+/**
+ * SearchResult is a search. Jump is the app path of the single exact hit,
+ * else "".
+ */
+export interface SearchResult {
+  q: string;
+  tooShort: boolean;
+  total: number /* int */;
+  groups: SearchGroup[];
+  jump: string;
 }

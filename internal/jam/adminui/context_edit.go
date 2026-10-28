@@ -58,6 +58,16 @@ func jamPanel(store jam.Store) contextPanel {
 	return p
 }
 
+// setJamContext stores the Jam-wide context layer (b empty: clears it) and
+// logs what (set, cleared) with the operator — never the YAML.
+func setJamContext(store jam.Store, log *slog.Logger, r *http.Request, what string, b jam.ContextBody) error {
+	if err := jam.SetJamContextChecked(store, b); err != nil {
+		return err
+	}
+	log.Info("ui jam context "+what, "operator", jam.OperatorID(r))
+	return nil
+}
+
 // registerJamContext mounts the dashboard card's writes: save the YAML or
 // clear, then re-render the card.
 func registerJamContext(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
@@ -72,13 +82,12 @@ func registerJamContext(mux *http.ServeMux, store jam.Store, log *slog.Logger, g
 			}
 			b, err := body(r)
 			if err == nil {
-				err = jam.SetJamContextChecked(store, b)
+				err = setJamContext(store, log, r, what, b)
 			}
 			if err != nil {
 				renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
 				return
 			}
-			log.Info("ui jam context "+what, "operator", jam.OperatorID(r))
 			renderFragment(w, r, "dashboard", "context-panel", jamPanel(store))
 		}
 	}
