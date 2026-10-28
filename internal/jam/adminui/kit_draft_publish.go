@@ -1,9 +1,6 @@
 package adminui
 
 import (
-	"fmt"
-	"log/slog"
-	"net/http"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -68,44 +65,4 @@ func configFiles(store jam.Store, kit string, prev int, res jam.KitDraftPublish)
 		}
 	}
 	return out
-}
-
-// registerDraftPublish mounts Publish: jam.PublishKitDraft with the form's
-// etag and "pin followers" box. It refuses a draft with problems (400) even
-// though the page disables the button, and without the drift box ticked
-// (400) a config-managed kit's publish or one whose Pin followers would
-// rewrite a config-managed follower. The box is checked before the draft's
-// existence and ETag (docs/usage/jam/kits-drafts-ui.md).
-func registerDraftPublish(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("POST /app/admin/kits/{name}/draft/publish", func(w http.ResponseWriter, r *http.Request) {
-		name, ok := draftForm(w, r, store, guardWrite, false)
-		if !ok {
-			return
-		}
-		pin := r.FormValue("pin") != ""
-		if r.FormValue("drift") == "" {
-			if jam.KitManaged(store, name) {
-				renderError(w, http.StatusBadRequest, fmt.Sprintf("kit %s is managed by the config repo: tick “%s” to publish", name, draftDriftConfirm))
-				return
-			}
-			if managed := managedFollowersToPin(store, name); pin && len(managed) > 0 {
-				renderError(w, http.StatusBadRequest, fmt.Sprintf("pinning followers drifts config-managed %s from the config repo: tick “%s” to publish", strings.Join(managed, ", "), draftDriftConfirm))
-				return
-			}
-		}
-		k, _ := store.GetKit(name)
-		prev := k.Current
-		res, err := jam.PublishKitDraft(store, log, name, pin, r.FormValue("etag"))
-		if err != nil {
-			draftUIFail(w, r, log, err)
-			return
-		}
-		log.Info("ui kit draft published", "operator", jam.OperatorID(r), "kit", name, "version", res.Version, "base", res.Base, "tree", shortDigest(res.Tree), "pinned", len(res.Pinned), "drift", res.Drift)
-		p, ok := loadDraftPage(w, r, store, log, name, draftQuery{})
-		if !ok {
-			return
-		}
-		p.Published = newPublishView(store, name, prev, res)
-		writeDraftBody(w, r, p, fmt.Sprintf("published %s v%d", name, res.Version))
-	})
 }

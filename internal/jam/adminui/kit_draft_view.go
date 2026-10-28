@@ -172,12 +172,3 @@ func buildDraftPage(store jam.Store, name string, q draftQuery) (draftPage, bool
 	}
 	return p, true, nil
 }
-
-// status is the GET answer's code for p: 404 when the file asked for is not
-// in the draft (or, for its diff, in neither the draft nor its base).
-func (p draftPage) status() int {
-	if d := p.Draft; d != nil && (d.FileMissing || (d.FileDiff != nil && d.FileDiff.Missing)) {
-		return http.StatusNotFound
-	}
-	return http.StatusOK
-}

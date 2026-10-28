@@ -2,12 +2,9 @@ package adminui
 
 import (
 	"fmt"
-	"log/slog"
 	"maps"
-	"net/http"
 	"net/url"
 	"slices"
-	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -116,7 +113,7 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 	}
 	d := projectDetail{Title: name, Section: section, Project: p, InUseBy: projectRef(store, name)}
 	d.Crumbs = projectCrumbs(name, section, "")
-	d.Context = newContextPanel("project", "/app/admin/projects/"+name+"/context", "project", p.Context, p.Resources, sessionctx.BudgetProject, true)
+	d.Context = newContextPanel("project", p.Context, p.Resources, sessionctx.BudgetProject, true)
 	d.Context.Kind, d.Context.Name = jam.ConfigKindProject, name
 	for _, r := range roleRows(store) {
 		if r.Project == name {
@@ -156,85 +153,6 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 		d.Squawks = filterSquawks(msgs, squawkFilter{Project: name}, recentProjectSquawks)
 	}
 	return d, true
-}
-
-func registerProjects(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, msgs SquawkReader, canRequest bool, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	// The Projects tab: every project (its rows are the rail's entries).
-	mux.HandleFunc("GET /app/admin/projects", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "projects", map[string]any{"Title": "Projects"})
-	})
-
-	page := func(section projectSection) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			name := r.PathValue("name")
-			d, ok := buildProjectDetail(store, img, msgs, name, section)
-			if !ok {
-				renderStatus(w, r, http.StatusNotFound, "project", projectDetail{Title: "Project not found", NotFound: true, NotFoundFor: name})
-				return
-			}
-			d.CanRequest = canRequest
-			render(w, r, "project", d)
-		}
-	}
-	mux.HandleFunc("GET /app/admin/projects/{name}", page(sectionOverview))
-	// The role list moved to the Agents tab.
-	mux.HandleFunc("GET /app/admin/projects/{name}/roles", func(w http.ResponseWriter, r *http.Request) {
-		redirect(w, r, projectSectionURL(r.PathValue("name"), sectionAgents))
-	})
-	for _, s := range projectSections[1:] {
-		mux.HandleFunc("GET /app/admin/projects/{name}/"+string(s.Section), page(s.Section))
-	}
-
-	mux.HandleFunc("POST /app/admin/projects", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		name := strings.TrimSpace(r.FormValue("name"))
-		if err := store.CreateProject(name); err != nil {
-			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
-			return
-		}
-		log.Info("ui project created", "operator", jam.OperatorID(r), "project", name)
-		// The new project's page; htmx follows the redirect.
-		w.Header().Set("HX-Redirect", projectURL(name))
-		w.WriteHeader(http.StatusOK)
-	})
-
-	mux.HandleFunc("POST /app/admin/projects/{name}/rename", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		old, name := r.PathValue("name"), strings.TrimSpace(r.FormValue("name"))
-		if err := store.RenameProject(old, name); err != nil {
-			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
-			return
-		}
-		log.Info("ui project renamed", "operator", jam.OperatorID(r), "project", old, "name", name)
-		w.Header().Set("HX-Redirect", projectURL(name))
-		w.WriteHeader(http.StatusOK)
-	})
-
-	mux.HandleFunc("DELETE /app/admin/projects/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		name := r.PathValue("name")
-		if err := store.RemoveProject(name); err != nil {
-			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
-			return
-		}
-		log.Info("ui project removed", "operator", jam.OperatorID(r), "project", name)
-		// The project page navigates to Jam on success.
-		w.WriteHeader(http.StatusOK)
-	})
 }
 
 // chatServiceName is the name of p's chat-service connection ("" = none).

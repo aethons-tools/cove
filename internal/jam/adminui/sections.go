@@ -14,18 +14,6 @@ const (
 	sectionEscalation projectSection = "escalation"
 )
 
-// projectSections is a project's tab order, with each tab's label.
-var projectSections = []struct {
-	Section projectSection
-	Label   string
-}{
-	{sectionOverview, "Overview"},
-	{sectionMembers, "Members"},
-	{sectionAgents, "Agents"},
-	{sectionIntercom, "Intercom"},
-	{sectionEscalation, "Escalation"},
-}
-
 // projectSectionURL is the page path of a project's section ("" or overview:
 // the project page itself).
 func projectSectionURL(project string, s projectSection) string {

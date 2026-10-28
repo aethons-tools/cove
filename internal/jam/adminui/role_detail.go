@@ -1,7 +1,6 @@
 package adminui
 
 import (
-	"net/http"
 	"net/url"
 	"strconv"
 	"time"
@@ -73,7 +72,7 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 	project = orDefaultProject(project)
 	d := roleDetail{Title: name, Project: project, Name: name, Role: role, EgressManaged: role.Scope.Egress != nil, Form: newRoleForm(role),
 		WriteBase: roleWriteBase(project, name), RolesHref: projectSectionURL(project, sectionAgents)}
-	d.Context = newContextPanel("role", "/app/admin/roles/"+project+"/"+name+"/context", "role", role.Context, nil, sessionctx.BudgetRole, false)
+	d.Context = newContextPanel("role", role.Context, nil, sessionctx.BudgetRole, false)
 	d.ConfigName = project + "/" + name
 	d.Context.Kind, d.Context.Name = jam.ConfigKindRole, d.ConfigName
 
@@ -155,18 +154,4 @@ func roleURL(project, name string) string {
 // pre-tree paths.
 func roleWriteBase(project, name string) string {
 	return "/app/admin/roles/" + url.PathEscape(orDefaultProject(project)) + "/" + url.PathEscape(name)
-}
-
-func handleRoleDetail(w http.ResponseWriter, r *http.Request, store jam.Store, img jam.ImageResolver, canRequest, setupOn bool) {
-	project, name := r.PathValue("project"), r.PathValue("name")
-	d, ok := buildRoleDetail(store, img, project, name)
-	if !ok {
-		renderStatus(w, r, http.StatusNotFound, "role", roleDetail{Title: "Role not found", NotFound: true,
-			Project: project, Name: name, RolesHref: projectSectionURL(project, sectionAgents)})
-		return
-	}
-	d.Crumbs = projectCrumbs(project, sectionAgents, name)
-	d.CanRequest = canRequest
-	d.SetupEnabled = setupOn
-	render(w, r, "role", d)
 }

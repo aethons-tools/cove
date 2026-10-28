@@ -158,24 +158,3 @@ func newAgentsData(store jam.Store, img jam.ImageResolver, status string, canEdi
 	}
 	return agentsData{Title: "Agents", Status: status, Filters: agentFilters, Agents: agentRows(store, img, status), CanEdit: canEdit}
 }
-
-func registerAgents(mux *http.ServeMux, store jam.Store, img jam.ImageResolver, canEdit bool) {
-	mux.HandleFunc("GET /app/admin/agents", func(w http.ResponseWriter, r *http.Request) {
-		data := newAgentsData(store, img, statusFilter(r), canEdit)
-		if r.Header.Get("HX-Request") == "true" {
-			renderFragment(w, r, "agents", "agents-table", data)
-			return
-		}
-		render(w, r, "agents", data)
-	})
-	// The studio and actor lists and the studio page became the agents list
-	// and the agent page.
-	mux.HandleFunc("GET /app/admin/coves", func(w http.ResponseWriter, r *http.Request) { redirect(w, r, "/app/admin/agents") })
-	mux.HandleFunc("GET /app/admin/actors", func(w http.ResponseWriter, r *http.Request) { redirect(w, r, "/app/admin/agents") })
-	mux.HandleFunc("GET /app/admin/coves/{id}", func(w http.ResponseWriter, r *http.Request) {
-		redirect(w, r, agentURL(r.PathValue("id")))
-	})
-	mux.HandleFunc("GET /app/admin/coves/{id}/session", func(w http.ResponseWriter, r *http.Request) {
-		redirect(w, r, agentURL(r.PathValue("id"))+"/session")
-	})
-}

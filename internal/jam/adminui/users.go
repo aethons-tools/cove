@@ -2,8 +2,6 @@ package adminui
 
 import (
 	"errors"
-	"log/slog"
-	"net/http"
 	"net/url"
 	"strings"
 
@@ -45,14 +43,6 @@ func buildUserDetail(store jam.Store, ref string) (userDetail, bool) {
 	}, true
 }
 
-func usersData(store jam.Store) map[string]any {
-	var users []jam.UserView
-	for _, u := range store.ListUsers() {
-		users = append(users, jam.NewUserView(store, u))
-	}
-	return map[string]any{"Title": "Users", "Users": users}
-}
-
 func oidcFromForm(s string) ([]jam.OIDCIdentity, error) {
 	var out []jam.OIDCIdentity
 	for _, l := range splitSpecLines(s) {
@@ -74,124 +64,4 @@ func registryErr(err error) error {
 		return err
 	}
 	return &jam.WriteError{Status: jam.RegistryErrStatus(err), Msg: err.Error()}
-}
-
-func registerUsers(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("GET /app/admin/users", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "users", usersData(store))
-	})
-	mux.HandleFunc("GET /app/admin/users/{user}", func(w http.ResponseWriter, r *http.Request) {
-		d, ok := buildUserDetail(store, r.PathValue("user"))
-		if !ok {
-			renderStatus(w, r, http.StatusNotFound, "user", userDetail{Title: "Users", NotFound: true, NotFoundFor: r.PathValue("user")})
-			return
-		}
-		render(w, r, "user", d)
-	})
-
-	// form wraps a write: guard, parse, apply, log; apply's error carries the
-	// status (a WriteError or a registry error).
-	form := func(w http.ResponseWriter, r *http.Request, what string, apply func() error) bool {
-		if !guardWrite(w, r) {
-			return false
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return false
-		}
-		if err := registryErr(apply()); err != nil {
-			renderError(w, jam.WriteStatus(err, http.StatusBadRequest), err.Error())
-			return false
-		}
-		return true
-	}
-	// edit applies a write to the {user} and answers with the re-rendered body.
-	edit := func(what string, apply func(r *http.Request, id ident.ID) error) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			var id ident.ID
-			if !form(w, r, what, func() error {
-				var err error
-				if id, err = jam.ResolveRegistryRef(store, ident.User, r.PathValue("user")); err != nil {
-					return err
-				}
-				return apply(r, id)
-			}) {
-				return
-			}
-			log.Info("ui user "+what, "operator", jam.OperatorID(r), "user", id)
-			d, _ := buildUserDetail(store, string(id))
-			renderFragment(w, r, "user", "user-body", d)
-		}
-	}
-
-	mux.HandleFunc("POST /app/admin/users", func(w http.ResponseWriter, r *http.Request) {
-		var u jam.User
-		if !form(w, r, "created", func() error {
-			ids, err := oidcFromForm(r.FormValue("oidc"))
-			if err != nil {
-				return err
-			}
-			u, err = store.CreateUser(jam.User{Name: strings.TrimSpace(r.FormValue("name")), Logins: splitSpecLines(r.FormValue("logins")), OIDC: ids})
-			return err
-		}) {
-			return
-		}
-		log.Info("ui user created", "operator", jam.OperatorID(r), "user", u.ID, "name", u.Name)
-		w.Header().Set("HX-Redirect", userURL(u.ID))
-		renderFragment(w, r, "users", "users-table", usersData(store))
-	})
-	mux.HandleFunc("POST /app/admin/users/{user}/name", edit("renamed", func(r *http.Request, id ident.ID) error {
-		return jam.RenameUserChecked(store, id, strings.TrimSpace(r.FormValue("name")))
-	}))
-	mux.HandleFunc("POST /app/admin/users/{user}/logins", edit("logins set", func(r *http.Request, id ident.ID) error {
-		return store.SetUserLogins(id, splitSpecLines(r.FormValue("logins")))
-	}))
-	mux.HandleFunc("POST /app/admin/users/{user}/oidc", edit("oidc set", func(r *http.Request, id ident.ID) error {
-		ids, err := oidcFromForm(r.FormValue("oidc"))
-		if err != nil {
-			return err
-		}
-		return store.SetUserOIDC(id, ids)
-	}))
-	mux.HandleFunc("POST /app/admin/users/{user}/accounts", edit("account added", func(r *http.Request, id ident.ID) error {
-		_, err := jam.UpsertAccountChecked(store, jam.AccountBody{
-			Connection: strings.TrimSpace(r.FormValue("connection")),
-			ServiceUID: strings.TrimSpace(r.FormValue("uid")),
-			Handle:     strings.TrimSpace(r.FormValue("handle")),
-			Label:      strings.TrimSpace(r.FormValue("label")),
-			User:       string(id),
-		})
-		return err
-	}))
-	// Unlinking answers with the page of the user named by ?user=.
-	mux.HandleFunc("DELETE /app/admin/accounts/{account}/user", func(w http.ResponseWriter, r *http.Request) {
-		r.SetPathValue("user", r.URL.Query().Get("user"))
-		edit("account unlinked", func(r *http.Request, user ident.ID) error {
-			acc, err := ident.Parse(r.PathValue("account"))
-			if err != nil || acc.Kind() != ident.Account {
-				return &jam.WriteError{Status: http.StatusNotFound, Msg: "no such account"}
-			}
-			if a, ok := store.GetAccount(acc); !ok || a.UserID != user {
-				return &jam.WriteError{Status: http.StatusNotFound, Msg: "no such account on this user"}
-			}
-			return store.LinkAccount(acc, "")
-		})(w, r)
-	})
-	mux.HandleFunc("DELETE /app/admin/users/{user}", func(w http.ResponseWriter, r *http.Request) {
-		if !form(w, r, "removed", func() error {
-			id, err := jam.ResolveRegistryRef(store, ident.User, r.PathValue("user"))
-			if err != nil {
-				return err
-			}
-			if err := jam.RemoveUserChecked(store, id); err != nil {
-				return err
-			}
-			log.Info("ui user removed", "operator", jam.OperatorID(r), "user", id)
-			return nil
-		}) {
-			return
-		}
-		w.Header().Set("HX-Redirect", "/app/admin/users")
-		w.WriteHeader(http.StatusOK)
-	})
 }

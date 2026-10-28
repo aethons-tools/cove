@@ -3,9 +3,7 @@ package adminui
 import (
 	"bytes"
 	"encoding/json"
-	"log/slog"
 	"maps"
-	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
@@ -108,19 +106,6 @@ func specUses(store jam.Store, name string) []kitUse {
 		}
 	}
 	return out
-}
-
-func (u specUI) tableData() map[string]any {
-	used := map[string]int{}
-	for _, m := range u.store.ListModelSpecs() {
-		used[m.Name] = len(specUses(u.store, m.Name))
-	}
-	return map[string]any{
-		"Specs":  u.store.ListModelSpecs(),
-		"UsedBy": used,
-		// New seeds the create form: claude on the anthropic provider.
-		"New": u.detail(jam.ModelSpec{Type: jam.HarnessClaude, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}),
-	}
 }
 
 // specURL is the detail page path for a model-spec.
@@ -279,87 +264,4 @@ func specFromFields(get func(string) string, name string) (jam.ModelSpec, error)
 		}
 	}
 	return m, nil
-}
-
-// registerModelSpecs mounts the model-spec pages. Writes go through
-// jam.CreateModelSpec / jam.UpdateModelSpec (the same validation as the
-// jam model-spec verb); audit logs carry operator, name and type only.
-func registerModelSpecs(mux *http.ServeMux, u specUI, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("GET /app/admin/model-specs", func(w http.ResponseWriter, r *http.Request) {
-		data := u.tableData()
-		data["Title"] = "Model-specs"
-		render(w, r, "model-specs", data)
-	})
-
-	mux.HandleFunc("GET /app/admin/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
-		m, ok := u.store.GetModelSpec(r.PathValue("name"))
-		if !ok {
-			renderStatus(w, r, http.StatusNotFound, "model-spec", specDetail{Title: "Model-specs", NotFound: true, NotFoundFor: r.PathValue("name")})
-			return
-		}
-		render(w, r, "model-spec", u.detail(m))
-	})
-
-	// Create only: an existing model-spec is edited on its page.
-	mux.HandleFunc("POST /app/admin/model-specs", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		m, err := specFromFields(r.FormValue, strings.TrimSpace(r.FormValue("name")))
-		if err == nil {
-			err = jam.CreateModelSpec(u.store, m, u.credExists, u.pool)
-		}
-		if err != nil {
-			msg := err.Error()
-			if jam.WriteStatus(err, 0) == http.StatusConflict {
-				msg += "; edit it on its page"
-			}
-			renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), msg)
-			return
-		}
-		log.Info("ui model-spec created", "operator", jam.OperatorID(r), "name", m.Name, "type", string(m.Type))
-		w.Header().Set("HX-Redirect", specURL(m.Name))
-		renderFragment(w, r, "model-specs", "model-specs-table", u.tableData())
-	})
-
-	mux.HandleFunc("POST /app/admin/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		m, err := specFromFields(r.FormValue, r.PathValue("name"))
-		if err == nil {
-			err = jam.UpdateModelSpec(u.store, m, u.credExists, u.pool)
-		}
-		if err != nil {
-			renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
-			return
-		}
-		log.Info("ui model-spec updated", "operator", jam.OperatorID(r), "name", m.Name, "type", string(m.Type))
-		stored, ok := u.store.GetModelSpec(m.Name)
-		if !ok {
-			renderError(w, http.StatusNotFound, "model-spec no longer exists")
-			return
-		}
-		renderFragment(w, r, "model-spec", "spec-body", u.detail(stored))
-	})
-
-	mux.HandleFunc("DELETE /app/admin/model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := u.store.RemoveModelSpec(r.PathValue("name")); err != nil {
-			renderError(w, jam.ModelSpecRemoveStatus(err), err.Error())
-			return
-		}
-		log.Info("ui model-spec deleted", "operator", jam.OperatorID(r), "name", r.PathValue("name"))
-		renderFragment(w, r, "model-specs", "model-specs-table", u.tableData())
-	})
 }

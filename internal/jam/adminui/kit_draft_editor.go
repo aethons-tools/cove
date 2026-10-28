@@ -10,7 +10,6 @@ import (
 	"path"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/kittree"
@@ -105,18 +104,6 @@ func openDraftFile(store jam.Store, kit, p string, v *draftView) error {
 	return nil
 }
 
-// staleEditor is the editor after a refused stale save of p: the submitted
-// text kept, the form's own stale etag kept (so Save stays refused), and the
-// fixed message with a reload link. Nothing was saved.
-func staleEditor(kit, p, text, etag string, mode fs.FileMode, msg string) *draftEditor {
-	return &draftEditor{
-		Path: pathText(p), RawPath: p, Mode: fileModeText(mode), Exec: mode == 0o755, Size: int64(len(text)), ETag: etag,
-		Editable: true, Text: text, Invisible: jam.SetupDisplayText(text) != text,
-		Stale: true, StaleMsg: msg, ReloadHref: draftFileHref(kit, p, false),
-		DownloadHref: draftDownloadHref(kit, p), DiffHref: draftFileHref(kit, p, true),
-	}
-}
-
 // editorText is a submitted textarea's text as the file's bytes, with each
 // CRLF, and any lone CR, as LF. htmx 2 submits the textarea's value, whose
 // line breaks the browser normalises to LF; a native form submission sends
@@ -150,39 +137,6 @@ func logDraftSave(log *slog.Logger, r *http.Request, name string, s jam.KitDraft
 	log.Info("ui kit draft saved", "operator", jam.OperatorID(r), "kit", name, "tree", shortDigest(s.Tree), "changed", len(s.Changed))
 }
 
-// registerDraftEditor mounts the editor's save and the file download.
-func registerDraftEditor(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("POST /app/admin/kits/{name}/draft/save", func(w http.ResponseWriter, r *http.Request) {
-		name, ok := draftForm(w, r, store, guardWrite, false)
-		if !ok {
-			return
-		}
-		p, etag, mode := r.FormValue("path"), r.FormValue("etag"), formMode(r)
-		text := editorText(r.FormValue("content"))
-		s, err := jam.PutKitDraftFile(store, log, name, p, mode, []byte(text), etag, jam.OperatorID(r), time.Now().UTC())
-		if err != nil && jam.WriteStatus(err, http.StatusInternalServerError) == http.StatusPreconditionFailed {
-			renderStaleSave(w, r, store, log, name, p, text, etag, mode, err)
-			return
-		}
-		if err != nil {
-			draftUIFail(w, r, log, err)
-			return
-		}
-		logDraftSave(log, r, name, s)
-		renderDraftBody(w, r, store, log, name, draftQuery{File: p}, savedMsg(p, s))
-	})
-
-	mux.HandleFunc("GET /app/admin/kits/{name}/draft/download", func(w http.ResponseWriter, r *http.Request) {
-		p := r.URL.Query().Get("path")
-		data, _, _, err := jam.KitDraftFile(store, r.PathValue("name"), p)
-		if err != nil {
-			draftUIFail(w, r, log, err)
-			return
-		}
-		writeDraftDownload(w, p, data)
-	})
-}
-
 // writeDraftDownload answers a draft file's download: its bytes as an
 // attachment named after the file, never sniffed or cached.
 func writeDraftDownload(w http.ResponseWriter, p string, data []byte) {
@@ -201,20 +155,3 @@ func writeDraftDownload(w http.ResponseWriter, p string, data []byte) {
 // editorKeptText tells the operator a refused save left their text unsaved
 // in the editor.
 const editorKeptText = "your text is still in the editor — copy it before reloading"
-
-// renderStaleSave answers a save refused as stale (412) with the #draft body
-// as it is now, its editor holding the submitted text unsaved (staleEditor).
-// It answers 200, since htmx swaps only 2xx. Should the draft be gone by
-// now, the 412 itself is answered, and htmx leaves the typed text in place.
-func renderStaleSave(w http.ResponseWriter, r *http.Request, store jam.Store, log *slog.Logger, name, p, text, etag string, mode fs.FileMode, stale error) {
-	pg, ok := loadDraftPage(w, r, store, log, name, draftQuery{})
-	if !ok {
-		return
-	}
-	if pg.Draft == nil {
-		renderError(w, http.StatusPreconditionFailed, stale.Error()+": "+editorKeptText)
-		return
-	}
-	pg.Draft.Editor = staleEditor(name, p, text, etag, mode, stale.Error()+": "+editorKeptText)
-	writeDraftBody(w, r, pg, "")
-}

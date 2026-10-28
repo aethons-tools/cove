@@ -67,18 +67,6 @@ func fixtureLog(t *testing.T) adminui.SquawkReader {
 	)
 }
 
-func seedCove(t *testing.T, store jam.Store) {
-	t.Helper()
-	if err := store.PutInstance(jam.Instance{
-		ActorID: "spider-9", Project: "acme", Role: "worker", Unit: "COV-1",
-		Phase: jam.PhaseLive, Activity: jam.ActivityRunning,
-		Lease:    jam.Lease{Holder: "jam-a"},
-		RaisedAt: time.Now(), LastSeen: time.Now(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // fakeLauncher implements the exported jam.Launcher for hermetic studio tests.
 type fakeLauncher struct{}
 

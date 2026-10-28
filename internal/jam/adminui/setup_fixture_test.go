@@ -1,11 +1,8 @@
 package adminui_test
 
 import (
-	"bytes"
 	"context"
-	"log/slog"
 	"net/http"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,32 +10,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
 )
-
-// setupRoleFixture: project acme with role dev (egress new.example.com) and a
-// handler with the Setup tab on; logs captures the audit lines.
-func setupRoleFixture(t *testing.T) (http.Handler, *bytes.Buffer) {
-	t.Helper()
-	store := newStore(t)
-	mustCreateProject(t, store, "acme")
-	if err := store.PutRole("acme", jam.Role{Name: "dev", Scope: jam.Scope{Egress: &jam.EgressPolicy{Domains: []string{"new.example.com"}}}}); err != nil {
-		t.Fatal(err)
-	}
-	var logs bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&logs, nil))
-	return adminui.Handler(store, log, &jam.Supervisor{}, nil, anyCred, nil, adminui.WithSetupDeps(jam.SetupDeps{Store: store})), &logs
-}
-
-func wantAll(t *testing.T, what, body string, wants ...string) {
-	t.Helper()
-	for _, w := range wants {
-		if !strings.Contains(body, w) {
-			t.Errorf("%s: missing %q", what, w)
-		}
-	}
-	if t.Failed() {
-		t.Logf("%s body:\n%s", what, body)
-	}
-}
 
 // The role page links its Setup tab; the tab is a shell that loads its
 // sections lazily and shows nothing of the setup itself.

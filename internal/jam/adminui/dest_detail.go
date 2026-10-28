@@ -1,9 +1,7 @@
 package adminui
 
 import (
-	"log/slog"
 	"maps"
-	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -222,96 +220,6 @@ func destFromFields(get func(string) string, name string) (jam.Destination, erro
 		LogHeadersIn:  headerLogField(get("log-headers-in")),
 		LogHeadersOut: headerLogField(get("log-headers-out")),
 	}, nil
-}
-
-func destTableData(store jam.Store) map[string]any {
-	return map[string]any{
-		"Destinations": destListRows(store),
-		// New seeds the create form: no name yet, bearer → bearer by default.
-		"New": destDetail{Methods: methods, Dest: jam.Destination{IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer}},
-	}
-}
-
-func registerDestinations(mux *http.ServeMux, store jam.Store, log *slog.Logger, credExists func(string) bool, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	mux.HandleFunc("GET /app/admin/destinations", func(w http.ResponseWriter, r *http.Request) {
-		data := destTableData(store)
-		data["Title"] = "Destinations"
-		render(w, r, "destinations", data)
-	})
-
-	mux.HandleFunc("GET /app/admin/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		d, ok := buildDestDetail(store, r.PathValue("name"))
-		if !ok {
-			renderStatus(w, r, http.StatusNotFound, "destination", destDetail{Title: "Destinations", NotFound: true, NotFoundFor: r.PathValue("name")})
-			return
-		}
-		render(w, r, "destination", d)
-	})
-
-	// Create only: an existing destination is edited on its page, where every
-	// field is pre-filled (so nothing the form can't see is dropped).
-	mux.HandleFunc("POST /app/admin/destinations", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		name := strings.TrimSpace(r.FormValue("name"))
-		d, err := destFromFields(r.FormValue, name)
-		if err == nil {
-			err = jam.CreateDestination(store, d, credExists)
-		}
-		if err != nil {
-			msg := err.Error()
-			if jam.WriteStatus(err, 0) == http.StatusConflict {
-				msg += "; edit it on its page"
-			}
-			renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), msg)
-			return
-		}
-		log.Info("ui destination added", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
-		w.Header().Set("HX-Redirect", destURL(d.Name))
-		renderFragment(w, r, "destinations", "destinations-table", destTableData(store))
-	})
-
-	mux.HandleFunc("POST /app/admin/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			renderError(w, http.StatusBadRequest, "invalid form")
-			return
-		}
-		d, err := destFromFields(r.FormValue, r.PathValue("name"))
-		if err == nil {
-			err = jam.UpdateDestinationKeepSpecs(store, d, credExists) // the form can't edit custom specs: keep them
-		}
-		if err != nil {
-			renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
-			return
-		}
-		log.Info("ui destination updated", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
-		detail, ok := buildDestDetail(store, d.Name)
-		if !ok {
-			renderError(w, http.StatusNotFound, "destination no longer exists")
-			return
-		}
-		renderFragment(w, r, "destination", "dest-body", detail)
-	})
-
-	mux.HandleFunc("DELETE /app/admin/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		if !guardWrite(w, r) {
-			return
-		}
-		if err := store.RemoveDestination(r.PathValue("name")); err != nil {
-			renderError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		log.Info("ui destination removed", "operator", jam.OperatorID(r), "name", r.PathValue("name"))
-		renderFragment(w, r, "destinations", "destinations-table", destTableData(store))
-	})
 }
 
 // headerLogField reads a header-logging select: "none" (or empty) is unset.

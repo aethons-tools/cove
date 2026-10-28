@@ -23,13 +23,3 @@ func managedOf(marks map[jam.ConfigKey]jam.ConfigMark, kind, name string) *manag
 	}
 	return &managedView{Commit: jam.ShortConfigCommit(mk.Commit), Applied: configTime(mk.AppliedAt)}
 }
-
-// driftNoteOf is the warning a write to managed kind/name confirms before it
-// is sent; "" for an unmanaged object.
-func driftNoteOf(marks map[jam.ConfigKey]jam.ConfigMark, kind, name string) string {
-	m := managedOf(marks, kind, name)
-	if m == nil {
-		return ""
-	}
-	return "This will drift from the config repo (managed · config @" + m.Commit + ")."
-}

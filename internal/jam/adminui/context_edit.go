@@ -12,22 +12,21 @@ import (
 // contextPanel is the shared "Session context" card: the stored layer, the
 // size of the core a session receives against its budget, and the YAML editor.
 type contextPanel struct {
-	Scope, Action, Target string // Target: the hx-target element id (#role, #project, #jam-context)
-	ID                    string // the section's own id; set for the Jam panel, which swaps itself
-	Core                  string
-	CoreBytes, Budget     int
-	Over, Empty           bool
-	ShowResources         bool
-	Leaves                []sessionctx.Leaf
-	Resources             []sessionctx.Resource
-	YAML                  string
-	Kind, Name            string // the layer's config object (jam-context/jam, project/<p>, role/<p>/<r>): its badge and drift warning
+	Scope             string
+	Core              string
+	CoreBytes, Budget int
+	Over, Empty       bool
+	ShowResources     bool
+	Leaves            []sessionctx.Leaf
+	Resources         []sessionctx.Resource
+	YAML              string
+	Kind, Name        string // the layer's config object (jam-context/jam, project/<p>, role/<p>/<r>): its badge and drift warning
 }
 
-func newContextPanel(scope, action, target string, l sessionctx.Layer, rs []sessionctx.Resource, budget int, showResources bool) contextPanel {
+func newContextPanel(scope string, l sessionctx.Layer, rs []sessionctx.Resource, budget int, showResources bool) contextPanel {
 	delivered := sessionctx.ProjectLayer(l, rs) // a no-op without resources
 	p := contextPanel{
-		Scope: scope, Action: action, Target: target, Core: strings.TrimSpace(l.Core),
+		Scope: scope, Core: strings.TrimSpace(l.Core),
 		CoreBytes: len(strings.TrimSpace(delivered.Core)), Budget: budget,
 		Leaves: l.Leaves, Resources: rs, ShowResources: showResources,
 		Empty: l.Empty() && len(rs) == 0,
@@ -41,19 +40,9 @@ func newContextPanel(scope, action, target string, l sessionctx.Layer, rs []sess
 	return p
 }
 
-// parseContextForm reads the panel's YAML; the UI can't read host files.
-func parseContextForm(r *http.Request) (jam.ContextBody, error) {
-	b, err := jam.ParseContextYAML([]byte(r.FormValue("yaml")), nil)
-	if err != nil {
-		return jam.ContextBody{}, &jam.WriteError{Status: http.StatusBadRequest, Msg: err.Error()}
-	}
-	return b, nil
-}
-
 // jamPanel is the dashboard's Jam-wide session-context card; it swaps itself.
 func jamPanel(store jam.Store) contextPanel {
-	p := newContextPanel("Jam-wide", "/app/admin/jam/context", "jam-context", store.GetJamContext(), nil, sessionctx.BudgetJam, false)
-	p.ID = "jam-context"
+	p := newContextPanel("Jam-wide", store.GetJamContext(), nil, sessionctx.BudgetJam, false)
 	p.Kind, p.Name = jam.ConfigKindJamContext, "jam"
 	return p
 }
@@ -66,31 +55,4 @@ func setJamContext(store jam.Store, log *slog.Logger, r *http.Request, what stri
 	}
 	log.Info("ui jam context "+what, "operator", jam.OperatorID(r))
 	return nil
-}
-
-// registerJamContext mounts the dashboard card's writes: save the YAML or
-// clear, then re-render the card.
-func registerJamContext(mux *http.ServeMux, store jam.Store, log *slog.Logger, guardWrite func(http.ResponseWriter, *http.Request) bool) {
-	write := func(what string, body func(r *http.Request) (jam.ContextBody, error)) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if !guardWrite(w, r) {
-				return
-			}
-			if err := r.ParseForm(); err != nil {
-				renderError(w, http.StatusBadRequest, "invalid form")
-				return
-			}
-			b, err := body(r)
-			if err == nil {
-				err = setJamContext(store, log, r, what, b)
-			}
-			if err != nil {
-				renderError(w, jam.WriteStatus(err, http.StatusInternalServerError), err.Error())
-				return
-			}
-			renderFragment(w, r, "dashboard", "context-panel", jamPanel(store))
-		}
-	}
-	mux.HandleFunc("POST /app/admin/jam/context", write("set", parseContextForm))
-	mux.HandleFunc("DELETE /app/admin/jam/context", write("cleared", func(*http.Request) (jam.ContextBody, error) { return jam.ContextBody{}, nil }))
 }

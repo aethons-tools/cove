@@ -1,9 +1,7 @@
 package adminui
 
 import (
-	"html/template"
 	"maps"
-	"net/http"
 	"net/url"
 	"slices"
 	"sort"
@@ -264,44 +262,6 @@ func (d searchData) exactJump() string {
 		}
 	}
 	return jump
-}
-
-// highlight escapes s and wraps each case-insensitive occurrence of q in <mark>.
-func highlight(s, q string) template.HTML {
-	q = strings.TrimSpace(q)
-	if q == "" {
-		return template.HTML(template.HTMLEscapeString(s))
-	}
-	lower, lq := strings.ToLower(s), strings.ToLower(q)
-	var b strings.Builder
-	for {
-		i := strings.Index(lower, lq)
-		if i < 0 || len(lower) != len(s) { // a case fold changed byte lengths: don't risk misaligned marks
-			b.WriteString(template.HTMLEscapeString(s))
-			break
-		}
-		b.WriteString(template.HTMLEscapeString(s[:i]))
-		b.WriteString("<mark>" + template.HTMLEscapeString(s[i:i+len(lq)]) + "</mark>")
-		s, lower = s[i+len(lq):], lower[i+len(lq):]
-	}
-	return template.HTML(b.String())
-}
-
-func registerSearch(mux *http.ServeMux, store jam.Store, msgs SquawkReader) {
-	mux.HandleFunc("GET /app/admin/search", func(w http.ResponseWriter, r *http.Request) {
-		d := search(store, msgs, r.URL.Query().Get("q"))
-		if r.URL.Query().Get("go") != "" { // Enter in the top-bar box: jump on a single exact match
-			if u := d.exactJump(); u != "" {
-				http.Redirect(w, r, u, http.StatusSeeOther)
-				return
-			}
-		}
-		if r.Header.Get("HX-Request") == "true" {
-			renderFragment(w, r, "search", "search-results", d)
-			return
-		}
-		render(w, r, "search", d)
-	})
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
