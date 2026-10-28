@@ -32,7 +32,7 @@ Without `--push` it loads one platform into the local daemon. More than one plat
 
 What is inside (`images/jam/Dockerfile`):
 
-- base `alpine:3.22` plus `ca-certificates`, needed for outbound HTTPS (OIDC, Anthropic, git hosts, trackers);
+- base `alpine:3.24` plus `ca-certificates`, needed for outbound HTTPS (OIDC, Anthropic, git hosts, trackers);
 - `/usr/local/bin/jam` (which is also the minter, `jam mint`);
 - user `jam`, uid/gid `10001`, home `/var/lib/jam` (`HOME` is set to it);
 - `VOLUME /var/lib/jam`, `EXPOSE 8443 8081`;

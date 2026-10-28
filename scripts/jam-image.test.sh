@@ -112,7 +112,7 @@ if [ ! -e "$DOCKER_LOG" ]; then ok "unknown flag: docker not called"; else bad "
 # 5. Dockerfile contract
 df="$(cat "$DOCKERFILE")"
 # shellcheck disable=SC2016 # literal ${...} patterns are grep targets, not expansions
-for pat in 'FROM alpine:3.22' 'ca-certificates' 'USER jam' 'ENTRYPOINT ["jam"]' \
+for pat in 'FROM alpine:3.24' 'ca-certificates' 'USER jam' 'ENTRYPOINT ["jam"]' \
   'CMD ["serve","--config","/etc/jam/jam.yml"]' 'ARG TARGETARCH' \
   'COPY bin/linux-${TARGETARCH}/ /usr/local/bin/' 'ENV HOME=/var/lib/jam' \
   'VOLUME /var/lib/jam' 'EXPOSE 8443 8081' 'addgroup -g 10001' '-u 10001' 'chown 10001:10001 /var/lib/jam' '= 10001:10001' \
