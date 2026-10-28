@@ -430,3 +430,105 @@ func TestLegacyContextKeepsLegacyTurns(t *testing.T) {
 	}
 	wantCalls(t, io.callList())
 }
+
+// unitWL is a Workload with the structured turn end on, for finishTurn
+// unit tests.
+func unitWL(io TurnIO) *Workload {
+	w := New(Config{TurnIO: io}, nil)
+	w.ctxr = &contextRefresher{last: sessionctx.Bundle{TurnProtocol: TurnProtocol}}
+	return w
+}
+
+type failingPostIO struct{ *fakeTurnIO }
+
+func (f *failingPostIO) Post(ctx context.Context, text, to string) error {
+	f.fakeTurnIO.Post(ctx, text, to)
+	return errors.New("POST /squawks: request failed")
+}
+
+func TestTurnEndPostFailureKeepsMessages(t *testing.T) {
+	io := &failingPostIO{&fakeTurnIO{}}
+	w := unitWL(io)
+	w.newTurn(turnMeta{upTo: "m1", structured: true})
+	w.finishTurn(context.Background(), TurnResult{Text: "answer", OK: true, Gen: w.inflight.gen})
+	// The reply never reached anyone: the question must come back.
+	wantCalls(t, io.callList(), `Post "answer" ""`)
+	if !strings.Contains(w.note, "could not be posted") {
+		t.Fatalf("note = %q", w.note)
+	}
+}
+
+func TestTurnEndOnlyCommitsItsOwnPrompt(t *testing.T) {
+	io := &fakeTurnIO{}
+	w := unitWL(io)
+	w.newTurn(turnMeta{upTo: "m1", structured: true})
+	stale := w.inflight.gen - 1 // a turn a background task started before this prompt
+	w.finishTurn(context.Background(), TurnResult{Text: "bg", OK: true, Gen: stale})
+	w.finishTurn(context.Background(), TurnResult{Text: "answer", OK: true, Gen: w.inflight.gen})
+	wantCalls(t, io.callList(), `Post "bg" ""`, `Post "answer" ""`, "Commit m1")
+}
+
+func TestTurnEndNotNormalDropsDirectives(t *testing.T) {
+	io := &fakeTurnIO{}
+	w := unitWL(io)
+	w.newTurn(turnMeta{upTo: "m1", structured: true})
+	w.directives = &Directives{Next: "end", Reason: "done", WakeOnMessage: bp(false)}
+	w.finishTurn(context.Background(), TurnResult{Text: "partial", OK: false, Gen: w.inflight.gen})
+	wantCalls(t, io.callList())
+	if d := w.takeDirectives(); d != (Directives{}) {
+		t.Fatalf("directives survived an interrupted turn: %+v", d)
+	}
+}
+
+func TestNewPromptDropsStaleDirectives(t *testing.T) {
+	w := unitWL(&fakeTurnIO{})
+	w.directives = &Directives{Next: "end", Reason: "for a turn that died"}
+	w.newTurn(turnMeta{})
+	if d := w.takeDirectives(); d != (Directives{}) {
+		t.Fatalf("directives carried into a new prompt: %+v", d)
+	}
+}
+
+func TestTurnEndMutesEveryTime(t *testing.T) {
+	io := &fakeTurnIO{}
+	w := unitWL(io)
+	for range 2 {
+		// Jam unmutes by itself when the session runs: each mute is sent.
+		w.newTurn(turnMeta{structured: true})
+		w.directives = &Directives{WakeOnMessage: bp(false)}
+		w.finishTurn(context.Background(), TurnResult{OK: true, Gen: w.inflight.gen})
+	}
+	w.newTurn(turnMeta{structured: true})
+	w.finishTurn(context.Background(), TurnResult{OK: true, Gen: w.inflight.gen})
+	wantCalls(t, io.callList(), "Mute true", "Mute true", "Mute false")
+}
+
+func TestResumeFailureDoesNotCommitRestartBatch(t *testing.T) {
+	s := newStreamSpawner()
+	io := &fakeTurnIO{pages: [][]InboxEntry{{entry("m1", "while you were away")}}}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, ".cove-conversation")
+	os.WriteFile(marker, nil, 0o600)
+	w := streamWL(t, dir, s, func(c *Config) {
+		c.TurnIO, c.SessionKind, c.ConversationMarker = io, "standing", marker
+		structuredContext(t, c)
+	})
+	done := runAsyncEpisodes(w, &recordHandle{}, 1)
+	p := s.next(t)
+	if got := p.in.next(t); !strings.Contains(got, "id m1") {
+		t.Fatalf("restart prompt = %q", got)
+	}
+	p.exit <- errors.New("no conversation to continue") // --continue fails before replying
+	p = s.next(t)
+	if got := p.in.next(t); got != "do it" {
+		t.Fatalf("fresh prompt = %q", got)
+	}
+	p.emit(lnInit, resultLine("hello"))
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	// m1 was never shown to the fresh conversation: it stays pending.
+	wantCalls(t, io.callList(), "Inbox", `Post "hello" ""`)
+}

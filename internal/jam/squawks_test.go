@@ -457,3 +457,13 @@ func TestSquawksAutoPostSkipsDuplicate(t *testing.T) {
 		t.Fatalf("auto post after ten minutes = %d %+v", code, r2)
 	}
 }
+
+func TestSquawksAutoPostRepeatedAnswerPosts(t *testing.T) {
+	f := newSqFixture(t, "channel:eng")
+	// The same short answer at two turn ends is two replies, not a duplicate.
+	for i := range 2 {
+		if code, r := f.send(f.standing, `{"body":"Done.","auto":true}`); code != http.StatusOK || r.ID == "" {
+			t.Fatalf("auto post %d = %d %+v", i, code, r)
+		}
+	}
+}

@@ -37,10 +37,10 @@ func TestRenderBatchMore(t *testing.T) {
 }
 
 func TestRenderBatchByteCap(t *testing.T) {
-	// A first entry alone over the cap is cut, and counts as shown.
+	// A first entry alone over the cap is cut, and isn't committed.
 	big := entry("m1", strings.Repeat("x", 40<<10))
 	text, upTo := renderBatch([]InboxEntry{big, entry("m2", "after")}, false)
-	if upTo != "m1" || !strings.Contains(text, "… (cut — `read` id m1 for the rest)") || strings.Contains(text, "id m2") {
+	if upTo != "" || !strings.Contains(text, "… (cut — `read` id m1 for the rest, then `commit` up to it once handled)") || strings.Contains(text, "id m2") {
 		t.Fatalf("upTo %q, len %d", upTo, len(text))
 	}
 	if !strings.Contains(text, batchMore) {

@@ -31,7 +31,7 @@ It is on per studio, and only when both sides speak it:
   - the entries are past the commit cursor ([intercom.md](intercom.md#the-inbox-as-a-durable-queue)), oldest first;
   - the batch is capped at **20 entries or 32 KiB** of rendered text.
 - **What an entry looks like.** Each entry is a header line, `From <author> in <channel> (<kind>) at <time> — id <id>`, followed by its body. Each attachment adds an `[attachment <name> ref <ref>]` line.
-- **Oversized entries.** An entry alone over the cap is cut, with a marker telling the agent to `read` that id for the rest.
+- **Oversized entries.** An entry alone over the cap is cut, with a marker telling the agent to `read` that id for the rest. A cut entry isn't committed for the agent: it commits it itself once handled.
 - **The closing line** says either "Reply by ending your turn…" or, when entries were left out, "More messages are waiting — use `read`…".
 - **Fetched just before writing.** The batch is fetched (`GET /squawks`) just before the prompt is written into the episode. Because it starts from the commit cursor at that moment, it never re-shows messages the agent already read and committed itself.
 - **Fallback.** If the fetch fails, that wake gets the legacy read prompt.
@@ -44,14 +44,16 @@ The studio reads each turn's `result` event and then acts in this order. It fini
 1. **Post.** It posts the trimmed final text as the session, marked as a turn end's (`POST /squawks` with `auto: true`).
    - **Where:** to the home channel unless `turn_end` named a recipient. If that recipient is refused, the text goes to the home channel and the next prompt says why.
    - **When nothing is posted:** empty text posts nothing.
-2. **Commit.** It commits the batch it showed (`POST /squawks/commit`), up to the last entry rendered.
+2. **Commit.** It commits the batch the turn's prompt showed (`POST /squawks/commit`), up to the last entry shown in full.
+   - **Only that turn's batch.** Each prompt is numbered, and only the turn that answers it commits its batch. A turn a background task started commits nothing.
+   - **Not after a failed post.** If the post failed, nothing is committed: the messages come back with a note saying why.
 3. **Apply the turn's directives** (below).
 
-A turn that didn't end normally posts and commits nothing: an interrupt, an error result, or a process that died. Its directives still apply. A `/compact` turn (a press or `turn_end`) posts and commits nothing either.
+A turn that didn't end normally posts, commits and applies nothing: an interrupt, an error result, or a process that died. Its directives are dropped, as are those of a turn that never reached its end. A `/compact` turn (a press or `turn_end`) posts and commits nothing either.
 
 **Auto-posts don't wake sessions.** An auto-post carries the part `application/vnd.jam.turn-end+json`. Wake-on skips it when its author is a session ([intercom.md](intercom.md#waiting-for-a-reply-wake-on)), and it never counts toward the loop breaker. People are notified as usual. A session that wants another session to act uses `send`.
 
-**Duplicate replies.** Jam skips an auto-post whose trimmed body equals the session's own post in the same channel within the last 10 minutes. It answers `{"skipped": true}`, which covers an agent that also `send`s its reply.
+**Duplicate replies.** Jam skips an auto-post whose trimmed body equals a `send` by the same session in the same channel since its previous auto-post, within 10 minutes. It answers `{"skipped": true}`, which covers an agent that also `send`s its reply. The same short answer at two turn ends is two replies, and both are posted.
 
 ## `turn_end`
 
@@ -79,7 +81,8 @@ Shell background jobs die with the agent's turn. `keep_start(name, command, work
 - **Stopping one.** `keep_stop(name)` sends SIGTERM to the group, then SIGKILL after 10 s. `keep_list()` lists them.
 - **When it exits on its own,** the session is woken with the reason `process-exited`, rendered as ``Kept process `<name>` exited (status N); last lines:`` plus up to 20 log lines.
 - **They stop with the session** (teardown, `end`).
-- **After a jam-studio-agent restart,** whatever its predecessor kept is stopped (found through `/agent-data/keep/registry.json`), and the first prompt names those processes.
+- **When the shell exits,** whatever it left in its process group is killed with it.
+- **After a jam-studio-agent restart,** whatever its predecessor kept is stopped (found through `/agent-data/keep/registry.json`), and the first prompt names those processes. A process is stopped only when its boot id and start time match the registry, so a reused pid is never signalled.
 - **Pausing.** A waiting session with kept processes is still paused at `warm-timeout`, which freezes them. A preview request resumes the studio ([previews.md](previews.md)).
 
 The agent tends what it keeps: its guidance tells it to agree with the person how long a preview should run, and to set a `wake_at` to ask them then. Jam imposes no lifetime.

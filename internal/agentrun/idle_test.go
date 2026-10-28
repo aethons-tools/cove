@@ -238,17 +238,24 @@ func TestTrackerBusyMarkDeliver(t *testing.T) {
 	}
 }
 
-func TestTrackerTakeTurnEnd(t *testing.T) {
+func TestTrackerTakeTurnEnds(t *testing.T) {
 	tr := newIdleTracker(Claude{}.ParseEvent, nil)
-	if _, ok := tr.TakeTurnEnd(); ok {
+	if rs := tr.TakeTurnEnds(); len(rs) != 0 {
 		t.Fatal("no turn ended yet: want nothing to take")
 	}
+	tr.NoteWrite(1)
 	feed(tr, lnInit, lnAssistant, `{"type":"result","subtype":"success","result":"done"}`)
-	r, ok := tr.TakeTurnEnd()
-	if !ok || r != (TurnResult{Text: "done", OK: true}) {
-		t.Fatalf("TakeTurnEnd = %+v, %v", r, ok)
+	// A turn started by a background task answers no new prompt: the
+	// generation it carries is the one before the next write.
+	feed(tr, lnNotify, lnAssistant)
+	tr.NoteWrite(2) // written while that turn runs: claude queues it
+	feed(tr, `{"type":"result","subtype":"success","result":"bg","queued_turn_count":1}`, lnInit, `{"type":"result","subtype":"success","result":"two"}`)
+	rs := tr.TakeTurnEnds()
+	want := []TurnResult{{"done", true, 1}, {"bg", true, 1}, {"two", true, 2}}
+	if !slices.Equal(rs, want) {
+		t.Fatalf("TakeTurnEnds = %+v, want %+v", rs, want)
 	}
-	if _, ok := tr.TakeTurnEnd(); ok {
+	if rs := tr.TakeTurnEnds(); len(rs) != 0 {
 		t.Fatal("taken twice")
 	}
 }

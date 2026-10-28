@@ -1,6 +1,7 @@
 package agentrun
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,6 +49,11 @@ type KeptProcess struct {
 	PID     int       `json:"pid"`
 	Started time.Time `json:"started"`
 	Log     string    `json:"log"`
+	// BootID and StartTicks identify the process across a jam-studio-agent
+	// restart (the boot it ran in, its start time in clock ticks), so a stale
+	// registry entry never names a reused pid.
+	BootID     string `json:"boot_id,omitempty"`
+	StartTicks string `json:"start_ticks,omitempty"`
 }
 
 type kept struct {
@@ -114,13 +120,16 @@ func (k *keeper) Start(name, command, workdir string) (KeptProcess, error) {
 		out.Close()
 		return KeptProcess{}, fmt.Errorf("start: %w", err)
 	}
-	p := &kept{KeptProcess: KeptProcess{Name: name, Command: command, Workdir: workdir, PID: cmd.Process.Pid, Started: time.Now().UTC(), Log: logPath},
-		done: make(chan struct{})}
+	pid := cmd.Process.Pid
+	p := &kept{KeptProcess: KeptProcess{Name: name, Command: command, Workdir: workdir, PID: pid, Started: time.Now().UTC(), Log: logPath,
+		BootID: bootID(), StartTicks: startTicks(pid)}, done: make(chan struct{})}
 	k.procs[name] = p
 	k.saveLocked()
 	k.log.Info("agentrun: kept process started", "name", name, "pid", p.PID)
 	go func() {
 		err := cmd.Wait()
+		// The shell is gone; whatever it left in its group goes with it.
+		_ = signalGroup(pid, false)
 		out.Close()
 		status := 0
 		if ee := (*exec.ExitError)(nil); errors.As(err, &ee) {
@@ -202,8 +211,11 @@ func (k *keeper) CleanupStale() []string {
 		return nil
 	}
 	var names []string
+	boot := bootID()
 	for _, p := range stale {
-		if p.PID > 0 {
+		// Only a process provably the one recorded: same boot, same start
+		// time. Never this process's own group.
+		if p.PID > 0 && p.PID != os.Getpid() && p.BootID != "" && p.BootID == boot && p.StartTicks != "" && p.StartTicks == startTicks(p.PID) {
 			_ = signalGroup(p.PID, false)
 		}
 		names = append(names, p.Name)
@@ -230,6 +242,34 @@ func (k *keeper) saveLocked() {
 	if err != nil {
 		k.log.Warn("agentrun: kept-process registry not saved; a restart can't stop what is kept", "err", err.Error())
 	}
+}
+
+// bootID is this boot's id ("" when unknown, e.g. not Linux).
+func bootID() string {
+	b, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// startTicks is pid's start time in clock ticks since boot (field 22 of
+// /proc/<pid>/stat; "" when unknown).
+func startTicks(pid int) string {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return ""
+	}
+	// The command name (field 2) may hold spaces; fields resume after its ')'.
+	i := bytes.LastIndexByte(b, ')')
+	if i < 0 {
+		return ""
+	}
+	f := strings.Fields(string(b[i+1:]))
+	if len(f) < 20 {
+		return ""
+	}
+	return f[19] // field 22 overall: state is field 3 = f[0]
 }
 
 // tailLines is the last n lines of the file at path ("" when unreadable).

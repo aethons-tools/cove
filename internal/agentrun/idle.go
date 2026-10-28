@@ -42,13 +42,18 @@ type idleTracker struct {
 	// onReply, if set, runs once when it first does (on the stdout goroutine).
 	replied bool
 	onReply func()
-	// turnEnd is the last turn's result not yet taken (TakeTurnEnd); set
-	// before changed is signalled, so the episode loop sees it at the boundary.
-	turnEnd    TurnResult
-	hasTurnEnd bool
-	changed    chan struct{} // cap 1; signalled on every state change from Observe
-	parse      func(line []byte) (Event, error)
-	warn       func(msg string, args ...any)
+	// ends are the turn results not yet taken (TakeTurnEnds), in order; each
+	// is queued before busy clears and changed is signalled, so whoever sees
+	// the agent idle can take it first.
+	ends []TurnResult
+	// inTurn: a turn has started and not ended. wroteGen is the generation of
+	// the last prompt written (NoteWrite); turnGen the one in effect when the
+	// current turn started — the prompt that turn answers.
+	inTurn            bool
+	wroteGen, turnGen uint64
+	changed           chan struct{} // cap 1; signalled on every state change from Observe
+	parse             func(line []byte) (Event, error)
+	warn              func(msg string, args ...any)
 }
 
 // newIdleTracker builds a tracker that maps stdout lines to Events with parse
@@ -81,7 +86,8 @@ func (t *idleTracker) Observe(line []byte) {
 	switch ev.Kind {
 	case EventTurnEnd:
 		t.resumeOwed = false
-		t.turnEnd, t.hasTurnEnd = TurnResult{Text: ev.Text, OK: ev.OK}, true
+		t.ends = append(t.ends, TurnResult{Text: ev.Text, OK: ev.OK, Gen: t.turnGen})
+		t.inTurn = false
 		if ev.QueuedEmpty {
 			t.busy = false
 		}
@@ -100,6 +106,9 @@ func (t *idleTracker) Observe(line []byte) {
 		delete(t.awaiting, ev.TaskID)
 		t.busy = true
 	case EventTurnStart:
+		if !t.inTurn {
+			t.inTurn, t.turnGen = true, t.wroteGen
+		}
 		t.busy, t.resumeOwed = true, false
 	default:
 		t.mu.Unlock()
@@ -112,21 +121,30 @@ func (t *idleTracker) Observe(line []byte) {
 	}
 }
 
-// TurnResult is how one agent turn ended: its final text and whether it ended
-// normally.
+// TurnResult is how one agent turn ended: its final text, whether it ended
+// normally, and the generation of the prompt it answered (NoteWrite; a turn
+// a background task started answers the last prompt written before it).
 type TurnResult struct {
 	Text string
 	OK   bool
+	Gen  uint64
 }
 
-// TakeTurnEnd returns the last turn's result once; ok is false when no turn
-// has ended since the last take.
-func (t *idleTracker) TakeTurnEnd() (r TurnResult, ok bool) {
+// NoteWrite records that the prompt of generation gen is being written: the
+// next turn to start answers it.
+func (t *idleTracker) NoteWrite(gen uint64) {
+	t.mu.Lock()
+	t.wroteGen = gen
+	t.mu.Unlock()
+}
+
+// TakeTurnEnds returns the turn results not yet taken, oldest first.
+func (t *idleTracker) TakeTurnEnds() []TurnResult {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	r, ok = t.turnEnd, t.hasTurnEnd
-	t.turnEnd, t.hasTurnEnd = TurnResult{}, false
-	return r, ok
+	rs := t.ends
+	t.ends = nil
+	return rs
 }
 
 // Wrote records that a resume prompt was written to stdin: the agent is busy, and

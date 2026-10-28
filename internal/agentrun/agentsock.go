@@ -159,10 +159,8 @@ func serveAgentSocket(path string, h http.Handler, log *slog.Logger) (stop func(
 			log.Warn("agentrun: agent socket stopped", "err", err.Error())
 		}
 	}()
-	return func() {
-		_ = srv.Close()
-		_ = os.Remove(path)
-	}, nil
+	// Closing the listener unlinks the socket; a successor's is never removed.
+	return func() { _ = srv.Close() }, nil
 }
 
 // AgentClient is the MCP server's side of the agent socket.

@@ -274,14 +274,24 @@ const (
 	autoDupScan   = 20
 )
 
-// repeats reports whether from already posted body (trimmed) in ch recently:
-// an agent that `send`s its reply and then ends its turn with the same text
-// would otherwise post it twice.
+// repeats reports whether from already `send`s body (trimmed) in ch during
+// this turn: an agent that sends its reply and then ends its turn with the
+// same text would otherwise post it twice. Only sends since from's last auto
+// post (its previous turn end) count, so the same short answer to two
+// questions ("Done.") is never swallowed.
 func (h *SquawksHandler) repeats(ch, from ident.ID, body string) bool {
 	body = strings.TrimSpace(body)
 	since := h.now().Add(-autoDupWindow)
-	for _, m := range h.inbox.Log.ChannelBefore(ch, 0, autoDupScan) {
-		if m.From == from && !m.At.Before(since) && strings.TrimSpace(m.Body) == body {
+	recent := h.inbox.Log.ChannelBefore(ch, 0, autoDupScan) // oldest first
+	for i := len(recent) - 1; i >= 0; i-- {
+		m := recent[i]
+		if m.From != from {
+			continue
+		}
+		if intercom.IsTurnEnd(m) || m.At.Before(since) {
+			return false
+		}
+		if strings.TrimSpace(m.Body) == body {
 			return true
 		}
 	}

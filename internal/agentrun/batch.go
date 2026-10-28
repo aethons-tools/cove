@@ -20,9 +20,9 @@ const (
 )
 
 // renderBatch renders inbox entries (oldest first) for a wake prompt and
-// returns the id of the last one shown, the commit point once the turn ends.
-// Whole entries are shown until the byte cap; a first entry alone over it is
-// cut. more is whether entries wait beyond es.
+// returns the id of the last one shown in full, the commit point once the
+// turn ends. Whole entries are shown until the byte cap; a first entry alone
+// over it is cut (and not committed). more is whether entries wait beyond es.
 func renderBatch(es []InboxEntry, more bool) (text, upTo string) {
 	var b strings.Builder
 	b.WriteString("New messages, oldest first:\n")
@@ -37,8 +37,14 @@ func renderBatch(es []InboxEntry, more bool) (text, upTo string) {
 				more = true
 				break
 			}
-			r = strings.ToValidUTF8(r[:max(0, maxBatchBytes-b.Len())], "") + fmt.Sprintf("… (cut — `read` id %s for the rest)\n", e.ID)
-			more = more || len(es) > 1
+			// Cut, so not shown in full: it isn't committed for the agent, and
+			// stays first in line until it reads and commits it itself.
+			r = strings.ToValidUTF8(r[:max(0, maxBatchBytes-b.Len())], "") +
+				fmt.Sprintf("… (cut — `read` id %s for the rest, then `commit` up to it once handled)\n", e.ID)
+			b.WriteString("\n")
+			b.WriteString(r)
+			more = true
+			break
 		}
 		b.WriteString("\n")
 		b.WriteString(r)

@@ -13,7 +13,9 @@ The behavior below was built as written, with these changes of mechanism. The st
 - **The capability is the context's turn protocol.** The cove asks for `GET /context?turn-protocol=2`, and the structured turn end turns on only when the bundle answers `turn_protocol: 2`. Guidance and behavior therefore always match.
 - **Mute is cleared when the session next starts a turn,** and the cove unmutes at the next default turn end. It never blocks an owner's keep/release reply.
 - **The auto-post marker is a part** (`application/vnd.jam.turn-end+json`), not a column. The "N more" count became "more are waiting".
-- **A non-normal turn posts nothing** (§2 said its text was still posted).
+- **A non-normal turn posts nothing and applies no directives** (§2 said its text was still posted).
+- **Commit is tied to the prompt.** Each prompt has a generation, the turn answering it carries that generation, and only that turn commits the prompt's batch. Nothing is committed after a failed post, and a cut entry is never committed.
+- **The duplicate check** compares only against `send`s since the session's previous auto-post.
 - **A `process-exited` wake is raised locally** by the cove; it isn't sent by Jam.
 
 The operator-facing description is [structured-turn-end.md](../../usage/jam/structured-turn-end.md).

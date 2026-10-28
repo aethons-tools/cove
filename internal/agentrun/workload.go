@@ -176,8 +176,10 @@ type Workload struct {
 	// compared with each delivered spec to re-validate on a change.
 	spec    *modelspec.Spec
 	specKey string
-	// inflight is the turn in flight's batch and kind (structured turn end).
+	// inflight is the prompt in flight (structured turn end); gen numbers
+	// prompts. Run's goroutine only.
 	inflight turnMeta
+	gen      uint64
 	// directives are the current turn's turn_end call (nil = defaults), set
 	// on the agent socket's goroutine.
 	dirMu      sync.Mutex
@@ -322,13 +324,18 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 		prompt = fresh
 	} else if persists {
 		if _, err := os.Stat(w.cfg.ConversationMarker); err == nil {
-			prompt, continued, resuming = w.restartText(ctx), true, true
+			// Built in the loop, once the context is refreshed: the restart
+			// prompt (and its batch) depends on the turn protocol in effect.
+			prompt, continued, resuming = standingRestartPrompt, true, true
 			w.log.Info("agentrun: resuming the prior conversation", "marker", w.cfg.ConversationMarker)
 		}
 	}
+	keptNotice := ""
 	if len(keptLost) > 0 {
-		prompt += "\n\n" + fmt.Sprintf(keptLostNotice, strings.Join(keptLost, ", "))
+		keptNotice = "\n\n" + fmt.Sprintf(keptLostNotice, strings.Join(keptLost, ", "))
 	}
+	// fresh: the episode opens with the raise prompt, which shows no batch.
+	fresh := !resuming
 	var turn uint32
 	for {
 		turn++
@@ -341,6 +348,17 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 				first += contextNotice(changed, false)
 			}
 		}
+		if turn == 1 && resuming {
+			first = w.restartText(ctx)
+		}
+		if fresh {
+			// After the refresh: the turn protocol in effect decides.
+			w.newTurn(turnMeta{structured: w.structured()})
+			fresh = false
+		}
+		if turn == 1 {
+			first += keptNotice
+		}
 		proc, tr, split, err := w.spawn(ctx, h, t, continued)
 		if err != nil {
 			return err
@@ -352,10 +370,12 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 
 		waitErr := w.episode(ctx, h, t, proc, tr, first, false)
 		split.Flush()
-		if r, ok := tr.TakeTurnEnd(); ok && ctx.Err() == nil && w.finishTurn(ctx, r) {
-			// The last turn ended as the process exited; the compact it asked
-			// for runs as a maintenance episode before the next wake.
-			w.cmds.postCompact(agentBy, "")
+		for _, r := range tr.TakeTurnEnds() {
+			if ctx.Err() == nil && w.finishTurn(ctx, r) {
+				// The last turn ended as the process exited; the compact it
+				// asked for runs as a maintenance episode before the next wake.
+				w.cmds.postCompact(agentBy, "")
+			}
 		}
 		if tr.ResumeOwed() {
 			// The last resume prompt was written but the agent never started the
@@ -383,7 +403,8 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 				if err := os.Remove(w.cfg.ConversationMarker); err != nil && !os.IsNotExist(err) {
 					w.log.Warn("agentrun: conversation marker not removed", "path", w.cfg.ConversationMarker, "err", err.Error())
 				}
-				prompt, continued = w.cfg.Prompt, false
+				// The restart's batch was never shown: nothing of it is owed.
+				prompt, continued, fresh = w.cfg.Prompt+keptNotice, false, true
 				continue
 			}
 		}
@@ -438,6 +459,7 @@ func (w *Workload) compactIdle(ctx context.Context, h studioagent.Handle, turn u
 	w.log.Info("agentrun: compacting the conversation in a maintenance episode", "by", c.by)
 	w.emitCommand(h, turn, "compact", c.by, "")
 	w.dropStaleInterrupt(h, turn)
+	w.newTurn(turnMeta{quiet: true})
 	waitErr := w.episode(mctx, h, turn, proc, tr, compactText(c.instructions), true)
 	split.Flush()
 	// The episode consumed any command signal without taking a Clear (or a
@@ -667,17 +689,8 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 		}
 	}
 
+	tr.NoteWrite(w.inflight.gen)
 	write(prompt) // the tracker starts busy
-	// resume is what a Wake writes into this live episode: the resume prompt,
-	// plus a notice when the refreshed context changed (once per write, so a
-	// burst of coalesced wakes carries it once).
-	resume := func() string {
-		text := w.deliverText(ctx, w.wake.take())
-		if w.ctxr != nil {
-			text += contextNotice(w.ctxr.live(ctx), true)
-		}
-		return text
-	}
 	// ackBy: who interrupted the turn in flight; when it ends, the acknowledge
 	// turn is written instead of the usual turn-end action.
 	ackBy := ""
@@ -685,6 +698,34 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 	// boundary); compacting: a written /compact's turn is in flight.
 	var compact *compactReq
 	compacting := maintenance
+	// finish runs the structured turn end of every turn that has ended. It
+	// runs before anything is written into the episode, so each prompt's
+	// batch starts past what the turns before it committed.
+	finish := func() {
+		for _, r := range tr.TakeTurnEnds() {
+			if maintenance {
+				continue
+			}
+			if ackBy != "" {
+				r.OK = false // the interrupted turn: whatever claude called it
+			}
+			if w.finishTurn(ctx, r) && !compacting && compact == nil {
+				compact = &compactReq{by: agentBy}
+			}
+		}
+	}
+	// resume is what a Wake writes into this live episode: the resume prompt,
+	// plus a notice when the refreshed context changed (once per write, so a
+	// burst of coalesced wakes carries it once).
+	resume := func() string {
+		finish()
+		text := w.deliverText(ctx, w.wake.take())
+		tr.NoteWrite(w.inflight.gen)
+		if w.ctxr != nil {
+			text += contextNotice(w.ctxr.live(ctx), true)
+		}
+		return text
+	}
 	defer func() {
 		if compact != nil {
 			// The process exited before the turn boundary: the press is not lost.
@@ -759,13 +800,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			closeInput("background-wait elapsed")
 			unhold() // the agent now stops its tasks: busy until the episode exits
 		}
-		if r, ok := tr.TakeTurnEnd(); ok {
-			// A turn ended: finish it before anything else is written, so the
-			// next prompt's batch starts past what this turn committed.
-			if !maintenance && w.finishTurn(ctx, r) && !compacting {
-				compact = &compactReq{by: agentBy}
-			}
-		}
+		finish()
 		if !open {
 			continue
 		}
@@ -773,7 +808,9 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			// The interrupted turn ended: one acknowledge turn, which also
 			// answers any wakes coalesced into the interrupted one.
 			stopHold()
+			finish() // the interrupted turn, while ackBy still marks it
 			text := w.ackText(ctx, ackBy, w.wake.take())
+			tr.NoteWrite(w.inflight.gen)
 			if w.ctxr != nil {
 				text += contextNotice(w.ctxr.live(ctx), true)
 			}
@@ -803,7 +840,9 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			stopHold()
 			w.log.Info("agentrun: compacting the conversation", "by", compact.by)
 			tr.MarkBusy() // before the write, as above
-			w.inflight = turnMeta{quiet: true}
+			finish()
+			w.newTurn(turnMeta{quiet: true})
+			tr.NoteWrite(w.inflight.gen)
 			write(compactText(compact.instructions))
 			compacting = true
 			w.emitCommand(h, turn, "compact", compact.by, "")

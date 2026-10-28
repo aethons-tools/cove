@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -102,20 +103,38 @@ func TestKeeperRestartCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A jam-studio-agent restart: the old keeper is gone without stopping it.
+	// An entry from another boot, or whose pid now names another process,
+	// is reported but never signalled.
+	victim := exec.Command("sleep", "30")
+	if err := victim.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer victim.Process.Kill()
+	reg, _ := os.ReadFile(filepath.Join(dir, "registry.json"))
+	var entries []KeptProcess
+	json.Unmarshal(reg, &entries)
+	entries = append(entries,
+		KeptProcess{Name: "otherboot", PID: victim.Process.Pid, BootID: "not-this-boot", StartTicks: startTicks(victim.Process.Pid)},
+		KeptProcess{Name: "reused", PID: victim.Process.Pid, BootID: bootID(), StartTicks: "1"})
+	reg, _ = json.Marshal(entries)
+	os.WriteFile(filepath.Join(dir, "registry.json"), reg, 0o600)
 	k2 := newKeeper(dir, t.TempDir(), nil, nil, nil)
-	if names := k2.CleanupStale(); len(names) != 1 || names[0] != "preview" {
+	if names := k2.CleanupStale(); strings.Join(names, ",") != "preview,otherboot,reused" {
 		t.Fatalf("CleanupStale = %v", names)
 	}
 	waitFor(t, func() bool { return !alive(p.PID) })
+	if !alive(victim.Process.Pid) {
+		t.Fatal("an unrelated process was killed")
+	}
 	k.mu.Lock()
 	old := k.procs["preview"]
 	k.mu.Unlock()
 	if old != nil {
 		<-old.done // the test's stand-in for the dead predecessor finishes its bookkeeping
 	}
-	var reg []KeptProcess
+	var after []KeptProcess
 	b, _ := os.ReadFile(filepath.Join(dir, "registry.json"))
-	if json.Unmarshal(b, &reg); len(reg) != 0 {
+	if json.Unmarshal(b, &after); len(after) != 0 {
 		t.Fatalf("registry after cleanup = %s", b)
 	}
 }

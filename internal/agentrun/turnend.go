@@ -27,12 +27,27 @@ const standingRestartStructured = "Your session was restarted (for example, Jam 
 	"your conversation and workspace are intact. Continue where you left off; any messages that arrived meanwhile are below. " +
 	"Set your `mission` again once you know your current focus."
 
-// turnMeta is what Run knows about the turn in flight: the batch it was shown
-// (upTo, the commit point; "" = none) and whether it is a maintenance turn
-// (a /compact) whose end posts and commits nothing. Run's goroutine only.
+// turnMeta is what Run knows about the prompt in flight: its generation (the
+// idle tracker tags the turn answering it, so a result is never credited with
+// another prompt's batch), the batch it showed (upTo, the commit point; "" =
+// none), whether the structured turn end was on when it was built, and whether
+// it is a maintenance turn (a /compact) whose end posts and commits nothing.
+// Run's goroutine only.
 type turnMeta struct {
-	upTo  string
-	quiet bool
+	gen        uint64
+	upTo       string
+	structured bool
+	quiet      bool
+}
+
+// newTurn makes m the prompt in flight, under a new generation, and drops any
+// directives left from a turn that never reached its end (a process that died
+// mid-turn): they were for that turn.
+func (w *Workload) newTurn(m turnMeta) {
+	w.gen++
+	m.gen = w.gen
+	w.inflight = m
+	w.takeDirectives()
 }
 
 // structured reports whether the structured turn end is on: TurnIO is set
@@ -46,8 +61,8 @@ func (w *Workload) structured() bool {
 }
 
 // batch fetches and renders the session's pending messages; ok is false when
-// TurnIO is unset or the fetch failed (the caller falls back to the legacy
-// read prompt). An empty inbox is ok with no text.
+// the structured turn end is off or the fetch failed (the caller falls back to
+// the legacy read prompt). An empty inbox is ok with no text.
 func (w *Workload) batch(ctx context.Context) (text, upTo string, ok bool) {
 	if !w.structured() {
 		return "", "", false
@@ -66,20 +81,26 @@ func (w *Workload) batch(ctx context.Context) (text, upTo string, ok bool) {
 	return text, upTo, true
 }
 
-// deliverText is the prompt a delivery answering rs writes: with TurnIO, the
-// wake lines and the batch (the in-flight turn is then owed its commit);
-// otherwise, or when the fetch fails, renderWake's read prompt.
+// takeNote returns the pending note as an opening line (or nothing).
+func (w *Workload) takeNote() []string {
+	if w.note == "" {
+		return nil
+	}
+	n := w.note
+	w.note = ""
+	return []string{n}
+}
+
+// deliverText builds the prompt a delivery answering rs writes and makes it
+// the prompt in flight: with the structured turn end, the wake lines and the
+// batch; otherwise, or when the fetch fails, renderWake's read prompt.
 func (w *Workload) deliverText(ctx context.Context, rs []studioagent.WakeReason) string {
-	w.inflight = turnMeta{}
 	text, upTo, ok := w.batch(ctx)
+	w.newTurn(turnMeta{upTo: upTo, structured: ok})
 	if !ok {
 		return renderWake(w.resumeText(), rs)
 	}
-	w.inflight.upTo = upTo
-	var lines []string
-	if w.note != "" {
-		lines, w.note = append(lines, w.note), ""
-	}
+	lines := w.takeNote()
 	for _, r := range rs {
 		if l, ok := wakeLine(r); ok {
 			lines = append(lines, l)
@@ -95,13 +116,12 @@ func (w *Workload) deliverText(ctx context.Context, rs []studioagent.WakeReason)
 
 // ackText is the acknowledge turn after an interrupt by by, answering rs.
 func (w *Workload) ackText(ctx context.Context, by string, rs []studioagent.WakeReason) string {
-	w.inflight = turnMeta{}
 	text, upTo, ok := w.batch(ctx)
+	w.newTurn(turnMeta{upTo: upTo, structured: ok})
 	if !ok {
 		return interruptPrompt(by, rs)
 	}
-	w.inflight.upTo = upTo
-	lines := []string{strings.Replace(interruptAckStructured, "%s", by, 1)}
+	lines := append([]string{strings.Replace(interruptAckStructured, "%s", by, 1)}, w.takeNote()...)
 	for _, r := range rs {
 		if l, ok := wakeLine(r); ok {
 			lines = append(lines, l)
@@ -115,34 +135,45 @@ func (w *Workload) ackText(ctx context.Context, by string, rs []studioagent.Wake
 
 // restartText is a standing session's first message after a restart.
 func (w *Workload) restartText(ctx context.Context) string {
-	w.inflight = turnMeta{}
 	text, upTo, ok := w.batch(ctx)
+	w.newTurn(turnMeta{upTo: upTo, structured: ok})
 	if !ok {
 		return standingRestartPrompt
 	}
-	w.inflight.upTo = upTo
-	if text == "" {
-		return standingRestartStructured
+	lines := append([]string{standingRestartStructured}, w.takeNote()...)
+	if text != "" {
+		lines = append(lines, "", text)
 	}
-	return standingRestartStructured + "\n\n" + text
+	return strings.Join(lines, "\n")
 }
 
 // finishTurn is the structured turn end for the turn that ended with r: post
-// its final text, then commit the batch it was shown. A turn that didn't end
-// normally does neither. Every call is bounded; a failure is logged and the
-// run goes on. It runs before the next prompt is written, so a later batch
-// never re-shows what this one committed.
-//
-// Then the turn's directives (turn_end) apply: what happens next (compact,
-// end) and what wakes the session. compact reports a compact asked for: the
-// caller runs it before anything else is delivered.
+// its final text, then commit the batch its prompt showed (only when r answers
+// the prompt in flight, and only when the post didn't fail: an unanswered
+// message must come back). Then the turn's directives (turn_end) apply: what
+// happens next (end, or compact — reported, for the caller to run before
+// anything else is delivered) and what wakes the session. A turn that didn't
+// end normally (interrupted, an error) posts, commits and applies nothing.
+// Every call is bounded; a failure is logged and the run goes on. Callers run
+// it before the next prompt is written, so a later batch never re-shows what
+// this one committed.
 func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) {
-	meta := w.inflight
-	w.inflight = turnMeta{}
-	if !w.structured() || meta.quiet {
-		return false
+	var meta turnMeta
+	if r.Gen != 0 && r.Gen == w.inflight.gen {
+		meta = w.inflight
+		w.inflight = turnMeta{}
+	} else {
+		// A turn a background task started: no prompt of ours, no batch.
+		meta.structured = w.structured()
 	}
 	d := w.takeDirectives()
+	if !meta.structured || meta.quiet {
+		return false
+	}
+	if !r.OK {
+		w.log.Info("agentrun: turn did not end normally; nothing posted, committed or applied")
+		return false
+	}
 	io := w.cfg.TurnIO
 	call := func(what string, f func(context.Context) error) error {
 		cctx, cancel := context.WithTimeout(ctx, turnIOTimeout)
@@ -153,26 +184,31 @@ func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) 
 		}
 		return err
 	}
-	if !r.OK {
-		w.log.Info("agentrun: turn did not end normally; nothing posted or committed")
-	} else {
-		if text := strings.TrimSpace(r.Text); text != "" && (d.Post == nil || *d.Post) {
-			if err := call("post", func(c context.Context) error { return io.Post(c, text, d.To) }); err != nil && d.To != "" {
-				// Not reachable (or refused): the reply still reaches the home
-				// channel, and the agent hears why at its next prompt.
-				if call("post", func(c context.Context) error { return io.Post(c, text, "") }) == nil {
-					w.note = fmt.Sprintf("Your last reply could not be posted to %s (%v); it was posted to your own channel instead.", d.To, err)
-				}
+	posted := true
+	if text := strings.TrimSpace(r.Text); text != "" && (d.Post == nil || *d.Post) {
+		err := call("post", func(c context.Context) error { return io.Post(c, text, d.To) })
+		if err != nil && d.To != "" {
+			// Not reachable (or refused): the reply still reaches the home
+			// channel, and the agent hears why at its next prompt.
+			if call("post", func(c context.Context) error { return io.Post(c, text, "") }) == nil {
+				w.note = fmt.Sprintf("Your last reply could not be posted to %s (%v); it was posted to your own channel instead.", d.To, err)
+				err = nil
 			}
 		}
-		if meta.upTo != "" && (d.Commit == nil || *d.Commit) {
-			call("commit", func(c context.Context) error { return io.Commit(c, meta.upTo) })
+		if err != nil {
+			posted = false
+			w.note = "Your last reply could not be posted (Jam was unreachable); the messages it answered are shown again below."
 		}
+	}
+	if meta.upTo != "" && posted && (d.Commit == nil || *d.Commit) {
+		call("commit", func(c context.Context) error { return io.Commit(c, meta.upTo) })
 	}
 	if d.Next == "end" {
 		call("end", func(c context.Context) error { return io.End(c, d.Reason) })
 	}
-	if mute := d.WakeOnMessage != nil && !*d.WakeOnMessage; mute != w.muted {
+	// Jam unmutes by itself when the session next runs, so a mute is always
+	// sent; an unmute only when this cove muted last.
+	if mute := d.WakeOnMessage != nil && !*d.WakeOnMessage; mute || w.muted {
 		if err := call("mute", func(c context.Context) error { return io.Mute(c, mute) }); err == nil {
 			w.muted = mute
 		} else if errors.Is(err, ErrUnsupported) {
