@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { act } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -17,12 +19,14 @@ const dash = (d: Partial<Dashboard> = {}): Dashboard => ({
   coves: [{ id: "ses_1", name: "", project: "acme", role: "coder", unit: "", status: "running", connector: "", image: "", manager: "", leaseHolder: "", raisedAt: "", lastSeen: "", attn: null }],
   ...d,
 });
+let qc: QueryClient;
 const mount = (d: Dashboard) => {
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   server.use(
     http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })),
     http.get("/app/admin/api/dashboard", () => HttpResponse.json(d)),
   );
-  return renderAdmin(adminBoot, ADMIN);
+  return renderAdmin(adminBoot, ADMIN, qc);
 };
 
 describe("the dashboard", () => {
@@ -57,10 +61,12 @@ describe("the dashboard", () => {
 
   it("saves the Jam context, and a clear replaces unsaved text", async () => {
     let saved: unknown;
-    mount(dash({ jamContext: panel({ yaml: "core: old\n", core: "old", empty: false }) }));
+    let now = panel({ yaml: "core: old\n", core: "old", empty: false });
+    mount(dash({ jamContext: now }));
     server.use(
-      http.post("/app/admin/api/jam/context", async ({ request }) => { saved = await request.json(); return HttpResponse.json(panel({ yaml: "core: new\n", core: "new", empty: false })); }),
-      http.delete("/app/admin/api/jam/context", () => HttpResponse.json(panel())),
+      http.get("/app/admin/api/dashboard", () => HttpResponse.json(dash({ jamContext: now }))),
+      http.post("/app/admin/api/jam/context", async ({ request }) => { saved = await request.json(); now = panel({ yaml: "core: new\n", core: "new", empty: false }); return HttpResponse.json(now); }),
+      http.delete("/app/admin/api/jam/context", () => { now = panel(); return HttpResponse.json(now); }),
     );
     const box = await screen.findByRole("textbox");
     await userEvent.clear(box);
@@ -71,6 +77,24 @@ describe("the dashboard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Clear" }));
     await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Clear" }));
     await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue(""));
+  });
+
+  it("keeps the page, and unsaved context edits, when a refresh fails", async () => {
+    mount(dash({ jamContext: panel({ yaml: "core: old\n", core: "old", empty: false }) }));
+    await userEvent.type(await screen.findByRole("textbox"), " unsaved");
+    server.use(http.get("/app/admin/api/dashboard", () => new HttpResponse(null, { status: 502 })));
+    await act(() => qc.refetchQueries({ queryKey: ["admin", "dashboard"] }));
+    expect(await screen.findByText(/Refresh failed/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toHaveValue("core: old\n unsaved");
+  });
+
+  it("invalidates the dashboard after a context write (cancelling a poll in flight that could undo it)", async () => {
+    mount(dash());
+    server.use(http.post("/app/admin/api/jam/context", () => HttpResponse.json(panel({ yaml: "core: new\n", core: "new", empty: false }))));
+    const inval = vi.spyOn(qc, "invalidateQueries");
+    await userEvent.type(await screen.findByRole("textbox"), "core: new");
+    await userEvent.click(screen.getByRole("button", { name: "Save context" }));
+    await waitFor(() => expect(inval).toHaveBeenCalledWith({ queryKey: ["admin", "dashboard"] }));
   });
 
   it("lists the running studios", async () => {

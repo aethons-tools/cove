@@ -20,7 +20,10 @@ func appPath(old string) string {
 		return ""
 	}
 	s := strings.FieldsFunc(rest, func(r rune) bool { return r == '/' })
-	if slices.ContainsFunc(s, func(x string) bool { return x == "." || x == ".." }) {
+	if slices.ContainsFunc(s, func(x string) bool { // escaped dots are dots to a browser
+		d, err := url.PathUnescape(x)
+		return err != nil || d == "." || d == ".."
+	}) {
 		return ""
 	}
 	q := u.Query()

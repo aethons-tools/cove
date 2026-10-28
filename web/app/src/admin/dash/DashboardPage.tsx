@@ -1,4 +1,4 @@
-import { Badge, Card, Loader, SimpleGrid, Stack, Text, Title } from "@mantine/core";
+import { Alert, Badge, Card, Loader, SimpleGrid, Stack, Text, Title } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router";
@@ -32,10 +32,13 @@ export function DashboardPage() {
   const client = useQueryClient();
   const { data, error, isPending } = useQuery<Dashboard, ApiError>({ queryKey: dashKey, queryFn: () => adminApi.get("dashboard"), refetchInterval: 3000 });
   const setPanel = (p: Panel) => client.setQueryData<Dashboard>(dashKey, (d) => d && { ...d, jamContext: p });
-  const save = useAdminMutation((yaml: string) => adminApi.post<Panel>("jam/context", { yaml }), { onSuccess: setPanel });
-  const clear = useAdminMutation(() => adminApi.del<Panel>("jam/context"), { onSuccess: setPanel });
+  // A write refetches the dashboard too, cancelling a poll already in flight
+  // (which could answer with the old context).
+  const save = useAdminMutation((yaml: string) => adminApi.post<Panel>("jam/context", { yaml }), { invalidate: [dashKey], onSuccess: setPanel });
+  const clear = useAdminMutation(() => adminApi.del<Panel>("jam/context"), { invalidate: [dashKey], onSuccess: setPanel });
   if (isPending) return <Loader size="sm" />;
-  if (error) return <Problem error={error} here={here.pathname} />;
+  // A failed refresh keeps the page (and the editor's unsaved text).
+  if (!data) return <Problem error={error} here={here.pathname} />;
   const s = data.stats;
   const tiles: [number, string, string | undefined, string?][] = [
     [s.running, "Running", "agents?status=running", "green"],
@@ -51,6 +54,7 @@ export function DashboardPage() {
   return (
     <Stack>
       <Title order={2}>Dashboard</Title>
+      {error && <Alert color="yellow">Refresh failed ({error.message}) — showing the last answer; retrying.</Alert>}
       <SimpleGrid cols={{ base: 2, sm: 3, md: 5, lg: 9 }}>
         {tiles.map(([n, label, to, color]) => <Tile key={label} n={n} label={label} to={to} color={color} />)}
       </SimpleGrid>

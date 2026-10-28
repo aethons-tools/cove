@@ -21,6 +21,7 @@ export function SearchBox() {
       if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
       e.preventDefault();
       box.current?.focus();
+      box.current?.select(); // typing replaces the last query
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

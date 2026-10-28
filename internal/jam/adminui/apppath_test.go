@@ -33,6 +33,8 @@ func TestAppPath(t *testing.T) {
 		"/app/admin/search?q=x":                        "search?q=x",
 		"/elsewhere":                                   "",
 		"/app/admin/../user":                           "",
+		"/app/admin/agents/%2e%2e/%2e%2e/x":            "",
+		"/app/admin/users/.%2E":                        "",
 		"/app/admin/nonsense/thing":                    "",
 		"https://evil.example/app/admin/users/u":       "",
 	} {

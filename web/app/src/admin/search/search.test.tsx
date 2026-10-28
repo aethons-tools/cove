@@ -13,7 +13,7 @@ const base = (answer: (q: string) => SearchResult) => server.use(
   http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })),
   http.get("/app/admin/api/dashboard", () => new HttpResponse(null, { status: 500 })),
   http.get("/app/admin/api/users", () => HttpResponse.json({ users: [] })),
-  http.get("/app/admin/api/users/:id", () => new HttpResponse(null, { status: 404 })),
+  http.get("/app/admin/api/users/:id", () => HttpResponse.json({ error: "no such user", code: "not_found" }, { status: 404 })),
   http.get("/app/admin/api/search", ({ request }) => HttpResponse.json(answer(new URL(request.url).searchParams.get("q") ?? ""))),
 );
 const aliceHit = { title: "alice", sub: "acme", path: "config/users/usr_1", exact: true };
@@ -41,6 +41,19 @@ describe("search", () => {
     await userEvent.type(await screen.findByRole("searchbox", { name: "Search" }), "alice{Enter}");
     await waitFor(() => expect(router.state.location.pathname).toBe(ADMIN + "config/users/usr_1"));
     expect(router.state.historyAction).toBe("REPLACE");
+  });
+
+  it("/ selects the last query, so typing replaces it", async () => {
+    base((q) => result({ q, total: 1, jump: "config/users/usr_1", groups: [{ key: "users", name: "Users", count: 1, more: "", hits: [aliceHit] }] }));
+    const { router } = renderAdmin(adminBoot, ADMIN + "nonsense");
+    const box = await screen.findByRole("searchbox", { name: "Search" });
+    await userEvent.type(box, "alice{Enter}");
+    await waitFor(() => expect(router.state.location.pathname).toBe(ADMIN + "config/users/usr_1"));
+    await screen.findByRole("heading", { name: "User not found" }, { timeout: 4000 }); // the page settled
+    (document.activeElement as HTMLElement | null)?.blur();
+    await userEvent.keyboard("/");
+    await userEvent.keyboard("bob");
+    expect(screen.getByRole("searchbox", { name: "Search" })).toHaveValue("bob");
   });
 
   it("Enter with several shows the results, dropping go", async () => {
