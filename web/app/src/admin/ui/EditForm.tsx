@@ -1,5 +1,6 @@
 import { Alert, Button, Group, Stack } from "@mantine/core";
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Cancelled } from "./cancelled";
 import { Confirm } from "./Confirm";
 
 // EditForm is an admin write form: its submit shows progress (and can't send
@@ -22,7 +23,7 @@ export function EditForm({ submit, onSubmit, confirm, resetOnSuccess, children }
       setError("");
       resetOnSuccess?.();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!(e instanceof Cancelled)) setError(e instanceof Error ? e.message : String(e));
     } finally {
       running.current = false;
       setBusy(false);

@@ -35,6 +35,8 @@ export function useDraftWrite(kit: string, onDone: (r: DraftResult, w: DraftWrit
   }, {
     invalidate: [kitsKey, ["admin", "kit", kit]],
     onSuccess: (r, w) => {
+      // Every other view of the draft is stale now; this one is the answer.
+      void client.invalidateQueries({ queryKey: draftKey(kit), refetchType: "none" });
       client.setQueryData([...draftKey(kit), w.open ?? "", false], r.page);
       if (r.message) notifications.show({ color: "green", message: r.message });
       onDone(r, w);

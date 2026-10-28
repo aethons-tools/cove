@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
+import { QueryClient } from "@tanstack/react-query";
 import { server } from "../../test/server";
 import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
@@ -95,5 +96,51 @@ describe("the draft editor", () => {
     const dels = await screen.findAllByRole("button", { name: "Delete" });
     await user.click(dels[dels.length - 1]!); // the editor's, after the kit's own
     expect(await screen.findByText("Remove docs/b.md from the draft?")).toBeInTheDocument();
+  });
+
+  it("keeps typed text, and its etag, across a refetch that brings a newer draft", async () => {
+    let etag = "e1";
+    base((q) => (q.get("file") ? withEditor({ etag, text: etag === "e1" ? "# a\n" : "# theirs\n" }) : draftPage()));
+    let sent: { etag?: string } = {};
+    server.use(http.post(api + "/save", async ({ request }) => { sent = await request.json() as { etag: string }; return HttpResponse.json({ error: "stale", code: "stale" }, { status: 412 }); }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at + "?dfile=docs%2Fa.md", client);
+    const box = await screen.findByLabelText("docs/a.md");
+    await user.type(box, "mine");
+    etag = "e2";
+    await client.refetchQueries({ queryKey: ["admin", "draft", "web"] });
+    expect(screen.getByLabelText("docs/a.md")).toHaveValue("# a\nmine");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent.etag).toBe("e1"));
+  });
+
+  it("asks before another write drops unsaved edits", async () => {
+    base(editorOn);
+    let deleted = false;
+    server.use(http.post(api + "/delete", () => { deleted = true; return ok(draftPage(), "removed docs/a.md"); }));
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at + "?dfile=docs%2Fa.md");
+    await user.type(await screen.findByLabelText("docs/a.md"), "x");
+    const dels = screen.getAllByRole("button", { name: "Delete" });
+    await user.click(dels[dels.length - 1]!);
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete" }));
+    expect(await screen.findByText("You have unsaved changes in the editor. Discard them?")).toBeInTheDocument();
+    const dialogs = screen.getAllByRole("dialog");
+    await user.click(within(dialogs[dialogs.length - 1]!).getByRole("button", { name: "Cancel" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(deleted).toBe(false);
+  });
+
+  it("doesn't count a refused save of an untouched file as unsaved edits", async () => {
+    base(editorOn);
+    server.use(http.post(api + "/save", () => HttpResponse.json({ error: "stale", code: "stale" }, { status: 412 })));
+    const user = userEvent.setup();
+    const { router } = renderAdmin(adminBoot, at + "?dfile=docs%2Fa.md");
+    await screen.findByLabelText("docs/a.md");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("stale");
+    await user.click(within(screen.getByRole("table", { name: "Draft files" })).getByRole("link", { name: "kit.yml" }));
+    await waitFor(() => expect(router.state.location.search).toBe("?dfile=kit.yml"));
   });
 });

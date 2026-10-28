@@ -1,5 +1,5 @@
 import { Alert, Anchor, Badge, Card, Checkbox, FileInput, Loader, NativeSelect, Stack, Table, Text, TextInput, Title } from "@mantine/core";
-import { useState } from "react";
+import { useRef, useState, type RefObject } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Problem } from "../../Problem";
 import type { DraftPage, DraftView } from "../api/types";
@@ -12,6 +12,9 @@ import { DraftEditor } from "./DraftEditor";
 import { DraftPublish, PublishedCard } from "./DraftPublish";
 import { FileCard, FilesDiffCard, hiddenNote } from "./KitParts";
 import { useDraft, useDraftWrite, type DraftWrite } from "./useDraft";
+import { unsavedAsk } from "./useUnsavedGuard";
+import { Confirm } from "../ui/Confirm";
+import { Cancelled } from "../ui/cancelled";
 
 const enc = encodeURIComponent;
 
@@ -36,12 +39,25 @@ function Draft({ kit, p }: { kit: string; p: DraftPage }) {
     setPublished(r.page.published);
     void navigate(w.open ? fileHref(w.open) : base, { replace: true });
   });
-  const run = (w: DraftWrite) => write.mutateAsync(w);
+  // dirtyRef is the editor's unsaved-edits flag: any write but its own Save
+  // asks before dropping them.
+  const dirtyRef = useRef(false);
+  const [asking, setAsking] = useState<((ok: boolean) => void) | null>(null);
+  const run = async (w: DraftWrite) => {
+    if (dirtyRef.current && w.path !== "save") {
+      const ok = await new Promise<boolean>((resolve) => setAsking(() => resolve));
+      setAsking(null);
+      if (!ok) throw new Cancelled();
+      dirtyRef.current = false;
+    }
+    return write.mutateAsync(w);
+  };
   return (
     <Stack id="draft">
       <Title order={3}>Draft</Title>
       {published && <PublishedCard kit={kit} p={published} />}
-      {p.draft ? <OpenDraft kit={kit} d={p.draft} p={p} fileHref={fileHref} run={run} /> : <NoDraft p={p} run={run} />}
+      {p.draft ? <OpenDraft kit={kit} d={p.draft} p={p} fileHref={fileHref} run={run} save={(w) => write.mutateAsync(w)} dirtyRef={dirtyRef} /> : <NoDraft p={p} run={run} />}
+      <Confirm opened={asking !== null} text={unsavedAsk} action="Discard" color="red" onCancel={() => asking?.(false)} onConfirm={() => asking?.(true)} />
     </Stack>
   );
 }
@@ -58,8 +74,9 @@ function NoDraft({ p, run }: { p: DraftPage; run: (w: DraftWrite) => Promise<unk
   );
 }
 
-function OpenDraft({ kit, d, p, fileHref, run }: {
+function OpenDraft({ kit, d, p, fileHref, run, save, dirtyRef }: {
   kit: string; d: DraftView; p: DraftPage; fileHref: (path: string, diff?: boolean) => string; run: (w: DraftWrite) => Promise<unknown>;
+  save: (w: DraftWrite) => Promise<unknown>; dirtyRef: RefObject<boolean>;
 }) {
   return (
     <>
@@ -69,7 +86,7 @@ function OpenDraft({ kit, d, p, fileHref, run }: {
       </Section>
       <DraftPublish kit={kit} d={d} run={run} />
       {d.fileMissing && <Alert color="red">No such file in the draft.</Alert>}
-      {d.editor && <DraftEditor key={`${d.editor.path}/${d.editor.etag}`} kit={kit} d={d} e={d.editor} fileHref={fileHref} run={run} />}
+      {d.editor && <DraftEditor key={d.editor.path} kit={kit} d={d} e={d.editor} fileHref={fileHref} run={run} save={save} dirtyRef={dirtyRef} />}
       {d.fileDiff && <FileCard f={d.fileDiff} kit={kit} />}
       <Section title="Files" sub={`${d.size} · marked against v${d.base}`}>
         <Table aria-label="Draft files">

@@ -1,6 +1,6 @@
 import { Anchor, Button, Checkbox, FileInput, Group, Stack, Text, TextInput, Textarea } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useState, type RefObject } from "react";
 import { Link } from "react-router";
 import type { ApiError } from "../../api/client";
 import type { DraftEditor as Editor, DraftView } from "../api/types";
@@ -17,28 +17,47 @@ const enc = encodeURIComponent;
 // DraftEditor is one draft file, opened: its text to edit and save (with
 // the draft's etag), or why it can't be edited; download, mode, replace,
 // rename and delete. Typed edits hold navigation until saved or discarded.
-export function DraftEditor({ kit, d, e, fileHref, run }: {
+export function DraftEditor({ kit, d, e, fileHref, run, save: saveWrite, dirtyRef }: {
   kit: string; d: DraftView; e: Editor; fileHref: (path: string, diff?: boolean) => string; run: (w: DraftWrite) => Promise<unknown>;
+  save: (w: DraftWrite) => Promise<unknown>; dirtyRef: RefObject<boolean>;
 }) {
   const client = useQueryClient();
+  // The text being edited and the draft etag it was read at: a refetch
+  // (another writer's save) re-seeds them only while nothing is typed, so a
+  // save of typed text is still checked against what was read.
+  const [seed, setSeed] = useState({ etag: e.etag, text: e.text, exec: e.exec });
   const [text, setText] = useState(e.text);
   const [exec, setExec] = useState(e.exec);
+  const [edited, setEdited] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [stale, setStale] = useState(false);
   const [asking, setAsking] = useState(false);
-  const dirty = useRef(false);
-  const blocker = useUnsavedGuard(dirty);
+  if (!edited && e.etag !== seed.etag) {
+    setSeed({ etag: e.etag, text: e.text, exec: e.exec });
+    setText(e.text);
+    setExec(e.exec);
+    setStale(false);
+  }
+  const mark = () => { setEdited(true); dirtyRef.current = true; };
+  const blocker = useUnsavedGuard(dirtyRef);
   const save = async () => {
-    dirty.current = false; // the answer moves the page: let it
+    const was = dirtyRef.current;
+    dirtyRef.current = false; // the answer moves the page: let it
+    setSaving(true);
     try {
-      await run({ path: "save", body: { etag: e.etag, path: e.path, content: text, executable: exec }, open: e.path });
+      await saveWrite({ path: "save", body: { etag: seed.etag, path: e.path, content: text, executable: exec }, open: e.path });
+      setEdited(false);
     } catch (err) {
-      dirty.current = true;
+      dirtyRef.current = was;
       if ((err as ApiError).code === "stale") setStale(true);
       throw err;
+    } finally {
+      setSaving(false);
     }
   };
   const reload = () => {
-    dirty.current = false;
+    dirtyRef.current = false;
+    setEdited(false);
     setAsking(false);
     void client.invalidateQueries({ queryKey: draftKey(kit) });
   };
@@ -53,10 +72,10 @@ export function DraftEditor({ kit, d, e, fileHref, run }: {
         {e.editable ? (
           <EditForm submit="Save" onSubmit={save}>
             {e.invisible && <Text size="sm" c="dimmed">This file holds invisible or bidirectional characters (a byte-order mark, a direction override); the editor keeps them as they are, and diffs show them escaped.</Text>}
-            <Textarea aria-label={e.label} value={text} spellCheck={false} autoComplete="off" autosize minRows={16} maxRows={40} wrap="off"
+            <Textarea aria-label={e.label} value={text} spellCheck={false} autoComplete="off" autosize minRows={16} maxRows={40} wrap="off" readOnly={saving}
               styles={{ input: { ...mono, whiteSpace: "pre", tabSize: 4 } }}
-              onChange={(ev) => { setText(ev.currentTarget.value); dirty.current = true; }} />
-            <Checkbox label="Executable (0755)" checked={exec} onChange={(ev) => { setExec(ev.currentTarget.checked); dirty.current = true; }} />
+              onChange={(ev) => { setText(ev.currentTarget.value); mark(); }} />
+            <Checkbox label="Executable (0755)" checked={exec} onChange={(ev) => { setExec(ev.currentTarget.checked); mark(); }} />
             {stale && <Group><Button size="xs" variant="light" onClick={() => setAsking(true)}>Reload</Button></Group>}
           </EditForm>
         ) : (
@@ -73,7 +92,7 @@ export function DraftEditor({ kit, d, e, fileHref, run }: {
       </Stack>
       <Confirm opened={asking} text={unsavedAsk} action="Discard" color="red" onCancel={() => setAsking(false)} onConfirm={reload} />
       <Confirm opened={blocker.state === "blocked"} text={unsavedAsk} action="Discard" color="red"
-        onCancel={() => blocker.reset?.()} onConfirm={() => { dirty.current = false; blocker.proceed?.(); }} />
+        onCancel={() => blocker.reset?.()} onConfirm={() => { dirtyRef.current = false; blocker.proceed?.(); }} />
     </Section>
   );
 }
