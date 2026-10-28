@@ -245,13 +245,14 @@ func TestTrackerTakeTurnEnds(t *testing.T) {
 	}
 	tr.NoteWrite(1)
 	feed(tr, lnInit, lnAssistant, `{"type":"result","subtype":"success","result":"done"}`)
-	// A turn started by a background task answers no new prompt: the
-	// generation it carries is the one before the next write.
-	feed(tr, lnNotify, lnAssistant)
-	tr.NoteWrite(2) // written while that turn runs: claude queues it
-	feed(tr, `{"type":"result","subtype":"success","result":"bg","queued_turn_count":1}`, lnInit, `{"type":"result","subtype":"success","result":"two"}`)
+	// A turn started by a background task answers no prompt of ours (Gen 0),
+	// even when a prompt was written before it started: claude queues that
+	// prompt behind it.
+	feed(tr, lnNotify)
+	tr.NoteWrite(2)
+	feed(tr, lnAssistant, `{"type":"result","subtype":"success","result":"bg","queued_turn_count":1}`, lnInit, `{"type":"result","subtype":"success","result":"two"}`)
 	rs := tr.TakeTurnEnds()
-	want := []TurnResult{{"done", true, 1}, {"bg", true, 1}, {"two", true, 2}}
+	want := []TurnResult{{"done", true, 1}, {"bg", true, 0}, {"two", true, 2}}
 	if !slices.Equal(rs, want) {
 		t.Fatalf("TakeTurnEnds = %+v, want %+v", rs, want)
 	}

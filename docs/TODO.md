@@ -4,7 +4,7 @@ read_when: You want the loose backlog of known follow-ups not yet filed as ticke
 owns: the informal TODO backlog
 prereqs: none
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-28
 ---
 
 * Special `.claude.json` file handling:
@@ -60,3 +60,8 @@ updated: 2026-10-25
   carries a session cookie that fails verification (`browserauth.Gate`, loopback trust).
   A wrong `audience`/`require-scope` then reads as "sign in to request an agent" with
   no hint; log the verification failure and/or show it in the UI.
+* Structured turn end (deferred minors from the 2026-10-28 review):
+  * a compact asked for with `turn_end` while a wake is pending runs one turn late (the resume is written first);
+  * an inbox entry over the 32 KiB batch cap blocks auto-commit until the agent commits it itself (logged);
+  * a kept process's shell writes through a pipe to jam-studio-agent, so it can die of SIGPIPE while the agent is down,
+    and its surviving children then escape restart cleanup — consider an `*os.File` output with rotation at start.

@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -44,6 +45,7 @@ func renderBatch(es []InboxEntry, more bool) (text, upTo string) {
 			b.WriteString("\n")
 			b.WriteString(r)
 			more = true
+			slog.Warn("agentrun: an inbox entry is over the batch cap; it isn't committed until the agent commits it", "id", e.ID)
 			break
 		}
 		b.WriteString("\n")

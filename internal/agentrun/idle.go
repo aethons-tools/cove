@@ -51,9 +51,12 @@ type idleTracker struct {
 	// current turn started — the prompt that turn answers.
 	inTurn            bool
 	wroteGen, turnGen uint64
-	changed           chan struct{} // cap 1; signalled on every state change from Observe
-	parse             func(line []byte) (Event, error)
-	warn              func(msg string, args ...any)
+	// taskTurn: a background task's completion was delivered; the turn it
+	// starts answers no prompt of ours.
+	taskTurn bool
+	changed  chan struct{} // cap 1; signalled on every state change from Observe
+	parse    func(line []byte) (Event, error)
+	warn     func(msg string, args ...any)
 }
 
 // newIdleTracker builds a tracker that maps stdout lines to Events with parse
@@ -105,9 +108,15 @@ func (t *idleTracker) Observe(line []byte) {
 	case EventBackgroundDone:
 		delete(t.awaiting, ev.TaskID)
 		t.busy = true
+		if !t.inTurn {
+			t.taskTurn = true
+		}
 	case EventTurnStart:
 		if !t.inTurn {
 			t.inTurn, t.turnGen = true, t.wroteGen
+			if t.taskTurn {
+				t.turnGen, t.taskTurn = 0, false
+			}
 		}
 		t.busy, t.resumeOwed = true, false
 	default:

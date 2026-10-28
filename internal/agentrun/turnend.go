@@ -197,7 +197,7 @@ func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) 
 		}
 		if err != nil {
 			posted = false
-			w.note = "Your last reply could not be posted (Jam was unreachable); the messages it answered are shown again below."
+			w.note = fmt.Sprintf("Your last reply could not be posted (%v); the messages it answered are shown again below. If it was too long, reply more briefly or `send` it in parts.", err)
 		}
 	}
 	if meta.upTo != "" && posted && (d.Commit == nil || *d.Commit) {

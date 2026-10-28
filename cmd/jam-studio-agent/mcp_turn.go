@@ -76,7 +76,7 @@ func addKeepTools(s *mcp.Server, getenv func(string) string) {
 	})
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "keep_stop",
-		Description: "Stop a process started with keep_start (SIGTERM to its process group, SIGKILL after 10s).",
+		Description: "Stop a process started with keep_start: SIGTERM to its process group, SIGKILL after 10s; whatever is left in the group is killed once its shell exits.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in keepStopIn) (*mcp.CallToolResult, any, error) {
 		return nil, nil, ac.KeepStop(ctx, in.Name)
 	})

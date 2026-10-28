@@ -153,14 +153,25 @@ func serveAgentSocket(path string, h http.Handler, log *slog.Logger) (stop func(
 		ln.Close()
 		return nil, err
 	}
+	// Close would unlink by name, even a successor's socket: unlink only our own.
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	ours, err := os.Stat(path)
+	if err != nil {
+		ln.Close()
+		return nil, err
+	}
 	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Warn("agentrun: agent socket stopped", "err", err.Error())
 		}
 	}()
-	// Closing the listener unlinks the socket; a successor's is never removed.
-	return func() { _ = srv.Close() }, nil
+	return func() {
+		_ = srv.Close()
+		if fi, err := os.Stat(path); err == nil && os.SameFile(fi, ours) {
+			_ = os.Remove(path)
+		}
+	}, nil
 }
 
 // AgentClient is the MCP server's side of the agent socket.

@@ -180,6 +180,9 @@ type Workload struct {
 	// prompts. Run's goroutine only.
 	inflight turnMeta
 	gen      uint64
+	// interrupted: the last episode exited with an interrupted turn not yet
+	// acknowledged; its result, drained after the exit, didn't end normally.
+	interrupted bool
 	// directives are the current turn's turn_end call (nil = defaults), set
 	// on the agent socket's goroutine.
 	dirMu      sync.Mutex
@@ -371,6 +374,9 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 		waitErr := w.episode(ctx, h, t, proc, tr, first, false)
 		split.Flush()
 		for _, r := range tr.TakeTurnEnds() {
+			if w.interrupted {
+				r.OK = false
+			}
 			if ctx.Err() == nil && w.finishTurn(ctx, r) {
 				// The last turn ended as the process exited; the compact it
 				// asked for runs as a maintenance episode before the next wake.
@@ -731,6 +737,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			// The process exited before the turn boundary: the press is not lost.
 			w.cmds.restoreCompact(*compact)
 		}
+		w.interrupted = ackBy != ""
 	}()
 	for {
 		var wake, cmds <-chan struct{}

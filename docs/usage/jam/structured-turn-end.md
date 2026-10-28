@@ -31,7 +31,7 @@ It is on per studio, and only when both sides speak it:
   - the entries are past the commit cursor ([intercom.md](intercom.md#the-inbox-as-a-durable-queue)), oldest first;
   - the batch is capped at **20 entries or 32 KiB** of rendered text.
 - **What an entry looks like.** Each entry is a header line, `From <author> in <channel> (<kind>) at <time> — id <id>`, followed by its body. Each attachment adds an `[attachment <name> ref <ref>]` line.
-- **Oversized entries.** An entry alone over the cap is cut, with a marker telling the agent to `read` that id for the rest. A cut entry isn't committed for the agent: it commits it itself once handled.
+- **Oversized entries.** An entry alone over the cap is cut, with a marker telling the agent to `read` that id for the rest. A cut entry isn't committed for the agent: it commits it itself once handled, and until then auto-commit doesn't pass it.
 - **The closing line** says either "Reply by ending your turn…" or, when entries were left out, "More messages are waiting — use `read`…".
 - **Fetched just before writing.** The batch is fetched (`GET /squawks`) just before the prompt is written into the episode. Because it starts from the commit cursor at that moment, it never re-shows messages the agent already read and committed itself.
 - **Fallback.** If the fetch fails, that wake gets the legacy read prompt.
