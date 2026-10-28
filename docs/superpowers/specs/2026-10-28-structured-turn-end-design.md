@@ -1,6 +1,6 @@
 # jam: structured turn end — messages in the wake, the reply posted, the cursor committed
 
-**Status:** design talked through with the user over the intercom (2026-10-28); awaiting approval.
+**Status:** design talked through with the user over the intercom (2026-10-28); the user asked for best-effort choices and an implementation PR (not merged) for review.
 **Scope:** Jam-managed sessions (ticket, personal, standing): the wake-on engine and Wake wire, `agentrun`'s episode loop and Claude harness, the intercom MCP tools, the session context's agent guidance.
 **Builds on:** the [turn-end lifecycle](2026-10-05-turn-end-lifecycle-design.md) (alarms, gates, idle timeout, `end`, `holding`), the intercom channel log and per-session inbox, the Compact session control.
 
@@ -99,7 +99,9 @@ On a TurnEnd for session S:
 
 **Duplicate replies.** An agent that also `send`s its reply to the same place, then ends with the same text, posts twice. Guidance (§6) says not to. As a backstop, Jam skips the auto-post when S's last post in that channel during this turn has the same trimmed body.
 
-**Chatter loops.** A session woken by another session's post will usually reply now, and that reply wakes the first one. The existing breaker (`session-wake-limit`, default 8 per channel) still bounds this. Guidance adds: when a session's message needs no answer, end with no text. *(Open: see the review section.)*
+**Chatter loops.** A session woken by another session's post will usually reply now, and that reply wakes the first one. The existing breaker (`session-wake-limit`, default 8 per channel) still bounds this. **Auto-posts don't wake sessions.** A post made from a TurnEnd is marked as such (`auto` on the squawk). The wake-on reply filter skips auto-posts by other *sessions*, the way it already skips notices. People are notified as usual. A session that wants another session to act uses `send`, which wakes it as today. So a reply never bounces between sessions, and the breaker stays the guard for explicit `send` loops. *(My call.)*
+
+**Ticket sessions** post by default, like any session: their home channel is the ticket's conversation, so the final text becomes a tracker comment. Guidance for a ticket session adds: "your final text is a comment on your ticket — end with no text when your `report` already says it". *(My call.)*
 
 ## 5. Keeping processes alive
 
@@ -154,6 +156,8 @@ Rewrite the turn and intercom lines of the session-context boilerplate (`interna
 - Deny never wakes by itself; denied messages ride the next wake of any kind.
 - Every wake carries the batch, fetched by the cove at delivery time, not built at wake time.
 - Slice 1 ships dark; the guidance switches per cove capability.
+- Auto-posts never wake other sessions; `send` still does.
+- Ticket sessions post by default, with a guidance line against restating `report`.
 - A refused `to` falls back to the home channel with a notice.
 - The duplicate-reply backstop.
 - Waiting sessions with kept processes still pause at warm-timeout.
