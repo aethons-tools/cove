@@ -53,7 +53,7 @@ func TestLegacyRedirects(t *testing.T) {
 		{"GET", "/ui/auth/login", 308, "/app/auth/login"},
 		{"GET", "/me/auth/callback?code=x", 308, "/app/auth/callback?code=x"},
 		{"GET", "/ui/static/jam.css", 308, "/app/static/jam.css"},
-		{"GET", "/me/static/htmx.min.js", 308, "/app/static/htmx.min.js"},
+		{"GET", "/me/static/brand/j-logo-plain.svg", 308, "/app/static/brand/j-logo-plain.svg"},
 		{"HEAD", "/me/", 308, "/app/user/"},
 		{"POST", "/me/send", 404, ""},
 		{"POST", "/ui/agents", 404, ""},

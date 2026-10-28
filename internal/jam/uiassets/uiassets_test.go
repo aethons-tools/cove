@@ -68,49 +68,6 @@ func TestServesBrandMark(t *testing.T) {
 	}
 }
 
-// A long brand truncates (and hides on phones) rather than squeezing the tabs
-// and the principal menu off-screen.
-func TestStylesheetTitlebarSurvivesNarrowScreens(t *testing.T) {
-	css := get(t, uiassets.Handler("/s/"), "/s/jam.css").Body.String()
-	for _, want := range []string{
-		"white-space:nowrap;min-width:0;max-width:35%;flex-shrink:1}",
-		"flex:1;min-width:120px;overflow-x:auto}",
-		".app-logo span{overflow:hidden;text-overflow:ellipsis}",
-		".app-principal{position:relative;margin-left:auto;flex-shrink:0}",
-		".app-principal .nm,.app-logo span{display:none}",
-	} {
-		if !strings.Contains(css, want) {
-			t.Errorf("jam.css missing %q", want)
-		}
-	}
-}
-
-// Title-bar badges wear the rail's colours: amber, red when broken, bold.
-func TestStylesheetTitlebarBadgesMatchRail(t *testing.T) {
-	css := get(t, uiassets.Handler("/s/"), "/s/jam.css").Body.String()
-	for _, want := range []string{
-		"background:var(--wait-soft);color:var(--wait);font-size:11px;font-weight:700",
-		".app-tabs .badge.red{background:var(--bad-soft);color:var(--bad)}",
-	} {
-		if !strings.Contains(css, want) {
-			t.Errorf("jam.css missing %q", want)
-		}
-	}
-	if strings.Contains(css, ".app-tabs .badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--idle-soft)") {
-		t.Error("title-bar badge is still grey")
-	}
-}
-
-// The chrome's height has one source, which the rail's sticky offset reads.
-func TestStylesheetChromeHeightIsDerived(t *testing.T) {
-	css := get(t, uiassets.Handler("/s/"), "/s/jam.css").Body.String()
-	for _, want := range []string{"--chrome-h:calc(var(--titlebar-h) + var(--subbar-h))", "height:var(--titlebar-h)"} {
-		if !strings.Contains(css, want) {
-			t.Errorf("jam.css missing %q", want)
-		}
-	}
-}
-
 func TestServesIcons(t *testing.T) {
 	rec := get(t, uiassets.Handler("/app/static/"), "/app/static/icons/icon-192.png")
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {

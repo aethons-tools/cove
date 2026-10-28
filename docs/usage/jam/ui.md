@@ -37,21 +37,25 @@ address, redirects to `/app/user/*` the same way.
 
 ### Old admin pages
 
-The console's server-rendered pages are gone; a `GET`
+The console's server-rendered pages are gone; a `GET` or `HEAD`
 on an old page path answers `302` to its new page, with the query kept
-(except `project` on an agent path). The gate runs first, so a non-admin
-gets its 403 and learns nothing. A write there gets a 404 or 405, never a page.
+(except `project` on an agent path; a draft's `file` and `diff` become the
+kit page's `dfile` and `ddiff`). The gate runs first, so a non-admin
+gets its 403 and learns nothing. A write there gets a 405, never a page.
 
 | Old path (under `/app/admin/`) | New path |
 |---|---|
 | `config` | `config/tracking` |
 | `users[/…]`, `destinations[/…]`, `model-specs[/…]` | `config/` + the same |
 | `projects/<p>[/members\|agents\|intercom\|escalation]` | `config/projects/<p>[/…]` |
+| `projects/<p>/roles` | `config/projects/<p>/agents` |
 | `projects/<p>/roles/<r>[/setup]`, `roles/<p>/<r>` | `config/projects/<p>/agents/<r>` |
 | `kits/<k>[/draft]` | `config/kits/<k>` |
 | `specs` | `config/kits` |
 | `intercom` | `health/intercom` |
 | `agents/<id>/setup` | `agents/<id>` |
+| `coves[/<id>[/session]]`, `actors` | `agents[/<id>[/session]]` |
+| `roles`, or any other old path | the Dashboard |
 | `next/<path>` (the app's preview address) | `<path>` |
 
 ## The title bar and look

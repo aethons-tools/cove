@@ -31,7 +31,7 @@ export default defineConfig({
     proxy: {
       "^/app/user/(api|events|session|uploads|blobs|push)(/|$)": toJam,
       "^/app/user/boards/[^/]+/(elements|thumb\\.png)": toJam,
-      "^/app/admin/(api|suggest)(/|$)": toJam,
+      "^/app/admin/(api/|suggest(\\?|$))": toJam,
       "/app/auth": toJam,
       "/app/static": toJam,
     },

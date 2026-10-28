@@ -105,9 +105,9 @@ func openDraftFile(store jam.Store, kit, p string, v *draftView) error {
 }
 
 // editorText is a submitted textarea's text as the file's bytes, with each
-// CRLF, and any lone CR, as LF. htmx 2 submits the textarea's value, whose
-// line breaks the browser normalises to LF; a native form submission sends
-// them as CRLF. Folding both makes either submission store the same bytes.
+// CRLF, and any lone CR, as LF. The app sends the textarea's value, whose
+// line breaks the browser normalises to LF; another client may send CRLF.
+// Folding both makes either store the same bytes.
 func editorText(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
 }
