@@ -237,3 +237,18 @@ func TestTrackerBusyMarkDeliver(t *testing.T) {
 		t.Fatalf("Deliver: pending=%v resumeOwed=%v busy=%v", tr.PendingWake(), tr.ResumeOwed(), tr.Busy())
 	}
 }
+
+func TestTrackerTakeTurnEnd(t *testing.T) {
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
+	if _, ok := tr.TakeTurnEnd(); ok {
+		t.Fatal("no turn ended yet: want nothing to take")
+	}
+	feed(tr, lnInit, lnAssistant, `{"type":"result","subtype":"success","result":"done"}`)
+	r, ok := tr.TakeTurnEnd()
+	if !ok || r != (TurnResult{Text: "done", OK: true}) {
+		t.Fatalf("TakeTurnEnd = %+v, %v", r, ok)
+	}
+	if _, ok := tr.TakeTurnEnd(); ok {
+		t.Fatal("taken twice")
+	}
+}

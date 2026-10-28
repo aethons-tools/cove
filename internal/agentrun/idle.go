@@ -42,6 +42,10 @@ type idleTracker struct {
 	// onReply, if set, runs once when it first does (on the stdout goroutine).
 	replied bool
 	onReply func()
+	// turnEnd is the last turn's result not yet taken (TakeTurnEnd); set
+	// before changed is signalled, so the episode loop sees it at the boundary.
+	turnEnd    TurnResult
+	hasTurnEnd bool
 	changed chan struct{} // cap 1; signalled on every state change from Observe
 	parse   func(line []byte) (Event, error)
 	warn    func(msg string, args ...any)
@@ -77,6 +81,7 @@ func (t *idleTracker) Observe(line []byte) {
 	switch ev.Kind {
 	case EventTurnEnd:
 		t.resumeOwed = false
+		t.turnEnd, t.hasTurnEnd = TurnResult{Text: ev.Text, OK: ev.OK}, true
 		if ev.QueuedEmpty {
 			t.busy = false
 		}
@@ -105,6 +110,23 @@ func (t *idleTracker) Observe(line []byte) {
 	case t.changed <- struct{}{}:
 	default:
 	}
+}
+
+// TurnResult is how one agent turn ended: its final text and whether it ended
+// normally.
+type TurnResult struct {
+	Text string
+	OK   bool
+}
+
+// TakeTurnEnd returns the last turn's result once; ok is false when no turn
+// has ended since the last take.
+func (t *idleTracker) TakeTurnEnd() (r TurnResult, ok bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	r, ok = t.turnEnd, t.hasTurnEnd
+	t.turnEnd, t.hasTurnEnd = TurnResult{}, false
+	return r, ok
 }
 
 // Wrote records that a resume prompt was written to stdin: the agent is busy, and
