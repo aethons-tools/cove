@@ -92,6 +92,30 @@ func TestIdleTrackerUnknownNotification(t *testing.T) {
 	wantAct(t, tr, actClose)
 }
 
+// A Workflow's subagents report their own tool calls as tasks (Claude Code
+// 2.1.284: owned_by_subagent, never listed in background_tasks_changed). Their
+// notifications start no turn of ours, so a hold for the workflow must stay a
+// hold.
+func TestIdleTrackerSubagentNotificationKeepsHold(t *testing.T) {
+	const (
+		lnWorkflow   = `{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"w1","task_type":"local_workflow","description":"Two agents"}]}`
+		lnSubStarted = `{"type":"system","subtype":"task_started","task_id":"s1","owned_by_subagent":true,"is_backgrounded":false,"task_type":"local_bash"}`
+		lnSubNotify  = `{"type":"system","subtype":"task_notification","task_id":"s1","status":"completed"}`
+		lnWfNotify   = `{"type":"system","subtype":"task_notification","task_id":"w1","status":"completed"}`
+	)
+	tr := newIdleTracker(Claude{}.ParseEvent, nil)
+	feed(tr, lnInit, lnAssistant, lnWorkflow, lnResult)
+	wantAct(t, tr, actHold)
+	feed(tr, lnSubStarted, lnSubNotify)
+	if tasks := wantAct(t, tr, actHold); !slices.Equal(tasks, []string{"Two agents"}) {
+		t.Fatalf("hold tasks = %v", tasks)
+	}
+	feed(tr, lnTasks0, lnWfNotify) // the workflow's own completion starts a turn
+	wantAct(t, tr, actWait)
+	feed(tr, lnInit, lnAssistant, lnResult)
+	wantAct(t, tr, actClose)
+}
+
 func TestIdleTrackerWakeWhileBusyIsCoalesced(t *testing.T) {
 	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	feed(tr, lnInit)
@@ -244,11 +268,11 @@ func TestTrackerTakeTurnEnds(t *testing.T) {
 		t.Fatal("no turn ended yet: want nothing to take")
 	}
 	tr.NoteWrite(1)
-	feed(tr, lnInit, lnAssistant, `{"type":"result","subtype":"success","result":"done"}`)
+	feed(tr, lnInit, lnAssistant, lnTasks1, `{"type":"result","subtype":"success","result":"done"}`)
 	// A turn started by a background task answers no prompt of ours (Gen 0),
 	// even when a prompt was written before it started: claude queues that
 	// prompt behind it.
-	feed(tr, lnNotify)
+	feed(tr, lnTasks0, lnNotify)
 	tr.NoteWrite(2)
 	feed(tr, lnAssistant, `{"type":"result","subtype":"success","result":"bg","queued_turn_count":1}`, lnInit, `{"type":"result","subtype":"success","result":"two"}`)
 	rs := tr.TakeTurnEnds()
