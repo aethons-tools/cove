@@ -122,7 +122,7 @@ describe("TypeAhead", () => {
     );
     const user = userEvent.setup();
     renderAdmin(adminBoot, at + "/members");
-    await user.click(await screen.findByText("Add member"));
+    await user.click(await screen.findByText("Add member", { selector: "summary" }));
     const input = screen.getByLabelText(/^User/);
     await user.type(input, "bo");
     await user.click(await screen.findByRole("option", { name: "bob" }));
