@@ -18,6 +18,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/browsertest"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 // The admin app loads under its CSP for a loopback admin (no user), deep-links
@@ -241,6 +242,46 @@ func TestBrowserAdminKitPin(t *testing.T) {
 	}
 	if k, _ := store.GetKit("k"); k.Current != 1 {
 		t.Errorf("current = %d", k.Current)
+	}
+	for _, pr := range problems.All() {
+		t.Errorf("page problem: %s", pr)
+	}
+}
+
+// A kit's draft, opened, edited and published from its page (admin SPA
+// slice 6b).
+func TestBrowserAdminKitDraft(t *testing.T) {
+	if !uiassets.AppBuilt() {
+		t.Skip("the Jam app bundle isn't built (just app)")
+	}
+	ctx := browsertest.Ctx(t)
+	store := jam.NewMemStore()
+	if _, _, err := jam.PushKitFiles(store, "k", kittreetest.Files("kit.yml", "kind: studio\nprompt: one\n")); err != nil {
+		t.Fatal(err)
+	}
+	srv := adminServer(t, store)
+	var problems browsertest.Problems
+	err := chromedp.Do(ctx,
+		problems.Watch(ctx),
+		chromedp.Navigate(srv.URL+"/app/admin/next/config/kits/k"),
+		browsertest.ClickText("button", "Open draft"),
+		browsertest.ClickText(`table[aria-label="Draft files"] a`, "kit.yml"),
+		chromedp.WaitVisible(chromedp.CSS(`textarea[aria-label="kit.yml"]`)),
+		browsertest.SetInput(`textarea[aria-label="kit.yml"]`, "kind: studio\nprompt: two\n"),
+		browsertest.ClickText("button", "Save"),
+		browsertest.WaitText(".mantine-Notification-description", "saved kit.yml"),
+		browsertest.ClickText("button", "Publish"),
+		browsertest.ClickText(`[role="dialog"] button`, "Publish"),
+		browsertest.WaitText("h4", "Published v2"),
+	)
+	if err != nil {
+		t.Fatalf("%v (problems %v)", err, problems.All())
+	}
+	if k, _ := store.GetKit("k"); k.Current != 2 {
+		t.Errorf("current = %d", k.Current)
+	}
+	if v, _ := jam.LoadKitVersion(store, "k", 2); !strings.Contains(string(v.KitYML), "prompt: two") {
+		t.Errorf("v2 kit.yml = %q", v.KitYML)
 	}
 	for _, pr := range problems.All() {
 		t.Errorf("page problem: %s", pr)
