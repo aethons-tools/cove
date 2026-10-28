@@ -36,7 +36,7 @@ type NavTab struct {
 
 // TreeNode is one node of the Config tree.
 type TreeNode struct {
-	Path       string     `json:"path"`  // under the app's mount, e.g. "config/projects/acme"
+	Path       string     `json:"path"` // under the app's mount, e.g. "config/projects/acme"
 	Label      string     `json:"label"`
 	Group      bool       `json:"group"` // expandable (even when empty)
 	Badge      int        `json:"badge"` // config attention items at or under it
