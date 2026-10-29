@@ -1,11 +1,13 @@
-import { Anchor, Badge, Button, Group, Image, Loader, SimpleGrid, Stack, Text, Title, UnstyledButton } from "@mantine/core";
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { Anchor, Badge, Button, Group, Loader, SimpleGrid, Stack, Text, Title, UnstyledButton } from "@mantine/core";
+import { lazy, Suspense, useContext, useState, type ReactNode } from "react";
 import type { SessionPane } from "../api/types";
 import type { PaneTab } from "./layout";
 import { Link } from "react-router";
 import { usePaneTab } from "./useSession";
 import { FrameView } from "./frames/FrameView";
 import { APP } from "../paths";
+import { BlobImage } from "../BlobImage";
+import { HostContext } from "../host";
 
 const ASK_COLOR: Record<string, string> = { open: "yellow", answered: "green", withdrawn: "gray" };
 const enc = encodeURIComponent;
@@ -18,6 +20,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 // the list (until All previews, or leaving the tab).
 function Previews({ p }: { p: SessionPane }) {
   const [framed, setFramed] = useState<string | null>(null);
+  const { openPreview } = useContext(HostContext);
   if (p.previewsOff) return <Text size="sm" c="dimmed">Previews aren't available to you here.</Text>;
   if (framed) {
     return (
@@ -30,7 +33,15 @@ function Previews({ p }: { p: SessionPane }) {
   if (p.previews.length === 0) return <Text size="sm" c="dimmed">No previews exposed. A session exposes one with its <code>expose</code> tool.</Text>;
   return (
     <Stack gap={4}>
-      {p.previews.map((v) => (
+      {p.previews.map((v) => openPreview ? (
+        <Group key={v.name} gap="xs" wrap="nowrap" justify="space-between">
+          <Text size="sm">{v.name} <Text span size="xs" c="dimmed">port {v.port}</Text></Text>
+          <Group gap={4} wrap="nowrap">
+            <Button size="compact-xs" variant="default" title="Open in VS Code's Simple Browser" onClick={() => openPreview(p.id, v, false)}>Open</Button>
+            <Button size="compact-xs" variant="default" title="Open in your browser" onClick={() => openPreview(p.id, v, true)}>Browser</Button>
+          </Group>
+        </Group>
+      ) : (
         <Group key={v.name} gap="xs" wrap="nowrap" justify="space-between">
           <Anchor href={v.url} target="_blank" rel="noopener" size="sm">{v.name} <Text span size="xs" c="dimmed">port {v.port} ↗</Text></Anchor>
           {v.frame && <Button size="compact-xs" variant="default" className="pv-here" onClick={() => setFramed(v.name)}>View here</Button>}
@@ -48,7 +59,7 @@ function Artifacts({ p, onAsk }: { p: SessionPane; onAsk: (id: string) => void }
         <SimpleGrid cols={2} spacing="xs">
           {p.boards.map((b) => (
             <Anchor key={b.id} component={Link} to={`${APP}boards/${enc(b.id)}`} size="xs">
-              <Image loading="lazy" src={`/app/user/boards/${enc(b.id)}/thumb.png`} alt="" radius="sm" fit="contain" h={90} bg="white" />
+              <BlobImage loading="lazy" path={`/app/user/boards/${enc(b.id)}/thumb.png`} alt="" radius="sm" fit="contain" h={90} bg="white" />
               {b.title}
             </Anchor>
           ))}
@@ -56,7 +67,7 @@ function Artifacts({ p, onAsk }: { p: SessionPane; onAsk: (id: string) => void }
       </Section>}
       {p.files.length > 0 && <Section title="Files">
         {p.files.map((f) => f.image
-          ? <Anchor key={f.id} href={`/app/user/blobs/${enc(f.id)}`} target="_blank" rel="noopener"><Image loading="lazy" src={`/app/user/blobs/${enc(f.id)}`} alt={f.name} mah={120} w="auto" fit="contain" /></Anchor>
+          ? <Anchor key={f.id} href={`/app/user/blobs/${enc(f.id)}`} target="_blank" rel="noopener"><BlobImage loading="lazy" path={`/app/user/blobs/${enc(f.id)}`} alt={f.name} mah={120} w="auto" fit="contain" /></Anchor>
           : <Anchor key={f.id} href={`/app/user/blobs/${enc(f.id)}`} download size="sm">📄 {f.name} <Text span size="xs" c="dimmed">{f.size}</Text></Anchor>)}
       </Section>}
       {p.asks.length > 0 && <Section title="Asks">

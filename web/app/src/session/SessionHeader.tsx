@@ -25,9 +25,9 @@ function confirmText(a: Action, h: SessionHead): string | null {
 const actionLabel = (a: Action, h: SessionHead) => (a === "restart" ? h.restartLabel : a[0]!.toUpperCase() + a.slice(1));
 
 // SessionHeader is a session's header: who it is, what it's doing, what it
-// costs, its pane's tabs, and its actions. The server re-checks every
+// costs, its pane's tabs (when onTab is given), and its actions. The server re-checks every
 // action; a refusal shows its message.
-export function SessionHeader({ head: h, tab, onTab }: { head: SessionHead; tab: PaneTab | null; onTab: (t: PaneTab) => void }) {
+export function SessionHeader({ head: h, tab, onTab }: { head: SessionHead; tab?: PaneTab | null; onTab?: (t: PaneTab) => void }) {
   const client = useQueryClient();
   const [asking, setAsking] = useState<Action | null>(null);
   const run = useMutation<void, ApiError, Action>({
@@ -63,12 +63,12 @@ export function SessionHeader({ head: h, tab, onTab }: { head: SessionHead; tab:
       {h.context && <Text size="xs" c="dimmed" title={h.contextTip}>{h.context}</Text>}
       {h.uptime && <Text size="xs" c="dimmed" title="since it started">up {h.uptime}</Text>}
       <Group gap={4} ml="auto" wrap="nowrap">
-        <Group gap={2} role="tablist" aria-label="Session pane">
+        {onTab && <Group gap={2} role="tablist" aria-label="Session pane">
           {tabs.map((t) => (
             <Button key={t} size="compact-xs" role="tab" data-tab={t} aria-selected={tab === t} aria-controls="session-pane-body"
               variant={tab === t ? "light" : "subtle"} onClick={() => onTab(t)}>{TAB_LABEL[t]}</Button>
           ))}
-        </Group>
+        </Group>}
         {h.ssh && <Button size="compact-xs" variant="default" title={h.ssh}
           onClick={() => void copyText(h.ssh).then((ok) => notifications.show({ message: ok ? "Copied the SSH command" : "Couldn't copy; the command is in the button's tooltip" }))}>Copy SSH</Button>}
         {h.ssh && <Button component="a" href={vscodeLink(h.id)} size="compact-xs" variant="default"

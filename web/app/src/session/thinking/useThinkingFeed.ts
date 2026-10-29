@@ -12,6 +12,20 @@ export interface ThinkingFeed {
   seen(): void;
 }
 
+// A FeedSource is the part of an EventSource the feed uses, so a shell can
+// supply its own (the VS Code pane's, over its bridge).
+export type FeedSource = {
+  readonly readyState: number; // 0 connecting, 1 open, 2 closed (EventSource's)
+  addEventListener(type: string, fn: (e: { data: string }) => void): void;
+  close(): void;
+};
+export type FeedOpener = (url: string) => FeedSource;
+export const eventSourceFeed: FeedOpener = (u) => new EventSource(u);
+export const FEED_CLOSED = 2;
+let opener: FeedOpener = eventSourceFeed;
+// setFeedOpener swaps how feeds open; no argument restores eventSourceFeed.
+export function setFeedOpener(o?: FeedOpener): void { opener = o ?? eventSourceFeed; }
+
 export const BACKOFF = [2000, 5000, 15000];
 export const MAX_ROWS = 2000;
 
@@ -19,7 +33,7 @@ export const MAX_ROWS = 2000;
 // closed feed's late messages and a stale retry are ignored.
 interface Conn {
   src: ThinkingSource;
-  es: EventSource | null;
+  es: FeedSource | null;
   tries: number;
   retry: ReturnType<typeof setTimeout> | undefined;
   gen: number;
@@ -45,10 +59,10 @@ function open(c: Conn, stream: string, clear: boolean) {
   const gen = ++c.gen;
   c.setPinned(stream);
   if (clear) c.dispatch({ type: "reset" });
-  const es = new EventSource(c.src.events(stream));
+  const es = opener(c.src.events(stream));
   c.es = es;
-  const on = (name: string, fn: (e: MessageEvent<string>) => void) =>
-    es.addEventListener(name, (e) => { if (c.gen === gen) fn(e as MessageEvent<string>); });
+  const on = (name: string, fn: (e: { data: string }) => void) =>
+    es.addEventListener(name, (e) => { if (c.gen === gen) fn(e); });
   on("stream", (e) => { c.dispatch({ type: "stream", stream: e.data }); c.on.onStream?.(e.data); });
   on("totals", (e) => {
     let t: unknown;
@@ -71,7 +85,7 @@ function open(c: Conn, stream: string, clear: boolean) {
   });
   on("open", () => { c.tries = 0; });
   on("error", () => {
-    if (es.readyState !== EventSource.CLOSED) return; // EventSource retries by itself
+    if (es.readyState !== FEED_CLOSED) return; // EventSource retries by itself
     es.close();
     c.es = null;
     void c.src.check()

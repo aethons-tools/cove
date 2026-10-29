@@ -5,7 +5,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/server";
 import { tev } from "./testing";
 import { adminSessionSource, userThinkingSource, type ThinkingSource } from "./source";
-import { useThinkingFeed, type ThinkingFeed } from "./useThinkingFeed";
+import { setFeedOpener, useThinkingFeed, type ThinkingFeed } from "./useThinkingFeed";
 
 class FakeES {
   static CLOSED = 2;
@@ -33,9 +33,28 @@ function Probe({ backoff, src = userThinkingSource("ses_1"), onTotals, onStream 
 const feed = { get feed() { return box.feed!.feed; }, earlier: () => box.feed!.earlier(), fill: (k: string) => box.feed!.fill(k) };
 const seqs = () => feed.feed.items.map((i) => (i.t === "ev" ? `${i.ev.stream}:${i.ev.seq}` : i.t));
 
-afterEach(() => { vi.unstubAllGlobals(); FakeES.all = []; });
+afterEach(() => { vi.unstubAllGlobals(); FakeES.all = []; setFeedOpener(); });
 
 describe("useThinkingFeed", () => {
+  it("a custom opener receives the events URL and drives the feed", async () => {
+    const fake = new FakeES("");
+    const urls: string[] = [];
+    setFeedOpener((u) => { urls.push(u); return fake; });
+    const check = vi.fn(() => Promise.resolve(200));
+    const src = { ...userThinkingSource("ses_1"), check };
+    render(<Probe src={src} backoff={[100000]} />);
+    expect(urls).toEqual(["/app/user/session/ses_1/thinking/events"]);
+    act(() => { fake.emit("stream", "s1"); fake.emit("ev", JSON.stringify(tev(1))); });
+    expect(seqs()).toEqual(["s1:1"]);
+    act(() => { fake.fail(); });
+    await waitFor(() => expect(check).toHaveBeenCalled());
+    setFeedOpener();
+    vi.stubGlobal("EventSource", FakeES);
+    render(<Probe />);
+    expect(FakeES.last).not.toBe(fake);
+    expect(FakeES.last.url).toBe("/app/user/session/ses_1/thinking/events");
+  });
+
   it("follows the JSON feed: stream, events, more, skipped", () => {
     vi.stubGlobal("EventSource", FakeES);
     render(<Probe />);
