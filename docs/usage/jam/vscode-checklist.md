@@ -9,14 +9,14 @@ updated: 2026-10-29
 
 # Building and verifying the VS Code extension
 
-`web/vscode` is a separate npm package (esbuild bundle, vitest) built into a `.vsix`, with the Conversation pane's webview bundle from `web/app`.
+`web/vscode` is a separate npm package (esbuild bundle, vitest) built into a `.vsix`, with the panes' webview bundle from `web/app`.
 The unit tests run in CI; VS Code itself can't, so the checklist below is run by hand.
 What the extension does: [vscode.md](vscode.md).
 
 ## Build
 
 - `just vscode` runs `scripts/vscode.sh`: `npm ci`, `npm run check` (typecheck and tests), the esbuild bundle, then `vsce package` into `web/vscode/dist/jam.vsix`. It needs Node and npm.
-- The webview bundle is `web/app/vite.vscode.config.ts`, which `scripts/vscode.sh` runs before the esbuild step; its output is `web/vscode/dist/webview/` (`pane.js`, `pane.css`), and the script fails without them.
+- The webview bundle is `web/app/vite.vscode.config.ts`, which `scripts/vscode.sh` runs before the esbuild step; its output is `web/vscode/dist/webview/` (`pane.js`, `pane.css`), and the script fails without them. It also copies Excalidraw's fonts (all but Xiaolai) to `dist/webview/excalidraw/fonts/` for the board tabs, and fails if no `.woff2` lands.
 - `just vscode-check` runs only `npm ci` and `npm run check`.
 - **Version:** `package.json` stays `0.0.0`; `VERSION=<N>-<MMDD>` stamps `0.<N>.0` (vsce needs SemVer). `VSIX_OUT` names the output.
 - **CI:** the gate builds it and uploads the artifact `jam-vscode` (`jam.vsix`). A release attaches `jam-vscode_<version>.vsix` beside the binaries.
@@ -32,6 +32,10 @@ What the extension does: [vscode.md](vscode.md).
 - [ ] With `remote.SSH.localServerDownload: always`, the studio makes no download attempt (the studio's squid log shows no `update.code.visualstudio.com`).
 - [ ] Whether VS Code asks for confirmation when a `vscode://aethons.jam/…` link opens a remote.
 - [ ] `vscode.openFolder` with `forceNewWindow` focuses an existing window on that folder rather than opening a second.
+- [ ] `vscode.env.asExternalUri(http://localhost:<port>/)` from the (UI) Jam extension in a `jam-` remote window adds a forward in the Ports view and returns a working local URL (if not, Open falls back to the preview's web URL in the browser).
+- [ ] Excalidraw in a board tab: CJK text (Xiaolai isn't shipped) and image export may log CSP violations from the font fallback; record what is seen and accept or document it — the CSP doesn't change.
+- [ ] A restored board panel (after a window reload) keeps `retainContextWhenHidden`: hide and show it and the drawing stays.
+- [ ] Upload a file once from the Conversation view (the `ArrayBuffer` check from slice 3).
 
 ## Steps
 
@@ -63,3 +67,16 @@ Conversation view:
 - [ ] Sleep the laptop for 2 minutes, wake it: the messages catch up.
 - [ ] With Web Push on, the phone doesn't buzz for the visible conversation, and does once VS Code is unfocused.
 - [ ] *Developer: Open Webview Developer Tools* shows no CSP violations, and `fetch("https://example.com")` in its console is blocked.
+
+Panes:
+
+- [ ] Each view (Thinking, Previews, Status, Artifacts) renders for the window's session in the light, dark and high-contrast themes.
+- [ ] Thinking follows a busy session live, with Load earlier and the stream select.
+- [ ] Two Thinking views on one session, then *Developer: Show Running Extensions* plus Jam's server log, show one feed.
+- [ ] Pin Thinking to another session, and its label shows.
+- [ ] Previews Open shows the app in the Simple Browser and a Ports-view entry, Browser opens the system browser, and a pinned other session's preview opens its preview URL.
+- [ ] Status Interrupt and Compact work, and Release flips every pane to the ended copy.
+- [ ] An Artifacts ask scrolls the Conversation view, a board thumb opens a tab, and a file opens in the browser.
+- [ ] Open two boards side by side and draw in one: the other client sees it live. Hide and show a tab and the drawing is still there. Reload the window and the boards come back.
+- [ ] Revoke the token: every view and board shows Sign in, and recovers after Sign In.
+- [ ] DevTools on the Thinking view and a board tab shows no CSP violations.
