@@ -65,7 +65,7 @@ The **Jam** icon in the activity bar holds the **Conversation** view: the web ap
 (composer, attachments and asks inline) running in a webview. Four more views and the board tabs follow the same rules.
 It asks the extension for everything; the webview never holds your token, the Jam URL or a cookie.
 
-- **Views:** Conversation (activity bar), **Thinking** (the panel's Jam container; it wants width), **Previews**, **Status** and **Artifacts** (the last two start collapsed in the Jam container). All are draggable anywhere, to the panel or a sidebar.
+- **Views:** Conversation (activity bar), **Thinking** (the panel's Jam container; it wants width), **Previews**, **Status** and **Artifacts** (Previews and Artifacts start collapsed). All are draggable anywhere, to the panel or a sidebar.
 - **Focused session:** by default the window's studio (the window's remote comes from its workspace folder URI).
   *Jam: Focus Session…* picks another session, or *This window's studio* to go back; signed out, it starts sign-in first.
   Every unpinned view and board tab follows it, and the choice is kept per workspace, so it survives reopening the folder.
