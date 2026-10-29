@@ -4,7 +4,7 @@ read_when: You want Jam to send push notifications — setting up the VAPID key 
 owns: the Web Push setup steps (keygen → credential → config → egress hosts), the per-device Notifications toggle and its states, the iOS Home Screen rule, the notify rule as members see it, focus suppression as members see it, the on-device behaviour (one notification per conversation, tap-through, app badge, sounds, sign-out unsubscribing the device), the preview/privacy behaviour, and push troubleshooting. Does NOT own how the relay sends or the `/app/user/push/*` routes — see push-delivery.md; nor the `runtime.push` key reference — see serve.md; nor installing the app — see ui.md.
 prereqs: ui.md (the Jam app, its login and installing it); credentials.md (supplying a credential); serve.md#the-serve-config (the `runtime.push` keys)
 tier: leaf
-updated: 2026-10-24
+updated: 2026-10-29
 ---
 
 # Push notifications
@@ -87,6 +87,9 @@ buzzed for:
 - in any channel, an **ask** they may answer, a **call-in** inviting them, or
   an **escalation** reaching them.
 
+The same set reaches the Jam VS Code extension
+([notifications](vscode.md#notifications-and-the-badge)).
+
 An ask being amended, withdrawn or answered never notifies, and a push that
 can't go out within 10 minutes is dropped rather than buzzing late
 ([how Jam sends](push-delivery.md#how-jam-sends)).
@@ -96,7 +99,7 @@ in a visible, focused Jam window, the page tells Jam so (on focus, on
 visibility change and every 30 s), and Jam pushes nothing for it to *any* of
 your devices. Switching tab or app, minimising, or opening another
 conversation ends that at once; a tab that crashed or lost its connection
-stops suppressing within 60 s. Nothing about focus is stored.
+stops suppressing within 60 s. Nothing about focus is stored. The suppression also holds for VS Code notifications, and the focus route works without `runtime.push`.
 
 ## On the device
 
@@ -148,6 +151,7 @@ settings stay in this browser.
 - With `preview: true` (the default) a notification shows the sender, the
   conversation and the start of the message — **on the lock screen**, too.
   `preview: false` replaces the text with "New message".
+  `preview` also governs the VS Code and OS notifications (it can only be set inside `runtime.push`), and whether an OS notification's body shows on the lock screen follows the OS's own settings.
 - Jam picks a recipient's subscriptions itself; a member can only add or delete
   their own.
 

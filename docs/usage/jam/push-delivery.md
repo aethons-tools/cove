@@ -46,6 +46,7 @@ subscribed device, retrying each device on its own:
   count as failed and are retried after — while devices on other push
   services go out as normal. The first answer from the host after that
   clears it.
+- **The notify relay** is a second egress-only relay service, `notify`, over the same rule. It publishes to the recipient's open `/app/user/events` streams ([the signal stream](intercom-ui.md#unread-and-refresh)), drops after 10 minutes, skips users with no open stream, has no retries (nothing is queued) and no `runtime.push` gate. It keeps its marker in memory, seeded at the log tail on every start (no state dir, nothing written). It works without Web Push keys.
 - **Health.** Sends that keep failing raise the `push:relay`
   [condition](monitoring.md#v1-conditions) — usually the Jam host's egress to
   the push services ([step 4](push.md#enabling-push-on-a-jam)).
@@ -53,7 +54,7 @@ subscribed device, retrying each device on its own:
 ## Routes
 
 All under the `/app/user` gate (members only; writes must be same-origin), and
-404 when push is off:
+404 when neither Web Push nor the notify stream is on (`push/focus` is mounted with either; the key and subscription routes need Web Push):
 
 | Route | |
 |---|---|

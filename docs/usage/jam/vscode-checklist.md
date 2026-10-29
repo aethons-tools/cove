@@ -1,5 +1,5 @@
 ---
-summary: Building the Jam VS Code extension (`just vscode`, the `.vsix`, its version, tests) and the by-hand end-to-end checklist, since VS Code can't run in CI.
+summary: Building the Jam VS Code extension (`just vscode`, the `.vsix`, its version, the vendored macOS notifier, tests) and the by-hand end-to-end checklist, since VS Code can't run in CI.
 read_when: You changed `web/vscode` or are cutting a release with it, and must build it or verify it by hand.
 owns: the extension's build (`just vscode`/`vscode-check`, scripts/vscode.sh, the 0.<N>.0 version, the CI artifact and release asset), its unit-test layout, the ssh-block golden, and the manual checklist
 prereqs: vscode.md for what the extension does
@@ -17,6 +17,7 @@ What the extension does: [vscode.md](vscode.md).
 
 - `just vscode` runs `scripts/vscode.sh`: `npm ci`, `npm run check` (typecheck and tests), the esbuild bundle, then `vsce package` into `web/vscode/dist/jam.vsix`. It needs Node and npm.
 - The webview bundle is `web/app/vite.vscode.config.ts`, which `scripts/vscode.sh` runs before the esbuild step; its output is `web/vscode/dist/webview/` (`pane.js`, `pane.css`), and the script fails without them. It also copies Excalidraw's fonts (all but Xiaolai) to `dist/webview/excalidraw/fonts/` for the board tabs, and fails if no `.woff2` lands.
+- The macOS notifier: `scripts/vscode.sh` vendors `terminal-notifier.app` (from `node-notifier@12.0.0`, into `dist/vendor/mac.noindex/`, with its MIT licence as `dist/vendor/terminal-notifier-LICENSE`.
 - `just vscode-check` runs only `npm ci` and `npm run check`.
 - **Version:** `package.json` stays `0.0.0`; `VERSION=<N>-<MMDD>` stamps `0.<N>.0` (vsce needs SemVer). `VSIX_OUT` names the output.
 - **CI:** the gate builds it and uploads the artifact `jam-vscode` (`jam.vsix`). A release attaches `jam-vscode_<version>.vsix` beside the binaries.
@@ -36,6 +37,12 @@ What the extension does: [vscode.md](vscode.md).
 - [ ] Excalidraw in a board tab: CJK text (Xiaolai isn't shipped) and image export may log CSP violations from the font fallback; record what is seen and accept or document it — the CSP doesn't change.
 - [ ] A restored board panel (after a window reload) keeps `retainContextWhenHidden`: hide and show it and the drawing stays.
 - [ ] Upload a file once from the Conversation view (the `ArrayBuffer` check from slice 3).
+- [ ] Installed from the .vsix on macOS, `dist/vendor/mac.noindex/terminal-notifier.app` runs: it keeps its exec bit (or the chmod restores it), Gatekeeper doesn't block it, and the first notification asks for permission. Clicking a notification opens `vscode://aethons.jam/session/<id>`.
+- [ ] A `TreeView.badge` on the collapsed `jam.needsYou` view shows on the Jam activity-bar icon while the Jam container is closed.
+- [ ] `notify-send --action … --wait` on the target Linux desktops (GNOME, KDE) prints `default` on a click.
+- [ ] `osascript -e 'on run argv' … -- <title> <body>` passes `--` through or not: if `item 1 of argv` comes out as `--`, drop the `--` from `osascriptArgs`.
+- [ ] terminal-notifier 3.0 (UNUserNotificationCenter; its first run waits on the permission prompt, and output saying "declined" is a quiet stop, never an osascript fallback) still displays on the current macOS: a silent non-display exits 0, so no fallback triggers.
+- [ ] `go test -race ./internal/jam/notify/ ./internal/jam/userui/` passes on a host with gcc.
 
 ## Steps
 
@@ -80,3 +87,15 @@ Panes:
 - [ ] Open two boards side by side and draw in one: the other client sees it live. Hide and show a tab and the drawing is still there. Reload the window and the boards come back.
 - [ ] Revoke the token: every view and board shows Sign in, and recovers after Sign In.
 - [ ] DevTools on the Thinking view and a board tab shows no CSP violations.
+
+Notifications:
+
+- [ ] An agent message in another session gives one toast (in the focused window) and no OS notification; with VS Code unfocused, one OS notification.
+- [ ] With three code windows open, exactly one toast.
+- [ ] Clicking an OS notification for session X opens or focuses X's window.
+- [ ] An ask shows a warning toast and bumps the badge; answering it lowers the badge.
+- [ ] Reading the conversation in the Conversation view, or in a focused web-app tab, gives no notification, on a Jam with and without `runtime.push`.
+- [ ] A burst of messages gives at most one notification per 5 s.
+- [ ] Signing out stops notifications and clears the badge; signing in restores them.
+- [ ] The phone's Web Push still arrives.
+- [ ] Linux without `notify-send`: toasts only, one line in the Jam output channel.

@@ -1,7 +1,7 @@
 ---
-summary: The Jam VS Code extension (`aethons.jam`) — installing the .vsix, signing in with an app token, opening a session's studio over Remote-SSH, the five views, board tabs and the focused session, what it writes to your machine, and fixing its errors.
-read_when: You want to open an agent's studio in VS Code from the Jam app or a link, are installing or signing in the Jam extension, are using or changing a Jam view (Conversation, Thinking, Previews, Status, Artifacts) or a board tab, Jam: Focus Session or pinning, or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
-owns: installing and using the Jam VS Code extension; its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session; the five views, board tabs, the focused session, pin/unpin, its empty states and link rules; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; its troubleshooting
+summary: The Jam VS Code extension (`aethons.jam`) — installing the .vsix, signing in with an app token, opening a session's studio over Remote-SSH, the five views, board tabs and the focused session, notifications and the Needs You badge, what it writes to your machine, and fixing its errors.
+read_when: You want to open an agent's studio in VS Code from the Jam app or a link, are installing or signing in the Jam extension, are using or changing a Jam view (Conversation, Thinking, Previews, Status, Artifacts) or a board tab, Jam: Focus Session or pinning, or want VS Code or OS notifications and the Jam badge (or none show on macOS), or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
+owns: installing and using the Jam VS Code extension; its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session; the five views, board tabs, the focused session, pin/unpin, its empty states and link rules; VS Code and OS notifications, the Needs You view and badge, and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; its troubleshooting
 prereqs: collaboration.md for who may SSH and the ssh_config block the CLI writes; app-tokens.md for the sign-in token
 tier: leaf
 updated: 2026-10-29
@@ -76,12 +76,28 @@ It asks the extension for everything; the webview never holds your token, the Ja
 - **Status:** the session header's facts and actions, then the Status rows. *Open in VS Code* on a pinned session opens that session's window.
 - **Artifacts:** a file opens in the browser, a board thumb opens a board tab, and an ask reveals it in the Conversation view; an ask from a session the Conversation view doesn't show doesn't scroll.
 - **Board tabs:** one per board, several side by side, kept while hidden (`retainContextWhenHidden`) and restored after a reload. VS Code restores a background tab only when it is first shown, so a board opened again before then briefly has two tabs; showing the restored one closes it and reveals the other. The title is the board's, capped at 60 characters, "Whiteboard" if empty. *Open in the web app* is in the tab. A stroke made in the last 300 ms before closing a tab may not be saved.
-- **Notifications and the badge** are a later slice.
 - **Empty states:** "Sign in to Jam to see this conversation." (Sign in); "This window isn't on a Jam studio. Focus a session to see its conversation." (a local folder; Focus a session…); "That session has ended, or you can't see it." (Focus a session…).
   A failed lookup shows "Couldn't load the focused session: …" with Try again.
 - **Links:** the pane never navigates. `https:`, `http:` and `mailto:` links open in the browser; boards open as board tabs. `/app/user/c/<other>` opens the web app; `#ask-…` and own-conversation links scroll in place. `vscode://aethons.jam/session/<id>` (or `vscode-insiders:`) opens that session's window; `javascript:`, `command:`, `file:` and any other `vscode:` link do nothing.
-- **Push focus:** while the view is visible in a focused window, the extension reports its conversation as focused, so Web Push stays quiet for it.
-- **Live updates:** one stream feeds the view, restarted on sign-in and sign-out. Where Jam offers no live updates, the view polls every 30 s.
+- **Push focus:** while the view is visible in a focused window, the extension reports its conversation as focused, so Web Push stays quiet for it. The suppression also applies to VS Code notifications, and works without Web Push configured.
+- **Live updates:** one stream per window, held from startup while signed in (no pane needs to be open), feeds the views and notifications; it restarts on sign-in, sign-out and when `jam.url` changes. Where Jam offers no live updates, the view polls every 30 s.
+
+## Notifications and the badge
+
+The extension starts with VS Code (`onStartupFinished`), in every window, and every signed-in window holds one live stream.
+What notifies is the phone's rule ([push.md](push.md#what-notifies)), not restated here.
+
+- **One window per event, usually the focused one.** The focused window gets a 250 ms head start, so a lagging stream can let an unfocused window win; it then also shows an OS banner while VS Code is focused. Windows agree through a lock file in the extension's global storage, so a second VS Code profile, and VS Code Insiders, each notify separately.
+- **Rate:** at most one message notification per conversation per 5 s; asks, call-ins and escalations always notify. An ask shows as a warning, a message as information.
+- **Open**, and the OS notification, open the session's code window (`vscode://aethons.jam/session/<id>`), or the web app for a chat.
+- **OS notifications** show only while the winning window isn't focused:
+  - macOS uses the bundled `terminal-notifier` 3.0.0 (vendored from node-notifier, ad-hoc signed, not notarized, shipped whole with Apple's `Terminal.icns`; the .vsix is private). It is listed as *terminal-notifier* in System Settings → Notifications, where you allow or mute it. The first notification waits up to 120 s for the permission prompt; if it times out, only that note falls back to `osascript`. A declined permission shows nothing and does not fall back. If the notifier can't run it falls back to `osascript`, whose banners can't open a session.
+  - Linux uses `notify-send`, with a click only when it supports `--action` (libnotify 0.7.10+); at most one waits per conversation and 8 overall. Without `notify-send` you get toasts only, and one line in the Jam output channel.
+  - Other platforms get VS Code notifications only.
+- **Closed VS Code:** nothing is queued (the phone still gets Web Push); a user with both gets both.
+- **Lock screen:** body visibility follows [`preview`](push.md#privacy-and-previews) and the OS's settings.
+- **Needs You view** (Jam container, collapsed) lists what needs you, from the rail's needs-you group, refreshed with a 3 s debounce; its count is the Jam icon's badge. Selecting a row opens that conversation.
+- **Signed out:** no notifications, no badge. A revoked token shows "sign-in expired" at startup.
 
 ## What it writes
 
@@ -110,4 +126,5 @@ The first time, the extension offers to set Remote-SSH's `remote.SSH.localServer
 | "your participant sign-in is missing" from `ssh-proxy` | The `jam` CLI predates the extension. Install `jam` from the same release or newer. |
 | "The jam CLI was not found" | Install `jam` or set `jam.cliPath` to its absolute path. |
 | "You can't SSH into …" | The session isn't shared with you; ask an operator ([collaboration.md](collaboration.md#who-may-connect)). The button opens the web app. |
+| No OS banners on macOS | System Settings → Notifications → *terminal-notifier* must allow them. If the Jam output channel says the notifier was blocked (Gatekeeper, on a quarantined copy), run `xattr -dr com.apple.quarantine` on the extension's `dist/vendor`, or rely on the `osascript` fallback. |
 | Signed out after a revoke | Run *Jam: Sign In*. A revoked token also makes `ssh-proxy` fail with a "VS Code sign-in … was revoked" message. |
