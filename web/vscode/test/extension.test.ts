@@ -56,6 +56,23 @@ describe("activate", () => {
     deactivate();
   });
 
+  it("a session pane's open board message creates a board panel", async () => {
+    mock.reset();
+    const BRD = "brd_0abcdefghjkmnpqrstvwxyz012";
+    mock.config["jam.url"] = JAM;
+    activate(fakeContext());
+    expect(vscode.window.registerWebviewPanelSerializer).toHaveBeenCalledWith("jam.board", expect.anything());
+    const v = openView();
+    v.receive({ type: "open", intent: { kind: "board", id: BRD } });
+    await vi.waitFor(() => expect(mock.panels).toHaveLength(1));
+    expect(mock.panels[0]!.viewType).toBe("jam.board");
+    expect(mock.panels[0]!.webview.html).toContain(`data-board="${BRD}"`);
+    v.receive({ type: "open", intent: { kind: "board", id: BRD } });
+    await settle();
+    expect(mock.panels).toHaveLength(1);
+    deactivate();
+  });
+
   it("a revoked token: the stream's and a request's 401 sign out once, every pane shows Sign in, and Sign In restarts the stream and reloads the panes (Review Focus 2)", async () => {
     mock.reset();
     const home = await mkdtemp(path.join(tmpdir(), "jamext-"));

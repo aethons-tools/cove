@@ -37,4 +37,17 @@ describe("webviewHtml", () => {
     expect(a).not.toBe(b);
     for (const n of [a, b]) expect(n).toMatch(/^[A-Za-z0-9+/]{43}=$/);
   });
+
+  it("board and assets attributes are escaped and the CSP is unchanged", () => {
+    const h = html({ pane: "board", board: 'brd_x"><b>', assets: `${CDN}/e"x/` });
+    expect(h).toContain(`<div id="root" data-pane="board" data-board="brd_x&quot;&gt;&lt;b&gt;" data-assets="${CDN}/e&quot;x/"></div>`);
+    const m = /<meta http-equiv="Content-Security-Policy" content="([^"]*)">/.exec(h);
+    expect(unescape(m![1]!)).toBe(unescape(/content="([^"]*)"/.exec(html())![1]!));
+    expect(h.match(/<script/g)).toHaveLength(1);
+  });
+
+  it("no board attribute for a view", () => {
+    expect(html()).not.toContain("data-board");
+    expect(html()).not.toContain("data-assets");
+  });
 });

@@ -26,6 +26,17 @@ npm run check
 for f in dist/webview/pane.js dist/webview/pane.css; do
   if [ ! -f "$f" ]; then echo "vscode: the webview build left no web/vscode/$f" >&2; exit 1; fi
 done
+# Excalidraw's fonts for the board tabs (the CSP allows font-src from the
+# extension only, so no CDN), without the 13 MB CJK Xiaolai set, as scripts/app.sh.
+fonts=../app/node_modules/@excalidraw/excalidraw/dist/prod/fonts
+mkdir -p dist/webview/excalidraw/fonts
+for f in "$fonts"/*; do
+  [ "$(basename "$f")" = Xiaolai ] || cp -R "$f" dist/webview/excalidraw/fonts/
+done
+if ! find dist/webview/excalidraw/fonts -name '*.woff2' | grep -q .; then
+  echo "vscode: no .woff2 fonts in web/vscode/dist/webview/excalidraw/fonts" >&2
+  exit 1
+fi
 node esbuild.mjs
 npx vsce package --no-dependencies --skip-license --no-update-package-json "$ver" -o "$out"
 echo "vscode: built $out ($ver)"

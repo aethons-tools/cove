@@ -18,7 +18,11 @@ export const mock = {
   viewProviders: new Map<string, vs.WebviewViewProvider>(),
   context: new Map<string, unknown>(), // setContext keys
   windowState: new Set<(s: { focused: boolean }) => void>(),
+  panels: [] as ReturnType<typeof fakeWebviewPanel>[], // createWebviewPanel's results
+  panelSerializers: new Map<string, { deserializeWebviewPanel(p: unknown, s: unknown): unknown }>(),
   reset() {
+    mock.panels = [];
+    mock.panelSerializers.clear();
     mock.config = {};
     mock.answers = [];
     mock.pick = undefined;
@@ -51,6 +55,15 @@ export const window = {
     mock.viewProviders.set(id, p);
     return disposable();
   }),
+  createWebviewPanel: vi.fn((viewType: string, title: string, column: unknown, options: unknown) => {
+    const p = fakeWebviewPanel(viewType, title, column, options);
+    mock.panels.push(p);
+    return p;
+  }),
+  registerWebviewPanelSerializer: vi.fn((id: string, s: { deserializeWebviewPanel(p: unknown, s: unknown): unknown }) => {
+    mock.panelSerializers.set(id, s);
+    return disposable();
+  }),
   state: { focused: true },
   onDidChangeWindowState: vi.fn((cb: (s: { focused: boolean }) => void) => {
     mock.windowState.add(cb);
@@ -76,6 +89,7 @@ export const env = {
 };
 
 export enum ConfigurationTarget { Global = 1, Workspace = 2, WorkspaceFolder = 3 }
+export enum ViewColumn { Active = -1, Beside = -2, One = 1, Two = 2 }
 export enum ProgressLocation { SourceControl = 1, Window = 10, Notification = 15 }
 
 export const workspace = {
@@ -146,9 +160,24 @@ export function fakeWebviewView() {
   return view;
 }
 
+// fakeWebviewPanel is a WebviewPanel over fakeWebviewView's webview.
+export function fakeWebviewPanel(viewType: string, title: string, column: unknown, options: unknown) {
+  const v = fakeWebviewView();
+  const panel = Object.assign(v, {
+    viewType,
+    title,
+    column,
+    createOptions: options,
+    iconPath: undefined as unknown,
+    revealed: [] as unknown[],
+    reveal: vi.fn((col?: unknown) => void panel.revealed.push(col)),
+  });
+  return panel;
+}
+
 const fns = [
   window.showInformationMessage, window.showWarningMessage, window.showErrorMessage, window.showQuickPick,
-  window.withProgress, window.registerUriHandler, window.registerWebviewViewProvider, window.onDidChangeWindowState,
+  window.withProgress, window.registerUriHandler, window.createWebviewPanel, window.registerWebviewPanelSerializer, window.registerWebviewViewProvider, window.onDidChangeWindowState,
   commands.registerCommand, commands.executeCommand,
   env.openExternal, env.asExternalUri, workspace.getConfiguration, workspace.onDidChangeConfiguration, extensions.getExtension,
 ];

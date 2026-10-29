@@ -25,7 +25,7 @@ export function csp(cspSource: string, nonce: string): string {
   ].join("; ");
 }
 
-export function webviewHtml(o: { cspSource: string; nonce: string; script: string; style: string; pane: PaneName }): string {
+export function webviewHtml(o: { cspSource: string; nonce: string; script: string; style: string; pane: PaneName; board?: string; assets?: string }): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -35,7 +35,7 @@ export function webviewHtml(o: { cspSource: string; nonce: string; script: strin
 <link rel="stylesheet" href="${attr(o.style)}">
 </head>
 <body>
-<div id="root" data-pane="${attr(o.pane)}"></div>
+<div id="root" data-pane="${attr(o.pane)}"${o.board === undefined ? "" : ` data-board="${attr(o.board)}"`}${o.assets === undefined ? "" : ` data-assets="${attr(o.assets)}"`}></div>
 <script type="module" nonce="${attr(o.nonce)}" src="${attr(o.script)}"></script>
 </body>
 </html>

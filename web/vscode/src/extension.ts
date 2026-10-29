@@ -24,6 +24,8 @@ import { FocusReporter } from "./focusreport";
 import { LiveStream } from "./live";
 import { perform } from "./panes/actions";
 import type { ActionDeps } from "./panes/actions";
+import type { IntentAction } from "./bridge/intents";
+import { BoardPanels } from "./panes/board";
 import { PaneHub } from "./panes/hub";
 import { SESSION_PANES, SessionPaneProvider } from "./panes/session";
 import { ThinkingStreams } from "./thinking";
@@ -243,30 +245,37 @@ export function activate(ctx: vscode.ExtensionContext): void {
     openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)),
     executeCommand: exec,
     asExternalUri: async (u) => (await vscode.env.asExternalUri(vscode.Uri.parse(u))).toString(),
-    // Until the board editor tab (Task 7), a board opens in the browser.
-    openBoard: (id) => {
-      const u = jamUrl();
-      if (u instanceof Error) throw u;
-      void vscode.env.openExternal(vscode.Uri.parse(`${u}/app/user/boards/${id}`));
-    },
+    openBoard: (id) => boards.open(id),
     openSession: (id) => guard(() => openSession(openDeps, id))(),
     scrollConversation: (anchor) => providers.get("conversation")!.scrollTo(anchor),
     error: (m) => void vscode.window.showErrorMessage(m),
   };
+  const portDeps = {
+    hub,
+    router,
+    thinking,
+    jamUrl,
+    windowStudio: windowDefault,
+    perform: (a: IntentAction) => void perform(a, actionDeps),
+    executeCommand: exec,
+  };
+  const boards = new BoardPanels({
+    ...portDeps,
+    extensionUri: ctx.extensionUri,
+    auth,
+    createPanel: (...a) => vscode.window.createWebviewPanel(...a),
+  });
+  ctx.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer(BoardPanels.viewType, { deserializeWebviewPanel: async (p, s) => boards.restore(p, s) }),
+  );
   const providers = new Map<string, SessionPaneProvider>();
   for (const name of SESSION_PANES) {
     const p = new SessionPaneProvider(name, {
       extensionUri: ctx.extensionUri,
-      hub,
-      router,
-      thinking,
+      ...portDeps,
       model,
       reporter: rep,
       auth,
-      jamUrl,
-      windowStudio: windowDefault,
-      perform: (a) => void perform(a, actionDeps),
-      executeCommand: exec,
     });
     providers.set(name, p);
     ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(p.viewType, p));
