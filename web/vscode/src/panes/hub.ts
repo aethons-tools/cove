@@ -32,11 +32,21 @@ export class PaneHub {
   }
 
   broadcast(m: ExtToPane): void {
-    for (const p of [...this.panes]) p.post(m);
+    for (const p of [...this.panes]) {
+      try {
+        p.post(m);
+      } catch {
+        // a disposed pane must not starve the others
+      }
+    }
   }
 
   private handle(e: LiveEvent): void {
-    this.onEvent?.(e);
+    try {
+      this.onEvent?.(e);
+    } catch {
+      // observers are best effort
+    }
     if (FORWARD.has(e.event)) this.broadcast({ type: "live", event: e.event as Forwarded, data: e.data });
   }
 }

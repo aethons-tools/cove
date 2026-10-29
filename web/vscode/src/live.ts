@@ -33,7 +33,7 @@ export class SseParser {
 
   private line(line: string, out: LiveEvent[]): void {
     if (line === "") {
-      if (this.hasData || this.event) out.push({ event: this.event || "message", data: this.data.join("\n") });
+      if (this.hasData) out.push({ event: this.event || "message", data: this.data.join("\n") });
       this.event = "";
       this.data = [];
       this.hasData = false;
@@ -64,7 +64,7 @@ export type LiveDeps = {
 export type LiveState = "idle" | "connecting" | "open" | "off" | "signedOut";
 
 export class LiveStream {
-  state: LiveState = "idle";
+  private st: LiveState = "idle";
   private subs = new Set<(e: LiveEvent) => void>();
   private ac: AbortController | undefined;
   private gen = 0;
@@ -75,6 +75,10 @@ export class LiveStream {
 
   constructor(private d: LiveDeps) {}
 
+  get state(): LiveState {
+    return this.st;
+  }
+
   subscribe(cb: (e: LiveEvent) => void): () => void {
     const wrapped = (e: LiveEvent): void => cb(e);
     this.subs.add(wrapped);
@@ -83,7 +87,7 @@ export class LiveStream {
       if (!this.subs.delete(wrapped)) return;
       if (this.subs.size === 0) {
         this.stop();
-        this.state = "idle";
+        this.st = "idle";
       }
     };
   }
@@ -119,7 +123,7 @@ export class LiveStream {
     const base = Math.min(LIVE_BACKOFF_MAX_MS, LIVE_BACKOFF_MIN_MS * 2 ** this.attempt);
     this.attempt++;
     const delay = base * (0.8 + 0.4 * this.d.random());
-    this.state = "connecting";
+    this.st = "connecting";
     this.retryTimer = this.d.setTimeout(() => {
       this.retryTimer = undefined;
       void this.connect(gen);
@@ -127,7 +131,13 @@ export class LiveStream {
   }
 
   private emit(e: LiveEvent): void {
-    for (const cb of [...this.subs]) cb(e);
+    for (const cb of [...this.subs]) {
+      try {
+        cb(e);
+      } catch {
+        // one bad subscriber must not drop the event for the rest
+      }
+    }
   }
 
   private armStall(ac: AbortController, gen: number): void {
@@ -141,7 +151,7 @@ export class LiveStream {
 
   private async connect(gen: number): Promise<void> {
     if (gen !== this.gen) return;
-    this.state = "connecting";
+    this.st = "connecting";
     let s: Awaited<ReturnType<LiveDeps["session"]>>;
     try {
       s = await this.d.session();
@@ -150,7 +160,7 @@ export class LiveStream {
     }
     if (gen !== this.gen) return;
     if (!s) {
-      this.state = "signedOut";
+      this.st = "signedOut";
       return;
     }
     const ac = new AbortController();
@@ -165,7 +175,7 @@ export class LiveStream {
       if (gen !== this.gen) return;
       if (res.status === 401) {
         this.clearTimers();
-        this.state = "signedOut";
+        this.st = "signedOut";
         if (!this.notified.has(s.token)) {
           this.notified.add(s.token);
           this.d.onSignedOut();
@@ -174,7 +184,7 @@ export class LiveStream {
       }
       if (res.status === 204) {
         this.clearTimers();
-        this.state = "off";
+        this.st = "off";
         return;
       }
       if (res.status !== 200 || !res.body) {
@@ -182,7 +192,7 @@ export class LiveStream {
         this.clearTimers();
         return this.retry(gen);
       }
-      this.state = "open";
+      this.st = "open";
       this.attempt = 0;
       this.armStall(ac, gen);
       this.emit({ event: "open", data: "" });
@@ -203,6 +213,7 @@ export class LiveStream {
       // aborted (stall or stop) or network error: fall through to retry
     }
     if (gen !== this.gen) return;
+    ac.abort(); // never leave the old stream open behind a retry
     this.clearTimers();
     this.retry(gen);
   }

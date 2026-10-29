@@ -31,6 +31,18 @@ describe("PaneHub", () => {
     expect(seen).toEqual(["open", "changed", "presence", "board", "notify", "message"]);
   });
 
+  it("a throwing pane doesn't starve the others", () => {
+    const f = fakeLive();
+    const hub = new PaneHub(f.live, () => {
+      throw new Error("x");
+    });
+    const b = port("b");
+    hub.attach({ id: "a", post: () => { throw new Error("disposed"); } });
+    hub.attach(b);
+    f.emit({ event: "changed", data: "1" });
+    expect(b.got).toHaveLength(1);
+  });
+
   it("detach of the last pane unsubscribes", () => {
     const f = fakeLive();
     const hub = new PaneHub(f.live);

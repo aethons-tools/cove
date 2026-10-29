@@ -80,6 +80,25 @@ describe("LiveStream", () => {
     expect(h.live.state).toBe("open");
   });
 
+  it("a throwing subscriber doesn't drop events or leak a connection", async () => {
+    const h = harness();
+    const got: LiveEvent[] = [];
+    h.live.subscribe(() => {
+      throw new Error("disposed");
+    });
+    h.live.subscribe((e) => got.push(e));
+    await tick();
+    h.conns[0]!.push("event: changed\ndata: 1\n\n");
+    await tick(5000);
+    expect(got).toEqual([{ event: "open", data: "" }, { event: "changed", data: "1" }]);
+    expect(h.fetchFn).toHaveBeenCalledTimes(1);
+    expect(h.conns[0]!.init?.signal?.aborted).toBe(false);
+  });
+
+  it("an event with no data line is not dispatched", () => {
+    expect(new SseParser().push("event: x\n\n")).toEqual([]);
+  });
+
   it("last unsubscribe aborts", async () => {
     const h = harness();
     const u1 = h.live.subscribe(() => {});
