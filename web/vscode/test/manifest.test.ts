@@ -47,7 +47,7 @@ describe("the manifest", () => {
   it("contributes the five views, with Thinking in the jamPanel container", () => {
     expect(pkg.contributes.viewsContainers).toEqual({
       activitybar: [{ id: "jam", title: "Jam", icon: "media/jam.svg" }],
-      panel: [{ id: "jamPanel", title: "Jam", icon: "media/jam.svg" }],
+      panel: [{ id: "jamPanel", title: "Jam Thinking", icon: "media/jam.svg" }],
     });
     expect(pkg.contributes.views).toEqual({
       jam: [

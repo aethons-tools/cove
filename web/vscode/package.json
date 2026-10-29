@@ -34,7 +34,7 @@
     ],
     "viewsContainers": {
       "activitybar": [{ "id": "jam", "title": "Jam", "icon": "media/jam.svg" }],
-      "panel": [{ "id": "jamPanel", "title": "Jam", "icon": "media/jam.svg" }]
+      "panel": [{ "id": "jamPanel", "title": "Jam Thinking", "icon": "media/jam.svg" }]
     },
     "views": {
       "jam": [
