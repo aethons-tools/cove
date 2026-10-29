@@ -1,12 +1,14 @@
 package userui
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/notify"
 )
 
 // Changes is a source of "the intercom log changed" signals —
@@ -26,6 +28,12 @@ func WithChanges(c Changes) Option {
 	return func(h *handler) { h.changes = c }
 }
 
+// WithNotify streams the viewer's own notifications (hub) on GET
+// /app/user/events as `event: notify`, and turns on push focus without Web Push.
+func WithNotify(hub *notify.Hub) Option {
+	return func(h *handler) { h.notify = hub }
+}
+
 // keepAlive is how often an idle stream sends an SSE comment, so proxies and
 // browsers don't time the connection out.
 const keepAlive = 25 * time.Second
@@ -43,14 +51,15 @@ const boardAccessTTL = 30 * time.Second
 // events streams `changed` (the log grew) and `presence` (a session status
 // changed) to the participant until they disconnect. No message content or
 // status crosses this stream — only that something changed; the app refetches
-// through the API, which checks access again.
+// through the API, which checks access again. The one exception is `notify`:
+// the viewer's own notification, with its title and body, sent to nobody else.
 func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 	p, ok := jam.ParticipantFrom(r)
 	if !ok {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if h.changes == nil && h.presence == nil && h.d.Boards == nil {
+	if h.changes == nil && h.presence == nil && h.d.Boards == nil && h.notify == nil {
 		w.WriteHeader(http.StatusNoContent) // EventSource stops retrying; the page polls
 		return
 	}
@@ -75,6 +84,12 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		ch, cancel := h.d.Boards.Subscribe()
 		defer cancel()
 		boards = ch
+	}
+	var notes <-chan notify.Event
+	if h.notify != nil {
+		ch, cancel := h.notify.Subscribe(p.UserID)
+		defer cancel()
+		notes = ch
 	}
 	type access struct {
 		ok bool
@@ -127,6 +142,12 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			_, _ = fmt.Fprintf(w, "event: board\ndata: %s\n\n", id)
+		case ev := <-notes:
+			b, err := json.Marshal(ev)
+			if err != nil {
+				continue
+			}
+			_, _ = fmt.Fprintf(w, "event: notify\ndata: %s\n\n", b)
 		case <-tick.C:
 			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
 		}

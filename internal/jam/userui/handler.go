@@ -9,6 +9,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/notify"
 	"github.com/aethons-tools/cove/internal/jam/push"
 )
 
@@ -57,6 +58,7 @@ type handler struct {
 	pushKey  string   // VAPID public key; "" = Web Push off (routes 404)
 	// pushFocus records the conversation each user has focused (nil: off).
 	pushFocus *push.Focus
+	notify    *notify.Hub // nil = no `notify` push
 	// Without either, GET /app/user/events answers 204 and the app polls.
 
 	// mu guards streams: each viewer's open Thinking feeds (capped at
