@@ -46,7 +46,6 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
   scrollTo(anchor: string): void {
     this.pending = anchor;
     for (const post of this.posters) post({ type: "scrollTo", anchor });
-    if (this.posters.size > 0) this.pending = undefined;
   }
 
   resolveWebviewView(view: vscode.WebviewView, _context?: vscode.WebviewViewResolveContext, _token?: vscode.CancellationToken): void {

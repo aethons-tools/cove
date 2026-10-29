@@ -208,6 +208,32 @@ describe("ConversationViewProvider", () => {
     expect(s.perform.mock.calls).toEqual([[{ forwardPort: 5173, inBrowser: false, url: "https://p.example/x" }], [{ openExternal: "https://p.example/x" }]]);
   });
 
+  it("a reveal survives a hidden view that reloads", async () => {
+    const s = setup();
+    const v = s.open();
+    v.receive({ type: "ready", pane: "conversation" });
+    await settle();
+    v.setVisible(false);
+    s.provider.scrollTo("ask-h");
+    const n = v.posted.length; // the hidden view's JS is gone; only a later ready can deliver
+    v.receive({ type: "ready", pane: "conversation" });
+    await settle();
+    expect(v.posted.slice(n)).toContainEqual({ type: "scrollTo", anchor: "ask-h" });
+    const m = v.posted.length;
+    v.receive({ type: "ready", pane: "conversation" });
+    await settle();
+    expect(v.posted.slice(m).some((x) => (x as { type: string }).type === "scrollTo")).toBe(false);
+  });
+
+  it("refused preview intents perform nothing", async () => {
+    const s = setup();
+    const v = s.open();
+    v.receive({ type: "open", intent: { kind: "preview", session: A, port: 0, url: "https://p.example/", inBrowser: false } });
+    v.receive({ type: "open", intent: { kind: "preview", session: A, port: 5173, url: "javascript:alert(1)", inBrowser: false } });
+    await settle();
+    expect(s.perform).not.toHaveBeenCalled();
+  });
+
   it("scrollTo posts to a resolved view, or waits for the next ready", async () => {
     const s = setup();
     s.provider.scrollTo("ask-a");

@@ -236,7 +236,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
     // Until the board editor tab (Task 7), a board opens in the browser.
     openBoard: (id) => {
       const u = jamUrl();
-      if (!(u instanceof Error)) void vscode.env.openExternal(vscode.Uri.parse(`${u}/app/user/boards/${id}`));
+      if (u instanceof Error) throw u;
+      void vscode.env.openExternal(vscode.Uri.parse(`${u}/app/user/boards/${id}`));
     },
     openSession: (id) => openSession(openDeps, id),
     scrollConversation: (anchor) => conversation.scrollTo(anchor),
@@ -253,7 +254,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     perform: (a) => perform(a, actionDeps),
     windowStudio: () => studioFromAuthority(windowAuthority(vscode.workspace)),
     executeCommand: exec,
-      });
+  });
   ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(ConversationViewProvider.viewType, conversation));
 
   const view = ConversationViewProvider.viewType;
