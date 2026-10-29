@@ -26,7 +26,11 @@ describe("the manifest", () => {
     expect(pkg.displayName).toBe("Jam");
     expect(pkg.engines.vscode).toBe("^1.105.0");
     expect(pkg.main).toBe("./dist/extension.js");
-    expect(pkg.activationEvents).toEqual(["onUri", "onWebviewPanel:jam.board"]);
+    expect(pkg.activationEvents).toEqual(["onUri", "onWebviewPanel:jam.board", "onStartupFinished"]);
+  });
+
+  it("activationEvents include onStartupFinished", () => {
+    expect(pkg.activationEvents).toContain("onStartupFinished");
   });
 
   it("every contributed command is registered by activate", () => {

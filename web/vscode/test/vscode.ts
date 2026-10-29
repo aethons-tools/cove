@@ -1,6 +1,9 @@
 // A small stand-in for the `vscode` module (vitest aliases "vscode" here):
 // each API the extension touches is a vi.fn whose calls tests inspect.
 // mock.reset() clears the calls and the fake state between tests.
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { vi } from "vitest";
 import type * as vs from "vscode";
 
@@ -20,7 +23,19 @@ export const mock = {
   windowState: new Set<(s: { focused: boolean }) => void>(),
   panels: [] as ReturnType<typeof fakeWebviewPanel>[], // createWebviewPanel's results
   panelSerializers: new Map<string, { deserializeWebviewPanel(p: unknown, s: unknown): unknown }>(),
+  configListeners: new Set<(e: { affectsConfiguration(s: string): boolean }) => void>(),
+  output: [] as string[], // lines appended to any output channel
+  contexts: [] as { subscriptions: { dispose(): unknown }[] }[], // fakeContexts since the last reset
+  // changeConfig fires onDidChangeConfiguration for the given keys.
+  changeConfig(...keys: string[]) {
+    const e = { affectsConfiguration: (s: string) => keys.some((k) => k === s || k.startsWith(`${s}.`)) };
+    for (const cb of [...mock.configListeners]) cb(e);
+  },
   reset() {
+    // The previous test's extension stops: its permanent stream no longer runs.
+    for (const c of mock.contexts.splice(0)) for (const d of c.subscriptions.splice(0)) d.dispose();
+    mock.configListeners.clear();
+    mock.output = [];
     mock.panels = [];
     mock.panelSerializers.clear();
     mock.config = {};
@@ -64,6 +79,14 @@ export const window = {
     mock.panelSerializers.set(id, s);
     return disposable();
   }),
+  createOutputChannel: vi.fn((name: string) => ({
+    name,
+    appendLine: (l: string) => void mock.output.push(l),
+    append: (l: string) => void mock.output.push(l),
+    show: () => {},
+    clear: () => {},
+    dispose: () => {},
+  })),
   state: { focused: true },
   onDidChangeWindowState: vi.fn((cb: (s: { focused: boolean }) => void) => {
     mock.windowState.add(cb);
@@ -99,18 +122,22 @@ export const workspace = {
     inspect: (key: string) => ({ key: `${section}.${key}`, globalValue: mock.config[`${section}.${key}`] }),
     update: vi.fn(async (key: string, v: unknown) => { mock.config[`${section}.${key}`] = v; }),
   })),
-  onDidChangeConfiguration: vi.fn(() => disposable()),
+  onDidChangeConfiguration: vi.fn((cb: (e: { affectsConfiguration(s: string): boolean }) => void) => {
+    mock.configListeners.add(cb);
+    return { dispose: () => void mock.configListeners.delete(cb) };
+  }),
 };
 
 export const extensions = { getExtension: vi.fn((_id: string) => undefined as unknown) };
 
-type FakeUri = { scheme: string; authority: string; path: string; query: string; toString(): string };
+type FakeUri = { scheme: string; authority: string; path: string; query: string; fsPath: string; toString(): string };
 
 // Uri.parse keeps the parts the extension reads.
 export const Uri = {
   parse: (s: string): FakeUri => {
     const u = new URL(s);
-    return { scheme: u.protocol.slice(0, -1), authority: u.host, path: u.pathname, query: u.search.slice(1), toString: () => s };
+    const path = decodeURIComponent(u.pathname);
+    return { scheme: u.protocol.slice(0, -1), authority: u.host, path: u.pathname, query: u.search.slice(1), fsPath: path, toString: () => s };
   },
   joinPath: (base: FakeUri, ...segs: string[]): FakeUri => {
     const path = [base.path.replace(/\/+$/, ""), ...segs].join("/");
@@ -177,19 +204,23 @@ export function fakeWebviewPanel(viewType: string, title: string, column: unknow
 
 const fns = [
   window.showInformationMessage, window.showWarningMessage, window.showErrorMessage, window.showQuickPick,
-  window.withProgress, window.registerUriHandler, window.createWebviewPanel, window.registerWebviewPanelSerializer, window.registerWebviewViewProvider, window.onDidChangeWindowState,
+  window.withProgress, window.createOutputChannel, window.registerUriHandler, window.createWebviewPanel, window.registerWebviewPanelSerializer, window.registerWebviewViewProvider, window.onDidChangeWindowState,
   commands.registerCommand, commands.executeCommand,
   env.openExternal, env.asExternalUri, workspace.getConfiguration, workspace.onDidChangeConfiguration, extensions.getExtension,
 ];
 
-// fakeContext is an ExtensionContext with in-memory secrets and globalState.
-export function fakeContext(): vs.ExtensionContext & { secretValues: Map<string, string>; state: Map<string, unknown> } {
+// fakeContext is an ExtensionContext with in-memory secrets and globalState,
+// and global storage in a temp dir (or the given one, shared like two windows').
+export function fakeContext(globalStorage?: string): vs.ExtensionContext & { secretValues: Map<string, string>; state: Map<string, unknown> } {
+  const storage = globalStorage ?? mkdtempSync(join(tmpdir(), "jamstore-"));
   const secretValues = new Map<string, string>();
   const state = new Map<string, unknown>();
   const workspaceValues = new Map<string, unknown>();
   const ctx = {
     subscriptions: [] as { dispose(): unknown }[],
     extensionUri: Uri.parse("file:///ext"),
+    extensionPath: "/ext",
+    globalStorageUri: Uri.parse(`file://${storage}`),
     secretValues,
     state,
     secrets: {
@@ -212,5 +243,6 @@ export function fakeContext(): vs.ExtensionContext & { secretValues: Map<string,
       keys: () => [...workspaceValues.keys()],
     },
   };
+  mock.contexts.push(ctx);
   return ctx as unknown as vs.ExtensionContext & { secretValues: Map<string, string>; state: Map<string, unknown> };
 }

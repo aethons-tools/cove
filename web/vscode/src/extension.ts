@@ -18,10 +18,16 @@ import type { ExecFile } from "./ssh/keys";
 import { ensureSsh } from "./ssh/setup";
 import { SESSION_ID_RE, route } from "./uri";
 import { readFile } from "node:fs/promises";
+import * as fsp from "node:fs/promises";
 import { Router } from "./bridge/router";
 import { FocusModel, focusSessionCommand, sessionResolver } from "./focus";
 import { FocusReporter } from "./focusreport";
 import { LiveStream } from "./live";
+import { ChannelGate } from "./notify/event";
+import { NotifyLock } from "./notify/lock";
+import { Notifier } from "./notify/notifier";
+import { OsNotifier } from "./notify/os";
+import type { OsDeps } from "./notify/os";
 import { perform } from "./panes/actions";
 import type { ActionDeps } from "./panes/actions";
 import type { IntentAction } from "./bridge/intents";
@@ -31,6 +37,9 @@ import { SESSION_PANES, SessionPaneProvider } from "./panes/session";
 import { ThinkingStreams } from "./thinking";
 
 const run: ExecFile = (file, args) => promisify(execFile)(file, args).then((r) => ({ stdout: String(r.stdout), stderr: String(r.stderr) }));
+// The OS notifier's execFile: no shell, argv only, with a timeout and an abort signal.
+const runNotify: OsDeps["execFile"] = (file, args, o) =>
+  promisify(execFile)(file, args, { timeout: o.timeout, signal: o.signal }).then((r) => ({ stdout: String(r.stdout), stderr: String(r.stderr) }));
 
 const jamSettings = () => {
   const c = vscode.workspace.getConfiguration("jam");
@@ -280,6 +289,40 @@ export function activate(ctx: vscode.ExtensionContext): void {
     providers.set(name, p);
     ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(p.viewType, p));
   }
+
+  // --- Notifications: the window holds its one stream while signed in. ---
+  const output = vscode.window.createOutputChannel("Jam");
+  ctx.subscriptions.push(output);
+  const log = (m: string) => output.appendLine(m);
+  const osNotifier = new OsNotifier({ platform: process.platform, extensionPath: ctx.extensionPath, execFile: runNotify, chmod: fsp.chmod, log });
+  const notifier = new Notifier({
+    gate: new ChannelGate(),
+    lock: new NotifyLock({
+      dir: vscode.Uri.joinPath(ctx.globalStorageUri, "notify").fsPath,
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      now: Date.now,
+      fs: fsp,
+    }),
+    os: osNotifier,
+    focused: () => vscode.window.state.focused,
+    jamUrl,
+    scheme: vscode.env.uriScheme,
+    now: Date.now,
+    toast: (kind, m, a) => (kind === "needs" ? vscode.window.showWarningMessage(m, a) : vscode.window.showInformationMessage(m, a)),
+    openSession: (id) => guard(() => openSession(openDeps, id))(),
+    openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)),
+    log,
+  });
+  const offLive = live.subscribe((e) => {
+    void notifier.handle(e);
+  });
+  ctx.subscriptions.push({ dispose: offLive }, { dispose: () => osNotifier.dispose() });
+  // A new jam.url means a new Jam: the permanent stream follows it.
+  ctx.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("jam.url")) live.restart();
+    }),
+  );
 
   const reg = (id: string, cb: (...a: unknown[]) => unknown) => ctx.subscriptions.push(vscode.commands.registerCommand(id, cb));
   reg("jam.signIn", signIn);

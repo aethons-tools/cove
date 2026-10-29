@@ -222,7 +222,11 @@ describe("activate", () => {
     mock.reset();
     const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
     vi.stubEnv("XDG_CONFIG_HOME", home);
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 401 }));
+    // The always-on events stream is off (204); every other request answers 401.
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => new Response(null, { status: new URL(String(input)).pathname === "/app/user/events" ? 204 : 401 }));
+    const nonEvents = () => fetchSpy.mock.calls.filter((c) => new URL(String(c[0])).pathname !== "/app/user/events");
     try {
       const file = path.join(home, "jam", "default-app-token.json");
       await (await import("node:fs/promises")).mkdir(path.dirname(file), { recursive: true });
@@ -236,7 +240,7 @@ describe("activate", () => {
       await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("jam.signIn"));
       expect(ctx.secretValues.has("jam.session")).toBe(false);
       await expect(stat(file)).rejects.toThrow();
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(nonEvents()).toHaveLength(1);
     } finally {
       fetchSpy.mockRestore();
       vi.unstubAllEnvs();
@@ -396,6 +400,142 @@ describe("activate", () => {
     } finally {
       fetchSpy.mockRestore();
       vi.unstubAllEnvs();
+      deactivate();
+    }
+  });
+});
+
+describe("notifications", () => {
+  const NOTE = { title: "Alice · build-bot", body: "done?", channel: CHN, id: "sqk_1", unread: 1, kind: "messages", session: SES };
+  type Fetched = { url: string; auth: string };
+  // notifyFetch is jamFetch, but /app/user/events opens a stream that sends one
+  // notify event and stays open until aborted.
+  function notifyFetch(calls: Call[], fetched: Fetched[]) {
+    const base = jamFetch(calls).getMockImplementation()!;
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const u = new URL(String(input));
+      const auth = ((init?.headers ?? {}) as Record<string, string>).Authorization ?? "";
+      fetched.push({ url: u.toString(), auth });
+      if (u.pathname !== "/app/user/events" || auth !== "Bearer t2") return base(input, init);
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(`event: notify\ndata: ${JSON.stringify(NOTE)}\n\n`));
+          init?.signal?.addEventListener("abort", () => c.error(new Error("aborted")));
+        },
+      });
+      return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+    });
+  }
+  const events = (f: Fetched[]) => f.filter((c) => new URL(c.url).pathname === "/app/user/events");
+  const toasts = () => vi.mocked(vscode.window.showInformationMessage).mock.calls.filter((c) => c[0] === "Alice · build-bot: done?");
+
+  it("activate holds the events stream with no pane open", async () => {
+    mock.reset();
+    const calls: Call[] = [];
+    const fetchSpy = jamFetch(calls);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      await vi.waitFor(() => expect(calls.filter((c) => c.path === "/app/user/events")).toEqual([{ method: "GET", path: "/app/user/events", auth: "Bearer t2", body: "" }]));
+      await settle();
+      expect(calls.filter((c) => c.path === "/app/user/events")).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a notify event on the stream shows a toast; Open calls openSession", async () => {
+    mock.reset();
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    const fsp = await import("node:fs/promises");
+    await fsp.mkdir(path.join(home, ".ssh"));
+    await writeFile(path.join(home, ".ssh", "config"), `Host jam-${SES}\n  HostName x\n`);
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const getExt = vi.mocked(vscode.extensions.getExtension);
+    getExt.mockImplementation(() => ({}) as vscode.Extension<unknown>);
+    const calls: Call[] = [];
+    const fetchSpy = notifyFetch(calls, []);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["remote.SSH.localServerDownload"] = "always";
+      mock.answers = ["Open"];
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      await vi.waitFor(() => expect(toasts()).toEqual([["Alice · build-bot: done?", "Open"]]));
+      await vi.waitFor(() =>
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceNewWindow: true }),
+      );
+      expect(mock.output.join("\n")).not.toContain("done?");
+    } finally {
+      getExt.mockImplementation(() => undefined);
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+      deactivate();
+    }
+  });
+
+  it("two activations on one global storage dir show one toast for one event (Review Focus 1)", async () => {
+    mock.reset();
+    const storage = await mkdtemp(path.join(tmpdir(), "jamstore-"));
+    const fetched: Fetched[] = [];
+    const fetchSpy = notifyFetch([], fetched);
+    try {
+      mock.config["jam.url"] = JAM;
+      for (const ctx of [fakeContext(storage), fakeContext(storage)]) {
+        ctx.secretValues.set("jam.session", stored("t2"));
+        activate(ctx);
+      }
+      await vi.waitFor(() => expect(events(fetched)).toHaveLength(2));
+      await vi.waitFor(() => expect(toasts()).toHaveLength(1));
+      await new Promise((r) => setTimeout(r, 300));
+      expect(toasts()).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("signed out: no stream, no toast", async () => {
+    mock.reset();
+    const fetched: Fetched[] = [];
+    const fetchSpy = notifyFetch([], fetched);
+    try {
+      mock.config["jam.url"] = JAM;
+      activate(fakeContext());
+      await settle();
+      expect(events(fetched)).toEqual([]);
+      expect(toasts()).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("changing jam.url restarts the events stream", async () => {
+    mock.reset();
+    const JAM2 = "https://jam2.example.com";
+    const fetched: Fetched[] = [];
+    const fetchSpy = notifyFetch([], fetched);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      await vi.waitFor(() => expect(events(fetched).map((c) => c.url)).toEqual([`${JAM}/app/user/events`]));
+      ctx.secretValues.set("jam.session", JSON.stringify({ url: JAM2, token: "t3", user: "u", expiresAt: "x" }));
+      mock.config["jam.url"] = JAM2;
+      mock.changeConfig("jam.cliPath");
+      await settle();
+      expect(events(fetched)).toHaveLength(1);
+      mock.changeConfig("jam.url");
+      await vi.waitFor(() => expect(events(fetched).at(-1)).toEqual({ url: `${JAM2}/app/user/events`, auth: "Bearer t3" }));
+    } finally {
+      fetchSpy.mockRestore();
       deactivate();
     }
   });

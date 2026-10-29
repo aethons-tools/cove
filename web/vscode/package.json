@@ -10,7 +10,7 @@
   "engines": { "vscode": "^1.105.0" },
   "categories": ["Other"],
   "main": "./dist/extension.js",
-  "activationEvents": ["onUri", "onWebviewPanel:jam.board"],
+  "activationEvents": ["onUri", "onWebviewPanel:jam.board", "onStartupFinished"],
   "extensionKind": ["ui"],
   "capabilities": { "untrustedWorkspaces": { "supported": true } },
   "contributes": {
