@@ -2,16 +2,20 @@
 // host as a message, answered by id; state and live events come back the
 // same way. install points the web app's seams (transport, uploader, blob
 // resolver, live source, focus sink) at a Bridge.
-import type { BridgeRequest, BridgeResponse, ExtToPane, PaneState, PaneToExt } from "../bridge/protocol";
+import type { BridgeRequest, BridgeResponse, ExtToPane, PaneState, PaneToExt, ThinkingEventName } from "../bridge/protocol";
 import { ApiError, setTransport, type Raw, type Transport } from "../api/client";
 import { setUploader, uploadOutcome, type Uploader } from "../composer/upload";
 import { setBlobResolver, type BlobResolver } from "../blobs";
 import { setLiveSource, type LiveSource } from "../live/useLiveEvents";
 import { setFocusSink } from "../push/useFocusReport";
+import { setFeedOpener, type FeedOpener, type FeedSource } from "../session/thinking/useThinkingFeed";
+import { SES_RE, STREAM_RE } from "./ids";
 
-export interface VsApi { postMessage(m: PaneToExt): void }
+export interface VsApi { postMessage(m: PaneToExt): void; setState(s: unknown): void }
 
 type Pending = { resolve: (r: BridgeResponse) => void; reject: (e: unknown) => void; onProgress?: (loaded: number, total: number) => void };
+
+export type ThinkingMsg = { event: ThinkingEventName; data: string } | { error: true; closed: boolean };
 
 const aborted = () => new DOMException("aborted", "AbortError");
 
@@ -20,7 +24,10 @@ export class Bridge {
   private pending = new Map<number, Pending>();
   private states = new Set<(s: PaneState) => void>();
   private lives = new Set<(event: string, data: string) => void>();
+  private thinkings = new Map<number, Set<(m: ThinkingMsg) => void>>();
+  private scrolls = new Set<(anchor: string) => void>();
   private last: PaneState | undefined;
+  private nextSub = 1;
 
   constructor(private api: VsApi, win: Window) {
     win.addEventListener("message", (e) => this.receive((e as MessageEvent<ExtToPane>).data));
@@ -46,7 +53,40 @@ export class Bridge {
       case "live":
         for (const cb of [...this.lives]) cb(m.event, m.data);
         break;
+      case "thinking":
+        this.toSub(m.sub, { event: m.event, data: m.data });
+        break;
+      case "thinkingError":
+        this.toSub(m.sub, { error: true, closed: m.closed });
+        break;
+      case "scrollTo":
+        for (const cb of [...this.scrolls]) cb(m.anchor);
+        break;
     }
+  }
+
+  private toSub(sub: number, m: ThinkingMsg) {
+    for (const cb of [...(this.thinkings.get(sub) ?? [])]) cb(m);
+  }
+
+  // newSub allocates the next Thinking subscription id.
+  newSub(): number {
+    return this.nextSub++;
+  }
+
+  onThinking(sub: number, cb: (m: ThinkingMsg) => void): () => void {
+    let set = this.thinkings.get(sub);
+    if (!set) this.thinkings.set(sub, (set = new Set()));
+    set.add(cb);
+    return () => {
+      set.delete(cb);
+      if (set.size === 0 && this.thinkings.get(sub) === set) this.thinkings.delete(sub);
+    };
+  }
+
+  onScrollTo(cb: (anchor: string) => void): () => void {
+    this.scrolls.add(cb);
+    return () => { this.scrolls.delete(cb); };
   }
 
   // request sends one request; abort tells the host to drop it and rejects
@@ -172,6 +212,63 @@ export function liveSource(b: Bridge): LiveSource {
   };
 }
 
+// parseThinkingUrl is a Thinking feed's session and stream (""= newest), or
+// undefined for any other URL.
+export function parseThinkingUrl(url: string): { session: string; stream: string } | undefined {
+  const m = /^\/app\/user\/session\/([^/?#]+)\/thinking\/events(?:\?stream=([^&#]*))?$/.exec(url);
+  if (!m || !SES_RE.test(m[1]!)) return undefined;
+  const stream = m[2] ?? "";
+  if (m[2] !== undefined && !STREAM_RE.test(stream)) return undefined;
+  return { session: m[1]!, stream };
+}
+
+// bridgeFeedOpener is an EventSource-shaped feed over the bridge: the host
+// owns the one SSE connection and its retries; this only relays by sub id.
+export function bridgeFeedOpener(b: Bridge): FeedOpener {
+  return (url): FeedSource => {
+    const listeners = new Map<string, Set<(e: { data: string }) => void>>();
+    const fire = (type: string, data: string) => {
+      for (const fn of [...(listeners.get(type) ?? [])]) fn({ data });
+    };
+    let readyState = 0;
+    const src: FeedSource = {
+      get readyState() { return readyState; },
+      addEventListener(type, fn) {
+        let set = listeners.get(type);
+        if (!set) listeners.set(type, (set = new Set()));
+        set.add(fn);
+      },
+      close() {},
+    };
+    const target = parseThinkingUrl(url);
+    if (!target) {
+      readyState = 2;
+      queueMicrotask(() => fire("error", ""));
+      return src;
+    }
+    let closed = false;
+    const sub = b.newSub();
+    const off = b.onThinking(sub, (m) => {
+      if ("error" in m) {
+        readyState = m.closed ? 2 : 0;
+        fire("error", "");
+        return;
+      }
+      if (m.event === "open") readyState = 1;
+      fire(m.event, m.data);
+    });
+    b.post({ type: "thinkingOpen", sub, session: target.session, stream: target.stream });
+    src.close = () => {
+      if (closed) return;
+      closed = true;
+      readyState = 2;
+      off();
+      b.post({ type: "thinkingClose", sub });
+    };
+    return src;
+  };
+}
+
 // install points the web app's seams at b. host.signIn is the pane's sign-in
 // (the Pane offers it through HostContext itself).
 export function install(b: Bridge, host: { signIn: () => void }): void {
@@ -180,5 +277,6 @@ export function install(b: Bridge, host: { signIn: () => void }): void {
   setUploader(bridgeUploader(b));
   setBlobResolver(blobResolver(b));
   setLiveSource(liveSource(b));
+  setFeedOpener(bridgeFeedOpener(b));
   setFocusSink((channel) => b.post({ type: "viewing", channel }));
 }

@@ -5,18 +5,19 @@ import { setUploader, upload } from "../composer/upload";
 import { setBlobResolver } from "../blobs";
 import { setLiveSource } from "../live/useLiveEvents";
 import { setFocusSink } from "../push/useFocusReport";
-import { BLOB_CACHE_MAX, blobResolver, Bridge, install, liveSource } from "./bridge";
+import { setFeedOpener } from "../session/thinking/useThinkingFeed";
+import { BLOB_CACHE_MAX, blobResolver, Bridge, bridgeFeedOpener, install, liveSource, parseThinkingUrl } from "./bridge";
 import { fakeHost, json } from "./fakeHost";
 
 // manual is a host that answers only when the test says.
 function manual() {
   const posted: PaneToExt[] = [];
   const win = new EventTarget() as unknown as Window;
-  const b = new Bridge({ postMessage: (m) => posted.push(m) }, win);
+  const b = new Bridge({ postMessage: (m) => posted.push(m), setState() {} }, win);
   const reply = (id: number, res: BridgeResponse) => win.dispatchEvent(new MessageEvent("message", { data: { type: "response", id, res } }));
   const progress = (id: number, loaded: number, total: number) => win.dispatchEvent(new MessageEvent("message", { data: { type: "progress", id, loaded, total } }));
   const ids = () => posted.flatMap((m) => (m.type === "request" ? [m.id] : []));
-  return { b, posted, reply, progress, ids };
+  return { b, posted, reply, progress, ids, win };
 }
 
 afterEach(() => {
@@ -25,6 +26,7 @@ afterEach(() => {
   setBlobResolver();
   setLiveSource();
   setFocusSink();
+  setFeedOpener();
   vi.restoreAllMocks();
 });
 
@@ -113,7 +115,7 @@ describe("install", () => {
     let id = 0;
     const posted: PaneToExt[] = [];
     const win = new EventTarget() as unknown as Window;
-    const b = new Bridge({ postMessage: (m) => { posted.push(m); if (m.type === "request") id = m.id; } }, win);
+    const b = new Bridge({ postMessage: (m) => { posted.push(m); if (m.type === "request") id = m.id; }, setState() {} }, win);
     install(b, { signIn: () => {} });
     const pct = vi.fn();
     const u = upload(new File(["hello"], "a b.txt", { type: "text/plain" }), pct);
@@ -129,7 +131,7 @@ describe("install", () => {
 
   it("an upload's abort posts abort and rejects AbortError", async () => {
     const posted: PaneToExt[] = [];
-    const b = new Bridge({ postMessage: (m) => posted.push(m) }, new EventTarget() as unknown as Window);
+    const b = new Bridge({ postMessage: (m) => posted.push(m), setState() {} }, new EventTarget() as unknown as Window);
     install(b, { signIn: () => {} });
     const u = upload(new File(["x"], "x"), () => {});
     await vi.waitFor(() => expect(posted.some((m) => m.type === "request")).toBe(true));
@@ -183,5 +185,95 @@ describe("install", () => {
     off();
     h.live("changed", "y");
     expect(got).toEqual([["open", ""], ["changed", "x"], ["open", ""]]);
+  });
+});
+
+const SES = "ses_0abcdefghjkmnpqrstvwxyz012";
+const STREAM = "0123456789abcdef0123456789abcdef";
+const FEED = `/app/user/session/${SES}/thinking/events`;
+const send = (win: Window, data: unknown) => win.dispatchEvent(new MessageEvent("message", { data }));
+
+describe("parseThinkingUrl", () => {
+  it.each<[string, { session: string; stream: string } | undefined]>([
+    [FEED, { session: SES, stream: "" }],
+    [`${FEED}?stream=${STREAM}`, { session: SES, stream: STREAM }],
+    ["/app/user/session/x/thinking/events", undefined],
+    [`${FEED}?stream=../x`, undefined],
+    ["/app/user/events", undefined],
+  ])("%s", (url, want) => {
+    expect(parseThinkingUrl(url)).toEqual(want);
+  });
+});
+
+describe("the feed opener", () => {
+  it("posts thinkingOpen and dispatches by sub", () => {
+    const { b, posted, win } = manual();
+    const open = bridgeFeedOpener(b);
+    const a = open(FEED);
+    const c = open(`${FEED}?stream=${STREAM}`);
+    expect(posted).toEqual([
+      { type: "thinkingOpen", sub: 1, session: SES, stream: "" },
+      { type: "thinkingOpen", sub: 2, session: SES, stream: STREAM },
+    ]);
+    expect(a.readyState).toBe(0);
+    const ga = vi.fn(), gc = vi.fn();
+    a.addEventListener("ev", ga);
+    c.addEventListener("ev", gc);
+    send(win, { type: "thinking", sub: 1, event: "open", data: "" });
+    expect(a.readyState).toBe(1);
+    expect(c.readyState).toBe(0);
+    send(win, { type: "thinking", sub: 1, event: "ev", data: "{}" });
+    expect(ga).toHaveBeenCalledWith({ data: "{}" });
+    expect(gc).not.toHaveBeenCalled();
+  });
+
+  it("a closed error sets readyState 2 and fires error; a transient one sets 0", () => {
+    const { b, win } = manual();
+    const s = bridgeFeedOpener(b)(FEED);
+    const err = vi.fn();
+    s.addEventListener("error", err);
+    send(win, { type: "thinking", sub: 1, event: "open", data: "" });
+    send(win, { type: "thinkingError", sub: 1, closed: false });
+    expect(s.readyState).toBe(0);
+    send(win, { type: "thinkingError", sub: 1, closed: true });
+    expect(s.readyState).toBe(2);
+    expect(err).toHaveBeenCalledTimes(2);
+  });
+
+  it("close posts thinkingClose once and ignores later events", () => {
+    const { b, posted, win } = manual();
+    const s = bridgeFeedOpener(b)(FEED);
+    const ev = vi.fn();
+    s.addEventListener("ev", ev);
+    s.close();
+    s.close();
+    expect(posted.filter((m) => m.type === "thinkingClose")).toEqual([{ type: "thinkingClose", sub: 1 }]);
+    expect(s.readyState).toBe(2);
+    send(win, { type: "thinking", sub: 1, event: "ev", data: "{}" });
+    expect(ev).not.toHaveBeenCalled();
+  });
+
+  it("an unparseable URL is closed, errors on the next microtask and posts nothing", async () => {
+    const { b, posted } = manual();
+    const s = bridgeFeedOpener(b)("/app/user/events");
+    expect(s.readyState).toBe(2);
+    const err = vi.fn();
+    s.addEventListener("error", err);
+    await Promise.resolve();
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(posted).toEqual([]);
+  });
+});
+
+describe("scrollTo", () => {
+  it("reaches onScrollTo", () => {
+    const { b, win } = manual();
+    const cb = vi.fn();
+    const off = b.onScrollTo(cb);
+    send(win, { type: "scrollTo", anchor: "ask-1" });
+    expect(cb).toHaveBeenCalledWith("ask-1");
+    off();
+    send(win, { type: "scrollTo", anchor: "ask-2" });
+    expect(cb).toHaveBeenCalledTimes(1);
   });
 });

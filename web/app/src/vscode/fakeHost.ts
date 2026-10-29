@@ -1,4 +1,4 @@
-import type { BridgeRequest, BridgeResponse, ExtToPane, PaneState, PaneToExt } from "../bridge/protocol";
+import type { BridgeRequest, BridgeResponse, ExtToPane, PaneState, PaneToExt, ThinkingEventName } from "../bridge/protocol";
 import type { VsApi } from "./bridge";
 
 // A Route answers one request: a response, or a function of the request.
@@ -21,9 +21,14 @@ export function fakeHost(routes: Record<string, Route> = {}) {
     const res = r === undefined ? json({ error: "no route", code: "not_found" }, 404) : typeof r === "function" ? await r(req) : r;
     send({ type: "response", id, res });
   };
+  const states: unknown[] = [];
+  // onThinkingOpen answers every thinkingOpen: the test's reply to a feed.
+  let thinkingOpen: ((m: Extract<PaneToExt, { type: "thinkingOpen" }>) => void) | undefined;
   const api: VsApi = {
+    setState: (s) => { states.push(s); },
     postMessage(m) {
       posted.push(m);
+      if (m.type === "thinkingOpen") thinkingOpen?.(m);
       if (m.type === "request") {
         requests.push(m.req);
         setTimeout(() => void answer(m.id, m.req), 0);
@@ -34,6 +39,11 @@ export function fakeHost(routes: Record<string, Route> = {}) {
     acquireVsCodeApi: () => api,
     win,
     posted,
+    states,
+    onThinkingOpen: (fn: typeof thinkingOpen) => { thinkingOpen = fn; },
+    thinking: (sub: number, event: ThinkingEventName, data = "") => send({ type: "thinking", sub, event, data }),
+    thinkingError: (sub: number, closed: boolean) => send({ type: "thinkingError", sub, closed }),
+    scrollTo: (anchor: string) => send({ type: "scrollTo", anchor }),
     requests,
     routes,
     send,

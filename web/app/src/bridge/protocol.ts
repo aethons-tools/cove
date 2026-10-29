@@ -1,6 +1,8 @@
 // The webview bridge protocol between the VS Code extension host and a pane.
 // Types only: no DOM or React imports, so web/vscode can type-import it.
-export type PaneName = "conversation";
+export type SessionPaneName = "conversation" | "thinking" | "previews" | "status" | "artifacts";
+export type PaneName = SessionPaneName | "board";
+export type ThinkingEventName = "open" | "stream" | "totals" | "ev" | "more" | "skipped" | "newstream";
 export type Method = "GET" | "POST" | "DELETE";
 export type BridgeRequest = {
   method: Method;
@@ -25,16 +27,25 @@ export type OpenIntent =
   | { kind: "conversation"; channel: string }
   | { kind: "web"; path: string }
   | { kind: "external"; url: string }
-  | { kind: "focusSession" };
+  | { kind: "focusSession" }
+  | { kind: "preview"; session: string; port: number; url: string; inBrowser: boolean }
+  | { kind: "reveal"; anchor?: string } // show the Conversation view, then scroll to anchor
+  | { kind: "session"; id: string }; // open that session's code window (the extension link)
 export type PaneToExt =
   | { type: "ready"; pane: PaneName }
   | { type: "request"; id: number; req: BridgeRequest }
   | { type: "abort"; id: number }
   | { type: "viewing"; channel: string | null }
   | { type: "open"; intent: OpenIntent }
-  | { type: "signIn" };
+  | { type: "signIn" }
+  | { type: "thinkingOpen"; sub: number; session: string; stream: string }
+  | { type: "thinkingClose"; sub: number }
+  | { type: "title"; title: string }; // board tabs only
 export type ExtToPane =
   | { type: "state"; state: PaneState } // on ready and on every change
   | { type: "response"; id: number; res: BridgeResponse }
   | { type: "progress"; id: number; loaded: number; total: number }
-  | { type: "live"; event: "changed" | "presence" | "board" | "open"; data: string };
+  | { type: "live"; event: "changed" | "presence" | "board" | "open"; data: string }
+  | { type: "thinking"; sub: number; event: ThinkingEventName; data: string }
+  | { type: "thinkingError"; sub: number; closed: boolean }
+  | { type: "scrollTo"; anchor: string };

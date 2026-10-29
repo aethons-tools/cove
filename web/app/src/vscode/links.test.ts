@@ -30,6 +30,19 @@ describe("linkAction (Review Focus 4), in the pane for chn_a", () => {
   });
 });
 
+describe("linkAction session links", () => {
+  const SES = "ses_0abcdefghjkmnpqrstvwxyz012";
+  it.each<[string, LinkAction]>([
+    [`vscode://aethons.jam/session/${SES}`, { intent: { kind: "session", id: SES } }],
+    [`vscode-insiders://aethons.jam/session/${SES}`, { intent: { kind: "session", id: SES } }],
+    ["vscode://aethons.jam/session/../x", { drop: true }],
+    ["vscode://aethons.jam/session/ses_x", { drop: true }],
+    ["vscode://other/x", { drop: true }],
+  ])("%s", (href, want) => {
+    expect(linkAction(href, "chn_a")).toEqual(want);
+  });
+});
+
 describe("interceptLinks", () => {
   let stop: (() => void) | undefined;
   afterEach(() => { stop?.(); document.body.innerHTML = ""; });

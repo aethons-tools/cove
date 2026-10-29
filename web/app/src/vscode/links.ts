@@ -2,6 +2,7 @@
 // extension, a scroll within the pane, or nothing. That covers router Links
 // and the server-rendered message HTML alike.
 import type { OpenIntent } from "../bridge/protocol";
+import { SES_RE } from "./ids";
 
 export type LinkAction = { intent: OpenIntent } | { scrollTo: string } | { allow: true } | { drop: true };
 
@@ -19,6 +20,10 @@ export function linkAction(href: string, paneChannel: string): LinkAction {
     u = new URL(h, HERE);
   } catch {
     return { drop: true };
+  }
+  if ((u.protocol === "vscode:" || u.protocol === "vscode-insiders:") && u.host === "aethons.jam") {
+    const m = /^\/session\/([^/]+)$/.exec(u.pathname);
+    return m && SES_RE.test(m[1]!) ? { intent: { kind: "session", id: m[1]! } } : { drop: true };
   }
   if (u.origin !== new URL(HERE).origin || u.protocol !== "https:") {
     return EXTERNAL.has(u.protocol) ? { intent: { kind: "external", url: u.href } } : { drop: true };
