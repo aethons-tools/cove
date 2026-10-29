@@ -86,6 +86,32 @@ describe("FocusModel", () => {
     expect(await m.stateOf("v")).toMatchObject({ target: { session: C, gone: true }, elsewhere: false });
   });
 
+  it("focus ignores an invalid id, and a stored invalid id is ignored on restore", async () => {
+    const { m, state } = model(A, mem({ "jam.focus": "ses_x/../y" }));
+    expect(m.windowSession()).toBe(A);
+    await m.focus("ses_x\nHost *");
+    expect(state.m.get("jam.focus")).toBe("ses_x/../y");
+    expect(m.windowSession()).toBe(A);
+    const p = model(A, mem({ "jam.pins": { v: "../x" } })).m;
+    expect(await p.stateOf("v")).toMatchObject({ target: { session: A } });
+  });
+
+  it("evicting a rejected entry does not drop a newer one", async () => {
+    let n = 0;
+    const resolve = vi.fn(async (s: string): Promise<SessionTarget> => {
+      if (n++ === 0) throw new Error("first fails");
+      return { session: s, label: "x", channel: "c" };
+    });
+    const { m } = model(A, mem(), resolve);
+    const first = m.stateOf("v");
+    m.invalidate();
+    const second = await m.stateOf("v");
+    await expect(first).rejects.toThrow();
+    await m.stateOf("v");
+    expect(second.target).toBeTruthy();
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
   it("caches targets until invalidate, which re-resolves and fires onChange", async () => {
     const resolve = vi.fn(resolveOk);
     const { m } = model(A, mem(), resolve);
@@ -142,6 +168,13 @@ describe("focusSessionCommand", () => {
     expect((c.ui.pick.mock.calls[0]![0] as { label: string }[]).map((i) => i.label)).toEqual(["chn_a"]);
     expect(c.api.conversation).toHaveBeenCalledWith("chn_a");
     expect(c.model.focus).toHaveBeenCalledWith(B);
+  });
+
+  it("a row whose session is malformed shows the message", async () => {
+    const c = cmd({ conv: { session: "ses_x/../y" }, pickIndex: 1 });
+    await c.run();
+    expect(c.ui.error).toHaveBeenCalledWith("That conversation has no session to focus");
+    expect(c.model.focus).not.toHaveBeenCalled();
   });
 
   it("a row without one shows the message", async () => {

@@ -4,6 +4,9 @@ import type { JamApi } from "./api";
 import { ApiError } from "./api";
 import { sessionOfPick, sessionPicks } from "./open";
 import type { SessionPick, Ui } from "./open";
+import { SESSION_ID_RE } from "./uri";
+
+const valid = (s: string | undefined): s is string => s !== undefined && SESSION_ID_RE.test(s);
 
 export type SessionTarget = { session: string; label: string; channel: string; gone?: undefined } | { session: string; gone: true };
 
@@ -34,10 +37,12 @@ export class FocusModel {
   constructor(private d: { windowDefault: string | undefined; state: StateLike; resolve: (session: string) => Promise<SessionTarget> }) {}
 
   windowSession(): string | undefined {
-    return this.d.state.get<string>(FOCUS) ?? this.d.windowDefault;
+    const f = this.d.state.get<string>(FOCUS);
+    return valid(f) ? f : this.d.windowDefault;
   }
 
   async focus(session: string | undefined): Promise<void> {
+    if (session !== undefined && !valid(session)) return;
     await this.d.state.update(FOCUS, session === undefined || session === this.d.windowDefault ? undefined : session);
     this.fire();
   }
@@ -64,13 +69,16 @@ export class FocusModel {
 
   async stateOf(view: string): Promise<{ target: SessionTarget | null; pinned: boolean; elsewhere: boolean }> {
     const pinned = this.isPinned(view);
-    const session = this.pins()[view] ?? this.windowSession();
+    const pin = this.pins()[view];
+    const session = valid(pin) ? pin : this.windowSession();
     if (!session) return { target: null, pinned, elsewhere: false };
     let p = this.cache.get(session);
     if (!p) {
       p = this.d.resolve(session);
       this.cache.set(session, p);
-      p.catch(() => this.cache.delete(session));
+      p.catch(() => {
+        if (this.cache.get(session) === p) this.cache.delete(session);
+      });
     }
     return { target: await p, pinned, elsewhere: session !== this.windowSession() };
   }
@@ -99,7 +107,7 @@ export async function focusSessionCommand(d: { api: JamApi; ui: Ui; model: Focus
   if (!p) return;
   if (!p.pick) return d.model.focus(undefined);
   const session = await sessionOfPick(d.api, p.pick);
-  if (!session) {
+  if (!valid(session)) {
     await d.ui.error("That conversation has no session to focus");
     return;
   }
