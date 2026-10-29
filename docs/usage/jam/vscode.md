@@ -67,7 +67,7 @@ It asks the extension for everything; the webview never holds your token, the Ja
 
 - **Focused session:** by default the window's studio (the window's remote comes from its workspace folder URI).
   *Jam: Focus Session…* picks another session, or *This window's studio* to go back; signed out, it starts sign-in first.
-  Unpinned Jam views follow it, and the choice is kept per window.
+  Unpinned Jam views follow it, and the choice is kept per workspace, so it survives reopening the folder.
 - **Pin:** the view's title-bar pin button fixes the view to the session it shows; the pinned button unpins it.
   When the view's session isn't the window's, its label shows beside the view's name.
 - **Empty states:** "Sign in to Jam to see this conversation." (Sign in); "This window isn't on a Jam studio. Focus a session to see its conversation." (a local folder; Focus a session…); "That session has ended, or you can't see it." (Focus a session…).
