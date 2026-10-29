@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
-import { ApiError, apiGet, apiPost, shouldRetry } from "./client";
+import { ApiError, apiAt, apiGet, apiPost, interpret, setTransport, shouldRetry, type Raw, type TransportRequest } from "./client";
 
 describe("apiGet", () => {
   it("returns the JSON body", async () => {
@@ -58,5 +58,52 @@ describe("apiPost", () => {
   it("throws the envelope on refusal", async () => {
     server.use(http.post("/app/user/api/conversations/chn_a/leave", () => HttpResponse.json({ error: "this channel's members are fixed", code: "conflict" }, { status: 409 })));
     await expect(apiPost("conversations/chn_a/leave", {})).rejects.toMatchObject({ status: 409, code: "conflict" });
+  });
+});
+
+describe("interpret", () => {
+  const raw = (r: Partial<Raw>): Raw => ({ status: 200, contentType: "", redirected: false, ...r });
+  it("returns undefined for 204 and the JSON body for 200", () => {
+    expect(interpret(raw({ status: 204 }))).toBeUndefined();
+    expect(interpret(raw({ contentType: "application/json", json: { a: 1 } }))).toEqual({ a: 1 });
+  });
+  it("throws the envelope", () => {
+    expect(() => interpret(raw({ status: 404, contentType: "application/json", json: { error: "no such", code: "not_found" } })))
+      .toThrow(expect.objectContaining({ status: 404, code: "not_found", message: "no such" }));
+  });
+  it.each([
+    raw({ status: 401, contentType: "text/html" }),
+    raw({ status: 403, contentType: "text/html" }),
+    raw({ status: 302 }),
+    raw({ status: 0, redirected: true }),
+  ])("treats %o as signed out", (r) => {
+    expect(() => interpret(r)).toThrow(expect.objectContaining({ code: "signed_out", message: "Your sign-in has expired." }));
+  });
+  it("treats a 500 as unavailable", () => {
+    expect(() => interpret(raw({ status: 500, contentType: "text/plain" })))
+      .toThrow(expect.objectContaining({ code: "unavailable", message: "Jam answered 500. Try again shortly." }));
+  });
+});
+
+describe("setTransport", () => {
+  it("routes apiAt calls and restores fetch", async () => {
+    const seen: TransportRequest[] = [];
+    setTransport(async (r) => { seen.push(r); return { status: 204, contentType: "", redirected: false }; });
+    try {
+      await apiAt("/app/user/api/").post("messages", { x: 1 });
+      expect(seen).toEqual([{ method: "POST", url: "/app/user/api/messages", json: { x: 1 } }]);
+    } finally { setTransport(); }
+    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ ok: true })));
+    await expect(apiGet("rail")).resolves.toEqual({ ok: true });
+    expect(seen).toHaveLength(1);
+  });
+  it("postForm passes FormData as form", async () => {
+    const seen: TransportRequest[] = [];
+    setTransport(async (r) => { seen.push(r); return { status: 204, contentType: "", redirected: false }; });
+    try {
+      const form = new FormData();
+      await apiAt("/app/user/api/").postForm("upload", form);
+      expect(seen[0]).toEqual({ method: "POST", url: "/app/user/api/upload", form });
+    } finally { setTransport(); }
   });
 });

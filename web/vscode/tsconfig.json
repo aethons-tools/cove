@@ -12,5 +12,5 @@
     "types": ["node", "vscode"],
     "noEmit": true
   },
-  "include": ["src", "test", "../app/src/api/types.ts"]
+  "include": ["src", "test", "../app/src/api/types.ts", "../app/src/bridge/protocol.ts"]
 }

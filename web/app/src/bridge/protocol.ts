@@ -1,0 +1,38 @@
+// The webview bridge protocol between the VS Code extension host and a pane.
+// Types only: no DOM or React imports, so web/vscode can type-import it.
+export type PaneName = "conversation";
+export type Method = "GET" | "POST" | "DELETE";
+export type BridgeRequest = {
+  method: Method;
+  path: string;
+  json?: unknown;
+  bytes?: ArrayBuffer;
+  headers?: Record<string, string>;
+  accept?: "json" | "bytes";
+  progress?: boolean;
+};
+export type BridgeResponse =
+  | { kind: "http"; status: number; contentType: string; json?: unknown; text?: string; bytes?: ArrayBuffer }
+  | { kind: "unreachable" }
+  | { kind: "signedOut" }
+  | { kind: "refused"; reason: string };
+export type SessionTarget = { session: string; label: string; channel: string } | { session: string; gone: true };
+export type PaneState = { signedIn: boolean; target: SessionTarget | null; pinned: boolean; elsewhere: boolean };
+export type OpenIntent =
+  | { kind: "board"; id: string }
+  | { kind: "conversation"; channel: string }
+  | { kind: "web"; path: string }
+  | { kind: "external"; url: string }
+  | { kind: "focusSession" };
+export type PaneToExt =
+  | { type: "ready"; pane: PaneName }
+  | { type: "request"; id: number; req: BridgeRequest }
+  | { type: "abort"; id: number }
+  | { type: "viewing"; channel: string | null }
+  | { type: "open"; intent: OpenIntent }
+  | { type: "signIn" };
+export type ExtToPane =
+  | { type: "state"; state: PaneState } // on ready and on every change
+  | { type: "response"; id: number; res: BridgeResponse }
+  | { type: "progress"; id: number; loaded: number; total: number }
+  | { type: "live"; event: "changed" | "presence" | "board" | "open"; data: string };
