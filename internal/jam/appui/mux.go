@@ -11,8 +11,11 @@ import (
 
 // Deps are the parts of the browser app Handler composes.
 type Deps struct {
-	Gate           browserauth.Gate
-	AuthRoutes     http.Handler // /app/auth/*; nil = no browser login
+	Gate       browserauth.Gate
+	AuthRoutes http.Handler // /app/auth/*; nil = no browser login
+	// AppTokenRoutes serves the app-token consent and exchange
+	// (/app/auth/app-token, ungated like the login); nil = none.
+	AppTokenRoutes http.Handler
 	User           http.Handler // serves /app/user/*; nil = none
 	Admin          http.Handler // serves /app/admin/*
 	TrustedOrigins []string
@@ -45,6 +48,10 @@ func Handler(d Deps) *http.ServeMux {
 	mux.Handle("GET /app/sw.js", serviceWorker())
 	if d.AuthRoutes != nil {
 		mux.Handle("/app/auth/", d.AuthRoutes)
+	}
+	if d.AppTokenRoutes != nil {
+		mux.Handle("/app/auth/app-token", d.AppTokenRoutes)
+		mux.Handle("/app/auth/app-token/", d.AppTokenRoutes)
 	}
 	if d.User != nil {
 		mux.Handle("/app/user/", d.Gate.Wrap(RequireUser(browserauth.RequireSameOrigin(d.TrustedOrigins, WithShell(d.User, d.Shell)))))

@@ -46,6 +46,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/jam/apptoken"
 	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/attach"
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
@@ -2919,8 +2920,17 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Writes in the user area must come from the page itself (the mux
 		// applies RequireSameOrigin): the session cookie alone (SameSite=Lax)
 		// lets a sibling subdomain post as the user.
+		// App tokens (docs/usage/jam/app-tokens.md): minted only from a
+		// verified browser session, so only with browser login.
+		var appTokenRoutes http.Handler
+		if sessions != nil {
+			appTokens := apptoken.New(apptoken.Config{Store: st, Sessions: sessions, TrustedOrigins: cfg.UIOrigins,
+				Brand: appBrand(cfg.displayName()), Now: time.Now, Log: log})
+			appTokenRoutes = appTokens.Routes()
+			go appTokens.Run(context.Background())
+		}
 		browser := appui.Handler(appui.Deps{
-			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, User: userMux,
+			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, AppTokenRoutes: appTokenRoutes, User: userMux,
 			Admin:          adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...),
 			TrustedOrigins: cfg.UIOrigins,
 			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil, AdminBadges: adminui.BadgeSource(st, sup, conds)},

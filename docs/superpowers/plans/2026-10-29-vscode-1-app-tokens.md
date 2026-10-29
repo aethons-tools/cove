@@ -194,7 +194,7 @@ The consent page is **server-rendered HTML**, not an SPA route. It lives on the 
   - **Exchange** takes a JSON body of at most 4 KiB: `{code, code_verifier, redirect}`. A verifier is 43–128 characters, `[A-Za-z0-9-._~]`, and `base64url(sha256(verifier)) == challenge`. Success is `200 {"token","expires_at","user"}` with `no-store`, and Jam logs `app token issued` with user, id, label and whether it has operator standing, and it `Live.Revoke`s any ids `PutAppToken` evicted. Every failure is `400 {"error":"invalid_grant"}`. The exchange has no same-origin check, because the client has no Origin.
   - Codes are kept by `HashToken(code)`, with at most 1024 outstanding (`503` beyond that).
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - `TestValidRedirect`, a table:
     - accepted: `vscode://aethons.jam/auth`, `vscode-insiders://aethons.jam/auth?x=1`;
     - rejected: `vscode://aethons.jam.evil/`, `vscode://aethons.jam`, `vscode://other/`, `https://aethons.jam/`, `""`.
@@ -209,10 +209,10 @@ The consent page is **server-rendered HTML**, not an SPA route. It lives on the 
   - `TestExchangeOperatorStandingFromAccessCookie`.
   - `TestExchangeLoopbackSessionNoOperatorStanding` (Review Focus 1). The request comes from `127.0.0.1` with only an ID cookie, so the token's `OperatorID == ""`.
   - `TestExchangeReplayWrongVerifierWrongRedirectExpired`, a table (Review Focus 3). Each case is `invalid_grant`, and after a wrong verifier the right one fails too.
-- [ ] **Step 2:** `go test ./internal/jam/apptoken/` → FAIL.
-- [ ] **Step 3:** Implement and wire.
-- [ ] **Step 4:** `go test ./internal/jam/apptoken/ ./internal/jam/appui/ ./cmd/jam/` → PASS.
-- [ ] **Step 5: Commit** `feat(jam): app-token consent page and PKCE exchange`.
+- [x] **Step 2:** `go test ./internal/jam/apptoken/` → FAIL.
+- [x] **Step 3:** Implement and wire.
+- [x] **Step 4:** `go test ./internal/jam/apptoken/ ./internal/jam/appui/ ./cmd/jam/` → PASS.
+- [x] **Step 5: Commit** `feat(jam): app-token consent page and PKCE exchange`.
 
 ### Task 4: Bearer auth on /app/user, refused on /app/admin, live revocation
 

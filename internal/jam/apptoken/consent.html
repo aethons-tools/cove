@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect {{.Client}} · {{.Brand}}</title><link rel="stylesheet" href="{{.CSS}}"></head>
+<body><main class="forbidden"><h1>Connect {{.Client}}?</h1>
+<p><strong>{{.Client}}</strong> asks to use {{.Brand}} as <strong>{{.User}}</strong>{{if .Operator}}, with your operator rights, until {{.Until}}{{end}}.</p>
+<p>It will see and do what you can in the Inbox, and open SSH connections to the studios you may reach. It can't use the admin console. You can revoke it under Connected apps in your account menu.</p>
+<form method="post" action="/app/auth/app-token">
+<input type="hidden" name="redirect" value="{{.Redirect}}">
+<input type="hidden" name="state" value="{{.State}}">
+<input type="hidden" name="code_challenge" value="{{.Challenge}}">
+<input type="hidden" name="code_challenge_method" value="S256">
+<input type="hidden" name="client" value="{{.Client}}">
+<p><button type="submit" name="action" value="allow">Allow</button>
+<button type="submit" name="action" value="cancel">Cancel</button></p>
+</form></main></body></html>
