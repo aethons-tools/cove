@@ -34,6 +34,7 @@ Inbox at the cutover. Old links keep working: `src/routes/Home.tsx` redirects th
   - `src/sounds/` ports the old `sounds.js`, keeping its localStorage (`jam-sounds`) and IndexedDB (`jam`/`prefs`) contract with the service worker.
   - `src/live/useLiveEvents.ts` is the one `EventSource`: each signal invalidates query keys (`rail`, `conversation`, `presence`, `session`), with the 30 s `POLL_MS` as the fallback.
   - An expired sign-in links back to the current page, so the gate decides how to sign in again; queries never retry an expired sign-in or a 4xx (`shouldRetry`).
+- `web/vscode/` is the VS Code extension, a separate package ([vscode.md](usage/jam/vscode.md)); it type-imports `web/app/src/api/types.ts`.
 - `internal/jam/webapp`: serves a built bundle.
   - `Assets` serves the bundle's hashed files at **`/app/assets/`** for both areas (Vite's `base` is `/app/`), immutable; a missing one is a 404. `appui` mounts it ungated, like `/app/static/`: it is code, not data, and an admin needn't be a member.
   - `Handler` serves an area: every page path gets `index.html`, with the request's bootstrap replacing `<!--jam:bootstrap-->` and a strict CSP; an `assets/` path under an area is a 404.

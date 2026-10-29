@@ -48,6 +48,8 @@ var renamedAllow = []struct {
 	{"docs/usage/jam/INDEX.md", []string{`at-jam`, `at-mint`, `at-studio-manager`, `harbor\.cove`}}, // the routing row to renamed-from-at.md names what it renames
 	{"docs/usage/jam/coves.md", []string{`cove-master`}},                                            // its link to the 2026-09-13-cove-master-client.md design spec (history keeps its name)
 	{"internal/legacynames/", nil},
+	{"web/vscode/src/ssh/config.ts", []string{`[<>]{3} at-jam`, `at-jam`}},      // the port of the CLI's legacy-block strip
+	{"web/vscode/test/sshconfig.test.ts", []string{`[<>]{3} at-jam`, `at-jam`}}, // its test
 	{"renamed_test.go", nil},
 	{"deleted_test.go", nil},
 	{"testdata/install-legacy", nil},                                                            // the frozen pre-rename installers

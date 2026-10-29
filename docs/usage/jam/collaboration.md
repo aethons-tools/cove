@@ -33,7 +33,7 @@ Studios raised after the restart trust the CA; one already running does not
 until its next raise. The same holds for rotating the CA key: a studio picks
 up the new key at its next raise, not before.
 
-**Collaborator:**
+**Collaborator:** in VS Code, use the Jam extension ([vscode.md](vscode.md)) instead of `login --participant` + `ssh-config`.
 
 ```
 jam login --participant          # once; again when it expires (below)
@@ -72,8 +72,9 @@ when `ssh:` is set; `operator-auth.oidc.device-client-id` only adds ID tokens. O
 | `jam ssh <studio> [ssh args…]` | Renews the cert if needed, then execs `ssh jam-<studio>` with the same options and your extra args — no `~/.ssh/config` edit needed. |
 
 All three take `--app`, `--admin-url`, and `--participant` / `--operator` to
-pick the plane; the default is the participant login when one is cached and
-unexpired, else the operator token, and `ssh-config` pins the choice in the
+pick the plane; the default is the VS Code app token file when it names the same Jam
+([vscode.md](vscode.md); not with `--operator`), else the participant login when one is
+cached and unexpired, else the operator token, and `ssh-config` pins the choice in the
 ProxyCommand. The key (`id_ed25519`, 0600) is generated once; certs
 (`<studio>-cert.pub`, under `<app>/` for a non-default `--app`) last 8 h.
 
@@ -189,5 +190,5 @@ covered in [previews.md](previews.md).
 | 504 "resumed but did not reconnect" | The paused studio was resumed but its stream took over 10 s to return; retry. |
 | 504 dial-back timeout | The studio's image predates collaboration — re-raise it (`jam standing upgrade` for a standing session). |
 | `Permission denied (publickey)` on connect | Once, after a long gap: the cert on disk had expired (OpenSSH read it before `ssh-proxy` renewed it); reconnect — `jam ssh` renews first. Every time: the studio's sshd does not trust Jam's CA — look in serve's log for `SSH user CA install failed` for that session, then re-raise the studio — `jam standing upgrade --force` for a standing session (its image is current, so `--force`), else end it and raise a new one; reconnecting won't help. |
-| `REMOTE HOST IDENTIFICATION HAS CHANGED` | The studio was rebuilt or upgraded and its sshd has a new host key. Drop the old one — `ssh-keygen -R jam-<studio>` (it is pinned in `~/.ssh/known_hosts` under that alias) — and reconnect. |
+| `REMOTE HOST IDENTIFICATION HAS CHANGED` | The studio was rebuilt or upgraded and its sshd has a new host key. Drop the old one — `ssh-keygen -R jam-<studio>` (it is pinned in `~/.ssh/known_hosts` under that alias) — and reconnect; from VS Code, run *Jam: Forget Host Key* ([vscode.md](vscode.md)). |
 | Behind a corporate proxy, `ssh-proxy` can't reach Jam | It does not use `HTTPS_PROXY`; Jam's admin URL must be directly reachable. |
