@@ -1,15 +1,25 @@
 // The VS Code layer: the only module that imports vscode. It builds the real
 // dependencies and wires the commands and the URI handler to the pure
 // modules beside it.
+import { execFile } from "node:child_process";
 import * as os from "node:os";
+import { promisify } from "node:util";
 import * as vscode from "vscode";
-import { SignedOutError } from "./api";
+import { JamApi, SignedOutError } from "./api";
 import { Auth } from "./auth";
 import { settings } from "./config";
-import { appTokenPath, configDir } from "./paths";
+import { forgetHostKey } from "./hostkey";
+import { openSession, pickSession, studioFromAuthority } from "./open";
+import type { OpenDeps, Ui } from "./open";
+import { appTokenPath, configDir, knownHostsFile, sshConfigFile } from "./paths";
+import { findSshKeygen } from "./ssh/cli";
+import { listJamStudios } from "./ssh/config";
+import type { ExecFile } from "./ssh/keys";
+import { ensureSsh } from "./ssh/setup";
 import { route } from "./uri";
+import { readFile } from "node:fs/promises";
 
-const notYet = () => void vscode.window.showInformationMessage("Not yet available");
+const run: ExecFile = (file, args) => promisify(execFile)(file, args).then((r) => ({ stdout: String(r.stdout), stderr: String(r.stderr) }));
 
 const jamSettings = () => {
   const c = vscode.workspace.getConfiguration("jam");
@@ -45,24 +55,86 @@ export function activate(ctx: vscode.ExtensionContext): void {
     }
   };
 
-  const signIn = guard(async () => {
-    const url = jamSettings().url;
-    if (url instanceof Error) throw url;
-    const s = await vscode.window.withProgress(
+  const signInWithProgress = (url: string) =>
+    vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: "Signing in to Jam in your browser…", cancellable: true },
       (_p, token) => {
         token.onCancellationRequested(() => auth.cancel());
         return auth.signIn(url);
       },
     );
+
+  const signIn = guard(async () => {
+    const url = jamSettings().url;
+    if (url instanceof Error) throw url;
+    const s = await signInWithProgress(url);
     void vscode.window.showInformationMessage(`Signed in to Jam as ${s.user}`);
+  });
+
+  const ui: Ui = {
+    error: async (m, ...a) => vscode.window.showErrorMessage(m, ...a),
+    info: async (m, ...a) => vscode.window.showInformationMessage(m, ...a),
+    pick: async (items, placeholder) => vscode.window.showQuickPick(items, { placeHolder: placeholder }),
+    openExternal: async (u) => void (await vscode.env.openExternal(vscode.Uri.parse(u))),
+    openFolder: async (u) => void (await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.parse(u), { forceNewWindow: true })),
+    hasRemoteSsh: () => vscode.extensions.getExtension("ms-vscode-remote.remote-ssh") !== undefined,
+    installRemoteSsh: async () => void (await vscode.commands.executeCommand("workbench.extensions.installExtension", "ms-vscode-remote.remote-ssh")),
+    getGlobal: (section, key) => vscode.workspace.getConfiguration(section).inspect(key)?.globalValue,
+    setGlobal: (section, key, v) => Promise.resolve(vscode.workspace.getConfiguration(section).update(key, v, vscode.ConfigurationTarget.Global)),
+    remembered: (k) => ctx.globalState.get<boolean>(k) === true,
+    remember: async (k) => ctx.globalState.update(k, true),
+    // env.remoteAuthority exists at runtime but is not in @types/vscode.
+    remoteAuthority: () => (vscode.env as { remoteAuthority?: string }).remoteAuthority,
+  };
+
+  // The API is built only from auth.session(currentJamUrl): the stored session,
+  // else a fresh sign-in.
+  const openDeps: OpenDeps = {
+    ui,
+    signedIn: async () => {
+      const url = jamSettings().url;
+      if (url instanceof Error) throw url;
+      const s = (await auth.session(url)) ?? (await signInWithProgress(url));
+      return { api: new JamApi(url, s.token, (...a) => fetch(...a)), url };
+    },
+    ssh: (api, studio) =>
+      ensureSsh(
+        {
+          api,
+          jamUrl: String(jamSettings().url),
+          cliPath: jamSettings().cliPath,
+          env: process.env,
+          home: os.homedir(),
+          platform: process.platform,
+          run,
+          now: () => new Date(),
+        },
+        studio,
+      ),
+  };
+
+  const forget = guard(async () => {
+    const home = os.homedir();
+    let studio = studioFromAuthority(ui.remoteAuthority());
+    if (!studio) {
+      const text = await readFile(sshConfigFile(home), "utf8").catch(() => "");
+      const items = listJamStudios(text).map((label) => ({ label }));
+      studio = (await ui.pick(items, "Forget the host key of which studio?"))?.label;
+    }
+    if (!studio) return;
+    const msg = `Forget the pinned host key of jam-${studio}? Do this after the studio was upgraded and Remote-SSH reports the host identification changed.`;
+    if ((await ui.info(msg, "Forget")) !== "Forget") return;
+    const keygen = await findSshKeygen(process.env.PATH ?? "");
+    if (keygen instanceof Error) throw keygen;
+    await forgetHostKey(`jam-${studio}`, knownHostsFile(home), keygen, run);
+    void vscode.window.showInformationMessage(`Forgot the host key of jam-${studio}.`);
   });
 
   const reg = (id: string, cb: (...a: unknown[]) => unknown) => ctx.subscriptions.push(vscode.commands.registerCommand(id, cb));
   reg("jam.signIn", signIn);
   reg("jam.signOut", guard(() => auth.signOut()));
-  reg("jam.openSession", notYet);
-  reg("jam.forgetHostKey", notYet);
+  reg("jam.openSession", guard(() => pickSession(openDeps)));
+  reg("jam.forgetHostKey", forget);
 
   ctx.subscriptions.push(
     vscode.window.registerUriHandler({
@@ -72,7 +144,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
           if (!auth.handleCallback(r.query)) void vscode.window.showWarningMessage("Jam: no sign-in is waiting for that link.");
         } else if (r.kind === "bad") {
           void vscode.window.showWarningMessage(`Jam: ${r.reason}`);
-        } else notYet();
+        } else void guard(() => openSession(openDeps, r.id))();
       },
     }),
   );
