@@ -8,6 +8,7 @@ import { BoardCard } from "../boards/BoardCard";
 import { MessageBody } from "./MessageBody";
 import { copyText } from "./copy";
 import { timeOf } from "./days";
+import { useBlobUrl } from "../blobs";
 
 const CARD_NAME: Record<string, string> = { ask: "ask", board: "whiteboard" };
 
@@ -44,10 +45,15 @@ export function Message({ m, channel, onDiscuss }: { m: MessageRow; channel: str
       {m.files && (
         <Group gap="xs" mt={4}>
           {m.files.map((f) => f.image
-            ? <Anchor key={f.id} href={`/app/user/blobs/${f.id}`} target="_blank" rel="noopener"><Image src={`/app/user/blobs/${f.id}`} alt={f.name} h={120} w="auto" radius="sm" loading="lazy" /></Anchor>
+            ? <Anchor key={f.id} href={`/app/user/blobs/${f.id}`} target="_blank" rel="noopener"><FileImage id={f.id} name={f.name} /></Anchor>
             : <Anchor key={f.id} href={`/app/user/blobs/${f.id}`} download size="sm">📄 {f.name} <Text span size="xs" c="dimmed">{f.size}</Text></Anchor>)}
         </Group>
       )}
     </Paper>
   );
+}
+
+function FileImage({ id, name }: { id: string; name: string }) {
+  const src = useBlobUrl(`/app/user/blobs/${id}`);
+  return <Image src={src} alt={name} h={120} w="auto" radius="sm" loading="lazy" />;
 }

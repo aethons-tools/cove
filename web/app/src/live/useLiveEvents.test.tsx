@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useLiveEvents } from "./useLiveEvents";
+import { setLiveSource, useLiveEvents } from "./useLiveEvents";
 
 class FakeEventSource {
   static last: FakeEventSource | undefined;
@@ -22,7 +22,7 @@ function mount() {
   return { spy, ...r };
 }
 
-afterEach(() => { vi.unstubAllGlobals(); FakeEventSource.last = undefined; });
+afterEach(() => { setLiveSource(); vi.unstubAllGlobals(); FakeEventSource.last = undefined; });
 
 describe("useLiveEvents", () => {
   it("maps changed and presence to invalidations, and closes on unmount", () => {
@@ -73,5 +73,32 @@ describe("useLiveEvents", () => {
     FakeEventSource.last!.listeners.board?.forEach((fn) => (fn as unknown as (e: MessageEvent) => void)(new MessageEvent("board", { data: "brd_1" })));
     window.removeEventListener("jam-board", on);
     expect(got).toEqual(["brd_1"]);
+  });
+
+  it("a custom source drives the same invalidations", () => {
+    let emit: (e: string, d: string) => void = () => {};
+    const unsub = vi.fn();
+    setLiveSource((on) => { emit = on; return unsub; });
+    const { spy, unmount } = mount();
+    const keys = () => spy.mock.calls.map((c) => c[0]?.queryKey);
+    const changedSet = [["rail"], ["conversation"], ["presence"], ["session"]];
+    emit("open", "");
+    expect(spy).not.toHaveBeenCalled();
+    emit("changed", "");
+    expect(keys()).toEqual(changedSet);
+    spy.mockClear();
+    emit("presence", "");
+    expect(keys()).toEqual([["presence"], ["session"]]);
+    spy.mockClear();
+    emit("open", "");
+    expect(keys()).toEqual(changedSet);
+    const got: string[] = [];
+    const on = (e: Event) => got.push((e as CustomEvent<string>).detail);
+    window.addEventListener("jam-board", on);
+    emit("board", "brd_9");
+    window.removeEventListener("jam-board", on);
+    expect(got).toEqual(["brd_9"]);
+    unmount();
+    expect(unsub).toHaveBeenCalledTimes(1);
   });
 });

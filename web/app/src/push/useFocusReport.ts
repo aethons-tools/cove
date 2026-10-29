@@ -5,10 +5,20 @@ import { useEffect, useRef } from "react";
 // focus, blur and visibility changes, every 30 s while focused (Jam forgets
 // it after 60 s, so a crashed tab stops suppressing), and null on pagehide
 // and when the view goes.
+// A sink (the VS Code extension) replaces all of that: it owns focus,
+// visibility and refresh, and just hears the channel.
+let sink: ((channel: string | null) => void) | undefined;
+export function setFocusSink(s?: (channel: string | null) => void): void { sink = s; }
+
 export function useFocusReport(channel: string | null, on: boolean) {
   const last = useRef<string | null>(null);
   useEffect(() => {
     if (!on) return;
+    if (sink) {
+      const s = sink;
+      s(channel);
+      return () => { if (channel) s(null); };
+    }
     const post = (ch: string | null) => {
       last.current = ch;
       void fetch("/app/user/push/focus", {

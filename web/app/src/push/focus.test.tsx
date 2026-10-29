@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
-import { useFocusReport } from "./useFocusReport";
+import { setFocusSink, useFocusReport } from "./useFocusReport";
 import { useAppBadge } from "./useAppBadge";
 
 let posts: (string | null)[];
@@ -54,6 +54,29 @@ describe("focus reporting", () => {
     render(<Probe ch="chn_a" on={false} />);
     act(() => { vi.advanceTimersByTime(60_000); });
     expect(posts).toEqual([]);
+  });
+});
+
+describe("focus sink", () => {
+  afterEach(() => setFocusSink());
+  it("a sink gets the channel, not fetch", () => {
+    const spy = vi.fn();
+    setFocusSink(spy);
+    const { rerender, unmount } = render(<Probe ch="chn_a" on />);
+    expect(spy.mock.calls).toEqual([["chn_a"]]);
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+    rerender(<Probe ch="chn_b" on />);
+    expect(spy.mock.calls).toEqual([["chn_a"], [null], ["chn_b"]]);
+    unmount();
+    expect(spy.mock.calls.at(-1)).toEqual([null]);
+  });
+  it("sends nothing when off", () => {
+    const spy = vi.fn();
+    setFocusSink(spy);
+    render(<Probe ch="chn_a" on={false} />);
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 

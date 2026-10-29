@@ -17,7 +17,7 @@ import { useFocusReport } from "../push/useFocusReport";
 // ConversationView is one open conversation: header, messages, presence. It
 // marks the conversation read up to its newest message while the page is
 // visible (History has no cursor: never).
-export function ConversationView({ id }: { id: string }) {
+export function ConversationView({ id, withSession = true }: { id: string; withSession?: boolean }) {
   const q = useConversation(id);
   const client = useQueryClient();
   const here = useLocation();
@@ -64,9 +64,11 @@ export function ConversationView({ id }: { id: string }) {
     </>
   );
   return (
-    <Stack gap={0} h="calc(100dvh - var(--app-shell-header-height) - 2 * var(--app-shell-padding))">
-      <SessionView id={c.session || null} linked={search.get("tab")} onAsk={jumpToAsk}
-        header={<ConversationHeader c={c} />}>{main}</SessionView>
+    <Stack gap={0} h="calc(100dvh - var(--app-shell-header-height, 0px) - 2 * var(--app-shell-padding, 0px))">
+      {withSession
+        ? <SessionView id={c.session || null} linked={search.get("tab")} onAsk={jumpToAsk}
+            header={<ConversationHeader c={c} />}>{main}</SessionView>
+        : <><ConversationHeader c={c} />{main}</>}
     </Stack>
   );
 }
