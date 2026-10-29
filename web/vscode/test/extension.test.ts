@@ -1,4 +1,4 @@
-import { mkdtemp, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -111,6 +111,50 @@ describe("activate", () => {
       expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(expect.stringContaining(`jam-${id}?`), "Forget");
       expect((await fsp.readFile(out, "utf8")).trim()).toBe(`-R jam-${id} -f ${path.join(home, ".ssh", "known_hosts")}`);
     } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("opening a session re-syncs a missing token file from the stored session", async () => {
+    mock.reset();
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
+    try {
+      const file = path.join(home, "jam", "default-app-token.json");
+      const ctx = fakeContext();
+      mock.config["jam.url"] = "https://jam.example.com";
+      ctx.secretValues.set("jam.session", JSON.stringify({ url: "https://jam.example.com", token: "t", user: "u", expiresAt: "x" }));
+      activate(ctx);
+      mock.uriHandler!.handleUri({ path: "/session/ses_0abcdefghjkmnpqrstvwxyz012", query: "" });
+      await vi.waitFor(() => expect(vscode.window.showErrorMessage).toHaveBeenCalledWith("offline"));
+      expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ token: "t", jam_url: "https://jam.example.com" });
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+    } finally {
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("a failing sign-out after a 401 is shown, not lost", async () => {
+    mock.reset();
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 401 }));
+    try {
+      const file = path.join(home, "jam", "default-app-token.json");
+      const ctx = fakeContext();
+      mock.config["jam.url"] = "https://jam.example.com";
+      ctx.secretValues.set("jam.session", JSON.stringify({ url: "https://jam.example.com", token: "t", user: "u", expiresAt: "x" }));
+      ctx.secrets.delete = async () => {
+        throw new Error("keyring locked");
+      };
+      activate(ctx);
+      mock.uriHandler!.handleUri({ path: "/session/ses_0abcdefghjkmnpqrstvwxyz012", query: "" });
+      await vi.waitFor(() => expect(vscode.window.showErrorMessage).toHaveBeenCalledWith("keyring locked"));
+      await expect(stat(file)).rejects.toThrow();
+    } finally {
+      fetchSpy.mockRestore();
       vi.unstubAllEnvs();
     }
   });

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,16 +6,22 @@ import { Auth, SESSION_KEY } from "../src/auth";
 
 const URL_ = "https://jam.example.com";
 
-async function setup(exchange: () => Response = () => Response.json({ token: "tok1", expires_at: "2027-01-01T00:00:00Z", user: "ann" })) {
+async function setup(
+  exchange: () => Response = () => Response.json({ token: "tok1", expires_at: "2027-01-01T00:00:00Z", user: "ann" }),
+  o: { tokenFile?: string; deleteFails?: boolean } = {},
+) {
   const store = new Map<string, string>();
   const secrets = {
     get: async (k: string) => store.get(k),
     store: async (k: string, v: string) => void store.set(k, v),
-    delete: async (k: string) => void store.delete(k),
+    delete: async (k: string) => {
+      if (o.deleteFails) throw new Error("keyring locked");
+      store.delete(k);
+    },
   };
   const opened: string[] = [];
   const fetchFn = vi.fn(async (..._a: unknown[]) => exchange());
-  const tokenFile = path.join(await mkdtemp(path.join(tmpdir(), "jamauth-")), "default-app-token.json");
+  const tokenFile = o.tokenFile ?? path.join(await mkdtemp(path.join(tmpdir(), "jamauth-")), "default-app-token.json");
   const auth = new Auth({
     secrets,
     openExternal: async (u) => (opened.push(u), true),
@@ -139,5 +145,60 @@ describe("Auth", () => {
     t.auth.handleCallback(new URLSearchParams({ code: "c", state: t.stateOf() }));
     await p;
     expect(t.opened.join(" ")).not.toContain("tok1");
+  });
+
+  it("a failed token-file write stores no secret", async () => {
+    const d = await mkdtemp(path.join(tmpdir(), "jamauth-"));
+    await writeFile(path.join(d, "notadir"), "x");
+    const t = await setup(undefined, { tokenFile: path.join(d, "notadir", "jam", "default-app-token.json") });
+    const p = t.auth.signIn(URL_);
+    const r = expect(p).rejects.toThrow();
+    await tick();
+    t.auth.handleCallback(new URLSearchParams({ code: "c", state: t.stateOf() }));
+    await r;
+    expect(t.store.size).toBe(0);
+  });
+
+  for (const [name, res] of [
+    ["an empty object", () => Response.json({})],
+    ["an error envelope", () => Response.json({ error: "x", code: "y" })],
+    ["an empty token", () => Response.json({ token: "", user: "ann", expires_at: "e" })],
+    ["a missing user", () => Response.json({ token: "t", expires_at: "e" })],
+    ["an HTML page", () => new Response("<html>proxy</html>", { status: 200 })],
+  ] as [string, () => Response][]) {
+    it(`a 200 exchange with ${name} is a clear error and stores nothing`, async () => {
+      const t = await setup(res);
+      const p = t.auth.signIn(URL_);
+      const r = expect(p).rejects.toThrow("Jam sign-in failed (unexpected response)");
+      await tick();
+      t.auth.handleCallback(new URLSearchParams({ code: "c", state: t.stateOf() }));
+      await r;
+      expect(t.store.size).toBe(0);
+      await expect(stat(t.tokenFile)).rejects.toThrow();
+    });
+  }
+
+  it("syncTokenFile rewrites a missing or stale token file from the session", async () => {
+    const t = await setup();
+    const s = { url: URL_, token: "tokS", user: "ann", expiresAt: "e" };
+    await t.auth.syncTokenFile(s);
+    expect(JSON.parse(await readFile(t.tokenFile, "utf8"))).toEqual({ token: "tokS", jam_url: URL_ });
+    await writeFile(t.tokenFile, JSON.stringify({ token: "other", jam_url: URL_ }));
+    await t.auth.syncTokenFile(s);
+    expect(JSON.parse(await readFile(t.tokenFile, "utf8"))).toEqual({ token: "tokS", jam_url: URL_ });
+    // An up-to-date file is left alone (a rewrite renames a new inode in).
+    const before = (await stat(t.tokenFile)).ino;
+    await t.auth.syncTokenFile(s);
+    expect((await stat(t.tokenFile)).ino).toBe(before);
+  });
+
+  it("signOut removes the token file even when the secret delete fails, then rethrows", async () => {
+    const t = await setup(undefined, { deleteFails: true });
+    const seen: unknown[] = [];
+    t.auth.onChange((s) => seen.push(s));
+    await writeFile(t.tokenFile, JSON.stringify({ token: "t", jam_url: URL_ }));
+    await expect(t.auth.signOut()).rejects.toThrow("keyring locked");
+    await expect(stat(t.tokenFile)).rejects.toThrow();
+    expect(seen).toEqual([undefined]);
   });
 });

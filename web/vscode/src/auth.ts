@@ -2,7 +2,7 @@
 // wait for the vscode:// callback, exchange the code, and keep the session
 // in SecretStorage and in the CLI's token file.
 import { consentUrl, newPkce, redirectFor } from "./pkce";
-import { removeAppTokenFile, writeAppTokenFile } from "./tokenfile";
+import { appTokenFileHolds, removeAppTokenFile, writeAppTokenFile } from "./tokenfile";
 
 export const SIGN_IN_TIMEOUT_MS = 5 * 60_000;
 export const SESSION_KEY = "jam.session";
@@ -81,8 +81,15 @@ export class Auth {
       const r = await got;
       if (r instanceof Error) throw r;
       const s = await this.exchange(url, r.code, p.verifier, redirect);
-      await this.d.secrets.store(SESSION_KEY, JSON.stringify(s));
+      // The file first: a failed write leaves no secret behind, so the
+      // extension never believes it is signed in while the CLI isn't.
       await writeAppTokenFile(this.d.tokenFile, { token: s.token, jamUrl: url });
+      try {
+        await this.d.secrets.store(SESSION_KEY, JSON.stringify(s));
+      } catch (e) {
+        await removeAppTokenFile(this.d.tokenFile).catch(() => {});
+        throw e;
+      }
       this.emit(s);
       return s;
     } finally {
@@ -99,8 +106,16 @@ export class Auth {
     });
     if (res.status === 400) throw new Error("Jam refused the sign-in code; try again");
     if (!res.ok) throw new Error(`Jam sign-in failed (HTTP ${res.status})`);
-    const j = (await res.json()) as { token: string; expires_at: string; user: string };
-    return { url, token: j.token, user: j.user, expiresAt: j.expires_at };
+    let j: { token?: unknown; expires_at?: unknown; user?: unknown };
+    try {
+      j = (await res.json()) as typeof j;
+    } catch {
+      j = {};
+    }
+    if (typeof j?.token !== "string" || j.token === "" || typeof j.user !== "string" || j.user === "") {
+      throw new Error("Jam sign-in failed (unexpected response)");
+    }
+    return { url, token: j.token, user: j.user, expiresAt: typeof j.expires_at === "string" ? j.expires_at : "" };
   }
 
   // handleCallback is true when q belongs to the pending sign-in.
@@ -122,9 +137,20 @@ export class Auth {
     this.pending?.settle(new Error("Sign-in was cancelled"));
   }
 
+  // syncTokenFile makes the CLI's token file hold s, rewriting it only when it
+  // differs: it heals a file deleted by hand, by the other VS Code flavour's
+  // sign-out, or left unwritten by a failed sign-in.
+  async syncTokenFile(s: Session): Promise<void> {
+    const f = { token: s.token, jamUrl: s.url };
+    if (!(await appTokenFileHolds(this.d.tokenFile, f))) await writeAppTokenFile(this.d.tokenFile, f);
+  }
+
+  // signOut deletes the secret and the token file independently, so one
+  // failing still clears the other; it then rethrows the first error.
   async signOut(): Promise<void> {
-    await this.d.secrets.delete(SESSION_KEY);
-    await removeAppTokenFile(this.d.tokenFile);
+    const r = await Promise.allSettled([this.d.secrets.delete(SESSION_KEY), removeAppTokenFile(this.d.tokenFile)]);
     this.emit(undefined);
+    const failed = r.find((x): x is PromiseRejectedResult => x.status === "rejected");
+    if (failed) throw failed.reason;
   }
 }

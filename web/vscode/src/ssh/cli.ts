@@ -1,8 +1,17 @@
 // Finding the jam CLI and ssh-keygen. No shell: PATH is searched directly.
-import { access, constants } from "node:fs/promises";
+import { access, constants, stat } from "node:fs/promises";
 import * as path from "node:path";
 
-const executable = (p: string): Promise<boolean> => access(p, constants.X_OK).then(() => true, () => false);
+// executable is true for a regular file we may execute (access(X_OK) alone
+// accepts a directory).
+const executable = async (p: string): Promise<boolean> => {
+  try {
+    await access(p, constants.X_OK);
+    return (await stat(p)).isFile();
+  } catch {
+    return false;
+  }
+};
 
 async function onPath(name: string, envPath: string): Promise<string | undefined> {
   for (const d of envPath.split(path.delimiter)) {

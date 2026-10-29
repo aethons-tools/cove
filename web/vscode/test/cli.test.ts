@@ -21,6 +21,14 @@ describe("findJam", () => {
     await chmod(j, 0o644);
     expect(await findJam(j, "")).toBeInstanceOf(Error);
   });
+  it("a directory is not an executable file", async () => {
+    const d = await tmp();
+    expect(await findJam(d, "")).toBeInstanceOf(Error);
+    await mkdir(path.join(d, "jam"));
+    const b = await tmp();
+    await writeFile(path.join(b, "jam"), "x", { mode: 0o755 });
+    expect(await findJam("", [d, b].join(path.delimiter))).toBe(path.join(b, "jam"));
+  });
   it("PATH search finds an executable, skips a non-executable", async () => {
     const a = await tmp();
     const b = await tmp();

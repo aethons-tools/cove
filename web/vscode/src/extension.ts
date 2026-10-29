@@ -50,8 +50,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
     try {
       await fn();
     } catch (e) {
-      if (e instanceof SignedOutError) await signedOut();
-      else void vscode.window.showErrorMessage(e instanceof Error ? e.message : String(e));
+      const show = (x: unknown) => void vscode.window.showErrorMessage(x instanceof Error ? x.message : String(x));
+      if (!(e instanceof SignedOutError)) return show(e);
+      // A failing sign-out (e.g. a locked keyring) must still be seen.
+      await signedOut().catch(show);
     }
   };
 
@@ -99,6 +101,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
       const url = jamSettings().url;
       if (url instanceof Error) throw url;
       const s = (await auth.session(url)) ?? (await signInWithProgress(url));
+      await auth.syncTokenFile(s);
       signedInUrl = url;
       return { api: new JamApi(url, s.token, (...a) => fetch(...a)), url };
     },
