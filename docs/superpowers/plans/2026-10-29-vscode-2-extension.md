@@ -94,7 +94,7 @@ The web app's session header gets an *Open in VS Code* button, and `jam ssh-prox
   - `sshErrMessage` 401 with `t.appToken`: `"your VS Code sign-in to Jam is missing or was revoked; run Jam: Sign In in VS Code"`.
   - `ssh-config --prune` and `studio share|access` pick it up through `resolve` unchanged.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - `TestResolvePrefersAppTokenFile`: with an app token file and a valid participant ID token for the same URL, the result is the app token, `participant && appToken`.
   - `TestResolveAppTokenOtherJamIgnored` (Review Focus 2): the file's `jam_url` is `https://other.example.com`, so the participant ID token is used.
   - `TestResolveAppTokenOperatorFlagIgnores`.
@@ -107,10 +107,10 @@ The web app's session header gets an *Open in VS Code* button, and `jam ssh-prox
     - `pruneTarget` parses it with `adminURLFlag == "https://jam.example.com"`, `participant`;
     - `removeSSHConfigBlock` leaves `""`;
     - `spliceSSHConfigBlock` replaces it whole.
-- [ ] **Step 2:** `go test ./cmd/jam/ -run 'AppToken|ExtensionSSHBlock'` → FAIL.
-- [ ] **Step 3:** Implement. Write the fixture from the Go output once, then check it by eye against the Constraints.
-- [ ] **Step 4:** `go test ./cmd/jam/` → PASS.
-- [ ] **Step 5: Commit** `feat(jam): ssh-proxy uses the VS Code extension's app token file`.
+- [x] **Step 2:** `go test ./cmd/jam/ -run 'AppToken|ExtensionSSHBlock'` → FAIL.
+- [x] **Step 3:** Implement. Write the fixture from the Go output once, then check it by eye against the Constraints.
+- [x] **Step 4:** `go test ./cmd/jam/` → PASS.
+- [x] **Step 5: Commit** `feat(jam): ssh-proxy uses the VS Code extension's app token file`.
 
 ### Task 2: Session channel and "Open in VS Code"
 

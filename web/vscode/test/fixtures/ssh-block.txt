@@ -1,0 +1,11 @@
+# >>> jam ses_0abcdefghjkmnpqrstvwxyz012 >>>
+# managed by the Jam VS Code extension (aethons.jam)
+Host jam-ses_0abcdefghjkmnpqrstvwxyz012
+  User agent
+  ProxyCommand /usr/local/bin/jam ssh-proxy --admin-url 'https://jam.example.com' --participant ses_0abcdefghjkmnpqrstvwxyz012
+  IdentityFile /home/u/.config/jam/ssh/id_ed25519
+  CertificateFile /home/u/.config/jam/ssh/ses_0abcdefghjkmnpqrstvwxyz012-cert.pub
+  IdentitiesOnly yes
+  StrictHostKeyChecking accept-new
+Match all
+# <<< jam ses_0abcdefghjkmnpqrstvwxyz012 <<<

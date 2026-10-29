@@ -138,3 +138,20 @@ func TestParticipantTokenFileIsDistinct(t *testing.T) {
 		t.Fatalf("operator token for x-participant = %+v ok=%v", op, ok)
 	}
 }
+
+// The VS Code extension's app token file never shares a path with an
+// operator or participant token of any app.
+func TestAppTokenPathDistinct(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	apps := []string{"default", "x-app", "x"}
+	for _, a := range apps {
+		for _, b := range apps {
+			if p := appTokenPath(a); p == tokenPath(b) || p == participantTokenPath(b) {
+				t.Errorf("appTokenPath(%q) = %q collides with app %q", a, p, b)
+			}
+		}
+	}
+	if got, want := appTokenPath("default"), filepath.Join(configDir(), "default-app-token.json"); got != want {
+		t.Errorf("appTokenPath(default) = %q, want %q", got, want)
+	}
+}

@@ -345,6 +345,37 @@ func participantTokenPath(app string) string {
 	return filepath.Join(configDir(), app+"-participant-token.json")
 }
 
+// appTokenPath is where the Jam VS Code extension (web/vscode) leaves its
+// app token for ssh-proxy: ~/.config/jam/{app}-app-token.json, mode 0600.
+// The suffix differs from tokenPath's and participantTokenPath's, so no app
+// name maps one onto another.
+func appTokenPath(app string) string { return filepath.Join(configDir(), app+"-app-token.json") }
+
+// appTokenFile is the extension's token file. JamURL names the Jam the token
+// was issued by; the token is never sent to another.
+type appTokenFile struct {
+	Token  string `json:"token"`
+	JamURL string `json:"jam_url"`
+}
+
+// loadAppToken returns app's extension-issued app token when the file parses,
+// holds a token and names adminURL's Jam; ok=false otherwise (Jam decides
+// whether the token is still valid).
+func loadAppToken(app, adminURL string) (string, bool) {
+	data, err := os.ReadFile(appTokenPath(app))
+	if err != nil {
+		return "", false
+	}
+	var f appTokenFile
+	if err := json.Unmarshal(data, &f); err != nil || f.Token == "" {
+		return "", false
+	}
+	if strings.TrimRight(f.JamURL, "/") != strings.TrimRight(adminURL, "/") {
+		return "", false
+	}
+	return f.Token, true
+}
+
 func saveToken(app string, t cachedToken) error { return saveTokenAt(tokenPath(app), t) }
 
 func saveTokenAt(path string, t cachedToken) error {
