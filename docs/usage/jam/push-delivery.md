@@ -4,7 +4,7 @@ read_when: You're operating or debugging push delivery — the `push:relay` cond
 owns: the push relay's sending behaviour (start mark, TTL/collapse, recipient re-check, per-device outcome table, per-host breaker, health), the endpoint allowlist, and the `/app/user/push/*` route table including `POST /app/user/push/focus`. Does NOT own setup, the notify rule or on-device behaviour — see push.md.
 prereqs: push.md (what push is and how it's enabled)
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-29
 ---
 
 # Push delivery
@@ -61,6 +61,8 @@ All under the `/app/user` gate (members only; writes must be same-origin), and
 | `POST /app/user/push/subscriptions` | Body: the browser's `PushSubscription.toJSON()`. The endpoint must pass the [endpoint allowlist](#endpoint-allowlist) and the keys be the right sizes (`p256dh` 65 bytes, `auth` 16), else 400. Stores it for the caller (an endpoint another user had moves to the caller; an unchanged re-send is a no-op); 204. |
 | `DELETE /app/user/push/subscriptions` | Body `{"endpoint": "…"}`; deletes it only if it is the caller's; 204 either way. |
 | `POST /app/user/push/focus` | Body `{"channel": "<id>"}` or `{"channel": null}`: the conversation the caller has open and focused, held in memory briefly ([how focus suppresses](push.md#what-notifies)), or none. The channel must be one the caller can see, else 400; 204. |
+
+The key and subscription routes refuse an [app token](app-tokens.md#bearer-scope) (403): a subscription belongs to a browser.
 
 ### Endpoint allowlist
 
