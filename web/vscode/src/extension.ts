@@ -16,7 +16,7 @@ import { findSshKeygen } from "./ssh/cli";
 import { listJamStudios } from "./ssh/config";
 import type { ExecFile } from "./ssh/keys";
 import { ensureSsh } from "./ssh/setup";
-import { route } from "./uri";
+import { SESSION_ID_RE, route } from "./uri";
 import { readFile } from "node:fs/promises";
 
 const run: ExecFile = (file, args) => promisify(execFile)(file, args).then((r) => ({ stdout: String(r.stdout), stderr: String(r.stderr) }));
@@ -83,25 +83,30 @@ export function activate(ctx: vscode.ExtensionContext): void {
     setGlobal: (section, key, v) => Promise.resolve(vscode.workspace.getConfiguration(section).update(key, v, vscode.ConfigurationTarget.Global)),
     remembered: (k) => ctx.globalState.get<boolean>(k) === true,
     remember: async (k) => ctx.globalState.update(k, true),
-    // env.remoteAuthority exists at runtime but is not in @types/vscode.
-    remoteAuthority: () => (vscode.env as { remoteAuthority?: string }).remoteAuthority,
+    // env.remoteAuthority is a proposed API; the workspace folder carries it.
+    remoteAuthority: () => {
+      const f = vscode.workspace.workspaceFolders?.[0]?.uri;
+      return f?.scheme === "vscode-remote" ? f.authority : undefined;
+    },
   };
 
   // The API is built only from auth.session(currentJamUrl): the stored session,
   // else a fresh sign-in.
+  let signedInUrl = "";
   const openDeps: OpenDeps = {
     ui,
     signedIn: async () => {
       const url = jamSettings().url;
       if (url instanceof Error) throw url;
       const s = (await auth.session(url)) ?? (await signInWithProgress(url));
+      signedInUrl = url;
       return { api: new JamApi(url, s.token, (...a) => fetch(...a)), url };
     },
     ssh: (api, studio) =>
       ensureSsh(
         {
           api,
-          jamUrl: String(jamSettings().url),
+          jamUrl: signedInUrl,
           cliPath: jamSettings().cliPath,
           env: process.env,
           home: os.homedir(),
@@ -122,6 +127,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
       studio = (await ui.pick(items, "Forget the host key of which studio?"))?.label;
     }
     if (!studio) return;
+    if (!SESSION_ID_RE.test(studio)) throw new Error(`${studio} isn't a Jam studio id`);
     const msg = `Forget the pinned host key of jam-${studio}? Do this after the studio was upgraded and Remote-SSH reports the host identification changed.`;
     if ((await ui.info(msg, "Forget")) !== "Forget") return;
     const keygen = await findSshKeygen(process.env.PATH ?? "");

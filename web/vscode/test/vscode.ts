@@ -21,7 +21,7 @@ export const mock = {
     mock.pick = undefined;
     mock.commands.clear();
     mock.uriHandler = undefined;
-    env.remoteAuthority = undefined;
+    workspace.workspaceFolders = undefined;
     env.uriScheme = "vscode";
     for (const f of fns) f.mockClear();
   },
@@ -52,7 +52,6 @@ export const commands = {
 
 export const env = {
   uriScheme: "vscode",
-  remoteAuthority: undefined as string | undefined,
   openExternal: vi.fn(async (_u: unknown) => true),
 };
 
@@ -60,6 +59,7 @@ export enum ConfigurationTarget { Global = 1, Workspace = 2, WorkspaceFolder = 3
 export enum ProgressLocation { SourceControl = 1, Window = 10, Notification = 15 }
 
 export const workspace = {
+  workspaceFolders: undefined as undefined | { uri: { scheme: string; authority: string } }[],
   getConfiguration: vi.fn((section: string) => ({
     get: (key: string) => mock.config[`${section}.${key}`],
     inspect: (key: string) => ({ key: `${section}.${key}`, globalValue: mock.config[`${section}.${key}`] }),

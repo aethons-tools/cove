@@ -88,4 +88,30 @@ describe("activate", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("Forget Host Key in a remote window uses the workspace folder's authority", async () => {
+    mock.reset();
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    const id = "ses_0abcdefghjkmnpqrstvwxyz012";
+    const bin = path.join(home, "bin");
+    const out = path.join(home, "args");
+    const fsp = await import("node:fs/promises");
+    await fsp.mkdir(bin);
+    await fsp.mkdir(path.join(home, ".ssh"));
+    await writeFile(path.join(home, ".ssh", "known_hosts"), "x\n");
+    await writeFile(path.join(bin, "ssh-keygen"), `#!/bin/sh\necho "$@" > ${out}\n`, { mode: 0o755 });
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("PATH", bin);
+    try {
+      (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { scheme: "vscode-remote", authority: `ssh-remote+jam-${id}` } }];
+      activate(fakeContext());
+      mock.answers = ["Forget"];
+      await mock.commands.get("jam.forgetHostKey")!();
+      expect(vscode.window.showErrorMessage).not.toHaveBeenCalled();
+      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(expect.stringContaining(`jam-${id}?`), "Forget");
+      expect((await fsp.readFile(out, "utf8")).trim()).toBe(`-R jam-${id} -f ${path.join(home, ".ssh", "known_hosts")}`);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
