@@ -53,14 +53,16 @@ function decoded(s: string): string | null {
 }
 
 // interceptLinks handles every link click in doc (capture phase, so before
-// the router or the browser): channel is the pane's, post sends an intent.
+// the router or the browser): channel is the pane's, post sends an intent,
+// and map (the pane's, e.g. paneLinkAction) rewrites an action first.
 // It returns the uninstall.
-export function interceptLinks(doc: Document, channel: () => string, post: (i: OpenIntent) => void): () => void {
+export function interceptLinks(doc: Document, channel: () => string, post: (i: OpenIntent) => void,
+  map: (act: LinkAction) => LinkAction = (act) => act): () => void {
   const onClick = (e: MouseEvent) => {
     if (e.type === "auxclick" && e.button !== 1) return; // only a middle click opens
     const a = e.target instanceof Element ? e.target.closest("a[href], area[href]") : null;
     if (!a) return;
-    const act = linkAction(a.getAttribute("href") ?? "", channel());
+    const act = map(linkAction(a.getAttribute("href") ?? "", channel()));
     if ("allow" in act) return;
     e.preventDefault();
     e.stopPropagation();

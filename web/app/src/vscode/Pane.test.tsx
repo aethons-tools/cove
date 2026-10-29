@@ -55,7 +55,7 @@ function mount(routes: Record<string, Route> = {}, b: Partial<Bootstrap> = {}) {
   let channel = "";
   stops.push(bridge.onState((s) => { channel = s.target && "channel" in s.target ? s.target.channel : ""; }));
   stops.push(interceptLinks(document, () => channel, (intent) => bridge.post({ type: "open", intent })));
-  const r = render(<Pane bridge={bridge} />);
+  const r = render(<Pane bridge={bridge} name="conversation" />);
   return { h, ...r };
 }
 
