@@ -1,7 +1,7 @@
 ---
-summary: The Jam VS Code extension (`aethons.jam`) — installing the .vsix, signing in with an app token, opening a session's studio over Remote-SSH, the five views, board tabs and the focused session, notifications and the Needs You badge, what it writes to your machine, and fixing its errors.
-read_when: You want to open an agent's studio in VS Code from the Jam app or a link, are installing or signing in the Jam extension, are using or changing a Jam view (Conversation, Thinking, Previews, Status, Artifacts) or a board tab, Jam: Focus Session or pinning, or want VS Code or OS notifications and the Jam badge (or none show on macOS), or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
-owns: installing and using the Jam VS Code extension; its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session; the five views, board tabs, the focused session, pin/unpin, its empty states and link rules; VS Code and OS notifications, the Needs You view and badge, and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; its troubleshooting
+summary: The Jam VS Code extension (`aethons.jam`) — installing the .vsix, signing in with an app token, opening a session's window and connecting it to the studio over Remote-SSH on demand, the five views, board tabs and the focused session, notifications and the Needs You badge, what it writes to your machine, and fixing its errors.
+read_when: You want to open an agent's session or studio in VS Code from the Jam app or a link, or connect/disconnect a window so the studio can idle, are installing or signing in the Jam extension, are using or changing a Jam view (Conversation, Thinking, Previews, Status, Artifacts) or a board tab, Jam: Focus Session or pinning, or want VS Code or OS notifications and the Jam badge (or none show on macOS), or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
+owns: installing and using the Jam VS Code extension; its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session; Connect/Disconnect Studio and local session windows; the five views, board tabs, the focused session, pin/unpin, its empty states and link rules; VS Code and OS notifications, the Needs You view and badge, and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; its troubleshooting
 prereqs: collaboration.md for who may SSH and the ssh_config block the CLI writes; app-tokens.md for the sign-in token
 tier: leaf
 updated: 2026-10-29
@@ -9,9 +9,9 @@ updated: 2026-10-29
 
 # The Jam VS Code extension
 
-The extension opens a session's studio in a VS Code Remote-SSH window with one click,
-with no `jam login --participant` or `jam ssh-config` step.
-It signs in to your Jam with an app token, writes the SSH setup, and opens `/home/agent/workspace`.
+The extension opens a session's window in VS Code with one click, and connects it to the studio
+over Remote-SSH only when you want files or a terminal, with no `jam login --participant` or `jam ssh-config` step.
+It signs in to your Jam with an app token and, on Connect, writes the SSH setup and opens `/home/agent/workspace`.
 It also adds the Jam views and board tabs (below).
 Its build and manual test are in [vscode-checklist.md](vscode-checklist.md).
 
@@ -55,9 +55,21 @@ Three ways in, all the same flow:
 - the same link from anywhere (`open vscode://aethons.jam/session/<id>`);
 - *Jam: Open Session…*, which lists your live sessions.
 
-The extension signs you in if needed, checks you may SSH into the session
-(otherwise it says so and links the web app), writes the SSH setup below,
-and opens `vscode-remote://ssh-remote+jam-<studio>/home/agent/workspace` in a new window.
+The extension signs you in if needed, checks the session exists (otherwise it says so and links the web app),
+and opens the session's **local window**: a workspace file with no folders,
+`<global storage>/sessions/<session>.code-workspace`, so a second open focuses the same window.
+It holds no SSH connection, so the studio can idle; the Jam views work in it as usual.
+A session you connected (below) opens, or focuses, its studio window instead.
+
+### Connect and disconnect
+
+- **Connect studio** (status bar, or *Jam: Connect to Studio*), in a local session window:
+  checks you may SSH into the session (otherwise it says so and links the web app), writes the SSH setup below,
+  and reloads the **same window** onto `vscode-remote://ssh-remote+jam-<studio>/home/agent/workspace`.
+- **Disconnect studio** (status bar, or *Jam: Disconnect Studio*), in a studio window: reloads it back to the local window;
+  Remote-SSH closes the connection, whose heartbeats would otherwise keep the studio from idling.
+- Connected sessions are remembered in VS Code's global state (set on Connect, cleared on Disconnect and when the studio window closes),
+  so a link opens the studio window rather than a second, local one. A stale entry just opens the studio window.
 
 ## Panes and focus
 
@@ -66,13 +78,13 @@ The **Jam** icon in the activity bar holds the **Conversation** view: the web ap
 It asks the extension for everything; the webview never holds your token, the Jam URL or a cookie.
 
 - **Views:** Conversation (activity bar), **Thinking** (the panel's Jam Thinking container; it wants width), **Previews**, **Status** and **Artifacts** (Previews and Artifacts start collapsed). All are draggable anywhere, to the panel or a sidebar.
-- **Focused session:** by default the window's studio (the window's remote comes from its workspace folder URI).
+- **Focused session:** by default the window's session: a local session window's, or the studio's (the window's remote comes from its workspace folder URI).
   *Jam: Focus Session…* picks another session, or *This window's studio* to go back; signed out, it starts sign-in first.
   Every unpinned view follows it (a board tab shows its own board), and the choice is kept per workspace, so it survives reopening the folder.
 - **Pin:** every view's title-bar pin button fixes it to the session it shows; the pinned button unpins it.
   When a view's session isn't the window's, its label shows beside the view's name.
 - **Thinking:** the web app's Thinking log. The window's Thinking views share one connection per (session, stream), at most 2 feeds per pane; a view opened later gets up to 2,000 replayed events; it resumes after a network drop. It counts toward your four server feeds, and a hidden view holds none.
-- **Previews:** Open shows the app in the Simple Browser and Browser opens the system browser. Only the window's own studio is forwarded through Remote-SSH (`asExternalUri`); an unchanged `localhost` URI counts as forwarded, and only a throw falls back to the preview's web URL in the browser. Another session's preview opens its preview URL in the browser.
+- **Previews:** Open shows the app in the Simple Browser and Browser opens the system browser. Only the window's own studio, when connected, is forwarded through Remote-SSH (`asExternalUri`); an unchanged `localhost` URI counts as forwarded, and only a throw falls back to the preview's web URL in the browser. Another session's preview, or any in a local session window, opens its preview URL in the browser.
 - **Status:** the session header's facts and actions, then the Status rows. *Open in VS Code* on a pinned session opens that session's window.
 - **Artifacts:** a file opens in the browser, a board thumb opens a board tab, and an ask reveals it in the Conversation view; an ask from a session the Conversation view doesn't show doesn't scroll.
 - **Board tabs:** one per board, several side by side, kept while hidden (`retainContextWhenHidden`) and restored after a reload. VS Code restores a background tab only when it is first shown, so a board opened again before then briefly has two tabs; showing the restored one closes it and reveals the other. The title is the board's, capped at 60 characters, "Whiteboard" if empty. *Open in the web app* is in the tab. A stroke made in the last 300 ms before closing a tab may not be saved.

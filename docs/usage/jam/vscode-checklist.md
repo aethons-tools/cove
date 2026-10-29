@@ -32,7 +32,9 @@ What the extension does: [vscode.md](vscode.md).
 
 - [ ] With `remote.SSH.localServerDownload: always`, the studio makes no download attempt (the studio's squid log shows no `update.code.visualstudio.com`).
 - [ ] Whether VS Code asks for confirmation when a `vscode://aethons.jam/…` link opens a remote.
-- [ ] `vscode.openFolder` with `forceNewWindow` focuses an existing window on that folder rather than opening a second.
+- [ ] `vscode.openFolder` with `forceNewWindow` focuses an existing window on that folder rather than opening a second — for a remote folder and for a session's local `.code-workspace` file.
+- [ ] `vscode.openFolder` with `forceReuseWindow` from a local session window reloads it onto the `jam-` remote, and back; `workspace.workspaceFile` in the local window is the `file:` URI under global storage.
+- [ ] Disconnect: after the window reloads locally, Remote-SSH drops the SSH connection and the studio idles.
 - [ ] `vscode.env.asExternalUri(http://localhost:<port>/)` from the (UI) Jam extension in a `jam-` remote window adds a forward in the Ports view and returns a working local URL (if not, Open falls back to the preview's web URL in the browser).
 - [ ] Excalidraw in a board tab: CJK text (Xiaolai isn't shipped) and image export may log CSP violations from the font fallback; record what is seen and accept or document it — the CSP doesn't change.
 - [ ] A restored board panel (after a window reload) keeps `retainContextWhenHidden`: hide and show it and the drawing stays.
@@ -48,11 +50,13 @@ What the extension does: [vscode.md](vscode.md).
 
 - [ ] Install the `.vsix` (*Install from VSIX…*).
 - [ ] Set `jam.url`, run Sign In; the consent page names "VS Code on <host>"; Connected apps lists it.
-- [ ] Open in VS Code from the session header: a window opens on `/home/agent/workspace` and the terminal works.
+- [ ] Open in VS Code from the session header: a local window opens (no Remote-SSH), its views show the session, and the status bar shows *Connect studio*.
 - [ ] The same link again focuses that window.
+- [ ] *Connect studio*: the same window reloads on `/home/agent/workspace`, the terminal works, and the status bar shows *Disconnect studio*. The link now focuses this window.
+- [ ] *Disconnect studio*: the window reloads locally, and the studio can idle. The link opens the local window again.
 - [ ] `open vscode://aethons.jam/session/<id>` from a terminal opens it.
 - [ ] *Jam: Open Session…* lists live sessions.
-- [ ] A member without SSH sees the error and the web app link.
+- [ ] A member without SSH can open the local window; *Connect studio* shows the error and the web app link.
 - [ ] After an existing `jam ssh-config --write`, the block is unchanged.
 - [ ] `jam ssh-config --prune --dry-run` handles an extension block.
 - [ ] Revoke in Connected apps: the next open says signed out, and `ssh-proxy` fails with the VS Code message.
@@ -81,7 +85,7 @@ Panes:
 - [ ] Thinking follows a busy session live, with Load earlier and the stream select.
 - [ ] Two Thinking views on one session, then *Developer: Show Running Extensions* plus Jam's server log, show one feed.
 - [ ] Pin Thinking to another session, and its label shows.
-- [ ] Previews Open shows the app in the Simple Browser and a Ports-view entry, Browser opens the system browser, and a pinned other session's preview opens its preview URL.
+- [ ] Connected, Previews Open shows the app in the Simple Browser and a Ports-view entry; in a local session window it opens the preview URL in the browser. Browser opens the system browser, and a pinned other session's preview opens its preview URL.
 - [ ] Status Interrupt and Compact work, and Release flips every pane to the ended copy.
 - [ ] An Artifacts ask scrolls the Conversation view, a board thumb opens a tab, and a file opens in the browser.
 - [ ] Open two boards side by side and draw in one: the other client sees it live. Hide and show a tab and the drawing is still there. Reload the window and the boards come back.
