@@ -225,7 +225,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     clearTimeout,
     random: Math.random,
   });
-  const router = new Router({ session: current, fetch: (...a) => fetch(...a), onSignedOut: panesSignedOut });
+  const router = new Router({ session: current, fetch: (...a) => fetch(...a), onSignedOut: panesSignedOut, log });
   const windowDefault = studioFromAuthority(windowAuthority(vscode.workspace));
   const model = new FocusModel({
     windowDefault,

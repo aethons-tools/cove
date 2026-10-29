@@ -55,13 +55,21 @@ export type RouterDeps = {
   // onSignedOut hears the token a 401 refused, once per token.
   onSignedOut: (token: string) => void;
   maxUpload?: number; // default MAX_UPLOAD_BYTES; tests lower it
+  // log hears one line per refused, failed or non-2xx request (method, path
+  // without its query, outcome; never headers, bodies or the token).
+  log?: (line: string) => void;
+  now?: () => number; // default Date.now; tests drive the rate limit
 };
+
+// LOG_EVERY_MS is how often the same log line may repeat.
+const LOG_EVERY_MS = 10_000;
 
 const METHODS = new Set(["GET", "POST", "DELETE"]);
 
 export class Router {
   private inflight = new Map<number, AbortController>();
   private notified = new Set<string>();
+  private logged = new Map<string, number>();
 
   constructor(private d: RouterDeps) {}
 
@@ -78,6 +86,7 @@ export class Router {
     const ac = new AbortController();
     this.inflight.set(id, ac);
     const done = (res: Extract<ExtToPane, { type: "response" }>["res"]): void => {
+      this.note(req, res);
       if (this.inflight.get(id) === ac) this.inflight.delete(id);
       if (!ac.signal.aborted) reply({ type: "response", id, res });
     };
@@ -147,6 +156,25 @@ export class Router {
     } catch {
       done({ kind: "unreachable" });
     }
+  }
+
+  private note(req: BridgeRequest | undefined, res: Extract<ExtToPane, { type: "response" }>["res"]): void {
+    if (!this.d.log) return;
+    let what: string;
+    switch (res.kind) {
+      case "http": if (res.status >= 200 && res.status < 300) return; what = String(res.status); break;
+      case "refused": what = `refused (${res.reason})`; break;
+      case "unreachable": what = "unreachable"; break;
+      case "signedOut": what = "signed out"; break;
+    }
+    const path = typeof req?.path === "string" ? req.path.split("?", 1)[0]!.slice(0, 200) : "?";
+    const line = `[pane] ${String(req?.method).slice(0, 10)} ${path.replace(/[\u0000-\u001f\u007f]/g, "?")} \u2192 ${what}`;
+    const now = (this.d.now ?? Date.now)();
+    const last = this.logged.get(line);
+    if (last !== undefined && now - last < LOG_EVERY_MS) return;
+    this.logged.set(line, now);
+    if (this.logged.size > 200) for (const [k, t] of this.logged) if (now - t >= LOG_EVERY_MS) this.logged.delete(k);
+    try { this.d.log(line); } catch { /* logging never fails a request */ }
   }
 
   private stream(bytes: Uint8Array, progress: ((loaded: number) => void) | undefined, ac: AbortController): ReadableStream<Uint8Array> {

@@ -43,7 +43,7 @@ describe("checkPath", () => {
   });
 });
 
-function setup(fetchImpl: (url: string, init: RequestInit) => Promise<Response>, token = TOK, maxUpload?: number) {
+function setup(fetchImpl: (url: string, init: RequestInit) => Promise<Response>, token = TOK, maxUpload?: number, extra: { log?: (l: string) => void; now?: () => number } = {}) {
   const f = vi.fn(fetchImpl);
   const onSignedOut = vi.fn();
   const sent: ExtToPane[] = [];
@@ -52,6 +52,7 @@ function setup(fetchImpl: (url: string, init: RequestInit) => Promise<Response>,
     fetch: f as unknown as typeof fetch,
     onSignedOut,
     maxUpload,
+    ...extra,
   });
   const reply = (m: ExtToPane) => sent.push(m);
   const settle = () => new Promise((r) => setTimeout(r, 10));
@@ -225,5 +226,45 @@ describe("Router", () => {
     await t.settle();
     expect(t.f).toHaveBeenCalledTimes(1);
     expect(t.sent.at(-1)).toMatchObject({ type: "response", id: 99, res: { kind: "http", status: 201 } });
+  });
+
+  describe("failure log", () => {
+    const BLB = "/app/user/blobs/blb_0123456789abcdefghjkmnpqrs";
+    const get = (t: ReturnType<typeof setup>, id: number, path: string) =>
+      t.router.handle({ type: "request", id, req: { method: "GET", path, accept: "bytes" } }, t.reply);
+
+    it("logs non-2xx, refused and thrown requests, never the query or token", async () => {
+      const lines: string[] = [];
+      const t = setup(async (url) => {
+        if (url.includes("boom")) throw new Error("net");
+        return new Response("", { status: url.includes("blobs") ? 302 : 200 });
+      }, TOK, undefined, { log: (l) => lines.push(l) });
+      get(t, 1, `${BLB}?sig=secret`);
+      get(t, 2, "/app/admin/x");
+      get(t, 3, "/app/user/boom");
+      get(t, 4, "/app/user/ok");
+      await t.settle();
+      expect([...lines].sort()).toEqual([
+        "[pane] GET /app/admin/x \u2192 refused (Not a Jam user-area path.)",
+        `[pane] GET ${BLB} \u2192 302`,
+        "[pane] GET /app/user/boom \u2192 unreachable",
+      ]);
+      expect(lines.join()).not.toContain("secret");
+      expect(lines.join()).not.toContain(TOK);
+    });
+
+    it("repeats the same line at most once per 10 s", async () => {
+      const lines: string[] = [];
+      let now = 1000;
+      const t = setup(async () => new Response("", { status: 404 }), TOK, undefined, { log: (l) => lines.push(l), now: () => now });
+      get(t, 1, BLB);
+      get(t, 2, BLB);
+      await t.settle();
+      expect(lines).toHaveLength(1);
+      now += 10_000;
+      get(t, 3, BLB);
+      await t.settle();
+      expect(lines).toHaveLength(2);
+    });
   });
 });
