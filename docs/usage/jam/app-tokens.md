@@ -17,14 +17,14 @@ The routes exist only when browser login is configured ([ui.md](ui.md#signing-in
 
 | Route | Does |
 |---|---|
-| `GET /app/auth/app-token` | The consent page. Signs the user in first if needed, then asks Allow or Deny. |
+| `GET /app/auth/app-token` | The consent page. Signs the user in first if needed, then asks Allow or Cancel. |
 | `POST /app/auth/app-token` | The page's form. Same-origin checked. Redirects (303) to the client with `state` and either `code` or `error=access_denied`. |
 | `POST /app/auth/app-token/exchange` | JSON `{code, code_verifier, redirect}`. Returns `{token, expires_at, user}`. |
 
-The consent page takes these query parameters, all required:
+The consent page takes these query parameters, all required except `client`:
 
 - `redirect`: where to send the browser back.
-- `state`: 1 to 512 characters, echoed back.
+- `state`: 1 to 512 bytes, echoed back.
 - `code_challenge`: the base64url SHA-256 of the verifier, 43 characters.
 - `code_challenge_method`: `S256` only.
 - `client`: optional label shown on the page and kept on the token (64 characters at most, `VS Code` if empty).
@@ -40,7 +40,7 @@ A failed exchange burns it too.
 It is bound to the challenge, the redirect, the user, the operator standing and the label.
 At most 1024 codes are outstanding; past that, consent answers `503`.
 The exchange answers `{"error":"invalid_grant"}` (`400`) for any failure, and sends `Cache-Control: no-store`.
-The consent page sends `no-store`, `X-Frame-Options: DENY` and a CSP that allows only the two redirect schemes as form targets.
+The consent page sends `no-store`, `X-Frame-Options: DENY` and a CSP that allows only itself and the two redirect schemes as form targets.
 
 ## Lifetimes
 
