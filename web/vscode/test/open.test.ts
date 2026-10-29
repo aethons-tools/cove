@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, SignedOutError } from "../src/api";
-import { openSession, pickSession, remoteUri, studioFromAuthority, webUrl } from "../src/open";
+import { openSession, pickSession, remoteUri, studioFromAuthority, webUrl, windowAuthority } from "../src/open";
 import type { OpenDeps, Ui } from "../src/open";
 
 const ID = "ses_0abcdefghjkmnpqrstvwxyz012";
@@ -22,7 +22,7 @@ function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: 
     setGlobal: vi.fn(async (_s: string, _k: string, v: unknown) => { state.global = v; }),
     remembered: vi.fn((k: string) => mem.has(k)),
     remember: vi.fn(async (k: string) => { mem.add(k); }),
-    remoteAuthority: vi.fn(() => undefined),
+    windowAuthority: vi.fn(() => undefined),
   } as unknown as Ui & { [K in keyof Ui]: ReturnType<typeof vi.fn> };
   const api = {
     sessionHead: vi.fn(async () => {
@@ -206,10 +206,27 @@ describe("pickSession", () => {
 });
 
 describe("helpers", () => {
-  it("studioFromAuthority", () => {
-    expect(studioFromAuthority(`ssh-remote+jam-${ID}`)).toBe(ID);
-    expect(studioFromAuthority("ssh-remote+other")).toBeUndefined();
-    expect(studioFromAuthority(undefined)).toBeUndefined();
+  const hex = (o: unknown) => Buffer.from(typeof o === "string" ? o : JSON.stringify(o)).toString("hex");
+  it.each([
+    [`ssh-remote+jam-${ID}`, ID],
+    [`ssh-remote+${hex({ hostName: `jam-${ID}` })}`, ID],
+    [`ssh-remote+${hex({ hostName: `jam-${ID}`, user: "agent" })}`, ID],
+    ["ssh-remote+other", undefined],
+    ["wsl+Ubuntu", undefined],
+    ["dev-container+abc", undefined],
+    [`ssh-remote+${hex("{not json")}`, undefined],
+    [`ssh-remote+${hex({ hostName: "other" })}`, undefined],
+    ["ssh-remote+jam-ses_x", undefined],
+    [undefined, undefined],
+  ])("studioFromAuthority(%j)", (a, want) => {
+    expect(studioFromAuthority(a)).toBe(want);
+  });
+  it("windowAuthority", () => {
+    const r = (authority: string) => ({ scheme: "vscode-remote", authority });
+    expect(windowAuthority({ workspaceFolders: [{ uri: r("ssh-remote+x") }] })).toBe("ssh-remote+x");
+    expect(windowAuthority({ workspaceFolders: [{ uri: { scheme: "file", authority: "" } }] })).toBeUndefined();
+    expect(windowAuthority({ workspaceFile: r("ssh-remote+y") })).toBe("ssh-remote+y");
+    expect(windowAuthority({})).toBeUndefined();
   });
   it("webUrl", () => {
     expect(webUrl(URL_, "chn_1")).toBe(`${URL_}/app/user/c/chn_1`);

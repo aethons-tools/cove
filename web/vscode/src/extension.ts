@@ -9,7 +9,7 @@ import { JamApi, SignedOutError } from "./api";
 import { Auth } from "./auth";
 import { settings } from "./config";
 import { forgetHostKey } from "./hostkey";
-import { openSession, pickSession, studioFromAuthority } from "./open";
+import { openSession, pickSession, studioFromAuthority, windowAuthority } from "./open";
 import type { OpenDeps, Ui } from "./open";
 import { appTokenPath, configDir, knownHostsFile, sshConfigFile } from "./paths";
 import { findSshKeygen } from "./ssh/cli";
@@ -85,11 +85,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     setGlobal: (section, key, v) => Promise.resolve(vscode.workspace.getConfiguration(section).update(key, v, vscode.ConfigurationTarget.Global)),
     remembered: (k) => ctx.globalState.get<boolean>(k) === true,
     remember: async (k) => ctx.globalState.update(k, true),
-    // env.remoteAuthority is a proposed API; the workspace folder carries it.
-    remoteAuthority: () => {
-      const f = vscode.workspace.workspaceFolders?.[0]?.uri;
-      return f?.scheme === "vscode-remote" ? f.authority : undefined;
-    },
+    windowAuthority: () => windowAuthority(vscode.workspace),
   };
 
   // The API is built only from auth.session(currentJamUrl): the stored session,
@@ -123,7 +119,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
 
   const forget = guard(async () => {
     const home = os.homedir();
-    let studio = studioFromAuthority(ui.remoteAuthority());
+    let studio = studioFromAuthority(ui.windowAuthority());
     if (!studio) {
       const text = await readFile(sshConfigFile(home), "utf8").catch(() => "");
       const items = listJamStudios(text).map((label) => ({ label }));

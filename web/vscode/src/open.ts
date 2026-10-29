@@ -1,6 +1,7 @@
 // Opening a session's studio in a Remote-SSH window. Pure: the VS Code
 // surface is the Ui interface, built in extension.ts.
 import type { JamApi } from "./api";
+import type { RailResponse } from "../../app/src/api/types.js" with { "resolution-mode": "import" };
 import { ApiError, SignedOutError } from "./api";
 import { certErrorMessage } from "./ssh/cert";
 import type { SshResult } from "./ssh/setup";
@@ -18,7 +19,7 @@ export interface Ui {
   setGlobal(section: string, key: string, v: unknown): Promise<void>;
   remembered(key: string): boolean;
   remember(key: string): Promise<void>;
-  remoteAuthority(): string | undefined;
+  windowAuthority(): string | undefined;
 }
 
 export const remoteUri = (studio: string): string => `vscode-remote://ssh-remote+jam-${studio}/home/agent/workspace`;
@@ -36,11 +37,35 @@ export type OpenDeps = {
 const WEB = "Open in the web app";
 const ASKED = "jam.askedLocalServerDownload";
 
+// "ssh-remote+jam-<id>", or Remote-SSH's hex-encoded JSON form of the same host
+// ("ssh-remote+<hex of {"hostName":"jam-<id>",…}>"). Anything else has no studio.
 export function studioFromAuthority(a: string | undefined): string | undefined {
-  const p = "ssh-remote+jam-";
+  const p = "ssh-remote+";
   if (!a?.startsWith(p)) return undefined;
-  const id = a.slice(p.length);
+  let host = a.slice(p.length);
+  if (/^(?:[0-9a-f]{2})+$/i.test(host) && !host.startsWith("jam-")) {
+    try {
+      const o: unknown = JSON.parse(Buffer.from(host, "hex").toString("utf8"));
+      const h = o && typeof o === "object" ? (o as { hostName?: unknown }).hostName : undefined;
+      if (typeof h !== "string") return undefined;
+      host = h;
+    } catch {
+      return undefined;
+    }
+  }
+  if (!host.startsWith("jam-")) return undefined;
+  const id = host.slice(4);
   return SESSION_ID_RE.test(id) ? id : undefined;
+}
+
+type UriLike = { scheme: string; authority: string };
+// The window's remote authority. env.remoteAuthority is proposed API, so read
+// it off the first vscode-remote folder (or the workspace file).
+export function windowAuthority(w: { workspaceFolders?: readonly { uri: UriLike }[]; workspaceFile?: UriLike }): string | undefined {
+  for (const u of [...(w.workspaceFolders ?? []).map((f) => f.uri), ...(w.workspaceFile ? [w.workspaceFile] : [])]) {
+    if (u.scheme === "vscode-remote") return u.authority;
+  }
+  return undefined;
 }
 
 // openSession validates the id first, so a crafted link reaches no API call
@@ -90,22 +115,34 @@ export async function openSession(d: OpenDeps, id: string): Promise<void> {
   await ui.openFolder(remoteUri(id));
 }
 
-export async function pickSession(d: OpenDeps): Promise<void> {
-  const { api } = await d.signedIn();
+export type RailRow = RailResponse["groups"][number]["rows"][number];
+export type SessionPick = { label: string; description?: string; detail?: string; row: RailRow };
+
+// Live studio rows (needs-you first), one per channel.
+export async function sessionPicks(api: JamApi): Promise<SessionPick[]> {
   const rail = await api.rail();
   const seen = new Set<string>();
-  const items: { label: string; description: string; detail: string; id: string }[] = [];
+  const items: SessionPick[] = [];
   for (const g of rail.groups) {
     if (g.bucket !== "needs-you" && g.bucket !== "active") continue;
     for (const r of g.rows) {
       if (r.kind !== "studio" || seen.has(r.id)) continue;
       seen.add(r.id);
-      items.push({ label: (g.bucket === "needs-you" ? "$(bell) " : "") + r.label, description: r.project, detail: r.mission, id: r.id });
+      items.push({ label: (g.bucket === "needs-you" ? "$(bell) " : "") + r.label, description: r.project, detail: r.mission, row: r });
     }
   }
-  const p = await d.ui.pick(items, "Open which session's studio?");
+  return items;
+}
+
+export async function sessionOfPick(api: JamApi, p: SessionPick): Promise<string | undefined> {
+  return (await api.conversation(p.row.id)).session || undefined;
+}
+
+export async function pickSession(d: OpenDeps): Promise<void> {
+  const { api } = await d.signedIn();
+  const p = await d.ui.pick(await sessionPicks(api), "Open which session's studio?");
   if (!p) return;
-  const session = (await api.conversation(p.id)).session;
+  const session = await sessionOfPick(api, p);
   if (!session) {
     await d.ui.error("That conversation has no session you can open");
     return;
