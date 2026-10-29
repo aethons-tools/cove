@@ -7,9 +7,13 @@ import { join } from "node:path";
 
 export const NOTIFY_WAIT_MS = 10 * 60_000;
 const QUICK_MS = 10_000;
+// terminal-notifier's first run waits on macOS's notification permission prompt.
+const FIRST_RUN_MS = 120_000;
+// At most this many notify-send --wait children at once across channels; the oldest is aborted.
+export const MAX_WAITING = 8;
 
 export type OsNote = { title: string; body: string; link: string; group: string; onClick: () => void };
-export type Child = { stdout: string };
+export type Child = { stdout: string; stderr?: string };
 export type OsDeps = {
   platform: NodeJS.Platform;
   extensionPath: string;
@@ -47,10 +51,18 @@ type ErrLike = { code?: unknown; signal?: unknown; killed?: unknown; name?: unkn
 const errOf = (e: unknown): ErrLike => (typeof e === "object" && e !== null ? (e as ErrLike) : {});
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-// A child that never ran, or was killed (Gatekeeper, a missing exec bit).
+// A child that never ran, or was killed by something else (Gatekeeper's SIGKILL has
+// killed:false). Our own timeout kill sets killed:true and is not one.
 function isSpawnFailure(e: unknown): boolean {
   const x = errOf(e);
-  return x.code === "ENOENT" || x.code === "EACCES" || x.code === "EPERM" || (typeof x.signal === "string" && x.signal !== "");
+  if (x.code === "ENOENT" || x.code === "EACCES" || x.code === "EPERM") return true;
+  return typeof x.signal === "string" && x.signal !== "" && x.killed !== true;
+}
+
+// terminal-notifier prints "Permission to send notifications was declined." when the
+// user declined or muted it; falling back would bring the banners back.
+function declined(...outs: unknown[]): boolean {
+  return outs.some((o) => typeof o === "string" && o.includes("declined"));
 }
 
 // A notify-send --wait that was aborted or timed out: a close without a click.
@@ -65,6 +77,7 @@ export class OsNotifier {
   private logged = new Set<string>();
   private chmodded = false;
   private osascriptOnly = false;
+  private tnRan = false;
   private probe?: Promise<Linux>;
   private waiting = new Map<string, AbortController>();
   private disposed = false;
@@ -110,10 +123,18 @@ export class OsNotifier {
           /* vsce may drop the exec bit; the run below reports a real problem */
         }
       }
+      const timeout = this.tnRan ? QUICK_MS : FIRST_RUN_MS;
+      this.tnRan = true;
       try {
-        await this.d.execFile(bin, terminalNotifierArgs(n), { timeout: QUICK_MS });
+        const r = await this.d.execFile(bin, terminalNotifierArgs(n), { timeout });
+        if (declined(r?.stdout, r?.stderr)) this.logOnce("declined", "terminal-notifier: notification permission was declined; no OS notifications");
         return;
       } catch (e) {
+        const x = errOf(e) as { stdout?: unknown; stderr?: unknown };
+        if (declined(x.stdout, x.stderr, msg(e))) {
+          this.logOnce("declined", "terminal-notifier: notification permission was declined; no OS notifications");
+          return;
+        }
         if (isSpawnFailure(e)) {
           this.osascriptOnly = true;
           this.logOnce("tn", `terminal-notifier could not run (${msg(e)}); using osascript for this session`);
@@ -157,8 +178,14 @@ export class OsNotifier {
     }
     // At most one waiting notify-send per channel.
     this.waiting.get(n.group)?.abort();
+    this.waiting.delete(n.group);
     const ac = new AbortController();
     this.waiting.set(n.group, ac);
+    while (this.waiting.size > MAX_WAITING) {
+      const oldest = this.waiting.keys().next().value as string;
+      this.waiting.get(oldest)?.abort();
+      this.waiting.delete(oldest);
+    }
     try {
       const r = await this.d.execFile("notify-send", args, { timeout: NOTIFY_WAIT_MS, signal: ac.signal });
       if (r.stdout.trim() === "default") n.onClick();

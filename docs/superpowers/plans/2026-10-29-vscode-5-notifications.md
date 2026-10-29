@@ -64,7 +64,7 @@ The web app's Web Push keeps working unchanged and independently.
   - `NOTIFY_TITLE_MAX = 120`, `NOTIFY_BODY_MAX = 200` (runes, after parsing);
   - `NEEDS_YOU_DEBOUNCE_MS = 3000`.
 - **OS notifiers:**
-  - **macOS:** `<ext>/dist/vendor/mac.noindex/terminal-notifier.app/Contents/MacOS/terminal-notifier`, copied unmodified from `node-notifier@12.0.0`: `_CodeSignature` intact (ad-hoc signed, not notarized), and `Contents/Resources/Terminal.icns` (Apple's Terminal icon) kept, as node-notifier ships it. Removing it would break the sealed resources, and the .vsix is private. Every title and message gets a leading U+200B. A spawn failure (ENOENT, EACCES, EPERM, or death by a signal) switches the window to `osascript` for the session; any other non-zero exit falls back to `osascript` for that one note only. `osascript` gets the values as `argv` items, never interpolated into the script;
+  - **macOS:** `<ext>/dist/vendor/mac.noindex/terminal-notifier.app/Contents/MacOS/terminal-notifier`, copied unmodified from `node-notifier@12.0.0`: `_CodeSignature` intact (ad-hoc signed, not notarized), and `Contents/Resources/Terminal.icns` (Apple's Terminal icon) kept, as node-notifier ships it. Removing it would break the sealed resources, and the .vsix is private. Every title and message gets a leading U+200B. A spawn failure (ENOENT, EACCES, EPERM, or death by a signal that isn't our own timeout kill) switches the window to `osascript` for the session; any other non-zero exit falls back to `osascript` for that one note only. `osascript` gets the values as `argv` items, never interpolated into the script;
   - **Linux:** `notify-send`;
   - **other platforms:** none (the VS Code notification only);
   - `node-notifier` is a `devDependency` pinned to `12.0.0` and is never bundled or `require`d.
@@ -387,7 +387,7 @@ The web app's Web Push keeps working unchanged and independently.
     - `execFile(bin, terminalNotifierArgs(n), {timeout: 10_000})`;
     - the args are `["-title", "\u200b" + t, "-message", "\u200b" + b, "-open", link, "-group", group]`. The U+200B is unconditional: terminal-notifier reads options through NSUserDefaults' argument domain, which parses a value starting with `-`, `[`, `(`, `{`, `<` or `"` as an option or a property list, and a message like "(edited) …" would otherwise go missing;
     - `group` is the channel id, so a newer notification for a conversation replaces the older one, as Web Push's `Topic` does;
-    - a **spawn failure** (the error's `code` is `ENOENT`, `EACCES` or `EPERM`, or the child died by a signal, e.g. Gatekeeper) logs once and switches, for the rest of the session, to `osascript`. **Any other non-zero exit** sends that one note through `osascript` and keeps terminal-notifier for the next. `osascript`'s args are `["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "--", title, body]`, which give no click target (documented);
+    - a **spawn failure** (the error's `code` is `ENOENT`, `EACCES` or `EPERM`, or the child died by a signal that is not our own timeout kill (`killed: true`), e.g. Gatekeeper's SIGKILL) logs once and switches, for the rest of the session, to `osascript`. **Any other non-zero exit** sends that one note through `osascript` and keeps terminal-notifier for the next. `osascript`'s args are `["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "--", title, body]`, which give no click target (documented);
     - the click opens `link` itself through LaunchServices, so `onClick` isn't used.
   - **`linux`:**
     - the first `show` probes `execFile("notify-send", ["--help"])`. Not found → logged once, and OS notifications stay off for the session. Help text containing `--action` → actions;
@@ -590,7 +590,7 @@ The web app's Web Push keeps working unchanged and independently.
       - "A `TreeView.badge` on the collapsed `jam.needsYou` view shows on the Jam activity-bar icon while the Jam container is closed";
       - "`notify-send --action … --wait` on the target Linux desktops (GNOME, KDE) prints `default` on a click";
       - "`osascript -e 'on run argv' … -- <title> <body>` passes `--` through or not: if `item 1 of argv` comes out as `--`, drop the `--` from `osascriptArgs`";
-      - "terminal-notifier 3.0 (NSUserNotification) still displays on the current macOS: a silent non-display exits 0, so no fallback triggers";
+      - "terminal-notifier 3.0 (UNUserNotificationCenter; its first run waits on the permission prompt, and output saying "declined" is a quiet stop, never an osascript fallback) still displays on the current macOS: a silent non-display exits 0, so no fallback triggers";
     - a **Notifications** step list:
       - an agent message in another session gives one toast (in the focused window) and no OS notification, and with VS Code unfocused, one OS notification;
       - with three code windows open, exactly one toast;

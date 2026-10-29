@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { NOTIFY_WAIT_MS, OsNotifier, escapeMarkup, notifySendArgs, osascriptArgs, terminalNotifierArgs } from "../src/notify/os";
+import { MAX_WAITING, NOTIFY_WAIT_MS, OsNotifier, escapeMarkup, notifySendArgs, osascriptArgs, terminalNotifierArgs } from "../src/notify/os";
 import type { OsDeps, OsNote } from "../src/notify/os";
 
 const note = (over: Partial<OsNote> = {}): OsNote => ({
@@ -80,7 +80,7 @@ describe("OsNotifier darwin", () => {
     expect(r.chmod).toHaveBeenCalledWith(BIN, 0o755);
     expect(r.calls).toHaveLength(1);
     expect(r.calls[0].file).toBe(BIN);
-    expect(r.calls[0].o.timeout).toBe(10_000);
+    expect(r.calls[0].o.timeout).toBe(120_000);
     await r.n.show(note());
     expect(r.chmod).toHaveBeenCalledTimes(1);
   });
@@ -103,10 +103,30 @@ describe("OsNotifier darwin", () => {
   });
 
   it("death by a signal (Gatekeeper) is a spawn failure too", async () => {
-    const r = rig("darwin", (c) => (c.file === BIN ? errno(null as unknown as number, { signal: "SIGKILL", killed: true }) : { stdout: "" }));
+    const r = rig("darwin", (c) => (c.file === BIN ? errno(null as unknown as number, { signal: "SIGKILL", killed: false }) : { stdout: "" }));
     await r.n.show(note());
     await r.n.show(note());
     expect(r.calls.map((c) => c.file)).toEqual([BIN, "osascript", "osascript"]);
+  });
+
+  it("our own timeout kill falls back for that note only, and the first run waits longer for the permission prompt", async () => {
+    const r = rig("darwin", (_c, i) => (i === 0 ? errno(null as unknown as number, { signal: "SIGTERM", killed: true }) : { stdout: "" }));
+    await r.n.show(note());
+    await r.n.show(note());
+    expect(r.calls.map((c) => c.file)).toEqual([BIN, "osascript", BIN]);
+    expect(r.calls[0].o.timeout).toBe(120_000);
+    expect(r.calls[2].o.timeout).toBe(10_000);
+  });
+
+  it("a declined permission is a quiet stop: no osascript, logged once", async () => {
+    const msg = "Permission to send notifications was declined.";
+    for (const reply of [{ stdout: msg }, { stdout: "", stderr: msg }, errno(1, { stderr: msg }), errno(1, { stdout: msg })]) {
+      const r = rig("darwin", () => reply as never);
+      await r.n.show(note());
+      await r.n.show(note());
+      expect(r.calls.map((c) => c.file)).toEqual([BIN, BIN]);
+      expect(r.logs).toHaveLength(1);
+    }
   });
 
   it("a non-zero exit falls back for that note only", async () => {
@@ -182,6 +202,19 @@ describe("OsNotifier linux", () => {
     await Promise.all([pb, pa2]);
     expect(a2.onClick).toHaveBeenCalledTimes(1);
     expect(r.logs).toEqual([]);
+  });
+
+  it("caps waiting children across channels, aborting the oldest", async () => {
+    const r = rig("linux", (c) => (c.args[0] === "--help" ? { stdout: helpWith } : (cc) => waiting(cc, new Promise<string>(() => {}))));
+    const ps: Promise<void>[] = [];
+    for (let i = 0; i < MAX_WAITING + 1; i++) {
+      ps.push(r.n.show(note({ group: `chn_${i}` })));
+      await vi.waitFor(() => expect(r.calls).toHaveLength(i + 2));
+    }
+    expect(r.calls[1].o.signal?.aborted).toBe(true);
+    expect(r.calls[2].o.signal?.aborted).toBe(false);
+    r.n.dispose();
+    await Promise.all(ps);
   });
 
   it("escapes markup in the body only", async () => {
