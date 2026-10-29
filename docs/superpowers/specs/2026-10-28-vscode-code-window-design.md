@@ -1,6 +1,6 @@
 # Jam in VS Code — phase 1, the code window — design
 
-**Status:** draft for the user's review, 2026-10-28; slice 1 (app tokens) and slice 2 (extension, sign-in, SSH, getting in) built.
+**Status:** draft for the user's review, 2026-10-28; slice 1 (app tokens) and slice 2 (extension, sign-in, SSH, getting in) built; slice 3 (webview bridge, Conversation pane) built.
 **Context:** the Jam app (`web/app`, React 19 + Mantine 9) is the user and admin UI at `/app/user/` and `/app/admin/` ([Jam SPA](2026-10-26-jam-spa-design.md), [admin SPA](2026-10-28-admin-spa-design.md)). Studios already accept VS Code Remote-SSH through Jam (`jam ssh-config`, Jam-issued 8 h certs over a studio-dialed tunnel, port forwarding on — [collaboration](2026-10-20-studio-collaboration-design.md), `docs/usage/jam/collaboration.md`).
 
 ## Intent

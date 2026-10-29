@@ -1,7 +1,7 @@
 ---
-summary: The Jam VS Code extension (`aethons.jam`) — installing the .vsix, signing in with an app token, opening a session's studio over Remote-SSH, what it writes to your machine, and fixing its errors.
-read_when: You want to open an agent's studio in VS Code from the Jam app or a link, are installing or signing in the Jam extension, or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
-owns: installing and using the Jam VS Code extension; its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; its troubleshooting
+summary: The Jam VS Code extension (`aethons.jam`) — installing the .vsix, signing in with an app token, opening a session's studio over Remote-SSH, the Conversation view and focused session, what it writes to your machine, and fixing its errors.
+read_when: You want to open an agent's studio in VS Code from the Jam app or a link, are installing or signing in the Jam extension, are using or changing the Conversation view, Jam: Focus Session or pinning, or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
+owns: installing and using the Jam VS Code extension; its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session; the Conversation view, the focused session, pin/unpin, its empty states and link rules; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; its troubleshooting
 prereqs: collaboration.md for who may SSH and the ssh_config block the CLI writes; app-tokens.md for the sign-in token
 tier: leaf
 updated: 2026-10-29
@@ -12,6 +12,7 @@ updated: 2026-10-29
 The extension opens a session's studio in a VS Code Remote-SSH window with one click,
 with no `jam login --participant` or `jam ssh-config` step.
 It signs in to your Jam with an app token, writes the SSH setup, and opens `/home/agent/workspace`.
+It also adds a Conversation view (below).
 Its build and manual test are in [vscode-checklist.md](vscode-checklist.md).
 
 ## Install and requirements
@@ -57,6 +58,23 @@ Three ways in, all the same flow:
 The extension signs you in if needed, checks you may SSH into the session
 (otherwise it says so and links the web app), writes the SSH setup below,
 and opens `vscode-remote://ssh-remote+jam-<studio>/home/agent/workspace` in a new window.
+
+## Conversation and focus
+
+The **Jam** icon in the activity bar holds the **Conversation** view: the web app's conversation pane
+(composer, attachments and asks inline) running in a webview. Drag it anywhere, to the panel or the secondary sidebar.
+It asks the extension for everything; the webview never holds your token, the Jam URL or a cookie.
+
+- **Focused session:** by default the window's studio (the window's remote comes from its workspace folder URI).
+  *Jam: Focus Session…* picks another session, or *This window's studio* to go back; signed out, it starts sign-in first.
+  Unpinned Jam views follow it, and the choice is kept per window.
+- **Pin:** the view's title-bar pin button fixes the view to the session it shows; the pinned button unpins it.
+  When the view's session isn't the window's, its label shows beside the view's name.
+- **Empty states:** "Sign in to Jam to see this conversation." (Sign in); "This window isn't on a Jam studio. Focus a session to see its conversation." (a local folder; Focus a session…); "That session has ended, or you can't see it." (Focus a session…).
+  A failed lookup shows "Couldn't load the focused session: …" with Try again.
+- **Links:** the pane never navigates. `https:`, `http:` and `mailto:` links open in the browser; boards open in the browser too, until the board editor lands. `/app/user/c/<other>` opens the web app; `#ask-…` and own-conversation links scroll in place. `javascript:`, `command:`, `vscode:` and `file:` do nothing.
+- **Push focus:** while the view is visible in a focused window, the extension reports its conversation as focused, so Web Push stays quiet for it.
+- **Live updates:** one stream feeds the view, restarted on sign-in and sign-out. Where Jam offers no live updates, the view polls every 30 s.
 
 ## What it writes
 
