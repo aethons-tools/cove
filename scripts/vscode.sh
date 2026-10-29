@@ -37,6 +37,16 @@ if ! find dist/webview/excalidraw/fonts -name '*.woff2' | grep -q .; then
   echo "vscode: no .woff2 fonts in web/vscode/dist/webview/excalidraw/fonts" >&2
   exit 1
 fi
+# terminal-notifier.app for macOS OS notifications, copied unmodified from the
+# pinned devDependency node-notifier@12.0.0 (ad-hoc signed, not notarized; its
+# _CodeSignature and Terminal.icns stay, the sealed resources need them).
+mkdir -p dist/vendor
+cp -R node_modules/node-notifier/vendor/mac.noindex dist/vendor/
+cp node_modules/node-notifier/vendor/terminal-notifier-LICENSE dist/vendor/
+tn=dist/vendor/mac.noindex/terminal-notifier.app/Contents
+for f in "$tn/MacOS/terminal-notifier" "$tn/_CodeSignature/CodeResources"; do
+  if [ ! -f "$f" ]; then echo "vscode: the vendored terminal-notifier lacks web/vscode/$f" >&2; exit 1; fi
+done
 node esbuild.mjs
 npx vsce package --no-dependencies --skip-license --no-update-package-json "$ver" -o "$out"
 echo "vscode: built $out ($ver)"

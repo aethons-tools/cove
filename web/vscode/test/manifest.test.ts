@@ -88,7 +88,7 @@ describe("the manifest", () => {
   // ship the .vsix being written into dist/: name what dist/ ships instead.
   it(".vscodeignore ships dist (the extension and the webview) and media/**, not an old .vsix", () => {
     const lines = readFileSync(join(__dirname, "..", ".vscodeignore"), "utf8").split("\n").map((l) => l.trim()).filter(Boolean);
-    expect(lines).toEqual(["**", "!dist/extension.js", "!dist/webview/**", "!media/**", "!package.json", "!README.md"]);
+    expect(lines).toEqual(["**", "!dist/extension.js", "!dist/webview/**", "!dist/vendor/**", "!media/**", "!package.json", "!README.md"]);
   });
 });
 
