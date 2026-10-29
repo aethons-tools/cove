@@ -7,6 +7,7 @@ import type { ExtToPane, OpenIntent, PaneState, PaneToExt } from "../../../app/s
 import { ApiError, SignedOutError } from "../api";
 import type { Auth } from "../auth";
 import { intentAction } from "../bridge/intents";
+import type { IntentAction } from "../bridge/intents";
 import { ID_RE } from "../bridge/router";
 import type { Router } from "../bridge/router";
 import type { FocusModel } from "../focus";
@@ -22,7 +23,8 @@ export type ConversationDeps = {
   reporter: Pick<FocusReporter, "pane" | "drop">;
   auth: Pick<Auth, "session" | "onChange">;
   jamUrl: () => string | Error;
-  openExternal: (url: string) => unknown;
+  perform: (a: IntentAction) => unknown;
+  windowStudio: () => string | undefined;
   executeCommand: (command: string, ...rest: unknown[]) => Thenable<unknown>;
 };
 
@@ -34,7 +36,18 @@ const quietly = (t: unknown): void => void Promise.resolve(t).catch(() => undefi
 export class ConversationViewProvider implements vscode.WebviewViewProvider {
   static readonly viewType = "jam.conversation";
 
+  private posters = new Set<(m: ExtToPane) => void>();
+  private pending: string | undefined; // one anchor awaiting a Conversation pane's ready
+
   constructor(private d: ConversationDeps) {}
+
+  // scrollTo asks the visible Conversation view to scroll; with none resolved
+  // yet, the anchor waits for the next pane ready.
+  scrollTo(anchor: string): void {
+    this.pending = anchor;
+    for (const post of this.posters) post({ type: "scrollTo", anchor });
+    if (this.posters.size > 0) this.pending = undefined;
+  }
 
   resolveWebviewView(view: vscode.WebviewView, _context?: vscode.WebviewViewResolveContext, _token?: vscode.CancellationToken): void {
     const w = view.webview;
@@ -104,6 +117,7 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
     };
 
     const detach = this.d.hub.attach({ id, post });
+    this.posters.add(post);
     const subs: (() => void)[] = [this.d.model.onChange(refreshSoon), this.d.auth.onChange(refreshSoon)];
     const disposables = [
       w.onDidReceiveMessage((m: PaneToExt) => {
@@ -111,7 +125,12 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
         switch (m.type) {
           case "ready":
             abortAll();
-            return refreshSoon();
+            refreshSoon();
+            if (this.pending !== undefined) {
+              post({ type: "scrollTo", anchor: this.pending });
+              this.pending = undefined;
+            }
+            return;
           case "request":
             return request(m);
           case "abort":
@@ -135,6 +154,7 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
         disposed = true;
         abortAll();
         detach();
+        this.posters.delete(post);
         for (const u of subs) u();
         for (const x of disposables) x.dispose();
         this.d.reporter.drop(id);
@@ -146,10 +166,9 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
   private open(intent: OpenIntent): void {
     const url = this.d.jamUrl();
     if (url instanceof Error || !intent || typeof intent !== "object") return;
-    const a = intentAction(intent, url);
+    const a = intentAction(intent, url, this.d.windowStudio());
     if (a instanceof Error) return;
-    if ("openExternal" in a) quietly(this.d.openExternal(a.openExternal));
-    else quietly(this.d.executeCommand(a.command));
+    quietly(this.d.perform(a));
   }
 
   private async state(): Promise<PaneState> {

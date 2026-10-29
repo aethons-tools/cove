@@ -65,7 +65,7 @@ function setup(o: { windowDefault?: string; resolve?: (s: string) => Promise<Ses
     resolve,
   });
   const reporter = { pane: vi.fn(), drop: vi.fn() };
-  const openExternal = vi.fn(async (_u: string) => true);
+  const perform = vi.fn(async (_a: unknown) => undefined);
   const provider = new ConversationViewProvider({
     extensionUri: Uri.parse("file:///ext") as unknown as vs.Uri,
     hub,
@@ -74,7 +74,8 @@ function setup(o: { windowDefault?: string; resolve?: (s: string) => Promise<Ses
     reporter,
     auth,
     jamUrl: () => JAM,
-    openExternal,
+    perform,
+    windowStudio: () => A,
     executeCommand: vscode.commands.executeCommand,
   });
   const open = (): View => {
@@ -82,7 +83,7 @@ function setup(o: { windowDefault?: string; resolve?: (s: string) => Promise<Ses
     provider.resolveWebviewView(v as unknown as vs.WebviewView, {} as vs.WebviewViewResolveContext, {} as vs.CancellationToken);
     return v;
   };
-  return { provider, open, setSession, live, liveFetch, signals, fetch, model, resolve, reporter, openExternal };
+  return { provider, open, setSession, live, liveFetch, signals, fetch, model, resolve, reporter, perform };
 }
 
 const states = (v: View) => (v.posted as ExtToPane[]).filter((m) => m.type === "state").map((m) => (m as { state: PaneState }).state);
@@ -169,10 +170,10 @@ describe("ConversationViewProvider", () => {
     expect(s.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("open board calls openExternal with the jam URL", async () => {
+  it("open board performs openBoard", async () => {
     const s = setup();
     s.open().receive({ type: "open", intent: { kind: "board", id: BRD } });
-    await vi.waitFor(() => expect(s.openExternal).toHaveBeenCalledWith(`${JAM}/app/user/boards/${BRD}`));
+    await vi.waitFor(() => expect(s.perform).toHaveBeenCalledWith({ openBoard: BRD }));
   });
 
   it("open javascript: is dropped", async () => {
@@ -183,17 +184,40 @@ describe("ConversationViewProvider", () => {
     }
     v.receive({ type: "open", intent: { kind: "nope" } });
     await settle();
-    expect(s.openExternal).not.toHaveBeenCalled();
+    expect(s.perform).not.toHaveBeenCalled();
     expect(vi.mocked(vscode.commands.executeCommand).mock.calls.filter((c) => c[0] !== "setContext")).toEqual([]);
   });
 
-  it("open focusSession runs jam.focusSession; signIn runs jam.signIn", async () => {
-    const v = setup().open();
+  it("open focusSession performs the command; signIn runs jam.signIn", async () => {
+    const s = setup();
+    const v = s.open();
     v.receive({ type: "open", intent: { kind: "focusSession" } });
     v.receive({ type: "signIn" });
     await settle();
+    expect(s.perform).toHaveBeenCalledWith({ command: "jam.focusSession" });
     const cmds = vi.mocked(vscode.commands.executeCommand).mock.calls.filter((c) => c[0] !== "setContext");
-    expect(cmds).toEqual([["jam.focusSession"], ["jam.signIn"]]);
+    expect(cmds).toEqual([["jam.signIn"]]);
+  });
+
+  it("a preview for the window's studio forwards; another's opens its URL", async () => {
+    const s = setup();
+    const v = s.open();
+    v.receive({ type: "open", intent: { kind: "preview", session: A, port: 5173, url: "https://p.example/x", inBrowser: false } });
+    v.receive({ type: "open", intent: { kind: "preview", session: B, port: 5173, url: "https://p.example/x", inBrowser: false } });
+    await settle();
+    expect(s.perform.mock.calls).toEqual([[{ forwardPort: 5173, inBrowser: false, url: "https://p.example/x" }], [{ openExternal: "https://p.example/x" }]]);
+  });
+
+  it("scrollTo posts to a resolved view, or waits for the next ready", async () => {
+    const s = setup();
+    s.provider.scrollTo("ask-a");
+    const v = s.open();
+    expect(v.posted).not.toContainEqual({ type: "scrollTo", anchor: "ask-a" });
+    v.receive({ type: "ready", pane: "conversation" });
+    await settle();
+    expect(v.posted).toContainEqual({ type: "scrollTo", anchor: "ask-a" });
+    s.provider.scrollTo("ask-b");
+    expect(v.posted).toContainEqual({ type: "scrollTo", anchor: "ask-b" });
   });
 
   it("viewing and visibility reach the focus reporter; dispose drops the pane", () => {

@@ -23,6 +23,8 @@ import { FocusModel, focusSessionCommand, sessionResolver } from "./focus";
 import { FocusReporter } from "./focusreport";
 import { LiveStream } from "./live";
 import { ConversationViewProvider } from "./panes/conversation";
+import { perform } from "./panes/actions";
+import type { ActionDeps } from "./panes/actions";
 import { PaneHub } from "./panes/hub";
 
 const run: ExecFile = (file, args) => promisify(execFile)(file, args).then((r) => ({ stdout: String(r.stdout), stderr: String(r.stderr) }));
@@ -226,22 +228,33 @@ export function activate(ctx: vscode.ExtensionContext): void {
   });
   ctx.subscriptions.push({ dispose: offAuth });
 
-  ctx.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      ConversationViewProvider.viewType,
-      new ConversationViewProvider({
-        extensionUri: ctx.extensionUri,
-        hub,
-        router,
-        model,
-        reporter: rep,
-        auth,
-        jamUrl,
-        openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)),
-        executeCommand: (c, ...a) => vscode.commands.executeCommand(c, ...a),
-      }),
-    ),
-  );
+  const exec = (c: string, ...a: unknown[]) => vscode.commands.executeCommand(c, ...a);
+  const actionDeps: ActionDeps = {
+    openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)),
+    executeCommand: exec,
+    asExternalUri: async (u) => (await vscode.env.asExternalUri(vscode.Uri.parse(u))).toString(),
+    // Until the board editor tab (Task 7), a board opens in the browser.
+    openBoard: (id) => {
+      const u = jamUrl();
+      if (!(u instanceof Error)) void vscode.env.openExternal(vscode.Uri.parse(`${u}/app/user/boards/${id}`));
+    },
+    openSession: (id) => openSession(openDeps, id),
+    scrollConversation: (anchor) => conversation.scrollTo(anchor),
+    error: (m) => void vscode.window.showErrorMessage(m),
+  };
+  const conversation: ConversationViewProvider = new ConversationViewProvider({
+    extensionUri: ctx.extensionUri,
+    hub,
+    router,
+    model,
+    reporter: rep,
+    auth,
+    jamUrl,
+    perform: (a) => perform(a, actionDeps),
+    windowStudio: () => studioFromAuthority(windowAuthority(vscode.workspace)),
+    executeCommand: exec,
+      });
+  ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(ConversationViewProvider.viewType, conversation));
 
   const view = ConversationViewProvider.viewType;
   const reg = (id: string, cb: (...a: unknown[]) => unknown) => ctx.subscriptions.push(vscode.commands.registerCommand(id, cb));
