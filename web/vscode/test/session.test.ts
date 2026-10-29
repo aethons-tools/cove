@@ -1,15 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import type * as vs from "vscode";
 import * as vscode from "vscode";
-import type { ExtToPane, PaneState } from "../../app/src/bridge/protocol.js" with { "resolution-mode": "import" };
+import type { ExtToPane, PaneState, SessionPaneName } from "../../app/src/bridge/protocol.js" with { "resolution-mode": "import" };
 import { ApiError, SignedOutError } from "../src/api";
 import type { Session } from "../src/auth";
 import { Router } from "../src/bridge/router";
 import { FocusModel } from "../src/focus";
 import type { SessionTarget } from "../src/focus";
 import { LiveStream } from "../src/live";
-import { ConversationViewProvider } from "../src/panes/conversation";
 import { PaneHub } from "../src/panes/hub";
+import { SESSION_PANES, SessionPaneProvider } from "../src/panes/session";
+import type { ThinkingSignal } from "../src/thinking";
 import { fakeWebviewView, mock, Uri } from "./vscode";
 
 const JAM = "https://jam.example.com";
@@ -26,7 +27,14 @@ const known: Record<string, SessionTarget> = {
 
 type View = ReturnType<typeof fakeWebviewView>;
 
-function setup(o: { windowDefault?: string; resolve?: (s: string) => Promise<SessionTarget>; fetch?: (url: string, init: RequestInit) => Promise<Response> } = {}) {
+type SetupOpts = {
+  name?: SessionPaneName;
+  windowDefault?: string;
+  resolve?: (s: string) => Promise<SessionTarget>;
+  fetch?: (url: string, init: RequestInit) => Promise<Response>;
+};
+
+function setup(o: SetupOpts = {}) {
   mock.reset();
   let sess: Session | undefined = SIGNED_IN;
   const authSubs = new Set<(s: Session | undefined) => void>();
@@ -65,17 +73,26 @@ function setup(o: { windowDefault?: string; resolve?: (s: string) => Promise<Ses
     resolve,
   });
   const reporter = { pane: vi.fn(), drop: vi.fn() };
-  const perform = vi.fn(async (_a: unknown) => undefined);
-  const provider = new ConversationViewProvider({
+  const perform = vi.fn((_a: unknown) => undefined);
+  const unsubs: ReturnType<typeof vi.fn>[] = [];
+  const thinking = {
+    subscribe: vi.fn((_s: string, _st: string, _cb: (s: ThinkingSignal) => void, _onEnd?: () => void) => {
+      const u = vi.fn();
+      unsubs.push(u);
+      return u;
+    }),
+  };
+  const provider = new SessionPaneProvider(o.name ?? "conversation", {
     extensionUri: Uri.parse("file:///ext") as unknown as vs.Uri,
     hub,
     router,
+    thinking,
     model,
     reporter,
     auth,
     jamUrl: () => JAM,
     perform,
-    windowStudio: () => A,
+    windowStudio: A,
     executeCommand: vscode.commands.executeCommand,
   });
   const open = (): View => {
@@ -83,14 +100,14 @@ function setup(o: { windowDefault?: string; resolve?: (s: string) => Promise<Ses
     provider.resolveWebviewView(v as unknown as vs.WebviewView, {} as vs.WebviewViewResolveContext, {} as vs.CancellationToken);
     return v;
   };
-  return { provider, open, setSession, live, liveFetch, signals, fetch, model, resolve, reporter, perform };
+  return { provider, open, setSession, live, liveFetch, signals, fetch, model, resolve, reporter, perform, thinking, unsubs };
 }
 
 const states = (v: View) => (v.posted as ExtToPane[]).filter((m) => m.type === "state").map((m) => (m as { state: PaneState }).state);
 const lastState = (v: View) => states(v).at(-1);
 const settle = () => new Promise((r) => setTimeout(r, 10));
 
-describe("ConversationViewProvider", () => {
+describe("SessionPaneProvider: the slice-3 Conversation cases", () => {
   it("resolve sets enableScripts, enableCommandUris false, localResourceRoots dist/webview, no retainContextWhenHidden", () => {
     const v = setup().open();
     const o = v.webview.options as vs.WebviewOptions & { retainContextWhenHidden?: boolean };
@@ -364,4 +381,116 @@ describe("ConversationViewProvider", () => {
       expect(answers).toEqual([{ type: "response", id: 1, res: { kind: "http", status: 200, contentType: "application/json", json: { new: true } } }]);
     });
   }
+});
+
+describe("SessionPaneProvider: every session view", () => {
+  it("serves the five session panes", () => {
+    expect(SESSION_PANES).toEqual(["conversation", "thinking", "previews", "status", "artifacts"]);
+  });
+
+  it.each(SESSION_PANES.map((n) => [n]))("each view type is jam.<name> and sets its own context keys (%s)", async (name) => {
+    const s = setup({ name, windowDefault: A });
+    expect(s.provider.viewType).toBe(`jam.${name}`);
+    const v = s.open();
+    expect(v.webview.html).toContain(`data-pane="${name}"`);
+    v.receive({ type: "ready", pane: name });
+    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[A], pinned: false, elsewhere: false }));
+    expect(mock.context.get(`jam.${name}.hasSession`)).toBe(true);
+    expect(mock.context.get(`jam.${name}.pinned`)).toBe(false);
+    const others = SESSION_PANES.filter((n) => n !== name);
+    for (const n of others) expect(mock.context.has(`jam.${n}.pinned`) || mock.context.has(`jam.${n}.hasSession`)).toBe(false);
+    await s.model.togglePin(`jam.${name}`);
+    await vi.waitFor(() => expect(mock.context.get(`jam.${name}.pinned`)).toBe(true));
+  });
+
+  it("a pinned status view shows the label in its description", async () => {
+    const s = setup({ name: "status", windowDefault: A });
+    const v = s.open();
+    v.receive({ type: "ready", pane: "status" });
+    await s.model.togglePin("jam.status");
+    await s.model.focus(B);
+    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[A], pinned: true, elsewhere: true }));
+    expect(v.description).toBe("alpha");
+  });
+
+  it("a view resolved while pinned elsewhere shows the label once ready", async () => {
+    const s = setup({ name: "previews", windowDefault: A });
+    await s.model.togglePin("jam.previews");
+    await s.model.focus(B);
+    const v = s.open();
+    v.receive({ type: "ready", pane: "previews" });
+    await vi.waitFor(() => expect(lastState(v)?.elsewhere).toBe(true));
+    expect(v.description).toBe("alpha");
+  });
+
+  it("viewing from a thinking view doesn't reach the reporter", () => {
+    const s = setup({ name: "thinking" });
+    const v = s.open();
+    v.receive({ type: "viewing", channel: CHN_A });
+    v.setVisible(false);
+    v.dispose();
+    expect(s.reporter.pane).not.toHaveBeenCalled();
+    expect(s.reporter.drop).not.toHaveBeenCalled();
+  });
+
+  it("scrollTo reaches only that provider's views", async () => {
+    const conv = setup();
+    const cv = conv.open();
+    const status = new SessionPaneProvider("status", {
+      extensionUri: Uri.parse("file:///ext") as unknown as vs.Uri,
+      hub: { attach: () => () => undefined },
+      router: { handle: () => undefined },
+      thinking: conv.thinking,
+      model: conv.model,
+      reporter: conv.reporter,
+      auth: { session: async () => SIGNED_IN, onChange: () => () => undefined },
+      jamUrl: () => JAM,
+      perform: conv.perform,
+      windowStudio: A,
+      executeCommand: vscode.commands.executeCommand,
+    });
+    const sv = fakeWebviewView();
+    status.resolveWebviewView(sv as unknown as vs.WebviewView, {} as vs.WebviewViewResolveContext, {} as vs.CancellationToken);
+    conv.provider.scrollTo("ask-x");
+    expect(cv.posted).toContainEqual({ type: "scrollTo", anchor: "ask-x" });
+    expect(sv.posted.some((m) => (m as ExtToPane).type === "scrollTo")).toBe(false);
+    sv.receive({ type: "ready", pane: "status" });
+    await settle();
+    expect(sv.posted.some((m) => (m as ExtToPane).type === "scrollTo")).toBe(false);
+  });
+
+  it("no view sets retainContextWhenHidden", () => {
+    for (const name of SESSION_PANES) {
+      const v = setup({ name }).open();
+      const o = v.webview.options as vs.WebviewOptions & { retainContextWhenHidden?: boolean };
+      expect(Object.keys(o).sort()).toEqual(["enableCommandUris", "enableScripts", "localResourceRoots"]);
+      expect(o.retainContextWhenHidden).toBeUndefined();
+    }
+  });
+
+  it("hiding a thinking view closes its feeds and aborts its requests (Review Focus 1)", async () => {
+    const signals: AbortSignal[] = [];
+    const s = setup({
+      name: "thinking",
+      windowDefault: A,
+      fetch: (_u, init) => new Promise<Response>(() => void signals.push(init.signal!)),
+    });
+    const v = s.open();
+    v.receive({ type: "ready", pane: "thinking" });
+    v.receive({ type: "thinkingOpen", sub: 1, session: A, stream: "" });
+    v.receive({ type: "request", id: 1, req: { method: "GET", path: `/app/user/api/sessions/${A}` } });
+    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    expect(s.thinking.subscribe).toHaveBeenCalledTimes(1);
+    v.setVisible(false);
+    expect(s.unsubs[0]).toHaveBeenCalledTimes(1);
+    expect(signals[0]!.aborted).toBe(true);
+    // shown again, the new context's sub 1 is a new feed
+    v.setVisible(true);
+    v.receive({ type: "ready", pane: "thinking" });
+    v.receive({ type: "thinkingOpen", sub: 1, session: A, stream: "" });
+    expect(s.thinking.subscribe).toHaveBeenCalledTimes(2);
+    v.dispose();
+    expect(s.unsubs[1]).toHaveBeenCalledTimes(1);
+    expect(s.unsubs[0]).toHaveBeenCalledTimes(1);
+  });
 });

@@ -72,6 +72,7 @@ export const commands = {
 export const env = {
   uriScheme: "vscode",
   openExternal: vi.fn(async (_u: unknown) => true),
+  asExternalUri: vi.fn(async (u: unknown) => u),
 };
 
 export enum ConfigurationTarget { Global = 1, Workspace = 2, WorkspaceFolder = 3 }
@@ -149,7 +150,7 @@ const fns = [
   window.showInformationMessage, window.showWarningMessage, window.showErrorMessage, window.showQuickPick,
   window.withProgress, window.registerUriHandler, window.registerWebviewViewProvider, window.onDidChangeWindowState,
   commands.registerCommand, commands.executeCommand,
-  env.openExternal, workspace.getConfiguration, workspace.onDidChangeConfiguration, extensions.getExtension,
+  env.openExternal, env.asExternalUri, workspace.getConfiguration, workspace.onDidChangeConfiguration, extensions.getExtension,
 ];
 
 // fakeContext is an ExtensionContext with in-memory secrets and globalState.

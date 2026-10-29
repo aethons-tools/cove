@@ -21,13 +21,28 @@
       { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" },
       { "command": "jam.focusSession", "title": "Focus Session…", "category": "Jam" },
       { "command": "jam.conversation.pin", "title": "Pin to This Session", "icon": "$(pin)" },
-      { "command": "jam.conversation.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" }
+      { "command": "jam.conversation.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
+      { "command": "jam.thinking.pin", "title": "Pin to This Session", "icon": "$(pin)" },
+      { "command": "jam.thinking.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
+      { "command": "jam.previews.pin", "title": "Pin to This Session", "icon": "$(pin)" },
+      { "command": "jam.previews.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
+      { "command": "jam.status.pin", "title": "Pin to This Session", "icon": "$(pin)" },
+      { "command": "jam.status.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
+      { "command": "jam.artifacts.pin", "title": "Pin to This Session", "icon": "$(pin)" },
+      { "command": "jam.artifacts.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" }
     ],
     "viewsContainers": {
-      "activitybar": [{ "id": "jam", "title": "Jam", "icon": "media/jam.svg" }]
+      "activitybar": [{ "id": "jam", "title": "Jam", "icon": "media/jam.svg" }],
+      "panel": [{ "id": "jamPanel", "title": "Jam", "icon": "media/jam.svg" }]
     },
     "views": {
-      "jam": [{ "type": "webview", "id": "jam.conversation", "name": "Conversation" }]
+      "jam": [
+        { "type": "webview", "id": "jam.conversation", "name": "Conversation" },
+        { "type": "webview", "id": "jam.status", "name": "Status" },
+        { "type": "webview", "id": "jam.artifacts", "name": "Artifacts", "visibility": "collapsed" },
+        { "type": "webview", "id": "jam.previews", "name": "Previews", "visibility": "collapsed" }
+      ],
+      "jamPanel": [{ "type": "webview", "id": "jam.thinking", "name": "Thinking" }]
     },
     "menus": {
       "view/title": [
@@ -36,11 +51,43 @@
           "when": "view == jam.conversation && jam.conversation.hasSession && !jam.conversation.pinned",
           "group": "navigation"
         },
-        { "command": "jam.conversation.unpin", "when": "view == jam.conversation && jam.conversation.pinned", "group": "navigation" }
+        { "command": "jam.conversation.unpin", "when": "view == jam.conversation && jam.conversation.pinned", "group": "navigation" },
+        {
+          "command": "jam.thinking.pin",
+          "when": "view == jam.thinking && jam.thinking.hasSession && !jam.thinking.pinned",
+          "group": "navigation"
+        },
+        { "command": "jam.thinking.unpin", "when": "view == jam.thinking && jam.thinking.pinned", "group": "navigation" },
+        {
+          "command": "jam.previews.pin",
+          "when": "view == jam.previews && jam.previews.hasSession && !jam.previews.pinned",
+          "group": "navigation"
+        },
+        { "command": "jam.previews.unpin", "when": "view == jam.previews && jam.previews.pinned", "group": "navigation" },
+        {
+          "command": "jam.status.pin",
+          "when": "view == jam.status && jam.status.hasSession && !jam.status.pinned",
+          "group": "navigation"
+        },
+        { "command": "jam.status.unpin", "when": "view == jam.status && jam.status.pinned", "group": "navigation" },
+        {
+          "command": "jam.artifacts.pin",
+          "when": "view == jam.artifacts && jam.artifacts.hasSession && !jam.artifacts.pinned",
+          "group": "navigation"
+        },
+        { "command": "jam.artifacts.unpin", "when": "view == jam.artifacts && jam.artifacts.pinned", "group": "navigation" }
       ],
       "commandPalette": [
         { "command": "jam.conversation.pin", "when": "false" },
-        { "command": "jam.conversation.unpin", "when": "false" }
+        { "command": "jam.conversation.unpin", "when": "false" },
+        { "command": "jam.thinking.pin", "when": "false" },
+        { "command": "jam.thinking.unpin", "when": "false" },
+        { "command": "jam.previews.pin", "when": "false" },
+        { "command": "jam.previews.unpin", "when": "false" },
+        { "command": "jam.status.pin", "when": "false" },
+        { "command": "jam.status.unpin", "when": "false" },
+        { "command": "jam.artifacts.pin", "when": "false" },
+        { "command": "jam.artifacts.unpin", "when": "false" }
       ]
     },
     "configuration": {

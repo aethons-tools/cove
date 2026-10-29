@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { activate } from "../src/extension";
 import { fakeContext, mock } from "./vscode";
 
+const NAMES = ["conversation", "thinking", "previews", "status", "artifacts"];
 const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
 
 describe("the manifest", () => {
@@ -28,41 +29,52 @@ describe("the manifest", () => {
     expect(pkg.activationEvents).toEqual(["onUri"]);
   });
 
-  it("registers every contributed command in activate", () => {
+  it("every contributed command is registered by activate", () => {
     mock.reset();
     activate(fakeContext());
     const registered = vi_registered();
     const ids = pkg.contributes.commands.map((c: { command: string }) => c.command);
-    expect(ids.sort()).toEqual([
-      "jam.conversation.pin",
-      "jam.conversation.unpin",
-      "jam.focusSession",
-      "jam.forgetHostKey",
-      "jam.openSession",
-      "jam.signIn",
-      "jam.signOut",
-    ]);
+    expect(ids.sort()).toEqual(
+      ["jam.focusSession", "jam.forgetHostKey", "jam.openSession", "jam.signIn", "jam.signOut", ...NAMES.flatMap((n) => [`jam.${n}.pin`, `jam.${n}.unpin`])].sort(),
+    );
     for (const id of ids) expect(registered).toContain(id);
   });
 
-  it("contributes the Jam activity-bar container with the Conversation webview view", () => {
-    expect(pkg.contributes.viewsContainers).toEqual({ activitybar: [{ id: "jam", title: "Jam", icon: "media/jam.svg" }] });
-    expect(pkg.contributes.views).toEqual({ jam: [{ type: "webview", id: "jam.conversation", name: "Conversation" }] });
+  it("contributes the five views, with Thinking in the jamPanel container", () => {
+    expect(pkg.contributes.viewsContainers).toEqual({
+      activitybar: [{ id: "jam", title: "Jam", icon: "media/jam.svg" }],
+      panel: [{ id: "jamPanel", title: "Jam", icon: "media/jam.svg" }],
+    });
+    expect(pkg.contributes.views).toEqual({
+      jam: [
+        { type: "webview", id: "jam.conversation", name: "Conversation" },
+        { type: "webview", id: "jam.status", name: "Status" },
+        { type: "webview", id: "jam.artifacts", name: "Artifacts", visibility: "collapsed" },
+        { type: "webview", id: "jam.previews", name: "Previews", visibility: "collapsed" },
+      ],
+      jamPanel: [{ type: "webview", id: "jam.thinking", name: "Thinking" }],
+    });
     const cmd = (id: string) => pkg.contributes.commands.find((c: { command: string }) => c.command === id);
     expect(cmd("jam.focusSession")).toMatchObject({ title: "Focus Session…", category: "Jam" });
-    expect(cmd("jam.conversation.pin")).toMatchObject({ title: "Pin to This Session", icon: "$(pin)" });
-    expect(cmd("jam.conversation.unpin")).toMatchObject({ title: "Follow the Window's Session", icon: "$(pinned)" });
+    for (const n of NAMES) {
+      expect(cmd(`jam.${n}.pin`)).toEqual({ command: `jam.${n}.pin`, title: "Pin to This Session", icon: "$(pin)" });
+      expect(cmd(`jam.${n}.unpin`)).toEqual({ command: `jam.${n}.unpin`, title: "Follow the Window's Session", icon: "$(pinned)" });
+    }
   });
 
-  it("shows pin only with a session and unpinned, unpin only when pinned, neither in the palette", () => {
-    expect(pkg.contributes.menus["view/title"]).toEqual([
-      { command: "jam.conversation.pin", when: "view == jam.conversation && jam.conversation.hasSession && !jam.conversation.pinned", group: "navigation" },
-      { command: "jam.conversation.unpin", when: "view == jam.conversation && jam.conversation.pinned", group: "navigation" },
-    ]);
-    expect(pkg.contributes.menus.commandPalette).toEqual([
-      { command: "jam.conversation.pin", when: "false" },
-      { command: "jam.conversation.unpin", when: "false" },
-    ]);
+  it("the ten pin commands: pin only with a session and unpinned, unpin only when pinned, none in the palette", () => {
+    expect(pkg.contributes.menus["view/title"]).toEqual(
+      NAMES.flatMap((n) => [
+        { command: `jam.${n}.pin`, when: `view == jam.${n} && jam.${n}.hasSession && !jam.${n}.pinned`, group: "navigation" },
+        { command: `jam.${n}.unpin`, when: `view == jam.${n} && jam.${n}.pinned`, group: "navigation" },
+      ]),
+    );
+    expect(pkg.contributes.menus.commandPalette).toEqual(
+      NAMES.flatMap((n) => [
+        { command: `jam.${n}.pin`, when: "false" },
+        { command: `jam.${n}.unpin`, when: "false" },
+      ]),
+    );
   });
 
   it("media/jam.svg is a monochrome 24x24 mark", () => {

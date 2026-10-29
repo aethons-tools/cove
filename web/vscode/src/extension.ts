@@ -22,10 +22,11 @@ import { Router } from "./bridge/router";
 import { FocusModel, focusSessionCommand, sessionResolver } from "./focus";
 import { FocusReporter } from "./focusreport";
 import { LiveStream } from "./live";
-import { ConversationViewProvider } from "./panes/conversation";
 import { perform } from "./panes/actions";
 import type { ActionDeps } from "./panes/actions";
 import { PaneHub } from "./panes/hub";
+import { SESSION_PANES, SessionPaneProvider } from "./panes/session";
+import { ThinkingStreams } from "./thinking";
 
 const run: ExecFile = (file, args) => promisify(execFile)(file, args).then((r) => ({ stdout: String(r.stdout), stderr: String(r.stderr) }));
 
@@ -160,7 +161,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     void vscode.window.showInformationMessage(`Forgot the host key of jam-${studio}.`);
   });
 
-  // --- The Conversation view and what it shares with the window. ---
+  // --- The session views and what they share with the window. ---
   const jamUrl = (): string | Error => jamSettings().url;
   // The current sign-in for jam.url, read fresh on every use: tokens come only
   // from auth.session(currentJamUrl).
@@ -185,6 +186,14 @@ export function activate(ctx: vscode.ExtensionContext): void {
     })().catch(show);
 
   const live = new LiveStream({
+    session: current,
+    fetch: (...a) => fetch(...a),
+    onSignedOut: panesSignedOut,
+    setTimeout,
+    clearTimeout,
+    random: Math.random,
+  });
+  const thinking = new ThinkingStreams({
     session: current,
     fetch: (...a) => fetch(...a),
     onSignedOut: panesSignedOut,
@@ -220,11 +229,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
   rep.windowFocused(vscode.window.state.focused);
   ctx.subscriptions.push(vscode.window.onDidChangeWindowState((s) => rep.windowFocused(s.focused)));
 
-  // Signing in reconnects the stream with the new token; signing out
-  // reconnects it to nothing, so the old token is no longer used.
+  // Signing in reconnects the streams with the new token; signing out
+  // reconnects them to nothing, so the old token is no longer used.
   const offAuth = auth.onChange((s) => {
     if (s) signingOut = false;
     live.restart();
+    thinking.restart();
   });
   ctx.subscriptions.push({ dispose: offAuth });
 
@@ -239,25 +249,29 @@ export function activate(ctx: vscode.ExtensionContext): void {
       if (u instanceof Error) throw u;
       void vscode.env.openExternal(vscode.Uri.parse(`${u}/app/user/boards/${id}`));
     },
-    openSession: (id) => openSession(openDeps, id),
-    scrollConversation: (anchor) => conversation.scrollTo(anchor),
+    openSession: (id) => guard(() => openSession(openDeps, id))(),
+    scrollConversation: (anchor) => providers.get("conversation")!.scrollTo(anchor),
     error: (m) => void vscode.window.showErrorMessage(m),
   };
-  const conversation: ConversationViewProvider = new ConversationViewProvider({
-    extensionUri: ctx.extensionUri,
-    hub,
-    router,
-    model,
-    reporter: rep,
-    auth,
-    jamUrl,
-    perform: (a) => perform(a, actionDeps),
-    windowStudio: () => studioFromAuthority(windowAuthority(vscode.workspace)),
-    executeCommand: exec,
-  });
-  ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(ConversationViewProvider.viewType, conversation));
+  const providers = new Map<string, SessionPaneProvider>();
+  for (const name of SESSION_PANES) {
+    const p = new SessionPaneProvider(name, {
+      extensionUri: ctx.extensionUri,
+      hub,
+      router,
+      thinking,
+      model,
+      reporter: rep,
+      auth,
+      jamUrl,
+      windowStudio: windowDefault,
+      perform: (a) => void perform(a, actionDeps),
+      executeCommand: exec,
+    });
+    providers.set(name, p);
+    ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(p.viewType, p));
+  }
 
-  const view = ConversationViewProvider.viewType;
   const reg = (id: string, cb: (...a: unknown[]) => unknown) => ctx.subscriptions.push(vscode.commands.registerCommand(id, cb));
   reg("jam.signIn", signIn);
   reg("jam.signOut", guard(() => auth.signOut()));
@@ -270,8 +284,11 @@ export function activate(ctx: vscode.ExtensionContext): void {
       await focusSessionCommand({ api, ui, model, hasDefault: windowDefault !== undefined });
     }),
   );
-  reg("jam.conversation.pin", guard(async () => void (model.isPinned(view) || (await model.togglePin(view)))));
-  reg("jam.conversation.unpin", guard(async () => void (model.isPinned(view) && (await model.togglePin(view)))));
+  for (const name of SESSION_PANES) {
+    const view = `jam.${name}`;
+    reg(`${view}.pin`, guard(async () => void (model.isPinned(view) || (await model.togglePin(view)))));
+    reg(`${view}.unpin`, guard(async () => void (model.isPinned(view) && (await model.togglePin(view)))));
+  }
 
   ctx.subscriptions.push(
     vscode.window.registerUriHandler({

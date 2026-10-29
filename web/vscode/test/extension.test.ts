@@ -43,16 +43,16 @@ function jamFetch(calls: Call[]) {
 }
 
 describe("activate", () => {
-  it("activate registers the view provider and seven commands", () => {
+  it("activate registers five view providers and fifteen commands", () => {
     mock.reset();
     const ctx = fakeContext();
     activate(ctx);
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(7);
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(15);
     expect(vscode.window.registerUriHandler).toHaveBeenCalledTimes(1);
-    expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(1);
-    const [id, , opts] = vi.mocked(vscode.window.registerWebviewViewProvider).mock.calls[0] as unknown as [string, unknown, { webviewOptions?: { retainContextWhenHidden?: boolean } } | undefined];
-    expect(id).toBe("jam.conversation");
-    expect(opts?.webviewOptions?.retainContextWhenHidden).toBeUndefined();
+    expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(5);
+    const calls = vi.mocked(vscode.window.registerWebviewViewProvider).mock.calls as unknown as [string, unknown, { webviewOptions?: { retainContextWhenHidden?: boolean } } | undefined][];
+    expect(calls.map((c) => c[0])).toEqual(["jam.conversation", "jam.thinking", "jam.previews", "jam.status", "jam.artifacts"]);
+    for (const [, , opts] of calls) expect(opts?.webviewOptions?.retainContextWhenHidden).toBeUndefined();
     deactivate();
   });
 
