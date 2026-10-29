@@ -245,7 +245,7 @@ The consent page is **server-rendered HTML**, not an SPA route. It lives on the 
 - `Bearer` resolves the token and builds `Principal{User: &participant-or-nil, Admin: t.Operator(), Operator: jam.Operator{ID: t.OperatorID}}`, then calls `WithPrincipal` and `Live.Track`. A user in no project gets `User == nil`, so `RequireUser` answers `403`.
 - `Run`'s sweep validity check is `AppTokenByID` present, not `Expired`, and `GetUser` live.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - appui, with a fake `BearerFunc`:
     - `TestUserBearerReachesHandlerWithoutOrigin`: a POST with no Origin is 200, and `PrincipalFrom` is set.
     - `TestUserBearerWithCookie400`, for each of the two cookies.
@@ -262,10 +262,10 @@ The consent page is **server-rendered HTML**, not an SPA route. It lives on the 
     - `TestLiveDoneUntracks`.
     - `TestLiveSweepCancelsRemovedUser`.
     - `TestRevokeEndsEventStream`. It mounts the real `userui` `/app/user/events` behind `appui.Handler` with `Bearer`, opens the stream with `httptest.NewServer`, calls `Live.Revoke`, and expects the body to hit EOF within 1 s (Review Focus 4).
-- [ ] **Step 2:** `go test ./internal/jam/appui/ ./internal/jam/apptoken/` → FAIL.
-- [ ] **Step 3:** Implement and wire.
-- [ ] **Step 4:** `go test ./internal/jam/... ./cmd/jam/` → PASS.
-- [ ] **Step 5: Commit** `feat(jam): app tokens as bearer on /app/user; never /app/admin`.
+- [x] **Step 2:** `go test ./internal/jam/appui/ ./internal/jam/apptoken/` → FAIL.
+- [x] **Step 3:** Implement and wire.
+- [x] **Step 4:** `go test ./internal/jam/... ./cmd/jam/` → PASS.
+- [x] **Step 5: Commit** `feat(jam): app tokens as bearer on /app/user; never /app/admin`.
 
 ### Task 5: App tokens on /me/studios
 

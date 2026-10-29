@@ -27,6 +27,7 @@ import (
 type Config struct {
 	Store          jam.Store
 	Sessions       *appui.Sessions // the browser login's session resolver (required)
+	Live           *Live           // the open bearer requests; nil = a new one
 	TrustedOrigins []string        // extra origins the consent form may post from
 	Brand          string          // the title-bar brand; "" = "Jam"
 	Now            func() time.Time
@@ -37,6 +38,7 @@ type Config struct {
 type Service struct {
 	c     Config
 	codes *codes
+	live  *Live
 }
 
 // New returns the service.
@@ -50,7 +52,10 @@ func New(c Config) *Service {
 	if c.Brand == "" {
 		c.Brand = "Jam"
 	}
-	return &Service{c: c, codes: newCodes(c.Now)}
+	if c.Live == nil {
+		c.Live = NewLive()
+	}
+	return &Service{c: c, codes: newCodes(c.Now), live: c.Live}
 }
 
 const (
@@ -91,8 +96,9 @@ func (s *Service) Routes() http.Handler {
 	return mux
 }
 
-// Run prunes expired codes every few seconds and drops expired tokens
-// hourly, until ctx ends.
+// Run, until ctx ends: every few seconds it prunes expired codes and ends the
+// open requests of tokens no longer valid (revoked, expired, user removed);
+// hourly it deletes expired tokens.
 func (s *Service) Run(ctx context.Context) {
 	tick := time.NewTicker(sweepEvery)
 	defer tick.Stop()
@@ -104,10 +110,15 @@ func (s *Service) Run(ctx context.Context) {
 		case <-tick.C:
 		}
 		s.codes.prune()
+		s.sweep()
 		if now := s.c.Now(); now.Sub(lastExpire) >= expireEvery {
 			lastExpire = now
-			if _, err := s.c.Store.DeleteExpiredAppTokens(now); err != nil {
+			gone, err := s.c.Store.DeleteExpiredAppTokens(now)
+			if err != nil {
 				s.c.Log.Warn("app tokens: expiry sweep failed", "err", err)
+			}
+			for _, id := range gone {
+				s.live.Revoke(id)
 			}
 		}
 	}
@@ -305,6 +316,7 @@ func (s *Service) exchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, id := range evicted {
+		s.live.Revoke(id)
 		s.c.Log.Info("app token evicted", "user", u.ID, "token", id)
 	}
 	s.c.Log.Info("app token issued", "user", u.ID, "token", t.ID, "label", t.Label, "operator", t.Operator())

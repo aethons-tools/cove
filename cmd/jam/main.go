@@ -2869,6 +2869,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// wakes a waiting studio; the app reads the same channel log, and the
 		// legacy log as History.
 		userMux := http.NewServeMux()
+		// The open app-token requests, so a revoke ends them.
+		appTokenLive := apptoken.NewLive()
 		// The Jam pane's one-time frame tickets (docs/usage/jam/previews.md
 		// "Framing"): the previews' login trades them for frame sessions and
 		// prunes them.
@@ -2922,15 +2924,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// lets a sibling subdomain post as the user.
 		// App tokens (docs/usage/jam/app-tokens.md): minted only from a
 		// verified browser session, so only with browser login.
+		// They act as their user on /app/user and /me/studios, never on
+		// /app/admin; revoking one ends its open /app/user requests (live).
 		var appTokenRoutes http.Handler
+		var appTokenBearer appui.BearerFunc
 		if sessions != nil {
-			appTokens := apptoken.New(apptoken.Config{Store: st, Sessions: sessions, TrustedOrigins: cfg.UIOrigins,
+			appTokens := apptoken.New(apptoken.Config{Store: st, Sessions: sessions, Live: appTokenLive, TrustedOrigins: cfg.UIOrigins,
 				Brand: appBrand(cfg.displayName()), Now: time.Now, Log: log})
-			appTokenRoutes = appTokens.Routes()
+			appTokenRoutes, appTokenBearer = appTokens.Routes(), appTokens.Bearer()
 			go appTokens.Run(context.Background())
 		}
 		browser := appui.Handler(appui.Deps{
 			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, AppTokenRoutes: appTokenRoutes, User: userMux,
+			Bearer: appTokenBearer, SessionCookies: []string{browserauth.AppMount().IDCookie(), browserauth.AppMount().AccessCookie()},
 			Admin:          adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...),
 			TrustedOrigins: cfg.UIOrigins,
 			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil, AdminBadges: adminui.BadgeSource(st, sup, conds)},
