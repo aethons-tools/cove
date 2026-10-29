@@ -44,7 +44,7 @@ Each view is an independent webview that follows the window's focused session wi
   - a hidden view holds no feed: its subscriptions close on hide and on every `ready`.
 - **Previews:**
   - a port is forwarded only when the intent's session equals the *window's studio*, which is `studioFromAuthority(windowAuthority(workspace))`, never the focused session;
-  - otherwise, or when the forward fails (`asExternalUri` throws or returns `http://localhost:<port>/` unchanged), the preview's own `url` opens in the browser;
+  - otherwise, or when the forward fails (`asExternalUri` throws; an unchanged `http://localhost:<port>/` counts as forwarded, since VS Code reuses a free local port), the preview's own `url` opens in the browser;
   - `url` must be `http:`/`https:` in both cases;
   - `port` is an integer in 1–65535.
 - **Ids** use `ID_RE` (slice 3). Stream ids are `^[0-9a-f]{32}$` (`sessionevents.ValidStreamID`). A reveal anchor is `^ask-[A-Za-z0-9_-]{1,80}$`.
@@ -378,7 +378,7 @@ Each view is an independent webview that follows the window's focused session wi
     - the other kinds are unchanged.
   - **`perform`:**
     - `forwardPort`: `u = await asExternalUri("http://localhost:<port>/")`. With `inBrowser` it calls `openExternal(u)`, else `executeCommand("simpleBrowser.show", u)`;
-    - **fallback** (the user's ruling, if a UI extension can't forward): when `asExternalUri` throws, or returns `http://localhost:<port>/` unchanged, `openExternal(url)` opens the preview's web URL in the system browser instead; a throw also shows "Couldn't forward port <port>: <message>" through `error`;
+    - **fallback** (the user's ruling, if a UI extension can't forward): when `asExternalUri` throws (an unchanged `http://localhost:<port>/` counts as forwarded), `openExternal(url)` opens the preview's web URL in the system browser instead; a throw also shows "Couldn't forward port <port>: <message>" through `error`;
     - `revealConversation`: `executeCommand("jam.conversation.focus")`, then `scrollConversation(anchor)` when one is set. The provider keeps that one anchor pending and re-posts it on the Conversation pane's next `ready`, so a view resolved by the focus still scrolls. An ask from a session the Conversation view doesn't show doesn't scroll (documented);
     - `openBoard`, `openSession`, `openExternal` and `command` call their deps. In this task `extension.ts`'s `openBoard` opens `<jam>/app/user/boards/<id>` in the browser, until Task 7.
     - Errors from deps are caught, and the action is shown through `error`.
