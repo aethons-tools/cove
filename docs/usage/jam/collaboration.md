@@ -4,7 +4,7 @@ read_when: You want to SSH or point an IDE at an agent's studio, let a teammate 
 owns: the studio-collaboration user and operator guide — jam ssh-config/ssh-proxy/ssh and login --participant, the access rules and share grants (studio share/unshare/access, revocation) for every right, the ssh: serve-config block's setup steps, and the tunnel/cert mechanism at the level an operator needs
 prereqs: serve.md (serve config, credentials), roster.md (roles, users), operators.md (login)
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-29
 ---
 
 # Studio collaboration (SSH, IDEs and previews)
@@ -57,8 +57,9 @@ never touching the operator token. Your IdP login must be linked to a Jam user
 ID tokens are short-lived — their lifetime is set by your IdP, typically
 about 1 h — and the device flow gives no refresh, so when one expires (a 401), run `jam login --participant` again.
 
-Jam mounts the participant routes (`/me/studios/{id}/ssh*`) only when
-`operator-auth.oidc.device-client-id` and `ssh:` are both set. Operators use
+The participant routes (`/me/studios/{id}/ssh*`) take an
+[app token](app-tokens.md) or a `login --participant` ID token. Jam mounts them
+when `ssh:` is set; `operator-auth.oidc.device-client-id` only adds ID tokens. Operators use
 `/admin/studios/{id}/ssh*` with the admin bearer.
 
 ## The ssh commands

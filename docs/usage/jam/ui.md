@@ -4,7 +4,7 @@ read_when: You want to expose Jam in a browser, understand who may reach /app/us
 owns: the `/app` route table, the legacy `/ui`·`/me` 308 redirects and the old admin pages' 302 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; installing the app (manifest, service worker, icons); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-10-28
+updated: 2026-10-29
 ---
 
 # The Jam app (`/app/`)
@@ -22,6 +22,7 @@ http://127.0.0.1:8081/app/
 | `/app/user/*` | the Inbox — the Jam app ([intercom-ui.md](intercom-ui.md)) and its API — and [`POST /app/user/send`](#sending-post-appusersend) |
 | `/app/admin/*` | the admin console, the Jam app's admin area ([ui-console.md](ui-console.md)); its JSON API is `/app/admin/api/` ([web-app.md](../../web-app.md#admin-area)) |
 | `/app/auth/{login,callback,logout}` | the one browser login (ungated) |
+| `/app/auth/app-token`, `/app/auth/app-token/exchange` | sign-in for a client such as VS Code ([app-tokens.md](app-tokens.md)) |
 | `/app/static/*` | `jam.css` (for the 403 page), the brand mark and app icons (ungated) |
 | `/app/manifest.webmanifest`, `/app/sw.js` | the [installable app](#installing-the-app)'s manifest and service worker (ungated) |
 

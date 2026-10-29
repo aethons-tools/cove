@@ -4,7 +4,7 @@ read_when: You are changing the Jam app in web/app, adding a /app/user/api or /a
 owns: the web/app source layout, the admin area's mount, API and Config tree plumbing, the shared /app/assets/ path, `just app` / `app-dev` / `app-check`, scripts/app.sh and the size budget, the webapp serving package (bootstrap, CSP, not-built page), the tygo type generation, and the app's test layers
 prereqs: usage/jam/intercom-ui.md for what the user area does; superpowers/specs/2026-10-26-jam-spa-design.md for why
 tier: leaf
-updated: 2026-10-28
+updated: 2026-10-29
 ---
 
 # The Jam app (`web/app`)
@@ -90,4 +90,5 @@ Rules:
 - The app page's CSP allows only same-origin scripts. `style-src` permits inline styles for Mantine.
 - Its `frame-src` is the preview hosts (`https://*.<previews domain>[:admin port]`, `appFrameSrc`) when pane framing is on (previews and `ui-origins` set), else `'none'`; the frame boundary itself is [previews.md](usage/jam/previews.md)'s.
 - `dangerouslySetInnerHTML` is banned by ESLint except for the squawkrender message body.
+- A bearer request skips the same-origin check (no cookie, no CSRF), and the app never sees an app token: [app-tokens.md](usage/jam/app-tokens.md).
 - The bootstrap is a JSON data block (`json.Marshal` escapes `<`), never script.

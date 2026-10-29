@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for the studio image and its security model
 tier: section
-updated: 2026-10-28
+updated: 2026-10-29
 ---
 
 # `jam` — operating the central service
@@ -86,6 +86,7 @@ five pillars), see the design history:
 | [turn-end.md](turn-end.md) | You want a ticket session to report its ticket's state or a session to end itself, to be woken at a time or on a schedule (optionally gated by a check), or to be woken (or torn down) after sitting idle; or you need to know why a studio shows `holding`, what a woken agent is told about why it woke, or how Jam decides a session whose turn ended may be woken, paused, or torn down. |
 | [intercom-ui.md](intercom-ui.md) | You want a project member to read/reply to their studios and channels in a browser — the `/app/user` Jam app (attention-grouped rail, conversations, New message, New session, asks, the composer, unread, live refresh, the session status strip) — or you're operating it (its URLs and old-link redirects). |
 | [session-view.md](session-view.md) | You're using or extending a session's conversation in `/app/user` — its header and actions, the Studio (in-pane IDE)/Previews (View here)/Artifacts/Status/Thinking pane (what the agent thinks and does), its per-session layout memory, or who sees a session's cost. |
+| [app-tokens.md](app-tokens.md) | You are signing a client (the VS Code extension) in to Jam with an app token — the consent/PKCE flow, lifetimes, operator standing, what a bearer may reach (a 400/401/403), the per-user cap — or revoking one. |
 | [push.md](push.md) | You want Jam to send push notifications to members' phones and desktops — `jam push keygen`, the VAPID credential, `runtime.push`, the push-service egress hosts — or a member asks about the Notifications menu item (missing, "Blocked", the iOS Home Screen rule), what buzzes them, lock-screen previews, the app badge, or sign-out on a shared device. |
 | [push-delivery.md](push-delivery.md) | You're debugging push delivery (`push:relay` open, `push: send refused`, a subscription vanished, a late or missing push) or extending the `/app/user/push/*` routes (key, subscriptions, focus) or the endpoint allowlist. |
 | [comms-addressing.md](comms-addressing.md) | You want a studio's agent to send to a named human or channel instead of only its own ticket — the target space, a Project's members and rooms, the comms access-graph (`Scope.Addressing`), and `send(to=…)`/`list_targets`. |
