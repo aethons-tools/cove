@@ -24,6 +24,9 @@ func (s *Service) Bearer() appui.BearerFunc {
 		}
 		r = appui.WithPrincipal(r, p)
 		ctx, done := s.live.Track(r.Context(), t.ID)
+		if !s.valid(t.ID) { // revoked between resolve and Track: Revoke found nothing to cancel
+			s.live.Revoke(t.ID)
+		}
 		return r.WithContext(ctx), done, nil
 	}
 }

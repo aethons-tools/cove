@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/userui"
@@ -177,5 +178,35 @@ func TestExchangeEvictionRevokesLive(t *testing.T) {
 	}
 	if ctx.Err() == nil {
 		t.Fatal("evicted token's request still running")
+	}
+}
+
+// touchDeleteStore deletes the token right after its touch, standing in for a
+// revoke that lands between ResolveAppToken and Live.Track.
+type touchDeleteStore struct {
+	jam.Store
+	del func(ident.ID)
+}
+
+func (s touchDeleteStore) TouchAppToken(id ident.ID, used, exp time.Time) error {
+	err := s.Store.TouchAppToken(id, used, exp)
+	s.del(id)
+	return err
+}
+
+func TestBearerRevokedBetweenResolveAndTrackIsCancelled(t *testing.T) {
+	f := newFixture(t)
+	tok, raw := f.token(f.alice, "")
+	svc := New(Config{Store: touchDeleteStore{Store: f.store, del: func(id ident.ID) { _, _ = f.store.DeleteUserAppToken(f.alice.ID, id) }},
+		Sessions: f.svc.c.Sessions, Now: func() time.Time { return f.now.Add(jam.AppTokenTouchEvery) }}) // late enough to touch
+	rr, done, err := svc.Bearer()(httptest.NewRequest("GET", "/app/user/events", nil), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer done()
+	select {
+	case <-rr.Context().Done():
+	default:
+		t.Fatalf("request of revoked token %s still open", tok.ID)
 	}
 }

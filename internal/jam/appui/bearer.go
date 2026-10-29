@@ -78,7 +78,11 @@ func refuseOnBearer(paths []string, next http.Handler) http.Handler {
 		refused[p] = true
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if refused[r.Method+" "+r.URL.Path] {
+		m := r.Method
+		if m == http.MethodHead { // a GET pattern serves HEAD too
+			m = http.MethodGet
+		}
+		if refused[m+" "+r.URL.Path] {
 			http.Error(w, "app tokens can't use this route", http.StatusForbidden)
 			return
 		}

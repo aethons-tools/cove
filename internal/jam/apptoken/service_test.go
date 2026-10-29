@@ -445,3 +445,16 @@ func TestExchangeReplayWrongVerifierWrongRedirectExpired(t *testing.T) {
 		}
 	})
 }
+
+func TestConsentPostMaxRedirectAndStateStillAllowed(t *testing.T) {
+	f := newFixture(t)
+	redirect := "vscode://aethons.jam/" + strings.Repeat("é", (2048-len("vscode://aethons.jam/"))/2)
+	q := consentQuery(func(q url.Values) {
+		q.Set("redirect", redirect)
+		q.Set("state", strings.Repeat("~", 512))
+	})
+	if w := f.get(q, idCookie+"=id:sub-alice"); w.Code != http.StatusOK {
+		t.Fatalf("get: %d", w.Code)
+	}
+	f.allow(q, idCookie+"=id:sub-alice")
+}

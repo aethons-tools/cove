@@ -97,7 +97,7 @@ func TestUserBearerInvalid401(t *testing.T) {
 func TestUserBearerPushRoutesRefused(t *testing.T) {
 	m := bearerMux(t, &fakeBearer{})
 	for _, c := range []struct{ method, path string }{
-		{"POST", "/app/user/push/subscriptions"}, {"DELETE", "/app/user/push/subscriptions"}, {"GET", "/app/user/push/key"},
+		{"POST", "/app/user/push/subscriptions"}, {"DELETE", "/app/user/push/subscriptions"}, {"GET", "/app/user/push/key"}, {"HEAD", "/app/user/push/key"},
 	} {
 		if w := serveReq(m, bearerReq(c.method, c.path, "good", false)); w.Code != http.StatusForbidden {
 			t.Errorf("%s %s: %d", c.method, c.path, w.Code)

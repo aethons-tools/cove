@@ -62,9 +62,12 @@ const (
 	consentPath  = "/app/auth/app-token"
 	exchangePath = "/app/auth/app-token/exchange"
 	maxExchange  = 4 << 10
-	sweepEvery   = 5 * time.Second
-	expireEvery  = time.Hour
-	consentCSP   = "default-src 'none'; style-src 'self'; form-action 'self' vscode: vscode-insiders:; frame-ancestors 'none'"
+	// maxConsentForm fits the longest legal redirect (2048 bytes) and state
+	// (512) with every byte percent-encoded, plus the other fields.
+	maxConsentForm = 16 << 10
+	sweepEvery     = 5 * time.Second
+	expireEvery    = time.Hour
+	consentCSP     = "default-src 'none'; style-src 'self'; form-action 'self' vscode: vscode-insiders:; frame-ancestors 'none'"
 )
 
 // redirectPrefixes are the only redirect targets: the Jam extension's URI
@@ -221,7 +224,7 @@ func (s *Service) consentPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) consentDecide(w http.ResponseWriter, r *http.Request) {
 	securityHeaders(w)
-	r.Body = http.MaxBytesReader(w, r.Body, maxExchange)
+	r.Body = http.MaxBytesReader(w, r.Body, maxConsentForm)
 	if err := r.ParseForm(); err != nil {
 		badRequest(w)
 		return
