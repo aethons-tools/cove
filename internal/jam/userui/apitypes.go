@@ -240,7 +240,8 @@ type AnswerRequest struct {
 type SessionHead struct {
 	ID       string     `json:"id"`
 	Label    string     `json:"label"`
-	Kind     string     `json:"kind"` // standing | personal | ticket | session
+	Channel  string     `json:"channel"` // the session's home channel (/app/user/c/<channel>)
+	Kind     string     `json:"kind"`    // standing | personal | ticket | session
 	Ticket   string     `json:"ticket"`
 	Role     string     `json:"role"`
 	Project  string     `json:"project"`

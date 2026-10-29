@@ -275,6 +275,7 @@ export interface AnswerRequest {
 export interface SessionHead {
   id: string;
   label: string;
+  channel: string; // the session's home channel (/app/user/c/<channel>)
   kind: string; // standing | personal | ticket | session
   ticket: string;
   role: string;

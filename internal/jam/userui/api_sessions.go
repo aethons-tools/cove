@@ -41,11 +41,11 @@ func (h *handler) openSession(w http.ResponseWriter, r *http.Request) (jam.Parti
 }
 
 func (h *handler) apiSessionHead(w http.ResponseWriter, r *http.Request) {
-	p, inst, _, ok := h.openSession(w, r)
+	p, inst, home, ok := h.openSession(w, r)
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, h.sessionHead(r, p, inst))
+	writeJSON(w, http.StatusOK, h.sessionHead(r, p, inst, home))
 }
 
 func (h *handler) apiSessionPane(w http.ResponseWriter, r *http.Request) {

@@ -129,15 +129,15 @@ The web app's session header gets an *Open in VS Code* button, and `jam ssh-prox
   - `export const vscodeLink = (id: string) => \`vscode://aethons.jam/session/${encodeURIComponent(id)}\``.
   - The button is `<Button component="a" href={vscodeLink(h.id)} size="compact-xs" variant="default" title="Open this session's studio in VS Code (needs the Jam extension)">Open in VS Code</Button>`, placed right after Copy SSH and rendered only when `h.ssh` is set.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - `TestAPISessionHeadChannel`: `channel` equals the session's home channel id.
   - Vitest:
     - `Open in VS Code links to the extension when SSH is allowed`: `getByRole("link", { name: "Open in VS Code" })` has `href` `vscode://aethons.jam/session/ses_1`.
     - The existing hidden-actions test (`ssh: ""`) also expects `queryByRole("link", { name: "Open in VS Code" })` to be null.
-- [ ] **Step 2:** `go test ./internal/jam/userui/ -run SessionHead && (cd web/app && npx vitest run src/session)` → FAIL.
-- [ ] **Step 3:** Implement. Run `go generate ./internal/jam/userui/`.
-- [ ] **Step 4:** `go test ./internal/jam/userui/ && just app-check` → PASS.
-- [ ] **Step 5: Commit** `feat(app): Open in VS Code in the session header; session head carries its channel`.
+- [x] **Step 2:** `go test ./internal/jam/userui/ -run SessionHead && (cd web/app && npx vitest run src/session)` → FAIL.
+- [x] **Step 3:** Implement. Run `go generate ./internal/jam/userui/`.
+- [x] **Step 4:** `go test ./internal/jam/userui/ && just app-check` → PASS.
+- [x] **Step 5: Commit** `feat(app): Open in VS Code in the session header; session head carries its channel`.
 
 ### Task 3: Extension skeleton, settings, build, CI and release
 

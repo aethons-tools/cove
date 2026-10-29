@@ -88,11 +88,12 @@ func (h *handler) headSession(p jam.Participant, sel string) (jam.Instance, bool
 	return jam.Instance{}, false
 }
 
-func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Instance) SessionHead {
+// sessionHead is inst's header for p; home is its home channel.
+func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Instance, home string) SessionHead {
 	now := time.Now()
 	pr, _ := appui.PrincipalFrom(r)
 	op := pr.Admin
-	hd := SessionHead{ID: inst.ActorID, Label: inst.Name, Kind: kindLabel(inst), Role: inst.Role, Project: jam.ProjectName(h.d.Store, inst.Project),
+	hd := SessionHead{ID: inst.ActorID, Label: inst.Name, Channel: home, Kind: kindLabel(inst), Role: inst.Role, Project: jam.ProjectName(h.d.Store, inst.Project),
 		Ticket: inst.Unit, OpenAsks: inst.OpenAsks, Uptime: since(now, inst.RaisedAt), Mission: inst.Mission}
 	if hd.Label == "" {
 		hd.Label = inst.ActorID

@@ -13,7 +13,7 @@ const head = (over: Partial<SessionHead> = {}): SessionHead => ({
   cost: "$1.20", turnCost: "$0.10", tokens: "1,200 in / 300 out tokens", context: "ctx 84k / 200k · 42%",
   contextTip: "context: 84,300 of 200,000 tokens (claude-x)", uptime: "2h 5m", mission: "Jam SPA slice 5", ssh: "jam ssh ses_1",
   studio: false, canRelease: false, canRestart: true, canUpgrade: true, ops: true,
-  canInterrupt: true, canCompact: false, canClear: true, restartLabel: "Restart", upgradeState: "", ...over,
+  canInterrupt: true, canCompact: false, canClear: true, restartLabel: "Restart", upgradeState: "", channel: "chn_s", ...over,
 });
 const pane = (tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
   id: "ses_1", tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false, studio: false, ideOpen: "", ...over,
@@ -90,6 +90,13 @@ describe("the session header", () => {
     renderApp(boot, "/app/user/c/chn_s");
     await screen.findByRole("region", { name: "Session" });
     for (const name of ["Interrupt", "More actions", "Copy SSH"]) expect(screen.queryByRole("button", { name })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open in VS Code" })).toBeNull();
+  });
+
+  it("Open in VS Code links to the extension when SSH is allowed", async () => {
+    serve(head());
+    renderApp(boot, "/app/user/c/chn_s");
+    expect(await screen.findByRole("link", { name: "Open in VS Code" })).toHaveAttribute("href", "vscode://aethons.jam/session/ses_1");
   });
 
   it("shows the server's refusal, and changes nothing", async () => {
