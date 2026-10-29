@@ -1,0 +1,3 @@
+/* The webview's own background shows through (VS Code's side bar colour). */
+:root { --mantine-color-body: transparent; }
+html, body, #root { height: 100%; margin: 0 }
