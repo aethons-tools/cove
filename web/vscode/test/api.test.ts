@@ -15,6 +15,15 @@ describe("JamApi", () => {
     expect(init.headers).toMatchObject({ Authorization: "Bearer tok", Accept: "application/json" });
     expect(init.redirect).toBe("error");
   });
+  it("pushFocus posts the channel and accepts 204", async () => {
+    const { f, api } = mk(new Response(null, { status: 204 }));
+    await api.pushFocus("chn_x");
+    await api.pushFocus(null).catch(() => undefined);
+    const [url, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://j/app/user/push/focus");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ channel: "chn_x" });
+  });
   it("401 throws SignedOutError", async () => {
     await expect(mk(new Response("no", { status: 401 })).api.rail()).rejects.toBeInstanceOf(SignedOutError);
   });

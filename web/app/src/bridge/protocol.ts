@@ -17,7 +17,9 @@ export type BridgeResponse =
   | { kind: "signedOut" }
   | { kind: "refused"; reason: string };
 export type SessionTarget = { session: string; label: string; channel: string } | { session: string; gone: true };
-export type PaneState = { signedIn: boolean; target: SessionTarget | null; pinned: boolean; elsewhere: boolean };
+// error: the focused session couldn't be looked up (not a 404); the pane offers
+// Try again, which is a new ready.
+export type PaneState = { signedIn: boolean; target: SessionTarget | null; pinned: boolean; elsewhere: boolean; error?: string };
 export type OpenIntent =
   | { kind: "board"; id: string }
   | { kind: "conversation"; channel: string }

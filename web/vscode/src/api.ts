@@ -37,6 +37,10 @@ export class JamApi {
   conversation(c: string): Promise<Conversation> {
     return this.req("GET", `/app/user/api/conversations/${seg(c)}`);
   }
+  // pushFocus reports the conversation open in a focused pane (null: none).
+  async pushFocus(channel: string | null): Promise<void> {
+    await this.req<void>("POST", "/app/user/push/focus", { channel });
+  }
   async issueCert(studio: string, publicKey: string): Promise<{ certificate: string; expiresAt: string }> {
     const r = await this.req<{ certificate: string; expires_at: string }>(
       "POST",
@@ -69,6 +73,7 @@ export class JamApi {
       }
       throw new ApiError(msg || `HTTP ${res.status}`, res.status, code);
     }
+    if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
   }
 }

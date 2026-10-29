@@ -18,8 +18,31 @@
       { "command": "jam.signIn", "title": "Sign In", "category": "Jam" },
       { "command": "jam.signOut", "title": "Sign Out", "category": "Jam" },
       { "command": "jam.openSession", "title": "Open Session…", "category": "Jam" },
-      { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" }
+      { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" },
+      { "command": "jam.focusSession", "title": "Focus Session…", "category": "Jam" },
+      { "command": "jam.conversation.pin", "title": "Pin to This Session", "icon": "$(pin)" },
+      { "command": "jam.conversation.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" }
     ],
+    "viewsContainers": {
+      "activitybar": [{ "id": "jam", "title": "Jam", "icon": "media/jam.svg" }]
+    },
+    "views": {
+      "jam": [{ "type": "webview", "id": "jam.conversation", "name": "Conversation" }]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "jam.conversation.pin",
+          "when": "view == jam.conversation && jam.conversation.hasSession && !jam.conversation.pinned",
+          "group": "navigation"
+        },
+        { "command": "jam.conversation.unpin", "when": "view == jam.conversation && jam.conversation.pinned", "group": "navigation" }
+      ],
+      "commandPalette": [
+        { "command": "jam.conversation.pin", "when": "false" },
+        { "command": "jam.conversation.unpin", "when": "false" }
+      ]
+    },
     "configuration": {
       "title": "Jam",
       "properties": {

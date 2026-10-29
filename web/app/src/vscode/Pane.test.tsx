@@ -108,6 +108,16 @@ describe("the Conversation pane", () => {
     expect(h.posted).toContainEqual({ type: "open", intent: { kind: "focusSession" } });
   });
 
+  it("a lookup error shows it with Try again, which posts ready", async () => {
+    const { h } = mount();
+    act(() => { h.state({ ...signedIn(null), error: "Jam is unreachable" }); });
+    expect(await screen.findByText("Couldn't load the focused session: Jam is unreachable")).toBeInTheDocument();
+    expect(screen.queryByText(/This window isn't on a Jam studio/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(h.posted).toContainEqual({ type: "ready", pane: "conversation" });
+    expect(h.requests).toEqual([]);
+  });
+
   it("a new target switches the conversation", async () => {
     const { h } = mount(routesFor("chn_b"));
     act(() => { h.state(signedIn(at("chn_a"))); });

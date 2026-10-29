@@ -26,11 +26,13 @@ export function Pane({ bridge }: { bridge: Bridge }): JSX.Element {
   const scheme = useVscodeScheme();
   const signIn = useCallback(() => bridge.post({ type: "signIn" }), [bridge]);
   const focus = () => bridge.post({ type: "open", intent: { kind: "focusSession" } });
+  const retry = () => bridge.post({ type: "ready", pane: "conversation" });
   return (
     <MantineProvider forceColorScheme={scheme} theme={theme}>
       <Notifications />
       {!view ? null
         : !view.s.signedIn ? <Copy text="Sign in to Jam to see this conversation." action="Sign in" onClick={signIn} />
+        : view.s.error !== undefined ? <Copy text={`Couldn't load the focused session: ${view.s.error}`} action="Try again" onClick={retry} />
         : !view.s.target ? <Copy text="This window isn't on a Jam studio. Focus a session to see its conversation." action="Focus a session…" onClick={focus} />
         : "gone" in view.s.target ? <Copy text="That session has ended, or you can't see it." action="Focus a session…" onClick={focus} />
         : <Conversation key={`${view.gen}:${view.s.target.channel}`} bridge={bridge} channel={view.s.target.channel} signIn={signIn} />}

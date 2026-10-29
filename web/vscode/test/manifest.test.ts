@@ -33,8 +33,50 @@ describe("the manifest", () => {
     activate(fakeContext());
     const registered = vi_registered();
     const ids = pkg.contributes.commands.map((c: { command: string }) => c.command);
-    expect(ids.sort()).toEqual(["jam.forgetHostKey", "jam.openSession", "jam.signIn", "jam.signOut"]);
+    expect(ids.sort()).toEqual([
+      "jam.conversation.pin",
+      "jam.conversation.unpin",
+      "jam.focusSession",
+      "jam.forgetHostKey",
+      "jam.openSession",
+      "jam.signIn",
+      "jam.signOut",
+    ]);
     for (const id of ids) expect(registered).toContain(id);
+  });
+
+  it("contributes the Jam activity-bar container with the Conversation webview view", () => {
+    expect(pkg.contributes.viewsContainers).toEqual({ activitybar: [{ id: "jam", title: "Jam", icon: "media/jam.svg" }] });
+    expect(pkg.contributes.views).toEqual({ jam: [{ type: "webview", id: "jam.conversation", name: "Conversation" }] });
+    const cmd = (id: string) => pkg.contributes.commands.find((c: { command: string }) => c.command === id);
+    expect(cmd("jam.focusSession")).toMatchObject({ title: "Focus Session…", category: "Jam" });
+    expect(cmd("jam.conversation.pin")).toMatchObject({ title: "Pin to This Session", icon: "$(pin)" });
+    expect(cmd("jam.conversation.unpin")).toMatchObject({ title: "Follow the Window's Session", icon: "$(pinned)" });
+  });
+
+  it("shows pin only with a session and unpinned, unpin only when pinned, neither in the palette", () => {
+    expect(pkg.contributes.menus["view/title"]).toEqual([
+      { command: "jam.conversation.pin", when: "view == jam.conversation && jam.conversation.hasSession && !jam.conversation.pinned", group: "navigation" },
+      { command: "jam.conversation.unpin", when: "view == jam.conversation && jam.conversation.pinned", group: "navigation" },
+    ]);
+    expect(pkg.contributes.menus.commandPalette).toEqual([
+      { command: "jam.conversation.pin", when: "false" },
+      { command: "jam.conversation.unpin", when: "false" },
+    ]);
+  });
+
+  it("media/jam.svg is a monochrome 24x24 mark", () => {
+    const svg = readFileSync(join(__dirname, "..", "media", "jam.svg"), "utf8");
+    expect(svg).toContain('viewBox="0 0 24 24"');
+    expect(svg).toContain('fill="currentColor"');
+    expect(svg.match(/<path/g)).toHaveLength(1);
+  });
+
+  // vsce applies every "!" after every exclusion, so "!dist/**" would also
+  // ship the .vsix being written into dist/: name what dist/ ships instead.
+  it(".vscodeignore ships dist (the extension and the webview) and media/**, not an old .vsix", () => {
+    const lines = readFileSync(join(__dirname, "..", ".vscodeignore"), "utf8").split("\n").map((l) => l.trim()).filter(Boolean);
+    expect(lines).toEqual(["**", "!dist/extension.js", "!dist/webview/**", "!media/**", "!package.json", "!README.md"]);
   });
 });
 

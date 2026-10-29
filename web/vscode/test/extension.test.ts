@@ -5,17 +5,154 @@ import { describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import { SignedOutError } from "../src/api";
 import { activate, deactivate } from "../src/extension";
-import { fakeContext, mock } from "./vscode";
+import type { ExtToPane, PaneState } from "../../app/src/bridge/protocol.js" with { "resolution-mode": "import" };
+import { fakeContext, fakeWebviewView, mock } from "./vscode";
+
+const JAM = "https://jam.example.com";
+const SES = "ses_0abcdefghjkmnpqrstvwxyz012";
+const CHN = "chn_0abcdefghjkmnpqrstvwxyz012";
+const remoteFolder = () => {
+  (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { scheme: "vscode-remote", authority: `ssh-remote+jam-${SES}` } }];
+};
+const stored = (token: string) => JSON.stringify({ url: JAM, token, user: "u", expiresAt: "x" });
+type View = ReturnType<typeof fakeWebviewView>;
+const openView = (): View => {
+  const v = fakeWebviewView();
+  void mock.viewProviders.get("jam.conversation")!.resolveWebviewView(v as unknown as vscode.WebviewView, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+  return v;
+};
+const lastState = (v: View) =>
+  (v.posted as ExtToPane[]).filter((m) => m.type === "state").map((m) => (m as { state: PaneState }).state).at(-1);
+const settle = () => new Promise((r) => setTimeout(r, 20));
+type Call = { method: string; path: string; auth: string; body: string };
+// jamFetch answers like a Jam where the token "t" is revoked and "t2" is good.
+function jamFetch(calls: Call[]) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const u = new URL(String(input));
+    const auth = ((init?.headers ?? {}) as Record<string, string>).Authorization ?? "";
+    calls.push({ method: init?.method ?? "GET", path: u.pathname, auth, body: typeof init?.body === "string" ? init.body : "" });
+    if (u.pathname === "/app/auth/app-token/exchange") return Response.json({ token: "t2", user: "u", expires_at: "x" });
+    if (auth === "Bearer t") return new Response("", { status: 401 });
+    if (u.pathname === "/app/user/events") return new Response(null, { status: 204 });
+    if (u.pathname === `/app/user/api/sessions/${SES}`) return Response.json({ label: "alpha", channel: CHN });
+    if (u.pathname === "/app/user/push/focus") return new Response(null, { status: 204 });
+    if (u.pathname === "/app/user/api/rail") return Response.json({ groups: [] });
+    if (u.pathname === `/app/user/api/conversations/${CHN}`) return Response.json({ session: SES });
+    return Response.json({});
+  });
+}
 
 describe("activate", () => {
-  it("registers four commands and a uri handler", () => {
+  it("activate registers the view provider and seven commands", () => {
     mock.reset();
     const ctx = fakeContext();
     activate(ctx);
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(4);
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(7);
     expect(vscode.window.registerUriHandler).toHaveBeenCalledTimes(1);
-    expect(ctx.subscriptions.length).toBe(5);
+    expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(1);
+    const [id, , opts] = vi.mocked(vscode.window.registerWebviewViewProvider).mock.calls[0] as unknown as [string, unknown, { webviewOptions?: { retainContextWhenHidden?: boolean } } | undefined];
+    expect(id).toBe("jam.conversation");
+    expect(opts?.webviewOptions?.retainContextWhenHidden).toBeUndefined();
     deactivate();
+  });
+
+  it("a revoked token: the stream's and a request's 401 sign out once, every pane shows Sign in, and Sign In restarts the stream and reloads the panes (Review Focus 2)", async () => {
+    mock.reset();
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const calls: Call[] = [];
+    const fetchSpy = jamFetch(calls);
+    try {
+      mock.config["jam.url"] = JAM;
+      remoteFolder();
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t"));
+      activate(ctx);
+      const a = openView();
+      const b = openView();
+      for (const v of [a, b]) v.receive({ type: "ready", pane: "conversation" });
+      a.receive({ type: "request", id: 1, req: { method: "GET", path: "/app/user/api/bootstrap" } });
+      await vi.waitFor(() => expect(a.posted).toContainEqual({ type: "response", id: 1, res: { kind: "signedOut" } }));
+      await vi.waitFor(() => expect(calls.some((c) => c.path === "/app/user/events" && c.auth === "Bearer t")).toBe(true));
+      for (const v of [a, b]) await vi.waitFor(() => expect(lastState(v)).toMatchObject({ signedIn: false, target: null }));
+      await settle();
+      const warned = vi.mocked(vscode.window.showWarningMessage).mock.calls.filter((c) => c[0] === "Your Jam sign-in expired or was revoked.");
+      expect(warned).toHaveLength(1);
+
+      const signingIn = mock.commands.get("jam.signIn")!();
+      await vi.waitFor(() => expect(vscode.env.openExternal).toHaveBeenCalled());
+      const consent = new URL(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0]));
+      mock.uriHandler!.handleUri({ path: "/auth", query: `state=${consent.searchParams.get("state")}&code=c` });
+      await signingIn;
+      await vi.waitFor(() => expect(calls.some((c) => c.path === "/app/user/events" && c.auth === "Bearer t2")).toBe(true));
+      for (const v of [a, b]) {
+        await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: { session: SES, label: "alpha", channel: CHN }, pinned: false, elsewhere: false }));
+      }
+      for (const v of [a, b]) expect(JSON.stringify(v.posted)).not.toMatch(/"t2?"|Bearer|jam\.example/);
+    } finally {
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+      deactivate();
+    }
+  });
+
+  it("push focus follows the window's focus, from startup, and clears on deactivate", async () => {
+    mock.reset();
+    const calls: Call[] = [];
+    const fetchSpy = jamFetch(calls);
+    const focusPosts = () => calls.filter((c) => c.path === "/app/user/push/focus").map((c) => [c.auth, JSON.parse(c.body).channel]);
+    try {
+      mock.config["jam.url"] = JAM;
+      (vscode.window.state as { focused: boolean }).focused = false;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      const v = openView();
+      v.receive({ type: "viewing", channel: CHN });
+      await settle();
+      expect(focusPosts()).toEqual([]);
+      for (const cb of mock.windowState) cb({ focused: true });
+      await vi.waitFor(() => expect(focusPosts()).toEqual([["Bearer t2", CHN]]));
+      for (const cb of mock.windowState) cb({ focused: false });
+      await vi.waitFor(() => expect(focusPosts()).toEqual([["Bearer t2", CHN], ["Bearer t2", null]]));
+      for (const cb of mock.windowState) cb({ focused: true });
+      await vi.waitFor(() => expect(focusPosts()).toHaveLength(3));
+      deactivate();
+      await vi.waitFor(() => expect(focusPosts().at(-1)).toEqual(["Bearer t2", null]));
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("jam.focusSession picks a session that unpinned panes follow; pin and unpin act on the view", async () => {
+    mock.reset();
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const calls: Call[] = [];
+    const fetchSpy = jamFetch(calls);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      const v = openView();
+      v.receive({ type: "ready", pane: "conversation" });
+      await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: null, pinned: false, elsewhere: false }));
+      expect(mock.context.get("jam.conversation.hasSession")).toBe(false);
+      mock.pick = { label: "alpha", pick: { label: "alpha", row: { id: CHN } } };
+      await mock.commands.get("jam.focusSession")!();
+      await vi.waitFor(() => expect(lastState(v)?.target).toEqual({ session: SES, label: "alpha", channel: CHN }));
+      expect(mock.context.get("jam.conversation.hasSession")).toBe(true);
+      await mock.commands.get("jam.conversation.pin")!();
+      await vi.waitFor(() => expect(lastState(v)?.pinned).toBe(true));
+      expect(mock.context.get("jam.conversation.pinned")).toBe(true);
+      await mock.commands.get("jam.conversation.unpin")!();
+      await vi.waitFor(() => expect(lastState(v)?.pinned).toBe(false));
+    } finally {
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+      deactivate();
+    }
   });
 
   it("Sign In without jam.url shows the error", async () => {
