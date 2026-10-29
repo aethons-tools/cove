@@ -20,6 +20,11 @@ describe("SseParser", () => {
     expect(p.push(": keep-alive\n\n")).toEqual([]);
     expect(p.push("retry: 100\ndata: hi\n\n")).toEqual([{ event: "message", data: "hi" }]);
   });
+  it("keeps the last event id across events", () => {
+    const p = new SseParser();
+    expect(p.push("id: s1:5\nevent: ev\ndata: a\n\n")).toEqual([{ event: "ev", data: "a", id: "s1:5" }]);
+    expect(p.push("event: ev\ndata: b\n\n")).toEqual([{ event: "ev", data: "b", id: "s1:5" }]);
+  });
   it("joins multi-line data", () => {
     expect(new SseParser().push("data: a\ndata: b\n\n")).toEqual([{ event: "message", data: "a\nb" }]);
   });

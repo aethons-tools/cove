@@ -6,15 +6,16 @@ export const LIVE_BACKOFF_MIN_MS = 1000;
 export const LIVE_BACKOFF_MAX_MS = 30_000;
 export const LIVE_STALL_MS = 60_000;
 
-export type LiveEvent = { event: string; data: string };
+export type LiveEvent = { event: string; data: string; id?: string }; // id: the SSE last-event-id when one was set
 
 // SseParser turns text chunks into events. Lines end in \n, \r\n or \r; lines
-// starting with ":" are comments; "retry:" and "id:" are ignored.
+// starting with ":" are comments; "retry:" is ignored. "id:" persists as the last event id.
 export class SseParser {
   private buf = "";
   private event = "";
   private data: string[] = [];
   private hasData = false;
+  private lastId: string | undefined;
 
   push(chunk: string): LiveEvent[] {
     this.buf += chunk;
@@ -33,7 +34,11 @@ export class SseParser {
 
   private line(line: string, out: LiveEvent[]): void {
     if (line === "") {
-      if (this.hasData) out.push({ event: this.event || "message", data: this.data.join("\n") });
+      if (this.hasData) {
+        const e: LiveEvent = { event: this.event || "message", data: this.data.join("\n") };
+        if (this.lastId !== undefined) e.id = this.lastId;
+        out.push(e);
+      }
       this.event = "";
       this.data = [];
       this.hasData = false;
@@ -45,7 +50,9 @@ export class SseParser {
     let value = i < 0 ? "" : line.slice(i + 1);
     if (value.startsWith(" ")) value = value.slice(1);
     if (field === "event") this.event = value;
-    else if (field === "data") {
+    else if (field === "id") {
+      if (!value.includes("\0")) this.lastId = value;
+    } else if (field === "data") {
       this.data.push(value);
       this.hasData = true;
     }
