@@ -255,3 +255,20 @@ func TestPushSubscriptionRoutesStayOffWithNotifyAlone(t *testing.T) {
 		t.Errorf("key = %d, want 404", rec.Code)
 	}
 }
+
+func TestPushRoutesWrongMethodIs405WhenOn(t *testing.T) {
+	e, p := fixture()
+	h := Handler(e.Deps, nil, WithPush(testVAPIDKey), WithPushFocus(push.NewFocus(nil)), WithNotify(notify.NewHub(nil)))
+	rec := pushDo(h, p, "PUT", "/app/user/push/subscriptions", "")
+	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") == "" {
+		t.Fatalf("PUT subscriptions = %d Allow=%q, want 405 with Allow", rec.Code, rec.Header().Get("Allow"))
+	}
+}
+
+func TestPushFocusOffWithPushOnIs404(t *testing.T) {
+	e, p := fixture()
+	h := Handler(e.Deps, nil, WithPush(testVAPIDKey))
+	if rec := pushDo(h, p, "POST", "/app/user/push/focus", `{"channel":null}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST focus = %d, want 404", rec.Code)
+	}
+}

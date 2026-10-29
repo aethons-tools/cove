@@ -148,25 +148,50 @@ func TestEventsNotifyNeverReachesAnotherUser(t *testing.T) {
 	e, alice := fixture()
 	bob := jam.Participant{Issuer: "https://idp", Subject: "sub-bob", UserID: "usr_bob", Projects: alice.Projects, Name: "bob"}
 	hub := notify.NewHub(nil)
-	fc := &fakeChanges{ch: make(chan struct{}, 1)}
-	h := Handler(e.Deps, nil, WithNotify(hub), WithChanges(fc))
+	h := Handler(e.Deps, nil, WithNotify(hub)) // no change source: only notify frames
 	srvA := eventsServer(t, h, alice)
 	srvB := eventsServer(t, h, bob)
 	scA, _ := openStream(t, srvA.URL)
-	_, _ = openStream(t, srvB.URL)
+	scB, _ := openStream(t, srvB.URL)
 	waitSubscribers(t, hub, alice, 1)
 	waitSubscribers(t, hub, bob, 1)
-	hub.Publish(bob.UserID, notify.Event{Payload: push.Payload{Title: "secret"}})
-	fc.ch <- struct{}{}
-	for scA.Scan() {
-		if scA.Text() == "event: notify" || strings.Contains(scA.Text(), "secret") {
-			t.Fatalf("alice saw bob's notification: %q", scA.Text())
-		}
-		if scA.Text() == "event: changed" {
-			return
-		}
+	hub.Publish(bob.UserID, notify.Event{Payload: push.Payload{Title: "secret", ID: "bobs"}})
+	hub.Publish(alice.UserID, notify.Event{Payload: push.Payload{Title: "sentinel", ID: "sentinel"}})
+	// A leak would be queued on alice's stream before her own sentinel.
+	if got := readNotifyData(t, scA); !strings.Contains(got, `"sentinel"`) || strings.Contains(got, "secret") {
+		t.Fatalf("alice's first notify = %q, want her sentinel", got)
 	}
-	t.Fatal("stream ended before changed")
+	if got := readNotifyData(t, scB); !strings.Contains(got, "secret") {
+		t.Fatalf("bob's first notify = %q, want his event", got)
+	}
+}
+
+// readNotifyData returns the data line of the next notify frame, failing
+// after 2 s.
+func readNotifyData(t *testing.T, sc *bufio.Scanner) string {
+	t.Helper()
+	got := make(chan string, 1)
+	go func() {
+		inNotify := false
+		for sc.Scan() {
+			if inNotify && strings.HasPrefix(sc.Text(), "data: ") {
+				got <- sc.Text()
+				return
+			}
+			inNotify = sc.Text() == "event: notify"
+		}
+		got <- ""
+	}()
+	select {
+	case line := <-got:
+		if line == "" {
+			t.Fatal("stream ended before a notify frame")
+		}
+		return line
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for a notify frame")
+		return ""
+	}
 }
 
 func TestEventsWithOnlyNotifyIsAStream(t *testing.T) {
