@@ -2959,7 +2959,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				},
 			}
 		}
-		if mountParticipantStudios(browser, cfg.operatorLoginConfig(), auth, sshCA, st, func(p func(*http.Request) (collab.Principal, string, error)) http.Handler {
+		if mountParticipantStudios(browser, cfg.operatorLoginConfig(), auth, sshCA, st, log, func(p func(*http.Request) (collab.Principal, string, error)) http.Handler {
 			return collabhttp.Routes("/me", collabDeps(p))
 		}) {
 			log.Info("Jam participant collaboration: bearer routes mounted", "path", "/me/studios/")
@@ -3306,22 +3306,41 @@ var (
 )
 
 // mountParticipantStudios mounts the participant plane's collaboration routes
-// at /me/studios/ on mux and reports whether it did. They take a bearer ID
-// token from `jam login --participant` — not the /app session cookie, and
-// not a browser — so they sit outside the /app gate and RequireSameOrigin. The token is
-// verified against the operator OIDC provider already discovered, with the
-// device client as audience, so no further network dependency is added.
-// Without device login (lc nil), an OIDC operator authenticator, or the SSH
-// CA, nothing is mounted and the caller registers a plain 404 on /me/studios/
-// (it would otherwise match the /me/ legacy redirect): never open.
-func mountParticipantStudios(mux *http.ServeMux, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, ca *sshca.CA, store jam.ParticipantStore, routes func(func(*http.Request) (collab.Principal, string, error)) http.Handler) bool {
-	oidcAuth, ok := auth.(*jam.OIDCAuthenticator)
-	if lc == nil || !ok || ca == nil {
+// at /me/studios/ on mux and reports whether it did. They take a bearer
+// credential — an app token (docs/usage/jam/app-tokens.md) or an ID token
+// from `jam login --participant` — not the /app session cookie, so they sit
+// outside the /app gate and RequireSameOrigin. They mount whenever the SSH CA
+// is set; ID tokens are added only with device login (lc) and an OIDC
+// operator authenticator, verified against the provider already discovered
+// with the device client as audience. Without the CA nothing is mounted and
+// the caller registers a plain 404 on /me/studios/ (it would otherwise match
+// the /me/ legacy redirect): never open.
+func mountParticipantStudios(mux *http.ServeMux, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, ca *sshca.CA, store jam.Store, log *slog.Logger, routes func(func(*http.Request) (collab.Principal, string, error)) http.Handler) bool {
+	if ca == nil {
 		return false
 	}
-	verify := oidcAuth.IDTokenVerifier(lc.ClientID)
-	mux.Handle("/me/studios/", routes(collabhttp.ParticipantBearer(verify, store)))
+	var idTok func(*http.Request) (collab.Principal, string, error)
+	if oidcAuth, ok := auth.(*jam.OIDCAuthenticator); ok && lc != nil {
+		idTok = collabhttp.ParticipantBearer(oidcAuth.IDTokenVerifier(lc.ClientID), store)
+	}
+	mux.Handle("/me/studios/", routes(participantStudiosBearer(collabhttp.AppTokenBearer(store, time.Now, log), idTok)))
 	return true
+}
+
+// participantStudiosBearer sends a JWT-shaped bearer (exactly two dots) to
+// idTok — ErrInvalidToken when ID tokens aren't accepted (idTok nil) — and
+// anything else, no credential included, to appTok.
+func participantStudiosBearer(appTok, idTok func(*http.Request) (collab.Principal, string, error)) func(*http.Request) (collab.Principal, string, error) {
+	return func(r *http.Request) (collab.Principal, string, error) {
+		scheme, tok, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+		if strings.EqualFold(scheme, "Bearer") && strings.Count(strings.TrimSpace(tok), ".") == 2 {
+			if idTok == nil {
+				return collab.Principal{}, "", collabhttp.ErrInvalidToken
+			}
+			return idTok(r)
+		}
+		return appTok(r)
+	}
 }
 
 // operatorPrincipal names an operator-plane caller (behind the admin

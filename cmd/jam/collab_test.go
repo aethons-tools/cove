@@ -98,13 +98,13 @@ func TestMountParticipantStudios(t *testing.T) {
 		mounted bool
 	}{
 		"all set":         {lc, oidcAuth, ca, true},
-		"no device login": {nil, oidcAuth, ca, false},
-		"loopback auth":   {lc, jam.LoopbackAuthenticator{}, ca, false},
+		"no device login": {nil, oidcAuth, ca, true},
+		"loopback auth":   {lc, jam.LoopbackAuthenticator{}, ca, true},
 		"no SSH CA":       {lc, oidcAuth, nil, false},
 	} {
 		meMux := http.NewServeMux()
 		called := false
-		got := mountParticipantStudios(meMux, tc.lc, tc.auth, tc.ca, st, func(p func(*http.Request) (collab.Principal, string, error)) http.Handler {
+		got := mountParticipantStudios(meMux, tc.lc, tc.auth, tc.ca, st, slog.New(slog.DiscardHandler), func(p func(*http.Request) (collab.Principal, string, error)) http.Handler {
 			called = true
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// The mounted principal is the bearer: no header is no credentials.
@@ -122,5 +122,47 @@ func TestMountParticipantStudios(t *testing.T) {
 		if got != tc.mounted || called != tc.mounted || rec.Code != wantCode {
 			t.Errorf("%s: mounted=%v called=%v code=%d, want mounted=%v code=%d", name, got, called, rec.Code, tc.mounted, wantCode)
 		}
+	}
+}
+
+// /me/studios takes an app token or, when device login is set, a
+// participant ID token: a JWT-shaped bearer goes to the ID-token check.
+func TestParticipantStudiosBearerDispatch(t *testing.T) {
+	var saw string
+	named := func(tag string) func(*http.Request) (collab.Principal, string, error) {
+		return func(*http.Request) (collab.Principal, string, error) {
+			saw = tag
+			return collab.Principal{}, tag, nil
+		}
+	}
+	req := func(hdr string) *http.Request {
+		r := httptest.NewRequest("GET", "/me/studios/x/ssh", nil)
+		if hdr != "" {
+			r.Header.Set("Authorization", hdr)
+		}
+		return r
+	}
+	both := participantStudiosBearer(named("app"), named("id"))
+	for hdr, want := range map[string]string{
+		"Bearer aaa.bbb.ccc":      "id",
+		"bearer aaa.bbb.ccc":      "id",
+		"Bearer opaque-app-token": "app",
+		"Bearer a.b":              "app",
+		"Bearer a.b.c.d":          "app",
+		"":                        "app",
+		"Basic dXNlcjpwYXNz":      "app",
+	} {
+		saw = ""
+		if _, _, err := both(req(hdr)); err != nil || saw != want {
+			t.Errorf("%q: went to %q (err %v), want %q", hdr, saw, err, want)
+		}
+	}
+	appOnly := participantStudiosBearer(named("app"), nil)
+	saw = ""
+	if _, _, err := appOnly(req("Bearer aaa.bbb.ccc")); !errors.Is(err, collabhttp.ErrInvalidToken) || saw != "" {
+		t.Fatalf("ID token without device login: err=%v saw=%q", err, saw)
+	}
+	if _, _, err := appOnly(req("Bearer opaque")); err != nil || saw != "app" {
+		t.Fatalf("app token: err=%v saw=%q", err, saw)
 	}
 }

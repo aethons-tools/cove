@@ -288,17 +288,17 @@ The consent page is **server-rendered HTML**, not an SPA route. It lives on the 
   - `mountParticipantStudios` mounts whenever `ca != nil`. It adds ID tokens only when `lc != nil` and `auth` is OIDC.
   - App-token `/me/studios` requests aren't tracked by `Live`. Open tunnels keep running on revoke (spec), and new requests fail.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - `TestAppTokenBearer`: member, operator standing (`Operator` set), expired, missing header.
   - `TestParticipantStudiosBearerDispatch`.
   - `TestMountParticipantStudios`, with updated cases:
     - "no device login" → mounted;
     - "loopback auth" → mounted;
     - "no SSH CA" → 404.
-- [ ] **Step 2:** `go test ./internal/jam/collabhttp/ ./cmd/jam/ -run 'AppToken|ParticipantStudios'` → FAIL.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** `go test ./internal/jam/collabhttp/ ./cmd/jam/` → PASS.
-- [ ] **Step 5: Commit** `feat(jam): /me/studios accepts app tokens; mounts with ssh alone`.
+- [x] **Step 2:** `go test ./internal/jam/collabhttp/ ./cmd/jam/ -run 'AppToken|ParticipantStudios'` → FAIL.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** `go test ./internal/jam/collabhttp/ ./cmd/jam/` → PASS.
+- [x] **Step 5: Commit** `feat(jam): /me/studios accepts app tokens; mounts with ssh alone`.
 
 ### Task 6: Revocation APIs (user and operator)
 

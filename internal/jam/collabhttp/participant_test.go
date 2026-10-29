@@ -162,3 +162,49 @@ func TestParticipantBearerGrantHolderWithoutProject(t *testing.T) {
 		t.Fatalf("no grant: %d %q, want 403 from Decide", rec.Code, rec.Body.String())
 	}
 }
+
+func TestAppTokenBearer(t *testing.T) {
+	st := participantStore(t)
+	alice, _ := st.UserByOIDC("https://idp", "alice-sub")
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	mint := func(op string) string {
+		tok, raw, err := jam.NewAppToken(alice.ID, "VS Code", op, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.PutAppToken(tok); err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	member, operator := mint(""), mint("op-1")
+	clock := now
+	pr := collabhttp.AppTokenBearer(st, func() time.Time { return clock }, nil)
+	call := func(hdr string) (string, string, error) {
+		req := httptest.NewRequest("GET", "/me/studios/x/ssh", nil)
+		if hdr != "" {
+			req.Header.Set("Authorization", hdr)
+		}
+		p, who, err := pr(req)
+		if err == nil && (p.UserID != alice.ID || who != "alice") {
+			t.Errorf("%q: principal %+v %q", hdr, p, who)
+		}
+		return p.Operator, who, err
+	}
+	if op, _, err := call("Bearer " + member); err != nil || op != "" {
+		t.Fatalf("member: op=%q err=%v", op, err)
+	}
+	if op, _, err := call("Bearer " + operator); err != nil || op != "op-1" {
+		t.Fatalf("operator: op=%q err=%v", op, err)
+	}
+	if _, _, err := call(""); !errors.Is(err, collabhttp.ErrNoCredentials) {
+		t.Fatalf("missing: %v", err)
+	}
+	if _, _, err := call("Bearer forged"); !errors.Is(err, collabhttp.ErrInvalidToken) {
+		t.Fatalf("forged: %v", err)
+	}
+	clock = now.Add(jam.AppTokenTTL)
+	if _, _, err := call("Bearer " + operator); !errors.Is(err, collabhttp.ErrInvalidToken) {
+		t.Fatalf("expired: %v", err)
+	}
+}

@@ -2,8 +2,10 @@ package collabhttp
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collab"
@@ -33,6 +35,26 @@ func ParticipantBearer(verify func(ctx context.Context, raw string) (issuer, sub
 			return collab.Principal{}, "", ErrUnbound
 		}
 		return collab.Principal{UserID: u.ID}, u.Name, nil
+	}
+}
+
+// AppTokenBearer is the /me plane's Deps.Principal for an app token
+// (docs/usage/jam/app-tokens.md): the caller is the token's user, with the
+// operator standing recorded at consent. A missing or non-Bearer
+// Authorization header is ErrNoCredentials; an unknown or expired token, or
+// one whose user was removed, is ErrInvalidToken. These requests are not
+// tracked for revocation: an open tunnel runs on, new requests fail.
+func AppTokenBearer(store jam.Store, now func() time.Time, log *slog.Logger) func(*http.Request) (collab.Principal, string, error) {
+	return func(r *http.Request) (collab.Principal, string, error) {
+		raw, ok := bearerToken(r)
+		if !ok {
+			return collab.Principal{}, "", ErrNoCredentials
+		}
+		t, u, err := jam.ResolveAppToken(store, raw, now(), log)
+		if err != nil {
+			return collab.Principal{}, "", ErrInvalidToken
+		}
+		return collab.Principal{UserID: u.ID, Operator: t.OperatorID}, u.Name, nil
 	}
 }
 
