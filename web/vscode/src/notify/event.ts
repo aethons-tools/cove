@@ -13,12 +13,28 @@ const ID_MAX = 200;
 export type NotifyKind = "needs" | "messages";
 export type NotifyEvent = { id: string; title: string; body: string; channel: string; session: string; kind: NotifyKind };
 
-// Control characters other than \n become a space.
+// Control characters other than \n, and line/paragraph separators, become a
+// space. Bidi controls (marks, embeddings, overrides, isolates) are dropped, so a
+// sender can't visually reorder a title such as "alice · eng".
 // eslint-disable-next-line no-control-regex
-const CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
+const CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/g;
+const BIDI = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+// plainText strips what clean strips, without a length cap.
+export function plainText(s: string): string {
+  return s.replace(BIDI, "").replace(CONTROL, " ");
+}
+
+// inertText is s with no link VS Code can parse: its notifications turn
+// "[label](command:…)" (also https:, file:) into a clickable link, and nothing
+// escapes it (a backslash is not honoured), so a zero-width space goes between
+// every "](" and the text still reads the same.
+export function inertText(s: string): string {
+  return plainText(s).replace(/\](?=\()/g, "]\u200b");
+}
 
 function clean(s: string, max: number): string {
-  const t = s.replace(CONTROL, " ").trim();
+  const t = plainText(s).trim();
   const runes = [...t];
   return runes.length <= max ? t : runes.slice(0, max - 1).join("") + "…";
 }

@@ -95,6 +95,36 @@ describe("activate", () => {
     }
   }, 20000);
 
+  it("the badge is fetched at once on activation and cleared at once on sign-out", async () => {
+    mock.reset();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const u = new URL(String(input));
+      if (u.pathname === "/app/user/events") return new Response(null, { status: 204 });
+      if (u.pathname === "/app/user/api/rail") {
+        const rows = [{ id: "chn_0", label: "l0", project: "p", kind: "session", needsYou: true, mission: "" }];
+        return Response.json({ groups: [{ bucket: "needs-you", title: "Needs you", rows }], unreadTotal: 0 });
+      }
+      return Response.json({});
+    });
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      const view = vscode.window.createTreeView as unknown as { mock: { results: { value: { badge: unknown } }[] } };
+      const badge = () => view.mock.results.at(-1)!.value.badge;
+      // Well inside NEEDS_YOU_DEBOUNCE_MS: no debounce on activation or sign-out.
+      await vi.waitFor(() => expect(badge()).toEqual({ value: 1, tooltip: "1 conversation needs you" }), { timeout: 1000 });
+      expect(mock.context.get("jam.signedIn")).toBe(true);
+      await mock.commands.get("jam.signOut")!();
+      await vi.waitFor(() => expect(badge()).toBeUndefined(), { timeout: 1000 });
+      expect(mock.context.get("jam.signedIn")).toBe(false);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
   it("jam.needsYou.open on a session row opens its code window; on a chat row opens the web app", async () => {
     mock.reset();
     const CHAT = "chn_1abcdefghjkmnpqrstvwxyz012";
@@ -297,7 +327,8 @@ describe("activate", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockImplementation(async (input) => new Response(null, { status: new URL(String(input)).pathname === "/app/user/events" ? 204 : 401 }));
-    const nonEvents = () => fetchSpy.mock.calls.filter((c) => new URL(String(c[0])).pathname !== "/app/user/events");
+    // The Needs You view's activation fetch of the rail is not part of the open.
+    const nonEvents = () => fetchSpy.mock.calls.filter((c) => !["/app/user/events", "/app/user/api/rail"].includes(new URL(String(c[0])).pathname));
     try {
       const file = path.join(home, "jam", "default-app-token.json");
       await (await import("node:fs/promises")).mkdir(path.dirname(file), { recursive: true });
@@ -362,6 +393,35 @@ describe("activate", () => {
     } finally {
       fetchSpy.mockRestore();
       vi.unstubAllEnvs();
+    }
+  });
+
+  it("an open that read the session before a sign-out doesn't bring the token file back", async () => {
+    mock.reset();
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 401 }));
+    try {
+      const file = path.join(home, "jam", "default-app-token.json");
+      const ctx = fakeContext();
+      mock.config["jam.url"] = JAM;
+      ctx.secretValues.set("jam.session", stored("t"));
+      activate(ctx);
+      // The stream's 401 signs out: the secret and the token file go.
+      await vi.waitFor(() => expect(vscode.window.showWarningMessage).toHaveBeenCalledWith("Your Jam sign-in expired or was revoked.", "Sign In"));
+      expect(ctx.secretValues.has("jam.session")).toBe(false);
+      await expect(stat(file)).rejects.toThrow();
+      // A cold-start open whose session read raced the sign-out still holds it.
+      ctx.secrets.get = async (k: string) => (k === "jam.session" ? stored("t") : undefined);
+      const before = fetchSpy.mock.calls.length;
+      mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
+      await vi.waitFor(() => expect(fetchSpy.mock.calls.slice(before).some((c) => new URL(String(c[0])).pathname === `/app/user/api/sessions/${SES}`)).toBe(true));
+      await settle();
+      await expect(stat(file)).rejects.toThrow();
+    } finally {
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+      deactivate();
     }
   });
 

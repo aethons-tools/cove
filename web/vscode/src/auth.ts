@@ -22,6 +22,7 @@ type Pending = {
 
 export class Auth {
   private pending: Pending | undefined;
+  private signOuts = 0; // counts sign-outs, so a racing syncTokenFile can tell
   private listeners = new Set<(s: Session | undefined) => void>();
 
   constructor(
@@ -140,14 +141,20 @@ export class Auth {
   // syncTokenFile makes the CLI's token file hold s, rewriting it only when it
   // differs: it heals a file deleted by hand, by the other VS Code flavour's
   // sign-out, or left unwritten by a failed sign-in.
+  // A sign-out that starts meanwhile wins: the file it removed stays removed.
   async syncTokenFile(s: Session): Promise<void> {
+    const gen = this.signOuts;
     const f = { token: s.token, jamUrl: s.url };
-    if (!(await appTokenFileHolds(this.d.tokenFile, f))) await writeAppTokenFile(this.d.tokenFile, f);
+    if (await appTokenFileHolds(this.d.tokenFile, f)) return;
+    await writeAppTokenFile(this.d.tokenFile, f);
+    // Only our write is undone, not a newer sign-in's.
+    if (this.signOuts !== gen && (await appTokenFileHolds(this.d.tokenFile, f))) await removeAppTokenFile(this.d.tokenFile);
   }
 
   // signOut deletes the secret and the token file independently, so one
   // failing still clears the other; it then rethrows the first error.
   async signOut(): Promise<void> {
+    this.signOuts++;
     const r = await Promise.allSettled([this.d.secrets.delete(SESSION_KEY), removeAppTokenFile(this.d.tokenFile)]);
     this.emit(undefined);
     const failed = r.find((x): x is PromiseRejectedResult => x.status === "rejected");

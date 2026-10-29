@@ -34,6 +34,12 @@ describe("parseNotify", () => {
     expect(c.body).toBe("x\ny z");
   });
 
+  it("drops bidi controls and turns line/paragraph separators into spaces", () => {
+    const e = parse({ ...base, title: "a\u202eb\u2066c\u2069d\u200fe\u061cf", body: "x\u2028y\u2029z\u202a\u202b\u202c\u202d\u2067\u2068\u200e" })!;
+    expect(e.title).toBe("abcdef");
+    expect(e.body).toBe("x y z");
+  });
+
   it("unknown kind is messages", () => {
     expect(parse({ ...base, kind: "weird" })!.kind).toBe("messages");
     expect(parse({ ...base, kind: "needs" })!.kind).toBe("needs");

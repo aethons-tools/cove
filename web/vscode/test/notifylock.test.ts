@@ -63,6 +63,22 @@ describe("NotifyLock", () => {
     expect(await mk({ fs: bad }).claim("sqk_e", true)).toBe(true);
   });
 
+  it("an unexpected fs error is reported once per window, and every claim still wins", async () => {
+    const bad = { ...fs, open: async () => { throw Object.assign(new Error("read-only"), { code: "EROFS" }); } } as unknown as LockDeps["fs"];
+    const errs: unknown[] = [];
+    const l = mk({ fs: bad, onError: (e) => void errs.push(e) });
+    expect(await l.claim("sqk_1", true)).toBe(true);
+    expect(await l.claim("sqk_2", true)).toBe(true);
+    expect(errs).toHaveLength(1);
+    expect((errs[0] as NodeJS.ErrnoException).code).toBe("EROFS");
+    // EEXIST is the lock working, not an error.
+    const ok: unknown[] = [];
+    const a = mk({ onError: (e) => void ok.push(e) });
+    await a.claim("sqk_3", true);
+    expect(await a.claim("sqk_3", true)).toBe(false);
+    expect(ok).toEqual([]);
+  });
+
   it("old locks are swept at most once a minute", async () => {
     const a = mk();
     await a.claim("sqk_old", true);

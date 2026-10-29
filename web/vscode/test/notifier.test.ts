@@ -140,4 +140,35 @@ describe("Notifier", () => {
     await r.n.handle(ev({ id: "sqk_2" }));
     expect(r.claim).toHaveBeenCalledTimes(1);
   });
+
+  // VS Code's own legacy-link parser for extension notifications, verbatim from
+  // microsoft/vscode src/vs/base/common/linkedText.ts. A toast must never match it.
+  const LINK_REGEX = /\[([^\]]+)\]\(((?:https?:\/\/|command:|file:)[^\)\s]+)(?: (["'])(.+?)(\3))?\)/gi;
+  const links = (m: string) => [...m.matchAll(LINK_REGEX)];
+
+  it.each([
+    ["plain command", "[Approve](command:workbench.action.terminal.sendSequence?%7B%22text%22%3A%22x%22%7D)"],
+    ["nested", "[[x](y)](command:foo)"],
+    ["https", "[docs](https://evil.example)"],
+    ["file", "[f](file:///etc/passwd)"],
+    ["titled", '[x](command:foo "t")'],
+    ["upper case", "[x](COMMAND:foo)"],
+    ["doubled", "[a](command:a)[b](command:b)]]((command:c)"],
+    ["across a newline", "[x]\n(command:foo)"],
+    ["encoded", "%5Bx%5D%28command:foo%29 [x](command%3Afoo) [x](command:foo%29"],
+  ])("no link can form in the toast from title or body: %s", async (_n, payload) => {
+    for (const o of [{ body: payload }, { title: payload }, { title: `${payload}]`, body: `(command:foo) ${payload}` }]) {
+      const { n, toasts, shown } = setup();
+      await n.handle(ev(o));
+      expect(toasts).toHaveLength(1);
+      const m = toasts[0]![1];
+      expect(links(m)).toEqual([]);
+      // VS Code folds newlines to spaces before parsing.
+      expect(links(m.replace(/\r\n|\n|\r/g, " "))).toEqual([]);
+      // The text still reads the same: only invisible separators were added.
+      expect(m.replace(/\u200b/g, "")).toContain(payload.replace(/\n/g, "\n"));
+      // OS notifiers don't parse links: they get the text as sent.
+      expect(shown[0]!.body.replace(/\u200b/g, "")).toBe(shown[0]!.body);
+    }
+  });
 });

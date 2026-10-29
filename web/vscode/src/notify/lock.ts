@@ -13,10 +13,14 @@ export type LockDeps = {
   sleep: (ms: number) => Promise<void>;
   now: () => number;
   fs: Pick<typeof import("node:fs/promises"), "mkdir" | "open" | "readdir" | "stat" | "unlink">;
+  // onError hears the first unexpected fs error (the window then notifies on
+  // every event), so the caller can log why.
+  onError?: (e: unknown) => void;
 };
 
 export class NotifyLock {
   private lastSweep = -Infinity;
+  private reported = false;
 
   constructor(private d: LockDeps) {}
 
@@ -34,7 +38,18 @@ export class NotifyLock {
       return true;
     } catch (e) {
       if ((e as NodeJS.ErrnoException)?.code === "EEXIST") return false;
+      this.report(e);
       return true;
+    }
+  }
+
+  private report(e: unknown): void {
+    if (this.reported) return;
+    this.reported = true;
+    try {
+      this.d.onError?.(e);
+    } catch {
+      // reporting must not fail a claim
     }
   }
 

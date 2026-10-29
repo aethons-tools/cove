@@ -136,7 +136,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
       const url = jamSettings().url;
       if (url instanceof Error) throw url;
       const s = (await auth.session(url)) ?? (await signInWithProgress(url));
-      await auth.syncTokenFile(s);
+      // A session read before a concurrent sign-out must not rewrite the
+      // token file that sign-out just removed.
+      if (!signingOut) await auth.syncTokenFile(s);
       signedInUrl = url;
       return { api: new JamApi(url, s.token, (...a) => fetch(...a)), url };
     },
@@ -264,7 +266,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     if (s) signingOut = false;
     live.restart();
     thinking.restart();
-    needsYou.poke();
+    void needsYou.refresh(); // at once: only live events are debounced
   });
   ctx.subscriptions.push({ dispose: offAuth });
 
@@ -321,6 +323,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
       sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
       now: Date.now,
       fs: fsp,
+      onError: (e) => log(`notify: the notification lock failed, so this window shows every notification: ${e instanceof Error ? e.message : String(e)}`),
     }),
     os: osNotifier,
     focused: () => vscode.window.state.focused,
@@ -332,7 +335,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)),
     log,
   });
-  needsYou.poke();
+  void needsYou.refresh();
   const offLive = live.subscribe((e) => {
     void notifier.handle(e);
     needsYou.onLive(e);
@@ -343,7 +346,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("jam.url")) {
         live.restart();
-        needsYou.poke();
+        void needsYou.refresh();
       }
     }),
   );

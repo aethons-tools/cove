@@ -2,7 +2,7 @@
 // while VS Code isn't focused, an OS notification. Pure: every VS Code call is a dep.
 // A notification's text is someone's message, so it is never logged.
 import type { LiveEvent } from "../live.js";
-import { notifyTarget, parseNotify, targetLink } from "./event.js";
+import { inertText, notifyTarget, parseNotify, targetLink } from "./event.js";
 import type { ChannelGate, NotifyKind, NotifyTarget } from "./event.js";
 import type { NotifyLock } from "./lock.js";
 import type { OsNotifier } from "./os.js";
@@ -40,7 +40,8 @@ export class Notifier {
     const t = notifyTarget(n, url);
     const open = () => this.open(t);
     try {
-      this.d.toast(n.kind, `${n.title}: ${n.body}`, "Open").then(
+      // VS Code parses links in the text: a message must not become one.
+      this.d.toast(n.kind, inertText(`${n.title}: ${n.body}`), "Open").then(
         (a) => {
           if (a === "Open") open();
         },

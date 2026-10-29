@@ -192,6 +192,15 @@ describe("Auth", () => {
     expect((await stat(t.tokenFile)).ino).toBe(before);
   });
 
+  it("a sign-out during a syncTokenFile leaves no token file", async () => {
+    for (let i = 0; i < 20; i++) {
+      const t = await setup();
+      const s = { url: URL_, token: "tokS", user: "ann", expiresAt: "e" };
+      await Promise.all([t.auth.syncTokenFile(s), t.auth.signOut()]);
+      await expect(stat(t.tokenFile)).rejects.toThrow();
+    }
+  });
+
   it("signOut removes the token file even when the secret delete fails, then rethrows", async () => {
     const t = await setup(undefined, { deleteFails: true });
     const seen: unknown[] = [];

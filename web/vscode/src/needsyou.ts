@@ -5,6 +5,7 @@ import { SignedOutError } from "./api";
 import type { JamApi } from "./api";
 import type { LiveEvent } from "./live";
 import type { RailRow } from "./open";
+import { inertText } from "./notify/event";
 import type { RailResponse } from "../../app/src/api/types.js" with { "resolution-mode": "import" };
 
 export const NEEDS_YOU_DEBOUNCE_MS = 3000;
@@ -96,11 +97,12 @@ export class NeedsYou implements vscode.TreeDataProvider<RailRow> {
       return;
     }
     if (!s) return this.signedOut();
+    // A session is enough for the signed-in welcome, even while Jam is unreachable.
+    this.d.setContext("jam.signedIn", true);
     try {
       const rows = needsYouRows(await this.d.api(s).rail());
       this.rows = rows;
       this.d.setBadge(badgeFor(rows.length));
-      this.d.setContext("jam.signedIn", true);
       this.changed.fire();
     } catch (e) {
       if (e instanceof SignedOutError) {
@@ -121,9 +123,10 @@ export class NeedsYou implements vscode.TreeDataProvider<RailRow> {
   }
 
   getTreeItem(r: RailRow): vscode.TreeItem {
-    const item = new vscode.TreeItem(r.label, vscode.TreeItemCollapsibleState.None);
-    item.description = r.project;
-    item.tooltip = r.mission;
+    // Plain strings only (never a MarkdownString): the text is someone else's.
+    const item = new vscode.TreeItem(inertText(r.label), vscode.TreeItemCollapsibleState.None);
+    item.description = inertText(r.project);
+    item.tooltip = r.mission ? inertText(r.mission) : undefined;
     item.iconPath = new vscode.ThemeIcon("bell");
     item.command = { command: "jam.needsYou.open", title: "Open", arguments: [r] };
     return item;

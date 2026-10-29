@@ -122,4 +122,26 @@ describe("NeedsYou", () => {
     expect(item.iconPath).toMatchObject({ id: "bell" });
     expect(item.command).toEqual({ command: "jam.needsYou.open", title: "Open", arguments: [r] });
   });
+
+  it("tree item text is plain, with no bidi controls and no link syntax", () => {
+    const { n } = setup();
+    const item = n.getTreeItem(row("a", { label: "[x](command:foo)\u202e", mission: "[[y](z)](https://e.x)\u2066", project: "p\u202e" }));
+    for (const v of [item.label, item.tooltip, item.description]) {
+      expect(typeof v).toBe("string");
+      expect(v as string).not.toMatch(/\]\(|[\u202a-\u202e\u2066-\u2069]/);
+    }
+    expect((item.label as string).replace(/\u200b/g, "")).toBe("[x](command:foo)");
+  });
+
+  it("signedIn is set from the session before the rail fetch, and stays set when it fails", async () => {
+    let fail!: (e: Error) => void;
+    const { n, ctx, fetches } = setup({}, [() => new Promise<RailResponse>((_r, j) => (fail = j))]);
+    const p = n.refresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetches).toHaveLength(1);
+    expect(ctx).toEqual([true]);
+    fail(new Error("unreachable"));
+    await p;
+    expect(ctx).toEqual([true]);
+  });
 });

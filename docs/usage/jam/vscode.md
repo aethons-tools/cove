@@ -87,8 +87,8 @@ It asks the extension for everything; the webview never holds your token, the Ja
 The extension starts with VS Code (`onStartupFinished`), in every window, and every signed-in window holds one live stream.
 What notifies is the phone's rule ([push.md](push.md#what-notifies)), not restated here.
 
-- **One window per event, usually the focused one.** The focused window gets a 250 ms head start, so a lagging stream can let an unfocused window win; it then also shows an OS banner while VS Code is focused. Windows agree through a lock file in the extension's global storage, so a second VS Code profile, and VS Code Insiders, each notify separately.
-- **Rate:** at most one message notification per conversation per 5 s; asks, call-ins and escalations always notify. An ask shows as a warning, a message as information.
+- **One window per event, usually the focused one.** The focused window gets a 250 ms head start, so a lagging stream can let an unfocused window win; it then also shows an OS banner while VS Code is focused. Windows agree through a lock file in the extension's global storage, so a second VS Code profile, and VS Code Insiders, each notify separately. If the lock can't be written (e.g. read-only storage), every window notifies and the Jam output channel says why, once per window.
+- **Rate:** at most one message notification per conversation per 5 s; asks, call-ins and escalations always notify. An ask shows as a warning, a message as information. Link syntax in a message (`[text](command:…)`, `https:`, `file:`) shows as text, never as a clickable link.
 - **Open**, and the OS notification, open the session's code window (`vscode://aethons.jam/session/<id>`), or the web app for a chat.
 - **OS notifications** show only while the winning window isn't focused:
   - macOS uses the bundled `terminal-notifier` 3.0.0 (vendored from node-notifier, ad-hoc signed, not notarized, shipped whole with Apple's `Terminal.icns`; the .vsix is private). It is listed as *terminal-notifier* in System Settings → Notifications, where you allow or mute it. The first notification waits up to 120 s for the permission prompt; if it times out, only that note falls back to `osascript`. A declined permission shows nothing and does not fall back. If the notifier can't run it falls back to `osascript`, whose banners can't open a session.
@@ -96,7 +96,7 @@ What notifies is the phone's rule ([push.md](push.md#what-notifies)), not restat
   - Other platforms get VS Code notifications only.
 - **Closed VS Code:** nothing is queued (the phone still gets Web Push); a user with both gets both.
 - **Lock screen:** body visibility follows [`preview`](push.md#privacy-and-previews) and the OS's settings.
-- **Needs You view** (Jam container, collapsed) lists what needs you, from the rail's needs-you group, refreshed with a 3 s debounce; its count is the Jam icon's badge. Selecting a row opens that conversation.
+- **Needs You view** (Jam container, collapsed) lists what needs you, from the rail's needs-you group, refreshed at once on start-up, sign-in and sign-out, and with a 3 s debounce on live changes; its count is the Jam icon's badge. Selecting a row opens that conversation.
 - **Signed out:** no notifications, no badge. A revoked token shows "sign-in expired" at startup.
 
 ## What it writes
