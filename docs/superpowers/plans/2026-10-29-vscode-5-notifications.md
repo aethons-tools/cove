@@ -17,7 +17,7 @@ The web app's Web Push keeps working unchanged and independently.
 - **The extension.** Pure modules under `web/vscode/src/notify/`:
   - `event.ts` parses the event, keeps bursts down with `ChannelGate`, and builds the click target;
   - `lock.ts` lets only one window claim each event, through a lock file in global storage;
-  - `os.ts` sends OS notifications through argv-only child processes: macOS uses the signed `terminal-notifier.app` vendored from `node-notifier@12.0.0` (falling back to `osascript`), and Linux uses `notify-send`;
+  - `os.ts` sends OS notifications through argv-only child processes: macOS uses the ad-hoc signed (not notarized) `terminal-notifier.app` vendored from `node-notifier@12.0.0` (falling back to `osascript`), and Linux uses `notify-send`;
   - `notifier.ts` ties them together.
 
   `needsyou.ts` is a small **Needs You** tree view in the Jam container. Its `TreeView.badge` is the activity-bar count. The window's one `LiveStream` gains a permanent subscriber, so notifications and the badge work with every pane closed. `PaneHub` still drops `notify`.
@@ -26,7 +26,7 @@ The web app's Web Push keeps working unchanged and independently.
 
 **Spec:** `docs/superpowers/specs/2026-10-28-vscode-code-window-design.md` ("Goals" → *Attention*, "Notifications", "Anti-goals" → *Not N live connections*, "Left to the builder"). This is slice 5 of 5. It consumes:
 - slice 3 (`docs/superpowers/plans/2026-10-29-vscode-3-conversation.md`): `LiveStream`, `LiveEvent`, `PaneHub`, `FocusReporter` and `JamApi.pushFocus`;
-- slice 2: `openSession`, `webUrl`, `JamApi.rail`/`conversation`, `SESSION_ID_RE` and `Auth`;
+- slice 2: `openSession`, `webUrl`, `sessionOfPick`, `JamApi.rail`/`conversation`, `SESSION_ID_RE` and `Auth`;
 - slice 4: `ID_RE`, `perform`/`ActionDeps`, and `signOutOnce`/`panesSignedOut` in `extension.ts`;
 - the push design (`docs/superpowers/specs/2026-10-23-jam-push-notifications-design.md`): `push.Recipients`, `push.Build`, `push.Focus`, `push.MaxAge`, `pushReader` and `pushPayload`.
 
@@ -40,9 +40,9 @@ The web app's Web Push keeps working unchanged and independently.
   - `body` honours `runtime.push.preview`: `false` gives "New message". Without `runtime.push` it is `true`, push's own default.
 - **Delivery:**
   - relay service `"notify"` (`notify.Service`), egress only: `Projects` is nil and `Route` is false;
-  - its marker is seeded at the log tail on first enable, as push is (`needsSeed`);
+  - its marker is kept **in memory** (not `relay-markers.json`) and seeded at the log tail on every start. Its ingress cursors are a no-op. It needs no state dir, and the relay state-dir condition is unchanged;
   - a squawk older than `push.MaxAge` (10 min) is dropped;
-  - a recipient with no open stream gets nothing, and nothing is queued for later;
+  - a recipient with no open stream gets nothing, and nothing is queued for later. `Deliver` returns before building the event (no `pushPayload`, no `UnreadTotal`) when `Hub.Subscribers(user) == 0`;
   - it runs whenever the user app is served (`cfg.AdminListen != ""`), independent of `runtime.push`.
 - **Hub:**
   - `notify.SubBuffer = 16` events per subscriber;
@@ -62,9 +62,9 @@ The web app's Web Push keeps working unchanged and independently.
   - `NOTIFY_LOCK_TTL_MS = 15 * 60_000`, swept at most once per `NOTIFY_SWEEP_MS = 60_000`;
   - `NOTIFY_WAIT_MS = 10 * 60_000` (a Linux `--wait` child is killed after this);
   - `NOTIFY_TITLE_MAX = 120`, `NOTIFY_BODY_MAX = 200` (runes, after parsing);
-  - `NEEDS_YOU_DEBOUNCE_MS = 1000`.
+  - `NEEDS_YOU_DEBOUNCE_MS = 3000`.
 - **OS notifiers:**
-  - **macOS:** `<ext>/dist/vendor/mac.noindex/terminal-notifier.app/Contents/MacOS/terminal-notifier`, copied unmodified (`_CodeSignature` intact) from `node-notifier@12.0.0`. On any failure it falls back to `osascript` with the values passed as `argv` items, never interpolated into the script;
+  - **macOS:** `<ext>/dist/vendor/mac.noindex/terminal-notifier.app/Contents/MacOS/terminal-notifier`, copied unmodified from `node-notifier@12.0.0`: `_CodeSignature` intact (ad-hoc signed, not notarized), and `Contents/Resources/Terminal.icns` (Apple's Terminal icon) kept, as node-notifier ships it. Removing it would break the sealed resources, and the .vsix is private. Every title and message gets a leading U+200B. A spawn failure (ENOENT, EACCES, EPERM, or death by a signal) switches the window to `osascript` for the session; any other non-zero exit falls back to `osascript` for that one note only. `osascript` gets the values as `argv` items, never interpolated into the script;
   - **Linux:** `notify-send`;
   - **other platforms:** none (the VS Code notification only);
   - `node-notifier` is a `devDependency` pinned to `12.0.0` and is never bundled or `require`d.
@@ -78,13 +78,13 @@ The web app's Web Push keeps working unchanged and independently.
 ## Review Focus
 
 1. **Three code windows open, one focused.** A message arrives. Exactly one VS Code notification appears, in the focused window, and no OS notification while it is focused. With no Jam window focused, exactly one window shows both. Task 4 tests the lock; Task 6 tests "focused wins" and "no OS notification while focused".
-2. **The user is reading that conversation**, in VS Code's Conversation view or in a focused web-app tab. Nothing notifies, on the phone or in VS Code. Focus moving away before the relay delivers means it does notify, because the recipient is re-checked at delivery. And this holds on a Jam **without** `runtime.push`. Task 2 tests the route without push; Task 3 tests the focused recipient at both `Surfaces` and `Deliver`.
+2. **The user is reading that conversation**, in VS Code's Conversation view or in a focused web-app tab. Nothing notifies, on the phone or in VS Code. Focus that arrives after `Surfaces` listed the user but before delivery still suppresses it, because the recipient is re-checked at delivery. And this holds on a Jam **without** `runtime.push`. Task 2 tests the route without push; Task 3 tests the focused recipient at both `Surfaces` and `Deliver`.
 3. **A hostile or odd `notify` payload** (the server is trusted, but a body is someone's message):
    - malformed JSON, or a non-string `title`;
    - a body of `-help`, `[x]`, `<b>&</b>` or `$(rm -rf ~)`, or 5,000 runes;
    - `session: "../x"`, `channel: "javascript:alert(1)"`.
 
-   No shell runs. Option-like values can't become flags. Linux markup is escaped. A link is built only from ids that pass `SESSION_ID_RE`/`ID_RE.chn`, else the event is dropped. Tasks 4 and 5 test it.
+   No shell runs. Option-like values can't become flags. Linux markup is escaped. A link is built only from ids that pass `SESSION_ID_RE`/`ID_RE.chn`: a bad `channel` drops the event, and a `session` failing `SESSION_ID_RE` (a hostile one, or a grandfathered non-`ses_` actor id) becomes `""`, so a click opens the web app. Tasks 4 and 5 test it.
 4. **A burst.** An agent posts 20 messages in 10 s to one session channel, and asks one question in the middle. That shows at most two message notifications for that channel (one per 5 s), and the ask always. Every window drops the same ones, because the gate runs on events seen, before the lock. Task 4 tests it.
 5. **No OS notifier works:**
    - Linux without `notify-send`, or with a pre-0.7.10 one without `--action`;
@@ -130,8 +130,8 @@ The web app's Web Push keeps working unchanged and independently.
   - `Deliver`:
     - returns `"", nil` in every case, since a notification is best effort and must never stall the log;
     - drops the squawk when `Now()-m.At > push.MaxAge`;
-    - publishes `Event(m, user)` when it's ok, and drops it otherwise;
-    - doesn't check whether anyone is subscribed (`Publish` to nobody is a no-op).
+    - then returns when `Hub.Subscribers(user) == 0`, before calling `Event`, so a Jam where nobody uses VS Code pays no `pushPayload` or `UnreadTotal` per message;
+    - publishes `Event(m, user)` when it's ok, and drops it otherwise.
 
 - [ ] **Step 1: Write the failing tests:**
   - hub:
@@ -144,8 +144,9 @@ The web app's Web Push keeps working unchanged and independently.
     - `TestSurfaceDeliverPublishesTheEvent`: `Address: "usr_alice…"`. The event returned by `Event` reaches alice's subscription, and receipt and error are empty;
     - `TestSurfaceDropsSquawksOlderThanMaxAge` (fake `Now`; `m.At` 11 min old → nothing published, `Event` not called);
     - `TestSurfaceSkipsWhenNoLongerARecipient` (`Event` → false);
+    - `TestSurfaceSkipsUsersWithNoStream`: alice has no subscription → `Event` is never called;
     - `TestSurfaceHasNoIngress` (`Poll` → nil, `Service()` → `"notify"`);
-    - `TestEventJSON`: `json.Marshal(Event{Payload{Title:"a · b", Body:"hi", Channel:"chn_x", ID:"sqk_1", Unread:2, Kind:"messages"}, "ses_y"})` equals `{"title":"a · b","body":"hi","channel":"chn_x","id":"sqk_1","unread":2,"kind":"messages","session":"ses_y"}`.
+    - `TestEventJSON`: `json.Marshal(Event{push.Payload{Title:"a · b", Body:"hi", Channel:"chn_x", ID:"sqk_1", Unread:2, Kind:"messages"}, "ses_y"})` equals `{"title":"a · b","body":"hi","channel":"chn_x","id":"sqk_1","unread":2,"kind":"messages","session":"ses_y"}`.
 - [ ] **Step 2:** `go test ./internal/jam/notify/` → FAIL (undefined).
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** `go test -race ./internal/jam/notify/ && go vet ./internal/jam/notify/` → PASS.
@@ -157,7 +158,7 @@ The web app's Web Push keeps working unchanged and independently.
 - Modify:
   - `internal/jam/userui/handler.go`: a `notify *notify.Hub` field;
   - `internal/jam/userui/events.go`: `WithNotify`, the subscription, the frame, and the 204 condition;
-  - `internal/jam/userui/push.go`: `pushRoutes` and `focusOn`;
+  - `internal/jam/userui/push.go`: `pushRoutes` and `focusOn`, and `WithPushFocus`'s doc comment ("It takes effect only with WithPush") becomes "with WithPush or WithNotify";
   - `internal/jam/userui/push_test.go`: `TestPushFocusOffWithoutPush` becomes `TestPushFocusOffWithoutPushOrNotify`, and is the only edited test.
 - Test: `internal/jam/userui/events_test.go`, `internal/jam/userui/push_test.go`, `internal/jam/userui/api_test.go`.
 
@@ -201,7 +202,7 @@ The web app's Web Push keeps working unchanged and independently.
 **Files:**
 - Create:
   - `internal/jam/home_session.go`, with `internal/jam/home_session_test.go`;
-  - `cmd/jam/notify.go` (`notifyEvent`, `(*directory).notifySurfaces`), with `cmd/jam/notify_test.go`.
+  - `cmd/jam/notify.go` (`notifyEvent`, `(*directory).notifySurfaces`, `memMarkers`, `noCursors`), with `cmd/jam/notify_test.go`.
 - Modify:
   - `internal/jam/userui/session.go`: `homeSession` becomes a call to `jam.HomeSession`, and its body moves;
   - `cmd/jam/relay_dir.go`:
@@ -211,9 +212,10 @@ The web app's Web Push keeps working unchanged and independently.
     - `Route` returns false for it;
   - `cmd/jam/main.go`:
     - `notifyHub := notify.NewHub(log)` next to `pushFocus` (`:2229`);
-    - `runNotify := cfg.AdminListen != ""`, which also joins the relay state-dir condition (`:2570`);
+    - `runNotify := cfg.AdminListen != ""`. The relay state-dir condition (`:2570`) is **unchanged**;
     - `dir.notifyOn = runNotify`;
-    - the notify engine is started after the push block (`:2766`), with its own `needsSeed`;
+    - `reader := pushReader{…}` and `unread := …` are hoisted out of `if runPush {}` (`:2773-2774`) to above both engines, and the push block uses the hoisted ones;
+    - the notify engine is started after the push block (`:2766`), on `memMarkers` seeded with `{LastSeq: logTailSeq(chlog)}` and on `noCursors`, not on `relayMarkers`/`relayCursors`;
     - `userui.WithNotify(notifyHub)` is passed only when `runNotify` (`:2895`).
 - Test: `cmd/jam/notify_test.go`, `internal/jam/home_session_test.go`, `cmd/jam/relay_dir_test.go` (unchanged push cases must pass).
 
@@ -228,17 +230,20 @@ The web app's Web Push keeps working unchanged and independently.
   // cmd/jam
   func notifyEvent(r pushReader, focus *push.Focus, unread func(ident.ID) int, preview bool) func(intercom.Squawk, ident.ID) (notify.Event, bool)
   func (d *directory) notifySurfaces(m intercom.Squawk) []relay.Delivery // one per push.Recipients user: {Service: notify.Service, Address: string(user)}
+  type memMarkers struct{ /* mu; m map[string]relay.EgressMark */ } // relay.Markers in memory: nothing is persisted
+  func newMemMarkers(service string, seed relay.EgressMark) *memMarkers
+  type noCursors struct{}                                              // relay.Cursors: Ingress "" and SetIngress nil (notify has no ingress)
   ```
   - **`notifyEvent`:**
     - it calls `pushPayload(r, focus, unread, preview)(m, user)` (the send-time re-check) and returns false when that does;
     - `Payload.ID` is set to `m.ID`;
-    - `Session` is `jam.HomeSession(r.store, m.Channel)`'s `ActorID`, or `""`.
+    - `Session` is `jam.HomeSession(r.store, m.Channel)`'s `ActorID`, or `""` (a grandfathered non-`ses_` id is passed as is; the extension maps it to `""`).
   - **`notifySurfaces`:**
     - it returns nil unless `d.notifyOn`;
     - otherwise it uses `push.Recipients(pushReader{…}, m, d.pushFocus.Focused)` (nil focus: none suppressed), exactly as `pushSurfaces` does but with no device loop;
     - parts are not paused (asks notify), as with push.
   - **Preview:** in `main.go`, `preview := cfg.Runtime.Push == nil || cfg.Runtime.Push.preview()`, never a call on a nil `*pushConfig`.
-  - **The engine:** `relay.New(&notify.Surface{Hub: notifyHub, Event: notifyEvent(reader, pushFocus, unread, preview), Now: time.Now}, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)`. It logs `Jam relay (notify): resident, egress ON`.
+  - **The engine:** `relay.New(&notify.Surface{Hub: notifyHub, Event: notifyEvent(reader, pushFocus, unread, preview), Now: time.Now}, chlog, newMemMarkers(notify.Service, relay.EgressMark{LastSeq: logTailSeq(chlog)}), noCursors{}, dir, relay.Config{EgressEnabled: true}, log)`. It logs `Jam relay (notify): resident, egress ON`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `TestHomeSession` (in `internal/jam`), a table:
@@ -264,10 +269,11 @@ The web app's Web Push keeps working unchanged and independently.
       - like `TestPushEngineDeadEndpoint`: a real `relay.New` with a 5 ms egress poll;
       - alice subscribed to the hub receives one `Event` with the squawk's title and channel;
       - bob (also subscribed, not a member) receives nothing;
-      - `markers.Egress("notify").LastSeq` reaches `m.Seq`.
+      - the engine runs on `newMemMarkers` seeded below `m.Seq`, and `markers.Egress("notify").LastSeq` reaches `m.Seq`.
     - `TestNotifyHasNoIngress`: `Projects("notify")` is nil, and `Route("notify", …)` is false.
+    - `TestMemMarkers`: `Egress` of the seeded service is the seed, of another the zero mark, and `SetEgress` then `Egress` round-trips; nothing is written to disk (no path exists to write to).
 - [ ] **Step 2:** `go test ./internal/jam/ -run TestHomeSession && go test ./cmd/jam/ -run 'Notify'` → FAIL.
-- [ ] **Step 3:** Implement. If an existing `cmd/jam` serve test now trips on the relay state dir (it is created whenever `admin-listen` is set), give it `StateDir: t.TempDir()`. Change no assertion.
+- [ ] **Step 3:** Implement.
 - [ ] **Step 4:** `just test && just lint` → PASS (`go test ./internal/jam/userui/` covers the `homeSession` move).
 - [ ] **Step 5: Commit** `feat(jam): notify relay — the push rule's notifications on the user's event stream`.
 
@@ -309,7 +315,9 @@ The web app's Web Push keeps working unchanged and independently.
     - `id` not a non-empty string of at most 200 chars;
     - `title` or `body` not strings;
     - `channel` failing `ID_RE.chn`;
-    - `session` neither `""` nor `SESSION_ID_RE`.
+    - `session` not a string.
+
+    A `session` string that fails `SESSION_ID_RE` (a hostile value, or a grandfathered non-`ses_` actor id) becomes `""`, so the click opens the web app instead of the event being dropped.
 
     It trims and cuts `title` and `body` to `NOTIFY_TITLE_MAX` and `NOTIFY_BODY_MAX` runes, the last an ellipsis (as `push.cut`), and replaces control characters but `\n` with a space. A `kind` other than `"needs"` is `"messages"`.
   - **`claim`:**
@@ -325,10 +333,10 @@ The web app's Web Push keeps working unchanged and independently.
       - `"{"` and `"[]"`;
       - `title: 5`;
       - `channel: "javascript:alert(1)"`;
-      - `session: "../x"`;
       - `id: ""`, and an `id` of 201 chars;
     - `cuts a 5,000-rune body to 200 with an ellipsis and drops control characters`;
     - `unknown kind is messages`;
+    - `a session failing SESSION_ID_RE becomes "" and the event is kept`: `"../x"` and a grandfathered `"alice-bot"` both give `session: ""`, so `notifyTarget` is the web app;
     - `the gate admits one messages event per channel per 5 s and every needs event` (Review Focus 4): 20 events at 500 ms steps on one channel, with a `needs` at step 7 → messages admitted at steps 0 and 10, and the needs at step 7; another channel is independent;
     - `notifyTarget and targetLink`: session → `vscode-insiders://aethons.jam/session/ses_…` with scheme `vscode-insiders`; a chat → `https://jam.example/app/user/c/chn_…`.
   - `notifylock.test.ts` (a real temp dir, fake `sleep` and `now`):
@@ -377,24 +385,29 @@ The web app's Web Push keeps working unchanged and independently.
   - **`darwin`:**
     - before the first use it runs `chmod(bin, 0o755)`, ignoring errors (vsce may drop the exec bit);
     - `execFile(bin, terminalNotifierArgs(n), {timeout: 10_000})`;
-    - the args are `["-title", t, "-message", b, "-open", link, "-group", group]`, where a value starting with `-` or `[` gets a leading U+200B, so terminal-notifier's argument parser can't read it as an option;
+    - the args are `["-title", "\u200b" + t, "-message", "\u200b" + b, "-open", link, "-group", group]`. The U+200B is unconditional: terminal-notifier reads options through NSUserDefaults' argument domain, which parses a value starting with `-`, `[`, `(`, `{`, `<` or `"` as an option or a property list, and a message like "(edited) …" would otherwise go missing;
     - `group` is the channel id, so a newer notification for a conversation replaces the older one, as Web Push's `Topic` does;
-    - on failure it logs once and switches, for the rest of the session, to `osascript`. Its args are `["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "--", title, body]`, which give no click target (documented);
+    - a **spawn failure** (the error's `code` is `ENOENT`, `EACCES` or `EPERM`, or the child died by a signal, e.g. Gatekeeper) logs once and switches, for the rest of the session, to `osascript`. **Any other non-zero exit** sends that one note through `osascript` and keeps terminal-notifier for the next. `osascript`'s args are `["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "--", title, body]`, which give no click target (documented);
     - the click opens `link` itself through LaunchServices, so `onClick` isn't used.
   - **`linux`:**
     - the first `show` probes `execFile("notify-send", ["--help"])`. Not found → logged once, and OS notifications stay off for the session. Help text containing `--action` → actions;
-    - with actions: `["--app-name=Jam", "--icon=<ext>/media/jam.svg", "--action=default=Open", "--wait", "--", title, escapeMarkup(body)]`, with timeout `NOTIFY_WAIT_MS` and an `AbortSignal` that `dispose` aborts. Stdout trimmed `=== "default"` calls `onClick()`;
+    - with actions: `["--app-name=Jam", "--icon=<ext>/media/jam.svg", "--action=default=Open", "--wait", "--", title, escapeMarkup(body)]`, with timeout `NOTIFY_WAIT_MS` and an `AbortSignal`. Stdout trimmed `=== "default"` calls `onClick()`;
+    - **at most one waiting child per `group`** (channel): a new note for a group aborts the previous one's child first. `dispose` aborts them all;
+    - a timeout (`NOTIFY_WAIT_MS`) or an abort (a newer note, `dispose`) is a close without a click: no log, no `onClick`;
     - without actions, the same without `--action` and `--wait`, and a 10 s timeout;
     - the title isn't escaped (it is never markup).
   - **Other platforms:** `show` resolves at once.
   - Every failure is logged once per window, keyed by notifier: Review Focus 5.
 
 - [ ] **Step 1: Write the failing tests** (a fake `execFile` recording calls):
-  - `terminalNotifierArgs passes values as separate argv and guards option-like values` (Review Focus 3): a body of `-help` becomes `"​-help"`, and `[x]` becomes `"​[x]"`; `$(rm -rf ~)` is passed verbatim as one item.
+  - `terminalNotifierArgs passes values as separate argv, each title and message after a U+200B` (Review Focus 3): bodies `-help`, `[x]`, `(edited) x`, `{a}` and `plain` all become `"\u200b" + body`; `$(rm -rf ~)` is passed as one item after the U+200B.
   - `darwin runs the vendored binary from the extension path, after chmod`.
-  - `darwin falls back to osascript once terminal-notifier fails, and logs once`: two `show`s give one log line, and the second goes straight to `osascript`, whose title and body come after `--`.
+  - `darwin: a spawn failure (EACCES) switches to osascript for the session, and logs once`: two `show`s give one log line, and the second goes straight to `osascript`, whose title and body come after `--`.
+  - `darwin: a non-zero exit falls back for that note only`: exit 1, then the next `show` tries terminal-notifier again.
   - `linux with --action waits and calls onClick on "default"`.
   - `linux closes without a click: no onClick`.
+  - `linux timeout or abort is a quiet close`: no log line, no `onClick`.
+  - `linux keeps one waiting child per group`: a second note for the same channel aborts the first child; a note for another channel doesn't.
   - `linux escapes markup in the body only`: `<b>&</b>` → `&lt;b&gt;&amp;&lt;/b&gt;`.
   - `linux without --action notifies without waiting`.
   - `linux without notify-send logs once and never retries the probe`.
@@ -409,6 +422,8 @@ The web app's Web Push keeps working unchanged and independently.
   - `unzip -l … | grep node_modules` → nothing.
 - [ ] **Step 5: Commit** `feat(vscode): OS notifications through terminal-notifier, osascript or notify-send`.
 
+  The vendored app ships whole, including `Contents/Resources/Terminal.icns` (Apple's Terminal icon), as node-notifier does: the bundle's sealed resources need it, and the .vsix is private.
+
 ### Task 6: Extension — the notifier and its wiring
 
 **Files:**
@@ -417,7 +432,7 @@ The web app's Web Push keeps working unchanged and independently.
   - `web/vscode/src/extension.ts`;
   - `web/vscode/package.json`: `activationEvents` adds `"onStartupFinished"`;
   - `web/vscode/test/vscode.ts`: `fakeContext()` gains `globalStorageUri` (a temp dir) and `extensionPath`, and `window.createOutputChannel` is mocked;
-  - `web/vscode/test/extension.test.ts`, `web/vscode/test/manifest.test.ts`.
+  - `web/vscode/test/extension.test.ts`, `web/vscode/test/manifest.test.ts`. Existing `extension.test.ts` cases may change **only their fetch expectations** (the always-on `/app/user/events` fetch at activate, and from Task 7 the initial rail fetch), never the behaviour they assert. The "unedited" rule in the Global Constraints covers the Go tests it names.
 
 **Interfaces:**
 - Consumes: Tasks 4–5; `LiveEvent`/`LiveStream.subscribe`; `openSession`/`OpenDeps`; `guard`; `vscode.env.uriScheme`.
@@ -445,7 +460,8 @@ The web app's Web Push keeps working unchanged and independently.
     - `focused: () => vscode.window.state.focused`;
     - `toast`: `needs` → `showWarningMessage`, else `showInformationMessage`;
     - `openSession: (id) => guard(() => openSession(openDeps, id))()`;
-    - **one permanent subscriber:** `const offLive = live.subscribe((e) => { void notifier.handle(e); needsYou?.onLive(e); })`. Task 7 adds `needsYou`; here the second call is absent. `offLive` and `os.dispose()` are pushed to `ctx.subscriptions`, and `deactivate` keeps calling `reporter.dispose()`. With the stream now always held while signed in, sign-in and sign-out still go through `live.restart()` (unchanged).
+    - **one permanent subscriber:** `const offLive = live.subscribe((e) => { void notifier.handle(e); needsYou?.onLive(e); })`. Task 7 adds `needsYou`; here the second call is absent. `offLive` and `os.dispose()` are pushed to `ctx.subscriptions`, and `deactivate` keeps calling `reporter.dispose()`. With the stream now always held while signed in, sign-in and sign-out still go through `live.restart()` (unchanged);
+    - **`jam.url` changes:** `workspace.onDidChangeConfiguration` with `affectsConfiguration("jam.url")` calls `live.restart()` (and, from Task 7, `needsYou.poke()`), so the permanent stream follows the new Jam.
 
 - [ ] **Step 1: Write the failing tests:**
   - notifier (fakes for every dep):
@@ -461,7 +477,8 @@ The web app's Web Push keeps working unchanged and independently.
     - `activate holds the events stream with no pane open`: one fetch of `/app/user/events` after `activate` with `jam.url` and a stored session, and no view resolved;
     - `a notify event on the stream shows a toast; Open calls openSession`: it ends in `vscode.openFolder` for `jam-ses_…`, through the existing fakes;
     - `two activations on one global storage dir show one toast for one event` (Review Focus 1: two `fakeContext`s sharing `globalStorageUri`, each with its own mock stream);
-    - `signed out: no stream, no toast`.
+    - `signed out: no stream, no toast`;
+    - `changing jam.url restarts the events stream`: after the configuration event, a new `/app/user/events` fetch goes to the new URL.
   - manifest: `activationEvents include onStartupFinished`.
 - [ ] **Step 2:** `cd web/vscode && npx vitest run test/notifier.test.ts test/extension.test.ts test/manifest.test.ts` → FAIL.
 - [ ] **Step 3:** Implement.
@@ -486,8 +503,8 @@ The web app's Web Push keeps working unchanged and independently.
 - Consumes: `JamApi.rail()`/`conversation()`, `RailResponse`, `RailRow` (`open.ts`), `webUrl`, `openSession`, `LiveEvent`, `SignedOutError`, and `panesSignedOut`.
 - Produces:
   ```ts
-  export const NEEDS_YOU_DEBOUNCE_MS = 1000;
-  export function needsYouRows(r: RailResponse): RailRow[]          // rows with needsYou, first occurrence of each id, rail order
+  export const NEEDS_YOU_DEBOUNCE_MS = 3000;
+  export function needsYouRows(r: RailResponse): RailRow[]          // the rows of the group with bucket "needs-you" (the web app's Needs you group), first occurrence of each id
   export function badgeFor(n: number): { value: number; tooltip: string } | undefined   // 0 → undefined; the Constraints' tooltip copy
   export type NeedsYouDeps = {
     session: () => Promise<{ url: string; token: string } | undefined>;  // extension.ts's current()
@@ -516,14 +533,15 @@ The web app's Web Push keeps working unchanged and independently.
     - it calls `vscode.window.createTreeView("jam.needsYou", { treeDataProvider: needsYou })`, and `setBadge` writes `view.badge`;
     - the live subscriber from Task 6 calls `needsYou.onLive(e)`;
     - `auth.onChange` calls `needsYou.poke()`;
-    - `jam.needsYou.open(row)`, through `guard`, takes the session from `(await api.conversation(row.id)).session`. With one, it calls `openSession(openDeps, session)`, else `openExternal(webUrl(url, row.id))`;
+    - `jam.needsYou.open(row)`, through `guard`, reuses `sessionOfPick(api, { label: row.label, row })` (`open.ts`). With a session, it calls `openSession(openDeps, session)`, else `openExternal(webUrl(url, row.id))`;
+    - the Task 6 `jam.url` change handler also calls `needsYou.poke()`;
     - an initial `poke()` runs at activation.
 
 - [ ] **Step 1: Write the failing tests:**
   - needsyou:
-    - `needsYouRows counts the needs-you rows once each, in rail order`: a rail where one channel appears in two groups → one row;
+    - `needsYouRows takes the needs-you group's rows once each`: rows in other groups (even with `needsYou: true`) don't count, and a repeated id counts once;
     - `badgeFor`: 0 → undefined, 1 → "1 conversation needs you", 3 → "3 conversations need you";
-    - `live events are debounced into one rail fetch` (fake timers: five `changed` within 1 s → one fetch);
+    - `live events are debounced into one rail fetch` (fake timers: five `changed` within 3 s → one fetch, 3 s after the first);
     - `signed out: no fetch, no badge, signedIn false`;
     - `a 401 signs out with the token and clears the badge`;
     - `a 500 keeps the last count`;
@@ -546,21 +564,24 @@ The web app's Web Push keeps working unchanged and independently.
 - Modify:
   - `docs/usage/jam/vscode.md` (bump `updated`; `summary`, `read_when` and `owns` add notifications and the badge). Replace the "Notifications and the badge are a later slice" bullet with a **Notifications and the badge** section, which owns:
     - what notifies is the phone's rule (link `push.md#what-notifies`), not restated;
-    - a VS Code notification in one window, the focused one if any. An OS notification shows only while VS Code isn't focused. Several windows agree through a lock file in the extension's global storage, so a second VS Code profile notifies separately;
+    - a VS Code notification in one window, **usually** the focused one: the focused window gets a 250 ms head start, so a lagging stream can let an unfocused window win, and then it also shows an OS banner while VS Code is focused. An OS notification shows only while the winning window isn't focused. Several windows agree through a lock file in the extension's global storage, so a second VS Code profile, and VS Code Insiders, each notify separately;
     - at most one message notification per conversation per 5 s, while asks, call-ins and escalations always notify;
     - **Open** and the OS notification open the session's code window (`vscode://aethons.jam/session/<id>`), or the web app for a chat;
     - the OS notifiers:
-      - macOS uses the bundled `terminal-notifier` (listed as *terminal-notifier* in System Settings → Notifications, where it is allowed or muted), or `osascript` if that fails, whose banners can't open a session;
+      - macOS uses the bundled `terminal-notifier` 3.0.0, ad-hoc signed and not notarized, shipped whole with Apple's `Terminal.icns` as node-notifier does (the .vsix is private). It is listed as *terminal-notifier* in System Settings → Notifications, where it is allowed or muted. If it can't run it falls back to `osascript`, whose banners can't open a session;
       - Linux uses `notify-send`, with a click only when it supports `--action` (libnotify 0.7.10+);
       - other platforms get VS Code notifications only;
     - nothing is queued while VS Code is closed (the phone still gets Web Push), and a user with both gets both;
     - the **Needs You** view (Jam container, collapsed) lists what needs you; its count is the Jam icon's badge;
-    - the extension now starts with VS Code (`onStartupFinished`) and holds one events stream per window while signed in;
-    - the **Push focus** bullet: suppression now applies to VS Code notifications too, and works without Web Push configured.
+    - the extension now starts with VS Code (`onStartupFinished`), in every window;
+    - edit the existing **Live updates** bullet (it owns the stream fact; add no new bullet): the one stream per window is now held from startup while signed in, with no pane open, and restarts when `jam.url` changes;
+    - edit the existing **Push focus** bullet: suppression now applies to VS Code notifications too, and works without Web Push configured;
+    - **Troubleshooting** gains: no OS banners on macOS → check System Settings → Notifications → *terminal-notifier*; if the Jam output channel says the notifier was blocked (Gatekeeper on a quarantined copy), run `xattr -dr com.apple.quarantine` on the extension's `dist/vendor` or rely on the `osascript` fallback.
   - `docs/usage/jam/push.md`:
+    - *Privacy and previews* gains one sentence: `preview` also governs the VS Code and OS notifications (it can only be set inside `runtime.push`), and whether an OS notification's body shows on the lock screen follows the OS's own settings;
     - *What notifies* gains one sentence: the same set reaches the Jam VS Code extension (link `vscode.md#notifications-and-the-badge`);
     - the focus paragraph says the suppression also holds for VS Code, and that the focus route works without `runtime.push`.
-  - `docs/usage/jam/push-delivery.md`, *How Jam sends*: the **notify relay**. It is a second egress-only relay service, `notify`, over the same rule. It publishes to the recipient's open `/app/user/events` streams, drops after 10 minutes, has no retries (nothing is queued) and no `runtime.push` gate, and its marker is seeded at first start. *Routes*: `POST /app/user/push/focus` is mounted with Web Push or the notify stream.
+  - `docs/usage/jam/push-delivery.md`, *How Jam sends*: the **notify relay**. It is a second egress-only relay service, `notify`, over the same rule. It publishes to the recipient's open `/app/user/events` streams, drops after 10 minutes, skips users with no open stream, has no retries (nothing is queued) and no `runtime.push` gate, and keeps its marker in memory, seeded at the log tail on every start (no state dir, nothing written). *Routes*: `POST /app/user/push/focus` is mounted with Web Push or the notify stream.
   - `docs/usage/jam/intercom-ui.md`, *Unread and refresh*: the stream also carries `event: notify`, the one event with content: the viewer's own notification, as a push would show it. The web app ignores it.
   - `docs/usage/jam/vscode-checklist.md`:
     - **Build** gains the vendored `terminal-notifier.app` copy;
@@ -568,6 +589,8 @@ The web app's Web Push keeps working unchanged and independently.
       - "Installed from the .vsix on macOS, `dist/vendor/mac.noindex/terminal-notifier.app` runs: it keeps its exec bit (or the chmod restores it), Gatekeeper doesn't block it, and the first notification asks for permission. Clicking a notification opens `vscode://aethons.jam/session/<id>`";
       - "A `TreeView.badge` on the collapsed `jam.needsYou` view shows on the Jam activity-bar icon while the Jam container is closed";
       - "`notify-send --action … --wait` on the target Linux desktops (GNOME, KDE) prints `default` on a click";
+      - "`osascript -e 'on run argv' … -- <title> <body>` passes `--` through or not: if `item 1 of argv` comes out as `--`, drop the `--` from `osascriptArgs`";
+      - "terminal-notifier 3.0 (NSUserNotification) still displays on the current macOS: a silent non-display exits 0, so no fallback triggers";
     - a **Notifications** step list:
       - an agent message in another session gives one toast (in the focused window) and no OS notification, and with VS Code unfocused, one OS notification;
       - with three code windows open, exactly one toast;
@@ -578,7 +601,7 @@ The web app's Web Push keeps working unchanged and independently.
       - signing out stops notifications and clears the badge, and signing in restores them;
       - the phone's Web Push still arrives;
       - Linux without `notify-send`: toasts only, one log line in the Jam output channel.
-  - The spec's status line: "slice 5 (notifications) built".
+  - The spec's status line: "slice 5 (notifications) built". (The *Notifications* paragraph was already amended in this plan's pre-flight commit.)
 - [ ] **Step 1:** Write the docs. Each fact goes in the one doc named above; the others link to it.
 - [ ] **Step 2:** `python3 /agent-data/skills/docs-audit/scripts/docs_audit.py docs` → no new findings beyond the plan file's own.
 - [ ] **Step 3:** `just test && just app-check && just app && just vscode && just lint` → PASS.
@@ -589,18 +612,27 @@ The web app's Web Push keeps working unchanged and independently.
 ## Decisions the spec leaves open (my calls)
 
 - **A relay service, not a hook in the push surface.** `notify` is its own `relay.Surface` over the same `directory`, so it has its own marker and runs with or without VAPID keys. Folding it into `push.Surface` would tie VS Code notifications to Web Push being configured.
-- **Recipients are listed whether or not they have a stream open.** `Surfaces` must be deterministic for a squawk; publishing to nobody is free. Nothing is queued for a closed VS Code, since the phone covers that.
+- **Recipients are listed whether or not they have a stream open; `Deliver` skips the unsubscribed** (pre-flight F1). `Surfaces` must be deterministic for a squawk, and skipping before `pushPayload` keeps a Jam where nobody uses VS Code from re-running the rule and `UnreadTotal` per message. Nothing is queued for a closed VS Code, since the phone covers that.
+- **The notify relay's marker lives in memory** (pre-flight F2). Nothing is queued and nothing appended while Jam is down, so persistence buys nothing. A file marker would rewrite `relay-markers.json` every 2 s and make every `admin-listen` Jam need a state dir.
 - **The focus route no longer needs Web Push.** Without this, a Jam with no VAPID keys couldn't suppress VS Code notifications for the conversation being read. The bootstrap's `pushFocus` follows, so the web app reports focus there too.
 - **`homeSession` moves to `jam.HomeSession`.** The notification needs the session the web app's header would show; moving it avoids a second copy.
-- **No `node-notifier` at runtime; only its signed `terminal-notifier.app`.** `node-notifier@12` is ESM and finds its vendor binaries through `import.meta.dirname`, which esbuild's CJS bundle breaks. The vsix ships without `node_modules`. Its Linux path has no click support we need beyond `notify-send` itself. A 100-line argv-only spawner is smaller than shipping it.
-- **`osascript` is the macOS fallback**, even though its banners can't open a session: a visible notification beats none, and it is documented.
-- **Option-like values are guarded with a leading U+200B** for terminal-notifier: it is invisible and leaves no escape characters to render.
+- **No `node-notifier` at runtime; only its ad-hoc signed (not notarized) `terminal-notifier.app`.** `node-notifier@12` is ESM and finds its vendor binaries through `import.meta.dirname`, which esbuild's CJS bundle breaks. The vsix ships without `node_modules`. Its Linux path has no click support we need beyond `notify-send` itself. A 100-line argv-only spawner is smaller than shipping it.
+- **`osascript` is the macOS fallback**, even though its banners can't open a session: a visible notification beats none, and it is documented. Only a spawn failure switches for the session; any other failure falls back for that note.
+- **Every terminal-notifier title and message starts with U+200B** (pre-flight F3): NSUserDefaults would otherwise parse values starting with `-`, `[`, `(`, `{`, `<` or `"`. It is invisible and leaves no escape characters to render.
+- **Linux keeps one waiting `notify-send` per conversation**, and a timeout or abort is a quiet close (pre-flight F13, F16).
+- **A session id failing `SESSION_ID_RE` becomes `""`**, not a dropped event (pre-flight F6): grandfathered actor ids exist, and the web app is a fine target.
 - **The focused window wins the lock** (a 250 ms head start). The notification then shows where the user is looking.
-- **OS notifications only while VS Code isn't focused.** A focused window already shows the toast, and a second banner would be noise.
+- **OS notifications only while VS Code isn't focused** (accepted as a builder call; the spec's *Notifications* paragraph is amended to match). The spec wants OS notifications because VS Code's own aren't visible outside the window; a focused window already shows the toast, and a second banner would be noise. Because the focused window only *usually* wins the lock (250 ms head start), this is documented as "usually".
 - **A per-channel 5 s gate for messages, never for needs.** The phone collapses per conversation through `Topic`. A toast can't be replaced, so the gate is the equivalent. It runs on events seen, so every window drops the same ones.
-- **Notifications run in every VS Code window while signed in** (`onStartupFinished`), not only in `jam-` windows. Otherwise closing the last code window would silence Jam. The cost is one events stream per window.
+- **Notifications run in every VS Code window while signed in** (`onStartupFinished`), not only in `jam-` windows. Otherwise closing the last code window would silence Jam. The cost is one events stream per window, plus the Needs You rail refresh.
+- **`NEEDS_YOU_DEBOUNCE_MS = 3000`** (raised from 1 s at pre-flight): with every window now holding a stream, steady log activity would otherwise make each window fetch the rail about once a second. 3 s bounds that to one fetch per window per 3 s, and a badge that lags by 3 s is still timely; `notify` events, which matter most, arrive on the same debounce.
 - **The badge lives on a small Needs You tree view.** A `WebviewView`'s badge exists only after the view is resolved, so a closed Jam container would show no count. A `TreeView` badge is set from activation and shows on the container icon. The view also lists the conversations and opens them.
-- **"Needs you" is the rail's count of `needsYou` rows** (`GET /app/user/api/rail`, deduped by channel), exactly what the web app's Needs you group shows. It refreshes, debounced, on `open`, `changed`, `presence` and `notify`.
+- **"Needs you" is the rows of the rail's `needs-you` group** (`GET /app/user/api/rail`, deduped by channel), literally the web app's Needs you group (pre-flight F14). Open reuses `sessionOfPick`. It refreshes, debounced, on `open`, `changed`, `presence` and `notify`.
 - **Toast kind:** `needs` → a warning, `messages` → information, mirroring the web app's two sounds.
 - **Lock files are named by `sha256(id)`**, so an id can never escape the directory. They are swept after 15 minutes.
 - **No settings in this slice.** OS notifications are muted through the OS (*terminal-notifier* on macOS), and VS Code's own Do Not Disturb covers toasts.
+- **`jam.url` changes restart the permanent stream** and refresh the badge (pre-flight F12): before this slice, panes re-resolved on their own; now the stream outlives every pane.
+
+## Known limitations (out of scope)
+
+- **Push focus is one channel per user, last write wins** (slice 3, `push.Focus`). Window A's blur `null` can land after window B's focus post and clear it for up to 30 s, so a conversation being read can still notify (now in VS Code as well as on the phone). A later fix should key focus by client.
