@@ -39,7 +39,7 @@ describe("the manifest", () => {
     const registered = vi_registered();
     const ids = pkg.contributes.commands.map((c: { command: string }) => c.command);
     expect(ids.sort()).toEqual(
-      ["jam.focusSession", "jam.forgetHostKey", "jam.needsYou.open", "jam.openSession", "jam.signIn", "jam.signOut", ...NAMES.flatMap((n) => [`jam.${n}.pin`, `jam.${n}.unpin`])].sort(),
+      ["jam.connectStudio", "jam.disconnectStudio", "jam.focusSession", "jam.forgetHostKey", "jam.needsYou.open", "jam.openSession", "jam.signIn", "jam.signOut", ...NAMES.flatMap((n) => [`jam.${n}.pin`, `jam.${n}.unpin`])].sort(),
     );
     for (const id of ids) expect(registered).toContain(id);
   });
@@ -61,6 +61,8 @@ describe("the manifest", () => {
     });
     const cmd = (id: string) => pkg.contributes.commands.find((c: { command: string }) => c.command === id);
     expect(cmd("jam.focusSession")).toMatchObject({ title: "Focus Session…", category: "Jam" });
+    expect(cmd("jam.connectStudio")).toEqual({ command: "jam.connectStudio", title: "Connect to Studio", category: "Jam" });
+    expect(cmd("jam.disconnectStudio")).toEqual({ command: "jam.disconnectStudio", title: "Disconnect Studio", category: "Jam" });
     for (const n of NAMES) {
       expect(cmd(`jam.${n}.pin`)).toEqual({ command: `jam.${n}.pin`, title: "Pin to This Session", icon: "$(pin)" });
       expect(cmd(`jam.${n}.unpin`)).toEqual({ command: `jam.${n}.unpin`, title: "Follow the Window's Session", icon: "$(pinned)" });
@@ -92,6 +94,8 @@ describe("the manifest", () => {
         { command: `jam.${n}.unpin`, when: "false" },
       ]),
       { command: "jam.needsYou.open", when: "false" },
+      { command: "jam.connectStudio", when: "jam.window == local" },
+      { command: "jam.disconnectStudio", when: "jam.window == remote" },
     ]);
   });
 

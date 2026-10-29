@@ -1,4 +1,5 @@
-// Opening a session's studio in a Remote-SSH window. Pure: the VS Code
+// Opening a session's window (local), and connecting it to the session's
+// studio over Remote-SSH and back. Pure: the VS Code
 // surface is the Ui interface, built in extension.ts.
 import type { JamApi } from "./api";
 import type { RailResponse } from "../../app/src/api/types.js" with { "resolution-mode": "import" };
@@ -12,7 +13,12 @@ export interface Ui {
   info(msg: string, ...actions: string[]): Promise<string | undefined>;
   pick<T extends { label: string }>(items: T[], placeholder: string): Promise<T | undefined>;
   openExternal(url: string): Promise<void>;
-  openFolder(uri: string): Promise<void>;
+  // Opens uri in a new window (focusing one already on it), or with reuse in this one.
+  openFolder(uri: string, o?: { reuse: true }): Promise<void>;
+  // The session's local workspace file (written if missing), as a URI.
+  localWorkspace(id: string): Promise<string>;
+  isConnected(id: string): boolean;
+  setConnected(id: string, on: boolean): Promise<void>;
   hasRemoteSsh(): boolean;
   installRemoteSsh(): Promise<void>;
   getGlobal(section: string, key: string): unknown;
@@ -72,79 +78,188 @@ export function windowAuthority(w: { workspaceFolders?: readonly { uri: UriLike 
   return undefined;
 }
 
-// openSession validates the id first, so a crafted link reaches no API call
-// and no file. A SignedOutError (401) propagates to the caller's sign-out.
-// Every step and outcome goes to the log, prefixed with the session id.
-export async function openSession(d: OpenDeps, id: string): Promise<void> {
-  const { ui } = d;
+type Step = (m: string) => void;
+type Fail = (msg: string, ...actions: string[]) => Promise<string | undefined>;
+
+// withSession validates the id (so a crafted link reaches no API call and no
+// file), then runs work under progress, logging every step and outcome
+// prefixed with the session id. A SignedOutError (401) propagates to the
+// caller's sign-out.
+async function withSession(
+  d: OpenDeps,
+  id: string,
+  title: string,
+  work: (c: { step: Step; log: (m: string) => void; fail: Fail }) => Promise<void>,
+): Promise<void> {
   const log = (m: string) => d.log(`[${id}] ${m}`);
   if (!SESSION_ID_RE.test(id)) {
     d.log(`open: refused a bad session id (${JSON.stringify(id.slice(0, 80))})`);
-    await ui.error("That isn't a Jam session link.");
+    await d.ui.error("That isn't a Jam session link.");
     return;
   }
-  const fail = async (msg: string, ...actions: string[]) => {
+  const fail: Fail = async (msg, ...actions) => {
     log(`stopped: ${msg}`);
-    return ui.error(msg, ...actions);
+    return d.ui.error(msg, ...actions);
   };
   try {
-    await ui.progress(`Jam: opening ${id}…`, async (report) => {
-      const step = (m: string) => {
-        log(m);
-        report(m);
-      };
-      step("checking the session");
-      const { api, url } = await d.signedIn();
-      let head;
-      try {
-        head = await api.sessionHead(id);
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 404) {
-          if ((await fail("No such session, or you can't see it.", WEB)) === WEB) await ui.openExternal(`${url}/app/user/`);
-          return;
-        }
-        throw e;
-      }
-      log(`session found: ${head.label}`);
-      if (head.ssh === "") {
-        const msg = `You can't SSH into ${head.label}'s studio (ask an operator to share it).`;
-        if ((await fail(msg, WEB)) === WEB) await ui.openExternal(webUrl(url, head.channel));
-        return;
-      }
-      if (!ui.hasRemoteSsh()) {
-        if ((await fail("Opening a studio needs Microsoft's Remote - SSH extension.", "Install")) === "Install") await ui.installRemoteSsh();
-        return;
-      }
-      step(`setting up SSH for ${head.label}`);
-      try {
-        const r = await d.ssh(api, id);
-        log(`ssh ready: alias ${r.alias}`);
-      } catch (e) {
-        if (e instanceof SignedOutError) throw e;
-        await fail(e instanceof ApiError ? certErrorMessage(e, id) : e instanceof Error ? e.message : String(e));
-        return;
-      }
-      if (!ui.remembered(ASKED) && ui.getGlobal("remote.SSH", "localServerDownload") !== "always") {
-        log("asking about Remote-SSH localServerDownload");
-        const a = await ui.info(
-          "Jam studios can't download VS Code Server themselves. Set Remote-SSH's localServerDownload to 'always'?",
-          "Set it",
-          "Not now",
-        );
-        if (a === "Set it") await ui.setGlobal("remote.SSH", "localServerDownload", "always");
-        await ui.remember(ASKED);
-        log(`localServerDownload answer: ${a ?? "dismissed"}`);
-      }
-      step("opening the window");
-      const uri = remoteUri(id);
-      log(`openFolder ${uri}`);
-      await ui.openFolder(uri);
-      log("openFolder returned");
-    });
+    await d.ui.progress(title, (report) =>
+      work({
+        log,
+        fail,
+        step: (m) => {
+          log(m);
+          report(m);
+        },
+      }),
+    );
   } catch (e) {
     log(`error: ${e instanceof Error ? e.message : String(e)}`);
     throw e;
   }
+}
+
+// checkSession signs in and reads the session's head; a 404 is shown (with
+// the web app) and gives undefined.
+async function checkSession(d: OpenDeps, id: string, step: Step, log: (m: string) => void, fail: Fail) {
+  step("checking the session");
+  const { api, url } = await d.signedIn();
+  try {
+    const head = await api.sessionHead(id);
+    log(`session found: ${head.label}`);
+    return { api, url, head };
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) {
+      if ((await fail("No such session, or you can't see it.", WEB)) === WEB) await d.ui.openExternal(`${url}/app/user/`);
+      return undefined;
+    }
+    throw e;
+  }
+}
+
+// openSession opens the session's local window (its workspace file, in a new
+// window or the one already on it): no SSH, so the studio can idle. A session
+// this machine connected opens (focuses) its studio window instead.
+export async function openSession(d: OpenDeps, id: string): Promise<void> {
+  await withSession(d, id, `Jam: opening ${id}…`, async ({ step, log, fail }) => {
+    if (!(await checkSession(d, id, step, log, fail))) return;
+    step("opening the window");
+    let uri: string;
+    if (d.ui.isConnected(id)) {
+      log("connected: opening its studio window");
+      uri = remoteUri(id);
+    } else uri = await d.ui.localWorkspace(id);
+    log(`openFolder ${uri}`);
+    await d.ui.openFolder(uri);
+    log("openFolder returned");
+  });
+}
+
+// connectStudio sets up SSH for the session's studio and reloads this window
+// onto it over Remote-SSH.
+export async function connectStudio(d: OpenDeps, id: string): Promise<void> {
+  const { ui } = d;
+  await withSession(d, id, `Jam: connecting ${id}…`, async ({ step, log, fail }) => {
+    const s = await checkSession(d, id, step, log, fail);
+    if (!s) return;
+    const { api, url, head } = s;
+    if (head.ssh === "") {
+      const msg = `You can't SSH into ${head.label}'s studio (ask an operator to share it).`;
+      if ((await fail(msg, WEB)) === WEB) await ui.openExternal(webUrl(url, head.channel));
+      return;
+    }
+    if (!ui.hasRemoteSsh()) {
+      if ((await fail("Connecting to a studio needs Microsoft's Remote - SSH extension.", "Install")) === "Install") await ui.installRemoteSsh();
+      return;
+    }
+    step(`setting up SSH for ${head.label}`);
+    try {
+      const r = await d.ssh(api, id);
+      log(`ssh ready: alias ${r.alias}`);
+    } catch (e) {
+      if (e instanceof SignedOutError) throw e;
+      await fail(e instanceof ApiError ? certErrorMessage(e, id) : e instanceof Error ? e.message : String(e));
+      return;
+    }
+    if (!ui.remembered(ASKED) && ui.getGlobal("remote.SSH", "localServerDownload") !== "always") {
+      log("asking about Remote-SSH localServerDownload");
+      const a = await ui.info(
+        "Jam studios can't download VS Code Server themselves. Set Remote-SSH's localServerDownload to 'always'?",
+        "Set it",
+        "Not now",
+      );
+      if (a === "Set it") await ui.setGlobal("remote.SSH", "localServerDownload", "always");
+      await ui.remember(ASKED);
+      log(`localServerDownload answer: ${a ?? "dismissed"}`);
+    }
+    step("connecting the window");
+    const uri = remoteUri(id);
+    // Marked first: reloading this window may end this extension host before
+    // openFolder returns.
+    await ui.setConnected(id, true);
+    log(`openFolder ${uri} (this window)`);
+    await ui.openFolder(uri, { reuse: true });
+    log("openFolder returned");
+  });
+}
+
+// disconnectStudio reloads this window onto the session's local workspace;
+// Remote-SSH closes the connection, so the studio can idle.
+export async function disconnectStudio(d: OpenDeps, id: string): Promise<void> {
+  if (!SESSION_ID_RE.test(id)) {
+    d.log(`disconnect: refused a bad session id (${JSON.stringify(id.slice(0, 80))})`);
+    return;
+  }
+  await d.ui.setConnected(id, false);
+  const uri = await d.ui.localWorkspace(id);
+  d.log(`[${id}] disconnecting: openFolder ${uri} (this window)`);
+  await d.ui.openFolder(uri, { reuse: true });
+}
+
+const CONNECTED = "jam.connected";
+
+// connectedSet keeps the ids of sessions this machine connected (Memento-like
+// store, e.g. globalState). Junk in the store reads as empty.
+export function connectedSet(st: { get<T>(k: string): T | undefined; update(k: string, v: unknown): Thenable<void> }) {
+  const ids = (): string[] => {
+    const v = st.get<unknown>(CONNECTED);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && SESSION_ID_RE.test(x)) : [];
+  };
+  return {
+    isConnected: (id: string) => ids().includes(id),
+    setConnected: async (id: string, on: boolean) => {
+      const rest = ids().filter((x) => x !== id);
+      await st.update(CONNECTED, on ? [...rest, id] : rest);
+    },
+  };
+}
+
+export type WindowKind = { kind: "local" | "remote"; id: string };
+
+// windowKind is the session a window belongs to: a jam-<id> remote, or a
+// local session window, whose workspace file is exactly
+// <sessionsDir>/<id>.code-workspace (sessionsDir as a URI path).
+export function windowKind(
+  w: { workspaceFolders?: readonly { uri: UriLike }[]; workspaceFile?: UriLike & { path: string } },
+  sessionsDir: string,
+): WindowKind | undefined {
+  const remote = studioFromAuthority(windowAuthority(w));
+  if (remote) return { kind: "remote", id: remote };
+  const f = w.workspaceFile;
+  if (f?.scheme !== "file") return undefined;
+  const dir = sessionsDir.replace(/\/+$/, "");
+  const slash = f.path.lastIndexOf("/");
+  if (slash < 0 || f.path.slice(0, slash) !== dir) return undefined;
+  const m = /^(.+)\.code-workspace$/.exec(f.path.slice(slash + 1));
+  return m && SESSION_ID_RE.test(m[1]!) ? { kind: "local", id: m[1]! } : undefined;
+}
+
+export const SESSION_WORKSPACE = JSON.stringify({ folders: [] }, null, 2) + "\n";
+
+// statusBarItem is the window's Connect/Disconnect item, if any.
+export function statusBarItem(k: WindowKind | undefined): { text: string; command: string; tooltip: string } | undefined {
+  if (k?.kind === "local") return { text: "$(plug) Connect studio", command: "jam.connectStudio", tooltip: "Jam: connect this window to the session's studio over Remote-SSH" };
+  if (k?.kind === "remote") return { text: "$(debug-disconnect) Disconnect studio", command: "jam.disconnectStudio", tooltip: "Jam: disconnect from the studio so it can idle" };
+  return undefined;
 }
 
 export type RailRow = RailResponse["groups"][number]["rows"][number];

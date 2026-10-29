@@ -14,6 +14,11 @@ const CHN = "chn_0abcdefghjkmnpqrstvwxyz012";
 const remoteFolder = () => {
   (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { scheme: "vscode-remote", authority: `ssh-remote+jam-${SES}` } }];
 };
+const localPath = (ctx: vscode.ExtensionContext, id = SES) => `${ctx.globalStorageUri.path}/sessions/${id}.code-workspace`;
+const localWindow = (ctx: vscode.ExtensionContext, id = SES) => {
+  (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: localPath(ctx, id) };
+};
+const openFolderCalls = () => vi.mocked(vscode.commands.executeCommand).mock.calls.filter((c) => c[0] === "vscode.openFolder");
 const stored = (token: string) => JSON.stringify({ url: JAM, token, user: "u", expiresAt: "x" });
 type View = ReturnType<typeof fakeWebviewView>;
 const openView = (): View => {
@@ -43,11 +48,11 @@ function jamFetch(calls: Call[]) {
 }
 
 describe("activate", () => {
-  it("activate registers five view providers, one tree view and sixteen commands", () => {
+  it("activate registers five view providers, one tree view and eighteen commands", () => {
     mock.reset();
     const ctx = fakeContext();
     activate(ctx);
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(16);
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(18);
     expect(vscode.window.createTreeView).toHaveBeenCalledWith("jam.needsYou", expect.anything());
     expect(vscode.window.registerUriHandler).toHaveBeenCalledTimes(1);
     expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(5);
@@ -149,8 +154,10 @@ describe("activate", () => {
       vi.mocked(vscode.env.openExternal).mockClear();
       vi.mocked(vscode.commands.executeCommand).mockClear();
       await open(r(CHN));
-      // The fake studio has no ssh endpoint, so openSession ends in its "can't SSH" error.
-      await vi.waitFor(() => expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining("can't SSH"), expect.anything()));
+      // No SSH is needed to open: the session's local window opens.
+      await vi.waitFor(() =>
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ path: localPath(ctx) }), { forceNewWindow: true }),
+      );
     } finally {
       fetchSpy.mockRestore();
       deactivate();
@@ -599,7 +606,7 @@ describe("notifications", () => {
       activate(ctx);
       await vi.waitFor(() => expect(toasts()).toEqual([["Alice · build-bot: done?", "Open"]]));
       await vi.waitFor(() =>
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceNewWindow: true }),
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ path: localPath(ctx) }), { forceNewWindow: true }),
       );
       expect(mock.output.join("\n")).not.toContain("done?");
     } finally {
@@ -669,5 +676,171 @@ describe("notifications", () => {
       fetchSpy.mockRestore();
       deactivate();
     }
+  });
+});
+
+describe("local session windows (connect on demand)", () => {
+  // sshHome makes ensureSsh find a hand-written Host block, so it succeeds with no CLI.
+  const sshHome = async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    const fsp = await import("node:fs/promises");
+    await fsp.mkdir(path.join(home, ".ssh"));
+    await writeFile(path.join(home, ".ssh", "config"), `Host jam-${SES}\n  HostName x\n`);
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+  };
+  const items = () => vi.mocked(vscode.window.createStatusBarItem).mock.results.map((r) => r.value as { text: string; command: string; shown: boolean });
+
+  it("a link opens the session's local workspace file in a new window; the file is {folders: []} with no token", async () => {
+    mock.reset();
+    const calls: Call[] = [];
+    const fetchSpy = jamFetch(calls);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      const [, uri, opts] = openFolderCalls()[0]!;
+      expect(opts).toEqual({ forceNewWindow: true });
+      expect((uri as { scheme: string; path: string }).scheme).toBe("file");
+      expect((uri as { path: string }).path).toBe(localPath(ctx));
+      const text = await readFile(localPath(ctx), "utf8");
+      expect(JSON.parse(text)).toEqual({ folders: [] });
+      expect(text).not.toMatch(/t2|Bearer/);
+      expect(calls.some((c) => c.path === `/app/user/api/sessions/${SES}`)).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a link to a connected session opens its remote window instead", async () => {
+    mock.reset();
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      ctx.state.set("jam.connected", [SES]);
+      activate(ctx);
+      mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      expect(openFolderCalls()[0]).toEqual(["vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceNewWindow: true }]);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a local session window: the panes follow its session, Connect shows, and nothing forwards", async () => {
+    mock.reset();
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      localWindow(ctx);
+      activate(ctx);
+      expect(items().filter((i) => i.shown).map((i) => [i.text, i.command])).toEqual([["$(plug) Connect studio", "jam.connectStudio"]]);
+      expect(mock.context.get("jam.window")).toBe("local");
+      const v = openView();
+      v.receive({ type: "ready", pane: "conversation" });
+      await vi.waitFor(() => expect(lastState(v)?.target).toEqual({ session: SES, label: "alpha", channel: CHN }));
+      // A preview of the window's own session opens its web URL: forwarding needs the remote.
+      v.receive({ type: "open", intent: { kind: "preview", session: SES, port: 3000, url: "https://p.example.com/" } });
+      await vi.waitFor(() => expect(vscode.env.openExternal).toHaveBeenCalledWith(expect.objectContaining({ toString: expect.any(Function) })));
+      expect(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0])).toBe("https://p.example.com/");
+      expect(vscode.env.asExternalUri).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a workspace file of the same name elsewhere is not a session window", async () => {
+    mock.reset();
+    const ctx = fakeContext();
+    (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: `/tmp/elsewhere/sessions/${SES}.code-workspace` };
+    activate(ctx);
+    expect(items().filter((i) => i.shown)).toEqual([]);
+    expect(mock.context.get("jam.window")).toBe("");
+    deactivate();
+  });
+
+  it("a plain local window shows neither item", () => {
+    mock.reset();
+    activate(fakeContext());
+    expect(items().filter((i) => i.shown)).toEqual([]);
+    deactivate();
+  });
+
+  it("Connect in a local window sets up SSH, marks the session, and reloads this window onto the remote", async () => {
+    mock.reset();
+    await sshHome();
+    const getExt = vi.mocked(vscode.extensions.getExtension);
+    getExt.mockImplementation(() => ({}) as vscode.Extension<unknown>);
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["remote.SSH.localServerDownload"] = "always";
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      localWindow(ctx);
+      activate(ctx);
+      await mock.commands.get("jam.connectStudio")!();
+      expect(openFolderCalls()).toEqual([["vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceReuseWindow: true }]]);
+      expect(ctx.state.get("jam.connected")).toEqual([SES]);
+      expect(mock.output.join("\n")).toContain(`[${SES}] ssh ready: alias jam-${SES}`);
+      expect(mock.output.join("\n")).not.toMatch(/t2|Bearer/);
+    } finally {
+      getExt.mockImplementation(() => undefined);
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+      deactivate();
+    }
+  });
+
+  it("Connect outside a session window says so", async () => {
+    mock.reset();
+    activate(fakeContext());
+    await mock.commands.get("jam.connectStudio")!();
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith("This window isn't a Jam session window. Open a session first (Jam: Open Session…).");
+    expect(openFolderCalls()).toEqual([]);
+    deactivate();
+  });
+
+  it("a remote session window: Disconnect shows and is marked connected; Disconnect reloads onto the local workspace and unmarks", async () => {
+    mock.reset();
+    const ctx = fakeContext();
+    remoteFolder();
+    activate(ctx);
+    expect(items().filter((i) => i.shown).map((i) => [i.text, i.command])).toEqual([["$(debug-disconnect) Disconnect studio", "jam.disconnectStudio"]]);
+    expect(mock.context.get("jam.window")).toBe("remote");
+    await vi.waitFor(() => expect(ctx.state.get("jam.connected")).toEqual([SES]));
+    await mock.commands.get("jam.disconnectStudio")!();
+    expect(openFolderCalls()).toEqual([["vscode.openFolder", expect.objectContaining({ scheme: "file", path: localPath(ctx) }), { forceReuseWindow: true }]]);
+    expect(ctx.state.get("jam.connected")).toEqual([]);
+    expect(JSON.parse(await readFile(localPath(ctx), "utf8"))).toEqual({ folders: [] });
+    deactivate();
+  });
+
+  it("deactivating a remote session window unmarks it; a local one leaves the set alone", async () => {
+    mock.reset();
+    const ctx = fakeContext();
+    remoteFolder();
+    activate(ctx);
+    await vi.waitFor(() => expect(ctx.state.get("jam.connected")).toEqual([SES]));
+    await deactivate();
+    expect(ctx.state.get("jam.connected")).toEqual([]);
+
+    mock.reset();
+    const ctx2 = fakeContext();
+    ctx2.state.set("jam.connected", [SES]);
+    localWindow(ctx2, "ses_1abcdefghjkmnpqrstvwxyz012");
+    activate(ctx2);
+    await deactivate();
+    expect(ctx2.state.get("jam.connected")).toEqual([SES]);
   });
 });

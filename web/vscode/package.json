@@ -20,6 +20,8 @@
       { "command": "jam.openSession", "title": "Open Session…", "category": "Jam" },
       { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" },
       { "command": "jam.focusSession", "title": "Focus Session…", "category": "Jam" },
+      { "command": "jam.connectStudio", "title": "Connect to Studio", "category": "Jam" },
+      { "command": "jam.disconnectStudio", "title": "Disconnect Studio", "category": "Jam" },
       { "command": "jam.conversation.pin", "title": "Pin to This Session", "icon": "$(pin)" },
       { "command": "jam.conversation.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
       { "command": "jam.thinking.pin", "title": "Pin to This Session", "icon": "$(pin)" },
@@ -90,7 +92,9 @@
         { "command": "jam.status.unpin", "when": "false" },
         { "command": "jam.artifacts.pin", "when": "false" },
         { "command": "jam.artifacts.unpin", "when": "false" },
-        { "command": "jam.needsYou.open", "when": "false" }
+        { "command": "jam.needsYou.open", "when": "false" },
+        { "command": "jam.connectStudio", "when": "jam.window == local" },
+        { "command": "jam.disconnectStudio", "when": "jam.window == remote" }
       ]
     },
     "viewsWelcome": [
