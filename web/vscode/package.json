@@ -1,0 +1,56 @@
+{
+  "name": "jam",
+  "displayName": "Jam",
+  "description": "Open your Jam sessions' studios in VS Code.",
+  "publisher": "aethons",
+  "private": true,
+  "license": "UNLICENSED",
+  "version": "0.0.0",
+  "repository": { "type": "git", "url": "https://github.com/aethons-tools/cove.git", "directory": "web/vscode" },
+  "engines": { "vscode": "^1.105.0" },
+  "categories": ["Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onUri"],
+  "extensionKind": ["ui"],
+  "capabilities": { "untrustedWorkspaces": { "supported": true } },
+  "contributes": {
+    "commands": [
+      { "command": "jam.signIn", "title": "Sign In", "category": "Jam" },
+      { "command": "jam.signOut", "title": "Sign Out", "category": "Jam" },
+      { "command": "jam.openSession", "title": "Open Session…", "category": "Jam" },
+      { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" }
+    ],
+    "configuration": {
+      "title": "Jam",
+      "properties": {
+        "jam.url": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "Your Jam's address, e.g. `https://jam.example.com` (`https:` only; `http:` for localhost)."
+        },
+        "jam.cliPath": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "Absolute path to the `jam` CLI; empty searches `PATH`."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test",
+    "package": "npm run build && vsce package --no-dependencies --skip-license -o dist/jam.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@types/vscode": "1.105.0",
+    "@vscode/vsce": "4.1.0",
+    "esbuild": "0.28.2",
+    "typescript": "6.0.3",
+    "vitest": "5.0.5"
+  }
+}

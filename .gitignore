@@ -42,3 +42,5 @@
 /web/app/node_modules/
 /web/app/dist/
 /web/app/*.tsbuildinfo
+/web/vscode/node_modules/
+/web/vscode/dist/
