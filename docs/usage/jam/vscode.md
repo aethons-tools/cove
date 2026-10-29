@@ -40,6 +40,7 @@ A repository you open can't point the extension at its own Jam or make it run it
 *Jam: Sign In* opens the browser to a consent page that names "VS Code on <host>".
 On approval the extension keeps the app token in VS Code's SecretStorage
 and in `~/.config/jam/default-app-token.json` (`$XDG_CONFIG_HOME/jam/…`; 0600), which the `jam` CLI reads.
+Opening a session rewrites that file from the stored sign-in if it is missing or stale.
 *Jam: Sign Out* clears both.
 Revoke it from the web app's **Connected apps** ([app-tokens.md](app-tokens.md));
 the next open then reports you signed out and offers Sign In.
@@ -60,11 +61,11 @@ and opens `vscode-remote://ssh-remote+jam-<studio>/home/agent/workspace` in a ne
 ## What it writes
 
 - **`~/.ssh/config`:** a `Host jam-<studio>` block between `# >>> jam <studio> >>>` and `# <<< jam <studio> <<<`,
-  with the marker line `# managed by the Jam VS Code extension (aethons.jam)` as its first line.
+  with the marker line `# managed by the Jam VS Code extension (aethons.jam)` right after the begin marker.
   The block is the one `jam ssh-config` writes ([collaboration.md](collaboration.md#the-ssh-commands)), plus the marker; a rerun replaces it.
   A block `jam ssh-config` wrote (no marker), or a hand-written `Host jam-<studio>`, is **left alone**.
 - **`~/.config/jam/ssh/id_ed25519`** (the CLI's key, shared) and **`<studio>-cert.pub`** (an 8 h cert, renewed on open;
-  the CLI's `ssh-proxy` renews it during a connection).
+  the CLI's `ssh-proxy` renews it when a connection starts).
 - **The token file** above.
 
 The ProxyCommand pins `--participant`; `jam` uses the token file when it names the same Jam
