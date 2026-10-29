@@ -44,11 +44,17 @@ export function checkPath(path: string, jamUrl: string, opts: { streams?: boolea
 
 export const UPLOAD_CHUNK = 64 * 1024;
 const TEXT_CAP = 64 * 1024;
+// MAX_UPLOAD_BYTES is the largest upload body the host forwards: Jam's own
+// ceiling for blobs.max-size (maxBlobMax in cmd/jam/config.go, 1 GiB). The
+// server still answers 413 past its configured limit (25 MiB by default).
+export const MAX_UPLOAD_BYTES = 1 << 30;
 
 export type RouterDeps = {
   session: () => Promise<{ url: string; token: string } | undefined>;
   fetch: typeof fetch;
-  onSignedOut: () => void;
+  // onSignedOut hears the token a 401 refused, once per token.
+  onSignedOut: (token: string) => void;
+  maxUpload?: number; // default MAX_UPLOAD_BYTES; tests lower it
 };
 
 const METHODS = new Set(["GET", "POST", "DELETE"]);
@@ -77,6 +83,10 @@ export class Router {
     };
     try {
       if (!req || !METHODS.has(req.method)) return done({ kind: "refused", reason: "method" });
+      // The pane controls bytes: only a real ArrayBuffer within the cap is sent.
+      if (req.bytes !== undefined && (!(req.bytes instanceof ArrayBuffer) || req.bytes.byteLength > (this.d.maxUpload ?? MAX_UPLOAD_BYTES))) {
+        return done({ kind: "refused", reason: "bytes" });
+      }
       const s = await this.d.session();
       if (ac.signal.aborted) return;
       if (!s) return done({ kind: "signedOut" });
@@ -116,7 +126,7 @@ export class Router {
       if (res.status === 401) {
         if (!this.notified.has(s.token)) {
           this.notified.add(s.token);
-          this.d.onSignedOut();
+          this.d.onSignedOut(s.token);
         }
         return done({ kind: "signedOut" });
       }

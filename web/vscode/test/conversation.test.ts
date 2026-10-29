@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type * as vs from "vscode";
 import * as vscode from "vscode";
 import type { ExtToPane, PaneState } from "../../app/src/bridge/protocol.js" with { "resolution-mode": "import" };
-import { SignedOutError } from "../src/api";
+import { ApiError, SignedOutError } from "../src/api";
 import type { Session } from "../src/auth";
 import { Router } from "../src/bridge/router";
 import { FocusModel } from "../src/focus";
@@ -26,7 +26,7 @@ const known: Record<string, SessionTarget> = {
 
 type View = ReturnType<typeof fakeWebviewView>;
 
-function setup(o: { windowDefault?: string; resolve?: (s: string) => Promise<SessionTarget> } = {}) {
+function setup(o: { windowDefault?: string; resolve?: (s: string) => Promise<SessionTarget>; fetch?: (url: string, init: RequestInit) => Promise<Response> } = {}) {
   mock.reset();
   let sess: Session | undefined = SIGNED_IN;
   const authSubs = new Set<(s: Session | undefined) => void>();
@@ -53,9 +53,9 @@ function setup(o: { windowDefault?: string; resolve?: (s: string) => Promise<Ses
         init!.signal!.addEventListener("abort", () => rej(new Error("aborted")));
       }),
   );
-  const live = new LiveStream({ session, fetch: liveFetch as unknown as typeof fetch, onSignedOut: vi.fn(), setTimeout, clearTimeout, random: () => 0.5 });
+  const live = new LiveStream({ session, fetch: liveFetch as unknown as typeof globalThis.fetch, onSignedOut: vi.fn(), setTimeout, clearTimeout, random: () => 0.5 });
   const hub = new PaneHub(live);
-  const fetch = vi.fn(async (..._a: unknown[]) => Response.json({ ok: true }));
+  const fetch = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(o.fetch ?? (async () => Response.json({ ok: true })));
   const router = new Router({ session, fetch: fetch as unknown as typeof globalThis.fetch, onSignedOut: vi.fn() });
   const store = new Map<string, unknown>();
   const resolve = vi.fn(o.resolve ?? (async (s: string) => known[s] ?? { session: s, gone: true as const }));
@@ -265,4 +265,53 @@ describe("ConversationViewProvider", () => {
     await settle();
     expect(v.posted.length).toBe(before);
   });
+
+  it("a non-JSON server body never reaches the error copy; a JSON message is capped", async () => {
+    const html = `<html><body>${"x".repeat(500)}</body></html>`;
+    let next: Error = new ApiError(html, 502, "");
+    const s = setup({ windowDefault: A, resolve: async () => Promise.reject(next) });
+    const v = s.open();
+    v.receive({ type: "ready", pane: "conversation" });
+    await vi.waitFor(() => expect(lastState(v)?.error).toBe("Jam answered 502."));
+    next = new ApiError("y".repeat(500), 500, "internal");
+    v.receive({ type: "ready", pane: "conversation" });
+    await vi.waitFor(() => expect(lastState(v)?.error).toBe(`${"y".repeat(200)}… (HTTP 500)`));
+  });
+
+  // A hidden webview loses its JS; shown again, its new Bridge numbers
+  // requests from 1 while the old context's requests may still be in flight.
+  for (const how of ["ready", "hide"] as const) {
+    it(`a reloaded webview never gets the old context's answers (${how})`, async () => {
+      const signals: AbortSignal[] = [];
+      const releases: ((r: Response) => void)[] = [];
+      const s = setup({
+        windowDefault: A,
+        fetch: (_u, init) =>
+          new Promise<Response>((res) => {
+            signals.push(init.signal!);
+            releases.push(res);
+          }),
+      });
+      const v = s.open();
+      v.receive({ type: "ready", pane: "conversation" });
+      v.receive({ type: "request", id: 1, req: { method: "POST", path: "/app/user/uploads", bytes: new ArrayBuffer(4), progress: true } });
+      await vi.waitFor(() => expect(releases).toHaveLength(1));
+      if (how === "hide") {
+        v.setVisible(false);
+        expect(signals[0]!.aborted).toBe(true);
+        v.setVisible(true);
+      }
+      v.receive({ type: "ready", pane: "conversation" });
+      expect(signals[0]!.aborted).toBe(true);
+      v.receive({ type: "request", id: 1, req: { method: "GET", path: "/app/user/api/bootstrap" } });
+      await vi.waitFor(() => expect(releases).toHaveLength(2));
+      releases[0]!(Response.json({ ref: "old" }, { status: 201 }));
+      await settle();
+      releases[1]!(Response.json({ new: true }));
+      await vi.waitFor(() => expect(v.posted.filter((m) => (m as ExtToPane).type === "response")).toHaveLength(1));
+      await settle();
+      const answers = (v.posted as ExtToPane[]).filter((m) => m.type === "response" || m.type === "progress");
+      expect(answers).toEqual([{ type: "response", id: 1, res: { kind: "http", status: 200, contentType: "application/json", json: { new: true } } }]);
+    });
+  }
 });

@@ -19,7 +19,8 @@ export function shouldRetry(failureCount: number, error: unknown): boolean {
   return failureCount < 3;
 }
 
-export type Raw = { status: number; contentType: string; redirected: boolean; json?: unknown; text?: string };
+// statusText is the HTTP reason phrase, when the transport has one.
+export type Raw = { status: number; statusText?: string; contentType: string; redirected: boolean; json?: unknown; text?: string };
 export type TransportRequest = { method: Method; url: string; json?: unknown; form?: FormData };
 // A Transport performs one request; it throws ApiError for transport-level failures.
 export type Transport = (r: TransportRequest) => Promise<Raw>;
@@ -36,7 +37,7 @@ export function interpret<T>(raw: Raw): T {
   }
   if (raw.status < 200 || raw.status >= 300) {
     const e = (raw.json ?? {}) as { error?: string; code?: string };
-    throw new ApiError(raw.status, e.code ?? "error", e.error ?? "");
+    throw new ApiError(raw.status, e.code ?? "error", e.error ?? raw.statusText ?? "");
   }
   return raw.json as T;
 }
@@ -56,7 +57,7 @@ export const fetchTransport: Transport = async ({ method, url, json, form }) => 
     throw new ApiError(0, "unavailable", "Jam can't be reached. Check your connection.");
   }
   const contentType = res.headers.get("Content-Type") ?? "";
-  const raw: Raw = { status: res.status, contentType, redirected: res.type === "opaqueredirect" };
+  const raw: Raw = { status: res.status, statusText: res.statusText, contentType, redirected: res.type === "opaqueredirect" };
   if (res.status === 204) return raw;
   if (contentType.startsWith("application/json")) raw.json = await res.json();
   return raw;

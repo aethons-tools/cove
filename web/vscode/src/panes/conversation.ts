@@ -78,12 +78,15 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
     };
     const refreshSoon = (): void => void refresh().catch(() => undefined);
 
+    // An answer is posted only while its pane id still maps to its Router id:
+    // an aborted or superseded request's answer is dropped.
     const request = (m: Extract<PaneToExt, { type: "request" }>): void => {
       const rid = ++routerSeq;
       ids.set(m.id, rid);
       this.d.router.handle({ type: "request", id: rid, req: m.req }, (r) => {
         if (r.type !== "response" && r.type !== "progress") return;
-        if (r.type === "response" && ids.get(m.id) === rid) ids.delete(m.id);
+        if (ids.get(m.id) !== rid) return;
+        if (r.type === "response") ids.delete(m.id);
         post({ ...r, id: m.id });
       });
     };
@@ -93,6 +96,12 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
       ids.delete(paneId);
       this.d.router.handle({ type: "abort", id: rid }, () => undefined);
     };
+    // Without retainContextWhenHidden, hiding the view destroys its JS, and a
+    // new context numbers its requests from 1 again: the old context's
+    // requests are aborted on hide and on every ready.
+    const abortAll = (): void => {
+      for (const paneId of [...ids.keys()]) abort(paneId);
+    };
 
     const detach = this.d.hub.attach({ id, post });
     const subs: (() => void)[] = [this.d.model.onChange(refreshSoon), this.d.auth.onChange(refreshSoon)];
@@ -101,6 +110,7 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
         if (!m || typeof m !== "object") return;
         switch (m.type) {
           case "ready":
+            abortAll();
             return refreshSoon();
           case "request":
             return request(m);
@@ -115,12 +125,15 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
             return quietly(this.d.executeCommand("jam.signIn"));
         }
       }),
-      view.onDidChangeVisibility(report),
+      view.onDidChangeVisibility(() => {
+        if (!view.visible) abortAll();
+        report();
+      }),
     ];
     disposables.push(
       view.onDidDispose(() => {
         disposed = true;
-        for (const paneId of [...ids.keys()]) abort(paneId);
+        abortAll();
         detach();
         for (const u of subs) u();
         for (const x of disposables) x.dispose();
@@ -152,8 +165,19 @@ export class ConversationViewProvider implements vscode.WebviewViewProvider {
     } catch (e) {
       if (e instanceof SignedOutError) return out;
       // Not a 404 (that is a gone target): say so once; Try again is a new ready.
-      const error = e instanceof ApiError ? `${e.message} (HTTP ${e.status})` : "Jam couldn't be reached.";
-      return { signedIn: true, target: null, pinned, elsewhere: false, error };
+      return { signedIn: true, target: null, pinned, elsewhere: false, error: errorCopy(e) };
     }
   }
+}
+
+// ERROR_CAP is the most of a server's message the pane shows.
+const ERROR_CAP = 200;
+
+// errorCopy is what the pane says about a failed lookup: a JSON error's
+// message (capped), never a raw non-JSON body such as a proxy's HTML page.
+function errorCopy(e: unknown): string {
+  if (!(e instanceof ApiError)) return "Jam couldn't be reached.";
+  if (!e.code) return `Jam answered ${e.status}.`;
+  const msg = e.message.length > ERROR_CAP ? `${e.message.slice(0, ERROR_CAP)}…` : e.message;
+  return `${msg} (HTTP ${e.status})`;
 }

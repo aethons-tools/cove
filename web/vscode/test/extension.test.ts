@@ -295,4 +295,91 @@ describe("activate", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("a late 401 for an old token doesn't sign out a newer sign-in", async () => {
+    mock.reset();
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const calls: Call[] = [];
+    const base = jamFetch(calls).getMockImplementation()!;
+    let releaseEvents: () => void = () => {};
+    const eventsHeld = new Promise<void>((r) => (releaseEvents = r));
+    let releaseUpload: () => void = () => {};
+    const uploadHeld = new Promise<void>((r) => (releaseUpload = r));
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const u = new URL(String(input));
+      const auth = ((init?.headers ?? {}) as Record<string, string>).Authorization ?? "";
+      if (auth === "Bearer t" && u.pathname === "/app/user/events") await eventsHeld;
+      if (auth === "Bearer t" && u.pathname === "/app/user/uploads") {
+        calls.push({ method: "POST", path: u.pathname, auth, body: "" });
+        await uploadHeld;
+        return new Response("", { status: 401 });
+      }
+      return base(input, init);
+    });
+    try {
+      mock.config["jam.url"] = JAM;
+      remoteFolder();
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t"));
+      activate(ctx);
+      const a = openView();
+      a.receive({ type: "ready", pane: "conversation" });
+      a.receive({ type: "request", id: 1, req: { method: "POST", path: "/app/user/uploads", bytes: new ArrayBuffer(4) } });
+      await vi.waitFor(() => expect(calls.some((c) => c.path === "/app/user/uploads" && c.auth === "Bearer t")).toBe(true));
+      // the stream's 401 signs t out
+      releaseEvents();
+      await vi.waitFor(() => expect(ctx.secretValues.has("jam.session")).toBe(false));
+      // sign in again: t2
+      const signingIn = mock.commands.get("jam.signIn")!();
+      await vi.waitFor(() => expect(vscode.env.openExternal).toHaveBeenCalled());
+      const consent = new URL(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0]));
+      mock.uriHandler!.handleUri({ path: "/auth", query: `state=${consent.searchParams.get("state")}&code=c` });
+      await signingIn;
+      await vi.waitFor(() => expect(ctx.secretValues.get("jam.session")).toContain('"t2"'));
+      // the upload sent with t now answers 401: t2 stays
+      releaseUpload();
+      await vi.waitFor(() => expect(a.posted).toContainEqual({ type: "response", id: 1, res: { kind: "signedOut" } }));
+      await settle();
+      expect(ctx.secretValues.get("jam.session")).toContain('"t2"');
+      const warned = vi.mocked(vscode.window.showWarningMessage).mock.calls.filter((c) => c[0] === "Your Jam sign-in expired or was revoked.");
+      expect(warned).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+      deactivate();
+    }
+  });
+
+  it("a command's 401 and the stream's 401 sign out once between them", async () => {
+    mock.reset();
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const held: (() => void)[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const u = new URL(String(input));
+      const auth = ((init?.headers ?? {}) as Record<string, string>).Authorization ?? "";
+      if (auth === "Bearer t" && u.pathname !== "/app/user/events") await new Promise<void>((r) => held.push(r));
+      return new Response("", { status: 401 });
+    });
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t"));
+      activate(ctx);
+      const focusing = mock.commands.get("jam.focusSession")!();
+      await vi.waitFor(() => expect(held.length).toBeGreaterThan(0));
+      openView();
+      await vi.waitFor(() => expect(ctx.secretValues.has("jam.session")).toBe(false));
+      for (const r of held) r();
+      await focusing;
+      await settle();
+      const warned = vi.mocked(vscode.window.showWarningMessage).mock.calls.filter((c) => c[0] === "Your Jam sign-in expired or was revoked.");
+      expect(warned).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+      deactivate();
+    }
+  });
 });

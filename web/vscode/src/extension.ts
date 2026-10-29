@@ -52,16 +52,31 @@ export function activate(ctx: vscode.ExtensionContext): void {
     if (pick === "Sign In") await vscode.commands.executeCommand("jam.signIn");
   };
 
-  // guard runs a command body, sending a SignedOutError to signedOut and
+  // signOutOnce is the one signed-out path for commands, the panes' requests,
+  // the live stream and the focused-session lookup: the first 401 of a sign-in
+  // runs signedOut(), the rest wait for the next sign-in. A failing sign-out
+  // (e.g. a locked keyring) is shown, not lost, and the next 401 tries again.
+  let signingOut = false;
+  const show = (x: unknown) => void vscode.window.showErrorMessage(x instanceof Error ? x.message : String(x));
+  const signOutOnce = async (): Promise<void> => {
+    if (signingOut) return;
+    signingOut = true;
+    try {
+      await signedOut();
+    } catch (e) {
+      signingOut = false;
+      show(e);
+    }
+  };
+
+  // guard runs a command body, sending a SignedOutError to signOutOnce and
   // showing any other error.
   const guard = (fn: () => Promise<void>) => async (): Promise<void> => {
     try {
       await fn();
     } catch (e) {
-      const show = (x: unknown) => void vscode.window.showErrorMessage(x instanceof Error ? x.message : String(x));
       if (!(e instanceof SignedOutError)) return show(e);
-      // A failing sign-out (e.g. a locked keyring) must still be seen.
-      await signedOut().catch(show);
+      await signOutOnce();
     }
   };
 
@@ -159,15 +174,13 @@ export function activate(ctx: vscode.ExtensionContext): void {
     return new JamApi(s.url, s.token, (...a) => fetch(...a));
   };
 
-  // One signed-out path for the panes' requests, the live stream and the
-  // focused-session lookup: the first 401 of a sign-in runs signedOut(), the
-  // rest wait for the next sign-in.
-  let signingOut = false;
-  const panesSignedOut = (): void => {
-    if (signingOut) return;
-    signingOut = true;
-    void signedOut().catch((e: unknown) => void vscode.window.showErrorMessage(e instanceof Error ? e.message : String(e)));
-  };
+  // panesSignedOut hears the token a 401 refused: it signs out only while that
+  // token is still the current one, so a late 401 for an old token can't sign
+  // out a newer sign-in.
+  const panesSignedOut = (token: string): void =>
+    void (async () => {
+      if ((await current())?.token === token) await signOutOnce();
+    })().catch(show);
 
   const live = new LiveStream({
     session: current,
@@ -183,10 +196,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
     windowDefault,
     state: ctx.workspaceState,
     resolve: async (session) => {
+      const s = await current();
+      if (!s) throw new SignedOutError();
       try {
-        return await sessionResolver(await apiNow())(session);
+        return await sessionResolver(new JamApi(s.url, s.token, (...a) => fetch(...a)))(session);
       } catch (e) {
-        if (e instanceof SignedOutError && (await current())) panesSignedOut();
+        if (e instanceof SignedOutError) panesSignedOut(s.token);
         throw e;
       }
     },

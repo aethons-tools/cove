@@ -55,7 +55,7 @@ export class SseParser {
 export type LiveDeps = {
   session: RouterDeps["session"];
   fetch: typeof fetch;
-  onSignedOut: () => void;
+  onSignedOut: (token: string) => void; // the refused token, once per token
   setTimeout: typeof setTimeout;
   clearTimeout: typeof clearTimeout;
   random: () => number;
@@ -178,7 +178,7 @@ export class LiveStream {
         this.st = "signedOut";
         if (!this.notified.has(s.token)) {
           this.notified.add(s.token);
-          this.d.onSignedOut();
+          this.d.onSignedOut(s.token);
         }
         return;
       }

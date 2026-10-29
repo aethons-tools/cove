@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ExtToPane } from "../../app/src/bridge/protocol.js" with { "resolution-mode": "import" };
-import { checkPath, Router, UPLOAD_CHUNK } from "../src/bridge/router.js";
+import { checkPath, MAX_UPLOAD_BYTES, Router, UPLOAD_CHUNK } from "../src/bridge/router.js";
 
 const JAM = "https://jam.example.com";
 const SES = "ses_0123456789abcdefghjkmnpqrs";
@@ -43,7 +43,7 @@ describe("checkPath", () => {
   });
 });
 
-function setup(fetchImpl: (url: string, init: RequestInit) => Promise<Response>, token = TOK) {
+function setup(fetchImpl: (url: string, init: RequestInit) => Promise<Response>, token = TOK, maxUpload?: number) {
   const f = vi.fn(fetchImpl);
   const onSignedOut = vi.fn();
   const sent: ExtToPane[] = [];
@@ -51,6 +51,7 @@ function setup(fetchImpl: (url: string, init: RequestInit) => Promise<Response>,
     session: async () => ({ url: JAM, token }),
     fetch: f as unknown as typeof fetch,
     onSignedOut,
+    maxUpload,
   });
   const reply = (m: ExtToPane) => sent.push(m);
   const settle = () => new Promise((r) => setTimeout(r, 10));
@@ -122,6 +123,8 @@ describe("Router", () => {
     t.router.handle({ type: "request", id: 2, req: { method: "GET", path: "/app/user/api/b" } }, t.reply);
     await t.settle();
     expect(t.onSignedOut).toHaveBeenCalledTimes(1);
+    // the failing token goes along, so a late 401 can't sign out a newer sign-in
+    expect(t.onSignedOut).toHaveBeenCalledWith(TOK);
     expect(t.sent.map((m) => m.type === "response" && m.res.kind)).toEqual(["signedOut", "signedOut"]);
   });
 
@@ -195,5 +198,32 @@ describe("Router", () => {
     await t.settle();
     expect(signal!.aborted).toBe(true);
     expect(t.sent).toEqual([]);
+  });
+
+  it("a 3xx is passed back as is and never followed", async () => {
+    const t = setup(async () => new Response(null, { status: 302, headers: { location: "https://evil.example/steal" } }));
+    t.router.handle({ type: "request", id: 1, req: { method: "GET", path: "/app/user/api/a" } }, t.reply);
+    await t.settle();
+    expect(t.f).toHaveBeenCalledTimes(1);
+    expect(t.f.mock.calls[0]![0]).toBe(`${JAM}/app/user/api/a`);
+    expect(t.f.mock.calls[0]![1].redirect).toBe("manual");
+    expect(t.sent).toEqual([{ type: "response", id: 1, res: { kind: "http", status: 302, contentType: "", text: "" } }]);
+  });
+
+  it("bytes must be an ArrayBuffer within the upload cap, else refused without fetch", async () => {
+    expect(MAX_UPLOAD_BYTES).toBe(1 << 30);
+    const t = setup(async () => json({ ref: "blb" }, 201), TOK, 8);
+    const bad: unknown[] = [1e9, "abc", [1, 2, 3], { byteLength: 3 }, new Uint8Array(3), new ArrayBuffer(9)];
+    for (const [i, bytes] of bad.entries()) {
+      t.router.handle({ type: "request", id: i, req: { method: "POST", path: "/app/user/uploads", bytes: bytes as ArrayBuffer } }, t.reply);
+    }
+    await t.settle();
+    expect(t.f).not.toHaveBeenCalled();
+    expect(t.sent).toHaveLength(bad.length);
+    expect(t.sent.every((m) => m.type === "response" && m.res.kind === "refused" && m.res.reason === "bytes")).toBe(true);
+    t.router.handle({ type: "request", id: 99, req: { method: "POST", path: "/app/user/uploads", bytes: new ArrayBuffer(8) } }, t.reply);
+    await t.settle();
+    expect(t.f).toHaveBeenCalledTimes(1);
+    expect(t.sent.at(-1)).toMatchObject({ type: "response", id: 99, res: { kind: "http", status: 201 } });
   });
 });

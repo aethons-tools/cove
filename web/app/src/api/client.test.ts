@@ -59,6 +59,11 @@ describe("apiPost", () => {
     server.use(http.post("/app/user/api/conversations/chn_a/leave", () => HttpResponse.json({ error: "this channel's members are fixed", code: "conflict" }, { status: 409 })));
     await expect(apiPost("conversations/chn_a/leave", {})).rejects.toMatchObject({ status: 409, code: "conflict" });
   });
+
+  it("a JSON refusal without error falls back to the status text", async () => {
+    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ code: "x" }, { status: 404, statusText: "Not Found" })));
+    await expect(apiGet("rail")).rejects.toMatchObject({ status: 404, code: "x", message: "Not Found" });
+  });
 });
 
 describe("interpret", () => {
@@ -70,6 +75,12 @@ describe("interpret", () => {
   it("throws the envelope", () => {
     expect(() => interpret(raw({ status: 404, contentType: "application/json", json: { error: "no such", code: "not_found" } })))
       .toThrow(expect.objectContaining({ status: 404, code: "not_found", message: "no such" }));
+  });
+  it("an envelope without error gives the status text, else empty", () => {
+    expect(() => interpret(raw({ status: 404, statusText: "Not Found", contentType: "application/json", json: { code: "x" } })))
+      .toThrow(expect.objectContaining({ status: 404, code: "x", message: "Not Found" }));
+    expect(() => interpret(raw({ status: 404, contentType: "application/json", json: { code: "x" } })))
+      .toThrow(expect.objectContaining({ status: 404, code: "x", message: "" }));
   });
   it.each([
     raw({ status: 401, contentType: "text/html" }),

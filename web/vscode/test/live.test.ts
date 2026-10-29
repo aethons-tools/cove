@@ -171,12 +171,14 @@ describe("LiveStream", () => {
     await tick(300_000);
     expect(h.live.state).toBe("signedOut");
     expect(h.onSignedOut).toHaveBeenCalledTimes(1);
+    expect(h.onSignedOut).toHaveBeenLastCalledWith("tok");
     expect(h.fetchFn).toHaveBeenCalledTimes(1);
     h.setToken("tok2");
     h.live.restart();
     await tick();
     expect(h.fetchFn).toHaveBeenCalledTimes(2);
     expect(h.onSignedOut).toHaveBeenCalledTimes(2);
+    expect(h.onSignedOut).toHaveBeenLastCalledWith("tok2");
     h.live.restart();
     await tick();
     expect(h.live.state).toBe("open");
