@@ -90,7 +90,7 @@ The user and operators can list and revoke them. Revoking one ends its open even
   ```
   The memState split follows push: `prepareAppToken(t AppToken) ([]ident.ID, error)` validates the row and picks the evictions, then `applyPutAppToken(t, evicted)` writes them. `applyDropAppTokens(user)` serves the removal paths.
 
-- [ ] **Step 1: Write the failing conformance tests** in `storetest/apptokens.go`, each a `t.Run`:
+- [x] **Step 1: Write the failing conformance tests** in `storetest/apptokens.go`, each a `t.Run`:
   - `app_token_put_lookup_by_hash`: by hash and by id, with fields round-tripped (times `.UTC()`, truncated to µs for Postgres).
   - `app_token_unknown_or_removed_user_refused`.
   - `app_token_duplicate_hash_refused`.
@@ -101,10 +101,10 @@ The user and operators can list and revoke them. Revoking one ends its open even
   - `app_token_delete_expired_returns_ids`.
   - `app_token_dropped_on_remove_user`.
   - `app_token_dropped_on_config_user_removed` (via `ApplyConfig` with `Status: StatusRemoved`).
-- [ ] **Step 2:** `go test ./internal/jam/ -run TestMemStoreConformance` → FAIL (undefined).
-- [ ] **Step 3:** Implement MemStore, then Postgres: write-through, then apply to the cache, like `pgstore_registry.go:660-737`.
-- [ ] **Step 4:** `go test ./internal/jam/... && go test -tags integration ./internal/jam/ -run TestPostgresStoreConformance` (skips without `JAM_TEST_POSTGRES_DSN`) → PASS.
-- [ ] **Step 5: Commit** `feat(jam): app token store`.
+- [x] **Step 2:** `go test ./internal/jam/ -run TestMemStoreConformance` → FAIL (undefined).
+- [x] **Step 3:** Implement MemStore, then Postgres: write-through, then apply to the cache, like `pgstore_registry.go:660-737`.
+- [x] **Step 4:** `go test ./internal/jam/... && go test -tags integration ./internal/jam/ -run TestPostgresStoreConformance` (skips without `JAM_TEST_POSTGRES_DSN`) → PASS.
+- [x] **Step 5: Commit** `feat(jam): app token store`.
 
 ### Task 2: Token rules and resolution
 

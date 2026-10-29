@@ -278,6 +278,7 @@ func applyConfigWrite(m *memState, w ConfigWrite) {
 		m.applyPutUser(u)
 		if u.Status == StatusRemoved {
 			m.applyDropPushSubscriptions(u.ID)
+			m.applyDropAppTokens(u.ID)
 		}
 	}
 	for _, a := range w.Accounts {

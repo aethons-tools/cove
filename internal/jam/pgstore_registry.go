@@ -54,6 +54,9 @@ func (s *PostgresStore) RemoveUser(id ident.ID) error {
 		if _, err := tx.Exec(ctx, `DELETE FROM push_subscriptions WHERE user_id = $1`, id); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(ctx, `DELETE FROM app_tokens WHERE user_id = $1`, id); err != nil {
+			return err
+		}
 		return putUserTx(ctx, tx, u, unlinked)
 	}); err != nil {
 		return err
@@ -64,6 +67,7 @@ func (s *PostgresStore) RemoveUser(id ident.ID) error {
 	}
 	s.applyDropMemberships(id)
 	s.applyDropPushSubscriptions(id)
+	s.applyDropAppTokens(id)
 	return nil
 }
 
@@ -474,6 +478,9 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 		return err
 	}
 	if err := s.loadPushSubscriptions(ctx); err != nil {
+		return err
+	}
+	if err := s.loadAppTokens(ctx); err != nil {
 		return err
 	}
 	if err := s.loadManagers(ctx); err != nil {

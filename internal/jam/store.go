@@ -18,6 +18,7 @@ type Store interface {
 	ChannelStore
 	ShareGrantStore
 	PushSubscriptionStore
+	AppTokenStore
 	ManagerStore
 	SetupSnapshotStore
 
