@@ -9,6 +9,9 @@ const URL_ = "https://jam.example.com";
 function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: boolean; global?: unknown; rail?: unknown; conv?: unknown } = {}) {
   const mem = new Set<string>();
   const state = { global: over.global as unknown };
+  const titles: string[] = [];
+  const steps: string[] = [];
+  const logs: string[] = [];
   const answers: Record<string, string | undefined> = {};
   const ui = {
     error: vi.fn(async (_m: string, ..._a: string[]) => answers.error),
@@ -23,6 +26,10 @@ function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: 
     remembered: vi.fn((k: string) => mem.has(k)),
     remember: vi.fn(async (k: string) => { mem.add(k); }),
     windowAuthority: vi.fn(() => undefined),
+    progress: vi.fn(async (title: string, work: (step: (m: string) => void) => Promise<unknown>) => {
+      titles.push(title);
+      return work((m) => steps.push(m));
+    }),
   } as unknown as Ui & { [K in keyof Ui]: ReturnType<typeof vi.fn> };
   const api = {
     sessionHead: vi.fn(async () => {
@@ -37,9 +44,40 @@ function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: 
     if (over.sshErr) throw over.sshErr;
     return { alias: `jam-${s}`, owner: "extension" as const };
   });
-  const d: OpenDeps = { ui, signedIn, ssh: ssh as never };
-  return { d, ui, api, signedIn, ssh, answers };
+  const d: OpenDeps = { ui, signedIn, ssh: ssh as never, log: (m) => void logs.push(m) };
+  return { d, ui, api, signedIn, ssh, answers, titles, steps, logs };
 }
+
+describe("openSession progress and log", () => {
+  it("reports and logs each step on success", async () => {
+    const f = fake({ global: "always" });
+    await openSession(f.d, ID);
+    expect(f.titles).toEqual([`Jam: opening ${ID}…`]);
+    expect(f.steps).toEqual(["checking the session", "setting up SSH for Ada", "opening the window"]);
+    expect(f.logs).toEqual([
+      `[${ID}] checking the session`,
+      `[${ID}] session found: Ada`,
+      `[${ID}] setting up SSH for Ada`,
+      `[${ID}] ssh ready: alias jam-${ID}`,
+      `[${ID}] opening the window`,
+      `[${ID}] openFolder vscode-remote://ssh-remote+jam-${ID}/home/agent/workspace`,
+      `[${ID}] openFolder returned`,
+    ]);
+  });
+
+  it("logs a shown error", async () => {
+    const f = fake({ sshErr: new Error("boom") });
+    await openSession(f.d, ID);
+    expect(f.ui.error).toHaveBeenCalledWith("boom");
+    expect(f.logs).toContain(`[${ID}] stopped: boom`);
+  });
+
+  it("logs and rethrows an unexpected error", async () => {
+    const f = fake({ headErr: new Error("net down") });
+    await expect(openSession(f.d, ID)).rejects.toThrow("net down");
+    expect(f.logs).toContain(`[${ID}] error: net down`);
+  });
+});
 
 describe("openSession", () => {
   it("opens the remote folder after sign-in and ssh", async () => {

@@ -20,6 +20,8 @@ export interface Ui {
   remembered(key: string): boolean;
   remember(key: string): Promise<void>;
   windowAuthority(): string | undefined;
+  // Runs work under a non-cancellable progress notification; step(msg) updates it.
+  progress<T>(title: string, work: (step: (msg: string) => void) => Promise<T>): Promise<T>;
 }
 
 export const remoteUri = (studio: string): string => `vscode-remote://ssh-remote+jam-${studio}/home/agent/workspace`;
@@ -32,6 +34,8 @@ export type OpenDeps = {
   ui: Ui;
   signedIn: () => Promise<{ api: JamApi; url: string }>;
   ssh: (api: JamApi, studio: string) => Promise<SshResult>;
+  // The "Jam" output channel. Never pass it a token.
+  log: (m: string) => void;
 };
 
 const WEB = "Open in the web app";
@@ -70,49 +74,77 @@ export function windowAuthority(w: { workspaceFolders?: readonly { uri: UriLike 
 
 // openSession validates the id first, so a crafted link reaches no API call
 // and no file. A SignedOutError (401) propagates to the caller's sign-out.
+// Every step and outcome goes to the log, prefixed with the session id.
 export async function openSession(d: OpenDeps, id: string): Promise<void> {
   const { ui } = d;
+  const log = (m: string) => d.log(`[${id}] ${m}`);
   if (!SESSION_ID_RE.test(id)) {
+    d.log(`open: refused a bad session id (${JSON.stringify(id.slice(0, 80))})`);
     await ui.error("That isn't a Jam session link.");
     return;
   }
-  const { api, url } = await d.signedIn();
-  let head;
+  const fail = async (msg: string, ...actions: string[]) => {
+    log(`stopped: ${msg}`);
+    return ui.error(msg, ...actions);
+  };
   try {
-    head = await api.sessionHead(id);
+    await ui.progress(`Jam: opening ${id}…`, async (report) => {
+      const step = (m: string) => {
+        log(m);
+        report(m);
+      };
+      step("checking the session");
+      const { api, url } = await d.signedIn();
+      let head;
+      try {
+        head = await api.sessionHead(id);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) {
+          if ((await fail("No such session, or you can't see it.", WEB)) === WEB) await ui.openExternal(`${url}/app/user/`);
+          return;
+        }
+        throw e;
+      }
+      log(`session found: ${head.label}`);
+      if (head.ssh === "") {
+        const msg = `You can't SSH into ${head.label}'s studio (ask an operator to share it).`;
+        if ((await fail(msg, WEB)) === WEB) await ui.openExternal(webUrl(url, head.channel));
+        return;
+      }
+      if (!ui.hasRemoteSsh()) {
+        if ((await fail("Opening a studio needs Microsoft's Remote - SSH extension.", "Install")) === "Install") await ui.installRemoteSsh();
+        return;
+      }
+      step(`setting up SSH for ${head.label}`);
+      try {
+        const r = await d.ssh(api, id);
+        log(`ssh ready: alias ${r.alias}`);
+      } catch (e) {
+        if (e instanceof SignedOutError) throw e;
+        await fail(e instanceof ApiError ? certErrorMessage(e, id) : e instanceof Error ? e.message : String(e));
+        return;
+      }
+      if (!ui.remembered(ASKED) && ui.getGlobal("remote.SSH", "localServerDownload") !== "always") {
+        log("asking about Remote-SSH localServerDownload");
+        const a = await ui.info(
+          "Jam studios can't download VS Code Server themselves. Set Remote-SSH's localServerDownload to 'always'?",
+          "Set it",
+          "Not now",
+        );
+        if (a === "Set it") await ui.setGlobal("remote.SSH", "localServerDownload", "always");
+        await ui.remember(ASKED);
+        log(`localServerDownload answer: ${a ?? "dismissed"}`);
+      }
+      step("opening the window");
+      const uri = remoteUri(id);
+      log(`openFolder ${uri}`);
+      await ui.openFolder(uri);
+      log("openFolder returned");
+    });
   } catch (e) {
-    if (e instanceof ApiError && e.status === 404) {
-      if ((await ui.error("No such session, or you can't see it.", WEB)) === WEB) await ui.openExternal(`${url}/app/user/`);
-      return;
-    }
+    log(`error: ${e instanceof Error ? e.message : String(e)}`);
     throw e;
   }
-  if (head.ssh === "") {
-    const msg = `You can't SSH into ${head.label}'s studio (ask an operator to share it).`;
-    if ((await ui.error(msg, WEB)) === WEB) await ui.openExternal(webUrl(url, head.channel));
-    return;
-  }
-  if (!ui.hasRemoteSsh()) {
-    if ((await ui.error("Opening a studio needs Microsoft's Remote - SSH extension.", "Install")) === "Install") await ui.installRemoteSsh();
-    return;
-  }
-  try {
-    await d.ssh(api, id);
-  } catch (e) {
-    if (e instanceof SignedOutError) throw e;
-    await ui.error(e instanceof ApiError ? certErrorMessage(e, id) : e instanceof Error ? e.message : String(e));
-    return;
-  }
-  if (!ui.remembered(ASKED) && ui.getGlobal("remote.SSH", "localServerDownload") !== "always") {
-    const a = await ui.info(
-      "Jam studios can't download VS Code Server themselves. Set Remote-SSH's localServerDownload to 'always'?",
-      "Set it",
-      "Not now",
-    );
-    if (a === "Set it") await ui.setGlobal("remote.SSH", "localServerDownload", "always");
-    await ui.remember(ASKED);
-  }
-  await ui.openFolder(remoteUri(id));
 }
 
 export type RailRow = RailResponse["groups"][number]["rows"][number];

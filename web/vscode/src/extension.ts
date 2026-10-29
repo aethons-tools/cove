@@ -112,6 +112,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
     void vscode.window.showInformationMessage(`Signed in to Jam as ${s.user}`);
   });
 
+  const output = vscode.window.createOutputChannel("Jam");
+  ctx.subscriptions.push(output);
+  const log = (m: string) => output.appendLine(m);
+
   const ui: Ui = {
     error: async (m, ...a) => vscode.window.showErrorMessage(m, ...a),
     info: async (m, ...a) => vscode.window.showInformationMessage(m, ...a),
@@ -125,6 +129,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
     remembered: (k) => ctx.globalState.get<boolean>(k) === true,
     remember: async (k) => ctx.globalState.update(k, true),
     windowAuthority: () => windowAuthority(vscode.workspace),
+    progress: (title, work) =>
+      Promise.resolve(
+        vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title }, (p) => work((message) => p.report({ message }))),
+      ),
   };
 
   // The API is built only from auth.session(currentJamUrl): the stored session,
@@ -132,6 +140,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   let signedInUrl = "";
   const openDeps: OpenDeps = {
     ui,
+    log,
     signedIn: async () => {
       const url = jamSettings().url;
       if (url instanceof Error) throw url;
@@ -312,9 +321,6 @@ export function activate(ctx: vscode.ExtensionContext): void {
   }
 
   // --- Notifications: the window holds its one stream while signed in. ---
-  const output = vscode.window.createOutputChannel("Jam");
-  ctx.subscriptions.push(output);
-  const log = (m: string) => output.appendLine(m);
   const osNotifier = new OsNotifier({ platform: process.platform, extensionPath: ctx.extensionPath, execFile: runNotify, chmod: fsp.chmod, log });
   const notifier = new Notifier({
     gate: new ChannelGate(),
