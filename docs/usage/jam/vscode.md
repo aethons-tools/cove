@@ -68,18 +68,18 @@ It asks the extension for everything; the webview never holds your token, the Ja
 - **Views:** Conversation (activity bar), **Thinking** (the panel's Jam container; it wants width), **Previews**, **Status** and **Artifacts** (Previews and Artifacts start collapsed). All are draggable anywhere, to the panel or a sidebar.
 - **Focused session:** by default the window's studio (the window's remote comes from its workspace folder URI).
   *Jam: Focus Session…* picks another session, or *This window's studio* to go back; signed out, it starts sign-in first.
-  Every unpinned view and board tab follows it, and the choice is kept per workspace, so it survives reopening the folder.
+  Every unpinned view follows it (a board tab shows its own board), and the choice is kept per workspace, so it survives reopening the folder.
 - **Pin:** every view's title-bar pin button fixes it to the session it shows; the pinned button unpins it.
   When a view's session isn't the window's, its label shows beside the view's name.
 - **Thinking:** the web app's Thinking log. The window's Thinking views share one connection per (session, stream), at most 2 feeds per pane; a view opened later gets up to 2,000 replayed events; it resumes after a network drop. It counts toward your four server feeds, and a hidden view holds none.
 - **Previews:** Open shows the app in the Simple Browser and Browser opens the system browser. Only the window's own studio is forwarded through Remote-SSH (`asExternalUri`); an unchanged `localhost` URI counts as forwarded, and only a throw falls back to the preview's web URL in the browser. Another session's preview opens its preview URL in the browser.
 - **Status:** the session header's facts and actions, then the Status rows. *Open in VS Code* on a pinned session opens that session's window.
 - **Artifacts:** a file opens in the browser, a board thumb opens a board tab, and an ask reveals it in the Conversation view; an ask from a session the Conversation view doesn't show doesn't scroll.
-- **Board tabs:** one per board, several side by side, kept while hidden (`retainContextWhenHidden`) and restored after a reload (a duplicate restore is closed). The title is the board's, capped at 60 characters, "Whiteboard" if empty. *Open in the web app* is in the tab. A stroke made in the last 300 ms before closing a tab may not be saved.
+- **Board tabs:** one per board, several side by side, kept while hidden (`retainContextWhenHidden`) and restored after a reload. VS Code restores a background tab only when it is first shown, so a board opened again before then briefly has two tabs; showing the restored one closes it and reveals the other. The title is the board's, capped at 60 characters, "Whiteboard" if empty. *Open in the web app* is in the tab. A stroke made in the last 300 ms before closing a tab may not be saved.
 - **Notifications and the badge** are a later slice.
 - **Empty states:** "Sign in to Jam to see this conversation." (Sign in); "This window isn't on a Jam studio. Focus a session to see its conversation." (a local folder; Focus a session…); "That session has ended, or you can't see it." (Focus a session…).
   A failed lookup shows "Couldn't load the focused session: …" with Try again.
-- **Links:** the pane never navigates. `https:`, `http:` and `mailto:` links open in the browser; boards open as board tabs. `/app/user/c/<other>` opens the web app; `#ask-…` and own-conversation links scroll in place. `javascript:`, `command:`, `vscode:` and `file:` do nothing.
+- **Links:** the pane never navigates. `https:`, `http:` and `mailto:` links open in the browser; boards open as board tabs. `/app/user/c/<other>` opens the web app; `#ask-…` and own-conversation links scroll in place. `vscode://aethons.jam/session/<id>` (or `vscode-insiders:`) opens that session's window; `javascript:`, `command:`, `file:` and any other `vscode:` link do nothing.
 - **Push focus:** while the view is visible in a focused window, the extension reports its conversation as focused, so Web Push stays quiet for it.
 - **Live updates:** one stream feeds the view, restarted on sign-in and sign-out. Where Jam offers no live updates, the view polls every 30 s.
 
