@@ -131,7 +131,7 @@ The user and operators can list and revoke them. Revoking one ends its open even
   - When `now - LastUsedAt ≥ AppTokenTouchEvery` it calls `TouchAppToken`, sliding member tokens only. A touch error is logged by token id and doesn't fail the request.
   - `ParticipantByUser` matches `ParticipantByIdentity`: a live user who is a member of at least one project. Issuer and Subject come from the user's first OIDC identity ("" when there is none; no handler reads them).
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - `TestNewAppTokenHashOnly`: `t.Hash == HashToken(raw)`, `raw` is never in `t`, `ExpiresAt == now+30d`, `ID.Kind() == ident.AppToken`.
   - `TestResolveAppTokenMemberSlides`: a use 6 min later moves `ExpiresAt` to use+30d.
   - `TestResolveAppTokenOperatorFixed`: `ExpiresAt` is unchanged, `LastUsedAt` moves.
@@ -140,10 +140,10 @@ The user and operators can list and revoke them. Revoking one ends its open even
   - `TestResolveAppTokenRemovedUser`.
   - `TestCleanAppTokenLabel`, a table that includes `"\x1b[31mevil"` and a label of 100 runes.
   - `TestParticipantByUser`: no projects → false, removed → false, member → `Projects` set.
-- [ ] **Step 2:** `go test ./internal/jam/ -run 'AppToken|ParticipantByUser'` → FAIL.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Same command → PASS.
-- [ ] **Step 5: Commit** `feat(jam): app token expiry, touch and resolution`.
+- [x] **Step 2:** `go test ./internal/jam/ -run 'AppToken|ParticipantByUser'` → FAIL.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Same command → PASS.
+- [x] **Step 5: Commit** `feat(jam): app token expiry, touch and resolution`.
 
 ### Task 3: Consent page and code exchange
 

@@ -4,11 +4,28 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/aethons-tools/cove/internal/ident"
 )
+
+// AppTokenTTL is an app token's lifetime: from use for a member token
+// (sliding), from issue for one with operator standing (fixed).
+const AppTokenTTL = 30 * 24 * time.Hour
+
+// AppTokenTouchEvery is how often, at most, a token's last use is written.
+const AppTokenTouchEvery = 5 * time.Minute
+
+// AppTokenLabelMax caps an app token's label, in runes.
+const AppTokenLabelMax = 64
+
+// ErrAppTokenInvalid is every app-token resolution failure: unknown, expired,
+// or the user is no longer live.
+var ErrAppTokenInvalid = errors.New("invalid or expired app token")
 
 // MaxAppTokensPerUser caps a user's stored app tokens; adding more evicts the
 // least recently used.
@@ -192,4 +209,71 @@ func (fs *MemStore) DeleteExpiredAppTokens(now time.Time) ([]ident.ID, error) {
 		fs.applyDeleteAppToken(id)
 	}
 	return gone, nil
+}
+
+// NewAppToken mints a token for user, returning the row to store (hash only)
+// and the raw token to hand the client once.
+func NewAppToken(user ident.ID, label, operatorID string, now time.Time) (AppToken, string, error) {
+	raw, err := MintToken()
+	if err != nil {
+		return AppToken{}, "", err
+	}
+	now = now.UTC()
+	return AppToken{
+		ID: ident.New(ident.AppToken), UserID: user, Hash: HashToken(raw), Label: CleanAppTokenLabel(label),
+		OperatorID: operatorID, CreatedAt: now, LastUsedAt: now, ExpiresAt: now.Add(AppTokenTTL),
+	}, raw, nil
+}
+
+// Expired reports whether t has expired at now.
+func (t AppToken) Expired(now time.Time) bool { return !now.Before(t.ExpiresAt) }
+
+// Operator reports whether t carries operator standing.
+func (t AppToken) Operator() bool { return t.OperatorID != "" }
+
+// CleanAppTokenLabel trims s, drops control and format runes (escapes,
+// newlines, bidi overrides), and caps it at AppTokenLabelMax runes; an empty
+// result is "VS Code".
+func CleanAppTokenLabel(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	if r := []rune(s); len(r) > AppTokenLabelMax {
+		s = strings.TrimSpace(string(r[:AppTokenLabelMax]))
+	}
+	if s == "" {
+		return "VS Code"
+	}
+	return s
+}
+
+// ResolveAppToken looks up the raw bearer token raw and its live user. It
+// records the use at most once per AppTokenTouchEvery, sliding a member
+// token's expiry; a touch failure is logged and does not fail the request.
+func ResolveAppToken(store Store, raw string, now time.Time, log *slog.Logger) (AppToken, User, error) {
+	if raw == "" {
+		return AppToken{}, User{}, ErrAppTokenInvalid
+	}
+	t, ok := store.AppTokenByHash(HashToken(raw))
+	if !ok || t.Expired(now) {
+		return AppToken{}, User{}, ErrAppTokenInvalid
+	}
+	u, ok := store.GetUser(t.UserID)
+	if !ok || u.Status != StatusLive {
+		return AppToken{}, User{}, ErrAppTokenInvalid
+	}
+	if now.Sub(t.LastUsedAt) >= AppTokenTouchEvery {
+		t.LastUsedAt = now.UTC()
+		if !t.Operator() {
+			t.ExpiresAt = t.LastUsedAt.Add(AppTokenTTL)
+		}
+		if err := store.TouchAppToken(t.ID, t.LastUsedAt, t.ExpiresAt); err != nil && log != nil {
+			log.Warn("app token touch failed", "token", t.ID, "err", err)
+		}
+	}
+	return t, u, nil
 }
