@@ -27,6 +27,7 @@ func (h *handler) apiRoutes(mux *http.ServeMux) {
 	h.sessionRoutes(mux)
 	h.newSessionRoutes(mux)
 	h.boardRoutes(mux)
+	h.appTokenRoutes(mux)
 	mux.HandleFunc("/app/user/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "no such API route")
 	})

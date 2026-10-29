@@ -323,7 +323,7 @@ The consent page is **server-rendered HTML**, not an SPA route. It lives on the 
     - `DELETE /app/admin/api/users/{user}/app-tokens/{token}`: `204`, or `404` "no such app token on this user", logging `ui app token revoked` with operator, user and token id;
     - `func WithAppTokenRevoke(revoke func(ident.ID)) Option`.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - `TestAPIAppTokensListsOwnNewestFirst`.
   - `TestAPIAppTokensDeleteOwn`: gone, `revoke` called once.
   - `TestAPIAppTokensDeleteOthers204Kept`: no `revoke` call.
@@ -331,10 +331,10 @@ The consent page is **server-rendered HTML**, not an SPA route. It lives on the 
   - `TestAPIUserDetailAppTokens`.
   - `TestAPIUserAppTokenRevoke`: the log line has the operator and token id, and not the hash.
   - `TestAPIUserAppTokenRevokeWrongUser404`.
-- [ ] **Step 2:** `go test ./internal/jam/userui/ ./internal/jam/adminui/ -run AppToken` → FAIL.
-- [ ] **Step 3:** Implement and regenerate the types.
-- [ ] **Step 4:** `go test ./internal/jam/... && ./scripts/app-types-check.sh` → PASS.
-- [ ] **Step 5: Commit** `feat(jam): list and revoke app tokens (user and operator APIs)`.
+- [x] **Step 2:** `go test ./internal/jam/userui/ ./internal/jam/adminui/ -run AppToken` → FAIL.
+- [x] **Step 3:** Implement and regenerate the types.
+- [x] **Step 4:** `go test ./internal/jam/... && ./scripts/app-types-check.sh` → PASS.
+- [x] **Step 5: Commit** `feat(jam): list and revoke app tokens (user and operator APIs)`.
 
 ### Task 7: Web app: Connected apps
 

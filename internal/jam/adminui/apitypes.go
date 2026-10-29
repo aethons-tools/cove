@@ -1,5 +1,7 @@
 package adminui
 
+import "time"
+
 // This file holds every type the /app/admin/api JSON carries. tygo reads only
 // this file (tygo.yaml) to generate web/app/src/admin/api/types.ts: keep JSON
 // types here, give every field a json tag, and run
@@ -108,6 +110,17 @@ type UserDetail struct {
 	LoginSpec   string             `json:"loginSpec"` // the logins, one per line
 	OIDCSpec    string             `json:"oidcSpec"`  // the OIDC identities, one per line
 	Connections []ConnectionChoice `json:"connections"`
+	AppTokens   []AppTokenRow      `json:"appTokens"` // newest first
+}
+
+// AppTokenRow is one of a user's app tokens (docs/usage/jam/app-tokens.md).
+type AppTokenRow struct {
+	ID       string    `json:"id"`
+	Label    string    `json:"label"`
+	Created  time.Time `json:"created"`
+	LastUsed time.Time `json:"lastUsed"`
+	Expires  time.Time `json:"expires"`
+	Operator bool      `json:"operator"` // carries operator standing
 }
 
 // TrackingSource is the config repo this Jam follows.

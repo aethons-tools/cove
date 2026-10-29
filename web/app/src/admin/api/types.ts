@@ -119,6 +119,18 @@ export interface UserDetail {
   loginSpec: string; // the logins, one per line
   oidcSpec: string; // the OIDC identities, one per line
   connections: ConnectionChoice[];
+  appTokens: AppTokenRow[]; // newest first
+}
+/**
+ * AppTokenRow is one of a user's app tokens (docs/usage/jam/app-tokens.md).
+ */
+export interface AppTokenRow {
+  id: string;
+  label: string;
+  created: string;
+  lastUsed: string;
+  expires: string;
+  operator: boolean; // carries operator standing
 }
 /**
  * TrackingSource is the config repo this Jam follows.

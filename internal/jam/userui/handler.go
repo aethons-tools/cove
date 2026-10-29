@@ -67,6 +67,8 @@ type handler struct {
 	mints *mintLimiter // frame URLs minted per user (frameOutcome)
 
 	frameSrc []string // the origins the app's pages may frame (WithFrameSrc)
+
+	appTokenRevoke func(ident.ID) // ends a revoked app token's requests (nil: none)
 }
 
 // upload stores the viewer's file as a pending attachment (see

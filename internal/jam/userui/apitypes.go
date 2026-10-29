@@ -444,3 +444,18 @@ type SessionStarted struct {
 	Name    string `json:"name"`
 	Channel string `json:"channel"`
 }
+
+// AppTokenRow is one of the viewer's app tokens (Connected apps).
+type AppTokenRow struct {
+	ID       string    `json:"id"`
+	Label    string    `json:"label"`
+	Created  time.Time `json:"created"`
+	LastUsed time.Time `json:"lastUsed"`
+	Expires  time.Time `json:"expires"`
+	Operator bool      `json:"operator"` // carries operator standing
+}
+
+// AppTokensResponse is GET /app/user/api/app-tokens: newest first.
+type AppTokensResponse struct {
+	Tokens []AppTokenRow `json:"tokens"`
+}

@@ -1,6 +1,7 @@
 package adminui
 
 import (
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 )
@@ -11,6 +12,8 @@ type frameSource struct {
 	store jam.Store
 	img   jam.ImageResolver
 	conds *condition.Tracker
+	// appTokenRevoke ends a revoked app token's requests (nil: none).
+	appTokenRevoke func(ident.ID)
 }
 
 // items is every attention item: Jam's open operator conditions first, then

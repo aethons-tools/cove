@@ -513,3 +513,20 @@ export interface SessionStarted {
   name: string;
   channel: string;
 }
+/**
+ * AppTokenRow is one of the viewer's app tokens (Connected apps).
+ */
+export interface AppTokenRow {
+  id: string;
+  label: string;
+  created: string;
+  lastUsed: string;
+  expires: string;
+  operator: boolean; // carries operator standing
+}
+/**
+ * AppTokensResponse is GET /app/user/api/app-tokens: newest first.
+ */
+export interface AppTokensResponse {
+  tokens: AppTokenRow[];
+}

@@ -35,11 +35,26 @@ func userDetailOf(store jam.Store, marks map[jam.ConfigKey]jam.ConfigMark, ref s
 		return UserDetail{}, false
 	}
 	u, _ := store.GetUser(d.User.ID)
-	out := UserDetail{User: userRow(store, marks, u), Removed: d.Removed, LoginSpec: d.LoginSpec, OIDCSpec: d.OIDCSpec, Connections: []ConnectionChoice{}}
+	out := UserDetail{User: userRow(store, marks, u), Removed: d.Removed, LoginSpec: d.LoginSpec, OIDCSpec: d.OIDCSpec, Connections: []ConnectionChoice{},
+		AppTokens: appTokenRows(store, u.ID)}
 	for _, c := range d.Connections {
 		out.Connections = append(out.Connections, ConnectionChoice{Name: c.Name, Kind: c.Kind})
 	}
 	return out, true
+}
+
+// appTokenRows lists user's app tokens, newest first.
+func appTokenRows(store jam.Store, user ident.ID) []AppTokenRow {
+	toks := store.AppTokens(user)
+	slices.SortFunc(toks, func(a, b jam.AppToken) int {
+		return cmp.Or(b.CreatedAt.Compare(a.CreatedAt), cmp.Compare(b.ID, a.ID))
+	})
+	out := []AppTokenRow{}
+	for _, t := range toks {
+		out = append(out, AppTokenRow{ID: string(t.ID), Label: t.Label, Created: t.CreatedAt, LastUsed: t.LastUsedAt,
+			Expires: t.ExpiresAt, Operator: t.Operator()})
+	}
+	return out
 }
 
 func apiUsers(api *http.ServeMux, src frameSource, log *slog.Logger) {
@@ -131,6 +146,26 @@ func apiUsers(api *http.ServeMux, src frameSource, log *slog.Logger) {
 		}
 		return store.LinkAccount(acc, "")
 	}))
+	api.HandleFunc("DELETE "+apiPrefix+"users/{user}/app-tokens/{token}", func(w http.ResponseWriter, r *http.Request) {
+		user, err := jam.ResolveRegistryRef(store, ident.User, r.PathValue("user"))
+		tok, perr := ident.Parse(r.PathValue("token"))
+		deleted := false
+		if err == nil && perr == nil && tok.Kind() == ident.AppToken {
+			if deleted, err = store.DeleteUserAppToken(user, tok); err != nil {
+				apiFail(w, err, http.StatusInternalServerError)
+				return
+			}
+		}
+		if !deleted {
+			writeAPIError(w, http.StatusNotFound, "not_found", "no such app token on this user")
+			return
+		}
+		if src.appTokenRevoke != nil {
+			src.appTokenRevoke(tok)
+		}
+		log.Info("ui app token revoked", "operator", jam.OperatorID(r), "user", user, "token", tok)
+		w.WriteHeader(http.StatusNoContent)
+	})
 	api.HandleFunc("DELETE "+apiPrefix+"users/{user}", func(w http.ResponseWriter, r *http.Request) {
 		id, err := jam.ResolveRegistryRef(store, ident.User, r.PathValue("user"))
 		if err == nil {

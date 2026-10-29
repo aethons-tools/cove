@@ -2893,7 +2893,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// The user area is the Jam app (web/app) and its API; the app's CSP
 		// frames the preview hosts when the pane may.
 		userOpts := []userui.Option{userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus),
-			userui.WithFrameSrc(appFrameSrc(&cfg))}
+			userui.WithFrameSrc(appFrameSrc(&cfg)), userui.WithAppTokenRevoke(appTokenLive.Revoke)}
 		userMux.Handle("/app/user/", userui.Handler(userDeps, log, userOpts...))
 
 		// Setup inspection: the admin API (WithSetupInspect) and the UI's Setup
@@ -2903,7 +2903,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Warn("setup inspect: sealed egress base unreadable; egress shows no sealed rows", "err", err.Error())
 		}
 		setupDeps := jam.SetupDeps{Store: st, Sup: sup, Images: images, SealedEgress: sealed}
-		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps)}
+		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps),
+			adminui.WithAppTokenRevoke(appTokenLive.Revoke)}
 		if built.router != nil {
 			uiOpts = append(uiOpts, adminui.WithSetupManagers(built.router.AvailableNames))
 		}

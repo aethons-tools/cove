@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/condition"
@@ -66,6 +67,7 @@ type options struct {
 	setupManagers   func() []string            // nil: no manager selector on a role's Setup tab (WithSetupManagers)
 	setup           *jam.SetupDeps             // nil: no Setup tabs (WithSetupDeps)
 	managers        func() []jam.ManagerStatus // nil: no Managers panel (WithManagers)
+	appTokenRevoke  func(ident.ID)             // nil: revoking an app token ends no requests (WithAppTokenRevoke)
 }
 
 // WithConditions shows operator-attention conditions: open critical/warning
@@ -109,6 +111,12 @@ func WithTrustedOrigins(origins ...string) Option {
 	return func(o *options) { o.trustedOrigins = append(o.trustedOrigins, origins...) }
 }
 
+// WithAppTokenRevoke is called with each app token an operator revokes, to
+// end its open requests (apptoken.Live.Revoke).
+func WithAppTokenRevoke(revoke func(ident.ID)) Option {
+	return func(o *options) { o.appTokenRevoke = revoke }
+}
+
 // Handler returns the UI mux (no auth wrap). store is the primary dependency:
 // every read view is an in-process read. log records write-action outcomes
 // (never secret values — see writes.go).
@@ -117,7 +125,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	for _, opt := range opts {
 		opt(&o)
 	}
-	src := frameSource{store: store, img: sup, conds: o.conds}
+	src := frameSource{store: store, img: sup, conds: o.conds, appTokenRevoke: o.appTokenRevoke}
 	mux := http.NewServeMux()
 	registerSuggest(mux, store, o.credNames)
 	cfgEnv := o.configEnv
