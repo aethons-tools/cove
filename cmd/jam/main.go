@@ -61,6 +61,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/managers"
 	"github.com/aethons-tools/cove/internal/jam/managers/managerpb"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
+	"github.com/aethons-tools/cove/internal/jam/notify"
 	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
@@ -2227,6 +2228,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Who has which conversation open in the app (in memory): the push relay
 	// skips them; the app's focus route (/app/user/push/focus) records it.
 	pushFocus := push.NewFocus(time.Now)
+	// Each user's open Jam streams' notifications (/app/user/events), fed by
+	// the notify relay engine below.
+	notifyHub := notify.NewHub(log)
 	// The one long-lived git fetcher for kit sources (it serializes per repo);
 	// anonymous when no kits.git credential is configured.
 	kitFetcher, err := resolveKitFetcher(cfg, specs)
@@ -2564,7 +2568,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		discordTok   string
 	)
 	runPush := vapid != nil
+	runNotify := cfg.AdminListen != "" // the user app is served: its streams carry notify events
 	dir := &directory{store: st, ic: ic, log: log, tracker: icTracker, pushOn: runPush, pushFocus: pushFocus}
+	dir.notifyOn = runNotify
 	runDiscord := cfg.Runtime.Discord != nil
 	var stateDir string
 	if dc != nil || runDiscord || runPush {
@@ -2760,6 +2766,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("Jam relay (discord): resident, egress ON")
 	}
 
+	// The push rule's reader and unread total, shared by the push and notify
+	// engines.
+	reader := pushReader{store: st, ic: ic}
+	unread := func(u ident.ID) int { return jam.UnreadTotal(st, ic, chlog, u) }
+
 	// relay push engine: egress only, over the same Log, markers and
 	// directory — each notified person's devices (Web Push), signed with the
 	// VAPID key resolved above. Gated on runtime.push.
@@ -2770,8 +2781,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				return 1
 			}
 		}
-		reader := pushReader{store: st, ic: ic}
-		unread := func(u ident.ID) int { return jam.UnreadTotal(st, ic, chlog, u) }
 		psurf := &push.Surface{
 			Store:   st,
 			Sender:  push.NewWebPushSender(nil),
@@ -2784,6 +2793,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		peng := relay.New(psurf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 		go peng.Run(context.Background())
 		log.Info("Jam relay (push): resident, egress ON", "preview", cfg.Runtime.Push.preview())
+	}
+
+	// relay notify engine: egress only, over the same Log and directory —
+	// the push rule's recipients' open Jam streams (notifyHub). Its mark is
+	// in memory, seeded at the log tail on every start (never a backlog), so
+	// it needs no state dir. Runs whenever the user app is served.
+	if runNotify {
+		preview := cfg.Runtime.Push == nil || cfg.Runtime.Push.preview()
+		nsurf := &notify.Surface{Hub: notifyHub, Event: notifyEvent(reader, pushFocus, unread, preview), Now: time.Now}
+		neng := relay.New(nsurf, chlog, newMemMarkers(notify.Service, relay.EgressMark{LastSeq: logTailSeq(chlog)}), noCursors{}, dir, relay.Config{EgressEnabled: true}, log)
+		go neng.Run(context.Background())
+		log.Info("Jam relay (notify): resident, egress ON")
 	}
 
 	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)
@@ -2894,6 +2915,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// frames the preview hosts when the pane may.
 		userOpts := []userui.Option{userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus),
 			userui.WithFrameSrc(appFrameSrc(&cfg)), userui.WithAppTokenRevoke(appTokenLive.Revoke)}
+		if runNotify {
+			userOpts = append(userOpts, userui.WithNotify(notifyHub))
+		}
 		userMux.Handle("/app/user/", userui.Handler(userDeps, log, userOpts...))
 
 		// Setup inspection: the admin API (WithSetupInspect) and the UI's Setup

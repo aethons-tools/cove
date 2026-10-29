@@ -11,6 +11,7 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/notify"
 	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/relay"
 	"github.com/aethons-tools/cove/internal/tracker"
@@ -22,7 +23,8 @@ import (
 // is routed by its surface (a ticket's binding, a room's channel) or by the
 // receipt of the post it replies to (Discord). project and selfIdentity are
 // the Requisitioner's (tracker ingress only runs with one). The push service
-// is egress only: a squawk's notified people's devices.
+// is egress only: a squawk's notified people's devices. So is notify: the
+// same people's open Jam streams.
 type directory struct {
 	store        jam.Store
 	ic           *jam.Intercom
@@ -35,6 +37,7 @@ type directory struct {
 	log          *slog.Logger            // optional: debug attribution notes
 	pushOn       bool                    // runtime.push is set: Surfaces("push") lists devices
 	pushFocus    *push.Focus             // who has which conversation open (nil: nobody's suppressed)
+	notifyOn     bool                    // the user app is served: Surfaces("notify") lists recipients
 }
 
 func (d *directory) debug(msg string, args ...any) {
@@ -47,9 +50,9 @@ func (d *directory) debug(msg string, args ...any) {
 // project whose chat service is discord, plus the Requisitioner's project;
 // The tracker's feed (Linear's team, GitHub's repo) is polled once under the
 // Requisitioner's project.
-// Push polls nothing (no ingress).
+// Push and notify poll nothing (no ingress).
 func (d *directory) Projects(service string) []string {
-	if service == push.Service {
+	if service == push.Service || service == notify.Service {
 		return nil
 	}
 	if service != "discord" {
@@ -94,10 +97,14 @@ func isSession(id ident.ID) bool {
 //     from a ticket session" delivery).
 //
 // Discord shows "<author>: " before every body; the tracker before a person's
-// (Jam posts as itself), never before a session's. Push: see pushSurfaces.
+// (Jam posts as itself), never before a session's. Push: see pushSurfaces;
+// notify: see notifySurfaces.
 func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery {
-	if service == push.Service {
+	switch service {
+	case push.Service:
 		return d.pushSurfaces(m) // asks notify: not paused for parts
+	case notify.Service:
+		return d.notifySurfaces(m) // likewise
 	}
 	if len(m.Parts) > 0 {
 		return nil // relays are paused for parts (asks): the Inbox (/app/user) only
@@ -252,7 +259,7 @@ func escalationTargets(d *directory, ch jam.Channel, id string) escalated {
 // Route maps a foreign event into the channel log.
 func (d *directory) Route(service, project string, e relay.Event) (relay.Routed, bool) {
 	switch service {
-	case push.Service:
+	case push.Service, notify.Service:
 		return relay.Routed{}, false // no ingress (never polled)
 	case "discord":
 		return d.routeDiscord(e)

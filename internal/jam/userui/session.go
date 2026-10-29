@@ -33,32 +33,10 @@ type SessionOps interface {
 	Command(ctx context.Context, inst jam.Instance, c jam.SessionCommand, by string) error
 }
 
-// homeSession is the live session whose home channel chID is: a session
-// channel's session, or the session working a ticket channel's ticket.
+// homeSession is the live session whose home channel chID is (see
+// jam.HomeSession).
 func homeSession(d Deps, chID string) (jam.Instance, bool) {
-	ch, ok := d.Store.GetChannel(ident.ID(chID))
-	if !ok {
-		return jam.Instance{}, false
-	}
-	live := func(i jam.Instance) bool { return i.Phase != jam.PhaseGone }
-	switch ch.Kind {
-	case jam.SourceSession:
-		inst, ok := d.Store.GetInstance(ch.Key)
-		return inst, ok && live(inst)
-	case jam.SourceTicket:
-		_, unit, found := strings.Cut(ch.Key, "/")
-		if !found {
-			return jam.Instance{}, false
-		}
-		for _, inst := range d.Store.ListInstances() {
-			if inst.Unit == unit && live(inst) {
-				if pr, ok := d.Store.GetProject(inst.Project); ok && pr.ID == ch.ProjectID {
-					return inst, true
-				}
-			}
-		}
-	}
-	return jam.Instance{}, false
+	return jam.HomeSession(d.Store, ident.ID(chID))
 }
 
 // sessionFor is session id if viewer p may see its home channel.
