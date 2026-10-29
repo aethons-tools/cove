@@ -37,7 +37,7 @@ The user wanted the code window first. The user is on desktop VS Code; desktop i
 
 - **The studio never sees the user's Jam credentials.** The extension must run on the user's machine (`extensionKind: ["ui"]`), never as a workspace extension in the studio; no token is written into the studio or passed through the SSH session. (This is why "a Jam extension inside code-server" was rejected.)
 - **No second UI to maintain.** Panes reuse `web/app` components; the extension adds an adapter, not a fork. A change to a pane in `web/app` shows up in both.
-- **Not N live connections.** Live streams live in the extension host and fan out to the panes, never one per webview: one `/app/user/events` stream per window, plus one thinking stream (`/app/user/session/{id}/thinking/events`) per session that some Thinking pane in the window shows. Merging thinking into the main stream would be a server change; not in phase 1 (my call).
+- **Not N live connections.** Live streams live in the extension host and fan out to the panes, never one per webview: one `/app/user/events` stream per window, plus one thinking stream (`/app/user/session/{id}/thinking/events`) per (session, stream) a Thinking pane shows, shared by the window's panes (one stream per session would need the server work deferred below). Merging thinking into the main stream would be a server change; not in phase 1 (my call).
 
 ## Constraints and the decided how
 

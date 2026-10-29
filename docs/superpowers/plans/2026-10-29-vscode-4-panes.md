@@ -22,26 +22,30 @@ Each view is an independent webview that follows the window's focused session wi
 
 **Spec:** `docs/superpowers/specs/2026-10-28-vscode-code-window-design.md` ("In the window", "Focus and pin", "Anti-goals" → *Not N live connections*, "Data flow", "Previews", "Left to the builder"). This is slice 4 of 5. It consumes slice 3 (`docs/superpowers/plans/2026-10-29-vscode-3-conversation.md`): `protocol.ts`, `Bridge`/`install`, `linkAction`, `NavBridge`, `Pane`, `Router`/`checkPath`/`ID_RE`, `intentAction`, `LiveStream`/`SseParser`, `PaneHub`, `FocusModel`, `FocusReporter`, `webviewHtml`/`newNonce`, `ConversationViewProvider`.
 
+**Built on slice 3's fix wave** (`eea4725d`): `conversation.ts`'s `abortAll()` on `ready`/hide/dispose and its dropping of replies whose id mapping changed; `onSignedOut(token)` and `signOutOnce()` in `extension.ts`; the router's `bytes` cap (`ArrayBuffer` only, `MAX_UPLOAD_BYTES` = 1 GiB — it applies only to `bytes` uploads, so board saves, which are JSON, are unaffected); `Raw.statusText`.
+
 **Out of scope, slice 5 (notifications):** the server's `event: notify`, VS Code and OS notifications, the activity-bar badge and the notify lock file. `PaneHub` still drops `notify`.
 
 ## Global Constraints
 
-- **The web app is unchanged.** With no setter called and no `HostContext.openPreview`, every request, `EventSource`, image and link is the same as before. Every existing `web/app` test passes. The only edits to existing tests are the ones Tasks 1 and 3 name. `npm run size` reports the same two areas.
+- **The web app is unchanged.** With no setter called and no `HostContext.openPreview`, every request, `EventSource`, image and link is the same as before. Every existing `web/app` test passes. The only edits to existing tests are the ones Tasks 1–3 name. `npm run size` reports the same two areas.
 - **The token never enters a webview.** Slice 3's rules hold for every view and every board tab: no message carries a token, `jam.url` or a cookie, and the CSP is exactly
   `default-src 'none'; script-src 'nonce-<n>' <cspSource>; style-src <cspSource> 'unsafe-inline'; font-src <cspSource>; img-src <cspSource> blob: data:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'`.
   - Options are `enableScripts: true`, `enableCommandUris: false`, `localResourceRoots: [<ext>/dist/webview]`.
   - `retainContextWhenHidden: true` is set on board panels only. Views never set it (spec: "only … the board editor").
 - **The proxy is unchanged.** It still refuses `/app/user/events` and `…/thinking/events`. Only `ThinkingStreams` opens a Thinking stream, with `checkPath(path, jamUrl, { streams: true })`.
 - **Thinking streams:**
-  - one connection per key `(session, stream)`, where `stream` is `""` (follow the newest) or a pinned stream id. It opens with the key's first subscriber and aborts with its last;
+  - one connection per key `(session, stream)` that a Thinking pane shows, shared by the window's panes (the spec's *Not N live connections*, amended in this plan's pre-flight commit), where `stream` is `""` (follow the newest) or a pinned stream id. It opens with the key's first subscriber and aborts with its last;
   - the path is `/app/user/session/<ses>/thinking/events`, plus `?stream=<id>` when `stream` is set. The headers are `Authorization: Bearer`, `Accept: text/event-stream` and `Last-Event-ID` when resuming;
   - forwarded events are only `open` (synthetic), `stream`, `totals`, `ev`, `more`, `skipped` and `newstream`;
   - the replay buffer holds `THINKING_REPLAY_MAX = 2000` `ev` events per key;
   - backoff and stall are `LIVE_BACKOFF_MIN_MS`, `LIVE_BACKOFF_MAX_MS` and `LIVE_STALL_MS` from `live.ts`;
-  - `THINKING_SUBS_PER_PANE = 2`.
+  - `THINKING_SUBS_PER_PANE = 2`;
+  - a hidden view holds no feed: its subscriptions close on hide and on every `ready`.
 - **Previews:**
   - a port is forwarded only when the intent's session equals the *window's studio*, which is `studioFromAuthority(windowAuthority(workspace))`, never the focused session;
-  - otherwise the preview's own `url` opens in the browser, `http:`/`https:` only;
+  - otherwise, or when the forward fails (`asExternalUri` throws or returns `http://localhost:<port>/` unchanged), the preview's own `url` opens in the browser;
+  - `url` must be `http:`/`https:` in both cases;
   - `port` is an integer in 1–65535.
 - **Ids** use `ID_RE` (slice 3). Stream ids are `^[0-9a-f]{32}$` (`sessionevents.ValidStreamID`). A reveal anchor is `^ask-[A-Za-z0-9_-]{1,80}$`.
 - **Copy:**
@@ -65,8 +69,8 @@ Each view is an independent webview that follows the window's focused session wi
 
 ## Review Focus
 
-1. **Several Thinking panes in one window.** Two panes on the same session, one pinned to another session, then a third joining late. There is one server stream per (session, stream). The late pane shows the same tail as the others, not an empty list. One window never uses more than one of the user's four feeds (`maxThinkingStreams = 4`) per session it shows. Task 4 tests sharing and replay.
-2. **A preview for a session that isn't this window's studio.** Focus or pin a pane on another session, then press Open. Its preview URL opens in the browser. A `localhost` port is never forwarded, because that would land on *this* studio's port. Task 5 tests a table.
+1. **Several Thinking panes in one window.** Two panes on the same session, one pinned to another session, then a third joining late. There is one server stream per (session, stream) that a pane shows, shared by every pane showing it. The late pane shows the same tail as the others, not an empty list. A hidden Thinking view holds no feed. One window uses one of the user's four feeds (`maxThinkingStreams = 4`) per (session, stream) shown. Task 4 tests sharing and replay; Task 6 tests hide.
+2. **A preview for a session that isn't this window's studio.** Focus or pin a pane on another session, then press Open. Its preview URL opens in the browser. A `localhost` port is never forwarded, because that would land on *this* studio's port. And when forwarding fails for the window's own studio, the preview's URL opens in the browser instead. Task 5 tests a table.
 3. **A compromised pane** posts:
    - `thinkingOpen` with `../x`, a `chn_` id, a non-hex stream, or 50 subscriptions;
    - a `preview` intent with port `0`, `70000`, `"22"` or a `javascript:` URL;
@@ -74,7 +78,7 @@ Each view is an independent webview that follows the window's focused session wi
    - `session` with a bad id.
 
    Each is refused, and no fetch, forward or command follows. Tasks 5 and 6 test it.
-4. **The session ends while panes show it** (Release from Status). Every session pane switches to the gone copy, from its own `sessions/<id>` 404, with no error text or retry loop. Thinking shows "This session is no longer available to you". Task 3 tests it.
+4. **The session ends while panes show it** (Release from Status). Every session pane, Thinking included, switches to the gone copy, from its own `sessions/<id>` 404, with no error text or retry loop. Task 3 tests it.
 5. **Board tabs:**
    - the same board opened twice, from a card and from Artifacts, reveals one tab;
    - a window reload restores the open boards;
@@ -88,14 +92,15 @@ Each view is an independent webview that follows the window's focused session wi
 ### Task 1: web/app seams for the other panes
 
 **Files:**
-- Create: `web/app/src/boards/api.ts`, `web/app/src/BlobImage.tsx`, `web/app/src/session/PaneTabs.test.tsx`.
+- Create: `web/app/src/boards/api.ts`, `web/app/src/boards/api.test.ts`, `web/app/src/BlobImage.tsx`, `web/app/src/session/PaneTabs.test.tsx`.
 - Modify:
   - `src/session/thinking/useThinkingFeed.ts`;
   - `src/boards/BoardEditor.tsx`, so both `fetch`es go through `boards/api.ts`;
+  - `src/boards/sync.ts` and `sync.test.ts`: `body()` and its one assertion go, since nothing uses it;
   - `src/session/PaneTabs.tsx`, so Artifacts images use `BlobImage` and Previews use `HostContext.openPreview`;
   - `src/session/SessionHeader.tsx`;
   - `src/host.ts`.
-- Test: `useThinkingFeed.test.tsx`, `boards/boards.test.tsx`, `PaneTabs.test.tsx`, `SessionView.test.tsx` (unchanged, must pass).
+- Test: `useThinkingFeed.test.tsx`, `boards/api.test.ts`, `PaneTabs.test.tsx`; `boards.test.tsx` and `SessionView.test.tsx` are unchanged and must pass.
 
 **Interfaces:**
 - Produces:
@@ -109,7 +114,7 @@ Each view is an independent webview that follows the window's focused session wi
   export const FEED_CLOSED = 2                                             // replaces EventSource.CLOSED in the error handler
   // boards/api.ts (apiAt(`/app/user/boards/${enc(id)}/`))
   export function loadElements(id: string, since: number): Promise<{ seq: number; elements: unknown[] }>   // ApiError → Error(`load failed (${status})`)
-  export function saveElements(id: string, batch: Snap[]): Promise<{ lost: unknown[] }>                   // body {elements: batch.map(b => JSON.parse(b.json))}; ApiError → Error(`save failed (${status})`)
+  export function saveElements(id: string, batch: Snap[]): Promise<{ lost: unknown[] }>                   // body {elements: batch.map(b => JSON.parse(b.json))} (Transport takes an object); ApiError → Error(`save failed (${status})`)
   // BlobImage.tsx
   export function BlobImage(p: { path: string } & Omit<ImageProps, "src"> & { alt: string; loading?: "lazy" }): JSX.Element // src = useBlobUrl(path)
   // host.ts
@@ -127,11 +132,10 @@ Each view is an independent webview that follows the window's focused session wi
     - emitting `stream`, then `ev` for `tev(1)` shows "said 1";
     - `readyState = 2` plus `error` calls `check()`;
     - `setFeedOpener()` restores `EventSource`.
-  - boards: `the editor loads and saves through the API transport`:
-    - `setTransport(fake)`, mount `BoardEditor`;
-    - the fake sees `GET /app/user/boards/brd_…/elements?since=0`;
-    - after a change, `POST …/elements` with `json.elements` the changed elements;
-    - a `409` gives the text "save failed (409)".
+  - boards, in `boards/api.test.ts` over `setTransport(fake)` (jsdom can't drive Excalidraw's `onChange`, and `boards.test.tsx` mocks the editor):
+    - `loadElements GETs elements since a seq`: the fake sees `GET /app/user/boards/brd_…/elements?since=0` and the result is its `{seq, elements}`;
+    - `saveElements POSTs the batch as elements`: `json.elements` equals the parsed snapshots;
+    - `a refusal names the status`: `409` → Error "save failed (409)", and a load `404` → "load failed (404)".
   - PaneTabs:
     - `artifacts images resolve through the blob resolver`: `setBlobResolver` → `blob:1`, and the thumb and image `src` are `blob:1`;
     - `previews call openPreview when the host offers it`: the Open click → `(id, v, false)`, the Browser click → `(id, v, true)`, with no `a[href]` and no View here;
@@ -145,6 +149,7 @@ Each view is an independent webview that follows the window's focused session wi
 ### Task 2: Bridge protocol and the pane side of feeds, reveal and session links
 
 **Files:**
+- Create: `web/app/src/vscode/ids.ts` (`SES_RE`, `STREAM_RE`: the one app-side copy, used by `links.ts` and `bridge.ts`).
 - Modify: `web/app/src/bridge/protocol.ts`, `src/vscode/bridge.ts`, `src/vscode/links.ts`, `src/vscode/fakeHost.ts`.
 - Test: `src/vscode/bridge.test.ts`, `src/vscode/links.test.ts`.
 
@@ -177,13 +182,14 @@ Each view is an independent webview that follows the window's focused session wi
   export function bridgeFeedOpener(b: Bridge): FeedOpener
   // install(b, host) also calls setFeedOpener(bridgeFeedOpener(b))
   ```
-  - `parseThinkingUrl` accepts only `/app/user/session/<ses>/thinking/events`, with an optional `?stream=<32 hex>`.
+  - `parseThinkingUrl` accepts only `/app/user/session/<ses>/thinking/events` (`SES_RE`), with an optional `?stream=` matching `STREAM_RE` (`^[0-9a-f]{32}$`).
   - **`bridgeFeedOpener`'s source:**
     - it posts `thinkingOpen` with the next sub id and starts at `readyState` 0;
     - `open` sets 1;
     - each event dispatches `{data}` to that name's listeners;
     - `thinkingError` sets 2 when `closed` (else 0) and dispatches `error`;
     - `close()` posts `thinkingClose` once and sets 2, and later messages for that sub are ignored;
+    - after `newstream` the host sends nothing more for that sub; the hook's own close-and-reopen follows;
     - a URL that doesn't parse gives a source already at 2, which dispatches `error` on the next microtask and posts nothing.
   - **`linkAction`:** `vscode://aethons.jam/session/<ses>` and `vscode-insiders://aethons.jam/session/<ses>` → `{ intent: { kind: "session", id } }`. Every other `vscode:` link is still dropped.
 
@@ -211,7 +217,7 @@ Each view is an independent webview that follows the window's focused session wi
 - Modify: `src/vscode/Pane.tsx`, `src/vscode/main.tsx`, `src/vscode/Pane.test.tsx` (the only edit is passing `name="conversation"`).
 
 **Interfaces:**
-- Consumes: Tasks 1–2; `PaneBody`, `useSessionHead`, `SessionHeader`, `ConversationView`, `BoardEditor` (lazy).
+- Consumes: Tasks 1–2; `PaneBody`, `useSessionHead`, `SessionHeader`, `ConversationView`, `BoardEditor` (lazy), `useLiveEvents`.
 - Produces:
   ```ts
   // Pane.tsx
@@ -226,11 +232,12 @@ Each view is an independent webview that follows the window's focused session wi
   ```
   - **`Pane`** keeps slice 3's states and providers for every name:
     - a session pane renders `SessionBody` inside the memory router at home `/app/user/c/<channel>`;
-    - `board` ignores `target` and renders `BoardTab` once signed in;
+    - `board` ignores `target` and renders `BoardTab` once signed in, with no router and no bootstrap;
+    - the shell mounts `Live` (`useLiveEvents`) for every name, board included, so a board's `jam-board` pushes arrive;
     - `retry` posts `ready` with its own `name`;
-    - `onLeave` for a pane other than conversation turns a `scrollTo` action into `{kind:"reveal", anchor}`.
+    - for a pane other than conversation, a `scrollTo` action becomes `{kind:"reveal", anchor}`, in both `onLeave` and `main.tsx`'s `interceptLinks` callback (one mapping, `paneLinkAction(act, name)`).
   - **`SessionGate`** (every session pane but conversation): `useSessionHead(session)` with `not_found` → the gone copy with [Focus a session…]. Otherwise it renders `children`.
-  - **`SessionBody`:**
+  - **`SessionBody`** calls `useSessionHead(session)` (the gate's cached query) and passes `PaneBody` `busy={false}` and a no-op `onAsk` where a tab doesn't use them:
     - conversation is slice 3's `ConversationView withSession={false}`;
     - thinking is `PaneBody tab="thinking" busy={head.state.class === "busy"}`, in a full-height box;
     - previews is `PaneBody tab="previews"` under `HostContext` with `openPreview`, which posts `{kind:"preview", session, port: v.port, url: v.url, inBrowser}`;
@@ -243,7 +250,7 @@ Each view is an independent webview that follows the window's focused session wi
   - **`main.tsx`:**
     - it reads `data-pane`, `data-board` and `data-assets`;
     - it sets `window.EXCALIDRAW_ASSET_PATH = dataset.assets` before rendering, and `vsApi.setState({ board })` for a board;
-    - it wires `onScrollTo` to `getElementById(anchor)?.scrollIntoView({behavior:"smooth", block:"center"})`;
+    - it wires `onScrollTo` to `getElementById(anchor)?.scrollIntoView({behavior:"smooth", block:"center"})`, retried every 200 ms up to 10 times while the element isn't there yet (the conversation may still be loading);
     - it posts `ready` with the name;
     - it does not import `boards/assetPath.ts`.
 
@@ -255,9 +262,11 @@ Each view is an independent webview that follows the window's focused session wi
     - `artifacts ask click posts reveal ask-<id>; a board thumb click posts a board intent`.
     - `every session pane shows its own signed-out and no-session copy` (`it.each` over the five names).
     - `a session head 404 shows the gone copy in thinking, previews, status and artifacts` (Review Focus 4).
+    - `scrollTo retries until the ask renders`.
     - `a new target switches the pane's session` (status: `ses_a` → `ses_b` labels).
   - BoardTab:
-    - `loads the board, posts its title and mounts the editor` (Excalidraw mocked as in `boards.test.tsx`);
+    - `loads the board, posts its title and mounts the editor` (`../boards/BoardEditor` mocked, as `boards.test.tsx` does);
+    - `a board live event reaches the editor as jam-board` (the mock listens for the window event);
     - `a 404 says the whiteboard isn't available`;
     - `Open in the web app posts a web intent`;
     - `signed out shows the board sign-in copy`.
@@ -274,7 +283,7 @@ Each view is an independent webview that follows the window's focused session wi
 - Modify: `web/vscode/src/live.ts` (`SseParser` keeps the last event id), `web/vscode/test/live.test.ts`.
 
 **Interfaces:**
-- Consumes: `LiveDeps`, `SseParser`, the backoff constants, `checkPath` and `ID_RE`.
+- Consumes: Task 2's `ThinkingEventName`; `LiveDeps` (its `onSignedOut(token)`), `SseParser`, the backoff constants, `checkPath` and `ID_RE`.
 - Produces:
   ```ts
   // live.ts
@@ -285,7 +294,7 @@ Each view is an independent webview that follows the window's focused session wi
   export type ThinkingSignal = { event: ThinkingEventName; data: string } | { error: true; closed: boolean }
   export class ThinkingStreams {
     constructor(d: LiveDeps)
-    subscribe(session: string, stream: string, cb: (s: ThinkingSignal) => void): () => void
+    subscribe(session: string, stream: string, cb: (s: ThinkingSignal) => void, onEnd?: () => void): () => void
     restart(): void                     // sign-in/out: every key ends ({error, closed:true}) and is dropped
     get connections(): number           // keys with a live or retrying connection (tests)
   }
@@ -293,7 +302,7 @@ Each view is an independent webview that follows the window's focused session wi
   - **`subscribe`:**
     - it throws on a session failing `ID_RE.ses`, or a stream that is neither `""` nor `STREAM_RE`;
     - the first subscriber of a key connects;
-    - a later one gets `open`, then the key's replay, on the next microtask;
+    - a later one gets, on the next microtask, `open` (only while the key is connected, not while it retries), then the key's replay;
     - the last unsubscribe aborts the connection and drops the key.
   - **Replay** keeps, in arrival order:
     - the latest `stream`;
@@ -303,10 +312,11 @@ Each view is an independent webview that follows the window's focused session wi
   - **Outcomes:**
     - `200`: emit `open`, then forward the allowed events, remembering the last `id`;
     - stall (`LIVE_STALL_MS`), network error or end of body: `{error, closed:false}`, then reconnect after the backoff with `Last-Event-ID`, keeping the replay;
-    - `401`: `onSignedOut()` once per token, then `{error, closed:true}`, and the key is dropped;
+    - `401`: `onSignedOut(token)` once per token (the fix wave's `panesSignedOut` decides), then `{error, closed:true}`, and the key is dropped;
     - any other status: `{error, closed:true}`, and the key is dropped with no retry. The pane's own `check()` and backoff decide what comes next, as with `EventSource`;
-    - `newstream`: forwarded, then the key ends (no reconnect) and is dropped. A later subscribe connects afresh;
-    - not signed in: `{error, closed:true}` without a fetch.
+    - `newstream`: forwarded, then the key ends (no reconnect, nothing more sent to its subscribers) and is dropped. A later subscribe connects afresh;
+    - not signed in: `{error, closed:true}` without a fetch;
+    - every end of a key (`newstream`, a refusal, `401`, `restart`) also calls each subscription's `onEnd`, so `wirePane` frees the pane's slot.
 
 - [ ] **Step 1: Write the failing tests** (fake timers, a fake fetch with a controllable body):
   - parser: `id: s1:5` before `event: ev` gives `id "s1:5"`, and the id persists to the next event.
@@ -317,7 +327,8 @@ Each view is an independent webview that follows the window's focused session wi
     - `replay past 2000 evs keeps the newest 2000 and a more at the oldest kept seq`;
     - `a stall reconnects with Last-Event-ID and the subscribers see a transient error`;
     - `a 429 is a closed error with no retry`;
-    - `401 calls onSignedOut once and closes`;
+    - `401 calls onSignedOut with the token once and closes`;
+    - `a late subscriber during a retry gets no open until the reconnect succeeds`;
     - `newstream is forwarded, then the key ends without reconnecting`;
     - `last unsubscribe aborts`;
     - `restart closes every key`;
@@ -332,7 +343,11 @@ Each view is an independent webview that follows the window's focused session wi
 
 **Files:**
 - Create: `web/vscode/src/panes/actions.ts`, `web/vscode/test/actions.test.ts`.
-- Modify: `web/vscode/src/bridge/intents.ts`, `web/vscode/test/intents.test.ts`.
+- Modify:
+  - `web/vscode/src/bridge/intents.ts`, `web/vscode/test/intents.test.ts`;
+  - `src/panes/conversation.ts`: `open()` calls `perform(a)` from a new `ConversationDeps.perform`, so it typechecks against the wider `IntentAction`;
+  - `src/extension.ts` builds `perform` with `ActionDeps` (below) and passes it to the provider;
+  - `test/conversation.test.ts`: `open board calls openExternal with the jam URL` becomes `open board performs openBoard`.
 
 **Interfaces:**
 - Consumes: Task 2's intents, `ID_RE` and `checkPath`.
@@ -342,7 +357,7 @@ Each view is an independent webview that follows the window's focused session wi
   export const ANCHOR_RE = /^ask-[A-Za-z0-9_-]{1,80}$/
   export type IntentAction =
     | { openExternal: string } | { command: "jam.focusSession" }
-    | { openBoard: string } | { forwardPort: number; inBrowser: boolean }
+    | { openBoard: string } | { forwardPort: number; inBrowser: boolean; url: string }   // url: the fallback
     | { revealConversation: string | null } | { openSession: string }
   export function intentAction(i: OpenIntent, jamUrl: string, windowStudio?: string): IntentAction | Error
   // actions.ts
@@ -355,21 +370,23 @@ Each view is an independent webview that follows the window's focused session wi
   - **`intentAction`** changes:
     - `board` → `{openBoard}`, replacing slice 3's `openExternal`;
     - `preview`:
-      - the session must match `ID_RE.ses`, and the port is a `number`, an integer, 1–65535;
-      - when `session === windowStudio`, it gives `{forwardPort, inBrowser}`;
-      - otherwise it is the `external` rule on `url` (`http:`/`https:` only, not `mailto:`), giving `{openExternal}`;
+      - the session must match `ID_RE.ses`, the port is a `number`, an integer, 1–65535, and `url` must be `http:`/`https:` (re-serialized by `new URL`) in both branches;
+      - when `session === windowStudio`, it gives `{forwardPort, inBrowser, url}`;
+      - otherwise `{openExternal: url}`;
     - `reveal` → `{revealConversation: anchor ?? null}`, where the anchor must match `ANCHOR_RE`;
     - `session` → `{openSession}`, where the id must match `ID_RE.ses`;
     - the other kinds are unchanged.
   - **`perform`:**
-    - `forwardPort`: `u = await asExternalUri("http://localhost:<port>/")`. With `inBrowser` it calls `openExternal(u)`, else `executeCommand("simpleBrowser.show", u)`. A throw → `error("Couldn't forward port <port>: <message>")`;
-    - `revealConversation`: `executeCommand("jam.conversation.focus")`, then `scrollConversation(anchor)` when one is set;
-    - `openBoard`, `openSession`, `openExternal` and `command` call their deps.
+    - `forwardPort`: `u = await asExternalUri("http://localhost:<port>/")`. With `inBrowser` it calls `openExternal(u)`, else `executeCommand("simpleBrowser.show", u)`;
+    - **fallback** (the user's ruling, if a UI extension can't forward): when `asExternalUri` throws, or returns `http://localhost:<port>/` unchanged, `openExternal(url)` opens the preview's web URL in the system browser instead; a throw also shows "Couldn't forward port <port>: <message>" through `error`;
+    - `revealConversation`: `executeCommand("jam.conversation.focus")`, then `scrollConversation(anchor)` when one is set. The provider keeps that one anchor pending and re-posts it on the Conversation pane's next `ready`, so a view resolved by the focus still scrolls. An ask from a session the Conversation view doesn't show doesn't scroll (documented);
+    - `openBoard`, `openSession`, `openExternal` and `command` call their deps. In this task `extension.ts`'s `openBoard` opens `<jam>/app/user/boards/<id>` in the browser, until Task 7.
     - Errors from deps are caught, and the action is shown through `error`.
 
 - [ ] **Step 1: Write the failing tests:**
   - intents, a table (Review Focus 2 and 3), with `windowStudio = ses_W`:
-    - preview `ses_W`, 5173 → `{forwardPort:5173, inBrowser:false}`;
+    - preview `ses_W`, 5173, `https://p.example/x` → `{forwardPort:5173, inBrowser:false, url:"https://p.example/x"}`;
+    - preview `ses_W` with `javascript:alert(1)` → Error (the url is checked for the window's studio too);
     - preview `ses_O`, 5173, `https://p.example/x` → `{openExternal:"https://p.example/x"}`;
     - preview `ses_O`, `javascript:alert(1)` → Error;
     - ports `0`, `70000`, `1.5` and `"22"` → Error;
@@ -381,10 +398,11 @@ Each view is an independent webview that follows the window's focused session wi
   - actions:
     - `forward opens the Simple Browser on the external URI`: asExternalUri → `http://localhost:61234/`, so `simpleBrowser.show` gets it;
     - `inBrowser opens it externally`;
-    - `a failing forward shows the copy`;
+    - `asExternalUri throwing falls back to the preview URL in the browser, and shows the copy`;
+    - `asExternalUri returning the same localhost URI falls back to the preview URL in the browser`;
     - `reveal focuses the Conversation view, then scrolls`;
     - `openBoard and openSession reach their deps`.
-- [ ] **Step 2:** `cd web/vscode && npx vitest run test/intents.test.ts test/actions.test.ts` → FAIL.
+- [ ] **Step 2:** `cd web/vscode && npx vitest run test/intents.test.ts test/actions.test.ts test/conversation.test.ts` → FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** `cd web/vscode && npm run check` → PASS.
 - [ ] **Step 5: Commit** `feat(vscode): open intents for boards, previews over port forwarding, reveal and sessions`.
@@ -393,7 +411,7 @@ Each view is an independent webview that follows the window's focused session wi
 
 **Files:**
 - Create: `web/vscode/src/panes/port.ts`, `web/vscode/src/panes/session.ts`, `web/vscode/test/port.test.ts`, `web/vscode/test/session.test.ts`.
-- Delete: `web/vscode/src/panes/conversation.ts`, and move `web/vscode/test/conversation.test.ts` into `session.test.ts`, keeping every case for `"conversation"`.
+- Delete: `web/vscode/src/panes/conversation.ts` (as fixed by slice 3's fix wave and Task 5), and move `web/vscode/test/conversation.test.ts` into `session.test.ts` and `port.test.ts`, keeping every case, including the fix wave's (aborts on `ready`/hide/dispose; a reply whose id mapping changed is dropped).
 - Modify: `web/vscode/package.json`, `src/extension.ts`, `test/vscode.ts` (the mock gains `env.asExternalUri`), `test/manifest.test.ts`, `test/extension.test.ts`.
 
 **Interfaces:**
@@ -407,8 +425,8 @@ Each view is an independent webview that follows the window's focused session wi
                            perform: (a: IntentAction) => void; executeCommand: (c: string, ...a: unknown[]) => Thenable<unknown> }
   export type PaneHooks = { state: () => Promise<PaneState>; onViewing?: (channel: string | null) => void; onTitle?: (title: string) => void }
   export function wirePane(w: vscode.Webview, id: string, d: PortDeps, h: PaneHooks):
-    { post(m: ExtToPane): void; refresh(): Promise<PaneState | undefined>; dispose(): void }
-  export function paneHtml(w: vscode.Webview, extensionUri: vscode.Uri, pane: PaneName, extra?: { board?: string }): string // options + webviewHtml
+    { post(m: ExtToPane): void; refresh(): Promise<PaneState | undefined>; reset(): void; dispose(): void }
+  export function paneHtml(w: vscode.Webview, extensionUri: vscode.Uri, pane: PaneName): string // options + webviewHtml (Task 7 adds `extra`)
   // session.ts
   export const SESSION_PANES: readonly SessionPaneName[]   // ["conversation", "thinking", "previews", "status", "artifacts"]
   export type SessionPaneDeps = PortDeps & { extensionUri: vscode.Uri; model: Pick<FocusModel, "stateOf" | "isPinned" | "windowSession" | "onChange">;
@@ -425,8 +443,10 @@ Each view is an independent webview that follows the window's focused session wi
     - `open` → `intentAction(intent, url, d.windowStudio)` → `d.perform`;
     - `viewing` → `onViewing`; `title` → `onTitle`;
     - `thinkingOpen` → `d.thinking.subscribe`, forwarding signals as `thinking`/`thinkingError` with the pane's sub id. A bad session or stream, a non-integer sub, a reused sub or more than `THINKING_SUBS_PER_PANE` open subs → `{type:"thinkingError", sub, closed:true}`, with no subscribe;
-    - `thinkingClose` → unsubscribe;
-    - `dispose` aborts the pane's requests, unsubscribes its feeds and detaches from the hub.
+    - `thinkingClose` → unsubscribe; idempotent. A key's end (`onEnd`) frees the slot too;
+    - `reset()` is the fix wave's `abortAll()` plus closing every Thinking subscription. `wirePane` calls it on every `ready`; `SessionPaneProvider` calls it when the view is hidden (no `retainContextWhenHidden`, so the pane's JS is gone and its sub and request ids restart at 1). Hidden views hold no server feed;
+    - a reply is posted only while its pane id still maps to its Router id (the fix wave's rule);
+    - `dispose` calls `reset()` and detaches from the hub.
   - **`SessionPaneProvider`** is slice 3's provider for any name:
     - `view.description` is the label when `elsewhere`;
     - the context keys are `jam.<name>.pinned` and `jam.<name>.hasSession`;
@@ -437,14 +457,15 @@ Each view is an independent webview that follows the window's focused session wi
     - commands `jam.<name>.pin` ("Pin to This Session", `$(pin)`) and `jam.<name>.unpin` ("Follow the Window's Session", `$(pinned)`) for each of the five names;
     - `view/title` menus with slice 3's `when` clauses per name, and all ten hidden from `commandPalette`.
   - **`extension.ts`:**
-    - it builds `ThinkingStreams` (the shared `current` and `panesSignedOut`), with `thinking.restart()` on `auth.onChange`;
+    - it builds `ThinkingStreams` (the shared `current` and the fix wave's token-checked `panesSignedOut`, not a new one), with `thinking.restart()` on `auth.onChange`;
     - `windowStudio = windowDefault`;
     - `perform` gets `ActionDeps`:
       - `asExternalUri: async (u) => (await vscode.env.asExternalUri(vscode.Uri.parse(u))).toString()`;
-      - `openSession: (id) => guard(() => openSession(openDeps, id))()`;
+      - `openSession: (id) => guard(() => openSession(openDeps, id))()` (`guard` goes through `signOutOnce`);
       - `scrollConversation` → the conversation provider's `scrollTo`;
       - `error` → `showErrorMessage`;
-      - `openBoard` opens `<jam>/app/user/boards/<id>` in the browser until Task 7.
+      - `openBoard` opens `<jam>/app/user/boards/<id>` in the browser until Task 7;
+      - these are Task 5's `ActionDeps`, now shared by every provider.
     - It registers the five providers and ten pin commands.
 
 - [ ] **Step 1: Write the failing tests:**
@@ -453,6 +474,8 @@ Each view is an independent webview that follows the window's focused session wi
     - `a third open sub is refused with a closed error` (Review Focus 3);
     - `a bad session, a non-hex stream or a reused sub is refused without subscribing`;
     - `dispose unsubscribes every feed and detaches`;
+    - `ready closes the old context's feeds, so a reloaded view's sub 1 is accepted`;
+    - `a key's end frees the slot; thinkingClose twice is harmless`;
     - `open preview for the window's studio performs forwardPort`;
     - `open javascript: performs nothing`.
   - session:
@@ -461,7 +484,8 @@ Each view is an independent webview that follows the window's focused session wi
     - `a pinned status view shows the label in its description`;
     - `viewing from a thinking view doesn't reach the reporter`;
     - `scrollTo reaches only that provider's views`;
-    - `no view sets retainContextWhenHidden`.
+    - `no view sets retainContextWhenHidden`;
+    - `hiding a thinking view closes its feeds and aborts its requests` (Review Focus 1).
   - manifest:
     - the five views, with thinking in the `jamPanel` container;
     - the ten pin commands with their menus;
@@ -478,7 +502,7 @@ Each view is an independent webview that follows the window's focused session wi
 - Create: `web/vscode/src/panes/board.ts`, `web/vscode/test/board.test.ts`.
 - Modify:
   - `src/panes/html.ts`, which adds `data-board` and `data-assets`;
-  - `src/panes/port.ts` (`paneHtml` passes `assets`);
+  - `src/panes/port.ts` (`paneHtml` gains `extra?: { board?: string }` and passes `board` and `assets`);
   - `src/extension.ts`;
   - `package.json`, whose `activationEvents` add `onWebviewPanel:jam.board`;
   - `test/vscode.ts`, whose mock adds `window.createWebviewPanel`, `registerWebviewPanelSerializer` and `ViewColumn`;
@@ -504,7 +528,8 @@ Each view is an independent webview that follows the window's focused session wi
   export function tabTitle(t: string): string                    // control chars dropped, trimmed, ≤ TITLE_MAX, "" → "Whiteboard"
   ```
   - **Panel options:** the Constraints' options plus `retainContextWhenHidden: true` and `enableFindWidget: false`. `iconPath` is `media/jam.svg`.
-  - **HTML:** `paneHtml(…, "board", { board: id })`, with `assets = asWebviewUri(dist/webview/excalidraw/)` and the same CSP.
+  - **HTML:** `paneHtml(…, "board", { board: id })`, with `assets = asWebviewUri(Uri.joinPath(root, "excalidraw")).toString() + "/"` (`joinPath` drops a trailing slash, and Excalidraw appends `fonts/…`) and the same CSP.
+  - **Hide:** panels keep their context, so hiding a board doesn't call `reset()`.
   - **State:** `{signedIn, target: null, pinned: false, elsewhere: false}`, refreshed on `auth.onChange`.
   - **`open`:**
     - a bad id is ignored;
@@ -518,6 +543,7 @@ Each view is an independent webview that follows the window's focused session wi
 - [ ] **Step 1: Write the failing tests:**
   - html:
     - `board and assets attributes are escaped and the CSP is unchanged`;
+    - `the assets URL ends in a slash` (in `board.test.ts`, through `paneHtml`);
     - `no board attribute for a view`.
   - board (Review Focus 5):
     - `open creates a panel with retainContextWhenHidden and the exact CSP`;
@@ -526,10 +552,10 @@ Each view is an independent webview that follows the window's focused session wi
     - `title messages set tabTitle(title)`, from a table: `"a\u0007b"` → `"ab"`, 80 chars → 60, `""` → `"Whiteboard"`;
     - `restore rebuilds a panel from {board}`, and `restore with bad state disposes it`;
     - `sign-out posts signedIn false to open boards`;
-    - `dispose then open makes a new panel`;
-    - `a board intent from a session pane opens the tab` (`perform` with `openBoard`).
+    - `dispose then open makes a new panel`.
+  - extension: `a session pane's open board message creates a board panel` (through `activate`'s wiring).
   - manifest: `activationEvents` include `onWebviewPanel:jam.board`.
-- [ ] **Step 2:** `cd web/vscode && npx vitest run test/board.test.ts test/html.test.ts test/manifest.test.ts` → FAIL.
+- [ ] **Step 2:** `cd web/vscode && npx vitest run test/board.test.ts test/html.test.ts test/manifest.test.ts test/extension.test.ts` → FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** `just vscode` → PASS. `unzip -l web/vscode/dist/jam.vsix` lists `extension/dist/webview/excalidraw/fonts/` with `.woff2` files. `just app` still passes its size budget.
 - [ ] **Step 5: Commit** `feat(vscode): whiteboards as editor tabs`.
@@ -544,11 +570,11 @@ Each view is an independent webview that follows the window's focused session wi
     - Thinking shares one stream per session and stream across the window's panes, and counts toward the four-feed limit;
     - Previews: Open (Simple Browser) and Browser forward the port through Remote-SSH for the window's own studio. Another session's preview opens its preview URL in the browser;
     - Status: the header's facts and actions, and Open in VS Code for a pinned session;
-    - Artifacts: an ask reveals it in the Conversation view;
+    - Artifacts: an ask reveals it in the Conversation view; an ask from a session the Conversation view doesn't show doesn't scroll;
     - board tabs: several side by side, kept while hidden, restored after a reload, and Open in the web app. A stroke made in the last 300 ms before closing a tab may not be saved;
     - notifications and the badge are a later slice.
   - `docs/usage/jam/vscode-checklist.md`:
-    - **Verify first** gains: "`vscode.env.asExternalUri(http://localhost:<port>/)` from the (UI) Jam extension in a `jam-` remote window adds a forward in the Ports view and returns a working local URL";
+    - **Verify first** gains: "`vscode.env.asExternalUri(http://localhost:<port>/)` from the (UI) Jam extension in a `jam-` remote window adds a forward in the Ports view and returns a working local URL (if not, Open falls back to the preview's web URL in the browser)", and "Excalidraw in a board tab: CJK text (Xiaolai isn't shipped) and image export may log CSP violations from the font fallback; record what is seen and accept or document it — the CSP doesn't change";
     - **Build** gains the Excalidraw fonts copy;
     - a **Panes** step list:
       - each view renders for the window's session in the light, dark and high-contrast themes;
@@ -563,7 +589,8 @@ Each view is an independent webview that follows the window's focused session wi
       - DevTools on the Thinking view and a board tab shows no CSP violations.
   - `docs/web-app.md`:
     - Layout: the `src/vscode/` bullet adds `panes.tsx` (`SessionBody`, `SessionGate`) and `BoardTab.tsx`;
-    - the seams list adds `setFeedOpener` (`session/thinking/useThinkingFeed.ts`), `boards/api.ts` (board sync through the API client) and `HostContext.openPreview`.
+    - the seams list adds `setFeedOpener` (`session/thinking/useThinkingFeed.ts`), `boards/api.ts` (board sync through the API client) and `HostContext.openPreview`;
+    - the two links to `vscode.md#conversation-and-focus` (lines 35 and 96) become `#panes-and-focus`.
   - The spec's status line: "slice 4 (the other panes) built".
 - [ ] **Step 1:** Write the docs. Each fact goes in the one doc named above; the others link to it.
 - [ ] **Step 2:** `python3 /agent-data/skills/docs-audit/scripts/docs_audit.py docs` → no new findings beyond the plan file's own.
@@ -574,11 +601,12 @@ Each view is an independent webview that follows the window's focused session wi
 
 ## Decisions the spec leaves open (my calls)
 
-- **Thinking streams are keyed by (session, stream), not by session.** A pane that pins an older stream needs a different server feed. The common case, "Current", is still shared.
+- **Thinking streams are keyed by (session, stream), not by session** (ruled; the spec's sentence is amended to match). A pane that pins an older stream needs a different server feed, and one stream per session would need the server work the spec defers. The common case, "Current", is still shared.
 - **Late joiners get a host-side replay** of the connection's events, capped at 2000 `ev`s like the pane's own row cap. Without it a second pane would wait for the next event and show an empty list.
 - **The host mirrors `EventSource`.** It reconnects itself only for transient drops. An HTTP refusal is a closed error, and the pane's existing `check()` and backoff decide what happens next, so `useThinkingFeed`'s 404 and 429 handling stays unchanged.
+- **Hidden views hold no feed** (coordinator's ruling): Thinking subscriptions close on hide and on `ready`, as the fix wave's request aborts do.
 - **`THINKING_SUBS_PER_PANE = 2`.** A compromised pane can't use up the user's four server feeds. Two covers a StrictMode remount.
-- **Forwarding uses `asExternalUri`, not a spawned `ssh -L`.** VS Code's source shows the UI extension host is given the window's remote authority and asks for tunnelling. It is verified first in the checklist.
+- **Forwarding uses `asExternalUri`, not a spawned `ssh -L`.** VS Code's source shows the UI extension host is given the window's remote authority and asks for tunnelling. It is verified first in the checklist; if it doesn't forward, Open falls back to the preview's web URL in the browser (the user's ruling). Caveat: VS Code forwards to the same local port when that port is free, so an unchanged `localhost:<port>` can also mean a working forward; the checklist item settles whether the same-URI branch stays.
 - **Forwarding happens only for the window's studio (`windowDefault`), not the focused session.** `localhost:<port>` exists only on the remote this window is attached to.
 - **Open uses the Simple Browser, with a separate Browser button.** The spec allows either. The Simple Browser keeps the preview inside the workbench.
 - **Default layout.** Thinking goes in a bottom-panel Jam container, because its log wants width. Previews and Artifacts start collapsed. Every view stays movable.
