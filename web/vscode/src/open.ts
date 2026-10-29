@@ -136,15 +136,64 @@ async function checkSession(d: OpenDeps, id: string, step: Step, log: (m: string
   }
 }
 
+type Head = Awaited<ReturnType<JamApi["sessionHead"]>>;
+
+// prepareSsh is what a studio window needs first: SSH access to the session,
+// Remote-SSH, and the SSH setup (key, cert, ssh_config block) via d.ssh. It
+// reports a failure through fail and gives false; a SignedOutError propagates.
+// The setup runs before every remote open: OpenSSH loads the cert before the
+// ProxyCommand runs, so ssh-proxy's renewal only helps the next connection.
+async function prepareSsh(
+  d: OpenDeps,
+  s: { api: JamApi; url: string; head: Head },
+  id: string,
+  step: Step,
+  log: (m: string) => void,
+  fail: Fail,
+): Promise<boolean> {
+  const { ui } = d;
+  const { api, url, head } = s;
+  if (head.ssh === "") {
+    const msg = `You can't SSH into ${head.label}'s studio (ask an operator to share it).`;
+    if ((await fail(msg, WEB)) === WEB) await ui.openExternal(webUrl(url, head.channel));
+    return false;
+  }
+  if (!ui.hasRemoteSsh()) {
+    if ((await fail("Connecting to a studio needs Microsoft's Remote - SSH extension.", "Install")) === "Install") await ui.installRemoteSsh();
+    return false;
+  }
+  step(`setting up SSH for ${head.label}`);
+  try {
+    const r = await d.ssh(api, id);
+    log(`ssh ready: alias ${r.alias}`);
+    return true;
+  } catch (e) {
+    if (e instanceof SignedOutError) throw e;
+    await fail(e instanceof ApiError ? certErrorMessage(e, id) : e instanceof Error ? e.message : String(e));
+    return false;
+  }
+}
+
 // openSession opens the session's local window (its workspace file, in a new
 // window or the one already on it): no SSH, so the studio can idle. A session
-// this machine connected opens (focuses) its studio window instead.
+// flagged connected (its studio window is open) renews its SSH setup and opens
+// (focuses) that window instead; if that fails, the flag is cleared and the
+// local window opens.
 export async function openSession(d: OpenDeps, id: string): Promise<void> {
   await withSession(d, id, `Jam: opening ${id}…`, async ({ step, log, fail }) => {
-    if (!(await checkSession(d, id, step, log, fail))) return;
+    const s = await checkSession(d, id, step, log, fail);
+    if (!s) return;
+    let remote = false;
+    if (d.ui.isConnected(id)) {
+      remote = await prepareSsh(d, s, id, step, log, async (m) => {
+        log(`can't reconnect: ${m}; opening the local window`);
+        return undefined;
+      });
+      if (!remote) await d.ui.setConnected(id, false);
+    }
     step("opening the window");
     let uri: string;
-    if (d.ui.isConnected(id)) {
+    if (remote) {
       log("connected: opening its studio window");
       uri = remoteUri(id);
     } else uri = await d.ui.localWorkspace(id);
@@ -155,31 +204,12 @@ export async function openSession(d: OpenDeps, id: string): Promise<void> {
 }
 
 // connectStudio sets up SSH for the session's studio and reloads this window
-// onto it over Remote-SSH.
+// onto it over Remote-SSH. The studio window flags itself connected when it starts.
 export async function connectStudio(d: OpenDeps, id: string): Promise<void> {
   const { ui } = d;
   await withSession(d, id, `Jam: connecting ${id}…`, async ({ step, log, fail }) => {
     const s = await checkSession(d, id, step, log, fail);
-    if (!s) return;
-    const { api, url, head } = s;
-    if (head.ssh === "") {
-      const msg = `You can't SSH into ${head.label}'s studio (ask an operator to share it).`;
-      if ((await fail(msg, WEB)) === WEB) await ui.openExternal(webUrl(url, head.channel));
-      return;
-    }
-    if (!ui.hasRemoteSsh()) {
-      if ((await fail("Connecting to a studio needs Microsoft's Remote - SSH extension.", "Install")) === "Install") await ui.installRemoteSsh();
-      return;
-    }
-    step(`setting up SSH for ${head.label}`);
-    try {
-      const r = await d.ssh(api, id);
-      log(`ssh ready: alias ${r.alias}`);
-    } catch (e) {
-      if (e instanceof SignedOutError) throw e;
-      await fail(e instanceof ApiError ? certErrorMessage(e, id) : e instanceof Error ? e.message : String(e));
-      return;
-    }
+    if (!s || !(await prepareSsh(d, s, id, step, log, fail))) return;
     if (!ui.remembered(ASKED) && ui.getGlobal("remote.SSH", "localServerDownload") !== "always") {
       log("asking about Remote-SSH localServerDownload");
       const a = await ui.info(
@@ -193,9 +223,6 @@ export async function connectStudio(d: OpenDeps, id: string): Promise<void> {
     }
     step("connecting the window");
     const uri = remoteUri(id);
-    // Marked first: reloading this window may end this extension host before
-    // openFolder returns.
-    await ui.setConnected(id, true);
     log(`openFolder ${uri} (this window)`);
     await ui.openFolder(uri, { reuse: true });
     log("openFolder returned");
@@ -203,32 +230,28 @@ export async function connectStudio(d: OpenDeps, id: string): Promise<void> {
 }
 
 // disconnectStudio reloads this window onto the session's local workspace;
-// Remote-SSH closes the connection, so the studio can idle.
+// Remote-SSH closes the connection, so the studio can idle. The studio
+// window's deactivate clears its connected flag.
 export async function disconnectStudio(d: OpenDeps, id: string): Promise<void> {
   if (!SESSION_ID_RE.test(id)) {
     d.log(`disconnect: refused a bad session id (${JSON.stringify(id.slice(0, 80))})`);
     return;
   }
-  await d.ui.setConnected(id, false);
   const uri = await d.ui.localWorkspace(id);
   d.log(`[${id}] disconnecting: openFolder ${uri} (this window)`);
   await d.ui.openFolder(uri, { reuse: true });
 }
 
-const CONNECTED = "jam.connected";
-
-// connectedSet keeps the ids of sessions this machine connected (Memento-like
-// store, e.g. globalState). Junk in the store reads as empty.
+// connectedSet keeps, per session, the flag "a studio (remote) window for this
+// session is open" — best effort: a studio window sets it on activation and
+// clears it on deactivate. One key per session (jam.connected.<id>, in a
+// Memento such as globalState), so windows never overwrite each other's.
 export function connectedSet(st: { get<T>(k: string): T | undefined; update(k: string, v: unknown): Thenable<void> }) {
-  const ids = (): string[] => {
-    const v = st.get<unknown>(CONNECTED);
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && SESSION_ID_RE.test(x)) : [];
-  };
+  const key = (id: string) => `jam.connected.${id}`;
   return {
-    isConnected: (id: string) => ids().includes(id),
+    isConnected: (id: string) => SESSION_ID_RE.test(id) && st.get<unknown>(key(id)) === true,
     setConnected: async (id: string, on: boolean) => {
-      const rest = ids().filter((x) => x !== id);
-      await st.update(CONNECTED, on ? [...rest, id] : rest);
+      if (SESSION_ID_RE.test(id)) await st.update(key(id), on ? true : undefined);
     },
   };
 }
@@ -236,19 +259,25 @@ export function connectedSet(st: { get<T>(k: string): T | undefined; update(k: s
 export type WindowKind = { kind: "local" | "remote"; id: string };
 
 // windowKind is the session a window belongs to: a jam-<id> remote, or a
-// local session window, whose workspace file is exactly
-// <sessionsDir>/<id>.code-workspace (sessionsDir as a URI path).
+// local session window, whose workspace file is <sessionsDir>/<id>.code-workspace
+// (sessionsDir as a URI path). The directory compares case-insensitively on
+// darwin and win32 (case-insensitive file systems, drive letters); the id never.
 export function windowKind(
   w: { workspaceFolders?: readonly { uri: UriLike }[]; workspaceFile?: UriLike & { path: string } },
   sessionsDir: string,
+  platform: string,
 ): WindowKind | undefined {
   const remote = studioFromAuthority(windowAuthority(w));
   if (remote) return { kind: "remote", id: remote };
   const f = w.workspaceFile;
   if (f?.scheme !== "file") return undefined;
-  const dir = sessionsDir.replace(/\/+$/, "");
+  const fold = platform === "darwin" || platform === "win32";
+  const norm = (p: string) => {
+    const q = p.replace(/\\/g, "/").replace(/\/+$/, "");
+    return fold ? q.toLowerCase() : q;
+  };
   const slash = f.path.lastIndexOf("/");
-  if (slash < 0 || f.path.slice(0, slash) !== dir) return undefined;
+  if (slash < 0 || norm(f.path.slice(0, slash)) !== norm(sessionsDir)) return undefined;
   const m = /^(.+)\.code-workspace$/.exec(f.path.slice(slash + 1));
   return m && SESSION_ID_RE.test(m[1]!) ? { kind: "local", id: m[1]! } : undefined;
 }

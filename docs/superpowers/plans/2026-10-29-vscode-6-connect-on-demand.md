@@ -6,9 +6,10 @@
 
 **Architecture:**
 - **The local session window is a workspace file.** `<globalStorageUri>/sessions/<ses_id>.code-workspace`, content `{"folders": []}`, written on demand (no secret in it). Opening a session opens it with `vscode.openFolder(…, {forceNewWindow: true})`, which focuses a window already on it.
-- **Window → session.** `windowSession(workspace, sessionsDir)` in `src/open.ts`: a `jam-<id>` remote (as today, `studioFromAuthority(windowAuthority(…))`), or a `workspaceFile` whose directory is exactly `sessionsDir` and whose name is `<id>.code-workspace` with `SESSION_ID_RE`. `FocusModel`'s `windowDefault` is that session. `windowStudio` (preview forwarding) stays the remote one only: a local window forwards nothing.
+- **Window → session.** `windowKind(workspace, sessionsDir, platform)` in `src/open.ts`: a `jam-<id>` remote (as today, `studioFromAuthority(windowAuthority(…))`), or a `workspaceFile` whose directory is `sessionsDir` (case-insensitive on darwin/win32) and whose name is `<id>.code-workspace` with `SESSION_ID_RE`. `FocusModel`'s `windowDefault` is that session. `windowStudio` (preview forwarding) stays the remote one only: a local window forwards nothing.
 - **Connect / disconnect.** `connectStudio` in `src/open.ts` runs today's SSH steps (Remote-SSH check, `d.ssh`, the localServerDownload ask) and `openFolder(remoteUri(id), {reuse: true})`. `disconnectStudio` opens the local workspace with `{reuse: true}`. Status-bar items show per window kind.
-- **Connected set.** `globalState["jam.connected"]` (session ids): added on Connect, removed on Disconnect and (best effort) when a remote session window deactivates. Opening a connected session opens its remote URI (focusing that window) rather than a second, local one.
+- **Connected flag.** `globalState["jam.connected.<id>"]`, "a studio window for this session is open" (best effort): a remote session window sets it on activation and clears it on deactivate. Opening a flagged session runs the shared `prepareSsh` (SSH access, Remote-SSH, `d.ssh`, renewing the cert) and opens its remote URI (focusing that window); on failure it clears the flag and opens the local workspace.
+- **Status-bar items** show only while signed in.
 
 **Spec:** the slice-2 open flow (`docs/superpowers/plans/2026-10-29-vscode-2-extension.md`) and the window session of slice 3/4 (`FocusModel`, `windowStudio`).
 

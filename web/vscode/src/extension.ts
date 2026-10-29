@@ -260,16 +260,19 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const router = new Router({ session: current, fetch: (...a) => fetch(...a), onSignedOut: panesSignedOut, log });
   // The window's session: a jam-<id> remote, or a local session window. Only
   // the remote (windowStudio) can forward a preview's port.
-  const kind = windowKind(vscode.workspace, sessionsDir.path);
+  const kind = windowKind(vscode.workspace, sessionsDir.path, process.platform);
   const windowDefault = kind?.id;
   const windowStudio = kind?.kind === "remote" ? kind.id : undefined;
   void vscode.commands.executeCommand("setContext", "jam.window", kind?.kind ?? "");
+  // The Connect/Disconnect item shows only while signed in.
   const item = statusBarItem(kind);
   if (item) {
     const sb = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     Object.assign(sb, item);
-    sb.show();
-    ctx.subscriptions.push(sb);
+    const showIf = (on: boolean) => (on ? sb.show() : sb.hide());
+    void current().then((s) => showIf(s !== undefined), () => showIf(false));
+    const off = auth.onChange((s) => showIf(s !== undefined));
+    ctx.subscriptions.push(sb, { dispose: off });
   }
   if (kind?.kind === "remote") {
     // Reloading a remote window deactivates and reactivates it: mark it again.

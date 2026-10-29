@@ -94,14 +94,36 @@ describe("openSession", () => {
     ]);
   });
 
-  it("a connected session opens (focuses) its remote window instead", async () => {
-    const f = fake({ connected: [ID] });
+  it("a connected session renews its SSH setup, then opens (focuses) its remote window", async () => {
+    const f = fake({ connected: [ID], global: "always" });
     await openSession(f.d, ID);
-    expect(f.ui.openFolder).toHaveBeenCalledTimes(1);
+    expect(f.order).toEqual(["ssh", `open ${remoteUri(ID)}`]);
     expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID));
     expect(f.ui.localWorkspace).not.toHaveBeenCalled();
-    expect(f.ssh).not.toHaveBeenCalled();
+    expect(f.ssh).toHaveBeenCalledWith(f.api, ID);
+    expect(f.steps).toEqual(["checking the session", "setting up SSH for Ada", "opening the window"]);
     expect(f.logs).toContain(`[${ID}] connected: opening its studio window`);
+  });
+
+  it.each([
+    ["the SSH setup fails", { sshErr: new Error("boom") }],
+    ["it can't be SSHed into", { head: { id: ID, label: "Ada", channel: "chn_1", ssh: "" } }],
+    ["Remote-SSH is missing", { remote: false }],
+  ])("a connected session: when %s, it clears the flag and opens the local window", async (_n, over) => {
+    const f = fake({ connected: [ID], ...over });
+    await openSession(f.d, ID);
+    expect(f.ui.setConnected).toHaveBeenCalledWith(ID, false);
+    expect(f.connected.has(ID)).toBe(false);
+    expect(f.ui.openFolder).toHaveBeenCalledTimes(1);
+    expect(f.ui.openFolder).toHaveBeenCalledWith(local(ID));
+    expect(f.ui.error).not.toHaveBeenCalled();
+    expect(f.logs.some((l) => l.startsWith(`[${ID}] can't reconnect: `))).toBe(true);
+  });
+
+  it("a SignedOutError from a connected session's SSH setup propagates", async () => {
+    const f = fake({ connected: [ID], sshErr: new SignedOutError() });
+    await expect(openSession(f.d, ID)).rejects.toBeInstanceOf(SignedOutError);
+    expect(f.ui.openFolder).not.toHaveBeenCalled();
   });
 
   it("a session you can't SSH into still opens locally", async () => {
@@ -153,13 +175,14 @@ describe("openSession", () => {
 });
 
 describe("connectStudio", () => {
-  it("runs the SSH steps, marks the session connected, then reloads this window onto the remote", async () => {
+  it("runs the SSH steps, then reloads this window onto the remote (the remote window marks itself)", async () => {
     const f = fake({ global: "always" });
     await connectStudio(f.d, ID);
     expect(f.titles).toEqual([`Jam: connecting ${ID}…`]);
     expect(f.steps).toEqual(["checking the session", "setting up SSH for Ada", "connecting the window"]);
     expect(f.ssh).toHaveBeenCalledWith(f.api, ID);
-    expect(f.order).toEqual(["ssh", `mark ${ID}`, `open ${remoteUri(ID)} reuse`]);
+    expect(f.order).toEqual(["ssh", `open ${remoteUri(ID)} reuse`]);
+    expect(f.ui.setConnected).not.toHaveBeenCalled();
     expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID), { reuse: true });
     expect(f.logs).toEqual([
       `[${ID}] checking the session`,
@@ -268,10 +291,10 @@ describe("connectStudio", () => {
 });
 
 describe("disconnectStudio", () => {
-  it("unmarks the session, then reloads this window onto its local workspace, with no API call", async () => {
+  it("reloads this window onto its local workspace, with no API call (deactivate unmarks)", async () => {
     const f = fake({ connected: [ID] });
     await disconnectStudio(f.d, ID);
-    expect(f.order).toEqual([`unmark ${ID}`, `open ${local(ID)} reuse`]);
+    expect(f.order).toEqual([`open ${local(ID)} reuse`]);
     expect(f.ui.openFolder).toHaveBeenCalledWith(local(ID), { reuse: true });
     expect(f.signedIn).not.toHaveBeenCalled();
     expect(f.ssh).not.toHaveBeenCalled();
@@ -287,21 +310,20 @@ describe("disconnectStudio", () => {
 });
 
 describe("connectedSet", () => {
-  it("adds and removes ids in a globalState-like store, ignoring junk", async () => {
+  it("keeps one key per session, jam.connected.<id>, ignoring junk", async () => {
     const m = new Map<string, unknown>();
-    const st = { get: <T>(k: string) => m.get(k) as T | undefined, update: async (k: string, v: unknown) => void m.set(k, v) };
+    const st = { get: <T>(k: string) => m.get(k) as T | undefined, update: async (k: string, v: unknown) => void (v === undefined ? m.delete(k) : m.set(k, v)) };
     const c = connectedSet(st);
     expect(c.isConnected(ID)).toBe(false);
     await c.setConnected(ID, true);
-    await c.setConnected(ID, true);
-    expect(m.get("jam.connected")).toEqual([ID]);
+    expect([...m]).toEqual([[`jam.connected.${ID}`, true]]);
     expect(c.isConnected(ID)).toBe(true);
     await c.setConnected(ID, false);
-    expect(m.get("jam.connected")).toEqual([]);
-    m.set("jam.connected", "nonsense");
+    expect([...m]).toEqual([]);
+    m.set(`jam.connected.${ID}`, "nonsense");
     expect(c.isConnected(ID)).toBe(false);
-    await c.setConnected(ID, true);
-    expect(m.get("jam.connected")).toEqual([ID]);
+    await c.setConnected("ses_x", true);
+    expect(m.has("jam.connected.ses_x")).toBe(false);
   });
 });
 
@@ -320,7 +342,21 @@ describe("windowKind", () => {
     ["a local folder", { workspaceFolders: [{ uri: file("/home/u/proj") }] }, undefined],
     ["an empty window", {}, undefined],
   ])("%s", (_n, w, want) => {
-    expect(windowKind(w, DIR)).toEqual(want);
+    expect(windowKind(w, DIR, "linux")).toEqual(want);
+  });
+  it("matches case-insensitively on darwin and win32 (drive letter too), but not on linux", () => {
+    const w = { workspaceFile: file(`/Users/Ada/Library/Application Support/Code/User/globalStorage/aethons.jam/sessions/${ID}.code-workspace`) };
+    const dir = "/users/ada/library/application support/code/user/globalstorage/aethons.jam/sessions/";
+    expect(windowKind(w, dir, "darwin")).toEqual({ kind: "local", id: ID });
+    expect(windowKind(w, dir, "linux")).toBeUndefined();
+    const win = { workspaceFile: file(`/C:/Users/Ada/AppData/Roaming/Code/User/globalStorage/aethons.jam/sessions/${ID}.code-workspace`) };
+    expect(windowKind(win, "/c:/users/ada/appdata/roaming/code/user/globalstorage/aethons.jam/sessions", "win32")).toEqual({ kind: "local", id: ID });
+    // The id itself is never case-folded.
+    const upper = { workspaceFile: file(`${dir}${ID.toUpperCase()}.code-workspace`) };
+    expect(windowKind(upper, dir, "darwin")).toBeUndefined();
+    // Lookalikes stay rejected.
+    expect(windowKind({ workspaceFile: file(`/Users/Ada/sessions/${ID}.code-workspace`) }, dir, "darwin")).toBeUndefined();
+    expect(windowKind({ workspaceFile: file(`${dir}x/${ID}.code-workspace`) }, dir, "darwin")).toBeUndefined();
   });
 });
 

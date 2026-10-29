@@ -59,17 +59,19 @@ The extension signs you in if needed, checks the session exists (otherwise it sa
 and opens the session's **local window**: a workspace file with no folders,
 `<global storage>/sessions/<session>.code-workspace`, so a second open focuses the same window.
 It holds no SSH connection, so the studio can idle; the Jam views work in it as usual.
-A session you connected (below) opens, or focuses, its studio window instead.
+A session whose studio window is open (below) renews its SSH setup and opens, or focuses, that window instead.
 
 ### Connect and disconnect
 
 - **Connect studio** (status bar, or *Jam: Connect to Studio*), in a local session window:
   checks you may SSH into the session (otherwise it says so and links the web app), writes the SSH setup below,
   and reloads the **same window** onto `vscode-remote://ssh-remote+jam-<studio>/home/agent/workspace`.
+- Both status-bar items show only while you're signed in.
 - **Disconnect studio** (status bar, or *Jam: Disconnect Studio*), in a studio window: reloads it back to the local window;
   Remote-SSH closes the connection, whose heartbeats would otherwise keep the studio from idling.
-- Connected sessions are remembered in VS Code's global state (set on Connect, cleared on Disconnect and when the studio window closes),
-  so a link opens the studio window rather than a second, local one. A stale entry just opens the studio window.
+- A studio window flags its session in VS Code's global state (`jam.connected.<session>`: "a studio window for this session is open", best effort),
+  set when the window starts and cleared when it closes or disconnects, so a link opens the studio window rather than a second, local one.
+  The link always renews the SSH setup first (the cert is read before `ssh-proxy` can renew it); if that fails, the flag is cleared and the local window opens.
 
 ## Panes and focus
 

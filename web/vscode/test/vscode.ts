@@ -275,7 +275,10 @@ export function fakeContext(globalStorage?: string): vs.ExtensionContext & { sec
     },
     globalState: {
       get: (k: string) => state.get(k),
-      update: async (k: string, v: unknown) => { state.set(k, v); },
+      update: async (k: string, v: unknown) => {
+        if (v === undefined) state.delete(k);
+        else state.set(k, v);
+      },
       keys: () => [...state.keys()],
     },
     workspaceState: {
