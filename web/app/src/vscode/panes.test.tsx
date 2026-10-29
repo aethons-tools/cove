@@ -183,6 +183,24 @@ describe("the session panes", () => {
     expect(h.requests.filter((r) => r.path === `/app/user/api/sessions/${SES_A}`).length).toBeLessThanOrEqual(2);
   });
 
+  it("a gone pane stops polling its session head", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const routes = sessionRoutes(SES_A, "status");
+      delete routes[`GET /app/user/api/sessions/${SES_A}`];
+      const { h } = mount("status", routes);
+      act(() => { h.state(signedIn(at(SES_A))); });
+      expect(await screen.findByText("That session has ended, or you can't see it.")).toBeInTheDocument();
+      const heads = () => h.requests.filter((r) => r.path === `/app/user/api/sessions/${SES_A}`).length;
+      const asked = heads();
+      await act(() => vi.advanceTimersByTimeAsync(95_000));
+      expect(heads()).toBe(asked);
+      expect(screen.getByText("That session has ended, or you can't see it.")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("scrollTo retries until the ask renders", async () => {
     const scrolled = vi.fn();
     Element.prototype.scrollIntoView = scrolled;

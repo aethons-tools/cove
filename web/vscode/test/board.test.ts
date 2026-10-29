@@ -97,6 +97,10 @@ describe("BoardPanels", () => {
     ["", "Whiteboard"],
     ["  \u0001 ", "Whiteboard"],
     ["  Plan  ", "Plan"],
+    ["x\u202Egnp.json", "xgnp.json"],
+    ["a\u2066b\u2069c\u202Ad", "abcd"],
+    ["s\u200Bp\u200Cl\u200Di\u200Et\u200F\u2060\uFEFF", "split"],
+    ["\u200B\uFEFF", "Whiteboard"],
   ])("title messages set tabTitle(title): %j", (title, want) => {
     expect(tabTitle(title)).toBe(want);
     const { boards } = setup();
@@ -125,6 +129,22 @@ describe("BoardPanels", () => {
       expect(d).toHaveBeenCalled();
       expect(q.webview.html).toBe("");
     }
+  });
+
+  it("a duplicate restore disposes the restored panel and reveals the open one", () => {
+    const { boards } = setup();
+    boards.open(BRD);
+    const open = mock.panels[0]!;
+    const q = fakeWebviewPanel("jam.board", "Old", 1, {});
+    const d = vi.fn();
+    (q as { dispose: () => void }).dispose = d;
+    boards.restore(q as unknown as vs.WebviewPanel, { board: BRD });
+    expect(d).toHaveBeenCalledTimes(1);
+    expect(q.webview.html).toBe("");
+    expect(open.reveal).toHaveBeenCalledTimes(1);
+    boards.open(BRD);
+    expect(mock.panels).toHaveLength(1);
+    expect(open.reveal).toHaveBeenCalledTimes(2);
   });
 
   it("sign-out posts signedIn false to open boards", async () => {

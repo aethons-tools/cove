@@ -14,7 +14,9 @@ export type ThinkingSignal = { event: ThinkingEventName; data: string } | { erro
 
 const ALLOWED = new Set<string>(["stream", "totals", "ev", "more", "skipped", "newstream"]);
 
-type Sub = { cb: (s: ThinkingSignal) => void; onEnd?: () => void };
+// pending: a late subscriber whose replay hasn't been delivered yet. It gets no
+// live signal until then; the replay already holds any event it skipped.
+type Sub = { cb: (s: ThinkingSignal) => void; onEnd?: () => void; pending?: boolean };
 type Item = { event: ThinkingEventName; data: string };
 
 class Key {
@@ -93,11 +95,12 @@ export class ThinkingStreams {
       this.keys.set(id, k);
     }
     const key = k;
-    const sub: Sub = { cb, onEnd };
+    const sub: Sub = { cb, onEnd, pending: !first };
     key.subs.add(sub);
     if (first) void this.connect(id, key, key.gen);
     else {
       queueMicrotask(() => {
+        sub.pending = false;
         if (!key.subs.has(sub)) return;
         if (key.state === "open") this.deliver(sub, { event: "open", data: "" });
         for (const i of [...key.replay]) {
@@ -128,8 +131,11 @@ export class ThinkingStreams {
     }
   }
 
+  // emit sends a live signal. A pending subscriber still gets newstream, which
+  // ends the key before its replay could run.
   private emit(k: Key, sig: ThinkingSignal): void {
-    for (const s of [...k.subs]) this.deliver(s, sig);
+    const always = "event" in sig && sig.event === "newstream";
+    for (const s of [...k.subs]) if (always || !s.pending) this.deliver(s, sig);
   }
 
   private halt(k: Key): void {

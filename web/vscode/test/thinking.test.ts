@@ -98,6 +98,30 @@ describe("ThinkingStreams", () => {
     expect(h.fetchFn).toHaveBeenCalledTimes(1);
   });
 
+  it("a late subscriber gets no live event before its replay", async () => {
+    const h = harness();
+    const late: ThinkingSignal[] = [];
+    let joined = false;
+    h.ts.subscribe(SES, "", (s) => {
+      if (joined || !("event" in s) || s.event !== "ev") return;
+      joined = true;
+      h.ts.subscribe(SES, "", (t) => late.push(t));
+    });
+    await tick();
+    h.conns[0]!.push(sse("stream", "s1") + ev(1) + ev(2));
+    await tick();
+    expect(late).toEqual([
+      { event: "open", data: "" },
+      { event: "stream", data: "s1" },
+      { event: "ev", data: '{"seq":1}' },
+      { event: "ev", data: '{"seq":2}' },
+    ]);
+    h.conns[0]!.push(ev(3));
+    await tick();
+    expect(late.at(-1)).toEqual({ event: "ev", data: '{"seq":3}' });
+    expect(late).toHaveLength(5);
+  });
+
   it("replay past 2000 evs keeps the newest 2000 and a more at the oldest kept seq", async () => {
     const h = harness();
     h.ts.subscribe(SES, "", () => undefined);

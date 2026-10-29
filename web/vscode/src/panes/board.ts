@@ -15,11 +15,11 @@ export type BoardDeps = PortDeps & {
   createPanel: typeof vscode.window.createWebviewPanel;
 };
 
-// tabTitle is the board's title for its tab: control characters dropped,
-// trimmed, at most TITLE_MAX characters, "Whiteboard" when nothing is left.
+// tabTitle is the board's title for its tab: control, bidi and zero-width
+// characters dropped (they could reorder or hide part of the label), trimmed, at most TITLE_MAX characters, "Whiteboard" when nothing is left.
 export function tabTitle(t: string): string {
   // eslint-disable-next-line no-control-regex
-  const s = t.replace(/[\u0000-\u001f\u007f-\u009f]/g, "").trim();
+  const s = t.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, "").trim();
   return Array.from(s).slice(0, TITLE_MAX).join("").trim() || "Whiteboard";
 }
 
@@ -45,10 +45,18 @@ export class BoardPanels {
     this.attach(panel, id);
   }
 
-  // restore is the serializer: a panel VS Code revived after a reload.
+  // restore is the serializer: a panel VS Code revived after a reload. VS Code
+  // revives a background tab only when it is first shown, so the board may
+  // already be open (from a card or Artifacts): then the revived tab closes and
+  // the open one is revealed, so the user's click still lands on the board.
   restore(panel: vscode.WebviewPanel, state: unknown): void {
     const id = state && typeof state === "object" ? (state as { board?: unknown }).board : undefined;
-    if (typeof id !== "string" || !ID_RE.brd.test(id) || this.panels.has(id)) return panel.dispose();
+    if (typeof id !== "string" || !ID_RE.brd.test(id)) return panel.dispose();
+    const have = this.panels.get(id);
+    if (have) {
+      panel.dispose();
+      return have.reveal();
+    }
     this.attach(panel, id);
   }
 

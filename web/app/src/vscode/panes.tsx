@@ -1,7 +1,9 @@
 // The session panes' bodies: what each of the Jam views shows for the
 // focused session, inside Pane's shell.
 import { useCallback, useContext, useMemo, type JSX, type ReactNode } from "react";
-import type { PreviewLink } from "../api/types";
+import { useQuery } from "@tanstack/react-query";
+import { apiGet, POLL_MS, type ApiError } from "../api/client";
+import type { PreviewLink, SessionHead } from "../api/types";
 import type { SessionPaneName } from "../bridge/protocol";
 import { ConversationView } from "../conversation/ConversationView";
 import { HostContext, type Host } from "../host";
@@ -15,11 +17,17 @@ const noAsk = () => {};
 const padded = { padding: "8px 12px 14px" };
 
 // SessionGate shows a session pane's body until the session's head 404s
-// (it ended, or the viewer lost it): then the gone copy.
+// (it ended, or the viewer lost it): then the gone copy, and it stops polling.
+// It reads useSessionHead's query (same key and fetch) with its own observer, so
+// the web app's poll is unchanged.
 export function SessionGate({ session, name, onFocus, children }: {
   session: string; name: SessionPaneName; onFocus: () => void; children: ReactNode;
 }): JSX.Element {
-  const head = useSessionHead(session);
+  const head = useQuery<SessionHead, ApiError>({
+    queryKey: ["session", session],
+    queryFn: () => apiGet<SessionHead>(`sessions/${encodeURIComponent(session)}`),
+    refetchInterval: (q) => (q.state.error?.code === "not_found" ? false : POLL_MS),
+  });
   if (head.error?.code === "not_found") return <Copy text={copyFor(name).gone} action="Focus a session…" onClick={onFocus} />;
   return <>{children}</>;
 }
