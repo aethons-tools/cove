@@ -12,6 +12,7 @@ import { EditForm } from "../ui/EditForm";
 import { ManagedBadge, driftNote } from "../ui/ManagedBadge";
 import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
+import { AppTokens } from "./AppTokens";
 import { usersKey } from "./UsersPage";
 
 const enc = encodeURIComponent;
@@ -113,6 +114,11 @@ function UserBody({ d, refKey, byName }: { d: UserDetail; refKey: unknown[]; byN
               <TextInput label="Handle" description="the service's mention handle, without the @" value={handle} onChange={(e) => setHandle(e.currentTarget.value)} />
             </EditForm>
           </details>
+        </Section>
+      )}
+      {!d.removed && (
+        <Section title="Connected apps" sub="apps (VS Code) signed in as this person; revoking signs them out">
+          <AppTokens user={u} tokens={d.appTokens} refKey={refKey} />
         </Section>
       )}
     </Stack>

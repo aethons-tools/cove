@@ -10,7 +10,7 @@ import type { UserDetail } from "../api/types";
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const at = ADMIN + "config/projects/acme/members";
-const alice: UserDetail = { user: { id: "usr_1", name: "alice", logins: [], accounts: [], projects: ["acme"], managed: null }, removed: false, loginSpec: "", oidcSpec: "", connections: [] };
+const alice: UserDetail = { user: { id: "usr_1", name: "alice", logins: [], accounts: [], projects: ["acme"], managed: null }, removed: false, loginSpec: "", oidcSpec: "", connections: [], appTokens: [] };
 
 describe("project members", () => {
   it("adds a member", async () => {
