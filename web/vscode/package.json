@@ -29,7 +29,8 @@
       { "command": "jam.status.pin", "title": "Pin to This Session", "icon": "$(pin)" },
       { "command": "jam.status.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
       { "command": "jam.artifacts.pin", "title": "Pin to This Session", "icon": "$(pin)" },
-      { "command": "jam.artifacts.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" }
+      { "command": "jam.artifacts.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
+      { "command": "jam.needsYou.open", "title": "Open", "category": "Jam" }
     ],
     "viewsContainers": {
       "activitybar": [{ "id": "jam", "title": "Jam", "icon": "media/jam.svg" }],
@@ -40,7 +41,8 @@
         { "type": "webview", "id": "jam.conversation", "name": "Conversation" },
         { "type": "webview", "id": "jam.status", "name": "Status" },
         { "type": "webview", "id": "jam.artifacts", "name": "Artifacts", "visibility": "collapsed" },
-        { "type": "webview", "id": "jam.previews", "name": "Previews", "visibility": "collapsed" }
+        { "type": "webview", "id": "jam.previews", "name": "Previews", "visibility": "collapsed" },
+        { "id": "jam.needsYou", "name": "Needs You", "visibility": "collapsed" }
       ],
       "jamPanel": [{ "type": "webview", "id": "jam.thinking", "name": "Thinking" }]
     },
@@ -87,9 +89,14 @@
         { "command": "jam.status.pin", "when": "false" },
         { "command": "jam.status.unpin", "when": "false" },
         { "command": "jam.artifacts.pin", "when": "false" },
-        { "command": "jam.artifacts.unpin", "when": "false" }
+        { "command": "jam.artifacts.unpin", "when": "false" },
+        { "command": "jam.needsYou.open", "when": "false" }
       ]
     },
+    "viewsWelcome": [
+      { "view": "jam.needsYou", "contents": "Sign in to Jam to see what needs you.\n[Sign In](command:jam.signIn)", "when": "!jam.signedIn" },
+      { "view": "jam.needsYou", "contents": "Nothing needs you right now.", "when": "jam.signedIn" }
+    ],
     "configuration": {
       "title": "Jam",
       "properties": {

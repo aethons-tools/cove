@@ -46,6 +46,7 @@ export const mock = {
     mock.viewProviders.clear();
     mock.context.clear();
     mock.windowState.clear();
+    window.treeViews.length = 0;
     window.state.focused = true;
     workspace.workspaceFolders = undefined;
     env.uriScheme = "vscode";
@@ -87,6 +88,12 @@ export const window = {
     clear: () => {},
     dispose: () => {},
   })),
+  treeViews: [] as { id: string; badge: unknown; options: { treeDataProvider: unknown } }[],
+  createTreeView: vi.fn((id: string, options: { treeDataProvider: unknown }) => {
+    const v = { id, options, badge: undefined as unknown, dispose: () => {} };
+    window.treeViews.push(v);
+    return v;
+  }),
   state: { focused: true },
   onDidChangeWindowState: vi.fn((cb: (s: { focused: boolean }) => void) => {
     mock.windowState.add(cb);
@@ -110,6 +117,28 @@ export const env = {
   openExternal: vi.fn(async (_u: unknown) => true),
   asExternalUri: vi.fn(async (u: unknown) => u),
 };
+
+export class ThemeIcon {
+  constructor(public id: string) {}
+}
+export enum TreeItemCollapsibleState { None = 0, Collapsed = 1, Expanded = 2 }
+export class TreeItem {
+  description?: string;
+  tooltip?: string;
+  iconPath?: unknown;
+  command?: { command: string; title: string; arguments?: unknown[] };
+  constructor(public label: string, public collapsibleState?: number) {}
+}
+export class EventEmitter<T> {
+  private ls = new Set<(e: T) => void>();
+  event = (cb: (e: T) => void) => {
+    this.ls.add(cb);
+    return { dispose: () => void this.ls.delete(cb) };
+  };
+  fire(e: T): void {
+    for (const cb of [...this.ls]) cb(e);
+  }
+}
 
 export enum ConfigurationTarget { Global = 1, Workspace = 2, WorkspaceFolder = 3 }
 export enum ViewColumn { Active = -1, Beside = -2, One = 1, Two = 2 }
@@ -204,7 +233,7 @@ export function fakeWebviewPanel(viewType: string, title: string, column: unknow
 
 const fns = [
   window.showInformationMessage, window.showWarningMessage, window.showErrorMessage, window.showQuickPick,
-  window.withProgress, window.createOutputChannel, window.registerUriHandler, window.createWebviewPanel, window.registerWebviewPanelSerializer, window.registerWebviewViewProvider, window.onDidChangeWindowState,
+  window.withProgress, window.createOutputChannel, window.registerUriHandler, window.createWebviewPanel, window.registerWebviewPanelSerializer, window.registerWebviewViewProvider, window.onDidChangeWindowState, window.createTreeView,
   commands.registerCommand, commands.executeCommand,
   env.openExternal, env.asExternalUri, workspace.getConfiguration, workspace.onDidChangeConfiguration, extensions.getExtension,
 ];

@@ -39,7 +39,7 @@ describe("the manifest", () => {
     const registered = vi_registered();
     const ids = pkg.contributes.commands.map((c: { command: string }) => c.command);
     expect(ids.sort()).toEqual(
-      ["jam.focusSession", "jam.forgetHostKey", "jam.openSession", "jam.signIn", "jam.signOut", ...NAMES.flatMap((n) => [`jam.${n}.pin`, `jam.${n}.unpin`])].sort(),
+      ["jam.focusSession", "jam.forgetHostKey", "jam.needsYou.open", "jam.openSession", "jam.signIn", "jam.signOut", ...NAMES.flatMap((n) => [`jam.${n}.pin`, `jam.${n}.unpin`])].sort(),
     );
     for (const id of ids) expect(registered).toContain(id);
   });
@@ -55,6 +55,7 @@ describe("the manifest", () => {
         { type: "webview", id: "jam.status", name: "Status" },
         { type: "webview", id: "jam.artifacts", name: "Artifacts", visibility: "collapsed" },
         { type: "webview", id: "jam.previews", name: "Previews", visibility: "collapsed" },
+        { id: "jam.needsYou", name: "Needs You", visibility: "collapsed" },
       ],
       jamPanel: [{ type: "webview", id: "jam.thinking", name: "Thinking" }],
     });
@@ -66,6 +67,18 @@ describe("the manifest", () => {
     }
   });
 
+  it("jam.needsYou is a collapsed tree view in the jam container, with two welcome entries", () => {
+    const v = pkg.contributes.views.jam.find((x: { id: string }) => x.id === "jam.needsYou");
+    expect(v).toEqual({ id: "jam.needsYou", name: "Needs You", visibility: "collapsed" });
+    expect(pkg.contributes.views.jam.at(-1)).toBe(v);
+    expect(v.type).toBeUndefined();
+    expect(pkg.contributes.viewsWelcome).toEqual([
+      { view: "jam.needsYou", contents: "Sign in to Jam to see what needs you.\n[Sign In](command:jam.signIn)", when: "!jam.signedIn" },
+      { view: "jam.needsYou", contents: "Nothing needs you right now.", when: "jam.signedIn" },
+    ]);
+    expect(pkg.contributes.menus.commandPalette).toContainEqual({ command: "jam.needsYou.open", when: "false" });
+  });
+
   it("the ten pin commands: pin only with a session and unpinned, unpin only when pinned, none in the palette", () => {
     expect(pkg.contributes.menus["view/title"]).toEqual(
       NAMES.flatMap((n) => [
@@ -73,12 +86,13 @@ describe("the manifest", () => {
         { command: `jam.${n}.unpin`, when: `view == jam.${n} && jam.${n}.pinned`, group: "navigation" },
       ]),
     );
-    expect(pkg.contributes.menus.commandPalette).toEqual(
-      NAMES.flatMap((n) => [
+    expect(pkg.contributes.menus.commandPalette).toEqual([
+      ...NAMES.flatMap((n) => [
         { command: `jam.${n}.pin`, when: "false" },
         { command: `jam.${n}.unpin`, when: "false" },
       ]),
-    );
+      { command: "jam.needsYou.open", when: "false" },
+    ]);
   });
 
   it("media/jam.svg is a monochrome 24x24 mark", () => {

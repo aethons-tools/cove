@@ -43,17 +43,88 @@ function jamFetch(calls: Call[]) {
 }
 
 describe("activate", () => {
-  it("activate registers five view providers and fifteen commands", () => {
+  it("activate registers five view providers, one tree view and sixteen commands", () => {
     mock.reset();
     const ctx = fakeContext();
     activate(ctx);
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(15);
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(16);
+    expect(vscode.window.createTreeView).toHaveBeenCalledWith("jam.needsYou", expect.anything());
     expect(vscode.window.registerUriHandler).toHaveBeenCalledTimes(1);
     expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(5);
     const calls = vi.mocked(vscode.window.registerWebviewViewProvider).mock.calls as unknown as [string, unknown, { webviewOptions?: { retainContextWhenHidden?: boolean } } | undefined][];
     expect(calls.map((c) => c[0])).toEqual(["jam.conversation", "jam.thinking", "jam.previews", "jam.status", "jam.artifacts"]);
     for (const [, , opts] of calls) expect(opts?.webviewOptions?.retainContextWhenHidden).toBeUndefined();
     deactivate();
+  });
+
+  it("the badge shows the needs-you count after activation and follows a changed event", async () => {
+    mock.reset();
+    const answers = [2, 1];
+    let push: (chunk: string) => void = () => {};
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const u = new URL(String(input));
+      if (u.pathname === "/app/user/events") {
+        const body = new ReadableStream<Uint8Array>({
+          start(c) {
+            push = (chunk) => c.enqueue(new TextEncoder().encode(chunk));
+          },
+        });
+        return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      if (u.pathname === "/app/user/api/rail") {
+        const n = answers.length > 1 ? answers.shift()! : answers[0]!;
+        const rows = Array.from({ length: n }, (_, i) => ({ id: `chn_${i}`, label: `l${i}`, project: "p", kind: "session", needsYou: true, mission: "" }));
+        return Response.json({ groups: [{ bucket: "needs-you", title: "Needs you", rows }], unreadTotal: 0 });
+      }
+      return Response.json({});
+    });
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      const view = vscode.window.createTreeView as unknown as { mock: { results: { value: { badge: unknown } }[] } };
+      const badge = () => view.mock.results.at(-1)!.value.badge;
+      await vi.waitFor(() => expect(badge()).toEqual({ value: 2, tooltip: "2 conversations need you" }), { timeout: 6000 });
+      push("event: changed\ndata: {}\n\n");
+      await vi.waitFor(() => expect(badge()).toEqual({ value: 1, tooltip: "1 conversation needs you" }), { timeout: 6000 });
+      expect(mock.context.get("jam.signedIn")).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  }, 20000);
+
+  it("jam.needsYou.open on a session row opens its code window; on a chat row opens the web app", async () => {
+    mock.reset();
+    const CHAT = "chn_1abcdefghjkmnpqrstvwxyz012";
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const u = new URL(String(input));
+      if (u.pathname === "/app/user/events") return new Response(null, { status: 204 });
+      if (u.pathname === `/app/user/api/conversations/${CHN}`) return Response.json({ session: SES });
+      if (u.pathname === `/app/user/api/conversations/${CHAT}`) return Response.json({ session: "" });
+      if (u.pathname === `/app/user/api/sessions/${SES}`) return Response.json({ label: "alpha", channel: CHN, ssh: "" });
+      return Response.json({ groups: [] });
+    });
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      const open = mock.commands.get("jam.needsYou.open")!;
+      const r = (id: string) => ({ id, label: "x", project: "p", kind: "session", needsYou: true, mission: "" });
+      await open(r(CHAT));
+      expect(vscode.env.openExternal).toHaveBeenCalledWith(expect.objectContaining({ toString: expect.any(Function) }));
+      expect(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0])).toContain(CHAT);
+      vi.mocked(vscode.env.openExternal).mockClear();
+      vi.mocked(vscode.commands.executeCommand).mockClear();
+      await open(r(CHN));
+      // The fake studio has no ssh endpoint, so openSession ends in its "can't SSH" error.
+      await vi.waitFor(() => expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(expect.stringContaining("can't SSH"), expect.anything()));
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
   });
 
   it("a session pane's open board message creates a board panel", async () => {

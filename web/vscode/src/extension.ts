@@ -9,7 +9,8 @@ import { JamApi, SignedOutError } from "./api";
 import { Auth } from "./auth";
 import { settings } from "./config";
 import { forgetHostKey } from "./hostkey";
-import { openSession, pickSession, studioFromAuthority, windowAuthority } from "./open";
+import { openSession, pickSession, sessionOfPick, studioFromAuthority, webUrl, windowAuthority } from "./open";
+import type { RailRow } from "./open";
 import type { OpenDeps, Ui } from "./open";
 import { appTokenPath, configDir, knownHostsFile, sshConfigFile } from "./paths";
 import { findSshKeygen } from "./ssh/cli";
@@ -34,6 +35,7 @@ import type { IntentAction } from "./bridge/intents";
 import { BoardPanels } from "./panes/board";
 import { PaneHub } from "./panes/hub";
 import { SESSION_PANES, SessionPaneProvider } from "./panes/session";
+import { NeedsYou } from "./needsyou";
 import { ThinkingStreams } from "./thinking";
 
 const run: ExecFile = (file, args) => promisify(execFile)(file, args).then((r) => ({ stdout: String(r.stdout), stderr: String(r.stderr) }));
@@ -240,12 +242,29 @@ export function activate(ctx: vscode.ExtensionContext): void {
   rep.windowFocused(vscode.window.state.focused);
   ctx.subscriptions.push(vscode.window.onDidChangeWindowState((s) => rep.windowFocused(s.focused)));
 
+  // The Needs You view and the badge on the Jam activity-bar icon.
+  let treeView: vscode.TreeView<RailRow> | undefined;
+  const needsYou = new NeedsYou({
+    session: current,
+    api: (s) => new JamApi(s.url, s.token, (...a) => fetch(...a)),
+    setBadge: (b) => {
+      if (treeView) treeView.badge = b;
+    },
+    setContext: (k, v) => void vscode.commands.executeCommand("setContext", k, v),
+    onSignedOut: panesSignedOut,
+    setTimeout,
+    clearTimeout,
+  });
+  treeView = vscode.window.createTreeView("jam.needsYou", { treeDataProvider: needsYou });
+  ctx.subscriptions.push(treeView, { dispose: () => needsYou.dispose() });
+
   // Signing in reconnects the streams with the new token; signing out
   // reconnects them to nothing, so the old token is no longer used.
   const offAuth = auth.onChange((s) => {
     if (s) signingOut = false;
     live.restart();
     thinking.restart();
+    needsYou.poke();
   });
   ctx.subscriptions.push({ dispose: offAuth });
 
@@ -313,14 +332,19 @@ export function activate(ctx: vscode.ExtensionContext): void {
     openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)),
     log,
   });
+  needsYou.poke();
   const offLive = live.subscribe((e) => {
     void notifier.handle(e);
+    needsYou.onLive(e);
   });
   ctx.subscriptions.push({ dispose: offLive }, { dispose: () => osNotifier.dispose() });
   // A new jam.url means a new Jam: the permanent stream follows it.
   ctx.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("jam.url")) live.restart();
+      if (e.affectsConfiguration("jam.url")) {
+        live.restart();
+        needsYou.poke();
+      }
     }),
   );
 
@@ -335,6 +359,16 @@ export function activate(ctx: vscode.ExtensionContext): void {
       const { api } = await openDeps.signedIn();
       await focusSessionCommand({ api, ui, model, hasDefault: windowDefault !== undefined });
     }),
+  );
+  // A needs-you row opens its session's code window; a chat opens the web app.
+  reg("jam.needsYou.open", (row) =>
+    guard(async () => {
+      const r = row as RailRow;
+      const { api, url } = await openDeps.signedIn();
+      const session = await sessionOfPick(api, { label: r.label, row: r });
+      if (session) await openSession(openDeps, session);
+      else await ui.openExternal(webUrl(url, r.id));
+    })(),
   );
   for (const name of SESSION_PANES) {
     const view = `jam.${name}`;
