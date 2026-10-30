@@ -53,11 +53,11 @@ function jamFetch(calls: Call[]) {
 }
 
 describe("activate", () => {
-  it("activate registers five view providers and six commands, and no tree view", () => {
+  it("activate registers five view providers and seven commands, and no tree view", () => {
     mock.reset();
     const ctx = fakeContext();
     activate(ctx);
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(6);
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(7);
     expect(vscode.window.createTreeView).not.toHaveBeenCalled();
     expect(vscode.window.registerUriHandler).toHaveBeenCalledTimes(1);
     expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(5);
@@ -964,25 +964,65 @@ describe("hub window", () => {
     }
   });
 
-  it("a launcher for another Jam warns and still opens the hub", async () => {
+  it("a launcher for a listed Jam opens its hub quietly", async () => {
     mock.reset();
     mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = ["https://b.example"];
     const ctx = fakeContext();
     activate(ctx);
-    mock.uriHandler!.handleUri({ path: "/hub", query: "jam=https%3A%2F%2Fother.example" });
+    mock.uriHandler!.handleUri({ path: "/hub", query: "jam=https://b.example" });
     await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
-    expect(vscode.window.showWarningMessage).toHaveBeenCalledWith("This Jam Hub launcher is for https://other.example, but jam.url is https://jam.example.com.");
+    expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/hub/Jam Hub (b.example).code-workspace` }));
+    expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
     deactivate();
   });
 
-  it("a launcher for this Jam opens the hub quietly", async () => {
+  it("a launcher for an unlisted Jam warns with Add it, and opens and adds nothing", async () => {
     mock.reset();
     mock.config["jam.url"] = JAM;
     const ctx = fakeContext();
     activate(ctx);
-    mock.uriHandler!.handleUri({ path: "/hub", query: `jam=${encodeURIComponent(JAM)}` });
-    await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
-    expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
+    mock.uriHandler!.handleUri({ path: "/hub", query: "jam=https://other.example" });
+    await vi.waitFor(() => expect(vscode.window.showWarningMessage).toHaveBeenCalledWith("This launcher is for https://other.example, which isn't one of your Jams.", "Add it"));
+    await settle();
+    expect(openFolderCalls()).toEqual([]);
+    expect(mock.config["jam.urls"]).toBeUndefined();
+    deactivate();
+  });
+
+  it("Add it runs Add a Jam prefilled", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.answers = ["Add it"];
+    const ctx = fakeContext();
+    activate(ctx);
+    mock.uriHandler!.handleUri({ path: "/hub", query: "jam=https://other.example" });
+    await vi.waitFor(() => expect(vscode.window.showInputBox).toHaveBeenCalledWith(expect.objectContaining({ value: "https://other.example" })));
+    deactivate();
+  });
+
+  it("Add a Jam appends it to jam.urls and signs in to it", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.input = "https://b.example/";
+    const ctx = fakeContext();
+    activate(ctx);
+    void mock.commands.get("jam.addJam")!();
+    await vi.waitFor(() => expect(mock.config["jam.urls"]).toEqual(["https://b.example"]));
+    await vi.waitFor(() => expect(vscode.env.openExternal).toHaveBeenCalled());
+    expect(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0])).toMatch(/^https:\/\/b\.example\/app\/auth\/app-token\?/);
+    deactivate();
+  });
+
+  it("Add a Jam of a Jam already listed only signs in", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.input = JAM;
+    const ctx = fakeContext();
+    activate(ctx);
+    void mock.commands.get("jam.addJam")!();
+    await vi.waitFor(() => expect(vscode.env.openExternal).toHaveBeenCalled());
+    expect(mock.config["jam.urls"]).toBeUndefined();
     deactivate();
   });
 

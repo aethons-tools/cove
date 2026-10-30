@@ -39,7 +39,7 @@ describe("the manifest", () => {
     const registered = vi_registered();
     const ids = pkg.contributes.commands.map((c: { command: string }) => c.command);
     expect(ids.sort()).toEqual(
-      ["jam.forgetHostKey", "jam.openHub", "jam.openSession", "jam.signIn", "jam.signOut", "jam.switchJam"],
+      ["jam.addJam", "jam.forgetHostKey", "jam.openHub", "jam.openSession", "jam.signIn", "jam.signOut", "jam.switchJam"],
     );
     for (const id of ids) expect(registered).toContain(id);
   });

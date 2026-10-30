@@ -590,6 +590,37 @@ export function activate(ctx: vscode.ExtensionContext): void {
   reg("jam.openSession", guard(() => pickSession(openDeps)));
   reg("jam.forgetHostKey", forget);
   reg("jam.openHub", guard(() => ui.openHub()));
+  // Add a Jam: its address joins jam.urls (unless already listed), then sign in to it.
+  const addJam = (prefill?: unknown) =>
+    guard(async () => {
+      const raw = await vscode.window.showInputBox({
+        prompt: "A Jam's address",
+        placeHolder: "https://jam.example.com",
+        value: typeof prefill === "string" ? prefill : "",
+        validateInput: (v) => {
+          const u = normalizeJamUrl(v);
+          return u instanceof Error ? u.message : undefined;
+        },
+      });
+      if (raw === undefined) return;
+      const url = normalizeJamUrl(raw);
+      if (url instanceof Error) throw url;
+      if (!jams().list.includes(url)) {
+        const c = vscode.workspace.getConfiguration("jam");
+        const urls = c.get<unknown>("urls");
+        await c.update("urls", [...(Array.isArray(urls) ? urls : []), url], vscode.ConfigurationTarget.Global);
+      }
+      const s = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Signing in to ${url} in your browser…`, cancellable: true },
+        (_p, token) => {
+          token.onCancellationRequested(() => auths.authFor(url).cancel());
+          return auths.authFor(url).signIn(url);
+        },
+      );
+      const a = await vscode.window.showInformationMessage(`Signed in to ${url} as ${s.user}`, "Open its hub");
+      if (a === "Open its hub") await ui.openHub(url);
+    })();
+  reg("jam.addJam", addJam);
   // Switch Jam: an ordinary window's Jam is picked here, then the window
   // reloads onto it. A hub or studio window belongs to its Jam.
   reg(
@@ -614,13 +645,15 @@ export function activate(ctx: vscode.ExtensionContext): void {
         if (r.kind === "auth") {
           if (!auth.handleCallback(r.query)) void vscode.window.showWarningMessage("Jam: no sign-in is waiting for that link.");
         } else if (r.kind === "hub") {
-          // A launcher names its Jam; until hubs are per Jam, say so when it isn't this one.
+          // A launcher names its Jam: open that Jam's hub, or offer to add an unknown one.
           const want = r.jam ? normalizeJamUrl(r.jam) : undefined;
-          const have = jamSettings().url;
-          if (typeof want === "string" && want !== have) {
-            void vscode.window.showWarningMessage(`This Jam Hub launcher is for ${want}, but jam.url is ${have instanceof Error ? "not set" : have}.`);
+          if (typeof want === "string" && !jams().list.includes(want)) {
+            void vscode.window.showWarningMessage(`This launcher is for ${want}, which isn't one of your Jams.`, "Add it").then((a) => {
+              if (a === "Add it") void addJam(want);
+            });
+            return;
           }
-          void guard(() => ui.openHub())();
+          void guard(() => ui.openHub(typeof want === "string" ? want : undefined))();
         } else if (r.kind === "go") {
           void goToConversation(r.channel, r.session);
         } else if (r.kind === "bad") {

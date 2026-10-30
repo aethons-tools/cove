@@ -21,7 +21,8 @@
       { "command": "jam.openSession", "title": "Open Session…", "category": "Jam" },
       { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" },
       { "command": "jam.openHub", "title": "Open Hub", "category": "Jam" },
-      { "command": "jam.switchJam", "title": "Switch Jam…", "category": "Jam" }
+      { "command": "jam.switchJam", "title": "Switch Jam…", "category": "Jam" },
+      { "command": "jam.addJam", "title": "Add a Jam…", "category": "Jam" }
     ],
     "viewsContainers": {
       "activitybar": [{ "id": "jam", "title": "Jam", "icon": "media/jam.svg" }],
