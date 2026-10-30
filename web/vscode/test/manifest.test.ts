@@ -25,7 +25,7 @@ describe("the manifest", () => {
     expect(pkg.displayName).toBe("Jam");
     expect(pkg.engines.vscode).toBe("^1.105.0");
     expect(pkg.main).toBe("./dist/extension.js");
-    expect(pkg.activationEvents).toEqual(["onUri", "onWebviewPanel:jam.board", "onStartupFinished"]);
+    expect(pkg.activationEvents).toEqual(["onUri", "onWebviewPanel:jam.board", "onWebviewPanel:jam.conversationTab", "onStartupFinished"]);
   });
 
   it("activationEvents include onStartupFinished", () => {

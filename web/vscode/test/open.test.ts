@@ -293,7 +293,7 @@ describe("connectedSet", () => {
 
 describe("goTo", () => {
   const CHN = "chn_0abcdefghjkmnpqrstvwxyz012";
-  const deps = (o: { connected?: boolean; hub?: boolean } = {}) => {
+  const deps = (o: { connected?: boolean; hub?: boolean; own?: string } = {}) => {
     const calls: string[] = [];
     return {
       calls,
@@ -301,6 +301,7 @@ describe("goTo", () => {
         isConnected: (id: string) => (calls.push(`isConnected ${id}`), o.connected ?? false),
         openSession: async (id: string) => void calls.push(`openSession ${id}`),
         isHub: o.hub ?? false,
+        ownSession: o.own,
         openTab: (c: string) => void calls.push(`openTab ${c}`),
         writePending: async (p: { channel: string; at: number }) => void calls.push(`pending ${p.channel} ${p.at}`),
         openHub: async () => void calls.push("openHub"),
@@ -320,6 +321,11 @@ describe("goTo", () => {
     const g = deps({ hub: true });
     await goTo(g.d, CHN, "");
     expect(g.calls).toEqual([`openTab ${CHN}`]);
+  });
+  it("a studio window's own session: its own tab, not openSession", async () => {
+    const f = deps({ connected: true, own: ID });
+    await goTo(f.d, CHN, ID);
+    expect(f.calls).toEqual([`openTab ${CHN}`]);
   });
   it("elsewhere: pending first, then the hub", async () => {
     const f = deps();

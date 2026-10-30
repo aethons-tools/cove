@@ -29,7 +29,7 @@ It has no *New message* or *New session* buttons yet; use the web app for those.
 The hub is a window with no studio connected: *Jam: Open Hub*, or a `vscode://aethons.jam/hub` link (`vscodium://…` in VSCodium), opens it, or brings it to the front.
 It is the workspace `Jam Hub.code-workspace` (no folders) in the extension's global storage.
 
-- **Conversations are editor tabs:** one per conversation, titled with its label. Keep several open, split them, close them; they come back after a reload.
+- **Conversations are editor tabs:** one per conversation, titled with its label. Keep several open, split them, close them; they come back after a reload. VS Code revives a background tab only when it is first shown, so a conversation opened again before then briefly has two tabs; showing the restored one closes it and reveals the other (as with board tabs).
 - **The views** (Thinking, Status, Artifacts, Previews) show the session of the conversation tab you last made active; a chat or room tab, or none yet, shows "Open a session's conversation to see its …".
 - **Previews** open in the browser: the hub has no studio connection to forward through.
 - **Going to a conversation** (a rail click, a notification, a `…/go/<chn>` link) works the same in every window: its session's studio window if one is open (its connected mark is fresh), otherwise its tab in the hub.

@@ -41,7 +41,7 @@ What the extension does: [vscode.md](vscode.md).
 - [ ] A restored board panel (after a window reload) keeps `retainContextWhenHidden`: hide and show it and the drawing stays.
 - [ ] `jam vscode install` against a released Jam installs the extension with `code`, and, with `code` off `PATH` on macOS, with the app bundle's CLI.
 - [ ] With an older extension installed, a signed-in window offers the update; *Update* installs it through `workbench.extensions.installExtension` with a `file:` URI under global storage, and *Reload Window* comes up on the new version. With two windows open, only one offers.
-- [ ] Upload a file once from the Conversation view (the `ArrayBuffer` check from slice 3).
+- [ ] Upload a file once from a conversation tab (the `ArrayBuffer` check from slice 3).
 - [ ] Installed from the .vsix on macOS, `dist/vendor/mac.noindex/terminal-notifier.app` runs: it keeps its exec bit (or the chmod restores it), Gatekeeper doesn't block it, and the first notification asks for permission. Clicking a notification opens `vscode://aethons.jam/session/<id>`.
 - [ ] A `WebviewView.badge` on the `jam.rail` view shows on the Jam activity-bar icon while the Jam container is closed.
 - [ ] `notify-send --action … --wait` on the target Linux desktops (GNOME, KDE) prints `default` on a click.
@@ -73,18 +73,20 @@ VSCodium (with the `.vsix` installed in VSCodium):
 - [ ] *Open in VSCodium* without Open Remote - SSH offers to install `jeanp413.open-remote-ssh`, and never asks about localServerDownload.
 - [ ] With it installed, *Open in VSCodium* asks once to trust the host key, then the studio window opens on `/home/agent/workspace` (the Remote - SSH log shows the local `ssh` fallback) and the terminal works.
 - [ ] The studio installed `vscodium-reh-…` itself (`~/.vscodium-server`).
-- [ ] Closing the window and the Conversation view work as in VS Code.
+- [ ] Closing the window and the conversation tab work as in VS Code.
 - [ ] VS Code still connects with the new `PreferredAuthentications` line.
 
-Conversation view:
+Conversation tabs and views:
 
 - [ ] The J mark shows in the Extensions view (colour), the activity bar and the Thinking panel (tinted), on board tabs (colour) and in Linux notifications.
-- [ ] The Jam icon shows, and the Conversation renders for the window's session in the light, dark and high-contrast themes.
+- [ ] The Jam icon shows, and the conversation tab renders for the window's session in the light, dark and high-contrast themes.
 - [ ] Send a message with an attachment and watch progress, then send an image and see the thumbnail.
 - [ ] Answer an ask inline.
 - [ ] A message from the agent appears without a reload (live).
 - [ ] The views have no pin buttons, and there is no *Jam: Focus Session…*.
-- [ ] Drag the view to the panel and to the secondary sidebar.
+- [ ] Drag the Status view to the panel and to the secondary sidebar.
+- [ ] In a studio window, a rail click on its own session reopens its closed conversation tab.
+- [ ] Reload the hub with a background conversation tab, then click its rail row: a second tab opens; showing the restored one closes it (as with boards).
 - [ ] A window on a local folder shows no Jam views except the rail (Conversations).
 - [ ] Rail: the groups, missions and unread counts match the web app's rail.
 - [ ] Rail click on a session with no studio window opens its tab in the hub (opening the hub, whether it was closed or open); with one open, it brings that window to the front.
@@ -111,7 +113,7 @@ Panes:
 - [ ] Thinking shows the window's session.
 - [ ] Previews Open shows the app in the Simple Browser and a Ports-view entry. Browser opens the system browser.
 - [ ] Status Interrupt and Compact work, and Release flips every pane to the ended copy.
-- [ ] An Artifacts ask scrolls the Conversation view, a board thumb opens a tab, and a file opens in the browser.
+- [ ] A board thumb in Artifacts opens a tab, and a file opens in the browser.
 - [ ] Open two boards side by side and draw in one: the other client sees it live. Hide and show a tab and the drawing is still there. Reload the window and the boards come back.
 - [ ] Revoke the token: every view and board shows Sign in, and recovers after Sign In.
 - [ ] DevTools on the Thinking view and a board tab shows no CSP violations.
@@ -122,7 +124,7 @@ Notifications:
 - [ ] With three code windows open, exactly one toast.
 - [ ] Clicking an OS notification for session X opens or focuses X's window.
 - [ ] An ask shows a warning toast and bumps the badge; answering it lowers the badge.
-- [ ] Reading the conversation in the Conversation view, or in a focused web-app tab, gives no notification, on a Jam with and without `runtime.push`.
+- [ ] Reading the conversation in a conversation tab, or in a focused web-app tab, gives no notification, on a Jam with and without `runtime.push`.
 - [ ] A burst of messages gives at most one notification per 5 s.
 - [ ] Signing out stops notifications and clears the badge; signing in restores them.
 - [ ] The phone's Web Push still arrives.

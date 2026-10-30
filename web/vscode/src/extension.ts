@@ -398,6 +398,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     isConnected: connected.isConnected,
     openSession: (id) => openSession(openDeps, id),
     isHub: kind?.kind === "hub",
+    ownSession: windowStudio,
     openTab: (c) => conversations.open(c),
     writePending: async (p) => {
       await fsp.mkdir(hubDir.fsPath, { recursive: true });

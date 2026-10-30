@@ -25,7 +25,9 @@ export type ConversationDeps = PortDeps & {
 
 const validChannel = (c: unknown): c is string => typeof c === "string" && (ID_RE.chn.test(c) || LEGACY_RE.test(c));
 
-type Tab = { panel: vscode.WebviewPanel; port: Port; pending?: string };
+// ready: the tab's JS is running (since its last ready, until hidden), so a
+// scroll posted now arrives; else it waits in pending for the next ready.
+type Tab = { panel: vscode.WebviewPanel; port: Port; pending?: string; ready: boolean };
 
 let tabSeq = 0;
 
@@ -75,8 +77,8 @@ export class ConversationPanels {
     if (!t) return false;
     t.panel.reveal();
     if (anchor) {
-      t.pending = anchor;
-      t.port.post({ type: "scrollTo", anchor });
+      if (t.ready) t.port.post({ type: "scrollTo", anchor });
+      else t.pending = anchor;
     }
     return true;
   }
@@ -92,8 +94,12 @@ export class ConversationPanels {
     const lookup = async (): Promise<SessionTarget | null> => {
       const t = await this.d.resolve(channel);
       if (t === "gone") return null;
+      const first = !target;
       target = t;
       if ("label" in t) panel.title = tabTitle(t.label);
+      // A tab already active (a new one, or one restored in front) gets no
+      // view-state change: tell onActive now.
+      if (first && panel.active) this.d.onActive(t);
       return t;
     };
     const port = wirePane(w, id, this.d, {
@@ -107,16 +113,20 @@ export class ConversationPanels {
         report();
       },
     });
-    const tab: Tab = { panel, port };
+    const tab: Tab = { panel, port, ready: false };
     this.tabs.set(channel, tab);
     const off = this.d.auth.onChange(() => void port.refresh().catch(() => undefined));
     const subs = [
       w.onDidReceiveMessage((m: { type?: unknown } | undefined) => {
-        if (!m || typeof m !== "object" || m.type !== "ready" || tab.pending === undefined) return;
+        if (!m || typeof m !== "object" || m.type !== "ready") return;
+        tab.ready = true;
+        if (tab.pending === undefined) return;
         port.post({ type: "scrollTo", anchor: tab.pending });
         tab.pending = undefined;
       }),
       panel.onDidChangeViewState(() => {
+        // Without retainContextWhenHidden a hidden tab's JS is gone.
+        if (!panel.visible) tab.ready = false;
         report();
         if (!panel.active) return;
         if (target) this.d.onActive(target);

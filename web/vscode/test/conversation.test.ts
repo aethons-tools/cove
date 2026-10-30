@@ -126,15 +126,39 @@ describe("ConversationPanels", () => {
     expect(gone).toHaveBeenCalled();
   });
 
-  it("reveal posts scrollTo to an open tab, holds it for the next ready, and says whether a tab exists", async () => {
+  it("a tab that is already active when its target resolves (a restored tab) calls onActive", async () => {
+    const { tabs, onActive } = setup();
+    const revived = vscode.window.createWebviewPanel("jam.conversationTab", "x", 1, {}) as unknown as Panel;
+    revived.active = true;
+    tabs.restore(revived as unknown as vs.WebviewPanel, { channel: CHN });
+    revived.receive({ type: "ready", pane: "conversation" });
+    await vi.waitFor(() => expect(onActive).toHaveBeenCalledWith(known[CHN]));
+  });
+
+  it("a scroll delivered to a ready tab isn't replayed on its next ready", async () => {
+    const { tabs } = setup();
+    tabs.open(CHN);
+    const p = mock.panels[0]!;
+    p.receive({ type: "ready", pane: "conversation" });
+    await vi.waitFor(() => expect(states(p)).toHaveLength(1));
+    tabs.reveal(CHN, "ask-1");
+    expect(p.posted).toContainEqual({ type: "scrollTo", anchor: "ask-1" });
+    const n = p.posted.length;
+    p.receive({ type: "ready", pane: "conversation" });
+    await vi.waitFor(() => expect(states(p)).toHaveLength(2));
+    expect(p.posted.slice(n)).not.toContainEqual({ type: "scrollTo", anchor: "ask-1" });
+  });
+
+  it("reveal holds a scroll for a tab not yet ready, posts it to a ready one, and says whether a tab exists", async () => {
     const { tabs } = setup();
     expect(tabs.reveal(CHN, "ask-1")).toBe(false);
     tabs.open(CHN);
     const p = mock.panels[0]!;
     expect(tabs.reveal(CHN, "ask-1")).toBe(true);
-    expect(p.posted).toContainEqual({ type: "scrollTo", anchor: "ask-1" });
-    p.posted.length = 0;
+    expect(p.posted).not.toContainEqual({ type: "scrollTo", anchor: "ask-1" });
     p.receive({ type: "ready", pane: "conversation" });
     await vi.waitFor(() => expect(p.posted).toContainEqual({ type: "scrollTo", anchor: "ask-1" }));
+    tabs.reveal(CHN, "ask-2");
+    expect(p.posted).toContainEqual({ type: "scrollTo", anchor: "ask-2" });
   });
 });

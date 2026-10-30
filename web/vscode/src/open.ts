@@ -272,16 +272,19 @@ export type GoDeps = {
   isConnected(id: string): boolean;
   openSession(id: string): Promise<void>;
   isHub: boolean;
+  // ownSession is a studio window's own session: going there reopens its tab.
+  ownSession?: string;
   openTab(channel: string): void;
   writePending(p: { channel: string; at: number }): Promise<void>;
   openHub(): Promise<void>;
   now(): number;
 };
 
-// goTo goes to a conversation: its session's studio window when one is open,
-// else its tab in the hub. Outside the hub it leaves a pending request (the
+// goTo goes to a conversation: its session's studio window when one is open
+// (this window's own: its conversation tab), else its tab in the hub. Outside the hub it leaves a pending request (the
 // hub reads it on activation and focus) and opens or focuses the hub.
 export async function goTo(d: GoDeps, channel: string, session: string): Promise<void> {
+  if (session && session === d.ownSession) return d.openTab(channel);
   if (session && d.isConnected(session)) return d.openSession(session);
   if (d.isHub) return d.openTab(channel);
   await d.writePending({ channel, at: d.now() });

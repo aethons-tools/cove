@@ -784,6 +784,26 @@ describe("session windows", () => {
     }
   });
 
+  it("in a studio window, a rail click on its own session reopens its conversation tab", async () => {
+    mock.reset();
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      await ctx.workspaceState.update("jam.conversationTabShown", true);
+      remoteFolder();
+      activate(ctx);
+      await vi.waitFor(() => expect(ctx.state.get(`jam.connected.${SES}`)).toEqual(expect.any(Number)));
+      openRail().receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(mock.panels.map((p) => p.viewType)).toEqual(["jam.conversationTab"]));
+      expect(openFolderCalls()).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
   it("an Artifacts ask reveals the conversation tab and scrolls", async () => {
     mock.reset();
     const fetchSpy = jamFetch([]);
@@ -795,6 +815,7 @@ describe("session windows", () => {
       activate(ctx);
       await vi.waitFor(() => expect(mock.panels).toHaveLength(1));
       const tab = mock.panels[0]!;
+      tab.receive({ type: "ready", pane: "conversation" });
       const v = openView();
       v.receive({ type: "open", intent: { kind: "reveal", anchor: "ask-a1" } });
       await vi.waitFor(() => expect(tab.posted).toContainEqual({ type: "scrollTo", anchor: "ask-a1" }));
