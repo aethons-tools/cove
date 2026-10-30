@@ -27,6 +27,7 @@ It signs in as `jam ssh-config` does (the extension's token file, else `jam logi
 downloads the `.vsix` to `~/.config/jam/vscode/`, and runs `code --install-extension <file> --force`.
 Without `code` on `PATH` (on macOS it also tries the one inside *Visual Studio Code.app*) it keeps the file and says so:
 install it with *Extensions: Install from VSIX…*.
+It also adds a **Jam Hub launcher** for that Jam and editor (`--no-launcher` skips it): see [vscode-hub.md](vscode-hub.md#the-launcher).
 A Jam built without the extension (a dev build), or one older than this, says so; use the release asset
 `jam-vscode_<version>.vsix` (or the CI artifact `jam-vscode`) instead.
 

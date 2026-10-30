@@ -1,7 +1,7 @@
 ---
 summary: The Jam VS Code extension's rail (the Conversations view, in every window) and hub window (conversations as editor tabs, the session views following the active tab), and how going to a conversation picks a studio window or the hub.
-read_when: You are using or changing the VS Code rail or hub — a rail click or double-click, ▣, the needs-you badge, Jam: Open Hub, conversation tabs, the hub's views, the pending handoff from another window — or a click went to the wrong window.
-owns: the VS Code rail (jam.rail) and its clicks, ▣ and badge; the hub window (Jam Hub.code-workspace), Jam: Open Hub and the …/hub and …/go links; going to a conversation and hub/pending.json; conversation tabs in the hub and the hub's views
+read_when: You are using or changing the VS Code rail or hub — a rail click or double-click, ▣, the needs-you badge, Jam: Open Hub, the Jam Hub launcher, conversation tabs, the hub's views, the pending handoff from another window — or a click went to the wrong window.
+owns: the VS Code rail (jam.rail) and its clicks, ▣ and badge; the hub window (Jam Hub.code-workspace), Jam: Open Hub, the Jam Hub launcher and the …/hub and …/go links; going to a conversation and hub/pending.json; conversation tabs in the hub and the hub's views
 prereqs: vscode.md for installing the extension, studio windows and the panes' shared rules
 tier: leaf
 updated: 2026-10-30
@@ -34,3 +34,14 @@ It is the workspace `Jam Hub.code-workspace` (no folders) in the extension's glo
 - **Previews** open in the browser: the hub has no studio connection to forward through.
 - **Going to a conversation** (a rail click, a notification, a `…/go/<chn>` link) works the same in every window: its session's studio window if one is open (its connected mark is fresh), otherwise its tab in the hub.
   From another window, the extension writes `hub/pending.json` (the channel and the time) in global storage and opens the hub; the hub opens the tab when it starts or next gains focus, and deletes the file. A request older than 60 s is dropped.
+
+## The launcher
+
+`jam vscode install` adds a **Jam Hub (<host>)** launcher with the J logo (`Jam Hub (<host>) VSCodium` or `… Insiders` for those editors, picked from `--code`);
+it opens `<scheme>://aethons.jam/hub?jam=<Jam URL>`, which starts the editor and opens or focuses the hub. A rerun replaces it; `--no-launcher` skips it.
+
+- **macOS:** `~/Applications/Jam Hub (<host>).app`, a tiny unsigned app that runs `open` on the link. Drag it to the Dock to keep it there.
+- **Linux:** `~/.local/share/applications/jam-hub-<host>.desktop` (icon in `~/.local/share/icons/hicolor/512x512/apps/jam-hub.png`), shown in the app menu; it runs `xdg-open` on the link.
+- **Elsewhere:** no launcher; the install prints the link to open instead.
+- A launcher for a Jam other than `jam.url` still opens the hub, with a warning naming both (one hub per Jam comes later).
+- A launcher that can't be written (e.g. no writable home) is a warning; the extension is installed regardless.

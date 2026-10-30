@@ -91,6 +91,10 @@ Conversation tabs and views:
 - [ ] Rail: the groups, missions and unread counts match the web app's rail.
 - [ ] Rail click on a session with no studio window opens its tab in the hub (opening the hub, whether it was closed or open); with one open, it brings that window to the front.
 - [ ] *Jam: Open Hub* opens the hub; again, it focuses it. `open vscode://aethons.jam/hub` does the same.
+- [ ] macOS: `jam vscode install` adds `~/Applications/Jam Hub (<host>).app` with the J icon; it opens VS Code on the hub (VS Code closed and open) and stays in the Dock when kept there.
+- [ ] Linux: the *Jam Hub (<host>)* entry shows in the app menu with the J icon and opens the hub.
+- [ ] `jam vscode install --code codium` adds a `… VSCodium` launcher that opens VSCodium.
+- [ ] A launcher for another Jam warns, and still opens the hub.
 - [ ] In the hub, a rail click opens a conversation tab; a second click reveals it. Tabs split side by side and come back after a reload.
 - [ ] In the hub, Thinking/Status/Artifacts/Previews follow the active conversation tab; a chat tab empties them.
 - [ ] A notification's Open (and the OS click) with the session's studio window open focuses it; without, it opens the hub tab.
