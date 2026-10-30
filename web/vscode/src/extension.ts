@@ -149,8 +149,14 @@ export function activate(ctx: vscode.ExtensionContext): void {
     info: async (m, ...a) => vscode.window.showInformationMessage(m, ...a),
     pick: async (items, placeholder) => vscode.window.showQuickPick(items, { placeHolder: placeholder }),
     openExternal: async (u) => void (await vscode.env.openExternal(vscode.Uri.parse(u))),
-    openFolder: async (u, o) =>
-      void (await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.parse(u), o?.reuse ? { forceReuseWindow: true } : { forceNewWindow: true })),
+    // openFolder keeps the current window's remote authority unless told
+    // otherwise, so a local workspace opened from a studio window would stay on
+    // its SSH connection: anything not vscode-remote opens forceLocalWindow.
+    openFolder: async (u, o) => {
+      const uri = vscode.Uri.parse(u);
+      const local = uri.scheme === "vscode-remote" ? {} : { forceLocalWindow: true };
+      await vscode.commands.executeCommand("vscode.openFolder", uri, { ...(o?.reuse ? { forceReuseWindow: true } : { forceNewWindow: true }), ...local });
+    },
     localWorkspace,
     isConnected: connected.isConnected,
     setConnected: connected.setConnected,

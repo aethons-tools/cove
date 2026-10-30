@@ -156,7 +156,7 @@ describe("activate", () => {
       await open(r(CHN));
       // No SSH is needed to open: the session's local window opens.
       await vi.waitFor(() =>
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ path: localPath(ctx) }), { forceNewWindow: true }),
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ path: localPath(ctx) }), { forceNewWindow: true, forceLocalWindow: true }),
       );
     } finally {
       fetchSpy.mockRestore();
@@ -606,7 +606,7 @@ describe("notifications", () => {
       activate(ctx);
       await vi.waitFor(() => expect(toasts()).toEqual([["Alice · build-bot: done?", "Open"]]));
       await vi.waitFor(() =>
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ path: localPath(ctx) }), { forceNewWindow: true }),
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ path: localPath(ctx) }), { forceNewWindow: true, forceLocalWindow: true }),
       );
       expect(mock.output.join("\n")).not.toContain("done?");
     } finally {
@@ -703,7 +703,7 @@ describe("local session windows (connect on demand)", () => {
       mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
       await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
       const [, uri, opts] = openFolderCalls()[0]!;
-      expect(opts).toEqual({ forceNewWindow: true });
+      expect(opts).toEqual({ forceNewWindow: true, forceLocalWindow: true });
       expect((uri as { scheme: string; path: string }).scheme).toBe("file");
       expect((uri as { path: string }).path).toBe(localPath(ctx));
       const text = await readFile(localPath(ctx), "utf8");
@@ -751,7 +751,7 @@ describe("local session windows (connect on demand)", () => {
       activate(ctx);
       mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
       await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
-      expect(openFolderCalls()[0]).toEqual(["vscode.openFolder", expect.objectContaining({ path: localPath(ctx) }), { forceNewWindow: true }]);
+      expect(openFolderCalls()[0]).toEqual(["vscode.openFolder", expect.objectContaining({ path: localPath(ctx) }), { forceNewWindow: true, forceLocalWindow: true }]);
       expect(ctx.state.get(`jam.connected.${SES}`)).toBeUndefined();
     } finally {
       fetchSpy.mockRestore();
@@ -870,7 +870,7 @@ describe("local session windows (connect on demand)", () => {
     expect(mock.context.get("jam.window")).toBe("remote");
     await vi.waitFor(() => expect(ctx.state.get(`jam.connected.${SES}`)).toBe(true));
     await mock.commands.get("jam.disconnectStudio")!();
-    expect(openFolderCalls()).toEqual([["vscode.openFolder", expect.objectContaining({ scheme: "file", path: localPath(ctx) }), { forceReuseWindow: true }]]);
+    expect(openFolderCalls()).toEqual([["vscode.openFolder", expect.objectContaining({ scheme: "file", path: localPath(ctx) }), { forceReuseWindow: true, forceLocalWindow: true }]]);
     expect(JSON.parse(await readFile(localPath(ctx), "utf8"))).toEqual({ folders: [] });
     await deactivate();
     expect(ctx.state.get(`jam.connected.${SES}`)).toBeUndefined();
