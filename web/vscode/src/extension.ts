@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import * as os from "node:os";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
-import { JamApi, SignedOutError } from "./api";
+import { ApiError, JamApi, SignedOutError } from "./api";
 import { Auth } from "./auth";
 import { settings } from "./config";
 import { editorFor } from "./editor";
@@ -15,14 +15,15 @@ import {
   connectedSet,
   openSession,
   pickSession,
+  goTo,
   HUB_FILE,
   HUB_WORKSPACE,
+  readPending,
   studioFromAuthority,
-  webUrl,
   windowAuthority,
   windowKind,
 } from "./open";
-import type { OpenDeps, Ui } from "./open";
+import type { GoDeps, OpenDeps, Ui } from "./open";
 import { appTokenPath, configDir, knownHostsFile, sshConfigFile } from "./paths";
 import { findSshKeygen } from "./ssh/cli";
 import { listJamStudios } from "./ssh/config";
@@ -48,6 +49,7 @@ import { PaneHub } from "./panes/hub";
 import { SESSION_PANES, SessionPaneProvider } from "./panes/session";
 import { NeedsYou } from "./needsyou";
 import { RailViewProvider } from "./panes/rail";
+import { ConversationPanels } from "./panes/conversation";
 import { ThinkingStreams } from "./thinking";
 import { Updater } from "./update";
 
@@ -337,12 +339,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     openSession: (id) => guard(() => openSession(openDeps, id))(),
     // A rail click: the session's studio window when one is open, else (until
     // the hub) the conversation in the web app.
-    goTo: (channel, session) =>
-      guard(async () => {
-        if (session && connected.isConnected(session)) return openSession(openDeps, session);
-        const { url } = await openDeps.signedIn();
-        await ui.openExternal(webUrl(url, channel));
-      })(),
+    goTo: (channel, session) => goToConversation(channel, session),
     scrollConversation: (anchor) => providers.get("conversation")!.scrollTo(anchor),
     error: (m) => void vscode.window.showErrorMessage(m),
   };
@@ -364,6 +361,55 @@ export function activate(ctx: vscode.ExtensionContext): void {
   ctx.subscriptions.push(
     vscode.window.registerWebviewPanelSerializer(BoardPanels.viewType, { deserializeWebviewPanel: async (p, s) => boards.restore(p, s) }),
   );
+  const conversations = new ConversationPanels({
+    ...portDeps,
+    extensionUri: ctx.extensionUri,
+    auth,
+    createPanel: (...a) => vscode.window.createWebviewPanel(...a),
+    resolve: async (channel) => {
+      const conv = await (await apiNow()).conversation(channel).catch((e: unknown) => {
+        if (e instanceof ApiError && e.status === 404) return undefined;
+        throw e;
+      });
+      return conv ? { session: conv.session, label: conv.label, channel } : "gone";
+    },
+    reporter: rep,
+    onActive: () => undefined,
+  });
+  ctx.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer(ConversationPanels.viewType, { deserializeWebviewPanel: async (p, s) => conversations.restore(p, s) }),
+  );
+  // Going to a conversation: its studio window, else its hub tab (from
+  // another window, by a pending request the hub reads; see readPending).
+  const pendingFile = vscode.Uri.joinPath(hubDir, "pending.json").fsPath;
+  const goDeps: GoDeps = {
+    isConnected: connected.isConnected,
+    openSession: (id) => openSession(openDeps, id),
+    isHub: kind?.kind === "hub",
+    openTab: (c) => conversations.open(c),
+    writePending: async (p) => {
+      await fsp.mkdir(hubDir.fsPath, { recursive: true });
+      await fsp.writeFile(pendingFile, JSON.stringify(p));
+    },
+    openHub: () => ui.openHub(),
+    now: Date.now,
+  };
+  const goToConversation = (channel: string, session: string) => guard(() => goTo(goDeps, channel, session))();
+  if (kind?.kind === "hub") {
+    const takePending = async (): Promise<void> => {
+      const raw = await fsp.readFile(pendingFile, "utf8").catch(() => undefined);
+      if (raw === undefined) return;
+      await fsp.rm(pendingFile, { force: true });
+      const c = readPending(raw, Date.now());
+      if (c) conversations.open(c);
+    };
+    void takePending().catch((e) => log(`hub: reading the pending request failed: ${e instanceof Error ? e.message : String(e)}`));
+    ctx.subscriptions.push(
+      vscode.window.onDidChangeWindowState((st) => {
+        if (st.focused) void takePending().catch(() => undefined);
+      }),
+    );
+  }
   rail = new RailViewProvider({ extensionUri: ctx.extensionUri, ...portDeps, auth, windows: connected.list });
   rail.setBadge(badge);
   ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(rail.viewType, rail));
@@ -397,8 +443,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     scheme: vscode.env.uriScheme,
     now: Date.now,
     toast: (kind, m, a) => (kind === "needs" ? vscode.window.showWarningMessage(m, a) : vscode.window.showInformationMessage(m, a)),
-    openSession: (id) => guard(() => openSession(openDeps, id))(),
-    openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)),
+    goTo: (channel, session) => goToConversation(channel, session),
     log,
   });
   void needsYou.refresh();
@@ -463,6 +508,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
           if (!auth.handleCallback(r.query)) void vscode.window.showWarningMessage("Jam: no sign-in is waiting for that link.");
         } else if (r.kind === "hub") {
           void guard(() => ui.openHub())();
+        } else if (r.kind === "go") {
+          void goToConversation(r.channel, r.session);
         } else if (r.kind === "bad") {
           void vscode.window.showWarningMessage(`Jam: ${r.reason}`);
         } else void guard(() => openSession(openDeps, r.id))();

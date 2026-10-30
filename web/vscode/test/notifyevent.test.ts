@@ -49,7 +49,7 @@ describe("parseNotify", () => {
     for (const s of ["../x", "alice-bot", ""]) {
       const e = parse({ ...base, session: s })!;
       expect(e.session).toBe("");
-      expect(notifyTarget(e, "https://jam.example")).toEqual({ web: `https://jam.example/app/user/c/${CHN}` });
+      expect(notifyTarget(e)).toEqual({ channel: CHN, session: "" });
     }
   });
 });
@@ -70,12 +70,12 @@ describe("ChannelGate", () => {
 });
 
 describe("targets", () => {
-  it("notifyTarget and targetLink", () => {
+  it("notifyTarget and targetLink: a go link, with the session when there is one", () => {
     const e = parse(base)!;
-    const t = notifyTarget(e, "https://jam.example");
-    expect(t).toEqual({ session: SES });
-    expect(targetLink(t, "vscode-insiders")).toBe(`vscode-insiders://aethons.jam/session/${SES}`);
-    const chat = notifyTarget({ ...e, session: "" }, "https://jam.example");
-    expect(targetLink(chat, "vscode")).toBe(`https://jam.example/app/user/c/${CHN}`);
+    const t = notifyTarget(e);
+    expect(t).toEqual({ channel: CHN, session: SES });
+    expect(targetLink(t, "vscode-insiders")).toBe(`vscode-insiders://aethons.jam/go/${CHN}?session=${SES}`);
+    const chat = notifyTarget({ ...e, session: "" });
+    expect(targetLink(chat, "vscode")).toBe(`vscode://aethons.jam/go/${CHN}`);
   });
 });

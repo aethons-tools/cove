@@ -6,7 +6,10 @@ import {
   connectedSet,
   openSession,
   pickSession,
+  goTo,
   HUB_FILE,
+  PENDING_MAX_MS,
+  readPending,
   remoteUri,
   studioFromAuthority,
   webUrl,
@@ -285,6 +288,57 @@ describe("connectedSet", () => {
 
   it("the beat refreshes well within the stale window", () => {
     expect(CONNECTED_BEAT_MS * 2).toBeLessThan(CONNECTED_STALE_MS);
+  });
+});
+
+describe("goTo", () => {
+  const CHN = "chn_0abcdefghjkmnpqrstvwxyz012";
+  const deps = (o: { connected?: boolean; hub?: boolean } = {}) => {
+    const calls: string[] = [];
+    return {
+      calls,
+      d: {
+        isConnected: (id: string) => (calls.push(`isConnected ${id}`), o.connected ?? false),
+        openSession: async (id: string) => void calls.push(`openSession ${id}`),
+        isHub: o.hub ?? false,
+        openTab: (c: string) => void calls.push(`openTab ${c}`),
+        writePending: async (p: { channel: string; at: number }) => void calls.push(`pending ${p.channel} ${p.at}`),
+        openHub: async () => void calls.push("openHub"),
+        now: () => 5,
+      },
+    };
+  };
+  it("a session with an open window: openSession only", async () => {
+    const f = deps({ connected: true });
+    await goTo(f.d, CHN, ID);
+    expect(f.calls).toEqual([`isConnected ${ID}`, `openSession ${ID}`]);
+  });
+  it("in the hub: its tab", async () => {
+    const f = deps({ hub: true });
+    await goTo(f.d, CHN, ID);
+    expect(f.calls).toEqual([`isConnected ${ID}`, `openTab ${CHN}`]);
+    const g = deps({ hub: true });
+    await goTo(g.d, CHN, "");
+    expect(g.calls).toEqual([`openTab ${CHN}`]);
+  });
+  it("elsewhere: pending first, then the hub", async () => {
+    const f = deps();
+    await goTo(f.d, CHN, "");
+    expect(f.calls).toEqual([`pending ${CHN} 5`, "openHub"]);
+  });
+});
+
+describe("readPending", () => {
+  const CHN = "chn_0abcdefghjkmnpqrstvwxyz012";
+  it("a fresh, valid entry is its channel", () => {
+    expect(readPending(JSON.stringify({ channel: CHN, at: 1000 }), 1000 + PENDING_MAX_MS)).toBe(CHN);
+    expect(readPending(JSON.stringify({ channel: "legacy:dm:a", at: 1000 }), 1000)).toBe("legacy:dm:a");
+  });
+  it("stale, junk or bad entries are nothing", () => {
+    expect(readPending(JSON.stringify({ channel: CHN, at: 1000 }), 1001 + PENDING_MAX_MS)).toBeUndefined();
+    for (const raw of [undefined, "", "{", "[]", JSON.stringify({ channel: "chn_x", at: 1 }), JSON.stringify({ channel: CHN }), JSON.stringify({ channel: CHN, at: "1" })]) {
+      expect(readPending(raw, 1)).toBeUndefined();
+    }
   });
 });
 

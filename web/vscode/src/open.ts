@@ -6,7 +6,8 @@ import { ApiError, SignedOutError } from "./api";
 import type { Editor } from "./editor";
 import { certErrorMessage } from "./ssh/cert";
 import type { SshResult } from "./ssh/setup";
-import { SESSION_ID_RE } from "./uri";
+import { LEGACY_RE } from "./bridge/intents";
+import { CHANNEL_RE, SESSION_ID_RE } from "./uri";
 
 export interface Ui {
   error(msg: string, ...actions: string[]): Promise<string | undefined>;
@@ -262,6 +263,45 @@ export function windowKind(
   const slash = f.path.lastIndexOf("/");
   if (slash < 0 || norm(f.path.slice(0, slash)) !== norm(hubDir.path)) return undefined;
   return f.path.slice(slash + 1) === HUB_FILE ? { kind: "hub" } : undefined;
+}
+
+// A pending hub request older than PENDING_MAX_MS is stale (its window gave up).
+export const PENDING_MAX_MS = 60_000;
+
+export type GoDeps = {
+  isConnected(id: string): boolean;
+  openSession(id: string): Promise<void>;
+  isHub: boolean;
+  openTab(channel: string): void;
+  writePending(p: { channel: string; at: number }): Promise<void>;
+  openHub(): Promise<void>;
+  now(): number;
+};
+
+// goTo goes to a conversation: its session's studio window when one is open,
+// else its tab in the hub. Outside the hub it leaves a pending request (the
+// hub reads it on activation and focus) and opens or focuses the hub.
+export async function goTo(d: GoDeps, channel: string, session: string): Promise<void> {
+  if (session && d.isConnected(session)) return d.openSession(session);
+  if (d.isHub) return d.openTab(channel);
+  await d.writePending({ channel, at: d.now() });
+  await d.openHub();
+}
+
+// readPending is a pending request's channel, if raw is a fresh, valid one.
+export function readPending(raw: string | undefined, now: number): string | undefined {
+  if (!raw) return undefined;
+  let o: unknown;
+  try {
+    o = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!o || typeof o !== "object" || Array.isArray(o)) return undefined;
+  const { channel, at } = o as { channel?: unknown; at?: unknown };
+  if (typeof channel !== "string" || !(CHANNEL_RE.test(channel) || LEGACY_RE.test(channel))) return undefined;
+  if (typeof at !== "number" || now - at > PENDING_MAX_MS || at - now > PENDING_MAX_MS) return undefined;
+  return channel;
 }
 
 export type RailRow = RailResponse["groups"][number]["rows"][number];
