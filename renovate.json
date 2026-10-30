@@ -70,6 +70,13 @@
       "matchFileNames": ["web/app/package.json"],
       "matchPackageNames": ["typescript"],
       "allowedVersions": "<6.1"
+    },
+    {
+      "description": "@types/vscode stays on the engines.vscode floor (web/vscode/package.json, ^1.105.0): vsce refuses to package when @types/vscode is newer than engines.vscode, and raising engines.vscode would drop older VS Code and VSCodium installs for no API we use (#570). Move this ceiling with engines.vscode, deliberately, when the extension needs a newer API.",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["web/vscode/package.json"],
+      "matchPackageNames": ["@types/vscode"],
+      "allowedVersions": "<1.106"
     }
   ],
   "customManagers": [
