@@ -20,7 +20,8 @@
       { "command": "jam.signOut", "title": "Sign Out", "category": "Jam" },
       { "command": "jam.openSession", "title": "Open Session…", "category": "Jam" },
       { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" },
-      { "command": "jam.openHub", "title": "Open Hub", "category": "Jam" }
+      { "command": "jam.openHub", "title": "Open Hub", "category": "Jam" },
+      { "command": "jam.switchJam", "title": "Switch Jam…", "category": "Jam" }
     ],
     "viewsContainers": {
       "activitybar": [{ "id": "jam", "title": "Jam", "icon": "media/jam.svg" }],
@@ -34,6 +35,9 @@
         { "type": "webview", "id": "jam.previews", "name": "Previews", "visibility": "collapsed", "when": "jam.window == session || jam.window == hub" }
       ],
       "jamPanel": [{ "type": "webview", "id": "jam.thinking", "name": "Thinking", "when": "jam.window == session || jam.window == hub" }]
+    },
+    "menus": {
+      "commandPalette": [{ "command": "jam.switchJam", "when": "jam.multiJam" }]
     },
     "configuration": {
       "title": "Jam",

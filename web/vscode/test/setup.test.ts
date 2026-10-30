@@ -49,6 +49,12 @@ describe("ensureSsh", () => {
     expect(cfg).toBe(renderBlock({ studio: S, jamPath: e.jam, jamUrl: URL, keyPath: key, certPath: certFile }));
   });
 
+  it("a non-default Jam's block names its token profile (--app)", async () => {
+    const e = await env();
+    await ensureSsh({ ...e.mkDeps(DUE), app: "vscode-b" }, S);
+    expect(await readFile(path.join(e.home, ".ssh", "config"), "utf8")).toContain(" --app 'vscode-b' --participant ");
+  });
+
   it("a jam ssh-config block is left byte for byte and no cert is fetched", async () => {
     const e = await env();
     const orig = `# >>> jam ${S} >>>\nHost jam-${S}\n  User agent\nMatch all\n# <<< jam ${S} <<<\n`;

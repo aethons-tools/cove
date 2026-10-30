@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { ApiError, JamApi, SignedOutError } from "./api";
 import { Auth } from "./auth";
+import type { Session } from "./auth";
+import { appFor, hubFileFor, jamList, pendingFileFor } from "./jams";
 import { Auths } from "./auths";
 import { normalizeJamUrl, settings } from "./config";
 import { editorFor } from "./editor";
@@ -17,11 +19,11 @@ import {
   openSession,
   pickSession,
   goTo,
-  HUB_FILE,
   HUB_WORKSPACE,
   readPending,
   studioFromAuthority,
   windowAuthority,
+  windowJam,
   windowKind,
 } from "./open";
 import type { GoDeps, OpenDeps, Ui } from "./open";
@@ -66,10 +68,32 @@ const jamSettings = () => {
 
 let reporter: FocusReporter | undefined;
 const TAB_SHOWN = "jam.conversationTabShown";
+const WINDOW_JAM = "jam.windowJam";
 // Run on deactivate: a remote session window's best-effort "no longer connected".
 let onDeactivate: (() => Thenable<void>) | undefined;
 
 export function activate(ctx: vscode.ExtensionContext): void {
+  // Which window this is (a studio window, a hub, or neither) and which Jam
+  // it shows. A hub or studio window keeps its Jam; an ordinary window shows
+  // the one picked with Jam: Switch Jam…, else jam.url (read fresh, so a
+  // changed jam.url still applies).
+  const hubDir = vscode.Uri.joinPath(ctx.globalStorageUri, "hub");
+  const kind = windowKind(vscode.workspace, hubDir, process.platform);
+  const jams = () => {
+    const c = vscode.workspace.getConfiguration("jam");
+    return jamList(String(c.get("url") ?? ""), c.get("urls"));
+  };
+  const windowJamUrl = (): string | undefined =>
+    windowJam(kind, jams().list, {
+      studioJam: (id) => ctx.globalState.get<string>(`jam.studioJam.${id}`),
+      chosen: ctx.workspaceState.get<string>(WINDOW_JAM),
+    });
+  // jamUrl is this window's Jam, or why there is none.
+  const jamUrl = (): string | Error => {
+    const u = windowJamUrl();
+    if (u !== undefined) return u;
+    return kind?.kind === "hub" ? new Error("This hub's Jam isn't one of your Jams any more (jam.url, jam.urls)") : jamSettings().url;
+  };
   // One sign-in per Jam (auths.ts); auth is this window's Jam's.
   const auths = new Auths({
     make: (key, tokenFile) =>
@@ -88,7 +112,24 @@ export function activate(ctx: vscode.ExtensionContext): void {
     },
     tokenFile: (app) => appTokenPath(configDir(process.env, os.homedir()), app),
   });
-  const auth = auths.primary();
+  // auth is this window's Jam's sign-in: the same calls as one Auth, routed
+  // to the Jam they name (signOut and cancel: this window's).
+  const authNow = () => {
+    const u = jamUrl();
+    return u instanceof Error ? auths.primary() : auths.authFor(u);
+  };
+  const auth = {
+    session: (url: string) => auths.authFor(url).session(url),
+    onChange: (cb: (s: Session | undefined) => void) =>
+      auths.onChange((u, s) => {
+        if (u === jamUrl()) cb(s);
+      }),
+    signIn: (url: string) => auths.authFor(url).signIn(url),
+    signOut: () => authNow().signOut(),
+    cancel: () => authNow().cancel(),
+    syncTokenFile: (s: Session) => auths.authFor(s.url).syncTokenFile(s),
+    handleCallback: (q: URLSearchParams) => auths.handleCallback(q),
+  };
 
   // signedOut clears the session and offers to sign in again; every
   // SignedOutError goes through it.
@@ -136,7 +177,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     );
 
   const signIn = guard(async () => {
-    const url = jamSettings().url;
+    const url = jamUrl();
     if (url instanceof Error) throw url;
     const s = await signInWithProgress(url);
     void vscode.window.showInformationMessage(`Signed in to Jam as ${s.user}`);
@@ -147,7 +188,6 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const log = (m: string) => output.appendLine(m);
 
   const connected = connectedSet(ctx.globalState);
-  const hubDir = vscode.Uri.joinPath(ctx.globalStorageUri, "hub");
 
   const editor = editorFor(vscode.env.uriScheme);
   const ui: Ui = {
@@ -157,8 +197,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
     openExternal: async (u) => void (await vscode.env.openExternal(vscode.Uri.parse(u))),
     openFolder: async (u) => void (await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.parse(u), { forceNewWindow: true })),
     // The hub is local: from a studio window it must not stay on the SSH connection.
-    openHub: async () => {
-      const f = vscode.Uri.joinPath(hubDir, HUB_FILE);
+    openHub: async (jam) => {
+      const j = jam ?? jamUrl();
+      if (j instanceof Error) throw j;
+      const f = vscode.Uri.joinPath(hubDir, hubFileFor(j));
       await fsp.mkdir(hubDir.fsPath, { recursive: true });
       await fsp.writeFile(f.fsPath, HUB_WORKSPACE, { flag: "wx" }).catch((e: NodeJS.ErrnoException) => {
         if (e.code !== "EEXIST") throw e;
@@ -185,8 +227,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
     ui,
     editor,
     log,
+    remember: async (id) => {
+      const u = jamUrl();
+      if (typeof u === "string") await ctx.globalState.update(`jam.studioJam.${id}`, u);
+    },
     signedIn: async () => {
-      const url = jamSettings().url;
+      const url = jamUrl();
       if (url instanceof Error) throw url;
       const s = (await auth.session(url)) ?? (await signInWithProgress(url));
       // A session read before a concurrent sign-out must not rewrite the
@@ -200,6 +246,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
         {
           api,
           jamUrl: signedInUrl,
+          ...(signedInUrl === auths.defaultUrl() ? {} : { app: appFor(signedInUrl, auths.defaultUrl()) }),
           cliPath: jamSettings().cliPath,
           env: process.env,
           home: os.homedir(),
@@ -230,9 +277,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
   });
 
   // --- The session views and what they share with the window. ---
-  const jamUrl = (): string | Error => jamSettings().url;
-  // The current sign-in for jam.url, read fresh on every use: tokens come only
-  // from auth.session(currentJamUrl).
+  // The current sign-in for this window's Jam, read fresh on every use: tokens
+  // come only from auth.session(jamUrl()).
   const current = async (): Promise<{ url: string; token: string } | undefined> => {
     const url = jamUrl();
     if (url instanceof Error) return undefined;
@@ -272,10 +318,13 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const router = new Router({ session: current, fetch: (...a) => fetch(...a), onSignedOut: panesSignedOut, log });
   // The window's session: a jam-<id> studio window's. Only a studio window
   // shows the session views (jam.window) and can forward a preview's port.
-  const kind = windowKind(vscode.workspace, hubDir, process.platform);
   const windowStudio = kind?.kind === "session" ? kind.id : undefined;
-  log(`window: ${windowStudio ? `studio session ${windowStudio}` : kind?.kind === "hub" ? "hub" : "no session"}`);
+  const wj = jamUrl();
+  log(`window: ${windowStudio ? `studio session ${windowStudio}` : kind?.kind === "hub" ? "hub" : "no session"} on ${wj instanceof Error ? "no Jam" : wj}`);
   void vscode.commands.executeCommand("setContext", "jam.window", kind?.kind ?? "");
+  const { list: jamsNow, bad } = jams();
+  if (bad.length > 0) log(`jam.urls: skipped ${bad.length} entr${bad.length === 1 ? "y" : "ies"} that aren't Jam addresses`);
+  void vscode.commands.executeCommand("setContext", "jam.multiJam", jamsNow.length > 1);
   if (windowStudio) {
     // Reloading a studio window deactivates and reactivates it: mark it again.
     // The mark is refreshed while the window lives, so one it never got to
@@ -405,7 +454,11 @@ export function activate(ctx: vscode.ExtensionContext): void {
   );
   // Going to a conversation: its studio window, else its hub tab (from
   // another window, by a pending request the hub reads; see readPending).
-  const pendingFile = vscode.Uri.joinPath(hubDir, "pending.json").fsPath;
+  const pendingFile = (): string => {
+    const j = jamUrl();
+    if (j instanceof Error) throw j;
+    return vscode.Uri.joinPath(hubDir, pendingFileFor(j)).fsPath;
+  };
   const goDeps: GoDeps = {
     isConnected: connected.isConnected,
     openSession: (id) => openSession(openDeps, id),
@@ -414,7 +467,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     openTab: (c) => conversations.open(c),
     writePending: async (p) => {
       await fsp.mkdir(hubDir.fsPath, { recursive: true });
-      await fsp.writeFile(pendingFile, JSON.stringify(p));
+      await fsp.writeFile(pendingFile(), JSON.stringify(p));
     },
     openHub: () => ui.openHub(),
     now: Date.now,
@@ -422,9 +475,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const goToConversation = (channel: string, session: string) => guard(() => goTo(goDeps, channel, session))();
   if (kind?.kind === "hub") {
     const takePending = async (): Promise<void> => {
-      const raw = await fsp.readFile(pendingFile, "utf8").catch(() => undefined);
+      const file = pendingFile();
+      const raw = await fsp.readFile(file, "utf8").catch(() => undefined);
       if (raw === undefined) return;
-      await fsp.rm(pendingFile, { force: true });
+      await fsp.rm(file, { force: true });
       const c = readPending(raw, Date.now());
       if (c) conversations.open(c);
     };
@@ -523,7 +577,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   // A new jam.url means a new Jam: the permanent stream follows it.
   ctx.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("jam.url")) {
+      if (e.affectsConfiguration("jam.url") || e.affectsConfiguration("jam.urls")) {
         live.restart();
         void needsYou.refresh();
       }
@@ -536,6 +590,22 @@ export function activate(ctx: vscode.ExtensionContext): void {
   reg("jam.openSession", guard(() => pickSession(openDeps)));
   reg("jam.forgetHostKey", forget);
   reg("jam.openHub", guard(() => ui.openHub()));
+  // Switch Jam: an ordinary window's Jam is picked here, then the window
+  // reloads onto it. A hub or studio window belongs to its Jam.
+  reg(
+    "jam.switchJam",
+    guard(async () => {
+      const here = jamUrl();
+      if (kind && typeof here === "string") return void (await vscode.window.showInformationMessage(`This window belongs to ${here}.`));
+      const p = await vscode.window.showQuickPick(
+        jams().list.map((u) => ({ label: u, description: u === here ? "this window" : undefined })),
+        { placeHolder: "Show which Jam in this window?" },
+      );
+      if (!p || p.label === here) return;
+      await ctx.workspaceState.update(WINDOW_JAM, p.label);
+      await vscode.commands.executeCommand("workbench.action.reloadWindow");
+    }),
+  );
 
   ctx.subscriptions.push(
     vscode.window.registerUriHandler({

@@ -17,6 +17,10 @@ export class Auths {
 
   constructor(private d: AuthsDeps) {}
 
+  defaultUrl(): string | undefined {
+    return this.d.defaultUrl();
+  }
+
   // primary is the default Jam's Auth, even while jam.url is unset or bad.
   primary(): Auth {
     return this.authFor(this.d.defaultUrl() ?? "", true);
@@ -40,6 +44,11 @@ export class Auths {
       for (const cb of [...this.subs]) cb(entry.url, s);
     });
     return auth;
+  }
+
+  // handleCallback hands a sign-in callback to whichever Jam's sign-in waits for it.
+  handleCallback(q: URLSearchParams): boolean {
+    return [...this.byKey.values()].some((e) => e.auth.handleCallback(q));
   }
 
   // onChange reports every Jam's sign-in and sign-out, with its URL.

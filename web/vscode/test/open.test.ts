@@ -7,15 +7,16 @@ import {
   openSession,
   pickSession,
   goTo,
-  HUB_FILE,
   PENDING_MAX_MS,
   readPending,
   remoteUri,
   studioFromAuthority,
   webUrl,
   windowAuthority,
+  windowJam,
   windowKind,
 } from "../src/open";
+import { hubFileFor } from "../src/jams";
 import type { OpenDeps, Ui } from "../src/open";
 import { editorFor } from "../src/editor";
 
@@ -351,22 +352,43 @@ describe("readPending", () => {
 describe("windowKind", () => {
   const DIR = "/gs/hub";
   const HD = { scheme: "file", path: DIR };
+  const HUB = hubFileFor("https://jam.example.com");
   const file = (path: string, scheme = "file") => ({ scheme, authority: "", path });
   it.each([
-    ["the hub file", { workspaceFile: file(`${DIR}/${HUB_FILE}`) }, { kind: "hub" }],
+    ["a hub file", { workspaceFile: file(`${DIR}/${HUB}`) }, { kind: "hub", file: HUB }],
     ["a jam remote folder", { workspaceFolders: [{ uri: { scheme: "vscode-remote", authority: `ssh-remote+jam-${ID}`, path: "/home/agent/workspace" } }] }, { kind: "session", id: ID }],
     ["another workspace in the hub dir", { workspaceFile: file(`${DIR}/Other.code-workspace`) }, undefined],
-    ["the hub name elsewhere", { workspaceFile: file(`/elsewhere/hub/${HUB_FILE}`) }, undefined],
-    ["a lookalike dir prefix", { workspaceFile: file(`${DIR}-evil/${HUB_FILE}`) }, undefined],
-    ["another scheme", { workspaceFile: file(`${DIR}/${HUB_FILE}`, "untitled") }, undefined],
+    ["the hub name elsewhere", { workspaceFile: file(`/elsewhere/hub/${HUB}`) }, undefined],
+    ["a lookalike dir prefix", { workspaceFile: file(`${DIR}-evil/${HUB}`) }, undefined],
+    ["another scheme", { workspaceFile: file(`${DIR}/${HUB}`, "untitled") }, undefined],
     ["an empty window", {}, undefined],
   ])("%s", (_n, w, want) => {
     expect(windowKind(w, HD, "linux")).toEqual(want);
   });
   it("matches a case-folded hub dir on darwin and win32, not on linux", () => {
-    const w = { workspaceFile: file(`/Users/Ada/Code/hub/${HUB_FILE}`) };
-    expect(windowKind(w, { scheme: "file", path: "/users/ada/code/hub/" }, "darwin")).toEqual({ kind: "hub" });
+    const w = { workspaceFile: file(`/Users/Ada/Code/hub/${HUB}`) };
+    expect(windowKind(w, { scheme: "file", path: "/users/ada/code/hub/" }, "darwin")).toEqual({ kind: "hub", file: HUB });
     expect(windowKind(w, { scheme: "file", path: "/users/ada/code/hub/" }, "linux")).toBeUndefined();
+  });
+});
+
+describe("windowJam", () => {
+  const A = "https://a.example";
+  const B = "https://b.example";
+  const none = { studioJam: () => undefined, chosen: undefined };
+  it("a hub is its file's Jam, or none when that Jam isn't listed", () => {
+    expect(windowJam({ kind: "hub", file: hubFileFor(B) }, [A, B], none)).toBe(B);
+    expect(windowJam({ kind: "hub", file: hubFileFor("https://c.example") }, [A, B], none)).toBeUndefined();
+  });
+  it("a studio window is its recorded Jam (if listed), else the default", () => {
+    expect(windowJam({ kind: "session", id: ID }, [A, B], { studioJam: () => B, chosen: undefined })).toBe(B);
+    expect(windowJam({ kind: "session", id: ID }, [A, B], none)).toBe(A);
+    expect(windowJam({ kind: "session", id: ID }, [A], { studioJam: () => B, chosen: undefined })).toBe(A);
+  });
+  it("an ordinary window is its chosen Jam if listed, else the default", () => {
+    expect(windowJam(undefined, [A, B], { studioJam: () => undefined, chosen: B })).toBe(B);
+    expect(windowJam(undefined, [A], { studioJam: () => undefined, chosen: B })).toBe(A);
+    expect(windowJam(undefined, [], none)).toBeUndefined();
   });
 });
 

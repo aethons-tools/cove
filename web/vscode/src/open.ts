@@ -7,6 +7,7 @@ import type { Editor } from "./editor";
 import { certErrorMessage } from "./ssh/cert";
 import type { SshResult } from "./ssh/setup";
 import { LEGACY_RE } from "./bridge/intents";
+import { hubJamOf } from "./jams";
 import { CHANNEL_RE, SESSION_ID_RE } from "./uri";
 
 export interface Ui {
@@ -16,8 +17,9 @@ export interface Ui {
   openExternal(url: string): Promise<void>;
   // Opens uri in a new window, focusing one already on it.
   openFolder(uri: string): Promise<void>;
-  // Opens the hub window (writing its workspace file if missing), or focuses it.
-  openHub(): Promise<void>;
+  // Opens a Jam's hub window (default: this window's Jam), writing its
+  // workspace file if missing, or focuses it.
+  openHub(jam?: string): Promise<void>;
   hasRemoteSsh(): boolean;
   installRemoteSsh(): Promise<void>;
   getGlobal(section: string, key: string): unknown;
@@ -38,6 +40,8 @@ export function webUrl(base: string, channel: string): string {
 export type OpenDeps = {
   ui: Ui;
   editor: Editor;
+  // remember records which Jam a session's studio window belongs to.
+  remember?: (id: string) => Promise<void>;
   signedIn: () => Promise<{ api: JamApi; url: string }>;
   ssh: (api: JamApi, studio: string) => Promise<SshResult>;
   // The "Jam" output channel. Never pass it a token.
@@ -194,6 +198,7 @@ export async function openSession(d: OpenDeps, id: string): Promise<void> {
       await ui.remember(ASKED);
       log(`localServerDownload answer: ${a ?? "dismissed"}`);
     }
+    await d.remember?.(id);
     step("opening the window");
     const uri = remoteUri(id);
     log(`openFolder ${uri}`);
@@ -235,15 +240,14 @@ export function connectedSet(
   };
 }
 
-// The hub is a window on HUB_FILE (a workspace with no folders) in the
-// extension's global storage hub directory.
-export const HUB_FILE = "Jam Hub.code-workspace";
+// A hub is a window on a Jam's hub file (jams.ts hubFileFor: a workspace with
+// no folders) in the extension's global storage hub directory.
 export const HUB_WORKSPACE = JSON.stringify({ folders: [] }, null, 2) + "\n";
 
-export type WindowKind = { kind: "session"; id: string } | { kind: "hub" };
+export type WindowKind = { kind: "session"; id: string } | { kind: "hub"; file: string };
 
 // windowKind is what a window is to Jam: a session's studio window (a jam-<id>
-// remote), the hub (workspace file <hubDir>/HUB_FILE; hubDir as a URI, whose
+// remote), a hub (workspace file <hubDir>/Jam Hub (….code-workspace; hubDir as a URI, whose
 // scheme is globalStorageUri's), or nothing. The directory compares
 // case-insensitively on darwin and win32 (case-insensitive file systems, drive letters).
 export function windowKind(
@@ -262,7 +266,21 @@ export function windowKind(
   };
   const slash = f.path.lastIndexOf("/");
   if (slash < 0 || norm(f.path.slice(0, slash)) !== norm(hubDir.path)) return undefined;
-  return f.path.slice(slash + 1) === HUB_FILE ? { kind: "hub" } : undefined;
+  const name = f.path.slice(slash + 1);
+  return /^Jam Hub \(.+\)\.code-workspace$/.test(name) ? { kind: "hub", file: name } : undefined;
+}
+
+// windowJam is the Jam a window shows: a hub's own (none when that Jam is no
+// longer listed), a studio window's recorded one, an ordinary window's chosen
+// one; else (or when that isn't listed) the default, list[0].
+export function windowJam(
+  k: WindowKind | undefined,
+  list: string[],
+  o: { studioJam(id: string): string | undefined; chosen: string | undefined },
+): string | undefined {
+  if (k?.kind === "hub") return hubJamOf(k.file, list);
+  const want = k?.kind === "session" ? o.studioJam(k.id) : o.chosen;
+  return want !== undefined && list.includes(want) ? want : list[0];
 }
 
 // A pending hub request older than PENDING_MAX_MS is stale (its window gave up).

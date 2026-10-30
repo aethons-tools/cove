@@ -39,7 +39,7 @@ describe("the manifest", () => {
     const registered = vi_registered();
     const ids = pkg.contributes.commands.map((c: { command: string }) => c.command);
     expect(ids.sort()).toEqual(
-      ["jam.forgetHostKey", "jam.openHub", "jam.openSession", "jam.signIn", "jam.signOut"],
+      ["jam.forgetHostKey", "jam.openHub", "jam.openSession", "jam.signIn", "jam.signOut", "jam.switchJam"],
     );
     for (const id of ids) expect(registered).toContain(id);
   });
@@ -75,8 +75,8 @@ describe("the manifest", () => {
     expect(pkg.contributes.commands).toContainEqual({ command: "jam.openHub", title: "Open Hub", category: "Jam" });
   });
 
-  it("no menus and no view welcome", () => {
-    expect(pkg.contributes.menus).toBeUndefined();
+  it("the palette shows Switch Jam only with several Jams; no view welcome", () => {
+    expect(pkg.contributes.menus).toEqual({ commandPalette: [{ command: "jam.switchJam", when: "jam.multiJam" }] });
     expect(pkg.contributes.viewsWelcome).toBeUndefined();
   });
   it("media/jam.svg is the J mark, monochrome", () => {

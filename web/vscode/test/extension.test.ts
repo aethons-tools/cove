@@ -24,7 +24,7 @@ const openView = (): View => {
   return v;
 };
 const hubWindow = (ctx: vscode.ExtensionContext) => {
-  (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: `${ctx.globalStorageUri.path}/hub/Jam Hub.code-workspace` };
+  (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: `${ctx.globalStorageUri.path}/hub/Jam Hub (jam.example.com).code-workspace` };
 };
 const openRail = () => {
   const v = fakeWebviewView() as View & { badge?: unknown };
@@ -53,11 +53,11 @@ function jamFetch(calls: Call[]) {
 }
 
 describe("activate", () => {
-  it("activate registers five view providers and five commands, and no tree view", () => {
+  it("activate registers five view providers and six commands, and no tree view", () => {
     mock.reset();
     const ctx = fakeContext();
     activate(ctx);
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(5);
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(6);
     expect(vscode.window.createTreeView).not.toHaveBeenCalled();
     expect(vscode.window.registerUriHandler).toHaveBeenCalledTimes(1);
     expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(5);
@@ -150,8 +150,8 @@ describe("activate", () => {
       ctx.secretValues.set("jam.session", stored("t2"));
       activate(ctx);
       const rail = openRail();
-      const pending = async () => JSON.parse(await readFile(`${ctx.globalStorageUri.path}/hub/pending.json`, "utf8")).channel;
-      const hubOpens = () => openFolderCalls().filter((c) => (c[1] as { fsPath?: string }).fsPath?.endsWith("Jam Hub.code-workspace"));
+      const pending = async () => JSON.parse(await readFile(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`, "utf8")).channel;
+      const hubOpens = () => openFolderCalls().filter((c) => (c[1] as { fsPath?: string }).fsPath?.endsWith("Jam Hub (jam.example.com).code-workspace"));
       rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
       await vi.waitFor(() => expect(hubOpens()).toHaveLength(1));
       expect(await pending()).toBe(CHN);
@@ -837,10 +837,11 @@ describe("session windows", () => {
 });
 
 describe("hub window", () => {
-  const hubPath = (ctx: vscode.ExtensionContext) => `${ctx.globalStorageUri.path}/hub/Jam Hub.code-workspace`;
+  const hubPath = (ctx: vscode.ExtensionContext) => `${ctx.globalStorageUri.path}/hub/Jam Hub (jam.example.com).code-workspace`;
 
   it("jam.openHub writes the hub file and opens it locally in a new window", async () => {
     mock.reset();
+    mock.config["jam.url"] = JAM;
     const ctx = fakeContext();
     activate(ctx);
     await mock.commands.get("jam.openHub")!();
@@ -853,6 +854,7 @@ describe("hub window", () => {
 
   it("a window on the hub file sets jam.window to hub", () => {
     mock.reset();
+    mock.config["jam.url"] = JAM;
     const ctx = fakeContext();
     (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: hubPath(ctx) };
     activate(ctx);
@@ -863,16 +865,16 @@ describe("hub window", () => {
 
   it("a rail click in an ordinary window writes pending and opens the hub", async () => {
     mock.reset();
+    mock.config["jam.url"] = JAM;
     const fetchSpy = jamFetch([]);
     try {
-      mock.config["jam.url"] = JAM;
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
       activate(ctx);
       openRail().receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
       await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
       expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: hubPath(ctx) }));
-      const pending = JSON.parse(await readFile(`${ctx.globalStorageUri.path}/hub/pending.json`, "utf8"));
+      const pending = JSON.parse(await readFile(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`, "utf8"));
       expect(pending).toEqual({ channel: CHN, at: expect.any(Number) });
       expect(vscode.env.openExternal).not.toHaveBeenCalled();
     } finally {
@@ -883,18 +885,18 @@ describe("hub window", () => {
 
   it("a hub window opens the pending conversation's tab on activation, and deletes the file", async () => {
     mock.reset();
+    mock.config["jam.url"] = JAM;
     const fetchSpy = jamFetch([]);
     try {
-      mock.config["jam.url"] = JAM;
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
       const fsp = await import("node:fs/promises");
       await fsp.mkdir(`${ctx.globalStorageUri.path}/hub`, { recursive: true });
-      await writeFile(`${ctx.globalStorageUri.path}/hub/pending.json`, JSON.stringify({ channel: CHN, at: Date.now() }));
+      await writeFile(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`, JSON.stringify({ channel: CHN, at: Date.now() }));
       (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: hubPath(ctx) };
       activate(ctx);
       await vi.waitFor(() => expect(mock.panels.map((p) => p.viewType)).toEqual(["jam.conversationTab"]));
-      await expect(stat(`${ctx.globalStorageUri.path}/hub/pending.json`)).rejects.toThrow();
+      await expect(stat(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`)).rejects.toThrow();
     } finally {
       fetchSpy.mockRestore();
       deactivate();
@@ -903,13 +905,14 @@ describe("hub window", () => {
 
   it("a stale pending file is ignored and deleted", async () => {
     mock.reset();
+    mock.config["jam.url"] = JAM;
     const ctx = fakeContext();
     const fsp = await import("node:fs/promises");
     await fsp.mkdir(`${ctx.globalStorageUri.path}/hub`, { recursive: true });
-    await writeFile(`${ctx.globalStorageUri.path}/hub/pending.json`, JSON.stringify({ channel: CHN, at: Date.now() - 61_000 }));
+    await writeFile(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`, JSON.stringify({ channel: CHN, at: Date.now() - 61_000 }));
     (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: hubPath(ctx) };
     activate(ctx);
-    await vi.waitFor(() => expect(stat(`${ctx.globalStorageUri.path}/hub/pending.json`)).rejects.toThrow());
+    await vi.waitFor(() => expect(stat(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`)).rejects.toThrow());
     await settle();
     expect(mock.panels).toEqual([]);
     deactivate();
@@ -917,6 +920,7 @@ describe("hub window", () => {
 
   it("a bad /go link warns and opens nothing", async () => {
     mock.reset();
+    mock.config["jam.url"] = JAM;
     activate(fakeContext());
     mock.uriHandler!.handleUri({ path: "/go/chn_x", query: "" });
     await settle();
@@ -928,6 +932,7 @@ describe("hub window", () => {
 
   it("in the hub, the views follow the active conversation tab; a chat tab empties them", async () => {
     mock.reset();
+    mock.config["jam.url"] = JAM;
     const CHAT = "chn_1abcdefghjkmnpqrstvwxyz012";
     const calls: Call[] = [];
     const base = jamFetch(calls).getMockImplementation()!;
@@ -936,7 +941,6 @@ describe("hub window", () => {
       return base(input, init);
     });
     try {
-      mock.config["jam.url"] = JAM;
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
       hubWindow(ctx);
@@ -984,11 +988,124 @@ describe("hub window", () => {
 
   it("a …/hub link opens the hub", async () => {
     mock.reset();
+    mock.config["jam.url"] = JAM;
     const ctx = fakeContext();
     activate(ctx);
     mock.uriHandler!.handleUri({ path: "/hub", query: "" });
     await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
     expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: hubPath(ctx) }));
+    deactivate();
+  });
+});
+
+describe("several Jams", () => {
+  const B = "https://b.example";
+  const storedAt = (url: string, token: string) => JSON.stringify({ url, token, user: "u", expiresAt: "x" });
+  const hosts = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.map((c) => new URL(String(c[0])).host);
+
+  it("jam.multiJam is false with one Jam and true with two", () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    activate(fakeContext());
+    expect(mock.context.get("jam.multiJam")).toBe(false);
+    deactivate();
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = [B];
+    activate(fakeContext());
+    expect(mock.context.get("jam.multiJam")).toBe(true);
+    deactivate();
+  });
+
+  it("a link in a Jam-B window records the studio's Jam", async () => {
+    mock.reset();
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    const fsp = await import("node:fs/promises");
+    await fsp.mkdir(path.join(home, ".ssh"));
+    await writeFile(path.join(home, ".ssh", "config"), `Host jam-${SES}\n  HostName x\n`);
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const getExt = vi.mocked(vscode.extensions.getExtension);
+    getExt.mockImplementation(() => ({}) as vscode.Extension<unknown>);
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = [B];
+      mock.config["remote.SSH.localServerDownload"] = "always";
+      const ctx = fakeContext();
+      ctx.secretValues.set(`jam.session:${B}`, storedAt(B, "t2"));
+      await ctx.workspaceState.update("jam.windowJam", B);
+      activate(ctx);
+      mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      expect(ctx.state.get(`jam.studioJam.${SES}`)).toBe(B);
+      expect(hosts(fetchSpy)).toContain("b.example");
+      expect(hosts(fetchSpy)).not.toContain("jam.example.com");
+    } finally {
+      getExt.mockImplementation(() => undefined);
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+      deactivate();
+    }
+  });
+
+  it("a studio window recorded for Jam B talks to B", async () => {
+    mock.reset();
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = [B];
+      const ctx = fakeContext();
+      ctx.secretValues.set(`jam.session:${B}`, storedAt(B, "t2"));
+      ctx.state.set(`jam.studioJam.${SES}`, B);
+      remoteFolder();
+      activate(ctx);
+      const v = openView();
+      v.receive({ type: "ready", pane: "status" });
+      await vi.waitFor(() => expect(lastState(v)).toMatchObject({ signedIn: true }));
+      expect(hosts(fetchSpy)).toContain("b.example");
+      expect(hosts(fetchSpy)).not.toContain("jam.example.com");
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("Switch Jam stores the choice and reloads", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = [B];
+    const ctx = fakeContext();
+    activate(ctx);
+    mock.pick = { label: B };
+    await mock.commands.get("jam.switchJam")!();
+    expect(ctx.workspaceState.get("jam.windowJam")).toBe(B);
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("workbench.action.reloadWindow");
+    deactivate();
+  });
+
+  it("Switch Jam in a hub says the hub belongs to its Jam", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = [B];
+    const ctx = fakeContext();
+    (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: `${ctx.globalStorageUri.path}/hub/Jam Hub (b.example).code-workspace` };
+    activate(ctx);
+    await mock.commands.get("jam.switchJam")!();
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(`This window belongs to ${B}.`);
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith("workbench.action.reloadWindow");
+    deactivate();
+  });
+
+  it("each Jam's hub is its own workspace file", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = [B];
+    const ctx = fakeContext();
+    await ctx.workspaceState.update("jam.windowJam", B);
+    activate(ctx);
+    await mock.commands.get("jam.openHub")!();
+    expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/hub/Jam Hub (b.example).code-workspace` }));
     deactivate();
   });
 });
