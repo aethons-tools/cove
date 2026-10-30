@@ -94,7 +94,12 @@ Conversation tabs and views:
 - [ ] macOS: `jam vscode install` adds `~/Applications/Jam Hub (<host>).app` with the J icon; it opens VS Code on the hub (VS Code closed and open) and stays in the Dock when kept there.
 - [ ] Linux: the *Jam Hub (<host>)* entry shows in the app menu with the J icon and opens the hub.
 - [ ] `jam vscode install --code codium` adds a `… VSCodium` launcher that opens VSCodium.
-- [ ] A launcher for another Jam warns, and still opens the hub.
+- [ ] A launcher for an unlisted Jam warns with *Add it* and opens nothing.
+- [ ] Several Jams: *Jam: Add a Jam…* adds a second Jam and signs in to it; *Open its hub* opens `Jam Hub (<host>)`.
+- [ ] *Jam: Switch Jam…* in an ordinary window reloads it onto the other Jam (rail, badge); a hub says it belongs to its Jam.
+- [ ] A studio window opened from the second Jam reconnects to it after a reload (`~/.ssh/config` names `--app vscode-<host>`).
+- [ ] A notification from the second Jam in a first-Jam window opens the second Jam's hub on that conversation.
+- [ ] Removing the second Jam from `jam.urls`: a window switched to it falls back to `jam.url`.
 - [ ] In the hub, a rail click opens a conversation tab; a second click reveals it. Tabs split side by side and come back after a reload.
 - [ ] In the hub, Thinking/Status/Artifacts/Previews follow the active conversation tab; a chat tab empties them.
 - [ ] A notification's Open (and the OS click) with the session's studio window open focuses it; without, it opens the hub tab.

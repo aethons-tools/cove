@@ -55,12 +55,13 @@ operators also have `/admin/vscode` and `/admin/vscode/jam.vsix`. How the `.vsix
 
 ## Settings
 
-Both are **application-scoped**: only your user settings apply, never a workspace's.
+All are **application-scoped**: only your user settings apply, never a workspace's.
 A repository you open can't point the extension at its own Jam or make it run its own binary.
 
 | Setting | Meaning |
 |---------|---------|
-| `jam.url` | Your Jam's address, `https:` only (`http:` for localhost). |
+| `jam.url` | Your Jam's address, `https:` only (`http:` for localhost): the default Jam. |
+| `jam.urls` | More Jams' addresses (same rules); each gets its own sign-in and hub ([vscode-hub.md](vscode-hub.md#several-jams)). *Jam: Add a Jam…* appends here. |
 | `jam.cliPath` | Absolute path to `jam`; empty searches `PATH`. |
 
 ## Sign in and out
@@ -70,6 +71,8 @@ On approval the extension keeps the app token in VS Code's SecretStorage
 and in `~/.config/jam/default-app-token.json` (`$XDG_CONFIG_HOME/jam/…`; 0600), which the `jam` CLI reads.
 Opening a session rewrites that file from the stored sign-in if it is missing or stale.
 *Jam: Sign Out* clears both.
+Each Jam has its own sign-in: *Jam: Sign In* and *Sign Out* act on the window's Jam ([vscode-hub.md](vscode-hub.md#several-jams));
+a Jam other than `jam.url` keeps its token under its own secret and in `vscode-<host>-app-token.json`.
 Revoke it from the web app's **Connected apps** ([app-tokens.md](app-tokens.md));
 the next open then reports you signed out and offers Sign In.
 
@@ -147,7 +150,7 @@ What notifies is the phone's rule ([push.md](push.md#what-notifies)), not restat
   the CLI's `ssh-proxy` renews it when a connection starts).
 - **The token file** above.
 
-The ProxyCommand pins `--participant`; `jam` uses the token file when it names the same Jam
+The ProxyCommand pins `--participant` (and, for a Jam other than `jam.url`, `--app vscode-<host>`, its token profile); `jam` uses the token file when it names the same Jam
 (see [collaboration.md](collaboration.md)).
 
 ## `remote.SSH.localServerDownload`

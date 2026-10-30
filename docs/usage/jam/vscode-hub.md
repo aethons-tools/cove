@@ -1,7 +1,7 @@
 ---
 summary: The Jam VS Code extension's rail (the Conversations view, in every window) and hub window (conversations as editor tabs, the session views following the active tab), and how going to a conversation picks a studio window or the hub.
-read_when: You are using or changing the VS Code rail or hub — a rail click or double-click, ▣, the needs-you badge, Jam: Open Hub, the Jam Hub launcher, conversation tabs, the hub's views, the pending handoff from another window — or a click went to the wrong window.
-owns: the VS Code rail (jam.rail) and its clicks, ▣ and badge; the hub window (Jam Hub.code-workspace), Jam: Open Hub, the Jam Hub launcher and the …/hub and …/go links; going to a conversation and hub/pending.json; conversation tabs in the hub and the hub's views
+read_when: You are using or changing the VS Code rail or hub, or using several Jams — a rail click or double-click, ▣, the needs-you badge, Jam: Open Hub, the Jam Hub launcher, conversation tabs, the hub's views, the pending handoff from another window — or a click went to the wrong window.
+owns: the VS Code rail (jam.rail) and its clicks, ▣ and badge; the hub windows (Jam Hub (<host>).code-workspace), Jam: Open Hub, the Jam Hub launcher and the …/hub and …/go links; several Jams (each window's Jam, Switch Jam, Add a Jam, notifications from every Jam); going to a conversation and hub/pending.json; conversation tabs in the hub and the hub's views
 prereqs: vscode.md for installing the extension, studio windows and the panes' shared rules
 tier: leaf
 updated: 2026-10-30
@@ -27,13 +27,13 @@ It has no *New message* or *New session* buttons yet; use the web app for those.
 ## The hub
 
 The hub is a window with no studio connected: *Jam: Open Hub*, or a `vscode://aethons.jam/hub` link (`vscodium://…` in VSCodium), opens it, or brings it to the front.
-It is the workspace `Jam Hub.code-workspace` (no folders) in the extension's global storage.
+Each Jam has its own hub: the workspace `Jam Hub (<host>).code-workspace` (no folders) in the extension's global storage.
 
 - **Conversations are editor tabs:** one per conversation, titled with its label. Keep several open, split them, close them; they come back after a reload. VS Code revives a background tab only when it is first shown, so a conversation opened again before then briefly has two tabs; showing the restored one closes it and reveals the other (as with board tabs).
 - **The views** (Thinking, Status, Artifacts, Previews) show the session of the conversation tab you last made active; a chat or room tab, or none yet, shows "Open a session's conversation to see its …".
 - **Previews** open in the browser: the hub has no studio connection to forward through.
 - **Going to a conversation** (a rail click, a notification, a `…/go/<chn>` link) works the same in every window: its session's studio window if one is open (its connected mark is fresh), otherwise its tab in the hub.
-  From another window, the extension writes `hub/pending.json` (the channel and the time) in global storage and opens the hub; the hub opens the tab when it starts or next gains focus, and deletes the file. A request older than 60 s is dropped.
+  From another window, the extension writes `hub/pending-<host>.json` (the channel and the time) in global storage and opens that Jam's hub; the hub opens the tab when it starts or next gains focus, and deletes the file. A request older than 60 s is dropped.
 
 ## The launcher
 
@@ -43,5 +43,14 @@ it opens `<scheme>://aethons.jam/hub?jam=<Jam URL>`, which starts the editor and
 - **macOS:** `~/Applications/Jam Hub (<host>).app`, a tiny unsigned app that runs `open` on the link. Drag it to the Dock to keep it there.
 - **Linux:** `~/.local/share/applications/jam-hub-<host>.desktop` (icon in `~/.local/share/icons/hicolor/512x512/apps/jam-hub.png`), shown in the app menu; it runs `xdg-open` on the link.
 - **Elsewhere:** no launcher; the install prints the link to open instead.
-- A launcher for a Jam other than `jam.url` still opens the hub, with a warning naming both (one hub per Jam comes later).
+- A launcher opens its own Jam's hub. One for a Jam that isn't in `jam.url`/`jam.urls` opens nothing; it warns, with *Add it*.
 - A launcher that can't be written (e.g. no writable home) is a warning; the extension is installed regardless.
+
+## Several Jams
+
+`jam.url` is the default Jam; `jam.urls` lists more (*Jam: Add a Jam…* adds one and signs in to it). Each Jam has its own sign-in, hub and launcher.
+
+- **Each window shows one Jam:** a hub its own; a studio window the Jam it was opened from (kept across reloads); any other window the one picked with *Jam: Switch Jam…* (shown only with several Jams; the window reloads onto it), else `jam.url`. The rail, badge, Sign In/Out and the views all follow it. A Jam later removed from the list falls back to `jam.url`; a hub for a removed Jam shows the sign-in copy.
+- **Notifications come from every Jam you're signed in to**, each event once across windows (one lock per Jam). Open goes to that Jam's conversation: its studio window if open (focused without a new sign-in), else its tab in that Jam's hub. OS notification links for a non-default Jam carry `&jam=<url>`.
+- **Links:** `…/go/<chn>?jam=<url>` and `…/hub?jam=<url>` name the Jam; one for a Jam not in the list warns and opens nothing.
+
