@@ -8,13 +8,13 @@ export const CHANNEL_RE = /^chn_[0-7][0-9a-hjkmnp-tv-z]{25}$/;
 export type Route =
   | { kind: "auth"; query: URLSearchParams }
   | { kind: "session"; id: string }
-  | { kind: "hub" }
+  | { kind: "hub"; jam: string } // jam: the launcher's Jam URL ("" = none)
   | { kind: "go"; channel: string; session: string }
   | { kind: "bad"; reason: string };
 
 export function route(path: string, query: string): Route {
   if (path === "/auth") return { kind: "auth", query: new URLSearchParams(query) };
-  if (path === "/hub") return { kind: "hub" };
+  if (path === "/hub") return { kind: "hub", jam: new URLSearchParams(query).get("jam") ?? "" };
   const go = /^\/go\/([^/]+)$/.exec(path);
   if (go) {
     const channel = go[1]!;

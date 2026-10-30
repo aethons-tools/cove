@@ -960,6 +960,28 @@ describe("hub window", () => {
     }
   });
 
+  it("a launcher for another Jam warns and still opens the hub", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const ctx = fakeContext();
+    activate(ctx);
+    mock.uriHandler!.handleUri({ path: "/hub", query: "jam=https%3A%2F%2Fother.example" });
+    await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledWith("This Jam Hub launcher is for https://other.example, but jam.url is https://jam.example.com.");
+    deactivate();
+  });
+
+  it("a launcher for this Jam opens the hub quietly", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const ctx = fakeContext();
+    activate(ctx);
+    mock.uriHandler!.handleUri({ path: "/hub", query: `jam=${encodeURIComponent(JAM)}` });
+    await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+    expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
+    deactivate();
+  });
+
   it("a …/hub link opens the hub", async () => {
     mock.reset();
     const ctx = fakeContext();

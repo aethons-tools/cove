@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { ApiError, JamApi, SignedOutError } from "./api";
 import { Auth } from "./auth";
-import { settings } from "./config";
+import { normalizeJamUrl, settings } from "./config";
 import { editorFor } from "./editor";
 import { forgetHostKey } from "./hostkey";
 import {
@@ -532,6 +532,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
         if (r.kind === "auth") {
           if (!auth.handleCallback(r.query)) void vscode.window.showWarningMessage("Jam: no sign-in is waiting for that link.");
         } else if (r.kind === "hub") {
+          // A launcher names its Jam; until hubs are per Jam, say so when it isn't this one.
+          const want = r.jam ? normalizeJamUrl(r.jam) : undefined;
+          const have = jamSettings().url;
+          if (typeof want === "string" && want !== have) {
+            void vscode.window.showWarningMessage(`This Jam Hub launcher is for ${want}, but jam.url is ${have instanceof Error ? "not set" : have}.`);
+          }
           void guard(() => ui.openHub())();
         } else if (r.kind === "go") {
           void goToConversation(r.channel, r.session);

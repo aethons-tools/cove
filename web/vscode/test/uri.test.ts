@@ -13,7 +13,8 @@ describe("route", () => {
     expect(route(`/session/${id}`, "")).toEqual({ kind: "session", id });
   });
   it("/hub is the hub", () => {
-    expect(route("/hub", "")).toEqual({ kind: "hub" });
+    expect(route("/hub", "")).toEqual({ kind: "hub", jam: "" });
+    expect(route("/hub", "jam=https%3A%2F%2Fj")).toEqual({ kind: "hub", jam: "https://j" });
     expect(route("/hub/x", "").kind).toBe("bad");
   });
   it("/go/<chn> is go, with an optional valid session", () => {
