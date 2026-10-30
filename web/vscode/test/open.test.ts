@@ -291,10 +291,10 @@ describe("connectStudio", () => {
 });
 
 describe("disconnectStudio", () => {
-  it("reloads this window onto its local workspace, with no API call (deactivate unmarks)", async () => {
+  it("unmarks the session, then reloads this window onto its local workspace, with no API call", async () => {
     const f = fake({ connected: [ID] });
     await disconnectStudio(f.d, ID);
-    expect(f.order).toEqual([`open ${local(ID)} reuse`]);
+    expect(f.order).toEqual([`unmark ${ID}`, `open ${local(ID)} reuse`]);
     expect(f.ui.openFolder).toHaveBeenCalledWith(local(ID), { reuse: true });
     expect(f.signedIn).not.toHaveBeenCalled();
     expect(f.ssh).not.toHaveBeenCalled();

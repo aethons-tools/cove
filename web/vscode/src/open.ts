@@ -229,15 +229,17 @@ export async function connectStudio(d: OpenDeps, id: string): Promise<void> {
   });
 }
 
-// disconnectStudio reloads this window onto the session's local workspace;
-// Remote-SSH closes the connection, so the studio can idle. The studio
-// window's deactivate clears its connected flag.
+// disconnectStudio clears the session's connected flag and reloads this window
+// onto the session's local workspace; Remote-SSH closes the connection, so the
+// studio can idle. The flag is cleared here, before the reload: a write from
+// the studio window's deactivate can be lost as the window reloads.
 export async function disconnectStudio(d: OpenDeps, id: string): Promise<void> {
   if (!SESSION_ID_RE.test(id)) {
     d.log(`disconnect: refused a bad session id (${JSON.stringify(id.slice(0, 80))})`);
     return;
   }
   const uri = await d.ui.localWorkspace(id);
+  await d.ui.setConnected(id, false);
   d.log(`[${id}] disconnecting: openFolder ${uri} (this window)`);
   await d.ui.openFolder(uri, { reuse: true });
 }
