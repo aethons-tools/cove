@@ -61,7 +61,7 @@ RUN install -m 0755 -d /etc/apt/keyrings \
 
 # code-server: the built-in Studio IDE (docs/superpowers/specs/2026-10-25-session-studio-view-design.md).
 # Renovate bumps CODE_SERVER_VERSION; update both SHA-256s with it (the build fails on a mismatch).
-ARG CODE_SERVER_VERSION=4.143.1
+ARG CODE_SERVER_VERSION=4.144.0
 ARG CODE_SERVER_SHA256_AMD64=e4b771c98fafbe2af3990ecd71d93ba22515588db550007076768a014ae34c02
 ARG CODE_SERVER_SHA256_ARM64=79ca8df2db219b24de75e2a830c5302808124d8c2bf132f4bc6105cea834bb1c
 RUN set -eux; arch="$(dpkg --print-architecture)"; \
