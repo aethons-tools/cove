@@ -378,3 +378,40 @@ func TestAPISessionHeadChannel(t *testing.T) {
 		t.Errorf("head JSON lacks channel: %s", rec.Body)
 	}
 }
+
+// Rail rows carry their head session and whether the viewer may SSH into it.
+func TestAPIRailRowSessionAndSSH(t *testing.T) {
+	e, p, personal, standing, _ := sessionEnv(t)
+	req := httptest.NewRequest("GET", "/app/user/api/rail", nil)
+	rec := httptest.NewRecorder()
+	Handler(e.Deps, nil).ServeHTTP(rec, asPrincipal(req, p, false))
+	rr := decodeAs[RailResponse](t, rec)
+	homeOf := func(inst jam.Instance) string {
+		ch, err := e.Intercom.HomeChannel(inst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(ch.ID)
+	}
+	rows := map[string]ChannelRow{}
+	for _, g := range rr.Groups {
+		for _, r := range g.Rows {
+			rows[r.ID] = r
+		}
+	}
+	mine, theirs := homeOf(personal), homeOf(standing)
+	if r, ok := rows[mine]; !ok || r.Session != personal.ActorID || !r.SSH {
+		t.Errorf("personal row = %+v (present %v)", r, ok)
+	}
+	if r, ok := rows[theirs]; !ok || r.Session != standing.ActorID || r.SSH {
+		t.Errorf("standing row = %+v (present %v)", r, ok)
+	}
+	for id, r := range rows {
+		if id != mine && id != theirs && (r.Session != "" || r.SSH) {
+			t.Errorf("row %s = %+v, want no session", id, r)
+		}
+	}
+	if !strings.Contains(rec.Body.String(), `"session":"`+personal.ActorID+`","ssh":true`) {
+		t.Errorf("rail JSON lacks session/ssh: %s", rec.Body)
+	}
+}

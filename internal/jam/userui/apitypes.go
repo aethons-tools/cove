@@ -73,6 +73,11 @@ type ChannelRow struct {
 	LastSeq  int64           `json:"lastSeq"`
 	Selected bool            `json:"selected"`
 	Mission  string          `json:"mission"` // the backing session's one-line focus; "" = none
+	// Session is the actor id of the session whose home this channel is,
+	// when the viewer may see it ("" = none), as api/conversations reports it.
+	Session string `json:"session"`
+	// SSH reports whether the viewer may SSH into Session's studio.
+	SSH bool `json:"ssh"`
 }
 
 // RailGroup is one attention section of the rail (Needs you / Sessions /
