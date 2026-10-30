@@ -68,6 +68,15 @@ func near(c color.RGBA, r, g, b uint8) bool {
 	return c.A == 0xff && d(c.R, r) && d(c.G, g) && d(c.B, b)
 }
 
+func TestVSCodeSpecs(t *testing.T) {
+	if len(icongen.VSCodeSpecs) != 1 {
+		t.Fatalf("got %d VS Code specs, want 1", len(icongen.VSCodeSpecs))
+	}
+	if s := icongen.VSCodeSpecs[0]; s.Name != "icon.png" || s.Size != 256 || s.Background != nil {
+		t.Errorf("VS Code spec %+v, want a transparent 256 px icon.png", s)
+	}
+}
+
 func TestRenderTransparentHasMarkColours(t *testing.T) {
 	img, err := icongen.Render(loadSVG(t), spec(t, "icon-512.png"))
 	if err != nil {
@@ -110,13 +119,23 @@ func TestRenderMaskableSafeZone(t *testing.T) {
 }
 
 func TestCommittedIconsMatchGenerator(t *testing.T) {
+	checkCommitted(t, icongen.Specs, filepath.Join("..", "static", "icons"))
+}
+
+// The VS Code extension's icon, in web/vscode/media.
+func TestCommittedVSCodeIconsMatchGenerator(t *testing.T) {
+	checkCommitted(t, icongen.VSCodeSpecs, filepath.Join("..", "..", "..", "..", "web", "vscode", "media"))
+}
+
+func checkCommitted(t *testing.T, specs []icongen.Spec, dir string) {
+	t.Helper()
 	svg := loadSVG(t)
-	for _, s := range icongen.Specs {
+	for _, s := range specs {
 		want, err := icongen.Render(svg, s)
 		if err != nil {
 			t.Fatal(err)
 		}
-		b, err := os.ReadFile(filepath.Join("..", "static", "icons", s.Name))
+		b, err := os.ReadFile(filepath.Join(dir, s.Name))
 		if err != nil {
 			t.Fatalf("%s drifted; run `just icons`: %v", s.Name, err)
 		}

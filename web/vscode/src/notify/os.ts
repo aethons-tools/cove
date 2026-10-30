@@ -166,7 +166,7 @@ export class OsNotifier {
   private async linux(n: OsNote): Promise<void> {
     const cap = await this.capability();
     if (cap === "off" || this.disposed) return;
-    const icon = join(this.d.extensionPath, "media", "jam.svg");
+    const icon = join(this.d.extensionPath, "media", "icon.png");
     const args = notifySendArgs(n, cap === "actions", icon);
     if (cap === "plain") {
       try {

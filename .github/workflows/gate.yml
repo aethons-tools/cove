@@ -24,11 +24,9 @@ permissions:
   contents: read
 
 jobs:
-  # NOTE: this job's name ("gate") is what branch protection lists as the
-  # required status check. Renaming it silently un-gates main — protection goes
-  # on waiting for a check that no longer reports — so only rename it together
-  # with the branch-protection setting.
-  gate:
+  # Two legs run side by side — Go (tests, installer, image script, lint) and
+  # web (the app's checks, the VS Code extension) — and `gate` joins them.
+  go:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -60,24 +58,10 @@ jobs:
         with:
           node-version: 26
           cache: npm
-          cache-dependency-path: |
-            web/app/package-lock.json
-            web/vscode/package-lock.json
-      # The Jam app (web/app): the bundle (npm ci, build, size budget) so the
-      # Go tests below serve the real app, then API types current, typecheck,
-      # lint and unit tests on the same install (one npm ci: the job has a
-      # 10-minute limit).
+          cache-dependency-path: web/app/package-lock.json
+      # The Jam app bundle, so the Go tests below serve the real app.
       - name: app bundle
         run: ./scripts/app.sh
-      - name: app checks
-        run: ./scripts/app-types-check.sh && (cd web/app && npm run check)
-      # The VS Code extension (web/vscode): checks, bundle and the .vsix.
-      - name: vscode extension
-        run: ./scripts/vscode.sh
-      - uses: actions/upload-artifact@v7
-        with:
-          name: jam-vscode
-          path: web/vscode/dist/jam.vsix
 
       # Mirrors `just test` — hermetic, no docker/network/ssh.
       - name: test
@@ -97,3 +81,54 @@ jobs:
       # loop cannot drift.
       - name: lint
         run: STRICT=1 ./scripts/lint.sh
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # The API types check generates them from Go (tygo).
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: |
+            web/app/package-lock.json
+            web/vscode/package-lock.json
+      # The Jam app (web/app): API types current, typecheck, lint and unit
+      # tests. scripts/npm-ci.sh installs web/app once for this and the
+      # extension's webview build below.
+      - name: app checks
+        run: ./scripts/app-types-check.sh && (cd web/app && ../../scripts/npm-ci.sh && npm run check)
+      # The VS Code extension (web/vscode): checks, bundle and the .vsix.
+      - name: vscode extension
+        run: ./scripts/vscode.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: jam-vscode
+          path: web/vscode/dist/jam.vsix
+
+  # NOTE: this job's name ("gate") is what branch protection lists as the
+  # required status check. Renaming it silently un-gates main — protection goes
+  # on waiting for a check that no longer reports — so only rename it together
+  # with the branch-protection setting. It passes only when both legs passed
+  # (always() so a failed leg still reports a failed gate, not a skipped one).
+  gate:
+    needs: [go, web]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: both legs passed
+        env:
+          GO_LEG: ${{ needs.go.result }}
+          WEB_LEG: ${{ needs.web.result }}
+        run: |
+          echo "go: $GO_LEG, web: $WEB_LEG"
+          test "$GO_LEG" = success && test "$WEB_LEG" = success

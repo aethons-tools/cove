@@ -327,6 +327,9 @@ jobs:
           args: release --snapshot --clean --skip=publish
         env:
           VERSION: ${{ needs.changes.outputs.version }}
+          # The gate already ran the extension's typecheck and tests on this
+          # commit; the before-hook (scripts/stage-vscode.sh) only packages it.
+          VSCODE_SKIP_CHECK: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # main: snapshot build → archives + checksums stamped <N>-<MMDD> (snapshot
@@ -340,6 +343,9 @@ jobs:
           args: release --snapshot --clean
         env:
           VERSION: ${{ needs.changes.outputs.version }}
+          # The gate already ran the extension's typecheck and tests on this
+          # commit; the before-hook (scripts/stage-vscode.sh) only packages it.
+          VSCODE_SKIP_CHECK: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Every archive must hold exactly jam and jam-studio-manager — on the PR
@@ -359,7 +365,9 @@ jobs:
       # The Jam container image is built FROM the binaries goreleaser just put in
       # dist/ (scripts/jam-image.sh), so it carries exactly the released jam and
       # its tag is the release version.
+      # QEMU only for main's arm64 half; a PR builds amd64 natively.
       - uses: docker/setup-qemu-action@v4
+        if: github.event_name == 'push'
       - uses: docker/setup-buildx-action@v4
 
       # PR: build the amd64 image into the local daemon and smoke it; never publish.

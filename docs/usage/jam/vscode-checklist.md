@@ -19,6 +19,7 @@ What the extension does: [vscode.md](vscode.md).
 - The webview bundle is `web/app/vite.vscode.config.ts`, which `scripts/vscode.sh` runs before the esbuild step; its output is `web/vscode/dist/webview/` (`pane.js`, `pane.css`), and the script fails without them. It also copies Excalidraw's fonts (all but Xiaolai) to `dist/webview/excalidraw/fonts/` for the board tabs, and fails if no `.woff2` lands.
 - The macOS notifier: `scripts/vscode.sh` vendors `terminal-notifier.app` (from `node-notifier@12.0.0`, into `dist/vendor/mac.noindex/`, with its MIT licence as `dist/vendor/terminal-notifier-LICENSE`.
 - `just vscode-check` runs only `npm ci` and `npm run check`.
+- `VSCODE_SKIP_CHECK=1` makes `scripts/vscode.sh` skip `npm run check`; the release leg sets it, as the gate already ran the checks on that commit.
 - **Version:** `package.json` stays `0.0.0`; `VERSION=<N>-<MMDD>` stamps `0.<N>.0` (vsce needs SemVer). `VSIX_OUT` names the output.
 - **CI:** the gate builds it and uploads the artifact `jam-vscode` (`jam.vsix`). A release attaches `jam-vscode_<version>.vsix` beside the binaries.
 - **Embedded in `jam`:** a goreleaser before-hook runs `scripts/stage-vscode.sh`, which builds it into `internal/jam/vscodeext/vsix/jam.vsix` (git-ignored; only `.keep` is committed) for `jam`'s `//go:embed`. The release asset is that same file, so Jam serves exactly what the release ships ([vscode.md](vscode.md#updates)). A plain `go build` embeds none, and Jam answers `available: false`. The extension's version is read from the `package.json` inside the `.vsix`.
@@ -78,6 +79,7 @@ VSCodium (with the `.vsix` installed in VSCodium):
 
 Conversation view:
 
+- [ ] The J mark shows in the Extensions view (colour), the activity bar and the Thinking panel (tinted), on board tabs (colour) and in Linux notifications.
 - [ ] The Jam icon shows, and the Conversation renders for the window's session in the light, dark and high-contrast themes.
 - [ ] Send a message with an attachment and watch progress, then send an image and see the thumbnail.
 - [ ] Answer an ask inline.
