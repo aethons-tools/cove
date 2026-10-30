@@ -16,12 +16,13 @@ import {
   windowKind,
 } from "../src/open";
 import type { OpenDeps, Ui } from "../src/open";
+import { editorFor } from "../src/editor";
 
 const ID = "ses_0abcdefghjkmnpqrstvwxyz012";
 const URL_ = "https://jam.example.com";
 const local = (id: string) => `file:///gs/sessions/${id}.code-workspace`;
 
-function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: boolean; global?: unknown; rail?: unknown; conv?: unknown; connected?: string[] } = {}) {
+function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: boolean; global?: unknown; rail?: unknown; conv?: unknown; connected?: string[]; scheme?: string } = {}) {
   const mem = new Set<string>();
   const connected = new Set<string>(over.connected ?? []);
   const state = { global: over.global as unknown };
@@ -69,7 +70,7 @@ function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: 
     if (over.sshErr) throw over.sshErr;
     return { alias: `jam-${s}`, owner: "extension" as const };
   });
-  const d: OpenDeps = { ui, signedIn, ssh: ssh as never, log: (m) => void logs.push(m) };
+  const d: OpenDeps = { ui, editor: editorFor(over.scheme ?? "vscode"), signedIn, ssh: ssh as never, log: (m) => void logs.push(m) };
   return { d, ui, api, signedIn, ssh, answers, titles, steps, logs, order, connected };
 }
 
@@ -242,6 +243,12 @@ describe("connectStudio", () => {
     expect(f.ssh).not.toHaveBeenCalled();
   });
 
+  it("in VSCodium, missing Open Remote - SSH offers Install", async () => {
+    const f = fake({ remote: false, scheme: "vscodium" });
+    await connectStudio(f.d, ID);
+    expect(f.ui.error).toHaveBeenCalledWith("Connecting to a studio needs jeanp413's Open Remote - SSH extension.", "Install");
+  });
+
   it("ssh error is shown and logged, and does not connect", async () => {
     const f = fake({ sshErr: new Error("The jam CLI was not found.") });
     await connectStudio(f.d, ID);
@@ -274,6 +281,14 @@ describe("connectStudio", () => {
     await connectStudio(f.d, ID);
     expect(f.ui.info).not.toHaveBeenCalled();
     expect(f.ui.openFolder).toHaveBeenCalledTimes(2);
+  });
+
+  it("in VSCodium, never asks about localServerDownload", async () => {
+    const f = fake({ global: "auto", scheme: "vscodium" });
+    await connectStudio(f.d, ID);
+    expect(f.ui.info).not.toHaveBeenCalled();
+    expect(f.ui.setGlobal).not.toHaveBeenCalled();
+    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID), { reuse: true });
   });
 
   it("Not now still connects and is remembered", async () => {

@@ -29,6 +29,6 @@ export function consentUrl(
 // redirectFor is the callback URL for this editor, or an Error for a build
 // (code-oss, ...) whose scheme Jam doesn't accept.
 export function redirectFor(uriScheme: string): string | Error {
-  if (uriScheme === "vscode" || uriScheme === "vscode-insiders") return `${uriScheme}://aethons.jam/auth`;
-  return new Error(`Jam sign-in supports VS Code and VS Code Insiders, not "${uriScheme}"`);
+  if (uriScheme === "vscode" || uriScheme === "vscode-insiders" || uriScheme === "vscodium") return `${uriScheme}://aethons.jam/auth`;
+  return new Error(`Jam sign-in supports VS Code, VS Code Insiders and VSCodium, not "${uriScheme}"`);
 }

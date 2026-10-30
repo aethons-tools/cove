@@ -8,6 +8,7 @@ import * as vscode from "vscode";
 import { JamApi, SignedOutError } from "./api";
 import { Auth } from "./auth";
 import { settings } from "./config";
+import { editorFor } from "./editor";
 import { forgetHostKey } from "./hostkey";
 import {
   CONNECTED_BEAT_MS,
@@ -146,6 +147,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   };
   const connected = connectedSet(ctx.globalState);
 
+  const editor = editorFor(vscode.env.uriScheme);
   const ui: Ui = {
     error: async (m, ...a) => vscode.window.showErrorMessage(m, ...a),
     info: async (m, ...a) => vscode.window.showInformationMessage(m, ...a),
@@ -162,8 +164,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
     localWorkspace,
     isConnected: connected.isConnected,
     setConnected: connected.setConnected,
-    hasRemoteSsh: () => vscode.extensions.getExtension("ms-vscode-remote.remote-ssh") !== undefined,
-    installRemoteSsh: async () => void (await vscode.commands.executeCommand("workbench.extensions.installExtension", "ms-vscode-remote.remote-ssh")),
+    hasRemoteSsh: () => vscode.extensions.getExtension(editor.remoteSsh.id) !== undefined,
+    installRemoteSsh: async () => void (await vscode.commands.executeCommand("workbench.extensions.installExtension", editor.remoteSsh.id)),
     getGlobal: (section, key) => vscode.workspace.getConfiguration(section).inspect(key)?.globalValue,
     setGlobal: (section, key, v) => Promise.resolve(vscode.workspace.getConfiguration(section).update(key, v, vscode.ConfigurationTarget.Global)),
     remembered: (k) => ctx.globalState.get<boolean>(k) === true,
@@ -180,6 +182,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   let signedInUrl = "";
   const openDeps: OpenDeps = {
     ui,
+    editor,
     log,
     signedIn: async () => {
       const url = jamSettings().url;

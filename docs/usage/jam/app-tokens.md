@@ -33,7 +33,7 @@ Any bad parameter is a `400`, and Jam never redirects to a bad `redirect`.
 
 ### Redirects and codes
 
-`redirect` must start with `vscode://aethons.jam/` or `vscode-insiders://aethons.jam/`, compared as an exact string prefix.
+`redirect` must start with `vscode://aethons.jam/`, `vscode-insiders://aethons.jam/` or `vscodium://aethons.jam/`, compared as an exact string prefix.
 
 A code lives 60 s and works once.
 A failed exchange burns it too.

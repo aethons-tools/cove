@@ -142,6 +142,8 @@ func TestValidRedirect(t *testing.T) {
 	for s, want := range map[string]bool{
 		"vscode://aethons.jam/auth":              true,
 		"vscode-insiders://aethons.jam/auth?x=1": true,
+		"vscodium://aethons.jam/auth":            true,
+		"vscodium://aethons.jam.evil/":           false,
 		"vscode://aethons.jam.evil/":             false,
 		"vscode://aethons.jam":                   false,
 		"vscode://other/":                        false,
@@ -207,7 +209,7 @@ func checkSecurityHeaders(t *testing.T, w *httptest.ResponseRecorder) {
 	t.Helper()
 	h := w.Header()
 	if h.Get("Cache-Control") != "no-store" || h.Get("X-Frame-Options") != "DENY" ||
-		h.Get("Content-Security-Policy") != "default-src 'none'; style-src 'self'; form-action 'self' vscode: vscode-insiders:; frame-ancestors 'none'" {
+		h.Get("Content-Security-Policy") != "default-src 'none'; style-src 'self'; form-action 'self' vscode: vscode-insiders: vscodium:; frame-ancestors 'none'" {
 		t.Fatalf("headers %v", h)
 	}
 }

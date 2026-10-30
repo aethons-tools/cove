@@ -9,6 +9,8 @@ export type LinkAction = { intent: OpenIntent } | { scrollTo: string } | { allow
 // HERE stands in for the Jam origin a link's path is relative to.
 const HERE = "https://jam.invalid/";
 const EXTERNAL = new Set(["http:", "https:", "mailto:"]);
+// EDITORS are the schemes of the Jam extension's links (web/vscode/src/pkce.ts).
+const EDITORS = new Set(["vscode:", "vscode-insiders:", "vscodium:"]);
 
 // linkAction is what a click on href (a link's href attribute) does in the
 // pane showing paneChannel.
@@ -21,7 +23,7 @@ export function linkAction(href: string, paneChannel: string): LinkAction {
   } catch {
     return { drop: true };
   }
-  if ((u.protocol === "vscode:" || u.protocol === "vscode-insiders:") && u.host === "aethons.jam") {
+  if (EDITORS.has(u.protocol) && u.host === "aethons.jam") {
     const m = /^\/session\/([^/]+)$/.exec(u.pathname);
     return m && SES_RE.test(m[1]!) ? { intent: { kind: "session", id: m[1]! } } : { drop: true };
   }

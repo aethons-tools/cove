@@ -1,6 +1,7 @@
 // Sign-in with an app token (PKCE): open the consent page in the browser,
 // wait for the vscode:// callback, exchange the code, and keep the session
 // in SecretStorage and in the CLI's token file.
+import { editorFor } from "./editor";
 import { consentUrl, newPkce, redirectFor } from "./pkce";
 import { appTokenFileHolds, removeAppTokenFile, writeAppTokenFile } from "./tokenfile";
 
@@ -77,7 +78,7 @@ export class Auth {
     });
     try {
       await this.d.openExternal(
-        consentUrl(url, { redirect, state: p.state, challenge: p.challenge, client: `VS Code on ${this.d.hostname}` }),
+        consentUrl(url, { redirect, state: p.state, challenge: p.challenge, client: `${editorFor(this.d.uriScheme).name} on ${this.d.hostname}` }),
       );
       const r = await got;
       if (r instanceof Error) throw r;

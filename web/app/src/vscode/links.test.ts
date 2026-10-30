@@ -35,6 +35,8 @@ describe("linkAction session links", () => {
   it.each<[string, LinkAction]>([
     [`vscode://aethons.jam/session/${SES}`, { intent: { kind: "session", id: SES } }],
     [`vscode-insiders://aethons.jam/session/${SES}`, { intent: { kind: "session", id: SES } }],
+    [`vscodium://aethons.jam/session/${SES}`, { intent: { kind: "session", id: SES } }],
+    ["vscodium://other/x", { drop: true }],
     ["vscode://aethons.jam/session/../x", { drop: true }],
     ["vscode://aethons.jam/session/ses_x", { drop: true }],
     ["vscode://other/x", { drop: true }],

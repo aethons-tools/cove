@@ -7,5 +7,6 @@ Host jam-ses_0abcdefghjkmnpqrstvwxyz012
   CertificateFile /home/u/.config/jam/ssh/ses_0abcdefghjkmnpqrstvwxyz012-cert.pub
   IdentitiesOnly yes
   StrictHostKeyChecking accept-new
+  PreferredAuthentications publickey,gssapi-with-mic
 Match all
 # <<< jam ses_0abcdefghjkmnpqrstvwxyz012 <<<

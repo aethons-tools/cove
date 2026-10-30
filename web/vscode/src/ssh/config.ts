@@ -36,6 +36,7 @@ export function renderBlock(o: BlockOpts): string {
     `  CertificateFile ${sshConfigPath(o.certPath)}`,
     "  IdentitiesOnly yes",
     "  StrictHostKeyChecking accept-new",
+    "  PreferredAuthentications publickey,gssapi-with-mic",
     "Match all",
     end,
   ].join("\n") + "\n";

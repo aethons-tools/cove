@@ -16,9 +16,11 @@ describe("pkce", () => {
       "https://jam.example.com/app/auth/app-token?redirect=vscode%3A%2F%2Faethons.jam%2Fauth&state=S&code_challenge=C&code_challenge_method=S256&client=VS+Code+on+host",
     );
   });
-  it("redirectFor accepts vscode and insiders only", () => {
+  it("redirectFor accepts vscode, insiders and vscodium only", () => {
     expect(redirectFor("vscode")).toBe("vscode://aethons.jam/auth");
     expect(redirectFor("vscode-insiders")).toBe("vscode-insiders://aethons.jam/auth");
+    expect(redirectFor("vscodium")).toBe("vscodium://aethons.jam/auth");
+    expect(redirectFor("vscodium-insiders")).toBeInstanceOf(Error);
     expect(redirectFor("code-oss")).toBeInstanceOf(Error);
   });
 });

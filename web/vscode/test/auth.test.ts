@@ -8,7 +8,7 @@ const URL_ = "https://jam.example.com";
 
 async function setup(
   exchange: () => Response = () => Response.json({ token: "tok1", expires_at: "2027-01-01T00:00:00Z", user: "ann" }),
-  o: { tokenFile?: string; deleteFails?: boolean } = {},
+  o: { tokenFile?: string; deleteFails?: boolean; uriScheme?: string } = {},
 ) {
   const store = new Map<string, string>();
   const secrets = {
@@ -26,7 +26,7 @@ async function setup(
     secrets,
     openExternal: async (u) => (opened.push(u), true),
     fetch: fetchFn as unknown as typeof fetch,
-    uriScheme: "vscode",
+    uriScheme: o.uriScheme ?? "vscode",
     hostname: "host",
     tokenFile,
   });
@@ -40,6 +40,14 @@ beforeEach(() => void vi.useFakeTimers());
 afterEach(() => void vi.useRealTimers());
 
 describe("Auth", () => {
+  it("names VSCodium as the client in VSCodium", async () => {
+    const t = await setup(undefined, { uriScheme: "vscodium" });
+    void t.auth.signIn(URL_).catch(() => {});
+    await tick();
+    const u = new URL(t.opened[0]!);
+    expect(u.searchParams.get("client")).toBe("VSCodium on host");
+    expect(u.searchParams.get("redirect")).toBe("vscodium://aethons.jam/auth");
+  });
   it("signIn opens the consent URL and completes on the matching callback", async () => {
     const t = await setup();
     const p = t.auth.signIn(URL_);
