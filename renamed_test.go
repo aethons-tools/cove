@@ -48,8 +48,6 @@ var renamedAllow = []struct {
 	{"docs/usage/jam/INDEX.md", []string{`at-jam`, `at-mint`, `at-studio-manager`, `harbor\.cove`}}, // the routing row to renamed-from-at.md names what it renames
 	{"docs/usage/jam/coves.md", []string{`cove-master`}},                                            // its link to the 2026-09-13-cove-master-client.md design spec (history keeps its name)
 	{"internal/legacynames/", nil},
-	{"web/vscode/src/ssh/config.ts", []string{`[<>]{3} at-jam`, `at-jam`}},      // the port of the CLI's legacy-block strip
-	{"web/vscode/test/sshconfig.test.ts", []string{`[<>]{3} at-jam`, `at-jam`}}, // its test
 	{"renamed_test.go", nil},
 	{"deleted_test.go", nil},
 	{"testdata/install-legacy", nil},                                                            // the frozen pre-rename installers
@@ -57,6 +55,9 @@ var renamedAllow = []struct {
 	{"install.sh", []string{`at-jam`, `at-mint`, `\bat-cove`, `at-studio-manager`}},             // the stale-binary notice
 	{".gitignore", []string{`at-jam`, `at-mint`, `cove-master`, `covemaster`, `covemasterbin`}}, // keeps stale local builds out of git
 	{".github/workflows/release.yml", []string{`\bcove-base\b`}},                                // the one-time re-cut copies the blessed bases out of the pre-rename repo
+	// The VS Code extension's port of the CLI's legacy-block strip, and its test.
+	{"web/vscode/src/ssh/config.ts", []string{`[<>]{3} at-jam`, `at-jam`}},
+	{"web/vscode/test/sshconfig.test.ts", []string{`[<>]{3} at-jam`, `at-jam`}},
 }
 
 func renamedAllowed(rel, token string) bool {
