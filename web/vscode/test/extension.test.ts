@@ -914,3 +914,50 @@ describe("local session windows (connect on demand)", () => {
     expect(ctx2.state.get(`jam.connected.${SES}`)).toBe(1234);
   });
 });
+
+describe("updates", () => {
+  it("a signed-in window offers Jam's newer extension, installs the downloaded .vsix and reloads", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.answers.push("Update", "Reload Window");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const u = new URL(String(input));
+      if (u.pathname === "/me/vscode") return Response.json({ available: true, version: "0.5.0" });
+      if (u.pathname === "/me/vscode/jam.vsix") return new Response(new Uint8Array([7, 7]));
+      if (u.pathname === "/app/user/events") return new Response(null, { status: 204 });
+      return Response.json({ groups: [] });
+    });
+    try {
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      (ctx as { extension?: unknown }).extension = { packageJSON: { version: "0.4.0" } };
+      activate(ctx);
+      await vi.waitFor(() => expect(vscode.commands.executeCommand).toHaveBeenCalledWith("workbench.action.reloadWindow"));
+      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith("A Jam extension update is available: 0.5.0 (you have 0.4.0).", "Update", "Later");
+      const install = vi.mocked(vscode.commands.executeCommand).mock.calls.find((c) => c[0] === "workbench.extensions.installExtension")!;
+      const file = (install[1] as { fsPath: string }).fsPath;
+      expect(file.endsWith("/updates/jam-vscode_0.5.0.vsix")).toBe(true);
+      expect([...(await readFile(file))]).toEqual([7, 7]);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a dev build never checks", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const calls: Call[] = [];
+    const fetchSpy = jamFetch(calls);
+    try {
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(calls.some((c) => c.path.startsWith("/me/vscode"))).toBe(false);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+});

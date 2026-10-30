@@ -51,6 +51,7 @@ import { PaneHub } from "./panes/hub";
 import { SESSION_PANES, SessionPaneProvider } from "./panes/session";
 import { NeedsYou } from "./needsyou";
 import { ThinkingStreams } from "./thinking";
+import { Updater } from "./update";
 
 const run: ExecFile = (file, args) => promisify(execFile)(file, args).then((r) => ({ stdout: String(r.stdout), stderr: String(r.stderr) }));
 // The OS notifier's execFile: no shell, argv only, with a timeout and an abort signal.
@@ -418,6 +419,36 @@ export function activate(ctx: vscode.ExtensionContext): void {
     needsYou.onLive(e);
   });
   ctx.subscriptions.push({ dispose: offLive }, { dispose: () => osNotifier.dispose() });
+
+  // --- Updates: Jam serves the extension it was released with (update.ts). ---
+  const updateLock = new NotifyLock({
+    dir: vscode.Uri.joinPath(ctx.globalStorageUri, "notify").fsPath,
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    now: Date.now,
+    fs: fsp,
+  });
+  const updater = new Updater({
+    version: String((ctx.extension?.packageJSON as { version?: unknown } | undefined)?.version ?? "0.0.0"),
+    session: current,
+    fetch: (...a) => fetch(...a),
+    claim: (id) => updateLock.claim(id, vscode.window.state.focused),
+    state: ctx.globalState,
+    ask: (m, ...a) => vscode.window.showInformationMessage(m, ...a),
+    install: async (vsix, version) => {
+      const dir = vscode.Uri.joinPath(ctx.globalStorageUri, "updates");
+      await fsp.mkdir(dir.fsPath, { recursive: true });
+      const f = vscode.Uri.joinPath(dir, `jam-vscode_${version}.vsix`);
+      await fsp.writeFile(f.fsPath, vsix);
+      await vscode.commands.executeCommand("workbench.extensions.installExtension", f);
+    },
+    reload: () => vscode.commands.executeCommand("workbench.action.reloadWindow"),
+    log,
+    now: Date.now,
+    setInterval,
+    clearInterval: (h) => clearInterval(h as ReturnType<typeof setInterval>),
+  });
+  updater.start();
+  ctx.subscriptions.push({ dispose: () => updater.dispose() });
   // A new jam.url means a new Jam: the permanent stream follows it.
   ctx.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {

@@ -1,10 +1,10 @@
 ---
-summary: The Jam VS Code extension (`aethons.jam`) — installing the .vsix, signing in with an app token, opening a session's window and connecting it to the studio over Remote-SSH on demand, the five views, board tabs and the focused session, notifications and the Needs You badge, what it writes to your machine, and fixing its errors.
-read_when: You want to open an agent's session or studio in VS Code from the Jam app or a link, or connect/disconnect a window so the studio can idle, are installing or signing in the Jam extension, are using or changing a Jam view (Conversation, Thinking, Previews, Status, Artifacts) or a board tab, Jam: Focus Session or pinning, or want VS Code or OS notifications and the Jam badge (or none show on macOS), or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
-owns: installing and using the Jam VS Code extension; its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session; Connect/Disconnect Studio and local session windows; the five views, board tabs, the focused session, pin/unpin, its empty states and link rules; VS Code and OS notifications, the Needs You view and badge, and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; its troubleshooting
+summary: The Jam VS Code extension (`aethons.jam`) — installing it with `jam vscode install` and its update offers, signing in with an app token, opening a session's window and connecting it to the studio over Remote-SSH on demand, the five views, board tabs and the focused session, notifications and the Needs You badge, what it writes to your machine, and fixing its errors.
+read_when: You want to open an agent's session or studio in VS Code from the Jam app or a link, or connect/disconnect a window so the studio can idle, are installing, updating or signing in the Jam extension (`jam vscode install`, the update offer), are using or changing a Jam view (Conversation, Thinking, Previews, Status, Artifacts) or a board tab, Jam: Focus Session or pinning, or want VS Code or OS notifications and the Jam badge (or none show on macOS), or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
+owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session; Connect/Disconnect Studio and local session windows; the five views, board tabs, the focused session, pin/unpin, its empty states and link rules; VS Code and OS notifications, the Needs You view and badge, and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; its troubleshooting
 prereqs: collaboration.md for who may SSH and the ssh_config block the CLI writes; app-tokens.md for the sign-in token
 tier: leaf
-updated: 2026-10-29
+updated: 2026-10-30
 ---
 
 # The Jam VS Code extension
@@ -17,14 +17,39 @@ Its build and manual test are in [vscode-checklist.md](vscode-checklist.md).
 
 ## Install and requirements
 
-Install the `.vsix` with *Extensions: Install from VSIX…*:
-the CI artifact `jam-vscode`, or the release asset `jam-vscode_<version>.vsix`.
+Your Jam serves the extension it was released with. Install it with:
+
+```
+jam vscode install            # or: --code code-insiders, --code /path/to/code
+```
+
+It signs in as `jam ssh-config` does (the extension's token file, else `jam login --participant`, else the operator login),
+downloads the `.vsix` to `~/.config/jam/vscode/`, and runs `code --install-extension <file> --force`.
+Without `code` on `PATH` (on macOS it also tries the one inside *Visual Studio Code.app*) it keeps the file and says so:
+install it with *Extensions: Install from VSIX…*.
+A Jam built without the extension (a dev build), or one older than this, says so; use the release asset
+`jam-vscode_<version>.vsix` (or the CI artifact `jam-vscode`) instead.
 
 It needs:
 
 - the `jam` CLI from the same release or newer (the window's `ssh-proxy` is `jam`'s),
 - Microsoft's Remote - SSH extension (the extension offers to install it),
 - macOS or Linux (Windows is refused).
+
+## Updates
+
+A signed-in window asks your Jam for its extension at start-up and every 6 h (`GET /me/vscode`).
+When Jam's is **newer** than the installed one it offers *Update* or *Later*:
+
+- **Update** downloads `/me/vscode/jam.vsix`, installs it, and offers *Reload Window* (reload other VS Code windows too).
+- **Later** holds that version back for a day in every window; a newer one is offered at once.
+- One window offers each version per 6 h period (the notification lock, below).
+- A Jam rolled back to an older extension never downgrades you, a dev build (`0.0.0`) never checks,
+  and a failed check only writes a line to the Jam output channel.
+
+The routes: `GET /me/vscode` answers `{"available":true,"version":"0.<N>.0"}` (`{"available":false}` when the Jam has none)
+and `GET /me/vscode/jam.vsix` the file. They take an app token or a `jam login --participant` ID token;
+operators also have `/admin/vscode` and `/admin/vscode/jam.vsix`. How the `.vsix` gets into `jam`: [vscode-checklist.md](vscode-checklist.md#build).
 
 ## Settings
 
@@ -142,4 +167,5 @@ The first time, the extension offers to set Remote-SSH's `remote.SSH.localServer
 | "The jam CLI was not found" | Install `jam` or set `jam.cliPath` to its absolute path. |
 | "You can't SSH into …" | The session isn't shared with you; ask an operator ([collaboration.md](collaboration.md#who-may-connect)). The button opens the web app. |
 | No OS banners on macOS | System Settings → Notifications → *terminal-notifier* must allow them. If the Jam output channel says the notifier was blocked (Gatekeeper, on a quarantined copy), run `xattr -dr com.apple.quarantine` on the extension's `dist/vendor`, or rely on the `osascript` fallback. |
+| `jam vscode install`: "this Jam doesn't serve the VS Code extension" or "built without" | The Jam predates serving it, or is a dev build. Install the release asset with *Extensions: Install from VSIX…*. |
 | Signed out after a revoke | Run *Jam: Sign In*. A revoked token also makes `ssh-proxy` fail with a "VS Code sign-in … was revoked" message. |

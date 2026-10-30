@@ -4,7 +4,7 @@ read_when: You are signing a client in to Jam with an app token, debugging a 400
 owns: the consent and PKCE flow and its two routes and parameters; the redirect prefixes and the 60 s single-use codes; app-token lifetimes (30 days, sliding or fixed, the 5-minute touch); operator standing taken at consent; bearer scope (accepted, refused, cookie+bearer 400); the per-user cap; revocation; app-token storage
 prereqs: ui.md for the browser login and the Principal
 tier: leaf
-updated: 2026-10-29
+updated: 2026-10-30
 ---
 
 # App tokens
@@ -65,14 +65,14 @@ Send `Authorization: Bearer <token>`.
 
 | Where | Result |
 |---|---|
-| `/app/user/*` and `/me/studios/*` | Accepted. |
+| `/app/user/*`, `/me/studios/*` and `/me/vscode*` | Accepted. |
 | `POST`/`DELETE /app/user/push/subscriptions`, `GET /app/user/push/key` | `403`. Push belongs to a browser. |
 | Anything under `/app/admin/`, loopback included | `401`. |
 | A bearer together with a `jam_app_id` or `jam_app_at` cookie | `400`. |
 | An unknown, expired or removed-user token | `401`. |
 
 A bearer request skips the same-origin check, since it has no cookie to forge, and never gains loopback admin.
-`/me/studios` also takes a `login --participant` ID token ([collaboration.md](collaboration.md)).
+`/me/studios` and `/me/vscode` (the extension's download and update check, [vscode.md](vscode.md#updates)) also take a `login --participant` ID token ([collaboration.md](collaboration.md)).
 
 ## Per-user cap
 

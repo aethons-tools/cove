@@ -68,6 +68,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/jam/sshca"
 	"github.com/aethons-tools/cove/internal/jam/userui"
+	"github.com/aethons-tools/cove/internal/jam/vscodeext"
 	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
@@ -159,6 +160,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 				return mintcmd.Run(a, version, os.LookupEnv, http.DefaultClient, out, errw)
 			}},
 			{Name: "update", Brief: "update the Jam installation (jam, jam-studio-manager) to the latest release", Run: cmdUpdate(getenv)},
+			{Name: "vscode", Brief: "install the Jam VS Code extension this Jam serves (install), with `code --install-extension`; it then offers its own updates", Run: cmdVSCode},
 		},
 	}
 	return app.Run(argv, stdout, stderr)
@@ -2993,9 +2995,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			// redirect (a 308 to the login page).
 			browser.Handle("/me/studios/", http.NotFoundHandler())
 		}
+		mountVSCodeExtension(browser, vscodeext.Embedded(), participantBearer(cfg.operatorLoginConfig(), auth, st, log))
+		if b := vscodeext.Embedded(); b.Available() {
+			log.Info("Jam VS Code extension: served", "version", b.Version(), "path", "/me/vscode")
+		}
 		adminOpts := []jam.AdminOption{
 			jam.WithAdminRoute("GET /admin/sessions/{actor_id}/events", sessionevents.ExportHandler(sessStore)),
 			jam.WithAdminRoute("GET /admin/attention", condition.AdminHandler(conds)),
+			jam.WithAdminRoute("/admin/vscode", vscodeext.Routes("/admin", vscodeext.Embedded(), nil)),
+			jam.WithAdminRoute("/admin/vscode/jam.vsix", vscodeext.Routes("/admin", vscodeext.Embedded(), nil)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
 			jam.WithKitFetcher(st, kitFetcher, log),
@@ -3344,12 +3352,32 @@ func mountParticipantStudios(mux *http.ServeMux, lc *jam.OperatorLoginConfig, au
 	if ca == nil {
 		return false
 	}
+	mux.Handle("/me/studios/", routes(participantBearer(lc, auth, store, log)))
+	return true
+}
+
+// participantBearer is the /me plane's bearer principal: an app token, or an
+// ID token from `jam login --participant` when device login (lc) and an OIDC
+// operator authenticator are configured.
+func participantBearer(lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, store jam.Store, log *slog.Logger) func(*http.Request) (collab.Principal, string, error) {
 	var idTok func(*http.Request) (collab.Principal, string, error)
 	if oidcAuth, ok := auth.(*jam.OIDCAuthenticator); ok && lc != nil {
 		idTok = collabhttp.ParticipantBearer(oidcAuth.IDTokenVerifier(lc.ClientID), store)
 	}
-	mux.Handle("/me/studios/", routes(participantStudiosBearer(collabhttp.AppTokenBearer(store, time.Now, log), idTok)))
-	return true
+	return participantStudiosBearer(collabhttp.AppTokenBearer(store, time.Now, log), idTok)
+}
+
+// mountVSCodeExtension serves the embedded VS Code extension (vscodeext) at
+// /me/vscode and /me/vscode/jam.vsix to any /me bearer (principal); like
+// /me/studios/ they sit outside the /app gate. The operator plane's copy is
+// an admin route (/admin/vscode).
+func mountVSCodeExtension(mux *http.ServeMux, b vscodeext.Bundle, principal func(*http.Request) (collab.Principal, string, error)) {
+	h := vscodeext.Routes("/me", b, func(r *http.Request) error {
+		_, _, err := principal(r)
+		return err
+	})
+	mux.Handle("/me/vscode", h)
+	mux.Handle("/me/vscode/jam.vsix", h)
 }
 
 // participantStudiosBearer sends a JWT-shaped bearer (exactly two dots) to
