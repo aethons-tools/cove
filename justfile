@@ -135,7 +135,7 @@ app:
 # the Jam app's dev server (hot reload) proxying the API to a running
 # `jam serve` (JAM_URL, default http://localhost:8081); open http://localhost:5173/app/user/
 app-dev:
-    cd web/app && npm ci --no-audit --no-fund --loglevel=error && npx vite
+    cd web/app && ../../scripts/npm-ci.sh && npx vite
 
 # build the Jam VS Code extension's .vsix into web/vscode/dist/jam.vsix (needs Node/npm)
 vscode:
@@ -143,12 +143,12 @@ vscode:
 
 # the Jam VS Code extension's checks: typecheck, unit tests
 vscode-check:
-    cd web/vscode && npm ci --no-audit --no-fund --loglevel=error && npm run check
+    cd web/vscode && ../../scripts/npm-ci.sh && npm run check
 
 # the Jam app's checks: API types current, typecheck, lint, unit tests
 app-check:
     ./scripts/app-types-check.sh
-    cd web/app && npm ci --no-audit --no-fund --loglevel=error && npm run check
+    cd web/app && ../../scripts/npm-ci.sh && npm run check
 
 # headless-Chrome tests of the Jam app (both areas) and the service worker (needs chrome-headless-shell on PATH or
 # JAM_BROWSER; each test skips without one)

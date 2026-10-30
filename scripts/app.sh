@@ -22,7 +22,7 @@ out="$root/internal/jam/uiassets/app"
 # Build into a scratch directory and swap it in only on success, so a failed
 # build never leaves the embedded directory empty (go:embed needs .keep).
 rm -rf "$out.tmp" "$out.old"
-npm ci --no-audit --no-fund --loglevel=error
+"$root/scripts/npm-ci.sh"
 APP_OUT_DIR="$out.tmp" npx vite build --logLevel warn
 node scripts/size-budget.mjs "$out.tmp"
 # Excalidraw's fonts, served from the bundle (no CDN: the app's CSP allows

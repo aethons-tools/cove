@@ -4,7 +4,7 @@ read_when: You are building or testing this repo inside the egress-locked dev sa
 owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH) and build/test workarounds
 prereqs: OVERVIEW.md
 tier: leaf
-updated: 2026-10-27
+updated: 2026-10-30
 ---
 
 # Development notes
@@ -129,13 +129,17 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
 ## CI: the merge gate
 
 [`.github/workflows/gate.yml`](../.github/workflows/gate.yml) runs on every PR
-to `main`, and on `main` itself. It runs the two hermetic checks —
-`go test ./...` and [`scripts/lint.sh`](../scripts/lint.sh) — the same ones
-`just test` and `just lint` run, through the same script, so CI and the local
-loop cannot drift.
+to `main`, and on `main` itself. Two legs run in parallel and the `gate` job joins them:
 
-- The job is named **`gate`**, and that name is what branch protection lists as
-  the required check. Renaming the job silently un-gates `main`: protection goes
+- **`go`:** the app bundle (so the tests serve the real app), `go test ./...`, the installer and image-script tests, and
+  [`scripts/lint.sh`](../scripts/lint.sh). These are the same scripts that `just test` and `just lint` run, so CI and the local
+  loop cannot drift.
+- **`web`:** the Jam app's checks (`just app-check`) and the VS Code extension's (`scripts/vscode.sh`, which uploads the `jam-vscode` artifact).
+  [`scripts/npm-ci.sh`](../scripts/npm-ci.sh) installs `web/app` once per job, though three steps use it: it skips `npm ci` when
+  `node_modules` was installed from the same lockfile by the same Node.
+
+- The joining job is named **`gate`**, and that name is what branch protection lists as
+  the required check. It passes only when both legs passed. Renaming it silently un-gates `main`: protection goes
   on waiting for a check that never reports. Rename only alongside the setting.
 - CI runs lint as `STRICT=1 scripts/lint.sh`. Outside CI a missing `shellcheck`
   or `hadolint` is skipped with a note, so a fresh clone can lint before
