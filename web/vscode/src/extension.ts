@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { ApiError, JamApi, SignedOutError } from "./api";
 import { Auth } from "./auth";
+import { Auths } from "./auths";
 import { normalizeJamUrl, settings } from "./config";
 import { editorFor } from "./editor";
 import { forgetHostKey } from "./hostkey";
@@ -69,14 +70,25 @@ const TAB_SHOWN = "jam.conversationTabShown";
 let onDeactivate: (() => Thenable<void>) | undefined;
 
 export function activate(ctx: vscode.ExtensionContext): void {
-  const auth = new Auth({
-    secrets: ctx.secrets,
-    openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)),
-    fetch: (...a) => fetch(...a),
-    uriScheme: vscode.env.uriScheme,
-    hostname: os.hostname(),
-    tokenFile: appTokenPath(configDir(process.env, os.homedir())),
+  // One sign-in per Jam (auths.ts); auth is this window's Jam's.
+  const auths = new Auths({
+    make: (key, tokenFile) =>
+      new Auth({
+        secrets: ctx.secrets,
+        openExternal: (u) => vscode.env.openExternal(vscode.Uri.parse(u)),
+        fetch: (...a) => fetch(...a),
+        uriScheme: vscode.env.uriScheme,
+        hostname: os.hostname(),
+        tokenFile,
+        key,
+      }),
+    defaultUrl: () => {
+      const u = jamSettings().url;
+      return u instanceof Error ? undefined : u;
+    },
+    tokenFile: (app) => appTokenPath(configDir(process.env, os.homedir()), app),
   });
+  const auth = auths.primary();
 
   // signedOut clears the session and offers to sign in again; every
   // SignedOutError goes through it.
