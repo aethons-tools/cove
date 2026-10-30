@@ -72,6 +72,57 @@ export interface ChannelRow {
   lastSeq: number /* int64 */;
   selected: boolean;
   mission: string; // the backing session's one-line focus; "" = none
+  /**
+   * Card is a session channel's status card; nil for rooms, chats, and a
+   * channel with no active session.
+   */
+  card?: SessionCard;
+}
+/**
+ * CardState is a status card's state: its sparkline level and pill colour.
+ */
+export type CardState = string;
+export const CardThinking: CardState = "thinking"; // the turn is in a model call
+export const CardWorking: CardState = "working"; // the turn is in a tool call
+export const CardWaiting: CardState = "waiting"; // the turn ended with local waits (background tasks, kept processes, alarms)
+export const CardIdle: CardState = "idle"; // the turn ended; it waits only on messages (or a person)
+export const CardSleeping: CardState = "sleeping"; // the studio is paused
+/**
+ * SessionCard is a session's status card (docs/superpowers/specs/
+ * 2026-10-30-session-status-card-design.md): the rail row of a session
+ * channel, and the extension's Session Status pane.
+ */
+export interface SessionCard {
+  session: string; // actor id
+  name: string;
+  state: CardState;
+  pill: string; // the pill's text: "working", "needs you", "paused"…
+  tool: string; // the tool in progress while working; "" otherwise
+  mission: string;
+  counts: CardCounts;
+  context: CardContext;
+  /**
+   * Inits is how many system/init events Jam has seen for the session since
+   * it started; the app marks its sparkline where this goes up.
+   */
+  inits: number /* int */;
+}
+/**
+ * CardCounts are a card's count icons, each hidden at 0.
+ */
+export interface CardCounts {
+  asks: number /* int */;
+  alarms: number /* int */;
+  previews: number /* int */;
+  processes: number /* int */; // kept processes
+}
+/**
+ * CardContext is how full the main thread's context window is, in tokens;
+ * Window 0 = not reported yet (no bar).
+ */
+export interface CardContext {
+  used: number /* int64 */;
+  window: number /* int64 */;
 }
 /**
  * RailGroup is one attention section of the rail (Needs you / Sessions /
@@ -294,6 +345,7 @@ export interface SessionHead {
   contextTip: string;
   uptime: string;
   mission: string; // the agent's one-line focus; "" = none
+  card: SessionCard;
   ssh: string; // the copyable command; "" = not allowed
   studio: boolean; // the Studio tab: ssh allowed and framing on
   canRelease: boolean;

@@ -103,6 +103,7 @@ func (h *handler) apiRail(w http.ResponseWriter, r *http.Request) {
 	}
 	// ?c= is the open conversation, counted as read (it is being read).
 	groups := Rail(p, h.d, r.URL.Query().Get("c"))
+	h.attachCards(groups)
 	if groups == nil {
 		groups = []RailGroup{}
 	}

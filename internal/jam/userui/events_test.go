@@ -216,3 +216,14 @@ func TestEventsNotifyUnsubscribesOnDisconnect(t *testing.T) {
 	cancel()
 	waitSubscribers(t, hub, p, 0)
 }
+
+// An instance change a status card shows (mission, phase, counts…) is pushed
+// as `presence`, so the rail and header refetch without waiting for the poll.
+func TestEventsStreamsInstanceChangesAsPresence(t *testing.T) {
+	e, p := fixture()
+	ic := &fakeChanges{ch: make(chan struct{}, 1)}
+	srv := eventsServer(t, Handler(e.Deps, nil, WithInstanceChanges(ic)), p)
+	sc, _ := openStream(t, srv.URL)
+	ic.ch <- struct{}{}
+	readUntil(t, sc, "event: presence")
+}

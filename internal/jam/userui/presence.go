@@ -6,10 +6,12 @@ import (
 )
 
 // Presence is a source of derived session statuses — *sessionevents.Presence.
-// Status is a session's latest status from its event stream; Subscribe
-// returns a coalescing channel signalled when any status changes.
+// Status is a session's latest status from its event stream; Inits counts its
+// system/init events; Subscribe returns a coalescing channel signalled when
+// either changes.
 type Presence interface {
 	Status(actorID string) (sessionevents.Status, bool)
+	Inits(actorID string) int
 	Subscribe() (<-chan struct{}, func())
 }
 

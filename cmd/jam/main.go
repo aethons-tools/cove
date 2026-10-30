@@ -2074,6 +2074,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// the DSN — never written to disk/argv, never logged.
 	var st jam.Store
 	var pgPool *pgxpool.Pool // shared with the message log and session events
+	// Every instance write goes through instChanges, which signals the app's
+	// live stream when a session's status card would change.
+	var instChanges *jam.InstanceChanges
 	{
 		pc := cfg.StorePostgres
 		resolved, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[pc.PasswordCred]})
@@ -2089,7 +2092,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		defer ps.Close()
-		st = ps
+		instChanges = jam.NewInstanceChanges(ps)
+		st = instChanges
 		pgPool = ps.Pool()
 		log.Info("Jam store: postgres", "host", pc.Host, "database", pc.Database) // never the password
 	}
@@ -2916,7 +2920,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		// The user area is the Jam app (web/app) and its API; the app's CSP
 		// frames the preview hosts when the pane may.
-		userOpts := []userui.Option{userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus),
+		userOpts := []userui.Option{userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithInstanceChanges(instChanges), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus),
 			userui.WithFrameSrc(appFrameSrc(&cfg)), userui.WithAppTokenRevoke(appTokenLive.Revoke)}
 		if runNotify {
 			userOpts = append(userOpts, userui.WithNotify(notifyHub))

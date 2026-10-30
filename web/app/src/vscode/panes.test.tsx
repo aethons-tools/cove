@@ -14,6 +14,7 @@ import { boot } from "../test/render";
 import { Bridge, install } from "./bridge";
 import { fakeHost, json, type Route } from "./fakeHost";
 import { Pane, wirePane } from "./Pane";
+import { card } from "../test/card";
 
 // Valid session ids (SES_RE): the bridge's feed opener refuses anything else.
 const SES_A = "ses_0abcdefghjkmnpqrstvwxyz012";
@@ -27,7 +28,7 @@ const head = (id: string, over: Partial<SessionHead> = {}): SessionHead => ({
   id, label: "spider", kind: "standing", ticket: "", role: "r", project: "p", owner: "",
   state: { label: "x", text: "is running", tool: "", class: "idle" }, since: "", openAsks: 0, cost: "", turnCost: "", tokens: "",
   context: "", contextTip: "", uptime: "", mission: "", ssh: "", studio: false, canRelease: false, canRestart: false, canUpgrade: false,
-  ops: true, canInterrupt: true, canCompact: false, canClear: false, restartLabel: "Restart", upgradeState: "", channel: "chn_a", ...over,
+  ops: true, canInterrupt: true, canCompact: false, canClear: false, restartLabel: "Restart", upgradeState: "", channel: "chn_a", card: card({ session: id }), ...over,
 });
 const pane = (id: string, tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
   id, tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false,

@@ -34,7 +34,7 @@ describe("useLiveEvents", () => {
     expect(spy.mock.calls.map((c) => c[0]?.queryKey)).toEqual([["rail"], ["conversation"], ["presence"], ["session"]]);
     spy.mockClear();
     es.emit("presence");
-    expect(spy.mock.calls.map((c) => c[0]?.queryKey)).toEqual([["presence"], ["session"]]);
+    expect(spy.mock.calls.map((c) => c[0]?.queryKey)).toEqual([["rail"], ["presence"], ["session"]]);
     unmount();
     expect(es.closed).toBe(true);
   });
@@ -58,7 +58,7 @@ describe("useLiveEvents", () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     const { spy } = mount();
     FakeEventSource.last!.emit("presence");
-    const keep = spy.mock.calls[1]![0]!.predicate as unknown as (q: { queryKey: unknown[] }) => boolean;
+    const keep = spy.mock.calls[2]![0]!.predicate as unknown as (q: { queryKey: unknown[] }) => boolean;
     expect(keep({ queryKey: ["session", "ses_1"] })).toBe(true);
     expect(keep({ queryKey: ["session", "ses_1", "pane", "status"] })).toBe(true);
     expect(keep({ queryKey: ["session", "ses_1", "pane", "artifacts"] })).toBe(false);
@@ -88,7 +88,7 @@ describe("useLiveEvents", () => {
     expect(keys()).toEqual(changedSet);
     spy.mockClear();
     emit("presence", "");
-    expect(keys()).toEqual([["presence"], ["session"]]);
+    expect(keys()).toEqual([["rail"], ["presence"], ["session"]]);
     spy.mockClear();
     emit("open", "");
     expect(keys()).toEqual(changedSet);

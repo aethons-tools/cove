@@ -82,3 +82,29 @@ func TestHubObserversSeeEveryPublish(t *testing.T) {
 		t.Fatalf("observed %v", got)
 	}
 }
+
+func TestPresenceCountsInits(t *testing.T) {
+	p := NewPresence(nil)
+	ch, cancel := p.Subscribe()
+	defer cancel()
+	if n := p.Inits("a"); n != 0 {
+		t.Fatalf("Inits before any = %d", n)
+	}
+	p.Observe(ev("a", `{"type":"system","subtype":"init"}`))
+	<-ch
+	// A second init while already thinking changes no status, but is a new
+	// mark on the sparkline: it still counts and signals.
+	p.Observe(ev("a", `{"type":"system","subtype":"init"}`))
+	select {
+	case <-ch:
+	default:
+		t.Fatal("an init should signal even when the status is unchanged")
+	}
+	p.Observe(ev("a", `{"type":"system","subtype":"hook_response"}`))
+	if n := p.Inits("a"); n != 2 {
+		t.Fatalf("Inits = %d, want 2", n)
+	}
+	if n := p.Inits("b"); n != 0 {
+		t.Fatalf("Inits(b) = %d", n)
+	}
+}

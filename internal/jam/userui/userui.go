@@ -162,6 +162,7 @@ func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 			LastSeq:  ch.LastSeq,
 			Selected: ch.ID == selectedID,
 			Mission:  ch.Mission,
+			session:  ch.CardSession,
 		})
 	}
 	var groups []RailGroup

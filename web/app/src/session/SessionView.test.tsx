@@ -6,6 +6,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { boot, renderApp } from "../test/render";
 import type { Conversation, SessionHead, SessionPane } from "../api/types";
+import { card } from "../test/card";
 
 const head = (over: Partial<SessionHead> = {}): SessionHead => ({
   id: "ses_1", label: "intercom-spider", kind: "standing", ticket: "", role: "jam-ic", project: "test", owner: "",
@@ -13,7 +14,7 @@ const head = (over: Partial<SessionHead> = {}): SessionHead => ({
   cost: "$1.20", turnCost: "$0.10", tokens: "1,200 in / 300 out tokens", context: "ctx 84k / 200k · 42%",
   contextTip: "context: 84,300 of 200,000 tokens (claude-x)", uptime: "2h 5m", mission: "Jam SPA slice 5", ssh: "jam ssh ses_1",
   studio: false, canRelease: false, canRestart: true, canUpgrade: true, ops: true,
-  canInterrupt: true, canCompact: false, canClear: true, restartLabel: "Restart", upgradeState: "", channel: "chn_s", ...over,
+  canInterrupt: true, canCompact: false, canClear: true, restartLabel: "Restart", upgradeState: "", channel: "chn_s", card: card(), ...over,
 });
 const pane = (tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
   id: "ses_1", tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false, studio: false, ideOpen: "", ...over,

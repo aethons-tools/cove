@@ -4,7 +4,7 @@ read_when: You are changing the Jam app in web/app, adding a /app/user/api or /a
 owns: the web/app source layout, the admin area's mount, API and Config tree plumbing, the shared /app/assets/ path, `just app` / `app-dev` / `app-check`, scripts/app.sh and the size budget, the webapp serving package (bootstrap, CSP, not-built page), the tygo type generation, and the app's test layers
 prereqs: usage/jam/intercom-ui.md for what the user area does; superpowers/specs/2026-10-26-jam-spa-design.md for why
 tier: leaf
-updated: 2026-10-29
+updated: 2026-10-30
 ---
 
 # The Jam app (`web/app`)
@@ -34,7 +34,7 @@ Inbox at the cutover. Old links keep working: `src/routes/Home.tsx` redirects th
   - `src/blobs.ts` resolves attachment and thumbnail URLs (`setBlobResolver` fetches them through the extension); `src/host.ts`' `HostContext` is what an embedding shell offers shared components (a `signIn`).
   - `src/vscode/` is the VS Code webview entry: `Pane` (every pane's shell: sign-in, no session, gone or a failed lookup, else the pane's body), `panes.tsx` (`SessionBody`, which provides `HostContext.openPreview`; `SessionGate`), `BoardTab.tsx` (the board editor tab; boards sync through the API client, so `setTransport`), `Bridge` (messages with the extension; `install` wires the seams: the five, plus `setFeedOpener` (`session/thinking/useThinkingFeed.ts`)), `linkAction` (`links.ts`; every click becomes an intent, a scroll or nothing) and `NavBridge`. `src/bridge/protocol.ts` is the message types, shared with `web/vscode`. What it shows: [vscode.md](usage/jam/vscode.md#panes-and-focus).
   - `src/sounds/` ports the old `sounds.js`, keeping its localStorage (`jam-sounds`) and IndexedDB (`jam`/`prefs`) contract with the service worker.
-  - `src/live/useLiveEvents.ts` is the one `EventSource`: each signal invalidates query keys (`rail`, `conversation`, `presence`, `session`), with the 30 s `POLL_MS` as the fallback; its `setLiveSource` seam swaps in the extension's stream.
+  - `src/live/useLiveEvents.ts` is the one `EventSource`: each signal invalidates query keys (`rail`, `conversation`, `presence`, `session`; `presence` all but `conversation`), with the 30 s `POLL_MS` as the fallback; its `setLiveSource` seam swaps in the extension's stream.
   - An expired sign-in links back to the current page, so the gate decides how to sign in again; queries never retry an expired sign-in or a 4xx (`shouldRetry`).
 - `web/vscode/` is the VS Code extension, a separate package ([vscode.md](usage/jam/vscode.md)); it type-imports `web/app/src/api/types.ts`.
 - `internal/jam/webapp`: serves a built bundle.
