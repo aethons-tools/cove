@@ -44,6 +44,13 @@
           "scope": "application",
           "markdownDescription": "Your Jam's address, e.g. `https://jam.example.com` (`https:` only; `http:` for localhost)."
         },
+        "jam.urls": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "scope": "application",
+          "markdownDescription": "More Jams' addresses, besides `jam.url`; each gets its own sign-in and hub (*Jam: Add a Jam…*)."
+        },
         "jam.cliPath": {
           "type": "string",
           "default": "",

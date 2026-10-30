@@ -60,7 +60,7 @@ const runNotify: OsDeps["execFile"] = (file, args, o) =>
 
 const jamSettings = () => {
   const c = vscode.workspace.getConfiguration("jam");
-  return settings((k) => c.get<string>(k));
+  return settings((k) => c.get(k));
 };
 
 let reporter: FocusReporter | undefined;

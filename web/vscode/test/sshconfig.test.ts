@@ -18,6 +18,10 @@ const mk = (studio: string, extra = "") =>
   `# >>> jam ${studio} >>>\n${extra}Host jam-${studio}\n  User agent\nMatch all\n# <<< jam ${studio} <<<\n`;
 
 describe("renderBlock", () => {
+  it("a non-default Jam's block names its token profile with --app", () => {
+    const b = renderBlock({ ...opts, jamUrl: "https://b.example", app: "vscode-b.example" });
+    expect(b).toContain(" --admin-url 'https://b.example' --app 'vscode-b.example' --participant ");
+  });
   it("equals the Go golden fixture", async () => {
     expect(renderBlock(opts)).toBe(await readFile(path.join(__dirname, "fixtures", "ssh-block.txt"), "utf8"));
   });

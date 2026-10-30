@@ -8,9 +8,10 @@ import { fakeContext, mock } from "./vscode";
 const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
 
 describe("the manifest", () => {
-  it("scopes both settings to the application, so a workspace can't set them (Review Focus 1)", () => {
+  it("scopes every setting to the application, so a workspace can't set them (Review Focus 1)", () => {
     const props = pkg.contributes.configuration.properties;
-    expect(Object.keys(props).sort()).toEqual(["jam.cliPath", "jam.url"]);
+    expect(Object.keys(props).sort()).toEqual(["jam.cliPath", "jam.url", "jam.urls"]);
+    expect(props["jam.urls"].scope).toBe("application");
     for (const k of ["jam.url", "jam.cliPath"]) {
       expect(props[k].scope).toBe("application");
       expect(props[k].type).toBe("string");
@@ -57,6 +58,16 @@ describe("the manifest", () => {
         { type: "webview", id: "jam.previews", name: "Previews", visibility: "collapsed", when: "jam.window == session || jam.window == hub" },
       ],
       jamPanel: [{ type: "webview", id: "jam.thinking", name: "Thinking", when: "jam.window == session || jam.window == hub" }],
+    });
+  });
+
+  it("jam.urls is an application-scoped list of more Jams", () => {
+    expect(pkg.contributes.configuration.properties["jam.urls"]).toEqual({
+      type: "array",
+      items: { type: "string" },
+      default: [],
+      scope: "application",
+      markdownDescription: expect.any(String),
     });
   });
 
