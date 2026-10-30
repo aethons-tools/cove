@@ -20,6 +20,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/sshca"
+	"github.com/aethons-tools/cove/internal/jam/vscodeext"
 )
 
 // The operator plane serves the collaboration routes under /admin/studios/,
@@ -164,5 +165,34 @@ func TestParticipantStudiosBearerDispatch(t *testing.T) {
 	}
 	if _, _, err := appOnly(req("Bearer opaque")); err != nil || saw != "app" {
 		t.Fatalf("app token: err=%v saw=%q", err, saw)
+	}
+}
+
+// /me/vscode is mounted whatever the SSH CA, behind the /me bearer.
+func TestMountVSCodeExtension(t *testing.T) {
+	mux := http.NewServeMux()
+	var deny bool
+	mountVSCodeExtension(mux, vscodeext.Bundle{}, func(*http.Request) (collab.Principal, string, error) {
+		if deny {
+			return collab.Principal{}, "", collabhttp.ErrNoCredentials
+		}
+		return collab.Principal{UserID: "usr_a"}, "ada", nil
+	})
+	for _, tc := range []struct {
+		deny bool
+		path string
+		code int
+	}{
+		{false, "/me/vscode", http.StatusOK},
+		{false, "/me/vscode/jam.vsix", http.StatusNotFound}, // no bundle in this build
+		{true, "/me/vscode", http.StatusUnauthorized},
+		{true, "/me/vscode/jam.vsix", http.StatusUnauthorized},
+	} {
+		deny = tc.deny
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("GET", tc.path, nil))
+		if rec.Code != tc.code {
+			t.Errorf("deny=%v %s: %d, want %d", tc.deny, tc.path, rec.Code, tc.code)
+		}
 	}
 }

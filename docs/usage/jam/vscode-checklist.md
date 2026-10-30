@@ -1,10 +1,10 @@
 ---
 summary: Building the Jam VS Code extension (`just vscode`, the `.vsix`, its version, the vendored macOS notifier, tests) and the by-hand end-to-end checklist, since VS Code can't run in CI.
 read_when: You changed `web/vscode` or are cutting a release with it, and must build it or verify it by hand.
-owns: the extension's build (`just vscode`/`vscode-check`, scripts/vscode.sh, the 0.<N>.0 version, the CI artifact and release asset), its unit-test layout, the ssh-block golden, and the manual checklist
+owns: the extension's build (`just vscode`/`vscode-check`, scripts/vscode.sh, the 0.<N>.0 version, the CI artifact and release asset, the `.vsix` jam embeds via scripts/stage-vscode.sh), its unit-test layout, the ssh-block golden, and the manual checklist
 prereqs: vscode.md for what the extension does
 tier: leaf
-updated: 2026-10-29
+updated: 2026-10-30
 ---
 
 # Building and verifying the VS Code extension
@@ -21,6 +21,7 @@ What the extension does: [vscode.md](vscode.md).
 - `just vscode-check` runs only `npm ci` and `npm run check`.
 - **Version:** `package.json` stays `0.0.0`; `VERSION=<N>-<MMDD>` stamps `0.<N>.0` (vsce needs SemVer). `VSIX_OUT` names the output.
 - **CI:** the gate builds it and uploads the artifact `jam-vscode` (`jam.vsix`). A release attaches `jam-vscode_<version>.vsix` beside the binaries.
+- **Embedded in `jam`:** a goreleaser before-hook runs `scripts/stage-vscode.sh`, which builds it into `internal/jam/vscodeext/vsix/jam.vsix` (git-ignored; only `.keep` is committed) for `jam`'s `//go:embed`. The release asset is that same file, so Jam serves exactly what the release ships ([vscode.md](vscode.md#updates)). A plain `go build` embeds none, and Jam answers `available: false`. The extension's version is read from the `package.json` inside the `.vsix`.
 
 ## Tests
 
@@ -38,6 +39,8 @@ What the extension does: [vscode.md](vscode.md).
 - [ ] `vscode.env.asExternalUri(http://localhost:<port>/)` from the (UI) Jam extension in a `jam-` remote window adds a forward in the Ports view and returns a working local URL (if not, Open falls back to the preview's web URL in the browser).
 - [ ] Excalidraw in a board tab: CJK text (Xiaolai isn't shipped) and image export may log CSP violations from the font fallback; record what is seen and accept or document it — the CSP doesn't change.
 - [ ] A restored board panel (after a window reload) keeps `retainContextWhenHidden`: hide and show it and the drawing stays.
+- [ ] `jam vscode install` against a released Jam installs the extension with `code`, and, with `code` off `PATH` on macOS, with the app bundle's CLI.
+- [ ] With an older extension installed, a signed-in window offers the update; *Update* installs it through `workbench.extensions.installExtension` with a `file:` URI under global storage, and *Reload Window* comes up on the new version. With two windows open, only one offers.
 - [ ] Upload a file once from the Conversation view (the `ArrayBuffer` check from slice 3).
 - [ ] Installed from the .vsix on macOS, `dist/vendor/mac.noindex/terminal-notifier.app` runs: it keeps its exec bit (or the chmod restores it), Gatekeeper doesn't block it, and the first notification asks for permission. Clicking a notification opens `vscode://aethons.jam/session/<id>`.
 - [ ] A `TreeView.badge` on the collapsed `jam.needsYou` view shows on the Jam activity-bar icon while the Jam container is closed.

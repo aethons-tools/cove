@@ -39,6 +39,8 @@
 /internal/jam/uiassets/app.tmp/
 /internal/jam/uiassets/app.old/
 !/internal/jam/uiassets/app/.keep
+/internal/jam/vscodeext/vsix/*
+!/internal/jam/vscodeext/vsix/.keep
 /web/app/node_modules/
 /web/app/dist/
 /web/app/*.tsbuildinfo

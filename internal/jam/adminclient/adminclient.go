@@ -1072,3 +1072,27 @@ func (c *Client) RevokeManager(name string, force bool) error {
 	}
 	return c.do("DELETE", p, nil, nil)
 }
+
+// VSCodeExtension is the VS Code extension the Jam serves, on the plane at
+// prefix ("/admin" or "/me"): whether it has one and its version.
+func (c *Client) VSCodeExtension(prefix string) (available bool, version string, err error) {
+	var out struct {
+		Available bool   `json:"available"`
+		Version   string `json:"version"`
+	}
+	err = c.do("GET", prefix+"/vscode", nil, &out)
+	return out.Available, out.Version, err
+}
+
+// vsixTimeout bounds downloading the .vsix (a few MB), longer than do's 10 s.
+const vsixTimeout = 2 * time.Minute
+
+// DownloadVSCodeExtension downloads the .vsix the Jam serves on the plane at
+// prefix.
+func (c *Client) DownloadVSCodeExtension(prefix string) ([]byte, error) {
+	hc := *c.httpc // keeps the Transport
+	hc.Timeout = vsixTimeout
+	var out []byte
+	err := c.doWith(&hc, "GET", prefix+"/vscode/jam.vsix", nil, &out)
+	return out, err
+}

@@ -313,6 +313,17 @@ func (f *sshFlags) resolve(studio string, stderr io.Writer) (t sshTarget, usage 
 	if !studioIDRe.MatchString(studio) {
 		return t, true, fmt.Errorf("invalid studio id %q", studio)
 	}
+	t, usage, err = f.resolveJam(stderr)
+	t.studio = studio
+	return t, usage, err
+}
+
+// resolveJam is resolve without a studio: the Jam, the plane and the token
+// (jam vscode uses it too).
+func (f *sshFlags) resolveJam(stderr io.Writer) (t sshTarget, usage bool, err error) {
+	if err := validateApp(*f.app); err != nil {
+		return t, true, err
+	}
 	if *f.participant && *f.operator {
 		return t, true, errors.New("--participant and --operator are mutually exclusive")
 	}
@@ -322,7 +333,7 @@ func (f *sshFlags) resolve(studio string, stderr io.Writer) (t sshTarget, usage 
 		}
 	}
 	t = sshTarget{
-		app: *f.app, studio: studio, adminURLFlag: *f.adminURL,
+		app: *f.app, adminURLFlag: *f.adminURL,
 		adminURL: firstNonEmpty(*f.adminURL, loadSettings(*f.app).AdminURL, defaultAdminURL),
 	}
 	t.participant = *f.participant
