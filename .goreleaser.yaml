@@ -22,6 +22,9 @@ snapshot:
 
 before:
   hooks:
+    # Never release a `just local` build: its locally built studio base would
+    # be embedded as jam's default, trusted base (internal/basedigest).
+    - bash scripts/release/check-no-local-base.sh
     # Build the linux jam-studio-agent binaries jam embeds, before goreleaser builds.
     - bash scripts/stage-studio-agent.sh
     # Build the Jam app bundle jam embeds (git-ignored output). Required

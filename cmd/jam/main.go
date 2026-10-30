@@ -35,6 +35,7 @@ import (
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/allocator/allocpg"
 	"github.com/aethons-tools/cove/internal/assemble"
+	"github.com/aethons-tools/cove/internal/basedigest"
 	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/discord"
@@ -120,7 +121,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 	}
 	app := cli.App{
 		Name:    "jam",
-		Version: version,
+		Version: version + basedigest.VersionNote(),
 		Commands: []cli.Command{
 			{Name: "serve", Brief: "run the broker + loopback admin API", Run: cmdServe},
 			{Name: "enroll", Brief: "enroll an identity (via the admin API) and print its snippet", Run: cmdEnroll},
