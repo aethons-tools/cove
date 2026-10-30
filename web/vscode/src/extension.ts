@@ -261,6 +261,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   // The window's session: a jam-<id> remote, or a local session window. Only
   // the remote (windowStudio) can forward a preview's port.
   const kind = windowKind(vscode.workspace, sessionsDir, process.platform);
+  log(`window: ${kind ? `${kind.kind} session ${kind.id}` : "no session"} (workspace file ${vscode.workspace.workspaceFile?.toString() ?? "none"}, sessions dir ${sessionsDir.toString()})`);
   const windowDefault = kind?.id;
   const windowStudio = kind?.kind === "remote" ? kind.id : undefined;
   void vscode.commands.executeCommand("setContext", "jam.window", kind?.kind ?? "");
