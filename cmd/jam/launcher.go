@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -133,3 +134,61 @@ func desktopEntry(name, link, iconPath string) string {
 }
 
 var errNoLauncher = errors.New("no launcher on this OS")
+
+// writeLauncher writes the Jam Hub launcher for jamURL and the editor with
+// scheme under home: a .app in ~/Applications on darwin (replaced whole), a
+// .desktop entry and its icon on linux, else errNoLauncher. It returns the
+// launcher's path.
+func writeLauncher(home, goos, scheme, jamURL string, png []byte) (string, error) {
+	name, err := launcherName(jamURL, scheme)
+	if err != nil {
+		return "", err
+	}
+	slug, err := launcherSlug(jamURL, scheme)
+	if err != nil {
+		return "", err
+	}
+	link := hubLink(scheme, jamURL)
+	switch goos {
+	case "darwin":
+		app := filepath.Join(home, "Applications", name+".app")
+		if err := os.RemoveAll(app); err != nil {
+			return "", err
+		}
+		contents := filepath.Join(app, "Contents")
+		for _, f := range []struct {
+			path string
+			data []byte
+			mode os.FileMode
+		}{
+			{filepath.Join(contents, "Info.plist"), []byte(macInfoPlist(name, slug)), 0o644},
+			{filepath.Join(contents, "MacOS", "jam-hub"), []byte(macScript(link)), 0o755},
+			{filepath.Join(contents, "Resources", "jam.icns"), icns(png), 0o644},
+		} {
+			if err := os.MkdirAll(filepath.Dir(f.path), 0o755); err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(f.path, f.data, f.mode); err != nil {
+				return "", err
+			}
+		}
+		return app, nil
+	case "linux":
+		share := filepath.Join(home, ".local", "share")
+		icon := filepath.Join(share, "icons", "hicolor", "512x512", "apps", "jam-hub.png")
+		entry := filepath.Join(share, "applications", "jam-hub-"+slug+".desktop")
+		for _, f := range []struct {
+			path string
+			data []byte
+		}{{icon, png}, {entry, []byte(desktopEntry(name, link, icon))}} {
+			if err := os.MkdirAll(filepath.Dir(f.path), 0o755); err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(f.path, f.data, 0o644); err != nil {
+				return "", err
+			}
+		}
+		return entry, nil
+	}
+	return "", errNoLauncher
+}

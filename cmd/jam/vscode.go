@@ -13,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
+	"github.com/aethons-tools/cove/internal/jam/uiassets"
 	"github.com/aethons-tools/cove/internal/jam/vscodeext"
 )
 
@@ -36,7 +37,7 @@ func vsixDir() string { return filepath.Join(configDir(), "vscode") }
 
 func cmdVSCode(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] != "install" {
-		fmt.Fprintln(stderr, "usage: jam vscode install [--code PATH] [--participant|--operator]")
+		fmt.Fprintln(stderr, "usage: jam vscode install [--code PATH] [--no-launcher] [--participant|--operator]")
 		return 2
 	}
 	return cmdVSCodeInstall(args[1:], stdout, stderr)
@@ -51,6 +52,7 @@ func cmdVSCodeInstall(args []string, stdout, stderr io.Writer) int {
 	fs.Usage = func() {}
 	f := addSSHFlags(fs)
 	code := fs.String("code", "", "the VS Code CLI to install with (default: code on PATH; e.g. code-insiders)")
+	noLauncher := fs.Bool("no-launcher", false, "don't add the Jam Hub launcher (macOS ~/Applications, Linux app menu)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprintln(stdout, "Usage of vscode install: jam vscode install [flags]")
@@ -62,7 +64,7 @@ func cmdVSCodeInstall(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "usage: jam vscode install [--code PATH] [--participant|--operator]")
+		fmt.Fprintln(stderr, "usage: jam vscode install [--code PATH] [--no-launcher] [--participant|--operator]")
 		return 2
 	}
 	t, usage, err := f.resolveJam(stderr)
@@ -118,7 +120,31 @@ func cmdVSCodeInstall(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "Installed the Jam extension %s. Reload any open VS Code windows, then run Jam: Sign In.\n", version)
+	if !*noLauncher {
+		addLauncher(editorScheme(cli), t.adminURL, stdout, stderr)
+	}
 	return 0
+}
+
+// addLauncher adds the Jam Hub launcher; a failure is only a warning.
+func addLauncher(scheme, jamURL string, stdout, stderr io.Writer) {
+	home, err := os.UserHomeDir()
+	var png []byte
+	if err == nil {
+		png, err = uiassets.Icon("icon-512.png")
+	}
+	path := ""
+	if err == nil {
+		path, err = writeLauncher(home, vscodeGOOS, scheme, jamURL, png)
+	}
+	switch {
+	case errors.Is(err, errNoLauncher):
+		fmt.Fprintf(stdout, "no Jam Hub launcher on %s: open %s instead\n", vscodeGOOS, hubLink(scheme, jamURL))
+	case err != nil:
+		fmt.Fprintf(stderr, "jam vscode install: no Jam Hub launcher: %v\n", err)
+	default:
+		fmt.Fprintf(stdout, "Added the Jam Hub launcher: %s\n", path)
+	}
 }
 
 // vscodeErrMessage turns a failed /vscode request into one line for a
