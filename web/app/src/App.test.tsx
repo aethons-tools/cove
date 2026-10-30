@@ -8,8 +8,8 @@ import type { RailResponse } from "./api/types";
 const rail: RailResponse = {
   unreadTotal: 2,
   groups: [
-    { bucket: "needs-you", title: "Needs you", rows: [{ id: "chn_a", label: "intercom-spider", project: "test", kind: "session", needsYou: true, phase: "waiting", unread: 2, openAsks: 1, lastSeq: 9, selected: false, mission: "SPA slice 1" }] },
-    { bucket: "channels", title: "Channels", rows: [{ id: "chn_b", label: "eng", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 3, selected: false, mission: "" }] },
+    { bucket: "needs-you", title: "Needs you", rows: [{ id: "chn_a", label: "intercom-spider", project: "test", kind: "session", needsYou: true, phase: "waiting", unread: 2, openAsks: 1, lastSeq: 9, selected: false, mission: "SPA slice 1", session: "", ssh: false }] },
+    { bucket: "channels", title: "Channels", rows: [{ id: "chn_b", label: "eng", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 3, selected: false, mission: "", session: "", ssh: false }] },
   ],
 };
 

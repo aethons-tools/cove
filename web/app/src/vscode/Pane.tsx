@@ -18,6 +18,7 @@ import { interceptLinks, linkAction, type LinkAction } from "./links";
 import { NavBridge } from "./NavBridge";
 import { SessionBody, SessionGate } from "./panes";
 import { useVscodeScheme } from "./scheme";
+import { RailPane } from "./RailPane";
 
 // NOUN is what each session pane shows, in its copy.
 export const NOUN: Record<SessionPaneName, string> = {
@@ -26,9 +27,10 @@ export const NOUN: Record<SessionPaneName, string> = {
 
 // copyFor is a pane's copy for signed out, no session and a session gone.
 export function copyFor(name: PaneName): { signedOut: string; none: string; gone: string } {
-  const noun = name === "board" ? "whiteboard" : NOUN[name];
+  const noun = name === "board" ? "whiteboard" : name === "rail" ? "conversations" : NOUN[name];
   return {
     signedOut: name === "board" ? "Sign in to Jam to see this whiteboard."
+      : name === "rail" ? "Sign in to Jam to see your conversations."
       : name === "conversation" ? "Sign in to Jam to see this conversation."
       : `Sign in to Jam to see this session's ${noun}.`,
     none: "This window isn't a Jam studio window.",
@@ -77,7 +79,10 @@ export function Pane({ bridge, name, board }: { bridge: Bridge; name: PaneName; 
   let body: ReactNode = null;
   if (!view) body = null;
   else if (!view.s.signedIn) body = <Copy text={copy.signedOut} action="Sign in" onClick={signIn} />;
-  else if (name === "board") {
+  else if (name === "rail") {
+    const active = view.s.target && "channel" in view.s.target ? view.s.target.channel : undefined;
+    body = <Shell key={view.gen} signIn={signIn}><RailPane bridge={bridge} windows={view.s.windows ?? []} active={active} /></Shell>;
+  } else if (name === "board") {
     body = <Shell key={view.gen} signIn={signIn}><BoardTab bridge={bridge} id={board ?? ""} /></Shell>;
   } else if (view.s.error !== undefined) body = <Copy text={`Couldn't load the focused session: ${view.s.error}`} action="Try again" onClick={retry} />;
   else if (!view.s.target) body = <Copy text={copy.none} />;

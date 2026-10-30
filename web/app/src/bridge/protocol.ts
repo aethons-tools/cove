@@ -1,7 +1,7 @@
 // The webview bridge protocol between the VS Code extension host and a pane.
 // Types only: no DOM or React imports, so web/vscode can type-import it.
 export type SessionPaneName = "conversation" | "thinking" | "previews" | "status" | "artifacts";
-export type PaneName = SessionPaneName | "board";
+export type PaneName = SessionPaneName | "board" | "rail";
 export type ThinkingEventName = "open" | "stream" | "totals" | "ev" | "more" | "skipped" | "newstream";
 export type Method = "GET" | "POST" | "DELETE";
 export type BridgeRequest = {
@@ -21,7 +21,8 @@ export type BridgeResponse =
 export type SessionTarget = { session: string; label: string; channel: string } | { session: string; gone: true };
 // error: the focused session couldn't be looked up (not a 404); the pane offers
 // Try again, which is a new ready.
-export type PaneState = { signedIn: boolean; target: SessionTarget | null; error?: string };
+// windows: the sessions with an open studio window (the rail's ▣).
+export type PaneState = { signedIn: boolean; target: SessionTarget | null; error?: string; windows?: string[] };
 export type OpenIntent =
   | { kind: "board"; id: string }
   | { kind: "conversation"; channel: string }
@@ -29,7 +30,8 @@ export type OpenIntent =
   | { kind: "external"; url: string }
   | { kind: "preview"; session: string; port: number; url: string; inBrowser: boolean }
   | { kind: "reveal"; anchor?: string } // show the Conversation view, then scroll to anchor
-  | { kind: "session"; id: string }; // open that session's code window (the extension link)
+  | { kind: "session"; id: string } // open that session's code window (the extension link)
+  | { kind: "go"; channel: string; session: string }; // a rail row's click: its window if open, else the conversation
 export type PaneToExt =
   | { type: "ready"; pane: PaneName }
   | { type: "request"; id: number; req: BridgeRequest }
