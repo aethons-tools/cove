@@ -151,7 +151,7 @@ describe("OsNotifier linux", () => {
     const n = note();
     await r.n.show(n);
     expect(r.calls[0]).toMatchObject({ file: "notify-send", args: ["--help"] });
-    expect(r.calls[1].args).toEqual(["--app-name=Jam", "--icon=/ext/media/jam.svg", "--action=default=Open", "--wait", "--", "T", "B"]);
+    expect(r.calls[1].args).toEqual(["--app-name=Jam", "--icon=/ext/media/icon.png", "--action=default=Open", "--wait", "--", "T", "B"]);
     expect(r.calls[1].o.timeout).toBe(NOTIFY_WAIT_MS);
     expect(r.calls[1].o.signal).toBeInstanceOf(AbortSignal);
     expect(n.onClick).toHaveBeenCalledTimes(1);
@@ -227,7 +227,7 @@ describe("OsNotifier linux", () => {
   it("without --action notifies without waiting", async () => {
     const r = rig("linux", (c) => ({ stdout: c.args[0] === "--help" ? "Usage: notify-send" : "" }));
     await r.n.show(note());
-    expect(r.calls[1].args).toEqual(["--app-name=Jam", "--icon=/ext/media/jam.svg", "--", "T", "B"]);
+    expect(r.calls[1].args).toEqual(["--app-name=Jam", "--icon=/ext/media/icon.png", "--", "T", "B"]);
     expect(r.calls[1].o.timeout).toBe(10_000);
   });
 
