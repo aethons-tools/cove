@@ -4,6 +4,8 @@ import type { OpenIntent } from "../../../app/src/bridge/protocol.js" with { "re
 import { checkPath, ID_RE } from "./router.js";
 
 export const ANCHOR_RE = /^ask-[A-Za-z0-9_-]{1,80}$/;
+// LEGACY_RE is a History row's channel id (userui's legacyPrefix): read-only, never a session's.
+export const LEGACY_RE = /^legacy:[\x21-\x7e]{1,256}$/;
 
 // forwardPort's url is the fallback: the preview's own web URL.
 export type IntentAction =
@@ -59,10 +61,12 @@ export function intentAction(i: OpenIntent, jamUrl: string, windowStudio?: strin
       if (i.anchor === undefined || i.anchor === null) return { revealConversation: null };
       if (typeof i.anchor !== "string" || !ANCHOR_RE.test(i.anchor)) return new Error("Not an anchor.");
       return { revealConversation: i.anchor };
-    case "go":
-      if (typeof i.channel !== "string" || !ID_RE.chn.test(i.channel)) return new Error("Not a conversation id.");
-      if (typeof i.session !== "string" || (i.session !== "" && !ID_RE.ses.test(i.session))) return new Error("Not a session id.");
+    case "go": {
+      const legacy = typeof i.channel === "string" && LEGACY_RE.test(i.channel);
+      if (typeof i.channel !== "string" || !(ID_RE.chn.test(i.channel) || legacy)) return new Error("Not a conversation id.");
+      if (typeof i.session !== "string" || (i.session !== "" && (legacy || !ID_RE.ses.test(i.session)))) return new Error("Not a session id.");
       return { goTo: { channel: i.channel, session: i.session } };
+    }
     case "session":
       if (typeof i.id !== "string" || !ID_RE.ses.test(i.id)) return new Error("Not a session id.");
       return { openSession: i.id };

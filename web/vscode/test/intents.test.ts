@@ -26,6 +26,15 @@ describe("intentAction", () => {
   ];
   for (const i of errs) it(`refuses ${JSON.stringify(i)}`, () => expect(intentAction(i, JAM)).toBeInstanceOf(Error));
 
+  it("go accepts a History (legacy:) row with no session, and refuses odd ones", () => {
+    const LEG = "legacy:dm:ann:bob";
+    expect(intentAction({ kind: "go", channel: LEG, session: "" }, JAM)).toEqual({ goTo: { channel: LEG, session: "" } });
+    for (const channel of ["legacy:", "legacy:a b", "legacy:a\n", `legacy:${"x".repeat(257)}`]) {
+      expect(intentAction({ kind: "go", channel, session: "" }, JAM)).toBeInstanceOf(Error);
+    }
+    expect(intentAction({ kind: "go", channel: LEG, session: "ses_0abcdefghjkmnpqrstvwxyz012" }, JAM)).toBeInstanceOf(Error);
+  });
+
   it("go keeps a valid channel and session (or none)", () => {
     const SES = "ses_0abcdefghjkmnpqrstvwxyz012";
     expect(intentAction({ kind: "go", channel: CHN, session: SES }, JAM)).toEqual({ goTo: { channel: CHN, session: SES } });

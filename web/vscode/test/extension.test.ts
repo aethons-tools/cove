@@ -151,6 +151,12 @@ describe("activate", () => {
       await vi.waitFor(() => expect(vi.mocked(vscode.env.openExternal)).toHaveBeenCalled());
       expect(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0])).toBe(`${JAM}/app/user/c/${CHN}`);
       expect(openFolderCalls()).toEqual([]);
+      rail.receive({ type: "open", intent: { kind: "go", channel: "legacy:dm:ann", session: "" } });
+      await vi.waitFor(() => expect(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0])).toBe(`${JAM}/app/user/c/legacy%3Adm%3Aann`));
+      ctx.state.set(`jam.connected.${SES}`, Date.now() - 91_000);
+      rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(vi.mocked(vscode.env.openExternal).mock.calls).toHaveLength(3));
+      expect(openFolderCalls()).toEqual([]);
       ctx.state.set(`jam.connected.${SES}`, Date.now());
       rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
       await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
