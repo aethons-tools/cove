@@ -234,7 +234,19 @@ export function fakeWebviewView() {
 // fakeWebviewPanel is a WebviewPanel over fakeWebviewView's webview.
 export function fakeWebviewPanel(viewType: string, title: string, column: unknown, options: unknown) {
   const v = fakeWebviewView();
+  const onViewState = new Set<() => void>();
   const panel = Object.assign(v, {
+    active: false,
+    onDidChangeViewState: (cb: () => void) => {
+      onViewState.add(cb);
+      return { dispose: () => void onViewState.delete(cb) };
+    },
+    // setActive makes the panel the active (and visible) editor, as a tab switch does.
+    setActive: (a: boolean) => {
+      panel.active = a;
+      if (a) panel.visible = true;
+      [...onViewState].forEach((cb) => cb());
+    },
     viewType,
     title,
     column,
