@@ -273,7 +273,8 @@ differ — each reflects when it was last built. Jam references the base by
 
 [`scripts/build.sh`](../scripts/build.sh) builds the host binaries locally (no
 publish) for iteration; `scripts/build-images.sh` does the same for the image
-tree. A `jam` that mints a token runs itself (`<its own path> mint …`, so the
+tree. To have a local `jam` build studios FROM those images, use `just local`
+([local-build.md](local-build.md)). A `jam` that mints a token runs itself (`<its own path> mint …`, so the
 minter is always version-matched), falling back to `jam` on PATH when it can't
 resolve its own path.
 

@@ -71,6 +71,9 @@ just build             # (re)build dist/<os>-<arch>/jam
 just dev-serve         # runs the built jam serve --config dev/jam.dev.yml
 ```
 
+To run studios on images built from this checkout (a changed `images/`), use `just local` instead of `just build`:
+it builds the images, the binaries pointed at them, and `jam:dev` ([local-build.md](../docs/local-build.md)).
+
 `just dev-serve` runs the **last-built** `dist/<os>-<arch>/jam` (run `just
 build` first — it does not rebuild), forwarding extra args (e.g. `just dev-serve
 --config path/to/other.yml`). For arbitrary subcommands there is also `just

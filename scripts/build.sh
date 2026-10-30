@@ -56,6 +56,9 @@ case "${1:-}" in
 esac
 
 echo "Building jam ${VERSION} (${BINARIES[*]})"
+if [ -s internal/basedigest/blessed/local.txt ]; then
+  echo "  with the local studio base $(grep -v '^#' internal/basedigest/blessed/local.txt | head -1) (just local; just local-clean drops it)"
+fi
 built=()
 for t in "${TARGETS[@]}"; do
   os="${t%/*}"

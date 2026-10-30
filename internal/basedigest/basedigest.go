@@ -5,11 +5,14 @@
 //
 // The set is generated at build time from the registry, bounded by a committed
 // low-watermark — see internal/blessgen and cmd/gen-blessed (COV-44). The embed
-// covers a directory of two files:
+// covers a directory of up to three files:
 //
 //   - blessed/watermark.txt — committed: the single low-watermark digest.
 //   - blessed/generated.txt — gitignored: the registry snapshot cmd/gen-blessed
 //     writes before `go build`. Absent in a fresh checkout and offline builds.
+//   - blessed/local.txt — gitignored: a locally built base's ref, written by
+//     `just local` (scripts/local.sh); a release never has one (the goreleaser
+//     before-hook refuses it). See LocalRef.
 //
 // Blessed prefers generated.txt and falls back to watermark.txt, so a build with
 // registry access trusts every current base while an offline build (or a fresh
@@ -21,11 +24,15 @@ package basedigest
 import (
 	"bufio"
 	"embed"
+	"io/fs"
 	"strings"
 )
 
 //go:embed blessed
 var blessedFS embed.FS
+
+// files is what the functions below read (blessedFS; tests swap it).
+var files fs.ReadFileFS = blessedFS
 
 // Image is the published jam-studio-base repository the blessed digests name.
 const Image = "ghcr.io/aethons-tools/jam-studio-base"
@@ -35,28 +42,52 @@ const Image = "ghcr.io/aethons-tools/jam-studio-base"
 // when present, else the committed low-watermark (blessed/watermark.txt). Blank
 // lines and #-comments are ignored.
 func Blessed() []string {
-	if b, err := blessedFS.ReadFile("blessed/generated.txt"); err == nil {
+	if b, err := files.ReadFile("blessed/generated.txt"); err == nil {
 		if digests := parse(string(b)); len(digests) > 0 {
 			return digests
 		}
 	}
-	b, _ := blessedFS.ReadFile("blessed/watermark.txt")
+	b, _ := files.ReadFile("blessed/watermark.txt")
 	return parse(string(b))
 }
 
-// DefaultRef is the base Jam's launcher hardens when a kit selects none: the newest
+// LocalRef is the locally built jam-studio-base this binary was built against
+// (blessed/local.txt: one image ref, e.g. jam-studio-base:dev-0123abcd4567),
+// or "" — always "" in a release. When set it is the default base and the
+// first blessed ref, so a local jam builds studios FROM the local image and
+// trusts kits built FROM it; the published bases stay trusted too.
+func LocalRef() string {
+	b, err := files.ReadFile("blessed/local.txt")
+	if err != nil {
+		return ""
+	}
+	refs := parse(string(b))
+	if len(refs) == 0 {
+		return ""
+	}
+	return refs[0]
+}
+
+// DefaultRef is the base Jam's launcher hardens when a kit selects none: the
+// local base (LocalRef) when this is a `just local` build, else the newest
 // blessed jam-studio-base, pinned by digest.
 func DefaultRef() string {
+	if l := LocalRef(); l != "" {
+		return l
+	}
 	return Image + "@" + Blessed()[0]
 }
 
 // BlessedRefs pins each blessed digest to Image — the concrete refs the
-// provenance gate inspects for their layer diff_ids.
+// provenance gate inspects for their layer diff_ids — after the local base,
+// if any.
 func BlessedRefs() []string {
-	blessed := Blessed()
-	refs := make([]string, len(blessed))
-	for i, d := range blessed {
-		refs[i] = Image + "@" + d
+	var refs []string
+	if l := LocalRef(); l != "" {
+		refs = append(refs, l)
+	}
+	for _, d := range Blessed() {
+		refs = append(refs, Image+"@"+d)
 	}
 	return refs
 }
@@ -72,4 +103,13 @@ func parse(s string) []string {
 		out = append(out, line)
 	}
 	return out
+}
+
+// VersionNote is what `version` appends on a `just local` build, so one is
+// never mistaken for a release: " (local studio base <ref>)", else "".
+func VersionNote() string {
+	if l := LocalRef(); l != "" {
+		return " (local studio base " + l + ")"
+	}
+	return ""
 }
