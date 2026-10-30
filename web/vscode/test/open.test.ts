@@ -6,10 +6,12 @@ import {
   connectedSet,
   openSession,
   pickSession,
+  HUB_FILE,
   remoteUri,
   studioFromAuthority,
   webUrl,
   windowAuthority,
+  windowKind,
 } from "../src/open";
 import type { OpenDeps, Ui } from "../src/open";
 import { editorFor } from "../src/editor";
@@ -283,6 +285,28 @@ describe("connectedSet", () => {
 
   it("the beat refreshes well within the stale window", () => {
     expect(CONNECTED_BEAT_MS * 2).toBeLessThan(CONNECTED_STALE_MS);
+  });
+});
+
+describe("windowKind", () => {
+  const DIR = "/gs/hub";
+  const HD = { scheme: "file", path: DIR };
+  const file = (path: string, scheme = "file") => ({ scheme, authority: "", path });
+  it.each([
+    ["the hub file", { workspaceFile: file(`${DIR}/${HUB_FILE}`) }, { kind: "hub" }],
+    ["a jam remote folder", { workspaceFolders: [{ uri: { scheme: "vscode-remote", authority: `ssh-remote+jam-${ID}`, path: "/home/agent/workspace" } }] }, { kind: "session", id: ID }],
+    ["another workspace in the hub dir", { workspaceFile: file(`${DIR}/Other.code-workspace`) }, undefined],
+    ["the hub name elsewhere", { workspaceFile: file(`/elsewhere/hub/${HUB_FILE}`) }, undefined],
+    ["a lookalike dir prefix", { workspaceFile: file(`${DIR}-evil/${HUB_FILE}`) }, undefined],
+    ["another scheme", { workspaceFile: file(`${DIR}/${HUB_FILE}`, "untitled") }, undefined],
+    ["an empty window", {}, undefined],
+  ])("%s", (_n, w, want) => {
+    expect(windowKind(w, HD, "linux")).toEqual(want);
+  });
+  it("matches a case-folded hub dir on darwin and win32, not on linux", () => {
+    const w = { workspaceFile: file(`/Users/Ada/Code/hub/${HUB_FILE}`) };
+    expect(windowKind(w, { scheme: "file", path: "/users/ada/code/hub/" }, "darwin")).toEqual({ kind: "hub" });
+    expect(windowKind(w, { scheme: "file", path: "/users/ada/code/hub/" }, "linux")).toBeUndefined();
   });
 });
 

@@ -12,6 +12,10 @@ describe("route", () => {
   it("/session/<id> is a session", () => {
     expect(route(`/session/${id}`, "")).toEqual({ kind: "session", id });
   });
+  it("/hub is the hub", () => {
+    expect(route("/hub", "")).toEqual({ kind: "hub" });
+    expect(route("/hub/x", "").kind).toBe("bad");
+  });
   it("anything else is bad", () => {
     expect(route("/nope", "").kind).toBe("bad");
     expect(route("/session/ses_x", "").kind).toBe("bad");

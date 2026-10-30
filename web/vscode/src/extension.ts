@@ -15,9 +15,12 @@ import {
   connectedSet,
   openSession,
   pickSession,
+  HUB_FILE,
+  HUB_WORKSPACE,
   studioFromAuthority,
   webUrl,
   windowAuthority,
+  windowKind,
 } from "./open";
 import type { OpenDeps, Ui } from "./open";
 import { appTokenPath, configDir, knownHostsFile, sshConfigFile } from "./paths";
@@ -129,6 +132,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const log = (m: string) => output.appendLine(m);
 
   const connected = connectedSet(ctx.globalState);
+  const hubDir = vscode.Uri.joinPath(ctx.globalStorageUri, "hub");
 
   const editor = editorFor(vscode.env.uriScheme);
   const ui: Ui = {
@@ -137,6 +141,15 @@ export function activate(ctx: vscode.ExtensionContext): void {
     pick: async (items, placeholder) => vscode.window.showQuickPick(items, { placeHolder: placeholder }),
     openExternal: async (u) => void (await vscode.env.openExternal(vscode.Uri.parse(u))),
     openFolder: async (u) => void (await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.parse(u), { forceNewWindow: true })),
+    // The hub is local: from a studio window it must not stay on the SSH connection.
+    openHub: async () => {
+      const f = vscode.Uri.joinPath(hubDir, HUB_FILE);
+      await fsp.mkdir(hubDir.fsPath, { recursive: true });
+      await fsp.writeFile(f.fsPath, HUB_WORKSPACE, { flag: "wx" }).catch((e: NodeJS.ErrnoException) => {
+        if (e.code !== "EEXIST") throw e;
+      });
+      await vscode.commands.executeCommand("vscode.openFolder", f, { forceNewWindow: true, forceLocalWindow: true });
+    },
     hasRemoteSsh: () => vscode.extensions.getExtension(editor.remoteSsh.id) !== undefined,
     installRemoteSsh: async () => void (await vscode.commands.executeCommand("workbench.extensions.installExtension", editor.remoteSsh.id)),
     getGlobal: (section, key) => vscode.workspace.getConfiguration(section).inspect(key)?.globalValue,
@@ -244,9 +257,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const router = new Router({ session: current, fetch: (...a) => fetch(...a), onSignedOut: panesSignedOut, log });
   // The window's session: a jam-<id> studio window's. Only a studio window
   // shows the session views (jam.window) and can forward a preview's port.
-  const windowStudio = studioFromAuthority(windowAuthority(vscode.workspace));
-  log(`window: ${windowStudio ? `studio session ${windowStudio}` : "no session"}`);
-  void vscode.commands.executeCommand("setContext", "jam.window", windowStudio ? "session" : "");
+  const kind = windowKind(vscode.workspace, hubDir, process.platform);
+  const windowStudio = kind?.kind === "session" ? kind.id : undefined;
+  log(`window: ${windowStudio ? `studio session ${windowStudio}` : kind?.kind === "hub" ? "hub" : "no session"}`);
+  void vscode.commands.executeCommand("setContext", "jam.window", kind?.kind ?? "");
   if (windowStudio) {
     // Reloading a studio window deactivates and reactivates it: mark it again.
     // The mark is refreshed while the window lives, so one it never got to
@@ -439,6 +453,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   reg("jam.signOut", guard(() => auth.signOut()));
   reg("jam.openSession", guard(() => pickSession(openDeps)));
   reg("jam.forgetHostKey", forget);
+  reg("jam.openHub", guard(() => ui.openHub()));
 
   ctx.subscriptions.push(
     vscode.window.registerUriHandler({
@@ -446,6 +461,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
         const r = route(uri.path, uri.query);
         if (r.kind === "auth") {
           if (!auth.handleCallback(r.query)) void vscode.window.showWarningMessage("Jam: no sign-in is waiting for that link.");
+        } else if (r.kind === "hub") {
+          void guard(() => ui.openHub())();
         } else if (r.kind === "bad") {
           void vscode.window.showWarningMessage(`Jam: ${r.reason}`);
         } else void guard(() => openSession(openDeps, r.id))();

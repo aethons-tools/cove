@@ -15,6 +15,8 @@ export interface Ui {
   openExternal(url: string): Promise<void>;
   // Opens uri in a new window, focusing one already on it.
   openFolder(uri: string): Promise<void>;
+  // Opens the hub window (writing its workspace file if missing), or focuses it.
+  openHub(): Promise<void>;
   hasRemoteSsh(): boolean;
   installRemoteSsh(): Promise<void>;
   getGlobal(section: string, key: string): unknown;
@@ -230,6 +232,36 @@ export function connectedSet(
       if (SESSION_ID_RE.test(id)) await st.update(key(id), on ? now() : undefined);
     },
   };
+}
+
+// The hub is a window on HUB_FILE (a workspace with no folders) in the
+// extension's global storage hub directory.
+export const HUB_FILE = "Jam Hub.code-workspace";
+export const HUB_WORKSPACE = JSON.stringify({ folders: [] }, null, 2) + "\n";
+
+export type WindowKind = { kind: "session"; id: string } | { kind: "hub" };
+
+// windowKind is what a window is to Jam: a session's studio window (a jam-<id>
+// remote), the hub (workspace file <hubDir>/HUB_FILE; hubDir as a URI, whose
+// scheme is globalStorageUri's), or nothing. The directory compares
+// case-insensitively on darwin and win32 (case-insensitive file systems, drive letters).
+export function windowKind(
+  w: { workspaceFolders?: readonly { uri: UriLike }[]; workspaceFile?: UriLike & { path: string } },
+  hubDir: { scheme: string; path: string },
+  platform: string,
+): WindowKind | undefined {
+  const remote = studioFromAuthority(windowAuthority(w));
+  if (remote) return { kind: "session", id: remote };
+  const f = w.workspaceFile;
+  if (!f || f.scheme !== hubDir.scheme) return undefined;
+  const fold = platform === "darwin" || platform === "win32";
+  const norm = (p: string) => {
+    const q = p.replace(/\\/g, "/").replace(/\/+$/, "");
+    return fold ? q.toLowerCase() : q;
+  };
+  const slash = f.path.lastIndexOf("/");
+  if (slash < 0 || norm(f.path.slice(0, slash)) !== norm(hubDir.path)) return undefined;
+  return f.path.slice(slash + 1) === HUB_FILE ? { kind: "hub" } : undefined;
 }
 
 export type RailRow = RailResponse["groups"][number]["rows"][number];

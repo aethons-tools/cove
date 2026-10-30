@@ -6,10 +6,12 @@ export const SESSION_ID_RE = /^ses_[0-7][0-9a-hjkmnp-tv-z]{25}$/;
 export type Route =
   | { kind: "auth"; query: URLSearchParams }
   | { kind: "session"; id: string }
+  | { kind: "hub" }
   | { kind: "bad"; reason: string };
 
 export function route(path: string, query: string): Route {
   if (path === "/auth") return { kind: "auth", query: new URLSearchParams(query) };
+  if (path === "/hub") return { kind: "hub" };
   const m = /^\/session\/([^/]+)$/.exec(path);
   if (m) {
     const id = m[1]!;

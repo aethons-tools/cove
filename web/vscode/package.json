@@ -19,7 +19,8 @@
       { "command": "jam.signIn", "title": "Sign In", "category": "Jam" },
       { "command": "jam.signOut", "title": "Sign Out", "category": "Jam" },
       { "command": "jam.openSession", "title": "Open Session…", "category": "Jam" },
-      { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" }
+      { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" },
+      { "command": "jam.openHub", "title": "Open Hub", "category": "Jam" }
     ],
     "viewsContainers": {
       "activitybar": [{ "id": "jam", "title": "Jam", "icon": "media/jam.svg" }],

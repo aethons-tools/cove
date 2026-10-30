@@ -50,11 +50,11 @@ function jamFetch(calls: Call[]) {
 }
 
 describe("activate", () => {
-  it("activate registers six view providers and four commands, and no tree view", () => {
+  it("activate registers six view providers and five commands, and no tree view", () => {
     mock.reset();
     const ctx = fakeContext();
     activate(ctx);
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(4);
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(5);
     expect(vscode.window.createTreeView).not.toHaveBeenCalled();
     expect(vscode.window.registerUriHandler).toHaveBeenCalledTimes(1);
     expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(6);
@@ -758,6 +758,42 @@ describe("session windows", () => {
     activate(ctx);
     await deactivate();
     expect(ctx.state.get(`jam.connected.${SES}`)).toBe(1234);
+  });
+});
+
+describe("hub window", () => {
+  const hubPath = (ctx: vscode.ExtensionContext) => `${ctx.globalStorageUri.path}/hub/Jam Hub.code-workspace`;
+
+  it("jam.openHub writes the hub file and opens it locally in a new window", async () => {
+    mock.reset();
+    const ctx = fakeContext();
+    activate(ctx);
+    await mock.commands.get("jam.openHub")!();
+    expect(openFolderCalls()).toEqual([["vscode.openFolder", expect.objectContaining({ scheme: "file", fsPath: hubPath(ctx) }), { forceNewWindow: true, forceLocalWindow: true }]]);
+    expect(JSON.parse(await readFile(hubPath(ctx), "utf8"))).toEqual({ folders: [] });
+    await mock.commands.get("jam.openHub")!();
+    expect(openFolderCalls()).toHaveLength(2);
+    deactivate();
+  });
+
+  it("a window on the hub file sets jam.window to hub", () => {
+    mock.reset();
+    const ctx = fakeContext();
+    (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: hubPath(ctx) };
+    activate(ctx);
+    expect(mock.context.get("jam.window")).toBe("hub");
+    expect(mock.output.join("\n")).toContain("window: hub");
+    deactivate();
+  });
+
+  it("a …/hub link opens the hub", async () => {
+    mock.reset();
+    const ctx = fakeContext();
+    activate(ctx);
+    mock.uriHandler!.handleUri({ path: "/hub", query: "" });
+    await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+    expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: hubPath(ctx) }));
+    deactivate();
   });
 });
 

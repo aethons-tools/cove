@@ -38,7 +38,7 @@ describe("the manifest", () => {
     const registered = vi_registered();
     const ids = pkg.contributes.commands.map((c: { command: string }) => c.command);
     expect(ids.sort()).toEqual(
-      ["jam.forgetHostKey", "jam.openSession", "jam.signIn", "jam.signOut"],
+      ["jam.forgetHostKey", "jam.openHub", "jam.openSession", "jam.signIn", "jam.signOut"],
     );
     for (const id of ids) expect(registered).toContain(id);
   });
@@ -59,6 +59,10 @@ describe("the manifest", () => {
       ],
       jamPanel: [{ type: "webview", id: "jam.thinking", name: "Thinking", when: "jam.window == session" }],
     });
+  });
+
+  it("Open Hub is a Jam command", () => {
+    expect(pkg.contributes.commands).toContainEqual({ command: "jam.openHub", title: "Open Hub", category: "Jam" });
   });
 
   it("no menus and no view welcome", () => {
