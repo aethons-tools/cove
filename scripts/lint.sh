@@ -64,7 +64,7 @@ if [ -n "$unformatted" ]; then
 fi
 
 if have shellcheck; then
-  shellcheck install.sh install.test.sh scripts/release/check-archive.sh testdata/install-legacy*.sh \
+  shellcheck install.sh install.test.sh scripts/release/*.sh testdata/install-legacy*.sh \
     scripts/*.sh \
     internal/assemble/hardening/image-files/usr/local/bin/*.sh \
     internal/assemble/hardening/image-files/usr/local/lib/jam/*.sh \

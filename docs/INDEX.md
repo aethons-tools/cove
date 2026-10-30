@@ -16,6 +16,7 @@ open only that doc, and stop when you have enough.
 |-----|-----------|
 | [OVERVIEW.md](OVERVIEW.md) | You need what this repo builds (the studio image, its hardening and egress tiers), the package map, or how to build/test/run. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | You are building or testing this repo inside the egress-locked dev sandbox and `go` or `just` won't fetch or build. |
+| [local-build.md](local-build.md) | You want a local Jam whose studios run on images you just built (`just local`), or see "local studio base" in `jam version`, or a release build refused a `local.txt`. |
 | [web-app.md](web-app.md) | You are changing the Jam app (`web/app`: the user area at `/app/user/`, the admin console at `/app/admin/`), adding an `/app/user/api` or `/app/admin/api` route it reads, or building/testing it. |
 | [usage/INDEX.md](usage/INDEX.md) | You are running one of the binaries (`jam`, `jam-studio-manager`) and need its flags, config, or I/O contract. |
 | [superpowers/](superpowers/) | You need the design history — dated specs (`specs/`) and implementation plans (`plans/`) — behind a structural decision. |

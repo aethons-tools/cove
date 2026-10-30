@@ -159,9 +159,25 @@ test-browser:
 test-install:
     bash install.test.sh
 
+# hermetic test for scripts/local.sh (`just local`; fake docker, stub build scripts)
+test-local:
+    bash scripts/local.test.sh
+
 # hermetic test for scripts/jam-image.sh, images/jam/Dockerfile and the release.yml wiring (fake docker; no daemon)
 test-jam-image:
     bash scripts/jam-image.test.sh
+
+# jam-studio-base and jam-studio images, then jam/jam-studio-manager (dist/)
+# embedding that base as their default, trusted studio base, then jam:dev from
+# them, all in one Docker (DOCKER_CONTEXT, default colima; scripts/local.sh).
+# build images, dist and jam:dev, all pointing at each other (local studio base)
+local:
+    ./scripts/local.sh
+
+# drop the local studio base `just local` embedded, so the next build is a normal one
+local-clean:
+    rm -f internal/basedigest/blessed/local.txt
+    @echo "local: removed the local studio base; run just build (or just local) to rebuild"
 
 # build the Jam container image (jam:dev) from freshly built linux binaries
 jam-image *ARGS:

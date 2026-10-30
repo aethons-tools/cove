@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/aethons-tools/cove/internal/basedigest"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/colimacmd"
 	"github.com/aethons-tools/cove/internal/runner"
@@ -29,7 +30,7 @@ func main() {
 func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	app := cli.App{
 		Name:    "jam-studio-manager",
-		Version: version,
+		Version: version + basedigest.VersionNote(),
 		Commands: []cli.Command{
 			{Name: "run", Brief: "run the Studio Manager until SIGINT or SIGTERM (run [--config <path>])",
 				Run: func(args []string, _ cli.Globals, _, stderr io.Writer) int {
