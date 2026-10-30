@@ -43,7 +43,7 @@ What the extension does: [vscode.md](vscode.md).
 - [ ] With an older extension installed, a signed-in window offers the update; *Update* installs it through `workbench.extensions.installExtension` with a `file:` URI under global storage, and *Reload Window* comes up on the new version. With two windows open, only one offers.
 - [ ] Upload a file once from the Conversation view (the `ArrayBuffer` check from slice 3).
 - [ ] Installed from the .vsix on macOS, `dist/vendor/mac.noindex/terminal-notifier.app` runs: it keeps its exec bit (or the chmod restores it), Gatekeeper doesn't block it, and the first notification asks for permission. Clicking a notification opens `vscode://aethons.jam/session/<id>`.
-- [ ] A `TreeView.badge` on the collapsed `jam.needsYou` view shows on the Jam activity-bar icon while the Jam container is closed.
+- [ ] A `WebviewView.badge` on the `jam.rail` view shows on the Jam activity-bar icon while the Jam container is closed.
 - [ ] `notify-send --action … --wait` on the target Linux desktops (GNOME, KDE) prints `default` on a click.
 - [ ] `osascript -e 'on run argv' … -- <title> <body>` passes `--` through or not: if `item 1 of argv` comes out as `--`, drop the `--` from `osascriptArgs`.
 - [ ] terminal-notifier 3.0 (UNUserNotificationCenter; its first run waits on the permission prompt, and output saying "declined" is a quiet stop, never an osascript fallback) still displays on the current macOS: a silent non-display exits 0, so no fallback triggers.
@@ -59,7 +59,7 @@ What the extension does: [vscode.md](vscode.md).
 - [ ] `open vscode://aethons.jam/session/<id>` from a terminal opens it.
 - [ ] *Jam: Open Session…* lists live sessions.
 - [ ] A member without SSH gets "You can't SSH into …" with the web app link, and no window opens.
-- [ ] A window left open on an old local session workspace (`…/sessions/<id>.code-workspace`) shows no Jam views after upgrading, only Needs You.
+- [ ] A window left open on an old local session workspace (`…/sessions/<id>.code-workspace`) shows no Jam views after upgrading, only the rail.
 - [ ] After an existing `jam ssh-config --write`, the block is unchanged.
 - [ ] `jam ssh-config --prune --dry-run` handles an extension block.
 - [ ] Revoke in Connected apps: the next open says signed out, and `ssh-proxy` fails with the VS Code message.
@@ -85,7 +85,12 @@ Conversation view:
 - [ ] A message from the agent appears without a reload (live).
 - [ ] The views have no pin buttons, and there is no *Jam: Focus Session…*.
 - [ ] Drag the view to the panel and to the secondary sidebar.
-- [ ] A window on a local folder shows no Jam views except Needs You.
+- [ ] A window on a local folder shows no Jam views except the rail (Conversations).
+- [ ] Rail: the groups, missions and unread counts match the web app's rail.
+- [ ] Rail click on a session with no studio window opens the conversation in the web app; with one open, it brings that window to the front.
+- [ ] Rail double-click on a session you can SSH into opens its studio window; on a chat it acts as a click.
+- [ ] ▣ appears on the row within 30 s of opening the studio window, and goes once it's closed (within 90 s).
+- [ ] The Jam icon's badge counts the Needs you rows and clears on sign-out.
 - [ ] Open a board card and a message link: both open in the browser.
 - [ ] Revoke the token while the view is open: it shows Sign in. Sign In again: the view recovers.
 - [ ] Sleep the laptop for 2 minutes, wake it: the messages catch up.
