@@ -97,7 +97,7 @@ Panes:
 - [ ] Each view (Thinking, Previews, Status, Artifacts) renders for the window's session in the light, dark and high-contrast themes.
 - [ ] Thinking follows a busy session live, with Load earlier and the stream select.
 - [ ] Two Thinking views on one session, then *Developer: Show Running Extensions* plus Jam's server log, show one feed.
-- [ ] Pin Thinking to another session, and its label shows.
+- [ ] Thinking shows the window's session.
 - [ ] Previews Open shows the app in the Simple Browser and a Ports-view entry. Browser opens the system browser.
 - [ ] Status Interrupt and Compact work, and Release flips every pane to the ended copy.
 - [ ] An Artifacts ask scrolls the Conversation view, a board thumb opens a tab, and a file opens in the browser.
