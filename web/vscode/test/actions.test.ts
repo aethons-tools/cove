@@ -9,6 +9,7 @@ function deps(o: Partial<ActionDeps> = {}) {
     asExternalUri: vi.fn(async () => "http://localhost:61234/"),
     openBoard: vi.fn(),
     openSession: vi.fn(),
+    goTo: vi.fn(),
     scrollConversation: vi.fn(),
     error: vi.fn(),
     ...o,
@@ -67,6 +68,11 @@ describe("perform", () => {
     expect(d.openSession).toHaveBeenCalledWith("ses_x");
     expect(d.openExternal).toHaveBeenCalledWith("https://a.example/");
     expect(d.executeCommand).not.toHaveBeenCalled();
+  });
+  it("goTo reaches its dep", async () => {
+    const d = deps();
+    await perform({ goTo: { channel: "c", session: "s" } }, d);
+    expect(d.goTo).toHaveBeenCalledWith("c", "s");
   });
   it("dep errors are caught and shown", async () => {
     const d = deps({ openBoard: vi.fn(() => { throw new Error("boom"); }) });

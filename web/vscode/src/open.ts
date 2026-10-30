@@ -211,14 +211,21 @@ export const CONNECTED_STALE_MS = 90_000;
 // CONNECTED_BEAT_MS and clears it on deactivate; a stale mark, or anything
 // not a time, is not connected. One key per session (jam.connected.<id>, in
 // a Memento such as globalState), so windows never overwrite each other's.
-export function connectedSet(st: { get<T>(k: string): T | undefined; update(k: string, v: unknown): Thenable<void> }, now: () => number = Date.now) {
-  const key = (id: string) => `jam.connected.${id}`;
+export function connectedSet(
+  st: { get<T>(k: string): T | undefined; update(k: string, v: unknown): Thenable<void>; keys(): readonly string[] },
+  now: () => number = Date.now,
+) {
+  const PREFIX = "jam.connected.";
+  const key = (id: string) => `${PREFIX}${id}`;
+  const isConnected = (id: string) => {
+    if (!SESSION_ID_RE.test(id)) return false;
+    const at = st.get<unknown>(key(id));
+    return typeof at === "number" && Math.abs(now() - at) < CONNECTED_STALE_MS;
+  };
   return {
-    isConnected: (id: string) => {
-      if (!SESSION_ID_RE.test(id)) return false;
-      const at = st.get<unknown>(key(id));
-      return typeof at === "number" && Math.abs(now() - at) < CONNECTED_STALE_MS;
-    },
+    isConnected,
+    // list is the sessions with a fresh mark (the rail's ▣).
+    list: () => st.keys().filter((k) => k.startsWith(PREFIX)).map((k) => k.slice(PREFIX.length)).filter(isConnected),
     setConnected: async (id: string, on: boolean) => {
       if (SESSION_ID_RE.test(id)) await st.update(key(id), on ? now() : undefined);
     },

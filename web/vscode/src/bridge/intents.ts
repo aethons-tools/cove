@@ -11,7 +11,8 @@ export type IntentAction =
   | { openBoard: string }
   | { forwardPort: number; inBrowser: boolean; url: string }
   | { revealConversation: string | null }
-  | { openSession: string };
+  | { openSession: string }
+  | { goTo: { channel: string; session: string } };
 
 const EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"]);
 
@@ -58,6 +59,10 @@ export function intentAction(i: OpenIntent, jamUrl: string, windowStudio?: strin
       if (i.anchor === undefined || i.anchor === null) return { revealConversation: null };
       if (typeof i.anchor !== "string" || !ANCHOR_RE.test(i.anchor)) return new Error("Not an anchor.");
       return { revealConversation: i.anchor };
+    case "go":
+      if (typeof i.channel !== "string" || !ID_RE.chn.test(i.channel)) return new Error("Not a conversation id.");
+      if (typeof i.session !== "string" || (i.session !== "" && !ID_RE.ses.test(i.session))) return new Error("Not a session id.");
+      return { goTo: { channel: i.channel, session: i.session } };
     case "session":
       if (typeof i.id !== "string" || !ID_RE.ses.test(i.id)) return new Error("Not a session id.");
       return { openSession: i.id };

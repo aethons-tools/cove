@@ -23,6 +23,11 @@ const openView = (): View => {
   void mock.viewProviders.get("jam.conversation")!.resolveWebviewView(v as unknown as vscode.WebviewView, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
   return v;
 };
+const openRail = () => {
+  const v = fakeWebviewView() as View & { badge?: unknown };
+  void mock.viewProviders.get("jam.rail")!.resolveWebviewView(v as unknown as vscode.WebviewView, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+  return v;
+};
 const lastState = (v: View) =>
   (v.posted as ExtToPane[]).filter((m) => m.type === "state").map((m) => (m as { state: PaneState }).state).at(-1);
 const settle = () => new Promise((r) => setTimeout(r, 20));
@@ -45,16 +50,16 @@ function jamFetch(calls: Call[]) {
 }
 
 describe("activate", () => {
-  it("activate registers five view providers, one tree view and five commands", () => {
+  it("activate registers six view providers and four commands, and no tree view", () => {
     mock.reset();
     const ctx = fakeContext();
     activate(ctx);
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(5);
-    expect(vscode.window.createTreeView).toHaveBeenCalledWith("jam.needsYou", expect.anything());
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(4);
+    expect(vscode.window.createTreeView).not.toHaveBeenCalled();
     expect(vscode.window.registerUriHandler).toHaveBeenCalledTimes(1);
-    expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(5);
+    expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(6);
     const calls = vi.mocked(vscode.window.registerWebviewViewProvider).mock.calls as unknown as [string, unknown, { webviewOptions?: { retainContextWhenHidden?: boolean } } | undefined][];
-    expect(calls.map((c) => c[0])).toEqual(["jam.conversation", "jam.thinking", "jam.previews", "jam.status", "jam.artifacts"]);
+    expect(calls.map((c) => c[0])).toEqual(["jam.rail", "jam.conversation", "jam.thinking", "jam.previews", "jam.status", "jam.artifacts"]);
     for (const [, , opts] of calls) expect(opts?.webviewOptions?.retainContextWhenHidden).toBeUndefined();
     deactivate();
   });
@@ -85,12 +90,11 @@ describe("activate", () => {
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
       activate(ctx);
-      const view = vscode.window.createTreeView as unknown as { mock: { results: { value: { badge: unknown } }[] } };
-      const badge = () => view.mock.results.at(-1)!.value.badge;
+      const railView = openRail();
+      const badge = () => railView.badge;
       await vi.waitFor(() => expect(badge()).toEqual({ value: 2, tooltip: "2 conversations need you" }), { timeout: 6000 });
       push("event: changed\ndata: {}\n\n");
       await vi.waitFor(() => expect(badge()).toEqual({ value: 1, tooltip: "1 conversation needs you" }), { timeout: 6000 });
-      expect(mock.context.get("jam.signedIn")).toBe(true);
     } finally {
       fetchSpy.mockRestore();
       deactivate();
@@ -113,51 +117,48 @@ describe("activate", () => {
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
       activate(ctx);
-      const view = vscode.window.createTreeView as unknown as { mock: { results: { value: { badge: unknown } }[] } };
-      const badge = () => view.mock.results.at(-1)!.value.badge;
+      const railView = openRail();
+      const badge = () => railView.badge;
       // Well inside NEEDS_YOU_DEBOUNCE_MS: no debounce on activation or sign-out.
       await vi.waitFor(() => expect(badge()).toEqual({ value: 1, tooltip: "1 conversation needs you" }), { timeout: 1000 });
-      expect(mock.context.get("jam.signedIn")).toBe(true);
       await mock.commands.get("jam.signOut")!();
       await vi.waitFor(() => expect(badge()).toBeUndefined(), { timeout: 1000 });
-      expect(mock.context.get("jam.signedIn")).toBe(false);
     } finally {
       fetchSpy.mockRestore();
       deactivate();
     }
   });
 
-  it("jam.needsYou.open on a session row opens its code window; on a chat row opens the web app", async () => {
+  it("a rail click on a session with a window focuses it; without one opens the web app", async () => {
     mock.reset();
-    const CHAT = "chn_1abcdefghjkmnpqrstvwxyz012";
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const u = new URL(String(input));
-      if (u.pathname === "/app/user/events") return new Response(null, { status: 204 });
-      if (u.pathname === `/app/user/api/conversations/${CHN}`) return Response.json({ session: SES });
-      if (u.pathname === `/app/user/api/conversations/${CHAT}`) return Response.json({ session: "" });
-      if (u.pathname === `/app/user/api/sessions/${SES}`) return Response.json({ label: "alpha", channel: CHN, ssh: "" });
-      return Response.json({ groups: [] });
-    });
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    const fsp = await import("node:fs/promises");
+    await fsp.mkdir(path.join(home, ".ssh"));
+    await writeFile(path.join(home, ".ssh", "config"), `Host jam-${SES}\n  HostName x\n`);
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const getExt = vi.mocked(vscode.extensions.getExtension);
+    getExt.mockImplementation(() => ({}) as vscode.Extension<unknown>);
+    const fetchSpy = jamFetch([]);
     try {
       mock.config["jam.url"] = JAM;
+      mock.config["remote.SSH.localServerDownload"] = "always";
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
       activate(ctx);
-      const open = mock.commands.get("jam.needsYou.open")!;
-      const r = (id: string) => ({ id, label: "x", project: "p", kind: "session", needsYou: true, mission: "" });
-      await open(r(CHAT));
-      expect(vscode.env.openExternal).toHaveBeenCalledWith(expect.objectContaining({ toString: expect.any(Function) }));
-      expect(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0])).toContain(CHAT);
-      vi.mocked(vscode.env.openExternal).mockClear();
-      vi.mocked(vscode.commands.executeCommand).mockClear();
-      await open(r(CHN));
-      // The session row goes to openSession: this one can't be SSHed into, so it says so and opens nothing.
-      await vi.waitFor(() =>
-        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith("You can't SSH into alpha's studio (ask an operator to share it).", "Open in the web app"),
-      );
-      expect(vi.mocked(vscode.commands.executeCommand).mock.calls.filter((c) => c[0] === "vscode.openFolder")).toEqual([]);
+      const rail = openRail();
+      rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(vi.mocked(vscode.env.openExternal)).toHaveBeenCalled());
+      expect(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0])).toBe(`${JAM}/app/user/c/${CHN}`);
+      expect(openFolderCalls()).toEqual([]);
+      ctx.state.set(`jam.connected.${SES}`, Date.now());
+      rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      expect(openFolderCalls()[0]).toEqual(["vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceNewWindow: true }]);
     } finally {
+      getExt.mockImplementation(() => undefined);
       fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
       deactivate();
     }
   });

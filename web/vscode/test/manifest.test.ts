@@ -38,7 +38,7 @@ describe("the manifest", () => {
     const registered = vi_registered();
     const ids = pkg.contributes.commands.map((c: { command: string }) => c.command);
     expect(ids.sort()).toEqual(
-      ["jam.forgetHostKey", "jam.needsYou.open", "jam.openSession", "jam.signIn", "jam.signOut"],
+      ["jam.forgetHostKey", "jam.openSession", "jam.signIn", "jam.signOut"],
     );
     for (const id of ids) expect(registered).toContain(id);
   });
@@ -51,31 +51,19 @@ describe("the manifest", () => {
     expect(pkg.icon).toBe("media/icon.png");
     expect(pkg.contributes.views).toEqual({
       jam: [
+        { type: "webview", id: "jam.rail", name: "Conversations" },
         { type: "webview", id: "jam.conversation", name: "Conversation", when: "jam.window == session" },
         { type: "webview", id: "jam.status", name: "Status", when: "jam.window == session" },
         { type: "webview", id: "jam.artifacts", name: "Artifacts", visibility: "collapsed", when: "jam.window == session" },
         { type: "webview", id: "jam.previews", name: "Previews", visibility: "collapsed", when: "jam.window == session" },
-        { id: "jam.needsYou", name: "Needs You", visibility: "collapsed" },
       ],
       jamPanel: [{ type: "webview", id: "jam.thinking", name: "Thinking", when: "jam.window == session" }],
     });
   });
 
-  it("jam.needsYou is a collapsed tree view in the jam container, with two welcome entries", () => {
-    const v = pkg.contributes.views.jam.find((x: { id: string }) => x.id === "jam.needsYou");
-    expect(v).toEqual({ id: "jam.needsYou", name: "Needs You", visibility: "collapsed" });
-    expect(pkg.contributes.views.jam.at(-1)).toBe(v);
-    expect(v.type).toBeUndefined();
-    expect(pkg.contributes.viewsWelcome).toEqual([
-      { view: "jam.needsYou", contents: "Sign in to Jam to see what needs you.\n[Sign In](command:jam.signIn)", when: "!jam.signedIn" },
-      { view: "jam.needsYou", contents: "Nothing needs you right now.", when: "jam.signedIn" },
-    ]);
-    expect(pkg.contributes.menus.commandPalette).toContainEqual({ command: "jam.needsYou.open", when: "false" });
-  });
-
-  it("no view/title menus; the palette hides only jam.needsYou.open", () => {
-    expect(pkg.contributes.menus["view/title"]).toBeUndefined();
-    expect(pkg.contributes.menus.commandPalette).toEqual([{ command: "jam.needsYou.open", when: "false" }]);
+  it("no menus and no view welcome", () => {
+    expect(pkg.contributes.menus).toBeUndefined();
+    expect(pkg.contributes.viewsWelcome).toBeUndefined();
   });
   it("media/jam.svg is the J mark, monochrome", () => {
     const svg = readFileSync(join(__dirname, "..", "media", "jam.svg"), "utf8");

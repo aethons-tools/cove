@@ -232,8 +232,20 @@ describe("openSession", () => {
 describe("connectedSet", () => {
   const memo = () => {
     const m = new Map<string, unknown>();
-    return { m, st: { get: <T>(k: string) => m.get(k) as T | undefined, update: async (k: string, v: unknown) => void (v === undefined ? m.delete(k) : m.set(k, v)) } };
+    return { m, st: { get: <T>(k: string) => m.get(k) as T | undefined, update: async (k: string, v: unknown) => void (v === undefined ? m.delete(k) : m.set(k, v)), keys: () => [...m.keys()] } };
   };
+
+  it("list() is the sessions with a fresh mark only", async () => {
+    const { m, st } = memo();
+    const ID2 = "ses_1abcdefghjkmnpqrstvwxyz012";
+    const now = 1_000_000;
+    const c = connectedSet(st, () => now);
+    await c.setConnected(ID, true);
+    m.set(`jam.connected.${ID2}`, now - CONNECTED_STALE_MS - 1);
+    m.set("jam.connected.ses_x", now);
+    m.set("jam.other", now);
+    expect(c.list()).toEqual([ID]);
+  });
 
   it("keeps one key per session, jam.connected.<id>, holding the time it was marked, ignoring junk", async () => {
     const { m, st } = memo();

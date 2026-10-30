@@ -19,8 +19,18 @@ describe("intentAction", () => {
     { kind: "web", path: "/me/studios/x" },
     { kind: "web", path: "/app/user/../../me" },
     { kind: "nope" } as unknown as OpenIntent,
+    { kind: "go", channel: BRD, session: "" },
+    { kind: "go", channel: CHN, session: "ses_x" },
+    { kind: "go", channel: CHN, session: 3 } as unknown as OpenIntent,
+    { kind: "go", channel: 3, session: "" } as unknown as OpenIntent,
   ];
   for (const i of errs) it(`refuses ${JSON.stringify(i)}`, () => expect(intentAction(i, JAM)).toBeInstanceOf(Error));
+
+  it("go keeps a valid channel and session (or none)", () => {
+    const SES = "ses_0abcdefghjkmnpqrstvwxyz012";
+    expect(intentAction({ kind: "go", channel: CHN, session: SES }, JAM)).toEqual({ goTo: { channel: CHN, session: SES } });
+    expect(intentAction({ kind: "go", channel: CHN, session: "" }, JAM)).toEqual({ goTo: { channel: CHN, session: "" } });
+  });
 
   it("maps the allowed ones", () => {
     expect(intentAction({ kind: "external", url: "https://a.example/b" }, JAM)).toEqual({ openExternal: "https://a.example/b" });

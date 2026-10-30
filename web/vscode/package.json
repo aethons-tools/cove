@@ -19,8 +19,7 @@
       { "command": "jam.signIn", "title": "Sign In", "category": "Jam" },
       { "command": "jam.signOut", "title": "Sign Out", "category": "Jam" },
       { "command": "jam.openSession", "title": "Open Session…", "category": "Jam" },
-      { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" },
-      { "command": "jam.needsYou.open", "title": "Open", "category": "Jam" }
+      { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" }
     ],
     "viewsContainers": {
       "activitybar": [{ "id": "jam", "title": "Jam", "icon": "media/jam.svg" }],
@@ -28,23 +27,14 @@
     },
     "views": {
       "jam": [
+        { "type": "webview", "id": "jam.rail", "name": "Conversations" },
         { "type": "webview", "id": "jam.conversation", "name": "Conversation", "when": "jam.window == session" },
         { "type": "webview", "id": "jam.status", "name": "Status", "when": "jam.window == session" },
         { "type": "webview", "id": "jam.artifacts", "name": "Artifacts", "visibility": "collapsed", "when": "jam.window == session" },
-        { "type": "webview", "id": "jam.previews", "name": "Previews", "visibility": "collapsed", "when": "jam.window == session" },
-        { "id": "jam.needsYou", "name": "Needs You", "visibility": "collapsed" }
+        { "type": "webview", "id": "jam.previews", "name": "Previews", "visibility": "collapsed", "when": "jam.window == session" }
       ],
       "jamPanel": [{ "type": "webview", "id": "jam.thinking", "name": "Thinking", "when": "jam.window == session" }]
     },
-    "menus": {
-      "commandPalette": [
-        { "command": "jam.needsYou.open", "when": "false" }
-      ]
-    },
-    "viewsWelcome": [
-      { "view": "jam.needsYou", "contents": "Sign in to Jam to see what needs you.\n[Sign In](command:jam.signIn)", "when": "!jam.signedIn" },
-      { "view": "jam.needsYou", "contents": "Nothing needs you right now.", "when": "jam.signedIn" }
-    ],
     "configuration": {
       "title": "Jam",
       "properties": {

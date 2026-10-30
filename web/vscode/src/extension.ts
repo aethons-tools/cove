@@ -15,12 +15,10 @@ import {
   connectedSet,
   openSession,
   pickSession,
-  sessionOfPick,
   studioFromAuthority,
   webUrl,
   windowAuthority,
 } from "./open";
-import type { RailRow } from "./open";
 import type { OpenDeps, Ui } from "./open";
 import { appTokenPath, configDir, knownHostsFile, sshConfigFile } from "./paths";
 import { findSshKeygen } from "./ssh/cli";
@@ -46,6 +44,7 @@ import { BoardPanels } from "./panes/board";
 import { PaneHub } from "./panes/hub";
 import { SESSION_PANES, SessionPaneProvider } from "./panes/session";
 import { NeedsYou } from "./needsyou";
+import { RailViewProvider } from "./panes/rail";
 import { ThinkingStreams } from "./thinking";
 import { Updater } from "./update";
 
@@ -289,21 +288,21 @@ export function activate(ctx: vscode.ExtensionContext): void {
   rep.windowFocused(vscode.window.state.focused);
   ctx.subscriptions.push(vscode.window.onDidChangeWindowState((s) => rep.windowFocused(s.focused)));
 
-  // The Needs You view and the badge on the Jam activity-bar icon.
-  let treeView: vscode.TreeView<RailRow> | undefined;
+  // The needs-you count is the badge on the rail view (the Jam activity-bar icon).
+  let rail: RailViewProvider | undefined;
+  let badge: Parameters<RailViewProvider["setBadge"]>[0];
   const needsYou = new NeedsYou({
     session: current,
     api: (s) => new JamApi(s.url, s.token, (...a) => fetch(...a)),
     setBadge: (b) => {
-      if (treeView) treeView.badge = b;
+      badge = b;
+      rail?.setBadge(b);
     },
-    setContext: (k, v) => void vscode.commands.executeCommand("setContext", k, v),
     onSignedOut: panesSignedOut,
     setTimeout,
     clearTimeout,
   });
-  treeView = vscode.window.createTreeView("jam.needsYou", { treeDataProvider: needsYou });
-  ctx.subscriptions.push(treeView, { dispose: () => needsYou.dispose() });
+  ctx.subscriptions.push({ dispose: () => needsYou.dispose() });
 
   // Signing in reconnects the streams with the new token; signing out
   // reconnects them to nothing, so the old token is no longer used.
@@ -322,6 +321,14 @@ export function activate(ctx: vscode.ExtensionContext): void {
     asExternalUri: async (u) => (await vscode.env.asExternalUri(vscode.Uri.parse(u))).toString(),
     openBoard: (id) => boards.open(id),
     openSession: (id) => guard(() => openSession(openDeps, id))(),
+    // A rail click: the session's studio window when one is open, else (until
+    // the hub) the conversation in the web app.
+    goTo: (channel, session) =>
+      guard(async () => {
+        if (session && connected.isConnected(session)) return openSession(openDeps, session);
+        const { url } = await openDeps.signedIn();
+        await ui.openExternal(webUrl(url, channel));
+      })(),
     scrollConversation: (anchor) => providers.get("conversation")!.scrollTo(anchor),
     error: (m) => void vscode.window.showErrorMessage(m),
   };
@@ -343,6 +350,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
   ctx.subscriptions.push(
     vscode.window.registerWebviewPanelSerializer(BoardPanels.viewType, { deserializeWebviewPanel: async (p, s) => boards.restore(p, s) }),
   );
+  rail = new RailViewProvider({ extensionUri: ctx.extensionUri, ...portDeps, auth, windows: connected.list });
+  rail.setBadge(badge);
+  ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(rail.viewType, rail));
   const providers = new Map<string, SessionPaneProvider>();
   for (const name of SESSION_PANES) {
     const p = new SessionPaneProvider(name, {
@@ -381,6 +391,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const offLive = live.subscribe((e) => {
     void notifier.handle(e);
     needsYou.onLive(e);
+    rail?.refresh();
   });
   ctx.subscriptions.push({ dispose: offLive }, { dispose: () => osNotifier.dispose() });
 
@@ -428,16 +439,6 @@ export function activate(ctx: vscode.ExtensionContext): void {
   reg("jam.signOut", guard(() => auth.signOut()));
   reg("jam.openSession", guard(() => pickSession(openDeps)));
   reg("jam.forgetHostKey", forget);
-  // A needs-you row opens its session's code window; a chat opens the web app.
-  reg("jam.needsYou.open", (row) =>
-    guard(async () => {
-      const r = row as RailRow;
-      const { api, url } = await openDeps.signedIn();
-      const session = await sessionOfPick(api, { label: r.label, row: r });
-      if (session) await openSession(openDeps, session);
-      else await ui.openExternal(webUrl(url, r.id));
-    })(),
-  );
 
   ctx.subscriptions.push(
     vscode.window.registerUriHandler({
