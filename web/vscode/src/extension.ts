@@ -12,18 +12,13 @@ import { editorFor } from "./editor";
 import { forgetHostKey } from "./hostkey";
 import {
   CONNECTED_BEAT_MS,
-  connectStudio,
   connectedSet,
-  disconnectStudio,
   openSession,
   pickSession,
-  SESSION_WORKSPACE,
   sessionOfPick,
-  statusBarItem,
   studioFromAuthority,
   webUrl,
   windowAuthority,
-  windowKind,
 } from "./open";
 import type { RailRow } from "./open";
 import type { OpenDeps, Ui } from "./open";
@@ -36,7 +31,7 @@ import { SESSION_ID_RE, route } from "./uri";
 import { readFile } from "node:fs/promises";
 import * as fsp from "node:fs/promises";
 import { Router } from "./bridge/router";
-import { FocusModel, focusSessionCommand, sessionResolver } from "./focus";
+import { FocusModel, sessionResolver } from "./focus";
 import { FocusReporter } from "./focusreport";
 import { LiveStream } from "./live";
 import { ChannelGate } from "./notify/event";
@@ -134,17 +129,6 @@ export function activate(ctx: vscode.ExtensionContext): void {
   ctx.subscriptions.push(output);
   const log = (m: string) => output.appendLine(m);
 
-  // A session's local window is a workspace file in global storage, holding
-  // no folders and nothing secret.
-  const sessionsDir = vscode.Uri.joinPath(ctx.globalStorageUri, "sessions");
-  const localWorkspace = async (id: string): Promise<string> => {
-    const f = vscode.Uri.joinPath(sessionsDir, `${id}.code-workspace`);
-    await fsp.mkdir(sessionsDir.fsPath, { recursive: true });
-    await fsp.writeFile(f.fsPath, SESSION_WORKSPACE, { flag: "wx" }).catch((e: NodeJS.ErrnoException) => {
-      if (e.code !== "EEXIST") throw e;
-    });
-    return f.toString();
-  };
   const connected = connectedSet(ctx.globalState);
 
   const editor = editorFor(vscode.env.uriScheme);
@@ -153,17 +137,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     info: async (m, ...a) => vscode.window.showInformationMessage(m, ...a),
     pick: async (items, placeholder) => vscode.window.showQuickPick(items, { placeHolder: placeholder }),
     openExternal: async (u) => void (await vscode.env.openExternal(vscode.Uri.parse(u))),
-    // openFolder keeps the current window's remote authority unless told
-    // otherwise, so a local workspace opened from a studio window would stay on
-    // its SSH connection: anything not vscode-remote opens forceLocalWindow.
-    openFolder: async (u, o) => {
-      const uri = vscode.Uri.parse(u);
-      const local = uri.scheme === "vscode-remote" ? {} : { forceLocalWindow: true };
-      await vscode.commands.executeCommand("vscode.openFolder", uri, { ...(o?.reuse ? { forceReuseWindow: true } : { forceNewWindow: true }), ...local });
-    },
-    localWorkspace,
-    isConnected: connected.isConnected,
-    setConnected: connected.setConnected,
+    openFolder: async (u) => void (await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.parse(u), { forceNewWindow: true })),
     hasRemoteSsh: () => vscode.extensions.getExtension(editor.remoteSsh.id) !== undefined,
     installRemoteSsh: async () => void (await vscode.commands.executeCommand("workbench.extensions.installExtension", editor.remoteSsh.id)),
     getGlobal: (section, key) => vscode.workspace.getConfiguration(section).inspect(key)?.globalValue,
@@ -269,28 +243,16 @@ export function activate(ctx: vscode.ExtensionContext): void {
     random: Math.random,
   });
   const router = new Router({ session: current, fetch: (...a) => fetch(...a), onSignedOut: panesSignedOut, log });
-  // The window's session: a jam-<id> remote, or a local session window. Only
-  // the remote (windowStudio) can forward a preview's port.
-  const kind = windowKind(vscode.workspace, sessionsDir, process.platform);
-  log(`window: ${kind ? `${kind.kind} session ${kind.id}` : "no session"} (workspace file ${vscode.workspace.workspaceFile?.toString() ?? "none"}, sessions dir ${sessionsDir.toString()})`);
-  const windowDefault = kind?.id;
-  const windowStudio = kind?.kind === "remote" ? kind.id : undefined;
-  void vscode.commands.executeCommand("setContext", "jam.window", kind?.kind ?? "");
-  // The Connect/Disconnect item shows only while signed in.
-  const item = statusBarItem(kind);
-  if (item) {
-    const sb = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-    Object.assign(sb, item);
-    const showIf = (on: boolean) => (on ? sb.show() : sb.hide());
-    void current().then((s) => showIf(s !== undefined), () => showIf(false));
-    const off = auth.onChange((s) => showIf(s !== undefined));
-    ctx.subscriptions.push(sb, { dispose: off });
-  }
-  if (kind?.kind === "remote") {
-    // Reloading a remote window deactivates and reactivates it: mark it again.
+  // The window's session: a jam-<id> studio window's. Only a studio window
+  // shows the session views (jam.window) and can forward a preview's port.
+  const windowStudio = studioFromAuthority(windowAuthority(vscode.workspace));
+  log(`window: ${windowStudio ? `studio session ${windowStudio}` : "no session"}`);
+  void vscode.commands.executeCommand("setContext", "jam.window", windowStudio ? "session" : "");
+  if (windowStudio) {
+    // Reloading a studio window deactivates and reactivates it: mark it again.
     // The mark is refreshed while the window lives, so one it never got to
     // clear (closed, crashed) goes stale.
-    const id = kind.id;
+    const id = windowStudio;
     void connected.setConnected(id, true).catch(show);
     const beat = setInterval(
       () => void connected.setConnected(id, true).catch((e) => log(`[${id}] refreshing the connected mark failed: ${e instanceof Error ? e.message : String(e)}`)),
@@ -303,8 +265,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     };
   }
   const model = new FocusModel({
-    windowDefault,
-    state: ctx.workspaceState,
+    windowSession: windowStudio,
     resolve: async (session) => {
       const s = await current();
       if (!s) throw new SignedOutError();
@@ -467,23 +428,6 @@ export function activate(ctx: vscode.ExtensionContext): void {
   reg("jam.signOut", guard(() => auth.signOut()));
   reg("jam.openSession", guard(() => pickSession(openDeps)));
   reg("jam.forgetHostKey", forget);
-  const notSessionWindow = async () =>
-    void (await vscode.window.showInformationMessage("This window isn't a Jam session window. Open a session first (Jam: Open Session…)."));
-  reg(
-    "jam.connectStudio",
-    guard(async () => (kind?.kind === "local" ? connectStudio(openDeps, kind.id) : notSessionWindow())),
-  );
-  reg(
-    "jam.disconnectStudio",
-    guard(async () => (kind?.kind === "remote" ? disconnectStudio(openDeps, kind.id) : notSessionWindow())),
-  );
-  reg(
-    "jam.focusSession",
-    guard(async () => {
-      const { api } = await openDeps.signedIn();
-      await focusSessionCommand({ api, ui, model, hasDefault: windowDefault !== undefined });
-    }),
-  );
   // A needs-you row opens its session's code window; a chat opens the web app.
   reg("jam.needsYou.open", (row) =>
     guard(async () => {
@@ -494,11 +438,6 @@ export function activate(ctx: vscode.ExtensionContext): void {
       else await ui.openExternal(webUrl(url, r.id));
     })(),
   );
-  for (const name of SESSION_PANES) {
-    const view = `jam.${name}`;
-    reg(`${view}.pin`, guard(async () => void (model.isPinned(view) || (await model.togglePin(view)))));
-    reg(`${view}.unpin`, guard(async () => void (model.isPinned(view) && (await model.togglePin(view)))));
-  }
 
   ctx.subscriptions.push(
     vscode.window.registerUriHandler({

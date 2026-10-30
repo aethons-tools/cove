@@ -152,9 +152,9 @@ describe("BoardPanels", () => {
     boards.open(BRD);
     const p = mock.panels[0]!;
     p.receive({ type: "ready", pane: "board" });
-    await vi.waitFor(() => expect(states(p).at(-1)).toEqual({ signedIn: true, target: null, pinned: false, elsewhere: false }));
+    await vi.waitFor(() => expect(states(p).at(-1)).toEqual({ signedIn: true, target: null }));
     setSession(undefined);
-    await vi.waitFor(() => expect(states(p).at(-1)).toEqual({ signedIn: false, target: null, pinned: false, elsewhere: false }));
+    await vi.waitFor(() => expect(states(p).at(-1)).toEqual({ signedIn: false, target: null }));
     setSession(SIGNED_IN);
     await vi.waitFor(() => expect(states(p).at(-1)).toMatchObject({ signedIn: true }));
   });
