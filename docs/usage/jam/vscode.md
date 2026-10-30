@@ -1,7 +1,7 @@
 ---
-summary: The Jam VS Code extension (`aethons.jam`), in VS Code or VSCodium — installing it with `jam vscode install` and its update offers, signing in with an app token, opening a session's studio window over Remote-SSH, the rail, the five views and board tabs, notifications and the needs-you badge, what it writes to your machine, and fixing its errors.
-read_when: You want to open an agent's session or studio in VS Code or VSCodium from the Jam app or a link, are using its rail (Conversations view), are installing, updating or signing in the Jam extension (`jam vscode install`, the update offer), are using or changing a Jam view (Conversation, Thinking, Previews, Status, Artifacts) or a board tab, or want VS Code or OS notifications and the Jam badge (or none show on macOS), or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
-owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session's studio window and the connected mark; the five views, board tabs, its empty states and link rules; VS Code and OS notifications; the rail (Conversations view), its clicks and ▣, and the badge; and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; VSCodium and Open Remote - SSH; its troubleshooting
+summary: The Jam VS Code extension (`aethons.jam`), in VS Code or VSCodium — installing it with `jam vscode install` and its update offers, signing in with an app token, opening a session's studio window over Remote-SSH, the hub, the rail, conversation and board tabs and the four session views, notifications and the needs-you badge, what it writes to your machine, and fixing its errors.
+read_when: You want to open an agent's session or studio in VS Code or VSCodium from the Jam app or a link, are installing, updating or signing in the Jam extension (`jam vscode install`, the update offer), are using or changing a Jam view (Thinking, Previews, Status, Artifacts), a conversation tab or a board tab, or want VS Code or OS notifications and the Jam badge (or none show on macOS), or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
+owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session's studio window and the connected mark; conversation tabs, the four views, board tabs, its empty states and link rules; VS Code and OS notifications; and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; VSCodium and Open Remote - SSH; its troubleshooting
 prereqs: collaboration.md for who may SSH and the ssh_config block the CLI writes; app-tokens.md for the sign-in token
 tier: leaf
 updated: 2026-10-30
@@ -94,35 +94,29 @@ If the studio isn't running, the cert step says so and nothing opens. Opening ne
 
 **The connected mark.** A studio window marks its session in VS Code's global state (`jam.connected.<session>`: "a studio window for this session is open"). The mark is set when the window starts, refreshed every 30 s, and cleared when it closes. A mark not refreshed for 90 s counts as gone, e.g. after a crash or when VS Code quit before clearing it.
 
-## The rail
+## The rail and the hub
 
-The **Conversations** view, first in the Jam container in **every** window, is the web app's rail:
-Needs you, Sessions, Channels and History, with each row's mission and unread count.
-It has no *New message* or *New session* buttons yet; use the web app for those.
-
-- **Click** a row: if its session's studio window is open, that window comes to the front. Otherwise the conversation opens in the web app.
-- **Double-click** a session you may SSH into: its studio window opens, or comes to the front (see [Opening a session](#opening-a-session)). Any other row does the same as a click.
-- **▣** marks a session whose studio window is open (its connected mark is fresh). It refreshes on live changes and every 30 s.
-- **The badge** on the Jam icon counts the Needs you rows. It's refreshed at once on start-up, sign-in and sign-out, and after a 3 s debounce on live changes.
-- **Signed out:** "Sign in to Jam to see your conversations." with Sign in.
+Every window has the **rail** (the Conversations view), and one **hub** window holds conversations as tabs;
+a click goes to the session's studio window if open, else to its hub tab: [vscode-hub.md](vscode-hub.md).
 
 ## Panes
 
-The **Jam** icon in the activity bar holds the **Conversation** view: the web app's conversation pane
-(composer, attachments and asks inline) running in a webview. Four more views and the board tabs follow the same rules.
+A **conversation tab** is the web app's conversation pane (composer, attachments and asks inline) running in a webview;
+the four session views and the board tabs follow the same rules.
 It asks the extension for everything; the webview never holds your token, the Jam URL or a cookie.
 
-- **Views:** Conversation (activity bar), **Thinking** (the panel's Jam Thinking container; it wants width), **Previews**, **Status** and **Artifacts** (Previews and Artifacts start collapsed). All are draggable anywhere, to the panel or a sidebar.
-- **One session per window:** the views show only in a studio window, and always show that window's session. The window's remote comes from its workspace folder URI. Other windows show only the rail. A board tab shows its own board.
+- **Views:** **Thinking** (the panel's Jam Thinking container; it wants width), **Previews**, **Status** and **Artifacts** (Previews and Artifacts start collapsed), in the Jam container under the rail. All are draggable anywhere, to the panel or a sidebar.
+- **One session per window:** the views show only in a studio window, where they always show its session, and in the hub ([vscode-hub.md](vscode-hub.md#the-hub)). The window's remote comes from its workspace folder URI. Other windows show only the rail. A board tab shows its own board.
+- **The studio window's conversation tab** opens the first time the window opens; after that it comes back with the window, or stays closed if you closed it. A studio window opens no other conversation's tab: those go to the hub.
 - **Thinking:** the web app's Thinking log. The window's Thinking views share one connection per (session, stream), at most 2 feeds per pane; a view opened later gets up to 2,000 replayed events; it resumes after a network drop. It counts toward your four server feeds, and a hidden view holds none.
 - **Previews:** Open shows the app in the Simple Browser and Browser opens the system browser. Only the window's own studio is forwarded through Remote-SSH (`asExternalUri`); an unchanged `localhost` URI counts as forwarded, and only a throw falls back to the preview's web URL in the browser. Another session's preview opens its preview URL in the browser.
 - **Status:** the session header's facts and actions, then the Status rows. *Open in VS Code* there focuses this window.
-- **Artifacts:** a file opens in the browser, a board thumb opens a board tab, and an ask reveals it in the Conversation view; an ask from a session the Conversation view doesn't show doesn't scroll.
+- **Artifacts:** a file opens in the browser, a board thumb opens a board tab, and an ask reveals it in the session's conversation tab (opening the tab if needed).
 - **Board tabs:** one per board, several side by side, kept while hidden (`retainContextWhenHidden`) and restored after a reload. VS Code restores a background tab only when it is first shown, so a board opened again before then briefly has two tabs; showing the restored one closes it and reveals the other. The title is the board's, capped at 60 characters, "Whiteboard" if empty. *Open in the web app* is in the tab. A stroke made in the last 300 ms before closing a tab may not be saved.
-- **Empty states:** "Sign in to Jam to see this conversation." (Sign in); "This window isn't a Jam studio window."; "That session has ended, or you can't see it.". Neither has an action.
+- **Empty states:** "Sign in to Jam to see this conversation." (with Sign in); "Open a session's conversation to see its …" (a view in the hub with no session); "That conversation is gone, or you can't see it." (a tab); "That session has ended, or you can't see it.". Only Sign in has an action.
   A failed lookup shows "Couldn't load the focused session: …" with Try again.
 - **Links:** the pane never navigates. `https:`, `http:` and `mailto:` links open in the browser; boards open as board tabs. `/app/user/c/<other>` opens the web app; `#ask-…` and own-conversation links scroll in place. `vscode://aethons.jam/session/<id>` (or `vscode-insiders:`) opens that session's window; `javascript:`, `command:`, `file:` and any other `vscode:` link do nothing.
-- **Push focus:** while the view is visible in a focused window, the extension reports its conversation as focused, so Web Push stays quiet for it. The suppression also applies to VS Code notifications, and works without Web Push configured.
+- **Push focus:** while a conversation tab is the active editor in a focused window, the extension reports its conversation as focused, so Web Push stays quiet for it. The suppression also applies to VS Code notifications, and works without Web Push configured.
 - **Live updates:** one stream per window, held from startup while signed in (no pane needs to be open), feeds the views and notifications; it restarts on sign-in, sign-out and when `jam.url` changes. Where Jam offers no live updates, the view polls every 30 s.
 
 ## Notifications and the badge
@@ -132,14 +126,14 @@ What notifies is the phone's rule ([push.md](push.md#what-notifies)), not restat
 
 - **One window per event, usually the focused one.** The focused window gets a 250 ms head start, so a lagging stream can let an unfocused window win; it then also shows an OS banner while VS Code is focused. Windows agree through a lock file in the extension's global storage, so a second VS Code profile, and VS Code Insiders, each notify separately. If the lock can't be written (e.g. read-only storage), every window notifies and the Jam output channel says why, once per window.
 - **Rate:** at most one message notification per conversation per 5 s; asks, call-ins and escalations always notify. An ask shows as a warning, a message as information. Link syntax in a message (`[text](command:…)`, `https:`, `file:`) shows as text, never as a clickable link.
-- **Open**, and the OS notification, open the session's code window (`vscode://aethons.jam/session/<id>`), or the web app for a chat.
+- **Open**, and the OS notification (`vscode://aethons.jam/go/<chn>?session=<id>`), [go to the conversation](vscode-hub.md#the-hub): the session's studio window if open, else its hub tab.
 - **OS notifications** show only while the winning window isn't focused:
   - macOS uses the bundled `terminal-notifier` 3.0.0 (vendored from node-notifier, ad-hoc signed, not notarized, shipped whole with Apple's `Terminal.icns`; the .vsix is private). It is listed as *terminal-notifier* in System Settings → Notifications, where you allow or mute it. The first notification waits up to 120 s for the permission prompt; if it times out, only that note falls back to `osascript`. A declined permission shows nothing and does not fall back. If the notifier can't run it falls back to `osascript`, whose banners can't open a session.
   - Linux uses `notify-send`, with a click only when it supports `--action` (libnotify 0.7.10+); at most one waits per conversation and 8 overall. Without `notify-send` you get toasts only, and one line in the Jam output channel.
   - Other platforms get VS Code notifications only.
 - **Closed VS Code:** nothing is queued (the phone still gets Web Push); a user with both gets both.
 - **Lock screen:** body visibility follows [`preview`](push.md#privacy-and-previews) and the OS's settings.
-- **The badge:** the rail's needs-you count ([The rail](#the-rail)).
+- **The badge:** the rail's needs-you count ([vscode-hub.md](vscode-hub.md#the-rail)).
 - **Signed out:** no notifications, no badge. A revoked token shows "sign-in expired" at startup.
 
 ## What it writes

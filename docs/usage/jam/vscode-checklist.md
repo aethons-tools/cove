@@ -87,7 +87,13 @@ Conversation view:
 - [ ] Drag the view to the panel and to the secondary sidebar.
 - [ ] A window on a local folder shows no Jam views except the rail (Conversations).
 - [ ] Rail: the groups, missions and unread counts match the web app's rail.
-- [ ] Rail click on a session with no studio window opens the conversation in the web app; with one open, it brings that window to the front.
+- [ ] Rail click on a session with no studio window opens its tab in the hub (opening the hub, whether it was closed or open); with one open, it brings that window to the front.
+- [ ] *Jam: Open Hub* opens the hub; again, it focuses it. `open vscode://aethons.jam/hub` does the same.
+- [ ] In the hub, a rail click opens a conversation tab; a second click reveals it. Tabs split side by side and come back after a reload.
+- [ ] In the hub, Thinking/Status/Artifacts/Previews follow the active conversation tab; a chat tab empties them.
+- [ ] A notification's Open (and the OS click) with the session's studio window open focuses it; without, it opens the hub tab.
+- [ ] A new studio window opens its conversation tab once; close it and reload: it stays closed.
+- [ ] An ask in Artifacts reveals and scrolls the conversation tab.
 - [ ] Rail double-click on a session you can SSH into opens its studio window; on a chat it acts as a click.
 - [ ] ▣ appears on the row within 30 s of opening the studio window, and goes once it's closed (within 90 s).
 - [ ] The Jam icon's badge counts the Needs you rows and clears on sign-out.
