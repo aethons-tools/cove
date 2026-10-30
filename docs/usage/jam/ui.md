@@ -94,12 +94,9 @@ install: the browser has no service worker there, and the page skips it quietly.
   under `/app/static/icons/` are served without the gate (the browser fetches
   them without cookies); every other `/app/` path stays gated.
 - **Icons** are PNGs rendered from the J mark and committed under
-  `internal/jam/uiassets/static/icons/` (and the VS Code extension's
-  `web/vscode/media/icon.png`); regenerate them with `just icons` after
-  changing the mark (a test fails when they drift). The extension also ships the
-  mark as `media/jam-color.svg` (board tabs, a copy of `brand/j-logo-plain.svg`)
-  and `media/jam.svg` (the same shapes in `currentColor`, for the activity bar
-  and panel, which tint it); update both by hand with the mark.
+  `internal/jam/uiassets/static/icons/` and `web/vscode/media/icon.png`; regenerate them with `just icons` after
+  changing the mark (a test fails when they drift). Also update by hand the extension's `media/jam-color.svg` (a copy
+  of `brand/j-logo-plain.svg`) and `media/jam.svg` (its shapes in `currentColor`).
 
 ## Signing in: one login, one Principal
 
