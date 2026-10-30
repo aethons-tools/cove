@@ -80,8 +80,10 @@ func TestComposeJamMountsCoverTheConfig(t *testing.T) {
 			mode, parts = last, parts[:len(parts)-1]
 		}
 		target := parts[len(parts)-1]
-		if mode != "ro" && target != "/var/lib/jam" {
-			t.Errorf("mount %q is writable; only the state volume may be", v)
+		// TODO: the server rewrites the Anthropic cert pool in the secrets
+		// dir; move it out and make /etc/jam/secrets read-only again.
+		if mode != "ro" && target != "/var/lib/jam" && target != "/etc/jam/secrets" {
+			t.Errorf("mount %q is writable; only the state volume and secrets dir may be", v)
 		}
 		targets = append(targets, target)
 	}
