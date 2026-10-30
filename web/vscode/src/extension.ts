@@ -8,7 +8,7 @@ import * as vscode from "vscode";
 import { ApiError, JamApi, SignedOutError } from "./api";
 import { Auth } from "./auth";
 import type { Session } from "./auth";
-import { appFor, hubFileFor, jamList, pendingFileFor } from "./jams";
+import { appFor, hubFileFor, jamList, jamSlug, pendingFileFor } from "./jams";
 import { Auths } from "./auths";
 import { normalizeJamUrl, settings } from "./config";
 import { editorFor } from "./editor";
@@ -21,6 +21,7 @@ import {
   goTo,
   HUB_WORKSPACE,
   readPending,
+  remoteUri,
   studioFromAuthority,
   windowAuthority,
   windowJam,
@@ -459,20 +460,31 @@ export function activate(ctx: vscode.ExtensionContext): void {
     if (j instanceof Error) throw j;
     return vscode.Uri.joinPath(hubDir, pendingFileFor(j)).fsPath;
   };
-  const goDeps: GoDeps = {
-    isConnected: connected.isConnected,
-    openSession: (id) => openSession(openDeps, id),
-    isHub: kind?.kind === "hub",
-    ownSession: windowStudio,
-    openTab: (c) => conversations.open(c),
-    writePending: async (p) => {
-      await fsp.mkdir(hubDir.fsPath, { recursive: true });
-      await fsp.writeFile(pendingFile(), JSON.stringify(p));
-    },
-    openHub: () => ui.openHub(),
-    now: Date.now,
+  const goDeps = (): GoDeps => {
+    const wj = jamUrl();
+    return {
+      windowJam: typeof wj === "string" ? wj : undefined,
+      isConnected: connected.isConnected,
+      openSession: (id) => openSession(openDeps, id),
+      focusStudio: (id) => ui.openFolder(remoteUri(id)),
+      isHub: kind?.kind === "hub",
+      ownSession: windowStudio,
+      openTab: (c) => conversations.open(c),
+      writePending: async (jam, p) => {
+        await fsp.mkdir(hubDir.fsPath, { recursive: true });
+        await fsp.writeFile(vscode.Uri.joinPath(hubDir, pendingFileFor(jam)).fsPath, JSON.stringify(p));
+      },
+      openHub: (jam) => ui.openHub(jam),
+      now: Date.now,
+    };
   };
-  const goToConversation = (channel: string, session: string) => guard(() => goTo(goDeps, channel, session))();
+  // goToConversation goes to a conversation of jam (default: this window's).
+  const goToConversation = (channel: string, session: string, jam?: string) =>
+    guard(async () => {
+      const j = jam ?? jamUrl();
+      if (j instanceof Error) throw j;
+      await goTo(goDeps(), j, channel, session);
+    })();
   if (kind?.kind === "hub") {
     const takePending = async (): Promise<void> => {
       const file = pendingFile();
@@ -519,24 +531,76 @@ export function activate(ctx: vscode.ExtensionContext): void {
 
   // --- Notifications: the window holds its one stream while signed in. ---
   const osNotifier = new OsNotifier({ platform: process.platform, extensionPath: ctx.extensionPath, execFile: runNotify, chmod: fsp.chmod, log });
-  const notifier = new Notifier({
-    gate: new ChannelGate(),
-    lock: new NotifyLock({
-      dir: vscode.Uri.joinPath(ctx.globalStorageUri, "notify").fsPath,
-      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  // A notifier per Jam: its lock (one window notifies each event) and, for
+  // a Jam other than the default, links that name it. jam undefined: this window's.
+  const linkJamOf = (jam: string | undefined): string | undefined => {
+    const j = jam ?? jamUrl();
+    return typeof j === "string" && j !== auths.defaultUrl() ? j : undefined;
+  };
+  const lockDirOf = (jam: string | undefined): string => {
+    const j = jam ?? jamUrl();
+    const base = vscode.Uri.joinPath(ctx.globalStorageUri, "notify");
+    return (typeof j === "string" && j !== auths.defaultUrl() ? vscode.Uri.joinPath(base, jamSlug(j)) : base).fsPath;
+  };
+  const notifierFor = (jam: string | undefined, lockDir: string) =>
+    new Notifier({
+      gate: new ChannelGate(),
+      lock: new NotifyLock({
+        dir: lockDir,
+        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        now: Date.now,
+        fs: fsp,
+        onError: (e) => log(`notify: the notification lock failed, so this window shows every notification: ${e instanceof Error ? e.message : String(e)}`),
+      }),
+      os: osNotifier,
+      focused: () => vscode.window.state.focused,
+      jamUrl: jam === undefined ? jamUrl : () => jam,
+      scheme: vscode.env.uriScheme,
       now: Date.now,
-      fs: fsp,
-      onError: (e) => log(`notify: the notification lock failed, so this window shows every notification: ${e instanceof Error ? e.message : String(e)}`),
-    }),
-    os: osNotifier,
-    focused: () => vscode.window.state.focused,
-    jamUrl,
-    scheme: vscode.env.uriScheme,
-    now: Date.now,
-    toast: (kind, m, a) => (kind === "needs" ? vscode.window.showWarningMessage(m, a) : vscode.window.showInformationMessage(m, a)),
-    goTo: (channel, session) => goToConversation(channel, session),
-    log,
-  });
+      toast: (kind, m, a) => (kind === "needs" ? vscode.window.showWarningMessage(m, a) : vscode.window.showInformationMessage(m, a)),
+      goTo: (channel, session) => goToConversation(channel, session, jam),
+      ...(linkJamOf(jam) ? { linkJam: linkJamOf(jam) } : {}),
+      log,
+    });
+  const notifier = notifierFor(undefined, lockDirOf(undefined));
+  // Every other signed-in Jam notifies too: its own stream and notifier (and
+  // lock), whose clicks go to that Jam's window or hub.
+  const others = new Map<string, () => void>();
+  const startOther = (jam: string): void => {
+    if (others.has(jam) || jam === jamUrl()) return;
+    const a = auths.authFor(jam);
+    const stream = new LiveStream({
+      session: async () => {
+        const s = await a.session(jam);
+        return s && { url: jam, token: s.token };
+      },
+      fetch: (...x) => fetch(...x),
+      // A refused token is that Jam's sign-out (only while it is still the current one).
+      onSignedOut: (token) =>
+        void (async () => {
+          if ((await a.session(jam))?.token === token) await a.signOut();
+        })().catch((e) => log(`notify: signing out of ${jam} failed: ${e instanceof Error ? e.message : String(e)}`)),
+      setTimeout,
+      clearTimeout,
+      random: Math.random,
+    });
+    const n = notifierFor(jam, lockDirOf(jam));
+    others.set(jam, stream.subscribe((e) => void n.handle(e)));
+  };
+  const stopOther = (jam: string): void => {
+    others.get(jam)?.();
+    others.delete(jam);
+  };
+  const syncOthers = async (): Promise<void> => {
+    const want = jams().list.filter((j) => j !== jamUrl());
+    for (const j of [...others.keys()]) if (!want.includes(j)) stopOther(j);
+    for (const j of want) if ((await auths.authFor(j).session(j)) !== undefined) startOther(j);
+  };
+  ctx.subscriptions.push(
+    { dispose: () => [...others.keys()].forEach(stopOther) },
+    { dispose: auths.onChange((u, s) => (u === jamUrl() ? undefined : s ? void syncOthers() : stopOther(u))) },
+  );
+  void syncOthers().catch((e) => log(`notify: ${e instanceof Error ? e.message : String(e)}`));
   void needsYou.refresh();
   const offLive = live.subscribe((e) => {
     void notifier.handle(e);
@@ -578,6 +642,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   ctx.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("jam.url") || e.affectsConfiguration("jam.urls")) {
+        void syncOthers().catch(() => undefined);
         live.restart();
         void needsYou.refresh();
       }
@@ -655,7 +720,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
           }
           void guard(() => ui.openHub(typeof want === "string" ? want : undefined))();
         } else if (r.kind === "go") {
-          void goToConversation(r.channel, r.session);
+          const j = r.jam ? normalizeJamUrl(r.jam) : undefined;
+          if (j instanceof Error || (j !== undefined && !jams().list.includes(j))) {
+            void vscode.window.showWarningMessage(`Jam: that link is for ${r.jam}, which isn't one of your Jams.`);
+          } else void goToConversation(r.channel, r.session, j);
         } else if (r.kind === "bad") {
           void vscode.window.showWarningMessage(`Jam: ${r.reason}`);
         } else void guard(() => openSession(openDeps, r.id))();

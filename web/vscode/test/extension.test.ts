@@ -550,6 +550,91 @@ describe("notifications", () => {
   const events = (f: Fetched[]) => f.filter((c) => new URL(c.url).pathname === "/app/user/events");
   const toasts = () => vi.mocked(vscode.window.showInformationMessage).mock.calls.filter((c) => c[0] === "Alice · build-bot: done?");
 
+  it("a second signed-in Jam gets its own events stream", async () => {
+    mock.reset();
+    const fetched: Fetched[] = [];
+    const fetchSpy = notifyFetch([], fetched);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = ["https://b.example"];
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      ctx.secretValues.set("jam.session:https://b.example", JSON.stringify({ url: "https://b.example", token: "t2", user: "u", expiresAt: "x" }));
+      activate(ctx);
+      await vi.waitFor(() => expect(new Set(events(fetched).map((c) => new URL(c.url).host))).toEqual(new Set(["jam.example.com", "b.example"])));
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("with one Jam there is one events stream", async () => {
+    mock.reset();
+    const fetched: Fetched[] = [];
+    const fetchSpy = notifyFetch([], fetched);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      await vi.waitFor(() => expect(events(fetched)).toHaveLength(1));
+      await settle();
+      expect(events(fetched)).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a second Jam's revoked token signs out of that Jam and stops its stream", async () => {
+    mock.reset();
+    const bEvents: string[] = [];
+    const base = jamFetch([]).getMockImplementation()!;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const u = new URL(String(input));
+      if (u.host === "b.example" && u.pathname === "/app/user/events") {
+        bEvents.push(u.toString());
+        return new Response("", { status: 401 });
+      }
+      return base(input, init);
+    });
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = ["https://b.example"];
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      ctx.secretValues.set("jam.session:https://b.example", JSON.stringify({ url: "https://b.example", token: "tb", user: "u", expiresAt: "x" }));
+      activate(ctx);
+      await vi.waitFor(() => expect(ctx.secretValues.has("jam.session:https://b.example")).toBe(false));
+      expect(ctx.secretValues.has("jam.session")).toBe(true);
+      await settle();
+      expect(bEvents).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a notification from Jam B in a Jam-A window opens B's hub", async () => {
+    mock.reset();
+    const fetchSpy = notifyFetch([], []);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = ["https://b.example"];
+      mock.answers = ["Open"];
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session:https://b.example", JSON.stringify({ url: "https://b.example", token: "t2", user: "u", expiresAt: "x" }));
+      activate(ctx);
+      await vi.waitFor(() => expect(toasts()).toHaveLength(1));
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/hub/Jam Hub (b.example).code-workspace` }));
+      expect(JSON.parse(await readFile(`${ctx.globalStorageUri.path}/hub/pending-b.example.json`, "utf8")).channel).toBe(NOTE.channel);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
   it("activate holds the events stream with no pane open", async () => {
     mock.reset();
     const calls: Call[] = [];
@@ -915,6 +1000,17 @@ describe("hub window", () => {
     await vi.waitFor(() => expect(stat(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`)).rejects.toThrow());
     await settle();
     expect(mock.panels).toEqual([]);
+    deactivate();
+  });
+
+  it("a /go link for an unlisted Jam warns and opens nothing", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    activate(fakeContext());
+    mock.uriHandler!.handleUri({ path: `/go/${CHN}`, query: "jam=https%3A%2F%2Fother.example" });
+    await settle();
+    expect(vscode.window.showWarningMessage).toHaveBeenCalled();
+    expect(openFolderCalls()).toEqual([]);
     deactivate();
   });
 

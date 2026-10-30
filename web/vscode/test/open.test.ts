@@ -294,44 +294,58 @@ describe("connectedSet", () => {
 
 describe("goTo", () => {
   const CHN = "chn_0abcdefghjkmnpqrstvwxyz012";
+  const A = "https://a.example";
+  const B = "https://b.example";
   const deps = (o: { connected?: boolean; hub?: boolean; own?: string } = {}) => {
     const calls: string[] = [];
     return {
       calls,
       d: {
+        windowJam: A,
         isConnected: (id: string) => (calls.push(`isConnected ${id}`), o.connected ?? false),
         openSession: async (id: string) => void calls.push(`openSession ${id}`),
+        focusStudio: async (id: string) => void calls.push(`focusStudio ${id}`),
         isHub: o.hub ?? false,
         ownSession: o.own,
         openTab: (c: string) => void calls.push(`openTab ${c}`),
-        writePending: async (p: { channel: string; at: number }) => void calls.push(`pending ${p.channel} ${p.at}`),
-        openHub: async () => void calls.push("openHub"),
+        writePending: async (jam: string, p: { channel: string; at: number }) => void calls.push(`pending ${jam} ${p.channel} ${p.at}`),
+        openHub: async (jam: string) => void calls.push(`openHub ${jam}`),
         now: () => 5,
       },
     };
   };
   it("a session with an open window: openSession only", async () => {
     const f = deps({ connected: true });
-    await goTo(f.d, CHN, ID);
+    await goTo(f.d, A, CHN, ID);
     expect(f.calls).toEqual([`isConnected ${ID}`, `openSession ${ID}`]);
+  });
+  it("another Jam's session with an open window: focus that window (no sign-in here)", async () => {
+    const f = deps({ connected: true });
+    await goTo(f.d, B, CHN, ID);
+    expect(f.calls).toEqual([`isConnected ${ID}`, `focusStudio ${ID}`]);
   });
   it("in the hub: its tab", async () => {
     const f = deps({ hub: true });
-    await goTo(f.d, CHN, ID);
+    await goTo(f.d, A, CHN, ID);
     expect(f.calls).toEqual([`isConnected ${ID}`, `openTab ${CHN}`]);
     const g = deps({ hub: true });
-    await goTo(g.d, CHN, "");
+    await goTo(g.d, A, CHN, "");
     expect(g.calls).toEqual([`openTab ${CHN}`]);
+  });
+  it("in Jam A's hub, Jam B's conversation goes to B's hub", async () => {
+    const f = deps({ hub: true });
+    await goTo(f.d, B, CHN, "");
+    expect(f.calls).toEqual([`pending ${B} ${CHN} 5`, `openHub ${B}`]);
   });
   it("a studio window's own session: its own tab, not openSession", async () => {
     const f = deps({ connected: true, own: ID });
-    await goTo(f.d, CHN, ID);
+    await goTo(f.d, A, CHN, ID);
     expect(f.calls).toEqual([`openTab ${CHN}`]);
   });
   it("elsewhere: pending first, then the hub", async () => {
     const f = deps();
-    await goTo(f.d, CHN, "");
-    expect(f.calls).toEqual([`pending ${CHN} 5`, "openHub"]);
+    await goTo(f.d, A, CHN, "");
+    expect(f.calls).toEqual([`pending ${A} ${CHN} 5`, `openHub ${A}`]);
   });
 });
 

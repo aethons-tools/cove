@@ -45,6 +45,12 @@ describe("Notifier", () => {
     expect(shown[0]).toMatchObject({ title: "Alice · build-bot", body: "done?", link: `vscode://aethons.jam/go/${CHN}?session=${SES}`, group: CHN });
   });
 
+  it("another Jam's notifier links with its Jam", async () => {
+    const { n, shown } = setup({}, { linkJam: "https://b" });
+    await n.handle(ev());
+    expect(shown[0]!.link).toBe(`vscode://aethons.jam/go/${CHN}?session=${SES}&jam=https%3A%2F%2Fb`);
+  });
+
   it("focused: a toast and no OS notification (Review Focus 1)", async () => {
     const { n, shown, toasts, claim } = setup({ focused: true });
     await n.handle(ev());

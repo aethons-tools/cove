@@ -19,8 +19,9 @@ describe("route", () => {
   });
   it("/go/<chn> is go, with an optional valid session", () => {
     const chn = "chn_" + "0123456789abcdefghjkmnpqrs";
-    expect(route(`/go/${chn}`, "")).toEqual({ kind: "go", channel: chn, session: "" });
-    expect(route(`/go/${chn}`, `session=${id}`)).toEqual({ kind: "go", channel: chn, session: id });
+    expect(route(`/go/${chn}`, "")).toEqual({ kind: "go", channel: chn, session: "", jam: "" });
+    expect(route(`/go/${chn}`, `session=${id}`)).toEqual({ kind: "go", channel: chn, session: id, jam: "" });
+    expect(route(`/go/${chn}`, "jam=https%3A%2F%2Fb.example")).toEqual({ kind: "go", channel: chn, session: "", jam: "https://b.example" });
     expect(route("/go/chn_x", "").kind).toBe("bad");
     expect(route(`/go/${chn}`, "session=ses_x").kind).toBe("bad");
     expect(route(`/go/${chn}/x`, "").kind).toBe("bad");

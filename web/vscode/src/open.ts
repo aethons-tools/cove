@@ -287,26 +287,32 @@ export function windowJam(
 export const PENDING_MAX_MS = 60_000;
 
 export type GoDeps = {
+  // windowJam is this window's Jam; isHub says this window is its hub.
+  windowJam: string | undefined;
   isConnected(id: string): boolean;
   openSession(id: string): Promise<void>;
+  // focusStudio brings a studio window to the front with no sign-in (another Jam's).
+  focusStudio(id: string): Promise<void>;
   isHub: boolean;
   // ownSession is a studio window's own session: going there reopens its tab.
   ownSession?: string;
   openTab(channel: string): void;
-  writePending(p: { channel: string; at: number }): Promise<void>;
-  openHub(): Promise<void>;
+  writePending(jam: string, p: { channel: string; at: number }): Promise<void>;
+  openHub(jam: string): Promise<void>;
   now(): number;
 };
 
-// goTo goes to a conversation: its session's studio window when one is open
-// (this window's own: its conversation tab), else its tab in the hub. Outside the hub it leaves a pending request (the
-// hub reads it on activation and focus) and opens or focuses the hub.
-export async function goTo(d: GoDeps, channel: string, session: string): Promise<void> {
-  if (session && session === d.ownSession) return d.openTab(channel);
-  if (session && d.isConnected(session)) return d.openSession(session);
-  if (d.isHub) return d.openTab(channel);
-  await d.writePending({ channel, at: d.now() });
-  await d.openHub();
+// goTo goes to jam's conversation: its session's studio window when one is
+// open (this window's own: its conversation tab), else its tab in jam's hub.
+// Outside that hub it leaves a pending request (the hub reads it on
+// activation and focus) and opens or focuses the hub.
+export async function goTo(d: GoDeps, jam: string, channel: string, session: string): Promise<void> {
+  const here = jam === d.windowJam;
+  if (here && session && session === d.ownSession) return d.openTab(channel);
+  if (session && d.isConnected(session)) return here ? d.openSession(session) : d.focusStudio(session);
+  if (here && d.isHub) return d.openTab(channel);
+  await d.writePending(jam, { channel, at: d.now() });
+  await d.openHub(jam);
 }
 
 // readPending is a pending request's channel, if raw is a fresh, valid one.

@@ -18,6 +18,8 @@ export type NotifierDeps = {
   toast: (kind: NotifyKind, message: string, action: "Open") => Thenable<string | undefined>;
   // goTo goes to a conversation: its studio window, else its hub tab.
   goTo: (channel: string, session: string) => unknown;
+  // linkJam names a non-default Jam in OS notification links.
+  linkJam?: string;
   log: (m: string) => void;
 };
 
@@ -50,7 +52,7 @@ export class Notifier {
     } catch (x) {
       this.log(`notify: the notification failed: ${errText(x)}`);
     }
-    if (!this.d.focused()) void this.d.os.show({ title: n.title, body: n.body, link: targetLink(t, this.d.scheme), group: n.channel, onClick: open });
+    if (!this.d.focused()) void this.d.os.show({ title: n.title, body: n.body, link: targetLink(t, this.d.scheme, this.d.linkJam), group: n.channel, onClick: open });
   }
 
   private open(t: NotifyTarget): void {

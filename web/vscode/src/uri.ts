@@ -9,7 +9,7 @@ export type Route =
   | { kind: "auth"; query: URLSearchParams }
   | { kind: "session"; id: string }
   | { kind: "hub"; jam: string } // jam: the launcher's Jam URL ("" = none)
-  | { kind: "go"; channel: string; session: string }
+  | { kind: "go"; channel: string; session: string; jam: string } // jam: "" = this window's
   | { kind: "bad"; reason: string };
 
 export function route(path: string, query: string): Route {
@@ -21,7 +21,7 @@ export function route(path: string, query: string): Route {
     const session = new URLSearchParams(query).get("session") ?? "";
     if (!CHANNEL_RE.test(channel)) return { kind: "bad", reason: "not a conversation id" };
     if (session !== "" && !SESSION_ID_RE.test(session)) return { kind: "bad", reason: "not a session id" };
-    return { kind: "go", channel, session };
+    return { kind: "go", channel, session, jam: new URLSearchParams(query).get("jam") ?? "" };
   }
   const m = /^\/session\/([^/]+)$/.exec(path);
   if (m) {

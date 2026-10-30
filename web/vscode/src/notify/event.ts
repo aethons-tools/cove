@@ -83,7 +83,12 @@ export function notifyTarget(e: NotifyEvent): NotifyTarget {
   return { channel: e.channel, session: e.session };
 }
 
-// targetLink is an OS notification's click link: the extension's go route.
-export function targetLink(t: NotifyTarget, scheme: string): string {
-  return `${scheme}://aethons.jam/go/${t.channel}${t.session ? `?session=${t.session}` : ""}`;
+// targetLink is an OS notification's click link: the extension's go route,
+// naming the Jam when it isn't the default.
+export function targetLink(t: NotifyTarget, scheme: string, jam?: string): string {
+  const q = new URLSearchParams();
+  if (t.session) q.set("session", t.session);
+  if (jam) q.set("jam", jam);
+  const qs = q.toString();
+  return `${scheme}://aethons.jam/go/${t.channel}${qs ? `?${qs}` : ""}`;
 }

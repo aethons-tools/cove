@@ -77,5 +77,7 @@ describe("targets", () => {
     expect(targetLink(t, "vscode-insiders")).toBe(`vscode-insiders://aethons.jam/go/${CHN}?session=${SES}`);
     const chat = notifyTarget({ ...e, session: "" });
     expect(targetLink(chat, "vscode")).toBe(`vscode://aethons.jam/go/${CHN}`);
+    expect(targetLink(t, "vscode", "https://b")).toBe(`vscode://aethons.jam/go/${CHN}?session=${SES}&jam=https%3A%2F%2Fb`);
+    expect(targetLink(chat, "vscode", "https://b")).toBe(`vscode://aethons.jam/go/${CHN}?jam=https%3A%2F%2Fb`);
   });
 });
