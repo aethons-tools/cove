@@ -9,6 +9,7 @@
   "repository": { "type": "git", "url": "https://github.com/aethons-tools/cove.git", "directory": "web/vscode" },
   "engines": { "vscode": "^1.105.0" },
   "categories": ["Other"],
+  "icon": "media/icon.png",
   "main": "./dist/extension.js",
   "activationEvents": ["onUri", "onWebviewPanel:jam.board", "onStartupFinished"],
   "extensionKind": ["ui"],
