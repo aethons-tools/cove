@@ -59,7 +59,7 @@ describe("BoardPanels", () => {
     expect(p.column).toBe(vscode.ViewColumn.Active);
     expect(p.createOptions).toEqual({ enableScripts: true, enableCommandUris: false, enableFindWidget: false, retainContextWhenHidden: true, localResourceRoots: [expect.anything()] });
     expect(((p.createOptions as vs.WebviewPanelOptions & vs.WebviewOptions).localResourceRoots ?? []).map(String)).toEqual(["file:///ext/dist/webview"]);
-    expect(String(p.iconPath)).toBe("file:///ext/media/jam.svg");
+    expect(String(p.iconPath)).toBe("file:///ext/media/jam-color.svg");
     const nonce = /nonce="([^"]+)"/.exec(p.webview.html)![1]!;
     const m = /Content-Security-Policy" content="([^"]*)"/.exec(p.webview.html)!;
     expect(m[1]!.replace(/&#39;/g, "'")).toBe(

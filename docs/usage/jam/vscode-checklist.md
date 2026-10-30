@@ -79,6 +79,7 @@ VSCodium (with the `.vsix` installed in VSCodium):
 
 Conversation view:
 
+- [ ] The J mark shows in the Extensions view (colour), the activity bar and the Thinking panel (tinted), on board tabs (colour) and in Linux notifications.
 - [ ] The Jam icon shows, and the Conversation renders for the window's session in the light, dark and high-contrast themes.
 - [ ] Send a message with an attachment and watch progress, then send an image and see the thumbnail.
 - [ ] Answer an ask inline.

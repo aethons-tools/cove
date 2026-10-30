@@ -62,7 +62,7 @@ export class BoardPanels {
 
   private attach(panel: vscode.WebviewPanel, id: string): void {
     this.panels.set(id, panel);
-    panel.iconPath = vscode.Uri.joinPath(this.d.extensionUri, "media", "jam.svg");
+    panel.iconPath = vscode.Uri.joinPath(this.d.extensionUri, "media", "jam-color.svg");
     const w = panel.webview;
     w.html = paneHtml(w, this.d.extensionUri, "board", { board: id });
 

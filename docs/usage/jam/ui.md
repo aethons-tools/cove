@@ -4,7 +4,7 @@ read_when: You want to expose Jam in a browser, understand who may reach /app/us
 owns: the `/app` route table, the legacy `/ui`·`/me` 308 redirects and the old admin pages' 302 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; installing the app (manifest, service worker, icons); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
 prereqs: serve.md for the admin listener + the off-loopback fail-closed rule; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
 tier: leaf
-updated: 2026-10-29
+updated: 2026-10-30
 ---
 
 # The Jam app (`/app/`)
@@ -94,8 +94,12 @@ install: the browser has no service worker there, and the page skips it quietly.
   under `/app/static/icons/` are served without the gate (the browser fetches
   them without cookies); every other `/app/` path stays gated.
 - **Icons** are PNGs rendered from the J mark and committed under
-  `internal/jam/uiassets/static/icons/`; regenerate them with `just icons` after
-  changing the mark (a test fails when they drift).
+  `internal/jam/uiassets/static/icons/` (and the VS Code extension's
+  `web/vscode/media/icon.png`); regenerate them with `just icons` after
+  changing the mark (a test fails when they drift). The extension also ships the
+  mark as `media/jam-color.svg` (board tabs, a copy of `brand/j-logo-plain.svg`)
+  and `media/jam.svg` (the same shapes in `currentColor`, for the activity bar
+  and panel, which tint it); update both by hand with the mark.
 
 ## Signing in: one login, one Principal
 

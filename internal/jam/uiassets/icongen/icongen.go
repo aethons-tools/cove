@@ -33,6 +33,12 @@ var Specs = []Spec{
 	{Name: "apple-touch-icon.png", Size: 180, Background: white, Scale: 0.92},
 }
 
+// VSCodeSpecs are the VS Code extension's icons (web/vscode/media): its
+// Extensions-view icon, also its Linux notifications' icon.
+var VSCodeSpecs = []Spec{
+	{Name: "icon.png", Size: 256, Scale: 0.92},
+}
+
 // Render draws the SVG centred in a Size×Size image per s.
 func Render(svg []byte, s Spec) (*image.RGBA, error) {
 	icon, err := oksvg.ReadIconStream(bytes.NewReader(svg), oksvg.StrictErrorMode)

@@ -49,6 +49,7 @@ describe("the manifest", () => {
       activitybar: [{ id: "jam", title: "Jam", icon: "media/jam.svg" }],
       panel: [{ id: "jamPanel", title: "Jam Thinking", icon: "media/jam.svg" }],
     });
+    expect(pkg.icon).toBe("media/icon.png");
     expect(pkg.contributes.views).toEqual({
       jam: [
         { type: "webview", id: "jam.conversation", name: "Conversation" },
@@ -99,11 +100,19 @@ describe("the manifest", () => {
     ]);
   });
 
-  it("media/jam.svg is a monochrome 24x24 mark", () => {
+  // The activity bar and panel tint their icon, so jam.svg is the J mark in
+  // currentColor; jam-color.svg (board tabs) is the brand mark, j-logo-plain.svg.
+  it("media/jam.svg is the J mark, monochrome", () => {
     const svg = readFileSync(join(__dirname, "..", "media", "jam.svg"), "utf8");
-    expect(svg).toContain('viewBox="0 0 24 24"');
-    expect(svg).toContain('fill="currentColor"');
-    expect(svg.match(/<path/g)).toHaveLength(1);
+    expect(svg).toContain('viewBox="0 0 144 144"');
+    expect(svg.match(/fill="currentColor"/g)).toHaveLength(2);
+    expect(svg).not.toMatch(/#[0-9a-f]{3,6}/i);
+    expect(svg.match(/<path|<circle/g)).toHaveLength(2);
+  });
+
+  it("media/jam-color.svg is the brand J mark", () => {
+    const brand = readFileSync(join(__dirname, "..", "..", "..", "internal", "jam", "uiassets", "static", "brand", "j-logo-plain.svg"), "utf8");
+    expect(readFileSync(join(__dirname, "..", "media", "jam-color.svg"), "utf8")).toBe(brand);
   });
 
   // vsce applies every "!" after every exclusion, so "!dist/**" would also
