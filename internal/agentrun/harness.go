@@ -59,7 +59,9 @@ type Event struct {
 	Kind        EventKind
 	QueuedEmpty bool // EventTurnEnd
 	// Text is the turn's final text and OK whether it ended normally (not
-	// interrupted, not an error): EventTurnEnd only.
+	// interrupted, not an error): EventTurnEnd. On an EventTurnStart that is
+	// a model reply (Reply, not Sub), Text is what the reply says (possibly
+	// nothing): the tracker posts it if the turn goes on past it.
 	Text   string
 	OK     bool
 	Tasks  []BackgroundTask // EventBackgroundTasks
@@ -67,6 +69,9 @@ type Event struct {
 	// Reply marks the agent's own output (a model reply): its conversation
 	// exists and can be continued.
 	Reply bool
+	// Sub marks a subagent's event (inside a tool call): it says nothing
+	// about the session's own messages.
+	Sub bool
 }
 
 // BackgroundTask is one outstanding background task.

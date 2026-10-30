@@ -133,6 +133,30 @@ func TestTurnEndPostsAndCommits(t *testing.T) {
 	wantCalls(t, io.callList(), `Post "first" ""`, "Inbox", `Post "Done." ""`, "Commit m1")
 }
 
+// What the model says before a tool call is posted home as it goes on, ahead
+// of the final text, which alone follows turn_end; nothing is posted twice.
+func TestTurnEndPostsMidTurnText(t *testing.T) {
+	s := newStreamSpawner()
+	io := &fakeTurnIO{pages: [][]InboxEntry{{entry("m1", "hello")}}}
+	sock := shortSock(t)
+	w := streamWL(t, t.TempDir(), s, func(c *Config) { c.TurnIO, c.AgentSocket = io, sock; structuredContext(t, c) })
+	done := runAsyncEpisodes(w, &recordHandle{}, 1)
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit, assistantText("Looking into it."), lnToolUse)
+	wantCalls(t, io.waitCalls(t, 1), `Post "Looking into it." ""`)
+	if err := DialAgentSocket(sock).SetTurnEnd(context.Background(), Directives{To: "user:bob"}); err != nil {
+		t.Fatal(err)
+	}
+	p.emit(lnToolRes, assistantText("Found it."), lnToolUse, lnToolRes, assistantText("Fixed."), resultLine("Fixed."))
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	wantCalls(t, io.callList(), `Post "Looking into it." ""`, `Post "Found it." ""`, `Post "Fixed." "user:bob"`)
+}
+
 func TestWakeFallsBackWhenInboxFails(t *testing.T) {
 	s := newStreamSpawner()
 	io := &fakeTurnIO{inboxErr: errors.New("down")}

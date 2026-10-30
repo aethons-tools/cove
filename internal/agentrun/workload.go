@@ -718,7 +718,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			if maintenance {
 				continue
 			}
-			if ackBy != "" {
+			if ackBy != "" && !r.Interim {
 				r.OK = false // the interrupted turn: whatever claude called it
 			}
 			if w.finishTurn(ctx, r) && !compacting && compact == nil {
