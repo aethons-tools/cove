@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, SignedOutError } from "../src/api";
 import {
+  CONNECTED_BEAT_MS,
+  CONNECTED_STALE_MS,
   connectStudio,
   connectedSet,
   disconnectStudio,
@@ -310,20 +312,47 @@ describe("disconnectStudio", () => {
 });
 
 describe("connectedSet", () => {
-  it("keeps one key per session, jam.connected.<id>, ignoring junk", async () => {
+  const memo = () => {
     const m = new Map<string, unknown>();
-    const st = { get: <T>(k: string) => m.get(k) as T | undefined, update: async (k: string, v: unknown) => void (v === undefined ? m.delete(k) : m.set(k, v)) };
-    const c = connectedSet(st);
+    return { m, st: { get: <T>(k: string) => m.get(k) as T | undefined, update: async (k: string, v: unknown) => void (v === undefined ? m.delete(k) : m.set(k, v)) } };
+  };
+
+  it("keeps one key per session, jam.connected.<id>, holding the time it was marked, ignoring junk", async () => {
+    const { m, st } = memo();
+    const c = connectedSet(st, () => 1_000_000);
     expect(c.isConnected(ID)).toBe(false);
     await c.setConnected(ID, true);
-    expect([...m]).toEqual([[`jam.connected.${ID}`, true]]);
+    expect([...m]).toEqual([[`jam.connected.${ID}`, 1_000_000]]);
     expect(c.isConnected(ID)).toBe(true);
     await c.setConnected(ID, false);
     expect([...m]).toEqual([]);
-    m.set(`jam.connected.${ID}`, "nonsense");
-    expect(c.isConnected(ID)).toBe(false);
+    for (const junk of ["nonsense", true, null]) {
+      m.set(`jam.connected.${ID}`, junk);
+      expect(c.isConnected(ID)).toBe(false);
+    }
     await c.setConnected("ses_x", true);
     expect(m.has("jam.connected.ses_x")).toBe(false);
+  });
+
+  it("a mark not refreshed within CONNECTED_STALE_MS is not connected (a window that went away without clearing it)", async () => {
+    const { st } = memo();
+    let t = 1_000_000;
+    const c = connectedSet(st, () => t);
+    await c.setConnected(ID, true);
+    t += CONNECTED_STALE_MS - 1;
+    expect(c.isConnected(ID)).toBe(true);
+    t += 1;
+    expect(c.isConnected(ID)).toBe(false);
+    // A refresh (the studio window's beat) makes it fresh again.
+    await c.setConnected(ID, true);
+    expect(c.isConnected(ID)).toBe(true);
+    // A mark from well in the future (a clock that jumped back) isn't trusted either.
+    t -= CONNECTED_STALE_MS;
+    expect(c.isConnected(ID)).toBe(false);
+  });
+
+  it("the beat refreshes well within the stale window", () => {
+    expect(CONNECTED_BEAT_MS * 2).toBeLessThan(CONNECTED_STALE_MS);
   });
 });
 

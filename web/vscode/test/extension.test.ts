@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as vscode from "vscode";
 import { SignedOutError } from "../src/api";
 import { activate, deactivate } from "../src/extension";
+import { CONNECTED_BEAT_MS } from "../src/open";
 import type { ExtToPane, PaneState } from "../../app/src/bridge/protocol.js" with { "resolution-mode": "import" };
 import { fakeContext, fakeWebviewView, mock } from "./vscode";
 
@@ -726,7 +727,7 @@ describe("local session windows (connect on demand)", () => {
       mock.config["jam.url"] = JAM;
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
-      ctx.state.set(`jam.connected.${SES}`, true);
+      ctx.state.set(`jam.connected.${SES}`, Date.now());
       activate(ctx);
       mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
       await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
@@ -747,7 +748,7 @@ describe("local session windows (connect on demand)", () => {
       mock.config["jam.url"] = JAM;
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
-      ctx.state.set(`jam.connected.${SES}`, true);
+      ctx.state.set(`jam.connected.${SES}`, Date.now());
       activate(ctx);
       mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
       await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
@@ -868,7 +869,7 @@ describe("local session windows (connect on demand)", () => {
     activate(ctx);
     await vi.waitFor(() => expect(items().filter((i) => i.shown).map((i) => [i.text, i.command])).toEqual([["$(debug-disconnect) Disconnect studio", "jam.disconnectStudio"]]));
     expect(mock.context.get("jam.window")).toBe("remote");
-    await vi.waitFor(() => expect(ctx.state.get(`jam.connected.${SES}`)).toBe(true));
+    await vi.waitFor(() => expect(ctx.state.get(`jam.connected.${SES}`)).toEqual(expect.any(Number)));
     await mock.commands.get("jam.disconnectStudio")!();
     expect(openFolderCalls()).toEqual([["vscode.openFolder", expect.objectContaining({ scheme: "file", path: localPath(ctx) }), { forceReuseWindow: true, forceLocalWindow: true }]]);
     expect(JSON.parse(await readFile(localPath(ctx), "utf8"))).toEqual({ folders: [] });
@@ -876,21 +877,40 @@ describe("local session windows (connect on demand)", () => {
     expect(ctx.state.get(`jam.connected.${SES}`)).toBeUndefined();
   });
 
+  it("a remote session window refreshes its connected mark every beat, and stops on deactivate", async () => {
+    mock.reset();
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], now: 1_000_000 });
+    try {
+      const ctx = fakeContext();
+      remoteFolder();
+      activate(ctx);
+      await vi.waitFor(() => expect(ctx.state.get(`jam.connected.${SES}`)).toBe(1_000_000));
+      vi.advanceTimersByTime(CONNECTED_BEAT_MS);
+      await vi.waitFor(() => expect(ctx.state.get(`jam.connected.${SES}`)).toBe(1_000_000 + CONNECTED_BEAT_MS));
+      await deactivate();
+      expect(ctx.state.get(`jam.connected.${SES}`)).toBeUndefined();
+      vi.advanceTimersByTime(CONNECTED_BEAT_MS * 3);
+      expect(ctx.state.get(`jam.connected.${SES}`)).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("deactivating a remote session window unmarks it; a local one leaves the flag alone", async () => {
     mock.reset();
     const ctx = fakeContext();
     remoteFolder();
     activate(ctx);
-    await vi.waitFor(() => expect(ctx.state.get(`jam.connected.${SES}`)).toBe(true));
+    await vi.waitFor(() => expect(ctx.state.get(`jam.connected.${SES}`)).toEqual(expect.any(Number)));
     await deactivate();
     expect(ctx.state.get(`jam.connected.${SES}`)).toBeUndefined();
 
     mock.reset();
     const ctx2 = fakeContext();
-    ctx2.state.set(`jam.connected.${SES}`, true);
+    ctx2.state.set(`jam.connected.${SES}`, 1234);
     localWindow(ctx2, "ses_1abcdefghjkmnpqrstvwxyz012");
     activate(ctx2);
     await deactivate();
-    expect(ctx2.state.get(`jam.connected.${SES}`)).toBe(true);
+    expect(ctx2.state.get(`jam.connected.${SES}`)).toBe(1234);
   });
 });

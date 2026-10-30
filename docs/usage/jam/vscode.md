@@ -69,8 +69,9 @@ A session whose studio window is open (below) renews its SSH setup and opens, or
 - Both status-bar items show only while you're signed in.
 - **Disconnect studio** (status bar, or *Jam: Disconnect Studio*), in a studio window: reloads it back to the local window;
   Remote-SSH closes the connection, whose heartbeats would otherwise keep the studio from idling.
-- A studio window flags its session in VS Code's global state (`jam.connected.<session>`: "a studio window for this session is open", best effort),
-  set when the window starts and cleared when it closes or disconnects, so a link opens the studio window rather than a second, local one.
+- A studio window flags its session in VS Code's global state (`jam.connected.<session>`: "a studio window for this session is open"),
+  set when the window starts, refreshed every 30 s, and cleared when it closes or disconnects, so a link opens the studio window rather than a second, local one.
+  A flag not refreshed for 90 s (the window crashed, or VS Code quit before clearing it) counts as not connected.
   The link always renews the SSH setup first (the cert is read before `ssh-proxy` can renew it); if that fails, the flag is cleared and the local window opens.
 
 ## Panes and focus

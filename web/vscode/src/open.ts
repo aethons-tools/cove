@@ -17,7 +17,9 @@ export interface Ui {
   openFolder(uri: string, o?: { reuse: true }): Promise<void>;
   // The session's local workspace file (written if missing), as a URI.
   localWorkspace(id: string): Promise<string>;
+  // Whether a studio window for the session has refreshed its mark lately.
   isConnected(id: string): boolean;
+  // Sets (refreshes) or clears the session's connected mark.
   setConnected(id: string, on: boolean): Promise<void>;
   hasRemoteSsh(): boolean;
   installRemoteSsh(): Promise<void>;
@@ -244,16 +246,28 @@ export async function disconnectStudio(d: OpenDeps, id: string): Promise<void> {
   await d.ui.openFolder(uri, { reuse: true });
 }
 
-// connectedSet keeps, per session, the flag "a studio (remote) window for this
-// session is open" — best effort: a studio window sets it on activation and
-// clears it on deactivate. One key per session (jam.connected.<id>, in a
-// Memento such as globalState), so windows never overwrite each other's.
-export function connectedSet(st: { get<T>(k: string): T | undefined; update(k: string, v: unknown): Thenable<void> }) {
+// A studio window refreshes its session's connected mark every
+// CONNECTED_BEAT_MS; a mark older than CONNECTED_STALE_MS is a window that
+// went away without clearing it (closed, crashed, VS Code quit).
+export const CONNECTED_BEAT_MS = 30_000;
+export const CONNECTED_STALE_MS = 90_000;
+
+// connectedSet keeps, per session, the mark "a studio (remote) window for this
+// session is open": the time a studio window last refreshed it (ms since the
+// epoch). A studio window sets it on activation, refreshes it every
+// CONNECTED_BEAT_MS and clears it on deactivate; a stale mark, or anything
+// not a time, is not connected. One key per session (jam.connected.<id>, in
+// a Memento such as globalState), so windows never overwrite each other's.
+export function connectedSet(st: { get<T>(k: string): T | undefined; update(k: string, v: unknown): Thenable<void> }, now: () => number = Date.now) {
   const key = (id: string) => `jam.connected.${id}`;
   return {
-    isConnected: (id: string) => SESSION_ID_RE.test(id) && st.get<unknown>(key(id)) === true,
+    isConnected: (id: string) => {
+      if (!SESSION_ID_RE.test(id)) return false;
+      const at = st.get<unknown>(key(id));
+      return typeof at === "number" && Math.abs(now() - at) < CONNECTED_STALE_MS;
+    },
     setConnected: async (id: string, on: boolean) => {
-      if (SESSION_ID_RE.test(id)) await st.update(key(id), on ? true : undefined);
+      if (SESSION_ID_RE.test(id)) await st.update(key(id), on ? now() : undefined);
     },
   };
 }

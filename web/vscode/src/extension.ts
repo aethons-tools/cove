@@ -10,6 +10,7 @@ import { Auth } from "./auth";
 import { settings } from "./config";
 import { forgetHostKey } from "./hostkey";
 import {
+  CONNECTED_BEAT_MS,
   connectStudio,
   connectedSet,
   disconnectStudio,
@@ -283,9 +284,19 @@ export function activate(ctx: vscode.ExtensionContext): void {
   }
   if (kind?.kind === "remote") {
     // Reloading a remote window deactivates and reactivates it: mark it again.
+    // The mark is refreshed while the window lives, so one it never got to
+    // clear (closed, crashed) goes stale.
     const id = kind.id;
     void connected.setConnected(id, true).catch(show);
-    onDeactivate = () => connected.setConnected(id, false);
+    const beat = setInterval(
+      () => void connected.setConnected(id, true).catch((e) => log(`[${id}] refreshing the connected mark failed: ${e instanceof Error ? e.message : String(e)}`)),
+      CONNECTED_BEAT_MS,
+    );
+    ctx.subscriptions.push({ dispose: () => clearInterval(beat) });
+    onDeactivate = () => {
+      clearInterval(beat);
+      return connected.setConnected(id, false);
+    };
   }
   const model = new FocusModel({
     windowDefault,
