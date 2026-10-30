@@ -18,11 +18,15 @@ case "$out" in /*) ;; *) out="$PWD/$out" ;; esac
 mkdir -p "$(dirname "$out")"
 
 cd "$root/web/vscode"
-npm ci --no-audit --no-fund --loglevel=error
-npm run check
+"$root/scripts/npm-ci.sh"
+# VSCODE_SKIP_CHECK=1 skips the typecheck and tests: the release leg sets it,
+# since the gate already ran them on the same commit.
+if [ "${VSCODE_SKIP_CHECK:-0}" != 1 ]; then
+  npm run check
+fi
 # The Conversation pane's webview bundle (web/app/vite.vscode.config.ts) into
 # dist/webview, which the .vsix ships beside the extension.
-(cd ../app && npm ci --no-audit --no-fund --loglevel=error && npx vite build -c vite.vscode.config.ts --logLevel warn)
+(cd ../app && "$root/scripts/npm-ci.sh" && npx vite build -c vite.vscode.config.ts --logLevel warn)
 for f in dist/webview/pane.js dist/webview/pane.css; do
   if [ ! -f "$f" ]; then echo "vscode: the webview build left no web/vscode/$f" >&2; exit 1; fi
 done
