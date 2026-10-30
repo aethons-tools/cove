@@ -1,7 +1,7 @@
 ---
 summary: The Jam VS Code extension's rail (the Conversations view, in every window) and hub window (conversations as editor tabs, the session views following the active tab), and how going to a conversation picks a studio window or the hub.
 read_when: You are using or changing the VS Code rail or hub, or using several Jams — a rail click or double-click, ▣, the needs-you badge, Jam: Open Hub, the Jam Hub launcher, conversation tabs, the hub's views, the pending handoff from another window — or a click went to the wrong window.
-owns: the VS Code rail (jam.rail) and its clicks, ▣ and badge; the hub windows (Jam Hub (<host>).code-workspace), Jam: Open Hub, the Jam Hub launcher and the …/hub and …/go links; several Jams (each window's Jam, Switch Jam, Add a Jam, notifications from every Jam); going to a conversation and hub/pending.json; conversation tabs in the hub and the hub's views
+owns: the VS Code rail (jam.rail) and its clicks, ▣ and badge; the hub windows (Jam Hub (<host>).code-workspace), Jam: Open Hub, the Jam Hub launcher and the …/hub and …/go links; several Jams (each window's Jam, Switch Jam, Add a Jam, notifications from every Jam); going to a conversation and hub/pending-<host>.json; conversation tabs in the hub and the hub's views
 prereqs: vscode.md for installing the extension, studio windows and the panes' shared rules
 tier: leaf
 updated: 2026-10-30
@@ -50,7 +50,8 @@ it opens `<scheme>://aethons.jam/hub?jam=<Jam URL>`, which starts the editor and
 
 `jam.url` is the default Jam; `jam.urls` lists more (*Jam: Add a Jam…* adds one and signs in to it). Each Jam has its own sign-in, hub and launcher.
 
-- **Each window shows one Jam:** a hub its own; a studio window the Jam it was opened from (kept across reloads); any other window the one picked with *Jam: Switch Jam…* (shown only with several Jams; the window reloads onto it), else `jam.url`. The rail, badge, Sign In/Out and the views all follow it. A Jam later removed from the list falls back to `jam.url`; a hub for a removed Jam shows the sign-in copy.
+- **Each window shows one Jam:** a hub its own; a studio window the Jam it was opened from (kept across reloads); any other window the one picked with *Jam: Switch Jam…* (the ⇄ button on the rail, shown only with several Jams, which also names the window's Jam; the window reloads onto it), else `jam.url`. The rail, badge, Sign In/Out and the views all follow it. A Jam later removed from the list falls back to `jam.url`; a hub for a removed Jam shows the sign-in copy.
+- **File names** use the Jam's host with `:` and other unsafe characters as `-` (e.g. `h-8443` for `https://h:8443`).
 - **Notifications come from every Jam you're signed in to**, each event once across windows (one lock per Jam). Open goes to that Jam's conversation: its studio window if open (focused without a new sign-in), else its tab in that Jam's hub. OS notification links for a non-default Jam carry `&jam=<url>`.
 - **Links:** `…/go/<chn>?jam=<url>` and `…/hub?jam=<url>` name the Jam; one for a Jam not in the list warns and opens nothing.
 

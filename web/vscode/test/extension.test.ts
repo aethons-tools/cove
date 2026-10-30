@@ -550,6 +550,29 @@ describe("notifications", () => {
   const events = (f: Fetched[]) => f.filter((c) => new URL(c.url).pathname === "/app/user/events");
   const toasts = () => vi.mocked(vscode.window.showInformationMessage).mock.calls.filter((c) => c[0] === "Alice · build-bot: done?");
 
+  it("a window whose Jam changed locks its notifications under its new Jam", async () => {
+    mock.reset();
+    const fetchSpy = notifyFetch([], []);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = ["https://b.example"];
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      await ctx.workspaceState.update("jam.windowJam", "https://b.example");
+      activate(ctx);
+      mock.config["jam.urls"] = [];
+      mock.changeConfig("jam.urls");
+      await vi.waitFor(() => expect(toasts()).toHaveLength(1));
+      const fsp = await import("node:fs/promises");
+      const files = await fsp.readdir(`${ctx.globalStorageUri.path}/notify`);
+      expect(files.filter((f) => f.endsWith(".lock"))).toHaveLength(1);
+      expect(files).not.toContain("b.example");
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
   it("a second signed-in Jam gets its own events stream", async () => {
     mock.reset();
     const fetched: Fetched[] = [];
@@ -1137,6 +1160,78 @@ describe("hub window", () => {
 describe("several Jams", () => {
   const B = "https://b.example";
   const storedAt = (url: string, token: string) => JSON.stringify({ url, token, user: "u", expiresAt: "x" });
+
+  it("Sign Out in a hub whose Jam was removed leaves the default Jam signed in", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const ctx = fakeContext();
+    ctx.secretValues.set("jam.session", stored("t2"));
+    (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: `${ctx.globalStorageUri.path}/hub/Jam Hub (gone.example).code-workspace` };
+    activate(ctx);
+    await mock.commands.get("jam.signOut")!();
+    await settle();
+    expect(ctx.secretValues.has("jam.session")).toBe(true);
+    deactivate();
+  });
+
+  it("jam.multiJam follows jam.urls without a reload", () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    activate(fakeContext());
+    expect(mock.context.get("jam.multiJam")).toBe(false);
+    mock.config["jam.urls"] = [B];
+    mock.changeConfig("jam.urls");
+    expect(mock.context.get("jam.multiJam")).toBe(true);
+    deactivate();
+  });
+
+  it("another Jam's stream restarts when you sign in to it again", async () => {
+    mock.reset();
+    const bEvents: number[] = [];
+    const base = jamFetch([]).getMockImplementation()!;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const u = new URL(String(input));
+      if (u.host === "b.example" && u.pathname === "/app/user/events") {
+        bEvents.push(Date.now());
+        return new Response(null, { status: 204 }); // the stream ends: Jam has no live updates
+      }
+      if (u.host === "b.example" && u.pathname === "/app/auth/app-token/exchange") return Response.json({ token: "tb2", user: "u", expires_at: "x" });
+      return base(input, init);
+    });
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = [B];
+      mock.input = B;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      ctx.secretValues.set(`jam.session:${B}`, storedAt(B, "tb"));
+      activate(ctx);
+      await vi.waitFor(() => expect(bEvents).toHaveLength(1));
+      void mock.commands.get("jam.addJam")!();
+      await vi.waitFor(() => expect(vscode.env.openExternal).toHaveBeenCalled());
+      const consent = new URL(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0]));
+      mock.uriHandler!.handleUri({ path: "/auth", query: `state=${consent.searchParams.get("state")}&code=c` });
+      await vi.waitFor(() => expect(bEvents).toHaveLength(2));
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("the rail shows a window's Jam, and offers Switch Jam, only with several Jams", () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = [B];
+    activate(fakeContext());
+    const v = openRail();
+    expect(v.description).toBe("jam.example.com");
+    deactivate();
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    activate(fakeContext());
+    expect(openRail().description).toBeFalsy();
+    deactivate();
+  });
   const hosts = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.map((c) => new URL(String(c[0])).host);
 
   it("jam.multiJam is false with one Jam and true with two", () => {

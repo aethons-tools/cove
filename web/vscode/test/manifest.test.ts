@@ -76,7 +76,11 @@ describe("the manifest", () => {
   });
 
   it("the palette shows Switch Jam only with several Jams; no view welcome", () => {
-    expect(pkg.contributes.menus).toEqual({ commandPalette: [{ command: "jam.switchJam", when: "jam.multiJam" }] });
+    expect(pkg.contributes.menus).toEqual({
+      commandPalette: [{ command: "jam.switchJam", when: "jam.multiJam" }],
+      "view/title": [{ command: "jam.switchJam", when: "view == jam.rail && jam.multiJam && jam.window == ''", group: "navigation" }],
+    });
+    expect(pkg.contributes.commands).toContainEqual({ command: "jam.switchJam", title: "Switch Jam…", category: "Jam", icon: "$(arrow-swap)" });
     expect(pkg.contributes.viewsWelcome).toBeUndefined();
   });
   it("media/jam.svg is the J mark, monochrome", () => {

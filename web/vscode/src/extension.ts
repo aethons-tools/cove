@@ -115,9 +115,11 @@ export function activate(ctx: vscode.ExtensionContext): void {
   });
   // auth is this window's Jam's sign-in: the same calls as one Auth, routed
   // to the Jam they name (signOut and cancel: this window's).
+  // A hub whose Jam is gone has no sign-in of its own: never the default's.
   const authNow = () => {
     const u = jamUrl();
-    return u instanceof Error ? auths.primary() : auths.authFor(u);
+    if (u instanceof Error) return kind?.kind === "hub" ? undefined : auths.primary();
+    return auths.authFor(u);
   };
   const auth = {
     session: (url: string) => auths.authFor(url).session(url),
@@ -126,8 +128,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
         if (u === jamUrl()) cb(s);
       }),
     signIn: (url: string) => auths.authFor(url).signIn(url),
-    signOut: () => authNow().signOut(),
-    cancel: () => authNow().cancel(),
+    signOut: async () => authNow()?.signOut(),
+    cancel: () => authNow()?.cancel(),
     syncTokenFile: (s: Session) => auths.authFor(s.url).syncTokenFile(s),
     handleCallback: (q: URLSearchParams) => auths.handleCallback(q),
   };
@@ -513,7 +515,17 @@ export function activate(ctx: vscode.ExtensionContext): void {
       })
       .catch((e: unknown) => log(`opening the conversation tab failed: ${e instanceof Error ? e.message : String(e)}`));
   }
-  rail = new RailViewProvider({ extensionUri: ctx.extensionUri, ...portDeps, auth, windows: connected.list });
+  rail = new RailViewProvider({
+    extensionUri: ctx.extensionUri,
+    ...portDeps,
+    auth,
+    windows: connected.list,
+    // With several Jams, the rail names the window's.
+    describe: () => {
+      const j = jamUrl();
+      return jams().list.length > 1 && typeof j === "string" ? new URL(j).host : "";
+    },
+  });
   rail.setBadge(badge);
   ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(rail.viewType, rail));
   const providers = new Map<string, SessionPaneProvider>();
@@ -562,10 +574,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
       ...(linkJamOf(jam) ? { linkJam: linkJamOf(jam) } : {}),
       log,
     });
-  const notifier = notifierFor(undefined, lockDirOf(undefined));
+  // Rebuilt when the settings change: the window's Jam may have changed.
+  let notifier = notifierFor(undefined, lockDirOf(undefined));
   // Every other signed-in Jam notifies too: its own stream and notifier (and
   // lock), whose clicks go to that Jam's window or hub.
-  const others = new Map<string, () => void>();
+  const others = new Map<string, { stream: LiveStream; off: () => void }>();
+  let disposed = false;
   const startOther = (jam: string): void => {
     if (others.has(jam) || jam === jamUrl()) return;
     const a = auths.authFor(jam);
@@ -585,20 +599,38 @@ export function activate(ctx: vscode.ExtensionContext): void {
       random: Math.random,
     });
     const n = notifierFor(jam, lockDirOf(jam));
-    others.set(jam, stream.subscribe((e) => void n.handle(e)));
+    others.set(jam, { stream, off: stream.subscribe((e) => void n.handle(e)) });
   };
   const stopOther = (jam: string): void => {
-    others.get(jam)?.();
+    others.get(jam)?.off();
     others.delete(jam);
   };
+  const wantedOthers = () => jams().list.filter((j) => j !== jamUrl());
   const syncOthers = async (): Promise<void> => {
-    const want = jams().list.filter((j) => j !== jamUrl());
-    for (const j of [...others.keys()]) if (!want.includes(j)) stopOther(j);
-    for (const j of want) if ((await auths.authFor(j).session(j)) !== undefined) startOther(j);
+    for (const j of [...others.keys()]) if (!wantedOthers().includes(j)) stopOther(j);
+    for (const j of wantedOthers()) {
+      const signedIn = (await auths.authFor(j).session(j)) !== undefined;
+      // Re-checked after the await: a sign-out or dispose may have come meanwhile.
+      if (signedIn && !disposed && wantedOthers().includes(j) && (await auths.authFor(j).session(j)) !== undefined) startOther(j);
+    }
   };
   ctx.subscriptions.push(
-    { dispose: () => [...others.keys()].forEach(stopOther) },
-    { dispose: auths.onChange((u, s) => (u === jamUrl() ? undefined : s ? void syncOthers() : stopOther(u))) },
+    {
+      dispose: () => {
+        disposed = true;
+        [...others.keys()].forEach(stopOther);
+      },
+    },
+    {
+      // Another Jam's sign-in restarts its stream (a stream stops for good on a stale 401); its sign-out stops it.
+      dispose: auths.onChange((u, s) => {
+        if (u === jamUrl()) return;
+        if (!s) return stopOther(u);
+        const have = others.get(u);
+        if (have) have.stream.restart();
+        else void syncOthers().catch(() => undefined);
+      }),
+    },
   );
   void syncOthers().catch((e) => log(`notify: ${e instanceof Error ? e.message : String(e)}`));
   void needsYou.refresh();
@@ -642,6 +674,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
   ctx.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("jam.url") || e.affectsConfiguration("jam.urls")) {
+        void vscode.commands.executeCommand("setContext", "jam.multiJam", jams().list.length > 1);
+        notifier = notifierFor(undefined, lockDirOf(undefined));
+        rail?.refresh();
         void syncOthers().catch(() => undefined);
         live.restart();
         void needsYou.refresh();

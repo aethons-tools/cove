@@ -12,6 +12,8 @@ export type RailDeps = PortDeps & {
   extensionUri: vscode.Uri;
   auth: Pick<Auth, "session" | "onChange">;
   windows: () => string[];
+  // describe is the view's description (the window's Jam, with several).
+  describe?: () => string;
 };
 
 type Badge = { value: number; tooltip: string } | undefined;
@@ -32,6 +34,7 @@ export class RailViewProvider implements vscode.WebviewViewProvider {
   }
 
   refresh(): void {
+    for (const v of this.views) v.description = this.d.describe?.() || undefined;
     for (const p of this.ports) void p.refresh().catch(() => undefined);
   }
 
@@ -45,6 +48,7 @@ export class RailViewProvider implements vscode.WebviewViewProvider {
     const w = view.webview;
     w.html = paneHtml(w, this.d.extensionUri, "rail");
     view.badge = this.badge;
+    view.description = this.d.describe?.() || undefined;
     const port = wirePane(w, `rail-${++railSeq}`, this.d, { state: () => this.state() });
     const refreshSoon = (): void => void port.refresh().catch(() => undefined);
     this.views.add(view);

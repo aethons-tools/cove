@@ -72,7 +72,7 @@ and in `~/.config/jam/default-app-token.json` (`$XDG_CONFIG_HOME/jam/…`; 0600)
 Opening a session rewrites that file from the stored sign-in if it is missing or stale.
 *Jam: Sign Out* clears both.
 Each Jam has its own sign-in: *Jam: Sign In* and *Sign Out* act on the window's Jam ([vscode-hub.md](vscode-hub.md#several-jams));
-a Jam other than `jam.url` keeps its token under its own secret and in `vscode-<host>-app-token.json`.
+a Jam other than `jam.url` keeps its token under its own secret and in `vscode-<host>-app-token.json` (`<host>` with `:` as `-`).
 Revoke it from the web app's **Connected apps** ([app-tokens.md](app-tokens.md));
 the next open then reports you signed out and offers Sign In.
 
