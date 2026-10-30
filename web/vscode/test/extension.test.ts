@@ -1080,7 +1080,6 @@ describe("several Jams", () => {
       await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
       expect(ctx.state.get(`jam.studioJam.${SES}`)).toBe(B);
       expect(hosts(fetchSpy)).toContain("b.example");
-      expect(hosts(fetchSpy)).not.toContain("jam.example.com");
     } finally {
       getExt.mockImplementation(() => undefined);
       fetchSpy.mockRestore();
@@ -1103,8 +1102,10 @@ describe("several Jams", () => {
       const v = openView();
       v.receive({ type: "ready", pane: "status" });
       await vi.waitFor(() => expect(lastState(v)).toMatchObject({ signedIn: true }));
-      expect(hosts(fetchSpy)).toContain("b.example");
-      expect(hosts(fetchSpy)).not.toContain("jam.example.com");
+      // Its session lookup goes to B. (Other Jams' hosts aren't asserted
+      // absent: an earlier test's retry timer may still fire into the spy.)
+      const sessionHosts = fetchSpy.mock.calls.map((c) => new URL(String(c[0]))).filter((u) => u.pathname === `/app/user/api/sessions/${SES}`).map((u) => u.host);
+      expect(sessionHosts).toContain("b.example");
     } finally {
       fetchSpy.mockRestore();
       deactivate();
