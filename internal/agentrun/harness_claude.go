@@ -353,10 +353,17 @@ func (Claude) EncodeInterrupt(requestID string) []byte {
 }
 
 type claudeEvent struct {
-	Type            string `json:"type"`
-	Subtype         string `json:"subtype"`
-	IsError         bool   `json:"is_error"`
-	Result          string `json:"result"`
+	Type            string  `json:"type"`
+	Subtype         string  `json:"subtype"`
+	IsError         bool    `json:"is_error"`
+	Result          string  `json:"result"`
+	ParentToolUseID *string `json:"parent_tool_use_id"`
+	Message         struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"message"`
 	TaskID          string `json:"task_id"`
 	QueuedTurnCount int    `json:"queued_turn_count"`
 	Tasks           []struct {
@@ -371,7 +378,9 @@ type claudeEvent struct {
 //   - system/background_tasks_changed → BackgroundTasks (the full list).
 //     claude empties the list BEFORE the task's task_notification arrives.
 //   - system/task_notification → BackgroundDone (the notification starts a turn)
-//   - system/init, assistant, user → TurnStart (assistant also sets Reply)
+//   - system/init, assistant, user → TurnStart (assistant also sets Reply,
+//     and Text to its text blocks); Sub when parent_tool_use_id is set (a
+//     subagent's message, whose text is never the session's)
 //   - anything else → Other
 func (Claude) ParseEvent(line []byte) (Event, error) {
 	var ev claudeEvent
@@ -391,9 +400,19 @@ func (Claude) ParseEvent(line []byte) (Event, error) {
 	case ev.Type == "system" && ev.Subtype == "task_notification":
 		return Event{Kind: EventBackgroundDone, TaskID: ev.TaskID}, nil
 	case ev.Type == "assistant":
-		return Event{Kind: EventTurnStart, Reply: true}, nil
+		e := Event{Kind: EventTurnStart, Reply: true, Sub: ev.ParentToolUseID != nil}
+		if !e.Sub {
+			var texts []string
+			for _, c := range ev.Message.Content {
+				if c.Type == "text" && strings.TrimSpace(c.Text) != "" {
+					texts = append(texts, c.Text)
+				}
+			}
+			e.Text = strings.Join(texts, "\n\n")
+		}
+		return e, nil
 	case ev.Type == "system" && ev.Subtype == "init", ev.Type == "user":
-		return Event{Kind: EventTurnStart}, nil
+		return Event{Kind: EventTurnStart, Sub: ev.ParentToolUseID != nil}, nil
 	}
 	return Event{Kind: EventOther}, nil
 }

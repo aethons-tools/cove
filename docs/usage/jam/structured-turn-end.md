@@ -1,10 +1,10 @@
 ---
-summary: The structured turn end — a woken session finds its pending messages in its prompt, its final text is posted for it and what it was shown is committed for it; the optional `turn_end` tool changes those defaults (deny, recipient, quiet, compact, end, mute, wake time, idle timeout), and `keep_*` keeps processes running across turns. Covers the turn-protocol switch, `PUT /mute`, the auto-post marker and the agent socket.
+summary: The structured turn end — a woken session finds its pending messages in its prompt, its final text (and what it says before a tool call, as it goes) is posted for it and what it was shown is committed for it; the optional `turn_end` tool changes those defaults (deny, recipient, quiet, compact, end, mute, wake time, idle timeout), and `keep_*` keeps processes running across turns. Covers the turn-protocol switch, `PUT /mute`, the auto-post marker and the agent socket.
 read_when: You want to know what a woken agent is shown, why a session's reply was (or wasn't) posted or its messages committed, how an agent keeps a preview server running between turns, or you are changing the turn-end defaults, `turn_end`/`keep_*`, or how a studio and Jam agree on the turn protocol.
-owns: the structured turn end — inbox batches in the wake prompt (caps, rendering, fallback), auto-posting the final text and auto-commit, the `turn_end` tool and its directives, `PUT /mute`, `PUT /kept`, the auto-post marker part and wake-on's skip of it, the duplicate-reply skip, the turn-protocol switch (`GET /context?turn-protocol=2`, `Bundle.turn_protocol`), the agent socket, kept processes (`keep_start`/`keep_stop`/`keep_list`) and the `process-exited` wake. Does NOT own wake-on's other rules (intercom.md), alarms/idle/`end` (turn-end.md) or the context compile (session-context.md).
+owns: the structured turn end — inbox batches in the wake prompt (caps, rendering, fallback), auto-posting the final text and auto-commit, posting mid-turn text, the `turn_end` tool and its directives, `PUT /mute`, `PUT /kept`, the auto-post marker part and wake-on's skip of it, the duplicate-reply skip, the turn-protocol switch (`GET /context?turn-protocol=2`, `Bundle.turn_protocol`), the agent socket, kept processes (`keep_start`/`keep_stop`/`keep_list`) and the `process-exited` wake. Does NOT own wake-on's other rules (intercom.md), alarms/idle/`end` (turn-end.md) or the context compile (session-context.md).
 prereqs: intercom.md for the inbox, commit cursor and wake-on; turn-end.md for what a turn end is and the wake reasons
 tier: leaf
-updated: 2026-10-28
+updated: 2026-10-30
 ---
 
 # The structured turn end
@@ -50,6 +50,15 @@ The studio reads each turn's `result` event and then acts in this order. It fini
 3. **Apply the turn's directives** (below).
 
 A turn that didn't end normally posts, commits and applies nothing: an interrupt, an error result, or a process that died. Its directives are dropped, as are those of a turn that never reached its end. A `/compact` turn (a press or `turn_end`) posts and commits nothing either.
+
+## Mid-turn text: posted as it goes
+
+claude's `result` carries only the turn's last reply. Anything the model writes before a tool call never reaches `result`, so the studio posts it as the turn goes on:
+
+- **When.** A top-level assistant message's text is posted once the turn's next top-level event shows the turn went on past it. Text that a `result` ends with is the final text (above), so it is never posted twice. Text that the `result` doesn't carry is posted just before the turn end.
+- **Where.** Always to the home channel, as an auto-post. `turn_end`'s `to` and `post` apply only to the final text.
+- **What it skips.** Subagent messages (`parent_tool_use_id` set) are skipped. So is a `/compact` turn, a turn under the legacy turn end, and text not yet posted when a turn is interrupted or errors.
+- **Commits nothing.** A failed post is logged and the turn goes on.
 
 **Auto-posts don't wake sessions.** An auto-post carries the part `application/vnd.jam.turn-end+json`. Wake-on skips it when its author is a session ([intercom.md](intercom.md#waiting-for-a-reply-wake-on)), and it never counts toward the loop breaker. People are notified as usual. A session that wants another session to act uses `send`.
 

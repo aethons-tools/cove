@@ -158,6 +158,10 @@ func (w *Workload) restartText(ctx context.Context) string {
 // it before the next prompt is written, so a later batch never re-shows what
 // this one committed.
 func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) {
+	if r.Interim {
+		w.postInterim(ctx, r)
+		return false
+	}
 	var meta turnMeta
 	if r.Gen != 0 && r.Gen == w.inflight.gen {
 		meta = w.inflight
@@ -226,6 +230,29 @@ func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) 
 		call("idle_timeout", func(c context.Context) error { return io.SetIdle(c, d.IdleTimeout) })
 	}
 	return d.Next == "compact"
+}
+
+// postInterim posts a message the model wrote mid-turn (r.Interim) to the
+// home channel as it comes: claude's result carries only the turn's last
+// reply, so without this whatever the model said before a tool call is lost.
+// It is the turn's text, not its reply, so turn_end (recipient, quiet) doesn't
+// apply, and nothing is committed; a failure is logged and the turn goes on.
+// A maintenance (compact) turn, or one under the legacy turn end, posts
+// nothing.
+func (w *Workload) postInterim(ctx context.Context, r TurnResult) {
+	on := w.structured()
+	if r.Gen != 0 && r.Gen == w.inflight.gen {
+		on = w.inflight.structured && !w.inflight.quiet
+	}
+	text := strings.TrimSpace(r.Text)
+	if !on || text == "" {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, turnIOTimeout)
+	defer cancel()
+	if err := w.cfg.TurnIO.Post(cctx, text, ""); err != nil && !errors.Is(err, context.Canceled) {
+		w.log.Warn("agentrun: mid-turn message not posted", "err", err.Error())
+	}
 }
 
 // agentBy is who a compact asked for by turn_end is recorded as.
