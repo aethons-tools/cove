@@ -96,3 +96,9 @@ func IconHref(prefix, name string) string {
 	}
 	return prefix + "icons/" + name + "?v=" + v
 }
+
+// Icon is the embedded icon name's bytes (static/icons/<name>), e.g. for the
+// CLI's Jam Hub launcher.
+func Icon(name string) ([]byte, error) {
+	return fs.ReadFile(static, "icons/"+name)
+}
