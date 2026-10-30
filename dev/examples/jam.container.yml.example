@@ -12,7 +12,7 @@
 
 # Broker + Attach listener. Non-root in the container, so 8443 (compose
 # publishes 443:8443). The secrets directory (JAM_SECRETS_DIR, default
-# dev/local/secrets) is mounted read-only at /etc/jam/secrets: credentials.yml,
+# dev/local/secrets) is mounted writable at /etc/jam/secrets: credentials.yml,
 # and tls/cert.pem + tls/key.pem (`just dev-cert` writes dev/tls; copy them into
 # DIR/tls). To use a
 # Let's Encrypt cert, do NOT point at its live/ dir (relative symlinks into
