@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"slices"
+	"strings"
 	"sync"
 )
 
@@ -44,8 +45,13 @@ type idleTracker struct {
 	onReply func()
 	// ends are the turn results not yet taken (TakeTurnEnds), in order; each
 	// is queued before busy clears and changed is signalled, so whoever sees
-	// the agent idle can take it first.
+	// the agent idle can take it first. Interim texts are queued among them.
 	ends []TurnResult
+	// said is the text of the current turn's latest model reply, until the
+	// turn's next event shows whether it was a message the model wrote on its
+	// way (the turn goes on: queued as an interim TurnResult) or its final
+	// text (the turn ends with it).
+	said string
 	// inTurn: a turn has started and not ended. wroteGen is the generation of
 	// the last prompt written (NoteWrite); turnGen the one in effect when the
 	// current turn started — the prompt that turn answers.
@@ -89,6 +95,11 @@ func (t *idleTracker) Observe(line []byte) {
 	switch ev.Kind {
 	case EventTurnEnd:
 		t.resumeOwed = false
+		if said := strings.TrimSpace(t.said); ev.OK && said != "" && said != strings.TrimSpace(ev.Text) {
+			// Not the final text after all: still something the model said.
+			t.ends = append(t.ends, TurnResult{Text: t.said, OK: true, Gen: t.turnGen, Interim: true})
+		}
+		t.said = ""
 		t.ends = append(t.ends, TurnResult{Text: ev.Text, OK: ev.OK, Gen: t.turnGen})
 		t.inTurn = false
 		if ev.QueuedEmpty {
@@ -124,6 +135,15 @@ func (t *idleTracker) Observe(line []byte) {
 			if t.taskTurn {
 				t.turnGen, t.taskTurn = 0, false
 			}
+			t.said = ""
+		}
+		if !ev.Sub {
+			if strings.TrimSpace(t.said) != "" {
+				// The turn went on past it: post it now, not at the turn end
+				// (whose result carries only the last reply's text).
+				t.ends = append(t.ends, TurnResult{Text: t.said, OK: true, Gen: t.turnGen, Interim: true})
+			}
+			t.said = ev.Text
 		}
 		t.busy, t.resumeOwed = true, false
 	default:
@@ -140,10 +160,13 @@ func (t *idleTracker) Observe(line []byte) {
 // TurnResult is how one agent turn ended: its final text, whether it ended
 // normally, and the generation of the prompt it answered (NoteWrite; a turn
 // a background task started answers the last prompt written before it).
+// Interim marks instead a message the model wrote mid-turn (OK, Text): the
+// turn has not ended.
 type TurnResult struct {
-	Text string
-	OK   bool
-	Gen  uint64
+	Text    string
+	OK      bool
+	Gen     uint64
+	Interim bool
 }
 
 // NoteWrite records that the prompt of generation gen is being written: the

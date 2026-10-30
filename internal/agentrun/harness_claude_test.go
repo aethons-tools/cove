@@ -181,6 +181,34 @@ func TestParseEventResultText(t *testing.T) {
 	}
 }
 
+func TestParseEventAssistantText(t *testing.T) {
+	cases := []struct {
+		name, line string
+		text       string
+		sub        bool
+	}{
+		{"text", `{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"hi"}]}}`, "hi", false},
+		{"blocks", `{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"a"},{"type":"text","text":" "},{"type":"text","text":"b"}]}}`, "a\n\nb", false},
+		{"tool use", `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}`, "", false},
+		{"subagent", `{"type":"assistant","parent_tool_use_id":"t1","message":{"content":[{"type":"text","text":"hi"}]}}`, "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Claude{}.ParseEvent([]byte(c.line))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Kind != EventTurnStart || !got.Reply || got.Text != c.text || got.Sub != c.sub {
+				t.Fatalf("got %+v, want text %q sub %v", got, c.text, c.sub)
+			}
+		})
+	}
+	got, _ := Claude{}.ParseEvent([]byte(`{"type":"user","parent_tool_use_id":"t1","message":{}}`))
+	if got.Kind != EventTurnStart || !got.Sub {
+		t.Fatalf("subagent tool result = %+v", got)
+	}
+}
+
 func TestClaudeEncodeInterrupt(t *testing.T) {
 	b := Claude{}.EncodeInterrupt("r1")
 	if len(b) == 0 || b[len(b)-1] != '\n' {
