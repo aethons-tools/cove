@@ -329,6 +329,7 @@ describe("connectedSet", () => {
 
 describe("windowKind", () => {
   const DIR = "/gs/sessions";
+  const SD = { scheme: "file", path: DIR };
   const file = (path: string, scheme = "file") => ({ scheme, authority: "", path });
   it.each([
     ["a session workspace file", { workspaceFile: file(`${DIR}/${ID}.code-workspace`) }, { kind: "local", id: ID }],
@@ -338,25 +339,30 @@ describe("windowKind", () => {
     ["a lookalike dir prefix", { workspaceFile: file(`${DIR}-evil/${ID}.code-workspace`) }, undefined],
     ["a non-session workspace", { workspaceFile: file(`/home/u/proj.code-workspace`) }, undefined],
     ["a bad id", { workspaceFile: file(`${DIR}/ses_x.code-workspace`) }, undefined],
-    ["a non-file scheme", { workspaceFile: file(`${DIR}/${ID}.code-workspace`, "untitled") }, undefined],
+    ["another scheme than the sessions dir's", { workspaceFile: file(`${DIR}/${ID}.code-workspace`, "untitled") }, undefined],
     ["a local folder", { workspaceFolders: [{ uri: file("/home/u/proj") }] }, undefined],
     ["an empty window", {}, undefined],
   ])("%s", (_n, w, want) => {
-    expect(windowKind(w, DIR, "linux")).toEqual(want);
+    expect(windowKind(w, SD, "linux")).toEqual(want);
+  });
+  it("matches a sessions dir in vscode-userdata (globalStorageUri's scheme on newer VS Code)", () => {
+    const ud = { scheme: "vscode-userdata", path: DIR };
+    expect(windowKind({ workspaceFile: file(`${DIR}/${ID}.code-workspace`, "vscode-userdata") }, ud, "linux")).toEqual({ kind: "local", id: ID });
+    expect(windowKind({ workspaceFile: file(`${DIR}/${ID}.code-workspace`) }, ud, "linux")).toBeUndefined();
   });
   it("matches case-insensitively on darwin and win32 (drive letter too), but not on linux", () => {
     const w = { workspaceFile: file(`/Users/Ada/Library/Application Support/Code/User/globalStorage/aethons.jam/sessions/${ID}.code-workspace`) };
     const dir = "/users/ada/library/application support/code/user/globalstorage/aethons.jam/sessions/";
-    expect(windowKind(w, dir, "darwin")).toEqual({ kind: "local", id: ID });
-    expect(windowKind(w, dir, "linux")).toBeUndefined();
+    expect(windowKind(w, { scheme: "file", path: dir }, "darwin")).toEqual({ kind: "local", id: ID });
+    expect(windowKind(w, { scheme: "file", path: dir }, "linux")).toBeUndefined();
     const win = { workspaceFile: file(`/C:/Users/Ada/AppData/Roaming/Code/User/globalStorage/aethons.jam/sessions/${ID}.code-workspace`) };
-    expect(windowKind(win, "/c:/users/ada/appdata/roaming/code/user/globalstorage/aethons.jam/sessions", "win32")).toEqual({ kind: "local", id: ID });
+    expect(windowKind(win, { scheme: "file", path: "/c:/users/ada/appdata/roaming/code/user/globalstorage/aethons.jam/sessions" }, "win32")).toEqual({ kind: "local", id: ID });
     // The id itself is never case-folded.
     const upper = { workspaceFile: file(`${dir}${ID.toUpperCase()}.code-workspace`) };
-    expect(windowKind(upper, dir, "darwin")).toBeUndefined();
+    expect(windowKind(upper, { scheme: "file", path: dir }, "darwin")).toBeUndefined();
     // Lookalikes stay rejected.
-    expect(windowKind({ workspaceFile: file(`/Users/Ada/sessions/${ID}.code-workspace`) }, dir, "darwin")).toBeUndefined();
-    expect(windowKind({ workspaceFile: file(`${dir}x/${ID}.code-workspace`) }, dir, "darwin")).toBeUndefined();
+    expect(windowKind({ workspaceFile: file(`/Users/Ada/sessions/${ID}.code-workspace`) }, { scheme: "file", path: dir }, "darwin")).toBeUndefined();
+    expect(windowKind({ workspaceFile: file(`${dir}x/${ID}.code-workspace`) }, { scheme: "file", path: dir }, "darwin")).toBeUndefined();
   });
 });
 

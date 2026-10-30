@@ -260,24 +260,25 @@ export type WindowKind = { kind: "local" | "remote"; id: string };
 
 // windowKind is the session a window belongs to: a jam-<id> remote, or a
 // local session window, whose workspace file is <sessionsDir>/<id>.code-workspace
-// (sessionsDir as a URI path). The directory compares case-insensitively on
+// (sessionsDir as a URI: its scheme is the platform's globalStorageUri's, which
+// may be vscode-userdata rather than file). The directory compares case-insensitively on
 // darwin and win32 (case-insensitive file systems, drive letters); the id never.
 export function windowKind(
   w: { workspaceFolders?: readonly { uri: UriLike }[]; workspaceFile?: UriLike & { path: string } },
-  sessionsDir: string,
+  sessionsDir: { scheme: string; path: string },
   platform: string,
 ): WindowKind | undefined {
   const remote = studioFromAuthority(windowAuthority(w));
   if (remote) return { kind: "remote", id: remote };
   const f = w.workspaceFile;
-  if (f?.scheme !== "file") return undefined;
+  if (!f || f.scheme !== sessionsDir.scheme) return undefined;
   const fold = platform === "darwin" || platform === "win32";
   const norm = (p: string) => {
     const q = p.replace(/\\/g, "/").replace(/\/+$/, "");
     return fold ? q.toLowerCase() : q;
   };
   const slash = f.path.lastIndexOf("/");
-  if (slash < 0 || norm(f.path.slice(0, slash)) !== norm(sessionsDir)) return undefined;
+  if (slash < 0 || norm(f.path.slice(0, slash)) !== norm(sessionsDir.path)) return undefined;
   const m = /^(.+)\.code-workspace$/.exec(f.path.slice(slash + 1));
   return m && SESSION_ID_RE.test(m[1]!) ? { kind: "local", id: m[1]! } : undefined;
 }

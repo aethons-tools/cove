@@ -260,7 +260,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const router = new Router({ session: current, fetch: (...a) => fetch(...a), onSignedOut: panesSignedOut, log });
   // The window's session: a jam-<id> remote, or a local session window. Only
   // the remote (windowStudio) can forward a preview's port.
-  const kind = windowKind(vscode.workspace, sessionsDir.path, process.platform);
+  const kind = windowKind(vscode.workspace, sessionsDir, process.platform);
   const windowDefault = kind?.id;
   const windowStudio = kind?.kind === "remote" ? kind.id : undefined;
   void vscode.commands.executeCommand("setContext", "jam.window", kind?.kind ?? "");
