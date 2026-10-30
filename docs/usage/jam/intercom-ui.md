@@ -62,6 +62,14 @@ principal menu; see [ui.md](ui.md)) with **Inbox** current.
     alarms, previews, kept processes), the context window's use in tokens, and
     how many `system/init` events Jam has seen since it started. The design:
     [session status card](../../superpowers/specs/2026-10-30-session-status-card-design.md).
+    The rail shows such a row *as* the card (`SessionCard`, compact): a plain
+    icon box with the context bar overlaid on its right edge (green, through
+    yellow, to red; pulsing from 85%), the name, the state pill (its tool in
+    the tooltip), count icons (each hidden at 0; open asks orange and
+    pulsing), the mission, and a sparkline of the last 10 minutes. The page
+    builds the sparkline from the cards it fetches (`session/card/history.ts`):
+    a step per state change, a dashed mark where `inits` went up; it isn't
+    stored, so a fresh page starts flat.
 - **The open conversation:** its messages (the viewer's own on one side) with
   day dividers and **Load earlier** for older pages, a **"Needs you"** chip
   when a session in it asked for a person or is blocked, the **Open asks**

@@ -7,6 +7,7 @@ import { useBoot } from "../BootContext";
 import { useChimes } from "../sounds/chimes";
 import { NavLink as RouterLink, useLocation, useParams } from "react-router";
 import { useRail } from "./useRail";
+import { SessionCard } from "../session/card/SessionCard";
 import { useAppBadge } from "../push/useAppBadge";
 import { Problem } from "../Problem";
 import { APP } from "../paths";
@@ -48,8 +49,9 @@ export function Rail() {
                 component={RouterLink}
                 to={`${APP}c/${encodeURIComponent(r.id)}`}
                 active={r.id === channel}
-                label={r.label}
-                description={r.mission || undefined}
+                // A session channel's row is its session's status card.
+                label={r.card ? <SessionCard card={r.card} compact /> : r.label}
+                description={r.card ? undefined : r.mission || undefined}
                 rightSection={r.unread > 0 ? <Badge size="sm" circle aria-label={`${r.unread} unread`}>{r.unread}</Badge> : null}
               />
             ))}

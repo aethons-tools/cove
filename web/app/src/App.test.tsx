@@ -4,6 +4,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "./test/server";
 import { boot, renderApp } from "./test/render";
 import type { RailResponse } from "./api/types";
+import { card } from "./test/card";
 
 const rail: RailResponse = {
   unreadTotal: 2,
@@ -24,6 +25,18 @@ describe("the app shell", () => {
     expect(screen.getByText("SPA slice 1")).toBeInTheDocument();
     expect(screen.getByLabelText("2 unread")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /eng/ })).toHaveAttribute("href", "/app/user/c/chn_b");
+  });
+
+  it("shows a session channel's row as its status card", async () => {
+    const withCard: RailResponse = { ...rail, groups: [{ ...rail.groups[0]!, rows: [{ ...rail.groups[0]!.rows[0]!,
+      card: card({ name: "intercom-spider", pill: "needs you", state: "idle", mission: "SPA slice 1", counts: { asks: 1, alarms: 0, previews: 0, processes: 0 } }) }] }, rail.groups[1]!] };
+    server.use(http.get("/app/user/api/rail", () => HttpResponse.json(withCard)));
+    renderApp(boot);
+    expect(await screen.findByText("needs you")).toBeInTheDocument();
+    expect(screen.getByTitle("1 open ask")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /intercom-spider/ })).toHaveAttribute("href", "/app/user/c/chn_a");
+    // A room keeps its plain row.
+    expect(screen.getByRole("link", { name: /eng/ }).querySelector(".sc")).toBeNull();
   });
 
   it("shows an empty state for a member with no channels", async () => {
