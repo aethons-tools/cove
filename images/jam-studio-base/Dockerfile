@@ -8,7 +8,7 @@
 # (COV-42/COV-44), so the base is pure tools with no Go build dependency.
 # See docs/superpowers/specs/2026-07-16-shared-base-image-design.md and, for the
 # Docker engine, docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md.
-FROM ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+FROM ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
 LABEL org.opencontainers.image.source="https://github.com/aethons-tools/cove"
 LABEL org.opencontainers.image.description="jam studio base image: OS + git/gh/sshd + egress stack + Docker engine (pure tools)"
 
@@ -61,9 +61,9 @@ RUN install -m 0755 -d /etc/apt/keyrings \
 
 # code-server: the built-in Studio IDE (docs/superpowers/specs/2026-10-25-session-studio-view-design.md).
 # Renovate bumps CODE_SERVER_VERSION; update both SHA-256s with it (the build fails on a mismatch).
-ARG CODE_SERVER_VERSION=4.143.1
-ARG CODE_SERVER_SHA256_AMD64=e4b771c98fafbe2af3990ecd71d93ba22515588db550007076768a014ae34c02
-ARG CODE_SERVER_SHA256_ARM64=79ca8df2db219b24de75e2a830c5302808124d8c2bf132f4bc6105cea834bb1c
+ARG CODE_SERVER_VERSION=4.144.0
+ARG CODE_SERVER_SHA256_AMD64=45f5533b502edac68b7eb09c5cec44fd281f80264af9a87fde0bfb2c5e190615
+ARG CODE_SERVER_SHA256_ARM64=6baef72b340da08e76e5cf1e9504f657d00e80c8776bdaf86e97c30a80cd48e8
 RUN set -eux; arch="$(dpkg --print-architecture)"; \
     case "$arch" in amd64) sum="$CODE_SERVER_SHA256_AMD64";; arm64) sum="$CODE_SERVER_SHA256_ARM64";; *) echo "unsupported $arch"; exit 1;; esac; \
     curl -fsSL -o /tmp/cs.deb "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server_${CODE_SERVER_VERSION}_${arch}.deb"; \
