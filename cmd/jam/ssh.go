@@ -419,6 +419,10 @@ func (t sshTarget) sshOptions() [][2]string {
 		// would just fail it. The hop is Jam's authenticated tunnel to this one
 		// studio; the key is still pinned, so a later change is refused.
 		{"StrictHostKeyChecking", "accept-new"},
+		// OpenSSH skips gssapi-with-mic (GSSAPIAuthentication is off), but its
+		// mention makes VSCodium's Open Remote - SSH, whose ssh2 client can't
+		// present CertificateFile, fall back to the local ssh client.
+		{"PreferredAuthentications", "publickey,gssapi-with-mic"},
 	}
 }
 

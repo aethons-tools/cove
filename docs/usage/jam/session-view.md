@@ -4,7 +4,7 @@ read_when: You're using or extending how a session's conversation looks in `/app
 owns: the session header (`GET /app/user/api/sessions/{id}`) and its actions (`POST /app/user/api/sessions/{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/api/sessions/{id}/pane/{tab}`) and its tabs, the Studio tab and a preview's View here (`POST /app/user/api/sessions/{id}/frame`), the Thinking tab (`GET /app/user/session/{id}/thinking/events`, `GET /app/user/api/sessions/{id}/thinking[/raw]`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
 prereqs: intercom-ui.md for the user area this extends; session-events.md for the events the aggregates come from; previews.md for exposed ports; collaboration.md for who may SSH or open a preview; previews.md#framing-the-jam-pane for the frame tickets and cookie
 tier: leaf
-updated: 2026-10-29
+updated: 2026-10-30
 ---
 
 # The session view
@@ -32,7 +32,7 @@ One line, refreshed on push and every 30s (`GET /app/user/api/sessions/{id}`):
 - **Uptime:** time since the session was raised.
 - **Tabs:** Studio (only with SSH and framing on), Thinking, Previews, Artifacts, Status. These open the pane.
 - **Copy SSH:** copies `jam ssh <id>`. It appears only if [collab](collaboration.md) would allow you to SSH.
-- **Open in VS Code:** shown when Copy SSH is. A link to `vscode://aethons.jam/session/<id>`, which the [Jam extension](vscode.md) handles. The session head also carries the session's `channel`, so the extension can link back to its page.
+- **Open in VS Code** and **Open in VSCodium:** shown when Copy SSH is. Links to `vscode://aethons.jam/session/<id>` and `vscodium://…`, which the [Jam extension](vscode.md) handles. The session head also carries the session's `channel`, so the extension can link back to its page.
 - **Interrupt:** a visible button beside Copy SSH, enabled while the session is running. See [Session controls](#session-controls).
 - **⋯ menu:** Compact and Clear (see [Session controls](#session-controls); only Clear asks for confirmation), then the release, restart, end and upgrade actions, each of which asks for confirmation, then `POST /app/user/api/sessions/{id}/<action>`.
   The server re-checks permission (403 otherwise). Once a session ends, its header and pane go.

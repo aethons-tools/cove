@@ -1,7 +1,7 @@
 ---
-summary: The Jam VS Code extension (`aethons.jam`) — installing it with `jam vscode install` and its update offers, signing in with an app token, opening a session's window and connecting it to the studio over Remote-SSH on demand, the five views, board tabs and the focused session, notifications and the Needs You badge, what it writes to your machine, and fixing its errors.
-read_when: You want to open an agent's session or studio in VS Code from the Jam app or a link, or connect/disconnect a window so the studio can idle, are installing, updating or signing in the Jam extension (`jam vscode install`, the update offer), are using or changing a Jam view (Conversation, Thinking, Previews, Status, Artifacts) or a board tab, Jam: Focus Session or pinning, or want VS Code or OS notifications and the Jam badge (or none show on macOS), or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
-owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session; Connect/Disconnect Studio and local session windows; the five views, board tabs, the focused session, pin/unpin, its empty states and link rules; VS Code and OS notifications, the Needs You view and badge, and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; its troubleshooting
+summary: The Jam VS Code extension (`aethons.jam`), in VS Code or VSCodium — installing it with `jam vscode install` and its update offers, signing in with an app token, opening a session's window and connecting it to the studio over Remote-SSH on demand, the five views, board tabs and the focused session, notifications and the Needs You badge, what it writes to your machine, and fixing its errors.
+read_when: You want to open an agent's session or studio in VS Code or VSCodium from the Jam app or a link, or connect/disconnect a window so the studio can idle, are installing, updating or signing in the Jam extension (`jam vscode install`, the update offer), are using or changing a Jam view (Conversation, Thinking, Previews, Status, Artifacts) or a board tab, Jam: Focus Session or pinning, or want VS Code or OS notifications and the Jam badge (or none show on macOS), or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
+owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session; Connect/Disconnect Studio and local session windows; the five views, board tabs, the focused session, pin/unpin, its empty states and link rules; VS Code and OS notifications, the Needs You view and badge, and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; VSCodium and Open Remote - SSH; its troubleshooting
 prereqs: collaboration.md for who may SSH and the ssh_config block the CLI writes; app-tokens.md for the sign-in token
 tier: leaf
 updated: 2026-10-30
@@ -33,7 +33,8 @@ A Jam built without the extension (a dev build), or one older than this, says so
 It needs:
 
 - the `jam` CLI from the same release or newer (the window's `ssh-proxy` is `jam`'s),
-- Microsoft's Remote - SSH extension (the extension offers to install it),
+- Microsoft's Remote - SSH extension (the extension offers to install it);
+  in VSCodium, Open Remote - SSH instead (see [VSCodium](#vscodium)),
 - macOS or Linux (Windows is refused).
 
 ## Updates
@@ -75,8 +76,8 @@ the next open then reports you signed out and offers Sign In.
 
 Three ways in, all the same flow:
 
-- the **Open in VS Code** button in the session header ([session-view.md](session-view.md)),
-  a `vscode://aethons.jam/session/<id>` link;
+- the **Open in VS Code** or **Open in VSCodium** button in the session header ([session-view.md](session-view.md)),
+  a `vscode://aethons.jam/session/<id>` (or `vscodium://…`) link;
 - the same link from anywhere (`open vscode://aethons.jam/session/<id>`);
 - *Jam: Open Session…*, which lists your live sessions.
 
@@ -156,7 +157,22 @@ The ProxyCommand pins `--participant`; `jam` uses the token file when it names t
 
 A studio's egress is locked down, so it can't fetch VS Code Server itself.
 The first time, the extension offers to set Remote-SSH's `remote.SSH.localServerDownload` to `always`
-(VS Code downloads it locally and uploads it). It asks once.
+(VS Code downloads it locally and uploads it). It asks once. VSCodium never asks: see below.
+
+## VSCodium
+
+Microsoft's Remote - SSH is licensed to VS Code only, so in VSCodium the extension uses
+[Open Remote - SSH](https://github.com/jeanp413/open-remote-ssh) (`jeanp413.open-remote-ssh`, 0.5.1 or newer) and offers to install it.
+Install it with `jam vscode install --code codium`. Sign-in, links and notifications use `vscodium://`; the token file is shared with VS Code.
+
+- **Server download in the studio.** Open Remote - SSH has no local download: the studio fetches
+  `vscodium-reh-…` from GitHub releases (a redirect to `release-assets.githubusercontent.com`).
+  A studio whose egress doesn't allow that can't install the server.
+- **Certificate login.** Its built-in ssh2 client can't present `CertificateFile`. The block's
+  `PreferredAuthentications publickey,gssapi-with-mic` makes it fall back to your `ssh`, which can;
+  OpenSSH still tries the cert first. Each connect costs one failed ssh2 attempt first, and the first
+  connect to a studio asks once to trust its host key.
+  A block written by an older `jam ssh-config` lacks the line: rerun `jam ssh-config --write <studio>`.
 
 ## Troubleshooting
 

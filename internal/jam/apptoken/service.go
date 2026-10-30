@@ -67,12 +67,12 @@ const (
 	maxConsentForm = 16 << 10
 	sweepEvery     = 5 * time.Second
 	expireEvery    = time.Hour
-	consentCSP     = "default-src 'none'; style-src 'self'; form-action 'self' vscode: vscode-insiders:; frame-ancestors 'none'"
+	consentCSP     = "default-src 'none'; style-src 'self'; form-action 'self' vscode: vscode-insiders: vscodium:; frame-ancestors 'none'"
 )
 
 // redirectPrefixes are the only redirect targets: the Jam extension's URI
-// handler in VS Code and VS Code Insiders.
-var redirectPrefixes = []string{"vscode://aethons.jam/", "vscode-insiders://aethons.jam/"}
+// handler in VS Code, VS Code Insiders and VSCodium.
+var redirectPrefixes = []string{"vscode://aethons.jam/", "vscode-insiders://aethons.jam/", "vscodium://aethons.jam/"}
 
 // ValidRedirect reports whether s may be a consent's redirect: an exact
 // prefix match on redirectPrefixes, nothing else.

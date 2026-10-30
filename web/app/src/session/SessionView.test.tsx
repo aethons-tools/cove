@@ -91,12 +91,14 @@ describe("the session header", () => {
     await screen.findByRole("region", { name: "Session" });
     for (const name of ["Interrupt", "More actions", "Copy SSH"]) expect(screen.queryByRole("button", { name })).toBeNull();
     expect(screen.queryByRole("link", { name: "Open in VS Code" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open in VSCodium" })).toBeNull();
   });
 
   it("Open in VS Code links to the extension when SSH is allowed", async () => {
     serve(head());
     renderApp(boot, "/app/user/c/chn_s");
     expect(await screen.findByRole("link", { name: "Open in VS Code" })).toHaveAttribute("href", "vscode://aethons.jam/session/ses_1");
+    expect(screen.getByRole("link", { name: "Open in VSCodium" })).toHaveAttribute("href", "vscodium://aethons.jam/session/ses_1");
   });
 
   it("shows the server's refusal, and changes nothing", async () => {

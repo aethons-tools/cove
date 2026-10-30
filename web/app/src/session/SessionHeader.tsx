@@ -6,7 +6,7 @@ import { apiPost, type ApiError } from "../api/client";
 import type { SessionHead } from "../api/types";
 import { copyText } from "../conversation/copy";
 import { PANE_TABS, TAB_LABEL, type PaneTab } from "./layout";
-import { vscodeLink } from "./vscode";
+import { vscodeLink, vscodiumLink } from "./vscode";
 
 type Action = "interrupt" | "compact" | "clear" | "release" | "restart" | "upgrade";
 const STATE_COLOR: Record<string, string | undefined> = { wait: "yellow.8", dim: "dimmed" };
@@ -73,6 +73,8 @@ export function SessionHeader({ head: h, tab, onTab }: { head: SessionHead; tab?
           onClick={() => void copyText(h.ssh).then((ok) => notifications.show({ message: ok ? "Copied the SSH command" : "Couldn't copy; the command is in the button's tooltip" }))}>Copy SSH</Button>}
         {h.ssh && <Button component="a" href={vscodeLink(h.id)} size="compact-xs" variant="default"
           title="Open this session's studio in VS Code (needs the Jam extension)">Open in VS Code</Button>}
+        {h.ssh && <Button component="a" href={vscodiumLink(h.id)} size="compact-xs" variant="default"
+          title="Open this session's studio in VSCodium (needs the Jam extension)">Open in VSCodium</Button>}
         {h.ops && <Button size="compact-xs" variant="default" title="Stop the agent's current turn" disabled={!h.canInterrupt}
           loading={run.isPending && run.variables === "interrupt"} onClick={() => press("interrupt")}>Interrupt</Button>}
         {menu && (

@@ -177,7 +177,7 @@ func TestSSHConfigBlock(t *testing.T) {
 	if code := run([]string{"ssh-config", "ses_a"}, func(string) string { return "" }, &out, &errb); code != 0 {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
-	for _, want := range []string{"Host jam-ses_a", "ProxyCommand /opt/jam/dist/linux-amd64/jam ssh-proxy ", "User agent", "IdentityFile ", "CertificateFile ", "StrictHostKeyChecking accept-new"} {
+	for _, want := range []string{"Host jam-ses_a", "ProxyCommand /opt/jam/dist/linux-amd64/jam ssh-proxy ", "User agent", "IdentityFile ", "CertificateFile ", "StrictHostKeyChecking accept-new", "PreferredAuthentications publickey,gssapi-with-mic"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("missing %q in:\n%s", want, out.String())
 		}

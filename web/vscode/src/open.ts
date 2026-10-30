@@ -4,6 +4,7 @@
 import type { JamApi } from "./api";
 import type { RailResponse } from "../../app/src/api/types.js" with { "resolution-mode": "import" };
 import { ApiError, SignedOutError } from "./api";
+import type { Editor } from "./editor";
 import { certErrorMessage } from "./ssh/cert";
 import type { SshResult } from "./ssh/setup";
 import { SESSION_ID_RE } from "./uri";
@@ -40,6 +41,7 @@ export function webUrl(base: string, channel: string): string {
 
 export type OpenDeps = {
   ui: Ui;
+  editor: Editor;
   signedIn: () => Promise<{ api: JamApi; url: string }>;
   ssh: (api: JamApi, studio: string) => Promise<SshResult>;
   // The "Jam" output channel. Never pass it a token.
@@ -161,7 +163,7 @@ async function prepareSsh(
     return false;
   }
   if (!ui.hasRemoteSsh()) {
-    if ((await fail("Connecting to a studio needs Microsoft's Remote - SSH extension.", "Install")) === "Install") await ui.installRemoteSsh();
+    if ((await fail(`Connecting to a studio needs ${d.editor.remoteSsh.name} extension.`, "Install")) === "Install") await ui.installRemoteSsh();
     return false;
   }
   step(`setting up SSH for ${head.label}`);
@@ -212,7 +214,8 @@ export async function connectStudio(d: OpenDeps, id: string): Promise<void> {
   await withSession(d, id, `Jam: connecting ${id}…`, async ({ step, log, fail }) => {
     const s = await checkSession(d, id, step, log, fail);
     if (!s || !(await prepareSsh(d, s, id, step, log, fail))) return;
-    if (!ui.remembered(ASKED) && ui.getGlobal("remote.SSH", "localServerDownload") !== "always") {
+    // Open Remote - SSH (VSCodium) always downloads the server in the studio.
+    if (d.editor.localServerDownload && !ui.remembered(ASKED) && ui.getGlobal("remote.SSH", "localServerDownload") !== "always") {
       log("asking about Remote-SSH localServerDownload");
       const a = await ui.info(
         "Jam studios can't download VS Code Server themselves. Set Remote-SSH's localServerDownload to 'always'?",

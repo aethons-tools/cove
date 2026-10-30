@@ -67,6 +67,15 @@ What the extension does: [vscode.md](vscode.md).
 - [ ] Upgrade the studio: host-key error, *Jam: Forget Host Key*, reconnect works.
 - [ ] VS Code Insiders sign-in works.
 
+VSCodium (with the `.vsix` installed in VSCodium):
+
+- [ ] *Open in VSCodium* opens VSCodium; sign-in returns through `vscodium://` and the consent page names "VSCodium on <host>".
+- [ ] *Connect studio* without Open Remote - SSH offers to install `jeanp413.open-remote-ssh`, and never asks about localServerDownload.
+- [ ] With it installed, *Connect studio* asks once to trust the host key, then the window reloads on `/home/agent/workspace` (the Remote - SSH log shows the local `ssh` fallback) and the terminal works.
+- [ ] The studio installed `vscodium-reh-…` itself (`~/.vscodium-server`).
+- [ ] *Disconnect studio* and the Conversation view work as in VS Code.
+- [ ] VS Code still connects with the new `PreferredAuthentications` line.
+
 Conversation view:
 
 - [ ] The Jam icon shows, and the Conversation renders for the window's session in the light, dark and high-contrast themes.
