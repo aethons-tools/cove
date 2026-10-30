@@ -1,5 +1,4 @@
-// Opening a session's window (local), and connecting it to the session's
-// studio over Remote-SSH and back. Pure: the VS Code
+// Opening a session's studio window over Remote-SSH. Pure: the VS Code
 // surface is the Ui interface, built in extension.ts.
 import type { JamApi } from "./api";
 import type { RailResponse } from "../../app/src/api/types.js" with { "resolution-mode": "import" };
@@ -14,14 +13,8 @@ export interface Ui {
   info(msg: string, ...actions: string[]): Promise<string | undefined>;
   pick<T extends { label: string }>(items: T[], placeholder: string): Promise<T | undefined>;
   openExternal(url: string): Promise<void>;
-  // Opens uri in a new window (focusing one already on it), or with reuse in this one.
-  openFolder(uri: string, o?: { reuse: true }): Promise<void>;
-  // The session's local workspace file (written if missing), as a URI.
-  localWorkspace(id: string): Promise<string>;
-  // Whether a studio window for the session has refreshed its mark lately.
-  isConnected(id: string): boolean;
-  // Sets (refreshes) or clears the session's connected mark.
-  setConnected(id: string, on: boolean): Promise<void>;
+  // Opens uri in a new window, focusing one already on it.
+  openFolder(uri: string): Promise<void>;
   hasRemoteSsh(): boolean;
   installRemoteSsh(): Promise<void>;
   getGlobal(section: string, key: string): unknown;
@@ -178,40 +171,12 @@ async function prepareSsh(
   }
 }
 
-// openSession opens the session's local window (its workspace file, in a new
-// window or the one already on it): no SSH, so the studio can idle. A session
-// flagged connected (its studio window is open) renews its SSH setup and opens
-// (focuses) that window instead; if that fails, the flag is cleared and the
-// local window opens.
+// openSession sets up SSH for the session's studio and opens its studio
+// window over Remote-SSH: a new window, or the one already on it. The studio
+// window marks itself connected when it starts.
 export async function openSession(d: OpenDeps, id: string): Promise<void> {
-  await withSession(d, id, `Jam: opening ${id}…`, async ({ step, log, fail }) => {
-    const s = await checkSession(d, id, step, log, fail);
-    if (!s) return;
-    let remote = false;
-    if (d.ui.isConnected(id)) {
-      remote = await prepareSsh(d, s, id, step, log, async (m) => {
-        log(`can't reconnect: ${m}; opening the local window`);
-        return undefined;
-      });
-      if (!remote) await d.ui.setConnected(id, false);
-    }
-    step("opening the window");
-    let uri: string;
-    if (remote) {
-      log("connected: opening its studio window");
-      uri = remoteUri(id);
-    } else uri = await d.ui.localWorkspace(id);
-    log(`openFolder ${uri}`);
-    await d.ui.openFolder(uri);
-    log("openFolder returned");
-  });
-}
-
-// connectStudio sets up SSH for the session's studio and reloads this window
-// onto it over Remote-SSH. The studio window flags itself connected when it starts.
-export async function connectStudio(d: OpenDeps, id: string): Promise<void> {
   const { ui } = d;
-  await withSession(d, id, `Jam: connecting ${id}…`, async ({ step, log, fail }) => {
+  await withSession(d, id, `Jam: opening ${id}…`, async ({ step, log, fail }) => {
     const s = await checkSession(d, id, step, log, fail);
     if (!s || !(await prepareSsh(d, s, id, step, log, fail))) return;
     // Open Remote - SSH (VSCodium) always downloads the server in the studio.
@@ -226,27 +191,12 @@ export async function connectStudio(d: OpenDeps, id: string): Promise<void> {
       await ui.remember(ASKED);
       log(`localServerDownload answer: ${a ?? "dismissed"}`);
     }
-    step("connecting the window");
+    step("opening the window");
     const uri = remoteUri(id);
-    log(`openFolder ${uri} (this window)`);
-    await ui.openFolder(uri, { reuse: true });
+    log(`openFolder ${uri}`);
+    await ui.openFolder(uri);
     log("openFolder returned");
   });
-}
-
-// disconnectStudio clears the session's connected flag and reloads this window
-// onto the session's local workspace; Remote-SSH closes the connection, so the
-// studio can idle. The flag is cleared here, before the reload: a write from
-// the studio window's deactivate can be lost as the window reloads.
-export async function disconnectStudio(d: OpenDeps, id: string): Promise<void> {
-  if (!SESSION_ID_RE.test(id)) {
-    d.log(`disconnect: refused a bad session id (${JSON.stringify(id.slice(0, 80))})`);
-    return;
-  }
-  const uri = await d.ui.localWorkspace(id);
-  await d.ui.setConnected(id, false);
-  d.log(`[${id}] disconnecting: openFolder ${uri} (this window)`);
-  await d.ui.openFolder(uri, { reuse: true });
 }
 
 // A studio window refreshes its session's connected mark every
@@ -273,42 +223,6 @@ export function connectedSet(st: { get<T>(k: string): T | undefined; update(k: s
       if (SESSION_ID_RE.test(id)) await st.update(key(id), on ? now() : undefined);
     },
   };
-}
-
-export type WindowKind = { kind: "local" | "remote"; id: string };
-
-// windowKind is the session a window belongs to: a jam-<id> remote, or a
-// local session window, whose workspace file is <sessionsDir>/<id>.code-workspace
-// (sessionsDir as a URI: its scheme is the platform's globalStorageUri's, which
-// may be vscode-userdata rather than file). The directory compares case-insensitively on
-// darwin and win32 (case-insensitive file systems, drive letters); the id never.
-export function windowKind(
-  w: { workspaceFolders?: readonly { uri: UriLike }[]; workspaceFile?: UriLike & { path: string } },
-  sessionsDir: { scheme: string; path: string },
-  platform: string,
-): WindowKind | undefined {
-  const remote = studioFromAuthority(windowAuthority(w));
-  if (remote) return { kind: "remote", id: remote };
-  const f = w.workspaceFile;
-  if (!f || f.scheme !== sessionsDir.scheme) return undefined;
-  const fold = platform === "darwin" || platform === "win32";
-  const norm = (p: string) => {
-    const q = p.replace(/\\/g, "/").replace(/\/+$/, "");
-    return fold ? q.toLowerCase() : q;
-  };
-  const slash = f.path.lastIndexOf("/");
-  if (slash < 0 || norm(f.path.slice(0, slash)) !== norm(sessionsDir.path)) return undefined;
-  const m = /^(.+)\.code-workspace$/.exec(f.path.slice(slash + 1));
-  return m && SESSION_ID_RE.test(m[1]!) ? { kind: "local", id: m[1]! } : undefined;
-}
-
-export const SESSION_WORKSPACE = JSON.stringify({ folders: [] }, null, 2) + "\n";
-
-// statusBarItem is the window's Connect/Disconnect item, if any.
-export function statusBarItem(k: WindowKind | undefined): { text: string; command: string; tooltip: string } | undefined {
-  if (k?.kind === "local") return { text: "$(plug) Connect studio", command: "jam.connectStudio", tooltip: "Jam: connect this window to the session's studio over Remote-SSH" };
-  if (k?.kind === "remote") return { text: "$(debug-disconnect) Disconnect studio", command: "jam.disconnectStudio", tooltip: "Jam: disconnect from the studio so it can idle" };
-  return undefined;
 }
 
 export type RailRow = RailResponse["groups"][number]["rows"][number];
