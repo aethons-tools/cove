@@ -56,4 +56,15 @@ describe("the principal menu", () => {
     await screen.findByRole("button", { name: "Account" });
     await waitFor(() => expect(syncOnLoad).toHaveBeenCalledTimes(1));
   });
+
+  it("account menu opens Connected apps", async () => {
+    rail();
+    server.use(http.get("/app/user/api/app-tokens", () => HttpResponse.json({ tokens: [] })));
+    const user = userEvent.setup();
+    renderApp(boot);
+    await user.click(await screen.findByRole("button", { name: "Account" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Connected apps…" }));
+    expect(await screen.findByRole("dialog", { name: "Connected apps" })).toBeInTheDocument();
+    expect(await screen.findByText(/No apps are connected/)).toBeInTheDocument();
+  });
 });

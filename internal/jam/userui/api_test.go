@@ -12,6 +12,7 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
+	"github.com/aethons-tools/cove/internal/jam/notify"
 	"github.com/aethons-tools/cove/internal/jam/push"
 )
 
@@ -218,5 +219,16 @@ func TestUserAreaFailsClosedWithoutParticipant(t *testing.T) {
 		if rec.Code < 400 {
 			t.Errorf("no-participant %s = %d, want a refusal", path, rec.Code)
 		}
+	}
+}
+
+func TestBootstrapPushFocusWithNotify(t *testing.T) {
+	e, p := fixture()
+	rec := apiGet(t, Handler(e.Deps, nil, WithNotify(notify.NewHub(nil)), WithPushFocus(push.NewFocus(time.Now))), &p, "/app/user/api/bootstrap")
+	var b struct {
+		PushFocus bool `json:"pushFocus"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil || !b.PushFocus {
+		t.Errorf("bootstrap = %s (%v), want pushFocus true", rec.Body.String(), err)
 	}
 }

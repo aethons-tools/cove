@@ -90,6 +90,33 @@ func ParticipantByIdentity(store ParticipantStore, issuer, subject string) (Part
 	return p, true
 }
 
+// ParticipantByUser resolves the live user id as a participant, as
+// ParticipantByIdentity does for an OIDC identity: a user who is a member of
+// no project resolves to nobody. Issuer and Subject are the user's first OIDC
+// identity ("" when there is none).
+func ParticipantByUser(store interface {
+	ParticipantStore
+	GetUser(ident.ID) (User, bool)
+}, id ident.ID) (Participant, bool) {
+	u, ok := store.GetUser(id)
+	if !ok || u.Status != StatusLive {
+		return Participant{}, false
+	}
+	p := Participant{UserID: u.ID, Name: u.Name}
+	if len(u.OIDC) > 0 {
+		p.Issuer, p.Subject = u.OIDC[0].Issuer, u.OIDC[0].Subject
+	}
+	for _, name := range store.ListProjects() {
+		if pid, ok := store.LookupName(ident.Project, name); ok && store.IsMember(pid, u.ID) {
+			p.Projects = append(p.Projects, name)
+		}
+	}
+	if len(p.Projects) == 0 {
+		return Participant{}, false
+	}
+	return p, true
+}
+
 type participantCtxKey struct{}
 
 // WithParticipant returns r carrying the authenticated participant, so /app/user

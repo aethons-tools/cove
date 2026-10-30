@@ -24,9 +24,10 @@ const (
 	Channel    Kind = "chn"
 	Blob       Kind = "blb" // an attachment (intercom attachments)
 	Board      Kind = "brd" // a whiteboard (intercom whiteboards)
+	AppToken   Kind = "apt" // an app token (docs/usage/jam/app-tokens.md)
 )
 
-var kinds = map[Kind]bool{Project: true, User: true, Connection: true, Account: true, Session: true, Channel: true, Blob: true, Board: true}
+var kinds = map[Kind]bool{Project: true, User: true, Connection: true, Account: true, Session: true, Channel: true, Blob: true, Board: true, AppToken: true}
 
 // alphabet is lowercase Crockford base32. Its characters ascend in ASCII, so
 // the text order of equal-length bodies is their numeric order — and, because

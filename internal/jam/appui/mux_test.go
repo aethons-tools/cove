@@ -213,3 +213,25 @@ func TestNextRedirectsToTheUserArea(t *testing.T) {
 		t.Errorf("POST /app/next/… = %d", rec.Code)
 	}
 }
+
+// The app-token consent and exchange are mounted ungated beside the login
+// when set, and fall to the login routes otherwise.
+func TestAppTokenRoutesMounted(t *testing.T) {
+	d := Deps{
+		Gate:       NewGate(GateConfig{Sessions: testSessions(t), LoginPath: "/app/auth/login", Log: discardLog()}),
+		AuthRoutes: echo("auth"), User: echo("user"), Admin: echo("admin"),
+		AppTokenRoutes: echo("apptoken"),
+	}
+	for _, p := range []string{"/app/auth/app-token", "/app/auth/app-token/exchange"} {
+		rec := httptest.NewRecorder()
+		Handler(d).ServeHTTP(rec, muxReq("POST", p, "", ""))
+		if rec.Body.String() != "apptoken "+p {
+			t.Errorf("%s → %d %q", p, rec.Code, rec.Body)
+		}
+	}
+	rec := httptest.NewRecorder()
+	testMux(t).ServeHTTP(rec, muxReq("GET", "/app/auth/app-token", "", ""))
+	if rec.Body.String() != "auth /app/auth/app-token" {
+		t.Errorf("unset: %q", rec.Body)
+	}
+}

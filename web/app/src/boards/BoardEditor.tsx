@@ -3,7 +3,8 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import "@excalidraw/excalidraw/index.css";
 import { Loader, Text } from "@mantine/core";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { body, MAX_WAIT, nextRetry, POLL, SEND_DELAY, snapshot } from "./sync";
+import { MAX_WAIT, nextRetry, POLL, SEND_DELAY, snapshot } from "./sync";
+import { loadElements, saveElements } from "./api";
 
 type Scene = ReturnType<ExcalidrawImperativeAPI["getSceneElementsIncludingDeleted"]>;
 type Remote = Parameters<typeof reconcileElements>[1];
@@ -35,19 +36,16 @@ export default function BoardEditor({ id, readOnly }: { id: string; readOnly: bo
   const mounted = useRef(true);
   const latest = useRef<Scene>([]);
   const leftTries = useRef(0); // saves retried after leaving
-  const url = `/app/user/boards/${encodeURIComponent(id)}/elements`;
 
   const remember = (els: readonly { id: string; version: number }[]) => els.forEach((e) => sent.current.set(e.id, e.version));
 
   const fetchSince = useCallback(async () => {
-    const r = await fetch(`${url}?since=${seq.current}`, { credentials: "same-origin" });
-    if (!r.ok) throw new Error(`load failed (${r.status})`);
-    const b = (await r.json()) as { seq: number; elements: unknown[] };
+    const b = await loadElements(id, seq.current);
     seq.current = b.seq;
     const els = restoreElements(b.elements as Remote, null);
     remember(els);
     return els;
-  }, [url]);
+  }, [id]);
 
   useEffect(() => {
     fetchSince().then((els) => setInitial({ elements: els, scrollToContent: true }), (e: unknown) => setError(String((e as Error).message ?? e)));
@@ -87,10 +85,8 @@ export default function BoardEditor({ id, readOnly }: { id: string; readOnly: bo
       const s = snapshot(scene(), sent.current);
       if (s.tooLarge) setError("a drawing is too large to save; split it into smaller strokes");
       for (const batch of s.batches) {
-        const r = await fetch(url, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: body(batch) });
-        if (!r.ok) throw new Error(`save failed (${r.status})`);
+        const res = await saveElements(id, batch);
         batch.forEach((b) => sent.current.set(b.id, b.version));
-        const res = (await r.json()) as { lost: unknown[] };
         const lost = restoreElements(res.lost as Remote, null);
         if (mounted.current) apply(lost);
         // Whatever the scene now holds for a lost element counts as settled,
@@ -110,7 +106,7 @@ export default function BoardEditor({ id, readOnly }: { id: string; readOnly: bo
       const giveUp = failed && !mounted.current && ++leftTries.current > 3;
       if (dirty.current && !timer.current && !giveUp) timer.current = setTimeout(() => void send(), failed ? retry.current : SEND_DELAY);
     }
-  }, [url, apply]);
+  }, [id, apply]);
 
   // Debounced: SEND_DELAY after the last change, but at least every MAX_WAIT
   // during a long drag.

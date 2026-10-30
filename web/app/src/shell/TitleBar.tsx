@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router";
 import type { Bootstrap, NavTab } from "../api/types";
 import { APP } from "../paths";
+import { ConnectedApps } from "../account/ConnectedApps";
 import { SoundsSettings } from "../sounds/SoundsSettings";
 import { PushToggle } from "../push/PushToggle";
 import { usePush } from "../push/usePush";
@@ -71,6 +72,7 @@ export function TitleBar({ brand, tabs, mount, current, name, initial, roles, me
 // and Sounds, and Sign out unsubscribes the device from push first.
 export function UserTitleBar({ boot }: { boot: Bootstrap }) {
   const [sounds, soundsDialog] = useDisclosure(false);
+  const [apps, appsDialog] = useDisclosure(false);
   const push = usePush(boot);
   // Sign out on a shared device: unsubscribe it from push first, so the next
   // person here doesn't get this user's notifications (3 s at most).
@@ -90,6 +92,7 @@ export function UserTitleBar({ boot }: { boot: Bootstrap }) {
         <>
           <PushToggle push={push} />
           <Menu.Item onClick={soundsDialog.open}>Sounds…</Menu.Item>
+          <Menu.Item onClick={appsDialog.open}>Connected apps…</Menu.Item>
           {boot.signOut && <Menu.Item component="a" href="/app/auth/logout" onClick={(e) => {
             if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // a new tab: just the link
             e.preventDefault();
@@ -98,6 +101,7 @@ export function UserTitleBar({ boot }: { boot: Bootstrap }) {
         </>
       } />
       <SoundsSettings opened={sounds} onClose={soundsDialog.close} />
+      <ConnectedApps opened={apps} onClose={appsDialog.close} />
     </>
   );
 }

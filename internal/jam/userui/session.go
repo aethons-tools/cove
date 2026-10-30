@@ -33,32 +33,10 @@ type SessionOps interface {
 	Command(ctx context.Context, inst jam.Instance, c jam.SessionCommand, by string) error
 }
 
-// homeSession is the live session whose home channel chID is: a session
-// channel's session, or the session working a ticket channel's ticket.
+// homeSession is the live session whose home channel chID is (see
+// jam.HomeSession).
 func homeSession(d Deps, chID string) (jam.Instance, bool) {
-	ch, ok := d.Store.GetChannel(ident.ID(chID))
-	if !ok {
-		return jam.Instance{}, false
-	}
-	live := func(i jam.Instance) bool { return i.Phase != jam.PhaseGone }
-	switch ch.Kind {
-	case jam.SourceSession:
-		inst, ok := d.Store.GetInstance(ch.Key)
-		return inst, ok && live(inst)
-	case jam.SourceTicket:
-		_, unit, found := strings.Cut(ch.Key, "/")
-		if !found {
-			return jam.Instance{}, false
-		}
-		for _, inst := range d.Store.ListInstances() {
-			if inst.Unit == unit && live(inst) {
-				if pr, ok := d.Store.GetProject(inst.Project); ok && pr.ID == ch.ProjectID {
-					return inst, true
-				}
-			}
-		}
-	}
-	return jam.Instance{}, false
+	return jam.HomeSession(d.Store, ident.ID(chID))
 }
 
 // sessionFor is session id if viewer p may see its home channel.
@@ -88,11 +66,12 @@ func (h *handler) headSession(p jam.Participant, sel string) (jam.Instance, bool
 	return jam.Instance{}, false
 }
 
-func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Instance) SessionHead {
+// sessionHead is inst's header for p; home is its home channel.
+func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Instance, home string) SessionHead {
 	now := time.Now()
 	pr, _ := appui.PrincipalFrom(r)
 	op := pr.Admin
-	hd := SessionHead{ID: inst.ActorID, Label: inst.Name, Kind: kindLabel(inst), Role: inst.Role, Project: jam.ProjectName(h.d.Store, inst.Project),
+	hd := SessionHead{ID: inst.ActorID, Label: inst.Name, Channel: home, Kind: kindLabel(inst), Role: inst.Role, Project: jam.ProjectName(h.d.Store, inst.Project),
 		Ticket: inst.Unit, OpenAsks: inst.OpenAsks, Uptime: since(now, inst.RaisedAt), Mission: inst.Mission}
 	if hd.Label == "" {
 		hd.Label = inst.ActorID

@@ -4,7 +4,7 @@ read_when: You are snapshotting a Jam's config for backup, or restoring it onto 
 owns: the `jam export` / `jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
-updated: 2026-10-25
+updated: 2026-10-29
 ---
 
 # Backing up and restoring Jam config
@@ -27,6 +27,8 @@ control-plane aggregates:
   with their bindings and ids. Channel membership and session channels are
   runtime state and are not exported.
 - the **Jam-wide session context**
+
+[App tokens](app-tokens.md#storage) are not exported.
 
 The format is `version: 5`, which carries kit trees and blobs and names projects by id in roles and grants; an
 older Jam can't read it. Older backups still import: their project names become

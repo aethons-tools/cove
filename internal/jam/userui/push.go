@@ -22,7 +22,7 @@ func WithPush(publicKey string) Option {
 
 // WithPushFocus enables POST /app/user/push/focus, where the app reports
 // the conversation it has open and focused, so f suppresses pushes for it.
-// It takes effect only with WithPush; nil leaves it off.
+// It takes effect only with WithPush or WithNotify; nil leaves it off.
 func WithPushFocus(f *push.Focus) Option {
 	return func(h *handler) { h.pushFocus = f }
 }
@@ -47,6 +47,9 @@ func (h *handler) pushRoutes(mux *http.ServeMux) {
 	if h.pushKey == "" {
 		// Off: 404, not the app's catch-all (its page, or 405).
 		mux.Handle("/app/user/push/", http.NotFoundHandler())
+		if h.focusOn() { // on with notify alone
+			mux.HandleFunc("POST /app/user/push/focus", h.pushFocusRoute)
+		}
 		return
 	}
 	mux.HandleFunc("GET /app/user/push/key", h.pushKeyRoute)
@@ -60,7 +63,9 @@ func (h *handler) pushRoutes(mux *http.ServeMux) {
 }
 
 // focusOn reports whether the page should report its focus.
-func (h *handler) focusOn() bool { return h.pushKey != "" && h.pushFocus != nil }
+func (h *handler) focusOn() bool {
+	return h.pushFocus != nil && (h.pushKey != "" || h.notify != nil)
+}
 
 // pushFocusRoute records which conversation the caller has open and focused
 // ({"channel": id}) or that they have none ({"channel": null}). The channel

@@ -5,6 +5,13 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "../test/server";
 import { boot, renderApp } from "../test/render";
+import { MantineProvider } from "@mantine/core";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
+import { theme } from "../theme";
+import { BootContext } from "../BootContext";
+import { ConversationView } from "./ConversationView";
 import type { Conversation, MessageRow, RailResponse } from "../api/types";
 
 // today is a time on the current day: the view labels it "Today".
@@ -186,5 +193,28 @@ describe("the conversation view", () => {
     await userEvent.click(await screen.findByRole("link", { name: /beta/ }));
     expect(screen.getByRole("link", { name: /alpha/ })).toBeInTheDocument(); // still there while rail?c=chn_b loads
     release();
+  });
+
+  it("withSession false renders no session header", async () => {
+    serve(conv({ session: "ses_1" }));
+    server.use(http.get("/app/user/api/sessions/:id", () => HttpResponse.json({
+      id: "ses_1", label: "intercom-spider", kind: "standing", ticket: "", role: "jam-ic", project: "test", owner: "",
+      state: { label: "intercom-spider", text: "is running", tool: "Bash", class: "busy" }, since: "4m", openAsks: 0,
+      cost: "", turnCost: "", tokens: "", context: "", contextTip: "", uptime: "", mission: "", ssh: "jam ssh ses_1",
+      studio: false, canRelease: false, canRestart: true, canUpgrade: true, ops: true,
+      canInterrupt: true, canCompact: false, canClear: true, restartLabel: "Restart", upgradeState: "", channel: "chn_a",
+    })));
+    render(
+      <MantineProvider theme={theme} env="test">
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <BootContext.Provider value={boot}>
+            <MemoryRouter><ConversationView id="chn_a" withSession={false} /></MemoryRouter>
+          </BootContext.Provider>
+        </QueryClientProvider>
+      </MantineProvider>,
+    );
+    expect(await screen.findByText("m1")).toBeInTheDocument();
+    expect(screen.queryByText("Copy SSH")).toBeNull();
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
   });
 });

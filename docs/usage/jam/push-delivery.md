@@ -4,7 +4,7 @@ read_when: You're operating or debugging push delivery — the `push:relay` cond
 owns: the push relay's sending behaviour (start mark, TTL/collapse, recipient re-check, per-device outcome table, per-host breaker, health), the endpoint allowlist, and the `/app/user/push/*` route table including `POST /app/user/push/focus`. Does NOT own setup, the notify rule or on-device behaviour — see push.md.
 prereqs: push.md (what push is and how it's enabled)
 tier: leaf
-updated: 2026-10-23
+updated: 2026-10-29
 ---
 
 # Push delivery
@@ -46,6 +46,7 @@ subscribed device, retrying each device on its own:
   count as failed and are retried after — while devices on other push
   services go out as normal. The first answer from the host after that
   clears it.
+- **The notify relay** is a second egress-only relay service, `notify`, over the same rule. It publishes to the recipient's open `/app/user/events` streams ([the signal stream](intercom-ui.md#unread-and-refresh)), drops after 10 minutes, skips users with no open stream, has no retries (nothing is queued) and no `runtime.push` gate. It keeps its marker in memory, seeded at the log tail on every start (no state dir, nothing written). It works without Web Push keys.
 - **Health.** Sends that keep failing raise the `push:relay`
   [condition](monitoring.md#v1-conditions) — usually the Jam host's egress to
   the push services ([step 4](push.md#enabling-push-on-a-jam)).
@@ -53,7 +54,7 @@ subscribed device, retrying each device on its own:
 ## Routes
 
 All under the `/app/user` gate (members only; writes must be same-origin), and
-404 when push is off:
+404 when neither Web Push nor the notify stream is on (`push/focus` is mounted with either; the key and subscription routes need Web Push):
 
 | Route | |
 |---|---|
@@ -61,6 +62,8 @@ All under the `/app/user` gate (members only; writes must be same-origin), and
 | `POST /app/user/push/subscriptions` | Body: the browser's `PushSubscription.toJSON()`. The endpoint must pass the [endpoint allowlist](#endpoint-allowlist) and the keys be the right sizes (`p256dh` 65 bytes, `auth` 16), else 400. Stores it for the caller (an endpoint another user had moves to the caller; an unchanged re-send is a no-op); 204. |
 | `DELETE /app/user/push/subscriptions` | Body `{"endpoint": "…"}`; deletes it only if it is the caller's; 204 either way. |
 | `POST /app/user/push/focus` | Body `{"channel": "<id>"}` or `{"channel": null}`: the conversation the caller has open and focused, held in memory briefly ([how focus suppresses](push.md#what-notifies)), or none. The channel must be one the caller can see, else 400; 204. |
+
+The key and subscription routes refuse an [app token](app-tokens.md#bearer-scope) (403): a subscription belongs to a browser.
 
 ### Endpoint allowlist
 

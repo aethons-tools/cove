@@ -137,6 +137,14 @@ app:
 app-dev:
     cd web/app && npm ci --no-audit --no-fund --loglevel=error && npx vite
 
+# build the Jam VS Code extension's .vsix into web/vscode/dist/jam.vsix (needs Node/npm)
+vscode:
+    ./scripts/vscode.sh
+
+# the Jam VS Code extension's checks: typecheck, unit tests
+vscode-check:
+    cd web/vscode && npm ci --no-audit --no-fund --loglevel=error && npm run check
+
 # the Jam app's checks: API types current, typecheck, lint, unit tests
 app-check:
     ./scripts/app-types-check.sh

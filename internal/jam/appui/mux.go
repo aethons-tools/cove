@@ -11,13 +11,22 @@ import (
 
 // Deps are the parts of the browser app Handler composes.
 type Deps struct {
-	Gate           browserauth.Gate
-	AuthRoutes     http.Handler // /app/auth/*; nil = no browser login
+	Gate       browserauth.Gate
+	AuthRoutes http.Handler // /app/auth/*; nil = no browser login
+	// AppTokenRoutes serves the app-token consent and exchange
+	// (/app/auth/app-token, ungated like the login); nil = none.
+	AppTokenRoutes http.Handler
 	User           http.Handler // serves /app/user/*; nil = none
 	Admin          http.Handler // serves /app/admin/*
 	TrustedOrigins []string
 	Shell          Shell // title-bar context for the pages
 	App            fs.FS // the Jam app bundle (its assets/ at /app/assets/); nil = uiassets.AppFS()
+	// Bearer authenticates /app/user requests carrying an app token; nil =
+	// bearers go through the cookie gate like any request.
+	Bearer BearerFunc
+	// SessionCookies are the session cookie names a bearer request must not
+	// also carry.
+	SessionCookies []string
 }
 
 // legacy maps the pre-/app browser prefixes to their new homes; the longest
@@ -46,13 +55,20 @@ func Handler(d Deps) *http.ServeMux {
 	if d.AuthRoutes != nil {
 		mux.Handle("/app/auth/", d.AuthRoutes)
 	}
+	if d.AppTokenRoutes != nil {
+		mux.Handle("/app/auth/app-token", d.AppTokenRoutes)
+		mux.Handle("/app/auth/app-token/", d.AppTokenRoutes)
+	}
 	if d.User != nil {
-		mux.Handle("/app/user/", d.Gate.Wrap(RequireUser(browserauth.RequireSameOrigin(d.TrustedOrigins, WithShell(d.User, d.Shell)))))
+		user := WithShell(d.User, d.Shell)
+		mux.Handle("/app/user/", withBearer(d.Bearer, d.SessionCookies,
+			refuseOnBearer(bearerRefusedPaths, RequireUser(user)),
+			d.Gate.Wrap(RequireUser(browserauth.RequireSameOrigin(d.TrustedOrigins, user)))))
 	}
 	// The Jam app's pre-cutover home: the same path, now under /app/user/.
 	mux.Handle("/app/next/", LegacyRedirect("/app/next/", "/app/user/"))
 	if d.Admin != nil {
-		mux.Handle("/app/admin/", d.Gate.Wrap(RequireAdmin(WithShell(d.Admin, d.Shell))))
+		mux.Handle("/app/admin/", RefuseBearer(d.Gate.Wrap(RequireAdmin(WithShell(d.Admin, d.Shell)))))
 	}
 	mux.Handle("GET /app/{$}", d.Gate.Wrap(WithShell(http.HandlerFunc(landing), d.Shell)))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {

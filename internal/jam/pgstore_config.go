@@ -47,6 +47,9 @@ func writeConfigTx(ctx context.Context, tx pgx.Tx, w ConfigWrite) error {
 			if _, err := tx.Exec(ctx, `DELETE FROM push_subscriptions WHERE user_id = $1`, u.ID); err != nil {
 				return err
 			}
+			if _, err := tx.Exec(ctx, `DELETE FROM app_tokens WHERE user_id = $1`, u.ID); err != nil {
+				return err
+			}
 		}
 	}
 	for _, a := range w.Accounts {

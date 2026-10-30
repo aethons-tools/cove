@@ -14,3 +14,5 @@ packages:
   - path: github.com/aethons-tools/cove/internal/jam/adminui
     include_files: [apitypes.go]
     output_path: web/app/src/admin/api/types.ts
+    type_mappings:
+      time.Time: string

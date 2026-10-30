@@ -60,7 +60,9 @@ jobs:
         with:
           node-version: 26
           cache: npm
-          cache-dependency-path: web/app/package-lock.json
+          cache-dependency-path: |
+            web/app/package-lock.json
+            web/vscode/package-lock.json
       # The Jam app (web/app): the bundle (npm ci, build, size budget) so the
       # Go tests below serve the real app, then API types current, typecheck,
       # lint and unit tests on the same install (one npm ci: the job has a
@@ -69,6 +71,13 @@ jobs:
         run: ./scripts/app.sh
       - name: app checks
         run: ./scripts/app-types-check.sh && (cd web/app && npm run check)
+      # The VS Code extension (web/vscode): checks, bundle and the .vsix.
+      - name: vscode extension
+        run: ./scripts/vscode.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: jam-vscode
+          path: web/vscode/dist/jam.vsix
 
       # Mirrors `just test` — hermetic, no docker/network/ssh.
       - name: test

@@ -361,3 +361,20 @@ func TestAPISessionPanePreviews(t *testing.T) {
 		t.Errorf("previews = %+v", pv)
 	}
 }
+
+// The head carries the session's home channel, which the VS Code extension
+// needs for "Open in the web app" (/app/user/c/<channel>).
+func TestAPISessionHeadChannel(t *testing.T) {
+	e, p, personal, _, _ := sessionEnv(t)
+	home, err := e.Intercom.HomeChannel(personal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := sessAPI(t, e, p, "GET", personal.ActorID, "", false)
+	if hd := decodeAs[SessionHead](t, rec); hd.Channel != string(home.ID) {
+		t.Errorf("channel = %q, want %q", hd.Channel, home.ID)
+	}
+	if !strings.Contains(rec.Body.String(), `"channel":"`+string(home.ID)+`"`) {
+		t.Errorf("head JSON lacks channel: %s", rec.Body)
+	}
+}

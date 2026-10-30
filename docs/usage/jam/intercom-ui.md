@@ -131,10 +131,12 @@ yet in it). The rules are the intercom's
   person's deliveries above it. The rail and the app badge count the open
   conversation as read from the moment it's shown.
 - **Refresh is live:** the app holds an SSE stream (`GET /app/user/events`).
-  It carries only payload-free signals — `changed` (the squawk Log grew),
+  It carries payload-free signals — `changed` (the squawk Log grew),
   `presence` (a session's status changed; at most one per 250 ms, the last
-  always sent) and `board` (a whiteboard changed) — never content; the app
-  refetches what each names through the API, which checks access again. A
+  always sent) and `board` (a whiteboard changed) — and one event with
+  content, `event: notify`: the viewer's own notification, as a push would
+  show it ([VS Code](vscode.md#notifications-and-the-badge)); the web app
+  ignores it. The app refetches what each names through the API, which checks access again. A
   reconnect refetches too, and a **30 s poll** covers state that appends
   nothing and a dropped stream. A half-typed reply is never touched.
 - The push is in-process: an `intercom.Notifier` wraps serve's one shared

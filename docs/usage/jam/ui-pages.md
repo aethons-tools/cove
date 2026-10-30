@@ -4,7 +4,7 @@ read_when: You are viewing or editing a user, agent, destination, model-spec or 
 owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui-console.md for the Config tree and URLs; ui-editing.md for the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-28
+updated: 2026-10-29
 ---
 
 # Admin UI entity pages
@@ -25,6 +25,8 @@ A project's pages (and its role and member pages) are in
 `/app/admin/config/users` lists and creates users; `/app/admin/config/users/<id>` renames one, replaces its
 logins and OIDC identities, adds or unlinks accounts, and removes it (rename and
 remove are refused while the user owns a live personal session).
+The page lists the user's [app tokens](app-tokens.md) (label, created, last used, expiry,
+operator standing) and revokes one.
 
 ## Agent pages
 

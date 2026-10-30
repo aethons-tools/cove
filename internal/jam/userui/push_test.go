@@ -11,6 +11,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/notify"
 	"github.com/aethons-tools/cove/internal/jam/push"
 )
 
@@ -225,12 +226,49 @@ func TestPushFocusRejectsChannelsTheCallerCannotSee(t *testing.T) {
 	}
 }
 
-func TestPushFocusOffWithoutPush(t *testing.T) {
+func TestPushFocusOffWithoutPushOrNotify(t *testing.T) {
 	e, p := fixture()
 	f := push.NewFocus(nil)
-	for _, h := range []http.Handler{Handler(e.Deps, nil, WithPushFocus(f)), Handler(e.Deps, nil, WithPush(testVAPIDKey))} {
+	for _, h := range []http.Handler{Handler(e.Deps, nil, WithPushFocus(f)), Handler(e.Deps, nil, WithPush(testVAPIDKey)), Handler(e.Deps, nil, WithNotify(notify.NewHub(nil)))} {
 		if rec := pushDo(h, p, "POST", "/app/user/push/focus", `{"channel":"`+engID+`"}`); rec.Code != http.StatusNotFound {
 			t.Errorf("focus without push = %d, want 404", rec.Code)
 		}
+	}
+}
+
+func TestPushFocusOnWithNotifyAlone(t *testing.T) {
+	e, p := fixture()
+	f := push.NewFocus(nil)
+	h := Handler(e.Deps, nil, WithNotify(notify.NewHub(nil)), WithPushFocus(f))
+	if rec := pushDo(h, p, "POST", "/app/user/push/focus", `{"channel":"`+engID+`"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("focus = %d, want 204", rec.Code)
+	}
+	if !f.Focused(p.UserID, engID) {
+		t.Error("focus not recorded")
+	}
+}
+
+func TestPushSubscriptionRoutesStayOffWithNotifyAlone(t *testing.T) {
+	e, p := fixture()
+	h := Handler(e.Deps, nil, WithNotify(notify.NewHub(nil)), WithPushFocus(push.NewFocus(nil)))
+	if rec := pushDo(h, p, "GET", "/app/user/push/key", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("key = %d, want 404", rec.Code)
+	}
+}
+
+func TestPushRoutesWrongMethodIs405WhenOn(t *testing.T) {
+	e, p := fixture()
+	h := Handler(e.Deps, nil, WithPush(testVAPIDKey), WithPushFocus(push.NewFocus(nil)), WithNotify(notify.NewHub(nil)))
+	rec := pushDo(h, p, "PUT", "/app/user/push/subscriptions", "")
+	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") == "" {
+		t.Fatalf("PUT subscriptions = %d Allow=%q, want 405 with Allow", rec.Code, rec.Header().Get("Allow"))
+	}
+}
+
+func TestPushFocusOffWithPushOnIs404(t *testing.T) {
+	e, p := fixture()
+	h := Handler(e.Deps, nil, WithPush(testVAPIDKey))
+	if rec := pushDo(h, p, "POST", "/app/user/push/focus", `{"channel":null}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST focus = %d, want 404", rec.Code)
 	}
 }

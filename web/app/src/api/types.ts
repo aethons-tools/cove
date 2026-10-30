@@ -275,6 +275,7 @@ export interface AnswerRequest {
 export interface SessionHead {
   id: string;
   label: string;
+  channel: string; // the session's home channel (/app/user/c/<channel>)
   kind: string; // standing | personal | ticket | session
   ticket: string;
   role: string;
@@ -512,4 +513,21 @@ export interface SessionStarted {
   id: string;
   name: string;
   channel: string;
+}
+/**
+ * AppTokenRow is one of the viewer's app tokens (Connected apps).
+ */
+export interface AppTokenRow {
+  id: string;
+  label: string;
+  created: string;
+  lastUsed: string;
+  expires: string;
+  operator: boolean; // carries operator standing
+}
+/**
+ * AppTokensResponse is GET /app/user/api/app-tokens: newest first.
+ */
+export interface AppTokensResponse {
+  tokens: AppTokenRow[];
 }

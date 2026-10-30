@@ -46,6 +46,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
+	"github.com/aethons-tools/cove/internal/jam/apptoken"
 	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/attach"
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
@@ -60,6 +61,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/managers"
 	"github.com/aethons-tools/cove/internal/jam/managers/managerpb"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
+	"github.com/aethons-tools/cove/internal/jam/notify"
 	"github.com/aethons-tools/cove/internal/jam/push"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents/sessionpg"
@@ -2226,6 +2228,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// Who has which conversation open in the app (in memory): the push relay
 	// skips them; the app's focus route (/app/user/push/focus) records it.
 	pushFocus := push.NewFocus(time.Now)
+	// Each user's open Jam streams' notifications (/app/user/events), fed by
+	// the notify relay engine below.
+	notifyHub := notify.NewHub(log)
 	// The one long-lived git fetcher for kit sources (it serializes per repo);
 	// anonymous when no kits.git credential is configured.
 	kitFetcher, err := resolveKitFetcher(cfg, specs)
@@ -2563,7 +2568,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		discordTok   string
 	)
 	runPush := vapid != nil
+	runNotify := cfg.AdminListen != "" // the user app is served: its streams carry notify events
 	dir := &directory{store: st, ic: ic, log: log, tracker: icTracker, pushOn: runPush, pushFocus: pushFocus}
+	dir.notifyOn = runNotify
 	runDiscord := cfg.Runtime.Discord != nil
 	var stateDir string
 	if dc != nil || runDiscord || runPush {
@@ -2759,6 +2766,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("Jam relay (discord): resident, egress ON")
 	}
 
+	// The push rule's reader and unread total, shared by the push and notify
+	// engines.
+	reader := pushReader{store: st, ic: ic}
+	unread := func(u ident.ID) int { return jam.UnreadTotal(st, ic, chlog, u) }
+
 	// relay push engine: egress only, over the same Log, markers and
 	// directory — each notified person's devices (Web Push), signed with the
 	// VAPID key resolved above. Gated on runtime.push.
@@ -2769,8 +2781,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				return 1
 			}
 		}
-		reader := pushReader{store: st, ic: ic}
-		unread := func(u ident.ID) int { return jam.UnreadTotal(st, ic, chlog, u) }
 		psurf := &push.Surface{
 			Store:   st,
 			Sender:  push.NewWebPushSender(nil),
@@ -2783,6 +2793,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		peng := relay.New(psurf, chlog, relayMarkers, relayCursors, dir, relay.Config{EgressEnabled: true}, log)
 		go peng.Run(context.Background())
 		log.Info("Jam relay (push): resident, egress ON", "preview", cfg.Runtime.Push.preview())
+	}
+
+	// relay notify engine: egress only, over the same Log and directory —
+	// the push rule's recipients' open Jam streams (notifyHub). Its mark is
+	// in memory, seeded at the log tail on every start (never a backlog), so
+	// it needs no state dir. Runs whenever the user app is served.
+	if runNotify {
+		preview := cfg.Runtime.Push == nil || cfg.Runtime.Push.preview()
+		nsurf := &notify.Surface{Hub: notifyHub, Event: notifyEvent(reader, pushFocus, unread, preview), Now: time.Now}
+		neng := relay.New(nsurf, chlog, newMemMarkers(notify.Service, relay.EgressMark{LastSeq: logTailSeq(chlog)}), noCursors{}, dir, relay.Config{EgressEnabled: true}, log)
+		go neng.Run(context.Background())
+		log.Info("Jam relay (notify): resident, egress ON")
 	}
 
 	if cfg.Runtime.Listen != "" { // optional plaintext dev listener (not the production path)
@@ -2868,6 +2890,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// wakes a waiting studio; the app reads the same channel log, and the
 		// legacy log as History.
 		userMux := http.NewServeMux()
+		// The open app-token requests, so a revoke ends them.
+		appTokenLive := apptoken.NewLive()
 		// The Jam pane's one-time frame tickets (docs/usage/jam/previews.md
 		// "Framing"): the previews' login trades them for frame sessions and
 		// prunes them.
@@ -2890,7 +2914,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// The user area is the Jam app (web/app) and its API; the app's CSP
 		// frames the preview hosts when the pane may.
 		userOpts := []userui.Option{userui.WithChanges(logChanges), userui.WithPresence(sessPresence), userui.WithPush(pushPublic), userui.WithPushFocus(pushFocus),
-			userui.WithFrameSrc(appFrameSrc(&cfg))}
+			userui.WithFrameSrc(appFrameSrc(&cfg)), userui.WithAppTokenRevoke(appTokenLive.Revoke)}
+		if runNotify {
+			userOpts = append(userOpts, userui.WithNotify(notifyHub))
+		}
 		userMux.Handle("/app/user/", userui.Handler(userDeps, log, userOpts...))
 
 		// Setup inspection: the admin API (WithSetupInspect) and the UI's Setup
@@ -2900,7 +2927,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Warn("setup inspect: sealed egress base unreadable; egress shows no sealed rows", "err", err.Error())
 		}
 		setupDeps := jam.SetupDeps{Store: st, Sup: sup, Images: images, SealedEgress: sealed}
-		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps)}
+		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps),
+			adminui.WithAppTokenRevoke(appTokenLive.Revoke)}
 		if built.router != nil {
 			uiOpts = append(uiOpts, adminui.WithSetupManagers(built.router.AvailableNames))
 		}
@@ -2919,8 +2947,21 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Writes in the user area must come from the page itself (the mux
 		// applies RequireSameOrigin): the session cookie alone (SameSite=Lax)
 		// lets a sibling subdomain post as the user.
+		// App tokens (docs/usage/jam/app-tokens.md): minted only from a
+		// verified browser session, so only with browser login.
+		// They act as their user on /app/user and /me/studios, never on
+		// /app/admin; revoking one ends its open /app/user requests (live).
+		var appTokenRoutes http.Handler
+		var appTokenBearer appui.BearerFunc
+		if sessions != nil {
+			appTokens := apptoken.New(apptoken.Config{Store: st, Sessions: sessions, Live: appTokenLive, TrustedOrigins: cfg.UIOrigins,
+				Brand: appBrand(cfg.displayName()), Now: time.Now, Log: log})
+			appTokenRoutes, appTokenBearer = appTokens.Routes(), appTokens.Bearer()
+			go appTokens.Run(context.Background())
+		}
 		browser := appui.Handler(appui.Deps{
-			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, User: userMux,
+			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, AppTokenRoutes: appTokenRoutes, User: userMux,
+			Bearer: appTokenBearer, SessionCookies: []string{browserauth.AppMount().IDCookie(), browserauth.AppMount().AccessCookie()},
 			Admin:          adminui.Handler(st, log, sup, personalAllocator{alloc}, credExists, squawkReader, uiOpts...),
 			TrustedOrigins: cfg.UIOrigins,
 			Shell:          appui.Shell{Brand: appBrand(cfg.displayName()), SignOut: sessions != nil, AdminBadges: adminui.BadgeSource(st, sup, conds)},
@@ -2943,7 +2984,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				},
 			}
 		}
-		if mountParticipantStudios(browser, cfg.operatorLoginConfig(), auth, sshCA, st, func(p func(*http.Request) (collab.Principal, string, error)) http.Handler {
+		if mountParticipantStudios(browser, cfg.operatorLoginConfig(), auth, sshCA, st, log, func(p func(*http.Request) (collab.Principal, string, error)) http.Handler {
 			return collabhttp.Routes("/me", collabDeps(p))
 		}) {
 			log.Info("Jam participant collaboration: bearer routes mounted", "path", "/me/studios/")
@@ -3290,22 +3331,41 @@ var (
 )
 
 // mountParticipantStudios mounts the participant plane's collaboration routes
-// at /me/studios/ on mux and reports whether it did. They take a bearer ID
-// token from `jam login --participant` — not the /app session cookie, and
-// not a browser — so they sit outside the /app gate and RequireSameOrigin. The token is
-// verified against the operator OIDC provider already discovered, with the
-// device client as audience, so no further network dependency is added.
-// Without device login (lc nil), an OIDC operator authenticator, or the SSH
-// CA, nothing is mounted and the caller registers a plain 404 on /me/studios/
-// (it would otherwise match the /me/ legacy redirect): never open.
-func mountParticipantStudios(mux *http.ServeMux, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, ca *sshca.CA, store jam.ParticipantStore, routes func(func(*http.Request) (collab.Principal, string, error)) http.Handler) bool {
-	oidcAuth, ok := auth.(*jam.OIDCAuthenticator)
-	if lc == nil || !ok || ca == nil {
+// at /me/studios/ on mux and reports whether it did. They take a bearer
+// credential — an app token (docs/usage/jam/app-tokens.md) or an ID token
+// from `jam login --participant` — not the /app session cookie, so they sit
+// outside the /app gate and RequireSameOrigin. They mount whenever the SSH CA
+// is set; ID tokens are added only with device login (lc) and an OIDC
+// operator authenticator, verified against the provider already discovered
+// with the device client as audience. Without the CA nothing is mounted and
+// the caller registers a plain 404 on /me/studios/ (it would otherwise match
+// the /me/ legacy redirect): never open.
+func mountParticipantStudios(mux *http.ServeMux, lc *jam.OperatorLoginConfig, auth jam.OperatorAuthenticator, ca *sshca.CA, store jam.Store, log *slog.Logger, routes func(func(*http.Request) (collab.Principal, string, error)) http.Handler) bool {
+	if ca == nil {
 		return false
 	}
-	verify := oidcAuth.IDTokenVerifier(lc.ClientID)
-	mux.Handle("/me/studios/", routes(collabhttp.ParticipantBearer(verify, store)))
+	var idTok func(*http.Request) (collab.Principal, string, error)
+	if oidcAuth, ok := auth.(*jam.OIDCAuthenticator); ok && lc != nil {
+		idTok = collabhttp.ParticipantBearer(oidcAuth.IDTokenVerifier(lc.ClientID), store)
+	}
+	mux.Handle("/me/studios/", routes(participantStudiosBearer(collabhttp.AppTokenBearer(store, time.Now, log), idTok)))
 	return true
+}
+
+// participantStudiosBearer sends a JWT-shaped bearer (exactly two dots) to
+// idTok — ErrInvalidToken when ID tokens aren't accepted (idTok nil) — and
+// anything else, no credential included, to appTok.
+func participantStudiosBearer(appTok, idTok func(*http.Request) (collab.Principal, string, error)) func(*http.Request) (collab.Principal, string, error) {
+	return func(r *http.Request) (collab.Principal, string, error) {
+		scheme, tok, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+		if strings.EqualFold(scheme, "Bearer") && strings.Count(strings.TrimSpace(tok), ".") == 2 {
+			if idTok == nil {
+				return collab.Principal{}, "", collabhttp.ErrInvalidToken
+			}
+			return idTok(r)
+		}
+		return appTok(r)
+	}
 }
 
 // operatorPrincipal names an operator-plane caller (behind the admin

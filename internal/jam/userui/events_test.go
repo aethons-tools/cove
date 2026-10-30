@@ -3,6 +3,7 @@ package userui
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/notify"
+	"github.com/aethons-tools/cove/internal/jam/push"
 )
 
 // fakeChanges is a Changes source the test fires by hand.
@@ -95,4 +98,121 @@ func TestEventsRequiresParticipant(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("events without a participant = %d, want 403", rec.Code)
 	}
+}
+
+func openStream(t *testing.T, url string) (*bufio.Scanner, context.CancelFunc) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	req, _ := http.NewRequestWithContext(ctx, "GET", url+"/app/user/events", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("events = %d, want 200", resp.StatusCode)
+	}
+	return bufio.NewScanner(resp.Body), cancel
+}
+
+func waitSubscribers(t *testing.T, hub *notify.Hub, u jam.Participant, want int) {
+	t.Helper()
+	for end := time.Now().Add(2 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+		if hub.Subscribers(u.UserID) == want {
+			return
+		}
+	}
+	t.Fatalf("subscribers = %d, want %d", hub.Subscribers(u.UserID), want)
+}
+
+func TestEventsStreamsNotifyToItsRecipient(t *testing.T) {
+	e, p := fixture()
+	hub := notify.NewHub(nil)
+	srv := eventsServer(t, Handler(e.Deps, nil, WithNotify(hub)), p)
+	sc, _ := openStream(t, srv.URL)
+	waitSubscribers(t, hub, p, 1)
+	ev := notify.Event{Payload: push.Payload{Title: "bob · eng", Body: "hi", Channel: engID, ID: "sq1", Unread: 2, Kind: "messages"}, Session: "ses_01j9q3ffffffffffffffffffff"}
+	hub.Publish(p.UserID, ev)
+	readUntil(t, sc, "event: notify")
+	if !sc.Scan() || !strings.HasPrefix(sc.Text(), "data: ") {
+		t.Fatalf("no data line: %q", sc.Text())
+	}
+	var got notify.Event
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(sc.Text(), "data: ")), &got); err != nil || got != ev {
+		t.Fatalf("data = %q (%v), want %+v", sc.Text(), err, ev)
+	}
+}
+
+func TestEventsNotifyNeverReachesAnotherUser(t *testing.T) {
+	e, alice := fixture()
+	bob := jam.Participant{Issuer: "https://idp", Subject: "sub-bob", UserID: "usr_bob", Projects: alice.Projects, Name: "bob"}
+	hub := notify.NewHub(nil)
+	h := Handler(e.Deps, nil, WithNotify(hub)) // no change source: only notify frames
+	srvA := eventsServer(t, h, alice)
+	srvB := eventsServer(t, h, bob)
+	scA, _ := openStream(t, srvA.URL)
+	scB, _ := openStream(t, srvB.URL)
+	waitSubscribers(t, hub, alice, 1)
+	waitSubscribers(t, hub, bob, 1)
+	hub.Publish(bob.UserID, notify.Event{Payload: push.Payload{Title: "secret", ID: "bobs"}})
+	hub.Publish(alice.UserID, notify.Event{Payload: push.Payload{Title: "sentinel", ID: "sentinel"}})
+	// A leak would be queued on alice's stream before her own sentinel.
+	if got := readNotifyData(t, scA); !strings.Contains(got, `"sentinel"`) || strings.Contains(got, "secret") {
+		t.Fatalf("alice's first notify = %q, want her sentinel", got)
+	}
+	if got := readNotifyData(t, scB); !strings.Contains(got, "secret") {
+		t.Fatalf("bob's first notify = %q, want his event", got)
+	}
+}
+
+// readNotifyData returns the data line of the next notify frame, failing
+// after 2 s.
+func readNotifyData(t *testing.T, sc *bufio.Scanner) string {
+	t.Helper()
+	got := make(chan string, 1)
+	go func() {
+		inNotify := false
+		for sc.Scan() {
+			if inNotify && strings.HasPrefix(sc.Text(), "data: ") {
+				got <- sc.Text()
+				return
+			}
+			inNotify = sc.Text() == "event: notify"
+		}
+		got <- ""
+	}()
+	select {
+	case line := <-got:
+		if line == "" {
+			t.Fatal("stream ended before a notify frame")
+		}
+		return line
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for a notify frame")
+		return ""
+	}
+}
+
+func TestEventsWithOnlyNotifyIsAStream(t *testing.T) {
+	e, p := fixture()
+	srv := eventsServer(t, Handler(e.Deps, nil, WithNotify(notify.NewHub(nil))), p)
+	resp, err := http.Get(srv.URL + "/app/user/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("events = %d %q, want 200 text/event-stream", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+}
+
+func TestEventsNotifyUnsubscribesOnDisconnect(t *testing.T) {
+	e, p := fixture()
+	hub := notify.NewHub(nil)
+	srv := eventsServer(t, Handler(e.Deps, nil, WithNotify(hub)), p)
+	_, cancel := openStream(t, srv.URL)
+	waitSubscribers(t, hub, p, 1)
+	cancel()
+	waitSubscribers(t, hub, p, 0)
 }

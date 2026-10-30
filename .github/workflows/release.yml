@@ -66,6 +66,8 @@ jobs:
               - '.goreleaser.yaml'
               - 'scripts/stage-studio-agent.sh'
               - 'scripts/app.sh'
+              - 'web/vscode/**' # the VS Code extension .vsix built in the binaries leg
+              - 'scripts/vscode.sh'
               - 'web/app/**' # the Jam app bundle jam embeds
               - 'install.sh' # embedded in jam (`update`)
               - 'scripts/release/**' # the archive check
@@ -301,7 +303,9 @@ jobs:
         with:
           node-version: 26
           cache: npm
-          cache-dependency-path: web/app/package-lock.json
+          cache-dependency-path: |
+            web/app/package-lock.json
+            web/vscode/package-lock.json
 
       # Config sanity (absorbs the old release-validate workflow).
       - name: Validate goreleaser config
@@ -341,6 +345,13 @@ jobs:
       # before merge and on main before the release is cut.
       - name: Check release archives
         run: bash scripts/release/check-archive.sh dist
+
+      # The VS Code extension, stamped with the release version. PRs build it
+      # to prove it packages; main attaches it to the release.
+      - name: Build VS Code extension
+        env:
+          VERSION: ${{ needs.changes.outputs.version }}
+        run: VSIX_OUT="dist/jam-vscode_${VERSION}.vsix" ./scripts/vscode.sh
 
       # The Jam container image is built FROM the binaries goreleaser just put in
       # dist/ (scripts/jam-image.sh), so it carries exactly the released jam and
@@ -400,5 +411,5 @@ jobs:
             --title "$VERSION" \
             --notes "Continuous release from ${GITHUB_SHA::7} (jam + jam-studio-manager; jam-studio-agent embedded)." \
             --target "$GITHUB_SHA" \
-            dist/jam_*.tar.gz dist/checksums.txt
+            dist/jam_*.tar.gz dist/checksums.txt dist/jam-vscode_*.vsix
           echo "## Released \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"

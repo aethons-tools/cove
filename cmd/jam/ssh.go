@@ -169,6 +169,7 @@ type sshTarget struct {
 	studio       string
 	participant  bool
 	token        string
+	appToken     bool // token is the VS Code extension's app token (appTokenPath)
 }
 
 func (t sshTarget) prefix() string {
@@ -255,6 +256,9 @@ func sshErrMessage(err error, t sshTarget) string {
 	}
 	switch code {
 	case http.StatusUnauthorized:
+		if t.appToken {
+			return "your VS Code sign-in to Jam is missing or was revoked; run Jam: Sign In in VS Code"
+		}
 		if t.participant {
 			return "your participant sign-in is missing or expired; run: jam login --participant" + appFlag
 		}
@@ -299,7 +303,8 @@ func addSSHFlags(fs *flag.FlagSet) *sshFlags {
 }
 
 // resolve validates the flags and studio and picks the plane: as flagged, else
-// the participant login when one is cached and unexpired, else the operator.
+// the VS Code extension's app token when its file names this Jam, else the
+// participant login when one is cached and unexpired, else the operator.
 // usage=true means a bad invocation (exit 2) rather than a missing login.
 func (f *sshFlags) resolve(studio string, stderr io.Writer) (t sshTarget, usage bool, err error) {
 	if err := validateApp(*f.app); err != nil {
@@ -322,6 +327,10 @@ func (f *sshFlags) resolve(studio string, stderr io.Writer) (t sshTarget, usage 
 	}
 	t.participant = *f.participant
 	if !*f.operator {
+		if tok, ok := loadAppToken(*f.app, t.adminURL); ok {
+			t.participant, t.token, t.appToken = true, tok, true
+			return t, false, nil
+		}
 		tok, perr := resolveParticipantToken(*f.app)
 		switch {
 		case perr == nil:

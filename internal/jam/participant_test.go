@@ -124,3 +124,36 @@ func TestUserByIdentity(t *testing.T) {
 		t.Error("a removed user resolved")
 	}
 }
+
+func TestParticipantByUser(t *testing.T) {
+	const idp = "https://idp.example"
+	store := participantStore(t, idp)
+	id := func(name string) ident.ID {
+		u, ok := store.LookupName(ident.User, name)
+		if !ok {
+			t.Fatalf("no user %s", name)
+		}
+		return u
+	}
+	if _, ok := ParticipantByUser(store, id("dave")); ok {
+		t.Fatal("a user in no project is no participant")
+	}
+	if _, ok := ParticipantByUser(store, "usr_missing"); ok {
+		t.Fatal("unknown user resolved")
+	}
+	p, ok := ParticipantByUser(store, id("alice"))
+	if !ok || p.UserID != id("alice") || p.Name != "alice" || !reflect.DeepEqual(p.Projects, []string{"alpha", "beta"}) ||
+		p.Issuer != idp || p.Subject != "sub-alice" {
+		t.Fatalf("alice = %+v ok=%v", p, ok)
+	}
+	bob := id("bob")
+	if _, ok := ParticipantByUser(store, bob); !ok {
+		t.Fatal("bob is a member")
+	}
+	if err := store.RemoveUser(bob); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ParticipantByUser(store, bob); ok {
+		t.Fatal("removed user resolved")
+	}
+}

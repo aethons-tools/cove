@@ -1,6 +1,8 @@
 // The Jam app's API clients (/app/user/api, and the admin area's
 // /app/admin/api through apiAt). Every error is an ApiError; a non-JSON refusal
 // (the gate's HTML 403 or a login redirect) means the sign-in has expired.
+import type { Method } from "../bridge/protocol";
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message);
@@ -17,35 +19,62 @@ export function shouldRetry(failureCount: number, error: unknown): boolean {
   return failureCount < 3;
 }
 
-async function request<T>(base: string, method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
+// statusText is the HTTP reason phrase, when the transport has one.
+export type Raw = { status: number; statusText?: string; contentType: string; redirected: boolean; json?: unknown; text?: string };
+export type TransportRequest = { method: Method; url: string; json?: unknown; form?: FormData };
+// A Transport performs one request; it throws ApiError for transport-level failures.
+export type Transport = (r: TransportRequest) => Promise<Raw>;
+
+// interpret turns a raw response into the body or an ApiError.
+export function interpret<T>(raw: Raw): T {
+  if (raw.status === 204) return undefined as T;
+  const json = raw.contentType.startsWith("application/json");
+  if (!json) {
+    if (raw.redirected || raw.status === 401 || raw.status === 403 || (raw.status >= 300 && raw.status < 400)) {
+      throw new ApiError(raw.status, "signed_out", "Your sign-in has expired.");
+    }
+    throw new ApiError(raw.status, "unavailable", `Jam answered ${raw.status}. Try again shortly.`);
+  }
+  if (raw.status < 200 || raw.status >= 300) {
+    const e = (raw.json ?? {}) as { error?: string; code?: string };
+    throw new ApiError(raw.status, e.code ?? "error", e.error ?? raw.statusText ?? "");
+  }
+  return raw.json as T;
+}
+
+export const fetchTransport: Transport = async ({ method, url, json, form }) => {
   let res: Response;
-  // A FormData body is sent as multipart (the browser sets its boundary).
-  const form = body instanceof FormData;
   try {
-    res = await fetch(base + path, {
+    // A FormData body is sent as multipart (the browser sets its boundary).
+    res = await fetch(url, {
       method,
-      headers: body === undefined || form ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
-      body: body === undefined ? undefined : form ? body : JSON.stringify(body),
+      headers: json === undefined || form ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
+      body: form ?? (json === undefined ? undefined : JSON.stringify(json)),
       credentials: "same-origin",
       redirect: "manual",
     });
   } catch {
     throw new ApiError(0, "unavailable", "Jam can't be reached. Check your connection.");
   }
-  if (res.status === 204) return undefined as T;
-  const json = (res.headers.get("Content-Type") ?? "").startsWith("application/json");
-  if (!json) {
-    if (res.type === "opaqueredirect" || res.status === 401 || res.status === 403 || (res.status >= 300 && res.status < 400)) {
-      throw new ApiError(res.status, "signed_out", "Your sign-in has expired.");
-    }
-    throw new ApiError(res.status, "unavailable", `Jam answered ${res.status}. Try again shortly.`);
-  }
-  const data: unknown = await res.json();
-  if (!res.ok) {
-    const e = data as { error?: string; code?: string };
-    throw new ApiError(res.status, e.code ?? "error", e.error ?? res.statusText);
-  }
-  return data as T;
+  const contentType = res.headers.get("Content-Type") ?? "";
+  const raw: Raw = { status: res.status, statusText: res.statusText, contentType, redirected: res.type === "opaqueredirect" };
+  if (res.status === 204) return raw;
+  if (contentType.startsWith("application/json")) raw.json = await res.json();
+  return raw;
+};
+
+let transport: Transport = fetchTransport;
+// setTransport swaps how requests are sent; no argument restores fetchTransport.
+export function setTransport(t?: Transport): void {
+  transport = t ?? fetchTransport;
+}
+
+async function request<T>(base: string, method: Method, path: string, body?: unknown): Promise<T> {
+  const form = body instanceof FormData;
+  const req: TransportRequest = { method, url: base + path };
+  if (form) req.form = body;
+  else if (body !== undefined) req.json = body;
+  return interpret<T>(await transport(req));
 }
 
 // apiAt is a client for the API at base (a path ending in "/").

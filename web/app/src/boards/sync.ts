@@ -33,5 +33,4 @@ export function snapshot(els: readonly El[], sent: Map<string, number>): { batch
   return { batches, tooLarge };
 }
 
-export const body = (batch: Snap[]) => '{"elements":[' + batch.map((b) => b.json).join(",") + "]}";
 export const nextRetry = (ms: number) => Math.min(ms * 2, RETRY_MAX);

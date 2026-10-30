@@ -5,11 +5,11 @@ import { http, HttpResponse, delay } from "msw";
 import { server } from "../../test/server";
 import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
-import type { UserDetail, UserRow } from "../api/types";
+import type { AppTokenRow, UserDetail, UserRow } from "../api/types";
 
 const alice: UserRow = { id: "usr_1", name: "alice", logins: ["a@x"], accounts: [{ id: "acc_1", connection: "discord", serviceUid: "42", handle: "ali" }], projects: ["acme"], managed: null };
 const detail = (u: Partial<UserRow> = {}, d: Partial<UserDetail> = {}): UserDetail =>
-  ({ user: { ...alice, ...u }, removed: false, loginSpec: "a@x", oidcSpec: "", connections: [{ name: "discord", kind: "discord" }], ...d });
+  ({ user: { ...alice, ...u }, removed: false, loginSpec: "a@x", oidcSpec: "", connections: [{ name: "discord", kind: "discord" }], appTokens: [], ...d });
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const err = (status: number, code: string, error: string) => HttpResponse.json({ error, code }, { status });
@@ -139,5 +139,25 @@ describe("a user's page", () => {
     expect(await screen.findByText("Remove user alice? They leave every project; history keeps showing them as removed.")).toBeInTheDocument();
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove user" }));
     await waitFor(() => expect(router.state.location.pathname).toBe(ADMIN + "config/users"));
+  });
+
+  it("user page lists and revokes app tokens", async () => {
+    tree();
+    const tok: AppTokenRow = { id: "apt_1", label: "VS Code on mac", created: new Date().toISOString(), lastUsed: new Date().toISOString(),
+      expires: new Date(Date.now() + 86_400_000).toISOString(), operator: true };
+    let tokens = [tok];
+    const deleted: string[] = [];
+    server.use(
+      http.get("/app/admin/api/users/usr_1", () => HttpResponse.json(detail({}, { appTokens: tokens }))),
+      http.delete("/app/admin/api/users/usr_1/app-tokens/apt_1", () => { deleted.push("apt_1"); tokens = []; return new HttpResponse(null, { status: 204 }); }),
+    );
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, ADMIN + "config/users/usr_1");
+    expect(await screen.findByText("VS Code on mac")).toBeInTheDocument();
+    expect(screen.getByText("operator rights")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Revoke" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Revoke" }));
+    expect(await screen.findByText("No apps are connected.")).toBeInTheDocument();
+    expect(deleted).toEqual(["apt_1"]);
   });
 });
