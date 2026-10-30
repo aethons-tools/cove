@@ -21,13 +21,12 @@ export type BridgeResponse =
 export type SessionTarget = { session: string; label: string; channel: string } | { session: string; gone: true };
 // error: the focused session couldn't be looked up (not a 404); the pane offers
 // Try again, which is a new ready.
-export type PaneState = { signedIn: boolean; target: SessionTarget | null; pinned: boolean; elsewhere: boolean; error?: string };
+export type PaneState = { signedIn: boolean; target: SessionTarget | null; error?: string };
 export type OpenIntent =
   | { kind: "board"; id: string }
   | { kind: "conversation"; channel: string }
   | { kind: "web"; path: string }
   | { kind: "external"; url: string }
-  | { kind: "focusSession" }
   | { kind: "preview"; session: string; port: number; url: string; inBrowser: boolean }
   | { kind: "reveal"; anchor?: string } // show the Conversation view, then scroll to anchor
   | { kind: "session"; id: string }; // open that session's code window (the extension link)

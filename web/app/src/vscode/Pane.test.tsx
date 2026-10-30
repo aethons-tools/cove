@@ -18,7 +18,7 @@ const BRD = "brd_0abcdefghjkmnpqrstvwxyz01";
 const NEW_BRD = "brd_1abcdefghjkmnpqrstvwxyz01";
 const noContent: BridgeResponse = { kind: "http", status: 204, contentType: "" };
 const at = (s: string) => ({ session: "ses_1", label: "spider", channel: s });
-const signedIn = (target: PaneState["target"]): PaneState => ({ signedIn: true, target, pinned: false, elsewhere: false });
+const signedIn = (target: PaneState["target"]): PaneState => ({ signedIn: true, target });
 
 const msg = (seq: number, over: Partial<MessageRow> = {}): MessageRow => ({
   from: "spider", body: `<p>m${seq}</p>`, raw: `m${seq}`, plain: false, at: "09:00", time: new Date().toISOString(),
@@ -82,18 +82,17 @@ describe("the Conversation pane", () => {
     expect(h.requests).toEqual([]);
   });
 
-  it("no target shows Focus a session, which posts the intent", async () => {
+  it("no target says this isn't a studio window, with no action", async () => {
     const { h } = mount();
     act(() => { h.state(signedIn(null)); });
-    expect(await screen.findByText("This window isn't on a Jam studio. Focus a session to see its conversation.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Focus a session…" }));
-    expect(h.posted).toContainEqual({ type: "open", intent: { kind: "focusSession" } });
+    expect(await screen.findByText("This window isn't a Jam studio window.")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
     expect(h.requests).toEqual([]);
   });
 
   it("signed out shows Sign in, which posts signIn", async () => {
     const { h } = mount();
-    act(() => { h.state({ signedIn: false, target: null, pinned: false, elsewhere: false }); });
+    act(() => { h.state({ signedIn: false, target: null }); });
     expect(await screen.findByText("Sign in to Jam to see this conversation.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(h.posted).toContainEqual({ type: "signIn" });
@@ -104,15 +103,14 @@ describe("the Conversation pane", () => {
     const { h } = mount();
     act(() => { h.state(signedIn({ session: "ses_1", gone: true })); });
     expect(await screen.findByText("That session has ended, or you can't see it.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Focus a session…" }));
-    expect(h.posted).toContainEqual({ type: "open", intent: { kind: "focusSession" } });
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("a lookup error shows it with Try again, which posts ready", async () => {
     const { h } = mount();
     act(() => { h.state({ ...signedIn(null), error: "Jam is unreachable" }); });
     expect(await screen.findByText("Couldn't load the focused session: Jam is unreachable")).toBeInTheDocument();
-    expect(screen.queryByText(/This window isn't on a Jam studio/)).toBeNull();
+    expect(screen.queryByText(/This window isn't a Jam studio window/)).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(h.posted).toContainEqual({ type: "ready", pane: "conversation" });
     expect(h.requests).toEqual([]);

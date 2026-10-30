@@ -28,7 +28,7 @@ describe("intentAction", () => {
     expect(intentAction({ kind: "board", id: BRD }, JAM)).toEqual({ openBoard: BRD });
     expect(intentAction({ kind: "conversation", channel: CHN }, JAM)).toEqual({ openExternal: `${JAM}/app/user/c/${CHN}` });
     expect(intentAction({ kind: "web", path: "/app/user/settings" }, JAM)).toEqual({ openExternal: `${JAM}/app/user/settings` });
-    expect(intentAction({ kind: "focusSession" }, JAM)).toEqual({ command: "jam.focusSession" });
+    expect(intentAction({ kind: "focusSession" } as never, JAM)).toEqual(new Error("Unknown intent."));
   });
 
   const W = "ses_0abcdefghjkmnpqrstvwxyz012";

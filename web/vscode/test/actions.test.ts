@@ -63,11 +63,10 @@ describe("perform", () => {
     await perform({ openBoard: "brd_x" }, d);
     await perform({ openSession: "ses_x" }, d);
     await perform({ openExternal: "https://a.example/" }, d);
-    await perform({ command: "jam.focusSession" }, d);
     expect(d.openBoard).toHaveBeenCalledWith("brd_x");
     expect(d.openSession).toHaveBeenCalledWith("ses_x");
     expect(d.openExternal).toHaveBeenCalledWith("https://a.example/");
-    expect(d.executeCommand).toHaveBeenCalledWith("jam.focusSession");
+    expect(d.executeCommand).not.toHaveBeenCalled();
   });
   it("dep errors are caught and shown", async () => {
     const d = deps({ openBoard: vi.fn(() => { throw new Error("boom"); }) });

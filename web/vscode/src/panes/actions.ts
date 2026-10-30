@@ -16,7 +16,6 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 export async function perform(a: IntentAction, d: ActionDeps): Promise<void> {
   try {
     if ("openExternal" in a) await d.openExternal(a.openExternal);
-    else if ("command" in a) await d.executeCommand(a.command);
     else if ("openBoard" in a) d.openBoard(a.openBoard);
     else if ("openSession" in a) await d.openSession(a.openSession);
     else if ("revealConversation" in a) {

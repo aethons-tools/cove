@@ -8,7 +8,6 @@ export const ANCHOR_RE = /^ask-[A-Za-z0-9_-]{1,80}$/;
 // forwardPort's url is the fallback: the preview's own web URL.
 export type IntentAction =
   | { openExternal: string }
-  | { command: "jam.focusSession" }
   | { openBoard: string }
   | { forwardPort: number; inBrowser: boolean; url: string }
   | { revealConversation: string | null }
@@ -62,8 +61,6 @@ export function intentAction(i: OpenIntent, jamUrl: string, windowStudio?: strin
     case "session":
       if (typeof i.id !== "string" || !ID_RE.ses.test(i.id)) return new Error("Not a session id.");
       return { openSession: i.id };
-    case "focusSession":
-      return { command: "jam.focusSession" };
     default:
       return new Error("Unknown intent.");
   }

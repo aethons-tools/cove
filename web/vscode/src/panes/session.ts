@@ -1,6 +1,6 @@
 // The session views (Conversation, Thinking, Previews, Status, Artifacts):
-// one webview each running web/app's pane bundle, each following the window's
-// focused session (FocusModel) with its own pin.
+// one webview each running web/app's pane bundle, each showing the window's
+// session (FocusModel).
 import type * as vscode from "vscode";
 import type { ExtToPane, PaneState, SessionPaneName } from "../../../app/src/bridge/protocol.js" with { "resolution-mode": "import" };
 import { ApiError, SignedOutError } from "../api";
@@ -14,30 +14,26 @@ export const SESSION_PANES: readonly SessionPaneName[] = ["conversation", "think
 
 export type SessionPaneDeps = PortDeps & {
   extensionUri: vscode.Uri;
-  model: Pick<FocusModel, "stateOf" | "isPinned" | "windowSession" | "onChange">;
+  model: Pick<FocusModel, "target" | "onChange">;
   reporter: Pick<FocusReporter, "pane" | "drop">;
   auth: Pick<Auth, "session" | "onChange">;
 };
 
 let paneSeq = 0;
 
-const quietly = (t: unknown): void => void Promise.resolve(t).catch(() => undefined);
-
-// sessionPaneState is what the view should show: signed out, the view's
-// target (its pin, else the window's session), or an error once.
-export async function sessionPaneState(d: SessionPaneDeps, view: string): Promise<PaneState> {
-  const pinned = d.model.isPinned(view);
-  const out: PaneState = { signedIn: false, target: null, pinned, elsewhere: false };
+// sessionPaneState is what the view should show: signed out, the window's
+// session, or an error once.
+export async function sessionPaneState(d: SessionPaneDeps): Promise<PaneState> {
+  const out: PaneState = { signedIn: false, target: null };
   const url = d.jamUrl();
   if (url instanceof Error) return out;
   try {
     if (!(await d.auth.session(url))) return out;
-    const s = await d.model.stateOf(view);
-    return { signedIn: true, target: s.target, pinned: s.pinned, elsewhere: s.elsewhere };
+    return { signedIn: true, target: await d.model.target() };
   } catch (e) {
     if (e instanceof SignedOutError) return out;
     // Not a 404 (that is a gone target): say so once; Try again is a new ready.
-    return { signedIn: true, target: null, pinned, elsewhere: false, error: errorCopy(e) };
+    return { signedIn: true, target: null, error: errorCopy(e) };
   }
 }
 
@@ -67,30 +63,14 @@ export class SessionPaneProvider implements vscode.WebviewViewProvider {
 
     const id = `${this.name}-${++paneSeq}`;
     const reports = this.name === "conversation"; // only Conversation tells the server what you're viewing
-    let disposed = false;
     let channel: string | null = null;
-    let seq = 0;
 
     const report = (): void => {
       if (reports) this.d.reporter.pane(id, { visible: view.visible, channel });
     };
-    const setContext = (): void => {
-      quietly(this.d.executeCommand("setContext", `jam.${this.name}.pinned`, this.d.model.isPinned(this.viewType)));
-      quietly(this.d.executeCommand("setContext", `jam.${this.name}.hasSession`, this.d.model.windowSession() !== undefined));
-    };
 
     const port = wirePane(w, id, this.d, {
-      // The description and context keys follow the newest lookup, as the
-      // port's refresh posts only the newest state.
-      state: async () => {
-        const my = ++seq;
-        const s = await sessionPaneState(this.d, this.viewType);
-        if (!disposed && my === seq) {
-          view.description = s.elsewhere && s.target && "label" in s.target ? s.target.label : "";
-          setContext();
-        }
-        return s;
-      },
+      state: () => sessionPaneState(this.d),
       onViewing: (c) => {
         channel = c;
         report();
@@ -116,7 +96,6 @@ export class SessionPaneProvider implements vscode.WebviewViewProvider {
     ];
     disposables.push(
       view.onDidDispose(() => {
-        disposed = true;
         port.dispose();
         this.posters.delete(port.post);
         for (const u of subs) u();
@@ -124,7 +103,6 @@ export class SessionPaneProvider implements vscode.WebviewViewProvider {
         if (reports) this.d.reporter.drop(id);
       }),
     );
-    setContext();
   }
 }
 

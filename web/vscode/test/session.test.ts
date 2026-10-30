@@ -29,7 +29,7 @@ type View = ReturnType<typeof fakeWebviewView>;
 
 type SetupOpts = {
   name?: SessionPaneName;
-  windowDefault?: string;
+  windowSession?: string;
   resolve?: (s: string) => Promise<SessionTarget>;
   fetch?: (url: string, init: RequestInit) => Promise<Response>;
 };
@@ -65,11 +65,9 @@ function setup(o: SetupOpts = {}) {
   const hub = new PaneHub(live);
   const fetch = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(o.fetch ?? (async () => Response.json({ ok: true })));
   const router = new Router({ session, fetch: fetch as unknown as typeof globalThis.fetch, onSignedOut: vi.fn() });
-  const store = new Map<string, unknown>();
   const resolve = vi.fn(o.resolve ?? (async (s: string) => known[s] ?? { session: s, gone: true as const }));
   const model = new FocusModel({
-    windowDefault: o.windowDefault,
-    state: { get: <T>(k: string) => store.get(k) as T | undefined, update: async (k, v) => void store.set(k, v) },
+    windowSession: o.windowSession,
     resolve,
   });
   const reporter = { pane: vi.fn(), drop: vi.fn() };
@@ -131,35 +129,38 @@ describe("SessionPaneProvider: the slice-3 Conversation cases", () => {
   });
 
   it("ready gets state with the window's session", async () => {
-    const v = setup({ windowDefault: A }).open();
+    const v = setup({ windowSession: A }).open();
     v.receive({ type: "ready", pane: "conversation" });
-    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[A], pinned: false, elsewhere: false }));
-    expect(mock.context.get("jam.conversation.hasSession")).toBe(true);
-    expect(mock.context.get("jam.conversation.pinned")).toBe(false);
-    expect(v.description).toBe("");
+    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[A] }));
     // no message to the pane carries the token or the Jam URL
     expect(JSON.stringify(v.posted)).not.toMatch(/tok|jam\.example/);
   });
 
-  it("no window session: no target, and the pin action is hidden", async () => {
+  it("no window session: no target", async () => {
     const v = setup().open();
     v.receive({ type: "ready", pane: "conversation" });
-    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: null, pinned: false, elsewhere: false }));
-    expect(mock.context.get("jam.conversation.hasSession")).toBe(false);
+    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: null }));
+  });
+
+  it("sets no jam.*.pinned or jam.*.hasSession context keys", async () => {
+    const v = setup({ windowSession: A }).open();
+    v.receive({ type: "ready", pane: "conversation" });
+    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[A] }));
+    expect(vi.mocked(vscode.commands.executeCommand).mock.calls.filter((c) => c[0] === "setContext")).toEqual([]);
   });
 
   it("a gone session posts the gone target", async () => {
     const C = "ses_2abcdefghjkmnpqrstvwxyz012";
-    const v = setup({ windowDefault: C }).open();
+    const v = setup({ windowSession: C }).open();
     v.receive({ type: "ready", pane: "conversation" });
     await vi.waitFor(() => expect(lastState(v)?.target).toEqual({ session: C, gone: true }));
   });
 
   it("a failing lookup shows an error state once, with no retry loop", async () => {
-    const s = setup({ windowDefault: A, resolve: async () => Promise.reject(new Error("Jam is unreachable")) });
+    const s = setup({ windowSession: A, resolve: async () => Promise.reject(new Error("Jam is unreachable")) });
     const v = s.open();
     v.receive({ type: "ready", pane: "conversation" });
-    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: null, pinned: false, elsewhere: false, error: "Jam couldn't be reached." }));
+    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: null, error: "Jam couldn't be reached." }));
     await settle();
     expect(states(v)).toHaveLength(1);
     expect(s.resolve).toHaveBeenCalledTimes(1);
@@ -169,13 +170,13 @@ describe("SessionPaneProvider: the slice-3 Conversation cases", () => {
   });
 
   it("a lookup that finds the sign-in gone shows signed out", async () => {
-    const v = setup({ windowDefault: A, resolve: async () => Promise.reject(new SignedOutError()) }).open();
+    const v = setup({ windowSession: A, resolve: async () => Promise.reject(new SignedOutError()) }).open();
     v.receive({ type: "ready", pane: "conversation" });
     await vi.waitFor(() => expect(lastState(v)).toMatchObject({ signedIn: false, target: null }));
   });
 
   it("a request is answered through the router", async () => {
-    const s = setup({ windowDefault: A });
+    const s = setup({ windowSession: A });
     const v = s.open();
     v.receive({ type: "request", id: 1, req: { method: "GET", path: "/app/user/api/bootstrap" } });
     await vi.waitFor(() => expect(v.posted).toContainEqual({ type: "response", id: 1, res: { kind: "http", status: 200, contentType: "application/json", json: { ok: true } } }));
@@ -205,13 +206,13 @@ describe("SessionPaneProvider: the slice-3 Conversation cases", () => {
     expect(vi.mocked(vscode.commands.executeCommand).mock.calls.filter((c) => c[0] !== "setContext")).toEqual([]);
   });
 
-  it("open focusSession performs the command; signIn runs jam.signIn", async () => {
+  it("open focusSession is refused; signIn runs jam.signIn", async () => {
     const s = setup();
     const v = s.open();
     v.receive({ type: "open", intent: { kind: "focusSession" } });
     v.receive({ type: "signIn" });
     await settle();
-    expect(s.perform).toHaveBeenCalledWith({ command: "jam.focusSession" });
+    expect(s.perform).not.toHaveBeenCalledWith({ command: "jam.focusSession" });
     const cmds = vi.mocked(vscode.commands.executeCommand).mock.calls.filter((c) => c[0] !== "setContext");
     expect(cmds).toEqual([["jam.signIn"]]);
   });
@@ -277,48 +278,36 @@ describe("SessionPaneProvider: the slice-3 Conversation cases", () => {
     expect(s.reporter.drop).toHaveBeenCalledWith(id);
   });
 
-  it("pinned and elsewhere → description is the label and context pinned is true", async () => {
-    const s = setup({ windowDefault: A });
-    const v = s.open();
-    await s.model.togglePin("jam.conversation");
-    await s.model.focus(B);
-    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[A], pinned: true, elsewhere: true }));
-    expect(v.description).toBe("alpha");
-    expect(mock.context.get("jam.conversation.pinned")).toBe(true);
-    await s.model.togglePin("jam.conversation");
-    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[B], pinned: false, elsewhere: false }));
-    expect(v.description).toBe("");
-    expect(mock.context.get("jam.conversation.pinned")).toBe(false);
-  });
-
   it("signed-out change posts signedIn false to every pane (Review Focus 2)", async () => {
-    const s = setup({ windowDefault: A });
+    const s = setup({ windowSession: A });
     const a = s.open();
     const b = s.open();
     s.setSession(undefined);
-    for (const v of [a, b]) await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: false, target: null, pinned: false, elsewhere: false }));
+    for (const v of [a, b]) await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: false, target: null }));
     s.setSession(SIGNED_IN);
-    for (const v of [a, b]) await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[A], pinned: false, elsewhere: false }));
+    for (const v of [a, b]) await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[A] }));
   });
 
   it("a late answer doesn't overwrite a newer state", async () => {
     let release: (t: SessionTarget) => void = () => {};
+    let n = 0;
+    const renamed: SessionTarget = { session: A, label: "alpha 2", channel: CHN_A };
     const s = setup({
-      windowDefault: A,
-      resolve: (id) => (id === A ? new Promise<SessionTarget>((r) => (release = r)) : Promise.resolve(known[id]!)),
+      windowSession: A,
+      resolve: () => (n++ === 0 ? new Promise<SessionTarget>((r) => (release = r)) : Promise.resolve(renamed)),
     });
     const v = s.open();
     v.receive({ type: "ready", pane: "conversation" });
     await settle();
-    await s.model.focus(B);
-    await vi.waitFor(() => expect(lastState(v)?.target).toEqual(known[B]));
+    s.model.invalidate();
+    await vi.waitFor(() => expect(lastState(v)?.target).toEqual(renamed));
     release(known[A]!);
     await settle();
-    expect(lastState(v)?.target).toEqual(known[B]);
+    expect(lastState(v)?.target).toEqual(renamed);
   });
 
   it("dispose detaches from the hub (the stream closes with no panes)", async () => {
-    const s = setup({ windowDefault: A });
+    const s = setup({ windowSession: A });
     const v = s.open();
     await vi.waitFor(() => expect(s.liveFetch).toHaveBeenCalledTimes(1));
     expect(s.live.state).toBe("connecting");
@@ -336,7 +325,7 @@ describe("SessionPaneProvider: the slice-3 Conversation cases", () => {
   it("a non-JSON server body never reaches the error copy; a JSON message is capped", async () => {
     const html = `<html><body>${"x".repeat(500)}</body></html>`;
     let next: Error = new ApiError(html, 502, "");
-    const s = setup({ windowDefault: A, resolve: async () => Promise.reject(next) });
+    const s = setup({ windowSession: A, resolve: async () => Promise.reject(next) });
     const v = s.open();
     v.receive({ type: "ready", pane: "conversation" });
     await vi.waitFor(() => expect(lastState(v)?.error).toBe("Jam answered 502."));
@@ -352,7 +341,7 @@ describe("SessionPaneProvider: the slice-3 Conversation cases", () => {
       const signals: AbortSignal[] = [];
       const releases: ((r: Response) => void)[] = [];
       const s = setup({
-        windowDefault: A,
+        windowSession: A,
         fetch: (_u, init) =>
           new Promise<Response>((res) => {
             signals.push(init.signal!);
@@ -388,39 +377,13 @@ describe("SessionPaneProvider: every session view", () => {
     expect(SESSION_PANES).toEqual(["conversation", "thinking", "previews", "status", "artifacts"]);
   });
 
-  it.each(SESSION_PANES.map((n) => [n]))("each view type is jam.<name> and sets its own context keys (%s)", async (name) => {
-    const s = setup({ name, windowDefault: A });
+  it.each(SESSION_PANES.map((n) => [n]))("each view type is jam.<name> and shows the window's session (%s)", async (name) => {
+    const s = setup({ name, windowSession: A });
     expect(s.provider.viewType).toBe(`jam.${name}`);
     const v = s.open();
     expect(v.webview.html).toContain(`data-pane="${name}"`);
     v.receive({ type: "ready", pane: name });
-    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[A], pinned: false, elsewhere: false }));
-    expect(mock.context.get(`jam.${name}.hasSession`)).toBe(true);
-    expect(mock.context.get(`jam.${name}.pinned`)).toBe(false);
-    const others = SESSION_PANES.filter((n) => n !== name);
-    for (const n of others) expect(mock.context.has(`jam.${n}.pinned`) || mock.context.has(`jam.${n}.hasSession`)).toBe(false);
-    await s.model.togglePin(`jam.${name}`);
-    await vi.waitFor(() => expect(mock.context.get(`jam.${name}.pinned`)).toBe(true));
-  });
-
-  it("a pinned status view shows the label in its description", async () => {
-    const s = setup({ name: "status", windowDefault: A });
-    const v = s.open();
-    v.receive({ type: "ready", pane: "status" });
-    await s.model.togglePin("jam.status");
-    await s.model.focus(B);
-    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[A], pinned: true, elsewhere: true }));
-    expect(v.description).toBe("alpha");
-  });
-
-  it("a view resolved while pinned elsewhere shows the label once ready", async () => {
-    const s = setup({ name: "previews", windowDefault: A });
-    await s.model.togglePin("jam.previews");
-    await s.model.focus(B);
-    const v = s.open();
-    v.receive({ type: "ready", pane: "previews" });
-    await vi.waitFor(() => expect(lastState(v)?.elsewhere).toBe(true));
-    expect(v.description).toBe("alpha");
+    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: known[A] }));
   });
 
   it("viewing from a thinking view doesn't reach the reporter", () => {
@@ -472,7 +435,7 @@ describe("SessionPaneProvider: every session view", () => {
     const signals: AbortSignal[] = [];
     const s = setup({
       name: "thinking",
-      windowDefault: A,
+      windowSession: A,
       fetch: (_u, init) => new Promise<Response>(() => void signals.push(init.signal!)),
     });
     const v = s.open();
