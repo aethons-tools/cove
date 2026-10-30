@@ -21,16 +21,28 @@ export function sessionResolver(api: Pick<JamApi, "sessionHead">): (session: str
 export class FocusModel {
   private cache = new Map<string, Promise<SessionTarget>>();
   private subs = new Set<() => void>();
-  constructor(private d: { windowSession: string | undefined; resolve: (session: string) => Promise<SessionTarget> }) {}
+  private session: string | undefined;
+
+  constructor(private d: { windowSession: string | undefined; resolve: (session: string) => Promise<SessionTarget> }) {
+    this.session = d.windowSession;
+  }
 
   windowSession(): string | undefined {
-    return this.d.windowSession;
+    return this.session;
+  }
+
+  // setSession changes the window's session (the hub follows its active
+  // conversation tab); views refresh on the change.
+  setSession(s: string | undefined): void {
+    if (s === this.session) return;
+    this.session = s;
+    this.fire();
   }
 
   // target is the window's session (null when it has none); a failed lookup
   // isn't cached.
   async target(): Promise<SessionTarget | null> {
-    const session = this.d.windowSession;
+    const session = this.session;
     if (!session) return null;
     let p = this.cache.get(session);
     if (!p) {

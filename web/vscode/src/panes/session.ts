@@ -2,7 +2,7 @@
 // one webview each running web/app's pane bundle, each showing the window's
 // session (FocusModel).
 import type * as vscode from "vscode";
-import type { ExtToPane, PaneState, SessionPaneName } from "../../../app/src/bridge/protocol.js" with { "resolution-mode": "import" };
+import type { PaneState, SessionPaneName } from "../../../app/src/bridge/protocol.js" with { "resolution-mode": "import" };
 import { ApiError, SignedOutError } from "../api";
 import type { Auth } from "../auth";
 import type { FocusModel } from "../focus";
@@ -10,7 +10,8 @@ import type { FocusReporter } from "../focusreport";
 import { paneHtml, wirePane } from "./port";
 import type { PortDeps } from "./port";
 
-export const SESSION_PANES: readonly SessionPaneName[] = ["conversation", "thinking", "previews", "status", "artifacts"];
+// The conversation is a tab (panes/conversation.ts), not a view.
+export const SESSION_PANES: readonly SessionPaneName[] = ["thinking", "previews", "status", "artifacts"];
 
 export type SessionPaneDeps = PortDeps & {
   extensionUri: vscode.Uri;
@@ -40,21 +41,12 @@ export async function sessionPaneState(d: SessionPaneDeps): Promise<PaneState> {
 export class SessionPaneProvider implements vscode.WebviewViewProvider {
   readonly viewType: string;
 
-  private posters = new Set<(m: ExtToPane) => void>();
-  private pending: string | undefined; // one anchor awaiting a Conversation pane's ready
 
   constructor(
     private name: SessionPaneName,
     private d: SessionPaneDeps,
   ) {
     this.viewType = `jam.${name}`;
-  }
-
-  // scrollTo asks this provider's views to scroll; a view whose JS isn't
-  // running yet (or was dropped on hide) gets it on its next ready.
-  scrollTo(anchor: string): void {
-    this.pending = anchor;
-    for (const post of this.posters) post({ type: "scrollTo", anchor });
   }
 
   resolveWebviewView(view: vscode.WebviewView, _context?: vscode.WebviewViewResolveContext, _token?: vscode.CancellationToken): void {
@@ -78,15 +70,8 @@ export class SessionPaneProvider implements vscode.WebviewViewProvider {
     });
     const refreshSoon = (): void => void port.refresh().catch(() => undefined);
 
-    this.posters.add(port.post);
     const subs: (() => void)[] = [this.d.model.onChange(refreshSoon), this.d.auth.onChange(refreshSoon)];
     const disposables = [
-      // after the port's own ready handling (reset, then refresh)
-      w.onDidReceiveMessage((m: { type?: unknown } | undefined) => {
-        if (!m || typeof m !== "object" || m.type !== "ready" || this.pending === undefined) return;
-        port.post({ type: "scrollTo", anchor: this.pending });
-        this.pending = undefined;
-      }),
       // Without retainContextWhenHidden a hidden view's JS is gone: it holds
       // no requests and no Thinking feeds.
       view.onDidChangeVisibility(() => {
@@ -97,7 +82,6 @@ export class SessionPaneProvider implements vscode.WebviewViewProvider {
     disposables.push(
       view.onDidDispose(() => {
         port.dispose();
-        this.posters.delete(port.post);
         for (const u of subs) u();
         for (const x of disposables) x.dispose();
         if (reports) this.d.reporter.drop(id);

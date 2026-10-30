@@ -20,8 +20,11 @@ const stored = (token: string) => JSON.stringify({ url: JAM, token, user: "u", e
 type View = ReturnType<typeof fakeWebviewView>;
 const openView = (): View => {
   const v = fakeWebviewView();
-  void mock.viewProviders.get("jam.conversation")!.resolveWebviewView(v as unknown as vscode.WebviewView, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+  void mock.viewProviders.get("jam.status")!.resolveWebviewView(v as unknown as vscode.WebviewView, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
   return v;
+};
+const hubWindow = (ctx: vscode.ExtensionContext) => {
+  (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: `${ctx.globalStorageUri.path}/hub/Jam Hub.code-workspace` };
 };
 const openRail = () => {
   const v = fakeWebviewView() as View & { badge?: unknown };
@@ -44,22 +47,22 @@ function jamFetch(calls: Call[]) {
     if (u.pathname === `/app/user/api/sessions/${SES}`) return Response.json({ label: "alpha", channel: CHN });
     if (u.pathname === "/app/user/push/focus") return new Response(null, { status: 204 });
     if (u.pathname === "/app/user/api/rail") return Response.json({ groups: [] });
-    if (u.pathname === `/app/user/api/conversations/${CHN}`) return Response.json({ session: SES });
+    if (u.pathname === `/app/user/api/conversations/${CHN}`) return Response.json({ session: SES, label: "alpha" });
     return Response.json({});
   });
 }
 
 describe("activate", () => {
-  it("activate registers six view providers and five commands, and no tree view", () => {
+  it("activate registers five view providers and five commands, and no tree view", () => {
     mock.reset();
     const ctx = fakeContext();
     activate(ctx);
     expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(5);
     expect(vscode.window.createTreeView).not.toHaveBeenCalled();
     expect(vscode.window.registerUriHandler).toHaveBeenCalledTimes(1);
-    expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(6);
+    expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(5);
     const calls = vi.mocked(vscode.window.registerWebviewViewProvider).mock.calls as unknown as [string, unknown, { webviewOptions?: { retainContextWhenHidden?: boolean } } | undefined][];
-    expect(calls.map((c) => c[0])).toEqual(["jam.rail", "jam.conversation", "jam.thinking", "jam.previews", "jam.status", "jam.artifacts"]);
+    expect(calls.map((c) => c[0])).toEqual(["jam.rail", "jam.thinking", "jam.previews", "jam.status", "jam.artifacts"]);
     for (const [, , opts] of calls) expect(opts?.webviewOptions?.retainContextWhenHidden).toBeUndefined();
     deactivate();
   });
@@ -202,7 +205,7 @@ describe("activate", () => {
       activate(ctx);
       const a = openView();
       const b = openView();
-      for (const v of [a, b]) v.receive({ type: "ready", pane: "conversation" });
+      for (const v of [a, b]) v.receive({ type: "ready", pane: "status" });
       a.receive({ type: "request", id: 1, req: { method: "GET", path: "/app/user/api/bootstrap" } });
       await vi.waitFor(() => expect(a.posted).toContainEqual({ type: "response", id: 1, res: { kind: "signedOut" } }));
       await vi.waitFor(() => expect(calls.some((c) => c.path === "/app/user/events" && c.auth === "Bearer t")).toBe(true));
@@ -238,8 +241,12 @@ describe("activate", () => {
       (vscode.window.state as { focused: boolean }).focused = false;
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
+      hubWindow(ctx);
       activate(ctx);
-      const v = openView();
+      openRail().receive({ type: "open", intent: { kind: "go", channel: CHN, session: "" } });
+      await vi.waitFor(() => expect(mock.panels).toHaveLength(1));
+      const v = mock.panels[0]!;
+      v.setActive(true);
       v.receive({ type: "viewing", channel: CHN });
       await settle();
       expect(focusPosts()).toEqual([]);
@@ -754,6 +761,50 @@ describe("session windows", () => {
     }
   });
 
+  it("a studio window opens its conversation tab once", async () => {
+    mock.reset();
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      remoteFolder();
+      activate(ctx);
+      await vi.waitFor(() => expect(mock.panels.map((p) => p.viewType)).toEqual(["jam.conversationTab"]));
+      expect(mock.panels[0]!.webview.html).toContain(`data-channel="${CHN}"`);
+      deactivate();
+      mock.reset();
+      remoteFolder();
+      activate(ctx);
+      await settle();
+      expect(mock.panels).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("an Artifacts ask reveals the conversation tab and scrolls", async () => {
+    mock.reset();
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      remoteFolder();
+      activate(ctx);
+      await vi.waitFor(() => expect(mock.panels).toHaveLength(1));
+      const tab = mock.panels[0]!;
+      const v = openView();
+      v.receive({ type: "open", intent: { kind: "reveal", anchor: "ask-a1" } });
+      await vi.waitFor(() => expect(tab.posted).toContainEqual({ type: "scrollTo", anchor: "ask-a1" }));
+      expect(tab.revealed.length).toBeGreaterThan(0);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
   it("an ordinary window leaves another window's connected mark alone", async () => {
     mock.reset();
     const ctx = fakeContext();
@@ -852,6 +903,40 @@ describe("hub window", () => {
     expect(openFolderCalls()).toEqual([]);
     expect(mock.panels).toEqual([]);
     deactivate();
+  });
+
+  it("in the hub, the views follow the active conversation tab; a chat tab empties them", async () => {
+    mock.reset();
+    const CHAT = "chn_1abcdefghjkmnpqrstvwxyz012";
+    const calls: Call[] = [];
+    const base = jamFetch(calls).getMockImplementation()!;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (new URL(String(input)).pathname === `/app/user/api/conversations/${CHAT}`) return Response.json({ session: "", label: "Ann" });
+      return base(input, init);
+    });
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      hubWindow(ctx);
+      activate(ctx);
+      const status = openView();
+      status.receive({ type: "ready", pane: "status" });
+      await vi.waitFor(() => expect(lastState(status)).toEqual({ signedIn: true, target: null }));
+      const rail = openRail();
+      rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(mock.panels).toHaveLength(1));
+      mock.panels[0]!.setActive(true);
+      await vi.waitFor(() => expect(lastState(status)).toEqual({ signedIn: true, target: { session: SES, label: "alpha", channel: CHN } }));
+      rail.receive({ type: "open", intent: { kind: "go", channel: CHAT, session: "" } });
+      await vi.waitFor(() => expect(mock.panels).toHaveLength(2));
+      mock.panels[0]!.setActive(false);
+      mock.panels[1]!.setActive(true);
+      await vi.waitFor(() => expect(lastState(status)).toEqual({ signedIn: true, target: null }));
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
   });
 
   it("a …/hub link opens the hub", async () => {

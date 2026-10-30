@@ -9,7 +9,8 @@ export type ActionDeps = {
   openSession: (id: string) => unknown;
   // goTo is a rail row's click: the session's window if open, else the conversation.
   goTo: (channel: string, session: string) => unknown;
-  scrollConversation: (anchor: string) => void;
+  // revealConversation shows the window's conversation tab, scrolled to anchor.
+  revealConversation: (anchor: string | null) => unknown;
   error: (message: string) => void;
 };
 
@@ -21,10 +22,8 @@ export async function perform(a: IntentAction, d: ActionDeps): Promise<void> {
     else if ("openBoard" in a) d.openBoard(a.openBoard);
     else if ("openSession" in a) await d.openSession(a.openSession);
     else if ("goTo" in a) await d.goTo(a.goTo.channel, a.goTo.session);
-    else if ("revealConversation" in a) {
-      await d.executeCommand("jam.conversation.focus");
-      if (a.revealConversation) d.scrollConversation(a.revealConversation);
-    } else await forward(a, d);
+    else if ("revealConversation" in a) await d.revealConversation(a.revealConversation);
+    else await forward(a, d);
   } catch (e) {
     d.error(message(e));
   }

@@ -157,7 +157,7 @@ describe("the session panes", () => {
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(h.posted).toContainEqual({ type: "signIn" });
     act(() => { h.state(signedIn(null)); });
-    expect(await screen.findByText("This window isn't a Jam studio window.")).toBeInTheDocument();
+    expect(await screen.findByText(name === "conversation" ? "That conversation is gone, or you can't see it." : `Open a session's conversation to see its ${name}.`)).toBeInTheDocument();
     expect(screen.queryByRole("button")).toBeNull();
     act(() => { h.state({ ...signedIn(null), error: "Jam is unreachable" }); });
     await userEvent.click(await screen.findByRole("button", { name: "Try again" }));

@@ -64,6 +64,7 @@ const jamSettings = () => {
 };
 
 let reporter: FocusReporter | undefined;
+const TAB_SHOWN = "jam.conversationTabShown";
 // Run on deactivate: a remote session window's best-effort "no longer connected".
 let onDeactivate: (() => Thenable<void>) | undefined;
 
@@ -340,7 +341,15 @@ export function activate(ctx: vscode.ExtensionContext): void {
     // A rail click: the session's studio window when one is open, else (until
     // the hub) the conversation in the web app.
     goTo: (channel, session) => goToConversation(channel, session),
-    scrollConversation: (anchor) => providers.get("conversation")!.scrollTo(anchor),
+    // An ask elsewhere: the window's conversation tab (opened if need be: the
+    // hub or a studio window only), scrolled to it.
+    revealConversation: (anchor) =>
+      guard(async () => {
+        const t = await model.target();
+        if (!t || !("channel" in t) || !kind) return;
+        if (!conversations.has(t.channel)) conversations.open(t.channel);
+        conversations.reveal(t.channel, anchor ?? undefined);
+      })(),
     error: (m) => void vscode.window.showErrorMessage(m),
   };
   const portDeps = {
@@ -374,7 +383,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
       return conv ? { session: conv.session, label: conv.label, channel } : "gone";
     },
     reporter: rep,
-    onActive: () => undefined,
+    // The hub's views follow its active conversation tab (a chat: none).
+    onActive: (t) => {
+      if (kind?.kind === "hub") model.setSession(t.session || undefined);
+    },
   });
   ctx.subscriptions.push(
     vscode.window.registerWebviewPanelSerializer(ConversationPanels.viewType, { deserializeWebviewPanel: async (p, s) => conversations.restore(p, s) }),
@@ -409,6 +421,18 @@ export function activate(ctx: vscode.ExtensionContext): void {
         if (st.focused) void takePending().catch(() => undefined);
       }),
     );
+  }
+  // A studio window opens its own conversation tab the first time only; after
+  // that the tab comes back with the window, or stays closed if closed.
+  if (kind?.kind === "session" && !ctx.workspaceState.get<boolean>(TAB_SHOWN)) {
+    void model
+      .target()
+      .then(async (t) => {
+        if (!t || !("channel" in t)) return;
+        conversations.open(t.channel);
+        await ctx.workspaceState.update(TAB_SHOWN, true);
+      })
+      .catch((e: unknown) => log(`opening the conversation tab failed: ${e instanceof Error ? e.message : String(e)}`));
   }
   rail = new RailViewProvider({ extensionUri: ctx.extensionUri, ...portDeps, auth, windows: connected.list });
   rail.setBadge(badge);

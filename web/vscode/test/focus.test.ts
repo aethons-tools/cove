@@ -33,6 +33,20 @@ describe("FocusModel", () => {
     expect(resolve).toHaveBeenCalledTimes(1);
   });
 
+  it("setSession changes the target and fires onChange", async () => {
+    const m = new FocusModel({ windowSession: undefined, resolve: resolveOk });
+    const cb = vi.fn();
+    m.onChange(cb);
+    m.setSession(A);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(m.windowSession()).toBe(A);
+    expect(await m.target()).toMatchObject({ session: A });
+    m.setSession(undefined);
+    expect(await m.target()).toBeNull();
+    m.setSession(undefined);
+    expect(cb).toHaveBeenCalledTimes(2);
+  });
+
   it("no window session: target() is null and resolves nothing", async () => {
     const resolve = vi.fn(resolveOk);
     const m = new FocusModel({ windowSession: undefined, resolve });

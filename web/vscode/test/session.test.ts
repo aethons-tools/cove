@@ -226,23 +226,6 @@ describe("SessionPaneProvider: the slice-3 Conversation cases", () => {
     expect(s.perform.mock.calls).toEqual([[{ forwardPort: 5173, inBrowser: false, url: "https://p.example/x" }], [{ openExternal: "https://p.example/x" }]]);
   });
 
-  it("a reveal survives a hidden view that reloads", async () => {
-    const s = setup();
-    const v = s.open();
-    v.receive({ type: "ready", pane: "conversation" });
-    await settle();
-    v.setVisible(false);
-    s.provider.scrollTo("ask-h");
-    const n = v.posted.length; // the hidden view's JS is gone; only a later ready can deliver
-    v.receive({ type: "ready", pane: "conversation" });
-    await settle();
-    expect(v.posted.slice(n)).toContainEqual({ type: "scrollTo", anchor: "ask-h" });
-    const m = v.posted.length;
-    v.receive({ type: "ready", pane: "conversation" });
-    await settle();
-    expect(v.posted.slice(m).some((x) => (x as { type: string }).type === "scrollTo")).toBe(false);
-  });
-
   it("refused preview intents perform nothing", async () => {
     const s = setup();
     const v = s.open();
@@ -250,18 +233,6 @@ describe("SessionPaneProvider: the slice-3 Conversation cases", () => {
     v.receive({ type: "open", intent: { kind: "preview", session: A, port: 5173, url: "javascript:alert(1)", inBrowser: false } });
     await settle();
     expect(s.perform).not.toHaveBeenCalled();
-  });
-
-  it("scrollTo posts to a resolved view, or waits for the next ready", async () => {
-    const s = setup();
-    s.provider.scrollTo("ask-a");
-    const v = s.open();
-    expect(v.posted).not.toContainEqual({ type: "scrollTo", anchor: "ask-a" });
-    v.receive({ type: "ready", pane: "conversation" });
-    await settle();
-    expect(v.posted).toContainEqual({ type: "scrollTo", anchor: "ask-a" });
-    s.provider.scrollTo("ask-b");
-    expect(v.posted).toContainEqual({ type: "scrollTo", anchor: "ask-b" });
   });
 
   it("viewing and visibility reach the focus reporter; dispose drops the pane", () => {
@@ -373,8 +344,8 @@ describe("SessionPaneProvider: the slice-3 Conversation cases", () => {
 });
 
 describe("SessionPaneProvider: every session view", () => {
-  it("serves the five session panes", () => {
-    expect(SESSION_PANES).toEqual(["conversation", "thinking", "previews", "status", "artifacts"]);
+  it("serves the four session panes (the conversation is a tab)", () => {
+    expect(SESSION_PANES).toEqual(["thinking", "previews", "status", "artifacts"]);
   });
 
   it.each(SESSION_PANES.map((n) => [n]))("each view type is jam.<name> and shows the window's session (%s)", async (name) => {
@@ -394,32 +365,6 @@ describe("SessionPaneProvider: every session view", () => {
     v.dispose();
     expect(s.reporter.pane).not.toHaveBeenCalled();
     expect(s.reporter.drop).not.toHaveBeenCalled();
-  });
-
-  it("scrollTo reaches only that provider's views", async () => {
-    const conv = setup();
-    const cv = conv.open();
-    const status = new SessionPaneProvider("status", {
-      extensionUri: Uri.parse("file:///ext") as unknown as vs.Uri,
-      hub: { attach: () => () => undefined },
-      router: { handle: () => undefined },
-      thinking: conv.thinking,
-      model: conv.model,
-      reporter: conv.reporter,
-      auth: { session: async () => SIGNED_IN, onChange: () => () => undefined },
-      jamUrl: () => JAM,
-      perform: conv.perform,
-      windowStudio: A,
-      executeCommand: vscode.commands.executeCommand,
-    });
-    const sv = fakeWebviewView();
-    status.resolveWebviewView(sv as unknown as vs.WebviewView, {} as vs.WebviewViewResolveContext, {} as vs.CancellationToken);
-    conv.provider.scrollTo("ask-x");
-    expect(cv.posted).toContainEqual({ type: "scrollTo", anchor: "ask-x" });
-    expect(sv.posted.some((m) => (m as ExtToPane).type === "scrollTo")).toBe(false);
-    sv.receive({ type: "ready", pane: "status" });
-    await settle();
-    expect(sv.posted.some((m) => (m as ExtToPane).type === "scrollTo")).toBe(false);
   });
 
   it("no view sets retainContextWhenHidden", () => {

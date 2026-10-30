@@ -82,10 +82,10 @@ describe("the Conversation pane", () => {
     expect(h.requests).toEqual([]);
   });
 
-  it("no target says this isn't a studio window, with no action", async () => {
+  it("a conversation with no target is gone, with no action", async () => {
     const { h } = mount();
     act(() => { h.state(signedIn(null)); });
-    expect(await screen.findByText("This window isn't a Jam studio window.")).toBeInTheDocument();
+    expect(await screen.findByText("That conversation is gone, or you can't see it.")).toBeInTheDocument();
     expect(screen.queryByRole("button")).toBeNull();
     expect(h.requests).toEqual([]);
   });
@@ -110,7 +110,7 @@ describe("the Conversation pane", () => {
     const { h } = mount();
     act(() => { h.state({ ...signedIn(null), error: "Jam is unreachable" }); });
     expect(await screen.findByText("Couldn't load the focused session: Jam is unreachable")).toBeInTheDocument();
-    expect(screen.queryByText(/This window isn't a Jam studio window/)).toBeNull();
+    expect(screen.queryByText(/That conversation is gone/)).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(h.posted).toContainEqual({ type: "ready", pane: "conversation" });
     expect(h.requests).toEqual([]);

@@ -33,7 +33,7 @@ export function copyFor(name: PaneName): { signedOut: string; none: string; gone
       : name === "rail" ? "Sign in to Jam to see your conversations."
       : name === "conversation" ? "Sign in to Jam to see this conversation."
       : `Sign in to Jam to see this session's ${noun}.`,
-    none: "This window isn't a Jam studio window.",
+    none: name === "conversation" ? "That conversation is gone, or you can't see it." : `Open a session's conversation to see its ${noun}.`,
     gone: "That session has ended, or you can't see it.",
   };
 }
