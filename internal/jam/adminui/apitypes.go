@@ -195,17 +195,28 @@ type Plan struct {
 	Serve      ServeDiff      `json:"serve"`
 }
 
-// Tracking is Config › Tracking: the tracked source, the managed objects and
-// (after a Track) the plan.
+// Tracking is Config › Tracking: the followed repo and the follower's last
+// check, the managed objects and (after a Diff) the plan.
 type Tracking struct {
-	Source      *TrackingSource `json:"source" tstype:"TrackingSource | null"` // nil = none tracked
+	Source      *TrackingSource `json:"source" tstype:"TrackingSource | null"` // the followed repo; nil = none configured
 	Rows        []ManagedRow    `json:"rows"`
 	Drifted     int             `json:"drifted"`
 	StatesErr   bool            `json:"statesErr"` // could not compare with the live Jam
 	LastCommit  string          `json:"lastCommit"`
 	LastApplied string          `json:"lastApplied"`
-	CanGit      bool            `json:"canGit"` // Diff, Apply and Track are offered
+	CanGit      bool            `json:"canGit"` // Diff and Apply are offered
 	Plan        *Plan           `json:"plan" tstype:"Plan | null"`
+	Follow      FollowStatus    `json:"follow"`
+}
+
+// FollowStatus is the config follower's last check (jam.ConfigFollowStatus),
+// its commits 7 chars.
+type FollowStatus struct {
+	State   string `json:"state"` // off | awaiting-confirm | in-sync | failed
+	Head    string `json:"head"`
+	Applied string `json:"applied"`
+	Error   string `json:"error"`
+	Checked string `json:"checked"` // when; "" = not yet
 }
 
 // TrackingResult answers a tracking write: the page after it and its message.

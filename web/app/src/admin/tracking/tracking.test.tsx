@@ -8,7 +8,8 @@ import { ADMIN } from "../paths";
 import type { Plan, Tracking } from "../api/types";
 
 const page = (t: Partial<Tracking> = {}): Tracking =>
-  ({ source: null, rows: [], drifted: 0, statesErr: false, lastCommit: "", lastApplied: "", canGit: true, plan: null, ...t });
+  ({ source: null, rows: [], drifted: 0, statesErr: false, lastCommit: "", lastApplied: "", canGit: true, plan: null, follow: follow(), ...t });
+const follow = (f: Partial<Tracking["follow"]> = {}): Tracking["follow"] => ({ state: "in-sync", head: "abc1234", applied: "abc1234", error: "", checked: "2026-10-31 10:00 UTC", ...f });
 const source = { label: "https://github.com/acme/jam@main", repo: "https://github.com/acme/jam", repoLink: "https://github.com/acme/jam", dir: "", ref: "main", commit: "abc1234", commitLink: "", applied: "2026-10-28 10:00 UTC" };
 const plan = (p: Partial<Plan> = {}): Plan => ({
   source: "https://github.com/acme/jam@main", commit: "abc1234", digest: "d1", forced: false, hasDrift: false, changes: 1, unchanged: 0,
@@ -21,26 +22,45 @@ const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse
 const at = ADMIN + "config/tracking";
 
 describe("Tracking", () => {
-  it("tracks a source and shows its plan", async () => {
+  it("without config.github, says how to set it, with no Track or Untrack", async () => {
     tree();
-    let sent: unknown;
-    server.use(
-      http.get("/app/admin/api/tracking", () => HttpResponse.json(page())),
-      http.post("/app/admin/api/tracking/source", async ({ request }) => { sent = await request.json(); return HttpResponse.json({ tracking: page({ source, plan: plan() }), message: "tracking https://github.com/acme/jam@main" }); }),
-    );
-    const user = userEvent.setup();
+    server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ follow: follow({ state: "off", head: "", applied: "", checked: "" }) }))));
     renderAdmin(adminBoot, at);
-    await user.type(await screen.findByLabelText(/^Source/), "https://github.com/acme/jam@main");
-    await user.click(screen.getByRole("button", { name: "Track" }));
-    expect(await screen.findByText("tracking https://github.com/acme/jam@main")).toBeInTheDocument();
-    expect(sent).toEqual({ source: "https://github.com/acme/jam@main" });
-    expect(screen.getByText("users/bob.yml")).toBeInTheDocument();
-    expect(screen.getByText("+ kind: user")).toBeInTheDocument();
+    expect(await screen.findByText(/No config repo is configured/)).toBeInTheDocument();
+    expect(screen.getByText("config.github")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Track" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Untrack" })).toBeNull();
+  });
+
+  it("shows the followed repo and what the follower last saw", async () => {
+    tree();
+    server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, follow: follow({ head: "def5678" }) }))));
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByText("in sync")).toBeInTheDocument();
+    expect(screen.getByText("def5678")).toBeInTheDocument();
+    expect(screen.getByText(/checked 2026-10-31 10:00 UTC/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Untrack" })).toBeNull();
+  });
+
+  it("asks to confirm the first apply", async () => {
+    tree();
+    server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source: { ...source, commit: "", applied: "" }, follow: follow({ state: "awaiting-confirm", applied: "" }) }))));
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByText("waiting for you")).toBeInTheDocument();
+    expect(screen.getByText(/Diff, review the plan, then apply it/)).toBeInTheDocument();
+  });
+
+  it("shows a failed check's error", async () => {
+    tree();
+    server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, follow: follow({ state: "failed", error: "config plan has refusals: kit x" }) }))));
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByText("failed")).toBeInTheDocument();
+    expect(screen.getByText(/config plan has refusals: kit x/)).toBeInTheDocument();
   });
 
   it("says when git actions are off", async () => {
     tree();
-    server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ canGit: false }))));
+    server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, canGit: false }))));
     renderAdmin(adminBoot, at);
     expect(await screen.findByText(/Git actions are not available on this serve/)).toBeInTheDocument();
   });
@@ -109,7 +129,7 @@ describe("Tracking", () => {
     await waitFor(() => expect(body).toEqual({ force: true }));
   });
 
-  it("holds Apply, Untrack and Release while a re-plan runs", async () => {
+  it("holds Apply and Release while a re-plan runs", async () => {
     tree();
     let calls = 0;
     server.use(
@@ -121,7 +141,6 @@ describe("Tracking", () => {
     await user.click(await screen.findByRole("button", { name: "Diff" }));
     await user.click(await screen.findByRole("checkbox", { name: /Force/ }));
     expect(screen.getByRole("button", { name: "Apply this plan" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Untrack" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Release" })).toBeDisabled();
     await waitFor(() => expect(screen.getByRole("button", { name: "Apply this plan" })).toBeEnabled());
   });

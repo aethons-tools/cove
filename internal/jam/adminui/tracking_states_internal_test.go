@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 )
 
 // When the live Jam cannot be compared, Tracking says so: every mark is
@@ -29,7 +30,7 @@ func TestBuildConfigPageStatesUnknown(t *testing.T) {
 	}
 	defer func() { configMarkStates = prev }()
 	var logs bytes.Buffer
-	d := buildConfigPage(st, false, slog.New(slog.NewTextHandler(&logs, nil)))
+	d := buildConfigPage(st, gitsource.Source{}, false, slog.New(slog.NewTextHandler(&logs, nil)))
 	if !d.StatesErr || d.Drifted != 0 || len(d.Rows) != 2 || d.LastCommit != "fedcba9" || d.LastApplied == "" {
 		t.Fatalf("page = %+v", d)
 	}
@@ -41,7 +42,7 @@ func TestBuildConfigPageStatesUnknown(t *testing.T) {
 	if !strings.Contains(logs.String(), "ui config: drift not computed") || !strings.Contains(logs.String(), "kit x cannot be rendered") {
 		t.Errorf("log = %s", logs.String())
 	}
-	tr := trackingOf(st, d)
+	tr := trackingOf(st, jam.ConfigEnv{}, d)
 	if !tr.StatesErr || tr.Rows[0].Path == "" {
 		t.Errorf("tracking = %+v", tr)
 	}

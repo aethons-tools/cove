@@ -212,18 +212,30 @@ export interface Plan {
   serve: ServeDiff;
 }
 /**
- * Tracking is Config › Tracking: the tracked source, the managed objects and
- * (after a Track) the plan.
+ * Tracking is Config › Tracking: the followed repo and the follower's last
+ * check, the managed objects and (after a Diff) the plan.
  */
 export interface Tracking {
-  source?: TrackingSource | null; // nil = none tracked
+  source?: TrackingSource | null; // the followed repo; nil = none configured
   rows: ManagedRow[];
   drifted: number /* int */;
   statesErr: boolean; // could not compare with the live Jam
   lastCommit: string;
   lastApplied: string;
-  canGit: boolean; // Diff, Apply and Track are offered
+  canGit: boolean; // Diff and Apply are offered
   plan?: Plan | null;
+  follow: FollowStatus;
+}
+/**
+ * FollowStatus is the config follower's last check (jam.ConfigFollowStatus),
+ * its commits 7 chars.
+ */
+export interface FollowStatus {
+  state: string; // off | awaiting-confirm | in-sync | failed
+  head: string;
+  applied: string;
+  error: string;
+  checked: string; // when; "" = not yet
 }
 /**
  * TrackingResult answers a tracking write: the page after it and its message.

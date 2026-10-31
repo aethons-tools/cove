@@ -78,9 +78,9 @@ func planOf(store jam.Store, v *planView) *Plan {
 	return p
 }
 
-func trackingOf(store jam.Store, d configPage) Tracking {
+func trackingOf(store jam.Store, env jam.ConfigEnv, d configPage) Tracking {
 	t := Tracking{Rows: []ManagedRow{}, Drifted: d.Drifted, StatesErr: d.StatesErr, LastCommit: d.LastCommit, LastApplied: d.LastApplied,
-		CanGit: d.CanGit, Plan: planOf(store, d.Plan)}
+		CanGit: d.CanGit, Plan: planOf(store, d.Plan), Follow: followOf(env)}
 	if s := d.Source; s != nil {
 		t.Source = &TrackingSource{Label: s.Label, Repo: s.Repo, RepoLink: s.RepoLink, Dir: s.Dir, Ref: s.Ref, Commit: s.Commit, CommitLink: s.CommitLink, Applied: s.Applied}
 	}
@@ -94,6 +94,19 @@ func trackingOf(store jam.Store, d configPage) Tracking {
 	return t
 }
 
+// followOf is the follower's status as the page shows it.
+func followOf(env jam.ConfigEnv) FollowStatus {
+	s := jam.ConfigFollowStatus{State: jam.ConfigFollowOff}
+	if env.Follower != nil {
+		s = env.Follower.Status()
+	}
+	f := FollowStatus{State: s.State, Head: jam.ShortConfigCommit(s.Head), Applied: jam.ShortConfigCommit(s.Applied), Error: s.Error}
+	if !s.CheckedAt.IsZero() {
+		f.Checked = configTime(s.CheckedAt)
+	}
+	return f
+}
+
 // trackingFail answers a config operation's error as configFail does.
 func trackingFail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err error) {
 	status, msg := jam.ConfigStatus(err)
@@ -105,12 +118,12 @@ func trackingFail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err 
 
 func apiTracking(api *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.ConfigEnv, log *slog.Logger) {
 	canGit := f != nil
-	page := func() configPage { return buildConfigPage(store, canGit, log) }
+	page := func() configPage { return buildConfigPage(store, env.Followed, canGit, log) }
 	done := func(w http.ResponseWriter, d configPage, msg string) {
-		writeJSON(w, http.StatusOK, TrackingResult{Tracking: trackingOf(store, d), Message: msg})
+		writeJSON(w, http.StatusOK, TrackingResult{Tracking: trackingOf(store, env, d), Message: msg})
 	}
 	api.HandleFunc("GET "+apiPrefix+"tracking", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, trackingOf(store, page()))
+		writeJSON(w, http.StatusOK, trackingOf(store, env, page()))
 	})
 	api.HandleFunc("DELETE "+apiPrefix+"tracking/managed/{kind}/{name...}", func(w http.ResponseWriter, r *http.Request) {
 		key := jam.ConfigKey{Kind: r.PathValue("kind"), Name: r.PathValue("name")}
@@ -168,6 +181,9 @@ func apiTracking(api *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.
 			return
 		}
 		log.Info("ui config applied", "operator", jam.OperatorID(r), "source", res.Source, "commit", res.Commit, "applied", res.Applied, "forced", body.Force)
+		if env.Follower != nil {
+			env.Follower.Tick(r.Context()) // a confirm leaves awaiting-confirm now
+		}
 		done(w, page(), applyMsg(res))
 	}))
 }

@@ -31,7 +31,7 @@ type configMarkRow struct {
 // configPage is the Config page payload.
 type configPage struct {
 	Title       string
-	Source      *configSourceView // nil = none tracked
+	Source      *configSourceView // the followed repo; nil = none configured
 	Rows        []configMarkRow
 	Drifted     int    // rows drifted or missing
 	StatesErr   bool   // the live Jam could not be compared (see the log)
@@ -73,7 +73,7 @@ func configReleaseURL(kind, name string) string {
 	return "/app/admin/config/managed/" + url.PathEscape(kind) + "/" + strings.Join(segs, "/")
 }
 
-// newConfigSourceView is the tracked source as shown. The stored source is
+// newConfigSourceView is the followed repo as shown. The stored source is
 // re-parsed (gitsource.Parse) first: one that does not parse — never one the
 // API built, say a hand-made URL with userinfo — is shown only as "invalid",
 // so the page never renders a credential. Its commit is 7 chars, as on the
@@ -96,11 +96,16 @@ func newConfigSourceView(cs jam.ConfigSource) *configSourceView {
 // page's "could not compare" state, which no stored state produces.
 var configMarkStates = jam.ConfigMarkStates
 
-// buildConfigPage gathers the Config page: the tracked source, every managed
-// object with its state, and the newest apply.
-func buildConfigPage(store jam.Store, canGit bool, log *slog.Logger) configPage {
+// buildConfigPage gathers the Config page: the followed repo (with its last
+// apply when the stored record is of it), every managed object with its
+// state, and the newest apply.
+func buildConfigPage(store jam.Store, followed gitsource.Source, canGit bool, log *slog.Logger) configPage {
 	d := configPage{Title: "Config", CanGit: canGit}
-	if cs, ok := store.GetConfigSource(); ok {
+	if followed.Repo != "" {
+		cs := jam.ConfigSource{Repo: followed.Repo, Dir: followed.Dir, Ref: followed.Ref}
+		if rec, ok := store.GetConfigSource(); ok && rec.Source() == followed {
+			cs = rec
+		}
 		d.Source = newConfigSourceView(cs)
 	}
 	states, err := configMarkStates(store)

@@ -262,11 +262,17 @@ func (f *cfgTreeFetcher) Fetch(_ context.Context, _ gitsource.Source, fn func(ro
 // managedSHA is the config commit the fixtures apply from.
 const managedSHA = "abc1234def5678abc1234def5678abc1234def56"
 
+// managedSource is the config repo the fixtures follow.
+var managedSource = gitsource.Source{Repo: "https://github.com/acme/jam", Ref: "main"}
+
+// configUI is a Jam following managedSource through f, with a follower.
 func configUI(t *testing.T, f jam.KitFetcher, conds *condition.Tracker) (http.Handler, jam.Store) {
 	t.Helper()
 	store := newStore(t)
+	env := jam.ConfigEnv{Conditions: conds, Followed: managedSource}
+	env.Follower = &jam.ConfigFollower{Store: store, Fetcher: f, Env: env}
 	return adminui.Handler(store, testLogger(), nil, nil, anyCred, nil, adminui.WithKitFetcher(f),
-		adminui.WithConfigEnv(jam.ConfigEnv{Conditions: conds}), adminui.WithConditions(conds, "")), store
+		adminui.WithConfigEnv(env), adminui.WithConditions(conds, "")), store
 }
 
 // trackManaged records the source managedUI's objects came from.
@@ -282,6 +288,7 @@ func managedUI(t *testing.T, opts ...adminui.Option) (http.Handler, jam.Store) {
 	t.Helper()
 	store := newStore(t)
 	applyManaged(t, store, managedTree)
+	opts = append([]adminui.Option{adminui.WithConfigEnv(jam.ConfigEnv{Followed: managedSource})}, opts...)
 	return adminui.Handler(store, testLogger(), nil, nil, anyCred, nil, opts...), store
 }
 
