@@ -6,13 +6,13 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/collabwire"
-	"github.com/aethons-tools/cove/internal/jam/preview"
 )
 
 // CloseUnexposed never closes the built-in IDE (it is never exposed), but a
 // kit ide on another port, and an app port, follow the exposure set. SSH
 // tunnels are not its business.
-func TestCloseUnexposedSkipsBuiltInIDE(t *testing.T) {
+// 13337 (the former built-in IDE port) has no exemption: unexposed, it closes.
+func TestCloseUnexposedClosesEveryUnexposedPreview(t *testing.T) {
 	l := NewLive()
 	closed := make(chan string, 8)
 	add := func(name string, right collab.Right, port int, viaPreview bool) {
@@ -22,15 +22,15 @@ func TestCloseUnexposedSkipsBuiltInIDE(t *testing.T) {
 			close: func() { closed <- name },
 		})
 	}
-	add("ide", collab.SSH, preview.IDEPort, true)
+	add("ide", collab.Preview, 13337, true)
 	add("app", collab.Preview, 8080, true)
 	add("kit-ide", collab.SSH, 8443, true)
 	add("sshd", collab.SSH, int(SSHPort), false)
-	if n := l.CloseUnexposed("ses_a", nil); n != 2 {
-		t.Fatalf("closed %d, want 2", n)
+	if n := l.CloseUnexposed("ses_a", nil); n != 3 {
+		t.Fatalf("closed %d, want 3", n)
 	}
 	got := map[string]bool{}
-	for range 2 {
+	for range 3 {
 		select {
 		case name := <-closed:
 			got[name] = true
@@ -38,7 +38,7 @@ func TestCloseUnexposedSkipsBuiltInIDE(t *testing.T) {
 			t.Fatal("closes did not run")
 		}
 	}
-	if !got["app"] || !got["kit-ide"] {
-		t.Fatalf("closed %v, want app and kit-ide", got)
+	if !got["ide"] || !got["app"] || !got["kit-ide"] {
+		t.Fatalf("closed %v, want ide, app and kit-ide", got)
 	}
 }

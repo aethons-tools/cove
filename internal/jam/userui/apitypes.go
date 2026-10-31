@@ -321,8 +321,7 @@ type SessionHead struct {
 	Uptime     string      `json:"uptime"`
 	Mission    string      `json:"mission"` // the agent's mission (its end goal); "" = none
 	Card       SessionCard `json:"card"`
-	SSH        string      `json:"ssh"`    // the copyable command; "" = not allowed
-	Studio     bool        `json:"studio"` // the Studio tab: ssh allowed and framing on
+	SSH        string      `json:"ssh"` // the copyable command; "" = not allowed
 	CanRelease bool        `json:"canRelease"`
 	CanRestart bool        `json:"canRestart"`
 	CanUpgrade bool        `json:"canUpgrade"`
@@ -351,10 +350,6 @@ type SessionPane struct {
 	// this jam records no session events.
 	ThinkingStreams []ThinkingStream `json:"streams"`
 	EventsOff       bool             `json:"eventsOff"`
-	// Studio: the Studio tab's IDE may be framed here (ssh and framing on);
-	// IDEOpen: its plain URL, for Open in new tab when a mint fails.
-	Studio  bool   `json:"studio"`
-	IDEOpen string `json:"ideOpen"`
 }
 
 // PreviewLink is one exposed port, opened in a new tab; Frame: View here
@@ -437,8 +432,8 @@ type ThinkingRaw struct {
 	Truncated int    `json:"truncated"`
 }
 
-// FrameRequest is POST api/sessions/{id}/frame: the framed view to open, the
-// IDE ("ide") or an exposed preview's name.
+// FrameRequest is POST api/sessions/{id}/frame: the exposed preview to frame,
+// by name.
 type FrameRequest struct {
 	Name string `json:"name"`
 }

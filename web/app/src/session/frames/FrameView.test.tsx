@@ -17,12 +17,12 @@ function mint(...answers: (string | number)[]) {
     const a = answers[Math.min(i++, answers.length - 1)]!;
     return typeof a === "number"
       ? HttpResponse.json({ error: "no", code: "x" }, { status: a })
-      : HttpResponse.json({ url: a, open: "https://ide--s.p.example/" });
+      : HttpResponse.json({ url: a, open: "https://app--s.p.example/" });
   }));
   return names;
 }
-const show = (kind: "ide" | "preview" = "ide", open?: string) =>
-  render(<MantineProvider theme={theme} env="test"><FrameView sid="ses_1" name={kind === "ide" ? "ide" : "app"} kind={kind} open={open} reload /></MantineProvider>);
+const show = (open?: string) =>
+  render(<MantineProvider theme={theme} env="test"><FrameView sid="ses_1" name="app" open={open} reload /></MantineProvider>);
 const frame = () => document.querySelector<HTMLIFrameElement>("iframe.st-iframe");
 const status = () => document.querySelector(".st-status")!.textContent;
 // post sends a frame-error from source (default: the current frame's window).
@@ -35,19 +35,19 @@ afterEach(() => server.resetHandlers());
 
 describe("a framed view", () => {
   it("frames the minted URL, as the boundary wants it, and clears the status on load", async () => {
-    const names = mint("https://ide--s.p.example/__jam/frame?t=1");
+    const names = mint("https://app--s.p.example/__jam/frame?t=1");
     show();
-    expect(status()).toBe("Starting the IDE…");
+    expect(status()).toBe("Loading…");
     await waitFor(() => expect(frame()).not.toBeNull());
     const f = frame()!;
-    expect(f.getAttribute("src")).toBe("https://ide--s.p.example/__jam/frame?t=1");
+    expect(f.getAttribute("src")).toBe("https://app--s.p.example/__jam/frame?t=1");
     expect(f.getAttribute("referrerpolicy")).toBe("origin");
     expect(f.getAttribute("allow")).toBe("clipboard-read; clipboard-write");
-    expect(f.getAttribute("title")).toBe("IDE");
-    expect(screen.getByRole("link", { name: "Open in new tab" })).toHaveAttribute("href", "https://ide--s.p.example/");
+    expect(f.getAttribute("title")).toBe("app");
+    expect(screen.getByRole("link", { name: "Open in new tab" })).toHaveAttribute("href", "https://app--s.p.example/");
     fireEvent.load(f);
     expect(status()).toBe("");
-    expect(names).toEqual(["ide"]);
+    expect(names).toEqual(["app"]);
   });
 
   it("Reload mints a fresh frame; a late message from the replaced frame is ignored", async () => {
@@ -90,7 +90,7 @@ describe("a framed view", () => {
     post(404);
     expect(status()).toBe("Nothing to show: the studio isn't running.");
     post(502);
-    expect(status()).toBe("The IDE didn't start. This studio's image may predate it: upgrade the studio, or expose an IDE as ide.");
+    expect(status()).toBe("The preview isn't answering.");
     post("weird");
     expect(status()).toBe("Couldn't show this view.");
   });
@@ -123,10 +123,10 @@ describe("a framed view", () => {
 
   it("says why a mint was refused, keeps the plain URL, and frames only http(s)", async () => {
     mint(429);
-    show("ide", "https://ide--s.p.example/");
+    show("https://app--s.p.example/");
     await waitFor(() => expect(status()).toBe("Too many views opened; wait a minute."));
     expect(frame()).toBeNull();
-    expect(screen.getByRole("link", { name: "Open in new tab" })).toHaveAttribute("href", "https://ide--s.p.example/");
+    expect(screen.getByRole("link", { name: "Open in new tab" })).toHaveAttribute("href", "https://app--s.p.example/");
     mint(403);
     await userEvent.click(screen.getByRole("button", { name: "Reload" }));
     await waitFor(() => expect(status()).toBe("No longer shared with you."));

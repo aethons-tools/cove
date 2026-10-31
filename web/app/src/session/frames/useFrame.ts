@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { apiPost, ApiError } from "../../api/client";
 import type { FrameURL } from "../../api/types";
 
-export type FrameKind = "ide" | "preview";
-
 export interface FrameState {
   src: string; // the iframe's URL ("" = no frame)
   seq: number; // bumps on every mint: the iframe is keyed by it
@@ -17,21 +15,20 @@ export interface FrameState {
 
 const httpURL = (u: unknown): u is string => typeof u === "string" && /^https?:\/\//i.test(u);
 const MINT_REFUSED: Record<number, string> = { 403: "No longer shared with you.", 404: "Nothing to show.", 429: "Too many views opened; wait a minute." };
-const loading = (kind: FrameKind) => (kind === "ide" ? "Starting the IDE…" : "Loading…");
 
-// useFrame is one framed view (the Studio's IDE, a preview's View here), as
+// useFrame is one framed view (a preview's View here), as
 // layout.html's meFrame* did: a URL comes only from the frame route, for this
 // view's name; a frame-error is heeded only from this view's own current
 // frame, and re-mints at most once per signin/cookies per user action.
-export function useFrame(sid: string, name: string, kind: FrameKind): FrameState {
-  const [s, set] = useState({ src: "", seq: 0, status: loading(kind), reopen: false, open: "" });
+export function useFrame(sid: string, name: string): FrameState {
+  const [s, set] = useState({ src: "", seq: 0, status: "Loading…", reopen: false, open: "" });
   const frame = useRef<HTMLIFrameElement | null>(null);
   const r = useRef({ seq: 0, err: false, signin: false, cookies: false, live: true });
 
   const mint = useCallback(() => {
     const c = r.current, n = ++c.seq;
     c.err = false;
-    set((x) => ({ ...x, src: "", seq: n, reopen: false, status: loading(kind) }));
+    set((x) => ({ ...x, src: "", seq: n, reopen: false, status: "Loading…" }));
     apiPost<FrameURL>(`sessions/${encodeURIComponent(sid)}/frame`, { name }).then((j) => {
       if (!c.live || c.seq !== n) return;
       const open = httpURL(j?.open) ? j.open : "";
@@ -46,7 +43,7 @@ export function useFrame(sid: string, name: string, kind: FrameKind): FrameState
       c.err = true;
       set((x) => ({ ...x, status: (e instanceof ApiError && MINT_REFUSED[e.status]) || "Couldn't open this view." }));
     });
-  }, [sid, name, kind]);
+  }, [sid, name]);
 
   const start = useCallback(() => {
     r.current.signin = false;
@@ -79,7 +76,7 @@ export function useFrame(sid: string, name: string, kind: FrameKind): FrameState
       if (st === "403") return say("No longer shared with you.");
       if (st === "404") return say("Nothing to show: the studio isn't running.");
       if (st === "502" || st === "503" || st === "504") {
-        return say(kind === "ide" ? "The IDE didn't start. This studio's image may predate it: upgrade the studio, or expose an IDE as ide." : "The preview isn't answering.");
+        return say("The preview isn't answering.");
       }
       say("Couldn't show this view.");
     };
@@ -92,7 +89,7 @@ export function useFrame(sid: string, name: string, kind: FrameKind): FrameState
       window.removeEventListener("message", onMessage);
       window.removeEventListener("pageshow", onShow);
     };
-  }, [start, mint, kind]);
+  }, [start, mint]);
 
   const loaded = useCallback(() => { if (!r.current.err) set((x) => ({ ...x, status: "" })); }, []);
   return { ...s, frame, start, loaded };

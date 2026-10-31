@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
-	"github.com/aethons-tools/cove/internal/jam/preview"
 )
 
 const defaultTunnelPort = 2222
@@ -28,13 +27,9 @@ func (c *Client) setTunnelPorts(ports []int32) {
 }
 
 // allowed reports whether Jam may open a tunnel to port: sshd's port always,
-// the built-in IDE's when Config.IDE is set, plus Config.TunnelPorts, plus the
-// latest SetTunnelPorts from Jam.
+// plus Config.TunnelPorts, plus the latest SetTunnelPorts from Jam.
 func (c *Client) allowed(port int32) bool {
 	if port == defaultTunnelPort || slices.Contains(c.cfg.TunnelPorts, port) {
-		return true
-	}
-	if port == preview.IDEPort && c.cfg.IDE != nil {
 		return true
 	}
 	c.tunnelMu.Lock()
@@ -51,15 +46,6 @@ func (c *Client) dialBack(ctx context.Context, cc grpc.ClientConnInterface, md m
 	if !c.allowed(ot.GetPort()) {
 		c.log.Warn("tunnel refused: port not allowed", "port", ot.GetPort())
 		return
-	}
-	if ot.GetPort() == preview.IDEPort && c.cfg.IDE != nil {
-		// Start the built-in IDE on first use and hold it up while the tunnel
-		// lives. On failure, Jam's dial-back times out (its 504).
-		if err := c.cfg.IDE.Acquire(ctx); err != nil {
-			c.log.Warn("tunnel: ide", "err", err.Error())
-			return
-		}
-		defer c.cfg.IDE.Release()
 	}
 	dial := c.cfg.TunnelDial
 	if dial == nil {

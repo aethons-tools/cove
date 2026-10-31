@@ -44,10 +44,6 @@ const (
 	labelRebuildEvery = time.Second
 	labelMissTTL      = 2 * time.Second
 	labelMissMax      = 4096
-	// ideOpenTimeout bounds opening a tunnel for the ide preview: jam-studio-agent
-	// may first start the built-in IDE (up to 15 s), so it is longer than
-	// openTimeout.
-	ideOpenTimeout = 30 * time.Second
 )
 
 // errPreviewAccessEnded: the caller lost the target's right (preview, or ssh
@@ -60,9 +56,7 @@ var errPreviewAccessEnded = errors.New("preview access ended")
 // <name>--<label>.<domain> gets auth.PreviewHostRoutes over the proxy, which
 // forwards each request to the studio port the session exposes as name —
 // through a studio tunnel (Tunnels.OpenPreview), for a caller collab.Decide
-// allows preview on a live (or woken) studio. The name ide is the studio's
-// IDE: the built-in one on preview.IDEPort unless the kit exposes ide itself,
-// under the ssh right instead of preview (previewPortAndRight). Every other
+// allows preview on a live (or woken) studio. Every other
 // host — and every host when d.PreviewURL or d.Exposures is nil (previews
 // off) — is 404.
 //
@@ -244,15 +238,7 @@ type previewTarget struct {
 	p       collab.Principal
 	user    string       // audit user (usr_… or op:<id>)
 	name    string       // display name
-	right   collab.Right // collab.SSH for the ide preview, else collab.Preview
-}
-
-// openTimeout bounds opening t's tunnel.
-func (t previewTarget) openTimeout() time.Duration {
-	if t.right == collab.SSH {
-		return ideOpenTimeout
-	}
-	return openTimeout
+	right   collab.Right // always collab.Preview today
 }
 
 type previewAuditKey struct{ session, user, name string }
@@ -414,28 +400,16 @@ func (p *previewProxy) cached(label string) (id string, ok, known bool) {
 	return "", false, false
 }
 
-// previewPortAndRight resolves a preview name to the studio port it reaches
-// and the right it needs. The ide name is the studio's IDE, under ssh: the
-// kit's exposure named ide if there is one, else the built-in IDE on
-// preview.IDEPort. Any other name is its exposure, under preview; !ok when the
-// session exposes no such name.
+// previewPortAndRight resolves a preview name to the studio port the session
+// exposes under it and the right it needs (preview); !ok when the session
+// exposes no such name.
 func previewPortAndRight(exps []jam.Exposure, name string) (port int, right collab.Right, ok bool) {
 	for _, e := range exps {
 		if e.Name == name {
-			port, ok = e.Port, true
-			break
+			return e.Port, collab.Preview, true
 		}
 	}
-	if name == preview.IDEName {
-		if !ok {
-			port = preview.IDEPort
-		}
-		return port, collab.SSH, true
-	}
-	if !ok {
-		return 0, "", false
-	}
-	return port, collab.Preview, true
+	return 0, "", false
 }
 
 // jamAuthorization reports whether r's Authorization is a Jam credential, to
@@ -571,7 +545,7 @@ func (p *previewProxy) dial(ctx context.Context, _, addr string) (net.Conn, erro
 	if !ok {
 		return nil, errUnknownPoolHost
 	}
-	ctx, cancel := context.WithTimeout(ctx, t.openTimeout())
+	ctx, cancel := context.WithTimeout(ctx, openTimeout)
 	defer cancel()
 	conn, err := p.h.d.Tunnels.OpenPreview(ctx, t.actorID, int32(t.port))
 	if err != nil {

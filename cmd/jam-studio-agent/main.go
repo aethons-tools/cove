@@ -65,7 +65,6 @@ func buildConfig(getenv func(string) string, log *slog.Logger) (studioagent.Conf
 	return studioagent.Config{
 		Addr: addr, Token: token, LaunchSecret: secret,
 		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(clientTransportCreds())},
-		IDE:         studioagent.NewIDE(studioagent.IDEConfig{}, log),
 	}, nil
 }
 

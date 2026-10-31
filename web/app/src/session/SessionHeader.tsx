@@ -39,7 +39,7 @@ export function SessionHeader({ head: h, tab, onTab }: { head: SessionHead; tab?
     onError: (e) => notifications.show({ color: "red", message: e.message }),
   });
   const press = (a: Action) => (confirmText(a, h) ? setAsking(a) : run.mutate(a));
-  const tabs = PANE_TABS.filter((t) => t !== "studio" || h.studio);
+  const tabs = PANE_TABS;
   const menu = h.ops || h.canRelease || h.canRestart || h.canUpgrade;
   return (
     <Group component="section" aria-label="Session" gap="md" px="sm" py={6} wrap="wrap"

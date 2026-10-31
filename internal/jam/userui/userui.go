@@ -35,8 +35,8 @@ type Deps struct {
 	// PreviewURL maps a session's exposed port name to the URL a
 	// collaborator opens (nil: previews off).
 	PreviewURL func(actorID, name string) (string, error)
-	// Frames mints frame URLs for the pane's framed views (nil: framing off;
-	// Studio and View here are hidden).
+	// Frames mints frame URLs for a preview's View here (nil: framing off;
+	// View here is hidden).
 	Frames interface {
 		FrameURL(p collab.Principal, display, actorID, name string, right collab.Right) (string, error)
 	}

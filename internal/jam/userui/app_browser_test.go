@@ -607,11 +607,11 @@ func TestBrowserAppThinkingEarlierKeepsPlace(t *testing.T) {
 	}
 }
 
-// The app frames the Studio's IDE and a preview's View here from the frame
-// route, under a CSP whose frame-src is the preview origin: the frame loads
-// (status clears), a forged message from the page itself changes nothing,
-// and a real frame-error from the frame is shown.
-func TestBrowserAppStudio(t *testing.T) {
+// The app frames a preview's View here from the frame route, under a CSP
+// whose frame-src is the preview origin: the frame loads (status clears), a
+// forged message from the page itself changes nothing, and a real
+// frame-error from the frame is shown.
+func TestBrowserAppFrame(t *testing.T) {
 	if !uiassets.AppBuilt() {
 		t.Skip("the Jam app bundle isn't built (just app)")
 	}
@@ -619,7 +619,7 @@ func TestBrowserAppStudio(t *testing.T) {
 	e, p, personal, _, _ := frameEnv(t)
 	pv := httptest.NewServer(http.HandlerFunc(framePage))
 	t.Cleanup(pv.Close)
-	ff := &studioFrames{base: pv.URL, n: map[string]int{}, next: map[string][]string{}}
+	ff := &previewFrames{base: pv.URL, n: map[string]int{}, next: map[string][]string{}}
 	e.Deps.Frames = ff
 	api := Handler(e.Deps, nil, WithFrameSrc([]string{pv.URL}))
 	srv := httptest.NewServer(withPWA(func(w http.ResponseWriter, r *http.Request) {
@@ -631,7 +631,7 @@ func TestBrowserAppStudio(t *testing.T) {
 	has := func(js string) step {
 		return chromedp.Poll[chromedp.Void](js, chromedp.WithPollingTimeout(5*time.Second))
 	}
-	st := `(document.querySelector('#studio .st-status')||{textContent:'?'}).textContent`
+	st := `(document.querySelector('.pv-framed .st-status')||{textContent:'?'}).textContent`
 	var problems pageProblems
 	err := chromedp.Do(ctx,
 		problems.watch(ctx),
@@ -639,8 +639,9 @@ func TestBrowserAppStudio(t *testing.T) {
 		call(runtime.Enable, cdp.Empty{}),
 		chromedp.EmulateViewport(1400, 900),
 		chromedp.Navigate(srv.URL+"/app/user/c/"+e.homeOf(t, personal)),
-		chromedp.Click(chromedp.CSS(`[role="tab"][data-tab="studio"]`)),
-		has(`!!document.querySelector('#studio iframe.st-iframe') && `+st+`===''`), // loaded
+		chromedp.Click(chromedp.CSS(`[role="tab"][data-tab="previews"]`)),
+		chromedp.Click(chromedp.CSS(`.pv-here`)),
+		has(`!!document.querySelector('.pv-framed iframe.st-iframe') && `+st+`===''`), // loaded
 		chromedp.Evaluate[chromedp.Void](`window.postMessage({jam:'frame-error',status:403},'*')`),
 		chromedp.Sleep(300*time.Millisecond),
 		has(st+`===''`),
@@ -648,17 +649,15 @@ func TestBrowserAppStudio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := ff.mints("ide"); n != 1 {
-		t.Fatalf("ide mints = %d, want 1", n)
+	if n := ff.mints("app"); n != 1 {
+		t.Fatalf("app mints = %d, want 1", n)
 	}
-	// A real refusal from the frame itself; then View here frames a preview.
-	ff.queue("ide", "post=403")
+	// A real refusal from the frame itself, on the next View here.
+	ff.queue("app", "post=403")
 	if err := chromedp.Do(ctx,
-		chromedp.Click(chromedp.CSS(`#studio .st-reload`)),
-		has(st+`==='No longer shared with you.'`),
-		chromedp.Click(chromedp.CSS(`[role="tab"][data-tab="previews"]`)),
+		chromedp.Click(chromedp.CSS(`.pv-back`)),
 		chromedp.Click(chromedp.CSS(`.pv-here`)),
-		has(`!!document.querySelector('.pv-framed iframe.st-iframe') && document.querySelector('.pv-framed .st-status').textContent===''`),
+		has(st+`==='No longer shared with you.'`),
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -869,17 +868,17 @@ func withPWA(f http.HandlerFunc) http.Handler {
 	})
 }
 
-// studioFrames is a fake Frames minting URLs on a second server (the
+// previewFrames is a fake Frames minting URLs on a second server (the
 // "preview"): /<name>?<query>, the query taken from a per-name queue
 // (empty once drained). It counts the mints per name.
-type studioFrames struct {
+type previewFrames struct {
 	mu   sync.Mutex
 	base string
 	n    map[string]int
 	next map[string][]string
 }
 
-func (f *studioFrames) FrameURL(_ collab.Principal, _, _, name string, _ collab.Right) (string, error) {
+func (f *previewFrames) FrameURL(_ collab.Principal, _, _, name string, _ collab.Right) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.n[name]++
@@ -890,13 +889,13 @@ func (f *studioFrames) FrameURL(_ collab.Principal, _, _, name string, _ collab.
 	return f.base + "/" + name + "?" + q, nil
 }
 
-func (f *studioFrames) queue(name string, qs ...string) {
+func (f *previewFrames) queue(name string, qs ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.next[name] = append(f.next[name], qs...)
 }
 
-func (f *studioFrames) mints(name string) int {
+func (f *previewFrames) mints(name string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.n[name]

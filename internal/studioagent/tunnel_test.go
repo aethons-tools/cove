@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
-	"github.com/aethons-tools/cove/internal/jam/preview"
 )
 
 // tunnelRuntime is a fake Runtime whose Attach pushes one OpenTunnel and whose
@@ -365,92 +363,10 @@ func TestSSHDPortAllowedRegardlessOfConfig(t *testing.T) {
 	}
 }
 
-// recIDE is a fake ideRunner that records its calls, in order, alongside the
-// tunnel's dials.
-type recIDE struct {
-	mu       sync.Mutex
-	calls    []string
-	err      error
-	released chan struct{}
-}
-
-func (r *recIDE) record(s string) {
-	r.mu.Lock()
-	r.calls = append(r.calls, s)
-	r.mu.Unlock()
-}
-
-func (r *recIDE) Acquire(context.Context) error { r.record("acquire"); return r.err }
-func (r *recIDE) Release()                      { r.record("release"); close(r.released) }
-func (r *recIDE) Close()                        { r.record("close") }
-
-func (r *recIDE) got() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return slices.Clone(r.calls)
-}
-
-func TestDialBackIDEPortStartsIDE(t *testing.T) {
-	f := newTunnelRuntime(preview.IDEPort)
-	f.closeAfterOpen = true // the tunnel ends right after the claim
-	ide := &recIDE{released: make(chan struct{})}
-	c := tunnelClient(t, f, func(_ context.Context, addr string) (net.Conn, error) {
-		ide.record("dial " + addr)
-		a, _ := net.Pipe()
-		return a, nil
-	})
-	c.cfg.IDE = ide
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	runBlocked(ctx, c)
-	select {
-	case <-ide.released:
-	case <-ctx.Done():
-		t.Fatalf("Release never ran; calls %v", ide.got())
-	}
-	want := []string{"acquire", "dial 127.0.0.1:13337", "release"}
-	if got := ide.got(); !slices.Equal(got, want) {
-		t.Fatalf("calls %v, want %v", got, want)
-	}
-}
-
-// When Run returns, the IDE is closed: no code-server outlives jam-studio-agent.
-func TestRunClosesIDE(t *testing.T) {
-	f := &scriptRuntime{opened: make(chan string, 1)}
-	ide := &recIDE{released: make(chan struct{})}
-	c := tunnelClient(t, f, nil)
-	c.cfg.IDE = ide
-	runFor(t, c, 300*time.Millisecond)
-	if got := ide.got(); !slices.Equal(got, []string{"close"}) {
-		t.Fatalf("calls %v, want close once Run returned", got)
-	}
-}
-
-// An IDE that can't start means no dial and no tunnel: Jam's dial-back times
-// out (its 504).
-func TestDialBackIDEAcquireFailsNoTunnel(t *testing.T) {
-	f := newTunnelRuntime(preview.IDEPort)
-	ide := &recIDE{err: ErrIDEUnavailable, released: make(chan struct{})}
-	c := tunnelClient(t, f, func(_ context.Context, addr string) (net.Conn, error) {
-		ide.record("dial " + addr)
-		a, _ := net.Pipe()
-		return a, nil
-	})
-	c.cfg.IDE = ide
-	runFor(t, c, 500*time.Millisecond)
-	// "close" is Run's shutdown, not part of the tunnel.
-	if got := ide.got(); !slices.Equal(got, []string{"acquire", "close"}) {
-		t.Fatalf("calls %v, want only the failed acquire (then Run's close)", got)
-	}
-	select {
-	case <-f.opened:
-		t.Fatal("opened a tunnel though the IDE failed to start")
-	default:
-	}
-}
-
-func TestIDEPortRefusedWithoutIDE(t *testing.T) {
-	f := newTunnelRuntime(preview.IDEPort)
+// 13337 (the former built-in IDE's port) has no special case: like any
+// port, it is refused unless allow-listed.
+func TestFormerIDEPortRefusedUnlessListed(t *testing.T) {
+	f := newTunnelRuntime(13337)
 	dialed := make(chan string, 1)
 	c := tunnelClient(t, f, func(_ context.Context, addr string) (net.Conn, error) {
 		dialed <- addr
@@ -459,11 +375,11 @@ func TestIDEPortRefusedWithoutIDE(t *testing.T) {
 	})
 	runFor(t, c, 500*time.Millisecond)
 	if got := drain(dialed); len(got) != 0 {
-		t.Fatalf("dialed %v with no IDE configured", got)
+		t.Fatalf("dialed %v for a port not allow-listed", got)
 	}
 	select {
 	case <-f.opened:
-		t.Fatal("opened a tunnel to the IDE port with no IDE")
+		t.Fatal("opened a tunnel to a port not allow-listed")
 	default:
 	}
 }

@@ -10,11 +10,10 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
 	"github.com/aethons-tools/cove/internal/jam/collab"
-	"github.com/aethons-tools/cove/internal/jam/preview"
 )
 
-// The pane's framed views (docs/usage/jam/previews.md#framing): the Studio
-// tab's IDE and a preview's View here. The page asks for a frame URL by the
+// The pane's framed views (docs/usage/jam/previews.md#framing): a preview's
+// View here. The page asks for a frame URL by the
 // session and preview name only, never a host or URL.
 
 const (
@@ -64,18 +63,14 @@ func collabPrincipal(r *http.Request, p jam.Participant) collab.Principal {
 	return cp
 }
 
-// frameOutcome mints a frame URL for one of inst's framed views: the IDE
-// (preview.IDEName) under the ssh right, else an exposed preview under the
-// preview right. It answers 200 with the URL, or a refusal's status, API
+// frameOutcome mints a frame URL for one of inst's exposed previews, under
+// the preview right. It answers 200 with the URL, or a refusal's status, API
 // code and text.
 func (h *handler) frameOutcome(r *http.Request, p jam.Participant, inst jam.Instance, name string) (FrameURL, int, string, string) {
-	right := collab.SSH
-	if name != preview.IDEName {
-		if !slices.ContainsFunc(inst.Exposures, func(e jam.Exposure) bool { return e.Name == name }) {
-			return FrameURL{}, http.StatusNotFound, "not_found", "no such session"
-		}
-		right = collab.Preview
+	if !slices.ContainsFunc(inst.Exposures, func(e jam.Exposure) bool { return e.Name == name }) {
+		return FrameURL{}, http.StatusNotFound, "not_found", "no such session"
 	}
+	right := collab.Preview
 	cp := collabPrincipal(r, p)
 	if _, ok := collab.Decide(h.d.Store, time.Now(), cp, inst, right); !ok {
 		return FrameURL{}, http.StatusForbidden, "forbidden", "you may not open this here"

@@ -38,7 +38,7 @@ describe("the pane layout", () => {
   });
 
   it("knows the tabs", () => {
-    expect(isTab("studio")).toBe(true);
+    expect(isTab("studio")).toBe(false); // the Studio tab was removed
     expect(isTab("bogus")).toBe(false);
     expect(isTab(null)).toBe(false);
   });

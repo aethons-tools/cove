@@ -146,15 +146,6 @@
     },
     {
       "customType": "regex",
-      "description": "code-server — CODE_SERVER_VERSION arg in the base image (release .deb). The per-arch CODE_SERVER_SHA256_* args must be updated with it; the build fails on a mismatch.",
-      "managerFilePatterns": ["images/jam-studio-base/Dockerfile"],
-      "matchStrings": ["ARG CODE_SERVER_VERSION=(?<currentValue>\\S+)"],
-      "datasourceTemplate": "github-releases",
-      "depNameTemplate": "coder/code-server",
-      "extractVersionTemplate": "^v(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
       "description": "just — JUST_VERSION arg in the base image (release musl tarballs; the noble archive is stuck on 1.21). The per-arch JUST_SHA256_* args must be updated with it, from the release's SHA256SUMS; the build fails on a mismatch.",
       "managerFilePatterns": ["images/jam-studio-base/Dockerfile"],
       "matchStrings": ["ARG JUST_VERSION=(?<currentValue>\\S+)"],
