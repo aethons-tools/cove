@@ -106,7 +106,8 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 	var others []string
 	// The mission shown is the channel's own session's (SourceSession), the
 	// latest-raised active session's (SourceTicket), or a chat's only active
-	// session's; rooms show none.
+	// session's; rooms show none. The same session stands for a studio
+	// channel's status card (CardSession); chats and rooms have no card.
 	var active int
 	var latest time.Time
 	var chatMission string
@@ -124,11 +125,11 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 				switch ch.Kind {
 				case SourceSession:
 					if inst.ActorID == ch.Key {
-						v.Mission = inst.Mission
+						v.Mission, v.CardSession = inst.Mission, inst.ActorID
 					}
 				case SourceTicket:
 					if active == 1 || inst.RaisedAt.After(latest) {
-						v.Mission, latest = inst.Mission, inst.RaisedAt
+						v.Mission, v.CardSession, latest = inst.Mission, inst.ActorID, inst.RaisedAt
 					}
 				case SourceChat:
 					chatMission = inst.Mission

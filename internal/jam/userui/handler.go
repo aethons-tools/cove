@@ -51,11 +51,12 @@ func newHandler(d Deps, lg *slog.Logger, opts ...Option) *handler {
 }
 
 type handler struct {
-	d        Deps
-	lg       *slog.Logger
-	changes  Changes  // nil = no `changed` push
-	presence Presence // nil = no `presence` push; live sessions read "working"
-	pushKey  string   // VAPID public key; "" = Web Push off (routes 404)
+	d         Deps
+	lg        *slog.Logger
+	changes   Changes  // nil = no `changed` push
+	presence  Presence // nil = no `presence` push; live sessions read "working"
+	instances Changes  // card-visible instance changes (WithInstanceChanges); nil = none pushed
+	pushKey   string   // VAPID public key; "" = Web Push off (routes 404)
 	// pushFocus records the conversation each user has focused (nil: off).
 	pushFocus *push.Focus
 	notify    *notify.Hub // nil = no `notify` push

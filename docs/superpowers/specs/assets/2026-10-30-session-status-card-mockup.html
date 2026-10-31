@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Session status pane — mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #2a2f3a; --text: #e6e8ee; --dim: #8b93a5;
+    --think: #7c9cff; --work: #3fb950; --wait: #d29922; --idle: #6e7681; --sleep: #3a3f4b;
+    --accent: #b083f0; --warn: #f0883e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px; }
+  .controls { max-width: 360px; margin: 0 auto 16px; display: flex; gap: 8px; flex-wrap: wrap; color: var(--dim); font-size: 12px; align-items: center; }
+  .controls button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; }
+  .controls button.on { border-color: var(--accent); color: var(--accent); }
+
+  .pane { max-width: 360px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+
+  /* header: agent icon (context bar overlaid) | name, state, counts; then mission, focus, sparkline */
+  .hdr { display: grid; grid-template-columns: auto 1fr; gap: 12px; padding: 14px 14px 6px; align-items: stretch; }
+  .hdr-main { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+  .name { font-size: 18px; font-weight: 600; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .state { font-size: 12px; padding: 1px 8px; border-radius: 6px; border: 1px solid currentColor; }
+  .lines { padding: 4px 14px 6px; display: grid; gap: 2px; }
+  .mission, .focus { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .focus { color: var(--work); font-size: 12px; }
+  svg.spark { width: 100%; height: 40px; display: block; }
+  .spark-wrap { padding: 0 14px 10px; }
+  .badges { display: flex; gap: 12px; color: var(--dim); font-size: 12px; margin-top: auto; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .badge:hover { color: var(--text); }
+  .badge .ico { width: 14px; height: 14px; display: inline-block; }
+  .icon { width: 96px; height: 96px; border-radius: 10px; background: linear-gradient(135deg, #3b3f8f, #8a3fa0); display: grid; place-items: center; font-size: 38px; position: relative; }
+  .icon .dot { position: absolute; left: -4px; bottom: -4px; width: 16px; height: 16px; border-radius: 50%; border: 3px solid var(--panel); }
+  .ctx { position: absolute; top: 6px; bottom: 6px; right: 6px; width: 8px; border-radius: 4px; background: rgba(0,0,0,.45); overflow: hidden; }
+  .ctx .fill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 5px; transition: height .6s, background .6s; }
+  .ctx.hot .fill { animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+
+  .badge.ask { color: var(--warn); font-weight: 600; }
+  .badge.ask .ico { animation: pulse 1.6s infinite; }
+  .hidden { display: none !important; }
+  .legend { display: flex; gap: 10px; font-size: 11px; color: var(--dim); margin-top: 2px; }
+  .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 3px; }
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <span>Mockup controls:</span>
+  <button id="btnPlay" class="on">Live: on</button>
+  <button id="btnCtx">Context +15%</button>
+  <button id="btnSleep">Sleep / wake</button>
+</div>
+
+<div class="pane">
+  <div class="hdr">
+    <div class="icon">✦<span class="dot" id="iconDot"></span>
+      <div class="ctx" id="ctx" title="Context used"><div class="fill" id="ctxFill"></div></div></div>
+    <div class="hdr-main">
+      <span class="name">jam-ic-01</span>
+      <span class="state" id="stateLbl">working</span>
+      <div class="badges">
+        <span class="badge" id="bPrev" title="Previews">
+          <svg class="ico" viewBox="0 0 16 16"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" fill="none" stroke="currentColor"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>
+          <span id="nPrev">1</span></span>
+        <span class="badge ask" id="bAsk" title="Open asks — needs you">
+          <svg class="ico" viewBox="0 0 16 16"><path d="M2 3.5h12v7H7l-3 3v-3H2z" fill="none" stroke="currentColor" stroke-linejoin="round"/><path d="M8 5v2.5M8 9h.01" stroke="currentColor" stroke-linecap="round"/></svg>
+          <span id="nAsk">1</span></span>
+        <span class="badge" id="bAlarm" title="Alarms: next in 1h52m">
+          <svg class="ico" viewBox="0 0 16 16"><circle cx="8" cy="9" r="5" fill="none" stroke="currentColor"/><path d="M8 6.5V9l1.5 1.5M2.5 3.5l2-1.5M13.5 3.5l-2-1.5" stroke="currentColor" fill="none" stroke-linecap="round"/></svg>
+          <span id="nAlarm">2</span></span>
+        <span class="badge" id="bProc" title="Subprocesses (kept: preview)">
+          <svg class="ico" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor"/><path d="M4 6l2 2-2 2M7.5 10.5h4" stroke="currentColor" fill="none"/></svg>
+          <span id="nProc">2</span></span>
+        <span class="badge" id="bSub" title="Subagents">
+          <svg class="ico" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="3" fill="none" stroke="currentColor"/></svg>
+          <span id="nSub">3</span></span>
+      </div>
+    </div>
+  </div>
+  <div class="lines">
+    <div class="mission" id="mission" title="Mission">Design the session status pane</div>
+    <div class="focus" id="focus" title="Focus">Building a live HTML mockup</div>
+  </div>
+  <div class="spark-wrap"><svg class="spark" id="spark" viewBox="0 0 400 40" preserveAspectRatio="none"></svg></div>
+
+</div>
+
+<script>
+const COLORS = { thinking: 'var(--think)', working: 'var(--work)', waiting: 'var(--wait)', idle: 'var(--idle)', sleeping: 'var(--sleep)' };
+const LEVEL = { thinking: 4, working: 3, waiting: 2, idle: 1, sleeping: 0 };
+
+let state = 'working';
+let ctxPct = 38;
+let live = true;
+let filter = 'all';
+
+// sparkline history: [state, isMark]
+let hist = [];
+const seq = ['idle','idle','thinking','working','working','thinking','working','thinking','waiting','waiting','idle','thinking','working','working','working','thinking','working','thinking','thinking','working'];
+for (let i = 0; i < 60; i++) hist.push([seq[i % seq.length], i === 10 || i === 41]);
+
+const agents = [
+  { id: 'primary', type: 'primary', desc: 'main turn', state: 'working', tool: 'Write', calls: 14 },
+  { id: 'a1', type: 'Explore', desc: 'find status code in cove', state: 'working', tool: 'Grep', calls: 8 },
+  { id: 'a2', type: 'general', desc: 'draft tests for pane', state: 'thinking', tool: '—', calls: 5 },
+  { id: 'a3', type: 'Plan', desc: 'pane design', state: 'done', tool: '✓ 1m ago', calls: 11 },
+];
+
+let events = [
+  ['21:45', 'system', 'session init'],
+  ['21:45', 'primary', 'mission → Design the session status pane'],
+  ['21:48', 'primary', 'Agent spawn Explore'],
+  ['21:49', 'Explore', 'Grep "status" → 12 hits'],
+  ['21:50', 'primary', 'board_apply ok'],
+  ['21:52', 'Plan', 'done'],
+  ['22:07', 'primary', 'focus → Building a live HTML mockup'],
+];
+
+const TOOLS = ['Read', 'Edit', 'Bash', 'Grep', 'Write', 'board_apply', 'Glob'];
+
+function renderSpark() {
+  const svg = document.getElementById('spark');
+  const W = 400, H = 40, n = hist.length, dx = W / (n - 1);
+  const y = s => 4 + (4 - LEVEL[s]) * ((H - 8) / 4);
+  let path = '', segs = '';
+  hist.forEach(([s], i) => {
+    const x = i * dx;
+    path += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y(s).toFixed(1);
+    if (i) segs += `<line x1="${((i-1)*dx).toFixed(1)}" y1="${y(hist[i-1][0])}" x2="${x.toFixed(1)}" y2="${y(s)}" stroke="${COLORS[s]}" stroke-width="2" stroke-linecap="round"/>`;
+  });
+  let marks = '';
+  hist.forEach(([s, m], i) => { if (m) marks += `<line x1="${i*dx}" y1="0" x2="${i*dx}" y2="${H}" stroke="var(--warn)" stroke-dasharray="2 2"/>`; });
+  const last = hist[n-1][0];
+  svg.innerHTML = marks + segs + `<circle cx="${W-2}" cy="${y(last)}" r="3" fill="${COLORS[last]}"/>`;
+}
+
+function renderHeader() {
+  const lbl = document.getElementById('stateLbl');
+  lbl.textContent = state;
+  lbl.style.color = COLORS[state];
+  document.getElementById('iconDot').style.background = COLORS[state];
+  const fill = document.getElementById('ctxFill');
+  fill.style.height = ctxPct + '%';
+  const hue = Math.max(0, 120 - Math.max(0, ctxPct - 30) * 1.7);
+  fill.style.background = `hsl(${hue} 70% 50%)`;
+  document.getElementById('ctx').classList.toggle('hot', ctxPct >= 85);
+  document.getElementById('ctx').title = `Context ${ctxPct}% used`;
+  const subs = agents.filter(a => a.type !== 'primary' && a.state !== 'done').length;
+  document.getElementById('nSub').textContent = subs;
+  document.getElementById('bSub').classList.toggle('hidden', subs === 0);
+}
+
+
+function now() { const d = new Date(); return d.toTimeString().slice(0, 5); }
+
+function tick() {
+  if (!live || state === 'sleeping') { hist.push([state, false]); hist.shift(); renderSpark(); renderHeader(); return; }
+  const r = Math.random();
+  state = r < .35 ? 'thinking' : r < .8 ? 'working' : r < .92 ? 'waiting' : 'idle';
+  hist.push([state, Math.random() < .03]); hist.shift();
+  const p = agents[0];
+  p.state = state === 'working' ? 'working' : 'thinking';
+  if (state === 'working') {
+    p.tool = TOOLS[Math.floor(Math.random() * TOOLS.length)]; p.calls++;
+    events.push([now(), 'primary', p.tool]);
+  }
+  agents.slice(1).forEach(a => {
+    if (a.state === 'done') return;
+    if (Math.random() < .5) { a.state = 'working'; a.tool = TOOLS[Math.floor(Math.random() * TOOLS.length)]; a.calls++; events.push([now(), a.type, a.tool]); }
+    else a.state = 'thinking';
+    if (a.calls > 25 && Math.random() < .2) { a.state = 'done'; a.tool = '✓ just now'; events.push([now(), a.type, 'done']); }
+  });
+  ctxPct = Math.min(99, ctxPct + (Math.random() < .3 ? 1 : 0));
+  events = events.slice(-80);
+  renderSpark(); renderHeader();
+}
+
+document.getElementById('btnPlay').onclick = e => { live = !live; e.target.classList.toggle('on'); e.target.textContent = 'Live: ' + (live ? 'on' : 'off'); };
+document.getElementById('btnCtx').onclick = () => { ctxPct = ctxPct >= 99 ? 20 : Math.min(99, ctxPct + 15); renderHeader(); };
+document.getElementById('btnSleep').onclick = () => { state = state === 'sleeping' ? 'idle' : 'sleeping'; if (state === 'sleeping') events.push([now(), 'system', 'studio paused']); renderHeader(); };
+
+renderSpark(); renderHeader();
+setInterval(tick, 1200);
+</script>
+</body>
+</html>

@@ -12,6 +12,7 @@ import { SessionHeader } from "../session/SessionHeader";
 import { useSessionHead } from "../session/useSession";
 import type { Bridge } from "./bridge";
 import { Copy, copyFor } from "./Pane";
+import { SessionCard } from "../session/card/SessionCard";
 
 const noAsk = () => {};
 const padded = { padding: "8px 12px 14px" };
@@ -61,6 +62,7 @@ export function SessionBody({ bridge, name, session, channel }: {
     case "status":
       return (
         <>
+          {head.data && <div style={{ padding: "10px 12px 4px" }}><SessionCard card={head.data.card} /></div>}
           {head.data && <SessionHeader key={head.data.id} head={head.data} />}
           <div style={padded}><PaneBody id={session} tab="status" busy={false} onAsk={noAsk} /></div>
         </>

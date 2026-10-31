@@ -72,12 +72,62 @@ type ChannelRow struct {
 	OpenAsks int             `json:"openAsks"`
 	LastSeq  int64           `json:"lastSeq"`
 	Selected bool            `json:"selected"`
-	Mission  string          `json:"mission"` // the backing session's one-line focus; "" = none
+	Mission  string          `json:"mission"` // the backing session's mission (its end goal); "" = none
 	// Session is the actor id of the session whose home this channel is,
 	// when the viewer may see it ("" = none), as api/conversations reports it.
 	Session string `json:"session"`
 	// SSH reports whether the viewer may SSH into Session's studio.
 	SSH bool `json:"ssh"`
+	// Card is a session channel's status card; nil for rooms, chats, and a
+	// channel with no active session.
+	Card *SessionCard `json:"card,omitempty"`
+	// cardSession is the actor whose card stands for the row (jam.ChannelView.CardSession).
+	cardSession string
+}
+
+// CardState is a status card's state: its sparkline level and pill colour.
+type CardState string
+
+const (
+	CardThinking CardState = "thinking" // the turn is in a model call
+	CardWorking  CardState = "working"  // the turn is in a tool call
+	CardWaiting  CardState = "waiting"  // the turn ended with local waits (background tasks, kept processes, alarms)
+	CardIdle     CardState = "idle"     // the turn ended; it waits only on messages (or a person)
+	CardSleeping CardState = "sleeping" // the studio is paused
+)
+
+// SessionCard is a session's status card (docs/superpowers/specs/
+// 2026-10-30-session-status-card-design.md): the rail row of a session
+// channel, and the extension's Session Status pane.
+type SessionCard struct {
+	Session string      `json:"session"` // actor id
+	Name    string      `json:"name"`
+	State   CardState   `json:"state"`
+	Pill    string      `json:"pill"`    // the pill's text: "working", "needs you", "paused"…
+	Tool    string      `json:"tool"`    // the tool in progress while working; "" otherwise
+	Mission string      `json:"mission"` // the end goal or standing order; "" = none
+	Focus   string      `json:"focus"`   // what the session is on right now; "" = none
+	Counts  CardCounts  `json:"counts"`
+	Context CardContext `json:"context"`
+	// Inits is how many system/init events Jam has seen for the session since
+	// it started; the app marks its sparkline where this goes up.
+	Inits int `json:"inits"`
+}
+
+// CardCounts are a card's count icons, each hidden at 0.
+type CardCounts struct {
+	Asks      int `json:"asks"`
+	Alarms    int `json:"alarms"`
+	Previews  int `json:"previews"`
+	Processes int `json:"processes"` // kept processes
+	Subagents int `json:"subagents"` // running now (sessionevents.Presence.Subagents)
+}
+
+// CardContext is how full the main thread's context window is, in tokens;
+// Window 0 = not reported yet (no bar).
+type CardContext struct {
+	Used   int64 `json:"used"`
+	Window int64 `json:"window"`
 }
 
 // RailGroup is one attention section of the rail (Needs you / Sessions /
@@ -258,16 +308,17 @@ type SessionHead struct {
 	TurnCost string     `json:"turnCost"`
 	Tokens   string     `json:"tokens"`
 	// Context is the context window's use, short; ContextTip exact; "" = no model call yet.
-	Context    string `json:"context"`
-	ContextTip string `json:"contextTip"`
-	Uptime     string `json:"uptime"`
-	Mission    string `json:"mission"` // the agent's one-line focus; "" = none
-	SSH        string `json:"ssh"`     // the copyable command; "" = not allowed
-	Studio     bool   `json:"studio"`  // the Studio tab: ssh allowed and framing on
-	CanRelease bool   `json:"canRelease"`
-	CanRestart bool   `json:"canRestart"`
-	CanUpgrade bool   `json:"canUpgrade"`
-	Ops        bool   `json:"ops"` // the session actions are wired
+	Context    string      `json:"context"`
+	ContextTip string      `json:"contextTip"`
+	Uptime     string      `json:"uptime"`
+	Mission    string      `json:"mission"` // the agent's mission (its end goal); "" = none
+	Card       SessionCard `json:"card"`
+	SSH        string      `json:"ssh"`    // the copyable command; "" = not allowed
+	Studio     bool        `json:"studio"` // the Studio tab: ssh allowed and framing on
+	CanRelease bool        `json:"canRelease"`
+	CanRestart bool        `json:"canRestart"`
+	CanUpgrade bool        `json:"canUpgrade"`
+	Ops        bool        `json:"ops"` // the session actions are wired
 	// CanInterrupt, CanCompact, CanClear: shown whenever Ops is set; disabled when false.
 	CanInterrupt bool   `json:"canInterrupt"`
 	CanCompact   bool   `json:"canCompact"`

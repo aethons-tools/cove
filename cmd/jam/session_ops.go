@@ -24,9 +24,10 @@ type resumer interface {
 	Resume(ctx context.Context, actorID string) error
 }
 
-// missionSetter sets a session's mission (the supervisor).
-type missionSetter interface {
+// statusLineSetter sets a session's mission and focus (the supervisor).
+type statusLineSetter interface {
 	SetMission(actorID, mission string) error
+	SetFocus(actorID, focus string) error
 }
 
 // errNoStream is a command with no live Attach stream to carry it.
@@ -45,10 +46,10 @@ type sessionOps struct {
 	sup   *jam.Supervisor
 	res   resumer
 	cmd   sessionCommander
-	// mission is reset on Clear: the cleared agent starts over, so its old
-	// mission would be stale.
-	mission missionSetter
-	// log reports a failed mission reset (nil: slog.Default).
+	// lines (mission and focus) are reset on Clear: Clear means a new task,
+	// so the old lines would be stale.
+	lines statusLineSetter
+	// log reports a failed mission or focus reset (nil: slog.Default).
 	log *slog.Logger
 	// connectWait bounds waiting for a resumed session's stream (default 30s),
 	// polled every connectPoll (default 250ms).
@@ -99,15 +100,18 @@ func (o sessionOps) Command(ctx context.Context, inst jam.Instance, c jam.Sessio
 	if !sent {
 		return fmt.Errorf("%s %s: %w", c, inst.ActorID, errNoStream)
 	}
-	if c == jam.CmdClear && o.mission != nil {
+	if c == jam.CmdClear && o.lines != nil {
 		// The clear went out; a failed reset only leaves a stale line, so it
 		// must not fail the command.
-		if err := o.mission.SetMission(inst.ActorID, ""); err != nil {
-			l := o.log
-			if l == nil {
-				l = slog.Default()
-			}
+		l := o.log
+		if l == nil {
+			l = slog.Default()
+		}
+		if err := o.lines.SetMission(inst.ActorID, ""); err != nil {
 			l.Warn("clear: reset mission", "actor", inst.ActorID, "err", err.Error())
+		}
+		if err := o.lines.SetFocus(inst.ActorID, ""); err != nil {
+			l.Warn("clear: reset focus", "actor", inst.ActorID, "err", err.Error())
 		}
 	}
 	return nil

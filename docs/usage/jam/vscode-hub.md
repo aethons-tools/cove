@@ -4,7 +4,7 @@ read_when: You are using or changing the VS Code rail or hub, or using several J
 owns: the VS Code rail (jam.rail) and its clicks, ▣ and badge; the hub windows (Jam Hub (<host>).code-workspace), Jam: Open Hub, the Jam Hub launcher and the …/hub and …/go links; several Jams (each window's Jam, Switch Jam, Add a Jam, notifications from every Jam); going to a conversation and hub/pending-<host>.json; conversation tabs in the hub and the hub's views
 prereqs: vscode.md for installing the extension, studio windows and the panes' shared rules
 tier: leaf
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 # The Jam rail and hub in VS Code
@@ -15,7 +15,7 @@ A click goes to the session's studio window when one is open, otherwise to the c
 ## The rail
 
 The **Conversations** view, first in the Jam container in **every** window, is the web app's rail:
-Needs you, Sessions, Channels and History, with each row's mission and unread count.
+Needs you, Sessions, Channels and History, with each row's unread count; a session channel's row is its session's [status card](session-card.md), any other row its label (and mission).
 Above it, **New message** picks whom to write to and opens a small composer; once sent, the new conversation opens in its hub tab. **New session** (when you may start one) starts it and opens its conversation in the hub.
 
 - **Click** a row: [go to the conversation](#the-hub): its session's studio window if one is open, otherwise its tab in the hub.

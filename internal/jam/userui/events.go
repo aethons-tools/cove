@@ -28,6 +28,13 @@ func WithChanges(c Changes) Option {
 	return func(h *handler) { h.changes = c }
 }
 
+// WithInstanceChanges pushes a `presence` event on GET /app/user/events when
+// an instance change alters what a session's status card shows
+// (*jam.InstanceChanges), under the same throttle as a status change.
+func WithInstanceChanges(c Changes) Option {
+	return func(h *handler) { h.instances = c }
+}
+
 // WithNotify streams the viewer's own notifications (hub) on GET
 // /app/user/events as `event: notify`, and turns on push focus without Web Push.
 func WithNotify(hub *notify.Hub) Option {
@@ -48,8 +55,8 @@ const presenceGap = 250 * time.Millisecond
 // read a board before checking again.
 const boardAccessTTL = 30 * time.Second
 
-// events streams `changed` (the log grew) and `presence` (a session status
-// changed) to the participant until they disconnect. No message content or
+// events streams `changed` (the log grew) and `presence` (a session status,
+// or what its status card shows, changed) to the participant until they disconnect. No message content or
 // status crosses this stream — only that something changed; the app refetches
 // through the API, which checks access again. The one exception is `notify`:
 // the viewer's own notification, with its title and body, sent to nobody else.
@@ -59,7 +66,7 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if h.changes == nil && h.presence == nil && h.d.Boards == nil && h.notify == nil {
+	if h.changes == nil && h.presence == nil && h.instances == nil && h.d.Boards == nil && h.notify == nil {
 		w.WriteHeader(http.StatusNoContent) // EventSource stops retrying; the page polls
 		return
 	}
@@ -68,7 +75,7 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
-	var changed, presence <-chan struct{} // nil channels never fire
+	var changed, presence, instances <-chan struct{} // nil channels never fire
 	if h.changes != nil {
 		ch, cancel := h.changes.Subscribe()
 		defer cancel()
@@ -78,6 +85,11 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		ch, cancel := h.presence.Subscribe()
 		defer cancel()
 		presence = ch
+	}
+	if h.instances != nil {
+		ch, cancel := h.instances.Subscribe()
+		defer cancel()
+		instances = ch
 	}
 	var boards <-chan ident.ID
 	if h.d.Boards != nil {
@@ -117,6 +129,16 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, "event: presence\ndata: 1\n\n")
 		lastPresence, held = time.Now(), nil
 	}
+	// presenceDue: a `presence` may go now; if not, one is held for the gap's end.
+	presenceDue := func() bool {
+		if wait := presenceGap - time.Since(lastPresence); wait > 0 {
+			if held == nil {
+				held = time.After(wait)
+			}
+			return false
+		}
+		return true
+	}
 	for {
 		select {
 		case <-r.Context().Done():
@@ -125,10 +147,12 @@ func (h *handler) events(w http.ResponseWriter, r *http.Request) {
 			// An event needs a data line to be dispatched by EventSource.
 			_, _ = fmt.Fprint(w, "event: changed\ndata: 1\n\n")
 		case <-presence:
-			if wait := presenceGap - time.Since(lastPresence); wait > 0 {
-				if held == nil {
-					held = time.After(wait)
-				}
+			if !presenceDue() {
+				continue
+			}
+			sendPresence()
+		case <-instances:
+			if !presenceDue() {
 				continue
 			}
 			sendPresence()

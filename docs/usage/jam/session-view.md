@@ -53,7 +53,7 @@ session may press them, on any session kind. Clear asks for confirmation.
 |---------|--------------|------|
 | Interrupt | running | stops the current turn; the agent then acknowledges in its channel and waits |
 | Compact | running, holding (a turn ended with background tasks outstanding) or waiting | shrinks the conversation with Claude's `/compact` |
-| Clear | waiting, including paused | starts the next turn as a blank conversation, and resets the session's mission (a failed reset is logged and doesn't fail the Clear) |
+| Clear | waiting, including paused | starts the next turn as a blank conversation, and resets the session's mission and focus, since Clear means a new task (a failed reset is logged and doesn't fail the Clear) |
 
 Each press is `POST /app/user/api/sessions/{id}/interrupt|compact|clear`. The server answers 409
 when the control isn't available in the session's state, and 502 when the cove can't be reached.

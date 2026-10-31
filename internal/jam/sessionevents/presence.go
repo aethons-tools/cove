@@ -62,16 +62,20 @@ func DeriveStatus(ev Event) (Status, bool) {
 	return Status{}, false
 }
 
-// Presence keeps each actor's latest derived status, in memory, and signals
-// subscribers when one changes. Feed it every published event via
-// Hub.Observe. After a restart it knows nothing until each session's next
-// status-bearing event. Each subscriber's channel holds one pending signal, so
+// Presence keeps each actor's latest derived status, how many system/init
+// events it has seen (a status card's sparkline marks them), and how many
+// subagents it is running now, in memory, and signals subscribers when any of
+// them changes. Feed it every published event via Hub.Observe. After a restart
+// it knows nothing until each session's next status-bearing event (and counts
+// no subagent started before it). Each subscriber's channel holds one pending signal, so
 // a burst of changes coalesces and a slow subscriber never blocks ingest.
 type Presence struct {
-	now  func() time.Time
-	mu   sync.Mutex
-	last map[string]Status
-	subs map[chan struct{}]struct{}
+	now    func() time.Time
+	mu     sync.Mutex
+	last   map[string]Status
+	inits  map[string]int
+	agents map[string]*subagents
+	subs   map[chan struct{}]struct{}
 }
 
 // NewPresence returns an empty Presence; now defaults to time.Now.
@@ -79,22 +83,60 @@ func NewPresence(now func() time.Time) *Presence {
 	if now == nil {
 		now = time.Now
 	}
-	return &Presence{now: now, last: map[string]Status{}, subs: map[chan struct{}]struct{}{}}
+	return &Presence{now: now, last: map[string]Status{}, inits: map[string]int{}, agents: map[string]*subagents{}, subs: map[chan struct{}]struct{}{}}
 }
 
-// Observe records ev's status for its actor and signals on a change.
+// Observe records ev's status for its actor (and counts it if it is an init),
+// and updates its subagent count, signalling on a change or an init.
 func (p *Presence) Observe(ev Event) {
+	sl, slOK := deriveSubagents(ev)
 	s, ok := DeriveStatus(ev)
-	if !ok {
+	if !ok && !slOK {
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	agentsChanged := slOK && p.applySubagents(ev.ActorID, sl)
+	if !ok {
+		if agentsChanged {
+			p.signal()
+		}
+		return
+	}
+	isInit := ev.Index.Type == "system" && ev.Index.Subtype == "init"
+	if isInit {
+		p.inits[ev.ActorID]++
+	}
 	if old, ok := p.last[ev.ActorID]; ok && old.State == s.State && old.Tool == s.Tool {
+		if isInit || agentsChanged {
+			p.signal()
+		}
 		return
 	}
 	s.At = p.now()
 	p.last[ev.ActorID] = s
+	p.signal()
+}
+
+// applySubagents updates actor's subagent count, reporting whether it
+// changed; p.mu is held.
+func (p *Presence) applySubagents(actor string, l subagentLine) bool {
+	a := p.agents[actor]
+	if a == nil {
+		a = &subagents{}
+	}
+	before := a.count()
+	a.apply(l)
+	if a.count() != 0 {
+		p.agents[actor] = a
+	} else {
+		delete(p.agents, actor) // keep no state for an actor running none
+	}
+	return a.count() != before
+}
+
+// signal wakes every subscriber; p.mu is held.
+func (p *Presence) signal() {
 	for ch := range p.subs {
 		select {
 		case ch <- struct{}{}:
@@ -111,8 +153,27 @@ func (p *Presence) Status(actorID string) (Status, bool) {
 	return s, ok
 }
 
-// Subscribe returns a channel signalled after a status change, and an
-// idempotent cancel that unsubscribes it.
+// Inits is how many system/init events actorID has had since this Presence
+// started.
+func (p *Presence) Inits(actorID string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.inits[actorID]
+}
+
+// Subagents is how many subagents actorID is running now: Agent/Task tool calls
+// awaiting their result, plus the agents in claude's background task list.
+func (p *Presence) Subagents(actorID string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if a := p.agents[actorID]; a != nil {
+		return a.count()
+	}
+	return 0
+}
+
+// Subscribe returns a channel signalled after a status change, an init or a
+// subagent count change, and an idempotent cancel that unsubscribes it.
 func (p *Presence) Subscribe() (<-chan struct{}, func()) {
 	ch := make(chan struct{}, 1)
 	p.mu.Lock()

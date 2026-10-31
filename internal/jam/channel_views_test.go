@@ -157,3 +157,33 @@ func TestChannelMissionChatAndRoom(t *testing.T) {
 		})
 	}
 }
+
+func TestChannelCardSession(t *testing.T) {
+	f := newICFixture(t)
+	f.putMission(&f.personal, "m", PhaseLive)
+	if err := f.ic.SetUp(f.personal); err != nil {
+		t.Fatal(err)
+	}
+	if v := f.missionView(f.sessionChannel(f.personal)); v.CardSession != f.personal.ActorID {
+		t.Fatalf("session channel CardSession = %q, want %q", v.CardSession, f.personal.ActorID)
+	}
+	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceTicket, Key: "t/ACME-9", Label: "ACME-9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	older, newer := f.ticket, f.ticket
+	newer.ActorID = string(ident.New(ident.Session))
+	older.RaisedAt, newer.RaisedAt = f.now.Add(-time.Hour), f.now
+	f.putMission(&newer, "", PhaseLive)
+	f.putMission(&older, "", PhaseLive)
+	if v := f.missionView(ch, f.alice.ID, ident.ID(older.ActorID), ident.ID(newer.ActorID)); v.CardSession != newer.ActorID {
+		t.Fatalf("ticket CardSession = %q, want the later-raised %q", v.CardSession, newer.ActorID)
+	}
+	chat, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceChat, Key: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := f.missionView(chat, ids(f.alice, f.standing)...); v.CardSession != "" {
+		t.Fatalf("chat CardSession = %q, want none", v.CardSession)
+	}
+}

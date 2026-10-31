@@ -1,6 +1,7 @@
 import { Badge, Group, NavLink, ScrollArea, Stack, Text } from "@mantine/core";
 import type { ReactNode } from "react";
 import type { ChannelRow, RailGroup } from "../api/types";
+import { SessionCard } from "../session/card/SessionCard";
 
 // RailList is the rail's groups and rows, shared by the web app (router
 // links) and the VS Code rail (click handlers): rowProps makes a row a link
@@ -25,8 +26,9 @@ export function RailList({ groups, active, rowProps, marker }: {
                   key={r.id}
                   {...rowProps(r)}
                   active={r.id === active}
-                  label={r.label}
-                  description={r.mission || undefined}
+                  // A session channel's row is its session's status card.
+                  label={r.card ? <SessionCard card={r.card} compact /> : r.label}
+                  description={r.card ? undefined : r.mission || undefined}
                   rightSection={mark || unread ? <Group gap={4} wrap="nowrap">{mark}{unread}</Group> : null}
                 />
               );

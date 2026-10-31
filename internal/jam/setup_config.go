@@ -18,7 +18,7 @@ import (
 // (`jam-studio-agent mcp`) offers every session, sorted. cmd/jam-studio-agent pins it
 // (TestIntercomToolsMatchJam).
 var IntercomTools = []string{"alarm_clear", "alarm_list", "alarm_set", "amend", "ask", "asks", "board_apply", "board_create",
-	"board_read", "board_snapshot", "boards", "call_in", "commit", "end", "escalate", "expose", "exposures", "fetch",
+	"board_read", "board_snapshot", "boards", "call_in", "commit", "end", "escalate", "expose", "exposures", "fetch", "focus",
 	"idle_timeout", "keep_list", "keep_start", "keep_stop", "leave", "list_targets", "mission", "read", "report", "send", "turn_end",
 	"unexpose", "withdraw"}
 

@@ -14,6 +14,7 @@ import { boot } from "../test/render";
 import { Bridge, install } from "./bridge";
 import { fakeHost, json, type Route } from "./fakeHost";
 import { Pane, wirePane } from "./Pane";
+import { card } from "../test/card";
 
 // Valid session ids (SES_RE): the bridge's feed opener refuses anything else.
 const SES_A = "ses_0abcdefghjkmnpqrstvwxyz012";
@@ -27,7 +28,7 @@ const head = (id: string, over: Partial<SessionHead> = {}): SessionHead => ({
   id, label: "spider", kind: "standing", ticket: "", role: "r", project: "p", owner: "",
   state: { label: "x", text: "is running", tool: "", class: "idle" }, since: "", openAsks: 0, cost: "", turnCost: "", tokens: "",
   context: "", contextTip: "", uptime: "", mission: "", ssh: "", studio: false, canRelease: false, canRestart: false, canUpgrade: false,
-  ops: true, canInterrupt: true, canCompact: false, canClear: false, restartLabel: "Restart", upgradeState: "", channel: "chn_a", ...over,
+  ops: true, canInterrupt: true, canCompact: false, canClear: false, restartLabel: "Restart", upgradeState: "", channel: "chn_a", card: card({ session: id, name: "card-spider" }), ...over,
 });
 const pane = (id: string, tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
   id, tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false,
@@ -112,7 +113,7 @@ describe("the session panes", () => {
     expect(screen.queryByText("View here")).toBeNull();
   });
 
-  it("status shows the header without tabs and the status rows; Interrupt posts sessions/ses_a/interrupt", async () => {
+  it("status shows the card, the header without tabs and the status rows; Interrupt posts sessions/ses_a/interrupt", async () => {
     const { h } = mount("status", {
       ...sessionRoutes(SES_A, "status", { status: [{ name: "Model", value: "opus" }] }, { mission: "ship slice 4" }),
       [`POST /app/user/api/sessions/${SES_A}/interrupt`]: noContent,
@@ -122,6 +123,9 @@ describe("the session panes", () => {
     expect(screen.getByText("Model")).toBeInTheDocument();
     expect(await screen.findByText("ship slice 4")).toBeInTheDocument();
     expect(screen.getByText("spider")).toBeInTheDocument();
+    // The status card heads the pane.
+    expect(screen.getByText("card-spider")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "recent states, now working" })).toBeInTheDocument();
     expect(screen.queryByRole("tablist")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Interrupt" }));
     await waitFor(() => expect(h.requests).toContainEqual({ method: "POST", path: `/app/user/api/sessions/${SES_A}/interrupt`, json: {} }));

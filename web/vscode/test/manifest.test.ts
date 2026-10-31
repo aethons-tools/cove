@@ -53,7 +53,7 @@ describe("the manifest", () => {
     expect(pkg.contributes.views).toEqual({
       jam: [
         { type: "webview", id: "jam.rail", name: "Conversations" },
-        { type: "webview", id: "jam.status", name: "Status", when: "jam.window == session || jam.window == hub" },
+        { type: "webview", id: "jam.status", name: "Session Status", when: "jam.window == session || jam.window == hub" },
         { type: "webview", id: "jam.artifacts", name: "Artifacts", visibility: "collapsed", when: "jam.window == session || jam.window == hub" },
         { type: "webview", id: "jam.previews", name: "Previews", visibility: "collapsed", when: "jam.window == session || jam.window == hub" },
       ],

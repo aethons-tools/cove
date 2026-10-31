@@ -42,6 +42,8 @@ export function useLiveEvents(): void {
         // The open board's editor listens for these.
         case "board": window.dispatchEvent(new CustomEvent("jam-board", { detail: data })); break;
         case "presence":
+          // A status change, or one to what a session's status card shows.
+          void client.invalidateQueries({ queryKey: ["rail"] });
           void client.invalidateQueries({ queryKey: ["presence"] });
           // A status change can't change Artifacts (it reads the whole channel).
           void client.invalidateQueries({ queryKey: ["session"], predicate: (q) => q.queryKey[3] !== "artifacts" });

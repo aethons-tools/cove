@@ -83,6 +83,7 @@ func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Insta
 		hd.State = rows[0]
 	}
 	hd.Since = since(now, stateSince(inst))
+	hd.Card, _ = h.card(inst)
 	if h.d.Totals != nil {
 		if t, err := h.d.Totals.Of(inst.ActorID); err == nil {
 			if t.Turns > 0 {

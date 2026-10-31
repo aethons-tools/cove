@@ -61,9 +61,13 @@ type ChannelView struct {
 	// Sessions are the actor ids of the sessions taking part (sent or were
 	// addressed here, or back it), sorted.
 	Sessions []string
-	// Mission is the backing session's one-line focus, "" when none is
+	// Mission is the backing session's mission (its end goal), "" when none is
 	// shown: see userChannel for which session speaks for the channel.
 	Mission string
+	// CardSession is the actor id of the session whose status card stands
+	// for a studio channel (its own session, or a ticket's latest-raised
+	// active one); "" for rooms, chats, and channels with no active session.
+	CardSession string
 }
 
 // Bucket places the channel in the attention-ordered rail. NeedsYou wins; a
