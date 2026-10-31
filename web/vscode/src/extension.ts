@@ -369,6 +369,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
   rep.windowFocused(vscode.window.state.focused);
   ctx.subscriptions.push(vscode.window.onDidChangeWindowState((s) => rep.windowFocused(s.focused)));
 
+  // hubActive is the hub's active conversation tab (its channel).
+  let hubActive: string | undefined;
   // The needs-you count is the badge on the rail view (the Jam activity-bar icon).
   let rail: RailViewProvider | undefined;
   let badge: Parameters<RailViewProvider["setBadge"]>[0];
@@ -447,9 +449,14 @@ export function activate(ctx: vscode.ExtensionContext): void {
       return conv ? { session: conv.session, label: conv.label, channel } : "gone";
     },
     reporter: rep,
-    // The hub's views follow its active conversation tab (a chat: none).
+    // The hub's views follow its active conversation tab (a chat: none),
+    // and its rail highlights it.
     onActive: (t) => {
-      if (kind?.kind === "hub") model.setSession(t.session || undefined);
+      if (kind?.kind !== "hub") return;
+      model.setSession(t.session || undefined);
+      if (!("channel" in t) || t.channel === hubActive) return;
+      hubActive = t.channel;
+      rail?.refresh();
     },
   });
   ctx.subscriptions.push(
@@ -520,6 +527,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
     ...portDeps,
     auth,
     windows: connected.list,
+    // The hub's active tab; a studio window's own conversation.
+    active: async () => {
+      if (kind?.kind === "hub") return hubActive;
+      const t = kind?.kind === "session" ? await model.target() : null;
+      return t && "channel" in t ? t.channel : undefined;
+    },
     // With several Jams, the rail names the window's.
     describe: () => {
       const j = jamUrl();

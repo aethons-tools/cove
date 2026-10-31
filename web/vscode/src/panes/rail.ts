@@ -1,6 +1,7 @@
 // The rail view (jam.rail): web/app's rail in a webview, in every window.
 // Its state carries the sessions with an open studio window (▣), refreshed
-// every CONNECTED_BEAT_MS; the needs-you badge sits on it.
+// every CONNECTED_BEAT_MS, and the window's focused conversation; the
+// needs-you badge sits on it.
 import type * as vscode from "vscode";
 import type { PaneState } from "../../../app/src/bridge/protocol.js" with { "resolution-mode": "import" };
 import type { Auth } from "../auth";
@@ -12,6 +13,8 @@ export type RailDeps = PortDeps & {
   extensionUri: vscode.Uri;
   auth: Pick<Auth, "session" | "onChange">;
   windows: () => string[];
+  // active is the window's focused conversation (its channel), highlighted.
+  active?: () => Promise<string | undefined>;
   // describe is the view's description (the window's Jam, with several).
   describe?: () => string;
 };
@@ -41,7 +44,8 @@ export class RailViewProvider implements vscode.WebviewViewProvider {
   private async state(): Promise<PaneState> {
     const url = this.d.jamUrl();
     const signedIn = !(url instanceof Error) && (await this.d.auth.session(url).catch(() => undefined)) !== undefined;
-    return { signedIn, target: null, windows: this.d.windows() };
+    const active = signedIn ? await this.d.active?.().catch(() => undefined) : undefined;
+    return { signedIn, target: null, windows: this.d.windows(), ...(active ? { active } : {}) };
   }
 
   resolveWebviewView(view: vscode.WebviewView, _context?: vscode.WebviewViewResolveContext, _token?: vscode.CancellationToken): void {

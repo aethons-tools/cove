@@ -11,7 +11,6 @@ import { HostContext } from "../host";
 import { useLiveEvents } from "../live/useLiveEvents";
 import { APP } from "../paths";
 import { Problem } from "../Problem";
-import { theme } from "../theme";
 import { BoardTab } from "./BoardTab";
 import type { Bridge } from "./bridge";
 import { interceptLinks, linkAction, type LinkAction } from "./links";
@@ -19,6 +18,7 @@ import { NavBridge } from "./NavBridge";
 import { SessionBody, SessionGate } from "./panes";
 import { useVscodeScheme } from "./scheme";
 import { RailPane } from "./RailPane";
+import { vscodeCssVariables, vscodeTheme } from "./theme";
 
 // NOUN is what each session pane shows, in its copy.
 export const NOUN: Record<SessionPaneName, string> = {
@@ -80,8 +80,7 @@ export function Pane({ bridge, name, board }: { bridge: Bridge; name: PaneName; 
   if (!view) body = null;
   else if (!view.s.signedIn) body = <Copy text={copy.signedOut} action="Sign in" onClick={signIn} />;
   else if (name === "rail") {
-    const active = view.s.target && "channel" in view.s.target ? view.s.target.channel : undefined;
-    body = <Shell key={view.gen} signIn={signIn}><RailPane bridge={bridge} windows={view.s.windows ?? []} active={active} /></Shell>;
+    body = <Shell key={view.gen} signIn={signIn}><RailPane bridge={bridge} windows={view.s.windows ?? []} active={view.s.active} /></Shell>;
   } else if (name === "board") {
     body = <Shell key={view.gen} signIn={signIn}><BoardTab bridge={bridge} id={board ?? ""} /></Shell>;
   } else if (view.s.error !== undefined) body = <Copy text={`Couldn't load the focused session: ${view.s.error}`} action="Try again" onClick={retry} />;
@@ -97,7 +96,7 @@ export function Pane({ bridge, name, board }: { bridge: Bridge; name: PaneName; 
     );
   }
   return (
-    <MantineProvider forceColorScheme={scheme} theme={theme}>
+    <MantineProvider forceColorScheme={scheme} theme={vscodeTheme} cssVariablesResolver={vscodeCssVariables}>
       <Notifications />
       {body}
     </MantineProvider>

@@ -89,6 +89,8 @@ Conversation tabs and views:
 - [ ] Reload the hub with a background conversation tab, then click its rail row: a second tab opens; showing the restored one closes it (as with boards).
 - [ ] A window on a local folder shows no Jam views except the rail (Conversations).
 - [ ] Rail: the groups, missions and unread counts match the web app's rail.
+- [ ] Rail: the hub's active conversation tab is the highlighted row, and moves with the tab; in a studio window, its own conversation is.
+- [ ] Jam's views take the VS Code theme's font, buttons, list selection, badges and inputs; switching the theme restyles them.
 - [ ] Rail *New message*: pick a person, send; the conversation opens as a hub tab (from an ordinary window too).
 - [ ] Rail *New session*: start one (with no studio access needed); its conversation opens in the hub.
 - [ ] Rail click on a session with no studio window opens its tab in the hub (opening the hub, whether it was closed or open); with one open, it brings that window to the front.
