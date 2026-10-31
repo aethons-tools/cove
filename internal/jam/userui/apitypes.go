@@ -113,7 +113,7 @@ type SessionCard struct {
 	// it started; the app marks its sparkline where this goes up.
 	Inits int `json:"inits"`
 	// Color is the session's color (#rrggbb; "" = none), filling its icon.
-	Color string `json:"color"`
+	Color string `json:"color,omitempty"`
 }
 
 // CardCounts are a card's count icons, each hidden at 0.
@@ -153,7 +153,7 @@ type MessageRow struct {
 	Seq   int64     `json:"seq"`
 	// Color is the sending session's color, its bubble's border ("" = a
 	// person, or a session with none).
-	Color string `json:"color"`
+	Color string `json:"color,omitempty"`
 	// Ask is the card of an ask's own squawk; System marks an ask's later
 	// event (a one-line note, not a bubble); ReAsk a reply about an ask.
 	Ask     *AskCard `json:"ask,omitempty"` // the ask's card (Card == "ask")
@@ -214,7 +214,7 @@ type Conversation struct {
 	// pane read api/sessions/{session}.
 	Session string `json:"session"`
 	// Color is that session's color, the composer's accent ("" = none).
-	Color string `json:"color"`
+	Color string `json:"color,omitempty"`
 }
 
 // NewMessageOption is one recipient offered in the New Message picker.
@@ -302,9 +302,9 @@ type AnswerRequest struct {
 type SessionHead struct {
 	ID       string     `json:"id"`
 	Label    string     `json:"label"`
-	Channel  string     `json:"channel"` // the session's home channel (/app/user/c/<channel>)
-	Kind     string     `json:"kind"`    // standing | personal | ticket | session
-	Color    string     `json:"color"`   // the session's color (#rrggbb; "" = none)
+	Channel  string     `json:"channel"`         // the session's home channel (/app/user/c/<channel>)
+	Kind     string     `json:"kind"`            // standing | personal | ticket | session
+	Color    string     `json:"color,omitempty"` // the session's color (#rrggbb; "" = none)
 	Ticket   string     `json:"ticket"`
 	Role     string     `json:"role"`
 	Project  string     `json:"project"`

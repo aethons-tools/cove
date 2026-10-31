@@ -2,9 +2,9 @@
 .sc { --sc-icon: 72px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .sc[data-compact] { --sc-icon: 52px; gap: 2px; }
 .sc-top { display: flex; gap: 10px; align-items: stretch; min-width: 0; }
-.sc-icon { flex: none; width: var(--sc-icon); height: var(--sc-icon); border-radius: 8px; position: relative;
+.sc-icon { flex: none; width: var(--sc-icon); height: var(--sc-icon); border-radius: var(--sc-icon-radius, 8px); position: relative;
   border: 1px solid var(--mantine-color-default-border); background: var(--mantine-color-default-hover); }
-.sc-ctx { position: absolute; top: 5px; bottom: 5px; right: 5px; width: 6px; border-radius: 3px; overflow: hidden;
+.sc-ctx { flex: none; position: relative; height: var(--sc-icon); width: 6px; margin-left: -4px; border-radius: 3px; overflow: hidden;
   background: color-mix(in srgb, var(--mantine-color-text) 18%, transparent); }
 .sc-ctx-fill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 3px; }
 .sc-ctx[data-hot] .sc-ctx-fill { animation: sc-pulse 1s infinite; }

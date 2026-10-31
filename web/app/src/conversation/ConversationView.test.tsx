@@ -63,6 +63,24 @@ describe("the conversation view", () => {
     await waitFor(() => expect(reads).toEqual([2]));
   });
 
+  it("borders a session's bubbles and the composer in the session's color", async () => {
+    serve(conv({ session: "ses_1", color: "#aa3f4e", messages: [msg(1, { color: "#aa3f4e" }), msg(2, { mine: true, raw: "mine", body: "<p>mine</p>" })] }));
+    const { container } = renderApp(boot, "/app/user/c/chn_a");
+    await screen.findByText("m1");
+    const bubble = (seq: number) => container.querySelector(`[data-seq="${seq}"]`) as HTMLElement;
+    expect(bubble(1).style.borderLeft).toBe("3px solid rgb(170, 63, 78)");
+    expect(bubble(2).getAttribute("style") ?? "").not.toContain("border-left");
+    expect((screen.getByRole("textbox").closest("[data-composer]") as HTMLElement).style.borderLeft).toBe("3px solid rgb(170, 63, 78)");
+  });
+
+  it("no session color: no borders", async () => {
+    serve(conv());
+    const { container } = renderApp(boot, "/app/user/c/chn_a");
+    await screen.findByText("m1");
+    expect(container.querySelector('[data-seq="1"]')!.getAttribute("style") ?? "").not.toContain("border-left");
+    expect((screen.getByRole("textbox").closest("[data-composer]") as HTMLElement).style.borderLeft).toMatch(/^(0|0px)?$/);
+  });
+
   it("offers Leave and Call in to a member, Join to a non-member", async () => {
     serve(conv());
     renderApp(boot, "/app/user/c/chn_a");

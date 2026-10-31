@@ -4,7 +4,7 @@ import { useNow, useStateHistory, WINDOW_MS, type Point } from "./history";
 import "./card.css";
 
 // SessionCard is a session's status card (docs/superpowers/specs/
-// 2026-10-30-session-status-card-design.md): the agent icon with its context
+// 2026-10-30-session-status-card-design.md): the agent icon and its context
 // bar, name, state pill and count icons; the mission and focus; and a
 // sparkline of its recent states. Compact is the rail's size.
 
@@ -25,13 +25,13 @@ export function SessionCard({ card, compact = false }: { card: Card; compact?: b
   return (
     <div className="sc" data-compact={compact || undefined}>
       <div className="sc-top">
-        <div className="sc-icon" aria-hidden>
-          {window > 0 && (
-            <div className="sc-ctx" data-hot={pct >= 85 || undefined} title={`context ${pct}% full`}>
-              <div className="sc-ctx-fill" style={{ height: `${pct}%`, background: contextColor(pct) }} />
-            </div>
-          )}
-        </div>
+        {/* The icon is the session's color until real icons (docs/usage/jam/session-colors.md). */}
+        <div className="sc-icon" aria-hidden style={card.color ? { background: card.color, borderColor: card.color } : undefined} />
+        {window > 0 && (
+          <div className="sc-ctx" data-hot={pct >= 85 || undefined} title={`context ${pct}% full`}>
+            <div className="sc-ctx-fill" style={{ height: `${pct}%`, background: contextColor(pct) }} />
+          </div>
+        )}
         <div className="sc-main">
           <div className="sc-name" title={card.name}>{card.name}</div>
           <span className="sc-pill" data-state={card.state} title={card.tool ? `${card.pill}: ${card.tool}` : card.pill}>{card.pill}</span>

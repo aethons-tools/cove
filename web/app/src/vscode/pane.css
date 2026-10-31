@@ -4,3 +4,5 @@ html, body, #root { height: 100%; margin: 0 }
 /* Focus is VS Code's focus border (theme.ts has the rest of its colours). */
 .mantine-focus-auto:focus-visible { outline-color: var(--vscode-focusBorder) }
 .mantine-Input-input:focus, .mantine-Input-input:focus-within { border-color: var(--vscode-focusBorder) }
+/* The status card's icon has VS Code's corners. */
+.sc { --sc-icon-radius: 2px }

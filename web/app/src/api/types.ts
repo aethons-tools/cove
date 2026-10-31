@@ -119,7 +119,7 @@ export interface SessionCard {
   /**
    * Color is the session's color (#rrggbb; "" = none), filling its icon.
    */
-  color: string;
+  color?: string;
 }
 /**
  * CardCounts are a card's count icons, each hidden at 0.
@@ -167,7 +167,7 @@ export interface MessageRow {
    * Color is the sending session's color, its bubble's border ("" = a
    * person, or a session with none).
    */
-  color: string;
+  color?: string;
   /**
    * Ask is the card of an ask's own squawk; System marks an ask's later
    * event (a one-line note, not a bubble); ReAsk a reply about an ask.
@@ -251,7 +251,7 @@ export interface Conversation {
   /**
    * Color is that session's color, the composer's accent ("" = none).
    */
-  color: string;
+  color?: string;
 }
 /**
  * NewMessageOption is one recipient offered in the New Message picker.
@@ -352,7 +352,7 @@ export interface SessionHead {
   label: string;
   channel: string; // the session's home channel (/app/user/c/<channel>)
   kind: string; // standing | personal | ticket | session
-  color: string; // the session's color (#rrggbb; "" = none)
+  color?: string; // the session's color (#rrggbb; "" = none)
   ticket: string;
   role: string;
   project: string;
