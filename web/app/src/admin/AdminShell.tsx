@@ -5,6 +5,7 @@ import { Outlet, useLocation } from "react-router";
 import { BootContext } from "./BootContext";
 import type { Bootstrap } from "./api/types";
 import { TitleBar } from "../shell/TitleBar";
+import { BranchBar } from "./branch/BranchBar";
 import { ConfigTree } from "./config/ConfigTree";
 import { ADMIN } from "./paths";
 import { SearchBox } from "./search/SearchBox";
@@ -36,7 +37,7 @@ export function AdminShell({ boot }: { boot: Bootstrap }) {
             menu={boot.signOut ? <Menu.Item component="a" href="/app/auth/logout">Sign out</Menu.Item> : null} />
         </AppShell.Header>
         {tree && <AppShell.Navbar><ConfigTree /></AppShell.Navbar>}
-        <AppShell.Main><Outlet /></AppShell.Main>
+        <AppShell.Main>{tree && <BranchBar />}<Outlet /></AppShell.Main>
       </AppShell>
     </BootContext>
   );
