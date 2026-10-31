@@ -73,11 +73,16 @@ type ChannelRow struct {
 	LastSeq  int64           `json:"lastSeq"`
 	Selected bool            `json:"selected"`
 	Mission  string          `json:"mission"` // the backing session's mission (its end goal); "" = none
+	// Session is the actor id of the session whose home this channel is,
+	// when the viewer may see it ("" = none), as api/conversations reports it.
+	Session string `json:"session"`
+	// SSH reports whether the viewer may SSH into Session's studio.
+	SSH bool `json:"ssh"`
 	// Card is a session channel's status card; nil for rooms, chats, and a
 	// channel with no active session.
 	Card *SessionCard `json:"card,omitempty"`
-	// session is the actor whose card stands for the row (jam.ChannelView.CardSession).
-	session string
+	// cardSession is the actor whose card stands for the row (jam.ChannelView.CardSession).
+	cardSession string
 }
 
 // CardState is a status card's state: its sparkline level and pill colour.

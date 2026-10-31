@@ -10,7 +10,7 @@ const JAM = "https://jam.example.com";
 const A = "ses_0abcdefghjkmnpqrstvwxyz012";
 const B = "ses_1abcdefghjkmnpqrstvwxyz012";
 const STR = "0123456789abcdef0123456789abcdef";
-const STATE: PaneState = { signedIn: true, target: null, pinned: false, elsewhere: false };
+const STATE: PaneState = { signedIn: true, target: null };
 
 type Sub = { session: string; stream: string; cb: (s: ThinkingSignal) => void; onEnd?: () => void; unsub: ReturnType<typeof vi.fn> };
 
@@ -199,11 +199,11 @@ describe("wirePane", () => {
     );
     const first = port.refresh();
     const second = port.refresh();
-    answers[1]!({ ...STATE, pinned: true });
+    answers[1]!({ ...STATE, error: "newer" });
     answers[0]!(STATE);
     expect(await first).toBeUndefined();
-    expect(await second).toEqual({ ...STATE, pinned: true });
-    expect(v.posted).toEqual([{ type: "state", state: { ...STATE, pinned: true } }]);
+    expect(await second).toEqual({ ...STATE, error: "newer" });
+    expect(v.posted).toEqual([{ type: "state", state: { ...STATE, error: "newer" } }]);
   });
 });
 

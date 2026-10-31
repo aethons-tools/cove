@@ -9,7 +9,8 @@ function deps(o: Partial<ActionDeps> = {}) {
     asExternalUri: vi.fn(async () => "http://localhost:61234/"),
     openBoard: vi.fn(),
     openSession: vi.fn(),
-    scrollConversation: vi.fn(),
+    goTo: vi.fn(),
+    revealConversation: vi.fn(),
     error: vi.fn(),
     ...o,
   };
@@ -45,29 +46,27 @@ describe("perform", () => {
     expect(d.openExternal).not.toHaveBeenCalled();
     expect(d.error).not.toHaveBeenCalled();
   });
-  it("reveal focuses the Conversation view, then scrolls", async () => {
-    const order: string[] = [];
-    const d = deps({
-      executeCommand: vi.fn(async (c: string) => void order.push(c)),
-      scrollConversation: vi.fn((a: string) => void order.push(`scroll ${a}`)),
-    });
+  it("reveal reaches revealConversation with the anchor, or null", async () => {
+    const d = deps();
     await perform({ revealConversation: "ask-a1" }, d);
-    expect(order).toEqual(["jam.conversation.focus", "scroll ask-a1"]);
-    const e = deps();
-    await perform({ revealConversation: null }, e);
-    expect(e.executeCommand).toHaveBeenCalledWith("jam.conversation.focus");
-    expect(e.scrollConversation).not.toHaveBeenCalled();
+    await perform({ revealConversation: null }, d);
+    expect(vi.mocked(d.revealConversation).mock.calls).toEqual([["ask-a1"], [null]]);
+    expect(d.executeCommand).not.toHaveBeenCalled();
   });
   it("openBoard and openSession reach their deps", async () => {
     const d = deps();
     await perform({ openBoard: "brd_x" }, d);
     await perform({ openSession: "ses_x" }, d);
     await perform({ openExternal: "https://a.example/" }, d);
-    await perform({ command: "jam.focusSession" }, d);
     expect(d.openBoard).toHaveBeenCalledWith("brd_x");
     expect(d.openSession).toHaveBeenCalledWith("ses_x");
     expect(d.openExternal).toHaveBeenCalledWith("https://a.example/");
-    expect(d.executeCommand).toHaveBeenCalledWith("jam.focusSession");
+    expect(d.executeCommand).not.toHaveBeenCalled();
+  });
+  it("goTo reaches its dep", async () => {
+    const d = deps();
+    await perform({ goTo: { channel: "c", session: "s" } }, d);
+    expect(d.goTo).toHaveBeenCalledWith("c", "s");
   });
   it("dep errors are caught and shown", async () => {
     const d = deps({ openBoard: vi.fn(() => { throw new Error("boom"); }) });

@@ -12,7 +12,9 @@ updated: 2026-10-31
 A session's **status card** sums it up at a glance. It is a **session
 channel's row in the rail** (the channel's own session, or a ticket channel's
 most recently raised active session; chats and rooms keep a plain row) and the
-top of the extension's **Session Status** pane ([vscode.md](vscode.md)). The
+top of the extension's **Session Status** pane ([vscode.md](vscode.md)); the
+extension's rail (in every window, and the hub) shows the same rows
+([vscode-hub.md](vscode-hub.md#the-rail)). The
 design: [session status card](../../superpowers/specs/2026-10-30-session-status-card-design.md).
 
 ## What it shows

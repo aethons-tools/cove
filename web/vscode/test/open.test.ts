@@ -3,24 +3,25 @@ import { ApiError, SignedOutError } from "../src/api";
 import {
   CONNECTED_BEAT_MS,
   CONNECTED_STALE_MS,
-  connectStudio,
   connectedSet,
-  disconnectStudio,
   openSession,
   pickSession,
+  goTo,
+  PENDING_MAX_MS,
+  readPending,
   remoteUri,
-  statusBarItem,
   studioFromAuthority,
   webUrl,
   windowAuthority,
+  windowJam,
   windowKind,
 } from "../src/open";
+import { hubFileFor } from "../src/jams";
 import type { OpenDeps, Ui } from "../src/open";
 import { editorFor } from "../src/editor";
 
 const ID = "ses_0abcdefghjkmnpqrstvwxyz012";
 const URL_ = "https://jam.example.com";
-const local = (id: string) => `file:///gs/sessions/${id}.code-workspace`;
 
 function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: boolean; global?: unknown; rail?: unknown; conv?: unknown; connected?: string[]; scheme?: string } = {}) {
   const mem = new Set<string>();
@@ -36,14 +37,7 @@ function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: 
     info: vi.fn(async (_m: string, ..._a: string[]) => answers.info),
     pick: vi.fn(async (items: { label: string }[], _p: string) => items[0]),
     openExternal: vi.fn(async () => {}),
-    openFolder: vi.fn(async (u: string, o?: unknown) => void order.push(`open ${u}${o ? " reuse" : ""}`)),
-    localWorkspace: vi.fn(async (id: string) => local(id)),
-    isConnected: vi.fn((id: string) => connected.has(id)),
-    setConnected: vi.fn(async (id: string, on: boolean) => {
-      order.push(`${on ? "mark" : "unmark"} ${id}`);
-      if (on) connected.add(id);
-      else connected.delete(id);
-    }),
+    openFolder: vi.fn(async (u: string) => void order.push(`open ${u}`)),
     hasRemoteSsh: vi.fn(() => over.remote ?? true),
     installRemoteSsh: vi.fn(async () => {}),
     getGlobal: vi.fn(() => state.global),
@@ -77,67 +71,53 @@ function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: 
 const BAD_IDS = ["ses_x", "ses_0abcdefghjkmnpqrstvwxyz012%0AHost", "../../x", "ses_0ABCDEFGHJKMNPQRSTVWXYZ012", ""];
 
 describe("openSession", () => {
-  it("checks the session, then opens its local workspace in a new window, with no SSH", async () => {
-    const f = fake();
+  it("checks the session, sets up SSH, then opens its studio window in a new window", async () => {
+    const f = fake({ global: "always" });
     await openSession(f.d, ID);
     expect(f.titles).toEqual([`Jam: opening ${ID}…`]);
-    expect(f.steps).toEqual(["checking the session", "opening the window"]);
-    expect(f.api.sessionHead).toHaveBeenCalledWith(ID);
-    expect(f.ui.localWorkspace).toHaveBeenCalledWith(ID);
+    expect(f.steps).toEqual(["checking the session", "setting up SSH for Ada", "opening the window"]);
+    expect(f.order).toEqual(["ssh", `open ${remoteUri(ID)}`]);
     expect(f.ui.openFolder).toHaveBeenCalledTimes(1);
-    expect(f.ui.openFolder).toHaveBeenCalledWith(local(ID));
-    expect(f.ssh).not.toHaveBeenCalled();
-    expect(f.ui.hasRemoteSsh).not.toHaveBeenCalled();
+    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID));
+    expect(f.ssh).toHaveBeenCalledWith(f.api, ID);
     expect(f.logs).toEqual([
       `[${ID}] checking the session`,
       `[${ID}] session found: Ada`,
+      `[${ID}] setting up SSH for Ada`,
+      `[${ID}] ssh ready: alias jam-${ID}`,
       `[${ID}] opening the window`,
-      `[${ID}] openFolder ${local(ID)}`,
+      `[${ID}] openFolder ${remoteUri(ID)}`,
       `[${ID}] openFolder returned`,
     ]);
   });
 
-  it("a connected session renews its SSH setup, then opens (focuses) its remote window", async () => {
-    const f = fake({ connected: [ID], global: "always" });
+  it("a session whose window is open: still one openFolder (VS Code focuses it), no connected-mark writes", async () => {
+    const f = fake({ global: "always", connected: [ID] });
     await openSession(f.d, ID);
-    expect(f.order).toEqual(["ssh", `open ${remoteUri(ID)}`]);
-    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID));
-    expect(f.ui.localWorkspace).not.toHaveBeenCalled();
-    expect(f.ssh).toHaveBeenCalledWith(f.api, ID);
-    expect(f.steps).toEqual(["checking the session", "setting up SSH for Ada", "opening the window"]);
-    expect(f.logs).toContain(`[${ID}] connected: opening its studio window`);
-  });
-
-  it.each([
-    ["the SSH setup fails", { sshErr: new Error("boom") }],
-    ["it can't be SSHed into", { head: { id: ID, label: "Ada", channel: "chn_1", ssh: "" } }],
-    ["Remote-SSH is missing", { remote: false }],
-  ])("a connected session: when %s, it clears the flag and opens the local window", async (_n, over) => {
-    const f = fake({ connected: [ID], ...over });
-    await openSession(f.d, ID);
-    expect(f.ui.setConnected).toHaveBeenCalledWith(ID, false);
-    expect(f.connected.has(ID)).toBe(false);
     expect(f.ui.openFolder).toHaveBeenCalledTimes(1);
-    expect(f.ui.openFolder).toHaveBeenCalledWith(local(ID));
-    expect(f.ui.error).not.toHaveBeenCalled();
-    expect(f.logs.some((l) => l.startsWith(`[${ID}] can't reconnect: `))).toBe(true);
+    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID));
+    expect(f.connected.has(ID)).toBe(true);
   });
 
-  it("a SignedOutError from a connected session's SSH setup propagates", async () => {
-    const f = fake({ connected: [ID], sshErr: new SignedOutError() });
-    await expect(openSession(f.d, ID)).rejects.toBeInstanceOf(SignedOutError);
+  it("can't SSH: error with the web app, no ssh, no window", async () => {
+    const f = fake({ head: { id: ID, label: "Ada", channel: "chn_1", ssh: "" } });
+    f.answers.error = "Open in the web app";
+    await openSession(f.d, ID);
+    expect(f.ui.error).toHaveBeenCalledWith("You can't SSH into Ada's studio (ask an operator to share it).", "Open in the web app");
+    expect(f.ui.openExternal).toHaveBeenCalledWith(`${URL_}/app/user/c/chn_1`);
+    expect(f.ssh).not.toHaveBeenCalled();
     expect(f.ui.openFolder).not.toHaveBeenCalled();
   });
 
-  it("a session you can't SSH into still opens locally", async () => {
-    const f = fake({ head: { id: ID, label: "Ada", channel: "chn_1", ssh: "" } });
+  it("a studio that isn't running (409) shows the cert message and opens nothing", async () => {
+    const f = fake({ sshErr: new ApiError("x", 409, "") });
     await openSession(f.d, ID);
-    expect(f.ui.error).not.toHaveBeenCalled();
-    expect(f.ui.openFolder).toHaveBeenCalledWith(local(ID));
+    expect(f.ui.error).toHaveBeenCalledWith(`studio ${ID} is not running`);
+    expect(f.ui.openFolder).not.toHaveBeenCalled();
   });
 
   it("not signed in runs sign-in first", async () => {
-    const f = fake();
+    const f = fake({ global: "always" });
     await openSession(f.d, ID);
     expect(f.signedIn).toHaveBeenCalledTimes(1);
     expect(f.signedIn.mock.invocationCallOrder[0]!).toBeLessThan(f.ui.openFolder.mock.invocationCallOrder[0]!);
@@ -149,7 +129,7 @@ describe("openSession", () => {
     expect(f.ui.error).toHaveBeenCalledWith("That isn't a Jam session link.");
     expect(f.signedIn).not.toHaveBeenCalled();
     expect(f.api.sessionHead).not.toHaveBeenCalled();
-    expect(f.ui.localWorkspace).not.toHaveBeenCalled();
+    expect(f.ssh).not.toHaveBeenCalled();
     expect(f.ui.openFolder).not.toHaveBeenCalled();
   });
 
@@ -159,7 +139,6 @@ describe("openSession", () => {
     await openSession(f.d, ID);
     expect(f.ui.error).toHaveBeenCalledWith("No such session, or you can't see it.", "Open in the web app");
     expect(f.ui.openExternal).toHaveBeenCalledWith("https://jam.example.com/app/user/");
-    expect(f.ui.localWorkspace).not.toHaveBeenCalled();
     expect(f.ui.openFolder).not.toHaveBeenCalled();
     expect(f.logs).toContain(`[${ID}] stopped: No such session, or you can't see it.`);
   });
@@ -175,68 +154,18 @@ describe("openSession", () => {
     await expect(openSession(f.d, ID)).rejects.toThrow("net down");
     expect(f.logs).toContain(`[${ID}] error: net down`);
   });
-});
-
-describe("connectStudio", () => {
-  it("runs the SSH steps, then reloads this window onto the remote (the remote window marks itself)", async () => {
-    const f = fake({ global: "always" });
-    await connectStudio(f.d, ID);
-    expect(f.titles).toEqual([`Jam: connecting ${ID}…`]);
-    expect(f.steps).toEqual(["checking the session", "setting up SSH for Ada", "connecting the window"]);
-    expect(f.ssh).toHaveBeenCalledWith(f.api, ID);
-    expect(f.order).toEqual(["ssh", `open ${remoteUri(ID)} reuse`]);
-    expect(f.ui.setConnected).not.toHaveBeenCalled();
-    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID), { reuse: true });
-    expect(f.logs).toEqual([
-      `[${ID}] checking the session`,
-      `[${ID}] session found: Ada`,
-      `[${ID}] setting up SSH for Ada`,
-      `[${ID}] ssh ready: alias jam-${ID}`,
-      `[${ID}] connecting the window`,
-      `[${ID}] openFolder ${remoteUri(ID)} (this window)`,
-      `[${ID}] openFolder returned`,
-    ]);
-  });
-
-  it.each(BAD_IDS)("bad id %j is refused before any call", async (id) => {
-    const f = fake();
-    await connectStudio(f.d, id);
-    expect(f.ui.error).toHaveBeenCalledWith("That isn't a Jam session link.");
-    expect(f.signedIn).not.toHaveBeenCalled();
-    expect(f.ssh).not.toHaveBeenCalled();
-    expect(f.ui.openFolder).not.toHaveBeenCalled();
-  });
-
-  it("empty ssh shows the reason and Open in the web app", async () => {
-    const f = fake({ head: { id: ID, label: "Ada", channel: "chn_1", ssh: "" } });
-    f.answers.error = "Open in the web app";
-    await connectStudio(f.d, ID);
-    expect(f.ui.error).toHaveBeenCalledWith("You can't SSH into Ada's studio (ask an operator to share it).", "Open in the web app");
-    expect(f.ui.openExternal).toHaveBeenCalledWith("https://jam.example.com/app/user/c/chn_1");
-    expect(f.ssh).not.toHaveBeenCalled();
-    expect(f.ui.openFolder).not.toHaveBeenCalled();
-    expect(f.ui.setConnected).not.toHaveBeenCalled();
-  });
-
-  it("404 offers the web app root", async () => {
-    const f = fake({ headErr: new ApiError("nope", 404, "not_found") });
-    f.answers.error = "Open in the web app";
-    await connectStudio(f.d, ID);
-    expect(f.ui.error).toHaveBeenCalledWith("No such session, or you can't see it.", "Open in the web app");
-    expect(f.ui.openFolder).not.toHaveBeenCalled();
-  });
 
   it("a SignedOutError from ssh propagates and is not shown", async () => {
     const f = fake({ sshErr: new SignedOutError() });
-    await expect(connectStudio(f.d, ID)).rejects.toBeInstanceOf(SignedOutError);
+    await expect(openSession(f.d, ID)).rejects.toBeInstanceOf(SignedOutError);
     expect(f.ui.error).not.toHaveBeenCalled();
     expect(f.ui.openFolder).not.toHaveBeenCalled();
   });
 
-  it("missing Remote-SSH offers Install and does not connect", async () => {
+  it("missing Remote-SSH offers Install and opens nothing", async () => {
     const f = fake({ remote: false });
     f.answers.error = "Install";
-    await connectStudio(f.d, ID);
+    await openSession(f.d, ID);
     expect(f.ui.error).toHaveBeenCalledWith("Connecting to a studio needs Microsoft's Remote - SSH extension.", "Install");
     expect(f.ui.installRemoteSsh).toHaveBeenCalled();
     expect(f.ui.openFolder).not.toHaveBeenCalled();
@@ -245,29 +174,28 @@ describe("connectStudio", () => {
 
   it("in VSCodium, missing Open Remote - SSH offers Install", async () => {
     const f = fake({ remote: false, scheme: "vscodium" });
-    await connectStudio(f.d, ID);
+    await openSession(f.d, ID);
     expect(f.ui.error).toHaveBeenCalledWith("Connecting to a studio needs jeanp413's Open Remote - SSH extension.", "Install");
   });
 
-  it("ssh error is shown and logged, and does not connect", async () => {
+  it("ssh error is shown and logged, and opens nothing", async () => {
     const f = fake({ sshErr: new Error("The jam CLI was not found.") });
-    await connectStudio(f.d, ID);
+    await openSession(f.d, ID);
     expect(f.ui.error).toHaveBeenCalledWith("The jam CLI was not found.");
     expect(f.logs).toContain(`[${ID}] stopped: The jam CLI was not found.`);
     expect(f.ui.openFolder).not.toHaveBeenCalled();
-    expect(f.ui.setConnected).not.toHaveBeenCalled();
   });
 
   it("a non-401 ApiError from ssh gets the cert message", async () => {
     const f = fake({ sshErr: new ApiError("x", 409, "") });
-    await connectStudio(f.d, ID);
+    await openSession(f.d, ID);
     expect(f.ui.error).toHaveBeenCalledWith(`studio ${ID} is not running`);
   });
 
   it("asks about localServerDownload once; Set it writes always globally", async () => {
     const f = fake({ global: "auto" });
     f.answers.info = "Set it";
-    await connectStudio(f.d, ID);
+    await openSession(f.d, ID);
     expect(f.ui.info).toHaveBeenCalledWith(
       "Jam studios can't download VS Code Server themselves. Set Remote-SSH's localServerDownload to 'always'?",
       "Set it",
@@ -278,23 +206,23 @@ describe("connectStudio", () => {
     expect(f.ui.openFolder).toHaveBeenCalledTimes(1);
     f.ui.getGlobal.mockReturnValue("auto");
     f.ui.info.mockClear();
-    await connectStudio(f.d, ID);
+    await openSession(f.d, ID);
     expect(f.ui.info).not.toHaveBeenCalled();
     expect(f.ui.openFolder).toHaveBeenCalledTimes(2);
   });
 
   it("in VSCodium, never asks about localServerDownload", async () => {
     const f = fake({ global: "auto", scheme: "vscodium" });
-    await connectStudio(f.d, ID);
+    await openSession(f.d, ID);
     expect(f.ui.info).not.toHaveBeenCalled();
     expect(f.ui.setGlobal).not.toHaveBeenCalled();
-    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID), { reuse: true });
+    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID));
   });
 
-  it("Not now still connects and is remembered", async () => {
+  it("Not now still opens and is remembered", async () => {
     const f = fake({ global: "auto" });
     f.answers.info = "Not now";
-    await connectStudio(f.d, ID);
+    await openSession(f.d, ID);
     expect(f.ui.setGlobal).not.toHaveBeenCalled();
     expect(f.ui.remember).toHaveBeenCalled();
     expect(f.ui.openFolder).toHaveBeenCalledTimes(1);
@@ -302,35 +230,28 @@ describe("connectStudio", () => {
 
   it("never asks when the value is already always", async () => {
     const f = fake({ global: "always" });
-    await connectStudio(f.d, ID);
+    await openSession(f.d, ID);
     expect(f.ui.info).not.toHaveBeenCalled();
-  });
-});
-
-describe("disconnectStudio", () => {
-  it("unmarks the session, then reloads this window onto its local workspace, with no API call", async () => {
-    const f = fake({ connected: [ID] });
-    await disconnectStudio(f.d, ID);
-    expect(f.order).toEqual([`unmark ${ID}`, `open ${local(ID)} reuse`]);
-    expect(f.ui.openFolder).toHaveBeenCalledWith(local(ID), { reuse: true });
-    expect(f.signedIn).not.toHaveBeenCalled();
-    expect(f.ssh).not.toHaveBeenCalled();
-    expect(f.logs).toEqual([`[${ID}] disconnecting: openFolder ${local(ID)} (this window)`]);
-  });
-
-  it.each(BAD_IDS)("bad id %j is refused", async (id) => {
-    const f = fake();
-    await disconnectStudio(f.d, id);
-    expect(f.ui.openFolder).not.toHaveBeenCalled();
-    expect(f.ui.setConnected).not.toHaveBeenCalled();
   });
 });
 
 describe("connectedSet", () => {
   const memo = () => {
     const m = new Map<string, unknown>();
-    return { m, st: { get: <T>(k: string) => m.get(k) as T | undefined, update: async (k: string, v: unknown) => void (v === undefined ? m.delete(k) : m.set(k, v)) } };
+    return { m, st: { get: <T>(k: string) => m.get(k) as T | undefined, update: async (k: string, v: unknown) => void (v === undefined ? m.delete(k) : m.set(k, v)), keys: () => [...m.keys()] } };
   };
+
+  it("list() is the sessions with a fresh mark only", async () => {
+    const { m, st } = memo();
+    const ID2 = "ses_1abcdefghjkmnpqrstvwxyz012";
+    const now = 1_000_000;
+    const c = connectedSet(st, () => now);
+    await c.setConnected(ID, true);
+    m.set(`jam.connected.${ID2}`, now - CONNECTED_STALE_MS - 1);
+    m.set("jam.connected.ses_x", now);
+    m.set("jam.other", now);
+    expect(c.list()).toEqual([ID]);
+  });
 
   it("keeps one key per session, jam.connected.<id>, holding the time it was marked, ignoring junk", async () => {
     const { m, st } = memo();
@@ -371,50 +292,117 @@ describe("connectedSet", () => {
   });
 });
 
-describe("windowKind", () => {
-  const DIR = "/gs/sessions";
-  const SD = { scheme: "file", path: DIR };
-  const file = (path: string, scheme = "file") => ({ scheme, authority: "", path });
-  it.each([
-    ["a session workspace file", { workspaceFile: file(`${DIR}/${ID}.code-workspace`) }, { kind: "local", id: ID }],
-    ["a jam remote folder", { workspaceFolders: [{ uri: { scheme: "vscode-remote", authority: `ssh-remote+jam-${ID}`, path: "/home/agent/workspace" } }] }, { kind: "remote", id: ID }],
-    ["the same name elsewhere", { workspaceFile: file(`/elsewhere/sessions/${ID}.code-workspace`) }, undefined],
-    ["a lookalike parent", { workspaceFile: file(`${DIR}/x/${ID}.code-workspace`) }, undefined],
-    ["a lookalike dir prefix", { workspaceFile: file(`${DIR}-evil/${ID}.code-workspace`) }, undefined],
-    ["a non-session workspace", { workspaceFile: file(`/home/u/proj.code-workspace`) }, undefined],
-    ["a bad id", { workspaceFile: file(`${DIR}/ses_x.code-workspace`) }, undefined],
-    ["another scheme than the sessions dir's", { workspaceFile: file(`${DIR}/${ID}.code-workspace`, "untitled") }, undefined],
-    ["a local folder", { workspaceFolders: [{ uri: file("/home/u/proj") }] }, undefined],
-    ["an empty window", {}, undefined],
-  ])("%s", (_n, w, want) => {
-    expect(windowKind(w, SD, "linux")).toEqual(want);
+describe("goTo", () => {
+  const CHN = "chn_0abcdefghjkmnpqrstvwxyz012";
+  const A = "https://a.example";
+  const B = "https://b.example";
+  const deps = (o: { connected?: boolean; hub?: boolean; own?: string } = {}) => {
+    const calls: string[] = [];
+    return {
+      calls,
+      d: {
+        windowJam: A,
+        isConnected: (id: string) => (calls.push(`isConnected ${id}`), o.connected ?? false),
+        openSession: async (id: string) => void calls.push(`openSession ${id}`),
+        focusStudio: async (id: string) => void calls.push(`focusStudio ${id}`),
+        isHub: o.hub ?? false,
+        ownSession: o.own,
+        openTab: (c: string) => void calls.push(`openTab ${c}`),
+        writePending: async (jam: string, p: { channel: string; at: number }) => void calls.push(`pending ${jam} ${p.channel} ${p.at}`),
+        openHub: async (jam: string) => void calls.push(`openHub ${jam}`),
+        now: () => 5,
+      },
+    };
+  };
+  it("a session with an open window: openSession only", async () => {
+    const f = deps({ connected: true });
+    await goTo(f.d, A, CHN, ID);
+    expect(f.calls).toEqual([`isConnected ${ID}`, `openSession ${ID}`]);
   });
-  it("matches a sessions dir in vscode-userdata (globalStorageUri's scheme on newer VS Code)", () => {
-    const ud = { scheme: "vscode-userdata", path: DIR };
-    expect(windowKind({ workspaceFile: file(`${DIR}/${ID}.code-workspace`, "vscode-userdata") }, ud, "linux")).toEqual({ kind: "local", id: ID });
-    expect(windowKind({ workspaceFile: file(`${DIR}/${ID}.code-workspace`) }, ud, "linux")).toBeUndefined();
+  it("another Jam's session with an open window: focus that window (no sign-in here)", async () => {
+    const f = deps({ connected: true });
+    await goTo(f.d, B, CHN, ID);
+    expect(f.calls).toEqual([`isConnected ${ID}`, `focusStudio ${ID}`]);
   });
-  it("matches case-insensitively on darwin and win32 (drive letter too), but not on linux", () => {
-    const w = { workspaceFile: file(`/Users/Ada/Library/Application Support/Code/User/globalStorage/aethons.jam/sessions/${ID}.code-workspace`) };
-    const dir = "/users/ada/library/application support/code/user/globalstorage/aethons.jam/sessions/";
-    expect(windowKind(w, { scheme: "file", path: dir }, "darwin")).toEqual({ kind: "local", id: ID });
-    expect(windowKind(w, { scheme: "file", path: dir }, "linux")).toBeUndefined();
-    const win = { workspaceFile: file(`/C:/Users/Ada/AppData/Roaming/Code/User/globalStorage/aethons.jam/sessions/${ID}.code-workspace`) };
-    expect(windowKind(win, { scheme: "file", path: "/c:/users/ada/appdata/roaming/code/user/globalstorage/aethons.jam/sessions" }, "win32")).toEqual({ kind: "local", id: ID });
-    // The id itself is never case-folded.
-    const upper = { workspaceFile: file(`${dir}${ID.toUpperCase()}.code-workspace`) };
-    expect(windowKind(upper, { scheme: "file", path: dir }, "darwin")).toBeUndefined();
-    // Lookalikes stay rejected.
-    expect(windowKind({ workspaceFile: file(`/Users/Ada/sessions/${ID}.code-workspace`) }, { scheme: "file", path: dir }, "darwin")).toBeUndefined();
-    expect(windowKind({ workspaceFile: file(`${dir}x/${ID}.code-workspace`) }, { scheme: "file", path: dir }, "darwin")).toBeUndefined();
+  it("in the hub: its tab", async () => {
+    const f = deps({ hub: true });
+    await goTo(f.d, A, CHN, ID);
+    expect(f.calls).toEqual([`isConnected ${ID}`, `openTab ${CHN}`]);
+    const g = deps({ hub: true });
+    await goTo(g.d, A, CHN, "");
+    expect(g.calls).toEqual([`openTab ${CHN}`]);
+  });
+  it("in Jam A's hub, Jam B's conversation goes to B's hub", async () => {
+    const f = deps({ hub: true });
+    await goTo(f.d, B, CHN, "");
+    expect(f.calls).toEqual([`pending ${B} ${CHN} 5`, `openHub ${B}`]);
+  });
+  it("a studio window's own session: its own tab, not openSession", async () => {
+    const f = deps({ connected: true, own: ID });
+    await goTo(f.d, A, CHN, ID);
+    expect(f.calls).toEqual([`openTab ${CHN}`]);
+  });
+  it("elsewhere: pending first, then the hub", async () => {
+    const f = deps();
+    await goTo(f.d, A, CHN, "");
+    expect(f.calls).toEqual([`pending ${A} ${CHN} 5`, `openHub ${A}`]);
   });
 });
 
-describe("statusBarItem", () => {
-  it("Connect in a local session window, Disconnect in a remote one, nothing elsewhere", () => {
-    expect(statusBarItem({ kind: "local", id: ID })).toEqual({ text: "$(plug) Connect studio", command: "jam.connectStudio", tooltip: "Jam: connect this window to the session's studio over Remote-SSH" });
-    expect(statusBarItem({ kind: "remote", id: ID })).toEqual({ text: "$(debug-disconnect) Disconnect studio", command: "jam.disconnectStudio", tooltip: "Jam: disconnect from the studio so it can idle" });
-    expect(statusBarItem(undefined)).toBeUndefined();
+describe("readPending", () => {
+  const CHN = "chn_0abcdefghjkmnpqrstvwxyz012";
+  it("a fresh, valid entry is its channel", () => {
+    expect(readPending(JSON.stringify({ channel: CHN, at: 1000 }), 1000 + PENDING_MAX_MS)).toBe(CHN);
+    expect(readPending(JSON.stringify({ channel: "legacy:dm:a", at: 1000 }), 1000)).toBe("legacy:dm:a");
+  });
+  it("stale, junk or bad entries are nothing", () => {
+    expect(readPending(JSON.stringify({ channel: CHN, at: 1000 }), 1001 + PENDING_MAX_MS)).toBeUndefined();
+    for (const raw of [undefined, "", "{", "[]", JSON.stringify({ channel: "chn_x", at: 1 }), JSON.stringify({ channel: CHN }), JSON.stringify({ channel: CHN, at: "1" })]) {
+      expect(readPending(raw, 1)).toBeUndefined();
+    }
+  });
+});
+
+describe("windowKind", () => {
+  const DIR = "/gs/hub";
+  const HD = { scheme: "file", path: DIR };
+  const HUB = hubFileFor("https://jam.example.com");
+  const file = (path: string, scheme = "file") => ({ scheme, authority: "", path });
+  it.each([
+    ["a hub file", { workspaceFile: file(`${DIR}/${HUB}`) }, { kind: "hub", file: HUB }],
+    ["a jam remote folder", { workspaceFolders: [{ uri: { scheme: "vscode-remote", authority: `ssh-remote+jam-${ID}`, path: "/home/agent/workspace" } }] }, { kind: "session", id: ID }],
+    ["another workspace in the hub dir", { workspaceFile: file(`${DIR}/Other.code-workspace`) }, undefined],
+    ["the hub name elsewhere", { workspaceFile: file(`/elsewhere/hub/${HUB}`) }, undefined],
+    ["a lookalike dir prefix", { workspaceFile: file(`${DIR}-evil/${HUB}`) }, undefined],
+    ["another scheme", { workspaceFile: file(`${DIR}/${HUB}`, "untitled") }, undefined],
+    ["an empty window", {}, undefined],
+  ])("%s", (_n, w, want) => {
+    expect(windowKind(w, HD, "linux")).toEqual(want);
+  });
+  it("matches a case-folded hub dir on darwin and win32, not on linux", () => {
+    const w = { workspaceFile: file(`/Users/Ada/Code/hub/${HUB}`) };
+    expect(windowKind(w, { scheme: "file", path: "/users/ada/code/hub/" }, "darwin")).toEqual({ kind: "hub", file: HUB });
+    expect(windowKind(w, { scheme: "file", path: "/users/ada/code/hub/" }, "linux")).toBeUndefined();
+  });
+});
+
+describe("windowJam", () => {
+  const A = "https://a.example";
+  const B = "https://b.example";
+  const none = { studioJam: () => undefined, chosen: undefined };
+  it("a hub is its file's Jam, or none when that Jam isn't listed", () => {
+    expect(windowJam({ kind: "hub", file: hubFileFor(B) }, [A, B], none)).toBe(B);
+    expect(windowJam({ kind: "hub", file: hubFileFor("https://c.example") }, [A, B], none)).toBeUndefined();
+  });
+  it("a studio window is its recorded Jam (if listed), else the default", () => {
+    expect(windowJam({ kind: "session", id: ID }, [A, B], { studioJam: () => B, chosen: undefined })).toBe(B);
+    expect(windowJam({ kind: "session", id: ID }, [A, B], none)).toBe(A);
+    expect(windowJam({ kind: "session", id: ID }, [A], { studioJam: () => B, chosen: undefined })).toBe(A);
+  });
+  it("an ordinary window is its chosen Jam if listed, else the default", () => {
+    expect(windowJam(undefined, [A, B], { studioJam: () => undefined, chosen: B })).toBe(B);
+    expect(windowJam(undefined, [A], { studioJam: () => undefined, chosen: B })).toBe(A);
+    expect(windowJam(undefined, [], none)).toBeUndefined();
   });
 });
 
@@ -439,7 +427,7 @@ describe("pickSession", () => {
     expect(items.map((i) => i.label)).toEqual(["$(bell) A", "B"]);
     expect(items[0]).toMatchObject({ description: "p", detail: "m" });
     expect(f.api.conversation).toHaveBeenCalledWith("chn_a");
-    expect(f.ui.openFolder).toHaveBeenCalledWith(local(ID));
+    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID));
   });
 
   it("with no session on the conversation shows the message", async () => {

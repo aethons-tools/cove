@@ -1,4 +1,4 @@
-// The extension's two settings, both application-scoped (package.json) so a
+// The extension's settings, all application-scoped (package.json) so a
 // workspace's .vscode/settings.json can't point the token at another Jam or
 // run another binary.
 
@@ -22,7 +22,12 @@ export function normalizeJamUrl(raw: string): string | Error {
 }
 
 // settings reads the extension's settings through get (the "jam" section's
-// getter).
-export function settings(get: (key: string) => string | undefined): { url: string | Error; cliPath: string } {
-  return { url: normalizeJamUrl(get("url") ?? ""), cliPath: (get("cliPath") ?? "").trim() };
+// getter). urls is jam.urls as stored: jams.ts's jamList checks it.
+export function settings(get: (key: string) => unknown): { url: string | Error; cliPath: string; urls: unknown[] } {
+  const str = (k: string) => {
+    const v = get(k);
+    return typeof v === "string" ? v : "";
+  };
+  const urls = get("urls");
+  return { url: normalizeJamUrl(str("url")), cliPath: str("cliPath").trim(), urls: Array.isArray(urls) ? urls : [] };
 }

@@ -5,13 +5,13 @@ import * as vscode from "vscode";
 import { activate } from "../src/extension";
 import { fakeContext, mock } from "./vscode";
 
-const NAMES = ["conversation", "thinking", "previews", "status", "artifacts"];
 const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8"));
 
 describe("the manifest", () => {
-  it("scopes both settings to the application, so a workspace can't set them (Review Focus 1)", () => {
+  it("scopes every setting to the application, so a workspace can't set them (Review Focus 1)", () => {
     const props = pkg.contributes.configuration.properties;
-    expect(Object.keys(props).sort()).toEqual(["jam.cliPath", "jam.url"]);
+    expect(Object.keys(props).sort()).toEqual(["jam.cliPath", "jam.url", "jam.urls"]);
+    expect(props["jam.urls"].scope).toBe("application");
     for (const k of ["jam.url", "jam.cliPath"]) {
       expect(props[k].scope).toBe("application");
       expect(props[k].type).toBe("string");
@@ -26,7 +26,7 @@ describe("the manifest", () => {
     expect(pkg.displayName).toBe("Jam");
     expect(pkg.engines.vscode).toBe("^1.105.0");
     expect(pkg.main).toBe("./dist/extension.js");
-    expect(pkg.activationEvents).toEqual(["onUri", "onWebviewPanel:jam.board", "onStartupFinished"]);
+    expect(pkg.activationEvents).toEqual(["onUri", "onWebviewPanel:jam.board", "onWebviewPanel:jam.conversationTab", "onStartupFinished"]);
   });
 
   it("activationEvents include onStartupFinished", () => {
@@ -39,7 +39,7 @@ describe("the manifest", () => {
     const registered = vi_registered();
     const ids = pkg.contributes.commands.map((c: { command: string }) => c.command);
     expect(ids.sort()).toEqual(
-      ["jam.connectStudio", "jam.disconnectStudio", "jam.focusSession", "jam.forgetHostKey", "jam.needsYou.open", "jam.openSession", "jam.signIn", "jam.signOut", ...NAMES.flatMap((n) => [`jam.${n}.pin`, `jam.${n}.unpin`])].sort(),
+      ["jam.addJam", "jam.forgetHostKey", "jam.openHub", "jam.openSession", "jam.signIn", "jam.signOut", "jam.switchJam"],
     );
     for (const id of ids) expect(registered).toContain(id);
   });
@@ -52,56 +52,37 @@ describe("the manifest", () => {
     expect(pkg.icon).toBe("media/icon.png");
     expect(pkg.contributes.views).toEqual({
       jam: [
-        { type: "webview", id: "jam.conversation", name: "Conversation" },
-        { type: "webview", id: "jam.status", name: "Session Status" },
-        { type: "webview", id: "jam.artifacts", name: "Artifacts", visibility: "collapsed" },
-        { type: "webview", id: "jam.previews", name: "Previews", visibility: "collapsed" },
-        { id: "jam.needsYou", name: "Needs You", visibility: "collapsed" },
+        { type: "webview", id: "jam.rail", name: "Conversations" },
+        { type: "webview", id: "jam.status", name: "Session Status", when: "jam.window == session || jam.window == hub" },
+        { type: "webview", id: "jam.artifacts", name: "Artifacts", visibility: "collapsed", when: "jam.window == session || jam.window == hub" },
+        { type: "webview", id: "jam.previews", name: "Previews", visibility: "collapsed", when: "jam.window == session || jam.window == hub" },
       ],
-      jamPanel: [{ type: "webview", id: "jam.thinking", name: "Thinking" }],
+      jamPanel: [{ type: "webview", id: "jam.thinking", name: "Thinking", when: "jam.window == session || jam.window == hub" }],
     });
-    const cmd = (id: string) => pkg.contributes.commands.find((c: { command: string }) => c.command === id);
-    expect(cmd("jam.focusSession")).toMatchObject({ title: "Focus Session…", category: "Jam" });
-    expect(cmd("jam.connectStudio")).toEqual({ command: "jam.connectStudio", title: "Connect to Studio", category: "Jam" });
-    expect(cmd("jam.disconnectStudio")).toEqual({ command: "jam.disconnectStudio", title: "Disconnect Studio", category: "Jam" });
-    for (const n of NAMES) {
-      expect(cmd(`jam.${n}.pin`)).toEqual({ command: `jam.${n}.pin`, title: "Pin to This Session", icon: "$(pin)" });
-      expect(cmd(`jam.${n}.unpin`)).toEqual({ command: `jam.${n}.unpin`, title: "Follow the Window's Session", icon: "$(pinned)" });
-    }
   });
 
-  it("jam.needsYou is a collapsed tree view in the jam container, with two welcome entries", () => {
-    const v = pkg.contributes.views.jam.find((x: { id: string }) => x.id === "jam.needsYou");
-    expect(v).toEqual({ id: "jam.needsYou", name: "Needs You", visibility: "collapsed" });
-    expect(pkg.contributes.views.jam.at(-1)).toBe(v);
-    expect(v.type).toBeUndefined();
-    expect(pkg.contributes.viewsWelcome).toEqual([
-      { view: "jam.needsYou", contents: "Sign in to Jam to see what needs you.\n[Sign In](command:jam.signIn)", when: "!jam.signedIn" },
-      { view: "jam.needsYou", contents: "Nothing needs you right now.", when: "jam.signedIn" },
-    ]);
-    expect(pkg.contributes.menus.commandPalette).toContainEqual({ command: "jam.needsYou.open", when: "false" });
+  it("jam.urls is an application-scoped list of more Jams", () => {
+    expect(pkg.contributes.configuration.properties["jam.urls"]).toEqual({
+      type: "array",
+      items: { type: "string" },
+      default: [],
+      scope: "application",
+      markdownDescription: expect.any(String),
+    });
   });
 
-  it("the ten pin commands: pin only with a session and unpinned, unpin only when pinned, none in the palette", () => {
-    expect(pkg.contributes.menus["view/title"]).toEqual(
-      NAMES.flatMap((n) => [
-        { command: `jam.${n}.pin`, when: `view == jam.${n} && jam.${n}.hasSession && !jam.${n}.pinned`, group: "navigation" },
-        { command: `jam.${n}.unpin`, when: `view == jam.${n} && jam.${n}.pinned`, group: "navigation" },
-      ]),
-    );
-    expect(pkg.contributes.menus.commandPalette).toEqual([
-      ...NAMES.flatMap((n) => [
-        { command: `jam.${n}.pin`, when: "false" },
-        { command: `jam.${n}.unpin`, when: "false" },
-      ]),
-      { command: "jam.needsYou.open", when: "false" },
-      { command: "jam.connectStudio", when: "jam.window == local" },
-      { command: "jam.disconnectStudio", when: "jam.window == remote" },
-    ]);
+  it("Open Hub is a Jam command", () => {
+    expect(pkg.contributes.commands).toContainEqual({ command: "jam.openHub", title: "Open Hub", category: "Jam" });
   });
 
-  // The activity bar and panel tint their icon, so jam.svg is the J mark in
-  // currentColor; jam-color.svg (board tabs) is the brand mark, j-logo-plain.svg.
+  it("the palette shows Switch Jam only with several Jams; no view welcome", () => {
+    expect(pkg.contributes.menus).toEqual({
+      commandPalette: [{ command: "jam.switchJam", when: "jam.multiJam" }],
+      "view/title": [{ command: "jam.switchJam", when: "view == jam.rail && jam.multiJam && jam.window == ''", group: "navigation" }],
+    });
+    expect(pkg.contributes.commands).toContainEqual({ command: "jam.switchJam", title: "Switch Jam…", category: "Jam", icon: "$(arrow-swap)" });
+    expect(pkg.contributes.viewsWelcome).toBeUndefined();
+  });
   it("media/jam.svg is the J mark, monochrome", () => {
     const svg = readFileSync(join(__dirname, "..", "media", "jam.svg"), "utf8");
     expect(svg).toContain('viewBox="0 0 144 144"');

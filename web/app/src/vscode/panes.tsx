@@ -21,15 +21,15 @@ const padded = { padding: "8px 12px 14px" };
 // (it ended, or the viewer lost it): then the gone copy, and it stops polling.
 // It reads useSessionHead's query (same key and fetch) with its own observer, so
 // the web app's poll is unchanged.
-export function SessionGate({ session, name, onFocus, children }: {
-  session: string; name: SessionPaneName; onFocus: () => void; children: ReactNode;
+export function SessionGate({ session, name, children }: {
+  session: string; name: SessionPaneName; children: ReactNode;
 }): JSX.Element {
   const head = useQuery<SessionHead, ApiError>({
     queryKey: ["session", session],
     queryFn: () => apiGet<SessionHead>(`sessions/${encodeURIComponent(session)}`),
     refetchInterval: (q) => (q.state.error?.code === "not_found" ? false : POLL_MS),
   });
-  if (head.error?.code === "not_found") return <Copy text={copyFor(name).gone} action="Focus a session…" onClick={onFocus} />;
+  if (head.error?.code === "not_found") return <Copy text={copyFor(name).gone} />;
   return <>{children}</>;
 }
 

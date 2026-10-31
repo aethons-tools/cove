@@ -151,18 +151,18 @@ func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 			b = bucketHistory
 		}
 		byBucket[b] = append(byBucket[b], ChannelRow{
-			ID:       ch.ID,
-			Label:    ch.Label,
-			Project:  ch.Project,
-			Kind:     ch.Kind,
-			NeedsYou: ch.NeedsYou,
-			Phase:    ch.Phase,
-			Unread:   ch.Unread,
-			OpenAsks: ch.OpenAsks,
-			LastSeq:  ch.LastSeq,
-			Selected: ch.ID == selectedID,
-			Mission:  ch.Mission,
-			session:  ch.CardSession,
+			ID:          ch.ID,
+			Label:       ch.Label,
+			Project:     ch.Project,
+			Kind:        ch.Kind,
+			NeedsYou:    ch.NeedsYou,
+			Phase:       ch.Phase,
+			Unread:      ch.Unread,
+			OpenAsks:    ch.OpenAsks,
+			LastSeq:     ch.LastSeq,
+			Selected:    ch.ID == selectedID,
+			Mission:     ch.Mission,
+			cardSession: ch.CardSession,
 		})
 	}
 	var groups []RailGroup

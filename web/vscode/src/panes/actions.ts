@@ -7,7 +7,10 @@ export type ActionDeps = {
   asExternalUri: (url: string) => Promise<string>;
   openBoard: (id: string) => void;
   openSession: (id: string) => unknown;
-  scrollConversation: (anchor: string) => void;
+  // goTo is a rail row's click: the session's window if open, else the conversation.
+  goTo: (channel: string, session: string) => unknown;
+  // revealConversation shows the window's conversation tab, scrolled to anchor.
+  revealConversation: (anchor: string | null) => unknown;
   error: (message: string) => void;
 };
 
@@ -16,13 +19,11 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 export async function perform(a: IntentAction, d: ActionDeps): Promise<void> {
   try {
     if ("openExternal" in a) await d.openExternal(a.openExternal);
-    else if ("command" in a) await d.executeCommand(a.command);
     else if ("openBoard" in a) d.openBoard(a.openBoard);
     else if ("openSession" in a) await d.openSession(a.openSession);
-    else if ("revealConversation" in a) {
-      await d.executeCommand("jam.conversation.focus");
-      if (a.revealConversation) d.scrollConversation(a.revealConversation);
-    } else await forward(a, d);
+    else if ("goTo" in a) await d.goTo(a.goTo.channel, a.goTo.session);
+    else if ("revealConversation" in a) await d.revealConversation(a.revealConversation);
+    else await forward(a, d);
   } catch (e) {
     d.error(message(e));
   }

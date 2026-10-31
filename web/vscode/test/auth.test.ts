@@ -8,7 +8,7 @@ const URL_ = "https://jam.example.com";
 
 async function setup(
   exchange: () => Response = () => Response.json({ token: "tok1", expires_at: "2027-01-01T00:00:00Z", user: "ann" }),
-  o: { tokenFile?: string; deleteFails?: boolean; uriScheme?: string } = {},
+  o: { tokenFile?: string; deleteFails?: boolean; uriScheme?: string; key?: string } = {},
 ) {
   const store = new Map<string, string>();
   const secrets = {
@@ -27,6 +27,7 @@ async function setup(
     openExternal: async (u) => (opened.push(u), true),
     fetch: fetchFn as unknown as typeof fetch,
     uriScheme: o.uriScheme ?? "vscode",
+    ...(o.key ? { key: o.key } : {}),
     hostname: "host",
     tokenFile,
   });
@@ -40,6 +41,17 @@ beforeEach(() => void vi.useFakeTimers());
 afterEach(() => void vi.useRealTimers());
 
 describe("Auth", () => {
+  it("a custom key stores and reads its own secret", async () => {
+    const t = await setup(undefined, { key: "jam.session:https://b" });
+    const p = t.auth.signIn(URL_);
+    await tick();
+    t.auth.handleCallback(new URLSearchParams({ code: "c1", state: t.stateOf() }));
+    await p;
+    expect([...t.store.keys()]).toEqual(["jam.session:https://b"]);
+    expect(await t.auth.session(URL_)).toMatchObject({ token: "tok1" });
+    await t.auth.signOut();
+    expect(t.store.size).toBe(0);
+  });
   it("names VSCodium as the client in VSCodium", async () => {
     const t = await setup(undefined, { uriScheme: "vscodium" });
     void t.auth.signIn(URL_).catch(() => {});

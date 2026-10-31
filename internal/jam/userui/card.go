@@ -82,16 +82,16 @@ func (h *handler) card(inst jam.Instance) (SessionCard, bool) {
 	return c, ok
 }
 
-// attachCards gives each rail row backed by a session (ChannelRow.session)
+// attachCards gives each rail row backed by a session (ChannelRow.cardSession)
 // that session's card.
 func (h *handler) attachCards(groups []RailGroup) {
 	for gi := range groups {
 		for ri := range groups[gi].Rows {
 			r := &groups[gi].Rows[ri]
-			if r.session == "" {
+			if r.cardSession == "" {
 				continue
 			}
-			if inst, ok := h.d.Store.GetInstance(r.session); ok {
+			if inst, ok := h.d.Store.GetInstance(r.cardSession); ok {
 				if c, ok := h.card(inst); ok {
 					r.Card = &c
 				}

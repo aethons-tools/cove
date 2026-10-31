@@ -70,7 +70,7 @@ export class BoardPanels {
       state: async () => {
         const url = this.d.jamUrl();
         const signedIn = !(url instanceof Error) && (await this.d.auth.session(url)) !== undefined;
-        return { signedIn, target: null, pinned: false, elsewhere: false };
+        return { signedIn, target: null };
       },
       onTitle: (t) => {
         panel.title = tabTitle(t);

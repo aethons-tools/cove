@@ -24,13 +24,14 @@ describe("normalizeJamUrl", () => {
 
 describe("settings", () => {
   it("reads jam.url and jam.cliPath", () => {
-    const vals: Record<string, string> = { url: "https://jam.example.com/", cliPath: "/usr/local/bin/jam" };
-    expect(settings((k) => vals[k])).toEqual({ url: "https://jam.example.com", cliPath: "/usr/local/bin/jam" });
+    const vals: Record<string, unknown> = { url: "https://jam.example.com/", cliPath: "/usr/local/bin/jam", urls: ["https://b.example"] };
+    expect(settings((k) => vals[k])).toEqual({ url: "https://jam.example.com", cliPath: "/usr/local/bin/jam", urls: ["https://b.example"] });
   });
 
   it("defaults to unset", () => {
     const s = settings(() => undefined);
     expect(s.url).toBeInstanceOf(Error);
     expect(s.cliPath).toBe("");
+    expect(s.urls).toEqual([]);
   });
 });

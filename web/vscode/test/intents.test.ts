@@ -19,8 +19,27 @@ describe("intentAction", () => {
     { kind: "web", path: "/me/studios/x" },
     { kind: "web", path: "/app/user/../../me" },
     { kind: "nope" } as unknown as OpenIntent,
+    { kind: "go", channel: BRD, session: "" },
+    { kind: "go", channel: CHN, session: "ses_x" },
+    { kind: "go", channel: CHN, session: 3 } as unknown as OpenIntent,
+    { kind: "go", channel: 3, session: "" } as unknown as OpenIntent,
   ];
   for (const i of errs) it(`refuses ${JSON.stringify(i)}`, () => expect(intentAction(i, JAM)).toBeInstanceOf(Error));
+
+  it("go accepts a History (legacy:) row with no session, and refuses odd ones", () => {
+    const LEG = "legacy:dm:ann:bob";
+    expect(intentAction({ kind: "go", channel: LEG, session: "" }, JAM)).toEqual({ goTo: { channel: LEG, session: "" } });
+    for (const channel of ["legacy:", "legacy:a b", "legacy:a\n", `legacy:${"x".repeat(257)}`]) {
+      expect(intentAction({ kind: "go", channel, session: "" }, JAM)).toBeInstanceOf(Error);
+    }
+    expect(intentAction({ kind: "go", channel: LEG, session: "ses_0abcdefghjkmnpqrstvwxyz012" }, JAM)).toBeInstanceOf(Error);
+  });
+
+  it("go keeps a valid channel and session (or none)", () => {
+    const SES = "ses_0abcdefghjkmnpqrstvwxyz012";
+    expect(intentAction({ kind: "go", channel: CHN, session: SES }, JAM)).toEqual({ goTo: { channel: CHN, session: SES } });
+    expect(intentAction({ kind: "go", channel: CHN, session: "" }, JAM)).toEqual({ goTo: { channel: CHN, session: "" } });
+  });
 
   it("maps the allowed ones", () => {
     expect(intentAction({ kind: "external", url: "https://a.example/b" }, JAM)).toEqual({ openExternal: "https://a.example/b" });
@@ -28,7 +47,7 @@ describe("intentAction", () => {
     expect(intentAction({ kind: "board", id: BRD }, JAM)).toEqual({ openBoard: BRD });
     expect(intentAction({ kind: "conversation", channel: CHN }, JAM)).toEqual({ openExternal: `${JAM}/app/user/c/${CHN}` });
     expect(intentAction({ kind: "web", path: "/app/user/settings" }, JAM)).toEqual({ openExternal: `${JAM}/app/user/settings` });
-    expect(intentAction({ kind: "focusSession" }, JAM)).toEqual({ command: "jam.focusSession" });
+    expect(intentAction({ kind: "focusSession" } as never, JAM)).toEqual(new Error("Unknown intent."));
   });
 
   const W = "ses_0abcdefghjkmnpqrstvwxyz012";

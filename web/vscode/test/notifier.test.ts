@@ -28,8 +28,7 @@ function setup(o: { focused?: boolean; claim?: boolean; answer?: string; admit?:
       toasts.push([kind, m, a]);
       return Promise.resolve(o.answer);
     }),
-    openSession: vi.fn(),
-    openExternal: vi.fn(),
+    goTo: vi.fn(),
     log: vi.fn(),
   } satisfies NotifierDeps;
   return { d, n: new Notifier({ ...d, ...extra }), shown, toasts, claim, admit };
@@ -43,7 +42,13 @@ describe("Notifier", () => {
     expect(claim).toHaveBeenCalledWith("sqk_1", false);
     expect(toasts).toEqual([["messages", "Alice · build-bot: done?", "Open"]]);
     expect(shown).toHaveLength(1);
-    expect(shown[0]).toMatchObject({ title: "Alice · build-bot", body: "done?", link: `vscode://aethons.jam/session/${SES}`, group: CHN });
+    expect(shown[0]).toMatchObject({ title: "Alice · build-bot", body: "done?", link: `vscode://aethons.jam/go/${CHN}?session=${SES}`, group: CHN });
+  });
+
+  it("another Jam's notifier links with its Jam", async () => {
+    const { n, shown } = setup({}, { linkJam: "https://b" });
+    await n.handle(ev());
+    expect(shown[0]!.link).toBe(`vscode://aethons.jam/go/${CHN}?session=${SES}&jam=https%3A%2F%2Fb`);
   });
 
   it("focused: a toast and no OS notification (Review Focus 1)", async () => {
@@ -67,38 +72,33 @@ describe("Notifier", () => {
     expect(toasts[0]![0]).toBe("needs");
   });
 
-  it("Open on a session opens its code window; on a chat opens the web app", async () => {
+  it("Open goes to the conversation (its window, else the hub)", async () => {
     const a = setup({ answer: "Open", focused: true });
     await a.n.handle(ev());
     await settle();
-    expect(a.d.openSession).toHaveBeenCalledWith(SES);
-    expect(a.d.openExternal).not.toHaveBeenCalled();
+    expect(a.d.goTo).toHaveBeenCalledWith(CHN, SES);
 
     const b = setup({ answer: "Open", focused: true });
     await b.n.handle(ev({ session: "" }));
     await settle();
-    expect(b.d.openExternal).toHaveBeenCalledWith(`${JAM}/app/user/c/${CHN}`);
-    expect(b.d.openSession).not.toHaveBeenCalled();
+    expect(b.d.goTo).toHaveBeenCalledWith(CHN, "");
 
     const c = setup({ focused: true });
     await c.n.handle(ev());
     await settle();
-    expect(c.d.openSession).not.toHaveBeenCalled();
+    expect(c.d.goTo).not.toHaveBeenCalled();
   });
 
-  it("an OS click (onClick) opens the same target", async () => {
+  it("an OS click (onClick) goes to the same target", async () => {
     const a = setup();
     await a.n.handle(ev());
     a.shown[0]!.onClick();
     await settle();
-    expect(a.d.openSession).toHaveBeenCalledWith(SES);
+    expect(a.d.goTo).toHaveBeenCalledWith(CHN, SES);
 
     const b = setup();
     await b.n.handle(ev({ session: "" }));
-    expect(b.shown[0]!.link).toBe(`${JAM}/app/user/c/${CHN}`);
-    b.shown[0]!.onClick();
-    await settle();
-    expect(b.d.openExternal).toHaveBeenCalledWith(`${JAM}/app/user/c/${CHN}`);
+    expect(b.shown[0]!.link).toBe(`vscode://aethons.jam/go/${CHN}`);
   });
 
   it("does not wait for the toast or the OS notification", async () => {

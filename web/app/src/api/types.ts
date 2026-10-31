@@ -73,6 +73,15 @@ export interface ChannelRow {
   selected: boolean;
   mission: string; // the backing session's mission (its end goal); "" = none
   /**
+   * Session is the actor id of the session whose home this channel is,
+   * when the viewer may see it ("" = none), as api/conversations reports it.
+   */
+  session: string;
+  /**
+   * SSH reports whether the viewer may SSH into Session's studio.
+   */
+  ssh: boolean;
+  /**
    * Card is a session channel's status card; nil for rooms, chats, and a
    * channel with no active session.
    */

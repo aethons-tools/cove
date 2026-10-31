@@ -1,11 +1,9 @@
-// The Needs You tree view: the rows of the web app's rail "needs-you" group.
-// Its count is the badge on the Jam activity-bar icon.
-import * as vscode from "vscode";
+// The needs-you count: the rows of the web app's rail "needs-you" group,
+// shown as the badge on the rail view (and so the Jam activity-bar icon).
 import { SignedOutError } from "./api";
 import type { JamApi } from "./api";
 import type { LiveEvent } from "./live";
 import type { RailRow } from "./open";
-import { inertText } from "./notify/event";
 import type { RailResponse } from "../../app/src/api/types.js" with { "resolution-mode": "import" };
 
 export const NEEDS_YOU_DEBOUNCE_MS = 3000;
@@ -35,7 +33,6 @@ export type NeedsYouDeps = {
   session: () => Promise<{ url: string; token: string } | undefined>;
   api: (s: { url: string; token: string }) => Pick<JamApi, "rail">;
   setBadge: (b: { value: number; tooltip: string } | undefined) => void;
-  setContext: (key: "jam.signedIn", v: boolean) => void;
   onSignedOut: (token: string) => void;
   setTimeout: typeof setTimeout;
   clearTimeout: typeof clearTimeout;
@@ -43,13 +40,10 @@ export type NeedsYouDeps = {
 
 const LIVE_EVENTS = new Set(["open", "changed", "presence", "notify"]);
 
-export class NeedsYou implements vscode.TreeDataProvider<RailRow> {
-  private rows: RailRow[] = [];
+export class NeedsYou {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running: Promise<void> | undefined;
   private again = false;
-  private changed = new vscode.EventEmitter<void>();
-  readonly onDidChangeTreeData: vscode.Event<void> = this.changed.event;
 
   constructor(private d: NeedsYouDeps) {}
 
@@ -83,10 +77,7 @@ export class NeedsYou implements vscode.TreeDataProvider<RailRow> {
   }
 
   private signedOut(): void {
-    this.rows = [];
     this.d.setBadge(undefined);
-    this.d.setContext("jam.signedIn", false);
-    this.changed.fire();
   }
 
   private async once(): Promise<void> {
@@ -97,13 +88,8 @@ export class NeedsYou implements vscode.TreeDataProvider<RailRow> {
       return;
     }
     if (!s) return this.signedOut();
-    // A session is enough for the signed-in welcome, even while Jam is unreachable.
-    this.d.setContext("jam.signedIn", true);
     try {
-      const rows = needsYouRows(await this.d.api(s).rail());
-      this.rows = rows;
-      this.d.setBadge(badgeFor(rows.length));
-      this.changed.fire();
+      this.d.setBadge(badgeFor(needsYouRows(await this.d.api(s).rail()).length));
     } catch (e) {
       if (e instanceof SignedOutError) {
         this.d.onSignedOut(s.token);
@@ -116,19 +102,5 @@ export class NeedsYou implements vscode.TreeDataProvider<RailRow> {
   dispose(): void {
     if (this.timer !== undefined) this.d.clearTimeout(this.timer);
     this.timer = undefined;
-  }
-
-  getChildren(): RailRow[] {
-    return this.rows;
-  }
-
-  getTreeItem(r: RailRow): vscode.TreeItem {
-    // Plain strings only (never a MarkdownString): the text is someone else's.
-    const item = new vscode.TreeItem(inertText(r.label), vscode.TreeItemCollapsibleState.None);
-    item.description = inertText(r.project);
-    item.tooltip = r.mission ? inertText(r.mission) : undefined;
-    item.iconPath = new vscode.ThemeIcon("bell");
-    item.command = { command: "jam.needsYou.open", title: "Open", arguments: [r] };
-    return item;
   }
 }

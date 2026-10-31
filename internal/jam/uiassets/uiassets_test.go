@@ -1,6 +1,7 @@
 package uiassets_test
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -89,4 +90,14 @@ func TestIconHrefPanicsOnUnknownIcon(t *testing.T) {
 		}
 	}()
 	uiassets.IconHref("/app/static/", "nope.png")
+}
+
+func TestIcon(t *testing.T) {
+	b, err := uiassets.Icon("icon-512.png")
+	if err != nil || !bytes.HasPrefix(b, []byte("\x89PNG")) {
+		t.Fatalf("Icon(icon-512.png) = %d bytes, %v", len(b), err)
+	}
+	if _, err := uiassets.Icon("nope.png"); err == nil {
+		t.Error("Icon(nope.png): no error")
+	}
 }

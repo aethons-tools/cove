@@ -22,7 +22,7 @@ const SES_B = "ses_1abcdefghjkmnpqrstvwxyz012";
 const BRD = "brd_0abcdefghjkmnpqrstvwxyz01";
 const noContent: BridgeResponse = { kind: "http", status: 204, contentType: "" };
 const at = (session: string, channel = "chn_a") => ({ session, label: "spider", channel });
-const signedIn = (target: PaneState["target"]): PaneState => ({ signedIn: true, target, pinned: false, elsewhere: false });
+const signedIn = (target: PaneState["target"]): PaneState => ({ signedIn: true, target });
 
 const head = (id: string, over: Partial<SessionHead> = {}): SessionHead => ({
   id, label: "spider", kind: "standing", ticket: "", role: "r", project: "p", owner: "",
@@ -156,14 +156,13 @@ describe("the session panes", () => {
   ];
   it.each(nouns)("every session pane shows its own signed-out and no-session copy (%s)", async (name, out) => {
     const { h } = mount(name);
-    act(() => { h.state({ signedIn: false, target: null, pinned: false, elsewhere: false }); });
+    act(() => { h.state({ signedIn: false, target: null }); });
     expect(await screen.findByText(out)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(h.posted).toContainEqual({ type: "signIn" });
     act(() => { h.state(signedIn(null)); });
-    expect(await screen.findByText(`This window isn't on a Jam studio. Focus a session to see its ${name}.`)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Focus a session…" }));
-    expect(h.posted).toContainEqual({ type: "open", intent: { kind: "focusSession" } });
+    expect(await screen.findByText(name === "conversation" ? "That conversation is gone, or you can't see it." : `Open a session's conversation to see its ${name}.`)).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
     act(() => { h.state({ ...signedIn(null), error: "Jam is unreachable" }); });
     await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
     expect(h.posted).toContainEqual({ type: "ready", pane: name });
@@ -178,8 +177,7 @@ describe("the session panes", () => {
     expect(await screen.findByText("That session has ended, or you can't see it.")).toBeInTheDocument();
     expect(screen.queryByText(/no route/)).toBeNull();
     expect(screen.queryByText(/no longer available/)).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Focus a session…" }));
-    expect(h.posted).toContainEqual({ type: "open", intent: { kind: "focusSession" } });
+    expect(screen.queryByRole("button", { name: "Focus a session…" })).toBeNull();
     // No retry loop: once gone, nothing asks again.
     const asked = h.requests.length;
     await new Promise((r) => setTimeout(r, 300));

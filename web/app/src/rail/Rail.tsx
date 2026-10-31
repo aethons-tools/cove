@@ -1,4 +1,4 @@
-import { Badge, Button, Group, Loader, NavLink, ScrollArea, Stack, Text } from "@mantine/core";
+import { Button, Group, Loader, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import type { ReactNode } from "react";
 import { RecipientPicker } from "../compose/RecipientPicker";
@@ -7,7 +7,7 @@ import { useBoot } from "../BootContext";
 import { useChimes } from "../sounds/chimes";
 import { NavLink as RouterLink, useLocation, useParams } from "react-router";
 import { useRail } from "./useRail";
-import { SessionCard } from "../session/card/SessionCard";
+import { RailList } from "./RailList";
 import { useAppBadge } from "../push/useAppBadge";
 import { Problem } from "../Problem";
 import { APP } from "../paths";
@@ -38,26 +38,6 @@ export function Rail() {
   if (error) return frame(<Problem error={error} here={here.pathname + here.search} />);
   if (data.groups.length === 0) return frame(<Text c="dimmed" size="sm" m="md">No conversations yet. Start one with New message.</Text>);
   return frame(
-    <ScrollArea>
-      <Stack gap="xs" p="xs">
-        {data.groups.map((g) => (
-          <div key={g.bucket}>
-            <Text size="xs" fw={700} c="dimmed" tt="uppercase" px="sm" py={4}>{g.title}</Text>
-            {g.rows.map((r) => (
-              <NavLink
-                key={r.id}
-                component={RouterLink}
-                to={`${APP}c/${encodeURIComponent(r.id)}`}
-                active={r.id === channel}
-                // A session channel's row is its session's status card.
-                label={r.card ? <SessionCard card={r.card} compact /> : r.label}
-                description={r.card ? undefined : r.mission || undefined}
-                rightSection={r.unread > 0 ? <Badge size="sm" circle aria-label={`${r.unread} unread`}>{r.unread}</Badge> : null}
-              />
-            ))}
-          </div>
-        ))}
-      </Stack>
-    </ScrollArea>,
+    <RailList groups={data.groups} active={channel} rowProps={(r) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(r.id)}` })} />,
   );
 }
