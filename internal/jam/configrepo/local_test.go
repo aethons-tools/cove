@@ -187,3 +187,61 @@ func TestLocalCommitAndMerge(t *testing.T) {
 		t.Fatalf("jam/me = %s, want %s", got, h1)
 	}
 }
+
+func TestLocalGlobCharsInPathStillRefused(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git CLI")
+	}
+	dir := filepath.Join(t.TempDir(), "re[x]po*?")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := localRepo(t, map[string]string{"a.yml": "a\n"})
+	if out, err := exec.Command("git", "clone", "-q", src, dir).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v\n%s", err, out)
+	}
+	wt2 := filepath.Join(t.TempDir(), "wt2")
+	if out, err := exec.Command("git", "-C", dir, "worktree", "add", wt2, "-b", "jam/other").CombinedOutput(); err != nil {
+		t.Fatalf("worktree add: %v\n%s", err, out)
+	}
+	r := localFollower(t, dir)
+	bs, err := r.Branches(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var h string
+	for _, b := range bs {
+		if b.Name == "jam/other" {
+			h = b.Head
+		}
+	}
+	if _, err := r.Commit(ctx, "jam/other", h, put("a", "x"), alice, "m"); !errors.Is(err, ErrCheckedOut) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestLocalURLIsLinkedWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git CLI")
+	}
+	dir := localRepo(t, map[string]string{"a.yml": "a\n"})
+	wt2 := filepath.Join(t.TempDir(), "wt2")
+	if out, err := exec.Command("git", "-C", dir, "worktree", "add", wt2, "-b", "jam/other").CombinedOutput(); err != nil {
+		t.Fatalf("worktree add: %v\n%s", err, out)
+	}
+	r := &Repo{URL: wt2, Branch: "jam/other", Path: filepath.Join(t.TempDir(), "config-repo")}
+	bs, err := r.Branches(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var h string
+	for _, b := range bs {
+		if b.Name == "main" {
+			h = b.Head
+		}
+	}
+	// main is checked out in the main worktree, not in wt2's own HEAD.
+	if _, err := r.Commit(ctx, "main", h, put("a", "x"), alice, "m"); !errors.Is(err, ErrCheckedOut) {
+		t.Fatalf("err = %v", err)
+	}
+}

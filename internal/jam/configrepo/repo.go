@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -81,7 +82,7 @@ func (r *Repo) open(ctx context.Context) (*git.Repository, transport.AuthMethod,
 	remoteURL := r.URL
 	if IsLocal(r.URL) {
 		installLocal()
-		remoteURL = "file://" + LocalPath(r.URL)
+		remoteURL = (&url.URL{Scheme: "file", Path: LocalPath(r.URL)}).String()
 	}
 	repo, err := git.PlainOpen(r.Path)
 	if errors.Is(err, git.ErrRepositoryNotExists) {

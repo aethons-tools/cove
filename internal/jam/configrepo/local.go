@@ -1,6 +1,7 @@
 package configrepo
 
 import (
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -79,15 +80,54 @@ func checkedOut(path string) (map[string]string, error) {
 		return nil
 	}
 	gitDir := filepath.Join(path, ".git")
-	if fi, err := os.Stat(gitDir); err == nil && fi.IsDir() {
+	fi, err := os.Stat(gitDir)
+	switch {
+	case err == nil && fi.IsDir():
 		if err := add(filepath.Join(gitDir, "HEAD"), path); err != nil {
 			return nil, err
 		}
-	} else {
+	case err == nil:
+		// path is itself a linked worktree: .git is "gitdir: <dir>".
+		b, err := os.ReadFile(gitDir)
+		if err != nil {
+			return nil, err
+		}
+		own, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir:")
+		if !ok {
+			return nil, fmt.Errorf("%s is not a gitdir file", gitDir)
+		}
+		own = strings.TrimSpace(own)
+		if !filepath.IsAbs(own) {
+			own = filepath.Join(path, own)
+		}
+		if err := add(filepath.Join(own, "HEAD"), path); err != nil {
+			return nil, err
+		}
+		common := own
+		if c, err := os.ReadFile(filepath.Join(own, "commondir")); err == nil {
+			common = filepath.Join(own, strings.TrimSpace(string(c)))
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+		gitDir = filepath.Clean(common)
+		mainDir := gitDir
+		if filepath.Base(gitDir) == ".git" {
+			mainDir = filepath.Dir(gitDir)
+			if err := add(filepath.Join(gitDir, "HEAD"), mainDir); err != nil {
+				return nil, err
+			}
+		}
+	case os.IsNotExist(err):
 		gitDir = path // bare: no main worktree
+	default:
+		return nil, err
 	}
-	linked, _ := filepath.Glob(filepath.Join(gitDir, "worktrees", "*"))
-	for _, w := range linked {
+	linked, err := os.ReadDir(filepath.Join(gitDir, "worktrees"))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	for _, e := range linked {
+		w := filepath.Join(gitDir, "worktrees", e.Name())
 		dir := w
 		if b, err := os.ReadFile(filepath.Join(w, "gitdir")); err == nil {
 			dir = filepath.Dir(strings.TrimSpace(string(b))) // <worktree>/.git
