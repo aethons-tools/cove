@@ -198,3 +198,32 @@ func TestRecoveringIgnoresStaleReports(t *testing.T) {
 		t.Fatalf("instance = %+v", got)
 	}
 }
+
+// Restart tears a session's studio down and recovers it at once, keeping the
+// session; a standing one is torn down for its reconciler to re-raise; a
+// legacy one can't be restarted.
+func TestRestartRecoversAtOnce(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, clk := supTestKit(t, f)
+	raiseWorker(t, sup)
+	if err := sup.Restart(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("w1")
+	if got.Phase != PhaseRecovering || got.Recovery.Reason != "restarted" || !got.Recovery.Next.Equal(*clk) {
+		t.Fatalf("after restart = %+v", got)
+	}
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.GetInstance("w1"); got.Phase != PhaseLive {
+		t.Fatalf("not re-raised: %+v", got)
+	}
+
+	if err := store.PutInstance(Instance{ActorID: "old", Project: "default", Role: "guest", Phase: PhaseLive}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Restart(context.Background(), "old"); !errors.Is(err, ErrNotRestartable) {
+		t.Fatalf("legacy restart = %v", err)
+	}
+}

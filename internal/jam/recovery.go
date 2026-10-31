@@ -3,6 +3,8 @@ package jam
 import (
 	"cmp"
 	"context"
+	"errors"
+	"fmt"
 	"time"
 )
 
@@ -140,4 +142,43 @@ func (s *Supervisor) giveUpRecovery(ctx context.Context, inst Instance) {
 	if s.log != nil {
 		s.log.Warn("recovery: gave up re-raising the session; ended it", "id", inst.ActorID)
 	}
+}
+
+// ErrNotRestartable is a Restart of a session raised before recovery existed:
+// ending it is the only way to replace its studio.
+var ErrNotRestartable = errors.New("session was raised before restart existed; end it instead")
+
+// Restart restarts a session's studio, keeping the session: a standing one is
+// torn down for its reconciler to re-raise (its state kept); any other is
+// recovered at once — its studio torn down and re-raised on the next
+// reconcile pass, resuming its conversation.
+func (s *Supervisor) Restart(ctx context.Context, actorID string) error {
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok || inst.Phase == PhaseGone {
+		return fmt.Errorf("no session %q", actorID)
+	}
+	if inst.SessionKind == SessionKindStanding {
+		return s.Teardown(ctx, actorID)
+	}
+	if inst.Phase == PhaseRecovering {
+		s.patchInstance(actorID, func(i *Instance) {
+			if i.Recovery != nil {
+				i.Recovery.Next = s.now()
+			}
+		})
+		return nil
+	}
+	if !recoverable(inst) {
+		return ErrNotRestartable
+	}
+	if err := s.markRecovering(ctx, inst, "restarted"); err != nil {
+		return err
+	}
+	now := s.now()
+	s.patchInstance(actorID, func(i *Instance) {
+		if i.Recovery != nil {
+			i.Recovery.Next = now
+		}
+	})
+	return nil
 }

@@ -93,7 +93,7 @@ type cmdCall struct {
 }
 
 type fakeOps struct {
-	torn, upgraded []string
+	torn, upgraded, restarted []string
 	cmds           []cmdCall
 	cmdErr         error
 }
@@ -105,6 +105,11 @@ func (f *fakeOps) Command(_ context.Context, inst jam.Instance, c jam.SessionCom
 
 func (f *fakeOps) Teardown(_ context.Context, id string) error {
 	f.torn = append(f.torn, id)
+	return nil
+}
+
+func (f *fakeOps) Restart(_ context.Context, id string) error {
+	f.restarted = append(f.restarted, id)
 	return nil
 }
 

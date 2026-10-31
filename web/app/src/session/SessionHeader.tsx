@@ -8,7 +8,7 @@ import { copyText } from "../conversation/copy";
 import { PANE_TABS, TAB_LABEL, type PaneTab } from "./layout";
 import { vscodeLink, vscodiumLink } from "./vscode";
 
-type Action = "interrupt" | "compact" | "clear" | "release" | "restart" | "upgrade";
+type Action = "interrupt" | "compact" | "clear" | "release" | "restart" | "end" | "upgrade";
 const STATE_COLOR: Record<string, string | undefined> = { wait: "yellow.8", dim: "dimmed" };
 
 // confirmText is the question an ending (or forgetting) action asks first,
@@ -17,12 +17,13 @@ function confirmText(a: Action, h: SessionHead): string | null {
   switch (a) {
     case "clear": return "Clear this session's conversation? The agent keeps its files and memory but forgets the conversation.";
     case "release": return "Release this session? It ends now.";
-    case "restart": return `${h.restartLabel} ${h.label}?`;
+    case "restart": return `Restart ${h.label}? Its studio restarts; the session and its work are kept.`;
+    case "end": return `End ${h.label}? It ends now, for good.`;
     case "upgrade": return `Upgrade ${h.label} to the current image?`;
     default: return null;
   }
 }
-const actionLabel = (a: Action, h: SessionHead) => (a === "restart" ? h.restartLabel : a[0]!.toUpperCase() + a.slice(1));
+const actionLabel = (a: Action) => a[0]!.toUpperCase() + a.slice(1);
 
 // SessionHeader is a session's header: who it is, what it's doing, what it
 // costs, its pane's tabs (when onTab is given), and its actions. The server re-checks every
@@ -40,7 +41,7 @@ export function SessionHeader({ head: h, tab, onTab }: { head: SessionHead; tab?
   });
   const press = (a: Action) => (confirmText(a, h) ? setAsking(a) : run.mutate(a));
   const tabs = PANE_TABS;
-  const menu = h.ops || h.canRelease || h.canRestart || h.canUpgrade;
+  const menu = h.ops || h.canRelease || h.canRestart || h.canEnd || h.canUpgrade;
   return (
     <Group component="section" aria-label="Session" gap="md" px="sm" py={6} wrap="wrap"
       style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
@@ -84,7 +85,8 @@ export function SessionHeader({ head: h, tab, onTab }: { head: SessionHead; tab?
               {h.ops && <Menu.Item disabled={!h.canCompact} onClick={() => press("compact")}>Compact</Menu.Item>}
               {h.ops && <Menu.Item disabled={!h.canClear} onClick={() => press("clear")}>Clear</Menu.Item>}
               {h.canRelease && <Menu.Item onClick={() => press("release")}>Release</Menu.Item>}
-              {h.canRestart && <Menu.Item onClick={() => press("restart")}>{h.restartLabel}</Menu.Item>}
+              {h.canRestart && <Menu.Item onClick={() => press("restart")}>Restart</Menu.Item>}
+              {h.canEnd && <Menu.Item onClick={() => press("end")}>End</Menu.Item>}
               {h.canUpgrade && <Menu.Item onClick={() => press("upgrade")}
                 rightSection={h.upgradeState && <Text size="xs" c="dimmed">{h.upgradeState}</Text>}>Upgrade</Menu.Item>}
             </Menu.Dropdown>
@@ -97,8 +99,8 @@ export function SessionHeader({ head: h, tab, onTab }: { head: SessionHead; tab?
             <Text size="sm">{confirmText(asking, h)}</Text>
             <Group justify="flex-end">
               <Button variant="default" onClick={() => setAsking(null)}>Cancel</Button>
-              <Button color={asking === "release" || asking === "restart" ? "red" : undefined}
-                onClick={() => { run.mutate(asking); setAsking(null); }}>{actionLabel(asking, h)}</Button>
+              <Button color={asking === "release" || asking === "restart" || asking === "end" ? "red" : undefined}
+                onClick={() => { run.mutate(asking); setAsking(null); }}>{actionLabel(asking)}</Button>
             </Group>
           </Stack>
         )}

@@ -373,7 +373,8 @@ export interface SessionHead {
   card: SessionCard;
   ssh: string; // the copyable command; "" = not allowed
   canRelease: boolean;
-  canRestart: boolean;
+  canRestart: boolean; // restart its studio, keeping the session (operators, every kind)
+  canEnd: boolean; // end it for good (operators; a personal session ends by Release)
   canUpgrade: boolean;
   ops: boolean; // the session actions are wired
   /**
@@ -382,7 +383,7 @@ export interface SessionHead {
   canInterrupt: boolean;
   canCompact: boolean;
   canClear: boolean;
-  restartLabel: string; // Restart (standing) or End
+  restartLabel: string; // always "Restart" (kept for older clients)
   upgradeState: string;
 }
 /**
