@@ -30,9 +30,10 @@ const defaultGrace = 10 * time.Second
 // agent's turn ended while background tasks are still running.
 const defaultBackgroundWait = 30 * time.Minute
 
-// resumePrompt is a ticket studio's wake text: written into a live episode, or
-// as the first message of a new continued episode.
-const resumePrompt = "New input may have arrived on your ticket — use the intercom `read` tool to fetch it, then continue. Use `report` to update the ticket and `end` when the ticket is finished."
+// resumePrompt is an ephemeral session's wake text: written into a live
+// episode, or as the first message of a new continued episode.
+const resumePrompt = "A message may have arrived — use the intercom `read` tool to fetch new messages, then continue. " +
+	"`send` without `to` posts to your own channel. If you have a ticket, keep it current with `report`."
 
 // residentResumePrompt is resumePrompt's resident-mode (personal or standing
 // session) counterpart, delivered the same way when a Wake — typically the

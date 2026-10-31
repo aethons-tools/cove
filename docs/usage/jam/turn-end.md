@@ -35,7 +35,10 @@ up" does its housekeeping, then calls `end` as its last action.
 
 A ticket session (raised by the [Requisitioner](requisitioner.md)) owns its
 ticket through merge: it works on a branch, pushes, opens the PR itself, keeps
-the ticket current with `report`, and finishes with `end`. No result file is
+the ticket current with `report`, and calls `end` only once its work has landed.
+When it can't land the work it doesn't exit: it reports `needs-input` or
+`blocked`, says why in its own session channel, `call_in`s who can help, and
+waits — [escalation](escalation.md) brings people to it. No result file is
 read.
 
 - **`report(state, summary, pr?)`** (`POST /report`): `state` is `in-progress`,

@@ -38,8 +38,9 @@ raise (run → report → teardown).
    crash between claim and raise leaves the ticket claimed (recoverable), never
    double-raised. The transition also drops it from the next `ListReady`.
 6. **Raise** — set the session's starting [mission](intercom.md#what-the-tools-do) to the issue's title, then build the prompt (the issue brief + the turn-end protocol: own the
-   branch and PR through merge, keep the ticket current with `report`, finish with
-   `end` — see [turn-end.md](turn-end.md#reporting-a-ticket)) and call the supervisor's raise
+   branch and PR through merge, keep the ticket current with `report`, `end` only
+   once the work has landed, and wait for people rather than exit when stuck —
+   see [turn-end.md](turn-end.md#reporting-a-ticket)) and call the supervisor's raise
    with `role`/`project` from config and `unit = <ticket key>` (`AET-42`; GitHub
    `owner/repo#<n>`). On a raise
    failure the issue is moved to NEEDS INPUT (surfaced, not silently retried).

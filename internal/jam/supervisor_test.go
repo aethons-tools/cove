@@ -332,7 +332,7 @@ func TestRaiseContextCarriesUnit(t *testing.T) {
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Unit: "AET-9", Prompt: "P"}); err != nil {
 		t.Fatal(err)
 	}
-	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "posts to your ticket") {
+	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "Your ticket: keep it current") {
 		t.Fatalf("want ticket default with a unit: %+v", c)
 	}
 }
