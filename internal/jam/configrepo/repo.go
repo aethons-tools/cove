@@ -39,6 +39,10 @@ var (
 	// ErrFollowedBranch is a write to the followed branch itself: it changes
 	// only by Merge (or in git).
 	ErrFollowedBranch = errors.New("the followed branch is read-only; edit on a branch")
+	// ErrCheckedOut is a write to a branch that a local config repo has
+	// checked out: moving it would leave that worktree behind. The message
+	// names the path and branch.
+	ErrCheckedOut = errors.New("the branch is checked out in the config repo")
 )
 
 // Repo is the followed config repo: its URL, the followed branch, the
@@ -74,6 +78,11 @@ func remoteRef(branch string) plumbing.ReferenceName {
 // open opens (or creates) the bare clone and fetches every branch, pruning
 // those gone. The caller holds mu.
 func (r *Repo) open(ctx context.Context) (*git.Repository, transport.AuthMethod, error) {
+	remoteURL := r.URL
+	if IsLocal(r.URL) {
+		installLocal()
+		remoteURL = "file://" + LocalPath(r.URL)
+	}
 	repo, err := git.PlainOpen(r.Path)
 	if errors.Is(err, git.ErrRepositoryNotExists) {
 		repo, err = git.PlainInit(r.Path, true)
@@ -85,8 +94,8 @@ func (r *Repo) open(ctx context.Context) (*git.Repository, transport.AuthMethod,
 	if err != nil {
 		return nil, nil, fmt.Errorf("config repo: reading the clone's config: %w", err)
 	}
-	if rc, ok := cfg.Remotes[remoteName]; !ok || len(rc.URLs) != 1 || rc.URLs[0] != r.URL {
-		cfg.Remotes[remoteName] = &config.RemoteConfig{Name: remoteName, URLs: []string{r.URL},
+	if rc, ok := cfg.Remotes[remoteName]; !ok || len(rc.URLs) != 1 || rc.URLs[0] != remoteURL {
+		cfg.Remotes[remoteName] = &config.RemoteConfig{Name: remoteName, URLs: []string{remoteURL},
 			Fetch: []config.RefSpec{"+refs/heads/*:refs/remotes/origin/*"}}
 		if err := repo.SetConfig(cfg); err != nil {
 			return nil, nil, fmt.Errorf("config repo: writing the clone's config: %w", err)

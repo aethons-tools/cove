@@ -127,6 +127,15 @@ func (r *Repo) Commit(ctx context.Context, branch, wantHead string, ch Changes, 
 
 // push sets branch to commit on the remote; a non-fast-forward is ErrStale.
 func (r *Repo) push(ctx context.Context, repo *git.Repository, auth transport.AuthMethod, branch string, commit plumbing.Hash) error {
+	if IsLocal(r.URL) {
+		dirs, err := checkedOut(LocalPath(r.URL))
+		if err != nil {
+			return fmt.Errorf("config repo: reading the local repo's checkouts: %w", err)
+		}
+		if dir, ok := dirs[branch]; ok {
+			return fmt.Errorf("%w: %s is checked out in %s; check out another branch, or merge it yourself", ErrCheckedOut, branch, dir)
+		}
+	}
 	local := plumbing.NewBranchReferenceName(branch)
 	if err := repo.Storer.SetReference(plumbing.NewHashReference(local, commit)); err != nil {
 		return err
