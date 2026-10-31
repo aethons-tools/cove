@@ -1,10 +1,6 @@
 package jam
 
 import (
-	"bytes"
-	"encoding/json"
-	"io"
-	"mime"
 	"net/http"
 	"regexp"
 
@@ -22,8 +18,8 @@ import (
 var ErrConfigInGit = writeErr(http.StatusConflict, "config is in git (config.github): edit it on a branch in the admin console, or in the repo")
 
 var (
-	configWrite = regexp.MustCompile(`^/admin/(destinations|model-specs|connections|projects|roles|jam/context|kits)(/.*)?$|^/admin/users(/[^/]+(/(logins|name))?)?$|^/admin/config(/managed/.*)?$`)
-	liveWrite   = regexp.MustCompile(`^/admin/roles/[^/]+/[^/]+/standing/[^/]+/(reset|upgrade)$|^/admin/kits/import$|^/admin/kits/[^/]+/(sync|source)$|^/admin/kits/[^/]+/draft(/files/.*|/build)?$`)
+	configWrite = regexp.MustCompile(`^/admin/(destinations|model-specs|connections|projects|roles|jam/context|kits|users)(/.*)?$|^/admin/config(/managed/.*)?$`)
+	liveWrite   = regexp.MustCompile(`^/admin/roles/[^/]+/[^/]+/standing/[^/]+/(reset|upgrade)$|^/admin/users/[^/]+/oidc$|^/admin/kits/[^/]+/(sync|source)$|^/admin/kits/[^/]+/draft(/files/.*|/build)?$`)
 )
 
 // WithConfigInGit refuses live config writes: the Jam follows followed.
@@ -31,16 +27,16 @@ func WithConfigInGit(followed gitsource.Source) AdminOption {
 	return func(m *adminMux) { m.inGit, m.followed = true, followed }
 }
 
-// configInGitGuard is next with live config writes refused, and an apply
-// only of the followed repo.
-func configInGitGuard(followed gitsource.Source, next http.Handler) http.Handler {
+// configInGitGuard is next with live config writes refused. An apply of
+// anything but the followed repo is refused by WithConfig itself, on the
+// source it parsed (refusedApply).
+func configInGitGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
 		refuse := false
 		switch {
 		case r.Method == http.MethodGet || r.Method == http.MethodHead:
-		case p == "/admin/config/apply":
-			refuse = !appliesFollowed(r, followed)
+		case p == "/admin/kits/import" && r.Method == http.MethodPost: // a kit from its own git source
 		case configWrite.MatchString(p) && !liveWrite.MatchString(p):
 			refuse = true
 		}
@@ -52,25 +48,11 @@ func configInGitGuard(followed gitsource.Source, next http.Handler) http.Handler
 	})
 }
 
-// appliesFollowed reports whether an apply request names the followed repo
-// (a {source} body that is empty or it), leaving the body readable.
-func appliesFollowed(r *http.Request, followed gitsource.Source) bool {
-	ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if ct != "application/json" {
-		return false // a --dir tree
-	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxConfigSourceBody+1))
-	if err != nil {
+// refusedApply reports whether, with config in git (env.Followed set), an
+// apply of src is a live edit: a --dir tree, or a source not the followed repo.
+func refusedApply(env ConfigEnv, tree bool, src gitsource.Source) bool {
+	if env.Followed.Repo == "" {
 		return false
 	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
-	var b ConfigSourceBody
-	if json.Unmarshal(body, &b) != nil {
-		return true // the handler answers the bad body
-	}
-	if b.Source == "" {
-		return true
-	}
-	src, err := gitsource.Parse(b.Source)
-	return err == nil && src == followed
+	return tree || (src.Repo != "" && src != env.Followed)
 }

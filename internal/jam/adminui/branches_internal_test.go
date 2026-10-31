@@ -12,6 +12,10 @@ func TestOnBranchPath(t *testing.T) {
 		apiPrefix + "projects/app/roles/ic/standing/spider/upgrade": false,
 		apiPrefix + "projects/app/roles/ic/standing":                true,
 		apiPrefix + "dashboard":                                     false,
+		apiPrefix + "kits/import":                                   false,
+		apiPrefix + "kits/web/sync":                                 false,
+		apiPrefix + "kits/web/source":                               false,
+		apiPrefix + "kits/web/pin":                                  true,
 	} {
 		if got := onBranchPath(p); got != want {
 			t.Errorf("%s = %v, want %v", p, got, want)

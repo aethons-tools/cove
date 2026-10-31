@@ -143,6 +143,10 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 		var err error
 		switch ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct {
 		case "application/gzip":
+			if !opt.DryRun && refusedApply(env, true, gitsource.Source{}) {
+				http.Error(w, ErrConfigInGit.Error(), http.StatusConflict)
+				return
+			}
 			tr, ok := upload(w, r)
 			if !ok {
 				return
@@ -152,6 +156,10 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 		case "application/json":
 			src, ok := source(w, r)
 			if !ok {
+				return
+			}
+			if !opt.DryRun && refusedApply(env, false, src) {
+				http.Error(w, ErrConfigInGit.Error(), http.StatusConflict)
 				return
 			}
 			res, err = ApplyConfigSource(r.Context(), store, f, src, env, opt, log, OperatorID(r))

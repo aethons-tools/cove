@@ -38,10 +38,11 @@ func WithConfigBranches(b *jam.ConfigBranches, factory func(jam.Store) http.Hand
 // branchPaths are the API paths (after apiPrefix) a branch serves: the
 // config objects. Live state under them (a user's accounts, OIDC and app
 // tokens; a project's agents; a role's Request; a kit draft's test build)
-// and a standing session's reset or upgrade) stays live: branchLive.
+// a standing session's reset or upgrade; a kit from its own git source:
+// import, track, sync) stays live: branchLive.
 var (
 	branchPaths = []string{"tree", "users", "connections", "projects", "roles", "destinations", "model-specs", "kits", "jam/context"}
-	branchLive  = regexp.MustCompile(`^(users/[^/]+/(accounts|oidc|app-tokens)(/.*)?|projects/[^/]+/agents|projects/[^/]+/roles/[^/]+/(request|standing/[^/]+/(reset|upgrade))|kits/[^/]+/draft/build)$`)
+	branchLive  = regexp.MustCompile(`^(users/[^/]+/(accounts|oidc|app-tokens)(/.*)?|projects/[^/]+/agents|projects/[^/]+/roles/[^/]+/(request|standing/[^/]+/(reset|upgrade))|kits/import|kits/[^/]+/(sync|source)|kits/[^/]+/draft/build)$`)
 )
 
 func onBranchPath(p string) bool {

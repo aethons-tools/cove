@@ -49,6 +49,15 @@ func TestConfigInGitRefusesLiveWrites(t *testing.T) {
 	if w := do("POST", "/admin/config/apply", `{"source":"https://github.com/acme/other@main"}`); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "config is in git") {
 		t.Errorf("apply of another source = %d %s", w.Code, w.Body)
 	}
+	if w := do("POST", "/admin/config/apply", `{"source":"https://github.com/acme/other@main"}x`); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "config is in git") {
+		t.Errorf("apply with trailing data = %d %s", w.Code, w.Body)
+	}
+	if w := do("DELETE", "/admin/kits/import", ``); w.Code != http.StatusConflict {
+		t.Errorf("DELETE kits/import = %d", w.Code)
+	}
+	if w := do("PUT", "/admin/users/u/future", `{}`); w.Code != http.StatusConflict {
+		t.Errorf("a users sub-route = %d", w.Code)
+	}
 	r := httptest.NewRequest("POST", "/admin/config/apply", strings.NewReader("x"))
 	r.RemoteAddr = "127.0.0.1:1234"
 	r.Header.Set("Content-Type", "application/gzip")

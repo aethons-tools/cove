@@ -1102,7 +1102,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	importConds = am.conds
 	var inner http.Handler = mux
 	if am.inGit {
-		inner = configInGitGuard(am.followed, mux)
+		inner = configInGitGuard(mux)
 	}
 	guarded := authMiddleware(auth, log, inner) // guards every /admin/* route
 	if browser == nil {
