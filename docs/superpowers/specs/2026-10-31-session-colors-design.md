@@ -31,10 +31,12 @@
 
 ## Decided
 
-### The palette (my call, agreed in outline)
+### The palette (chosen by the user 2026-10-31, from a live preview)
 
-- **Built in OKLCH, not RGB.** RGB grids have uneven steps to the eye and produce muddy, near-gray and near-black colors. Instead, use one lightness/chroma band (optionally 2–3 lightness tiers) and vary the hue: about 16–24 hues per tier. That is roughly 24–72 colors with no muddy ones.
-- **Readable.** Every palette color must reach a contrast of at least 4.5:1 against the title-bar text color chosen for the palette (white, or a near-black). A test enforces this.
+- **Built in OKLCH, not RGB.** RGB grids have uneven steps to the eye and produce muddy, near-gray and near-black colors.
+- **24 colors, one tier.** All 24 have OKLCH lightness 0.52 and chroma up to 0.14, reduced only where sRGB can't reach it. The hues are 15° apart, starting at 15°. The user picked this over a 48-color, two-tier option: fewer colors, but each is easier to tell apart. With more than 24 sessions live, colors repeat (see Assignment). The hex values from the preview, in palette order:
+  `#aa3f4e #ab4235 #a84811 #9a5500 #8d5e05 #816501 #736c01 #607204 #427a17 #0a7e3a #057c59 #027a6b #047879 #007785 #027493 #0470a5 #2769b7 #4a61b9 #6359b5 #7652ac #874c9f #94468f #9e427b #a63f66`
+- **Readable.** Every palette color must reach a contrast of at least 4.5:1 against white, the title-bar text color. The palette above is at least 5.2:1. A test enforces this.
 - **Stored as `#rrggbb`.** The palette lives in Go and is converted to sRGB hex once. What is stored on a session is the hex, so a later palette change never recolors a live session.
 
 ### Assignment (my call, agreed in outline)
@@ -76,7 +78,6 @@ The card's icon block ([2026-10-30-session-status-card-design.md](2026-10-30-ses
 
 ## Left to the builder
 
-- The exact OKLCH lightness, chroma and hue count, within the readability rule. The palette needs about 48 colors (two tiers of about 24 hues; my call). When more sessions are live than there are colors, the assignment rule degrades gracefully: the colors repeat as far apart as possible.
 - The inactive title bar's dimming, and whether `titleBar.border` is set.
 - How `windowKind` recognizes a workspace-file studio window, and the workspace file's name.
 - Whether the composer accent sits on the input or on its wrapper.
