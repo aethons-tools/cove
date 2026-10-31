@@ -43,27 +43,30 @@ The tracked repo moves out of the store and into the **serve config**:
 
 ```yaml
 config:
-  git:
+  github:
     url: https://github.com/acme/jam-config
     cred: jam-git-tracking
 ```
 
-- `git` is the only kind for now: a polymorphism of one, so other kinds can follow.
-- `cred` names a credential **demand** ([credentials.md](../../usage/jam/credentials.md)). It must be able to push to the repo and, on GitHub, open pull requests. My call: any credential source (value, command, mint), so a GitHub App token can be minted. That differs from `kits.git`, which is static only.
+- **The key names the hosting service** (user's, 2026-10-31): `config.github` now; `config.gitlab` follows quickly after.
+  - Exactly one of them is set.
+  - The kind decides how PR works: a GitHub pull request, or a GitLab merge request. Clone, push and merge are plain git either way.
+  - My call: `url` may be any host of that kind, including GitHub Enterprise or a self-hosted GitLab. The API base is derived from it.
+- `cred` names a credential **demand** ([credentials.md](../../usage/jam/credentials.md)). It must be able to push to the repo and open pull requests (merge requests on GitLab). My call: any credential source (value, command, mint), so a GitHub App token can be minted. That differs from `kits.git`, which is static only.
 - My call: optional `branch:`, the branch the Jam follows, defaulting to the repo's default branch. Optional `dir:`, the repo subdirectory holding the config, defaulting to the root.
 - **Removed:** the store's tracked source, `config track|untrack`, and `PUT|DELETE /admin/config/source`. The Tracking page shows the source read-only, from the serve config.
 
 ### Always a repo (user's)
 
 There is **no live editing of configuration, ever**, even on a Jam with no repo.
-- **A Jam without `config.git`:** the config views are read-only and say how to set it (my call).
+- **A Jam without `config.github` or `config.gitlab`:** the config views are read-only and say how to set it (my call).
 - **Serve still starts,** so an existing Jam keeps running its stored config until a repo is set.
 
 ### Following the branch (my call, agreed in outline)
 
 - Jam keeps a **persistent clone** of the repo in its state dir and checks the followed branch for new commits about once a minute.
 - **A new commit** is planned and applied in one transaction, as an apply is today.
-- **The first apply needs a confirm (my call).** When `config.git` is first set, or changed, Jam plans the repo against the live config but doesn't apply it. The Tracking page shows the plan, removals included, and waits for an operator to confirm. Only then does following apply on its own. This keeps a partial repo, or a skipped `write --all`, from deleting live roles and projects.
+- **The first apply needs a confirm (my call).** When the repo setting is first set, or changed, Jam plans the repo against the live config but doesn't apply it. The Tracking page shows the plan, removals included, and waits for an operator to confirm. Only then does following apply on its own. This keeps a partial repo, or a skipped `write --all`, from deleting live roles and projects.
 - **On apply, the live config becomes exactly what the repo says:** objects of a config kind that aren't in the repo are removed. With git as the only truth, there are no "unmanaged" config objects. That's why the user's one-time `write --all` comes first.
 - **A commit today's guards refuse** (removing a role with a live instance, a project with members) fails as a whole, like any failure (my call). It is retried at each check, so it applies once the obstacle is gone, e.g. when the instance ends.
 - **A commit that fails to plan or apply** (for example, a role naming a kit that doesn't exist) leaves the last good config running. It flags the failure, with the commit, on the Tracking page and as a condition. The next commit that plans cleanly is applied.
@@ -89,7 +92,7 @@ There is **no live editing of configuration, ever**, even on a Jam with no repo.
   - My call: the merged tree is planned **before** pushing. A merge that wouldn't apply is refused, with the plan's errors, and nothing is pushed.
   - After the push, Jam applies the result at once, without waiting for the next check.
 - **PR** opens a pull request from the branch into the followed branch and links to it.
-  - My call: offered for GitHub repos only, through the GitHub API with the same credential.
+  - On GitHub, a pull request through the GitHub API; on GitLab (the fast follow), a merge request through the GitLab API. Both use the same credential.
   - Jam applies it when it's merged, through following.
 
 ### The commands (my call)
@@ -106,7 +109,7 @@ There is **no live editing of configuration, ever**, even on a Jam with no repo.
 
 ### The repo's `jam.yml` (my call)
 
-It stays compare-only, as today, and read-only in the editor. Applying it would need serve reloads, and it would be circular: `config.git` and its credential live in the serve config.
+It stays compare-only, as today, and read-only in the editor. Applying it would need serve reloads, and it would be circular: the repo setting and its credential live in the serve config.
 
 ### Who may do what (my call)
 
@@ -123,10 +126,11 @@ Objects with no file kind stay outside git and editable as today:
 The phases are slices of one branch and one PR, merged at the end as the hub was. No Jam ever runs a phase where live edits are silently reverted.
 
 
-1. **Following:** `config.git` in the serve config; the persistent clone and push credential; following and applying the branch; the Tracking page read-only; `track|untrack` removed.
+1. **Following:** `config.github` in the serve config; the persistent clone and push credential; following and applying the branch; the Tracking page read-only; `track|untrack` removed.
 2. **The branch editor:** the branch context; Create/Open branch; saves as commits; Merge and PR.
 3. **No live edits:** every config admin route and CLI verb refused outside a branch; drift, force and release removed.
-4. **Later:**
+4. **Fast follow:** `config.gitlab`, with merge requests for PR.
+5. **Later:**
    - VS Code: the branch as a folder.
    - Trying a branch in a session.
    - Removing `config write --all`.
@@ -135,6 +139,6 @@ The phases are slices of one branch and one PR, merged at the end as the hub was
 ## Left to the builder
 
 - How saves map onto files. Most likely: render the object as `config write` does, and commit just the changed files.
-- The check interval, and whether a GitHub webhook is added later.
+- The check interval, and whether a webhook is added later.
 - Clone storage, fetch depth, and locking between saves, merges and following.
 - The branch list's order and filtering.
