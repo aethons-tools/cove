@@ -22,7 +22,9 @@ export type SessionTarget = { session: string; label: string; channel: string } 
 // error: the focused session couldn't be looked up (not a 404); the pane offers
 // Try again, which is a new ready.
 // windows: the sessions with an open studio window (the rail's ▣).
-export type PaneState = { signedIn: boolean; target: SessionTarget | null; error?: string; windows?: string[] };
+// windows and active are the rail's: the sessions with a studio window open,
+// and the window's focused conversation (its channel).
+export type PaneState = { signedIn: boolean; target: SessionTarget | null; error?: string; windows?: string[]; active?: string };
 export type OpenIntent =
   | { kind: "board"; id: string }
   | { kind: "conversation"; channel: string }

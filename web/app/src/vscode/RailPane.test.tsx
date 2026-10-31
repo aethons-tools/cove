@@ -64,6 +64,16 @@ describe("the rail pane", () => {
     expect(await screen.findByRole("button", { name: "New session" })).toBeInTheDocument();
   });
 
+  it("highlights the active conversation, and follows it", async () => {
+    const { h } = mount({ signedIn: true, target: null, windows: [], active: CHN_B });
+    const design = (await screen.findByText("#design")).closest("button")!;
+    expect(design).toHaveAttribute("data-active");
+    expect(screen.getByText("Ada").closest("button")).not.toHaveAttribute("data-active");
+    act(() => { h.state({ signedIn: true, target: null, windows: [], active: CHN_A }); });
+    await vi.waitFor(() => expect(screen.getByText("Ada").closest("button")).toHaveAttribute("data-active"));
+    expect(screen.getByText("#design").closest("button")).not.toHaveAttribute("data-active");
+  });
+
   it("no newSession in the bootstrap: no New session button", async () => {
     mount(undefined, {}, { newSession: false });
     expect(await screen.findByText("Ada")).toBeInTheDocument();

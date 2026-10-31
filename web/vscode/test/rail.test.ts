@@ -11,7 +11,7 @@ const SES = "ses_0abcdefghjkmnpqrstvwxyz012";
 const SIGNED_IN: Session = { url: JAM, token: "tok", user: "u", expiresAt: "" };
 type View = ReturnType<typeof fakeWebviewView>;
 
-function setup(windows: () => string[] = () => [SES]) {
+function setup(windows: () => string[] = () => [SES], active: () => Promise<string | undefined> = async () => undefined) {
   let sess: Session | undefined = SIGNED_IN;
   const subs = new Set<(s: Session | undefined) => void>();
   const auth = {
@@ -34,6 +34,7 @@ function setup(windows: () => string[] = () => [SES]) {
     executeCommand: vi.fn(async () => undefined),
     auth,
     windows: win,
+    active,
   });
   const open = (): View => {
     const v = fakeWebviewView();
@@ -54,6 +55,17 @@ describe("RailViewProvider", () => {
   it("state carries the open windows", async () => {
     const v = setup().open();
     v.receive({ type: "ready", pane: "rail" });
+    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: null, windows: [SES] }));
+  });
+
+  it("state carries the focused conversation as active", async () => {
+    let chn: string | undefined = "chn_0abcdefghjkmnpqrstvwxyz012";
+    const s = setup(undefined, async () => chn);
+    const v = s.open();
+    v.receive({ type: "ready", pane: "rail" });
+    await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: null, windows: [SES], active: chn }));
+    chn = undefined;
+    s.provider.refresh();
     await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: null, windows: [SES] }));
   });
 
