@@ -80,7 +80,8 @@ jam studio teardown --id spider-42
 
 - `studio raise` starts a **new session** (a minted `ses_…` id, printed) and
   enrolls its identity (the role must exist — fail-closed), recording a `live`
-  Instance. `--id` is the session's **label**: unique among live sessions (409
+  Instance. It takes an ephemeral slot under the role's cap first, like a
+  Requisitioner raise (`409` when the cap is reached). `--id` is the session's **label**: unique among live sessions (409
   otherwise), it addresses the session in `status`/`teardown` (as does its id),
   and is free again once the session ends — a later raise under it is a new
   session that inherits nothing. The role supplies scope, exactly as with

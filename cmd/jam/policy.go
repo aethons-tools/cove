@@ -133,6 +133,12 @@ func (p personalAllocator) GrantPersonal(ctx context.Context, project, role, res
 	return ok, err
 }
 
+// GrantEphemeral implements jam.SessionAllocator: a manual raise is an
+// ephemeral request, capped like the Requisitioner's.
+func (p personalAllocator) GrantEphemeral(ctx context.Context, project, role, reservationID string) (bool, error) {
+	return p.a.Grant(ctx, allocator.Request{Project: project, Role: role, ReservationID: reservationID, Kind: allocator.SessionEphemeral})
+}
+
 // RecordRelease implements jam.SessionAllocator.
 func (p personalAllocator) RecordRelease(ctx context.Context, project, role, reservationID string) error {
 	return p.a.RecordRelease(ctx, project, role, reservationID)

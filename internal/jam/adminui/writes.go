@@ -146,13 +146,13 @@ func addActorGrant(store jam.Store, credExists func(string) bool, id, project, r
 // raiseManual raises a manual studio labelled label and returns its session
 // id. The identity token and launch secret RaiseManual returns are dropped:
 // with a real launcher Jam consumes them; they never reach a browser or log.
-func raiseManual(ctx context.Context, store jam.Store, sup *jam.Supervisor, label, project, role, unit, prompt string) (string, error) {
+func raiseManual(ctx context.Context, store jam.Store, sup *jam.Supervisor, alloc jam.SessionAllocator, label, project, role, unit, prompt string) (string, error) {
 	if label == "" {
 		return "", badRequest("id is required")
 	}
 	if role == "" {
 		return "", badRequest("role is required")
 	}
-	_, sid, _, _, err := jam.RaiseManual(ctx, store, sup, label, jam.RaiseSpec{Project: project, Role: role, Unit: unit, Prompt: prompt})
+	_, sid, _, _, err := jam.RaiseManual(ctx, store, sup, alloc, label, jam.RaiseSpec{Project: project, Role: role, Unit: unit, Prompt: prompt})
 	return sid, err
 }

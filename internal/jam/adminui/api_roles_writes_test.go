@@ -79,6 +79,10 @@ func (a *grantingAlloc) GrantPersonal(_ context.Context, project, role, id, owne
 	a.grants = append(a.grants, project+"/"+role+"/"+owner)
 	return true, nil
 }
+func (a *grantingAlloc) GrantEphemeral(_ context.Context, project, role, id string) (bool, error) {
+	a.grants = append(a.grants, project+"/"+role+"/"+id)
+	return true, nil
+}
 func (a *grantingAlloc) RecordRelease(context.Context, string, string, string) error { return nil }
 
 // promptLauncher records the prompt of each raise.

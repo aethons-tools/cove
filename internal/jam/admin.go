@@ -1038,7 +1038,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt, KitDraft: b.KitDraft, Placement: placement})
+		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, alloc, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt, KitDraft: b.KitDraft, Placement: placement})
 		if err != nil {
 			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
 			return

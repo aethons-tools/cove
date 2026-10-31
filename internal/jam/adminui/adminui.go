@@ -137,7 +137,7 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	cfgEnv.PoolConfigured = cfgEnv.PoolConfigured || o.poolConfigured
 	registerApp(mux, src, msgs, roleAPI{sup: sup, alloc: alloc, credExists: credExists, setup: o.setup, managers: o.setupManagers},
 		specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured},
-		agentAPI{sup: sup, msgs: msgs, sess: o.sessStore, hub: o.sessHub, acc: accessDeps{o.live, o.exposures, o.previewURL}, setup: o.setup, credExists: credExists},
+		agentAPI{sup: sup, alloc: alloc, msgs: msgs, sess: o.sessStore, hub: o.sessHub, acc: accessDeps{o.live, o.exposures, o.previewURL}, setup: o.setup, credExists: credExists},
 		dashAPI{managers: o.managers, sup: sup, amURL: o.alertmanagerURL}, o.trustedOrigins, o.kitFetcher, cfgEnv, o.branches, log)
 	if o.branches != nil && o.branchHandler != nil {
 		return &branchRouter{live: mux, b: o.branches, factory: o.branchHandler}
