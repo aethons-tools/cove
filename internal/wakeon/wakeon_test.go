@@ -282,7 +282,7 @@ func TestTick_IdledWaiting_ExternalReply_Resumes_NoDirectWake(t *testing.T) {
 	}
 }
 
-func TestTick_NilInbox_NoWake_StillTeardownAtMaxWait(t *testing.T) {
+func TestTick_NilInbox_NoWakeNoTeardown(t *testing.T) {
 	waitStart := time.Unix(0, 0)
 	reg := &fakeReg{insts: []jam.Instance{
 		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: waitStart},
@@ -295,8 +295,8 @@ func TestTick_NilInbox_NoWake_StillTeardownAtMaxWait(t *testing.T) {
 
 	e.tick(context.Background())
 
-	if !contains(reap.down, "a1") {
-		t.Fatal("nil inbox must still teardown at max-wait")
+	if contains(reap.down, "a1") {
+		t.Fatal("waiting is never reaped")
 	}
 	if contains(wake.woke, "a1") {
 		t.Fatal("nil inbox must never wake")
@@ -401,29 +401,27 @@ func TestTick_IdledWaiting_NoReply_WithinMaxWait_NoOp(t *testing.T) {
 	}
 }
 
-func TestTick_PastMaxWait_TeardownRegardlessOfPhase(t *testing.T) {
+// TestTick_EphemeralNeverReapedForWaiting: no session is torn down for
+// waiting, however long — a ticket session waiting for help keeps its studio
+// and work (uniform sessions); a pending reply still wakes it.
+func TestTick_EphemeralNeverReapedForWaiting(t *testing.T) {
 	for _, phase := range []jam.Phase{jam.PhaseLive, jam.PhaseIdled} {
 		t.Run(string(phase), func(t *testing.T) {
 			reg := &fakeReg{insts: []jam.Instance{
 				{ActorID: "a1", Phase: phase, Activity: jam.ActivityWaiting, Unit: "AET-1", WaitingSince: time.Unix(0, 0)},
+				{ActorID: "a2", Phase: phase, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(0, 0)},
 			}}
-			// even with a pending reply, max-wait teardown wins
 			inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{
 				"a1": {extInbound("a1", 1, "id-1")},
 			}}
-			wake := &fakeWaker{}
 			reap := &fakeReaper{}
-			idler := &fakeIdler{}
-			e := New(reg, wake, reap, idler, inbox, Config{MaxWait: 30 * time.Minute, WarmTimeout: 1 * time.Minute}, nil)
-			e.now = func() time.Time { return time.Unix(0, 0).Add(31 * time.Minute) }
+			e := New(reg, &fakeWaker{}, reap, &fakeIdler{}, inbox, Config{MaxWait: 30 * time.Minute, WarmTimeout: 1 * time.Minute}, nil)
+			e.now = func() time.Time { return time.Unix(0, 0).Add(48 * time.Hour) }
 
 			e.tick(context.Background())
 
-			if len(reap.down) != 1 || reap.down[0] != "a1" {
-				t.Errorf("Teardown = %v, want [a1]", reap.down)
-			}
-			if len(idler.idled) != 0 || len(idler.resumed) != 0 || len(wake.woke) != 0 {
-				t.Errorf("expected only Teardown, got idle=%v resume=%v wake=%v", idler.idled, idler.resumed, wake.woke)
+			if len(reap.down) != 0 {
+				t.Errorf("Teardown = %v, want none: waiting is never reaped", reap.down)
 			}
 		})
 	}
@@ -431,8 +429,8 @@ func TestTick_PastMaxWait_TeardownRegardlessOfPhase(t *testing.T) {
 
 // TestTick_PersonalSessionNotReapedPastMaxWait: a personal session waits on its
 // owner indefinitely — past MaxWait it is not torn down, but is still idled
-// after the warm-timeout and woken (resumed, then woken) on a reply. An
-// ephemeral cove past MaxWait is still torn down.
+// after the warm-timeout and woken (resumed, then woken) on a reply. So is an
+// ephemeral one: no kind is reaped for waiting.
 func TestTick_PersonalSessionNotReapedPastMaxWait(t *testing.T) {
 	waitStart := time.Unix(1000, 0)
 	now := func() time.Time { return waitStart.Add(2 * time.Hour) } // past MaxWait (1h)
@@ -453,8 +451,8 @@ func TestTick_PersonalSessionNotReapedPastMaxWait(t *testing.T) {
 		if !contains(idler.idled, "p1") {
 			t.Fatalf("personal session past warm-timeout must still be idled; idled=%v", idler.idled)
 		}
-		if !contains(reap.down, "e1") {
-			t.Fatalf("ephemeral cove past MaxWait must still be torn down; down=%v", reap.down)
+		if contains(reap.down, "e1") {
+			t.Fatalf("an ephemeral session is not reaped for waiting either; down=%v", reap.down)
 		}
 	})
 
@@ -791,8 +789,8 @@ func TestIdleLadder_NilNagger(t *testing.T) {
 	}
 }
 
-// Ephemeral coves are untouched by the ladder: no nags, and they keep wait-max
-// teardown.
+// Ephemeral coves are untouched by the ladder: no nags, and no teardown for
+// waiting.
 func TestIdleLadder_EphemeralUnaffected(t *testing.T) {
 	start := time.Unix(100_000, 0)
 	eph := jam.Instance{ActorID: "e1", Project: "acme", Role: "pair", Unit: "AET-1", Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, WaitingSince: start}
@@ -807,8 +805,8 @@ func TestIdleLadder_EphemeralUnaffected(t *testing.T) {
 	}
 	setNow(start.Add(101 * time.Hour))
 	e.tick(context.Background())
-	if !contains(reap.down, "e1") || len(n.calls) != 0 {
-		t.Fatalf("ephemeral must keep wait-max teardown only; down=%v calls=%+v", reap.down, n.calls)
+	if len(reap.down) != 0 || len(n.calls) != 0 {
+		t.Fatalf("ephemeral must be left alone; down=%v calls=%+v", reap.down, n.calls)
 	}
 }
 
@@ -1295,19 +1293,6 @@ func TestTick_HoldingIdleWakeButNotTeardown(t *testing.T) {
 	}
 }
 
-func TestTick_WaitMaxOnlyWithoutIdleDeadline(t *testing.T) {
-	// non-resident, waited 2h > MaxWait 1h
-	base := jam.Instance{Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(10000-7200, 0)}
-	armed, unarmed := base, base
-	armed.ActorID, armed.IdleDeadline = "armed", time.Unix(20000, 0)
-	unarmed.ActorID = "unarmed"
-	e, _, reap, _, _ := turnEndEngine([]jam.Instance{armed, unarmed}, nil, nil)
-	e.tick(context.Background())
-	if len(reap.down) != 1 || reap.down[0] != "unarmed" {
-		t.Fatalf("teardown=%v, want only the session with no idle deadline", reap.down)
-	}
-}
-
 // A dropped idle wake (no stream yet) must be retried: the deadline stays armed
 // until the cove reports Running, so every tick while it is due re-sends.
 func TestTick_IdleWakeRetriedUntilRunning(t *testing.T) {
@@ -1441,10 +1426,9 @@ func TestTick_AlarmBeatsIdle(t *testing.T) {
 	}
 }
 
-// An alarm is a wake condition: wait-max does not reap a session that has one
-// scheduled (or fired and pending), and a due alarm wakes rather than loses to
-// wait-max on the same tick.
-func TestTick_WaitMaxSparesSessionsWithAlarms(t *testing.T) {
+// An alarm is a wake condition: a due alarm wakes a long-waiting session,
+// and nothing is reaped for waiting.
+func TestTick_LongWaitingAlarmsWake(t *testing.T) {
 	old := time.Unix(10000-7200, 0) // waited 2h > MaxWait 1h; non-resident
 	e, wake, reap, _, _ := turnEndEngine([]jam.Instance{
 		{ActorID: "later", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: old,
@@ -1454,8 +1438,8 @@ func TestTick_WaitMaxSparesSessionsWithAlarms(t *testing.T) {
 		{ActorID: "none", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: old},
 	}, nil, nil)
 	e.tick(context.Background())
-	if len(reap.down) != 1 || reap.down[0] != "none" {
-		t.Fatalf("teardown=%v; want only the session without alarms", reap.down)
+	if len(reap.down) != 0 {
+		t.Fatalf("teardown=%v; want none", reap.down)
 	}
 	if len(wake.woke) != 1 || wake.woke[0] != "due" {
 		t.Fatalf("woke=%v; want the due alarm to wake", wake.woke)
@@ -1670,15 +1654,6 @@ func TestTick_IdleTeardownBlocks(t *testing.T) {
 		fakeRoles{"p/r": {TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Minute, OnIdle: jam.OnIdleTeardown}}})
 	e.tick(context.Background())
 	if len(tk.blocked) != 1 || tk.blocked[0] != "a1:idle timeout" || len(reap.down) != 1 {
-		t.Fatalf("blocked=%v teardown=%v", tk.blocked, reap.down)
-	}
-}
-
-func TestTick_WaitMaxBlocks(t *testing.T) {
-	e, reap, tk := ticketEngine([]jam.Instance{{ActorID: "a1", Unit: "AET-1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting,
-		WaitingSince: time.Unix(10000-7200, 0)}}, nil)
-	e.tick(context.Background())
-	if len(tk.blocked) != 1 || tk.blocked[0] != "a1:wait-max" || len(reap.down) != 1 {
 		t.Fatalf("blocked=%v teardown=%v", tk.blocked, reap.down)
 	}
 }
@@ -1952,28 +1927,9 @@ func TestTick_TunnelInUse_NotIdled(t *testing.T) {
 	}
 }
 
-// Live SSH is activity for the teardowns that come of waiting too: wait-max
-// and an on-idle teardown are held while a tunnel is in use (an on-idle wake
-// still fires).
+// Live SSH is activity for an on-idle teardown too: it is held while a
+// tunnel is in use (an on-idle wake still fires).
 func TestTick_TunnelInUse_HoldsWaitingTeardowns(t *testing.T) {
-	reg := &fakeReg{insts: []jam.Instance{
-		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(0, 0)},
-	}}
-	reap := &fakeReaper{}
-	e := New(reg, &fakeWaker{}, reap, &fakeIdler{}, &fakeInbox{}, Config{MaxWait: 30 * time.Minute, WarmTimeout: time.Minute}, nil)
-	tun := fakeTunnels{"a1": 1}
-	e.SetTunnels(tun)
-	e.now = func() time.Time { return time.Unix(0, 0).Add(31 * time.Minute) }
-	e.tick(context.Background())
-	if len(reap.down) != 0 {
-		t.Fatalf("wait-max tore down a studio with a tunnel in use: %v", reap.down)
-	}
-	tun["a1"] = 0
-	e.tick(context.Background())
-	if len(reap.down) != 1 {
-		t.Fatalf("wait-max after the tunnel closed: %v", reap.down)
-	}
-
 	e2, wake, reap2, _, _ := turnEndEngine([]jam.Instance{{ActorID: "t", Project: "p", Role: "t", Phase: jam.PhaseLive,
 		Activity: jam.ActivityWaiting, WaitingSince: time.Unix(9000, 0), IdleDeadline: time.Unix(9999, 0)},
 		{ActorID: "w", Project: "p", Role: "w", Phase: jam.PhaseLive, SessionKind: jam.SessionKindStanding,

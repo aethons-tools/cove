@@ -2580,7 +2580,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	}()
 	go eng.Run(context.Background())
-	log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
+	log.Info("Jam wake-on engine: resident")
+	if wcfg.MaxWait > 0 {
+		log.Warn("wait-max is deprecated and ignored: no session is torn down for waiting (use a role's idle timeout)", "wait-max", wcfg.MaxWait)
+	}
 
 	// Relay state shared by the Linear, Discord and push relay engines (one cursors
 	// file, one markers file, one directory). Every directory field is set
