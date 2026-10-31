@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2093,5 +2094,72 @@ func TestKeptProcessesNotPaused(t *testing.T) {
 	e.tick(context.Background())
 	if len(idler.idled) != 1 {
 		t.Fatalf("without kept processes it is paused at warm-timeout: %v", idler.idled)
+	}
+}
+
+// countingReg counts sweeps (each tick lists the instances once).
+type countingReg struct{ n atomic.Int32 }
+
+func (c *countingReg) ListInstances() []jam.Instance { c.n.Add(1); return nil }
+
+func TestRun_KickTicksWithoutWaitingForThePoll(t *testing.T) {
+	reg := &countingReg{}
+	e := New(reg, &fakeWaker{}, &fakeReaper{}, &fakeIdler{}, nil, Config{PollInterval: time.Hour}, nil)
+	e.kickDelay = time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go e.Run(ctx)
+	waitFor(t, func() bool { return reg.n.Load() == 1 }, "the first tick")
+
+	e.Kick()
+
+	waitFor(t, func() bool { return reg.n.Load() == 2 }, "a tick after Kick")
+}
+
+func TestRun_KickBurstCoalescesIntoOneTick(t *testing.T) {
+	reg := &countingReg{}
+	e := New(reg, &fakeWaker{}, &fakeReaper{}, &fakeIdler{}, nil, Config{PollInterval: time.Hour}, nil)
+	e.kickDelay = 50 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go e.Run(ctx)
+	waitFor(t, func() bool { return reg.n.Load() == 1 }, "the first tick")
+
+	for range 5 {
+		e.Kick()
+	}
+
+	waitFor(t, func() bool { return reg.n.Load() == 2 }, "a tick after the burst")
+	time.Sleep(150 * time.Millisecond)
+	if n := reg.n.Load(); n != 2 {
+		t.Fatalf("a burst of kicks within the delay must run one tick, got %d ticks", n)
+	}
+}
+
+func TestTick_ResumeKicksSoTheWakeFollowsPromptly(t *testing.T) {
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseIdled, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: 5},
+	}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {extInbound("a1", 6, "id-6")}}}
+	e := New(reg, &fakeWaker{}, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+	e.now = func() time.Time { return time.Unix(2000, 0) }
+
+	e.tick(context.Background())
+
+	select {
+	case <-e.kick:
+	default:
+		t.Fatal("a successful Resume must kick the engine, so the Wake is sent on the next (prompt) tick, not a full poll later")
+	}
+}
+
+func waitFor(t *testing.T, cond func() bool, what string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

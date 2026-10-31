@@ -4,7 +4,7 @@ read_when: You want a raised studio's agent to be able to read and post comments
 owns: the operator-facing intercom-MCP story — the `/squawks` broker endpoint and its wire shapes, the `mission` and `focus` tools and their `PUT /mission` and `PUT /focus` endpoints, the channel log and its cutover from the legacy log, channel membership (call-in, join, leave), the inbox as a queue, the relays, wake-on, the `jam-studio-agent mcp` stdio delivery, and how it's enabled. Does NOT own the target space or access-graph rules — see comms-addressing.md. Does NOT own escalation-category semantics for the `escalate` tool — see escalation.md.
 prereqs: coves.md for the managed studio a squawk is scoped to; personal-sessions.md for a ticketless studio that talks to the person who started it; requisitioner.md for the tracker/Linear client this reuses; roster.md for the identity a squawk is attributed to; comms-addressing.md for addressing a target other than the studio's own ticket
 tier: leaf
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 # The intercom MCP
@@ -131,7 +131,11 @@ blocks instead of ending ([turn-end.md](turn-end.md)). Jam's resident **wake-on 
 watches the studio's inbox and, when a reply arrives, **wakes** it
 over the Attach stream; the studio runs its next turn — written into the live agent if one is running, else a new `claude --continue` episode — `read`s the
 reply, and resumes. When its [session context](session-context.md#refresh) changed
-meanwhile, the wake text says so. A **`wait-max`** bounds the wait — a studio with no reply within it is
+meanwhile, the wake text says so. The engine reacts **on signal**: every append to
+the channel log and every activity a studio reports runs a check about 200ms later
+(a burst coalesces into one), so a reply typically wakes its studio in well under a
+second; `poll-interval` is only the backstop for alarms, deadlines and a missed
+signal. A **`wait-max`** bounds the wait — a studio with no reply within it is
 torn down (no zombies), paused or not — unless the role's
 [idle timeout](turn-end.md#idle-timeout) is armed, which then decides instead. **Resident sessions are exempt from `wait-max`:**
 a [personal](personal-sessions.md) or [standing](standing-sessions.md) session waits
@@ -154,7 +158,9 @@ past a **`warm-timeout`** with no reply, the engine **pauses** it (`docker pause
 CPU; not while a tunnel is open or it [keeps processes](structured-turn-end.md#kept-processes) running) and moves it to the `idled` [phase](coves.md#the-model) — a paused, intentionally
 idle studio whose lease-reaping is suspended (see [coves.md](coves.md) for the phase
 chain). When a reply then lands, the engine **unpauses** it (`Resume`) and sends `Wake`
-on a subsequent tick once it's reconnected and reporting Live + `waiting` again.
+on the next check once it's reconnected and reporting Live + `waiting` again — the
+unpause and the studio's reconnect report each trigger one, so the wake follows the
+unpause promptly rather than a poll later.
 An open SSH connection holds this off ([collaboration.md](collaboration.md#idle-studios)).
 
 The engine always runs and is configured under `runtime.wake`:
@@ -162,7 +168,7 @@ The engine always runs and is configured under `runtime.wake`:
 ```yaml
 runtime:
   wake:
-    poll-interval: 15s   # how often Jam checks waiting studios for a reply (default 15s)
+    poll-interval: 15s   # backstop sweep of waiting studios; replies wake on signal (default 15s)
     wait-max: 24h        # max a (non-personal) cove may wait before teardown, paused or not (default 30m)
     warm-timeout: 5m     # how long a waiting cove stays live before it's paused (default 60s)
 ```

@@ -41,6 +41,7 @@ type Server struct {
 	// exposureSource seeds an actor's set on connect when none is stored
 	// (called under mu, so it must not call back into the Server).
 	exposureSource func(actorID string) []int32
+	onStatus       func() // SetOnStatus; nil = none
 	// portsOwed marks connected actors whose stream has not yet been sent the
 	// current port set; portsNotify wakes that stream's send loop (buffer 1).
 	// Delivery is coalesced and lossless: the send loop sends the latest set
@@ -59,6 +60,12 @@ var ackEvery = 250 * time.Millisecond
 // it, events are ignored (never acked) — jam always sets one, using a
 // no-op store when storage is not configured.
 func (s *Server) SetSessionEvents(in *sessionevents.Ingest) { s.events = in }
+
+// SetOnStatus has every activity report a cove sends (after it is recorded)
+// call f — jam wires the wake-on engine's Kick, so a cove reconnecting
+// Waiting after an unpause is woken at once. Not called for heartbeats. Call
+// before serving.
+func (s *Server) SetOnStatus(f func()) { s.onStatus = f }
 
 // ackState collects the latest durable seq per stream for one connection.
 type ackState struct {
@@ -170,6 +177,9 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 		case *attachpb.StatusUp_Status:
 			if act, ok := fromPBActivity(m.Status); ok {
 				_ = s.sup.Report(stream.Context(), actorID, act)
+				if s.onStatus != nil {
+					s.onStatus()
+				}
 			}
 		case *attachpb.StatusUp_Connector:
 			_ = s.sup.RecordConnector(actorID, m.Connector.GetFingerprint())

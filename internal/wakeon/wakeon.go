@@ -152,6 +152,9 @@ const (
 	defaultPollInterval = 15 * time.Second
 	defaultMaxWait      = 30 * time.Minute
 	defaultWarmTimeout  = 60 * time.Second
+	// defaultKickDelay is how long a Kick waits before its tick, so a burst
+	// of appends (a relay batch, a busy channel) is answered by one sweep.
+	defaultKickDelay = 200 * time.Millisecond
 )
 
 type Engine struct {
@@ -197,6 +200,10 @@ type Engine struct {
 	// against the log once, not every tick; cleared when it grows large.
 	trippedMu sync.Mutex
 	tripped   map[int64]bool
+
+	// kick holds one pending Kick; Run ticks kickDelay after it.
+	kick      chan struct{}
+	kickDelay time.Duration
 }
 
 func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Config, log *slog.Logger) *Engine {
@@ -212,7 +219,20 @@ func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Co
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(discard{}, nil))
 	}
-	return &Engine{reg: reg, wake: wake, reap: reap, idler: idler, inbox: inbox, cfg: cfg, now: time.Now, log: log}
+	return &Engine{reg: reg, wake: wake, reap: reap, idler: idler, inbox: inbox, cfg: cfg, now: time.Now, log: log,
+		kick: make(chan struct{}, 1), kickDelay: defaultKickDelay}
+}
+
+// Kick asks Run for a tick now rather than at the next poll — wired to every
+// message-log append and every activity a cove reports, so a reply wakes its
+// session within kickDelay instead of up to PollInterval later. Kicks within
+// kickDelay coalesce into one tick; the poll still runs as the backstop (alarms,
+// deadlines, a missed signal). Safe from any goroutine; never blocks.
+func (e *Engine) Kick() {
+	select {
+	case e.kick <- struct{}{}:
+	default: // one already pending: coalesce
+	}
 }
 
 // SetSessionWakes lets another session's post wake a waiting session — with
@@ -308,6 +328,19 @@ func (e *Engine) Run(ctx context.Context) {
 			return
 		case <-tk.C:
 			e.tick(ctx)
+		case <-e.kick:
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(e.kickDelay):
+			}
+			// This tick answers every kick so far; one landing during it
+			// queues the next.
+			select {
+			case <-e.kick:
+			default:
+			}
+			e.tick(ctx)
 		}
 	}
 }
@@ -373,8 +406,12 @@ func (e *Engine) tick(ctx context.Context) {
 			if inst.Phase == jam.PhaseIdled {
 				if err := e.idler.Resume(ctx, inst.ActorID); err != nil {
 					e.log.Warn("wakeon: resume failed", "actor", inst.ActorID, "error", err.Error())
+				} else {
+					e.Kick()
 				}
-				// Wake is sent on a later tick, once it's Live+Waiting and the stream has reconnected.
+				// Wake is sent on a later tick, once it's Live+Waiting and the
+				// stream has reconnected: the kick runs one shortly, and the
+				// cove's reconnect status report kicks again.
 				continue
 			}
 			e.log.Info("wakeon: waking", "actor", inst.ActorID, "reasons", len(reasons))
