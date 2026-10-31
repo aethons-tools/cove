@@ -313,18 +313,25 @@ func (r *Reconciler) Tick(ctx context.Context) {
 	r.sweep(ctx, declaredIDs)
 }
 
-// sweep purges the persisted state of every actor id not declared on any role:
-// a dismissed name (even one dismissed while down), a removed role, a purge
-// that failed before. State still in use (its cove not yet gone) is left for
-// a later pass.
+// sweep purges the persisted state of every actor id not declared on any role
+// and with no instance: a dismissed name (even one dismissed while down), a
+// removed role, a purge that failed before, and — since every session keeps
+// state (uniform sessions) — any other session once it is gone. A session
+// that still has an instance (live, or recovering after its studio died)
+// keeps its state. State still in use (its cove not yet gone) is left for a
+// later pass.
 func (r *Reconciler) sweep(ctx context.Context, declaredIDs map[string]bool) {
 	owners, err := r.sup.StateOwners(ctx)
 	if err != nil {
 		r.log.Warn("standing: listing persisted state failed", "err", err.Error())
 		return
 	}
+	live := map[string]bool{} // read now: this pass's teardowns are gone already
+	for _, inst := range r.registry.ListInstances() {
+		live[inst.ActorID] = inst.Phase != jam.PhaseGone
+	}
 	for _, id := range owners {
-		if declaredIDs[id] {
+		if declaredIDs[id] || live[id] {
 			continue
 		}
 		if err := r.sup.PurgeState(ctx, id); err != nil {

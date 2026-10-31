@@ -18,6 +18,7 @@ const (
 	PhaseGone        Phase = "gone"        // torn down + deregistered (terminal)
 	PhaseLost        Phase = "lost"        // reconciler declared dead (lease expired + Probe dead) → Terminating
 	PhaseIdled       Phase = "idled"       // paused; intentionally idle — lease-reaping suspended
+	PhaseRecovering  Phase = "recovering"  // its studio died (Lost, or the agent exited without end); the supervisor re-raises it under the same id, state kept
 )
 
 // Activity is cove-reported and only meaningful while Phase == Live. The
@@ -99,6 +100,16 @@ type Instance struct {
 	MessagesMuted      bool          `json:"messages_muted,omitempty"`      // new messages don't wake the session (PUT /mute); cleared when its next turn starts
 	Report             *TicketReport `json:"report,omitempty"`              // the session's last ticket report (POST /report, or blocked by wake-on)
 	TurnProtocol       int           `json:"turn_protocol,omitempty"`       // the turn protocol the cove last fetched its context with (GET /context); 0 = legacy
+	RaisePrompt        string        `json:"raise_prompt,omitempty"`        // the prompt it was raised with, kept so a recovery can re-raise it; "" = raised before recovery existed (never recovered)
+	Recovery           *Recovery     `json:"recovery,omitempty"`            // set while PhaseRecovering: when its studio died and the next re-raise attempt
+}
+
+// Recovery is a recovering session's re-raise state.
+type Recovery struct {
+	Since    time.Time `json:"since"`              // when its studio died
+	Next     time.Time `json:"next"`               // the next re-raise attempt
+	Attempts int       `json:"attempts,omitempty"` // failed re-raises so far
+	Reason   string    `json:"reason,omitempty"`   // why it is recovering ("lost", "agent exited")
 }
 
 // InstanceCounter counts live instances in a Store — the slice-1 capacity signal

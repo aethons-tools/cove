@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/intercom"
 )
 
 // ticketChannelOf is the fixture ticket's channel (it must exist).
