@@ -3,6 +3,7 @@ package jam
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -225,5 +226,152 @@ func TestRestartRecoversAtOnce(t *testing.T) {
 	}
 	if err := sup.Restart(context.Background(), "old"); !errors.Is(err, ErrNotRestartable) {
 		t.Fatalf("legacy restart = %v", err)
+	}
+}
+
+// raceLauncher runs during a Raise whatever onRaise does (say, an operator's
+// End landing while a re-raise is in flight).
+type raceLauncher struct {
+	fakeLauncher
+	onRaise func()
+}
+
+func (r *raceLauncher) Raise(ctx context.Context, spec RaiseSpec, creds LaunchCreds) (string, error) {
+	if r.onRaise != nil {
+		f := r.onRaise
+		r.onRaise = nil
+		f()
+	}
+	return r.fakeLauncher.Raise(ctx, spec, creds)
+}
+
+// A session ended while its re-raise is in flight stays ended: the re-raise
+// rolls its new studio and identity back instead of reviving it.
+func TestEndDuringReraiseStaysEnded(t *testing.T) {
+	l := &raceLauncher{fakeLauncher: fakeLauncher{liveness: LivenessDead}}
+	sup, store, clk := supTestKit(t, l)
+	raiseWorker(t, sup)
+	*clk = clk.Add(2 * time.Minute)
+	if err := sup.Reconcile(context.Background()); err != nil { // → recovering
+		t.Fatal(err)
+	}
+	l.onRaise = func() {
+		if err := sup.Teardown(context.Background(), "w1"); err != nil {
+			t.Error(err)
+		}
+	}
+	*clk = clk.Add(RecoveryBackoffInitial)
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := store.GetInstance("w1"); ok {
+		t.Fatalf("ended session revived: %+v", got)
+	}
+	if len(store.ListActors()) != 0 {
+		t.Fatal("the rolled-back re-raise left an identity behind")
+	}
+}
+
+// failTeardownLauncher fails its next teardowns.
+type failTeardownLauncher struct {
+	fakeLauncher
+	fails int
+}
+
+func (f *failTeardownLauncher) Teardown(ctx context.Context, inst Instance) error {
+	if f.fails > 0 {
+		f.fails--
+		return errors.New("docker hiccup")
+	}
+	return f.fakeLauncher.Teardown(ctx, inst)
+}
+
+// An agent that exits without end, whose studio then fails to tear down, is
+// retried by the next reconcile pass rather than stranded.
+func TestDoneRecoveryRetriedAfterTeardownFailure(t *testing.T) {
+	l := &failTeardownLauncher{fakeLauncher: fakeLauncher{liveness: LivenessAlive}}
+	sup, store, _ := supTestKit(t, l)
+	raiseWorker(t, sup)
+	l.fails = 1
+	_ = sup.Report(context.Background(), "w1", ActivityDone) // the attach server ignores this error
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := store.GetInstance("w1"); got.Phase != PhaseRecovering {
+		t.Fatalf("after a failed teardown and a reconcile pass = %+v; want recovering", got)
+	}
+}
+
+// Waiting on infrastructure (a kit still building, no manager available)
+// doesn't use up re-raise attempts: only the age limit ends such a recovery.
+func TestRecoveryTransientFailuresDontCount(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessDead}
+	sup, store, clk := supTestKit(t, f)
+	raiseWorker(t, sup)
+	*clk = clk.Add(2 * time.Minute)
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.raiseErr = fmt.Errorf("%w: m1", ErrManagerUnavailable)
+	for i := 0; i < RecoveryMaxAttempts+3; i++ {
+		got, ok := store.GetInstance("w1")
+		if !ok {
+			t.Fatalf("gave up after %d transient failures", i)
+		}
+		*clk = got.Recovery.Next
+		if err := sup.Reconcile(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := store.GetInstance("w1")
+	if got.Recovery == nil || got.Recovery.Attempts != 0 {
+		t.Fatalf("transient failures counted: %+v", got.Recovery)
+	}
+	*clk = got.Recovery.Since.Add(RecoveryMaxAge)
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.GetInstance("w1"); ok {
+		t.Fatal("still recovering past the age limit")
+	}
+}
+
+// Restart only restarts a running (or paused, or recovering) session: one
+// being ended, or that asked to end, is refused.
+func TestRestartRefusesEndingSessions(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	raiseWorker(t, sup)
+	sup.patchInstance("w1", func(i *Instance) { i.Phase = PhaseTerminating })
+	if err := sup.Restart(context.Background(), "w1"); err == nil {
+		t.Fatal("restart of a terminating session must be refused")
+	}
+	sup.patchInstance("w1", func(i *Instance) { i.Phase, i.EndRequested = PhaseLive, &EndRequest{Reason: "done"} })
+	if err := sup.Restart(context.Background(), "w1"); !errors.Is(err, ErrEnding) {
+		t.Fatalf("restart of a session that asked to end = %v", err)
+	}
+	if got, _ := store.GetInstance("w1"); got.Phase == PhaseRecovering {
+		t.Fatal("refused restart still recovered the session")
+	}
+}
+
+// A recovering session whose manager goes away is ended, not re-raised
+// elsewhere with empty state.
+func TestRecoveringOnARemovedManagerGivesUp(t *testing.T) {
+	s := &recoverySpy{}
+	sup, store, clk := supTestKit(t, s)
+	raiseWorker(t, sup)
+	sup.patchInstance("w1", func(i *Instance) {
+		i.Phase, i.Manager = PhaseRecovering, "m-gone"
+		i.Recovery = &Recovery{Since: *clk, Next: *clk}
+	})
+	if err := sup.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.GetInstance("w1"); ok {
+		t.Fatal("a recovering session on a removed manager must be ended")
+	}
+	if len(s.raised) != 1 {
+		t.Fatalf("re-raised elsewhere: %v", s.raised)
 	}
 }

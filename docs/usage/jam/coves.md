@@ -59,10 +59,18 @@ manager it ran on while that is still configured, with the prompt it was first
 raised with; the new studio finds its conversation marker and
 [resumes](standing-state.md) instead. Its inbox cursor, focus, ticket report,
 alarms and escalation category carry over. The first attempt is 30s after the
-studio died; a failed attempt backs off (doubling, capped at 30m). After 5
-failed attempts, or 2h, Jam **gives up**: a final teardown, the ticket marked
+studio died; a failed attempt backs off (doubling, capped at 30m). Waiting on
+infrastructure — the kit's image still building, no manager available — is
+retried every 30s and uses up no attempt. After 5 failed attempts, or 2h, or
+once its manager is gone, Jam **gives up**: a final teardown, the ticket marked
 blocked if unfinished ([turn-end.md](turn-end.md#reporting-a-ticket)), the slot
-released.
+released. An End (or a standing dismissal or reset) that lands while a re-raise
+is in flight wins: the new studio and identity are rolled back. The state sweep
+spares a session's volumes while it has an instance or an identity (a raise in
+flight).
+
+An operator's **Restart** ([session-view.md](session-view.md)) uses the same
+path at once: it is refused for a session being ended or that asked to `end`.
 
 Not recovered (ended as before): a session that asked to `end`, one lost
 together with its manager (removed or force-revoked — its state went with it),

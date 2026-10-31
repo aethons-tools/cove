@@ -69,6 +69,11 @@ type RaiseSpec struct {
 	// always sets it; the launcher stages it for jam-studio-agent, which delivers
 	// its core as an appended system prompt every turn.
 	Context *sessionctx.Bundle
+	// recovering marks a recovery's re-raise (reraise): its record is
+	// written only while the stored one is still recovering — an End,
+	// reset or dismissal that landed meanwhile wins, and the new studio
+	// and identity are rolled back.
+	recovering bool
 	// DraftImage, set by Supervisor.Raise for a draft studio
 	// (docs/usage/jam/kits-drafts.md#draft-studio), is the test build's image
 	// the launcher runs (by id) instead of the kit inventory's. nil for every
@@ -578,7 +583,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	if draft != nil {
 		inst.KitDraft, inst.ImageTag, inst.KitDraftImage = &draft.ref, draft.image.Tag, draft.image.ID
 	}
-	if err := s.store.PutInstance(inst); err != nil {
+	if err := s.putRaised(inst, spec.recovering); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
 			s.log.Warn("raise rollback: failed to tear down launched cove", "id", spec.ActorID, "error", tdErr)
 		}
@@ -612,6 +617,25 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		s.log.Info("cove raised", "id", spec.ActorID, "project", inst.Project, "role", spec.Role, "phase", string(inst.Phase))
 	}
 	return inst, tok, secret, nil
+}
+
+// errRecoveryOvertaken is a re-raise whose session was ended (or otherwise
+// stopped recovering) while it was in flight.
+var errRecoveryOvertaken = errors.New("the session stopped recovering during its re-raise")
+
+// putRaised records a raised instance. A recovery's re-raise writes it only
+// while the stored record is still recovering (under instMu, so a Teardown's
+// patch can't interleave); otherwise errRecoveryOvertaken.
+func (s *Supervisor) putRaised(inst Instance, recovering bool) error {
+	if !recovering {
+		return s.store.PutInstance(inst)
+	}
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	if cur, ok := s.store.GetInstance(inst.ActorID); !ok || cur.Phase != PhaseRecovering {
+		return errRecoveryOvertaken
+	}
+	return s.store.PutInstance(inst)
 }
 
 // kitFor resolves the studio kit a raise for role runs, for harness install h
@@ -1010,7 +1034,7 @@ func (s *Supervisor) prepareKitAndRetry(ctx context.Context, manager string, spe
 		if s.log != nil {
 			s.log.Info("kit preparing; deferring raise to reconcile", "id", spec.ActorID, "kit", spec.Kit.String())
 		}
-		return Placed{}, KitDefinition{}, fmt.Errorf("kit %s is preparing; deferring", spec.Kit)
+		return Placed{}, KitDefinition{}, kitPreparingError{spec.Kit}
 	}
 	if s.log != nil {
 		s.log.Info("kit prepared; retrying raise", "id", spec.ActorID, "kit", spec.Kit.String())
@@ -1091,9 +1115,10 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	switch {
 	case inst.Phase == PhaseTerminating:
 		return s.Teardown(ctx, actorID)
-	case a == ActivityDone:
+	case a == ActivityDone && inst.Phase == PhaseLost:
 		// Its agent exited without asking to end (a teardown in flight
-		// would be Terminating): recover the session.
+		// would be Terminating): recover the session. Marked Lost first, so
+		// a failure here is retried by Reconcile.
 		return s.markRecovering(ctx, inst, "agent exited")
 	}
 	return nil
@@ -1163,8 +1188,13 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 		inst.LastNagAt = time.Time{} // a new Waiting period restarts the idle ladder
 		inst.Nags = 0
 	}
-	if a == ActivityDone && (inst.Phase == PhaseTerminating || !recoverable(inst)) {
-		inst.Phase = PhaseTerminating
+	if a == ActivityDone {
+		switch {
+		case inst.Phase != PhaseTerminating && recoverable(inst):
+			inst.Phase = PhaseLost // Report recovers it; Reconcile retries a failed recovery
+		default:
+			inst.Phase = PhaseTerminating
+		}
 	}
 	return inst, s.store.PutInstance(inst)
 }

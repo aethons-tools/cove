@@ -318,8 +318,8 @@ func (r *Reconciler) Tick(ctx context.Context) {
 // removed role, a purge that failed before, and — since every session keeps
 // state (uniform sessions) — any other session once it is gone. A session
 // that still has an instance (live, or recovering after its studio died)
-// keeps its state. State still in use (its cove not yet gone) is left for a
-// later pass.
+// keeps its state, as does one being raised (it has an identity). State still
+// in use (its cove not yet gone) is left for a later pass.
 func (r *Reconciler) sweep(ctx context.Context, declaredIDs map[string]bool) {
 	owners, err := r.sup.StateOwners(ctx)
 	if err != nil {
@@ -329,6 +329,13 @@ func (r *Reconciler) sweep(ctx context.Context, declaredIDs map[string]bool) {
 	live := map[string]bool{} // read now: this pass's teardowns are gone already
 	for _, inst := range r.registry.ListInstances() {
 		live[inst.ActorID] = inst.Phase != jam.PhaseGone
+	}
+	if r.actors != nil {
+		// A raise in flight enrolls its identity and creates its volumes
+		// before its instance is recorded: spare its state too.
+		for _, a := range r.actors.ListActors() {
+			live[a.ID] = true
+		}
 	}
 	for _, id := range owners {
 		if declaredIDs[id] || live[id] {

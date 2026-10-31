@@ -41,6 +41,23 @@ func (s *Supervisor) recoverableHere(inst Instance) bool {
 	return !ok || pl.HasManager(cmp.Or(inst.Manager, LocalManager))
 }
 
+// ErrKitPreparing is a raise deferred while its kit's image builds.
+var ErrKitPreparing = errors.New("kit is preparing")
+
+// kitPreparingError is a raise deferred while kit's image builds (errors.Is
+// ErrKitPreparing).
+type kitPreparingError struct{ kit KitRef }
+
+func (e kitPreparingError) Error() string        { return fmt.Sprintf("kit %s is preparing; deferring", e.kit) }
+func (e kitPreparingError) Is(target error) bool { return target == ErrKitPreparing }
+
+// transientRaiseErr reports whether a raise failed waiting on infrastructure
+// — a kit not ready or still building, no manager available — rather than
+// for a reason a retry won't fix.
+func transientRaiseErr(err error) bool {
+	return errors.Is(err, ErrKitPreparing) || errors.Is(err, ErrKitNotReady) || errors.Is(err, ErrManagerUnavailable)
+}
+
 // recoveryBackoff is the delay before the next re-raise after attempts
 // failures (30s doubling, capped at 30m).
 func recoveryBackoff(attempts int) time.Duration {
@@ -90,19 +107,39 @@ func (s *Supervisor) recoverDue(ctx context.Context, inst Instance, now time.Tim
 	if now.Before(rec.Next) {
 		return
 	}
-	if err := s.reraise(ctx, inst); err != nil {
-		attempts := rec.Attempts + 1
+	if !s.recoverableHere(inst) || now.Sub(rec.Since) >= RecoveryMaxAge {
+		// Its manager went away (its state with it), or it has waited too long.
+		s.giveUpRecovery(ctx, inst)
+		return
+	}
+	err := s.reraise(ctx, inst)
+	switch {
+	case err == nil, errors.Is(err, errRecoveryOvertaken):
+		return // re-raised, or ended meanwhile: nothing more to do
+	case transientRaiseErr(err):
+		// Waiting on infrastructure (a kit still building, no manager
+		// available) uses up no attempt: only the age limit ends it.
 		if s.log != nil {
-			s.log.Warn("recovery: re-raise failed", "id", inst.ActorID, "attempt", attempts, "err", err.Error())
-		}
-		if attempts >= RecoveryMaxAttempts || now.Sub(rec.Since) >= RecoveryMaxAge {
-			s.giveUpRecovery(ctx, inst)
-			return
+			s.log.Info("recovery: re-raise deferred", "id", inst.ActorID, "err", err.Error())
 		}
 		s.patchInstance(inst.ActorID, func(i *Instance) {
-			i.Recovery = &Recovery{Since: rec.Since, Next: now.Add(recoveryBackoff(attempts)), Attempts: attempts, Reason: rec.Reason}
+			if i.Recovery != nil {
+				i.Recovery.Next = now.Add(RecoveryBackoffInitial)
+			}
 		})
+		return
 	}
+	attempts := rec.Attempts + 1
+	if s.log != nil {
+		s.log.Warn("recovery: re-raise failed", "id", inst.ActorID, "attempt", attempts, "err", err.Error())
+	}
+	if attempts >= RecoveryMaxAttempts {
+		s.giveUpRecovery(ctx, inst)
+		return
+	}
+	s.patchInstance(inst.ActorID, func(i *Instance) {
+		i.Recovery = &Recovery{Since: rec.Since, Next: now.Add(recoveryBackoff(attempts)), Attempts: attempts, Reason: rec.Reason}
+	})
 }
 
 // reraise raises inst again under its id, with the spec it was raised with,
@@ -114,6 +151,7 @@ func (s *Supervisor) reraise(ctx context.Context, inst Instance) error {
 		ActorID: inst.ActorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit,
 		Mission: inst.Mission, Prompt: inst.RaisePrompt,
 		Owner: inst.Owner, OwnerID: inst.OwnerID, Name: inst.Name, SessionKind: inst.SessionKind,
+		recovering: true,
 	}
 	if pl, ok := s.launcher.(PlacingLauncher); ok && inst.Manager != "" && pl.HasManager(inst.Manager) {
 		spec.Placement = Placement{Managers: []string{inst.Manager}}
@@ -144,6 +182,9 @@ func (s *Supervisor) giveUpRecovery(ctx context.Context, inst Instance) {
 	}
 }
 
+// ErrEnding is a Restart of a session that asked to end: it ends at its turn's end.
+var ErrEnding = errors.New("session asked to end; it ends at its turn's end")
+
 // ErrNotRestartable is a Restart of a session raised before recovery existed:
 // ending it is the only way to replace its studio.
 var ErrNotRestartable = errors.New("session was raised before restart existed; end it instead")
@@ -156,6 +197,12 @@ func (s *Supervisor) Restart(ctx context.Context, actorID string) error {
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok || inst.Phase == PhaseGone {
 		return fmt.Errorf("no session %q", actorID)
+	}
+	if inst.EndRequested != nil {
+		return ErrEnding
+	}
+	if inst.Phase != PhaseLive && inst.Phase != PhaseIdled && inst.Phase != PhaseRecovering {
+		return fmt.Errorf("session %q is %s: nothing to restart", actorID, inst.Phase)
 	}
 	if inst.SessionKind == SessionKindStanding {
 		return s.Teardown(ctx, actorID)

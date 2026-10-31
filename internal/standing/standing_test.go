@@ -455,6 +455,20 @@ func TestSweep_SkipsLiveSessionsState(t *testing.T) {
 	}
 }
 
+// A raise in flight has its identity enrolled and its volumes created before
+// its instance is recorded: the sweep spares state whose session has an
+// identity.
+func TestSweep_SkipsStateOfARaiseInFlight(t *testing.T) {
+	r, w, _, _ := kit()
+	actors := &fakeActors{ids: map[string]bool{"ses_new": true}}
+	r.SetActors(actors)
+	w.state["ses_new"] = true
+	r.Tick(context.Background())
+	if len(w.purged) != 0 {
+		t.Fatalf("purged %v; a session being raised keeps its state", w.purged)
+	}
+}
+
 // State in use by a cove that failed to tear down is skipped, then purged
 // once the teardown succeeds.
 func TestSweep_SkipsInUseState(t *testing.T) {
