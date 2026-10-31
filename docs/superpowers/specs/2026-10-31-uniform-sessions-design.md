@@ -1,6 +1,6 @@
 # Uniform sessions — design
 
-**Status:** agreed with the user 2026-10-31; not built.
+**Status:** agreed with the user 2026-10-31; built on branch `docs/uniform-sessions-design` (plan: `docs/superpowers/plans/2026-10-31-uniform-sessions.md`).
 **Context:** Jam boxed in worker (ticket) sessions to keep them on task: their home is the ticket, they are told to `end` when done and to "send and end your turn" when stuck, and they are reaped after 30 minutes of waiting. The thinking has since moved to *sessions are sessions*. The boxing limited workers without speeding anything up, and it cost real work:
 
 1. A worker hit a problem, posted it on the ticket, and exited. A Linear comment is far less visible than a squawk, and the context was lost, so another session had to start over.
