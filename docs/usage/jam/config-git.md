@@ -183,7 +183,6 @@ forced) plus each object's usual `admin …` entry with `via=config`.
 ## Drift and release
 
 With `config.github` set there is no live editing to drift from: release, `apply --dir` and the config-object admin writes are refused ([config-branches.md](config-branches.md#no-live-edits)). Drift is still checked, as a safety signal (a kit from its own git source can move); the follower applies over it.
-
 An object is **drifted** when Jam's copy no longer has the digest its mark
 recorded (edited in Jam since the apply), and **missing** when it was
 removed in Jam. While any managed object is either, Jam holds the
