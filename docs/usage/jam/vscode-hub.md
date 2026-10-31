@@ -16,7 +16,7 @@ A click goes to the session's studio window when one is open, otherwise to the c
 
 The **Conversations** view, first in the Jam container in **every** window, is the web app's rail:
 Needs you, Sessions, Channels and History, with each row's mission and unread count.
-It has no *New message* or *New session* buttons yet; use the web app for those.
+Above it, **New message** picks whom to write to and opens a small composer; once sent, the new conversation opens in its hub tab. **New session** (when you may start one) starts it and opens its conversation in the hub.
 
 - **Click** a row: [go to the conversation](#the-hub): its session's studio window if one is open, otherwise its tab in the hub.
 - **Double-click** a session you may SSH into: its studio window opens, or comes to the front (see [Opening a session](vscode.md#opening-a-session)). Any other row does the same as a click.

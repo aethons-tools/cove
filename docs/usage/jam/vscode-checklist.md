@@ -89,6 +89,8 @@ Conversation tabs and views:
 - [ ] Reload the hub with a background conversation tab, then click its rail row: a second tab opens; showing the restored one closes it (as with boards).
 - [ ] A window on a local folder shows no Jam views except the rail (Conversations).
 - [ ] Rail: the groups, missions and unread counts match the web app's rail.
+- [ ] Rail *New message*: pick a person, send; the conversation opens as a hub tab (from an ordinary window too).
+- [ ] Rail *New session*: start one (with no studio access needed); its conversation opens in the hub.
 - [ ] Rail click on a session with no studio window opens its tab in the hub (opening the hub, whether it was closed or open); with one open, it brings that window to the front.
 - [ ] *Jam: Open Hub* opens the hub; again, it focuses it. `open vscode://aethons.jam/hub` does the same.
 - [ ] macOS: `jam vscode install` adds `~/Applications/Jam Hub (<host>).app` with the J icon; it opens VS Code on the hub (VS Code closed and open) and stays in the Dock when kept there.
