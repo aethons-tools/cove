@@ -18,13 +18,19 @@ describe("SessionCard", () => {
     expect(screen.getByText("working")).toHaveAttribute("title", "working: Bash");
     expect(screen.getByText("Ship the card")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "recent states, now working" })).toBeInTheDocument();
-    expect(container.querySelector(".sc-mission + .sc-focus")).toBeNull();
+    expect(container.querySelector(".sc-focus")).toBeNull();
+  });
+
+  it("shows the focus under the mission", () => {
+    const { container } = show(card({ mission: "Ship the card", focus: "Writing its tests" }));
+    expect(container.querySelector(".sc-mission + .sc-focus")).toHaveTextContent("Writing its tests");
   });
 
   it("shows only the counts above 0, each named in its title", () => {
-    show(card({ counts: { asks: 1, alarms: 0, previews: 2, processes: 0 } }));
+    show(card({ counts: { asks: 1, alarms: 0, previews: 2, processes: 0, subagents: 3 } }));
     expect(screen.getByTitle("1 open ask")).toHaveTextContent("1");
     expect(screen.getByTitle("2 previews")).toHaveTextContent("2");
+    expect(screen.getByTitle("3 subagents")).toHaveTextContent("3");
     expect(screen.queryByTitle(/alarm/)).toBeNull();
     expect(screen.queryByTitle(/kept process/)).toBeNull();
   });

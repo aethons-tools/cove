@@ -4,7 +4,7 @@ read_when: You want a project member to read/reply to their studios and channels
 owns: what the `/app/user` user area shows and does — the rail attention grouping, the conversation view, New message, New session, asks in a conversation, the composer (keys, saved reply, draft stack, attachments) and copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
 prereqs: web-app.md for how the app is built and served; session-events.md for the event stream the status strip derives from; ui.md for the `/app` login and who counts as a user; intercom.md for the squawk Log + wake-on; coves.md for the session phases and activity the "Needs you" treatment reflects; escalation.md for asking for a person
 tier: leaf
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 # The user area (`/app/user`)
@@ -52,24 +52,8 @@ principal menu; see [ui.md](ui.md)) with **Inbox** current.
     ticket channel the most recently raised active session's; a chat only when
     exactly one session in it is active; rooms never.
   - **Status card:** a session channel's row (its own session, or a ticket's
-    most recently raised active one; never chats or rooms) carries that
-    session's status card in `GET /app/user/api/rail` (`card`), as does its
-    header (`GET /app/user/api/sessions/{id}`). The card holds a state for the
-    sparkline and pill — `thinking` (a model call), `working` (a tool, named),
-    `waiting` (turn over, background tasks, kept processes or alarms still
-    out), `idle` (waits only on messages, or on a person: pill `needs you` or
-    `blocked`), `sleeping` (paused) — plus the mission, the [focus](intercom.md#what-the-tools-do) (what the session is on now), counts (open asks,
-    alarms, previews, kept processes), the context window's use in tokens, and
-    how many `system/init` events Jam has seen since it started. The design:
-    [session status card](../../superpowers/specs/2026-10-30-session-status-card-design.md).
-    The rail shows such a row *as* the card (`SessionCard`, compact): a plain
-    icon box with the context bar overlaid on its right edge (green, through
-    yellow, to red; pulsing from 85%), the name, the state pill (its tool in
-    the tooltip), count icons (each hidden at 0; open asks orange and
-    pulsing), the mission, and a sparkline of the last 10 minutes. The page
-    builds the sparkline from the cards it fetches (`session/card/history.ts`):
-    a step per state change, a dashed mark where `inits` went up; it isn't
-    stored, so a fresh page starts flat.
+    most recently raised active one; never chats or rooms) is that session's
+    [status card](session-card.md).
 - **The open conversation:** its messages (the viewer's own on one side) with
   day dividers and **Load earlier** for older pages, a **"Needs you"** chip
   when a session in it asked for a person or is blocked, the **Open asks**
@@ -151,8 +135,8 @@ yet in it). The rules are the intercom's
   conversation as read from the moment it's shown.
 - **Refresh is live:** the app holds an SSE stream (`GET /app/user/events`).
   It carries payload-free signals — `changed` (the squawk Log grew),
-  `presence` (a session's status changed, or what its status card shows:
-  phase, activity, mission, focus, open asks, alarms, previews, kept processes; at
+  `presence` (a session's status changed, or what its status
+  [card](session-card.md#freshness) shows; at
   most one per 250 ms, the last always sent; it refetches the rail too) and `board` (a whiteboard changed) — and one event with
   content, `event: notify`: the viewer's own notification, as a push would
   show it ([VS Code](vscode.md#notifications-and-the-badge)); the web app

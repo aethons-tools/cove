@@ -17,12 +17,14 @@ import (
 type fakePresence struct {
 	st    map[string]sessionevents.Status
 	inits map[string]int
+	subs  map[string]int
 	ch    chan struct{}
 }
 
 func (f *fakePresence) Status(a string) (sessionevents.Status, bool) { s, ok := f.st[a]; return s, ok }
 func (f *fakePresence) Subscribe() (<-chan struct{}, func())         { return f.ch, func() {} }
 func (f *fakePresence) Inits(a string) int                           { return f.inits[a] }
+func (f *fakePresence) Subagents(a string) int                       { return f.subs[a] }
 
 // presenceFixture adds sessions to eng, one per interesting state.
 func presenceFixture() (*env, jam.Participant, *fakePresence) {

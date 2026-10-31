@@ -115,6 +115,7 @@ type CardCounts struct {
 	Alarms    int `json:"alarms"`
 	Previews  int `json:"previews"`
 	Processes int `json:"processes"` // kept processes
+	Subagents int `json:"subagents"` // running now (sessionevents.Presence.Subagents)
 }
 
 // CardContext is how full the main thread's context window is, in tokens;

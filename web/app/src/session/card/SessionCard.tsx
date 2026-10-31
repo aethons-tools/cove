@@ -8,10 +8,6 @@ import "./card.css";
 // bar, name, state pill and count icons; the mission and focus; and a
 // sparkline of its recent states. Compact is the rail's size.
 
-// Focus and the subagent count arrive with their own slices; until then a
-// card has neither.
-type CardWithExtras = Card & { focus?: string; counts: Card["counts"] & { subagents?: number } };
-
 // level is a state's height on the sparkline, 0 (bottom) to 4.
 const level: Record<string, number> = { thinking: 4, working: 3, waiting: 2, idle: 1, sleeping: 0 };
 
@@ -21,7 +17,7 @@ export function contextColor(pct: number): string {
   return `hsl(${Math.round(hue)} 70% 45%)`;
 }
 
-export function SessionCard({ card, compact = false }: { card: CardWithExtras; compact?: boolean }) {
+export function SessionCard({ card, compact = false }: { card: Card; compact?: boolean }) {
   const points = useStateHistory(card);
   const now = useNow();
   const { used, window } = card.context;
@@ -49,14 +45,14 @@ export function SessionCard({ card, compact = false }: { card: CardWithExtras; c
   );
 }
 
-function Counts({ c }: { c: CardWithExtras["counts"] }) {
+function Counts({ c }: { c: Card["counts"] }) {
   // [count, kind, one, many, icon]
   const items: [number, string, string, string, ReactNode][] = [
     [c.asks, "ask", "open ask", "open asks", <path key="a" d="M2 3.5h12v7H7l-3 3v-3H2zM8 5v2.5M8 9h.01" />],
     [c.alarms, "alarm", "alarm", "alarms", <path key="a" d="M8 4a5 5 0 1 0 0 10A5 5 0 0 0 8 4zM8 6.5V9l1.5 1.5M2.5 3.5l2-1.5M13.5 3.5l-2-1.5" />],
     [c.previews, "preview", "preview", "previews", <path key="p" d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5zM8 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />],
     [c.processes, "process", "kept process", "kept processes", <path key="k" d="M2 2.5h12v11H2zM4 6l2 2-2 2M7.5 10.5h4" />],
-    [c.subagents ?? 0, "subagent", "subagent", "subagents", <rect key="s" x="2.5" y="2.5" width="11" height="11" rx="3" />],
+    [c.subagents, "subagent", "subagent", "subagents", <rect key="s" x="2.5" y="2.5" width="11" height="11" rx="3" />],
   ];
   const shown = items.filter(([n]) => n > 0);
   if (shown.length === 0) return null;
