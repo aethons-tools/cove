@@ -1256,6 +1256,8 @@ type ConfigBranches struct {
 	DefaultName string         `json:"defaultName"` // Create's suggestion: jam/<operator>
 	CanPR       bool           `json:"canPR"`
 	RepoLink    string         `json:"repoLink"` // the repo's web page
+	TreeLink    string         `json:"treeLink"` // a branch's page, less the branch name ("" = none)
+	PRNoun      string         `json:"prNoun"`   // "pull request" (GitHub) or "merge request" (GitLab)
 }
 
 // ConfigBranch is one branch of the config repo.

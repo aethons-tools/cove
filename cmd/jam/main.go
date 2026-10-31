@@ -3000,14 +3000,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				return 1
 			}
 			repo := &configrepo.Repo{URL: src.Repo, Branch: src.Ref, Creds: kitFetcher.Creds, Path: filepath.Join(dir, "config-repo")}
-			gh := &configrepo.GitHub{URL: src.Repo, Token: func() (string, error) {
+			token := func() (string, error) {
 				cr, ok := kitFetcher.Creds.For(src.Repo)
 				if !ok {
 					return "", errors.New("no credential")
 				}
 				return cr.Token()
-			}}
-			branches := &jam.ConfigBranches{Repo: repo, GitHub: gh, Dir: src.Dir, Fetcher: kitFetcher, Env: cfgEnv, Live: st, Log: log}
+			}
+			var prs configrepo.PRs = configrepo.GitHub{URL: src.Repo, Token: token}
+			if cfg.configRepo().kind == "gitlab" {
+				prs = configrepo.GitLab{URL: src.Repo, Token: token}
+			}
+			branches := &jam.ConfigBranches{Repo: repo, PRs: prs, Dir: src.Dir, Fetcher: kitFetcher, Env: cfgEnv, Live: st, Log: log}
 			branchOpts := slices.Clone(uiOpts)
 			factory := func(bs jam.Store) http.Handler {
 				return adminui.Handler(bs, log, nil, nil, credExists, squawkReader, branchOpts...)
@@ -3341,7 +3345,8 @@ func resolveKitFetcher(cfg serveConfig, specs map[string]secret.Spec) (*gitsourc
 	// The followed config repo's credential, for exactly its URL (the longest
 	// prefix, so it wins over a kits.git prefix above it).
 	if src := cfg.followedSource(); src.Repo != "" {
-		name := cfg.Config.GitHub.Cred
+		host := cfg.configRepo()
+		name := host.Cred
 		spec := specs[name]
 		resolve := func() (string, error) {
 			v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{spec})
@@ -3351,9 +3356,13 @@ func resolveKitFetcher(cfg serveConfig, specs map[string]secret.Spec) (*gitsourc
 			return v[spec.Name], nil
 		}
 		if _, err := resolve(); err != nil {
-			return nil, fmt.Errorf("config.github.cred %q: %w", name, err)
+			return nil, fmt.Errorf("config.%s.cred %q: %w", host.kind, name, err)
 		}
-		f.Creds = append(f.Creds, gitsource.Cred{Prefix: src.Repo, Name: name, Resolve: resolve})
+		cr := gitsource.Cred{Prefix: src.Repo, Name: name, Resolve: resolve, Key: "config." + host.kind}
+		if host.kind == "gitlab" {
+			cr.User = "oauth2" // GitLab's username for a token, on any host
+		}
+		f.Creds = append(f.Creds, cr)
 	}
 	if cfg.Kits == nil {
 		return f, nil

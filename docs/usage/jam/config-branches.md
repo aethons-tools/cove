@@ -1,15 +1,15 @@
 ---
-summary: The config branch editor — the admin console's config pages work on a branch of the followed config repo; each save is a commit to it; Create/Open branch, Merge (planned first, refused on a per-file conflict, applied at once) and PR (GitHub); the X-Jam-Config-Branch header, branch workspaces, and what stays live.
+summary: The config branch editor — the admin console's config pages work on a branch of the followed config repo; each save is a commit to it; Create/Open branch, Merge (planned first, refused on a per-file conflict, applied at once) and PR (a GitHub pull request or GitLab merge request); the X-Jam-Config-Branch header, branch workspaces, and what stays live.
 read_when: You are editing a Jam's config in the admin console on a branch, merging it or opening a PR, wondering why a save or merge was refused (stale branch, conflict, refusals), or changing the branch editor (the router, workspaces, configrepo).
 owns: the branch context and its header, branch workspaces (scratch stores) and saves as commits, Create/Open/Merge/PR and their API, the per-file merge rule, what config paths a branch serves and what stays live, the bare clone in the state dir
-prereqs: config-git-sources.md (following config.github); ui-config.md (the Tracking page); config-git.md (the repo layout)
+prereqs: config-git-sources.md (following config.github or config.gitlab); ui-config.md (the Tracking page); config-git.md (the repo layout)
 tier: leaf
 updated: 2026-10-31
 ---
 
 # The config branch editor
 
-With `config.github` set ([config-git-sources.md](config-git-sources.md)), the admin console's **Config** pages work on one branch of the followed repo at a time. The followed branch (`main`) is what's running and is the default view; editing happens on a branch and reaches the Jam only by **Merge**, or a pull request merged in git.
+With `config.github` or `config.gitlab` set ([config-git-sources.md](config-git-sources.md)), the admin console's **Config** pages work on one branch of the followed repo at a time. The followed branch (`main`) is what's running and is the default view; editing happens on a branch and reaches the Jam only by **Merge**, or a pull request merged in git.
 The design is in [the config-in-git spec](../../superpowers/specs/2026-10-31-config-branch-editor-design.md).
 
 ## The branch bar
@@ -37,16 +37,16 @@ How: the branch is loaded into a **workspace**, a scratch store holding its conf
 - **Planned first.** The merged config is planned against the live Jam; refusals refuse the merge and nothing is pushed.
 - **Per-file conflicts.** Jam merges with go-git alone: a file changed on both sides differently (a delete against an edit included) refuses the merge ("Merge refused: merge conflict in: …"). Open a PR instead, where git merges line by line. A fast-forward and an already-merged branch need no merge commit; otherwise the merge commit has the followed head and the branch as parents, and the branch moves to it too.
 
-**PR** opens (or finds) a GitHub pull request from the branch into the followed branch with the same credential; the follower applies it once it is merged in git.
+**PR** (on GitLab, **MR**) opens or finds a GitHub pull request, or a GitLab merge request, from the branch into the followed branch with the same credential; the follower applies it once it is merged in git.
 
 ## No live edits
 
-With `config.github` set the repo is the only source of the Jam's configuration, so nothing changes it live:
+With a config repo set the repo is the only source of the Jam's configuration, so nothing changes it live:
 
 - **The admin API** (`jam` CLI, any client) refuses every config-object write with 409 `config is in git (config.github): edit it on a branch in the admin console, or in the repo`: destinations, model specs, connections, users (create, delete, logins, name), projects, roles (standing declarations included), the Jam context, kits (push, pin, versions, delete, draft publish), the snapshot import (`POST /admin/config`) and `config release`. `config apply` applies only the followed repo (`--dir` and another `--git` source are refused); `config diff`, `config sync`, `config status` and `config write` work as before.
 - **The admin console** refuses a config write off a branch (409 "the config is in git: open a branch to edit it") and shows no Release on Config › Tracking.
 - **Still live:** sessions and grants, accounts, users' OIDC identities and app tokens, enrollments, standing resets and upgrades, kit draft test builds, and kits from their own git sources (`kit import|track|sync`, deferred). Through the admin API (`jam kit draft …`) a kit draft is editable until publish; the console edits drafts on a branch, where publishing is a commit.
-- **Kept, for now:** drift detection (a safety signal, since kits from their own sources can still move) and `--force` (the follower applies with it). A Jam without `config.github` still edits its config live.
+- **Kept, for now:** drift detection (a safety signal, since kits from their own sources can still move) and `--force` (the follower applies with it). A Jam without a config repo still edits its config live.
 
 ## What a branch serves
 

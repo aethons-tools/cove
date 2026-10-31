@@ -1,7 +1,8 @@
 // Package configrepo writes to a Jam's followed config repo
 // (docs/usage/jam/config-git-sources.md) with go-git alone: its branches,
 // a branch's files, new branches, commits to them, merges into the followed
-// branch (refused on a per-file conflict), and GitHub pull requests. It
+// branch (refused on a per-file conflict), and GitHub pull requests or
+// GitLab merge requests. It
 // keeps one bare clone at Path, fetched in full before every operation.
 package configrepo
 
@@ -114,7 +115,7 @@ func (r *Repo) explain(op string, err error) error {
 	repo := gitsource.Redact(r.URL)
 	switch {
 	case errors.Is(err, transport.ErrAuthenticationRequired), errors.Is(err, transport.ErrAuthorizationFailed):
-		return &remoteError{fmt.Sprintf("config repo: %s %s: auth failed (check config.github.cred)", op, repo)}
+		return &remoteError{fmt.Sprintf("config repo: %s %s: auth failed (check the config repo's cred)", op, repo)}
 	case errors.Is(err, transport.ErrRepositoryNotFound):
 		return &remoteError{fmt.Sprintf("config repo: %s %s: repository not found (or the credential can't see it)", op, repo)}
 	}

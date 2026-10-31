@@ -129,7 +129,7 @@ The phases are slices of one branch and one PR, merged at the end as the hub was
 1. **Following:** `config.github` in the serve config; the persistent clone and push credential; following and applying the branch; the Tracking page read-only; `track|untrack` removed.
 2. **The branch editor:** the branch context; Create/Open branch; saves as commits; Merge and PR.
 3. **No live edits:** every config admin route and CLI verb refused outside a branch; drift, force and release removed.
-4. **Fast follow:** `config.gitlab`, with merge requests for PR.
+4. **Fast follow:** `config.gitlab`, with merge requests for PR (built).
 5. **Later:**
    - VS Code: the branch as a folder.
    - Trying a branch in a session.

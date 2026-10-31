@@ -66,6 +66,7 @@ export function BranchBar() {
     void client.invalidateQueries({ queryKey: [...listKey, "pr", branch] });
   };
   const link = prURL || pr.data?.url || "";
+  const noun = data.prNoun || "pull request";
   const others = data.branches.filter((b) => !b.followed);
   const openMenu = others.length > 0 && (
     <Menu>
@@ -91,12 +92,12 @@ export function BranchBar() {
             <Group gap="xs">
               <Badge color="yellow">branch</Badge>
               <Text size="sm">Editing <b>{branch}</b> {(head || current) && <Text span ff="monospace" c="dimmed">@{head ? head.slice(0, 7) : current?.short}</Text>}: each save is a commit to it.</Text>
-              {data.repoLink && <Anchor size="sm" href={`${data.repoLink}/tree/${branch}`} rel="noopener noreferrer">View the branch</Anchor>}
-              {link && <Anchor size="sm" href={link} rel="noopener noreferrer">Pull request</Anchor>}
+              {data.treeLink && <Anchor size="sm" href={data.treeLink + branch} rel="noopener noreferrer">View the branch</Anchor>}
+              {link && <Anchor size="sm" href={link} rel="noopener noreferrer">{noun[0]!.toUpperCase() + noun.slice(1)}</Anchor>}
             </Group>
             <Group gap="xs">
               <ConfirmAction label="Merge" color="jam" variant="filled" confirm={`Merge ${branch} into ${data.followed}? The Jam applies it at once.`} onConfirm={merge} />
-              {data.canPR && !link && <Button size="xs" variant="light" onClick={() => void openPR()}>PR</Button>}
+              {data.canPR && !link && <Button size="xs" variant="light" onClick={() => void openPR()}>{data.prNoun === "merge request" ? "MR" : "PR"}</Button>}
               {openMenu}
               <Button size="xs" variant="subtle" onClick={() => switchTo("")}>Back to {data.followed}</Button>
             </Group>
@@ -105,7 +106,7 @@ export function BranchBar() {
             <Alert color="red" title="Not merged">
               <Stack gap="xs">
                 <Text size="sm">{refused}</Text>
-                {data.canPR && !link && <Group><Button size="xs" onClick={() => void openPR()}>Open a pull request</Button></Group>}
+                {data.canPR && !link && <Group><Button size="xs" onClick={() => void openPR()}>Open a {noun}</Button></Group>}
               </Stack>
             </Alert>
           )}

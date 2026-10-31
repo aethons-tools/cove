@@ -180,8 +180,11 @@ func apiConfigBranches(api *http.ServeMux, b *jam.ConfigBranches, log *slog.Logg
 			branchFail(w, err)
 			return
 		}
-		out := ConfigBranches{Followed: b.Repo.Branch, DefaultName: jam.DefaultBranchName(operatorSig(r).Name), CanPR: b.GitHub != nil,
-			RepoLink: repoLinkOf(b.Repo.URL)}
+		out := ConfigBranches{Followed: b.Repo.Branch, DefaultName: jam.DefaultBranchName(operatorSig(r).Name), CanPR: b.PRs != nil,
+			RepoLink: repoLinkOf(b.Repo.URL), TreeLink: repoLinkOf(b.Repo.URL) + "/tree/", PRNoun: "pull request"}
+		if _, gitlab := b.PRs.(configrepo.GitLab); gitlab {
+			out.TreeLink, out.PRNoun = repoLinkOf(b.Repo.URL)+"/-/tree/", "merge request"
+		}
 		for _, br := range list {
 			out.Branches = append(out.Branches, ConfigBranch{Name: br.Name, Head: br.Head, Short: jam.ShortConfigCommit(br.Head), Followed: br.Followed})
 		}

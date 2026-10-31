@@ -27,10 +27,10 @@ import (
 // ConfigBranches is the followed repo's branches as the editor sees them.
 type ConfigBranches struct {
 	Repo    *configrepo.Repo
-	GitHub  *configrepo.GitHub // nil = no pull requests
-	Dir     string             // the config dir in the repo ("" = its root)
-	Fetcher KitFetcher         // fetches .source.yml kits while a branch loads
-	Env     ConfigEnv          // the live planner's env (Followed, Follower)
+	PRs     configrepo.PRs // the host's pull (GitHub) or merge (GitLab) requests; nil = none
+	Dir     string         // the config dir in the repo ("" = its root)
+	Fetcher KitFetcher     // fetches .source.yml kits while a branch loads
+	Env     ConfigEnv      // the live planner's env (Followed, Follower)
 	Live    Store
 	Log     *slog.Logger
 
@@ -370,25 +370,26 @@ func (b *ConfigBranches) Merge(ctx context.Context, branch, head string, author 
 	return res, nil
 }
 
-// errNoPRs is a PR on a Jam whose config repo is not on GitHub.
-var errNoPRs = writeErr(http.StatusNotImplemented, "pull requests need config.github")
+// errNoPRs is a PR on a Jam with no pull or merge request client.
+var errNoPRs = writeErr(http.StatusNotImplemented, "pull requests need config.github or config.gitlab")
 
-// PR opens (or finds the open) pull request from branch into the followed branch.
+// PR opens (or finds the open) pull request (GitLab: merge request) from
+// branch into the followed branch.
 func (b *ConfigBranches) PR(ctx context.Context, branch string) (configrepo.PullRequest, error) {
-	if b.GitHub == nil {
+	if b.PRs == nil {
 		return configrepo.PullRequest{}, errNoPRs
 	}
 	if branch == b.Repo.Branch {
 		return configrepo.PullRequest{}, configrepo.ErrFollowedBranch
 	}
-	return b.GitHub.OpenPR(ctx, branch, b.Repo.Branch, "Jam config: "+branch,
+	return b.PRs.OpenPR(ctx, branch, b.Repo.Branch, "Jam config: "+branch,
 		"Config changes made in the Jam admin console on branch `"+branch+"`.")
 }
 
-// FindPR is branch's open pull request, if any (none without GitHub).
+// FindPR is branch's open pull request, if any (none without a client).
 func (b *ConfigBranches) FindPR(ctx context.Context, branch string) (configrepo.PullRequest, bool, error) {
-	if b.GitHub == nil {
+	if b.PRs == nil {
 		return configrepo.PullRequest{}, false, nil
 	}
-	return b.GitHub.FindPR(ctx, branch, b.Repo.Branch)
+	return b.PRs.FindPR(ctx, branch, b.Repo.Branch)
 }

@@ -9,7 +9,7 @@ import type { ConfigBranches } from "../api/types";
 import { setBranch } from "./branch";
 
 const list = (over: Partial<ConfigBranches> = {}): ConfigBranches => ({
-  followed: "main", defaultName: "jam/local", canPR: true, repoLink: "https://github.com/acme/jam",
+  followed: "main", defaultName: "jam/local", canPR: true, repoLink: "https://github.com/acme/jam", treeLink: "https://github.com/acme/jam/tree/", prNoun: "pull request",
   branches: [
     { name: "main", head: "a".repeat(40), short: "aaaaaaa", followed: true },
     { name: "jam/alice", head: "b".repeat(40), short: "bbbbbbb", followed: false },
@@ -114,6 +114,15 @@ describe("the branch bar", () => {
     await screen.findByText(/Projects/);
     expect(screen.queryByText(/can't be listed/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Create branch" })).toBeNull();
+  });
+
+  it("on GitLab, links the branch's page and offers a merge request", async () => {
+    serve();
+    server.use(http.get("/app/admin/api/config/branches", () => HttpResponse.json(list({ repoLink: "https://gitlab.com/a/b", treeLink: "https://gitlab.com/a/b/-/tree/", prNoun: "merge request" }))));
+    setBranch("jam/alice");
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByRole("link", { name: "View the branch" })).toHaveAttribute("href", "https://gitlab.com/a/b/-/tree/jam/alice");
+    expect(screen.getByRole("button", { name: "MR" })).toBeInTheDocument();
   });
 
   it("Back to main leaves the branch", async () => {

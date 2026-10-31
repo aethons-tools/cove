@@ -495,25 +495,46 @@ func (c serveConfig) validateKits() error {
 	return nil
 }
 
-// configRepoConfig is the followed config repo, by its hosting service: one
-// kind for now (github; gitlab follows).
+// configRepoConfig is the followed config repo, by its hosting service:
+// exactly one of github and gitlab. The kind decides how a PR is opened (a
+// pull request or a merge request); clone, push and merge are plain git.
 type configRepoConfig struct {
-	GitHub *configGitHub `yaml:"github"`
+	GitHub *configRepoHost `yaml:"github"`
+	GitLab *configRepoHost `yaml:"gitlab"`
 }
 
-// configGitHub is a config repo on GitHub (or GitHub Enterprise): its https
-// URL, the demanded credential that reads (and later pushes to) it, the
-// branch the Jam follows (default main) and the repo dir holding the config
-// (default the root).
-type configGitHub struct {
+// configRepoHost is a config repo on GitHub (or GitHub Enterprise) or GitLab
+// (gitlab.com or self-hosted): its https URL, the demanded credential that
+// reads and pushes it (and opens pull or merge requests), the branch the Jam
+// follows (default main) and the repo dir holding the config (default the
+// root).
+type configRepoHost struct {
 	URL    string `yaml:"url"`
 	Cred   string `yaml:"cred"`
 	Branch string `yaml:"branch"`
 	Dir    string `yaml:"dir"`
+
+	kind string // github | gitlab, set by configRepo
 }
 
-// defaultConfigBranch is the followed branch when config.github sets none.
+// defaultConfigBranch is the followed branch when the config block sets none.
 const defaultConfigBranch = "main"
+
+// configRepo is the configured repo with its kind; nil = none (or both set:
+// validateConfigRepo refuses that).
+func (c serveConfig) configRepo() *configRepoHost {
+	if c.Config == nil || (c.Config.GitHub != nil) == (c.Config.GitLab != nil) {
+		return nil
+	}
+	if g := c.Config.GitHub; g != nil {
+		r := *g
+		r.kind = "github"
+		return &r
+	}
+	r := *c.Config.GitLab
+	r.kind = "gitlab"
+	return &r
+}
 
 // validateConfigRepo checks the config block: exactly one kind, an https (or
 // loopback http) repo URL with no userinfo, a clean relative dir, a branch
@@ -523,34 +544,35 @@ func (c serveConfig) validateConfigRepo() error {
 	if c.Config == nil {
 		return nil
 	}
-	g := c.Config.GitHub
+	g := c.configRepo()
 	if g == nil {
-		return errors.New("config: set config.github")
+		return errors.New("config: set one of config.github and config.gitlab")
 	}
+	key := "config." + g.kind
 	if g.URL == "" {
-		return errors.New("config.github.url is required")
+		return fmt.Errorf("%s.url is required", key)
 	}
 	if _, err := gitsource.Parse(c.followedSource().String()); err != nil {
-		return fmt.Errorf("config.github: %w", err)
+		return fmt.Errorf("%s: %w", key, err)
 	}
 	if g.Cred == "" {
-		return errors.New("config.github.cred is required")
+		return fmt.Errorf("%s.cred is required", key)
 	}
 	if _, ok := c.Credentials[g.Cred]; !ok {
-		return fmt.Errorf("config.github.cred %q is not a demanded credential", g.Cred)
+		return fmt.Errorf("%s.cred %q is not a demanded credential", key, g.Cred)
 	}
 	if slices.Contains(c.gcpCredentials(), g.Cred) || (c.Pool != nil && g.Cred == c.Pool.CredName) {
-		return fmt.Errorf("config.github.cred %q must not be a gcp-exchange or pool credential", g.Cred)
+		return fmt.Errorf("%s.cred %q must not be a gcp-exchange or pool credential", key, g.Cred)
 	}
 	return nil
 }
 
 // followedSource is the config repo the Jam follows; zero without one.
 func (c serveConfig) followedSource() gitsource.Source {
-	if c.Config == nil || c.Config.GitHub == nil {
+	g := c.configRepo()
+	if g == nil {
 		return gitsource.Source{}
 	}
-	g := c.Config.GitHub
 	branch := g.Branch
 	if branch == "" {
 		branch = defaultConfigBranch

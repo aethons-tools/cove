@@ -106,7 +106,7 @@ credential:
 | `pool.cred-name` | the pool's anthropic credential ([pool.md](pool.md)) |
 | `ssh.ca-cred` | the studio-collaboration SSH CA key ([serve.md](serve.md), [collaboration.md](collaboration.md)) |
 | `metrics.token-cred` | the `/metrics` scrape token ([monitoring.md](monitoring.md#metrics)) |
-| `config.github.cred` | the followed config repo's token, for exactly its URL; any source but gcp-exchange or the pool's ([config-git-sources.md](config-git-sources.md)) |
+| `config.github.cred`, `config.gitlab.cred` | the followed config repo's token, for exactly its URL; any source but gcp-exchange or the pool's ([config-git-sources.md](config-git-sources.md)) |
 | `kits.git[].cred` | a git token for kit sources, by repo-URL prefix; plain static only. The prefix must be https (or loopback http), end in `/`, and have a dotted host or loopback; refs containing `/` need a portless host ([serve.md](serve.md), [kits-git.md](kits-git.md)) |
 
 A demand may carry one non-secret setting, **`exchange: gcp`**:

@@ -420,3 +420,13 @@ func TestFetchModesPastUmask(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A credential from another key (the config repo's) is named by that key.
+func TestFetchErrorNamesTheCredsKey(t *testing.T) {
+	url, _, _ := gittest.Serve(t, map[string]string{"kit.yml": "kind: studio\n"}, gittest.WithAuth("git", "right"))
+	f := &Fetcher{Creds: Creds{{Prefix: url, Name: "jam-git", Value: "wrong", Key: "config.gitlab"}}}
+	_, err := f.Resolve(context.Background(), Source{Repo: url, Ref: "main"})
+	if err == nil || !strings.Contains(err.Error(), "config.gitlab cred jam-git") {
+		t.Fatalf("err = %v", err)
+	}
+}

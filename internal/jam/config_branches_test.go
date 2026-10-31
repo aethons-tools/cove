@@ -245,7 +245,7 @@ func TestPRs(t *testing.T) {
 		_, _ = w.Write([]byte(`{"number": 1, "html_url": "https://github.com/acme/jam/pull/1"}`))
 	}))
 	defer ts.Close()
-	b.GitHub = &configrepo.GitHub{URL: "https://github.com/acme/jam", APIBase: ts.URL, Token: func() (string, error) { return "t", nil }}
+	b.PRs = configrepo.GitHub{URL: "https://github.com/acme/jam", APIBase: ts.URL, Token: func() (string, error) { return "t", nil }}
 	pr, err := b.PR(ctx, "jam/alice")
 	if err != nil || pr.URL != "https://github.com/acme/jam/pull/1" || title != "Jam config: jam/alice" {
 		t.Fatalf("pr = %+v %v title %q", pr, err, title)

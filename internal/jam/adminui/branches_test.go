@@ -177,3 +177,15 @@ func TestBranchesAPI(t *testing.T) {
 	_ = live
 	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/config/branches/pr", map[string]string{"branch": "jam/bob"}, nil), 501, "internal")
 }
+
+// A GitLab repo's branch page and its requests' name.
+func TestBranchesAPIGitLab(t *testing.T) {
+	_, _, b, _ := branchUI(t)
+	b.PRs = configrepo.GitLab{URL: "https://gitlab.com/a/b"}
+	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil, adminui.WithConfigBranches(b, func(jam.Store) http.Handler { return http.NotFoundHandler() }))
+	var list adminui.ConfigBranches
+	apiDo(t, h, "GET", "/app/admin/api/config/branches", nil, &list)
+	if !strings.HasSuffix(list.TreeLink, "/-/tree/") || list.PRNoun != "merge request" || !list.CanPR {
+		t.Fatalf("list = %+v", list)
+	}
+}

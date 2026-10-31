@@ -1,5 +1,5 @@
 ---
-summary: A Jam following its config repo in git (`config.github` in the serve config) — the follower that checks the branch every minute and applies new commits, the first apply's confirm, `config sync|status`, `config diff|apply --git`, kits referenced by `kits/<name>.source.yml`, provenance, locks, routes and errors.
+summary: A Jam following its config repo in git (`config.github` or `config.gitlab` in the serve config) — the follower that checks the branch every minute and applies new commits, the first apply's confirm, `config sync|status`, `config diff|apply --git`, kits referenced by `kits/<name>.source.yml`, provenance, locks, routes and errors.
 read_when: You want a Jam to follow a config repo (or to know why it applied, or didn't apply, a commit), are confirming the first apply, running `config sync|status|diff --git`, are referencing a kit by its own git source (`kits/<name>.source.yml`), or a config sync or follow failed to fetch, refused a commit, or flagged a source kit as drifted.
 owns: following the config repo (the follower, its states, the first-apply confirm, the config.follow condition, the applied-commit record), `config sync|status`, the `--git` verbs, the `/admin/config/sync|follow` routes and `{source}` bodies, `kits/<name>.source.yml` and how it is fetched, planned and written, config-applied kit provenance and tracking
 prereqs: config-git.md (layout, plan actions, marks); kits-git.md (source syntax, kits.git credentials, fetch limits)
@@ -21,10 +21,12 @@ config:
     dir: jam                 # optional; the repo dir holding the config, default its root
 ```
 
+On GitLab (gitlab.com or self-hosted) the same block is `config.gitlab`. Set exactly one. The kind decides how the branch editor opens a review: a GitHub pull request or a GitLab merge request. Its token is sent with the username `oauth2` and needs the `write_repository` and `api` scopes. A GitHub token needs contents write and pull requests.
+
 Design: [config in git, edited on branches](../../superpowers/specs/2026-10-31-config-branch-editor-design.md).
 Sources elsewhere use the kit syntax, `<repo>[//<dir>]@<ref>`
 ([kits-git.md](kits-git.md#the-source-repodirref)), and the same fetcher;
-`config.github.cred` is the credential for exactly its URL. The admin console
+its `cred` is the credential for exactly its URL, and fetch errors name it as `config.github cred <name>` (or `config.gitlab`). The admin console
 edits it on branches and merges them: [config-branches.md](config-branches.md).
 
 ## Following
@@ -33,7 +35,7 @@ The **follower** checks the branch now and every minute (`ls-remote`) and:
 
 | State | When | Does |
 |---|---|---|
-| `awaiting-confirm` | No commit from this repo has been applied yet: a new Jam, or `config.github` changed to another repo, branch or dir. | Nothing. `config.follow` (info) asks for the confirm. |
+| `awaiting-confirm` | No commit from this repo has been applied yet: a new Jam, or the repo setting changed to another repo, branch or dir. | Nothing. `config.follow` (info) asks for the confirm. |
 | `in-sync` | The head is the commit last applied. | Nothing; `config.follow` clears. |
 | (applies) | A new head. | Applies it, the repo winning over drift (a forced apply). |
 | `failed` | The check or the apply failed: a fetch or auth error, a refused plan. | Keeps the last good config. `config.follow` (warning) carries the error; the next check retries, even at the same head. |
@@ -109,7 +111,7 @@ git: https://github.com/acme/kits//api@main
 - `kits: N kit sources (distinct repo and ref); at most 16 per config repo`:
   too many kit references in one tree. A plan refusal (diff shows it, apply
   writes nothing), not a 502.
-- `no config repo is configured (config.github in the serve config)` (409).
+- `no config repo is configured (config.github in the serve config)` (409; `config.gitlab` works too).
 
 Logs name a source as `repo//dir@ref` (an upload: `dir`), never with userinfo.
 Audit: `config applied` as for `--dir` (operator `config-follow` for the

@@ -1374,6 +1374,8 @@ export interface ConfigBranches {
   defaultName: string; // Create's suggestion: jam/<operator>
   canPR: boolean;
   repoLink: string; // the repo's web page
+  treeLink: string; // a branch's page, less the branch name ("" = none)
+  prNoun: string; // "pull request" (GitHub) or "merge request" (GitLab)
 }
 /**
  * ConfigBranch is one branch of the config repo.

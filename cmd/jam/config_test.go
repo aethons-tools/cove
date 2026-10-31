@@ -1442,3 +1442,36 @@ func TestResolveKitFetcherAddsConfigRepoCred(t *testing.T) {
 		t.Fatalf("cred = %v %v", cr, ok)
 	}
 }
+
+func TestValidateConfigRepoGitLab(t *testing.T) {
+	ok, err := parseServeConfig([]byte("credentials:\n  gl:\nconfig:\n  gitlab:\n    url: https://gitlab.com/aethons-tools/jam-config\n    cred: gl\n    dir: config\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.validateConfigRepo(); err != nil {
+		t.Fatalf("valid gitlab refused: %v", err)
+	}
+	if got := ok.followedSource(); got != (gitsource.Source{Repo: "https://gitlab.com/aethons-tools/jam-config", Dir: "config", Ref: "main"}) {
+		t.Fatalf("followed = %+v", got)
+	}
+	if r := ok.configRepo(); r == nil || r.kind != "gitlab" || r.Cred != "gl" {
+		t.Fatalf("repo = %+v", r)
+	}
+	both, _ := parseServeConfig([]byte("credentials:\n  c:\nconfig:\n  github: {url: \"https://github.com/a/b\", cred: c}\n  gitlab: {url: \"https://gitlab.com/a/b\", cred: c}\n"))
+	if err := both.validateConfigRepo(); err == nil || !strings.Contains(err.Error(), "one of") {
+		t.Fatalf("both = %v", err)
+	}
+	bad, _ := parseServeConfig([]byte("config:\n  gitlab: {url: \"https://gitlab.com/a/b\", cred: nope}\n"))
+	if err := bad.validateConfigRepo(); err == nil || !strings.Contains(err.Error(), "config.gitlab.cred") {
+		t.Fatalf("bad cred = %v", err)
+	}
+	// The GitLab credential is sent as oauth2, on any host.
+	self, _ := parseServeConfig([]byte("credentials:\n  c:\nconfig:\n  gitlab: {url: \"https://git.example.com/a/b\", cred: c}\n"))
+	f, err := resolveKitFetcher(self, map[string]secret.Spec{"c": {Name: "c", Value: "tok", Literal: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cr, ok := f.Creds.For("https://git.example.com/a/b"); !ok || cr.User != "oauth2" {
+		t.Fatalf("cred = %v %v", cr, ok)
+	}
+}

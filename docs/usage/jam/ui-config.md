@@ -12,7 +12,7 @@ updated: 2026-10-31
 The **Tracking** page (`/app/admin/config/tracking`, the first node of the
 [Config tree](ui-console.md#finding-a-page) and where the **Config** tab opens) is the UI for
 a Jam's configuration in git ([config-git.md](config-git.md)). It works on the
-**followed repo** (`config.github`, [config-git-sources.md](config-git-sources.md)); `--git`
+**followed repo** (`config.github` or `config.gitlab`, [config-git-sources.md](config-git-sources.md)); `--git`
 other sources and `--dir` checkouts stay in the CLI.
 
 Editing config happens on a branch of the followed repo: [config-branches.md](config-branches.md).
@@ -24,7 +24,7 @@ Editing config happens on a branch of the followed repo: [config-branches.md](co
   follower's state (`in sync`, `waiting for you`, `failed`) and when it last
   checked; **Head** is the branch head it saw. `waiting for you` is the first
   apply's confirm: Diff, review the plan, Apply. A failed check shows its
-  error; the Jam retries every minute. Without `config.github` the card says
+  error; the Jam retries every minute. Without a config repo the card says
   to set it. There is no Track or Untrack: the serve config names the repo.
 - **Managed objects** — every object the repo manages: the commit it was
   applied from, when, and its state: `in sync`, `drifted` (edited in Jam
