@@ -106,7 +106,7 @@ The **Jam** icon in the activity bar holds the **Conversation** view: the web ap
 (composer, attachments and asks inline) running in a webview. Four more views and the board tabs follow the same rules.
 It asks the extension for everything; the webview never holds your token, the Jam URL or a cookie.
 
-- **Views:** Conversation (activity bar), **Thinking** (the panel's Jam Thinking container; it wants width), **Previews**, **Status** and **Artifacts** (Previews and Artifacts start collapsed). All are draggable anywhere, to the panel or a sidebar.
+- **Views:** Conversation (activity bar), **Thinking** (the panel's Jam Thinking container; it wants width), **Previews**, **Session Status** and **Artifacts** (Previews and Artifacts start collapsed). All are draggable anywhere, to the panel or a sidebar.
 - **Focused session:** by default the window's session: a local session window's, or the studio's (the window's remote comes from its workspace folder URI).
   *Jam: Focus Session…* picks another session, or *This window's studio* to go back; signed out, it starts sign-in first.
   Every unpinned view follows it (a board tab shows its own board), and the choice is kept per workspace, so it survives reopening the folder.
@@ -114,7 +114,7 @@ It asks the extension for everything; the webview never holds your token, the Ja
   When a view's session isn't the window's, its label shows beside the view's name.
 - **Thinking:** the web app's Thinking log. The window's Thinking views share one connection per (session, stream), at most 2 feeds per pane; a view opened later gets up to 2,000 replayed events; it resumes after a network drop. It counts toward your four server feeds, and a hidden view holds none.
 - **Previews:** Open shows the app in the Simple Browser and Browser opens the system browser. Only the window's own studio, when connected, is forwarded through Remote-SSH (`asExternalUri`); an unchanged `localhost` URI counts as forwarded, and only a throw falls back to the preview's web URL in the browser. Another session's preview, or any in a local session window, opens its preview URL in the browser.
-- **Status:** the session header's facts and actions, then the Status rows. *Open in VS Code* on a pinned session opens that session's window.
+- **Session Status:** the session's [status card](intercom-ui.md#what-it-shows) (as on its rail row, full size), then the session header's facts and actions, then the Status rows. *Open in VS Code* on a pinned session opens that session's window.
 - **Artifacts:** a file opens in the browser, a board thumb opens a board tab, and an ask reveals it in the Conversation view; an ask from a session the Conversation view doesn't show doesn't scroll.
 - **Board tabs:** one per board, several side by side, kept while hidden (`retainContextWhenHidden`) and restored after a reload. VS Code restores a background tab only when it is first shown, so a board opened again before then briefly has two tabs; showing the restored one closes it and reveals the other. The title is the board's, capped at 60 characters, "Whiteboard" if empty. *Open in the web app* is in the tab. A stroke made in the last 300 ms before closing a tab may not be saved.
 - **Empty states:** "Sign in to Jam to see this conversation." (Sign in); "This window isn't on a Jam studio. Focus a session to see its conversation." (a local folder; Focus a session…); "That session has ended, or you can't see it." (Focus a session…).
