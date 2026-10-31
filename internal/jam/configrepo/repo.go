@@ -54,6 +54,9 @@ type Repo struct {
 	Branch string
 	Creds  gitsource.Creds
 	Path   string
+	// Auth, when non-nil, supplies the transport auth instead of Creds
+	// (ssh remotes: SSHAuth).
+	Auth func() (transport.AuthMethod, error)
 
 	mu sync.Mutex
 }
@@ -102,7 +105,12 @@ func (r *Repo) open(ctx context.Context) (*git.Repository, transport.AuthMethod,
 			return nil, nil, fmt.Errorf("config repo: writing the clone's config: %w", err)
 		}
 	}
-	auth, err := r.Creds.AuthFor(r.URL)
+	var auth transport.AuthMethod
+	if r.Auth != nil {
+		auth, err = r.Auth()
+	} else {
+		auth, err = r.Creds.AuthFor(r.URL)
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("config repo: %w", err)
 	}
