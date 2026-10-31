@@ -11,7 +11,6 @@ import { HostContext } from "../host";
 import { useLiveEvents } from "../live/useLiveEvents";
 import { APP } from "../paths";
 import { Problem } from "../Problem";
-import { theme } from "../theme";
 import { BoardTab } from "./BoardTab";
 import type { Bridge } from "./bridge";
 import { interceptLinks, linkAction, type LinkAction } from "./links";
@@ -19,6 +18,7 @@ import { NavBridge } from "./NavBridge";
 import { SessionBody, SessionGate } from "./panes";
 import { useVscodeScheme } from "./scheme";
 import { RailPane } from "./RailPane";
+import { vscodeCssVariables, vscodeTheme } from "./theme";
 
 // NOUN is what each session pane shows, in its copy.
 export const NOUN: Record<SessionPaneName, string> = {
@@ -96,7 +96,7 @@ export function Pane({ bridge, name, board }: { bridge: Bridge; name: PaneName; 
     );
   }
   return (
-    <MantineProvider forceColorScheme={scheme} theme={theme}>
+    <MantineProvider forceColorScheme={scheme} theme={vscodeTheme} cssVariablesResolver={vscodeCssVariables}>
       <Notifications />
       {body}
     </MantineProvider>

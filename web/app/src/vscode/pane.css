@@ -1,3 +1,6 @@
 /* The webview's own background shows through (VS Code's side bar colour). */
 :root { --mantine-color-body: transparent; }
 html, body, #root { height: 100%; margin: 0 }
+/* Focus is VS Code's focus border (theme.ts has the rest of its colours). */
+.mantine-focus-auto:focus-visible { outline-color: var(--vscode-focusBorder) }
+.mantine-Input-input:focus, .mantine-Input-input:focus-within { border-color: var(--vscode-focusBorder) }
