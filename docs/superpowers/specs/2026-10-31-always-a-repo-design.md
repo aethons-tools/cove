@@ -75,7 +75,7 @@ The follower and the sync read the followed branch through Jam's bare clone (`co
 - **Unmanaged objects the repo doesn't hold are never deleted** (true today): the default studio kit, the default model spec, the requisitioner's default project, and the relay's author connections.
 - **Jam's own ensures skip an object the repo manages:** `EnsureDefaultStudioKit`, `EnsureDefaultModelSpec`, and the requisitioner project. Otherwise they would be live edits to an object the repo owns.
 - **Room connections** are created by a room add, which now runs only in a branch workspace, so they are committed with the room.
-- **The deprecated `bot-token-cred` and `token-cred`,** which bind or create a connection, are dropped. Serve refuses to start with them and points at `connection:`, set in the repo.
+- **The deprecated `bot-token-cred` and `tracker-token-cred`** bind only an **existing** connection of their kind whose cred matches. They no longer create or rebind one live. Otherwise serve refuses to start and points at `connections/<kind>.yml` in the repo, or at `connection:`. (Revised while planning: an existing deployment keeps starting.)
 - Error texts that name a removed verb (for example `jam connection add`) point at the config repo instead.
 
 ### The console, read-only (my call)
