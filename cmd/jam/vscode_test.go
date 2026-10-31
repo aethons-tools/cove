@@ -175,9 +175,126 @@ func TestVSCodeInstallRefusals(t *testing.T) {
 
 func TestVSCodeUsage(t *testing.T) {
 	sshTestHome(t)
-	for _, args := range [][]string{{}, {"upgrade"}, {"install", "extra"}, {"install", "--participant", "--operator"}} {
+	for _, args := range [][]string{{}, {"upgrade"}, {"install", "extra"}, {"install", "--no-launcher", "extra"}, {"install", "--participant", "--operator"}} {
 		if code, _, _ := runVSCode(t, args...); code != 2 {
 			t.Errorf("%q: exit %d, want 2", args, code)
 		}
+	}
+}
+
+// launcherInstall runs a successful install on goos with --code cli (plus args).
+func launcherInstall(t *testing.T, goos, cli string, args ...string) (home string, code int, out, errOut string, ran *[][]string) {
+	t.Helper()
+	home = sshTestHome(t)
+	srv := vscodeJam(t, `{"available":true,"version":"0.123.0"}`, testVSIX(t, "0.123.0"))
+	writeAppTokenFile(t, appTokenJSON(t, "apptok", srv.URL))
+	ran = stubCode(t, goos, cli)
+	code, out, errOut = runVSCode(t, append([]string{"install", "--admin-url", srv.URL, "--code", cli}, args...)...)
+	return home, code, out, errOut, ran
+}
+
+func TestVSCodeInstallMacLauncher(t *testing.T) {
+	home, code, out, errOut, _ := launcherInstall(t, "darwin", "codium")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	apps, _ := filepath.Glob(filepath.Join(home, "Applications", "Jam Hub (127.0.0.1:*) VSCodium.app"))
+	if len(apps) != 1 {
+		t.Fatalf("launcher apps = %v", apps)
+	}
+	app := apps[0]
+	st, err := os.Stat(filepath.Join(app, "Contents", "MacOS", "jam-hub"))
+	if err != nil || st.Mode().Perm() != 0o755 {
+		t.Fatalf("script: %v %v", st, err)
+	}
+	script, _ := os.ReadFile(filepath.Join(app, "Contents", "MacOS", "jam-hub"))
+	if !strings.Contains(string(script), "vscodium://aethons.jam/hub?jam=http%3A%2F%2F127.0.0.1") {
+		t.Errorf("script = %q", script)
+	}
+	if b, _ := os.ReadFile(filepath.Join(app, "Contents", "Resources", "jam.icns")); !bytes.HasPrefix(b, []byte("icns")) {
+		t.Errorf("icns = %q…", b[:min(8, len(b))])
+	}
+	if b, _ := os.ReadFile(filepath.Join(app, "Contents", "Info.plist")); !strings.Contains(string(b), "<string>jam-hub</string>") {
+		t.Errorf("Info.plist = %s", b)
+	}
+	if !strings.Contains(out, "Added the Jam Hub launcher: "+app) {
+		t.Errorf("stdout: %q", out)
+	}
+	// A rerun replaces it: nothing stale survives inside.
+	stray := filepath.Join(app, "Contents", "stray")
+	if err := os.WriteFile(stray, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := runVSCode(t, "install", "--admin-url", adminURLFromApp(t, app), "--code", "codium"); code != 0 {
+		t.Fatalf("rerun exit %d: %s", code, errOut)
+	}
+	if _, err := os.Stat(stray); !os.IsNotExist(err) {
+		t.Errorf("stray file survived the rerun: %v", err)
+	}
+}
+
+// adminURLFromApp recovers the test Jam's URL from the launcher's name.
+func adminURLFromApp(t *testing.T, app string) string {
+	t.Helper()
+	b := filepath.Base(app)
+	return "http://" + b[strings.Index(b, "(")+1:strings.Index(b, ")")]
+}
+
+func TestVSCodeInstallLinuxLauncher(t *testing.T) {
+	home, code, _, errOut, _ := launcherInstall(t, "linux", "code")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	entries, _ := filepath.Glob(filepath.Join(home, ".local", "share", "applications", "jam-hub-127.0.0.1-*.desktop"))
+	if len(entries) != 1 {
+		t.Fatalf("desktop entries = %v", entries)
+	}
+	d, _ := os.ReadFile(entries[0])
+	if !strings.Contains(string(d), `Exec=xdg-open "vscode://aethons.jam/hub?jam=http%%3A%%2F%%2F127.0.0.1`) {
+		t.Errorf("desktop entry:\n%s", d)
+	}
+	icon := filepath.Join(home, ".local", "share", "icons", "hicolor", "512x512", "apps", "jam-hub.png")
+	if b, err := os.ReadFile(icon); err != nil || !bytes.HasPrefix(b, []byte("\x89PNG")) {
+		t.Errorf("icon: %v", err)
+	}
+	if !strings.Contains(string(d), "Icon="+icon+"\n") {
+		t.Errorf("desktop entry icon:\n%s", d)
+	}
+}
+
+func TestVSCodeInstallNoLauncher(t *testing.T) {
+	home, code, _, errOut, _ := launcherInstall(t, "darwin", "code", "--no-launcher")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(home, "Applications")); !os.IsNotExist(err) {
+		t.Errorf("Applications made despite --no-launcher: %v", err)
+	}
+}
+
+func TestVSCodeInstallLauncherFailureIsAWarning(t *testing.T) {
+	home := sshTestHome(t)
+	if err := os.WriteFile(filepath.Join(home, ".local"), nil, 0o644); err != nil { // mkdir under it fails
+		t.Fatal(err)
+	}
+	srv := vscodeJam(t, `{"available":true,"version":"0.123.0"}`, testVSIX(t, "0.123.0"))
+	writeAppTokenFile(t, appTokenJSON(t, "apptok", srv.URL))
+	ran := stubCode(t, "linux", "code")
+	code, _, errOut := runVSCode(t, "install", "--admin-url", srv.URL)
+	if code != 0 || len(*ran) != 1 {
+		t.Fatalf("exit %d, ran %v: %s", code, *ran, errOut)
+	}
+	if !strings.Contains(errOut, "jam vscode install: no Jam Hub launcher: ") {
+		t.Errorf("stderr: %q", errOut)
+	}
+}
+
+func TestVSCodeInstallOtherOSNote(t *testing.T) {
+	_, code, out, errOut, _ := launcherInstall(t, "windows", "code")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out, "no Jam Hub launcher on windows: open vscode://aethons.jam/hub?jam=") {
+		t.Errorf("stdout: %q", out)
 	}
 }

@@ -16,8 +16,10 @@ export type NotifierDeps = {
   scheme: string;
   now: () => number;
   toast: (kind: NotifyKind, message: string, action: "Open") => Thenable<string | undefined>;
-  openSession: (id: string) => unknown;
-  openExternal: (url: string) => unknown;
+  // goTo goes to a conversation: its studio window, else its hub tab.
+  goTo: (channel: string, session: string) => unknown;
+  // linkJam names a non-default Jam in OS notification links.
+  linkJam?: string;
   log: (m: string) => void;
 };
 
@@ -37,7 +39,7 @@ export class Notifier {
     const url = this.d.jamUrl();
     if (url instanceof Error) return;
     if (!(await this.d.lock.claim(n.id, this.d.focused()))) return;
-    const t = notifyTarget(n, url);
+    const t = notifyTarget(n);
     const open = () => this.open(t);
     try {
       // VS Code parses links in the text: a message must not become one.
@@ -50,12 +52,12 @@ export class Notifier {
     } catch (x) {
       this.log(`notify: the notification failed: ${errText(x)}`);
     }
-    if (!this.d.focused()) void this.d.os.show({ title: n.title, body: n.body, link: targetLink(t, this.d.scheme), group: n.channel, onClick: open });
+    if (!this.d.focused()) void this.d.os.show({ title: n.title, body: n.body, link: targetLink(t, this.d.scheme, this.d.linkJam), group: n.channel, onClick: open });
   }
 
   private open(t: NotifyTarget): void {
     Promise.resolve()
-      .then(() => ("session" in t ? this.d.openSession(t.session) : this.d.openExternal(t.web)))
+      .then(() => this.d.goTo(t.channel, t.session))
       .catch((x: unknown) => this.log(`notify: opening failed: ${errText(x)}`));
   }
 

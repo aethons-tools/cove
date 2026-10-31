@@ -7,10 +7,12 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/appui"
+	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/uiassets"
 	"github.com/aethons-tools/cove/internal/jam/webapp"
 )
@@ -103,10 +105,27 @@ func (h *handler) apiRail(w http.ResponseWriter, r *http.Request) {
 	}
 	// ?c= is the open conversation, counted as read (it is being read).
 	groups := Rail(p, h.d, r.URL.Query().Get("c"))
+	h.railSessions(r, p, groups)
 	if groups == nil {
 		groups = []RailGroup{}
 	}
 	writeJSON(w, http.StatusOK, RailResponse{Groups: groups, UnreadTotal: unreadTotal(groups)})
+}
+
+// railSessions fills each row's head session and the viewer's SSH access to it.
+func (h *handler) railSessions(r *http.Request, p jam.Participant, groups []RailGroup) {
+	now, cp := time.Now(), collabPrincipal(r, p)
+	for gi := range groups {
+		rows := groups[gi].Rows
+		for i := range rows {
+			inst, ok := h.headSession(p, rows[i].ID)
+			if !ok {
+				continue
+			}
+			rows[i].Session = inst.ActorID
+			_, rows[i].SSH = collab.Decide(h.d.Store, now, cp, inst, collab.SSH)
+		}
+	}
 }
 
 // writeJSON writes v as an API response (never cached, never sniffed).

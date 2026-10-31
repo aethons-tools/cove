@@ -181,8 +181,8 @@ describe("the conversation view", () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => { release = r; });
     const railRows: RailResponse = { unreadTotal: 0, groups: [{ bucket: "channels", title: "Channels", rows: [
-      { id: "chn_a", label: "alpha", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "" },
-      { id: "chn_b", label: "beta", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "" },
+      { id: "chn_a", label: "alpha", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "", session: "", ssh: false },
+      { id: "chn_b", label: "beta", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "", session: "", ssh: false },
     ] }] };
     serve(conv());
     server.use(http.get("/app/user/api/rail", async ({ request }) => {

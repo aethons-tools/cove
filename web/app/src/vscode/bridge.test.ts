@@ -67,7 +67,7 @@ describe("Bridge", () => {
   it("hands the last state to a late subscriber, and live events to listeners until they stop", () => {
     const h = fakeHost();
     const b = new Bridge(h.acquireVsCodeApi(), h.win);
-    const state = { signedIn: true, target: null, pinned: false, elsewhere: false };
+    const state = { signedIn: true, target: null };
     h.state(state);
     const seen = vi.fn();
     b.onState(seen);

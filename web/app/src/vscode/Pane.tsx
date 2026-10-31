@@ -18,6 +18,7 @@ import { interceptLinks, linkAction, type LinkAction } from "./links";
 import { NavBridge } from "./NavBridge";
 import { SessionBody, SessionGate } from "./panes";
 import { useVscodeScheme } from "./scheme";
+import { RailPane } from "./RailPane";
 
 // NOUN is what each session pane shows, in its copy.
 export const NOUN: Record<SessionPaneName, string> = {
@@ -26,12 +27,13 @@ export const NOUN: Record<SessionPaneName, string> = {
 
 // copyFor is a pane's copy for signed out, no session and a session gone.
 export function copyFor(name: PaneName): { signedOut: string; none: string; gone: string } {
-  const noun = name === "board" ? "whiteboard" : NOUN[name];
+  const noun = name === "board" ? "whiteboard" : name === "rail" ? "conversations" : NOUN[name];
   return {
     signedOut: name === "board" ? "Sign in to Jam to see this whiteboard."
+      : name === "rail" ? "Sign in to Jam to see your conversations."
       : name === "conversation" ? "Sign in to Jam to see this conversation."
       : `Sign in to Jam to see this session's ${noun}.`,
-    none: `This window isn't on a Jam studio. Focus a session to see its ${noun}.`,
+    none: name === "conversation" ? "That conversation is gone, or you can't see it." : `Open a session's conversation to see its ${noun}.`,
     gone: "That session has ended, or you can't see it.",
   };
 }
@@ -72,23 +74,25 @@ export function Pane({ bridge, name, board }: { bridge: Bridge; name: PaneName; 
   useEffect(() => bridge.onState((s) => setView((v) => ({ s, gen: (v?.gen ?? 0) + (s.signedIn && !v?.s.signedIn ? 1 : 0) }))), [bridge]);
   const scheme = useVscodeScheme();
   const signIn = useCallback(() => bridge.post({ type: "signIn" }), [bridge]);
-  const focus = useCallback(() => bridge.post({ type: "open", intent: { kind: "focusSession" } }), [bridge]);
   const retry = () => bridge.post({ type: "ready", pane: name });
   const copy = copyFor(name);
   let body: ReactNode = null;
   if (!view) body = null;
   else if (!view.s.signedIn) body = <Copy text={copy.signedOut} action="Sign in" onClick={signIn} />;
-  else if (name === "board") {
+  else if (name === "rail") {
+    const active = view.s.target && "channel" in view.s.target ? view.s.target.channel : undefined;
+    body = <Shell key={view.gen} signIn={signIn}><RailPane bridge={bridge} windows={view.s.windows ?? []} active={active} /></Shell>;
+  } else if (name === "board") {
     body = <Shell key={view.gen} signIn={signIn}><BoardTab bridge={bridge} id={board ?? ""} /></Shell>;
   } else if (view.s.error !== undefined) body = <Copy text={`Couldn't load the focused session: ${view.s.error}`} action="Try again" onClick={retry} />;
-  else if (!view.s.target) body = <Copy text={copy.none} action="Focus a session…" onClick={focus} />;
-  else if ("gone" in view.s.target) body = <Copy text={copy.gone} action="Focus a session…" onClick={focus} />;
+  else if (!view.s.target) body = <Copy text={copy.none} />;
+  else if ("gone" in view.s.target) body = <Copy text={copy.gone} />;
   else {
     const { session, channel } = view.s.target;
     const boot = <Boot bridge={bridge} name={name} session={session} channel={channel} />;
     body = (
       <Shell key={`${view.gen}:${session}:${channel}`} signIn={signIn}>
-        {name === "conversation" ? boot : <SessionGate session={session} name={name} onFocus={focus}>{boot}</SessionGate>}
+        {name === "conversation" ? boot : <SessionGate session={session} name={name}>{boot}</SessionGate>}
       </Shell>
     );
   }
@@ -100,11 +104,11 @@ export function Pane({ bridge, name, board }: { bridge: Bridge; name: PaneName; 
   );
 }
 
-export function Copy({ text, action, onClick }: { text: string; action: string; onClick: () => void }) {
+export function Copy({ text, action, onClick }: { text: string; action?: string; onClick?: () => void }) {
   return (
     <Stack align="flex-start" gap="sm" p="md">
       <Text size="sm">{text}</Text>
-      <Button size="xs" onClick={onClick}>{action}</Button>
+      {action && <Button size="xs" onClick={onClick}>{action}</Button>}
     </Stack>
   );
 }

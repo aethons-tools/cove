@@ -72,6 +72,15 @@ export interface ChannelRow {
   lastSeq: number /* int64 */;
   selected: boolean;
   mission: string; // the backing session's one-line focus; "" = none
+  /**
+   * Session is the actor id of the session whose home this channel is,
+   * when the viewer may see it ("" = none), as api/conversations reports it.
+   */
+  session: string;
+  /**
+   * SSH reports whether the viewer may SSH into Session's studio.
+   */
+  ssh: boolean;
 }
 /**
  * RailGroup is one attention section of the rail (Needs you / Sessions /

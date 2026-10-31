@@ -14,6 +14,8 @@ export type SshResult = { alias: string; owner: "extension" | "other" };
 export type SshDeps = {
   api: JamApi;
   jamUrl: string;
+  // app is the jam CLI token profile for a Jam other than the default.
+  app?: string;
   cliPath: string;
   env: NodeJS.ProcessEnv;
   home: string;
@@ -44,7 +46,7 @@ export async function ensureSsh(d: SshDeps, studio: string): Promise<SshResult> 
   const cert = certPath(cfg, studio);
   const pub = await ensureKey(key, keygen, d.run);
   await ensureCert(d.api, studio, pub, cert, d.now());
-  const block = renderBlock({ studio, jamPath: jam, jamUrl: d.jamUrl, keyPath: key, certPath: cert });
+  const block = renderBlock({ studio, jamPath: jam, jamUrl: d.jamUrl, keyPath: key, certPath: cert, ...(d.app ? { app: d.app } : {}) });
   await editSshConfig(cfgFile, (s) => {
     if (blockOwner(s, studio) === "other") throw new Error(`~/.ssh/config changed: ${alias} is now managed elsewhere`);
     return spliceBlock(stripLegacyBlock(s, studio), studio, block);

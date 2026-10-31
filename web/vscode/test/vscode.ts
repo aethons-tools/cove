@@ -16,6 +16,7 @@ export const mock = {
   config: {} as Record<string, unknown>, // "<section>.<key>" → value (global)
   answers: [] as Answer[], // queued replies to show*Message, in order
   pick: undefined as unknown, // the next showQuickPick reply
+  input: undefined as string | undefined, // the next showInputBox reply
   commands: new Map<string, (...a: unknown[]) => unknown>(),
   uriHandler: undefined as undefined | { handleUri(u: unknown): unknown },
   viewProviders: new Map<string, vs.WebviewViewProvider>(),
@@ -41,6 +42,7 @@ export const mock = {
     mock.config = {};
     mock.answers = [];
     mock.pick = undefined;
+    mock.input = undefined;
     mock.commands.clear();
     mock.uriHandler = undefined;
     mock.viewProviders.clear();
@@ -62,6 +64,7 @@ export const window = {
   showWarningMessage: message(),
   showErrorMessage: message(),
   showQuickPick: vi.fn(async (..._a: unknown[]) => mock.pick),
+  showInputBox: vi.fn(async (..._a: unknown[]) => mock.input),
   withProgress: vi.fn(async (_o: unknown, task: (p: unknown, t: unknown) => Promise<unknown>) =>
     task({ report: () => {} }, { isCancellationRequested: false, onCancellationRequested: () => disposable() })),
   registerUriHandler: vi.fn((h: { handleUri(u: unknown): unknown }) => {
@@ -234,7 +237,19 @@ export function fakeWebviewView() {
 // fakeWebviewPanel is a WebviewPanel over fakeWebviewView's webview.
 export function fakeWebviewPanel(viewType: string, title: string, column: unknown, options: unknown) {
   const v = fakeWebviewView();
+  const onViewState = new Set<() => void>();
   const panel = Object.assign(v, {
+    active: false,
+    onDidChangeViewState: (cb: () => void) => {
+      onViewState.add(cb);
+      return { dispose: () => void onViewState.delete(cb) };
+    },
+    // setActive makes the panel the active (and visible) editor, as a tab switch does.
+    setActive: (a: boolean) => {
+      panel.active = a;
+      if (a) panel.visible = true;
+      [...onViewState].forEach((cb) => cb());
+    },
     viewType,
     title,
     column,
@@ -247,7 +262,7 @@ export function fakeWebviewPanel(viewType: string, title: string, column: unknow
 }
 
 const fns = [
-  window.showInformationMessage, window.showWarningMessage, window.showErrorMessage, window.showQuickPick,
+  window.showInformationMessage, window.showWarningMessage, window.showErrorMessage, window.showQuickPick, window.showInputBox,
   window.withProgress, window.createOutputChannel, window.registerUriHandler, window.createWebviewPanel, window.registerWebviewPanelSerializer, window.registerWebviewViewProvider, window.onDidChangeWindowState, window.createTreeView, window.createStatusBarItem,
   commands.registerCommand, commands.executeCommand,
   env.openExternal, env.asExternalUri, workspace.getConfiguration, workspace.onDidChangeConfiguration, extensions.getExtension,

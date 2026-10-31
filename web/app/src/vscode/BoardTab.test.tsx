@@ -52,7 +52,7 @@ function mount(routes: Record<string, Route> = {}) {
   const r = render(<Pane bridge={bridge} name="board" board={BRD} />);
   return { h, ...r };
 }
-const signedIn = { signedIn: true, target: null, pinned: false, elsewhere: false };
+const signedIn = { signedIn: true, target: null };
 
 describe("a board tab", () => {
   it("loads the board, posts its title and mounts the editor", async () => {

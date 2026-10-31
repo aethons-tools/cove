@@ -1,5 +1,4 @@
-// Opening a session's window (local), and connecting it to the session's
-// studio over Remote-SSH and back. Pure: the VS Code
+// Opening a session's studio window over Remote-SSH. Pure: the VS Code
 // surface is the Ui interface, built in extension.ts.
 import type { JamApi } from "./api";
 import type { RailResponse } from "../../app/src/api/types.js" with { "resolution-mode": "import" };
@@ -7,21 +6,20 @@ import { ApiError, SignedOutError } from "./api";
 import type { Editor } from "./editor";
 import { certErrorMessage } from "./ssh/cert";
 import type { SshResult } from "./ssh/setup";
-import { SESSION_ID_RE } from "./uri";
+import { LEGACY_RE } from "./bridge/intents";
+import { hubJamOf } from "./jams";
+import { CHANNEL_RE, SESSION_ID_RE } from "./uri";
 
 export interface Ui {
   error(msg: string, ...actions: string[]): Promise<string | undefined>;
   info(msg: string, ...actions: string[]): Promise<string | undefined>;
   pick<T extends { label: string }>(items: T[], placeholder: string): Promise<T | undefined>;
   openExternal(url: string): Promise<void>;
-  // Opens uri in a new window (focusing one already on it), or with reuse in this one.
-  openFolder(uri: string, o?: { reuse: true }): Promise<void>;
-  // The session's local workspace file (written if missing), as a URI.
-  localWorkspace(id: string): Promise<string>;
-  // Whether a studio window for the session has refreshed its mark lately.
-  isConnected(id: string): boolean;
-  // Sets (refreshes) or clears the session's connected mark.
-  setConnected(id: string, on: boolean): Promise<void>;
+  // Opens uri in a new window, focusing one already on it.
+  openFolder(uri: string): Promise<void>;
+  // Opens a Jam's hub window (default: this window's Jam), writing its
+  // workspace file if missing, or focuses it.
+  openHub(jam?: string): Promise<void>;
   hasRemoteSsh(): boolean;
   installRemoteSsh(): Promise<void>;
   getGlobal(section: string, key: string): unknown;
@@ -42,6 +40,8 @@ export function webUrl(base: string, channel: string): string {
 export type OpenDeps = {
   ui: Ui;
   editor: Editor;
+  // remember records which Jam a session's studio window belongs to.
+  remember?: (id: string) => Promise<void>;
   signedIn: () => Promise<{ api: JamApi; url: string }>;
   ssh: (api: JamApi, studio: string) => Promise<SshResult>;
   // The "Jam" output channel. Never pass it a token.
@@ -178,40 +178,12 @@ async function prepareSsh(
   }
 }
 
-// openSession opens the session's local window (its workspace file, in a new
-// window or the one already on it): no SSH, so the studio can idle. A session
-// flagged connected (its studio window is open) renews its SSH setup and opens
-// (focuses) that window instead; if that fails, the flag is cleared and the
-// local window opens.
+// openSession sets up SSH for the session's studio and opens its studio
+// window over Remote-SSH: a new window, or the one already on it. The studio
+// window marks itself connected when it starts.
 export async function openSession(d: OpenDeps, id: string): Promise<void> {
-  await withSession(d, id, `Jam: opening ${id}…`, async ({ step, log, fail }) => {
-    const s = await checkSession(d, id, step, log, fail);
-    if (!s) return;
-    let remote = false;
-    if (d.ui.isConnected(id)) {
-      remote = await prepareSsh(d, s, id, step, log, async (m) => {
-        log(`can't reconnect: ${m}; opening the local window`);
-        return undefined;
-      });
-      if (!remote) await d.ui.setConnected(id, false);
-    }
-    step("opening the window");
-    let uri: string;
-    if (remote) {
-      log("connected: opening its studio window");
-      uri = remoteUri(id);
-    } else uri = await d.ui.localWorkspace(id);
-    log(`openFolder ${uri}`);
-    await d.ui.openFolder(uri);
-    log("openFolder returned");
-  });
-}
-
-// connectStudio sets up SSH for the session's studio and reloads this window
-// onto it over Remote-SSH. The studio window flags itself connected when it starts.
-export async function connectStudio(d: OpenDeps, id: string): Promise<void> {
   const { ui } = d;
-  await withSession(d, id, `Jam: connecting ${id}…`, async ({ step, log, fail }) => {
+  await withSession(d, id, `Jam: opening ${id}…`, async ({ step, log, fail }) => {
     const s = await checkSession(d, id, step, log, fail);
     if (!s || !(await prepareSsh(d, s, id, step, log, fail))) return;
     // Open Remote - SSH (VSCodium) always downloads the server in the studio.
@@ -226,27 +198,13 @@ export async function connectStudio(d: OpenDeps, id: string): Promise<void> {
       await ui.remember(ASKED);
       log(`localServerDownload answer: ${a ?? "dismissed"}`);
     }
-    step("connecting the window");
+    await d.remember?.(id);
+    step("opening the window");
     const uri = remoteUri(id);
-    log(`openFolder ${uri} (this window)`);
-    await ui.openFolder(uri, { reuse: true });
+    log(`openFolder ${uri}`);
+    await ui.openFolder(uri);
     log("openFolder returned");
   });
-}
-
-// disconnectStudio clears the session's connected flag and reloads this window
-// onto the session's local workspace; Remote-SSH closes the connection, so the
-// studio can idle. The flag is cleared here, before the reload: a write from
-// the studio window's deactivate can be lost as the window reloads.
-export async function disconnectStudio(d: OpenDeps, id: string): Promise<void> {
-  if (!SESSION_ID_RE.test(id)) {
-    d.log(`disconnect: refused a bad session id (${JSON.stringify(id.slice(0, 80))})`);
-    return;
-  }
-  const uri = await d.ui.localWorkspace(id);
-  await d.ui.setConnected(id, false);
-  d.log(`[${id}] disconnecting: openFolder ${uri} (this window)`);
-  await d.ui.openFolder(uri, { reuse: true });
 }
 
 // A studio window refreshes its session's connected mark every
@@ -261,54 +219,116 @@ export const CONNECTED_STALE_MS = 90_000;
 // CONNECTED_BEAT_MS and clears it on deactivate; a stale mark, or anything
 // not a time, is not connected. One key per session (jam.connected.<id>, in
 // a Memento such as globalState), so windows never overwrite each other's.
-export function connectedSet(st: { get<T>(k: string): T | undefined; update(k: string, v: unknown): Thenable<void> }, now: () => number = Date.now) {
-  const key = (id: string) => `jam.connected.${id}`;
+export function connectedSet(
+  st: { get<T>(k: string): T | undefined; update(k: string, v: unknown): Thenable<void>; keys(): readonly string[] },
+  now: () => number = Date.now,
+) {
+  const PREFIX = "jam.connected.";
+  const key = (id: string) => `${PREFIX}${id}`;
+  const isConnected = (id: string) => {
+    if (!SESSION_ID_RE.test(id)) return false;
+    const at = st.get<unknown>(key(id));
+    return typeof at === "number" && Math.abs(now() - at) < CONNECTED_STALE_MS;
+  };
   return {
-    isConnected: (id: string) => {
-      if (!SESSION_ID_RE.test(id)) return false;
-      const at = st.get<unknown>(key(id));
-      return typeof at === "number" && Math.abs(now() - at) < CONNECTED_STALE_MS;
-    },
+    isConnected,
+    // list is the sessions with a fresh mark (the rail's ▣).
+    list: () => st.keys().filter((k) => k.startsWith(PREFIX)).map((k) => k.slice(PREFIX.length)).filter(isConnected),
     setConnected: async (id: string, on: boolean) => {
       if (SESSION_ID_RE.test(id)) await st.update(key(id), on ? now() : undefined);
     },
   };
 }
 
-export type WindowKind = { kind: "local" | "remote"; id: string };
+// A hub is a window on a Jam's hub file (jams.ts hubFileFor: a workspace with
+// no folders) in the extension's global storage hub directory.
+export const HUB_WORKSPACE = JSON.stringify({ folders: [] }, null, 2) + "\n";
 
-// windowKind is the session a window belongs to: a jam-<id> remote, or a
-// local session window, whose workspace file is <sessionsDir>/<id>.code-workspace
-// (sessionsDir as a URI: its scheme is the platform's globalStorageUri's, which
-// may be vscode-userdata rather than file). The directory compares case-insensitively on
-// darwin and win32 (case-insensitive file systems, drive letters); the id never.
+export type WindowKind = { kind: "session"; id: string } | { kind: "hub"; file: string };
+
+// windowKind is what a window is to Jam: a session's studio window (a jam-<id>
+// remote), a hub (workspace file <hubDir>/Jam Hub (….code-workspace; hubDir as a URI, whose
+// scheme is globalStorageUri's), or nothing. The directory compares
+// case-insensitively on darwin and win32 (case-insensitive file systems, drive letters).
 export function windowKind(
   w: { workspaceFolders?: readonly { uri: UriLike }[]; workspaceFile?: UriLike & { path: string } },
-  sessionsDir: { scheme: string; path: string },
+  hubDir: { scheme: string; path: string },
   platform: string,
 ): WindowKind | undefined {
   const remote = studioFromAuthority(windowAuthority(w));
-  if (remote) return { kind: "remote", id: remote };
+  if (remote) return { kind: "session", id: remote };
   const f = w.workspaceFile;
-  if (!f || f.scheme !== sessionsDir.scheme) return undefined;
+  if (!f || f.scheme !== hubDir.scheme) return undefined;
   const fold = platform === "darwin" || platform === "win32";
   const norm = (p: string) => {
     const q = p.replace(/\\/g, "/").replace(/\/+$/, "");
     return fold ? q.toLowerCase() : q;
   };
   const slash = f.path.lastIndexOf("/");
-  if (slash < 0 || norm(f.path.slice(0, slash)) !== norm(sessionsDir.path)) return undefined;
-  const m = /^(.+)\.code-workspace$/.exec(f.path.slice(slash + 1));
-  return m && SESSION_ID_RE.test(m[1]!) ? { kind: "local", id: m[1]! } : undefined;
+  if (slash < 0 || norm(f.path.slice(0, slash)) !== norm(hubDir.path)) return undefined;
+  const name = f.path.slice(slash + 1);
+  return /^Jam Hub \(.+\)\.code-workspace$/.test(name) ? { kind: "hub", file: name } : undefined;
 }
 
-export const SESSION_WORKSPACE = JSON.stringify({ folders: [] }, null, 2) + "\n";
+// windowJam is the Jam a window shows: a hub's own (none when that Jam is no
+// longer listed), a studio window's recorded one, an ordinary window's chosen
+// one; else (or when that isn't listed) the default, list[0].
+export function windowJam(
+  k: WindowKind | undefined,
+  list: string[],
+  o: { studioJam(id: string): string | undefined; chosen: string | undefined },
+): string | undefined {
+  if (k?.kind === "hub") return hubJamOf(k.file, list);
+  const want = k?.kind === "session" ? o.studioJam(k.id) : o.chosen;
+  return want !== undefined && list.includes(want) ? want : list[0];
+}
 
-// statusBarItem is the window's Connect/Disconnect item, if any.
-export function statusBarItem(k: WindowKind | undefined): { text: string; command: string; tooltip: string } | undefined {
-  if (k?.kind === "local") return { text: "$(plug) Connect studio", command: "jam.connectStudio", tooltip: "Jam: connect this window to the session's studio over Remote-SSH" };
-  if (k?.kind === "remote") return { text: "$(debug-disconnect) Disconnect studio", command: "jam.disconnectStudio", tooltip: "Jam: disconnect from the studio so it can idle" };
-  return undefined;
+// A pending hub request older than PENDING_MAX_MS is stale (its window gave up).
+export const PENDING_MAX_MS = 60_000;
+
+export type GoDeps = {
+  // windowJam is this window's Jam; isHub says this window is its hub.
+  windowJam: string | undefined;
+  isConnected(id: string): boolean;
+  openSession(id: string): Promise<void>;
+  // focusStudio brings a studio window to the front with no sign-in (another Jam's).
+  focusStudio(id: string): Promise<void>;
+  isHub: boolean;
+  // ownSession is a studio window's own session: going there reopens its tab.
+  ownSession?: string;
+  openTab(channel: string): void;
+  writePending(jam: string, p: { channel: string; at: number }): Promise<void>;
+  openHub(jam: string): Promise<void>;
+  now(): number;
+};
+
+// goTo goes to jam's conversation: its session's studio window when one is
+// open (this window's own: its conversation tab), else its tab in jam's hub.
+// Outside that hub it leaves a pending request (the hub reads it on
+// activation and focus) and opens or focuses the hub.
+export async function goTo(d: GoDeps, jam: string, channel: string, session: string): Promise<void> {
+  const here = jam === d.windowJam;
+  if (here && session && session === d.ownSession) return d.openTab(channel);
+  if (session && d.isConnected(session)) return here ? d.openSession(session) : d.focusStudio(session);
+  if (here && d.isHub) return d.openTab(channel);
+  await d.writePending(jam, { channel, at: d.now() });
+  await d.openHub(jam);
+}
+
+// readPending is a pending request's channel, if raw is a fresh, valid one.
+export function readPending(raw: string | undefined, now: number): string | undefined {
+  if (!raw) return undefined;
+  let o: unknown;
+  try {
+    o = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!o || typeof o !== "object" || Array.isArray(o)) return undefined;
+  const { channel, at } = o as { channel?: unknown; at?: unknown };
+  if (typeof channel !== "string" || !(CHANNEL_RE.test(channel) || LEGACY_RE.test(channel))) return undefined;
+  if (typeof at !== "number" || now - at > PENDING_MAX_MS || at - now > PENDING_MAX_MS) return undefined;
+  return channel;
 }
 
 export type RailRow = RailResponse["groups"][number]["rows"][number];

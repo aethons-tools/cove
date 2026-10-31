@@ -23,8 +23,9 @@ const board = root.dataset.board;
 // Excalidraw's font faces) load. Not boards/assetPath.ts: that is the web app's.
 if (root.dataset.assets) window.EXCALIDRAW_ASSET_PATH = root.dataset.assets;
 const api = acquireVsCodeApi();
-// A board tab's state is its board, so a window reload restores the tab.
+// A tab's state is its board or channel, so a window reload restores the tab.
 if (name === "board") api.setState({ board });
+else if (root.dataset.channel) api.setState({ channel: root.dataset.channel });
 const b = new Bridge(api, window);
 install(b, { signIn: () => b.post({ type: "signIn" }) });
 wirePane(b, document, name);

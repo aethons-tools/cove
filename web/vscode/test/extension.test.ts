@@ -15,16 +15,20 @@ const CHN = "chn_0abcdefghjkmnpqrstvwxyz012";
 const remoteFolder = () => {
   (vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { scheme: "vscode-remote", authority: `ssh-remote+jam-${SES}` } }];
 };
-const localPath = (ctx: vscode.ExtensionContext, id = SES) => `${ctx.globalStorageUri.path}/sessions/${id}.code-workspace`;
-const localWindow = (ctx: vscode.ExtensionContext, id = SES) => {
-  (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: localPath(ctx, id) };
-};
 const openFolderCalls = () => vi.mocked(vscode.commands.executeCommand).mock.calls.filter((c) => c[0] === "vscode.openFolder");
 const stored = (token: string) => JSON.stringify({ url: JAM, token, user: "u", expiresAt: "x" });
 type View = ReturnType<typeof fakeWebviewView>;
 const openView = (): View => {
   const v = fakeWebviewView();
-  void mock.viewProviders.get("jam.conversation")!.resolveWebviewView(v as unknown as vscode.WebviewView, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+  void mock.viewProviders.get("jam.status")!.resolveWebviewView(v as unknown as vscode.WebviewView, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
+  return v;
+};
+const hubWindow = (ctx: vscode.ExtensionContext) => {
+  (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: `${ctx.globalStorageUri.path}/hub/Jam Hub (jam.example.com).code-workspace` };
+};
+const openRail = () => {
+  const v = fakeWebviewView() as View & { badge?: unknown };
+  void mock.viewProviders.get("jam.rail")!.resolveWebviewView(v as unknown as vscode.WebviewView, {} as vscode.WebviewViewResolveContext, {} as vscode.CancellationToken);
   return v;
 };
 const lastState = (v: View) =>
@@ -43,22 +47,22 @@ function jamFetch(calls: Call[]) {
     if (u.pathname === `/app/user/api/sessions/${SES}`) return Response.json({ label: "alpha", channel: CHN });
     if (u.pathname === "/app/user/push/focus") return new Response(null, { status: 204 });
     if (u.pathname === "/app/user/api/rail") return Response.json({ groups: [] });
-    if (u.pathname === `/app/user/api/conversations/${CHN}`) return Response.json({ session: SES });
+    if (u.pathname === `/app/user/api/conversations/${CHN}`) return Response.json({ session: SES, label: "alpha" });
     return Response.json({});
   });
 }
 
 describe("activate", () => {
-  it("activate registers five view providers, one tree view and eighteen commands", () => {
+  it("activate registers five view providers and seven commands, and no tree view", () => {
     mock.reset();
     const ctx = fakeContext();
     activate(ctx);
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(18);
-    expect(vscode.window.createTreeView).toHaveBeenCalledWith("jam.needsYou", expect.anything());
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(7);
+    expect(vscode.window.createTreeView).not.toHaveBeenCalled();
     expect(vscode.window.registerUriHandler).toHaveBeenCalledTimes(1);
     expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(5);
     const calls = vi.mocked(vscode.window.registerWebviewViewProvider).mock.calls as unknown as [string, unknown, { webviewOptions?: { retainContextWhenHidden?: boolean } } | undefined][];
-    expect(calls.map((c) => c[0])).toEqual(["jam.conversation", "jam.thinking", "jam.previews", "jam.status", "jam.artifacts"]);
+    expect(calls.map((c) => c[0])).toEqual(["jam.rail", "jam.thinking", "jam.previews", "jam.status", "jam.artifacts"]);
     for (const [, , opts] of calls) expect(opts?.webviewOptions?.retainContextWhenHidden).toBeUndefined();
     deactivate();
   });
@@ -89,12 +93,11 @@ describe("activate", () => {
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
       activate(ctx);
-      const view = vscode.window.createTreeView as unknown as { mock: { results: { value: { badge: unknown } }[] } };
-      const badge = () => view.mock.results.at(-1)!.value.badge;
+      const railView = openRail();
+      const badge = () => railView.badge;
       await vi.waitFor(() => expect(badge()).toEqual({ value: 2, tooltip: "2 conversations need you" }), { timeout: 6000 });
       push("event: changed\ndata: {}\n\n");
       await vi.waitFor(() => expect(badge()).toEqual({ value: 1, tooltip: "1 conversation needs you" }), { timeout: 6000 });
-      expect(mock.context.get("jam.signedIn")).toBe(true);
     } finally {
       fetchSpy.mockRestore();
       deactivate();
@@ -117,50 +120,56 @@ describe("activate", () => {
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
       activate(ctx);
-      const view = vscode.window.createTreeView as unknown as { mock: { results: { value: { badge: unknown } }[] } };
-      const badge = () => view.mock.results.at(-1)!.value.badge;
+      const railView = openRail();
+      const badge = () => railView.badge;
       // Well inside NEEDS_YOU_DEBOUNCE_MS: no debounce on activation or sign-out.
       await vi.waitFor(() => expect(badge()).toEqual({ value: 1, tooltip: "1 conversation needs you" }), { timeout: 1000 });
-      expect(mock.context.get("jam.signedIn")).toBe(true);
       await mock.commands.get("jam.signOut")!();
       await vi.waitFor(() => expect(badge()).toBeUndefined(), { timeout: 1000 });
-      expect(mock.context.get("jam.signedIn")).toBe(false);
     } finally {
       fetchSpy.mockRestore();
       deactivate();
     }
   });
 
-  it("jam.needsYou.open on a session row opens its code window; on a chat row opens the web app", async () => {
+  it("a rail click on a session with a window focuses it; without one goes to the hub", async () => {
     mock.reset();
-    const CHAT = "chn_1abcdefghjkmnpqrstvwxyz012";
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const u = new URL(String(input));
-      if (u.pathname === "/app/user/events") return new Response(null, { status: 204 });
-      if (u.pathname === `/app/user/api/conversations/${CHN}`) return Response.json({ session: SES });
-      if (u.pathname === `/app/user/api/conversations/${CHAT}`) return Response.json({ session: "" });
-      if (u.pathname === `/app/user/api/sessions/${SES}`) return Response.json({ label: "alpha", channel: CHN, ssh: "" });
-      return Response.json({ groups: [] });
-    });
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    const fsp = await import("node:fs/promises");
+    await fsp.mkdir(path.join(home, ".ssh"));
+    await writeFile(path.join(home, ".ssh", "config"), `Host jam-${SES}\n  HostName x\n`);
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const getExt = vi.mocked(vscode.extensions.getExtension);
+    getExt.mockImplementation(() => ({}) as vscode.Extension<unknown>);
+    const fetchSpy = jamFetch([]);
     try {
       mock.config["jam.url"] = JAM;
+      mock.config["remote.SSH.localServerDownload"] = "always";
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
       activate(ctx);
-      const open = mock.commands.get("jam.needsYou.open")!;
-      const r = (id: string) => ({ id, label: "x", project: "p", kind: "session", needsYou: true, mission: "" });
-      await open(r(CHAT));
-      expect(vscode.env.openExternal).toHaveBeenCalledWith(expect.objectContaining({ toString: expect.any(Function) }));
-      expect(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0])).toContain(CHAT);
-      vi.mocked(vscode.env.openExternal).mockClear();
-      vi.mocked(vscode.commands.executeCommand).mockClear();
-      await open(r(CHN));
-      // No SSH is needed to open: the session's local window opens.
-      await vi.waitFor(() =>
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ path: localPath(ctx) }), { forceNewWindow: true, forceLocalWindow: true }),
-      );
+      const rail = openRail();
+      const pending = async () => JSON.parse(await readFile(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`, "utf8")).channel;
+      const hubOpens = () => openFolderCalls().filter((c) => (c[1] as { fsPath?: string }).fsPath?.endsWith("Jam Hub (jam.example.com).code-workspace"));
+      rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(hubOpens()).toHaveLength(1));
+      expect(await pending()).toBe(CHN);
+      rail.receive({ type: "open", intent: { kind: "go", channel: "legacy:dm:ann", session: "" } });
+      await vi.waitFor(() => expect(hubOpens()).toHaveLength(2));
+      expect(await pending()).toBe("legacy:dm:ann");
+      ctx.state.set(`jam.connected.${SES}`, Date.now() - 91_000);
+      rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(hubOpens()).toHaveLength(3));
+      ctx.state.set(`jam.connected.${SES}`, Date.now());
+      rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(4));
+      expect(openFolderCalls()[3]).toEqual(["vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceNewWindow: true }]);
+      expect(vscode.env.openExternal).not.toHaveBeenCalled();
     } finally {
+      getExt.mockImplementation(() => undefined);
       fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
       deactivate();
     }
   });
@@ -196,7 +205,7 @@ describe("activate", () => {
       activate(ctx);
       const a = openView();
       const b = openView();
-      for (const v of [a, b]) v.receive({ type: "ready", pane: "conversation" });
+      for (const v of [a, b]) v.receive({ type: "ready", pane: "status" });
       a.receive({ type: "request", id: 1, req: { method: "GET", path: "/app/user/api/bootstrap" } });
       await vi.waitFor(() => expect(a.posted).toContainEqual({ type: "response", id: 1, res: { kind: "signedOut" } }));
       await vi.waitFor(() => expect(calls.some((c) => c.path === "/app/user/events" && c.auth === "Bearer t")).toBe(true));
@@ -212,7 +221,7 @@ describe("activate", () => {
       await signingIn;
       await vi.waitFor(() => expect(calls.some((c) => c.path === "/app/user/events" && c.auth === "Bearer t2")).toBe(true));
       for (const v of [a, b]) {
-        await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: { session: SES, label: "alpha", channel: CHN }, pinned: false, elsewhere: false }));
+        await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: { session: SES, label: "alpha", channel: CHN } }));
       }
       for (const v of [a, b]) expect(JSON.stringify(v.posted)).not.toMatch(/"t2?"|Bearer|jam\.example/);
     } finally {
@@ -232,8 +241,12 @@ describe("activate", () => {
       (vscode.window.state as { focused: boolean }).focused = false;
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
+      hubWindow(ctx);
       activate(ctx);
-      const v = openView();
+      openRail().receive({ type: "open", intent: { kind: "go", channel: CHN, session: "" } });
+      await vi.waitFor(() => expect(mock.panels).toHaveLength(1));
+      const v = mock.panels[0]!;
+      v.setActive(true);
       v.receive({ type: "viewing", channel: CHN });
       await settle();
       expect(focusPosts()).toEqual([]);
@@ -247,37 +260,6 @@ describe("activate", () => {
       await vi.waitFor(() => expect(focusPosts().at(-1)).toEqual(["Bearer t2", null]));
     } finally {
       fetchSpy.mockRestore();
-    }
-  });
-
-  it("jam.focusSession picks a session that unpinned panes follow; pin and unpin act on the view", async () => {
-    mock.reset();
-    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
-    vi.stubEnv("XDG_CONFIG_HOME", home);
-    const calls: Call[] = [];
-    const fetchSpy = jamFetch(calls);
-    try {
-      mock.config["jam.url"] = JAM;
-      const ctx = fakeContext();
-      ctx.secretValues.set("jam.session", stored("t2"));
-      activate(ctx);
-      const v = openView();
-      v.receive({ type: "ready", pane: "conversation" });
-      await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: null, pinned: false, elsewhere: false }));
-      expect(mock.context.get("jam.conversation.hasSession")).toBe(false);
-      mock.pick = { label: "alpha", pick: { label: "alpha", row: { id: CHN } } };
-      await mock.commands.get("jam.focusSession")!();
-      await vi.waitFor(() => expect(lastState(v)?.target).toEqual({ session: SES, label: "alpha", channel: CHN }));
-      expect(mock.context.get("jam.conversation.hasSession")).toBe(true);
-      await mock.commands.get("jam.conversation.pin")!();
-      await vi.waitFor(() => expect(lastState(v)?.pinned).toBe(true));
-      expect(mock.context.get("jam.conversation.pinned")).toBe(true);
-      await mock.commands.get("jam.conversation.unpin")!();
-      await vi.waitFor(() => expect(lastState(v)?.pinned).toBe(false));
-    } finally {
-      fetchSpy.mockRestore();
-      vi.unstubAllEnvs();
-      deactivate();
     }
   });
 
@@ -527,7 +509,7 @@ describe("activate", () => {
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t"));
       activate(ctx);
-      const focusing = mock.commands.get("jam.focusSession")!();
+      const focusing = mock.commands.get("jam.openSession")!();
       await vi.waitFor(() => expect(held.length).toBeGreaterThan(0));
       openView();
       await vi.waitFor(() => expect(ctx.secretValues.has("jam.session")).toBe(false));
@@ -568,6 +550,114 @@ describe("notifications", () => {
   const events = (f: Fetched[]) => f.filter((c) => new URL(c.url).pathname === "/app/user/events");
   const toasts = () => vi.mocked(vscode.window.showInformationMessage).mock.calls.filter((c) => c[0] === "Alice · build-bot: done?");
 
+  it("a window whose Jam changed locks its notifications under its new Jam", async () => {
+    mock.reset();
+    const fetchSpy = notifyFetch([], []);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = ["https://b.example"];
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      await ctx.workspaceState.update("jam.windowJam", "https://b.example");
+      activate(ctx);
+      mock.config["jam.urls"] = [];
+      mock.changeConfig("jam.urls");
+      await vi.waitFor(() => expect(toasts()).toHaveLength(1));
+      const fsp = await import("node:fs/promises");
+      const files = await fsp.readdir(`${ctx.globalStorageUri.path}/notify`);
+      expect(files.filter((f) => f.endsWith(".lock"))).toHaveLength(1);
+      expect(files).not.toContain("b.example");
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a second signed-in Jam gets its own events stream", async () => {
+    mock.reset();
+    const fetched: Fetched[] = [];
+    const fetchSpy = notifyFetch([], fetched);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = ["https://b.example"];
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      ctx.secretValues.set("jam.session:https://b.example", JSON.stringify({ url: "https://b.example", token: "t2", user: "u", expiresAt: "x" }));
+      activate(ctx);
+      await vi.waitFor(() => expect(new Set(events(fetched).map((c) => new URL(c.url).host))).toEqual(new Set(["jam.example.com", "b.example"])));
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("with one Jam there is one events stream", async () => {
+    mock.reset();
+    const fetched: Fetched[] = [];
+    const fetchSpy = notifyFetch([], fetched);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      await vi.waitFor(() => expect(events(fetched)).toHaveLength(1));
+      await settle();
+      expect(events(fetched)).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a second Jam's revoked token signs out of that Jam and stops its stream", async () => {
+    mock.reset();
+    const bEvents: string[] = [];
+    const base = jamFetch([]).getMockImplementation()!;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const u = new URL(String(input));
+      if (u.host === "b.example" && u.pathname === "/app/user/events") {
+        bEvents.push(u.toString());
+        return new Response("", { status: 401 });
+      }
+      return base(input, init);
+    });
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = ["https://b.example"];
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      ctx.secretValues.set("jam.session:https://b.example", JSON.stringify({ url: "https://b.example", token: "tb", user: "u", expiresAt: "x" }));
+      activate(ctx);
+      await vi.waitFor(() => expect(ctx.secretValues.has("jam.session:https://b.example")).toBe(false));
+      expect(ctx.secretValues.has("jam.session")).toBe(true);
+      await settle();
+      expect(bEvents).toHaveLength(1);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a notification from Jam B in a Jam-A window opens B's hub", async () => {
+    mock.reset();
+    const fetchSpy = notifyFetch([], []);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = ["https://b.example"];
+      mock.answers = ["Open"];
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session:https://b.example", JSON.stringify({ url: "https://b.example", token: "t2", user: "u", expiresAt: "x" }));
+      activate(ctx);
+      await vi.waitFor(() => expect(toasts()).toHaveLength(1));
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/hub/Jam Hub (b.example).code-workspace` }));
+      expect(JSON.parse(await readFile(`${ctx.globalStorageUri.path}/hub/pending-b.example.json`, "utf8")).channel).toBe(NOTE.channel);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
   it("activate holds the events stream with no pane open", async () => {
     mock.reset();
     const calls: Call[] = [];
@@ -586,7 +676,7 @@ describe("notifications", () => {
     }
   });
 
-  it("a notify event on the stream shows a toast; Open calls openSession", async () => {
+  it("a notify event on the stream shows a toast; Open goes to the session's open window", async () => {
     mock.reset();
     const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
     const fsp = await import("node:fs/promises");
@@ -604,10 +694,11 @@ describe("notifications", () => {
       mock.answers = ["Open"];
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
+      ctx.state.set(`jam.connected.${SES}`, Date.now());
       activate(ctx);
       await vi.waitFor(() => expect(toasts()).toEqual([["Alice · build-bot: done?", "Open"]]));
       await vi.waitFor(() =>
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ path: localPath(ctx) }), { forceNewWindow: true, forceLocalWindow: true }),
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceNewWindow: true }),
       );
       expect(mock.output.join("\n")).not.toContain("done?");
     } finally {
@@ -680,7 +771,7 @@ describe("notifications", () => {
   });
 });
 
-describe("local session windows (connect on demand)", () => {
+describe("session windows", () => {
   // sshHome makes ensureSsh find a hand-written Host block, so it succeeds with no CLI.
   const sshHome = async () => {
     const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
@@ -690,143 +781,9 @@ describe("local session windows (connect on demand)", () => {
     vi.stubEnv("HOME", home);
     vi.stubEnv("XDG_CONFIG_HOME", home);
   };
-  const items = () => vi.mocked(vscode.window.createStatusBarItem).mock.results.map((r) => r.value as { text: string; command: string; shown: boolean });
+  const OTHER = "ses_1abcdefghjkmnpqrstvwxyz012";
 
-  it("a link opens the session's local workspace file in a new window; the file is {folders: []} with no token", async () => {
-    mock.reset();
-    const calls: Call[] = [];
-    const fetchSpy = jamFetch(calls);
-    try {
-      mock.config["jam.url"] = JAM;
-      const ctx = fakeContext();
-      ctx.secretValues.set("jam.session", stored("t2"));
-      activate(ctx);
-      mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
-      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
-      const [, uri, opts] = openFolderCalls()[0]!;
-      expect(opts).toEqual({ forceNewWindow: true, forceLocalWindow: true });
-      expect((uri as { scheme: string; path: string }).scheme).toBe("file");
-      expect((uri as { path: string }).path).toBe(localPath(ctx));
-      const text = await readFile(localPath(ctx), "utf8");
-      expect(JSON.parse(text)).toEqual({ folders: [] });
-      expect(text).not.toMatch(/t2|Bearer/);
-      expect(calls.some((c) => c.path === `/app/user/api/sessions/${SES}`)).toBe(true);
-    } finally {
-      fetchSpy.mockRestore();
-      deactivate();
-    }
-  });
-
-  it("a link to a connected session renews SSH and opens its remote window instead", async () => {
-    mock.reset();
-    await sshHome();
-    const getExt = vi.mocked(vscode.extensions.getExtension);
-    getExt.mockImplementation(() => ({}) as vscode.Extension<unknown>);
-    const fetchSpy = jamFetch([]);
-    try {
-      mock.config["jam.url"] = JAM;
-      const ctx = fakeContext();
-      ctx.secretValues.set("jam.session", stored("t2"));
-      ctx.state.set(`jam.connected.${SES}`, Date.now());
-      activate(ctx);
-      mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
-      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
-      expect(openFolderCalls()[0]).toEqual(["vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceNewWindow: true }]);
-      expect(mock.output.join("\n")).toContain(`[${SES}] ssh ready: alias jam-${SES}`);
-    } finally {
-      getExt.mockImplementation(() => undefined);
-      fetchSpy.mockRestore();
-      vi.unstubAllEnvs();
-      deactivate();
-    }
-  });
-
-  it("a link to a connected session without Remote-SSH clears the flag and opens the local window", async () => {
-    mock.reset();
-    const fetchSpy = jamFetch([]);
-    try {
-      mock.config["jam.url"] = JAM;
-      const ctx = fakeContext();
-      ctx.secretValues.set("jam.session", stored("t2"));
-      ctx.state.set(`jam.connected.${SES}`, Date.now());
-      activate(ctx);
-      mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
-      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
-      expect(openFolderCalls()[0]).toEqual(["vscode.openFolder", expect.objectContaining({ path: localPath(ctx) }), { forceNewWindow: true, forceLocalWindow: true }]);
-      expect(ctx.state.get(`jam.connected.${SES}`)).toBeUndefined();
-    } finally {
-      fetchSpy.mockRestore();
-      deactivate();
-    }
-  });
-
-  it("a local session window: the panes follow its session, Connect shows, and nothing forwards", async () => {
-    mock.reset();
-    const fetchSpy = jamFetch([]);
-    try {
-      mock.config["jam.url"] = JAM;
-      const ctx = fakeContext();
-      ctx.secretValues.set("jam.session", stored("t2"));
-      localWindow(ctx);
-      activate(ctx);
-      await vi.waitFor(() => expect(items().filter((i) => i.shown).map((i) => [i.text, i.command])).toEqual([["$(plug) Connect studio", "jam.connectStudio"]]));
-      expect(mock.context.get("jam.window")).toBe("local");
-      const v = openView();
-      v.receive({ type: "ready", pane: "conversation" });
-      await vi.waitFor(() => expect(lastState(v)?.target).toEqual({ session: SES, label: "alpha", channel: CHN }));
-      // A preview of the window's own session opens its web URL: forwarding needs the remote.
-      v.receive({ type: "open", intent: { kind: "preview", session: SES, port: 3000, url: "https://p.example.com/" } });
-      await vi.waitFor(() => expect(vscode.env.openExternal).toHaveBeenCalledWith(expect.objectContaining({ toString: expect.any(Function) })));
-      expect(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0])).toBe("https://p.example.com/");
-      expect(vscode.env.asExternalUri).not.toHaveBeenCalled();
-    } finally {
-      fetchSpy.mockRestore();
-      deactivate();
-    }
-  });
-
-  it("a workspace file of the same name elsewhere is not a session window", async () => {
-    mock.reset();
-    const ctx = fakeContext();
-    (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: `/tmp/elsewhere/sessions/${SES}.code-workspace` };
-    activate(ctx);
-    expect(items().filter((i) => i.shown)).toEqual([]);
-    expect(mock.context.get("jam.window")).toBe("");
-    deactivate();
-  });
-
-  it("the status-bar item hides while signed out and shows once signed in", async () => {
-    mock.reset();
-    const fetchSpy = jamFetch([]);
-    try {
-      mock.config["jam.url"] = JAM;
-      const ctx = fakeContext();
-      localWindow(ctx);
-      activate(ctx);
-      await settle();
-      expect(items().filter((i) => i.shown)).toEqual([]);
-      const signingIn = mock.commands.get("jam.signIn")!();
-      await vi.waitFor(() => expect(vscode.env.openExternal).toHaveBeenCalled());
-      const consent = new URL(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0]));
-      mock.uriHandler!.handleUri({ path: "/auth", query: `state=${consent.searchParams.get("state")}&code=c` });
-      await signingIn;
-      await vi.waitFor(() => expect(items().filter((i) => i.shown).map((i) => i.command)).toEqual(["jam.connectStudio"]));
-      await mock.commands.get("jam.signOut")!();
-      await vi.waitFor(() => expect(items().filter((i) => i.shown)).toEqual([]));
-    } finally {
-      fetchSpy.mockRestore();
-      deactivate();
-    }
-  });
-
-  it("a plain local window shows neither item", () => {
-    mock.reset();
-    activate(fakeContext());
-    expect(items().filter((i) => i.shown)).toEqual([]);
-    deactivate();
-  });
-
-  it("Connect in a local window sets up SSH and reloads this window onto the remote", async () => {
+  it("a link sets up SSH and opens the studio window in a new window; nothing goes under sessions/", async () => {
     mock.reset();
     await sshHome();
     const getExt = vi.mocked(vscode.extensions.getExtension);
@@ -837,12 +794,13 @@ describe("local session windows (connect on demand)", () => {
       mock.config["remote.SSH.localServerDownload"] = "always";
       const ctx = fakeContext();
       ctx.secretValues.set("jam.session", stored("t2"));
-      localWindow(ctx);
       activate(ctx);
-      await mock.commands.get("jam.connectStudio")!();
-      expect(openFolderCalls()).toEqual([["vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceReuseWindow: true }]]);
+      mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      expect(openFolderCalls()[0]).toEqual(["vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceNewWindow: true }]);
       expect(mock.output.join("\n")).toContain(`[${SES}] ssh ready: alias jam-${SES}`);
       expect(mock.output.join("\n")).not.toMatch(/t2|Bearer/);
+      await expect(stat(path.join(ctx.globalStorageUri.fsPath, "sessions"))).rejects.toThrow();
     } finally {
       getExt.mockImplementation(() => undefined);
       fetchSpy.mockRestore();
@@ -851,33 +809,48 @@ describe("local session windows (connect on demand)", () => {
     }
   });
 
-  it("Connect outside a session window says so", async () => {
+  it("a studio window sets jam.window to session and its views show its session, even with stale focus and pins", async () => {
     mock.reset();
-    activate(fakeContext());
-    await mock.commands.get("jam.connectStudio")!();
-    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith("This window isn't a Jam session window. Open a session first (Jam: Open Session…).");
-    expect(openFolderCalls()).toEqual([]);
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      await ctx.workspaceState.update("jam.focus", OTHER);
+      await ctx.workspaceState.update("jam.pins", { "jam.conversation": OTHER });
+      remoteFolder();
+      activate(ctx);
+      expect(mock.context.get("jam.window")).toBe("session");
+      expect(vscode.window.createStatusBarItem).not.toHaveBeenCalled();
+      const v = openView();
+      v.receive({ type: "ready", pane: "conversation" });
+      await vi.waitFor(() => expect(lastState(v)).toEqual({ signedIn: true, target: { session: SES, label: "alpha", channel: CHN } }));
+      expect(mock.output.join("\n")).toContain(`window: studio session ${SES}`);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a window on an old local session workspace is an ordinary window", () => {
+    mock.reset();
+    const ctx = fakeContext();
+    (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: `${ctx.globalStorageUri.path}/sessions/${SES}.code-workspace` };
+    expect(() => activate(ctx)).not.toThrow();
+    expect(mock.context.get("jam.window")).toBe("");
+    expect(vscode.window.createStatusBarItem).not.toHaveBeenCalled();
+    expect(mock.output.join("\n")).toContain("window: no session");
     deactivate();
   });
 
-  it("a remote session window: Disconnect shows and it marks itself connected; Disconnect reloads onto the local workspace", async () => {
+  it("the removed commands aren't registered", () => {
     mock.reset();
-    const ctx = fakeContext();
-    ctx.secretValues.set("jam.session", stored("t2"));
-    mock.config["jam.url"] = JAM;
-    remoteFolder();
-    activate(ctx);
-    await vi.waitFor(() => expect(items().filter((i) => i.shown).map((i) => [i.text, i.command])).toEqual([["$(debug-disconnect) Disconnect studio", "jam.disconnectStudio"]]));
-    expect(mock.context.get("jam.window")).toBe("remote");
-    await vi.waitFor(() => expect(ctx.state.get(`jam.connected.${SES}`)).toEqual(expect.any(Number)));
-    await mock.commands.get("jam.disconnectStudio")!();
-    expect(openFolderCalls()).toEqual([["vscode.openFolder", expect.objectContaining({ scheme: "file", path: localPath(ctx) }), { forceReuseWindow: true, forceLocalWindow: true }]]);
-    expect(JSON.parse(await readFile(localPath(ctx), "utf8"))).toEqual({ folders: [] });
-    await deactivate();
-    expect(ctx.state.get(`jam.connected.${SES}`)).toBeUndefined();
+    activate(fakeContext());
+    for (const id of ["jam.connectStudio", "jam.disconnectStudio", "jam.focusSession", "jam.conversation.pin", "jam.conversation.unpin"]) expect(mock.commands.has(id)).toBe(false);
+    deactivate();
   });
 
-  it("a remote session window refreshes its connected mark every beat, and stops on deactivate", async () => {
+  it("a studio window marks itself connected, refreshes it every beat, and clears it on deactivate", async () => {
     mock.reset();
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], now: 1_000_000 });
     try {
@@ -896,22 +869,476 @@ describe("local session windows (connect on demand)", () => {
     }
   });
 
-  it("deactivating a remote session window unmarks it; a local one leaves the flag alone", async () => {
+  it("a studio window opens its conversation tab once", async () => {
+    mock.reset();
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      remoteFolder();
+      activate(ctx);
+      await vi.waitFor(() => expect(mock.panels.map((p) => p.viewType)).toEqual(["jam.conversationTab"]));
+      expect(mock.panels[0]!.webview.html).toContain(`data-channel="${CHN}"`);
+      deactivate();
+      mock.reset();
+      remoteFolder();
+      activate(ctx);
+      await settle();
+      expect(mock.panels).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("in a studio window, a rail click on its own session reopens its conversation tab", async () => {
+    mock.reset();
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      await ctx.workspaceState.update("jam.conversationTabShown", true);
+      remoteFolder();
+      activate(ctx);
+      await vi.waitFor(() => expect(ctx.state.get(`jam.connected.${SES}`)).toEqual(expect.any(Number)));
+      openRail().receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(mock.panels.map((p) => p.viewType)).toEqual(["jam.conversationTab"]));
+      expect(openFolderCalls()).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("an Artifacts ask reveals the conversation tab and scrolls", async () => {
+    mock.reset();
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      remoteFolder();
+      activate(ctx);
+      await vi.waitFor(() => expect(mock.panels).toHaveLength(1));
+      const tab = mock.panels[0]!;
+      tab.receive({ type: "ready", pane: "conversation" });
+      const v = openView();
+      v.receive({ type: "open", intent: { kind: "reveal", anchor: "ask-a1" } });
+      await vi.waitFor(() => expect(tab.posted).toContainEqual({ type: "scrollTo", anchor: "ask-a1" }));
+      expect(tab.revealed.length).toBeGreaterThan(0);
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("an ordinary window leaves another window's connected mark alone", async () => {
     mock.reset();
     const ctx = fakeContext();
-    remoteFolder();
+    ctx.state.set(`jam.connected.${SES}`, 1234);
     activate(ctx);
-    await vi.waitFor(() => expect(ctx.state.get(`jam.connected.${SES}`)).toEqual(expect.any(Number)));
     await deactivate();
-    expect(ctx.state.get(`jam.connected.${SES}`)).toBeUndefined();
+    expect(ctx.state.get(`jam.connected.${SES}`)).toBe(1234);
+  });
+});
 
+describe("hub window", () => {
+  const hubPath = (ctx: vscode.ExtensionContext) => `${ctx.globalStorageUri.path}/hub/Jam Hub (jam.example.com).code-workspace`;
+
+  it("jam.openHub writes the hub file and opens it locally in a new window", async () => {
     mock.reset();
-    const ctx2 = fakeContext();
-    ctx2.state.set(`jam.connected.${SES}`, 1234);
-    localWindow(ctx2, "ses_1abcdefghjkmnpqrstvwxyz012");
-    activate(ctx2);
-    await deactivate();
-    expect(ctx2.state.get(`jam.connected.${SES}`)).toBe(1234);
+    mock.config["jam.url"] = JAM;
+    const ctx = fakeContext();
+    activate(ctx);
+    await mock.commands.get("jam.openHub")!();
+    expect(openFolderCalls()).toEqual([["vscode.openFolder", expect.objectContaining({ scheme: "file", fsPath: hubPath(ctx) }), { forceNewWindow: true, forceLocalWindow: true }]]);
+    expect(JSON.parse(await readFile(hubPath(ctx), "utf8"))).toEqual({ folders: [] });
+    await mock.commands.get("jam.openHub")!();
+    expect(openFolderCalls()).toHaveLength(2);
+    deactivate();
+  });
+
+  it("a window on the hub file sets jam.window to hub", () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const ctx = fakeContext();
+    (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: hubPath(ctx) };
+    activate(ctx);
+    expect(mock.context.get("jam.window")).toBe("hub");
+    expect(mock.output.join("\n")).toContain("window: hub");
+    deactivate();
+  });
+
+  it("a rail click in an ordinary window writes pending and opens the hub", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const fetchSpy = jamFetch([]);
+    try {
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      openRail().receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: hubPath(ctx) }));
+      const pending = JSON.parse(await readFile(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`, "utf8"));
+      expect(pending).toEqual({ channel: CHN, at: expect.any(Number) });
+      expect(vscode.env.openExternal).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a hub window opens the pending conversation's tab on activation, and deletes the file", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const fetchSpy = jamFetch([]);
+    try {
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      const fsp = await import("node:fs/promises");
+      await fsp.mkdir(`${ctx.globalStorageUri.path}/hub`, { recursive: true });
+      await writeFile(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`, JSON.stringify({ channel: CHN, at: Date.now() }));
+      (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: hubPath(ctx) };
+      activate(ctx);
+      await vi.waitFor(() => expect(mock.panels.map((p) => p.viewType)).toEqual(["jam.conversationTab"]));
+      await expect(stat(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`)).rejects.toThrow();
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a stale pending file is ignored and deleted", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const ctx = fakeContext();
+    const fsp = await import("node:fs/promises");
+    await fsp.mkdir(`${ctx.globalStorageUri.path}/hub`, { recursive: true });
+    await writeFile(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`, JSON.stringify({ channel: CHN, at: Date.now() - 61_000 }));
+    (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: hubPath(ctx) };
+    activate(ctx);
+    await vi.waitFor(() => expect(stat(`${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`)).rejects.toThrow());
+    await settle();
+    expect(mock.panels).toEqual([]);
+    deactivate();
+  });
+
+  it("a /go link for an unlisted Jam warns and opens nothing", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    activate(fakeContext());
+    mock.uriHandler!.handleUri({ path: `/go/${CHN}`, query: "jam=https%3A%2F%2Fother.example" });
+    await settle();
+    expect(vscode.window.showWarningMessage).toHaveBeenCalled();
+    expect(openFolderCalls()).toEqual([]);
+    deactivate();
+  });
+
+  it("a bad /go link warns and opens nothing", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    activate(fakeContext());
+    mock.uriHandler!.handleUri({ path: "/go/chn_x", query: "" });
+    await settle();
+    expect(vscode.window.showWarningMessage).toHaveBeenCalled();
+    expect(openFolderCalls()).toEqual([]);
+    expect(mock.panels).toEqual([]);
+    deactivate();
+  });
+
+  it("in the hub, the views follow the active conversation tab; a chat tab empties them", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const CHAT = "chn_1abcdefghjkmnpqrstvwxyz012";
+    const calls: Call[] = [];
+    const base = jamFetch(calls).getMockImplementation()!;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (new URL(String(input)).pathname === `/app/user/api/conversations/${CHAT}`) return Response.json({ session: "", label: "Ann" });
+      return base(input, init);
+    });
+    try {
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      hubWindow(ctx);
+      activate(ctx);
+      const status = openView();
+      status.receive({ type: "ready", pane: "status" });
+      await vi.waitFor(() => expect(lastState(status)).toEqual({ signedIn: true, target: null }));
+      const rail = openRail();
+      rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(mock.panels).toHaveLength(1));
+      mock.panels[0]!.setActive(true);
+      await vi.waitFor(() => expect(lastState(status)).toEqual({ signedIn: true, target: { session: SES, label: "alpha", channel: CHN } }));
+      rail.receive({ type: "open", intent: { kind: "go", channel: CHAT, session: "" } });
+      await vi.waitFor(() => expect(mock.panels).toHaveLength(2));
+      mock.panels[0]!.setActive(false);
+      mock.panels[1]!.setActive(true);
+      await vi.waitFor(() => expect(lastState(status)).toEqual({ signedIn: true, target: null }));
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a launcher for a listed Jam opens its hub quietly", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = ["https://b.example"];
+    const ctx = fakeContext();
+    activate(ctx);
+    mock.uriHandler!.handleUri({ path: "/hub", query: "jam=https://b.example" });
+    await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+    expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/hub/Jam Hub (b.example).code-workspace` }));
+    expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
+    deactivate();
+  });
+
+  it("a launcher for an unlisted Jam warns with Add it, and opens and adds nothing", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const ctx = fakeContext();
+    activate(ctx);
+    mock.uriHandler!.handleUri({ path: "/hub", query: "jam=https://other.example" });
+    await vi.waitFor(() => expect(vscode.window.showWarningMessage).toHaveBeenCalledWith("This launcher is for https://other.example, which isn't one of your Jams.", "Add it"));
+    await settle();
+    expect(openFolderCalls()).toEqual([]);
+    expect(mock.config["jam.urls"]).toBeUndefined();
+    deactivate();
+  });
+
+  it("Add it runs Add a Jam prefilled", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.answers = ["Add it"];
+    const ctx = fakeContext();
+    activate(ctx);
+    mock.uriHandler!.handleUri({ path: "/hub", query: "jam=https://other.example" });
+    await vi.waitFor(() => expect(vscode.window.showInputBox).toHaveBeenCalledWith(expect.objectContaining({ value: "https://other.example" })));
+    deactivate();
+  });
+
+  it("Add a Jam appends it to jam.urls and signs in to it", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.input = "https://b.example/";
+    const ctx = fakeContext();
+    activate(ctx);
+    void mock.commands.get("jam.addJam")!();
+    await vi.waitFor(() => expect(mock.config["jam.urls"]).toEqual(["https://b.example"]));
+    await vi.waitFor(() => expect(vscode.env.openExternal).toHaveBeenCalled());
+    expect(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0])).toMatch(/^https:\/\/b\.example\/app\/auth\/app-token\?/);
+    deactivate();
+  });
+
+  it("Add a Jam of a Jam already listed only signs in", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.input = JAM;
+    const ctx = fakeContext();
+    activate(ctx);
+    void mock.commands.get("jam.addJam")!();
+    await vi.waitFor(() => expect(vscode.env.openExternal).toHaveBeenCalled());
+    expect(mock.config["jam.urls"]).toBeUndefined();
+    deactivate();
+  });
+
+  it("a …/hub link opens the hub", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const ctx = fakeContext();
+    activate(ctx);
+    mock.uriHandler!.handleUri({ path: "/hub", query: "" });
+    await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+    expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: hubPath(ctx) }));
+    deactivate();
+  });
+});
+
+describe("several Jams", () => {
+  const B = "https://b.example";
+  const storedAt = (url: string, token: string) => JSON.stringify({ url, token, user: "u", expiresAt: "x" });
+
+  it("Sign Out in a hub whose Jam was removed leaves the default Jam signed in", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const ctx = fakeContext();
+    ctx.secretValues.set("jam.session", stored("t2"));
+    (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: `${ctx.globalStorageUri.path}/hub/Jam Hub (gone.example).code-workspace` };
+    activate(ctx);
+    await mock.commands.get("jam.signOut")!();
+    await settle();
+    expect(ctx.secretValues.has("jam.session")).toBe(true);
+    deactivate();
+  });
+
+  it("jam.multiJam follows jam.urls without a reload", () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    activate(fakeContext());
+    expect(mock.context.get("jam.multiJam")).toBe(false);
+    mock.config["jam.urls"] = [B];
+    mock.changeConfig("jam.urls");
+    expect(mock.context.get("jam.multiJam")).toBe(true);
+    deactivate();
+  });
+
+  it("another Jam's stream restarts when you sign in to it again", async () => {
+    mock.reset();
+    const bEvents: number[] = [];
+    const base = jamFetch([]).getMockImplementation()!;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const u = new URL(String(input));
+      if (u.host === "b.example" && u.pathname === "/app/user/events") {
+        bEvents.push(Date.now());
+        return new Response(null, { status: 204 }); // the stream ends: Jam has no live updates
+      }
+      if (u.host === "b.example" && u.pathname === "/app/auth/app-token/exchange") return Response.json({ token: "tb2", user: "u", expires_at: "x" });
+      return base(input, init);
+    });
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = [B];
+      mock.input = B;
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      ctx.secretValues.set(`jam.session:${B}`, storedAt(B, "tb"));
+      activate(ctx);
+      await vi.waitFor(() => expect(bEvents).toHaveLength(1));
+      void mock.commands.get("jam.addJam")!();
+      await vi.waitFor(() => expect(vscode.env.openExternal).toHaveBeenCalled());
+      const consent = new URL(String(vi.mocked(vscode.env.openExternal).mock.calls.at(-1)![0]));
+      mock.uriHandler!.handleUri({ path: "/auth", query: `state=${consent.searchParams.get("state")}&code=c` });
+      await vi.waitFor(() => expect(bEvents).toHaveLength(2));
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("the rail shows a window's Jam, and offers Switch Jam, only with several Jams", () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = [B];
+    activate(fakeContext());
+    const v = openRail();
+    expect(v.description).toBe("jam.example.com");
+    deactivate();
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    activate(fakeContext());
+    expect(openRail().description).toBeFalsy();
+    deactivate();
+  });
+  const hosts = (spy: { mock: { calls: unknown[][] } }) => spy.mock.calls.map((c) => new URL(String(c[0])).host);
+
+  it("jam.multiJam is false with one Jam and true with two", () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    activate(fakeContext());
+    expect(mock.context.get("jam.multiJam")).toBe(false);
+    deactivate();
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = [B];
+    activate(fakeContext());
+    expect(mock.context.get("jam.multiJam")).toBe(true);
+    deactivate();
+  });
+
+  it("a link in a Jam-B window records the studio's Jam", async () => {
+    mock.reset();
+    const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
+    const fsp = await import("node:fs/promises");
+    await fsp.mkdir(path.join(home, ".ssh"));
+    await writeFile(path.join(home, ".ssh", "config"), `Host jam-${SES}\n  HostName x\n`);
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("XDG_CONFIG_HOME", home);
+    const getExt = vi.mocked(vscode.extensions.getExtension);
+    getExt.mockImplementation(() => ({}) as vscode.Extension<unknown>);
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = [B];
+      mock.config["remote.SSH.localServerDownload"] = "always";
+      const ctx = fakeContext();
+      ctx.secretValues.set(`jam.session:${B}`, storedAt(B, "t2"));
+      await ctx.workspaceState.update("jam.windowJam", B);
+      activate(ctx);
+      mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      expect(ctx.state.get(`jam.studioJam.${SES}`)).toBe(B);
+      expect(hosts(fetchSpy)).toContain("b.example");
+    } finally {
+      getExt.mockImplementation(() => undefined);
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+      deactivate();
+    }
+  });
+
+  it("a studio window recorded for Jam B talks to B", async () => {
+    mock.reset();
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["jam.urls"] = [B];
+      const ctx = fakeContext();
+      ctx.secretValues.set(`jam.session:${B}`, storedAt(B, "t2"));
+      ctx.state.set(`jam.studioJam.${SES}`, B);
+      remoteFolder();
+      activate(ctx);
+      const v = openView();
+      v.receive({ type: "ready", pane: "status" });
+      await vi.waitFor(() => expect(lastState(v)).toMatchObject({ signedIn: true }));
+      // Its session lookup goes to B. (Other Jams' hosts aren't asserted
+      // absent: an earlier test's retry timer may still fire into the spy.)
+      const sessionHosts = fetchSpy.mock.calls.map((c) => new URL(String(c[0]))).filter((u) => u.pathname === `/app/user/api/sessions/${SES}`).map((u) => u.host);
+      expect(sessionHosts).toContain("b.example");
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("Switch Jam stores the choice and reloads", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = [B];
+    const ctx = fakeContext();
+    activate(ctx);
+    mock.pick = { label: B };
+    await mock.commands.get("jam.switchJam")!();
+    expect(ctx.workspaceState.get("jam.windowJam")).toBe(B);
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("workbench.action.reloadWindow");
+    deactivate();
+  });
+
+  it("Switch Jam in a hub says the hub belongs to its Jam", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = [B];
+    const ctx = fakeContext();
+    (vscode.workspace as { workspaceFile: unknown }).workspaceFile = { scheme: "file", authority: "", path: `${ctx.globalStorageUri.path}/hub/Jam Hub (b.example).code-workspace` };
+    activate(ctx);
+    await mock.commands.get("jam.switchJam")!();
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(`This window belongs to ${B}.`);
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith("workbench.action.reloadWindow");
+    deactivate();
+  });
+
+  it("each Jam's hub is its own workspace file", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    mock.config["jam.urls"] = [B];
+    const ctx = fakeContext();
+    await ctx.workspaceState.update("jam.windowJam", B);
+    activate(ctx);
+    await mock.commands.get("jam.openHub")!();
+    expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/hub/Jam Hub (b.example).code-workspace` }));
+    deactivate();
   });
 });
 

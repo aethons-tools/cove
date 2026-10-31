@@ -34,9 +34,15 @@ export class Auth {
       uriScheme: string;
       hostname: string;
       tokenFile: string;
+      // key is the secret's name: SESSION_KEY for the default Jam (auths.ts).
+      key?: string;
       setTimeout?: typeof setTimeout;
     },
   ) {}
+
+  private get key(): string {
+    return this.d.key ?? SESSION_KEY;
+  }
 
   readonly onChange = (cb: (s: Session | undefined) => void): (() => void) => {
     this.listeners.add(cb);
@@ -48,7 +54,7 @@ export class Auth {
   }
 
   async session(url: string): Promise<Session | undefined> {
-    const raw = await this.d.secrets.get(SESSION_KEY);
+    const raw = await this.d.secrets.get(this.key);
     if (!raw) return undefined;
     try {
       const s = JSON.parse(raw) as Session;
@@ -87,7 +93,7 @@ export class Auth {
       // extension never believes it is signed in while the CLI isn't.
       await writeAppTokenFile(this.d.tokenFile, { token: s.token, jamUrl: url });
       try {
-        await this.d.secrets.store(SESSION_KEY, JSON.stringify(s));
+        await this.d.secrets.store(this.key, JSON.stringify(s));
       } catch (e) {
         await removeAppTokenFile(this.d.tokenFile).catch(() => {});
         throw e;
@@ -156,7 +162,7 @@ export class Auth {
   // failing still clears the other; it then rethrows the first error.
   async signOut(): Promise<void> {
     this.signOuts++;
-    const r = await Promise.allSettled([this.d.secrets.delete(SESSION_KEY), removeAppTokenFile(this.d.tokenFile)]);
+    const r = await Promise.allSettled([this.d.secrets.delete(this.key), removeAppTokenFile(this.d.tokenFile)]);
     this.emit(undefined);
     const failed = r.find((x): x is PromiseRejectedResult => x.status === "rejected");
     if (failed) throw failed.reason;

@@ -11,7 +11,7 @@
   "categories": ["Other"],
   "icon": "media/icon.png",
   "main": "./dist/extension.js",
-  "activationEvents": ["onUri", "onWebviewPanel:jam.board", "onStartupFinished"],
+  "activationEvents": ["onUri", "onWebviewPanel:jam.board", "onWebviewPanel:jam.conversationTab", "onStartupFinished"],
   "extensionKind": ["ui"],
   "capabilities": { "untrustedWorkspaces": { "supported": true } },
   "contributes": {
@@ -20,20 +20,9 @@
       { "command": "jam.signOut", "title": "Sign Out", "category": "Jam" },
       { "command": "jam.openSession", "title": "Open Session…", "category": "Jam" },
       { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" },
-      { "command": "jam.focusSession", "title": "Focus Session…", "category": "Jam" },
-      { "command": "jam.connectStudio", "title": "Connect to Studio", "category": "Jam" },
-      { "command": "jam.disconnectStudio", "title": "Disconnect Studio", "category": "Jam" },
-      { "command": "jam.conversation.pin", "title": "Pin to This Session", "icon": "$(pin)" },
-      { "command": "jam.conversation.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
-      { "command": "jam.thinking.pin", "title": "Pin to This Session", "icon": "$(pin)" },
-      { "command": "jam.thinking.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
-      { "command": "jam.previews.pin", "title": "Pin to This Session", "icon": "$(pin)" },
-      { "command": "jam.previews.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
-      { "command": "jam.status.pin", "title": "Pin to This Session", "icon": "$(pin)" },
-      { "command": "jam.status.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
-      { "command": "jam.artifacts.pin", "title": "Pin to This Session", "icon": "$(pin)" },
-      { "command": "jam.artifacts.unpin", "title": "Follow the Window's Session", "icon": "$(pinned)" },
-      { "command": "jam.needsYou.open", "title": "Open", "category": "Jam" }
+      { "command": "jam.openHub", "title": "Open Hub", "category": "Jam" },
+      { "command": "jam.switchJam", "title": "Switch Jam…", "category": "Jam", "icon": "$(arrow-swap)" },
+      { "command": "jam.addJam", "title": "Add a Jam…", "category": "Jam" }
     ],
     "viewsContainers": {
       "activitybar": [{ "id": "jam", "title": "Jam", "icon": "media/jam.svg" }],
@@ -41,67 +30,17 @@
     },
     "views": {
       "jam": [
-        { "type": "webview", "id": "jam.conversation", "name": "Conversation" },
-        { "type": "webview", "id": "jam.status", "name": "Status" },
-        { "type": "webview", "id": "jam.artifacts", "name": "Artifacts", "visibility": "collapsed" },
-        { "type": "webview", "id": "jam.previews", "name": "Previews", "visibility": "collapsed" },
-        { "id": "jam.needsYou", "name": "Needs You", "visibility": "collapsed" }
+        { "type": "webview", "id": "jam.rail", "name": "Conversations" },
+        { "type": "webview", "id": "jam.status", "name": "Status", "when": "jam.window == session || jam.window == hub" },
+        { "type": "webview", "id": "jam.artifacts", "name": "Artifacts", "visibility": "collapsed", "when": "jam.window == session || jam.window == hub" },
+        { "type": "webview", "id": "jam.previews", "name": "Previews", "visibility": "collapsed", "when": "jam.window == session || jam.window == hub" }
       ],
-      "jamPanel": [{ "type": "webview", "id": "jam.thinking", "name": "Thinking" }]
+      "jamPanel": [{ "type": "webview", "id": "jam.thinking", "name": "Thinking", "when": "jam.window == session || jam.window == hub" }]
     },
     "menus": {
-      "view/title": [
-        {
-          "command": "jam.conversation.pin",
-          "when": "view == jam.conversation && jam.conversation.hasSession && !jam.conversation.pinned",
-          "group": "navigation"
-        },
-        { "command": "jam.conversation.unpin", "when": "view == jam.conversation && jam.conversation.pinned", "group": "navigation" },
-        {
-          "command": "jam.thinking.pin",
-          "when": "view == jam.thinking && jam.thinking.hasSession && !jam.thinking.pinned",
-          "group": "navigation"
-        },
-        { "command": "jam.thinking.unpin", "when": "view == jam.thinking && jam.thinking.pinned", "group": "navigation" },
-        {
-          "command": "jam.previews.pin",
-          "when": "view == jam.previews && jam.previews.hasSession && !jam.previews.pinned",
-          "group": "navigation"
-        },
-        { "command": "jam.previews.unpin", "when": "view == jam.previews && jam.previews.pinned", "group": "navigation" },
-        {
-          "command": "jam.status.pin",
-          "when": "view == jam.status && jam.status.hasSession && !jam.status.pinned",
-          "group": "navigation"
-        },
-        { "command": "jam.status.unpin", "when": "view == jam.status && jam.status.pinned", "group": "navigation" },
-        {
-          "command": "jam.artifacts.pin",
-          "when": "view == jam.artifacts && jam.artifacts.hasSession && !jam.artifacts.pinned",
-          "group": "navigation"
-        },
-        { "command": "jam.artifacts.unpin", "when": "view == jam.artifacts && jam.artifacts.pinned", "group": "navigation" }
-      ],
-      "commandPalette": [
-        { "command": "jam.conversation.pin", "when": "false" },
-        { "command": "jam.conversation.unpin", "when": "false" },
-        { "command": "jam.thinking.pin", "when": "false" },
-        { "command": "jam.thinking.unpin", "when": "false" },
-        { "command": "jam.previews.pin", "when": "false" },
-        { "command": "jam.previews.unpin", "when": "false" },
-        { "command": "jam.status.pin", "when": "false" },
-        { "command": "jam.status.unpin", "when": "false" },
-        { "command": "jam.artifacts.pin", "when": "false" },
-        { "command": "jam.artifacts.unpin", "when": "false" },
-        { "command": "jam.needsYou.open", "when": "false" },
-        { "command": "jam.connectStudio", "when": "jam.window == local" },
-        { "command": "jam.disconnectStudio", "when": "jam.window == remote" }
-      ]
+      "commandPalette": [{ "command": "jam.switchJam", "when": "jam.multiJam" }],
+      "view/title": [{ "command": "jam.switchJam", "when": "view == jam.rail && jam.multiJam && jam.window == ''", "group": "navigation" }]
     },
-    "viewsWelcome": [
-      { "view": "jam.needsYou", "contents": "Sign in to Jam to see what needs you.\n[Sign In](command:jam.signIn)", "when": "!jam.signedIn" },
-      { "view": "jam.needsYou", "contents": "Nothing needs you right now.", "when": "jam.signedIn" }
-    ],
     "configuration": {
       "title": "Jam",
       "properties": {
@@ -110,6 +49,13 @@
           "default": "",
           "scope": "application",
           "markdownDescription": "Your Jam's address, e.g. `https://jam.example.com` (`https:` only; `http:` for localhost)."
+        },
+        "jam.urls": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "scope": "application",
+          "markdownDescription": "More Jams' addresses, besides `jam.url`; each gets its own sign-in and hub (*Jam: Add a Jam…*)."
         },
         "jam.cliPath": {
           "type": "string",

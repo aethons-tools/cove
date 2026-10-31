@@ -2,7 +2,6 @@
 // click target. Pure: no vscode import. The payload is someone's message, so
 // every field is checked and nothing is trusted as a link unless it matches an id regexp.
 import { ID_RE } from "../bridge/router.js";
-import { webUrl } from "../open.js";
 import { SESSION_ID_RE } from "../uri.js";
 
 export const NOTIFY_CHANNEL_GAP_MS = 5000;
@@ -77,12 +76,19 @@ export class ChannelGate {
   }
 }
 
-export type NotifyTarget = { session: string } | { web: string };
+// NotifyTarget is the conversation a click goes to (its window, else the hub).
+export type NotifyTarget = { channel: string; session: string };
 
-export function notifyTarget(e: NotifyEvent, jamUrl: string): NotifyTarget {
-  return e.session !== "" ? { session: e.session } : { web: webUrl(jamUrl, e.channel) };
+export function notifyTarget(e: NotifyEvent): NotifyTarget {
+  return { channel: e.channel, session: e.session };
 }
 
-export function targetLink(t: NotifyTarget, scheme: string): string {
-  return "session" in t ? `${scheme}://aethons.jam/session/${t.session}` : t.web;
+// targetLink is an OS notification's click link: the extension's go route,
+// naming the Jam when it isn't the default.
+export function targetLink(t: NotifyTarget, scheme: string, jam?: string): string {
+  const q = new URLSearchParams();
+  if (t.session) q.set("session", t.session);
+  if (jam) q.set("jam", jam);
+  const qs = q.toString();
+  return `${scheme}://aethons.jam/go/${t.channel}${qs ? `?${qs}` : ""}`;
 }

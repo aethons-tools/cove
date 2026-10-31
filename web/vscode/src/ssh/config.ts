@@ -15,7 +15,8 @@ const LEGACY_BEGIN = "# >>> at-jam ";
 const LEGACY_END = "# <<< at-jam ";
 const SSH_USER = "agent";
 
-export type BlockOpts = { studio: string; jamPath: string; jamUrl: string; keyPath: string; certPath: string };
+// app is the jam CLI token profile (--app) for a Jam other than the default.
+export type BlockOpts = { studio: string; jamPath: string; jamUrl: string; keyPath: string; certPath: string; app?: string };
 export type Owner = "none" | "extension" | "other";
 
 const markers = (studio: string): [string, string] => [`${BEGIN_PREFIX}${studio} >>>`, `${END_PREFIX}${studio} <<<`];
@@ -24,7 +25,7 @@ const splitLines = (s: string): string[] => s.split(/(?<=\n)/);
 export function renderBlock(o: BlockOpts): string {
   const [begin, end] = markers(o.studio);
   const proxy = sshConfigEscape(
-    `${proxyBinary(o.jamPath)} ssh-proxy --admin-url ${shellQuote(o.jamUrl)} --participant ${o.studio}`,
+    `${proxyBinary(o.jamPath)} ssh-proxy --admin-url ${shellQuote(o.jamUrl)}${o.app ? ` --app ${shellQuote(o.app)}` : ""} --participant ${o.studio}`,
   );
   return [
     begin,

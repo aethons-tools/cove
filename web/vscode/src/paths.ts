@@ -10,6 +10,7 @@ export function configDir(env: NodeJS.ProcessEnv, home: string): string {
 export const sshDir = (cfg: string): string => path.join(cfg, "ssh");
 export const keyPath = (cfg: string): string => path.join(sshDir(cfg), "id_ed25519");
 export const certPath = (cfg: string, studio: string): string => path.join(sshDir(cfg), `${studio}-cert.pub`);
-export const appTokenPath = (cfg: string): string => path.join(cfg, "default-app-token.json");
+// appTokenPath is the jam CLI's token file for profile app (--app; "default").
+export const appTokenPath = (cfg: string, app = "default"): string => path.join(cfg, `${app}-app-token.json`);
 export const sshConfigFile = (home: string): string => path.join(home, ".ssh", "config");
 export const knownHostsFile = (home: string): string => path.join(home, ".ssh", "known_hosts");
