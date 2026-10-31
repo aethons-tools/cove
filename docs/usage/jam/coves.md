@@ -260,7 +260,7 @@ toolless agent (COV-190). The same pre-flight checks `claude --version` against
 the role's [model-spec](model-specs.md#what-a-cove-applies) (`claude-default` adds
 no flags, so its coves launch with exactly the argv above). With the config written it proceeds:
 
-Every episode then ends the same way, for every session kind: the client reports `waiting` and blocks on a **wake**, which resumes the agent with `claude --continue` and a prompt naming [why it woke](turn-end.md#wake-reasons). A turn that **exited non-zero** (a crashed or auth/model-failed `claude`) is logged at **WARN** and still waits — the cause is in the agent's own `jam-studio-agent.log` (stderr) or `agent-stream.jsonl` (stdout). The session ends only when Jam tears it down: [`end`](turn-end.md#ending-a-session), the role's [idle timeout](turn-end.md#idle-timeout), `wait-max`, or a resident session's release/removal.
+Every episode then ends the same way, for every session kind: the client reports `waiting` and blocks on a **wake**, which resumes the agent with `claude --continue` and a prompt naming [why it woke](turn-end.md#wake-reasons). A turn that **exited non-zero** (a crashed or auth/model-failed `claude`) is logged at **WARN** and still waits — the cause is in the agent's own `jam-studio-agent.log` (stderr) or `agent-stream.jsonl` (stdout). The session ends only when Jam tears it down: [`end`](turn-end.md#ending-a-session), the role's [idle timeout](turn-end.md#idle-timeout), an operator, or a resident session's release/removal.
 
 A Jam **teardown** cancels the run, which sends the agent `SIGTERM` and then
 `SIGKILL` after a grace period. A `wake` that arrives while an episode is live goes **into** it: between turns it

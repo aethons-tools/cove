@@ -201,7 +201,7 @@ a session calling another in does.
 
 A Project may also configure an **escalation policy** that calls ordered tiers of
 people into a waiting session's channel on their own per-tier timers when it asks
-for a person, instead of leaving it to wait passively — a separate, independent clock from `wait-max` above; see
+for a person, instead of leaving it to wait passively — a separate, independent clock from the pause and idle timeout above; see
 [escalation.md](escalation.md).
 
 ## Not yet (later comms slices)
