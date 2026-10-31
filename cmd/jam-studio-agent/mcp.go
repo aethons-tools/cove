@@ -136,7 +136,12 @@ type endIn struct {
 
 // missionIn is the "mission" tool's typed input.
 type missionIn struct {
-	Text string `json:"text" jsonschema:"one line: what you are focused on now; empty clears it"`
+	Text string `json:"text" jsonschema:"one line: your end goal or standing order; empty clears it"`
+}
+
+// focusIn is the "focus" tool's typed input.
+type focusIn struct {
+	Text string `json:"text" jsonschema:"one line: what you are on right now; empty clears it"`
 }
 
 // idleTimeoutIn is the "idle_timeout" tool's typed input.
@@ -474,15 +479,25 @@ func (c *messagingClient) end(ctx context.Context, reason string) error {
 	return err
 }
 
-// mission sets the cove's current mission via Jam's PUT /mission.
+// mission sets the cove's mission (end goal or standing order) via Jam's PUT /mission.
 func (c *messagingClient) mission(ctx context.Context, text string) error {
+	return c.putStatusLine(ctx, "/mission", text)
+}
+
+// focus sets what the cove is on right now via Jam's PUT /focus.
+func (c *messagingClient) focus(ctx context.Context, text string) error {
+	return c.putStatusLine(ctx, "/focus", text)
+}
+
+// putStatusLine PUTs one status line ({"text": text}) to path.
+func (c *messagingClient) putStatusLine(ctx context.Context, path, text string) error {
 	payload, err := json.Marshal(struct {
 		Text string `json:"text"`
 	}{Text: text})
 	if err != nil {
-		return fmt.Errorf("encoding mission payload: %w", err)
+		return fmt.Errorf("encoding %s payload: %w", path, err)
 	}
-	_, err = c.do(ctx, http.MethodPut, "/mission", payload)
+	_, err = c.do(ctx, http.MethodPut, path, payload)
 	return err
 }
 
@@ -743,12 +758,22 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "mission",
-		Description: "Set your current mission: one line saying what you are focused on now, shown beside your name in people's inbox. Set it when your focus changes (a new task, a ticket picked up); empty text clears it.",
+		Description: "Set your mission: your end goal or standing order — what you were started for, shown on your status card. Set it when you get a new task; empty text clears it.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in missionIn) (*mcp.CallToolResult, any, error) {
 		if cfgErr != nil {
 			return nil, nil, cfgErr
 		}
 		return nil, nil, client.mission(ctx, in.Text)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "focus",
+		Description: "Set your current focus: one line saying what you are on right now, shown on your status card. Set it whenever that changes; empty text clears it.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in focusIn) (*mcp.CallToolResult, any, error) {
+		if cfgErr != nil {
+			return nil, nil, cfgErr
+		}
+		return nil, nil, client.focus(ctx, in.Text)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

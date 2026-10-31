@@ -72,7 +72,7 @@ type ChannelRow struct {
 	OpenAsks int             `json:"openAsks"`
 	LastSeq  int64           `json:"lastSeq"`
 	Selected bool            `json:"selected"`
-	Mission  string          `json:"mission"` // the backing session's one-line focus; "" = none
+	Mission  string          `json:"mission"` // the backing session's mission (its end goal); "" = none
 	// Card is a session channel's status card; nil for rooms, chats, and a
 	// channel with no active session.
 	Card *SessionCard `json:"card,omitempty"`
@@ -98,9 +98,10 @@ type SessionCard struct {
 	Session string      `json:"session"` // actor id
 	Name    string      `json:"name"`
 	State   CardState   `json:"state"`
-	Pill    string      `json:"pill"` // the pill's text: "working", "needs you", "paused"…
-	Tool    string      `json:"tool"` // the tool in progress while working; "" otherwise
-	Mission string      `json:"mission"`
+	Pill    string      `json:"pill"`    // the pill's text: "working", "needs you", "paused"…
+	Tool    string      `json:"tool"`    // the tool in progress while working; "" otherwise
+	Mission string      `json:"mission"` // the end goal or standing order; "" = none
+	Focus   string      `json:"focus"`   // what the session is on right now; "" = none
 	Counts  CardCounts  `json:"counts"`
 	Context CardContext `json:"context"`
 	// Inits is how many system/init events Jam has seen for the session since
@@ -304,7 +305,7 @@ type SessionHead struct {
 	Context    string      `json:"context"`
 	ContextTip string      `json:"contextTip"`
 	Uptime     string      `json:"uptime"`
-	Mission    string      `json:"mission"` // the agent's one-line focus; "" = none
+	Mission    string      `json:"mission"` // the agent's mission (its end goal); "" = none
 	Card       SessionCard `json:"card"`
 	SSH        string      `json:"ssh"`    // the copyable command; "" = not allowed
 	Studio     bool        `json:"studio"` // the Studio tab: ssh allowed and framing on

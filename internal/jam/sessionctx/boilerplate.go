@@ -53,7 +53,7 @@ func Boilerplate(f SessionFacts) Layer {
 		"- Sandbox: isolated filesystem; network egress is allow-listed through an in-cove proxy (`http(s)_proxy=http://127.0.0.1:3128`) and nftables drops the rest. A connection or proxy error to a host means it is not allowed — not a transient fault: don't retry or hunt for mirrors. Only /home/agent/workspace and /agent-data (your `CLAUDE_CONFIG_DIR`: settings, history, login) persist; installed packages and env tweaks reset when the cove is rebuilt.",
 		turns,
 		"- Intercom: `send` messages people, `read` fetches your inbox, `commit` marks messages handled. " + comms,
-		"- Mission: when your focus changes (a new task, a ticket picked up), set a one-line `mission` saying what you are on — people see it beside your name.",
+		"- Status: when you get a task, set `mission` to its end goal; set `focus` to what you are on now whenever that changes. Both show on your status card.",
 		"- Changing the sandbox (a domain, a tool) is human-gated: you cannot rebuild your own cove and must never weaken the hardening. How: boilerplate/changing-the-kit.md; what no one can change from inside: boilerplate/hardening-limits.md.",
 	}
 	if f.Previews {

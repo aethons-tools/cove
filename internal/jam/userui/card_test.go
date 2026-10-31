@@ -60,10 +60,10 @@ func TestCardStateMapping(t *testing.T) {
 }
 
 func TestCardFields(t *testing.T) {
-	inst := jam.Instance{ActorID: "ses_1", Name: "builder", Phase: jam.PhaseLive, Activity: jam.ActivityRunning, Mission: "ship it",
+	inst := jam.Instance{ActorID: "ses_1", Name: "builder", Phase: jam.PhaseLive, Activity: jam.ActivityRunning, Mission: "ship it", Focus: "reading auth",
 		OpenAsks: 2, Alarms: []jam.Alarm{{Name: "a"}, {Name: "b"}, {Name: "c"}}, Exposures: []jam.Exposure{{Name: "p"}}, KeptProcesses: 4}
 	card, ok := cardOf(inst, sessionevents.Status{}, false, 3, sessionevents.Totals{Context: 84_000, ContextWindow: 200_000})
-	want := SessionCard{Session: "ses_1", Name: "builder", State: CardThinking, Pill: "thinking", Mission: "ship it",
+	want := SessionCard{Session: "ses_1", Name: "builder", State: CardThinking, Pill: "thinking", Mission: "ship it", Focus: "reading auth",
 		Counts: CardCounts{Asks: 2, Alarms: 3, Previews: 1, Processes: 4}, Context: CardContext{Used: 84_000, Window: 200_000}, Inits: 3}
 	if !ok || card != want {
 		t.Fatalf("card = %+v\nwant   %+v", card, want)

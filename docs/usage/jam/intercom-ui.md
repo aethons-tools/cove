@@ -58,7 +58,7 @@ principal menu; see [ui.md](ui.md)) with **Inbox** current.
     sparkline and pill — `thinking` (a model call), `working` (a tool, named),
     `waiting` (turn over, background tasks, kept processes or alarms still
     out), `idle` (waits only on messages, or on a person: pill `needs you` or
-    `blocked`), `sleeping` (paused) — plus the mission, counts (open asks,
+    `blocked`), `sleeping` (paused) — plus the mission, the [focus](intercom.md#what-the-tools-do) (what the session is on now), counts (open asks,
     alarms, previews, kept processes), the context window's use in tokens, and
     how many `system/init` events Jam has seen since it started. The design:
     [session status card](../../superpowers/specs/2026-10-30-session-status-card-design.md).
@@ -144,7 +144,7 @@ yet in it). The rules are the intercom's
 - **Refresh is live:** the app holds an SSE stream (`GET /app/user/events`).
   It carries payload-free signals — `changed` (the squawk Log grew),
   `presence` (a session's status changed, or what its status card shows:
-  phase, activity, mission, open asks, alarms, previews, kept processes; at
+  phase, activity, mission, focus, open asks, alarms, previews, kept processes; at
   most one per 250 ms, the last always sent; it refetches the rail too) and `board` (a whiteboard changed) — and one event with
   content, `event: notify`: the viewer's own notification, as a push would
   show it ([VS Code](vscode.md#notifications-and-the-badge)); the web app

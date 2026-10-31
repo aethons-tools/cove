@@ -71,7 +71,7 @@ export interface ChannelRow {
   openAsks: number /* int */;
   lastSeq: number /* int64 */;
   selected: boolean;
-  mission: string; // the backing session's one-line focus; "" = none
+  mission: string; // the backing session's mission (its end goal); "" = none
   /**
    * Card is a session channel's status card; nil for rooms, chats, and a
    * channel with no active session.
@@ -98,7 +98,8 @@ export interface SessionCard {
   state: CardState;
   pill: string; // the pill's text: "working", "needs you", "paused"…
   tool: string; // the tool in progress while working; "" otherwise
-  mission: string;
+  mission: string; // the end goal or standing order; "" = none
+  focus: string; // what the session is on right now; "" = none
   counts: CardCounts;
   context: CardContext;
   /**
@@ -344,7 +345,7 @@ export interface SessionHead {
   context: string;
   contextTip: string;
   uptime: string;
-  mission: string; // the agent's one-line focus; "" = none
+  mission: string; // the agent's mission (its end goal); "" = none
   card: SessionCard;
   ssh: string; // the copyable command; "" = not allowed
   studio: boolean; // the Studio tab: ssh allowed and framing on
