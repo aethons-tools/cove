@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -32,14 +33,14 @@ var configStdin io.Reader = os.Stdin
 // `config diff|apply [--dir <path> | --git <src>]` (neither: the tracked
 // source), `config track --git <src>`, `config sync`, `config untrack`, `config release <kind>/<name>`.
 func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] [--force] | track --git <src> | sync [--yes] [--force] | untrack | release <kind>/<name>"
+	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] [--force] | sync [--yes] [--force] | status | release <kind>/<name>"
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
-	case "write", "diff", "apply", "track", "sync", "untrack", "release":
+	case "write", "diff", "apply", "sync", "status", "release":
 	default:
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -56,14 +57,12 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		force = fs.Bool("force", false, "allow a directory outside a git working tree")
 	case "diff":
 		dir = fs.String("dir", "", "the config checkout to plan against the Jam")
-		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to plan (default: the tracked source)")
+		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to plan (default: the followed repo)")
 	case "apply":
 		dir = fs.String("dir", "", "the config checkout to apply")
-		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to apply (default: the tracked source)")
+		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to apply (default: the followed repo)")
 		yes = fs.Bool("yes", false, "apply without the confirmation prompt")
 		force = fs.Bool("force", false, "write over drift")
-	case "track":
-		git = fs.String("git", "", "the config source <repo>[//<dir>]@<ref> to track")
 	case "sync":
 		yes = fs.Bool("yes", false, "apply without the confirmation prompt")
 		force = fs.Bool("force", false, "write over drift")
@@ -135,32 +134,16 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "jam config %s: --dir and --git are mutually exclusive\n", sub)
 		return 2
 	}
-	if sub == "track" && *git == "" {
-		fmt.Fprintln(stderr, "jam config track: --git <repo>[//<dir>]@<ref> is required")
-		return 2
-	}
 	c, err := client()
 	if err != nil {
 		return fail(err)
 	}
-	switch sub {
-	case "untrack":
-		if err := c.ConfigUntrack(); err != nil {
-			return fail(err)
-		}
-		fmt.Fprintln(stdout, "config source untracked; managed objects and their marks are kept")
-		return 0
-	case "track":
-		res, err := c.ConfigTrack(*git)
+	if sub == "status" {
+		s, err := c.ConfigFollow()
 		if err != nil {
 			return fail(err)
 		}
-		fmt.Fprintf(stdout, "tracking %s\n", res.Source)
-		printConfigSource(stdout, res)
-		printConfigPlan(stdout, res.Plan)
-		if len(res.Plan.Refusals) > 0 {
-			return 1
-		}
+		printConfigFollow(stdout, s)
 		return 0
 	}
 	t := configTarget{source: *git, sync: sub == "sync"}
@@ -214,7 +197,7 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 }
 
 // configTarget is what a diff, apply or sync plans: a packed --dir tree, a
-// --git source, or (neither) the tracked source — through /sync for sync.
+// --git source, or (neither) the followed repo — through /sync for sync.
 type configTarget struct {
 	tree   []byte
 	source string
@@ -236,6 +219,26 @@ func (t configTarget) apply(c *adminclient.Client, force bool, digest string) (j
 		return c.ConfigSync(force, digest)
 	}
 	return c.ConfigApplySource(t.source, force, digest)
+}
+
+// printConfigFollow prints the follower's status, one field a line.
+func printConfigFollow(w io.Writer, s jam.ConfigFollowStatus) {
+	fmt.Fprintf(w, "state: %s\n", s.State)
+	if s.Source != "" {
+		fmt.Fprintf(w, "source: %s\n", s.Source)
+	}
+	if s.Head != "" {
+		fmt.Fprintf(w, "head: %s\n", jam.ShortConfigCommit(s.Head))
+	}
+	if s.Applied != "" {
+		fmt.Fprintf(w, "applied: %s\n", jam.ShortConfigCommit(s.Applied))
+	}
+	if !s.CheckedAt.IsZero() {
+		fmt.Fprintf(w, "checked: %s\n", s.CheckedAt.Local().Format(time.DateTime))
+	}
+	if s.Error != "" {
+		fmt.Fprintf(w, "error: %s\n", s.Error)
+	}
 }
 
 // printConfigSource names the git source and commit a run planned.

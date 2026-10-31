@@ -102,6 +102,10 @@ type ConfigEnv struct {
 	// Followed is the config repo the Jam follows (config.github in the serve
 	// config); zero = none. Syncs apply it, and its applies are recorded.
 	Followed gitsource.Source
+	// Follower follows Followed; nil = none. The admin follow route reads its
+	// status, and a sync (the first apply's confirm) refreshes it. Planning
+	// never reads it.
+	Follower *ConfigFollower
 }
 
 // ConfigPlanInput is one PlanConfig run's input.

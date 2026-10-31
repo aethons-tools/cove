@@ -963,7 +963,7 @@ func (c *Client) ConfigApply(tree []byte, force bool, planDigest string) (jam.Co
 	return res, err
 }
 
-// ConfigDiffSource plans a git config source ("" = the tracked one) without
+// ConfigDiffSource plans a git config source ("" = the followed repo) without
 // writing; force plans as a forced apply would.
 func (c *Client) ConfigDiffSource(source string, force bool) (jam.ConfigApplyResult, error) {
 	var res jam.ConfigApplyResult
@@ -971,7 +971,7 @@ func (c *Client) ConfigDiffSource(source string, force bool) (jam.ConfigApplyRes
 	return res, err
 }
 
-// ConfigApplySource applies a git config source ("" = the tracked one); a
+// ConfigApplySource applies a git config source ("" = the followed repo); a
 // different plan than planDigest, or one with refusals, is ErrConflict.
 func (c *Client) ConfigApplySource(source string, force bool, planDigest string) (jam.ConfigApplyResult, error) {
 	var res jam.ConfigApplyResult
@@ -979,19 +979,14 @@ func (c *Client) ConfigApplySource(source string, force bool, planDigest string)
 	return res, err
 }
 
-// ConfigTrack records source as the Jam's config source and returns its diff.
-func (c *Client) ConfigTrack(source string) (jam.ConfigApplyResult, error) {
-	var res jam.ConfigApplyResult
-	err := c.doConfig("PUT", "/admin/config/source", jam.ConfigSourceBody{Source: source}, &res)
-	return res, err
+// ConfigFollow is the config follower's status.
+func (c *Client) ConfigFollow() (jam.ConfigFollowStatus, error) {
+	var out jam.ConfigFollowStatus
+	err := c.do("GET", "/admin/config/follow", nil, &out)
+	return out, err
 }
 
-// ConfigUntrack forgets the tracked config source (objects and marks stay).
-func (c *Client) ConfigUntrack() error {
-	return c.do("DELETE", "/admin/config/source", nil, nil)
-}
-
-// ConfigSync applies the tracked config source (ErrConflict when none, or
+// ConfigSync applies the followed config repo (ErrConflict when none, or
 // for a stale planDigest or refusals).
 func (c *Client) ConfigSync(force bool, planDigest string) (jam.ConfigApplyResult, error) {
 	var res jam.ConfigApplyResult

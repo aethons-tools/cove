@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/condition"
@@ -264,6 +266,29 @@ func TestConfigRoutesRejectBadUpload(t *testing.T) {
 	}
 }
 
+// The follow route answers the follower's status, and a sync (the confirm)
+// refreshes it.
+func TestConfigFollowRoute(t *testing.T) {
+	st := NewMemStore()
+	f, _ := cfgFetcher(t, cfgFiles)
+	env := followEnv
+	env.Follower = &ConfigFollower{Store: st, Fetcher: f, Env: followEnv, Now: func() time.Time { return planNow }}
+	env.Follower.Tick(context.Background())
+	ts := configServerEnv(t, st, f, env)
+	var s ConfigFollowStatus
+	sendJSON(t, "GET", ts.URL+"/admin/config/follow", "", http.StatusOK, &s)
+	if s.State != ConfigFollowAwaiting || s.Head != "c1" {
+		t.Fatalf("before confirm: %+v", s)
+	}
+	var diff ConfigApplyResult
+	sendJSON(t, "POST", ts.URL+"/admin/config/diff", `{}`, http.StatusOK, &diff)
+	sendJSON(t, "POST", ts.URL+"/admin/config/sync?plan="+diff.Plan.Digest, `{}`, http.StatusOK, nil)
+	sendJSON(t, "GET", ts.URL+"/admin/config/follow", "", http.StatusOK, &s)
+	if s.State != ConfigFollowInSync || s.Applied != "c1" {
+		t.Fatalf("after confirm: %+v", s)
+	}
+}
+
 func TestConfigSyncRoutes(t *testing.T) {
 	st := NewMemStore()
 	f, cfg := cfgFetcher(t, cfgFiles)
@@ -306,6 +331,11 @@ func TestConfigSyncRoutes(t *testing.T) {
 		t.Fatalf("fetch failure: %s", msg)
 	}
 	none := configServerWith(t, NewMemStore(), f)
+	var off ConfigFollowStatus
+	sendJSON(t, "GET", none.URL+"/admin/config/follow", "", http.StatusOK, &off)
+	if off.State != ConfigFollowOff {
+		t.Fatalf("follow without a follower: %+v", off)
+	}
 	if msg := sendJSON(t, "POST", none.URL+"/admin/config/sync", `{}`, http.StatusConflict, nil); !strings.Contains(msg, "no config repo is configured") {
 		t.Fatalf("sync without a followed repo: %s", msg)
 	}

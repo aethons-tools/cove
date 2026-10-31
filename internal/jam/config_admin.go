@@ -49,7 +49,8 @@ const maxConfigSourceBody = 64 << 10
 //
 //	POST   /admin/config/diff?force=1                plan a tree or a source (writes nothing)
 //	POST   /admin/config/apply?force=1&plan=<digest> apply it
-//	POST   /admin/config/sync?force=1&plan=<digest>  {}: apply the followed repo (config.github)
+//	POST   /admin/config/sync?force=1&plan=<digest>  {}: apply the followed repo (config.github); the first apply's confirm
+//	GET    /admin/config/follow                      the follower's status (ConfigFollowStatus)
 //	GET    /admin/config/export-tree?all=1           render the managed (all: every) object
 //	DELETE /admin/config/managed/{kind}/{name}       release a mark (a role's name is <project>/<role>)
 //
@@ -188,7 +189,17 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 				fail(w, r, "sync", err)
 				return
 			}
+			if env.Follower != nil {
+				env.Follower.Tick(r.Context()) // the status leaves awaiting-confirm now, not a minute later
+			}
 			writeJSON(w, http.StatusOK, res)
+		})
+		mux.HandleFunc("GET /admin/config/follow", func(w http.ResponseWriter, r *http.Request) {
+			if env.Follower == nil {
+				writeJSON(w, http.StatusOK, ConfigFollowStatus{State: ConfigFollowOff, Source: configSourceLabel(env.Followed)})
+				return
+			}
+			writeJSON(w, http.StatusOK, env.Follower.Status())
 		})
 		mux.HandleFunc("GET /admin/config/export-tree", func(w http.ResponseWriter, r *http.Request) {
 			q := r.URL.Query()
