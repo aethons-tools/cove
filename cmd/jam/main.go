@@ -56,6 +56,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/condition/conditionpg"
+	"github.com/aethons-tools/cove/internal/jam/configrepo"
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/fleet"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
@@ -2987,6 +2988,31 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				Brand: appBrand(cfg.displayName()), Now: time.Now, Log: log})
 			appTokenRoutes, appTokenBearer = appTokens.Routes(), appTokens.Bearer()
 			go appTokens.Run(context.Background())
+		}
+		// The config branch editor (docs/usage/jam/config-branches.md): config
+		// pages edit a branch of the followed repo, from a bare clone in the
+		// state dir. Branch handlers are the same admin UI over a branch's
+		// scratch store, with no supervisor (a branch raises nothing).
+		if src := cfgEnv.Followed; src.Repo != "" {
+			dir, err := cfg.stateDir()
+			if err != nil {
+				fmt.Fprintln(stderr, "jam:", err)
+				return 1
+			}
+			repo := &configrepo.Repo{URL: src.Repo, Branch: src.Ref, Creds: kitFetcher.Creds, Path: filepath.Join(dir, "config-repo")}
+			gh := &configrepo.GitHub{URL: src.Repo, Token: func() (string, error) {
+				cr, ok := kitFetcher.Creds.For(src.Repo)
+				if !ok {
+					return "", errors.New("no credential")
+				}
+				return cr.Token()
+			}}
+			branches := &jam.ConfigBranches{Repo: repo, GitHub: gh, Dir: src.Dir, Fetcher: kitFetcher, Env: cfgEnv, Live: st, Log: log}
+			branchOpts := slices.Clone(uiOpts)
+			factory := func(bs jam.Store) http.Handler {
+				return adminui.Handler(bs, log, nil, nil, credExists, squawkReader, branchOpts...)
+			}
+			uiOpts = append(uiOpts, adminui.WithConfigBranches(branches, factory))
 		}
 		browser := appui.Handler(appui.Deps{
 			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, AppTokenRoutes: appTokenRoutes, User: userMux,

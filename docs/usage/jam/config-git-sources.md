@@ -24,8 +24,8 @@ config:
 Design: [config in git, edited on branches](../../superpowers/specs/2026-10-31-config-branch-editor-design.md).
 Sources elsewhere use the kit syntax, `<repo>[//<dir>]@<ref>`
 ([kits-git.md](kits-git.md#the-source-repodirref)), and the same fetcher;
-`config.github.cred` is the credential for exactly its URL. Jam's git access
-is read-only for now: `config write` still fills your checkout ([config-git.md](config-git.md)).
+`config.github.cred` is the credential for exactly its URL. The admin console
+edits it on branches and merges them: [config-branches.md](config-branches.md).
 
 ## Following
 

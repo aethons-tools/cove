@@ -15,6 +15,8 @@ a Jam's configuration in git ([config-git.md](config-git.md)). It works on the
 **followed repo** (`config.github`, [config-git-sources.md](config-git-sources.md)); `--git`
 other sources and `--dir` checkouts stay in the CLI.
 
+Editing config happens on a branch of the followed repo: [config-branches.md](config-branches.md).
+
 ## The page
 
 - **Source** — the followed repo, dir and branch, and the commit and time of

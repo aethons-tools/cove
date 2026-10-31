@@ -27,6 +27,9 @@ func (c Cred) value() (string, error) {
 	return c.Resolve()
 }
 
+// Token is the credential's current token (Resolve called now).
+func (c Cred) Token() (string, error) { return c.value() }
+
 // String names the credential without its value.
 func (c Cred) String() string { return fmt.Sprintf("cred %s for %s", c.Name, c.Prefix) }
 

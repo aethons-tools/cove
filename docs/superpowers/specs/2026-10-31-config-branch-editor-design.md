@@ -1,6 +1,6 @@
 # Config in git, edited on branches — design
 
-**Status:** being agreed with the user, 2026-10-31; not built.
+**Status:** agreed with the user 2026-10-31. Phases 1 (following) and 2 (the branch editor) built on branch `config-branch-editor`; docs: `docs/usage/jam/config-git-sources.md`, `config-branches.md`.
 **Context:**
 - **Today a Jam can follow a config repo, but it reads it and never writes it** ([config-git.md](../../usage/jam/config-git.md), [config-git-sources.md](../../usage/jam/config-git-sources.md)). Every admin edit changes the live config. None is ever refused: each shows up as **drift** a minute later.
 - **The user's real moment:** an agent (admin-spider) asked to run in a different kit. The user changed it in the admin console, and it took effect. After that the Jam could no longer sync with the repo because of the drift. The only way back is `config write --all`, which can overwrite edits that are in the repo. The user calls this "a tortured hell" of a hand-edited repo versus an easy UI, with drift making them unmergeable.
