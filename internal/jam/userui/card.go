@@ -60,20 +60,26 @@ func cardOf(inst jam.Instance, st sessionevents.Status, known bool, inits int, t
 	return set(CardThinking, "thinking")
 }
 
-// card is inst's status card, from the handler's presence and totals.
+// card is inst's status card, from the handler's presence (status, inits,
+// subagents) and totals.
 func (h *handler) card(inst jam.Instance) (SessionCard, bool) {
 	var st sessionevents.Status
 	var known bool
-	var inits int
+	var inits, subagents int
 	if h.presence != nil {
 		st, known = h.presence.Status(inst.ActorID)
 		inits = h.presence.Inits(inst.ActorID)
+		subagents = h.presence.Subagents(inst.ActorID)
 	}
 	var t sessionevents.Totals
 	if h.d.Totals != nil {
 		t, _ = h.d.Totals.Of(inst.ActorID) // no totals yet: no context bar
 	}
-	return cardOf(inst, st, known, inits, t)
+	c, ok := cardOf(inst, st, known, inits, t)
+	if ok {
+		c.Counts.Subagents = subagents
+	}
+	return c, ok
 }
 
 // attachCards gives each rail row backed by a session (ChannelRow.session)

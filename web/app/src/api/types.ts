@@ -115,6 +115,7 @@ export interface CardCounts {
   alarms: number /* int */;
   previews: number /* int */;
   processes: number /* int */; // kept processes
+  subagents: number /* int */; // running now (sessionevents.Presence.Subagents)
 }
 /**
  * CardContext is how full the main thread's context window is, in tokens;

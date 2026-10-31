@@ -76,7 +76,7 @@ func TestCardFields(t *testing.T) {
 
 func TestAPIRailCards(t *testing.T) {
 	e, p, personal, standing, _ := sessionEnv(t)
-	pr := &fakePresence{ch: make(chan struct{}, 1), inits: map[string]int{standing.ActorID: 2},
+	pr := &fakePresence{ch: make(chan struct{}, 1), inits: map[string]int{standing.ActorID: 2}, subs: map[string]int{standing.ActorID: 3},
 		st: map[string]sessionevents.Status{standing.ActorID: {State: sessionevents.StatusRunning, Tool: "Bash"}}}
 	var r RailResponse
 	if rec := apiGet(t, Handler(e.Deps, nil, WithPresence(pr)), &p, "/app/user/api/rail"); rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &r) != nil {
@@ -88,10 +88,10 @@ func TestAPIRailCards(t *testing.T) {
 			cards[row.ID] = row.Card
 		}
 	}
-	if c := cards[e.homeOf(t, standing)]; c == nil || c.State != CardWorking || c.Tool != "Bash" || c.Inits != 2 {
+	if c := cards[e.homeOf(t, standing)]; c == nil || c.State != CardWorking || c.Tool != "Bash" || c.Inits != 2 || c.Counts.Subagents != 3 {
 		t.Errorf("standing card = %+v", c)
 	}
-	if c := cards[e.homeOf(t, personal)]; c == nil || c.State != CardIdle || c.Context.Window != 200_000 {
+	if c := cards[e.homeOf(t, personal)]; c == nil || c.State != CardIdle || c.Context.Window != 200_000 || c.Counts.Subagents != 0 {
 		t.Errorf("personal card = %+v", c)
 	}
 	if c, ok := cards[engID]; !ok || c != nil {
