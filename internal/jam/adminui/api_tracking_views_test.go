@@ -11,7 +11,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
-// The tracked source links its repo and commit (7 chars); each managed object
+// The followed repo links its repo and last applied commit (7 chars); each managed object
 // carries its state — drifted when edited in Jam, missing when gone (no
 // page then) — and the newest apply.
 func TestTrackingAPIStates(t *testing.T) {
@@ -70,18 +70,19 @@ func TestTrackingAPIConnectionNoPath(t *testing.T) {
 	}
 }
 
-// A stored source that does not re-parse (a hand-made URL with userinfo) is
-// "invalid": no credential reaches the response; its commit is still short.
-func TestTrackingAPIInvalidSource(t *testing.T) {
+// A stored record of another repo (the serve config moved; here a hand-made
+// URL with userinfo) is not shown: the page names the followed repo, with no
+// last apply, and no credential reaches the response.
+func TestTrackingAPIOtherRecord(t *testing.T) {
 	h, store := managedUI(t)
 	if err := store.SetConfigSource(&jam.ConfigSource{Repo: "https://user:hunter2@github.com/acme/jam", Ref: "main", Commit: managedSHA}); err != nil {
 		t.Fatal(err)
 	}
 	var tr adminui.Tracking
 	rec := apiDo(t, h, "GET", "/app/admin/api/tracking", nil, &tr)
-	if strings.Contains(rec.Body.String(), "hunter2") || tr.Source == nil || tr.Source.Label != "invalid" || tr.Source.Repo != "invalid" || tr.Source.RepoLink != "" ||
-		tr.Source.Commit != "abc1234" || tr.Source.Applied != "" {
-		t.Errorf("invalid source = %+v", tr.Source)
+	if strings.Contains(rec.Body.String(), "hunter2") || tr.Source == nil || tr.Source.Label != "https://github.com/acme/jam@main" ||
+		tr.Source.Commit != "" || tr.Source.Applied != "" {
+		t.Errorf("source = %+v", tr.Source)
 	}
 }
 

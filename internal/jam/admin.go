@@ -13,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/condition"
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
 	"github.com/aethons-tools/cove/internal/studio"
 	"gopkg.in/yaml.v3"
@@ -457,7 +458,9 @@ type AdminOption func(*adminMux)
 // import raises kit.migrate on (WithConfig's ConfigEnv.Conditions; nil = none).
 type adminMux struct {
 	*http.ServeMux
-	conds *condition.Tracker
+	conds    *condition.Tracker
+	inGit    bool             // WithConfigInGit: live config writes are refused
+	followed gitsource.Source // the repo they live in
 }
 
 func WithAdminRoute(pattern string, h http.Handler) AdminOption {
@@ -1097,7 +1100,11 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		o(am)
 	}
 	importConds = am.conds
-	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
+	var inner http.Handler = mux
+	if am.inGit {
+		inner = configInGitGuard(mux)
+	}
+	guarded := authMiddleware(auth, log, inner) // guards every /admin/* route
 	if browser == nil {
 		return draftFilePathGuard(guarded)
 	}

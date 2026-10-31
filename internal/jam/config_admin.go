@@ -27,6 +27,9 @@ func ConfigStatus(err error) (int, string) {
 	case errors.Is(err, ErrConfigRefused), errors.Is(err, ErrConfigPlanChanged), errors.Is(err, ErrConfigNotTracked):
 		return http.StatusConflict, err.Error()
 	}
+	if status, msg, ok := configBranchStatus(err); ok {
+		return status, msg
+	}
 	status, msg := KitSourceStatus(err)
 	if status == http.StatusInternalServerError {
 		msg = configStoreError
@@ -35,8 +38,7 @@ func ConfigStatus(err error) (int, string) {
 }
 
 // ConfigSourceBody is the JSON body of POST /admin/config/diff and /apply
-// (Source "" = the tracked source), PUT /admin/config/source and POST
-// /admin/config/sync ({}).
+// (Source "" = the followed repo) and POST /admin/config/sync ({}).
 type ConfigSourceBody struct {
 	Source string `json:"source,omitempty"`
 }
@@ -49,18 +51,17 @@ const maxConfigSourceBody = 64 << 10
 //
 //	POST   /admin/config/diff?force=1                plan a tree or a source (writes nothing)
 //	POST   /admin/config/apply?force=1&plan=<digest> apply it
-//	PUT    /admin/config/source                      {source}: fetch and plan it, then track it
-//	DELETE /admin/config/source                      untrack (objects and marks stay)
-//	POST   /admin/config/sync?force=1&plan=<digest>  {}: apply the tracked source
+//	POST   /admin/config/sync?force=1&plan=<digest>  {}: apply the followed repo (config.github); the first apply's confirm
+//	GET    /admin/config/follow                      the follower's status (ConfigFollowStatus)
 //	GET    /admin/config/export-tree?all=1           render the managed (all: every) object
 //	DELETE /admin/config/managed/{kind}/{name}       release a mark (a role's name is <project>/<role>)
 //
 // diff and apply take a configtar body (application/gzip) or a {source}
-// body (application/json; "" = the tracked source); sync takes {} — any
+// body (application/json; "" = the followed repo); sync takes {} — any
 // other Content-Type is 415, so a browser's no-cors POST cannot trigger
 // one. An oversize upload is 413, a malformed or unsafe one or a bad source
 // 400, before anything is fetched or loaded. A refused or stale plan, or no
-// tracked source, is 409; a fetch, auth or limit failure 502 with the
+// followed repo, is 409; a fetch, auth or limit failure 502 with the
 // fetcher's redacted message. f is the serve's one kit fetcher (kits.git
 // credentials); it fetches config repos and kits/<name>.source.yml kits.
 // env.Serve is the running serve's portable config.
@@ -114,19 +115,15 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 		}
 		return tr, true
 	}
-	// source decodes a {source} body ("" = the tracked one, unless required)
-	// and parses it; Parse's errors never quote the input. It answers 400 itself.
-	source := func(w http.ResponseWriter, r *http.Request, required bool) (gitsource.Source, bool) {
+	// source decodes a {source} body ("" = the followed repo) and parses it;
+	// Parse's errors never quote the input. It answers 400 itself.
+	source := func(w http.ResponseWriter, r *http.Request) (gitsource.Source, bool) {
 		var b ConfigSourceBody
 		r.Body = http.MaxBytesReader(w, r.Body, maxConfigSourceBody)
 		if !decode(w, r, &b) {
 			return gitsource.Source{}, false
 		}
 		if b.Source == "" {
-			if required {
-				http.Error(w, "source is required (<repo>[//<dir>]@<ref>)", http.StatusBadRequest)
-				return gitsource.Source{}, false
-			}
 			return gitsource.Source{}, true
 		}
 		src, err := gitsource.Parse(b.Source)
@@ -146,6 +143,10 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 		var err error
 		switch ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct {
 		case "application/gzip":
+			if !opt.DryRun && refusedApply(env, true, gitsource.Source{}) {
+				http.Error(w, ErrConfigInGit.Error(), http.StatusConflict)
+				return
+			}
 			tr, ok := upload(w, r)
 			if !ok {
 				return
@@ -153,8 +154,12 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 			opt.Source, opt.Commit = gitsource.Source{Repo: ConfigDirRepo}, ConfigDirCommit
 			res, err = ApplyConfigTree(r.Context(), store, f, tr, env, opt, log, OperatorID(r))
 		case "application/json":
-			src, ok := source(w, r, false)
+			src, ok := source(w, r)
 			if !ok {
+				return
+			}
+			if !opt.DryRun && refusedApply(env, false, src) {
+				http.Error(w, ErrConfigInGit.Error(), http.StatusConflict)
 				return
 			}
 			res, err = ApplyConfigSource(r.Context(), store, f, src, env, opt, log, OperatorID(r))
@@ -165,6 +170,9 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 		if err != nil {
 			fail(w, r, what, err)
 			return
+		}
+		if !opt.DryRun && env.Follower != nil {
+			env.Follower.Refresh() // an apply of the followed repo confirms it
 		}
 		writeJSON(w, http.StatusOK, res)
 	}
@@ -190,26 +198,17 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 				fail(w, r, "sync", err)
 				return
 			}
-			writeJSON(w, http.StatusOK, res)
-		})
-		mux.HandleFunc("PUT /admin/config/source", func(w http.ResponseWriter, r *http.Request) {
-			src, ok := source(w, r, true)
-			if !ok {
-				return
-			}
-			res, err := TrackConfigSource(r.Context(), store, f, src, env, time.Now(), log, OperatorID(r))
-			if err != nil {
-				fail(w, r, "track", err)
-				return
+			if env.Follower != nil {
+				env.Follower.Refresh() // the status leaves awaiting-confirm now, not a minute later
 			}
 			writeJSON(w, http.StatusOK, res)
 		})
-		mux.HandleFunc("DELETE /admin/config/source", func(w http.ResponseWriter, r *http.Request) {
-			if err := UntrackConfigSource(store, log, OperatorID(r)); err != nil {
-				fail(w, r, "untrack", err)
+		mux.HandleFunc("GET /admin/config/follow", func(w http.ResponseWriter, r *http.Request) {
+			if env.Follower == nil {
+				writeJSON(w, http.StatusOK, ConfigFollowStatus{State: ConfigFollowOff, Source: configSourceLabel(env.Followed)})
 				return
 			}
-			w.WriteHeader(http.StatusNoContent)
+			writeJSON(w, http.StatusOK, env.Follower.Status())
 		})
 		mux.HandleFunc("GET /admin/config/export-tree", func(w http.ResponseWriter, r *http.Request) {
 			q := r.URL.Query()

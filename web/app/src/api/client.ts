@@ -20,8 +20,9 @@ export function shouldRetry(failureCount: number, error: unknown): boolean {
 }
 
 // statusText is the HTTP reason phrase, when the transport has one.
-export type Raw = { status: number; statusText?: string; contentType: string; redirected: boolean; json?: unknown; text?: string };
-export type TransportRequest = { method: Method; url: string; json?: unknown; form?: FormData };
+// branchHead is the admin API's X-Jam-Config-Head (a config branch's head).
+export type Raw = { status: number; statusText?: string; contentType: string; redirected: boolean; json?: unknown; text?: string; branchHead?: string };
+export type TransportRequest = { method: Method; url: string; json?: unknown; form?: FormData; headers?: Record<string, string> };
 // A Transport performs one request; it throws ApiError for transport-level failures.
 export type Transport = (r: TransportRequest) => Promise<Raw>;
 
@@ -42,13 +43,13 @@ export function interpret<T>(raw: Raw): T {
   return raw.json as T;
 }
 
-export const fetchTransport: Transport = async ({ method, url, json, form }) => {
+export const fetchTransport: Transport = async ({ method, url, json, form, headers: extra }) => {
   let res: Response;
   try {
     // A FormData body is sent as multipart (the browser sets its boundary).
     res = await fetch(url, {
       method,
-      headers: json === undefined || form ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
+      headers: { ...(json === undefined || form ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" }), ...extra },
       body: form ?? (json === undefined ? undefined : JSON.stringify(json)),
       credentials: "same-origin",
       redirect: "manual",
@@ -58,6 +59,8 @@ export const fetchTransport: Transport = async ({ method, url, json, form }) => 
   }
   const contentType = res.headers.get("Content-Type") ?? "";
   const raw: Raw = { status: res.status, statusText: res.statusText, contentType, redirected: res.type === "opaqueredirect" };
+  const branchHead = res.headers.get("X-Jam-Config-Head");
+  if (branchHead) raw.branchHead = branchHead;
   if (res.status === 204) return raw;
   if (contentType.startsWith("application/json")) raw.json = await res.json();
   return raw;
@@ -69,21 +72,27 @@ export function setTransport(t?: Transport): void {
   transport = t ?? fetchTransport;
 }
 
-async function request<T>(base: string, method: Method, path: string, body?: unknown): Promise<T> {
+async function request<T>(base: string, method: Method, path: string, body?: unknown, headers?: () => Record<string, string>, onRaw?: (r: Raw) => void): Promise<T> {
   const form = body instanceof FormData;
   const req: TransportRequest = { method, url: base + path };
+  const h = headers?.();
+  if (h && Object.keys(h).length) req.headers = h;
   if (form) req.form = body;
   else if (body !== undefined) req.json = body;
-  return interpret<T>(await transport(req));
+  const raw = await transport(req);
+  onRaw?.(raw);
+  return interpret<T>(raw);
 }
 
-// apiAt is a client for the API at base (a path ending in "/").
-export function apiAt(base: string) {
+// apiAt is a client for the API at base (a path ending in "/"); headers, when
+// given, adds headers to every request, and onRaw sees every answer (the
+// admin console's config branch and its head).
+export function apiAt(base: string, headers?: () => Record<string, string>, onRaw?: (r: Raw) => void) {
   return {
-    get: <T>(path: string) => request<T>(base, "GET", path),
-    post: <T = void>(path: string, body: unknown) => request<T>(base, "POST", path, body),
-    del: <T = void>(path: string, body?: unknown) => request<T>(base, "DELETE", path, body),
-    postForm: <T = void>(path: string, form: FormData) => request<T>(base, "POST", path, form),
+    get: <T>(path: string) => request<T>(base, "GET", path, undefined, headers, onRaw),
+    post: <T = void>(path: string, body: unknown) => request<T>(base, "POST", path, body, headers, onRaw),
+    del: <T = void>(path: string, body?: unknown) => request<T>(base, "DELETE", path, body, headers, onRaw),
+    postForm: <T = void>(path: string, form: FormData) => request<T>(base, "POST", path, form, headers, onRaw),
   };
 }
 

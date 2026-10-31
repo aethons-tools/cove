@@ -195,17 +195,28 @@ type Plan struct {
 	Serve      ServeDiff      `json:"serve"`
 }
 
-// Tracking is Config › Tracking: the tracked source, the managed objects and
-// (after a Track) the plan.
+// Tracking is Config › Tracking: the followed repo and the follower's last
+// check, the managed objects and (after a Diff) the plan.
 type Tracking struct {
-	Source      *TrackingSource `json:"source" tstype:"TrackingSource | null"` // nil = none tracked
+	Source      *TrackingSource `json:"source" tstype:"TrackingSource | null"` // the followed repo; nil = none configured
 	Rows        []ManagedRow    `json:"rows"`
 	Drifted     int             `json:"drifted"`
 	StatesErr   bool            `json:"statesErr"` // could not compare with the live Jam
 	LastCommit  string          `json:"lastCommit"`
 	LastApplied string          `json:"lastApplied"`
-	CanGit      bool            `json:"canGit"` // Diff, Apply and Track are offered
+	CanGit      bool            `json:"canGit"` // Diff and Apply are offered
 	Plan        *Plan           `json:"plan" tstype:"Plan | null"`
+	Follow      FollowStatus    `json:"follow"`
+}
+
+// FollowStatus is the config follower's last check (jam.ConfigFollowStatus),
+// its commits 7 chars.
+type FollowStatus struct {
+	State   string `json:"state"` // off | awaiting-confirm | in-sync | failed
+	Head    string `json:"head"`
+	Applied string `json:"applied"`
+	Error   string `json:"error"`
+	Checked string `json:"checked"` // when; "" = not yet
 }
 
 // TrackingResult answers a tracking write: the page after it and its message.
@@ -1236,4 +1247,47 @@ type SearchResult struct {
 	Total    int           `json:"total"`
 	Groups   []SearchGroup `json:"groups"`
 	Jump     string        `json:"jump"`
+}
+
+// ConfigBranches is the branch bar's list: the followed branch first.
+type ConfigBranches struct {
+	Branches    []ConfigBranch `json:"branches"`
+	Followed    string         `json:"followed"`    // the branch the Jam follows (read-only)
+	DefaultName string         `json:"defaultName"` // Create's suggestion: jam/<operator>
+	CanPR       bool           `json:"canPR"`
+	RepoLink    string         `json:"repoLink"` // the repo's web page
+	TreeLink    string         `json:"treeLink"` // a branch's page, less the branch name ("" = none)
+	PRNoun      string         `json:"prNoun"`   // "pull request" (GitHub) or "merge request" (GitLab)
+}
+
+// ConfigBranch is one branch of the config repo.
+type ConfigBranch struct {
+	Name     string `json:"name"`
+	Head     string `json:"head"`
+	Short    string `json:"short"` // 7 chars
+	Followed bool   `json:"followed"`
+}
+
+// ConfigBranchResult answers Create branch.
+type ConfigBranchResult struct {
+	Branch  ConfigBranch `json:"branch"`
+	Message string       `json:"message"`
+}
+
+// ConfigMerge is a merge's outcome.
+type ConfigMerge struct {
+	Head        string `json:"head"` // the followed branch's head after it, 7 chars
+	FastForward bool   `json:"fastForward"`
+	NoOp        bool   `json:"noOp"`
+}
+
+// ConfigMergeResult answers Merge.
+type ConfigMergeResult struct {
+	Merge   ConfigMerge `json:"merge"`
+	Message string      `json:"message"`
+}
+
+// ConfigPR is a branch's pull request ("" = none).
+type ConfigPR struct {
+	URL string `json:"url"`
 }

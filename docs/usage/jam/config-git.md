@@ -4,7 +4,7 @@ read_when: You want a Jam's config reviewable in git, are standing up a replica 
 owns: the config repo layout and file kinds, the `jam config write|diff|apply|release` verbs, the plan actions and refusals, managed marks, drift and how it clears, the `/admin/config/diff|apply|export-tree|managed` routes
 prereqs: serve.md (layered serve configs, host keys); backup.md (how this differs from export/import)
 tier: leaf
-updated: 2026-10-24
+updated: 2026-10-31
 ---
 
 # A Jam's configuration in git
@@ -102,10 +102,10 @@ All take `--app` (settings/token profile), `--admin-url` (overrides the app's se
 | `config diff --dir <path>` (or `--git`, see below) | Plan the checkout against the Jam; writes nothing. Exit 1 on refusals. |
 | `config apply --dir <path> [--yes] [--force]` | Plan, print, prompt `Apply N change(s)? [y/N]` (skipped by `--yes`), then apply in one transaction. `--force` writes over drift (the preview is planned forced too, so it shows `update … (drift)` and its digest matches the apply). |
 | `config release <kind>/<name>` | Clear the object's managed mark (a role is `role/<project>/<role>`): the object stays, unmanaged — the next plan lists it as unmanaged, or adopts or refuses it if the repo still holds it. Not managed: exit 1 (`<kind> <name> is not managed`). |
-| `config track\|sync\|untrack` | Follow one config source: [config-git-sources.md](config-git-sources.md). |
+| `config sync\|status` | Following the config repo (`config.github`): [config-git-sources.md](config-git-sources.md). |
 
 Operator loop: `config write --all` once, `git diff`, commit; afterwards edit, `config diff`, `config apply`. A plan with
-no create/update/delete/adopt and no `forget` prints `nothing to apply` and does not prompt; it still sends the apply, which refreshes the marks of unchanged objects (after a `config write`, say). Without `--dir`, diff and apply use `--git` or the tracked source.
+no create/update/delete/adopt and no `forget` prints `nothing to apply` and does not prompt; it still sends the apply, which refreshes the marks of unchanged objects (after a `config write`, say). Without `--dir`, diff and apply use `--git` or the followed repo.
 
 ## The plan
 
@@ -182,6 +182,7 @@ forced) plus each object's usual `admin …` entry with `via=config`.
 
 ## Drift and release
 
+With `config.github` set there is no live editing to drift from: release, `apply --dir` and the config-object admin writes are refused ([config-branches.md](config-branches.md#no-live-edits)). Drift is still checked, as a safety signal (a kit from its own git source can move); the follower applies over it.
 An object is **drifted** when Jam's copy no longer has the digest its mark
 recorded (edited in Jam since the apply), and **missing** when it was
 removed in Jam. While any managed object is either, Jam holds the

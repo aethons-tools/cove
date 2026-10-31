@@ -1,15 +1,14 @@
-import { Alert, Anchor, Badge, Button, Group, Loader, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Anchor, Badge, Button, Code, Group, Loader, SimpleGrid, Stack, Text, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useIsMutating, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
-import type { Plan, Tracking, TrackingResult, TrackingSource } from "../api/types";
+import type { FollowStatus, Plan, Tracking, TrackingResult, TrackingSource } from "../api/types";
 import { adminApi, nodeHref } from "../paths";
 import { ConfirmAction } from "../ui/ConfirmAction";
 import { DataTable } from "../ui/DataTable";
-import { EditForm } from "../ui/EditForm";
 import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { PlanView } from "./PlanView";
@@ -36,7 +35,6 @@ export function TrackingPage() {
 function TrackingBody({ t }: { t: Tracking }) {
   const client = useQueryClient();
   const [plan, setPlan] = useState<Plan | null>(t.plan ?? null);
-  const [src, setSrc] = useState("");
   // One tracking write at a time: each is a fetch and a plan, seconds long.
   const busy = useIsMutating({ mutationKey: writing }) > 0;
   const done = (r: TrackingResult) => {
@@ -57,23 +55,14 @@ function TrackingBody({ t }: { t: Tracking }) {
         <Section title="Source" sub="the config repo this Jam follows">
           {t.source ? (
             <Stack gap="xs">
-              <SourceFacts s={t.source} />
-              <Group>
-                {t.canGit && <Button size="xs" onClick={() => runDiff(false)} loading={diff.isPending} disabled={busy}>Diff</Button>}
-                <ConfirmAction label="Untrack" disabled={busy} confirm={`Stop following ${t.source.label}? Managed objects and their marks stay.`}
-                  onConfirm={() => write.mutateAsync({ path: "tracking/source", del: true })} />
-              </Group>
+              <SourceFacts s={t.source} f={t.follow} />
+              {t.follow.state === "awaiting-confirm" && <Text size="sm">The first apply from this repo is waiting for you: Diff, review the plan, then apply it. After that the Jam applies each new commit on its own.</Text>}
+              {t.follow.error && <Alert color="red" title="The last check failed; the Jam retries every minute">{t.follow.error}</Alert>}
+              {t.canGit ? <Group><Button size="xs" onClick={() => runDiff(false)} loading={diff.isPending} disabled={busy}>Diff</Button></Group>
+                : <Text size="sm" c="dimmed">Git actions are not available on this serve.</Text>}
             </Stack>
           ) : (
-            <Stack gap="xs">
-              <Text size="sm" c="dimmed">No config source is tracked{t.lastCommit && ` — the objects below were last applied from config @${t.lastCommit} at ${t.lastApplied}`}.</Text>
-              {t.canGit ? (
-                <EditForm submit="Track" onSubmit={() => write.mutateAsync({ path: "tracking/source", body: { source: src } })}>
-                  <TextInput label="Source" description="https://host/org/repo[//dir]@ref — fetched and planned (nothing is applied), then tracked" required
-                    placeholder="https://github.com/acme/jam-config@main" value={src} onChange={(e) => setSrc(e.currentTarget.value)} />
-                </EditForm>
-              ) : <Text size="sm" c="dimmed">Git actions are not available on this serve; use <code>jam config apply --dir</code>.</Text>}
-            </Stack>
+            <Text size="sm" c="dimmed">No config repo is configured: set <Code>config.github</Code> in the serve config{t.lastCommit && `. The objects below were last applied from config @${t.lastCommit} at ${t.lastApplied}`}.</Text>
           )}
         </Section>
       </SimpleGrid>
@@ -84,7 +73,8 @@ function TrackingBody({ t }: { t: Tracking }) {
           { key: "f", label: "From", render: (r) => <Text size="sm" ff="monospace">@{r.commit}</Text> },
           { key: "a", label: "Applied", render: (r) => r.applied },
           { key: "s", label: "State", render: (r) => r.state === "in-sync" ? <Text c="dimmed" size="sm">in sync</Text> : r.state ? <Badge color="yellow">{r.state}</Badge> : <Text c="dimmed" size="sm">unknown</Text> },
-          { key: "x", label: "", render: (r) => <ConfirmAction label="Release" disabled={busy} confirm={`Stop managing ${r.kind} ${r.name} from the config repo? It stays in Jam, unmanaged.`}
+          // Following a repo, it alone manages the config: nothing to release.
+          { key: "x", label: "", render: (r) => t.follow.state !== "off" && t.source ? null : <ConfirmAction label="Release" disabled={busy} confirm={`Stop managing ${r.kind} ${r.name} from the config repo? It stays in Jam, unmanaged.`}
             onConfirm={() => write.mutateAsync({ path: `tracking/managed/${encodeURIComponent(r.kind)}/${r.name.split("/").map(encodeURIComponent).join("/")}`, del: true })} /> },
         ]} />
       </Section>
@@ -94,13 +84,20 @@ function TrackingBody({ t }: { t: Tracking }) {
   );
 }
 
-function SourceFacts({ s }: { s: TrackingSource }) {
+const FOLLOW: Record<string, { label: string; color?: string }> = {
+  "in-sync": { label: "in sync" }, "awaiting-confirm": { label: "waiting for you", color: "yellow" }, failed: { label: "failed", color: "red" }, off: { label: "not checked yet" },
+};
+
+function SourceFacts({ s, f }: { s: TrackingSource; f: FollowStatus }) {
   const row = (k: string, v: ReactNode) => <Group gap="md" wrap="nowrap"><Text size="sm" c="dimmed" w={90}>{k}</Text><Text size="sm" component="div">{v}</Text></Group>;
+  const state = FOLLOW[f.state] ?? { label: f.state };
   return (
     <Stack gap={4}>
+      {row("Following", <>{state.color ? <Badge color={state.color}>{state.label}</Badge> : <Text span>{state.label}</Text>}{f.checked && <Text span c="dimmed"> · checked {f.checked}</Text>}</>)}
       {row("Repo", s.repoLink ? <Anchor href={s.repoLink} rel="noopener noreferrer" ff="monospace">{s.repo}</Anchor> : <Text span ff="monospace">{s.repo}</Text>)}
       {s.dir && row("Dir", <Text span ff="monospace">{s.dir}</Text>)}
-      {row("Ref", <Text span ff="monospace">{s.ref}</Text>)}
+      {row("Branch", <Text span ff="monospace">{s.ref}</Text>)}
+      {f.head && row("Head", <Text span ff="monospace">{f.head}</Text>)}
       {row("Last applied", <>{s.commit ? (s.commitLink ? <Anchor href={s.commitLink} rel="noopener noreferrer" ff="monospace">{s.commit}</Anchor> : <Text span ff="monospace">{s.commit}</Text>) : "—"}{s.applied && <Text span c="dimmed"> at {s.applied}</Text>}</>)}
     </Stack>
   );

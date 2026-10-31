@@ -116,6 +116,10 @@ type serveConfig struct {
 	// Absent ⇒ only anonymous public repos can be imported. See
 	// docs/usage/jam/serve.md.
 	Kits *kitsConfig `yaml:"kits"`
+	// Config names the config repo the Jam follows (config.github): git is
+	// the only source of its configuration. See docs/usage/jam/serve.md and
+	// config-git-sources.md.
+	Config *configRepoConfig `yaml:"config"`
 	// Blobs enables attachments: an S3-compatible bucket (docs/usage/jam/attachments.md).
 	Blobs *blobsConfig `yaml:"blobs"`
 	// Previews, when set, serves studio previews at <name>--<label>.<domain>
@@ -489,6 +493,91 @@ func (c serveConfig) validateKits() error {
 		}
 	}
 	return nil
+}
+
+// configRepoConfig is the followed config repo, by its hosting service:
+// exactly one of github and gitlab. The kind decides how a PR is opened (a
+// pull request or a merge request); clone, push and merge are plain git.
+type configRepoConfig struct {
+	GitHub *configRepoHost `yaml:"github"`
+	GitLab *configRepoHost `yaml:"gitlab"`
+}
+
+// configRepoHost is a config repo on GitHub (or GitHub Enterprise) or GitLab
+// (gitlab.com or self-hosted): its https URL, the demanded credential that
+// reads and pushes it (and opens pull or merge requests), the branch the Jam
+// follows (default main) and the repo dir holding the config (default the
+// root).
+type configRepoHost struct {
+	URL    string `yaml:"url"`
+	Cred   string `yaml:"cred"`
+	Branch string `yaml:"branch"`
+	Dir    string `yaml:"dir"`
+
+	kind string // github | gitlab, set by configRepo
+}
+
+// defaultConfigBranch is the followed branch when the config block sets none.
+const defaultConfigBranch = "main"
+
+// configRepo is the configured repo with its kind; nil = none (or both set:
+// validateConfigRepo refuses that).
+func (c serveConfig) configRepo() *configRepoHost {
+	if c.Config == nil || (c.Config.GitHub != nil) == (c.Config.GitLab != nil) {
+		return nil
+	}
+	if g := c.Config.GitHub; g != nil {
+		r := *g
+		r.kind = "github"
+		return &r
+	}
+	r := *c.Config.GitLab
+	r.kind = "gitlab"
+	return &r
+}
+
+// validateConfigRepo checks the config block: exactly one kind, an https (or
+// loopback http) repo URL with no userinfo, a clean relative dir, a branch
+// gitsource accepts (gitsource.Parse owns those rules and never quotes the
+// URL), and a demanded cred that is not a gcp-exchange or pool credential.
+func (c serveConfig) validateConfigRepo() error {
+	if c.Config == nil {
+		return nil
+	}
+	g := c.configRepo()
+	if g == nil {
+		return errors.New("config: set one of config.github and config.gitlab")
+	}
+	key := "config." + g.kind
+	if g.URL == "" {
+		return fmt.Errorf("%s.url is required", key)
+	}
+	if _, err := gitsource.Parse(c.followedSource().String()); err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+	if g.Cred == "" {
+		return fmt.Errorf("%s.cred is required", key)
+	}
+	if _, ok := c.Credentials[g.Cred]; !ok {
+		return fmt.Errorf("%s.cred %q is not a demanded credential", key, g.Cred)
+	}
+	if slices.Contains(c.gcpCredentials(), g.Cred) || (c.Pool != nil && g.Cred == c.Pool.CredName) {
+		return fmt.Errorf("%s.cred %q must not be a gcp-exchange or pool credential", key, g.Cred)
+	}
+	return nil
+}
+
+// followedSource is the config repo the Jam follows; zero without one.
+func (c serveConfig) followedSource() gitsource.Source {
+	g := c.configRepo()
+	if g == nil {
+		return gitsource.Source{}
+	}
+	branch := g.Branch
+	if branch == "" {
+		branch = defaultConfigBranch
+	}
+	return gitsource.Source{Repo: g.URL, Dir: g.Dir, Ref: branch}
 }
 
 // tlsFiles names a PEM certificate (chain) and its private key on disk.

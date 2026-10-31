@@ -2,26 +2,20 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	iofs "io/fs"
-	"maps"
 	"os"
-	"path"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/configtar"
 	"github.com/aethons-tools/cove/internal/jam/linediff"
-	"github.com/aethons-tools/cove/internal/kittree"
-	"github.com/aethons-tools/cove/internal/studio"
 	"github.com/aethons-tools/cove/internal/textesc"
 )
 
@@ -29,17 +23,17 @@ import (
 var configStdin io.Reader = os.Stdin
 
 // cmdConfig keeps a Jam's configuration in git: `config write <dir> [--all]`,
-// `config diff|apply [--dir <path> | --git <src>]` (neither: the tracked
-// source), `config track --git <src>`, `config sync`, `config untrack`, `config release <kind>/<name>`.
+// `config diff|apply [--dir <path> | --git <src>]` (neither: the followed
+// repo), `config sync`, `config status`, `config release <kind>/<name>`.
 func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] [--force] | track --git <src> | sync [--yes] [--force] | untrack | release <kind>/<name>"
+	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] [--force] | sync [--yes] [--force] | status | release <kind>/<name>"
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
-	case "write", "diff", "apply", "track", "sync", "untrack", "release":
+	case "write", "diff", "apply", "sync", "status", "release":
 	default:
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -56,14 +50,12 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		force = fs.Bool("force", false, "allow a directory outside a git working tree")
 	case "diff":
 		dir = fs.String("dir", "", "the config checkout to plan against the Jam")
-		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to plan (default: the tracked source)")
+		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to plan (default: the followed repo)")
 	case "apply":
 		dir = fs.String("dir", "", "the config checkout to apply")
-		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to apply (default: the tracked source)")
+		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to apply (default: the followed repo)")
 		yes = fs.Bool("yes", false, "apply without the confirmation prompt")
 		force = fs.Bool("force", false, "write over drift")
-	case "track":
-		git = fs.String("git", "", "the config source <repo>[//<dir>]@<ref> to track")
 	case "sync":
 		yes = fs.Bool("yes", false, "apply without the confirmation prompt")
 		force = fs.Bool("force", false, "write over drift")
@@ -97,7 +89,7 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if err != nil {
 			return fail(err)
 		}
-		if err := writeConfigTree(target, exp); err != nil {
+		if err := jam.WriteConfigTree(target, exp); err != nil {
 			return fail(err)
 		}
 		n := len(exp.Files)
@@ -135,32 +127,16 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "jam config %s: --dir and --git are mutually exclusive\n", sub)
 		return 2
 	}
-	if sub == "track" && *git == "" {
-		fmt.Fprintln(stderr, "jam config track: --git <repo>[//<dir>]@<ref> is required")
-		return 2
-	}
 	c, err := client()
 	if err != nil {
 		return fail(err)
 	}
-	switch sub {
-	case "untrack":
-		if err := c.ConfigUntrack(); err != nil {
-			return fail(err)
-		}
-		fmt.Fprintln(stdout, "config source untracked; managed objects and their marks are kept")
-		return 0
-	case "track":
-		res, err := c.ConfigTrack(*git)
+	if sub == "status" {
+		s, err := c.ConfigFollow()
 		if err != nil {
 			return fail(err)
 		}
-		fmt.Fprintf(stdout, "tracking %s\n", res.Source)
-		printConfigSource(stdout, res)
-		printConfigPlan(stdout, res.Plan)
-		if len(res.Plan.Refusals) > 0 {
-			return 1
-		}
+		printConfigFollow(stdout, s)
 		return 0
 	}
 	t := configTarget{source: *git, sync: sub == "sync"}
@@ -214,7 +190,7 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 }
 
 // configTarget is what a diff, apply or sync plans: a packed --dir tree, a
-// --git source, or (neither) the tracked source — through /sync for sync.
+// --git source, or (neither) the followed repo — through /sync for sync.
 type configTarget struct {
 	tree   []byte
 	source string
@@ -238,6 +214,26 @@ func (t configTarget) apply(c *adminclient.Client, force bool, digest string) (j
 	return c.ConfigApplySource(t.source, force, digest)
 }
 
+// printConfigFollow prints the follower's status, one field a line.
+func printConfigFollow(w io.Writer, s jam.ConfigFollowStatus) {
+	fmt.Fprintf(w, "state: %s\n", s.State)
+	if s.Source != "" {
+		fmt.Fprintf(w, "source: %s\n", s.Source)
+	}
+	if s.Head != "" {
+		fmt.Fprintf(w, "head: %s\n", jam.ShortConfigCommit(s.Head))
+	}
+	if s.Applied != "" {
+		fmt.Fprintf(w, "applied: %s\n", jam.ShortConfigCommit(s.Applied))
+	}
+	if !s.CheckedAt.IsZero() {
+		fmt.Fprintf(w, "checked: %s\n", s.CheckedAt.Local().Format(time.DateTime))
+	}
+	if s.Error != "" {
+		fmt.Fprintf(w, "error: %s\n", s.Error)
+	}
+}
+
 // printConfigSource names the git source and commit a run planned.
 func printConfigSource(w io.Writer, res jam.ConfigApplyResult) {
 	if res.Commit != "" {
@@ -257,281 +253,6 @@ func insideGitWorkTree(dir string) bool {
 		}
 		dir = parent
 	}
-}
-
-// writeConfigTree writes exp.Files, then each exp.Kits dir's files at their
-// modes, removes exp.Remove, and mirrors each kit dir (mirrorKitDir). Every
-// path is checked before anything is written: Files and Remove stay inside
-// dir, a kit dir is kits/<name>, its files have safe paths and mode 0644 or
-// 0755, no path is written twice, and kits/ and each kits/<name> on disk,
-// when present, is a real directory (never a symlink a write could follow).
-func writeConfigTree(dir string, exp jam.ConfigTreeExport) error {
-	for p := range exp.Files {
-		if !filepath.IsLocal(p) {
-			return fmt.Errorf("refusing to write %q outside %s", p, dir)
-		}
-	}
-	for d, files := range exp.Kits {
-		if !isKitDir(d) {
-			return fmt.Errorf("refusing to write kit dir %q: not kits/<name>", d)
-		}
-		for p := range exp.Files {
-			if c := path.Clean(p); c == d || strings.HasPrefix(c, d+"/") {
-				return fmt.Errorf("refusing to write %q twice (a file and a kit dir's)", p)
-			}
-		}
-		for _, p := range exp.Remove {
-			if c := path.Clean(p); c == d || strings.HasPrefix(c, d+"/") {
-				return fmt.Errorf("refusing to remove %q inside the mirrored kit dir %s", p, d)
-			}
-		}
-		paths := make(map[string]bool, len(files))
-		for _, f := range files {
-			if kittree.CheckPath(f.Path) != nil {
-				return fmt.Errorf("refusing to write an unsafe path under %s", d)
-			}
-			if f.Mode != 0o644 && f.Mode != 0o755 {
-				return fmt.Errorf("refusing to write %s/%s with mode %o", d, f.Path, f.Mode)
-			}
-			if paths[f.Path] {
-				return fmt.Errorf("refusing to write %q twice", d+"/"+f.Path)
-			}
-			paths[f.Path] = true
-		}
-		for p := range paths {
-			for a := path.Dir(p); a != "."; a = path.Dir(a) {
-				if paths[a] {
-					return fmt.Errorf("refusing to write %q: it conflicts with %q", d+"/"+p, d+"/"+a)
-				}
-			}
-		}
-	}
-	for _, p := range exp.Remove {
-		if !filepath.IsLocal(p) {
-			return fmt.Errorf("refusing to remove %q outside %s", p, dir)
-		}
-	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	for _, d := range append([]string{"kits"}, slices.Sorted(maps.Keys(exp.Kits))...) {
-		fi, err := root.Lstat(filepath.FromSlash(d))
-		if err == nil && !fi.IsDir() {
-			return fmt.Errorf("refusing to write %s: it is not a directory", d)
-		}
-		if err != nil && !errors.Is(err, iofs.ErrNotExist) {
-			return err
-		}
-	}
-	for p := range exp.Files {
-		if err := checkWritePath(root, path.Clean(p)); err != nil {
-			return err
-		}
-	}
-	for d, files := range exp.Kits {
-		for _, f := range files {
-			if err := checkWritePath(root, d+"/"+f.Path); err != nil {
-				return err
-			}
-		}
-	}
-	for p, content := range exp.Files {
-		if err := writeTreeFile(root, p, []byte(content), 0o644); err != nil {
-			return err
-		}
-	}
-	for d, files := range exp.Kits {
-		for _, f := range files {
-			if err := writeTreeFile(root, d+"/"+f.Path, f.Data, os.FileMode(f.Mode)); err != nil {
-				return err
-			}
-		}
-	}
-	for _, p := range exp.Remove {
-		if err := root.Remove(filepath.FromSlash(p)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	for _, d := range slices.Sorted(maps.Keys(exp.Kits)) {
-		files := exp.Kits[d]
-		keep := map[string]bool{}
-		var ignore *[]byte // nil: nothing exported here, read the dir's own .dockerignore
-		if len(files) > 0 {
-			empty := []byte{}
-			ignore = &empty // exported without a .dockerignore: nothing on disk is excluded
-		}
-		for _, f := range files {
-			keep[d+"/"+f.Path] = true
-			if f.Path == ".dockerignore" {
-				data := f.Data
-				ignore = &data
-			}
-		}
-		if err := mirrorKitDir(root, d, keep, ignore); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// maxDockerignoreBytes caps an on-disk .dockerignore Prune reads.
-const maxDockerignoreBytes = 64 << 10
-
-// readTreeDockerignore reads the .dockerignore at p in root: nil, true when
-// there is none; ok=false when it is not a regular file (never followed) or
-// is over maxDockerignoreBytes.
-func readTreeDockerignore(root *os.Root, p string) (data []byte, ok bool) {
-	name := filepath.FromSlash(p)
-	fi, err := root.Lstat(name)
-	switch {
-	case errors.Is(err, iofs.ErrNotExist):
-		return nil, true
-	case err != nil || !fi.Mode().IsRegular() || fi.Size() > maxDockerignoreBytes:
-		return nil, false
-	}
-	f, err := root.Open(name)
-	if err != nil {
-		return nil, false
-	}
-	defer f.Close()
-	data, err = io.ReadAll(io.LimitReader(f, maxDockerignoreBytes+1))
-	if err != nil || len(data) > maxDockerignoreBytes {
-		return nil, false
-	}
-	return data, true
-}
-
-// writeTreeFile writes data at p in root with mode, past the umask and over
-// an existing file's mode; through root, nothing lands outside the tree.
-func writeTreeFile(root *os.Root, p string, data []byte, mode os.FileMode) error {
-	name := filepath.FromSlash(p)
-	if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
-		return err
-	}
-	// os.Root follows a symlink that stays inside the tree: replace one (or
-	// any other non-regular file) at p instead of writing through it.
-	if fi, err := root.Lstat(name); err == nil && !fi.Mode().IsRegular() {
-		if fi.IsDir() {
-			return fmt.Errorf("refusing to write %q: it is a directory", p)
-		}
-		if err := root.Remove(name); err != nil {
-			return err
-		}
-	}
-	if err := root.WriteFile(name, data, mode); err != nil {
-		return err
-	}
-	return root.Chmod(name, mode)
-}
-
-// checkWritePath refuses to write p (slash, clean, local) when a directory
-// on its way is, on disk, a symlink or not a directory (os.Root would follow
-// an in-tree symlink onto another file), or p itself is a directory. A
-// symlink at p itself is replaced by writeTreeFile.
-func checkWritePath(root *os.Root, p string) error {
-	segs := strings.Split(p, "/")
-	for i := range segs {
-		q := strings.Join(segs[:i+1], "/")
-		fi, err := root.Lstat(filepath.FromSlash(q))
-		if errors.Is(err, iofs.ErrNotExist) {
-			return nil // nothing deeper exists either
-		}
-		if err != nil {
-			return fmt.Errorf("refusing to write %q: %q cannot be read", p, q)
-		}
-		last := i == len(segs)-1
-		if !last && !fi.IsDir() {
-			return fmt.Errorf("refusing to write %q: %q is not a directory", p, q)
-		}
-		if last && fi.IsDir() {
-			return fmt.Errorf("refusing to write %q: it is a directory", p)
-		}
-	}
-	return nil
-}
-
-// isKitDir reports whether p is kits/<name>, name a tag-safe kit name.
-func isKitDir(p string) bool {
-	segs := strings.Split(p, "/")
-	return len(segs) == 2 && segs[0] == "kits" && studio.TagSafeName(segs[1])
-}
-
-// mirrorKitDir removes every file under the kit dir p (in root) that keep
-// does not hold and the dir's .dockerignore (ignore, as kittree reads it)
-// does not exclude, then the dirs left empty, p included (kits/ stays). It
-// only descends real dirs: kits/ or a kit dir that is a symlink is refused,
-// and a symlink inside p is removed, never followed. kit.yml, Dockerfile and
-// .dockerignore are never excluded, so they go unless kept.
-//
-// ignore nil means no files were exported for p (its kit is now written by
-// reference, or gone): p's own .dockerignore then says what Jam never
-// stored, so those files — and it — stay; one that is not a regular file
-// or is over maxDockerignoreBytes leaves p as it is.
-func mirrorKitDir(root *os.Root, p string, keep map[string]bool, ignore *[]byte) error {
-	for _, d := range []string{"kits", p} {
-		fi, err := root.Lstat(d)
-		if errors.Is(err, iofs.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if !fi.IsDir() {
-			return fmt.Errorf("refusing to mirror %q: %s is not a directory", p, d)
-		}
-	}
-	var rules []byte
-	if ignore != nil {
-		rules = *ignore
-	} else {
-		var ok bool
-		if rules, ok = readTreeDockerignore(root, p+"/.dockerignore"); !ok {
-			return nil
-		}
-		if rules != nil {
-			keep = maps.Clone(keep)
-			keep[p+"/.dockerignore"] = true
-		}
-	}
-	ig, err := kittree.NewIgnorer(rules)
-	if err != nil {
-		return fmt.Errorf("refusing to mirror %q: its .dockerignore cannot be read", p)
-	}
-	var dirs []string
-	err = iofs.WalkDir(root.FS(), p, func(q string, d iofs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if q != p {
-			ignored, merr := ig.Ignored(strings.TrimPrefix(q, p+"/"))
-			if merr != nil {
-				return merr
-			}
-			if ignored && d.IsDir() && ig.Prunes() {
-				return iofs.SkipDir
-			}
-			if ignored && !d.IsDir() {
-				return nil
-			}
-		}
-		if d.IsDir() {
-			dirs = append(dirs, q)
-			return nil
-		}
-		if keep[q] {
-			return nil
-		}
-		return root.Remove(q)
-	})
-	if err != nil {
-		return err
-	}
-	for i := len(dirs) - 1; i >= 0; i-- {
-		_ = root.Remove(dirs[i]) // only an empty dir goes
-	}
-	return nil
 }
 
 // printConfigPlan renders a plan: one line per changed object, drift blocks,

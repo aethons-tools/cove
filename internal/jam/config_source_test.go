@@ -35,26 +35,36 @@ func cfgFetcher(t *testing.T, files map[string]string) (repoFetcher, *fakeFetche
 
 func syncOpts() ConfigApplyOptions { return ConfigApplyOptions{Now: planNow} }
 
-func TestTrackThenSyncThenUntrack(t *testing.T) {
+// followEnv is allCreds with cfgSrc as the followed config repo.
+var followEnv = func() ConfigEnv { e := allCreds; e.Followed = cfgSrc; return e }()
+
+func TestSyncTheFollowedSource(t *testing.T) {
 	st := NewMemStore()
 	f, _ := cfgFetcher(t, cfgFiles)
 	ctx := context.Background()
-	if _, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, allCreds, syncOpts(), nil, "alice"); !errors.Is(err, ErrConfigNotTracked) {
-		t.Fatalf("sync without a tracked source: %v", err)
+	if _, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, allCreds, syncOpts(), nil, "alice"); !errors.Is(err, ErrConfigNotTracked) ||
+		err.Error() != "no config repo is configured (config.github in the serve config)" {
+		t.Fatalf("sync without a followed source: %v", err)
 	}
-	res, err := TrackConfigSource(ctx, st, f, cfgSrc, allCreds, planNow, nil, "alice")
+	if ConfigFollowConfirmed(st, followEnv) {
+		t.Fatal("confirmed before any apply")
+	}
+	res, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, followEnv, ConfigApplyOptions{DryRun: true, Now: planNow}, nil, "alice")
 	if err != nil || res.Applied || res.Commit != "c1" || res.Plan.Counts()[ConfigCreate] != 2 || len(st.ListUsers()) != 0 {
-		t.Fatalf("track: %+v %v", res, err)
+		t.Fatalf("diff: %+v %v", res, err)
 	}
-	if got, ok := st.GetConfigSource(); !ok || got != (ConfigSource{Repo: cfgRepo, Dir: "cfg", Ref: "main"}) {
-		t.Fatalf("tracked %+v", got)
+	if _, ok := st.GetConfigSource(); ok {
+		t.Fatal("a dry run recorded the source")
 	}
-	res, err = ApplyConfigSource(ctx, st, f, gitsource.Source{}, allCreds, syncOpts(), nil, "alice")
+	res, err = ApplyConfigSource(ctx, st, f, gitsource.Source{}, followEnv, syncOpts(), nil, "alice")
 	if err != nil || !res.Applied || res.Source != "https://github.com/acme/jam//cfg@main" || res.Commit != "c1" {
 		t.Fatalf("sync: %+v %v", res, err)
 	}
-	if got, _ := st.GetConfigSource(); got.Commit != "c1" || !got.AppliedAt.Equal(planNow) {
+	if got, _ := st.GetConfigSource(); got != (ConfigSource{Repo: cfgRepo, Dir: "cfg", Ref: "main", Commit: "c1", AppliedAt: planNow}) {
 		t.Fatalf("record %+v", got)
+	}
+	if !ConfigFollowConfirmed(st, followEnv) {
+		t.Fatal("not confirmed after the first apply")
 	}
 	for _, mk := range st.ListConfigMarks() {
 		if mk.Commit != "c1" {
@@ -65,20 +75,24 @@ func TestTrackThenSyncThenUntrack(t *testing.T) {
 	if m := k.Meta[1].Source; m == nil || *m != (KitSource{Repo: cfgRepo, Dir: "cfg/kits/web", Ref: "main", Commit: "c1"}) {
 		t.Fatalf("provenance %+v", m)
 	}
-	if _, err := TrackConfigSource(ctx, st, f, cfgSrc, allCreds, planNow, nil, "alice"); err != nil {
+}
+
+// A record of another repo (the serve config moved) is not confirmed, and
+// the first apply of the new one replaces it.
+func TestSyncReplacesAnotherSourcesRecord(t *testing.T) {
+	st := NewMemStore()
+	f, _ := cfgFetcher(t, cfgFiles)
+	if err := st.SetConfigSource(&ConfigSource{Repo: "https://github.com/acme/old", Ref: "main", Commit: "c0"}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := st.GetConfigSource(); got.Commit != "c1" {
-		t.Fatalf("re-tracking the same source lost its last apply: %+v", got)
+	if ConfigFollowConfirmed(st, followEnv) {
+		t.Fatal("another repo's record confirms")
 	}
-	if err := UntrackConfigSource(st, nil, "alice"); err != nil {
+	if _, err := ApplyConfigSource(context.Background(), st, f, gitsource.Source{}, followEnv, syncOpts(), nil, "alice"); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := st.GetConfigSource(); ok || len(st.ListConfigMarks()) != 2 || len(st.ListUsers()) != 1 {
-		t.Fatalf("untrack: marks=%d users=%d", len(st.ListConfigMarks()), len(st.ListUsers()))
-	}
-	if err := UntrackConfigSource(st, nil, "alice"); err != nil {
-		t.Fatalf("a second untrack: %v", err)
+	if got, _ := st.GetConfigSource(); got.Source() != cfgSrc || got.Commit != "c1" {
+		t.Fatalf("record %+v", got)
 	}
 }
 
@@ -86,10 +100,7 @@ func TestSyncCommitOnlyMoveRecordsCommit(t *testing.T) {
 	st := NewMemStore()
 	f, cfg := cfgFetcher(t, cfgFiles)
 	ctx := context.Background()
-	if _, err := TrackConfigSource(ctx, st, f, cfgSrc, allCreds, planNow, nil, "alice"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, allCreds, syncOpts(), nil, "alice"); err != nil {
+	if _, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, followEnv, syncOpts(), nil, "alice"); err != nil {
 		t.Fatal(err)
 	}
 	moved := map[string]string{"README.md": "edited"}
@@ -100,7 +111,7 @@ func TestSyncCommitOnlyMoveRecordsCommit(t *testing.T) {
 	}
 	cfg.commit("main", "c2", moved)
 	var buf bytes.Buffer
-	res, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, allCreds, syncOpts(), slog.New(slog.NewJSONHandler(&buf, nil)), "alice")
+	res, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, followEnv, syncOpts(), slog.New(slog.NewJSONHandler(&buf, nil)), "alice")
 	if err != nil || res.Applied || ConfigChanges(res.Plan) != 0 {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -119,15 +130,12 @@ func TestApplyOtherGitSourceLeavesTrackedRecord(t *testing.T) {
 	st := NewMemStore()
 	f, _ := cfgFetcher(t, cfgFiles)
 	ctx := context.Background()
-	if _, err := TrackConfigSource(ctx, st, f, cfgSrc, allCreds, planNow, nil, "alice"); err != nil {
-		t.Fatal(err)
-	}
 	other := gitsource.Source{Repo: cfgRepo, Dir: "cfg", Ref: "v1"}
-	if res, err := ApplyConfigSource(ctx, st, f, other, allCreds, syncOpts(), nil, "alice"); err != nil || !res.Applied {
+	if res, err := ApplyConfigSource(ctx, st, f, other, followEnv, syncOpts(), nil, "alice"); err != nil || !res.Applied {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
-	if got, _ := st.GetConfigSource(); got.Commit != "" || got.Ref != "main" {
-		t.Fatalf("an apply of another source touched the tracked record: %+v", got)
+	if got, ok := st.GetConfigSource(); ok {
+		t.Fatalf("an apply of another source recorded itself: %+v", got)
 	}
 }
 
@@ -161,12 +169,12 @@ func TestConfigFetchFailureTracksNothing(t *testing.T) {
 	st := NewMemStore()
 	f, cfg := cfgFetcher(t, cfgFiles)
 	cfg.failNext = fmt.Errorf("%w: auth failed for https://github.com/acme/", gitsource.ErrFetch)
-	_, err := TrackConfigSource(context.Background(), st, f, cfgSrc, allCreds, planNow, nil, "alice")
+	_, err := ApplyConfigSource(context.Background(), st, f, gitsource.Source{}, followEnv, syncOpts(), nil, "alice")
 	if status, msg := ConfigStatus(err); status != http.StatusBadGateway || !strings.Contains(msg, "auth failed") {
 		t.Fatalf("%d %q", status, msg)
 	}
 	if _, ok := st.GetConfigSource(); ok {
-		t.Fatal("a failed fetch tracked the source")
+		t.Fatal("a failed fetch recorded the source")
 	}
 }
 
@@ -235,9 +243,6 @@ func TestConcurrentSyncsAndKitPush(t *testing.T) {
 	if _, err := TrackKit(ctx, st, f, nil, "solo", gitsource.Source{Repo: kitsRepo, Dir: "solo", Ref: "main"}, planNow); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := TrackConfigSource(ctx, st, f, cfgSrc, allCreds, planNow, nil, "alice"); err != nil {
-		t.Fatal(err)
-	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -253,7 +258,7 @@ func TestConcurrentSyncsAndKitPush(t *testing.T) {
 			}
 		})
 		for range 4 {
-			wg.Go(func() { _, _ = ApplyConfigSource(ctx, st, f, gitsource.Source{}, allCreds, syncOpts(), nil, "alice") })
+			wg.Go(func() { _, _ = ApplyConfigSource(ctx, st, f, gitsource.Source{}, followEnv, syncOpts(), nil, "alice") })
 		}
 		wg.Wait()
 	}()
@@ -267,7 +272,7 @@ func TestConcurrentSyncsAndKitPush(t *testing.T) {
 			t.Fatalf("racing syncs wrote %d versions of %s", len(k.VersionNumbers()), n)
 		}
 	}
-	if res, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, allCreds, syncOpts(), nil, "alice"); err != nil || res.Applied {
+	if res, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, followEnv, syncOpts(), nil, "alice"); err != nil || res.Applied {
 		t.Fatalf("a later sync is not a no-op: %+v %v", res, err)
 	}
 }
@@ -309,9 +314,9 @@ func TestApplyConfigSourceWithoutFetcher(t *testing.T) {
 	if status, msg := ConfigStatus(err); status != http.StatusServiceUnavailable || msg != "config: git sources are not available on this serve" {
 		t.Fatalf("%d %q", status, msg)
 	}
-	_, err = TrackConfigSource(context.Background(), st, nil, cfgSrc, allCreds, planNow, nil, "alice")
+	_, err = ApplyConfigSource(context.Background(), st, nil, gitsource.Source{}, followEnv, syncOpts(), nil, "alice")
 	if status, _ := ConfigStatus(err); status != http.StatusServiceUnavailable {
-		t.Fatalf("track: %d", status)
+		t.Fatalf("sync: %d", status)
 	}
 	if _, ok := st.GetConfigSource(); ok {
 		t.Fatal("tracked without a fetcher")
@@ -363,10 +368,7 @@ func TestSyncRefreshesStaleMarks(t *testing.T) {
 	kits := newFakeFetcher(t, map[string]string{"main": "k1"}, map[string]map[string]string{"k1": {"app/kit.yml": "kind: studio\nprompt: one\n"}})
 	rf[kitsRepo] = kits
 	ctx := context.Background()
-	if _, err := TrackConfigSource(ctx, st, rf, cfgSrc, allCreds, planNow, nil, "alice"); err != nil {
-		t.Fatal(err)
-	}
-	if res, err := ApplyConfigSource(ctx, st, rf, gitsource.Source{}, allCreds, syncOpts(), nil, "alice"); err != nil || !res.Applied {
+	if res, err := ApplyConfigSource(ctx, st, rf, gitsource.Source{}, followEnv, syncOpts(), nil, "alice"); err != nil || !res.Applied {
 		t.Fatalf("sync: %+v %v", res, err)
 	}
 	stale := markOf(st, ConfigKindKit, "app")
@@ -376,7 +378,7 @@ func TestSyncRefreshesStaleMarks(t *testing.T) {
 	}
 	// A refused sync (a broken file at c2) refreshes nothing.
 	cfg.commit("main", "c2", withFiles(map[string]string{"cfg/kits/app.source.yml": appSourceYML, "cfg/users/eve.yml": "kind: user\nversion: 9\n"}))
-	if _, err := ApplyConfigSource(ctx, st, rf, gitsource.Source{}, allCreds, syncOpts(), nil, "alice"); !errors.Is(err, ErrConfigRefused) {
+	if _, err := ApplyConfigSource(ctx, st, rf, gitsource.Source{}, followEnv, syncOpts(), nil, "alice"); !errors.Is(err, ErrConfigRefused) {
 		t.Fatalf("want refused: %v", err)
 	}
 	if mk := markOf(st, ConfigKindKit, "app"); mk != stale {
@@ -386,7 +388,7 @@ func TestSyncRefreshesStaleMarks(t *testing.T) {
 		t.Fatalf("a refused sync recorded its commit: %+v", got)
 	}
 	cfg.commit("main", "c3", files)
-	res, err := ApplyConfigSource(ctx, st, rf, gitsource.Source{}, allCreds, syncOpts(), nil, "alice")
+	res, err := ApplyConfigSource(ctx, st, rf, gitsource.Source{}, followEnv, syncOpts(), nil, "alice")
 	if err != nil || res.Applied || ConfigChanges(res.Plan) != 0 {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
@@ -394,7 +396,7 @@ func TestSyncRefreshesStaleMarks(t *testing.T) {
 		t.Fatalf("the stale mark was not refreshed: %+v (was %+v)", mk, stale)
 	}
 	kits.commit("main", "k3", map[string]string{"app/kit.yml": "kind: studio\nprompt: three\n"})
-	res, err = ApplyConfigSource(ctx, st, rf, gitsource.Source{}, allCreds, syncOpts(), nil, "alice")
+	res, err = ApplyConfigSource(ctx, st, rf, gitsource.Source{}, followEnv, syncOpts(), nil, "alice")
 	if err != nil || !res.Applied {
 		t.Fatalf("the repo's next change: %+v %v", res, err)
 	}
@@ -453,9 +455,9 @@ func TestConfigFetchDeadlineExcludesQueueWait(t *testing.T) {
 			_, err := ApplyConfigSource(context.Background(), st, ctxFetcher{f}, cfgSrc, allCreds, syncOpts(), nil, "alice")
 			return err
 		},
-		"track": func(st *MemStore) error {
+		"sync": func(st *MemStore) error {
 			f, _ := cfgFetcher(t, cfgFiles)
-			_, err := TrackConfigSource(context.Background(), st, ctxFetcher{f}, cfgSrc, allCreds, planNow, nil, "alice")
+			_, err := ApplyConfigSource(context.Background(), st, ctxFetcher{f}, gitsource.Source{}, followEnv, syncOpts(), nil, "alice")
 			return err
 		},
 		"apply tree": func(st *MemStore) error {

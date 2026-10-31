@@ -1,38 +1,67 @@
 ---
-summary: A Jam following a config repo in git — `config track|sync|untrack`, `config diff|apply --git`, kits referenced by `kits/<name>.source.yml`, provenance, locks, routes and errors.
-read_when: You want a Jam to follow a config repo (track, sync, untrack, `--git`), are referencing a kit by its own git source (`kits/<name>.source.yml`), or a config sync failed to fetch, refused a source, or flagged a source kit as drifted.
-owns: the tracked config source (record, sync, untrack), the `--git` verbs, the `/admin/config/source|sync` routes and `{source}` bodies, `kits/<name>.source.yml` and how it is fetched, planned and written, config-applied kit provenance and tracking
+summary: A Jam following its config repo in git (`config.github` or `config.gitlab` in the serve config) — the follower that checks the branch every minute and applies new commits, the first apply's confirm, `config sync|status`, `config diff|apply --git`, kits referenced by `kits/<name>.source.yml`, provenance, locks, routes and errors.
+read_when: You want a Jam to follow a config repo (or to know why it applied, or didn't apply, a commit), are confirming the first apply, running `config sync|status|diff --git`, are referencing a kit by its own git source (`kits/<name>.source.yml`), or a config sync or follow failed to fetch, refused a commit, or flagged a source kit as drifted.
+owns: following the config repo (the follower, its states, the first-apply confirm, the config.follow condition, the applied-commit record), `config sync|status`, the `--git` verbs, the `/admin/config/sync|follow` routes and `{source}` bodies, `kits/<name>.source.yml` and how it is fetched, planned and written, config-applied kit provenance and tracking
 prereqs: config-git.md (layout, plan actions, marks); kits-git.md (source syntax, kits.git credentials, fetch limits)
 tier: leaf
-updated: 2026-10-28
+updated: 2026-10-31
 ---
 
-# Config from git: the tracked source and kit references
+# Config from git: following the repo, and kit references
 
-A Jam can follow **one** config repo in git. Sources use the kit syntax,
-`<repo>[//<dir>]@<ref>` ([kits-git.md](kits-git.md#the-source-repodirref)),
-and the same fetcher and `kits.git` credentials. Jam's git access stays
-read-only: `config write` still fills your checkout ([config-git.md](config-git.md)).
+A Jam follows **one** config repo in git, named in its serve config
+([serve.md](serve.md#the-serve-config)):
+
+```yaml
+config:
+  github:
+    url: https://github.com/acme/jam-config
+    cred: jam-git-tracking   # a demanded credential that can read the repo
+    branch: main             # optional; default main
+    dir: jam                 # optional; the repo dir holding the config, default its root
+```
+
+On GitLab (gitlab.com or self-hosted) the same block is `config.gitlab`. Set exactly one. The kind decides how the branch editor opens a review: a GitHub pull request or a GitLab merge request. Its token is sent with the username `oauth2` and needs the `write_repository` and `api` scopes. A GitHub token needs contents write and pull requests.
+
+Design: [config in git, edited on branches](../../superpowers/specs/2026-10-31-config-branch-editor-design.md).
+Sources elsewhere use the kit syntax, `<repo>[//<dir>]@<ref>`
+([kits-git.md](kits-git.md#the-source-repodirref)), and the same fetcher;
+its `cred` is the credential for exactly its URL, and fetch errors name it as `config.github cred <name>` (or `config.gitlab`). The admin console
+edits it on branches and merges them: [config-branches.md](config-branches.md).
+
+## Following
+
+The **follower** checks the branch now and every minute (`ls-remote`) and:
+
+| State | When | Does |
+|---|---|---|
+| `awaiting-confirm` | No commit from this repo has been applied yet: a new Jam, or the repo setting changed to another repo, branch or dir. | Nothing. `config.follow` (info) asks for the confirm. |
+| `in-sync` | The head is the commit last applied. | Nothing; `config.follow` clears. |
+| (applies) | A new head. | Applies it, the repo winning over drift (a forced apply). |
+| `failed` | The check or the apply failed: a fetch or auth error, a refused plan. | Keeps the last good config. `config.follow` (warning) carries the error; the next check retries, even at the same head. |
+
+**Confirming the first apply.** Review the plan and apply it once:
+`config sync` (or Diff and Apply on Config › Tracking, [ui-config.md](ui-config.md)).
+That apply records the repo, commit and time; from then on the follower applies
+on its own. The record is not part of `jam export`: a restored Jam asks again.
 
 ## Verbs
 
 | Command | Does |
 |---|---|
-| `config track --git <src>` | Fetch and plan `<src>`, print the plan, and record `<src>` as the Jam's config source, even when the plan has refusals. A fetch failure records nothing. Re-tracking the same source keeps its last commit; another source replaces it. |
-| `config sync [--yes] [--force]` | `apply` from the tracked source: print the plan, prompt (unless `--yes`), apply. |
-| `config untrack` | Forget the source. Objects and their managed marks stay. |
-| `config diff\|apply --git <src>` | Plan or apply any source once, without tracking it. |
-| `config diff\|apply` (no flag) | Use the tracked source; exit 1 with `no config source is tracked` if there is none. |
+| `config sync [--yes] [--force]` | `apply` from the followed repo now: print the plan, prompt (unless `--yes`), apply. The first one is the confirm. |
+| `config status` | The follower's last check: state, source, head, applied commit, when, error. |
+| `config diff\|apply --git <src>` | Plan or apply any source once. It records nothing unless it names the followed repo, dir and branch, when an apply counts as the confirm too. |
+| `config diff\|apply` (no flag) | Use the followed repo; exit 1 with `no config repo is configured` if there is none. |
 
 `--git` and `--dir` are mutually exclusive (exit 2). A git run prints
 `config <src> @ <commit[:7]>` first, then one `kit-source  <path>  <src> @
-<commit[:7]>` line per kit reference. An apply from the tracked source
-records the commit and time on it, in the same transaction as the plan.
-That covers `sync`, a no-flag `apply`, and `--git` naming the same repo, dir
-and ref. A sync whose repos moved without changing anything is all
-`unchanged`: no new version, mark or audit entry, but the recorded commits
-advance. The tracked source, like the marks, is **not** part of
-`jam export`: a restored Jam tracks nothing until `config track`.
+<commit[:7]>` line per kit reference. An apply from the followed repo
+records the commit and time, in the same transaction as the plan.
+That covers the follower, `sync`, a no-flag `apply`, and `--git` naming the
+same repo, dir and ref. A sync whose repos moved without changing anything is
+all `unchanged`: no new version, mark or audit entry, but the recorded commits
+advance.
 
 ## Kit references: `kits/<name>.source.yml`
 
@@ -82,26 +111,25 @@ git: https://github.com/acme/kits//api@main
 - `kits: N kit sources (distinct repo and ref); at most 16 per config repo`:
   too many kit references in one tree. A plan refusal (diff shows it, apply
   writes nothing), not a 502.
-- `no config source is tracked (use config track --git <source>, or --dir)` (409).
+- `no config repo is configured (config.github in the serve config)` (409; `config.gitlab` works too).
 
 Logs name a source as `repo//dir@ref` (an upload: `dir`), never with userinfo.
-Audit: `config tracked` (operator, source, commit), `config untracked`
-(operator, source), and `config applied` as for `--dir`.
+Audit: `config applied` as for `--dir` (operator `config-follow` for the
+follower's applies); a failed follow logs `config follow: failed`.
 
 ## Routes
 
 | Route | Does |
 |---|---|
-| `POST /admin/config/diff`, `/apply` | As in config-git.md; a `{"source": "<src>"}` JSON body (`""` = the tracked source) instead of a tar. |
-| `PUT /admin/config/source` | `{source}`: fetch, plan (the answer) and track it. |
-| `DELETE /admin/config/source` | Untrack (204, also when none). |
-| `POST /admin/config/sync?force=1&plan=<digest>` | Apply the tracked source; body `{}` (any other Content-Type is 415). |
+| `POST /admin/config/diff`, `/apply` | As in config-git.md; a `{"source": "<src>"}` JSON body (`""` = the followed repo) instead of a tar. |
+| `POST /admin/config/sync?force=1&plan=<digest>` | Apply the followed repo (the first apply's confirm), then refresh the follower; body `{}` (any other Content-Type is 415). |
+| `GET /admin/config/follow` | The follower's status: `{state, source, head, applied, error, checkedAt}`. |
 
-Statuses: refused (including the 16-source cap), stale or untracked 409; bad source or dir 400; fetch,
+Statuses: refused (including the 16-source cap), stale or no config repo 409; bad source or dir 400; fetch,
 auth, limit or timeout (`config fetch timed out`) failure 502; a serve with
 no fetcher 503.
 
-The admin console's Tracking page (Config › Tracking) tracks, untracks, diffs and applies the tracked source too: [ui-config.md](ui-config.md).
+The admin console's Tracking page (Config › Tracking) shows the follower and diffs and applies the followed repo too: [ui-config.md](ui-config.md).
 
 ## Locks
 
@@ -109,5 +137,5 @@ A config run holds `configMu` from its first fetch to its write, and
 `kitMu` only for the plan and the write. It never takes a per-kit lock;
 kit operations never take `configMu`. Two config runs therefore never
 interleave, and a kit push that lands between a config fetch and its plan
-shows as drift. Release and untrack take `configMu` too, so they wait behind a
+shows as drift. The follower's applies are config runs too. Release takes `configMu`, so they wait behind a
 running apply or sync, up to the 4-minute fetch deadline.

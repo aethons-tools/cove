@@ -15,25 +15,23 @@ func TestTrackingAPI(t *testing.T) {
 	h, store := configUI(t, f, nil)
 	var tr adminui.Tracking
 	apiDo(t, h, "GET", "/app/admin/api/tracking", nil, &tr)
-	if tr.Source != nil || !tr.CanGit || len(tr.Rows) != 0 || tr.Plan != nil {
-		t.Fatalf("untracked = %+v", tr)
+	if tr.Source == nil || tr.Source.Label != "https://github.com/acme/jam@main" || tr.Source.Commit != "" || !tr.CanGit || len(tr.Rows) != 0 || tr.Plan != nil {
+		t.Fatalf("before the first apply = %+v", tr)
 	}
-	var res adminui.TrackingResult
-	if rec := apiDo(t, h, "POST", "/app/admin/api/tracking/source", map[string]string{"source": "https://github.com/acme/jam@main"}, &res); rec.Code != 200 {
-		t.Fatalf("track = %d %s", rec.Code, rec.Body)
+	if tr.Follow.State != jam.ConfigFollowOff {
+		t.Fatalf("follow before a check = %+v", tr.Follow)
 	}
-	p := res.Tracking.Plan
-	if res.Message != "tracking https://github.com/acme/jam@main" || p == nil || len(p.Ops) != 1 || p.Ops[0].Action != "create" || p.Ops[0].File != "users/bob.yml" || len(p.Ops[0].Lines) == 0 {
-		t.Fatalf("track result = %+v plan %+v", res, p)
-	}
-	if res.Tracking.Source == nil || res.Tracking.Source.Repo != "https://github.com/acme/jam" || len(store.ListUsers()) != 0 {
-		t.Fatalf("source = %+v users %v", res.Tracking.Source, store.ListUsers())
+	for _, m := range []string{"POST", "DELETE"} {
+		if rec := apiDo(t, h, m, "/app/admin/api/tracking/source", map[string]string{"source": "https://github.com/acme/jam@main"}, nil); rec.Code != 404 && rec.Code != 405 {
+			t.Errorf("%s tracking/source = %d, want gone", m, rec.Code)
+		}
 	}
 	var plan adminui.Plan
 	apiDo(t, h, "POST", "/app/admin/api/tracking/diff", map[string]bool{"force": false}, &plan)
-	if plan.Digest != p.Digest || plan.Changes != 1 {
-		t.Errorf("diff = %+v", plan)
+	if plan.Changes != 1 || len(plan.Ops) != 1 || plan.Ops[0].File != "users/bob.yml" || len(store.ListUsers()) != 0 {
+		t.Fatalf("diff = %+v", plan)
 	}
+	var res adminui.TrackingResult
 	if rec := apiDo(t, h, "POST", "/app/admin/api/tracking/apply", map[string]any{"plan": plan.Digest}, &res); rec.Code != 200 {
 		t.Fatalf("apply = %d %s", rec.Code, rec.Body)
 	}
@@ -42,12 +40,26 @@ func TestTrackingAPI(t *testing.T) {
 		res.Tracking.Rows[0].Path != "config/users/"+string(bob) || res.Tracking.Plan != nil {
 		t.Errorf("apply result = %+v", res)
 	}
-	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/tracking/apply", map[string]any{}, nil), 400, "bad_request")
-	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/tracking/source", map[string]string{"source": "https://github.com/acme/other@main"}, nil), 409, "conflict")
-	if rec := apiDo(t, h, "DELETE", "/app/admin/api/tracking/source", nil, &res); rec.Code != 200 || res.Tracking.Source != nil ||
-		!strings.HasPrefix(res.Message, "config source untracked") {
-		t.Errorf("untrack = %d %+v", rec.Code, res)
+	if s := res.Tracking.Source; s == nil || s.Commit != "abc1234" || s.Applied == "" {
+		t.Errorf("source after apply = %+v", s)
 	}
+	if fs := res.Tracking.Follow; fs.State != jam.ConfigFollowInSync || fs.Applied != "abc1234" {
+		t.Errorf("follow after the confirm = %+v", fs)
+	}
+	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/tracking/apply", map[string]any{}, nil), 400, "bad_request")
+}
+
+// Without config.github the page has no source, and diff/apply answer 409.
+func TestTrackingAPINoRepo(t *testing.T) {
+	f := &cfgTreeFetcher{t: t, sha: managedSHA}
+	store := newStore(t)
+	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil, adminui.WithKitFetcher(f), adminui.WithConfigEnv(jam.ConfigEnv{}))
+	var tr adminui.Tracking
+	apiDo(t, h, "GET", "/app/admin/api/tracking", nil, &tr)
+	if tr.Source != nil || tr.Follow.State != jam.ConfigFollowOff {
+		t.Fatalf("no repo = %+v", tr)
+	}
+	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/tracking/diff", map[string]bool{}, nil), 409, "conflict")
 }
 
 func TestTrackingApplyStale(t *testing.T) {

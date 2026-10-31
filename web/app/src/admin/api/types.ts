@@ -212,18 +212,30 @@ export interface Plan {
   serve: ServeDiff;
 }
 /**
- * Tracking is Config › Tracking: the tracked source, the managed objects and
- * (after a Track) the plan.
+ * Tracking is Config › Tracking: the followed repo and the follower's last
+ * check, the managed objects and (after a Diff) the plan.
  */
 export interface Tracking {
-  source?: TrackingSource | null; // nil = none tracked
+  source?: TrackingSource | null; // the followed repo; nil = none configured
   rows: ManagedRow[];
   drifted: number /* int */;
   statesErr: boolean; // could not compare with the live Jam
   lastCommit: string;
   lastApplied: string;
-  canGit: boolean; // Diff, Apply and Track are offered
+  canGit: boolean; // Diff and Apply are offered
   plan?: Plan | null;
+  follow: FollowStatus;
+}
+/**
+ * FollowStatus is the config follower's last check (jam.ConfigFollowStatus),
+ * its commits 7 chars.
+ */
+export interface FollowStatus {
+  state: string; // off | awaiting-confirm | in-sync | failed
+  head: string;
+  applied: string;
+  error: string;
+  checked: string; // when; "" = not yet
 }
 /**
  * TrackingResult answers a tracking write: the page after it and its message.
@@ -1352,4 +1364,53 @@ export interface SearchResult {
   total: number /* int */;
   groups: SearchGroup[];
   jump: string;
+}
+/**
+ * ConfigBranches is the branch bar's list: the followed branch first.
+ */
+export interface ConfigBranches {
+  branches: ConfigBranch[];
+  followed: string; // the branch the Jam follows (read-only)
+  defaultName: string; // Create's suggestion: jam/<operator>
+  canPR: boolean;
+  repoLink: string; // the repo's web page
+  treeLink: string; // a branch's page, less the branch name ("" = none)
+  prNoun: string; // "pull request" (GitHub) or "merge request" (GitLab)
+}
+/**
+ * ConfigBranch is one branch of the config repo.
+ */
+export interface ConfigBranch {
+  name: string;
+  head: string;
+  short: string; // 7 chars
+  followed: boolean;
+}
+/**
+ * ConfigBranchResult answers Create branch.
+ */
+export interface ConfigBranchResult {
+  branch: ConfigBranch;
+  message: string;
+}
+/**
+ * ConfigMerge is a merge's outcome.
+ */
+export interface ConfigMerge {
+  head: string; // the followed branch's head after it, 7 chars
+  fastForward: boolean;
+  noOp: boolean;
+}
+/**
+ * ConfigMergeResult answers Merge.
+ */
+export interface ConfigMergeResult {
+  merge: ConfigMerge;
+  message: string;
+}
+/**
+ * ConfigPR is a branch's pull request ("" = none).
+ */
+export interface ConfigPR {
+  url: string;
 }

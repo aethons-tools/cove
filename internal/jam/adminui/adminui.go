@@ -68,6 +68,8 @@ type options struct {
 	setup           *jam.SetupDeps             // nil: no Setup tabs (WithSetupDeps)
 	managers        func() []jam.ManagerStatus // nil: no Managers panel (WithManagers)
 	appTokenRevoke  func(ident.ID)             // nil: revoking an app token ends no requests (WithAppTokenRevoke)
+	branches        *jam.ConfigBranches        // nil: no branch editor (WithConfigBranches)
+	branchHandler   func(jam.Store) http.Handler
 }
 
 // WithConditions shows operator-attention conditions: open critical/warning
@@ -136,6 +138,9 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 	registerApp(mux, src, msgs, roleAPI{sup: sup, alloc: alloc, credExists: credExists, setup: o.setup, managers: o.setupManagers},
 		specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured},
 		agentAPI{sup: sup, msgs: msgs, sess: o.sessStore, hub: o.sessHub, acc: accessDeps{o.live, o.exposures, o.previewURL}, setup: o.setup, credExists: credExists},
-		dashAPI{managers: o.managers, sup: sup, amURL: o.alertmanagerURL}, o.trustedOrigins, o.kitFetcher, cfgEnv, log)
+		dashAPI{managers: o.managers, sup: sup, amURL: o.alertmanagerURL}, o.trustedOrigins, o.kitFetcher, cfgEnv, o.branches, log)
+	if o.branches != nil && o.branchHandler != nil {
+		return &branchRouter{live: mux, b: o.branches, factory: o.branchHandler}
+	}
 	return mux
 }

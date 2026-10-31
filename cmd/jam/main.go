@@ -56,6 +56,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/collabhttp"
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/condition/conditionpg"
+	"github.com/aethons-tools/cove/internal/jam/configrepo"
 	"github.com/aethons-tools/cove/internal/jam/deviceflow"
 	"github.com/aethons-tools/cove/internal/jam/fleet"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
@@ -2020,6 +2021,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
 	}
+	if err := cfg.validateConfigRepo(); err != nil {
+		fmt.Fprintln(stderr, "jam:", err)
+		return 1
+	}
 	if err := cfg.validateBlobs(); err != nil {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
@@ -2859,7 +2864,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		credExists := cfg.credConfigured
 		// One planner view of the serve for the config admin API and the UI's
 		// Config page; config.drift is re-checked on conds after each apply.
-		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds}
+		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds,
+			Followed: cfg.followedSource()}
+		// The config repo the Jam follows (config.github): checked now and
+		// every minute; a new commit applies once the first is confirmed.
+		if cfgEnv.Followed.Repo != "" {
+			cfgEnv.Follower = &jam.ConfigFollower{Store: st, Fetcher: kitFetcher, Env: cfgEnv, Log: log}
+			go cfgEnv.Follower.Run(context.Background(), jam.ConfigFollowEvery)
+		}
 
 		// Read-only intercom view: shares the Log opened once above (the same
 		// handle the /squawks writer dual-writes into) with the admin UI as a
@@ -2977,6 +2989,35 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			appTokenRoutes, appTokenBearer = appTokens.Routes(), appTokens.Bearer()
 			go appTokens.Run(context.Background())
 		}
+		// The config branch editor (docs/usage/jam/config-branches.md): config
+		// pages edit a branch of the followed repo, from a bare clone in the
+		// state dir. Branch handlers are the same admin UI over a branch's
+		// scratch store, with no supervisor (a branch raises nothing).
+		if src := cfgEnv.Followed; src.Repo != "" {
+			dir, err := cfg.stateDir()
+			if err != nil {
+				fmt.Fprintln(stderr, "jam:", err)
+				return 1
+			}
+			repo := &configrepo.Repo{URL: src.Repo, Branch: src.Ref, Creds: kitFetcher.Creds, Path: filepath.Join(dir, "config-repo")}
+			token := func() (string, error) {
+				cr, ok := kitFetcher.Creds.For(src.Repo)
+				if !ok {
+					return "", errors.New("no credential")
+				}
+				return cr.Token()
+			}
+			var prs configrepo.PRs = configrepo.GitHub{URL: src.Repo, Token: token}
+			if cfg.configRepo().kind == "gitlab" {
+				prs = configrepo.GitLab{URL: src.Repo, Token: token}
+			}
+			branches := &jam.ConfigBranches{Repo: repo, PRs: prs, Dir: src.Dir, Fetcher: kitFetcher, Env: cfgEnv, Live: st, Log: log}
+			branchOpts := slices.Clone(uiOpts)
+			factory := func(bs jam.Store) http.Handler {
+				return adminui.Handler(bs, log, nil, nil, credExists, squawkReader, branchOpts...)
+			}
+			uiOpts = append(uiOpts, adminui.WithConfigBranches(branches, factory))
+		}
 		browser := appui.Handler(appui.Deps{
 			Gate: appui.NewGate(gc), AuthRoutes: authRoutes, AppTokenRoutes: appTokenRoutes, User: userMux,
 			Bearer: appTokenBearer, SessionCookies: []string{browserauth.AppMount().IDCookie(), browserauth.AppMount().AccessCookie()},
@@ -3028,6 +3069,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		if managerHub != nil {
 			adminOpts = append(adminOpts, managers.AdminRoutes(managerHub)...)
+		}
+		if cfgEnv.Followed.Repo != "" {
+			// The config is in git: the admin API refuses live config writes.
+			adminOpts = append(adminOpts, jam.WithConfigInGit(cfgEnv.Followed))
 		}
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, browser, adminOpts...)
 		var adminServe http.Handler = admin
@@ -3297,6 +3342,28 @@ func resolveBlobs(cfg serveConfig, specs map[string]secret.Spec) (blobstore.Stor
 // kits block it fetches anonymously. Errors name the credential, never its value.
 func resolveKitFetcher(cfg serveConfig, specs map[string]secret.Spec) (*gitsource.Fetcher, error) {
 	f := &gitsource.Fetcher{MaxBytes: 50 << 20, Timeout: 60 * time.Second}
+	// The followed config repo's credential, for exactly its URL (the longest
+	// prefix, so it wins over a kits.git prefix above it).
+	if src := cfg.followedSource(); src.Repo != "" {
+		host := cfg.configRepo()
+		name := host.Cred
+		spec := specs[name]
+		resolve := func() (string, error) {
+			v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{spec})
+			if err != nil {
+				return "", err
+			}
+			return v[spec.Name], nil
+		}
+		if _, err := resolve(); err != nil {
+			return nil, fmt.Errorf("config.%s.cred %q: %w", host.kind, name, err)
+		}
+		cr := gitsource.Cred{Prefix: src.Repo, Name: name, Resolve: resolve, Key: "config." + host.kind}
+		if host.kind == "gitlab" {
+			cr.User = "oauth2" // GitLab's username for a token, on any host
+		}
+		f.Creds = append(f.Creds, cr)
+	}
 	if cfg.Kits == nil {
 		return f, nil
 	}

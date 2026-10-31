@@ -100,7 +100,7 @@ func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt Config
 	res.Counts = plan.Counts()
 	changes := planChanges(plan)
 	w := plan.write
-	w.ConfigSource = trackedRecord(store, opt, changes)
+	w.ConfigSource = trackedRecord(store, env, opt, changes)
 	if !changes {
 		// Nothing to apply; still record what moved without changing an
 		// object — the .source.yml kits' tracked commits, the config

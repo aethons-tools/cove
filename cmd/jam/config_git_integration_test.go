@@ -19,11 +19,12 @@ import (
 func configGitJam(t *testing.T, store jam.Store, repoURL, token string) (string, *bytes.Buffer) {
 	t.Helper()
 	return gitJam(t, store, repoURL, token, func(f *gitsource.Fetcher, log *slog.Logger) jam.AdminOption {
-		return jam.WithConfig(store, f, jam.ConfigEnv{CredExists: func(string) bool { return true }}, log)
+		env := jam.ConfigEnv{CredExists: func(string) bool { return true }, Followed: gitsource.Source{Repo: repoURL, Ref: "main"}}
+		return jam.WithConfig(store, f, env, log)
 	})
 }
 
-// TestConfigGitEndToEnd: track and sync a private config repo through the
+// TestConfigGitEndToEnd: follow and sync a private config repo through the
 // real fetcher behind Basic auth, with its kit-source kit; a wrong token and
 // a pasted credential URL never reach any output or log.
 func TestConfigGitEndToEnd(t *testing.T) {
@@ -36,9 +37,6 @@ func TestConfigGitEndToEnd(t *testing.T) {
 	st := jam.NewMemStore()
 	url, logs := configGitJam(t, st, cfgURL, token)
 	src := cfgURL + "@main"
-	if code, out, errs := runJam("config", "track", "--git", src, "--admin-url", url); code != 0 {
-		t.Fatalf("track: %d\n%s\n%s", code, out, errs)
-	}
 	if code, out, errs := runJam("config", "sync", "--yes", "--admin-url", url); code != 0 || !strings.Contains(out, "applied: 2 created") {
 		t.Fatalf("sync: %d\n%s\n%s", code, out, errs)
 	}
@@ -56,7 +54,7 @@ func TestConfigGitEndToEnd(t *testing.T) {
 		t.Fatalf("wrong token: %d\n%s\n%s", code, out, errs)
 	}
 	pasted := strings.Replace(cfgURL, "://", "://x-access-token:"+token+"@", 1) + "@main"
-	code, out2, errs2 := runJam("config", "track", "--git", pasted, "--admin-url", url)
+	code, out2, errs2 := runJam("config", "diff", "--git", pasted, "--admin-url", url)
 	if code != 1 {
 		t.Fatalf("pasted credential: %d", code)
 	}

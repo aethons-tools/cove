@@ -67,21 +67,26 @@ func TestConfigRoundTrip(t *testing.T) {
 
 func TestConfigSourceMethods(t *testing.T) {
 	repo, _, _ := gittest.Serve(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"})
-	store := jam.NewMemStore()
 	log := slog.New(slog.DiscardHandler)
 	creds := func(string) bool { return true }
-	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil,
-		jam.WithConfig(store, &gitsource.Fetcher{}, jam.ConfigEnv{CredExists: creds}, log)))
-	defer ts.Close()
-	c := New(ts.URL, "")
-	src := repo + "@main"
-	if _, err := c.ConfigDiffSource("", false); !errors.Is(err, ErrConflict) {
-		t.Fatalf("diff with nothing tracked = %v, want ErrConflict", err)
+	serve := func(followed gitsource.Source) (*Client, *jam.MemStore) {
+		store := jam.NewMemStore()
+		f := &gitsource.Fetcher{}
+		env := jam.ConfigEnv{CredExists: creds, Followed: followed}
+		env.Follower = &jam.ConfigFollower{Store: store, Fetcher: f, Env: env}
+		ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil,
+			jam.WithConfig(store, f, env, log)))
+		t.Cleanup(ts.Close)
+		return New(ts.URL, ""), store
 	}
-	tr, err := c.ConfigTrack(src)
-	if err != nil || tr.Commit == "" || tr.Applied {
-		t.Fatalf("ConfigTrack = %+v, %v", tr, err)
+	none, _ := serve(gitsource.Source{})
+	if _, err := none.ConfigDiffSource("", false); !errors.Is(err, ErrConflict) {
+		t.Fatalf("diff with no followed repo = %v, want ErrConflict", err)
 	}
+	if _, err := none.ConfigSync(false, ""); !errors.Is(err, ErrConflict) {
+		t.Fatalf("sync with no followed repo = %v, want ErrConflict", err)
+	}
+	c, _ := serve(gitsource.Source{Repo: repo, Ref: "main"})
 	diff, err := c.ConfigDiffSource("", false)
 	if err != nil || diff.Plan.Ops[0].Action != jam.ConfigCreate {
 		t.Fatalf("ConfigDiffSource = %+v, %v", diff, err)
@@ -89,14 +94,11 @@ func TestConfigSourceMethods(t *testing.T) {
 	if res, err := c.ConfigSync(false, diff.Plan.Digest); err != nil || !res.Applied {
 		t.Fatalf("ConfigSync = %+v, %v", res, err)
 	}
-	if res, err := c.ConfigApplySource(src, false, ""); err != nil || res.Applied {
+	if s, err := c.ConfigFollow(); err != nil || s.Applied != diff.Commit {
+		t.Fatalf("ConfigFollow = %+v, %v", s, err)
+	}
+	if res, err := c.ConfigApplySource(repo+"@main", false, ""); err != nil || res.Applied {
 		t.Fatalf("ConfigApplySource = %+v, %v", res, err)
-	}
-	if err := c.ConfigUntrack(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.ConfigSync(false, ""); !errors.Is(err, ErrConflict) {
-		t.Fatalf("sync after untrack = %v, want ErrConflict", err)
 	}
 }
 

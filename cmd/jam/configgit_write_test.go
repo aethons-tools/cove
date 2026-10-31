@@ -34,7 +34,7 @@ func TestWriteConfigTreeMirrorsKitDirs(t *testing.T) {
 		"kits/app":  {{Path: "kit.yml", Data: []byte("kind: studio\n"), Mode: 0o644}, {Path: "run.sh", Data: []byte("echo"), Mode: 0o755}, {Path: ".dockerignore", Data: []byte("*.log\n"), Mode: 0o644}},
 		"kits/gone": {},
 	}}
-	if err := writeConfigTree(dir, exp); err != nil {
+	if err := jam.WriteConfigTree(dir, exp); err != nil {
 		t.Fatal(err)
 	}
 	for p, want := range map[string]bool{"kits/app/kit.yml": true, "kits/app/run.sh": true, "kits/app/debug.log": true, "kits/app/stale.txt": false, "kits/app/leak": false, "kits/gone": false, "kits": true} {
@@ -53,8 +53,8 @@ func TestWriteConfigTreeMirrorsKitDirs(t *testing.T) {
 		{Kits: map[string][]jam.ConfigKitFile{"kits/a": {{Path: "../x", Mode: 0o644}}}},
 		{Kits: map[string][]jam.ConfigKitFile{"kits/a": {{Path: "x", Mode: 0o777}}}},
 	} {
-		if err := writeConfigTree(dir, bad); err == nil {
-			t.Fatalf("writeConfigTree(%+v) must refuse", bad.Kits)
+		if err := jam.WriteConfigTree(dir, bad); err == nil {
+			t.Fatalf("jam.WriteConfigTree(%+v) must refuse", bad.Kits)
 		}
 	}
 }
@@ -72,7 +72,7 @@ func TestWriteConfigTreeKitModes(t *testing.T) {
 		{Path: "run.sh", Data: []byte("#!/bin/sh\n"), Mode: 0o755},
 		{Path: "lib/blob.bin", Data: blob, Mode: 0o644},
 	}}}
-	if err := writeConfigTree(dir, exp); err != nil {
+	if err := jam.WriteConfigTree(dir, exp); err != nil {
 		t.Fatal(err)
 	}
 	for p, want := range map[string]os.FileMode{"kits/k/run.sh": 0o755, "kits/k/lib/blob.bin": 0o644, "kits/k/kit.yml": 0o644} {
@@ -97,7 +97,7 @@ func TestWriteConfigTreeMirrorTouchesOnlyItsDirs(t *testing.T) {
 		"kits/k":    {{Path: "kit.yml", Data: []byte("kind: studio\n"), Mode: 0o644}, {Path: "keep", Data: []byte("new"), Mode: 0o644}},
 		"kits/none": {},
 	}}
-	if err := writeConfigTree(dir, exp); err != nil {
+	if err := jam.WriteConfigTree(dir, exp); err != nil {
 		t.Fatal(err)
 	}
 	got := readTree(t, dir)
@@ -129,7 +129,7 @@ func TestWriteConfigTreeRefusesSymlinkedKitDirs(t *testing.T) {
 			t.Fatal(err)
 		}
 		exp := jam.ConfigTreeExport{Files: map[string]string{"marker": "m"}, Kits: map[string][]jam.ConfigKitFile{"kits/k": {{Path: "new", Data: []byte("x"), Mode: 0o644}}}}
-		err := writeConfigTree(dir, exp)
+		err := jam.WriteConfigTree(dir, exp)
 		if err == nil || !strings.HasPrefix(err.Error(), "refusing to") {
 			t.Fatalf("%s: err %v", link, err)
 		}
@@ -155,7 +155,7 @@ func TestWriteConfigTreeMirrorKeepsDockerignored(t *testing.T) {
 		{Path: ".dockerignore", Data: []byte("*.log\nnode_modules\n!keep.log\n"), Mode: 0o644},
 		{Path: "kit.yml", Data: []byte("kind: studio\n"), Mode: 0o644},
 	}}}
-	if err := writeConfigTree(dir, exp); err != nil {
+	if err := jam.WriteConfigTree(dir, exp); err != nil {
 		t.Fatal(err)
 	}
 	got := readTree(t, dir)
@@ -195,7 +195,7 @@ func TestWriteConfigTreeRefusesUnsafePaths(t *testing.T) {
 			exp.Files = map[string]string{}
 		}
 		exp.Files["marker"] = "m"
-		err := writeConfigTree(dir, exp)
+		err := jam.WriteConfigTree(dir, exp)
 		if err == nil || !strings.HasPrefix(err.Error(), "refusing to") {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -267,7 +267,7 @@ func TestConfigWriteSwitchToSourceKeepsIgnoredFiles(t *testing.T) {
 		Kits:  map[string][]jam.ConfigKitFile{"kits/ic": {}},
 	}
 	for range 2 { // a second write keeps them too
-		if err := writeConfigTree(dir, exp); err != nil {
+		if err := jam.WriteConfigTree(dir, exp); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -302,8 +302,8 @@ func TestWriteConfigTreeMirrorSkipsOddDockerignore(t *testing.T) {
 		t.Skip(err)
 	}
 	mustWrite(t, filepath.Join(dir, "kits/b/stale"), "x", 0o644)
-	mustWrite(t, filepath.Join(dir, "kits/b/.dockerignore"), strings.Repeat("#\n", maxDockerignoreBytes), 0o644)
-	if err := writeConfigTree(dir, jam.ConfigTreeExport{Kits: map[string][]jam.ConfigKitFile{"kits/a": {}, "kits/b": {}}}); err != nil {
+	mustWrite(t, filepath.Join(dir, "kits/b/.dockerignore"), strings.Repeat("#\n", jam.MaxDockerignoreBytes), 0o644)
+	if err := jam.WriteConfigTree(dir, jam.ConfigTreeExport{Kits: map[string][]jam.ConfigKitFile{"kits/a": {}, "kits/b": {}}}); err != nil {
 		t.Fatal(err)
 	}
 	got := readTree(t, dir)
@@ -324,7 +324,7 @@ func TestWriteConfigTreeDoesNotFollowInTreeSymlinks(t *testing.T) {
 	cfgMust(t, os.Symlink("../../users/bob.yml", filepath.Join(dir, "kits/app/run.sh")))
 	exp := jam.ConfigTreeExport{Kits: map[string][]jam.ConfigKitFile{"kits/app": {
 		{Path: "kit.yml", Data: []byte("kind: studio\n"), Mode: 0o644}, {Path: "run.sh", Data: []byte("echo\n"), Mode: 0o755}}}}
-	if err := writeConfigTree(dir, exp); err != nil {
+	if err := jam.WriteConfigTree(dir, exp); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "users/bob.yml")); string(b) != "bob\n" {
@@ -348,7 +348,7 @@ func TestWriteConfigTreeDoesNotFollowInTreeSymlinks(t *testing.T) {
 	cfgMust(t, os.Symlink("../other", filepath.Join(dir, "kits/app/lib")))
 	exp = jam.ConfigTreeExport{Files: map[string]string{"marker": "m"}, Kits: map[string][]jam.ConfigKitFile{"kits/app": {
 		{Path: "kit.yml", Data: []byte("kind: studio\n"), Mode: 0o644}, {Path: "lib/kit.yml", Data: []byte("evil\n"), Mode: 0o644}}}}
-	err = writeConfigTree(dir, exp)
+	err = jam.WriteConfigTree(dir, exp)
 	if err == nil || err.Error() != `refusing to write "kits/app/lib/kit.yml": "kits/app/lib" is not a directory` {
 		t.Fatalf("err %v", err)
 	}
@@ -379,7 +379,7 @@ func TestWriteConfigTreeRefusesConflicts(t *testing.T) {
 			exp.Files = map[string]string{}
 		}
 		exp.Files["marker"] = "m"
-		if err := writeConfigTree(dir, exp); err == nil || !strings.HasPrefix(err.Error(), "refusing to") {
+		if err := jam.WriteConfigTree(dir, exp); err == nil || !strings.HasPrefix(err.Error(), "refusing to") {
 			t.Errorf("%s: %v", name, err)
 		}
 		if _, err := os.Stat(filepath.Join(dir, "marker")); !os.IsNotExist(err) {
@@ -402,7 +402,7 @@ func TestWriteConfigTreeRefusesSymlinkedFilesParents(t *testing.T) {
 		target, _ := filepath.Rel(filepath.Dir(filepath.Join(dir, tc.link)), filepath.Join(dir, "elsewhere"))
 		cfgMust(t, os.Symlink(target, filepath.Join(dir, tc.link)))
 		exp := jam.ConfigTreeExport{Files: map[string]string{"marker": "m", tc.file: "evil\n"}}
-		if err := writeConfigTree(dir, exp); err == nil || err.Error() != tc.want {
+		if err := jam.WriteConfigTree(dir, exp); err == nil || err.Error() != tc.want {
 			t.Fatalf("%s: err %v", tc.link, err)
 		}
 		for _, v := range []string{"elsewhere/bob.yml", "elsewhere/ic.yml"} {

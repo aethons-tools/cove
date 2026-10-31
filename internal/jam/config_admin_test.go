@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam/condition"
@@ -115,10 +117,14 @@ func configServer(t *testing.T, st *MemStore) *httptest.Server {
 }
 
 func configServerWith(t *testing.T, st *MemStore, f KitFetcher) *httptest.Server {
+	return configServerEnv(t, st, f, allCreds)
+}
+
+func configServerEnv(t *testing.T, st *MemStore, f KitFetcher, env ConfigEnv) *httptest.Server {
 	t.Helper()
 	log := slog.New(slog.DiscardHandler)
 	ts := httptest.NewServer(NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, allCreds.CredExists, nil, log, nil,
-		WithConfig(st, f, allCreds, log)))
+		WithConfig(st, f, env, log)))
 	t.Cleanup(ts.Close)
 	return ts
 }
@@ -184,7 +190,7 @@ func TestConfigRoutes(t *testing.T) {
 	if msg := postTar(t, ts.URL+"/admin/config/apply", refused, http.StatusConflict, nil); !strings.Contains(msg, "config plan has refusals") {
 		t.Fatalf("refused apply: %s", msg)
 	}
-	if msg := sendJSON(t, "POST", ts.URL+"/admin/config/diff", `{}`, http.StatusConflict, nil); !strings.Contains(msg, "no config source is tracked") {
+	if msg := sendJSON(t, "POST", ts.URL+"/admin/config/diff", `{}`, http.StatusConflict, nil); !strings.Contains(msg, "no config repo is configured") {
 		t.Fatalf("json body without a tracked source: %s", msg)
 	}
 }
@@ -260,18 +266,44 @@ func TestConfigRoutesRejectBadUpload(t *testing.T) {
 	}
 }
 
-func TestConfigSourceRoutes(t *testing.T) {
+// The follow route answers the follower's status, and a sync (the confirm)
+// refreshes it.
+func TestConfigFollowRoute(t *testing.T) {
 	st := NewMemStore()
-	f, cfg := cfgFetcher(t, cfgFiles)
-	ts := configServerWith(t, st, f)
-	const src = `{"source":"https://github.com/acme/jam//cfg@main"}`
-	var tracked ConfigApplyResult
-	sendJSON(t, "PUT", ts.URL+"/admin/config/source", src, http.StatusOK, &tracked)
-	if tracked.Commit != "c1" || tracked.Applied || opOf(tracked.Plan, ConfigKindUser, "bob").Action != ConfigCreate || len(st.ListUsers()) != 0 {
-		t.Fatalf("track: %+v", tracked)
+	f, _ := cfgFetcher(t, cfgFiles)
+	env := followEnv
+	env.Follower = &ConfigFollower{Store: st, Fetcher: f, Env: followEnv, Now: func() time.Time { return planNow }}
+	env.Follower.Tick(context.Background())
+	ts := configServerEnv(t, st, f, env)
+	var s ConfigFollowStatus
+	sendJSON(t, "GET", ts.URL+"/admin/config/follow", "", http.StatusOK, &s)
+	if s.State != ConfigFollowAwaiting || s.Head != "c1" {
+		t.Fatalf("before confirm: %+v", s)
 	}
 	var diff ConfigApplyResult
 	sendJSON(t, "POST", ts.URL+"/admin/config/diff", `{}`, http.StatusOK, &diff)
+	sendJSON(t, "POST", ts.URL+"/admin/config/sync?plan="+diff.Plan.Digest, `{}`, http.StatusOK, nil)
+	sendJSON(t, "GET", ts.URL+"/admin/config/follow", "", http.StatusOK, &s)
+	if s.State != ConfigFollowInSync || s.Applied != "c1" {
+		t.Fatalf("after confirm: %+v", s)
+	}
+}
+
+func TestConfigSyncRoutes(t *testing.T) {
+	st := NewMemStore()
+	f, cfg := cfgFetcher(t, cfgFiles)
+	ts := configServerEnv(t, st, f, followEnv)
+	const src = `{"source":"https://github.com/acme/jam//cfg@main"}`
+	for _, m := range []string{"PUT", "DELETE"} {
+		if msg := sendJSON(t, m, ts.URL+"/admin/config/source", src, http.StatusNotFound, nil); msg == "" {
+			t.Fatalf("%s source answered nothing", m)
+		}
+	}
+	var diff ConfigApplyResult
+	sendJSON(t, "POST", ts.URL+"/admin/config/diff", `{}`, http.StatusOK, &diff)
+	if diff.Commit != "c1" || diff.Applied || opOf(diff.Plan, ConfigKindUser, "bob").Action != ConfigCreate || len(st.ListUsers()) != 0 {
+		t.Fatalf("diff: %+v", diff)
+	}
 	sendJSON(t, "POST", ts.URL+"/admin/config/sync?plan=stale", `{}`, http.StatusConflict, nil)
 	var res ConfigApplyResult
 	sendJSON(t, "POST", ts.URL+"/admin/config/sync?plan="+diff.Plan.Digest, `{}`, http.StatusOK, &res)
@@ -294,15 +326,18 @@ func TestConfigSourceRoutes(t *testing.T) {
 	if res.Applied {
 		t.Fatalf("re-apply wrote: %+v", res)
 	}
-	sendJSON(t, "DELETE", ts.URL+"/admin/config/source", "", http.StatusNoContent, nil)
-	if _, ok := st.GetConfigSource(); ok || len(st.ListConfigMarks()) == 0 {
-		t.Fatal("untrack kept the source or dropped the marks")
-	}
-	sendJSON(t, "POST", ts.URL+"/admin/config/sync", `{}`, http.StatusConflict, nil)
-	sendJSON(t, "PUT", ts.URL+"/admin/config/source", `{}`, http.StatusBadRequest, nil)
 	cfg.failNext = fmt.Errorf("%w: repository https://github.com/acme/jam not found", gitsource.ErrFetch)
 	if msg := sendJSON(t, "POST", ts.URL+"/admin/config/diff", src, http.StatusBadGateway, nil); !strings.Contains(msg, "not found") {
 		t.Fatalf("fetch failure: %s", msg)
+	}
+	none := configServerWith(t, NewMemStore(), f)
+	var off ConfigFollowStatus
+	sendJSON(t, "GET", none.URL+"/admin/config/follow", "", http.StatusOK, &off)
+	if off.State != ConfigFollowOff {
+		t.Fatalf("follow without a follower: %+v", off)
+	}
+	if msg := sendJSON(t, "POST", none.URL+"/admin/config/sync", `{}`, http.StatusConflict, nil); !strings.Contains(msg, "no config repo is configured") {
+		t.Fatalf("sync without a followed repo: %s", msg)
 	}
 }
 
@@ -317,7 +352,7 @@ func TestConfigSourceRoutesRefuseCredentialURL(t *testing.T) {
 	defer ts.Close()
 	const token = "ghp_s3cretTOKEN"
 	body := `{"source":"https://x-access-token:` + token + `@github.com/acme/jam@main"}`
-	for _, route := range []struct{ method, path string }{{"PUT", "/admin/config/source"}, {"POST", "/admin/config/diff"}, {"POST", "/admin/config/apply"}} {
+	for _, route := range []struct{ method, path string }{{"POST", "/admin/config/diff"}, {"POST", "/admin/config/apply"}} {
 		if msg := sendJSON(t, route.method, ts.URL+route.path, body, http.StatusBadRequest, nil); strings.Contains(msg, token) {
 			t.Errorf("%s %s echoes the token: %s", route.method, route.path, msg)
 		}
