@@ -127,10 +127,9 @@ func TestIntercomSessionAddressing(t *testing.T) {
 	if byID := f.mustPlan(f.personal, "session:"+f.standing.ActorID); byID.Channel.ID != p.Channel.ID {
 		t.Fatal("a session by id is the same channel")
 	}
-	// A ticket session's home is its ticket channel, which needs ticket:
-	// addressing (TestIntercomSessionAddressToATicketNeedsTicketAddressing).
-	if _, err := f.plan(f.personal, "session:"+f.ticket.ActorID); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("session:<ticket session> without ticket: = %v", err)
+	// A ticket session is reached the same way (its own session channel).
+	if tp, err := f.plan(f.personal, "session:"+f.ticket.ActorID); err != nil || tp.Channel.Key != f.ticket.ActorID {
+		t.Fatalf("session:<ticket session> = %+v, %v", tp, err)
 	}
 	// One's own session needs no addressing.
 	if own := f.mustPlan(f.standing, "session:spider"); own.Channel.ID != p.Channel.ID {
@@ -266,16 +265,11 @@ func TestIntercomStarDoesNotAddressSessions(t *testing.T) {
 	}
 }
 
-// A ticket session's home is its ticket: reaching it by session: needs the
-// ticket: addressing too, never a way around it.
-func TestIntercomSessionAddressToATicketNeedsTicketAddressing(t *testing.T) {
+// A ticket session is reached like any other: session: addressing alone.
+func TestIntercomSessionAddressReachesTicketSession(t *testing.T) {
 	f := newICFixture(t, "session:*")
-	if _, err := f.plan(f.standing, "session:"+f.ticket.ActorID); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("session: to a ticket session without ticket: addressing = %v, want ErrSendDenied", err)
-	}
-	g := newICFixture(t, "session:*", "ticket:ACME-*")
-	if p, err := g.plan(g.standing, "session:"+g.ticket.ActorID); err != nil || p.Channel.Kind != SourceSession {
-		t.Fatalf("with ticket: addressing = %+v, %v", p, err)
+	if p, err := f.plan(f.standing, "session:"+f.ticket.ActorID); err != nil || p.Channel.Kind != SourceSession || p.Channel.Key != f.ticket.ActorID {
+		t.Fatalf("session: to a ticket session = %+v, %v; want its session channel", p, err)
 	}
 }
 
@@ -306,20 +300,19 @@ func TestSessionChannelsAreNotExported(t *testing.T) {
 	}
 }
 
-// The ticket: requirement for reaching a ticket session honours every form
-// a ticket: glob takes (bare key, or scoped to the tracker connection), and
-// list_targets offers only the sessions a send would reach.
-func TestIntercomSessionTicketFormsAndTargets(t *testing.T) {
-	f := newICFixture(t, "session:*", "ticket:linear/*")
-	if p, err := f.plan(f.standing, "session:"+f.ticket.ActorID); err != nil || p.Channel.Kind != SourceSession {
-		t.Fatalf("with a connection-scoped ticket: glob = %+v, %v", p, err)
-	}
+// list_targets offers ticket sessions to a session with only session:
+// addressing, as a send would reach them.
+func TestIntercomSessionTargetsIncludeTicketSessions(t *testing.T) {
 	g := newICFixture(t, "session:*")
 	a := Actor{ID: g.standing.ActorID, Grants: g.actor.Grants}
+	found := false
 	for _, tg := range ListTargets(g.store, nil, a, g.now) {
 		if tg.Kind == "session" && (tg.Name == g.ticket.ActorID || tg.Name == sessionLabel(g.ticket)) {
-			t.Fatalf("list_targets offers a ticket session a send would refuse: %+v", tg)
+			found = true
 		}
+	}
+	if !found {
+		t.Fatal("list_targets leaves out a ticket session session: reaches")
 	}
 }
 

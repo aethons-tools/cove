@@ -834,11 +834,6 @@ func (ic *Intercom) resolveSession(p Poster, project Project, ref string, globs 
 	case own:
 		return ic.HomeChannel(target)
 	case found && anyAllowed([]string{"session:" + sessionLabel(target), "session:" + target.ActorID}, globs):
-		// A ticket session's home is its ticket: reaching it needs what
-		// addressing that ticket needs (session: is no way around ticket:).
-		if tracker, ok := ic.tracker(); ok && !sessionTicketAllowed(ic.store, tracker, *p.Session, target, globs) {
-			return Channel{}, ErrSendDenied
-		}
 		return ic.HomeChannel(target)
 	case anyAllowed([]string{"session:" + ref}, globs):
 		return Channel{}, ErrSendUnresolved
