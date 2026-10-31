@@ -27,6 +27,9 @@ func ConfigStatus(err error) (int, string) {
 	case errors.Is(err, ErrConfigRefused), errors.Is(err, ErrConfigPlanChanged), errors.Is(err, ErrConfigNotTracked):
 		return http.StatusConflict, err.Error()
 	}
+	if status, msg, ok := configBranchStatus(err); ok {
+		return status, msg
+	}
 	status, msg := KitSourceStatus(err)
 	if status == http.StatusInternalServerError {
 		msg = configStoreError

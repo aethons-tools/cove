@@ -32,6 +32,9 @@ var (
 	ErrNoBranch = errors.New("no such branch")
 	// ErrBranchExists is a branch name already taken.
 	ErrBranchExists = errors.New("the branch already exists")
+	// ErrRemote matches every failure talking to the remote (fetch, push,
+	// GitHub): the message says what, redacted.
+	ErrRemote = errors.New("config repo: the remote failed")
 	// ErrFollowedBranch is a write to the followed branch itself: it changes
 	// only by Merge (or in git).
 	ErrFollowedBranch = errors.New("the followed branch is read-only; edit on a branch")
@@ -100,16 +103,22 @@ func (r *Repo) open(ctx context.Context) (*git.Repository, transport.AuthMethod,
 	return repo, auth, nil
 }
 
+// remoteError is a redacted remote failure; it matches ErrRemote.
+type remoteError struct{ msg string }
+
+func (e *remoteError) Error() string        { return e.msg }
+func (e *remoteError) Is(target error) bool { return target == ErrRemote }
+
 // explain is a git failure as an operator can act on it, redacted.
 func (r *Repo) explain(op string, err error) error {
 	repo := gitsource.Redact(r.URL)
 	switch {
 	case errors.Is(err, transport.ErrAuthenticationRequired), errors.Is(err, transport.ErrAuthorizationFailed):
-		return fmt.Errorf("config repo: %s %s: auth failed (check config.github.cred)", op, repo)
+		return &remoteError{fmt.Sprintf("config repo: %s %s: auth failed (check config.github.cred)", op, repo)}
 	case errors.Is(err, transport.ErrRepositoryNotFound):
-		return fmt.Errorf("config repo: %s %s: repository not found (or the credential can't see it)", op, repo)
+		return &remoteError{fmt.Sprintf("config repo: %s %s: repository not found (or the credential can't see it)", op, repo)}
 	}
-	return fmt.Errorf("config repo: %s %s: %s", op, repo, gitsource.Redact(err.Error()))
+	return &remoteError{fmt.Sprintf("config repo: %s %s: %s", op, repo, gitsource.Redact(err.Error()))}
 }
 
 // Branches lists the repo's branches, by name.

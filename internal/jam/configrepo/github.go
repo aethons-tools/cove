@@ -83,7 +83,7 @@ func (g GitHub) do(ctx context.Context, method, path string, body, out any) (int
 	}
 	resp, err := c.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("config repo: GitHub: %s", strings.ReplaceAll(err.Error(), tok, "REDACTED"))
+		return 0, &remoteError{"config repo: GitHub: " + strings.ReplaceAll(err.Error(), tok, "REDACTED")}
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -101,7 +101,7 @@ func (g GitHub) do(ctx context.Context, method, path string, body, out any) (int
 				msg += ": " + x.Message
 			}
 		}
-		return resp.StatusCode, fmt.Errorf("config repo: GitHub answered %d: %s", resp.StatusCode, strings.ReplaceAll(msg, tok, "REDACTED"))
+		return resp.StatusCode, &remoteError{fmt.Sprintf("config repo: GitHub answered %d: %s", resp.StatusCode, strings.ReplaceAll(msg, tok, "REDACTED"))}
 	}
 	if out != nil {
 		if err := json.Unmarshal(data, out); err != nil {
