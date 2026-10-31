@@ -77,3 +77,42 @@ func TestSSHUser(t *testing.T) {
 		}
 	}
 }
+
+func TestSSHChangedHostKey(t *testing.T) {
+	url, line, pem := gittest.ServeSSH(t, map[string]string{"a.txt": "a"})
+	_, other, _ := gittest.ServeSSH(t, nil)
+	host := strings.Fields(line)[0]
+	r := sshRepo(t, url, pem, khFile(t, host+" "+strings.Fields(other)[1]+" "+strings.Fields(other)[2]))
+	_, err := r.Branches(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "does not match host-keys") ||
+		strings.Contains(err.Error(), "is not in host-keys") || !strings.Contains(err.Error(), strings.Fields(line)[2]) {
+		t.Fatalf("err = %v", err)
+	}
+	for _, l := range strings.Split(strings.TrimSpace(pem), "\n")[1:3] {
+		if strings.Contains(err.Error(), l) {
+			t.Fatal("error quotes the key")
+		}
+	}
+}
+
+func TestSSHPinnedNonDefaultAlgorithm(t *testing.T) {
+	url, line, pem := gittest.ServeSSH(t, map[string]string{"a.txt": "a"}, gittest.WithRSAHostKey())
+	if !strings.Contains(line, "ssh-rsa") {
+		t.Fatalf("line = %s", line)
+	}
+	r := sshRepo(t, url, pem, khFile(t, line))
+	if _, err := r.Branches(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSSHPinnedEd25519WhenRSAOffered(t *testing.T) {
+	url, line, pem := gittest.ServeSSH(t, map[string]string{"a.txt": "a"}, gittest.WithExtraRSAHostKey())
+	if !strings.Contains(line, "ssh-ed25519") {
+		t.Fatalf("line = %s", line)
+	}
+	r := sshRepo(t, url, pem, khFile(t, line))
+	if _, err := r.Branches(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}

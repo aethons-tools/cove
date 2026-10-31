@@ -3,6 +3,7 @@ package gittest
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/binary"
 	"encoding/pem"
 	"errors"
@@ -23,7 +24,7 @@ import (
 // has a fresh ed25519 host key (knownHostsLine pins it) and accepts only the
 // fresh client key clientKeyPEM. Head, Show and Git work on url. Tests skip
 // without the git CLI.
-func ServeSSH(t testing.TB, files map[string]string) (url, knownHostsLine, clientKeyPEM string) {
+func ServeSSH(t testing.TB, files map[string]string, opts ...SSHOption) (url, knownHostsLine, clientKeyPEM string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
@@ -46,7 +47,27 @@ func ServeSSH(t testing.TB, files map[string]string) (url, knownHostsLine, clien
 	run(t, work, "git", "commit", "-q", "--allow-empty", "-m", "update")
 	run(t, work, "git", "push", "-q", bare, "main")
 
+	var sc sshConfig
+	for _, o := range opts {
+		o(&sc)
+	}
 	hostSigner := newSigner(t)
+	var extra ssh.Signer // also offered, but not the one pinned
+	if sc.rsaHost {
+		k, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rsaSigner, err := ssh.NewSignerFromKey(k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sc.pinEd {
+			extra = rsaSigner
+		} else {
+			extra, hostSigner = hostSigner, rsaSigner
+		}
+	}
 	clientPriv, clientSigner := newKey(t)
 	cfg := &ssh.ServerConfig{
 		PublicKeyCallback: func(_ ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
@@ -57,6 +78,9 @@ func ServeSSH(t testing.TB, files map[string]string) (url, knownHostsLine, clien
 		},
 	}
 	cfg.AddHostKey(hostSigner)
+	if extra != nil {
+		cfg.AddHostKey(extra)
+	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -78,6 +102,21 @@ func ServeSSH(t testing.TB, files map[string]string) (url, knownHostsLine, clien
 	bares.Store(url, bare)
 	t.Cleanup(func() { bares.Delete(url) })
 	return url, knownhosts.Line([]string{knownhosts.Normalize(addr)}, hostSigner.PublicKey()), clientPriv
+}
+
+// SSHOption configures ServeSSH.
+type SSHOption func(*sshConfig)
+
+type sshConfig struct{ rsaHost, pinEd bool }
+
+// WithRSAHostKey gives the server an RSA host key besides
+// its ed25519 one; knownHostsLine pins the RSA key only.
+func WithRSAHostKey() SSHOption { return func(c *sshConfig) { c.rsaHost = true } }
+
+// WithExtraRSAHostKey gives the server an RSA host key besides its ed25519
+// one, which clients prefer by default; knownHostsLine pins the ed25519 key.
+func WithExtraRSAHostKey() SSHOption {
+	return func(c *sshConfig) { c.rsaHost, c.pinEd = true, true }
 }
 
 // SSHHead is branch's commit in the repository ServeSSH served at url
@@ -106,6 +145,7 @@ func newKey(t testing.TB) (string, ssh.Signer) {
 }
 
 func newSigner(t testing.TB) ssh.Signer {
+	t.Helper()
 	_, s := newKey(t)
 	return s
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing/transport"
@@ -46,15 +47,55 @@ func SSHAuth(user string, key func() (string, error), knownHostsFile string) fun
 		if err != nil {
 			return nil, fmt.Errorf("config.git: reading host-keys: %w", err)
 		}
+		// Offer only the key types host-keys pins, so a host pinned with
+		// (say) an RSA key isn't refused for offering ed25519 first.
+		auth.HostKeyAlgorithms = pinnedAlgorithms(knownHostsFile)
 		auth.HostKeyCallback = func(host string, remote net.Addr, k cryptossh.PublicKey) error {
 			err := check(host, remote, k)
 			var ke *knownhosts.KeyError
 			if errors.As(err, &ke) {
+				line := knownhosts.Line([]string{knownhosts.Normalize(host)}, k)
+				if len(ke.Want) > 0 {
+					return fmt.Errorf("config.git: the host key of %s does not match host-keys (it may have been rotated, or this may be an attack); verify it out of band before replacing the line with: %s",
+						host, line)
+				}
 				return fmt.Errorf("config.git: the host key of %s is not in host-keys; if you trust it, add: %s",
-					host, knownhosts.Line([]string{knownhosts.Normalize(host)}, k))
+					host, line)
 			}
 			return err
 		}
 		return auth, nil
 	}
+}
+
+// pinnedAlgorithms is the host key algorithms for the key types the
+// known-hosts file lists (nil when it lists none: the defaults apply).
+func pinnedAlgorithms(file string) []string {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	var algs []string
+	seen := map[string]bool{}
+	for len(data) > 0 {
+		_, _, k, _, rest, err := cryptossh.ParseKnownHosts(data)
+		if err != nil {
+			break
+		}
+		data = rest
+		var add []string
+		switch k.Type() {
+		case cryptossh.KeyAlgoRSA:
+			add = []string{cryptossh.KeyAlgoRSASHA512, cryptossh.KeyAlgoRSASHA256, cryptossh.KeyAlgoRSA}
+		default:
+			add = []string{k.Type()}
+		}
+		for _, a := range add {
+			if !seen[a] {
+				seen[a] = true
+				algs = append(algs, a)
+			}
+		}
+	}
+	return algs
 }
