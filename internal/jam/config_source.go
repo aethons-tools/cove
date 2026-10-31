@@ -22,14 +22,14 @@ const ConfigFetchTimeout = 4 * time.Minute
 var configFetchTimeout = ConfigFetchTimeout
 
 // ErrConfigNotTracked is a sync, or a diff/apply naming no source, on a Jam
-// with no tracked config source.
-var ErrConfigNotTracked = errors.New("no config source is tracked (use config track --git <source>, or --dir)")
+// with no followed config repo.
+var ErrConfigNotTracked = errors.New("no config repo is configured (config.github in the serve config)")
 
-// ApplyConfigSource fetches the config repo src (zero = the tracked source,
-// else ErrConfigNotTracked), loads its tree at src.Dir, and plans or applies
-// it as ApplyConfigTree does, with the fetched commit on the marks and the
-// kit versions. An apply from the tracked source records its commit and
-// time in the same write. configMu is held across every fetch.
+// ApplyConfigSource fetches the config repo src (zero = env.Followed, else
+// ErrConfigNotTracked), loads its tree at src.Dir, and plans or applies it as
+// ApplyConfigTree does, with the fetched commit on the marks and the kit
+// versions. An apply from the followed repo records its commit and time in
+// the same write. configMu is held across every fetch.
 func ApplyConfigSource(ctx context.Context, store Store, f KitFetcher, src gitsource.Source, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (ConfigApplyResult, error) {
 	configMu.Lock() // the fetch deadline starts here: queue wait does not count
 	defer configMu.Unlock()
@@ -38,62 +38,22 @@ func ApplyConfigSource(ctx context.Context, store Store, f KitFetcher, src gitso
 	return applyConfigSourceLocked(ctx, store, f, src, env, opt, log, actor)
 }
 
-// TrackConfigSource fetches and plans src (a dry run), then records it as
-// the Jam's one config source and returns the plan. Re-tracking the same
-// source keeps its last commit and time; another source replaces it. A
-// fetch or load failure records nothing; a plan with refusals is still
-// recorded (the operator fixes the repo, then syncs).
-func TrackConfigSource(ctx context.Context, store Store, f KitFetcher, src gitsource.Source, env ConfigEnv, now time.Time, log *slog.Logger, actor string) (ConfigApplyResult, error) {
-	if src.Repo == "" {
-		return ConfigApplyResult{}, writeErr(http.StatusBadRequest, "config track: a source is required (<repo>[//<dir>]@<ref>)")
-	}
-	configMu.Lock() // the fetch deadline starts here: queue wait does not count
-	defer configMu.Unlock()
-	ctx, cancel := context.WithTimeout(ctx, configFetchTimeout)
-	defer cancel()
-	res, err := applyConfigSourceLocked(ctx, store, f, src, env, ConfigApplyOptions{DryRun: true, Now: now}, log, actor)
-	if err != nil {
-		return res, err
-	}
-	rec := ConfigSource{Repo: src.Repo, Dir: src.Dir, Ref: src.Ref}
-	if cur, ok := store.GetConfigSource(); ok && cur.Source() == src {
-		rec = cur
-	}
-	if err := store.SetConfigSource(&rec); err != nil {
-		return res, fmt.Errorf("config track: %w", err)
-	}
-	if log != nil {
-		log.Info("config tracked", "operator", actor, "source", configSourceLabel(src), "commit", res.Commit)
-	}
-	return res, nil
-}
-
-// UntrackConfigSource forgets the tracked source; objects and their marks
-// stay. Untracking with none tracked is a no-op.
-func UntrackConfigSource(store Store, log *slog.Logger, actor string) error {
-	configMu.Lock()
-	defer configMu.Unlock()
+// ConfigFollowConfirmed reports whether the followed config repo's first
+// apply happened: the stored record is of env.Followed. Until then the
+// follower plans but never applies (an operator confirms on the Tracking
+// page, or with config sync).
+func ConfigFollowConfirmed(store Store, env ConfigEnv) bool {
 	cur, ok := store.GetConfigSource()
-	if !ok {
-		return nil
-	}
-	if err := store.SetConfigSource(nil); err != nil {
-		return fmt.Errorf("config untrack: %w", err)
-	}
-	if log != nil {
-		log.Info("config untracked", "operator", actor, "source", configSourceLabel(cur.Source()))
-	}
-	return nil
+	return ok && env.Followed.Repo != "" && cur.Source() == env.Followed
 }
 
 // applyConfigSourceLocked is ApplyConfigSource for a caller holding configMu.
 func applyConfigSourceLocked(ctx context.Context, store Store, f KitFetcher, src gitsource.Source, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (ConfigApplyResult, error) {
 	if src.Repo == "" {
-		cur, ok := store.GetConfigSource()
-		if !ok {
+		if env.Followed.Repo == "" {
 			return ConfigApplyResult{}, ErrConfigNotTracked
 		}
-		src = cur.Source()
+		src = env.Followed
 	}
 	if f == nil {
 		return ConfigApplyResult{}, writeErr(http.StatusServiceUnavailable, "config: git sources are not available on this serve")
@@ -196,13 +156,19 @@ func configSourceLabel(src gitsource.Source) string {
 	return src.String()
 }
 
-// trackedRecord is the tracked-source record an apply of opt writes, nil =
-// none: an apply from the tracked source (same repo, dir and ref) records
-// its commit and time when the commit moved or the apply changed something.
-func trackedRecord(store Store, opt ConfigApplyOptions, changes bool) *ConfigSource {
-	cur, ok := store.GetConfigSource()
-	if !ok || cur.Source() != (gitsource.Source{Repo: opt.Source.Repo, Dir: opt.Source.Dir, Ref: opt.Source.Ref}) {
+// trackedRecord is the followed-repo record an apply of opt writes, nil =
+// none: an apply from env.Followed (same repo, dir and ref) records its
+// commit and time when there was no record of it (the first, confirmed
+// apply; a record of another repo is replaced), the commit moved, or the
+// apply changed something.
+func trackedRecord(store Store, env ConfigEnv, opt ConfigApplyOptions, changes bool) *ConfigSource {
+	src := gitsource.Source{Repo: opt.Source.Repo, Dir: opt.Source.Dir, Ref: opt.Source.Ref}
+	if env.Followed.Repo == "" || src != env.Followed {
 		return nil
+	}
+	cur, ok := store.GetConfigSource()
+	if !ok || cur.Source() != src {
+		return &ConfigSource{Repo: src.Repo, Dir: src.Dir, Ref: src.Ref, Commit: opt.Commit, AppliedAt: opt.Now}
 	}
 	if !changes && cur.Commit == opt.Commit {
 		return nil

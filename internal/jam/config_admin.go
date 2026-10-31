@@ -49,9 +49,7 @@ const maxConfigSourceBody = 64 << 10
 //
 //	POST   /admin/config/diff?force=1                plan a tree or a source (writes nothing)
 //	POST   /admin/config/apply?force=1&plan=<digest> apply it
-//	PUT    /admin/config/source                      {source}: fetch and plan it, then track it
-//	DELETE /admin/config/source                      untrack (objects and marks stay)
-//	POST   /admin/config/sync?force=1&plan=<digest>  {}: apply the tracked source
+//	POST   /admin/config/sync?force=1&plan=<digest>  {}: apply the followed repo (config.github)
 //	GET    /admin/config/export-tree?all=1           render the managed (all: every) object
 //	DELETE /admin/config/managed/{kind}/{name}       release a mark (a role's name is <project>/<role>)
 //
@@ -191,25 +189,6 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 				return
 			}
 			writeJSON(w, http.StatusOK, res)
-		})
-		mux.HandleFunc("PUT /admin/config/source", func(w http.ResponseWriter, r *http.Request) {
-			src, ok := source(w, r, true)
-			if !ok {
-				return
-			}
-			res, err := TrackConfigSource(r.Context(), store, f, src, env, time.Now(), log, OperatorID(r))
-			if err != nil {
-				fail(w, r, "track", err)
-				return
-			}
-			writeJSON(w, http.StatusOK, res)
-		})
-		mux.HandleFunc("DELETE /admin/config/source", func(w http.ResponseWriter, r *http.Request) {
-			if err := UntrackConfigSource(store, log, OperatorID(r)); err != nil {
-				fail(w, r, "untrack", err)
-				return
-			}
-			w.WriteHeader(http.StatusNoContent)
 		})
 		mux.HandleFunc("GET /admin/config/export-tree", func(w http.ResponseWriter, r *http.Request) {
 			q := r.URL.Query()

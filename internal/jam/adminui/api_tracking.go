@@ -112,14 +112,6 @@ func apiTracking(api *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.
 	api.HandleFunc("GET "+apiPrefix+"tracking", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, trackingOf(store, page()))
 	})
-	api.HandleFunc("DELETE "+apiPrefix+"tracking/source", func(w http.ResponseWriter, r *http.Request) {
-		if err := jam.UntrackConfigSource(store, log, jam.OperatorID(r)); err != nil {
-			trackingFail(w, r, log, err)
-			return
-		}
-		log.Info("ui config untracked", "operator", jam.OperatorID(r))
-		done(w, page(), "config source untracked; managed objects and their marks stay")
-	})
 	api.HandleFunc("DELETE "+apiPrefix+"tracking/managed/{kind}/{name...}", func(w http.ResponseWriter, r *http.Request) {
 		key := jam.ConfigKey{Kind: r.PathValue("kind"), Name: r.PathValue("name")}
 		if err := jam.ReleaseConfigMark(store, key, env.Conditions, log, jam.OperatorID(r)); err != nil {
@@ -177,31 +169,5 @@ func apiTracking(api *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.
 		}
 		log.Info("ui config applied", "operator", jam.OperatorID(r), "source", res.Source, "commit", res.Commit, "applied", res.Applied, "forced", body.Force)
 		done(w, page(), applyMsg(res))
-	}))
-	api.HandleFunc("POST "+apiPrefix+"tracking/source", git(func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Source string }
-		if !decodeJSON(w, r, &body) {
-			return
-		}
-		// Track only when nothing is tracked, as on the Config page: switching
-		// is Untrack, then Track.
-		if cs, tracked := store.GetConfigSource(); tracked {
-			writeAPIError(w, http.StatusConflict, "conflict", "a config source is already tracked ("+newConfigSourceView(cs).Label+"); Untrack it first")
-			return
-		}
-		src, err := gitsource.Parse(strings.TrimSpace(body.Source))
-		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "bad_request", err.Error())
-			return
-		}
-		res, err := jam.TrackConfigSource(r.Context(), store, f, src, env, time.Now(), log, jam.OperatorID(r))
-		if err != nil {
-			trackingFail(w, r, log, err)
-			return
-		}
-		log.Info("ui config tracked", "operator", jam.OperatorID(r), "source", res.Source, "commit", res.Commit)
-		d := page()
-		d.Plan = newPlanView(res, false)
-		done(w, d, "tracking "+res.Source)
 	}))
 }
