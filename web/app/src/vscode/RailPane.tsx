@@ -39,13 +39,15 @@ export function RailPane({ bridge, windows, active }: { bridge: Bridge; windows:
             <Button size="xs" variant="light" onClick={picker.open}>New message</Button>
             {boot.data.newSession && <Button size="xs" variant="light" onClick={starter.open}>New session</Button>}
           </Group>
-          <RecipientPicker opened={picking} onClose={picker.close} onPick={setTo} />
+          {/* returnFocus off: the composer, not the button behind it, takes the focus */}
+          <RecipientPicker opened={picking} onClose={picker.close} onPick={setTo} returnFocus={false} />
           {boot.data.newSession && <NewSession opened={starting} onClose={starter.close} onStarted={(s) => goChannel(s.channel, s.id)} />}
-          <Modal opened={to !== undefined} onClose={() => setTo(undefined)} title="New message">
+          {/* Full screen: a sidebar is too narrow for the composer's row in a dialog. */}
+          <Modal opened={to !== undefined} onClose={() => setTo(undefined)} title="New message" fullScreen>
             {to && (
               <Stack gap="xs">
                 <Text size="xs" c="dimmed">to {to.label}</Text>
-                <Composer key={to.to} to={to.to} label={to.label} attachMax={boot.data.attachMax}
+                <Composer key={to.to} to={to.to} label={to.label} attachMax={boot.data.attachMax} autoFocus
                   onSent={(m) => { setTo(undefined); goChannel(m.channel, ""); }} />
               </Stack>
             )}

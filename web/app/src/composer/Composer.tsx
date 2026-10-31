@@ -16,7 +16,8 @@ import { upload } from "./upload";
 // ComposerHandle lets the conversation start a reply about an ask (Discuss).
 export type ComposerHandle = { discuss(id: string, question: string): void };
 
-export function Composer({ to, label, attachMax, onSent, ref }: { to: string; label: string; attachMax: number; onSent?: (s: MessageSent) => void; ref?: Ref<ComposerHandle> }) {
+// autoFocus marks the textarea for a surrounding Modal's focus trap (data-autofocus).
+export function Composer({ to, label, attachMax, onSent, ref, autoFocus }: { to: string; label: string; attachMax: number; onSent?: (s: MessageSent) => void; ref?: Ref<ComposerHandle>; autoFocus?: boolean }) {
   const mac = keys.isMac();
   const client = useQueryClient();
   const box = useRef<HTMLTextAreaElement>(null);
@@ -133,7 +134,7 @@ export function Composer({ to, label, attachMax, onSent, ref }: { to: string; la
         </Button>
       )}
       <Group align="flex-end" gap="xs" wrap="nowrap">
-        <Textarea ref={box} flex={1} autosize minRows={2} maxRows={12} aria-label={`Message ${label}`}
+        <Textarea ref={box} flex={1} autosize minRows={2} maxRows={12} aria-label={`Message ${label}`} data-autofocus={autoFocus || undefined}
           placeholder={`Message ${label}… (${keys.hint(mac)})`} value={text}
           onChange={(e) => setText(e.currentTarget.value)}
           onKeyDown={(e) => {

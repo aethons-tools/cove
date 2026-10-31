@@ -9,14 +9,14 @@ import { APP } from "../paths";
 // RecipientPicker lists whom the viewer may start a conversation with,
 // grouped by project; picking one opens the New message composer (onPick:
 // the caller's instead, as the VS Code rail does).
-export function RecipientPicker({ opened, onClose, onPick }: { opened: boolean; onClose: () => void; onPick?: (o: { to: string; label: string }) => void }) {
+export function RecipientPicker({ opened, onClose, onPick, returnFocus = true }: { opened: boolean; onClose: () => void; onPick?: (o: { to: string; label: string }) => void; returnFocus?: boolean }) {
   const [q, setQ] = useState("");
   const nav = useNavigate();
   const { data } = useQuery<RecipientsResponse, ApiError>({ queryKey: ["recipients"], queryFn: () => apiGet("recipients"), enabled: opened });
   const shown = (data?.options ?? []).filter((o) => o.label.toLowerCase().includes(q.trim().toLowerCase()));
   const projects = [...new Set(shown.map((o) => o.project))];
   return (
-    <Modal opened={opened} onClose={onClose} title="New message">
+    <Modal opened={opened} onClose={onClose} title="New message" returnFocus={returnFocus}>
       <TextInput data-autofocus placeholder="Search people, sessions, rooms…" value={q} onChange={(e) => setQ(e.currentTarget.value)} mb="sm" />
       <ScrollArea.Autosize mah={360}>
         {projects.map((p) => (

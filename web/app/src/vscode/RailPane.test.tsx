@@ -82,6 +82,15 @@ describe("the rail pane", () => {
     await vi.waitFor(() => expect(screen.queryByText("to Ann")).toBeNull());
   });
 
+  it("the message composer fills the pane and takes the focus", async () => {
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "New message" }));
+    await userEvent.click(await screen.findByRole("button", { name: /Ann/ }));
+    await screen.findByText("to Ann");
+    expect(document.querySelector("[data-full-screen]")).not.toBeNull();
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Message Ann" })));
+  });
+
   it("New session: start, then go to its conversation", async () => {
     const { intents } = mount();
     await userEvent.click(await screen.findByRole("button", { name: "New session" }));
@@ -148,6 +157,7 @@ describe("the rail pane", () => {
   it("signed out shows Sign in", async () => {
     const { h } = mount({ signedIn: false, target: null });
     expect(await screen.findByText("Sign in to Jam to see your conversations.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New message" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(h.posted).toContainEqual({ type: "signIn" });
   });
