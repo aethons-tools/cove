@@ -7,7 +7,7 @@ import { ApiError } from "../../api/client";
 import type { ConfigBranchResult, ConfigBranches, ConfigMergeResult, ConfigPR } from "../api/types";
 import { ADMIN, adminApi } from "../paths";
 import { ConfirmAction } from "../ui/ConfirmAction";
-import { setBranch, useBranch } from "./branch";
+import { setBranch, useBranch, useHead } from "./branch";
 
 const listKey = ["admin", "config", "branches"];
 
@@ -17,6 +17,7 @@ const listKey = ["admin", "config", "branches"];
 // the serve (404) it shows nothing.
 export function BranchBar() {
   const branch = useBranch();
+  const head = useHead();
   const client = useQueryClient();
   const navigate = useNavigate();
   const { data } = useQuery<ConfigBranches, ApiError>({ queryKey: listKey, queryFn: () => adminApi.get("config/branches"), retry: false });
@@ -44,13 +45,14 @@ export function BranchBar() {
   };
   const merge = async () => {
     try {
-      const r = await adminApi.post<ConfigMergeResult>("config/branches/merge", { branch, head: current?.head ?? "" });
+      const r = await adminApi.post<ConfigMergeResult>("config/branches/merge", { branch, head: head || current?.head || "" });
       notifications.show({ color: "green", message: r.message });
       setRefused("");
       void client.invalidateQueries();
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) setRefused(e.message);
-      else throw e;
+      if (!(e instanceof ApiError) || e.status !== 409) throw e;
+      setRefused(e.message);
+      void client.invalidateQueries({ queryKey: listKey }); // a stale head: read it again
     }
   };
   const openPR = async () => {
@@ -83,7 +85,7 @@ export function BranchBar() {
           <Group justify="space-between">
             <Group gap="xs">
               <Badge color="yellow">branch</Badge>
-              <Text size="sm">Editing <b>{branch}</b> {current && <Text span ff="monospace" c="dimmed">@{current.short}</Text>}: each save is a commit to it.</Text>
+              <Text size="sm">Editing <b>{branch}</b> {(head || current) && <Text span ff="monospace" c="dimmed">@{head ? head.slice(0, 7) : current?.short}</Text>}: each save is a commit to it.</Text>
               {data.repoLink && <Anchor size="sm" href={`${data.repoLink}/tree/${branch}`} rel="noopener noreferrer">View the branch</Anchor>}
               {link && <Anchor size="sm" href={link} rel="noopener noreferrer">Pull request</Anchor>}
             </Group>

@@ -110,6 +110,30 @@ func TestBranchPicksUpHandPushes(t *testing.T) {
 	}
 }
 
+// A write names the head its page read (X-Jam-Config-Head): one on an older
+// head (another tab saved since) is refused as stale; every branch answer
+// carries the head after it.
+func TestBranchWriteOnAStaleHead(t *testing.T) {
+	h, _, _, url := branchUI(t)
+	rec := apiDoWith(t, h, onBranch("jam/alice"), "GET", "/app/admin/api/users", nil, nil)
+	read := rec.Header().Get("X-Jam-Config-Head")
+	if read != gittest.Head(t, url, "jam/alice") {
+		t.Fatalf("head header %q", read)
+	}
+	at := func(head string) func(*http.Request) {
+		return func(r *http.Request) { onBranch("jam/alice")(r); r.Header.Set("X-Jam-Config-Head", head) }
+	}
+	rec = apiDoWith(t, h, at(read), "POST", "/app/admin/api/users", map[string]string{"name": "carol"}, nil)
+	if rec.Code != 201 || rec.Header().Get("X-Jam-Config-Head") != gittest.Head(t, url, "jam/alice") || rec.Header().Get("X-Jam-Config-Head") == read {
+		t.Fatalf("save = %d head %q", rec.Code, rec.Header().Get("X-Jam-Config-Head"))
+	}
+	// The other tab still has the first head.
+	wantErr(t, apiDoWith(t, h, at(read), "POST", "/app/admin/api/users", map[string]string{"name": "dan"}, nil), 409, "stale")
+	if _, ok := gittest.Show(t, url, "jam/alice", "users/dan.yml"); ok {
+		t.Fatal("a stale write was saved")
+	}
+}
+
 func TestBranchesAPI(t *testing.T) {
 	h, live, _, url := branchUI(t)
 	var list adminui.ConfigBranches

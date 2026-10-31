@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -43,10 +42,26 @@ type ConfigBranches struct {
 // Head; callers serialize use of one workspace with its Lock.
 type ConfigWorkspace struct {
 	Branch string
-	Head   string
+	Head   string // read with HeadNow while requests may run
 	Store  *MemStore
 
-	sync.Mutex
+	sync.Mutex // one request at a time on the workspace
+
+	headMu sync.Mutex       // guards Head
+	base   ConfigTreeExport // the rendering at Head: what a save diffs against
+}
+
+// HeadNow is the workspace's head.
+func (ws *ConfigWorkspace) HeadNow() string {
+	ws.headMu.Lock()
+	defer ws.headMu.Unlock()
+	return ws.Head
+}
+
+func (ws *ConfigWorkspace) setHead(h string) {
+	ws.headMu.Lock()
+	ws.Head = h
+	ws.headMu.Unlock()
 }
 
 // Workspace is branch's workspace: the cached one while the branch is still
@@ -70,7 +85,7 @@ func (b *ConfigBranches) Workspace(ctx context.Context, branch string) (*ConfigW
 		return nil, configrepo.ErrNoBranch
 	}
 	b.mu.Lock()
-	if ws, ok := b.workspaces[branch]; ok && ws.Head == head {
+	if ws, ok := b.workspaces[branch]; ok && ws.HeadNow() == head {
 		b.mu.Unlock()
 		return ws, nil
 	}
@@ -122,7 +137,11 @@ func (b *ConfigBranches) load(ctx context.Context, branch string) (*ConfigWorksp
 	if err != nil {
 		return nil, err
 	}
-	return &ConfigWorkspace{Branch: branch, Head: head, Store: scratch}, nil
+	base, err := renderWorkspace(scratch)
+	if err != nil {
+		return nil, err
+	}
+	return &ConfigWorkspace{Branch: branch, Head: head, Store: scratch, base: base}, nil
 }
 
 // treeOf loads the config tree from files' config dir.
@@ -172,88 +191,77 @@ func (b *ConfigBranches) materialize(dir string, files map[string]configrepo.Fil
 	return nil
 }
 
-// Save commits ws's store back to its branch: the store's config tree
-// written over the branch's files (WriteConfigTree, as config write does),
-// and the files that changed or went. No change, no commit. A branch that
-// moved since ws was read is configrepo.ErrStale, and ws is dropped.
+// Save commits ws's store back to its branch: the files whose rendering
+// changed since the workspace was loaded or last saved (ExportConfigTree,
+// every object), put or removed. Files it didn't render differently stay as
+// the branch has them (hand edits, comments), as do files outside the
+// config dir and jam.yml. No change, no commit. A branch that moved since ws
+// was read is configrepo.ErrStale; any failure drops ws (its store may hold
+// the unsaved edit).
 func (b *ConfigBranches) Save(ctx context.Context, ws *ConfigWorkspace, author configrepo.Signature, msg string) error {
-	// No serve config: the repo's jam.yml is compare-only, never edited here.
-	exp, err := ExportConfigTree(ws.Store.configSnapshot(), ws.Store.ListConfigMarks(), nil, true)
-	if err != nil {
-		return err
+	exp, err := renderWorkspace(ws.Store)
+	if err == nil {
+		var head string
+		if head, err = b.Repo.Commit(ctx, ws.Branch, ws.HeadNow(), b.diff(ws.base, exp), author, msg); err == nil {
+			ws.setHead(head)
+			ws.base = exp
+			return nil
+		}
 	}
-	_, files, err := b.Repo.Files(ctx, ws.Branch)
-	if err != nil {
-		return err
-	}
-	tmp, err := os.MkdirTemp("", "jam-branch-save-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmp)
-	if err := b.materialize(tmp, files); err != nil {
-		return err
-	}
-	if err := WriteConfigTree(tmp, exp); err != nil {
-		return err
-	}
-	ch, err := b.changes(tmp, files)
-	if err != nil {
-		return err
-	}
-	head, err := b.Repo.Commit(ctx, ws.Branch, ws.Head, ch, author, msg)
-	if errors.Is(err, configrepo.ErrStale) {
-		b.Drop(ws.Branch)
-		return err
-	}
-	if err != nil {
-		return err
-	}
-	ws.Head = head
-	return nil
+	b.Drop(ws.Branch)
+	return err
 }
 
-// changes compares the written dir with the branch's config-dir files.
-func (b *ConfigBranches) changes(dir string, files map[string]configrepo.File) (configrepo.Changes, error) {
+// renderWorkspace is st's config tree as the repo holds it. No serve config:
+// the repo's jam.yml is compare-only, never edited from a branch.
+func renderWorkspace(st *MemStore) (ConfigTreeExport, error) {
+	return ExportConfigTree(st.configSnapshot(), st.ListConfigMarks(), nil, true)
+}
+
+// diff is what changed from the rendering before to after, as repo paths.
+func (b *ConfigBranches) diff(before, after ConfigTreeExport) configrepo.Changes {
 	ch := configrepo.Changes{Put: map[string]configrepo.File{}}
 	full := func(rel string) string { return path.Join(b.Dir, rel) }
-	seen := map[string]bool{}
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		rel, err := filepath.Rel(dir, p)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		seen[rel] = true
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		mode := filemode.Regular
-		if info.Mode()&0o111 != 0 {
-			mode = filemode.Executable
-		}
-		if old, ok := files[full(rel)]; !ok || !bytes.Equal(old.Data, data) || old.Mode != mode {
-			ch.Put[full(rel)] = configrepo.File{Data: data, Mode: mode}
-		}
-		return nil
-	})
-	if err != nil {
-		return ch, err
-	}
-	for p := range files {
-		if rel, ok := b.configPath(p); ok && !seen[rel] {
-			ch.Delete = append(ch.Delete, p)
+	for p, c := range after.Files {
+		if old, ok := before.Files[p]; !ok || old != c {
+			ch.Put[full(p)] = configrepo.File{Data: []byte(c), Mode: filemode.Regular}
 		}
 	}
-	return ch, nil
+	for p := range before.Files {
+		if _, ok := after.Files[p]; !ok {
+			ch.Delete = append(ch.Delete, full(p))
+		}
+	}
+	kitFiles := func(fs []ConfigKitFile) map[string]ConfigKitFile {
+		m := make(map[string]ConfigKitFile, len(fs))
+		for _, f := range fs {
+			m[f.Path] = f
+		}
+		return m
+	}
+	mode := func(m uint32) filemode.FileMode {
+		if m&0o111 != 0 {
+			return filemode.Executable
+		}
+		return filemode.Regular
+	}
+	for dir, fs := range after.Kits {
+		old := kitFiles(before.Kits[dir])
+		for _, f := range fs {
+			if o, ok := old[f.Path]; !ok || !bytes.Equal(o.Data, f.Data) || o.Mode != f.Mode {
+				ch.Put[full(dir+"/"+f.Path)] = configrepo.File{Data: f.Data, Mode: mode(f.Mode)}
+			}
+		}
+	}
+	for dir, fs := range before.Kits {
+		now := kitFiles(after.Kits[dir])
+		for _, f := range fs {
+			if _, ok := now[f.Path]; !ok {
+				ch.Delete = append(ch.Delete, full(dir+"/"+f.Path))
+			}
+		}
+	}
+	return ch
 }
 
 // configBranchStatus maps the configrepo errors (and conflicts) for ConfigStatus.

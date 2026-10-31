@@ -251,3 +251,45 @@ func TestPRs(t *testing.T) {
 		t.Fatalf("pr = %+v %v title %q", pr, err, title)
 	}
 }
+
+// An object created and then deleted in one cached workspace leaves the
+// branch: deletes are found against the last save, not only the load.
+func TestSaveDeletesWhatTheWorkspaceCreated(t *testing.T) {
+	b, url, _ := branchesFor(t)
+	ctx := context.Background()
+	ws, _ := b.Workspace(ctx, "jam/alice")
+	u, err := ws.Store.CreateUser(User{Name: "carol"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Save(ctx, ws, opAlice, "add"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.Store.RemoveUser(u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Save(ctx, ws, opAlice, "remove"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := gittest.Show(t, url, "jam/alice", "jam/users/carol.yml"); ok {
+		t.Fatal("carol is still on the branch")
+	}
+}
+
+// A save commits only the files whose rendering changed: a hand-edited
+// file the save didn't touch keeps its comments.
+func TestSaveKeepsUntouchedHandEdits(t *testing.T) {
+	b, url, _ := branchesFor(t)
+	ctx := context.Background()
+	handPush(t, b, "jam/alice", map[string]string{"jam/users/bob.yml": "# bob, by hand\nkind: user\nversion: 1\n"})
+	ws, _ := b.Workspace(ctx, "jam/alice")
+	if _, err := ws.Store.CreateUser(User{Name: "carol"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Save(ctx, ws, opAlice, "add"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := gittest.Show(t, url, "jam/alice", "jam/users/bob.yml"); !strings.HasPrefix(got, "# bob, by hand") {
+		t.Fatalf("bob rewritten: %q", got)
+	}
+}

@@ -3,6 +3,7 @@ package configrepo
 import (
 	"context"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
@@ -152,6 +153,15 @@ func merge3(base, ours, theirs map[string]entry) (map[string]entry, []string) {
 		}
 		if keep {
 			out[p] = e
+		}
+	}
+	// A file on one side and a directory of the same name on the other can't
+	// both stand: a conflict on the file.
+	for p := range out {
+		for d := parentDir(p); d != ""; d = parentDir(d) {
+			if _, clash := out[d]; clash && !slices.Contains(conflicts, d) {
+				conflicts = append(conflicts, d)
+			}
 		}
 	}
 	sort.Strings(conflicts)

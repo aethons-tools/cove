@@ -20,7 +20,13 @@ import (
 // as a commit to the branch before it is answered.
 
 // BranchHeader names the branch a config request works on; absent = live.
-const BranchHeader = "X-Jam-Config-Branch"
+// HeadHeader is the branch head a write's page read (refused when the
+// branch moved on since: another tab saved), and on every branch answer the
+// head after it.
+const (
+	BranchHeader = "X-Jam-Config-Branch"
+	HeadHeader   = "X-Jam-Config-Head"
+)
 
 // WithConfigBranches turns the branch editor on: b's workspaces, served by
 // handlers factory builds (the same Handler call, over a workspace's store,
@@ -32,10 +38,10 @@ func WithConfigBranches(b *jam.ConfigBranches, factory func(jam.Store) http.Hand
 // branchPaths are the API paths (after apiPrefix) a branch serves: the
 // config objects. Live state under them (a user's accounts, OIDC and app
 // tokens; a project's agents; a role's Request; a kit draft's test build)
-// stays live: branchLive.
+// and a standing session's reset or upgrade) stays live: branchLive.
 var (
 	branchPaths = []string{"tree", "users", "connections", "projects", "roles", "destinations", "model-specs", "kits", "jam/context"}
-	branchLive  = regexp.MustCompile(`^(users/[^/]+/(accounts|oidc|app-tokens)(/.*)?|projects/[^/]+/agents|projects/[^/]+/roles/[^/]+/request|kits/[^/]+/draft/build)$`)
+	branchLive  = regexp.MustCompile(`^(users/[^/]+/(accounts|oidc|app-tokens)(/.*)?|projects/[^/]+/agents|projects/[^/]+/roles/[^/]+/(request|standing/[^/]+/(reset|upgrade))|kits/[^/]+/draft/build)$`)
 )
 
 func onBranchPath(p string) bool {
@@ -112,19 +118,31 @@ func (br *branchRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ws.Lock()
 	defer ws.Unlock()
+	write := r.Method != http.MethodGet && r.Method != http.MethodHead
+	if read := r.Header.Get(HeadHeader); write && read != "" && read != ws.HeadNow() {
+		w.Header().Set(HeadHeader, ws.HeadNow())
+		writeAPIError(w, http.StatusConflict, "stale", "this branch changed since the page was read (another tab or a push); reload it")
+		return
+	}
 	rec := &bufferedWriter{header: http.Header{}, status: http.StatusOK}
 	br.handlerFor(ws).ServeHTTP(rec, r)
-	if r.Method != http.MethodGet && r.Method != http.MethodHead && rec.status/100 == 2 {
-		msg := "jam: " + r.Method + " " + strings.TrimPrefix(r.URL.Path, apiPrefix)
-		if err := br.b.Save(r.Context(), ws, operatorSig(r), msg); err != nil {
+	if write {
+		if rec.status/100 != 2 {
+			br.b.Drop(branch) // a failed write may have changed the scratch store
+		} else if err := br.b.Save(r.Context(), ws, operatorSig(r), "jam: "+r.Method+" "+strings.TrimPrefix(r.URL.Path, apiPrefix)); err != nil {
 			status, emsg := jam.ConfigStatus(err)
-			writeAPIError(w, status, apiCode(status), emsg)
+			code := apiCode(status)
+			if errors.Is(err, configrepo.ErrStale) {
+				code = "stale"
+			}
+			writeAPIError(w, status, code, emsg)
 			return
 		}
 	}
 	for k, v := range rec.header {
 		w.Header()[k] = v
 	}
+	w.Header().Set(HeadHeader, ws.HeadNow())
 	w.WriteHeader(rec.status)
 	_, _ = w.Write(rec.body.Bytes())
 }

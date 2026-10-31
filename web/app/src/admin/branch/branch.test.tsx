@@ -22,7 +22,10 @@ function serve(seen: (string | null)[] = []) {
   server.use(
     http.get("/app/admin/api/config/branches", () => HttpResponse.json(list())),
     http.get("/app/admin/api/config/branches/pr", () => HttpResponse.json({ url: "" })),
-    http.get("/app/admin/api/tree", ({ request }) => { seen.push(request.headers.get("X-Jam-Config-Branch")); return HttpResponse.json({ nodes: [] }); }),
+    http.get("/app/admin/api/tree", ({ request }) => {
+      seen.push(request.headers.get("X-Jam-Config-Branch"));
+      return HttpResponse.json({ nodes: [] }, request.headers.get("X-Jam-Config-Branch") ? { headers: { "X-Jam-Config-Head": "c".repeat(40) } } : undefined);
+    }),
     http.get("/app/admin/api/projects", () => HttpResponse.json({ projects: [] })),
   );
   return seen;
@@ -74,6 +77,27 @@ describe("the branch bar", () => {
     await user.click(screen.getByRole("button", { name: "Open a pull request" }));
     await waitFor(() => expect(prs).toBe(1));
     expect(await screen.findByRole("link", { name: /pull request/i })).toHaveAttribute("href", "https://github.com/acme/jam/pull/9");
+  });
+
+  it("Merge sends the head this tab last read", async () => {
+    serve();
+    setBranch("jam/alice");
+    let sent: unknown;
+    server.use(http.post("/app/admin/api/config/branches/merge", async ({ request }) => {
+      sent = await request.json();
+      return HttpResponse.json({ merge: { head: "ccccccc", fastForward: true, noOp: false }, message: "merged" });
+    }));
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at);
+    await user.click(await screen.findByRole("button", { name: "Merge" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Merge" }));
+    await waitFor(() => expect(sent).toEqual({ branch: "jam/alice", head: "c".repeat(40) }));
+  });
+
+  it("the branch is per tab (sessionStorage)", () => {
+    setBranch("jam/alice");
+    expect(sessionStorage.getItem("jam.admin.configBranch")).toBe("jam/alice");
+    expect(localStorage.getItem("jam.admin.configBranch")).toBeNull();
   });
 
   it("Back to main leaves the branch", async () => {

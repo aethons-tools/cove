@@ -126,3 +126,11 @@ func TestMergeStale(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestMerge3FileDirClashIsAConflict(t *testing.T) {
+	e := entry{mode: filemode.Regular}
+	_, conflicts := merge3(map[string]entry{}, map[string]entry{"a": e}, map[string]entry{"a/b": e})
+	if len(conflicts) != 1 || conflicts[0] != "a" {
+		t.Fatalf("conflicts = %v", conflicts)
+	}
+}
