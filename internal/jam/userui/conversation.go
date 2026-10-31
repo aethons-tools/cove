@@ -66,8 +66,15 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 		ChannelID: channelID, Label: v.Label, Kind: v.Kind, Project: v.Project, Phase: v.Phase, NeedsYou: v.NeedsYou,
 		SendTo: channelID, LastSeq: v.LastSeq, SessionIDs: v.Sessions,
 	}
+	colors := map[ident.ID]string{} // per sender, looked up once
 	for _, m := range d.Log.ChannelSince(ident.ID(channelID), 0, 0) {
 		row := messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID)
+		c, ok := colors[m.From]
+		if !ok {
+			c, _ = d.Store.SessionColor(string(m.From)) // a person has none
+			colors[m.From] = c
+		}
+		row.Color = c
 		decorateAsk(&row, p, d, m)
 		if card := boardCard(d, m); card != nil {
 			row.Board = card

@@ -116,6 +116,10 @@ export interface SessionCard {
    * it started; the app marks its sparkline where this goes up.
    */
   inits: number /* int */;
+  /**
+   * Color is the session's color (#rrggbb; "" = none), filling its icon.
+   */
+  color: string;
 }
 /**
  * CardCounts are a card's count icons, each hidden at 0.
@@ -159,6 +163,11 @@ export interface MessageRow {
   time: string; // when it was sent (the app's day dividers and local times)
   mine: boolean;
   seq: number /* int64 */;
+  /**
+   * Color is the sending session's color, its bubble's border ("" = a
+   * person, or a session with none).
+   */
+  color: string;
   /**
    * Ask is the card of an ask's own squawk; System marks an ask's later
    * event (a one-line note, not a bubble); ReAsk a reply about an ask.
@@ -239,6 +248,10 @@ export interface Conversation {
    * pane read api/sessions/{session}.
    */
   session: string;
+  /**
+   * Color is that session's color, the composer's accent ("" = none).
+   */
+  color: string;
 }
 /**
  * NewMessageOption is one recipient offered in the New Message picker.
@@ -339,6 +352,7 @@ export interface SessionHead {
   label: string;
   channel: string; // the session's home channel (/app/user/c/<channel>)
   kind: string; // standing | personal | ticket | session
+  color: string; // the session's color (#rrggbb; "" = none)
   ticket: string;
   role: string;
   project: string;

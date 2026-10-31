@@ -84,6 +84,7 @@ func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Insta
 	}
 	hd.Since = since(now, stateSince(inst))
 	hd.Card, _ = h.card(inst)
+	hd.Color, _ = h.d.Store.SessionColor(inst.ActorID)
 	if h.d.Totals != nil {
 		if t, err := h.d.Totals.Of(inst.ActorID); err == nil {
 			if t.Turns > 0 {
