@@ -14,19 +14,24 @@ const listKey = ["admin", "config", "branches"];
 // BranchBar heads every Config page (docs/usage/jam/config-branches.md):
 // the followed branch, read-only, with Create and Open branch; or the open
 // branch, with its links, Merge, PR and Back. Without the branch editor on
-// the serve (404) it shows nothing.
+// the serve (404) it shows nothing; another failure is shown.
 export function BranchBar() {
   const branch = useBranch();
   const head = useHead();
   const client = useQueryClient();
   const navigate = useNavigate();
-  const { data } = useQuery<ConfigBranches, ApiError>({ queryKey: listKey, queryFn: () => adminApi.get("config/branches"), retry: false });
+  const { data, error } = useQuery<ConfigBranches, ApiError>({ queryKey: listKey, queryFn: () => adminApi.get("config/branches"), retry: false });
   const pr = useQuery<ConfigPR, ApiError>({ queryKey: [...listKey, "pr", branch], queryFn: () => adminApi.get(`config/branches/pr?branch=${encodeURIComponent(branch)}`),
     enabled: !!branch && !!data?.canPR, retry: false });
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [refused, setRefused] = useState("");
   const [prURL, setPrURL] = useState("");
+  // No branch editor (no config repo): nothing. Any other failure says why,
+  // rather than hiding the bar.
+  if (error && error.status !== 404) {
+    return <Alert color="red" mb="md" title="The config branches can't be listed">{error.message}</Alert>;
+  }
   if (!data) return null;
   // switch changes the context: every admin query reloads, from the config root.
   const switchTo = (b: string) => {

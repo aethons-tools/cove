@@ -100,6 +100,22 @@ describe("the branch bar", () => {
     expect(localStorage.getItem("jam.admin.configBranch")).toBeNull();
   });
 
+  it("says why when the branches can't be listed", async () => {
+    serve();
+    server.use(http.get("/app/admin/api/config/branches", () => HttpResponse.json({ error: "config repo: fetch https://github.com/acme/jam: auth failed (check config.github.cred)", code: "internal" }, { status: 502 })));
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByText(/auth failed/)).toBeInTheDocument();
+  });
+
+  it("shows nothing without the branch editor", async () => {
+    serve();
+    server.use(http.get("/app/admin/api/config/branches", () => HttpResponse.json({ error: "no such API route", code: "not_found" }, { status: 404 })));
+    renderAdmin(adminBoot, at);
+    await screen.findByText(/Projects/);
+    expect(screen.queryByText(/can't be listed/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create branch" })).toBeNull();
+  });
+
   it("Back to main leaves the branch", async () => {
     const seen = serve();
     setBranch("jam/alice");
