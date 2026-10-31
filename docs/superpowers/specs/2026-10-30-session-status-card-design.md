@@ -1,6 +1,6 @@
 # Session status card — design
 
-**Status:** agreed with the user 2026-10-30, not yet built.
+**Status:** agreed with the user 2026-10-30; built (PRs #582–#586). Docs: `docs/usage/jam/session-card.md`.
 **Context:** a rail row for a session shows only the session's name and its [mission](2026-10-26-session-mission-design.md). It doesn't show what the session is doing now, how full its context is, or what it has running. The extension's Status pane (`jam.status`) has the same gap. The user designed a compact **session status card** on a whiteboard and in a live mockup ([assets/2026-10-30-session-status-card-mockup.html](assets/2026-10-30-session-status-card-mockup.html)). It replaces the session's rail row in the web app and becomes the extension's **Session Status** pane.
 
 ## Decisions (2026-10-30)
