@@ -17,6 +17,11 @@ export interface Ui {
   openExternal(url: string): Promise<void>;
   // Opens uri in a new window, focusing one already on it.
   openFolder(uri: string): Promise<void>;
+  // writeStudioFile writes a studio workspace file (studioWorkspace) into the
+  // extension's studios directory and returns its URI; studioFile is that URI
+  // when the file exists.
+  writeStudioFile(name: string, text: string): Promise<string>;
+  studioFile(name: string): Promise<string | undefined>;
   // Opens a Jam's hub window (default: this window's Jam), writing its
   // workspace file if missing, or focuses it.
   openHub(jam?: string): Promise<void>;
@@ -32,6 +37,36 @@ export interface Ui {
 }
 
 export const remoteUri = (studio: string): string => `vscode-remote://ssh-remote+jam-${studio}/home/agent/workspace`;
+
+// A studio window opens from a local workspace file on its remote folder, so
+// its title bar can take the session's color (docs/usage/jam/session-colors.md)
+// without writing settings into the studio's own workspace.
+export const studioFileName = (studio: string): string => `jam-${studio}.code-workspace`;
+
+const COLOR_RE = /^#[0-9a-f]{6}$/;
+
+// studioWorkspace is the studio's workspace file: its remote folder, and with
+// a color, the title bar in it (dimmed when the window is inactive).
+export function studioWorkspace(studio: string, color: string): string {
+  const w: Record<string, unknown> = { folders: [{ uri: remoteUri(studio) }], remoteAuthority: `ssh-remote+jam-${studio}` };
+  if (COLOR_RE.test(color)) {
+    w.settings = {
+      "workbench.colorCustomizations": {
+        "titleBar.activeBackground": color,
+        "titleBar.activeForeground": "#ffffff",
+        "titleBar.inactiveBackground": `${color}99`,
+        "titleBar.inactiveForeground": "#ffffffaa",
+      },
+    };
+  }
+  return JSON.stringify(w, null, 2) + "\n";
+}
+
+// focusStudioUri is what brings a studio's window to the front: its
+// workspace file, or for a window opened before those, its remote folder.
+export async function focusStudioUri(ui: Pick<Ui, "studioFile">, studio: string): Promise<string> {
+  return (await ui.studioFile(studioFileName(studio))) ?? remoteUri(studio);
+}
 
 export function webUrl(base: string, channel: string): string {
   return channel ? `${base}/app/user/c/${encodeURIComponent(channel)}` : `${base}/app/user/`;
@@ -179,7 +214,8 @@ async function prepareSsh(
 }
 
 // openSession sets up SSH for the session's studio and opens its studio
-// window over Remote-SSH: a new window, or the one already on it. The studio
+// window over Remote-SSH, from its workspace file (written fresh, so its color
+// is current): a new window, or the one already on it. The studio
 // window marks itself connected when it starts.
 export async function openSession(d: OpenDeps, id: string): Promise<void> {
   const { ui } = d;
@@ -200,7 +236,7 @@ export async function openSession(d: OpenDeps, id: string): Promise<void> {
     }
     await d.remember?.(id);
     step("opening the window");
-    const uri = remoteUri(id);
+    const uri = await ui.writeStudioFile(studioFileName(id), studioWorkspace(id, s.head.color ?? ""));
     log(`openFolder ${uri}`);
     await ui.openFolder(uri);
     log("openFolder returned");

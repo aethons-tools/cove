@@ -164,7 +164,7 @@ describe("activate", () => {
       ctx.state.set(`jam.connected.${SES}`, Date.now());
       rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
       await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(4));
-      expect(openFolderCalls()[3]).toEqual(["vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceNewWindow: true }]);
+      expect(openFolderCalls()[3]).toEqual(["vscode.openFolder", expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/studios/jam-${SES}.code-workspace` }), { forceNewWindow: true }]);
       expect(vscode.env.openExternal).not.toHaveBeenCalled();
     } finally {
       getExt.mockImplementation(() => undefined);
@@ -698,7 +698,7 @@ describe("notifications", () => {
       activate(ctx);
       await vi.waitFor(() => expect(toasts()).toEqual([["Alice · build-bot: done?", "Open"]]));
       await vi.waitFor(() =>
-        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceNewWindow: true }),
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith("vscode.openFolder", expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/studios/jam-${SES}.code-workspace` }), { forceNewWindow: true }),
       );
       expect(mock.output.join("\n")).not.toContain("done?");
     } finally {
@@ -797,7 +797,7 @@ describe("session windows", () => {
       activate(ctx);
       mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
       await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
-      expect(openFolderCalls()[0]).toEqual(["vscode.openFolder", expect.objectContaining({ authority: `ssh-remote+jam-${SES}` }), { forceNewWindow: true }]);
+      expect(openFolderCalls()[0]).toEqual(["vscode.openFolder", expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/studios/jam-${SES}.code-workspace` }), { forceNewWindow: true }]);
       expect(mock.output.join("\n")).toContain(`[${SES}] ssh ready: alias jam-${SES}`);
       expect(mock.output.join("\n")).not.toMatch(/t2|Bearer/);
       await expect(stat(path.join(ctx.globalStorageUri.fsPath, "sessions"))).rejects.toThrow();
