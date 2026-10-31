@@ -275,3 +275,112 @@ func configBranchStatus(err error) (int, string, bool) {
 	}
 	return 0, "", false
 }
+
+// ConfigBranchInfo is one branch for the editor's branch list.
+type ConfigBranchInfo struct {
+	Name     string `json:"name"`
+	Head     string `json:"head"`
+	Followed bool   `json:"followed"` // the branch the Jam follows: read-only
+}
+
+// List is the followed branch, then the others by name.
+func (b *ConfigBranches) List(ctx context.Context) ([]ConfigBranchInfo, error) {
+	bs, err := b.Repo.Branches(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []ConfigBranchInfo{}
+	var rest []ConfigBranchInfo
+	for _, br := range bs {
+		info := ConfigBranchInfo{Name: br.Name, Head: br.Head, Followed: br.Name == b.Repo.Branch}
+		if info.Followed {
+			out = append(out, info)
+		} else {
+			rest = append(rest, info)
+		}
+	}
+	return append(out, rest...), nil
+}
+
+// Create makes branch name at the followed head.
+func (b *ConfigBranches) Create(ctx context.Context, name string) (ConfigBranchInfo, error) {
+	head, err := b.Repo.CreateBranch(ctx, name)
+	if err != nil {
+		return ConfigBranchInfo{}, err
+	}
+	return ConfigBranchInfo{Name: name, Head: head}, nil
+}
+
+// DefaultBranchName is an operator's own branch: jam/<operator>, lowercased,
+// anything outside [a-z0-9._-] a dash.
+func DefaultBranchName(operator string) string {
+	var sb strings.Builder
+	for _, r := range strings.ToLower(operator) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+			sb.WriteRune(r)
+		default:
+			sb.WriteByte('-')
+		}
+	}
+	name := strings.Trim(sb.String(), "-.")
+	if name == "" {
+		name = "operator"
+	}
+	return "jam/" + name
+}
+
+// Merge merges branch (at head) into the followed branch, refusing a merge
+// whose config would not plan against the live Jam (ErrConfigRefused, with
+// the refusals; nothing pushed). The follower then applies it at once.
+func (b *ConfigBranches) Merge(ctx context.Context, branch, head string, author configrepo.Signature) (configrepo.MergeResult, error) {
+	check := func(files map[string]configrepo.File) error {
+		tree, err := b.treeOf(files)
+		if err != nil {
+			return err
+		}
+		res, err := ApplyConfigTree(ctx, b.Live, b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{DryRun: true, Force: true, Source: b.Env.Followed, Now: time.Now()}, nil, "merge:"+branch)
+		if err != nil {
+			return err
+		}
+		if len(res.Plan.Refusals) > 0 {
+			return fmt.Errorf("%w:\n%s", ErrConfigRefused, strings.Join(res.Plan.Refusals, "\n"))
+		}
+		return nil
+	}
+	res, err := b.Repo.Merge(ctx, branch, head, author, "jam: merge "+branch, check)
+	if err != nil {
+		return res, err
+	}
+	b.Drop(branch)
+	if b.Log != nil {
+		b.Log.Info("config branch merged", "operator", author.Name, "branch", branch, "head", res.Head, "fastForward", res.FastForward, "noOp", res.NoOp)
+	}
+	if f := b.Env.Follower; f != nil && !res.NoOp {
+		go f.Tick(context.WithoutCancel(ctx)) // applies the merge now, not within the minute
+	}
+	return res, nil
+}
+
+// errNoPRs is a PR on a Jam whose config repo is not on GitHub.
+var errNoPRs = writeErr(http.StatusNotImplemented, "pull requests need config.github")
+
+// PR opens (or finds the open) pull request from branch into the followed branch.
+func (b *ConfigBranches) PR(ctx context.Context, branch string) (configrepo.PullRequest, error) {
+	if b.GitHub == nil {
+		return configrepo.PullRequest{}, errNoPRs
+	}
+	if branch == b.Repo.Branch {
+		return configrepo.PullRequest{}, configrepo.ErrFollowedBranch
+	}
+	return b.GitHub.OpenPR(ctx, branch, b.Repo.Branch, "Jam config: "+branch,
+		"Config changes made in the Jam admin console on branch `"+branch+"`.")
+}
+
+// FindPR is branch's open pull request, if any (none without GitHub).
+func (b *ConfigBranches) FindPR(ctx context.Context, branch string) (configrepo.PullRequest, bool, error) {
+	if b.GitHub == nil {
+		return configrepo.PullRequest{}, false, nil
+	}
+	return b.GitHub.FindPR(ctx, branch, b.Repo.Branch)
+}

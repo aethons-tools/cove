@@ -2,8 +2,10 @@ package jam
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -158,5 +160,94 @@ func TestBrokenBranchDoesNotLoad(t *testing.T) {
 	_, err := b.Workspace(context.Background(), "jam/alice")
 	if status, msg := ConfigStatus(err); status != http.StatusConflict || !strings.Contains(msg, "jam/alice") || !strings.Contains(msg, "eve") {
 		t.Fatalf("broken: %d %q", status, msg)
+	}
+}
+
+func TestListAndCreate(t *testing.T) {
+	b, url, _ := branchesFor(t)
+	ctx := context.Background()
+	got, err := b.Create(ctx, DefaultBranchName("Bob@Example"))
+	if err != nil || got.Name != "jam/bob-example" || got.Head != gittest.Head(t, url, "main") {
+		t.Fatalf("create = %+v %v", got, err)
+	}
+	list, err := b.List(ctx)
+	if err != nil || len(list) != 3 || list[0].Name != "main" || !list[0].Followed || list[1].Name != "jam/alice" || list[2].Name != "jam/bob-example" {
+		t.Fatalf("list = %+v %v", list, err)
+	}
+	if _, err := b.Create(ctx, "jam/alice"); !errors.Is(err, configrepo.ErrBranchExists) {
+		t.Fatalf("again = %v", err)
+	}
+}
+
+func TestDefaultBranchName(t *testing.T) {
+	for in, want := range map[string]string{"alice": "jam/alice", "Alice@Example": "jam/alice-example", "op 1/x": "jam/op-1-x", "": "jam/operator"} {
+		if got := DefaultBranchName(in); got != want {
+			t.Errorf("%q = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestMergeAfterSave(t *testing.T) {
+	b, url, _ := branchesFor(t)
+	ctx := context.Background()
+	ws, _ := b.Workspace(ctx, "jam/alice")
+	if _, err := ws.Store.CreateUser(User{Name: "carol"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Save(ctx, ws, opAlice, "jam: POST users"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := b.Merge(ctx, "jam/alice", ws.Head, opAlice)
+	if err != nil || !res.FastForward || gittest.Head(t, url, "main") != ws.Head {
+		t.Fatalf("merge = %+v %v", res, err)
+	}
+}
+
+func TestMergeRefusedByThePlan(t *testing.T) {
+	b, url, _ := branchesFor(t)
+	ctx := context.Background()
+	handPush(t, b, "jam/alice", map[string]string{"jam/projects/app/roles/ic.yml": "kind: role\nversion: 1\nkit: missing\n"})
+	head := gittest.Head(t, url, "jam/alice")
+	main := gittest.Head(t, url, "main")
+	_, err := b.Merge(ctx, "jam/alice", head, opAlice)
+	if !errors.Is(err, ErrConfigRefused) || gittest.Head(t, url, "main") != main {
+		t.Fatalf("merge = %v", err)
+	}
+}
+
+func TestMergeConflict(t *testing.T) {
+	b, url, update := branchesFor(t)
+	ctx := context.Background()
+	handPush(t, b, "jam/alice", map[string]string{"jam/users/bob.yml": "kind: user\nversion: 1\nlogins: [bob@a]\n"})
+	update(map[string]string{"jam/users/bob.yml": "kind: user\nversion: 1\nlogins: [bob@b]\n"})
+	_, err := b.Merge(ctx, "jam/alice", gittest.Head(t, url, "jam/alice"), opAlice)
+	if status, msg := ConfigStatus(err); status != http.StatusConflict || !strings.Contains(msg, "jam/users/bob.yml") || !strings.Contains(msg, "pull request") {
+		t.Fatalf("conflict = %d %q", status, msg)
+	}
+}
+
+func TestPRs(t *testing.T) {
+	b, _, _ := branchesFor(t)
+	ctx := context.Background()
+	if _, err := b.PR(ctx, "jam/alice"); err == nil {
+		t.Fatal("a PR without GitHub")
+	} else if status, _ := ConfigStatus(err); status != http.StatusNotImplemented {
+		t.Fatalf("no GitHub = %d", status)
+	}
+	var title string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			var body map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			title = body["title"]
+			w.WriteHeader(201)
+		}
+		_, _ = w.Write([]byte(`{"number": 1, "html_url": "https://github.com/acme/jam/pull/1"}`))
+	}))
+	defer ts.Close()
+	b.GitHub = &configrepo.GitHub{URL: "https://github.com/acme/jam", APIBase: ts.URL, Token: func() (string, error) { return "t", nil }}
+	pr, err := b.PR(ctx, "jam/alice")
+	if err != nil || pr.URL != "https://github.com/acme/jam/pull/1" || title != "Jam config: jam/alice" {
+		t.Fatalf("pr = %+v %v title %q", pr, err, title)
 	}
 }
