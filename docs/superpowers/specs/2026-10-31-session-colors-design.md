@@ -67,6 +67,13 @@ The field is set in the Go API types (`internal/jam/userui/apitypes.go`); `web/a
 - **Bubbles.** A message from a session (`MessageRow.color` set) gets a thin left border in that color, about 3px. Nothing else in the bubble changes. Your own messages and other people's have none.
 - **Composer.** When the conversation has a home session with a color, the composer's left edge gets the same thin accent. Typing to a session then carries its color. A composer with no session (a chat, New message to a person) has none.
 
+### Session status card (decided 2026-10-31)
+
+The card's icon block ([2026-10-30-session-status-card-design.md](2026-10-30-session-status-card-design.md); a plain box today) is filled with the session's color until real icons (the BRYC image) arrive. A session with no color keeps today's plain box.
+
+- **Corners.** In the VS Code panes the box has VS Code's corners (2px, the theme's `xs` radius). The web app keeps its own radius (my call: the near-square corners are the VS Code theme's).
+- **The context bar moves.** The context thermometer comes out of the box and sits just to its right, between the box and the name, the same height as the box. This applies in the web app and VS Code alike. Its fill and its hot (85%+) mark are unchanged.
+
 ## Left to the builder
 
 - The exact OKLCH lightness, chroma and hue count, within the readability rule. The palette needs about 48 colors (two tiers of about 24 hues; my call). When more sessions are live than there are colors, the assignment rule degrades gracefully: the colors repeat as far apart as possible.
@@ -74,6 +81,3 @@ The field is set in the Go API types (`internal/jam/userui/apitypes.go`); `web/a
 - How `windowKind` recognizes a workspace-file studio window, and the workspace file's name.
 - Whether the composer accent sits on the input or on its wrapper.
 
-## Open
-
-- Should the session status card's icon block (a plain box today; see [2026-10-30-session-status-card-design.md](2026-10-30-session-status-card-design.md)) be filled with the session's color until real icons arrive? It isn't asked for yet.
