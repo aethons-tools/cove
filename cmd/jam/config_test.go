@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/kit"
 	"github.com/aethons-tools/cove/internal/secret"
 	"github.com/aethons-tools/cove/internal/wakeon"
@@ -1382,5 +1383,62 @@ func TestPollIntervalLinearUnchanged(t *testing.T) {
 	d.PollInterval = "45s"
 	if d.pollInterval() != "45s" {
 		t.Fatalf("linear with its own poll-interval = %q", d.pollInterval())
+	}
+}
+
+func TestValidateConfigRepo(t *testing.T) {
+	ok, err := parseServeConfig([]byte("credentials:\n  jam-git:\nconfig:\n  github:\n    url: https://github.com/acme/jam-config\n    cred: jam-git\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ok.validateConfigRepo(); err != nil {
+		t.Fatalf("valid config repo refused: %v", err)
+	}
+	if got := ok.followedSource(); got != (gitsource.Source{Repo: "https://github.com/acme/jam-config", Ref: "main"}) {
+		t.Fatalf("followed = %+v", got)
+	}
+	full, _ := parseServeConfig([]byte("credentials:\n  c:\nconfig:\n  github: {url: \"https://github.com/acme/jam-config\", cred: c, branch: live, dir: jam/prod}\n"))
+	if err := full.validateConfigRepo(); err != nil {
+		t.Fatal(err)
+	}
+	if got := full.followedSource(); got != (gitsource.Source{Repo: "https://github.com/acme/jam-config", Dir: "jam/prod", Ref: "live"}) {
+		t.Fatalf("followed = %+v", got)
+	}
+	for name, yml := range map[string]string{
+		"no url":          "credentials:\n  c:\nconfig:\n  github: {cred: c}\n",
+		"http url":        "credentials:\n  c:\nconfig:\n  github: {url: \"http://git.example.com/a\", cred: c}\n",
+		"userinfo":        "credentials:\n  c:\nconfig:\n  github: {url: \"https://u:p@git.example.com/a\", cred: c}\n",
+		"no cred":         "config:\n  github: {url: \"https://git.example.com/a\"}\n",
+		"undemanded cred": "config:\n  github: {url: \"https://git.example.com/a\", cred: nope}\n",
+		"pool cred":       "credentials:\n  sub:\npool: { store: /tmp/p.json, cred-name: sub }\nconfig:\n  github: {url: \"https://git.example.com/a\", cred: sub}\n",
+		"gcp cred":        "credentials:\n  g: { exchange: gcp }\nconfig:\n  github: {url: \"https://git.example.com/a\", cred: g}\n",
+		"unclean dir":     "credentials:\n  c:\nconfig:\n  github: {url: \"https://git.example.com/a\", cred: c, dir: \"../x\"}\n",
+		"empty block":     "config: {}\n",
+	} {
+		c, err := parseServeConfig([]byte(yml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		err = c.validateConfigRepo()
+		if err == nil {
+			t.Errorf("%s: accepted", name)
+		} else if strings.Contains(err.Error(), "u:p") || !strings.Contains(err.Error(), "config") {
+			t.Errorf("%s: error %q", name, err)
+		}
+	}
+	none, _ := parseServeConfig([]byte("listen: :443\n"))
+	if err := none.validateConfigRepo(); err != nil || none.followedSource() != (gitsource.Source{}) {
+		t.Fatalf("absent config: %v %+v", err, none.followedSource())
+	}
+}
+
+func TestResolveKitFetcherAddsConfigRepoCred(t *testing.T) {
+	cfg, _ := parseServeConfig([]byte("credentials:\n  c:\nconfig:\n  github: {url: \"https://github.com/acme/jam-config\", cred: c}\n"))
+	f, err := resolveKitFetcher(cfg, map[string]secret.Spec{"c": {Name: "c", Value: "tok", Literal: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cr, ok := f.Creds.For("https://github.com/acme/jam-config"); !ok || cr.Name != "c" {
+		t.Fatalf("cred = %v %v", cr, ok)
 	}
 }

@@ -10,7 +10,9 @@ import (
 // ServeHostKeys are the dotted serve-config paths that belong to one host.
 // This is the one table; the docs (serve.md) mirror it.
 var ServeHostKeys = []string{"listen", "admin-listen", "ui-hosts", "ui-origins", "dev-identity", "tls",
-	"admin-tls", "store-postgres", "state-dir", "credentials-file", "pool.store", "previews.tls"}
+	"admin-tls", "store-postgres", "state-dir", "credentials-file", "pool.store", "previews.tls",
+	// The followed config repo can't live in the repo it names.
+	"config"}
 
 // ServeConfigDiff is the result of comparing a repo's portable serve config
 // with the running serve's.
