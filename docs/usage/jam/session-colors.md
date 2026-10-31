@@ -21,7 +21,7 @@ Status colors (phase, needs-you, card states) are separate and unchanged.
 ## How a session gets its color
 
 - When a session is **raised** (`Supervisor.Raise`: personal, ticket, standing or manual), Jam gives it the palette color **farthest** (OKLab ΔE) from the colors of the sessions live now, across the whole Jam. A tie goes to the earlier palette color.
-  With more than 24 sessions live, colors repeat, as far apart as they can.
+  With more than 24 sessions live, colors repeat: the least-used color goes first.
 - The color is stored by session id in **`session_colors`** (migration `0024`) and **never changes or is deleted**:
   - a standing session keeps its color across upgrades, restarts and resets;
   - an ended session's old messages keep theirs.

@@ -46,3 +46,5 @@
 /web/app/*.tsbuildinfo
 /web/vscode/node_modules/
 /web/vscode/dist/
+# a vitest run rooted in a subdirectory caches there
+/web/app/src/node_modules/

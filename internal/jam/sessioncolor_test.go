@@ -79,6 +79,21 @@ func TestPickSessionColor(t *testing.T) {
 	if want == first {
 		t.Fatal("farthest from [0] is [0]")
 	}
+	t.Run("beyond the palette, reuse spreads out", func(t *testing.T) {
+		live := SessionPalette[:]
+		used := map[string]int{}
+		for _, c := range live {
+			used[c]++
+		}
+		for range 24 {
+			c := PickSessionColor(live)
+			if used[c] != 1 {
+				t.Fatalf("picked %s, already used %d times, while a color used once remains", c, used[c])
+			}
+			used[c]++
+			live = append(live, c)
+		}
+	})
 	t.Run("full palette repeats farthest", func(t *testing.T) {
 		live := SessionPalette[:]
 		got := PickSessionColor(live)

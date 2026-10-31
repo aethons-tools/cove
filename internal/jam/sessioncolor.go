@@ -46,13 +46,16 @@ func oklabOf(hex string) ([3]float64, bool) {
 }
 
 // PickSessionColor is the palette color whose nearest live color is
-// farthest; a tie goes to the earlier palette color. Invalid live colors are
-// ignored.
+// farthest; a tie goes to the color fewest live sessions have (so beyond 24
+// live, reuse spreads out), then to the earlier palette color. Invalid live
+// colors are ignored.
 func PickSessionColor(live []string) string {
 	var labs [][3]float64
+	uses := map[string]int{}
 	for _, c := range live {
 		if l, ok := oklabOf(c); ok {
 			labs = append(labs, l)
+			uses[c]++
 		}
 	}
 	best, bestD := SessionPalette[0], -1.0
@@ -62,7 +65,7 @@ func PickSessionColor(live []string) string {
 		for _, l := range labs {
 			d = math.Min(d, math.Sqrt((p[0]-l[0])*(p[0]-l[0])+(p[1]-l[1])*(p[1]-l[1])+(p[2]-l[2])*(p[2]-l[2])))
 		}
-		if d > bestD {
+		if d > bestD || d == bestD && uses[c] < uses[best] {
 			best, bestD = c, d
 		}
 	}
