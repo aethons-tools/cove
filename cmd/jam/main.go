@@ -2863,7 +2863,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		credExists := cfg.credConfigured
 		// One planner view of the serve for the config admin API and the UI's
 		// Config page; config.drift is re-checked on conds after each apply.
-		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds}
+		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds,
+			Followed: cfg.followedSource()}
+		// The config repo the Jam follows (config.github): checked now and
+		// every minute; a new commit applies once the first is confirmed.
+		if cfgEnv.Followed.Repo != "" {
+			cfgEnv.Follower = &jam.ConfigFollower{Store: st, Fetcher: kitFetcher, Env: cfgEnv, Log: log}
+			go cfgEnv.Follower.Run(context.Background(), jam.ConfigFollowEvery)
+		}
 
 		// Read-only intercom view: shares the Log opened once above (the same
 		// handle the /squawks writer dual-writes into) with the admin UI as a
