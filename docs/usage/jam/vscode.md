@@ -4,7 +4,7 @@ read_when: You want to open an agent's session or studio in VS Code or VSCodium 
 owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session's studio window and the connected mark; conversation tabs, the four views, board tabs, its empty states and link rules; VS Code and OS notifications; and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; VSCodium and Open Remote - SSH; its troubleshooting
 prereqs: collaboration.md for who may SSH and the ssh_config block the CLI writes; app-tokens.md for the sign-in token
 tier: leaf
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 # The Jam VS Code extension
@@ -85,7 +85,7 @@ Three ways in, all the same flow:
 - the same link from anywhere (`open vscode://aethons.jam/session/<id>`);
 - *Jam: Open Session…*, which lists your live sessions.
 
-Each one signs you in if needed and checks the session exists. If it doesn't, it says so and links the web app. Then it opens the session's **studio window**, `vscode-remote://ssh-remote+jam-<studio>/home/agent/workspace`, over Remote-SSH, in a new window. If that window is already open, VS Code brings it to the front instead.
+Each one signs you in if needed and checks the session exists. If it doesn't, it says so and links the web app. Then it opens the session's **studio window**, `vscode-remote://ssh-remote+jam-<studio>/home/agent/workspace`, over Remote-SSH, in a new window, from a local workspace file whose title bar is the session's color ([session-colors.md](session-colors.md)). If that window is already open, VS Code brings it to the front instead.
 
 Before opening, it:
 - checks you may SSH into the session. If you can't, it says "You can't SSH into …" and offers the web app;
@@ -149,6 +149,7 @@ What notifies is the phone's rule ([push.md](push.md#what-notifies)), not restat
 - **`~/.config/jam/ssh/id_ed25519`** (the CLI's key, shared) and **`<studio>-cert.pub`** (an 8 h cert, renewed on open;
   the CLI's `ssh-proxy` renews it when a connection starts).
 - **The token file** above.
+- **`<globalStorage>/studios/jam-<studio>.code-workspace`:** a studio window's workspace file (its remote folder and title-bar colors), rewritten on each open ([session-colors.md](session-colors.md)).
 
 The ProxyCommand pins `--participant` (and, for a Jam other than `jam.url`, `--app vscode-<host>`, its token profile); `jam` uses the token file when it names the same Jam
 (see [collaboration.md](collaboration.md)).

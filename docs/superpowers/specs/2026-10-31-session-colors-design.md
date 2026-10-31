@@ -1,6 +1,6 @@
 # Session colors — design
 
-**Status:** agreed with the user 2026-10-31; not built yet.
+**Status:** agreed with the user 2026-10-31; built (branch `session-colors`). Docs: `docs/usage/jam/session-colors.md`.
 **Context:** a session is known by its name. Telling several studio windows apart, or remembering which session you are writing to, means reading that name. The user wants each session to have its own **color**: one extra cue that is quicker to find than a title. It doesn't replace the name. Later, an image from the BRYC service joins it as a second cue (out of scope here).
 
 ## Intent
