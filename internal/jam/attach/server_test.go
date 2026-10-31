@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -496,5 +497,26 @@ func TestPushOpenTunnelFalseWithoutStream(t *testing.T) {
 	}
 	if s.PushOpenTunnel("ses_a", "id2", 22) {
 		t.Fatal("push reported success with full queue")
+	}
+}
+
+func TestAttachStatusCallsTheStatusHook(t *testing.T) {
+	_, _, srv, dial, tok, secret := harness(t)
+	var called atomic.Int32
+	srv.SetOnStatus(func() { called.Add(1) })
+	cc := dial()
+	defer cc.Close()
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&attachpb.StatusUp{Msg: &attachpb.StatusUp_Heartbeat{Heartbeat: &attachpb.Heartbeat{}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&attachpb.StatusUp{Msg: &attachpb.StatusUp_Status{Status: attachpb.Activity_WAITING}}); err != nil {
+		t.Fatal(err)
+	}
+	if !eventually(func() bool { return called.Load() == 1 }) {
+		t.Fatalf("status hook calls = %d, want 1 (a status report, not a heartbeat)", called.Load())
 	}
 }
