@@ -96,7 +96,6 @@ func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Insta
 	}
 	if _, ok := collab.Decide(h.d.Store, now, collabPrincipal(r, p), inst, collab.SSH); ok {
 		hd.SSH = "jam ssh " + inst.ActorID
-		hd.Studio = h.d.Frames != nil
 	}
 	if h.d.Ops != nil {
 		hd.Ops = true

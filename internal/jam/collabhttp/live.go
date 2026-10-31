@@ -12,7 +12,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collab"
 	"github.com/aethons-tools/cove/internal/jam/collabwire"
-	"github.com/aethons-tools/cove/internal/jam/preview"
 )
 
 // RevokeEvery is how often Live.Run re-checks open connections by default.
@@ -108,9 +107,7 @@ func (l *Live) CloseUser(session string, user ident.ID) int {
 // CloseUnexposed closes every open preview connection (operators' included)
 // on session to a port not in exposed — the agent unexposed it, moved its
 // name to another port, or the session went — and returns how many it
-// closed. The built-in IDE (preview.IDEPort) is never exposed, so its
-// connections are left alone; a kit's own ide exposure follows the rule. It
-// judges the connections themselves, not a remembered previous set, so it is
+// closed. It judges the connections themselves, not a remembered previous set, so it is
 // right on the first change after a Jam restart. It only collects under the
 // lock; the closes run on their own goroutine, so a caller holding a lock
 // (the supervisor's exposure sink) never waits on a tunnel.
@@ -121,7 +118,7 @@ func (l *Live) CloseUnexposed(session string, exposed []int32) int {
 	l.mu.Lock()
 	var closing []*liveEntry
 	for e := range l.conns {
-		if e.viaPreview && e.Session == session && e.port != preview.IDEPort && !slices.Contains(exposed, int32(e.port)) {
+		if e.viaPreview && e.Session == session && !slices.Contains(exposed, int32(e.port)) {
 			closing = append(closing, e)
 		}
 	}

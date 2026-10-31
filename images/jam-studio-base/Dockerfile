@@ -59,32 +59,6 @@ RUN install -m 0755 -d /etc/apt/keyrings \
       docker-compose-plugin=5.6.1-1~ubuntu.24.04~noble \
  && rm -rf /var/lib/apt/lists/*
 
-# code-server: the built-in Studio IDE (docs/superpowers/specs/2026-10-25-session-studio-view-design.md).
-# Renovate bumps CODE_SERVER_VERSION; update both SHA-256s with it (the build fails on a mismatch).
-ARG CODE_SERVER_VERSION=4.144.0
-ARG CODE_SERVER_SHA256_AMD64=45f5533b502edac68b7eb09c5cec44fd281f80264af9a87fde0bfb2c5e190615
-ARG CODE_SERVER_SHA256_ARM64=6baef72b340da08e76e5cf1e9504f657d00e80c8776bdaf86e97c30a80cd48e8
-RUN set -eux; arch="$(dpkg --print-architecture)"; \
-    case "$arch" in amd64) sum="$CODE_SERVER_SHA256_AMD64";; arm64) sum="$CODE_SERVER_SHA256_ARM64";; *) echo "unsupported $arch"; exit 1;; esac; \
-    curl -fsSL -o /tmp/cs.deb "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server_${CODE_SERVER_VERSION}_${arch}.deb"; \
-    printf "%s  /tmp/cs.deb\n" "$sum" > /tmp/cs.sha256; sha256sum -c /tmp/cs.sha256; rm -f /tmp/cs.sha256; \
-    apt-get install -y --no-install-recommends /tmp/cs.deb; rm -f /tmp/cs.deb; \
-    code-server --version
-
-# just: from upstream releases (the noble archive is stuck on 1.21, too old for
-# current justfiles). Static musl builds, so the libc version doesn't matter.
-# Renovate bumps JUST_VERSION; update both SHA-256s with it (from the release's
-# SHA256SUMS; the build fails on a mismatch).
-ARG JUST_VERSION=1.59.0
-ARG JUST_SHA256_AMD64=409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e
-ARG JUST_SHA256_ARM64=23871b1702bfd550fb5f901778fd4290ecf2ee034a45a889fbe96d89b188086d
-RUN set -eux; arch="$(dpkg --print-architecture)"; \
-    case "$arch" in amd64) t=x86_64; sum="$JUST_SHA256_AMD64";; arm64) t=aarch64; sum="$JUST_SHA256_ARM64";; *) echo "unsupported $arch"; exit 1;; esac; \
-    curl -fsSL -o /tmp/just.tgz "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-${t}-unknown-linux-musl.tar.gz"; \
-    printf "%s  /tmp/just.tgz\n" "$sum" > /tmp/just.sha256; sha256sum -c /tmp/just.sha256; rm -f /tmp/just.sha256; \
-    tar -xzf /tmp/just.tgz -C /usr/local/bin just; rm -f /tmp/just.tgz; \
-    just --version
-
 # sshd: key-only auth, no root login, listen on 2222 (the host may use port 22).
 RUN mkdir -p /run/sshd \
  && sed -i 's/^#\?Port .*/Port 2222/'                                   /etc/ssh/sshd_config \

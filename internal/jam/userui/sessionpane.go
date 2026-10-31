@@ -12,7 +12,6 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collab"
-	"github.com/aethons-tools/cove/internal/jam/preview"
 	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
@@ -20,7 +19,7 @@ import (
 // tabbed pane beside a session's messages (GET api/sessions/{id}/pane/{tab}).
 
 // paneTabs are the tabs a session's pane has.
-var paneTabs = []string{"studio", "thinking", "previews", "artifacts", "status"}
+var paneTabs = []string{"thinking", "previews", "artifacts", "status"}
 
 // maxPaneLinks bounds the Links list (the newest win).
 const maxPaneLinks = 50
@@ -30,12 +29,6 @@ const maxPaneLinks = 50
 func (h *handler) buildPane(r *http.Request, p jam.Participant, inst jam.Instance, home, tab string) SessionPane {
 	pane := SessionPane{ID: inst.ActorID, Tab: tab}
 	switch tab {
-	case "studio":
-		_, ok := collab.Decide(h.d.Store, time.Now(), collabPrincipal(r, p), inst, collab.SSH)
-		pane.Studio = ok && h.d.Frames != nil
-		if pane.Studio && h.d.PreviewURL != nil {
-			pane.IDEOpen, _ = h.d.PreviewURL(inst.ActorID, preview.IDEName)
-		}
 	case "thinking":
 		if h.d.Events == nil {
 			pane.EventsOff = true
@@ -91,9 +84,6 @@ func (h *handler) panePreviews(r *http.Request, p jam.Participant, inst jam.Inst
 		return
 	}
 	for _, e := range inst.Exposures {
-		if e.Name == preview.IDEName {
-			continue // the Studio tab's
-		}
 		u, err := h.d.PreviewURL(inst.ActorID, e.Name)
 		if err != nil {
 			continue

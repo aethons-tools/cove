@@ -159,7 +159,7 @@ func (h *handler) apiThinkingRaw(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// apiFrame mints a frame URL for the Studio tab or a preview's View here
+// apiFrame mints a frame URL for a preview's View here
 // (see frameOutcome); a view the viewer can't have, like framing off,
 // answers as a missing session.
 func (h *handler) apiFrame(w http.ResponseWriter, r *http.Request) {

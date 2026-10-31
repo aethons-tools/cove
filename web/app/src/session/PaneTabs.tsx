@@ -25,7 +25,7 @@ function Previews({ p }: { p: SessionPane }) {
   if (framed) {
     return (
       <div className="pv-framed" style={{ display: "flex", flexDirection: "column", height: "calc(100% + 22px)", margin: "-8px -12px -14px" }}>
-        <FrameView sid={p.id} name={framed} kind="preview"
+        <FrameView sid={p.id} name={framed}
           lead={<><button type="button" className="pv-back" onClick={() => setFramed(null)}>← All previews</button><b className="pv-name">{framed}</b></>} />
       </div>
     );
@@ -109,7 +109,7 @@ const ThinkingTab = lazy(() => import("./thinking/ThinkingTab"));
 
 // PaneBody is one tab of the session pane (Studio lives in SessionView's
 // keep, so it outlives tab switches).
-export function PaneBody({ id, tab, busy, onAsk }: { id: string; tab: Exclude<PaneTab, "studio">; busy: boolean; onAsk: (id: string) => void }) {
+export function PaneBody({ id, tab, busy, onAsk }: { id: string; tab: PaneTab; busy: boolean; onAsk: (id: string) => void }) {
   if (tab === "thinking") return <Suspense fallback={<Loader size="sm" m="sm" />}><ThinkingTab id={id} busy={busy} /></Suspense>;
   return <Loaded id={id} tab={tab} onAsk={onAsk} />;
 }

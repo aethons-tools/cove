@@ -4,7 +4,7 @@ read_when: You want to SSH or point an IDE at an agent's studio, let a teammate 
 owns: the studio-collaboration user and operator guide — jam ssh-config/ssh-proxy/ssh and login --participant, the access rules and share grants (studio share/unshare/access, revocation) for every right, the ssh: serve-config block's setup steps, and the tunnel/cert mechanism at the level an operator needs
 prereqs: serve.md (serve config, credentials), roster.md (roles, users), operators.md (login)
 tier: leaf
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 # Studio collaboration (SSH, IDEs and previews)
@@ -100,8 +100,7 @@ Jam checks each cert request and each connection against four rules, in order:
    (default `members`; see [previews.md](previews.md)) — see [roster.md](roster.md).
 4. **A share grant** for the user on this session, unexpired, holding the right.
 
-A removed user matches none of them. The `ide` preview (the studio's web
-IDE, [previews.md](previews.md#a-web-ide)) checks `ssh`, not `preview`. A studio that is terminating or gone
+A removed user matches none of them. A studio that is terminating or gone
 takes no certs or tunnels (409); a paused one is resumed for an allowed caller
 ([Idle studios](#idle-studios)). The rules need no project membership: a
 share grant works for a user who is in no project.
@@ -167,7 +166,7 @@ loopback (`source-address 127.0.0.1/32,::1/128`) — so only through the
 tunnel, never a host-published sshd port. The studio's sshd trusts the CA
 through the hardening layer ([OVERVIEW.md](../../OVERVIEW.md)). Nothing new
 listens in the studio and its egress is unchanged. Limits: 16 tunnels per
-studio (previews may hold at most 12 of them, [previews.md](previews.md#limits)), 30 min idle, 10 s for an SSH dial-back (a preview's waits as long as its request: 15 s, 30 s for `ide`); a teardown or a pause closes a
+studio (previews may hold at most 12 of them, [previews.md](previews.md#limits)), 30 min idle, 10 s for an SSH dial-back (a preview's waits as long as its request: 15 s); a teardown or a pause closes a
 studio's tunnels and it takes none until it is resumed or raised again.
 
 ## Previews

@@ -135,18 +135,20 @@ func TestUnderDomain(t *testing.T) {
 }
 
 func TestValidPortNamesReservedPorts(t *testing.T) {
-	for port, want := range map[int]string{2222: "not 2222 (sshd), 3128 (egress proxy) or 13337 (the built-in IDE)", 3128: "not 2222 (sshd), 3128 (egress proxy) or 13337 (the built-in IDE)"} {
+	for port, want := range map[int]string{2222: "not 2222 (sshd) or 3128 (egress proxy)", 3128: "not 2222 (sshd) or 3128 (egress proxy)"} {
 		if err := ValidPort(port); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ValidPort(%d) = %v, want %q", port, err, want)
 		}
 	}
 }
 
-func TestIDEPortReserved(t *testing.T) {
-	if err := ValidPort(IDEPort); err == nil {
-		t.Fatal("the IDE port must not be exposable")
+// The former built-in IDE's port and name are ordinary now (code-server was
+// removed): a kit may expose either.
+func TestFormerIDEPortAndNameAreOrdinary(t *testing.T) {
+	if err := ValidPort(13337); err != nil {
+		t.Fatalf("13337 must be exposable: %v", err)
 	}
-	if err := ValidName(IDEName); err != nil {
-		t.Fatalf("ide must stay a valid name (a kit overrides the built-in IDE by exposing it): %v", err)
+	if err := ValidName("ide"); err != nil {
+		t.Fatalf("ide must be a valid preview name: %v", err)
 	}
 }

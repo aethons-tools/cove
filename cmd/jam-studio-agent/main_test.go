@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/aethons-tools/cove/internal/studioagent"
 )
 
 func TestBuildConfigRequiresEnv(t *testing.T) {
@@ -32,9 +30,6 @@ func TestBuildConfigRequiresEnv(t *testing.T) {
 	}
 	if len(cfg.DialOptions) == 0 {
 		t.Fatal("expected transport credentials in DialOptions")
-	}
-	if _, ok := cfg.IDE.(*studioagent.IDE); !ok {
-		t.Fatalf("cfg.IDE = %T, want the built-in *studioagent.IDE", cfg.IDE)
 	}
 }
 

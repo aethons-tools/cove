@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -257,11 +258,13 @@ func frameAPI(t *testing.T, e *env, p jam.Participant, id, name string) *httptes
 
 func TestAPIFrame(t *testing.T) {
 	e, p, personal, standing, ff := frameEnv(t)
+	// "ide" is an ordinary preview name (no built-in IDE): framed under the
+	// preview right, like any exposure.
 	got := decodeAs[FrameURL](t, frameAPI(t, e, p, personal.ActorID, "ide"))
 	if got.URL != "https://ide--"+personal.ActorID+".preview.test/__jam/frame?t=tk" || got.Open != "https://ide--"+personal.ActorID+".preview.test/" {
 		t.Errorf("ide = %+v", got)
 	}
-	if len(ff.calls) != 1 || ff.calls[0].right != collab.SSH || ff.calls[0].name != "ide" || ff.calls[0].display != "alice" {
+	if len(ff.calls) != 1 || ff.calls[0].right != collab.Preview || ff.calls[0].name != "ide" || ff.calls[0].display != "alice" {
 		t.Errorf("minted %+v", ff.calls)
 	}
 	decodeAs[FrameURL](t, frameAPI(t, e, p, personal.ActorID, "app"))
@@ -279,7 +282,7 @@ func TestAPIFrame(t *testing.T) {
 	}{
 		{p, personal.ActorID, "nope", 404, "no such session"},
 		{p, personal.ActorID, "", 404, "no such session"},
-		{p, standing.ActorID, "ide", 403, `"code":"forbidden"`},
+		{p, standing.ActorID, "ide", 404, "no such session"}, // not exposed there
 		{bob, personal.ActorID, "app", 404, "no such session"},
 	} {
 		if rec := frameAPI(t, e, tc.who, tc.id, tc.name); rec.Code != tc.code || !strings.Contains(rec.Body.String(), tc.want) {
@@ -319,14 +322,22 @@ func TestAPIFrameRateLimited(t *testing.T) {
 	}
 }
 
-func TestAPIPaneStudio(t *testing.T) {
-	e, p, personal, standing, _ := frameEnv(t)
-	st := decodeAs[SessionPane](t, sessAPI(t, e, p, "GET", personal.ActorID+"/pane/studio", "", false))
-	if !st.Studio || st.IDEOpen != "https://ide--"+personal.ActorID+".preview.test/" {
-		t.Errorf("studio pane = %+v", st)
+// The pane has no Studio tab (the built-in IDE was removed), and the head
+// no studio flag.
+func TestAPIPaneHasNoStudioTab(t *testing.T) {
+	e, p, personal, _, _ := frameEnv(t)
+	rec := sessAPI(t, e, p, "GET", personal.ActorID+"/pane/studio", "", false)
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "no such tab") {
+		t.Errorf("pane/studio = %d %s, want 404 no such tab", rec.Code, rec.Body)
 	}
-	if no := decodeAs[SessionPane](t, sessAPI(t, e, p, "GET", standing.ActorID+"/pane/studio", "", false)); no.Studio || no.IDEOpen != "" {
-		t.Errorf("studio without ssh = %+v", no)
+	head := sessAPI(t, e, p, "GET", personal.ActorID, "", false)
+	if strings.Contains(head.Body.String(), `"studio":`) {
+		t.Errorf("head JSON still carries studio: %s", head.Body)
+	}
+	// An exposure named ide is listed among the previews like any other.
+	pv := decodeAs[SessionPane](t, sessAPI(t, e, p, "GET", personal.ActorID+"/pane/previews", "", false))
+	if !slices.ContainsFunc(pv.Previews, func(l PreviewLink) bool { return l.Name == "ide" }) {
+		t.Errorf("previews = %+v, want ide listed", pv.Previews)
 	}
 }
 

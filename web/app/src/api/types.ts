@@ -372,7 +372,6 @@ export interface SessionHead {
   mission: string; // the agent's mission (its end goal); "" = none
   card: SessionCard;
   ssh: string; // the copyable command; "" = not allowed
-  studio: boolean; // the Studio tab: ssh allowed and framing on
   canRelease: boolean;
   canRestart: boolean;
   canUpgrade: boolean;
@@ -408,12 +407,6 @@ export interface SessionPane {
    */
   streams: ThinkingStream[];
   eventsOff: boolean;
-  /**
-   * Studio: the Studio tab's IDE may be framed here (ssh and framing on);
-   * IDEOpen: its plain URL, for Open in new tab when a mint fails.
-   */
-  studio: boolean;
-  ideOpen: string;
 }
 /**
  * PreviewLink is one exposed port, opened in a new tab; Frame: View here
@@ -507,8 +500,8 @@ export interface ThinkingRaw {
   truncated: number /* int */;
 }
 /**
- * FrameRequest is POST api/sessions/{id}/frame: the framed view to open, the
- * IDE ("ide") or an exposed preview's name.
+ * FrameRequest is POST api/sessions/{id}/frame: the exposed preview to frame,
+ * by name.
  */
 export interface FrameRequest {
   name: string;

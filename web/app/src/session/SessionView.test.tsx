@@ -13,11 +13,11 @@ const head = (over: Partial<SessionHead> = {}): SessionHead => ({
   state: { label: "intercom-spider", text: "is running", tool: "Bash", class: "busy" }, since: "4m", openAsks: 2,
   cost: "$1.20", turnCost: "$0.10", tokens: "1,200 in / 300 out tokens", context: "ctx 84k / 200k · 42%",
   contextTip: "context: 84,300 of 200,000 tokens (claude-x)", uptime: "2h 5m", mission: "Jam SPA slice 5", ssh: "jam ssh ses_1",
-  studio: false, canRelease: false, canRestart: true, canUpgrade: true, ops: true,
+  canRelease: false, canRestart: true, canUpgrade: true, ops: true,
   canInterrupt: true, canCompact: false, canClear: true, restartLabel: "Restart", upgradeState: "", channel: "chn_s", card: card(), ...over,
 });
 const pane = (tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
-  id: "ses_1", tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false, studio: false, ideOpen: "", ...over,
+  id: "ses_1", tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false, ...over,
 });
 const conv: Conversation = {
   channelId: "chn_s", label: "intercom-spider", kind: "session", project: "test", phase: "live", needsYou: false, sendTo: "chn_s",
@@ -194,13 +194,13 @@ describe("the session pane", () => {
     expect(saved("ses_1")).toEqual({ tab: "artifacts", place: "below" });
   });
 
-  it("keeps a remembered Studio closed without the Studio tab, and its layout unchanged", async () => {
+  it("has no Studio tab, and opens a remembered Studio layout closed", async () => {
     localStorage.setItem("jam-pane:ses_1", JSON.stringify({ tab: "studio", place: "right", w: 700 }));
-    serve(head({ studio: false }));
+    serve(head());
     renderApp(boot, "/app/user/c/chn_s?tab=studio");
     await screen.findByRole("region", { name: "Session" });
+    expect(screen.queryByRole("tab", { name: "Studio" })).toBeNull();
     expect(screen.queryByRole("complementary", { name: "Session pane" })).toBeNull();
-    expect(saved("ses_1")).toEqual({ tab: "studio", place: "right", w: 700 });
   });
 
   it("puts the pane below in a narrow window, without the ⇄ button or changing the saved place", async () => {
@@ -245,31 +245,6 @@ describe("the session pane", () => {
     target.remove();
   });
 
-  it("opens Studio framed (its own chunk), widening to 60% on a first open, and keeps it across tabs", async () => {
-    let mints = 0;
-    serve(head({ studio: true }), { studio: pane("studio", { studio: true, ideOpen: "https://ide--s.p.example/" }) });
-    // After serve: MSW prefers the newest handler, and serve's :action catches /frame.
-    server.use(http.post("/app/user/api/sessions/:id/frame", () => { mints++; return HttpResponse.json({ url: `https://ide--s.p.example/__jam/frame?t=${mints}`, open: "https://ide--s.p.example/" }); }));
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 1000, height: 800 } as DOMRect);
-    const user = userEvent.setup();
-    renderApp(boot, "/app/user/c/chn_s");
-    await user.click(await screen.findByRole("tab", { name: "Studio" }));
-    await waitFor(() => expect(document.querySelector("#studio iframe.st-iframe")).not.toBeNull());
-    expect(saved("ses_1")).toEqual({ tab: "studio", place: "right", w: 600 });
-    const f = document.querySelector("#studio iframe.st-iframe");
-    await user.click(screen.getByRole("tab", { name: "Status" }));
-    expect(document.querySelector<HTMLElement>("#studio")!.closest<HTMLElement>("[data-keep]")!.style.display).toBe("none");
-    await user.click(screen.getByRole("tab", { name: "Studio" }));
-    expect(document.querySelector("#studio iframe.st-iframe")).toBe(f); // the same frame
-    expect(mints).toBe(1);
-    // Closing the pane tears it down; the next open mints afresh.
-    await user.click(screen.getByRole("button", { name: "Close the pane" }));
-    expect(document.querySelector("#studio")).toBeNull();
-    await user.click(screen.getByRole("tab", { name: "Studio" }));
-    await waitFor(() => expect(mints).toBe(2));
-    expect(saved("ses_1").w).toBe(600); // a saved size isn't widened again
-  });
-
   it("frames a preview with View here, keeps it across a refresh, and goes back", async () => {
     let mints = 0;
     serve(head(), { previews: pane("previews", { previews: [{ name: "web", url: "https://web--s.p.example/", port: 5173, frame: true }, { name: "api", url: "https://api--s.p.example/", port: 8080, frame: false }] }) });
@@ -301,14 +276,6 @@ describe("the session pane", () => {
     await user.click(screen.getByRole("tab", { name: "Previews" }));
     expect(await screen.findByRole("button", { name: "View here" })).toBeInTheDocument();
     expect(document.querySelector(".pv-framed")).toBeNull();
-  });
-
-  it("says the studio isn't available when the pane says so", async () => {
-    serve(head({ studio: true }), { studio: pane("studio", { studio: false, ideOpen: "" }) });
-    const user = userEvent.setup();
-    renderApp(boot, "/app/user/c/chn_s");
-    await user.click(await screen.findByRole("tab", { name: "Studio" }));
-    expect(await screen.findByText("The studio isn't available to you here.")).toBeInTheDocument();
   });
 
   it("opens the Thinking tab in the app (its own chunk), following the session's feed", async () => {

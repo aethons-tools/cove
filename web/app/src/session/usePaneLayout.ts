@@ -4,10 +4,9 @@ import { DEFAULT_SIZE, isTab, loadLayout, NARROW, saveLayout, type PaneLayout, t
 
 // usePaneLayout is one session's pane layout: loaded from storage (a linked
 // ?tab= opens that tab and is saved), saved on each change. Narrow windows
-// put the pane below without changing the saved placement. A Studio tab the
-// viewer lacks (opts.studio false) shows closed, and the saved layout is
-// left as it was. id "" is no session: nothing is saved.
-export function usePaneLayout(id: string, opts: { studio: boolean; linked: string | null }): PaneState {
+// put the pane below without changing the saved placement. id "" is no
+// session: nothing is saved.
+export function usePaneLayout(id: string, opts: { linked: string | null }): PaneState {
   const [state, setState] = useState(() => {
     const l = loadLayout(id);
     return { id, layout: isTab(opts.linked) ? { ...l, tab: opts.linked } : l };
@@ -20,7 +19,7 @@ export function usePaneLayout(id: string, opts: { studio: boolean; linked: strin
   const narrow = useMediaQuery(NARROW) ?? false;
   const linked = isTab(opts.linked);
   useEffect(() => {
-    if (id && linked && layout.tab !== "studio") saveLayout(id, layout);
+    if (id && linked) saveLayout(id, layout);
     // Only the first layout: later changes save themselves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -32,16 +31,13 @@ export function usePaneLayout(id: string, opts: { studio: boolean; linked: strin
     setLayout(next);
     if (save) saveLayout(id, next);
   };
-  const tab = layout.tab === "studio" && !opts.studio ? null : layout.tab;
+  const tab = layout.tab;
   const place: Place = narrow ? "below" : layout.place;
   const key = place === "right" ? "w" : "h";
   return {
     tab, place, narrow,
     size: layout[key] ?? DEFAULT_SIZE[place],
-    hasSize: layout[key] !== undefined,
-    toggle: (t: PaneTab, size?: number) => update({
-      ...layout, tab: tab === t ? null : t, ...(size && tab !== t && layout[key] === undefined ? { [key]: Math.round(size) } : {}),
-    }),
+    toggle: (t: PaneTab) => update({ ...layout, tab: tab === t ? null : t }),
     close: () => update({ ...layout, tab: null }),
     flip: () => update({ ...layout, place: layout.place === "right" ? "below" : "right" }),
     resize: (px: number, save = false) => update({ ...layout, [key]: Math.round(px) }, save),
