@@ -23,7 +23,7 @@
 
 ## Non-goals (this design)
 
-- **Kits from their own repos** (`kits/<name>.source.yml`, and standalone `kit track|sync`). Deferred by the user ("there are plenty of questions there"). They stay as they are, and the editor shows them read-only.
+- **Kits from their own repos** (`kits/<name>.source.yml`, and standalone `kit track|sync`). Deferred by the user ("there are plenty of questions there"). They stay as they are, and the editor shows them read-only. My call: kits that aren't inline in the repo (standalone-tracked, or behind a `.source.yml`) are **never removed by following**, and `kit track|sync` stays allowed until remote kits are designed.
 - **The VS Code side.** VS Code will open the user's branch as a folder, with the same branch, Merge and PR. It is the next design, on top of this one.
 - **Trying a branch in a session** before merging (a session raised from an unmerged branch). The user said it would be "convenient". It's a later phase.
 - **Diff, history or review views in Jam.**
@@ -63,7 +63,9 @@ There is **no live editing of configuration, ever**, even on a Jam with no repo.
 
 - Jam keeps a **persistent clone** of the repo in its state dir and checks the followed branch for new commits about once a minute.
 - **A new commit** is planned and applied in one transaction, as an apply is today.
+- **The first apply needs a confirm (my call).** When `config.git` is first set, or changed, Jam plans the repo against the live config but doesn't apply it. The Tracking page shows the plan, removals included, and waits for an operator to confirm. Only then does following apply on its own. This keeps a partial repo, or a skipped `write --all`, from deleting live roles and projects.
 - **On apply, the live config becomes exactly what the repo says:** objects of a config kind that aren't in the repo are removed. With git as the only truth, there are no "unmanaged" config objects. That's why the user's one-time `write --all` comes first.
+- **A commit today's guards refuse** (removing a role with a live instance, a project with members) fails as a whole, like any failure (my call). It is retried at each check, so it applies once the obstacle is gone, e.g. when the instance ends.
 - **A commit that fails to plan or apply** (for example, a role naming a kit that doesn't exist) leaves the last good config running. It flags the failure, with the commit, on the Tracking page and as a condition. The next commit that plans cleanly is applied.
 - **What disappears:** drift detection, `--force` and `config release`. There is nothing to drift from.
 
@@ -102,6 +104,14 @@ There is **no live editing of configuration, ever**, even on a Jam with no repo.
 - **Draft publish is removed,** since it is a live edit.
 - **Draft test builds and draft studios** come back with the "trying a branch" phase.
 
+### The repo's `jam.yml` (my call)
+
+It stays compare-only, as today, and read-only in the editor. Applying it would need serve reloads, and it would be circular: `config.git` and its credential live in the serve config.
+
+### Who may do what (my call)
+
+The existing operator gate covers it all: any operator may open any branch, save to it, and Merge or PR. Commit authors record who did what.
+
 ### Live state stays live
 
 Objects with no file kind stay outside git and editable as today:
@@ -109,6 +119,9 @@ Objects with no file kind stay outside git and editable as today:
 - standing-session operations: reset, upgrade, restart.
 
 ## Phases (my call)
+
+The phases are slices of one branch and one PR, merged at the end as the hub was. No Jam ever runs a phase where live edits are silently reverted.
+
 
 1. **Following:** `config.git` in the serve config; the persistent clone and push credential; following and applying the branch; the Tracking page read-only; `track|untrack` removed.
 2. **The branch editor:** the branch context; Create/Open branch; saves as commits; Merge and PR.
