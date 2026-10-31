@@ -1365,3 +1365,50 @@ export interface SearchResult {
   groups: SearchGroup[];
   jump: string;
 }
+/**
+ * ConfigBranches is the branch bar's list: the followed branch first.
+ */
+export interface ConfigBranches {
+  branches: ConfigBranch[];
+  followed: string; // the branch the Jam follows (read-only)
+  defaultName: string; // Create's suggestion: jam/<operator>
+  canPR: boolean;
+  repoLink: string; // the repo's web page
+}
+/**
+ * ConfigBranch is one branch of the config repo.
+ */
+export interface ConfigBranch {
+  name: string;
+  head: string;
+  short: string; // 7 chars
+  followed: boolean;
+}
+/**
+ * ConfigBranchResult answers Create branch.
+ */
+export interface ConfigBranchResult {
+  branch: ConfigBranch;
+  message: string;
+}
+/**
+ * ConfigMerge is a merge's outcome.
+ */
+export interface ConfigMerge {
+  head: string; // the followed branch's head after it, 7 chars
+  fastForward: boolean;
+  noOp: boolean;
+}
+/**
+ * ConfigMergeResult answers Merge.
+ */
+export interface ConfigMergeResult {
+  merge: ConfigMerge;
+  message: string;
+}
+/**
+ * ConfigPR is a branch's pull request ("" = none).
+ */
+export interface ConfigPR {
+  url: string;
+}

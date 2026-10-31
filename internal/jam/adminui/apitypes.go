@@ -1248,3 +1248,44 @@ type SearchResult struct {
 	Groups   []SearchGroup `json:"groups"`
 	Jump     string        `json:"jump"`
 }
+
+// ConfigBranches is the branch bar's list: the followed branch first.
+type ConfigBranches struct {
+	Branches    []ConfigBranch `json:"branches"`
+	Followed    string         `json:"followed"`    // the branch the Jam follows (read-only)
+	DefaultName string         `json:"defaultName"` // Create's suggestion: jam/<operator>
+	CanPR       bool           `json:"canPR"`
+	RepoLink    string         `json:"repoLink"` // the repo's web page
+}
+
+// ConfigBranch is one branch of the config repo.
+type ConfigBranch struct {
+	Name     string `json:"name"`
+	Head     string `json:"head"`
+	Short    string `json:"short"` // 7 chars
+	Followed bool   `json:"followed"`
+}
+
+// ConfigBranchResult answers Create branch.
+type ConfigBranchResult struct {
+	Branch  ConfigBranch `json:"branch"`
+	Message string       `json:"message"`
+}
+
+// ConfigMerge is a merge's outcome.
+type ConfigMerge struct {
+	Head        string `json:"head"` // the followed branch's head after it, 7 chars
+	FastForward bool   `json:"fastForward"`
+	NoOp        bool   `json:"noOp"`
+}
+
+// ConfigMergeResult answers Merge.
+type ConfigMergeResult struct {
+	Merge   ConfigMerge `json:"merge"`
+	Message string      `json:"message"`
+}
+
+// ConfigPR is a branch's pull request ("" = none).
+type ConfigPR struct {
+	URL string `json:"url"`
+}
