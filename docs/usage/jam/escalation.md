@@ -97,18 +97,12 @@ two engines share only the `Activity == Waiting` gate.
 
 A tier's `user:` targets are called into the session's home channel (people
 already in it stay in; called-in people stay members afterwards and may leave),
-and the session posts an **escalation notice** there: "Needs input on ACME-7 —
-called in alice, bob (escalation tier 1, infra). Replies here go to ACME-7's
-conversation, its issue included." The relays render it wherever the channel goes:
-
-- a **ticket channel**: a comment on its issue that `@`-mentions the tier's people
-  by their tracker handles (as before — also when a room holds the issue's
-  binding), and each called-in person's Discord inbox in a Discord-chat project.
-  A Discord reply to it lands in the ticket's conversation, so it is also posted
-  on the issue; the session's answer goes to the issue (and `/app/user`), not back to
-  that inbox;
-- a **session channel**: each member's Discord inbox, like any post there; a
-  person with only Linear sees it in [`/app/user`](intercom-ui.md).
+and the session posts an **escalation notice** there: "Needs input from
+worker-3 on ACME-7 — called in alice, bob (escalation tier 1, infra)." The home
+channel is the session's own channel for every session, a ticket session's
+included, so the notice reaches each member's Discord inbox like any post there
+(and Jam push); a person with only Linear sees it in
+[`/app/user`](intercom-ui.md). It is never a comment on the ticket's issue.
 
 Jam acts on the operator's policy here, so the comms access-graph
 (`Scope.Addressing`) is not consulted. The notice is for people: it never wakes

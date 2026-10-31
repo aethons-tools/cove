@@ -48,14 +48,14 @@ func TestIntercomSessionChannelLifecycle(t *testing.T) {
 	if isCurrentMember(f.store, ch.ID, f.alice.ID) {
 		t.Fatal("a starter who left was called back in")
 	}
-	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 2 {
-		t.Fatalf("session channels = %+v, want the personal and (by Reconcile) the standing one", got)
+	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 3 {
+		t.Fatalf("session channels = %+v, want the personal and (by Reconcile) the standing and ticket ones", got)
 	}
 	if m := f.store.ChannelMembers(f.sessionChannel(f.standing).ID); len(m) != 1 || m[0].ParticipantID != ident.ID(f.standing.ActorID) {
 		t.Fatalf("standing members = %+v", m)
 	}
-	if _, ok := f.store.ChannelByKey(f.project.ID, SourceSession, f.ticket.ActorID); ok {
-		t.Fatal("a ticket session's home is its ticket: no session channel")
+	if _, ok := f.store.ChannelByKey(f.project.ID, SourceSession, f.ticket.ActorID); !ok {
+		t.Fatal("a ticket session has its own session channel too")
 	}
 
 	// It ends: the channel is archived, but Jam's notice about the end still
@@ -81,11 +81,11 @@ func TestIntercomSessionChannelLifecycle(t *testing.T) {
 	}
 }
 
-// With no address, every session posts to its home channel: its ticket's,
-// else its own session channel (no more 400 for a standing session).
+// With no address, every session posts to its home channel: its own
+// session channel, a ticket session's included.
 func TestIntercomPlanHomeChannels(t *testing.T) {
 	f := newICFixture(t)
-	if p := f.mustPlan(f.ticket, ""); p.Channel.Kind != SourceTicket {
+	if p := f.mustPlan(f.ticket, ""); p.Channel.Kind != SourceSession {
 		t.Fatalf("ticket home = %+v", p.Channel)
 	}
 	p := f.mustPlan(f.personal, "")
@@ -274,7 +274,7 @@ func TestIntercomSessionAddressToATicketNeedsTicketAddressing(t *testing.T) {
 		t.Fatalf("session: to a ticket session without ticket: addressing = %v, want ErrSendDenied", err)
 	}
 	g := newICFixture(t, "session:*", "ticket:ACME-*")
-	if p, err := g.plan(g.standing, "session:"+g.ticket.ActorID); err != nil || p.Channel.Kind != SourceTicket {
+	if p, err := g.plan(g.standing, "session:"+g.ticket.ActorID); err != nil || p.Channel.Kind != SourceSession {
 		t.Fatalf("with ticket: addressing = %+v, %v", p, err)
 	}
 }
@@ -311,7 +311,7 @@ func TestSessionChannelsAreNotExported(t *testing.T) {
 // list_targets offers only the sessions a send would reach.
 func TestIntercomSessionTicketFormsAndTargets(t *testing.T) {
 	f := newICFixture(t, "session:*", "ticket:linear/*")
-	if p, err := f.plan(f.standing, "session:"+f.ticket.ActorID); err != nil || p.Channel.Kind != SourceTicket {
+	if p, err := f.plan(f.standing, "session:"+f.ticket.ActorID); err != nil || p.Channel.Kind != SourceSession {
 		t.Fatalf("with a connection-scoped ticket: glob = %+v, %v", p, err)
 	}
 	g := newICFixture(t, "session:*")
@@ -323,8 +323,8 @@ func TestIntercomSessionTicketFormsAndTargets(t *testing.T) {
 	}
 }
 
-// A gone ticket session's notice lands in its ticket's channel without
-// joining the dead session back.
+// A gone ticket session's notice lands in its archived session channel
+// without joining the dead session back to its ticket.
 func TestIntercomNotifyGoneTicketSession(t *testing.T) {
 	f := newICFixture(t)
 	if err := f.ic.SetUp(f.ticket); err != nil {
@@ -340,7 +340,10 @@ func TestIntercomNotifyGoneTicketSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if isCurrentMember(f.store, m.Channel, ident.ID(f.ticket.ActorID)) {
+	if ch, _ := f.store.GetChannel(m.Channel); ch.Kind != SourceSession || ch.Key != f.ticket.ActorID {
+		t.Fatalf("notice landed in %+v, want its session channel", ch)
+	}
+	if ticket, ok := f.ic.TicketChannelOf(f.ticket); ok && isCurrentMember(f.store, ticket.ID, ident.ID(f.ticket.ActorID)) {
 		t.Fatal("a gone session was joined back to its ticket")
 	}
 }

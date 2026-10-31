@@ -183,7 +183,7 @@ func TestTrackerSurfaceDeliverWaitsOutRateLimit(t *testing.T) {
 // viewer (even an empty one) is dropped, and Linear has no bot filter.
 func TestRouteLinearSelfAndBotUnchanged(t *testing.T) {
 	k := newRelayKit(t)
-	if _, err := k.ic.HomeChannel(k.ticket); err != nil {
+	if _, err := k.ticketChannel(); err != nil {
 		t.Fatal(err)
 	}
 	k.dir.selfIdentity = ""
@@ -197,7 +197,7 @@ func TestRouteLinearSelfAndBotUnchanged(t *testing.T) {
 
 // Review Focus 5 and the spec's relay end-to-end: on each tracker a person's
 // reply lands in the ticket channel. Jam's own comment and (on GitHub) a bot's
-// are dropped. A session's message goes back onto the issue.
+// are dropped. A session's message to its ticket goes back onto the issue.
 func TestRelayEndToEndBothTrackers(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range trackertest.Both(t) {
@@ -261,7 +261,7 @@ func TestRelayEndToEndBothTrackers(t *testing.T) {
 				t.Fatalf("ticket channel = %q; want only the person's reply", bodies)
 			}
 
-			pl, err := ic.Plan(jam.Poster{ID: ident.ID(inst.ActorID), Session: &inst, Actor: &jam.Actor{ID: inst.ActorID, Grants: []jam.Grant{{Project: "acme", Role: "impl"}}}}, "", time.Now())
+			pl, err := ic.Plan(jam.Poster{ID: ident.ID(inst.ActorID), Session: &inst, Actor: &jam.Actor{ID: inst.ActorID, Grants: []jam.Grant{{Project: "acme", Role: "impl"}}}}, "ticket:"+inst.Unit, time.Now())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -443,23 +443,6 @@ func newGitHubKit(t *testing.T) *githubKit {
 	}
 	k.dir = &directory{store: st, ic: k.ic, project: "acme", selfIdentity: "jam-bot", tracker: trackerFn, trackerKind: "github"}
 	return k
-}
-
-// Final fix 2: on a GitHub-tracked Jam an escalation @-mentions a member by
-// their github login, not their linear handle.
-func TestSurfacesEscalationUsesTheTrackerKindsHandle(t *testing.T) {
-	k := newGitHubKit(t)
-	if err := k.ic.Escalate(context.Background(), k.ticket, 0, "", []jam.Member{k.carol}); err != nil {
-		t.Fatal(err)
-	}
-	m := k.lg.InboxSince(k.carol.User.ID, 0, 0)
-	if len(m) != 1 {
-		t.Fatalf("carol's inbox = %+v", m)
-	}
-	got := addresses(k.dir.Surfaces("github", m[0]))
-	if want := "@carol-gh "; got["github:acme/board#1"] != want {
-		t.Fatalf("github surfaces = %v; want acme/board#1 prefixed %q", got, want)
-	}
 }
 
 // Final fix 3: the chat fallback @-mentions a person on the session's ticket

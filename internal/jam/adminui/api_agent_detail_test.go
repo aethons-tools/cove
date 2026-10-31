@@ -111,7 +111,7 @@ func TestAgentAPIChannelLogSquawks(t *testing.T) {
 	if err := ic.SetUp(inst); err != nil {
 		t.Fatal(err)
 	}
-	ticket, _ := ic.HomeChannel(inst)
+	ticket, _ := ic.TicketChannelOf(inst)
 	other, err := store.CreateChannel(jam.Channel{ProjectID: acme.ID, Kind: jam.SourceRoom, Key: "eng", Label: "eng"})
 	if err != nil {
 		t.Fatal(err)

@@ -165,11 +165,15 @@ func TestIntercomTicketChannelYieldsBindingToRoom(t *testing.T) {
 
 func TestIntercomPlanDefaults(t *testing.T) {
 	f := newICFixture(t)
-	// A ticket session's default is its ticket channel, created on demand for
-	// a session set up before ticket channels existed.
-	p := f.mustPlan(f.ticket, "")
+	// A ticket session's default is its own session channel, like any
+	// session's; ticket:<its key> is its ticket channel, created on demand
+	// for a session set up before ticket channels existed.
+	if p := f.mustPlan(f.ticket, ""); p.Channel.Kind != SourceSession || p.Channel.Key != f.ticket.ActorID {
+		t.Fatalf("ticket session default = %+v", p)
+	}
+	p := f.mustPlan(f.ticket, "ticket:ACME-7")
 	if p.Channel.Kind != SourceTicket || p.Channel.Label != "ACME-7" || len(p.Audience) != 0 {
-		t.Fatalf("ticket default = %+v", p)
+		t.Fatalf("own ticket = %+v", p)
 	}
 	if !isMember(f.store, p.Channel.ID, ident.ID(f.ticket.ActorID)) {
 		t.Fatal("the session joins its ticket channel")
@@ -178,7 +182,7 @@ func TestIntercomPlanDefaults(t *testing.T) {
 	if err := f.store.JoinChannel(p.Channel.ID, f.alice.ID, 11); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.mustPlan(f.ticket, "").Audience; !slices.Equal(got, ids(f.alice)) {
+	if got := f.mustPlan(f.ticket, "ticket:ACME-7").Audience; !slices.Equal(got, ids(f.alice)) {
 		t.Fatalf("audience = %v", got)
 	}
 

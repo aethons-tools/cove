@@ -39,13 +39,13 @@ func TestIntercomEscalate(t *testing.T) {
 			t.Fatalf("notice targets = %v", ids)
 		}
 	}
-	// A ticket session's home is its ticket channel.
+	// A ticket session's home is its own session channel too.
 	if err := f.ic.Escalate(context.Background(), f.ticket, 0, "", []Member{alice}); err != nil {
 		t.Fatal(err)
 	}
-	ticket, _ := f.ic.TicketChannelOf(f.ticket)
-	if !isCurrentMember(f.store, ticket.ID, f.alice.ID) {
-		t.Fatal("alice is called into the ticket's conversation")
+	home, _ = f.ic.HomeChannel(f.ticket)
+	if !isCurrentMember(f.store, home.ID, f.alice.ID) {
+		t.Fatal("alice is called into the session's channel")
 	}
 }
 

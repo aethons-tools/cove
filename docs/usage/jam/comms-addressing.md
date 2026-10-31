@@ -21,11 +21,11 @@ A target is **kind-prefixed**, and names a channel:
 
 | Target | Channel |
 |---|---|
-| `user:<name>` / `user:<usr_id>` | a chat between the session and that person — or, from a session without a ticket, its own channel when that person is already in it |
+| `user:<name>` / `user:<usr_id>` | a chat between the session and that person — or the session's own channel when that person is already in it |
 | `chat:user:<a>,user:<b>…` | a chat between the session and those people |
 | `channel:<name>` | the project's room of that name (post-only: the session doesn't join) |
 | `ticket:<key>` / `ticket:<connection>/<key>` | that ticket's conversation (its own is always allowed; another's is post-only). A GitHub key is `owner/repo#<n>` (`ticket:acme/board#7`, or scoped `ticket:<connection>/acme/board#7`), any case or leading zeros naming one ticket; a malformed one is refused with "github ticket key must be owner/repo#<n>". |
-| `session:<label>` / `session:<ses_id>` | that session's home channel (its ticket's, else its own channel); the sender joins it by posting, so replies come back. A ticket session's also needs `ticket:` addressing; a label two live sessions share names neither. |
+| `session:<label>` / `session:<ses_id>` | that session's home channel (its own session channel); the sender joins it by posting, so replies come back. A ticket session's also needs `ticket:` addressing; a label two live sessions share names neither. |
 
 A person must be a member of the session's project. The same members are the
 same chat, however they're listed. `human:<name>` — the pre-registry form — is

@@ -54,8 +54,11 @@ func TestGitHubTicketChannel(t *testing.T) {
 	// Every spelling of one issue is one key, so one channel (F16).
 	variant := f.ticket
 	variant.ActorID, variant.Unit = string(ident.New(ident.Session)), "Acme/Board#007"
-	if home, err := f.ic.HomeChannel(variant); err != nil || home.ID != ch.ID {
-		t.Fatalf("HomeChannel(unit Acme/Board#007) = %+v, %v; want %s", home, err, ch.ID)
+	if err := f.ic.SetUp(variant); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := f.ic.TicketChannelOf(variant); !ok || got.ID != ch.ID {
+		t.Fatalf("TicketChannelOf(unit Acme/Board#007) = %+v, %v; want %s", got, ok, ch.ID)
 	}
 
 	// A unit that is no GitHub key (a manual raise's free text) has no

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -127,31 +126,12 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 		if jam.IsLocalNotice(m.ID) {
 			return nil // Jam's own note: never a public comment or a room post
 		}
-		escalated := escalationTargets(d, ch, m.ID)
 		for _, b := range ch.Bindings {
 			conn, ok := d.store.GetConnection(b.ConnectionID)
 			if !ok || conn.Kind != service || cameFrom(b.ConnectionID, b.Ref) {
 				continue
 			}
-			bp := prefix(service)
-			if service == d.trackerService() && len(escalated.handles) > 0 {
-				bp = strings.Join(escalated.handles, " ") + " " + bp // the tier's people, @-mentioned as before
-			}
-			out = append(out, relay.Delivery{Service: service, Address: b.Ref, BodyPrefix: bp})
-		}
-		// A ticket whose issue binding a room holds: its escalation still goes
-		// onto the issue (the old ping's place), by the ticket's key.
-		if service == d.trackerService() && ch.Kind == jam.SourceTicket && len(escalated.handles) > 0 && len(out) == 0 {
-			if tracker, ok := d.tracker(); ok {
-				if conn, key, ok := strings.Cut(ch.Key, "/"); ok && conn == string(tracker) {
-					out = append(out, relay.Delivery{Service: service, Address: key, BodyPrefix: strings.Join(escalated.handles, " ") + " " + prefix(service)})
-				}
-			}
-		}
-		if service == "discord" {
-			for _, inbox := range escalated.inboxes {
-				out = append(out, relay.Delivery{Service: "discord", Address: inbox, BodyPrefix: prefix("discord")})
-			}
+			out = append(out, relay.Delivery{Service: service, Address: b.Ref, BodyPrefix: prefix(service)})
 		}
 	case jam.SourceChat, jam.SourceSession: // a session channel reaches its people as a chat does
 		p, ok := d.projectOf(ch)
@@ -219,38 +199,6 @@ func (d *directory) pushSurfaces(m intercom.Squawk) []relay.Delivery {
 	for _, rc := range push.Recipients(pushReader{store: d.store, ic: d.ic}, m, focused) {
 		for _, sub := range d.store.PushSubscriptions(rc.User) {
 			out = append(out, relay.Delivery{Service: push.Service, Address: push.AddressFor(sub.Endpoint), BodyPrefix: string(rc.User)})
-		}
-	}
-	return out
-}
-
-// escalated is how an escalation notice reaches the people it called in:
-// their tracker @-handles, and (in a Discord-chat project) their inboxes.
-type escalated struct{ handles, inboxes []string }
-
-// escalationTargets resolves the people an escalation notice id records to
-// how they are reached (none for any other squawk).
-func escalationTargets(d *directory, ch jam.Channel, id string) escalated {
-	var out escalated
-	users := jam.EscalationNoticeTargets(id)
-	if len(users) == 0 {
-		return out
-	}
-	p, ok := d.projectOf(ch)
-	if !ok {
-		return out
-	}
-	discordChat := jam.ChatKind(d.store, p) == "discord"
-	for _, u := range users {
-		mem, ok := jam.MemberOf(d.store, p.ID, u)
-		if !ok {
-			continue
-		}
-		if h := mem.HandleOn(d.trackerService()); h != "" {
-			out.handles = append(out.handles, "@"+strings.TrimPrefix(h, "@"))
-		}
-		if inbox, ok := mem.Inbox("discord"); ok && discordChat && !slices.Contains(out.inboxes, inbox) {
-			out.inboxes = append(out.inboxes, inbox)
 		}
 	}
 	return out
