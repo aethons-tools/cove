@@ -3,10 +3,10 @@ package adminui
 import (
 	"bytes"
 	"errors"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
-	"log/slog"
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/jam"
