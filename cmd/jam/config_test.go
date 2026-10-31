@@ -1475,3 +1475,43 @@ func TestValidateConfigRepoGitLab(t *testing.T) {
 		t.Fatalf("cred = %v %v", cr, ok)
 	}
 }
+
+func TestValidateConfigRepoGit(t *testing.T) {
+	const ssh = "credentials:\n  k:\n"
+	for name, tc := range map[string]struct{ yml, want string }{
+		"both":         {"credentials:\n  c:\nconfig:\n  github: {url: \"https://github.com/a/b\", cred: c}\n  git: {url: /srv/x, branch: main}\n", "config: set one of config.github, config.gitlab and config.git"},
+		"https":        {"config:\n  git: {url: \"https://github.com/a/b\", branch: main}\n", "config.git.url: want a local path, file://, ssh:// or user@host:path (for https use config.github or config.gitlab)"},
+		"relative":     {"config:\n  git: {url: ../x, branch: main}\n", "config.git.url: want a local path"},
+		"no branch":    {"config:\n  git: {url: /srv/x}\n", "config.git.branch is required"},
+		"ssh no cred":  {"config:\n  git: {url: \"ssh://git@h/x.git\", branch: main, host-keys: \"h ssh-ed25519 AAAA\"}\n", "config.git.cred is required for ssh"},
+		"ssh no hosts": {ssh + "config:\n  git: {url: \"git@h:x.git\", branch: main, cred: k}\n", "config.git.host-keys is required for ssh"},
+		"local cred":   {ssh + "config:\n  git: {url: /srv/x, branch: main, cred: k}\n", "config.git.cred is only for ssh"},
+		"local hosts":  {"config:\n  git: {url: file:///srv/x, branch: main, host-keys: x}\n", "config.git.host-keys is only for ssh"},
+		"undemanded":   {"config:\n  git: {url: \"git@h:x.git\", branch: main, cred: k, host-keys: x}\n", "config.git.cred \"k\" is not a demanded credential"},
+		"valid local":  {"config:\n  git: {url: /srv/x, branch: main}\n", ""},
+		"valid file":   {"config:\n  git: {url: file:///srv/x, branch: live, dir: jam}\n", ""},
+		"valid ssh":    {ssh + "config:\n  git: {url: \"ssh://git@h:2222/x.git\", branch: main, cred: k, host-keys: \"h ssh-ed25519 AAAA\"}\n", ""},
+		"valid scp":    {ssh + "config:\n  git: {url: \"git@h:x.git\", branch: main, cred: k, host-keys: \"h ssh-ed25519 AAAA\"}\n", ""},
+	} {
+		c, err := parseServeConfig([]byte(tc.yml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		err = c.validateConfigRepo()
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("%s: refused: %v", name, err)
+		case tc.want != "" && (err == nil || !strings.HasPrefix(err.Error(), tc.want)):
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+	c, _ := parseServeConfig([]byte("config:\n  git: {url: /srv/x, branch: live, dir: jam}\n"))
+	if got := c.followedSource(); got != (gitsource.Source{Repo: "/srv/x", Dir: "jam", Ref: "live"}) {
+		t.Fatalf("followed = %+v", got)
+	}
+	// No gitsource cred for a git config repo.
+	f, err := resolveKitFetcher(c, nil)
+	if err != nil || len(f.Creds) != 0 {
+		t.Fatalf("fetcher = %+v %v", f, err)
+	}
+}

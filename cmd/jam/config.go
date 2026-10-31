@@ -18,6 +18,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/browserauth"
+	"github.com/aethons-tools/cove/internal/jam/configrepo"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/preview"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
@@ -501,6 +502,7 @@ func (c serveConfig) validateKits() error {
 type configRepoConfig struct {
 	GitHub *configRepoHost `yaml:"github"`
 	GitLab *configRepoHost `yaml:"gitlab"`
+	Git    *configRepoHost `yaml:"git"`
 }
 
 // configRepoHost is a config repo on GitHub (or GitHub Enterprise) or GitLab
@@ -513,50 +515,118 @@ type configRepoHost struct {
 	Cred   string `yaml:"cred"`
 	Branch string `yaml:"branch"`
 	Dir    string `yaml:"dir"`
+	// HostKeys is config.git's ssh host keys (known_hosts lines, public).
+	HostKeys string `yaml:"host-keys"`
 
-	kind string // github | gitlab, set by configRepo
+	kind string // github | gitlab | git, set by configRepo
 }
 
 // defaultConfigBranch is the followed branch when the config block sets none.
 const defaultConfigBranch = "main"
 
-// configRepo is the configured repo with its kind; nil = none (or both set:
-// validateConfigRepo refuses that).
+// configRepo is the configured repo with its kind; nil = none (or several
+// set: validateConfigRepo refuses that).
 func (c serveConfig) configRepo() *configRepoHost {
-	if c.Config == nil || (c.Config.GitHub != nil) == (c.Config.GitLab != nil) {
+	if c.Config == nil {
 		return nil
 	}
-	if g := c.Config.GitHub; g != nil {
-		r := *g
-		r.kind = "github"
-		return &r
+	var set []*configRepoHost
+	var kinds []string
+	for _, k := range []struct {
+		kind string
+		h    *configRepoHost
+	}{{"github", c.Config.GitHub}, {"gitlab", c.Config.GitLab}, {"git", c.Config.Git}} {
+		if k.h != nil {
+			set, kinds = append(set, k.h), append(kinds, k.kind)
+		}
 	}
-	r := *c.Config.GitLab
-	r.kind = "gitlab"
+	if len(set) != 1 {
+		return nil
+	}
+	r := *set[0]
+	r.kind = kinds[0]
 	return &r
 }
 
-// validateConfigRepo checks the config block: exactly one kind, an https (or
-// loopback http) repo URL with no userinfo, a clean relative dir, a branch
-// gitsource accepts (gitsource.Parse owns those rules and never quotes the
-// URL), and a demanded cred that is not a gcp-exchange or pool credential.
+// scpURLRE is the scp form of an ssh remote: user@host:path.
+var scpURLRE = regexp.MustCompile(`^[^@/:\s]+@[^/:\s]+:.+$`)
+
+// validateGitRepoURL checks a config.git url: a local path, file://, ssh://
+// or user@host:path. It never quotes the url (it may carry userinfo).
+func validateGitRepoURL(u string) (ssh bool, err error) {
+	switch {
+	case configrepo.IsLocal(u):
+		return false, nil
+	case strings.HasPrefix(u, "ssh://"):
+		if p, perr := url.Parse(u); perr != nil || p.Host == "" || p.Path == "" {
+			return false, errors.New("config.git.url: not a valid ssh:// URL")
+		} else if _, has := p.User.Password(); has {
+			return false, errors.New("config.git.url: must not carry a password")
+		}
+		return true, nil
+	case !strings.Contains(u, "://") && scpURLRE.MatchString(u):
+		return true, nil
+	}
+	return false, errors.New("config.git.url: want a local path, file://, ssh:// or user@host:path (for https use config.github or config.gitlab)")
+}
+
+// validateConfigRepo checks the config block: exactly one kind; for github
+// and gitlab an https (or loopback http) repo URL with no userinfo, a
+// branch and clean relative dir gitsource accepts (gitsource.Parse owns
+// those rules and never quotes the URL) and a demanded cred that is not a
+// gcp-exchange or pool credential; for git a local or ssh URL, a required
+// branch, and for ssh the cred and host keys.
 func (c serveConfig) validateConfigRepo() error {
 	if c.Config == nil {
 		return nil
 	}
 	g := c.configRepo()
 	if g == nil {
-		return errors.New("config: set one of config.github and config.gitlab")
+		return errors.New("config: set one of config.github, config.gitlab and config.git")
 	}
 	key := "config." + g.kind
 	if g.URL == "" {
 		return fmt.Errorf("%s.url is required", key)
 	}
-	if _, err := gitsource.Parse(c.followedSource().String()); err != nil {
-		return fmt.Errorf("%s: %w", key, err)
+	needCred := true
+	if g.kind == "git" {
+		ssh, err := validateGitRepoURL(g.URL)
+		if err != nil {
+			return err
+		}
+		if g.Branch == "" {
+			return errors.New("config.git.branch is required")
+		}
+		// Branch and dir rules are gitsource's; check them on a stand-in repo.
+		if _, err := gitsource.Parse(gitsource.Source{Repo: "https://example.invalid/r", Dir: g.Dir, Ref: g.Branch}.String()); err != nil {
+			return fmt.Errorf("%s: %w", key, err)
+		}
+		if ssh {
+			if g.Cred == "" {
+				return errors.New("config.git.cred is required for ssh")
+			}
+			if g.HostKeys == "" {
+				return errors.New("config.git.host-keys is required for ssh")
+			}
+		} else {
+			if g.Cred != "" {
+				return errors.New("config.git.cred is only for ssh")
+			}
+			if g.HostKeys != "" {
+				return errors.New("config.git.host-keys is only for ssh")
+			}
+			needCred = false
+		}
+	} else {
+		if _, err := gitsource.Parse(c.followedSource().String()); err != nil {
+			return fmt.Errorf("%s: %w", key, err)
+		}
+		if g.Cred == "" {
+			return fmt.Errorf("%s.cred is required", key)
+		}
 	}
-	if g.Cred == "" {
-		return fmt.Errorf("%s.cred is required", key)
+	if !needCred {
+		return nil
 	}
 	if _, ok := c.Credentials[g.Cred]; !ok {
 		return fmt.Errorf("%s.cred %q is not a demanded credential", key, g.Cred)

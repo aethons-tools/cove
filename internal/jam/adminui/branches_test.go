@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -187,5 +188,22 @@ func TestBranchesAPIGitLab(t *testing.T) {
 	apiDo(t, h, "GET", "/app/admin/api/config/branches", nil, &list)
 	if !strings.HasSuffix(list.TreeLink, "/-/tree/") || list.PRNoun != "merge request" || !list.CanPR {
 		t.Fatalf("list = %+v", list)
+	}
+}
+
+// A local repo has no web page and no pull requests.
+func TestBranchesAPILocal(t *testing.T) {
+	_, _, b, url := branchUI(t)
+	bare := filepath.Join(t.TempDir(), "config.git")
+	if out, err := exec.Command("git", "clone", "--bare", url, bare).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v %s", err, out)
+	}
+	b.PRs = nil
+	b.Repo.URL = bare
+	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil, adminui.WithConfigBranches(b, func(jam.Store) http.Handler { return http.NotFoundHandler() }))
+	var raw map[string]any
+	apiDo(t, h, "GET", "/app/admin/api/config/branches", nil, &raw)
+	if raw["canPR"] != false || raw["treeLink"] != "" || raw["repoLink"] != "" {
+		t.Fatalf("list = %+v", raw)
 	}
 }

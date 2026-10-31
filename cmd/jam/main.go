@@ -84,6 +84,7 @@ import (
 	"github.com/aethons-tools/cove/internal/tracker"
 	"github.com/aethons-tools/cove/internal/usersecret"
 	"github.com/aethons-tools/cove/internal/wakeon"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"gopkg.in/yaml.v3"
 )
 
@@ -2866,6 +2867,20 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Config page; config.drift is re-checked on conds after each apply.
 		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds,
 			Followed: cfg.followedSource()}
+		// The followed config repo's clone, built once: the branch editor
+		// uses it and the follower will share it.
+		var configRepo *configrepo.Repo
+		if src := cfgEnv.Followed; src.Repo != "" {
+			dir, err := cfg.stateDir()
+			if err != nil {
+				fmt.Fprintln(stderr, "jam:", err)
+				return 1
+			}
+			if configRepo, err = newConfigRepo(cfg, specs, kitFetcher, dir); err != nil {
+				fmt.Fprintln(stderr, "jam:", err)
+				return 1
+			}
+		}
 		// The config repo the Jam follows (config.github): checked now and
 		// every minute; a new commit applies once the first is confirmed.
 		if cfgEnv.Followed.Repo != "" {
@@ -2994,12 +3009,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// state dir. Branch handlers are the same admin UI over a branch's
 		// scratch store, with no supervisor (a branch raises nothing).
 		if src := cfgEnv.Followed; src.Repo != "" {
-			dir, err := cfg.stateDir()
-			if err != nil {
-				fmt.Fprintln(stderr, "jam:", err)
-				return 1
-			}
-			repo := &configrepo.Repo{URL: src.Repo, Branch: src.Ref, Creds: kitFetcher.Creds, Path: filepath.Join(dir, "config-repo")}
 			token := func() (string, error) {
 				cr, ok := kitFetcher.Creds.For(src.Repo)
 				if !ok {
@@ -3007,11 +3016,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				}
 				return cr.Token()
 			}
-			var prs configrepo.PRs = configrepo.GitHub{URL: src.Repo, Token: token}
-			if cfg.configRepo().kind == "gitlab" {
+			var prs configrepo.PRs // nil for git: no pull requests to open
+			switch cfg.configRepo().kind {
+			case "github":
+				prs = configrepo.GitHub{URL: src.Repo, Token: token}
+			case "gitlab":
 				prs = configrepo.GitLab{URL: src.Repo, Token: token}
 			}
-			branches := &jam.ConfigBranches{Repo: repo, PRs: prs, Dir: src.Dir, Fetcher: kitFetcher, Env: cfgEnv, Live: st, Log: log}
+			branches := &jam.ConfigBranches{Repo: configRepo, PRs: prs, Dir: src.Dir, Fetcher: kitFetcher, Env: cfgEnv, Live: st, Log: log}
 			branchOpts := slices.Clone(uiOpts)
 			factory := func(bs jam.Store) http.Handler {
 				return adminui.Handler(bs, log, nil, nil, credExists, squawkReader, branchOpts...)
@@ -3344,7 +3356,7 @@ func resolveKitFetcher(cfg serveConfig, specs map[string]secret.Spec) (*gitsourc
 	f := &gitsource.Fetcher{MaxBytes: 50 << 20, Timeout: 60 * time.Second}
 	// The followed config repo's credential, for exactly its URL (the longest
 	// prefix, so it wins over a kits.git prefix above it).
-	if src := cfg.followedSource(); src.Repo != "" {
+	if src := cfg.followedSource(); src.Repo != "" && cfg.configRepo().kind != "git" {
 		host := cfg.configRepo()
 		name := host.Cred
 		spec := specs[name]
@@ -3384,6 +3396,45 @@ func resolveKitFetcher(cfg serveConfig, specs map[string]secret.Spec) (*gitsourc
 		f.Creds = append(f.Creds, gitsource.Cred{Prefix: g.URL, Name: g.Cred, Resolve: resolve})
 	}
 	return f, nil
+}
+
+// newConfigRepo is the clone of the followed config repo, under dir. A
+// github or gitlab repo authenticates through the kit fetcher's credential;
+// a git repo carries its own Auth: none for a local path, the ssh key
+// (resolved on every use, and once now so a broken supply fails serve) with
+// the pinned host keys, written to dir, for ssh.
+func newConfigRepo(cfg serveConfig, specs map[string]secret.Spec, f *gitsource.Fetcher, dir string) (*configrepo.Repo, error) {
+	src, host := cfg.followedSource(), cfg.configRepo()
+	repo := &configrepo.Repo{URL: src.Repo, Branch: src.Ref, Path: filepath.Join(dir, "config-repo")}
+	if host.kind != "git" {
+		repo.Creds = f.Creds
+		return repo, nil
+	}
+	if configrepo.IsLocal(src.Repo) {
+		repo.Auth = func() (transport.AuthMethod, error) { return nil, nil }
+		return repo, nil
+	}
+	spec := specs[host.Cred]
+	key := func() (string, error) {
+		v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{spec})
+		if err != nil {
+			return "", err
+		}
+		return v[spec.Name], nil
+	}
+	if _, err := key(); err != nil {
+		return nil, fmt.Errorf("config.git.cred %q: %w", host.Cred, err)
+	}
+	// Host keys are public; the file is the only thing written.
+	khFile := filepath.Join(dir, "config-repo-known_hosts")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(khFile, []byte(strings.TrimRight(host.HostKeys, "\n")+"\n"), 0o644); err != nil {
+		return nil, fmt.Errorf("config.git.host-keys: %w", err)
+	}
+	repo.Auth = configrepo.SSHAuth(configrepo.SSHUser(src.Repo), key, khFile)
+	return repo, nil
 }
 
 // validatePushedKit validates a studio-kit config before it is stored, so a

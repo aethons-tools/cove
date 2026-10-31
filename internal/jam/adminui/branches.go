@@ -181,9 +181,12 @@ func apiConfigBranches(api *http.ServeMux, b *jam.ConfigBranches, log *slog.Logg
 			return
 		}
 		out := ConfigBranches{Followed: b.Repo.Branch, DefaultName: jam.DefaultBranchName(operatorSig(r).Name), CanPR: b.PRs != nil,
-			RepoLink: repoLinkOf(b.Repo.URL), TreeLink: repoLinkOf(b.Repo.URL) + "/tree/", PRNoun: "pull request"}
-		if _, gitlab := b.PRs.(configrepo.GitLab); gitlab {
-			out.TreeLink, out.PRNoun = repoLinkOf(b.Repo.URL)+"/-/tree/", "merge request"
+			RepoLink: repoLinkOf(b.Repo.URL), PRNoun: "pull request"}
+		if out.RepoLink != "" {
+			out.TreeLink = out.RepoLink + "/tree/"
+			if _, gitlab := b.PRs.(configrepo.GitLab); gitlab {
+				out.TreeLink, out.PRNoun = out.RepoLink+"/-/tree/", "merge request"
+			}
 		}
 		for _, br := range list {
 			out.Branches = append(out.Branches, ConfigBranch{Name: br.Name, Head: br.Head, Short: jam.ShortConfigCommit(br.Head), Followed: br.Followed})
@@ -253,6 +256,10 @@ func branchFail(w http.ResponseWriter, err error) {
 }
 
 // repoLinkOf is the repo's web page for an https GitHub or GitLab URL.
+// A local or ssh remote has no web page: "".
 func repoLinkOf(repo string) string {
+	if !strings.HasPrefix(repo, "https://") && !strings.HasPrefix(repo, "http://") {
+		return ""
+	}
 	return strings.TrimSuffix(repo, ".git")
 }
