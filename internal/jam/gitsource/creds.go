@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
@@ -91,3 +92,22 @@ var urlInText = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)(?:[^/?#@\s"']*@
 func redactURL(s string) string {
 	return urlInText.ReplaceAllString(s, "$1$2")
 }
+
+// AuthFor is the HTTP auth go-git sends to repo: its credential's current
+// value (Resolve called now), as basicAuth names it; nil with no credential.
+// An error names the credential, never its value.
+func (c Creds) AuthFor(repo string) (transport.AuthMethod, error) {
+	cred, ok := c.For(repo)
+	if !ok {
+		return nil, nil
+	}
+	v, err := cred.value()
+	if err != nil {
+		return nil, fmt.Errorf("cred %s could not be resolved", cred.Name)
+	}
+	cred.Value = v
+	return basicAuth(repo, cred), nil
+}
+
+// Redact strips the userinfo, query and fragment from every URL in s.
+func Redact(s string) string { return redactURL(s) }
