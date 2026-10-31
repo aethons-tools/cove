@@ -369,6 +369,27 @@ func (s *Supervisor) tailSeq() int64 {
 	return seq
 }
 
+// assignColor gives actorID a session color (docs/usage/jam/session-colors.md)
+// unless it has one: the palette color farthest from the live sessions'.
+// Best effort: a store error leaves the session without one.
+func (s *Supervisor) assignColor(actorID string) {
+	if _, ok := s.store.SessionColor(actorID); ok {
+		return
+	}
+	var live []string
+	for _, i := range s.store.ListInstances() {
+		if i.ActorID == actorID || i.Phase == PhaseGone {
+			continue
+		}
+		if c, ok := s.store.SessionColor(i.ActorID); ok {
+			live = append(live, c)
+		}
+	}
+	if _, err := s.store.PutSessionColor(actorID, PickSessionColor(live)); err != nil && s.log != nil {
+		s.log.Warn("raise: failed to assign a session color", "id", actorID, "error", err)
+	}
+}
+
 // Raise enrolls the identity, mints a per-instance launch secret, launches the
 // cove, and records a Live Instance leased to this process. Returns the
 // Instance, the minted identity token, and the minted launch secret (each
@@ -528,6 +549,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		}
 		return Instance{}, "", "", err
 	}
+	s.assignColor(spec.ActorID)
 	if draft != nil {
 		s.keepDraftTree(draft.objs)
 	}
