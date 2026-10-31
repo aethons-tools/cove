@@ -28,8 +28,8 @@ two status fields with different owners:
 - **Phase** (Jam owns it): `raising → live → terminating → gone`, or
   `→ lost → terminating` when the reconciler finds it dead. A `live` studio
   waiting for a reply can also go `→ idled` — paused (`docker pause`), with
-  lease-reaping suspended — and back `→ live` on reply or teardown past
-  `wait-max` (or the role's [idle timeout](turn-end.md#idle-timeout)); see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) for
+  lease-reaping suspended — and back `→ live` on reply, or torn down by the
+  role's [idle timeout](turn-end.md#idle-timeout) (never for waiting alone); see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) for
   the wake-on/pause mechanics.
 - **Activity** (the studio reports it, only while `live`): `running | holding |
   waiting | blocked | done`. Reporting `done` tells Jam to tear the studio down.
@@ -329,8 +329,8 @@ resume prompt (every session waits after every episode, above). While an episode
 background task outstanding — [`holding`](turn-end.md#holding)), a wake is written into
 it instead — see the wake paragraph above. A resident session ends only when a teardown cancels the
 run: the owner's release for a personal session, or the name's removal for a
-standing one. Jam's wake-on engine never tears a resident session down for
-`wait-max`; only a personal session's optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.
+standing one. Jam's wake-on engine never tears any session down for
+waiting; only the role's idle timeout and a personal session's optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.
 A restarted standing session resumes its conversation; others start fresh
 ([standing-state.md](standing-state.md)).
 

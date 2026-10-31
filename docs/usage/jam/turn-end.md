@@ -50,12 +50,12 @@ read.
   configured is a `503`; a tracker failure is a `502` and nothing is recorded —
   retry.
 - **Ending without a final report:** when Jam ends a ticket session — `end`, the
-  idle timeout's teardown, or `wait-max` — and its last report is not `done` or
-  `blocked`, Jam first moves the ticket to **blocked** with a comment saying why.
+  idle timeout's teardown, an operator's teardown, or a lost studio — and its
+  last report is not `done` or `blocked`, Jam first moves the ticket to
+  **blocked** with a comment saying why.
   The teardown goes ahead even if that tracker call fails (it is bounded at 15s);
   once marked, the session's report is `blocked`, so a retried teardown doesn't
-  mark it again. Teardowns outside wake-on (a lost VM, an operator's teardown)
-  don't move the ticket.
+  mark it again.
 - **Escalation** ([escalation.md](escalation.md)) pings people only while a
   ticket session's last report is `needs-input` — every turn ends in `waiting`,
   so waiting alone no longer means it needs someone.
@@ -133,10 +133,9 @@ A role can give its sessions an idle timeout: `jam role add --idle-timeout D
 - It stays armed until the session next **runs** — whatever woke it — so an
   idle wake that could not be delivered is re-sent each wake-on tick, and a
   reply pending on the same tick wakes it as a squawk instead (never both).
-- [`wait-max`](intercom.md#waiting-for-a-reply-wake-on) still tears down a
-  non-resident session, but **only when no idle deadline is armed** (no role
-  timeout, or the agent turned it `off`) **and it has no alarms** — an alarm is
-  itself a wake condition.
+- With no idle deadline armed (no role timeout, or the agent turned it `off`)
+  a waiting session waits indefinitely: no kind is torn down for waiting
+  (`wait-max` is deprecated and ignored).
 
 ## Holding
 
@@ -148,7 +147,6 @@ but background tasks are still running** — jam-studio-agent keeps the episode 
 |---|---|---|---|
 | Woken by a squawk | yes, between turns | yes, at once | yes |
 | Paused at `warm-timeout` | no | no | yes |
-| Torn down at `wait-max` | no | no | yes (non-resident) |
 
 - A holding studio is never paused: `docker pause` would freeze its background work.
 - `holding → running` (a delivered Wake, or a background task's completion starting

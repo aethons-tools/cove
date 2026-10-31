@@ -80,8 +80,8 @@ Set **exactly one** of `linear:` or `github:`; serve refuses to start otherwise
 to the tracker block's when unset (GitHub's; a Linear block's `poll-interval` is
 not read).
 
-The block also accepts `wake-poll-interval`, `wait-max`, and `warm-timeout` (the
-wake-on engine) and `escalation-poll-interval` (the escalation engine). These are now a
+The block also accepts `wake-poll-interval`, `wait-max` (deprecated and ignored),
+and `warm-timeout` (the wake-on engine) and `escalation-poll-interval` (the escalation engine). These are now a
 **fallback**: the matching `runtime.wake` field, or `runtime.escalation-poll-interval`,
 wins when set — see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) and
 [escalation.md](escalation.md). The Requisitioner also brings the tracker relay (Linear or GitHub comments), which

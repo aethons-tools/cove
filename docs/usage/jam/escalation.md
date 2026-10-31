@@ -73,21 +73,22 @@ escalated. Then:
    pre-tier-0 wait.
 2. If tier 0's timeout elapses with no reply, the engine calls in tier 1, and so on.
 3. Once the **last** tier has been called in, the engine stops advancing — it does
-   not loop, re-call, or tear the session down. Abandoning a studio with no reply at
-   all is wake-on's `wait-max`, not escalation's job (below).
+   not loop, re-call, or tear the session down. No session is torn down for
+   waiting; ending one nobody answers is the role's idle timeout's or an
+   operator's call.
 
 Each fresh Waiting-entry starts a new escalation from tier 0 — the engine's
 per-cove tier state resets whenever a studio re-enters Waiting.
 
 ## Two independent clocks
 
-Escalation's per-tier timer and wake-on's `wait-max` are **two independent
-clocks**, run by two separate engines:
+Escalation's per-tier timer and wake-on's clocks (the warm-timeout pause, the
+role's idle timeout) are **independent**, run by two separate engines:
 
 - **Escalation** only calls tiers in on a schedule; it never reads replies, never
   wakes a session, and never tears one down.
 - **Wake-on** (see [intercom.md](intercom.md#waiting-for-a-reply-wake-on)) owns
-  reply-detection, waking, and `wait-max` teardown — unchanged by escalation.
+  reply-detection, waking, pausing and the idle timeout — unchanged by escalation.
 
 A person's answer — in the session's channel, on any surface, at *any* tier —
 wakes it like any other reply. Escalation has no reply handling of its own; the

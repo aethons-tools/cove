@@ -255,6 +255,7 @@ type Supervisor struct {
 	tail      tailReader
 	released  Releaser
 	channels  SessionChannels
+	tickets   TicketBlocker // nil = teardown leaves tickets as they are
 	// defaultStudioKit is the studio kit a raise runs from when its role names no
 	// kit (its light reference). nil leaves such a raise with no kit (hermetic
 	// tests, no kit wiring). Set once at wiring via SetDefaultStudioKit; the full
@@ -337,6 +338,42 @@ func (s *Supervisor) SetReleaser(r Releaser) { s.released = r }
 type SessionChannels interface {
 	SetUp(inst Instance) error
 	Ended(inst Instance) error
+}
+
+// TicketBlocker marks a ticket session's ticket blocked when it ends without
+// a final report (cmd/jam's tracker ticketer; a no-op for a ticketless or
+// terminally-reported session).
+type TicketBlocker interface {
+	BlockUnfinished(ctx context.Context, inst Instance, reason string) error
+}
+
+// ticketBlockTimeout bounds the tracker call a teardown makes, so a stalled
+// tracker can't hold a teardown up.
+const ticketBlockTimeout = 15 * time.Second
+
+// SetTicketBlocker has every teardown of a ticket session without a terminal
+// report first mark its ticket blocked, and record that as its report. Call
+// before serving.
+func (s *Supervisor) SetTicketBlocker(t TicketBlocker) { s.tickets = t }
+
+// blockUnfinished marks inst's ticket blocked before it is torn down
+// (best-effort, time-bounded: a failure is logged and the teardown goes
+// ahead), recording the blocked report so a retried teardown doesn't mark it
+// again.
+func (s *Supervisor) blockUnfinished(ctx context.Context, inst Instance, reason string) {
+	if s.tickets == nil || inst.Unit == "" || (inst.Report != nil && inst.Report.Terminal()) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ticketBlockTimeout)
+	defer cancel()
+	if err := s.tickets.BlockUnfinished(ctx, inst, reason); err != nil {
+		if s.log != nil {
+			s.log.Warn("teardown: mark ticket blocked failed; tearing down anyway", "id", inst.ActorID, "ticket", inst.Unit, "err", err.Error())
+		}
+		return
+	}
+	r := TicketReport{State: ReportBlocked, Summary: "session ended without a final report: " + reason, At: s.now()}
+	s.patchInstance(inst.ActorID, func(i *Instance) { i.Report = &r })
 }
 
 // SetSessionChannels wires the intercom in. Best effort: a failure is logged
@@ -1597,6 +1634,7 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	if s.tunnels != nil {
 		s.tunnels.CloseAll(actorID)
 	}
+	s.blockUnfinished(ctx, inst, "session torn down")
 	if inst.Phase != PhaseTerminating && inst.Phase != PhaseLost {
 		inst.Phase = PhaseTerminating
 		s.patchInstance(actorID, func(i *Instance) {

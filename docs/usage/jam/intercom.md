@@ -135,12 +135,12 @@ meanwhile, the wake text says so. The engine reacts **on signal**: every append 
 the channel log and every activity a studio reports runs a check about 200ms later
 (a burst coalesces into one), so a reply typically wakes its studio in well under a
 second; `poll-interval` is only the backstop for alarms, deadlines and a missed
-signal. A **`wait-max`** bounds the wait — a studio with no reply within it is
-torn down (no zombies), paused or not — unless the role's
-[idle timeout](turn-end.md#idle-timeout) is armed, which then decides instead. **Resident sessions are exempt from `wait-max`:**
-a [personal](personal-sessions.md) or [standing](standing-sessions.md) session waits
-after every turn and is never torn down for `wait-max` (it is still paused at
-`warm-timeout` and woken on a reply). A personal session instead climbs the
+signal. **No session is torn down for waiting**, whatever started it: a session
+waiting for help keeps its studio and its work (it is still paused at
+`warm-timeout` and woken on a reply). The role's
+[idle timeout](turn-end.md#idle-timeout), `end`, and operators end sessions;
+[escalation](escalation.md) draws attention to one that is stuck. `wait-max` is
+deprecated and ignored (serve warns when it is set). A personal session instead climbs the
 [idle ladder](personal-sessions.md#the-idle-ladder) — nags into its channel, and an
 optional reclaim. Its starter's `keep`/`release` reply to a nag is acted on by Jam
 and doesn't wake the agent ([personal-sessions.md](personal-sessions.md#the-idle-ladder)).
@@ -169,12 +169,11 @@ The engine always runs and is configured under `runtime.wake`:
 runtime:
   wake:
     poll-interval: 15s   # backstop sweep of waiting studios; replies wake on signal (default 15s)
-    wait-max: 24h        # max a (non-personal) cove may wait before teardown, paused or not (default 30m)
     warm-timeout: 5m     # how long a waiting cove stays live before it's paused (default 60s)
 ```
 
 Each field resolves independently: **`runtime.wake` > the matching `runtime.requisitioner`
-field** (`wake-poll-interval` / `wait-max` / `warm-timeout`, kept as a fallback for
+field** (`wake-poll-interval` / `warm-timeout`, kept as a fallback for
 existing configs) **> the default**. An invalid `runtime.wake` duration fails `serve`
 at startup; an invalid Requisitioner value still falls back to the default.
 
@@ -187,10 +186,10 @@ delivery (append `seq` > `WaitSeq`) counts as a reply. Waking a `running` studio
 entering `waiting` leaves `WaitSeq` alone, so a reply that landed during the run and was
 not yet woken for wakes the studio as soon as it waits. It is an append-sequence compare,
 not a wall-clock one (`WaitingSince` is unchanged, but now drives only
-`wait-max` teardown and `warm-timeout` pausing below, not reply-detection). It's fed
+`warm-timeout` pausing, not reply-detection). It's fed
 by the relay ingress engine above, so a Waiting studio wakes on a reply only once a relay
-has ingested it; with no relay configured, it's bounded only by `wait-max` teardown
-(pausing at `warm-timeout` still happens).
+has ingested it; with no relay configured, it waits until the idle timeout or an
+operator ends it (pausing at `warm-timeout` still happens).
 
 **Sessions wake sessions, with a loop breaker.** Another session's post wakes a
 waiting studio — but once a channel has had more than **8** (`runtime.wake.session-wake-limit`; `0` turns session wakes off) session posts in a
