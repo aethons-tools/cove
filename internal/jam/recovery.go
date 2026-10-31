@@ -48,7 +48,9 @@ var ErrKitPreparing = errors.New("kit is preparing")
 // ErrKitPreparing).
 type kitPreparingError struct{ kit KitRef }
 
-func (e kitPreparingError) Error() string        { return fmt.Sprintf("kit %s is preparing; deferring", e.kit) }
+func (e kitPreparingError) Error() string {
+	return fmt.Sprintf("kit %s is preparing; deferring", e.kit)
+}
 func (e kitPreparingError) Is(target error) bool { return target == ErrKitPreparing }
 
 // transientRaiseErr reports whether a raise failed waiting on infrastructure
