@@ -100,7 +100,8 @@ type Instance struct {
 	MessagesMuted      bool          `json:"messages_muted,omitempty"`      // new messages don't wake the session (PUT /mute); cleared when its next turn starts
 	Report             *TicketReport `json:"report,omitempty"`              // the session's last ticket report (POST /report, or blocked by wake-on)
 	TurnProtocol       int           `json:"turn_protocol,omitempty"`       // the turn protocol the cove last fetched its context with (GET /context); 0 = legacy
-	RaisePrompt        string        `json:"raise_prompt,omitempty"`        // the prompt it was raised with, kept so a recovery can re-raise it; "" = raised before recovery existed (never recovered)
+	Recoverable        bool          `json:"recoverable,omitempty"`         // raised since recovery existed: a crash re-raises it (PhaseRecovering) instead of ending it
+	RaisePrompt        string        `json:"raise_prompt,omitempty"`        // the prompt it was raised with, kept so a recovery can re-raise it
 	Recovery           *Recovery     `json:"recovery,omitempty"`            // set while PhaseRecovering: when its studio died and the next re-raise attempt
 }
 

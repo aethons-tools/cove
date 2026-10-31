@@ -25,14 +25,17 @@ A managed studio has a durable **identity** (a roster [Actor](roster.md) — tok
 grants) and a runtime **Instance** keyed by that actor's id. The Instance carries
 two status fields with different owners:
 
-- **Phase** (Jam owns it): `raising → live → terminating → gone`, or
-  `→ lost → terminating` when the reconciler finds it dead. A `live` studio
+- **Phase** (Jam owns it): `raising → live → terminating → gone`, or, when its
+  studio dies (the reconciler finds it dead, or its agent exits without `end`),
+  `→ recovering → live` — see [Recovery](#recovery); a session raised before
+  recovery existed, or lost with its manager, goes `→ lost → terminating`. A `live` studio
   waiting for a reply can also go `→ idled` — paused (`docker pause`), with
   lease-reaping suspended — and back `→ live` on reply, or torn down by the
   role's [idle timeout](turn-end.md#idle-timeout) (never for waiting alone); see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) for
   the wake-on/pause mechanics.
 - **Activity** (the studio reports it, only while `live`): `running | holding |
-  waiting | blocked | done`. Reporting `done` tells Jam to tear the studio down.
+  waiting | blocked | done`. Reporting `done` after `end` (or during a teardown)
+  ends the session; without it the session [recovers](#recovery).
   `holding` means the turn ended but background tasks are still running — see
   [turn-end.md](turn-end.md#holding).
 
@@ -40,6 +43,31 @@ Each Instance is **leased** to the Jam process supervising it. A lease has a
 TTL; the owner renews it, and if it expires another process may take over
 (reconnect/failover). On restart, Jam re-adopts live Instances from the store
 instead of abandoning them — so in-progress work survives a restart.
+
+### Recovery
+
+A session whose studio dies — the reconciler finds it dead (lease expired,
+probe dead), or its agent exits without calling `end` (it reports `done`) — is
+not ended. It goes **`recovering`**: its studio is torn down and its identity
+revoked, but its Instance stays, so the Requisitioner still sees its ticket as
+worked and its allocator slot stays held; its channels and ticket are left as
+they are, and its [state volumes](standing-state.md) are kept. A dying studio's
+late reports are refused.
+
+The supervisor's reconcile loop re-raises it **under the same id**, on the
+manager it ran on while that is still configured, with the prompt it was first
+raised with; the new studio finds its conversation marker and
+[resumes](standing-state.md) instead. Its inbox cursor, focus, ticket report,
+alarms and escalation category carry over. The first attempt is 30s after the
+studio died; a failed attempt backs off (doubling, capped at 30m). After 5
+failed attempts, or 2h, Jam **gives up**: a final teardown, the ticket marked
+blocked if unfinished ([turn-end.md](turn-end.md#reporting-a-ticket)), the slot
+released.
+
+Not recovered (ended as before): a session that asked to `end`, one lost
+together with its manager (removed or force-revoked — its state went with it),
+and one raised before recovery existed. The rail shows a recovering session as
+*recovering*; the admin console lists it under attention.
 
 ### Managers and placement
 
@@ -332,7 +360,7 @@ it instead — see the wake paragraph above. A resident session ends only when a
 run: the owner's release for a personal session, or the name's removal for a
 standing one. Jam's wake-on engine never tears any session down for
 waiting; only the role's idle timeout and a personal session's optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.
-A restarted standing session resumes its conversation; others start fresh
+A restarted or [recovered](#recovery) session resumes its conversation, whatever its kind
 ([standing-state.md](standing-state.md)).
 
 > **Still deferred:** jam-studio-agent becoming the image entrypoint under its own non-root account

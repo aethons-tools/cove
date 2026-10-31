@@ -67,6 +67,8 @@ func sessionRow(inst jam.Instance, st sessionevents.Status, known bool) (Session
 	switch inst.Phase {
 	case jam.PhaseRaising:
 		return row("is starting", "busy")
+	case jam.PhaseRecovering:
+		return row("is recovering", "busy")
 	case jam.PhaseIdled:
 		return row("is paused", "dim")
 	case jam.PhaseLive:

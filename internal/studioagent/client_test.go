@@ -152,8 +152,9 @@ func TestClientDoneTearsDownInstance(t *testing.T) {
 	if err := c.Run(context.Background(), doneWorkload{}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !eventually(func() bool { _, ok := store.GetInstance("w1"); return !ok }) {
-		t.Fatal("instance not torn down after Done")
+	// Its studio goes; the session recovers (uniform sessions).
+	if !eventually(func() bool { inst, ok := store.GetInstance("w1"); return !ok || inst.Phase == jam.PhaseRecovering }) {
+		t.Fatal("instance's studio not torn down after Done")
 	}
 }
 

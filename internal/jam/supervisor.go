@@ -560,7 +560,8 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	inst := Instance{
 		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit,
 		Owner: spec.Owner, OwnerID: spec.OwnerID, Name: spec.Name, SessionKind: spec.SessionKind,
-		Mission: NormalizeStatusLine(spec.Mission),
+		Mission:     NormalizeStatusLine(spec.Mission),
+		Recoverable: true, RaisePrompt: spec.Prompt,
 		Manager: placed.Manager, Location: placed.Location, Phase: PhaseLive, Activity: ActivityRunning,
 		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
 		LaunchSecretHash: HashToken(secret),
@@ -1070,8 +1071,8 @@ func (s *Supervisor) Heartbeat(actorID string) error {
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
-	if inst.Phase == PhaseGone {
-		return fmt.Errorf("instance %q is gone", actorID)
+	if inst.Phase == PhaseGone || inst.Phase == PhaseRecovering {
+		return fmt.Errorf("instance %q is %s", actorID, inst.Phase)
 	}
 	now := s.now()
 	inst.LastSeen = now
@@ -1087,8 +1088,13 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	if err != nil {
 		return err
 	}
-	if inst.Phase == PhaseTerminating {
+	switch {
+	case inst.Phase == PhaseTerminating:
 		return s.Teardown(ctx, actorID)
+	case a == ActivityDone:
+		// Its agent exited without asking to end (a teardown in flight
+		// would be Terminating): recover the session.
+		return s.markRecovering(ctx, inst, "agent exited")
 	}
 	return nil
 }
@@ -1101,8 +1107,9 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 	if !ok {
 		return Instance{}, fmt.Errorf("no instance for actor %q", actorID)
 	}
-	if inst.Phase == PhaseGone {
-		return Instance{}, fmt.Errorf("instance %q is gone", actorID)
+	if inst.Phase == PhaseGone || inst.Phase == PhaseRecovering {
+		// A recovering session's dead studio may still be reporting.
+		return Instance{}, fmt.Errorf("instance %q is %s", actorID, inst.Phase)
 	}
 	now := s.now()
 	enteringWaiting := a == ActivityWaiting && inst.Activity != ActivityWaiting
@@ -1156,7 +1163,7 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 		inst.LastNagAt = time.Time{} // a new Waiting period restarts the idle ladder
 		inst.Nags = 0
 	}
-	if a == ActivityDone {
+	if a == ActivityDone && (inst.Phase == PhaseTerminating || !recoverable(inst)) {
 		inst.Phase = PhaseTerminating
 	}
 	return inst, s.store.PutInstance(inst)
@@ -1760,6 +1767,20 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		if inst.Phase == PhaseGone {
 			continue
 		}
+		if inst.Phase == PhaseRecovering {
+			if s.ownsDecision(inst, now) {
+				s.recoverDue(ctx, inst, now)
+			}
+			continue
+		}
+		if inst.Phase == PhaseLost && s.recoverableHere(inst) {
+			// Declared Lost but its recovery didn't start (a launcher
+			// failure): try again.
+			if err := s.markRecovering(ctx, inst, "lost"); err != nil && s.log != nil {
+				s.log.Warn("reconcile: recovering a lost session failed", "id", inst.ActorID, "err", err.Error())
+			}
+			continue
+		}
 		if inst.Phase == PhaseIdled {
 			// Paused on purpose: the wake-on engine owns its lifecycle
 			// (resume/teardown), unless its manager is gone.
@@ -1793,6 +1814,12 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		live, err := s.launcher.Probe(ctx, inst)
 		if err != nil || live == LivenessDead {
 			s.patchInstance(inst.ActorID, func(c *Instance) { c.Phase = PhaseLost })
+			if s.recoverableHere(inst) {
+				if rerr := s.markRecovering(ctx, inst, "lost"); rerr != nil && s.log != nil {
+					s.log.Warn("reconcile: recovering a lost session failed", "id", inst.ActorID, "err", rerr.Error())
+				}
+				continue
+			}
 			if derr := s.Teardown(ctx, inst.ActorID); derr != nil && s.log != nil {
 				s.log.Warn("reconcile teardown failed", "id", inst.ActorID, "err", derr.Error())
 			}
