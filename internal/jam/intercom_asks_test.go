@@ -177,3 +177,25 @@ func TestIntercomReconcileAsksClosesArchived(t *testing.T) {
 		t.Fatalf("a gone asker's ask: %+v", got)
 	}
 }
+
+// An ask in a ticket's channel is answerable by any project member who can
+// see the ticket, not only those who have joined it.
+func TestAskInTicketChannelAnswerableByProjectMember(t *testing.T) {
+	f := newICFixture(t)
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	a, ch, err := f.ic.Ask(f.poster(f.ticket), "ticket:ACME-7", AskInput{Question: "Merge?", Options: askYesNo}, f.now)
+	if err != nil || ch.Kind != SourceTicket {
+		t.Fatalf("ask = %+v in %+v, %v", a, ch, err)
+	}
+	if !f.ic.MayAnswer(f.bob.ID, a) {
+		t.Fatal("a project member who can see the ticket may answer")
+	}
+	if f.ic.MayAnswer(f.carol.ID, a) {
+		t.Fatal("carol, not in the project, may not answer")
+	}
+	if _, err := f.ic.AnswerAsk(f.bob.ID, a.ID, 1, "yes", ""); err != nil {
+		t.Fatalf("bob answers: %v", err)
+	}
+}

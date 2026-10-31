@@ -47,7 +47,7 @@ answer in `parts`: `{type: "application/vnd.jam.ask+json", data: {event:
 ## Rules
 
 - Only the asking session amends or withdraws. Only a **person** answers — a
-  current member of the ask's live channel, and one of `of` if it names anyone.
+  current member of the ask's live channel (for a ticket's channel, any project member who can see it), and one of `of` if it names anyone.
   Sessions never answer.
 - **First answer wins**; a later one is refused (`409`, "already answered").
 - When the asking session ends, its open asks close as withdrawn ("session
