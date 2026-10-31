@@ -9,8 +9,9 @@ import { APP } from "../paths";
 
 // NewSession starts a personal session: pick one of the roles the viewer may
 // start (grouped by project; a full one is shown but can't be picked), add an
-// optional first message, and land in the new session's conversation.
-export function NewSession({ opened, onClose }: { opened: boolean; onClose: () => void }) {
+// optional first message, and land in the new session's conversation
+// (onStarted: the caller's instead, as the VS Code rail does).
+export function NewSession({ opened, onClose, onStarted }: { opened: boolean; onClose: () => void; onStarted?: (s: SessionStarted) => void }) {
   const [pick, setPick] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -31,7 +32,8 @@ export function NewSession({ opened, onClose }: { opened: boolean; onClose: () =
       void client.invalidateQueries({ queryKey: ["rail"] });
       void client.invalidateQueries({ queryKey: ["session-roles"] });
       close();
-      void go(`${APP}c/${encodeURIComponent(s.channel)}`);
+      if (onStarted) onStarted(s);
+      else void go(`${APP}c/${encodeURIComponent(s.channel)}`);
     } catch (e) {
       notifications.show({ color: "red", message: (e as ApiError).message });
     } finally {

@@ -7,8 +7,9 @@ import type { RecipientsResponse } from "../api/types";
 import { APP } from "../paths";
 
 // RecipientPicker lists whom the viewer may start a conversation with,
-// grouped by project; picking one opens the New message composer.
-export function RecipientPicker({ opened, onClose }: { opened: boolean; onClose: () => void }) {
+// grouped by project; picking one opens the New message composer (onPick:
+// the caller's instead, as the VS Code rail does).
+export function RecipientPicker({ opened, onClose, onPick }: { opened: boolean; onClose: () => void; onPick?: (o: { to: string; label: string }) => void }) {
   const [q, setQ] = useState("");
   const nav = useNavigate();
   const { data } = useQuery<RecipientsResponse, ApiError>({ queryKey: ["recipients"], queryFn: () => apiGet("recipients"), enabled: opened });
@@ -22,7 +23,11 @@ export function RecipientPicker({ opened, onClose }: { opened: boolean; onClose:
           <Stack key={p} gap={2} mb="xs">
             <Text size="xs" fw={700} c="dimmed" tt="uppercase">{p}</Text>
             {shown.filter((o) => o.project === p).map((o) => (
-              <UnstyledButton key={o.to} px="xs" py={4} onClick={() => { onClose(); nav(`${APP}new?to=${encodeURIComponent(o.to)}&label=${encodeURIComponent(o.label)}`); }}>
+              <UnstyledButton key={o.to} px="xs" py={4} onClick={() => {
+                onClose();
+                if (onPick) onPick({ to: o.to, label: o.label });
+                else nav(`${APP}new?to=${encodeURIComponent(o.to)}&label=${encodeURIComponent(o.label)}`);
+              }}>
                 <Group gap="xs"><Text size="sm">{o.label}</Text><Badge size="xs" variant="light">{o.kind}</Badge></Group>
               </UnstyledButton>
             ))}
