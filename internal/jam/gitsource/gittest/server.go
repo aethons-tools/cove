@@ -5,6 +5,7 @@ package gittest
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -23,7 +25,16 @@ type Option func(*config)
 type config struct {
 	user, pass string
 	exec       map[string]bool
+	push       bool
 }
+
+// WithPush lets clients push (http.receivepack).
+func WithPush() Option {
+	return func(c *config) { c.push = true }
+}
+
+// bares maps a served URL to its bare repository, for Show and Head.
+var bares sync.Map
 
 // WithExec commits the named files (slash paths) executable (git mode 100755).
 func WithExec(names ...string) Option {
@@ -68,6 +79,9 @@ func Serve(t testing.TB, files map[string]string, opts ...Option) (url, commit s
 	run(t, "", "git", "init", "-q", "--bare", "-b", "main", bare)
 	// Like the big forges: a client may fetch any reachable commit by id.
 	run(t, bare, "git", "config", "uploadpack.allowReachableSHA1InWant", "true")
+	if cfg.push {
+		run(t, bare, "git", "config", "http.receivepack", "true")
+	}
 	run(t, "", "git", "init", "-q", "-b", "main", work)
 
 	commitFiles := func(files map[string]string) string {
@@ -115,13 +129,56 @@ func Serve(t testing.TB, files map[string]string, opts ...Option) (url, commit s
 	}
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
+	bares.Store(srv.URL+"/r.git", bare)
+	t.Cleanup(func() { bares.Delete(srv.URL + "/r.git") })
 	return srv.URL + "/r.git", commit, commitFiles
+}
+
+func bareOf(t testing.TB, url string) string {
+	t.Helper()
+	b, ok := bares.Load(url)
+	if !ok {
+		t.Fatalf("gittest: %s is not served", url)
+	}
+	return b.(string)
+}
+
+// Show is the file at path on ref in the repository url serves.
+func Show(t testing.TB, url, ref, path string) (string, bool) {
+	t.Helper()
+	out, err := output(bareOf(t, url), "git", "show", ref+":"+path)
+	return out, err == nil
+}
+
+// Head is branch's commit in the repository url serves ("" = none).
+func Head(t testing.TB, url, branch string) string {
+	t.Helper()
+	out, err := output(bareOf(t, url), "git", "rev-parse", "--verify", "-q", "refs/heads/"+branch)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// Git runs a git command in the repository url serves and returns stdout.
+func Git(t testing.TB, url string, args ...string) string {
+	t.Helper()
+	return run(t, bareOf(t, url), "git", args...)
 }
 
 // run runs a git command hermetically (no user or system config) and returns
 // its stdout.
 func run(t testing.TB, dir string, name string, args ...string) string {
 	t.Helper()
+	out, err := output(dir, name, args...)
+	if err != nil {
+		t.Fatalf("%s %s: %v", name, strings.Join(args, " "), err)
+	}
+	return out
+}
+
+// output runs a git command hermetically; its error carries stderr.
+func output(dir string, name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
@@ -132,7 +189,7 @@ func run(t testing.TB, dir string, name string, args ...string) string {
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("%s %s: %v\n%s", name, strings.Join(args, " "), err, errb.String())
+		return out.String(), fmt.Errorf("%w\n%s", err, errb.String())
 	}
-	return out.String()
+	return out.String(), nil
 }
