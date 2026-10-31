@@ -16,8 +16,9 @@ import { upload } from "./upload";
 // ComposerHandle lets the conversation start a reply about an ask (Discuss).
 export type ComposerHandle = { discuss(id: string, question: string): void };
 
-// autoFocus marks the textarea for a surrounding Modal's focus trap (data-autofocus).
-export function Composer({ to, label, attachMax, onSent, ref, autoFocus }: { to: string; label: string; attachMax: number; onSent?: (s: MessageSent) => void; ref?: Ref<ComposerHandle>; autoFocus?: boolean }) {
+// autoFocus marks the textarea for a surrounding Modal's focus trap (data-autofocus);
+// accent is the addressed session's color, the composer's left edge.
+export function Composer({ to, label, attachMax, onSent, ref, autoFocus, accent }: { to: string; label: string; attachMax: number; onSent?: (s: MessageSent) => void; ref?: Ref<ComposerHandle>; autoFocus?: boolean; accent?: string }) {
   const mac = keys.isMac();
   const client = useQueryClient();
   const box = useRef<HTMLTextAreaElement>(null);
@@ -116,7 +117,7 @@ export function Composer({ to, label, attachMax, onSent, ref, autoFocus }: { to:
   }
 
   return (
-    <Paper p="xs" withBorder radius={0} style={{ borderLeft: 0, borderRight: 0, borderBottom: 0 }}
+    <Paper data-composer p="xs" withBorder radius={0} style={{ borderLeft: accent ? `3px solid ${accent}` : 0, borderRight: 0, borderBottom: 0 }}
       onDragOver={(e) => { if (attachMax > 0) e.preventDefault(); }}
       onDrop={(e) => {
         if (attachMax > 0 && e.dataTransfer.files.length) { e.preventDefault(); attach(e.dataTransfer.files); }

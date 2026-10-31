@@ -19,6 +19,7 @@ type Store interface {
 	ShareGrantStore
 	PushSubscriptionStore
 	AppTokenStore
+	SessionColorStore
 	ManagerStore
 	SetupSnapshotStore
 

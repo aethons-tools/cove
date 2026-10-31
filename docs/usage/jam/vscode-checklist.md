@@ -4,7 +4,7 @@ read_when: You changed `web/vscode` or are cutting a release with it, and must b
 owns: the extension's build (`just vscode`/`vscode-check`, scripts/vscode.sh, the 0.<N>.0 version, the CI artifact and release asset, the `.vsix` jam embeds via scripts/stage-vscode.sh), its unit-test layout, the ssh-block golden, and the manual checklist
 prereqs: vscode.md for what the extension does
 tier: leaf
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 # Building and verifying the VS Code extension
@@ -90,6 +90,8 @@ Conversation tabs and views:
 - [ ] A window on a local folder shows no Jam views except the rail (Conversations).
 - [ ] Rail: the groups, missions and unread counts match the web app's rail.
 - [ ] Rail: the hub's active conversation tab is the highlighted row, and moves with the tab; in a studio window, its own conversation is.
+- [ ] A studio window's title bar is its session's color (dimmed when inactive); two studio windows differ. Reopening it through Jam focuses the same window.
+- [ ] A session's chat bubbles and the composer have a thin left border in its color; yours have none. The Session Status card's icon is its color, with the context bar beside it.
 - [ ] Jam's views take the VS Code theme's font, buttons, list selection, badges and inputs; switching the theme restyles them.
 - [ ] Rail *New message*: pick a person, send; the conversation opens as a hub tab (from an ordinary window too).
 - [ ] Rail *New session*: start one (with no studio access needed); its conversation opens in the hub.

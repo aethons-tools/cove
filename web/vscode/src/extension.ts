@@ -21,7 +21,7 @@ import {
   goTo,
   HUB_WORKSPACE,
   readPending,
-  remoteUri,
+  focusStudioUri,
   studioFromAuthority,
   windowAuthority,
   windowJam,
@@ -79,6 +79,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
   // the one picked with Jam: Switch Jam…, else jam.url (read fresh, so a
   // changed jam.url still applies).
   const hubDir = vscode.Uri.joinPath(ctx.globalStorageUri, "hub");
+  // studioDir holds the studio windows' workspace files (open.ts studioWorkspace).
+  const studioDir = vscode.Uri.joinPath(ctx.globalStorageUri, "studios");
   const kind = windowKind(vscode.workspace, hubDir, process.platform);
   const jams = () => {
     const c = vscode.workspace.getConfiguration("jam");
@@ -199,6 +201,16 @@ export function activate(ctx: vscode.ExtensionContext): void {
     pick: async (items, placeholder) => vscode.window.showQuickPick(items, { placeHolder: placeholder }),
     openExternal: async (u) => void (await vscode.env.openExternal(vscode.Uri.parse(u))),
     openFolder: async (u) => void (await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.parse(u), { forceNewWindow: true })),
+    writeStudioFile: async (name, text) => {
+      await fsp.mkdir(studioDir.fsPath, { recursive: true });
+      const f = vscode.Uri.joinPath(studioDir, name);
+      await fsp.writeFile(f.fsPath, text);
+      return f.toString();
+    },
+    studioFile: async (name) => {
+      const f = vscode.Uri.joinPath(studioDir, name);
+      return (await fsp.access(f.fsPath).then(() => true, () => false)) ? f.toString() : undefined;
+    },
     // The hub is local: from a studio window it must not stay on the SSH connection.
     openHub: async (jam) => {
       const j = jam ?? jamUrl();
@@ -475,7 +487,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
       windowJam: typeof wj === "string" ? wj : undefined,
       isConnected: connected.isConnected,
       openSession: (id) => openSession(openDeps, id),
-      focusStudio: (id) => ui.openFolder(remoteUri(id)),
+      focusStudio: async (id) => ui.openFolder(await focusStudioUri(ui, id)),
       isHub: kind?.kind === "hub",
       ownSession: windowStudio,
       openTab: (c) => conversations.open(c),

@@ -78,6 +78,7 @@ func (h *handler) card(inst jam.Instance) (SessionCard, bool) {
 	c, ok := cardOf(inst, st, known, inits, t)
 	if ok {
 		c.Counts.Subagents = subagents
+		c.Color, _ = h.d.Store.SessionColor(inst.ActorID)
 	}
 	return c, ok
 }

@@ -21,6 +21,19 @@ describe("SessionCard", () => {
     expect(container.querySelector(".sc-focus")).toBeNull();
   });
 
+  it("fills the icon with the session's color, the context bar beside it", () => {
+    const { container } = show(card({ color: "#aa3f4e", context: { used: 50_000, window: 200_000 } }));
+    const icon = container.querySelector(".sc-icon") as HTMLElement;
+    expect(icon.style.background).toContain("rgb(170, 63, 78)");
+    expect(icon.querySelector(".sc-ctx")).toBeNull();
+    expect(container.querySelector(".sc-icon + .sc-ctx")).not.toBeNull();
+  });
+
+  it("no color: a plain icon", () => {
+    const { container } = show(card({ context: { used: 50_000, window: 200_000 } }));
+    expect((container.querySelector(".sc-icon") as HTMLElement).getAttribute("style")).toBeNull();
+  });
+
   it("shows the focus under the mission", () => {
     const { container } = show(card({ mission: "Ship the card", focus: "Writing its tests" }));
     expect(container.querySelector(".sc-mission + .sc-focus")).toHaveTextContent("Writing its tests");

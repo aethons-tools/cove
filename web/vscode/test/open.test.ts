@@ -10,6 +10,9 @@ import {
   PENDING_MAX_MS,
   readPending,
   remoteUri,
+  focusStudioUri,
+  studioFileName,
+  studioWorkspace,
   studioFromAuthority,
   webUrl,
   windowAuthority,
@@ -22,9 +25,11 @@ import { editorFor } from "../src/editor";
 
 const ID = "ses_0abcdefghjkmnpqrstvwxyz012";
 const URL_ = "https://jam.example.com";
+const STUDIO = `file:///gs/studios/${studioFileName(ID)}`;
 
-function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: boolean; global?: unknown; rail?: unknown; conv?: unknown; connected?: string[]; scheme?: string } = {}) {
+function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: boolean; global?: unknown; rail?: unknown; conv?: unknown; connected?: string[]; scheme?: string; files?: [string, string][] } = {}) {
   const mem = new Set<string>();
+  const files = new Map<string, string>(over.files ?? []);
   const connected = new Set<string>(over.connected ?? []);
   const state = { global: over.global as unknown };
   const titles: string[] = [];
@@ -38,6 +43,11 @@ function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: 
     pick: vi.fn(async (items: { label: string }[], _p: string) => items[0]),
     openExternal: vi.fn(async () => {}),
     openFolder: vi.fn(async (u: string) => void order.push(`open ${u}`)),
+    writeStudioFile: vi.fn(async (name: string, text: string) => {
+      files.set(name, text);
+      return `file:///gs/studios/${name}`;
+    }),
+    studioFile: vi.fn(async (name: string) => (files.has(name) ? `file:///gs/studios/${name}` : undefined)),
     hasRemoteSsh: vi.fn(() => over.remote ?? true),
     installRemoteSsh: vi.fn(async () => {}),
     getGlobal: vi.fn(() => state.global),
@@ -65,7 +75,7 @@ function fake(over: { head?: unknown; headErr?: Error; sshErr?: Error; remote?: 
     return { alias: `jam-${s}`, owner: "extension" as const };
   });
   const d: OpenDeps = { ui, editor: editorFor(over.scheme ?? "vscode"), signedIn, ssh: ssh as never, log: (m) => void logs.push(m) };
-  return { d, ui, api, signedIn, ssh, answers, titles, steps, logs, order, connected };
+  return { d, ui, api, signedIn, ssh, answers, titles, steps, logs, order, connected, files };
 }
 
 const BAD_IDS = ["ses_x", "ses_0abcdefghjkmnpqrstvwxyz012%0AHost", "../../x", "ses_0ABCDEFGHJKMNPQRSTVWXYZ012", ""];
@@ -76,9 +86,9 @@ describe("openSession", () => {
     await openSession(f.d, ID);
     expect(f.titles).toEqual([`Jam: opening ${ID}…`]);
     expect(f.steps).toEqual(["checking the session", "setting up SSH for Ada", "opening the window"]);
-    expect(f.order).toEqual(["ssh", `open ${remoteUri(ID)}`]);
+    expect(f.order).toEqual(["ssh", `open ${STUDIO}`]);
     expect(f.ui.openFolder).toHaveBeenCalledTimes(1);
-    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID));
+    expect(f.ui.openFolder).toHaveBeenCalledWith(STUDIO);
     expect(f.ssh).toHaveBeenCalledWith(f.api, ID);
     expect(f.logs).toEqual([
       `[${ID}] checking the session`,
@@ -86,7 +96,7 @@ describe("openSession", () => {
       `[${ID}] setting up SSH for Ada`,
       `[${ID}] ssh ready: alias jam-${ID}`,
       `[${ID}] opening the window`,
-      `[${ID}] openFolder ${remoteUri(ID)}`,
+      `[${ID}] openFolder ${STUDIO}`,
       `[${ID}] openFolder returned`,
     ]);
   });
@@ -95,7 +105,7 @@ describe("openSession", () => {
     const f = fake({ global: "always", connected: [ID] });
     await openSession(f.d, ID);
     expect(f.ui.openFolder).toHaveBeenCalledTimes(1);
-    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID));
+    expect(f.ui.openFolder).toHaveBeenCalledWith(STUDIO);
     expect(f.connected.has(ID)).toBe(true);
   });
 
@@ -216,7 +226,7 @@ describe("openSession", () => {
     await openSession(f.d, ID);
     expect(f.ui.info).not.toHaveBeenCalled();
     expect(f.ui.setGlobal).not.toHaveBeenCalled();
-    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID));
+    expect(f.ui.openFolder).toHaveBeenCalledWith(STUDIO);
   });
 
   it("Not now still opens and is remembered", async () => {
@@ -363,6 +373,38 @@ describe("readPending", () => {
   });
 });
 
+describe("studio workspace files", () => {
+  const COLOR = "#aa3f4e";
+  it("opens the remote folder, title bar in the session's color", () => {
+    const w = JSON.parse(studioWorkspace(ID, COLOR));
+    expect(w.folders).toEqual([{ uri: remoteUri(ID) }]);
+    expect(w.remoteAuthority).toBe(`ssh-remote+jam-${ID}`);
+    expect(w.settings).toEqual({ "workbench.colorCustomizations": {
+      "titleBar.activeBackground": COLOR, "titleBar.activeForeground": "#ffffff",
+      "titleBar.inactiveBackground": `${COLOR}99`, "titleBar.inactiveForeground": "#ffffffaa",
+    } });
+    expect(studioWorkspace(ID, COLOR).endsWith("}\n")).toBe(true);
+  });
+  it.each([[""], ["red"], ["#AA3F4E;x"]])("no color (%j): no settings", (c) => {
+    expect(JSON.parse(studioWorkspace(ID, c))).not.toHaveProperty("settings");
+  });
+  it("openSession writes the session's file with its color", async () => {
+    const f = fake({ global: "always", head: { id: ID, label: "Ada", channel: "chn_1", ssh: "jam ssh x", color: COLOR } });
+    await openSession(f.d, ID);
+    expect(f.files.get(studioFileName(ID))).toBe(studioWorkspace(ID, COLOR));
+    expect(f.ui.openFolder).toHaveBeenCalledWith(STUDIO);
+  });
+  it("focusStudioUri: the studio's file, or (opened before files) its remote folder", async () => {
+    expect(await focusStudioUri(fake().ui, ID)).toBe(remoteUri(ID));
+    expect(await focusStudioUri(fake({ files: [[studioFileName(ID), "{}"]] }).ui, ID)).toBe(STUDIO);
+  });
+  it("a window on a studio file is that session's studio window", () => {
+    const w = { workspaceFile: { scheme: "file", authority: "", path: `/gs/studios/${studioFileName(ID)}` },
+      workspaceFolders: [{ uri: { scheme: "vscode-remote", authority: `ssh-remote+jam-${ID}`, path: "/home/agent/workspace" } }] };
+    expect(windowKind(w, { scheme: "file", path: "/gs/hub" }, "linux")).toEqual({ kind: "session", id: ID });
+  });
+});
+
 describe("windowKind", () => {
   const DIR = "/gs/hub";
   const HD = { scheme: "file", path: DIR };
@@ -427,7 +469,7 @@ describe("pickSession", () => {
     expect(items.map((i) => i.label)).toEqual(["$(bell) A", "B"]);
     expect(items[0]).toMatchObject({ description: "p", detail: "m" });
     expect(f.api.conversation).toHaveBeenCalledWith("chn_a");
-    expect(f.ui.openFolder).toHaveBeenCalledWith(remoteUri(ID));
+    expect(f.ui.openFolder).toHaveBeenCalledWith(STUDIO);
   });
 
   it("with no session on the conversation shows the message", async () => {

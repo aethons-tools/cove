@@ -24,6 +24,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	runShareGrantConformance(t, newStore)
 	runPushConformance(t, newStore)
 	runAppTokenConformance(t, newStore)
+	runSessionColorConformance(t, newStore)
 	runManagerConformance(t, newStore)
 	runSetupConformance(t, newStore)
 	runKitSourceConformance(t, newStore)
