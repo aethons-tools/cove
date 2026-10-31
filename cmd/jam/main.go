@@ -3066,6 +3066,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if managerHub != nil {
 			adminOpts = append(adminOpts, managers.AdminRoutes(managerHub)...)
 		}
+		if cfgEnv.Followed.Repo != "" {
+			// The config is in git: the admin API refuses live config writes.
+			adminOpts = append(adminOpts, jam.WithConfigInGit(cfgEnv.Followed))
+		}
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, browser, adminOpts...)
 		var adminServe http.Handler = admin
 		if cfg.Previews != nil {

@@ -39,6 +39,14 @@ How: the branch is loaded into a **workspace**, a scratch store holding its conf
 
 **PR** opens (or finds) a GitHub pull request from the branch into the followed branch with the same credential; the follower applies it once it is merged in git.
 
+## No live edits
+
+With `config.github` set the repo is the only source of the Jam's configuration, so nothing changes it live:
+
+- **The admin API** (`jam` CLI, any client) refuses every config-object write with 409 `config is in git (config.github): edit it on a branch in the admin console, or in the repo`: destinations, model specs, connections, users (create, delete, logins, name), projects, roles (standing declarations included), the Jam context, kits (push, pin, versions, delete, draft publish), the snapshot import (`POST /admin/config`) and `config release`. `config apply` applies only the followed repo (`--dir` and another `--git` source are refused); `config diff`, `config sync`, `config status` and `config write` work as before.
+- **The admin console** refuses a config write off a branch (409 "the config is in git: open a branch to edit it") and shows no Release on Config › Tracking.
+- **Still live:** sessions and grants, accounts, users' OIDC identities and app tokens, enrollments, standing resets and upgrades, kit drafts until publish (their test builds too), and kits from their own git sources (`kit import|track|sync`, deferred).
+
 ## What a branch serves
 
 The header `X-Jam-Config-Branch: <branch>` (the console sends it while a branch is open) sends these admin UI API paths to the workspace: `tree`, `users`, `connections`, `projects`, `roles`, `destinations`, `model-specs`, `kits`, `jam/context`. Live state under them stays live: a user's accounts, OIDC identities and app tokens; a project's agents; a role's Request; a kit draft's test build. Every other path ignores the header. Naming the followed branch is a 400.

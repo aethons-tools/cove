@@ -31,7 +31,7 @@ Editing config happens on a branch of the followed repo: [config-branches.md](co
   since), or `missing` (removed in Jam since). The header counts those that
   differ. With no repo followed (a `--dir` Jam) the header shows the newest
   apply. A missing object and a connection (no page) are not linked.
-  **Release** stops the repo managing one, as `config release` does
+  **Release** (only without a followed repo) stops the repo managing one, as `config release` does
   ([config-git.md](config-git.md#drift-and-release)). If the live Jam cannot
   be compared (any kit that does not parse), states read `unknown`.
 

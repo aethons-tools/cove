@@ -73,7 +73,8 @@ function TrackingBody({ t }: { t: Tracking }) {
           { key: "f", label: "From", render: (r) => <Text size="sm" ff="monospace">@{r.commit}</Text> },
           { key: "a", label: "Applied", render: (r) => r.applied },
           { key: "s", label: "State", render: (r) => r.state === "in-sync" ? <Text c="dimmed" size="sm">in sync</Text> : r.state ? <Badge color="yellow">{r.state}</Badge> : <Text c="dimmed" size="sm">unknown</Text> },
-          { key: "x", label: "", render: (r) => <ConfirmAction label="Release" disabled={busy} confirm={`Stop managing ${r.kind} ${r.name} from the config repo? It stays in Jam, unmanaged.`}
+          // Following a repo, it alone manages the config: nothing to release.
+          { key: "x", label: "", render: (r) => t.follow.state !== "off" && t.source ? null : <ConfirmAction label="Release" disabled={busy} confirm={`Stop managing ${r.kind} ${r.name} from the config repo? It stays in Jam, unmanaged.`}
             onConfirm={() => write.mutateAsync({ path: `tracking/managed/${encodeURIComponent(r.kind)}/${r.name.split("/").map(encodeURIComponent).join("/")}`, del: true })} /> },
         ]} />
       </Section>

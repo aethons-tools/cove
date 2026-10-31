@@ -103,6 +103,12 @@ func operatorSig(r *http.Request) configrepo.Signature {
 
 func (br *branchRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	branch := strings.TrimSpace(r.Header.Get(BranchHeader))
+	write := r.Method != http.MethodGet && r.Method != http.MethodHead
+	if branch == "" && write && (onBranchPath(r.URL.Path) || strings.HasPrefix(r.URL.Path, apiPrefix+"tracking/managed/")) {
+		// The config is in git: it changes on a branch (or in the repo), never live.
+		writeAPIError(w, http.StatusConflict, "conflict", "the config is in git: open a branch to edit it")
+		return
+	}
 	if branch == "" || !onBranchPath(r.URL.Path) {
 		br.live.ServeHTTP(w, r)
 		return
@@ -118,7 +124,6 @@ func (br *branchRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ws.Lock()
 	defer ws.Unlock()
-	write := r.Method != http.MethodGet && r.Method != http.MethodHead
 	if read := r.Header.Get(HeadHeader); write && read != "" && read != ws.HeadNow() {
 		w.Header().Set(HeadHeader, ws.HeadNow())
 		writeAPIError(w, http.StatusConflict, "stale", "this branch changed since the page was read (another tab or a push); reload it")

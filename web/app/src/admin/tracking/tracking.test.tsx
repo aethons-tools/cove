@@ -102,8 +102,8 @@ describe("Tracking", () => {
   it("releases a managed object after confirming", async () => {
     tree();
     server.use(
-      http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, rows }))),
-      http.delete("/app/admin/api/tracking/managed/role/app/ic", () => HttpResponse.json({ tracking: page({ source }), message: "released role app/ic; it stays in Jam, unmanaged" })),
+      http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ rows, follow: follow({ state: "off" }) }))),
+      http.delete("/app/admin/api/tracking/managed/role/app/ic", () => HttpResponse.json({ tracking: page({ follow: follow({ state: "off" }) }), message: "released role app/ic; it stays in Jam, unmanaged" })),
     );
     const user = userEvent.setup();
     renderAdmin(adminBoot, at);
@@ -129,7 +129,15 @@ describe("Tracking", () => {
     await waitFor(() => expect(body).toEqual({ force: true }));
   });
 
-  it("holds Apply and Release while a re-plan runs", async () => {
+  it("offers no Release while following a repo", async () => {
+    tree();
+    server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, rows }))));
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByRole("link", { name: "app/ic" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Release" })).toBeNull();
+  });
+
+  it("holds Apply while a re-plan runs", async () => {
     tree();
     let calls = 0;
     server.use(
@@ -141,7 +149,6 @@ describe("Tracking", () => {
     await user.click(await screen.findByRole("button", { name: "Diff" }));
     await user.click(await screen.findByRole("checkbox", { name: /Force/ }));
     expect(screen.getByRole("button", { name: "Apply this plan" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Release" })).toBeDisabled();
     await waitFor(() => expect(screen.getByRole("button", { name: "Apply this plan" })).toBeEnabled());
   });
 
