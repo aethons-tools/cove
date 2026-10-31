@@ -1,8 +1,12 @@
 package jam
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"time"
@@ -120,3 +124,85 @@ func TestFollowerAnotherSourceIsUnconfirmed(t *testing.T) {
 		t.Fatalf("status %+v", s)
 	}
 }
+
+// A record from before following (config track wrote it with no commit) of
+// the same repo does not confirm: the first apply still waits.
+func TestFollowerPreFollowRecordIsUnconfirmed(t *testing.T) {
+	st := NewMemStore()
+	f, _ := cfgFetcher(t, cfgFiles)
+	if err := st.SetConfigSource(&ConfigSource{Repo: cfgSrc.Repo, Dir: cfgSrc.Dir, Ref: cfgSrc.Ref}); err != nil {
+		t.Fatal(err)
+	}
+	fl, _ := followerFor(t, st, f, followEnv)
+	fl.Tick(context.Background())
+	if s := fl.Status(); s.State != ConfigFollowAwaiting || len(st.ListUsers()) != 0 {
+		t.Fatalf("status %+v users=%d", s, len(st.ListUsers()))
+	}
+}
+
+// A failed check (not a failed apply) does not re-apply the unchanged head.
+func TestFollowerCheckFailureDoesNotReapply(t *testing.T) {
+	st := NewMemStore()
+	f, cfg := cfgFetcher(t, cfgFiles)
+	fl, _ := followerFor(t, st, f, followEnv)
+	ctx := context.Background()
+	if _, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, fl.Env, syncOpts(), nil, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	cfg.failNext = fmt.Errorf("%w: connection reset", gitsource.ErrFetch)
+	fl.Tick(ctx)
+	if fl.Status().State != ConfigFollowFailed {
+		t.Fatalf("status %+v", fl.Status())
+	}
+	fetches := cfg.fetches
+	fl.Tick(ctx)
+	if s := fl.Status(); s.State != ConfigFollowInSync || cfg.fetches != fetches {
+		t.Fatalf("re-applied after a check failure: %+v fetches %d→%d", s, fetches, cfg.fetches)
+	}
+}
+
+// Refresh reads the record only: after a confirm the status is in sync
+// without a check.
+func TestFollowerRefreshAfterConfirm(t *testing.T) {
+	st := NewMemStore()
+	f, _ := cfgFetcher(t, cfgFiles)
+	fl, _ := followerFor(t, st, f, followEnv)
+	ctx := context.Background()
+	fl.Tick(ctx)
+	if _, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, fl.Env, syncOpts(), nil, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	fl.Refresh()
+	if s := fl.Status(); s.State != ConfigFollowInSync || s.Applied != "c1" {
+		t.Fatalf("status %+v", s)
+	}
+}
+
+// A store error in a follower's apply is logged with its cause.
+func TestFollowerLogsStoreErrors(t *testing.T) {
+	st := NewMemStore()
+	f, _ := cfgFetcher(t, cfgFiles)
+	var buf bytes.Buffer
+	fl, _ := followerFor(t, st, f, followEnv)
+	fl.Log = slog.New(slog.NewTextHandler(&buf, nil))
+	if _, err := ApplyConfigSource(context.Background(), st, f, gitsource.Source{}, fl.Env, syncOpts(), nil, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	fl.Store = failApplyStore{st}
+	f2, cfg := cfgFetcher(t, withFiles(map[string]string{"cfg/users/eve.yml": "kind: user\nversion: 1\n"}))
+	cfg.commit("main", "c2", withFiles(map[string]string{"cfg/users/eve.yml": "kind: user\nversion: 1\n"}))
+	fl.Fetcher = f2
+	fl.Tick(context.Background())
+	if s := fl.Status(); s.State != ConfigFollowFailed || !strings.Contains(buf.String(), "disk on fire") {
+		t.Fatalf("status %+v log:\n%s", s, buf.String())
+	}
+	if strings.Contains(s(fl), "disk on fire") {
+		t.Fatal("the raw store error reached the status")
+	}
+}
+
+func s(fl *ConfigFollower) string { return fl.Status().Error }
+
+type failApplyStore struct{ Store }
+
+func (failApplyStore) ApplyConfig(ConfigWrite) error { return errors.New("disk on fire") }

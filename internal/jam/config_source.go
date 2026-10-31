@@ -44,7 +44,9 @@ func ApplyConfigSource(ctx context.Context, store Store, f KitFetcher, src gitso
 // page, or with config sync).
 func ConfigFollowConfirmed(store Store, env ConfigEnv) bool {
 	cur, ok := store.GetConfigSource()
-	return ok && env.Followed.Repo != "" && cur.Source() == env.Followed
+	// A record with no commit is config track's, from before following: it
+	// was never confirmed as the followed repo's first apply.
+	return ok && env.Followed.Repo != "" && cur.Source() == env.Followed && cur.Commit != ""
 }
 
 // applyConfigSourceLocked is ApplyConfigSource for a caller holding configMu.

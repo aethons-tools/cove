@@ -182,7 +182,7 @@ func apiTracking(api *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.
 		}
 		log.Info("ui config applied", "operator", jam.OperatorID(r), "source", res.Source, "commit", res.Commit, "applied", res.Applied, "forced", body.Force)
 		if env.Follower != nil {
-			env.Follower.Tick(r.Context()) // a confirm leaves awaiting-confirm now
+			env.Follower.Refresh() // a confirm leaves awaiting-confirm now
 		}
 		done(w, page(), applyMsg(res))
 	}))

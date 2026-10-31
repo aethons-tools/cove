@@ -35,8 +35,7 @@ func ConfigStatus(err error) (int, string) {
 }
 
 // ConfigSourceBody is the JSON body of POST /admin/config/diff and /apply
-// (Source "" = the tracked source), PUT /admin/config/source and POST
-// /admin/config/sync ({}).
+// (Source "" = the followed repo) and POST /admin/config/sync ({}).
 type ConfigSourceBody struct {
 	Source string `json:"source,omitempty"`
 }
@@ -55,11 +54,11 @@ const maxConfigSourceBody = 64 << 10
 //	DELETE /admin/config/managed/{kind}/{name}       release a mark (a role's name is <project>/<role>)
 //
 // diff and apply take a configtar body (application/gzip) or a {source}
-// body (application/json; "" = the tracked source); sync takes {} — any
+// body (application/json; "" = the followed repo); sync takes {} — any
 // other Content-Type is 415, so a browser's no-cors POST cannot trigger
 // one. An oversize upload is 413, a malformed or unsafe one or a bad source
 // 400, before anything is fetched or loaded. A refused or stale plan, or no
-// tracked source, is 409; a fetch, auth or limit failure 502 with the
+// followed repo, is 409; a fetch, auth or limit failure 502 with the
 // fetcher's redacted message. f is the serve's one kit fetcher (kits.git
 // credentials); it fetches config repos and kits/<name>.source.yml kits.
 // env.Serve is the running serve's portable config.
@@ -113,19 +112,15 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 		}
 		return tr, true
 	}
-	// source decodes a {source} body ("" = the tracked one, unless required)
-	// and parses it; Parse's errors never quote the input. It answers 400 itself.
-	source := func(w http.ResponseWriter, r *http.Request, required bool) (gitsource.Source, bool) {
+	// source decodes a {source} body ("" = the followed repo) and parses it;
+	// Parse's errors never quote the input. It answers 400 itself.
+	source := func(w http.ResponseWriter, r *http.Request) (gitsource.Source, bool) {
 		var b ConfigSourceBody
 		r.Body = http.MaxBytesReader(w, r.Body, maxConfigSourceBody)
 		if !decode(w, r, &b) {
 			return gitsource.Source{}, false
 		}
 		if b.Source == "" {
-			if required {
-				http.Error(w, "source is required (<repo>[//<dir>]@<ref>)", http.StatusBadRequest)
-				return gitsource.Source{}, false
-			}
 			return gitsource.Source{}, true
 		}
 		src, err := gitsource.Parse(b.Source)
@@ -152,7 +147,7 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 			opt.Source, opt.Commit = gitsource.Source{Repo: ConfigDirRepo}, ConfigDirCommit
 			res, err = ApplyConfigTree(r.Context(), store, f, tr, env, opt, log, OperatorID(r))
 		case "application/json":
-			src, ok := source(w, r, false)
+			src, ok := source(w, r)
 			if !ok {
 				return
 			}
@@ -164,6 +159,9 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 		if err != nil {
 			fail(w, r, what, err)
 			return
+		}
+		if !opt.DryRun && env.Follower != nil {
+			env.Follower.Refresh() // an apply of the followed repo confirms it
 		}
 		writeJSON(w, http.StatusOK, res)
 	}
@@ -190,7 +188,7 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 				return
 			}
 			if env.Follower != nil {
-				env.Follower.Tick(r.Context()) // the status leaves awaiting-confirm now, not a minute later
+				env.Follower.Refresh() // the status leaves awaiting-confirm now, not a minute later
 			}
 			writeJSON(w, http.StatusOK, res)
 		})

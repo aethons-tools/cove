@@ -3,6 +3,7 @@ package jam
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
@@ -49,8 +50,11 @@ type ConfigFollower struct {
 	Now     func() time.Time // nil = time.Now
 
 	tickMu sync.Mutex // one tick at a time
-	mu     sync.Mutex // guards status
+	mu     sync.Mutex // guards status and applyFailed
 	status ConfigFollowStatus
+	// applyFailed is the head whose apply failed last ("" = none): it is
+	// retried even though the record may match (a failed check is not).
+	applyFailed string
 }
 
 const configFollowActor = "config-follow"
@@ -107,7 +111,10 @@ func (f *ConfigFollower) Tick(ctx context.Context) {
 			Fix:     "Review the plan on Config › Tracking and press Confirm and apply, or run `jam config sync`."})
 		return
 	}
-	if st.Applied == head && f.Status().State != ConfigFollowFailed {
+	f.mu.Lock()
+	retry := f.applyFailed == head
+	f.mu.Unlock()
+	if st.Applied == head && !retry {
 		st.State = ConfigFollowInSync
 		f.set(st)
 		f.Env.Conditions.Clear(ConfigFollowKey)
@@ -115,10 +122,19 @@ func (f *ConfigFollower) Tick(ctx context.Context) {
 	}
 	res, err := ApplyConfigSource(ctx, f.Store, f.Fetcher, src, f.Env, ConfigApplyOptions{Force: true, Now: st.CheckedAt}, f.Log, configFollowActor)
 	if err != nil {
-		_, msg := ConfigStatus(err)
+		status, msg := ConfigStatus(err)
+		if status == http.StatusInternalServerError && f.Log != nil {
+			f.Log.Error("config follow: store error", "source", st.Source, "head", head, "err", err.Error())
+		}
+		f.mu.Lock()
+		f.applyFailed = head
+		f.mu.Unlock()
 		f.fail(st, msg)
 		return
 	}
+	f.mu.Lock()
+	f.applyFailed = ""
+	f.mu.Unlock()
 	st.State, st.Applied = ConfigFollowInSync, res.Commit
 	if rec, ok := f.Store.GetConfigSource(); ok && rec.Source() == src {
 		st.Applied = rec.Commit
@@ -157,5 +173,30 @@ func (f *ConfigFollower) Run(ctx context.Context, every time.Duration) {
 			return
 		case <-tick.C:
 		}
+	}
+}
+
+// Refresh updates the status from the stored record alone, with no check:
+// after a sync (the first apply's confirm) it is in sync with the commit
+// the sync applied, at once. The next tick checks the branch again.
+func (f *ConfigFollower) Refresh() {
+	rec, ok := f.Store.GetConfigSource()
+	if !ok || !ConfigFollowConfirmed(f.Store, f.Env) {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	st := f.status
+	st.Source, st.Applied, st.Error = configSourceLabel(f.Env.Followed), rec.Commit, ""
+	if st.Head == "" || st.Head == rec.Commit || st.State != ConfigFollowFailed {
+		st.State = ConfigFollowInSync
+		if st.Head == "" {
+			st.Head = rec.Commit
+		}
+	}
+	f.status = st
+	f.applyFailed = ""
+	if st.State == ConfigFollowInSync {
+		f.Env.Conditions.Clear(ConfigFollowKey)
 	}
 }

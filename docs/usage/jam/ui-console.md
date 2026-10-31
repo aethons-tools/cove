@@ -4,7 +4,7 @@ read_when: You want to find your way around the admin console — which tab or C
 owns: the `/app/admin/` console's navigation (tabs, the Config tree and filter, the page URL table) and its Dashboard, Agents list and Health pages (tiles, filters, fixed table order); console search; the Channel log page (`/app/admin/health/intercom`); the `/app/admin/agents/{id}/session` timeline
 prereqs: ui.md for the routes, the login and the title bar these pages sit under; ui-attention.md for the badges; ui-editing.md for what can be changed
 tier: leaf
-updated: 2026-10-28
+updated: 2026-10-31
 ---
 
 # The admin console (`/app/admin/`)
@@ -23,7 +23,7 @@ remembered, the current page's branch is always open, and the **Filter** box
 narrows the tree (opening everything). The tree refreshes every 3 seconds and
 carries [attention badges](ui-attention.md). Its nodes:
 
-- **Tracking** — the tracked config repo ([ui-config.md](ui-config.md)).
+- **Tracking** — the followed config repo ([ui-config.md](ui-config.md)).
 - **Projects** → each project (its overview) → **Members** → each member,
   **Agents** → each role, **Intercom**, **Escalation**
   ([ui-projects.md](ui-projects.md)).

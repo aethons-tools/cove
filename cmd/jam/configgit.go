@@ -30,8 +30,8 @@ import (
 var configStdin io.Reader = os.Stdin
 
 // cmdConfig keeps a Jam's configuration in git: `config write <dir> [--all]`,
-// `config diff|apply [--dir <path> | --git <src>]` (neither: the tracked
-// source), `config track --git <src>`, `config sync`, `config untrack`, `config release <kind>/<name>`.
+// `config diff|apply [--dir <path> | --git <src>]` (neither: the followed
+// repo), `config sync`, `config status`, `config release <kind>/<name>`.
 func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] [--force] | sync [--yes] [--force] | status | release <kind>/<name>"
 	if len(args) == 0 {

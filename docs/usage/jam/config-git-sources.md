@@ -49,7 +49,7 @@ on its own. The record is not part of `jam export`: a restored Jam asks again.
 |---|---|
 | `config sync [--yes] [--force]` | `apply` from the followed repo now: print the plan, prompt (unless `--yes`), apply. The first one is the confirm. |
 | `config status` | The follower's last check: state, source, head, applied commit, when, error. |
-| `config diff\|apply --git <src>` | Plan or apply any source once (another repo or ref); it records nothing. |
+| `config diff\|apply --git <src>` | Plan or apply any source once. It records nothing unless it names the followed repo, dir and branch, when an apply counts as the confirm too. |
 | `config diff\|apply` (no flag) | Use the followed repo; exit 1 with `no config repo is configured` if there is none. |
 
 `--git` and `--dir` are mutually exclusive (exit 2). A git run prints
