@@ -134,8 +134,15 @@ func TestBoilerplatePreviewsLine(t *testing.T) {
 	}
 }
 
-func TestBoilerplateMissionLine(t *testing.T) {
-	const line = "- Mission: when your focus changes (a new task, a ticket picked up), set a one-line `mission` saying what you are on — people see it beside your name."
+// statusLine is the boilerplate's mission-and-focus line; legacyMissionLine
+// is the mission-only line it replaced (the legacy hashes still pin it).
+const (
+	statusLine        = "- Status: when you get a task, set `mission` to its end goal; set `focus` to what you are on now whenever that changes. Both show on your status card."
+	legacyMissionLine = "- Mission: when your focus changes (a new task, a ticket picked up), set a one-line `mission` saying what you are on — people see it beside your name."
+)
+
+func TestBoilerplateStatusLine(t *testing.T) {
+	const line = statusLine
 	for _, f := range []SessionFacts{
 		{Kind: KindStanding, Name: "bot", Project: "acme", Role: "reviewer", Previews: true},
 		{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "pair", Previews: true},
@@ -144,7 +151,7 @@ func TestBoilerplateMissionLine(t *testing.T) {
 	} {
 		l := Boilerplate(f)
 		if !strings.Contains(l.Core, line) {
-			t.Errorf("%s (unit %q): missing mission line in\n%s", f.Kind, f.Unit, l.Core)
+			t.Errorf("%s (unit %q): missing status line in\n%s", f.Kind, f.Unit, l.Core)
 		}
 		if len(l.Core) > BudgetBoilerplate {
 			t.Errorf("%s: boilerplate %d bytes > budget %d", f.Kind, len(l.Core), BudgetBoilerplate)
@@ -179,7 +186,8 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 	}
 	// The legacy boilerplate, pinned: these hashes are the output before the
 	// structured turn end existed, but for the background-process sentence
-	// corrected since (processes outlive the turn; the pause freezes them).
+	// corrected since (processes outlive the turn; the pause freezes them) and
+	// the mission line widened since to the status line (mission and focus).
 	for i, c := range []struct {
 		f    SessionFacts
 		hash string
@@ -194,6 +202,7 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 			t.Errorf("legacy case %d lacks the corrected background-process sentence", i)
 		}
 		core = strings.Replace(core, legacyBackground, "Background processes you start die when the turn ends — finish work within the turn.", 1)
+		core = strings.Replace(core, statusLine, legacyMissionLine, 1)
 		if got := fmt.Sprintf("%x", sha256.Sum256([]byte(core))); got != c.hash {
 			t.Errorf("legacy case %d changed:\n%s", i, Boilerplate(c.f).Core)
 		}

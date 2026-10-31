@@ -37,7 +37,7 @@ type RaiseSpec struct {
 	Project string
 	Role    string
 	Unit    string
-	// Mission is the session's initial one-line focus (normalised on Raise); "" = none.
+	// Mission is the session's initial mission, its end goal (normalised on Raise); "" = none.
 	Mission string
 	Prompt  string // workload prompt for the raised cove's agent; consumed by the launcher, not persisted
 	// Owner is the owning user's name for a personal session; "" otherwise.
@@ -502,7 +502,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	inst := Instance{
 		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit,
 		Owner: spec.Owner, OwnerID: spec.OwnerID, Name: spec.Name, SessionKind: spec.SessionKind,
-		Mission: NormalizeMission(spec.Mission),
+		Mission: NormalizeStatusLine(spec.Mission),
 		Manager: placed.Manager, Location: placed.Location, Phase: PhaseLive, Activity: ActivityRunning,
 		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
 		LaunchSecretHash: HashToken(secret),
@@ -1390,16 +1390,29 @@ func (s *Supervisor) SetEscalationCategory(actorID, category string) error {
 	return s.store.PutInstance(inst)
 }
 
-// SetMission stamps the agent-declared mission (normalised; "" clears it) on
-// its instance. Errors if the actor has no instance.
+// SetMission stamps the agent-declared mission — its end goal or standing
+// order (normalised; "" clears it) — on its instance. Errors if the actor has
+// no instance.
 func (s *Supervisor) SetMission(actorID, mission string) error {
+	return s.setStatusLine(actorID, func(inst *Instance) { inst.Mission = NormalizeStatusLine(mission) })
+}
+
+// SetFocus stamps the agent-declared focus — what it is on right now
+// (normalised; "" clears it) — on its instance. Errors if the actor has no
+// instance.
+func (s *Supervisor) SetFocus(actorID, focus string) error {
+	return s.setStatusLine(actorID, func(inst *Instance) { inst.Focus = NormalizeStatusLine(focus) })
+}
+
+// setStatusLine applies set to actorID's instance under the instance lock.
+func (s *Supervisor) setStatusLine(actorID string, set func(*Instance)) error {
 	s.instMu.Lock()
 	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
-	inst.Mission = NormalizeMission(mission)
+	set(&inst)
 	return s.store.PutInstance(inst)
 }
 

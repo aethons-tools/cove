@@ -6,8 +6,8 @@ import (
 	"unicode/utf8"
 )
 
-func TestNormalizeMission(t *testing.T) {
-	exact := strings.Repeat("é", MissionMaxRunes)
+func TestNormalizeStatusLine(t *testing.T) {
+	exact := strings.Repeat("é", StatusLineMaxRunes)
 	tests := []struct {
 		name, in, want string
 	}{
@@ -23,11 +23,11 @@ func TestNormalizeMission(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeMission(tt.in)
+			got := NormalizeStatusLine(tt.in)
 			if got != tt.want {
-				t.Fatalf("NormalizeMission(%q) = %q, want %q", tt.in, got, tt.want)
+				t.Fatalf("NormalizeStatusLine(%q) = %q, want %q", tt.in, got, tt.want)
 			}
-			if n := utf8.RuneCountInString(got); n > MissionMaxRunes {
+			if n := utf8.RuneCountInString(got); n > StatusLineMaxRunes {
 				t.Fatalf("rune count %d exceeds cap", n)
 			}
 		})

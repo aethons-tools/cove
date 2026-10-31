@@ -103,17 +103,22 @@ func TestSessionOpsCommandLive(t *testing.T) {
 	}
 }
 
-type stubMission struct {
+type stubLines struct {
 	calls []string
 	err   error
 }
 
-func (s *stubMission) SetMission(id, mission string) error {
-	s.calls = append(s.calls, id+"="+mission)
+func (s *stubLines) SetMission(id, mission string) error {
+	s.calls = append(s.calls, "mission:"+id+"="+mission)
 	return s.err
 }
 
-func TestSessionOpsClearResetsMission(t *testing.T) {
+func (s *stubLines) SetFocus(id, focus string) error {
+	s.calls = append(s.calls, "focus:"+id+"="+focus)
+	return s.err
+}
+
+func TestSessionOpsClearResetsMissionAndFocus(t *testing.T) {
 	inst := jam.Instance{ActorID: "w1", Phase: jam.PhaseLive}
 	tests := []struct {
 		name      string
@@ -123,11 +128,11 @@ func TestSessionOpsClearResetsMission(t *testing.T) {
 		wantCalls []string
 		wantErr   bool
 	}{
-		{"clear sent", jam.CmdClear, true, nil, []string{"w1="}, false},
+		{"clear sent", jam.CmdClear, true, nil, []string{"mission:w1=", "focus:w1="}, false},
 		{"interrupt leaves it", jam.CmdInterrupt, true, nil, nil, false},
 		{"compact leaves it", jam.CmdCompact, true, nil, nil, false},
 		{"clear not sent", jam.CmdClear, false, nil, nil, true},
-		{"setter error is not fatal", jam.CmdClear, true, errors.New("boom"), []string{"w1="}, false},
+		{"setter error is not fatal", jam.CmdClear, true, errors.New("boom"), []string{"mission:w1=", "focus:w1="}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -135,14 +140,14 @@ func TestSessionOpsClearResetsMission(t *testing.T) {
 			if !tt.connected {
 				connectAfter = 1 << 30
 			}
-			m := &stubMission{err: tt.setErr}
-			o := sessionOps{res: &stubResumer{}, cmd: &fakeCommander{connectAfter: connectAfter}, mission: m}
+			m := &stubLines{err: tt.setErr}
+			o := sessionOps{res: &stubResumer{}, cmd: &fakeCommander{connectAfter: connectAfter}, lines: m}
 			err := o.Command(t.Context(), inst, tt.cmd, "Bob")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Command err = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !slices.Equal(m.calls, tt.wantCalls) {
-				t.Errorf("SetMission calls %v, want %v", m.calls, tt.wantCalls)
+				t.Errorf("status-line calls %v, want %v", m.calls, tt.wantCalls)
 			}
 		})
 	}

@@ -101,7 +101,7 @@ func TestMCPListsReadAndSend(t *testing.T) {
 	for _, tool := range res.Tools {
 		names[tool.Name] = true
 	}
-	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] || !names["expose"] || !names["unexpose"] || !names["exposures"] || !names["report"] || !names["call_in"] || !names["leave"] || !names["mission"] {
+	if !names["read"] || !names["send"] || !names["list_targets"] || !names["commit"] || !names["escalate"] || !names["end"] || !names["idle_timeout"] || !names["alarm_set"] || !names["alarm_clear"] || !names["alarm_list"] || !names["expose"] || !names["unexpose"] || !names["exposures"] || !names["report"] || !names["call_in"] || !names["leave"] || !names["mission"] || !names["focus"] {
 		t.Fatalf("want read+send+list_targets+commit+escalate+end+idle_timeout+alarm_* tools, got %v", names)
 	}
 }
@@ -749,6 +749,17 @@ func TestMCPMissionForwardsText(t *testing.T) {
 		t.Fatal(err)
 	}
 	if m != "PUT" || p != "/mission" || !strings.Contains(b, `"text":"fixing login"`) {
+		t.Fatalf("%s %s %s", m, p, b)
+	}
+}
+
+func TestMCPFocusForwardsText(t *testing.T) {
+	var m, p, b string
+	c := turnEndClient(t, &m, &p, &b)
+	if err := c.focus(context.Background(), "reading the auth code"); err != nil {
+		t.Fatal(err)
+	}
+	if m != "PUT" || p != "/focus" || !strings.Contains(b, `"text":"reading the auth code"`) {
 		t.Fatalf("%s %s %s", m, p, b)
 	}
 }

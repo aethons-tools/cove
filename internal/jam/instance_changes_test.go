@@ -42,6 +42,7 @@ func TestInstanceChangesSignalsCardFieldsOnly(t *testing.T) {
 		{"activity", func() { inst.Activity = ActivityWaiting }},
 		{"asked", func() { inst.EscalationAsked = true }},
 		{"mission", func() { inst.Mission = "m" }},
+		{"focus", func() { inst.Focus = "f" }},
 		{"asks", func() { inst.OpenAsks = 1 }},
 		{"alarms", func() { inst.Alarms = []Alarm{{Name: "x"}} }},
 		{"exposures", func() { inst.Exposures = []Exposure{{Name: "p"}} }},

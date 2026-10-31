@@ -2129,6 +2129,23 @@ func TestSupervisorSetMission(t *testing.T) {
 	}
 }
 
+func TestSupervisorSetFocus(t *testing.T) {
+	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
+	if err := store.PutInstance(Instance{ActorID: "cove-1", Phase: PhaseLive, Activity: ActivityRunning, Mission: "ship it"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.SetFocus("cove-1", " a\nb "); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("cove-1")
+	if got.Focus != "a b" || got.Mission != "ship it" {
+		t.Fatalf("Focus, Mission = %q, %q, want %q, %q", got.Focus, got.Mission, "a b", "ship it")
+	}
+	if err := sup.SetFocus("nope", "x"); err == nil {
+		t.Fatal("unknown actor should error")
+	}
+}
+
 func TestRaiseCopiesMission(t *testing.T) {
 	sup, store, _ := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Mission: " Ticket\ntitle "}); err != nil {

@@ -25,7 +25,7 @@ const interruptPendingStructured = "These messages arrived meanwhile. Don't act 
 // standingRestartStructured is standingRestartPrompt for a structured turn end.
 const standingRestartStructured = "Your session was restarted (for example, Jam was upgraded or your studio was re-raised); " +
 	"your conversation and workspace are intact. Continue where you left off; any messages that arrived meanwhile are below. " +
-	"Set your `mission` again once you know your current focus."
+	"Set your `mission` and `focus` again once you know them."
 
 // turnMeta is what Run knows about the prompt in flight: its generation (the
 // idle tracker tags the turn answering it, so a result is never credited with

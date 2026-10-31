@@ -2909,7 +2909,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sendH := jam.NewParticipantSendHandler(st, ic, log)
 		sendH.SetAttachments(att)
 		userMux.Handle("/app/user/send", sendH)
-		userDeps := userui.Deps{Send: sendH, Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup, res: sup, cmd: rsrv, mission: sup, log: log}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}
+		userDeps := userui.Deps{Send: sendH, Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup, res: sup, cmd: rsrv, lines: sup, log: log}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}
 		if sup != nil {
 			userDeps.Personal = personalStarter{st: st, sup: sup, alloc: personalAllocator{alloc}, log: log}
 		}

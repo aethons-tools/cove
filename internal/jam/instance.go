@@ -76,7 +76,8 @@ type Instance struct {
 	// OpenAsks is how many open asks the session has in live channels
 	// (intercom asks; Supervisor.SetOpenAsks). It asks for a person while > 0.
 	OpenAsks           int           `json:"open_asks,omitempty"`
-	Mission            string        `json:"mission,omitempty"`             // agent-declared one-line focus (NormalizeMission); "" = none
+	Mission            string        `json:"mission,omitempty"`             // agent-declared end goal or standing order, one line (NormalizeStatusLine); "" = none
+	Focus              string        `json:"focus,omitempty"`               // agent-declared one line saying what it is on now (NormalizeStatusLine); "" = none
 	EscalationCategory string        `json:"escalation_category,omitempty"` // cove-declared block category; "" = default chain
 	LastNagAt          time.Time     `json:"last_nag_at,omitempty"`         // personal session: when wake-on last nagged the owner about this Waiting period; zero = not yet
 	Nags               int           `json:"nags,omitempty"`                // personal session: idle nags sent this Waiting period

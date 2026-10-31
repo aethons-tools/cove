@@ -14,7 +14,7 @@ import (
 // lifecycle wins over the event stream. ok=false: the session is ending or
 // gone, and has no card.
 func cardOf(inst jam.Instance, st sessionevents.Status, known bool, inits int, t sessionevents.Totals) (SessionCard, bool) {
-	c := SessionCard{Session: inst.ActorID, Name: inst.Name, Mission: inst.Mission, Inits: inits,
+	c := SessionCard{Session: inst.ActorID, Name: inst.Name, Mission: inst.Mission, Focus: inst.Focus, Inits: inits,
 		Counts: CardCounts{Asks: inst.OpenAsks, Alarms: len(inst.Alarms), Previews: len(inst.Exposures), Processes: inst.KeptProcesses},
 		// Context is the main thread's, as the header's ctx figure.
 		Context: CardContext{Used: t.Context, Window: t.ContextWindow}}

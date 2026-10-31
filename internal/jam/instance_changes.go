@@ -7,7 +7,7 @@ import (
 
 // InstanceChanges is a Store whose instance writes signal subscribers when
 // they change what a session's status card shows (docs/superpowers/specs/
-// 2026-10-30-session-status-card-design.md): lifecycle, mission, open asks,
+// 2026-10-30-session-status-card-design.md): lifecycle, mission, focus, open asks,
 // alarms, exposures, kept processes. Heartbeats and cursor writes don't
 // signal. Every other method passes through to the wrapped Store. Each
 // subscriber's channel holds one pending signal, so a burst coalesces and a
@@ -26,7 +26,7 @@ func NewInstanceChanges(st Store) *InstanceChanges {
 
 // cardFingerprint is the part of i a status card shows.
 func cardFingerprint(i Instance) string {
-	return fmt.Sprintf("%s|%s|%s|%t|%d|%q|%d|%d|%d", i.Phase, i.Activity, i.Name, NeedsPerson(i), i.OpenAsks, i.Mission,
+	return fmt.Sprintf("%s|%s|%s|%t|%d|%q|%q|%d|%d|%d", i.Phase, i.Activity, i.Name, NeedsPerson(i), i.OpenAsks, i.Mission, i.Focus,
 		len(i.Alarms), len(i.Exposures), i.KeptProcesses)
 }
 
