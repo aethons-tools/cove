@@ -4,7 +4,7 @@ read_when: You want to know why a session or a studio window has the color it ha
 owns: the session palette, the assignment rule, the session_colors table, the color fields of the user API, and where the color shows
 prereqs: coves.md for raising and session phases; session-card.md for the status card; vscode.md for studio windows
 tier: leaf
-updated: 2026-10-31
+updated: 2026-11-01
 ---
 
 # Session colors
@@ -32,7 +32,7 @@ Status colors (phase, needs-you, card states) are separate and unchanged.
 
 The user API carries `color` (`#rrggbb`; omitted for none) on `SessionHead`, `SessionCard`, `Conversation` (the home session's) and `MessageRow` (the sending session's).
 
-- **The studio window's title bar (VS Code).** The extension opens a studio window from a local workspace file, `<globalStorage>/studios/jam-<studio>.code-workspace`. That file holds the remote folder and the title-bar colors (dimmed when the window is inactive), so nothing is written into the studio. The file is rewritten on each open ([vscode.md](vscode.md#what-it-writes)).
+- **The studio window's title bar (VS Code).** The extension opens a studio window from a local workspace file, `<globalStorage>/studios/jam-<studio>.code-workspace`. That file holds the remote folder, the window title (the session's name) and the title-bar colors (dimmed when the window is inactive), so nothing is written into the studio. The file is rewritten on each open ([vscode.md](vscode.md#what-it-writes)).
   A studio window opened before this was a plain remote folder: opening that session through Jam gives a **second window, once**. Close the old one.
 - **Chat bubbles:** a 3px left border on the session's messages, in the web app and VS Code alike. Yours and other people's have none.
 - **The composer:** the same border on its left edge, when the conversation is a session's home.
