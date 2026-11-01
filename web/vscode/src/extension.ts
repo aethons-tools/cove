@@ -420,9 +420,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
     asExternalUri: async (u) => (await vscode.env.asExternalUri(vscode.Uri.parse(u))).toString(),
     openBoard: (id) => boards.open(id),
     openSession: (id) => guard(() => openSession(openDeps, id))(),
-    // A rail click: the session's studio window when one is open, else (until
-    // the hub) the conversation in the web app.
-    goTo: (channel, session) => goToConversation(channel, session),
+    // A rail click: the conversation's tab, even when its session's studio
+    // window is open (a double-click, the session intent, opens that).
+    goTo: (channel, session) => goToConversation(channel, session, undefined, false),
     // An ask elsewhere: the window's conversation tab (opened if need be: the
     // hub or a studio window only), scrolled to it.
     revealConversation: (anchor) =>
@@ -503,12 +503,13 @@ export function activate(ctx: vscode.ExtensionContext): void {
       now: Date.now,
     };
   };
-  // goToConversation goes to a conversation of jam (default: this window's).
-  const goToConversation = (channel: string, session: string, jam?: string) =>
+  // goToConversation goes to a conversation of jam (default: this window's);
+  // viaWindow as goTo's.
+  const goToConversation = (channel: string, session: string, jam?: string, viaWindow = true) =>
     guard(async () => {
       const j = jam ?? jamUrl();
       if (j instanceof Error) throw j;
-      await goTo(goDeps(), j, channel, session);
+      await goTo(goDeps(), j, channel, session, viaWindow);
     })();
   if (kind?.kind === "hub") {
     const takePending = async (): Promise<void> => {

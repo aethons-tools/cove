@@ -96,7 +96,7 @@ Conversation tabs and views:
 - [ ] Jam's views take the VS Code theme's font, buttons, list selection, badges and inputs; switching the theme restyles them.
 - [ ] Rail *New message*: pick a person, send; the conversation opens as a hub tab (from an ordinary window too).
 - [ ] Rail *New session*: start one (with no studio access needed); its conversation opens in the hub.
-- [ ] Rail click on a session with no studio window opens its tab in the hub (opening the hub, whether it was closed or open); with one open, it brings that window to the front.
+- [ ] Rail click on a session opens its tab in the hub (opening the hub, whether it was closed or open), also when its studio window is open; only a double-click brings that window to the front.
 - [ ] *Jam: Open Hub* opens the hub; again, it focuses it. `open vscode://aethons.jam/hub` does the same.
 - [ ] macOS: `jam vscode install` adds `~/Applications/Jam Hub (<host>).app` with the J icon; it opens VS Code on the hub (VS Code closed and open) and stays in the Dock when kept there.
 - [ ] Linux: the *Jam Hub (<host>)* entry shows in the app menu with the J icon and opens the hub.

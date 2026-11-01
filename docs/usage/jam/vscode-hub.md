@@ -10,7 +10,7 @@ updated: 2026-10-31
 # The Jam rail and hub in VS Code
 
 The rail shows every conversation in every window; the hub is the one window where conversations open as tabs.
-A click goes to the session's studio window when one is open, otherwise to the conversation's hub tab.
+A rail click opens the conversation's hub tab; a double-click opens the session's studio window or brings it to the front.
 
 ## The rail
 
@@ -18,7 +18,7 @@ The **Conversations** view, first in the Jam container in **every** window, is t
 Needs you, Sessions, Channels and History, with each row's unread count; a session channel's row is its session's [status card](session-card.md), any other row its label (and mission).
 Above it, **New message** picks whom to write to and opens a small composer; once sent, the new conversation opens in its hub tab. **New session** (when you may start one) starts it and opens its conversation in the hub.
 
-- **Click** a row: [go to the conversation](#the-hub): its session's studio window if one is open, otherwise its tab in the hub.
+- **Click** a row: its conversation's tab in the hub, even when its session's studio window is open (in a studio window, its own session's row opens its own tab). From another window, this goes through the hub's pending request (see [the hub](#the-hub)).
 - **Double-click** a session you may SSH into: its studio window opens, or comes to the front (see [Opening a session](vscode.md#opening-a-session)). Any other row does the same as a click.
 - **▣** marks a session whose studio window is open (its connected mark is fresh). It refreshes on live changes and every 30 s.
 - **The badge** on the Jam icon counts the Needs you rows. It's refreshed at once on start-up, sign-in and sign-out, and after a 3 s debounce on live changes.
@@ -32,7 +32,7 @@ Each Jam has its own hub: the workspace `Jam Hub (<host>).code-workspace` (no fo
 - **Conversations are editor tabs:** one per conversation, titled with its label. Keep several open, split them, close them; they come back after a reload. VS Code revives a background tab only when it is first shown, so a conversation opened again before then briefly has two tabs; showing the restored one closes it and reveals the other (as with board tabs).
 - **The views** (Thinking, Status, Artifacts, Previews) show the session of the conversation tab you last made active; a chat or room tab, or none yet, shows "Open a session's conversation to see its …".
 - **Previews** open in the browser: the hub has no studio connection to forward through.
-- **Going to a conversation** (a rail click, a notification, a `…/go/<chn>` link) works the same in every window: its session's studio window if one is open (its connected mark is fresh), otherwise its tab in the hub.
+- **Going to a conversation** (a notification, a `…/go/<chn>` link) works the same in every window: its session's studio window if one is open (its connected mark is fresh), otherwise its tab in the hub. A rail click skips the window: always the tab.
   From another window, the extension writes `hub/pending-<host>.json` (the channel and the time) in global storage and opens that Jam's hub; the hub opens the tab when it starts or next gains focus, and deletes the file. A request older than 60 s is dropped.
 
 ## The launcher

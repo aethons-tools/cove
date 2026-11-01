@@ -7,7 +7,7 @@ export type ActionDeps = {
   asExternalUri: (url: string) => Promise<string>;
   openBoard: (id: string) => void;
   openSession: (id: string) => unknown;
-  // goTo is a rail row's click: the session's window if open, else the conversation.
+  // goTo is a rail row's click: the conversation's tab (never its session's window).
   goTo: (channel: string, session: string) => unknown;
   // revealConversation shows the window's conversation tab, scrolled to anchor.
   revealConversation: (anchor: string | null) => unknown;
