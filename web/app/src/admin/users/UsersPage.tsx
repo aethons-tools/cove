@@ -5,10 +5,10 @@ import { Link, useLocation, useNavigate } from "react-router";
 import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
 import type { Created, UserRow, UsersResponse } from "../api/types";
+import { useConfigEditable } from "../branch/branch";
 import { adminApi, nodeHref } from "../paths";
 import { DataTable } from "../ui/DataTable";
 import { EditForm } from "../ui/EditForm";
-import { ManagedBadge } from "../ui/ManagedBadge";
 import { useAdminMutation } from "../ui/useAdminMutation";
 
 export const usersKey = ["admin", "users"];
@@ -23,6 +23,7 @@ export function UsersPage() {
   const { data, error, isPending } = useQuery<UsersResponse, ApiError>({ queryKey: usersKey, queryFn: () => adminApi.get("users") });
   const here = useLocation();
   const navigate = useNavigate();
+  const editable = useConfigEditable();
   const [name, setName] = useState("");
   const [logins, setLogins] = useState("");
   const [oidc, setOidc] = useState("");
@@ -35,7 +36,7 @@ export function UsersPage() {
         <Title order={2}>Users</Title>
         <Text size="sm" c="dimmed">The people agents talk to — open one to edit their logins, OIDC bindings and accounts; add them to a project on its page</Text>
       </div>
-      <details>
+      {editable && <details>
         <summary style={{ cursor: "pointer" }}>New user</summary>
         <Card withBorder mt="xs">
           <EditForm submit="Create user" onSubmit={() => create.mutateAsync({ name, logins, oidc })}>
@@ -44,10 +45,10 @@ export function UsersPage() {
             <Textarea label="OIDC identities" description="one per line, issuer:subject" autosize minRows={2} value={oidc} onChange={(e) => setOidc(e.currentTarget.value)} />
           </EditForm>
         </Card>
-      </details>
+      </details>}
       {isPending ? <Loader size="sm" /> : error ? <Problem error={error} here={here.pathname} /> : (
         <DataTable rows={data.users} rowKey={(u) => u.id} empty="No users." columns={[
-          { key: "name", label: "Name", render: (u) => <Group gap="xs"><Anchor component={Link} to={nodeHref("config/users/" + encodeURIComponent(u.id))} fw={600}>{u.name}</Anchor><ManagedBadge managed={u.managed} /></Group> },
+          { key: "name", label: "Name", render: (u) => <Anchor component={Link} to={nodeHref("config/users/" + encodeURIComponent(u.id))} fw={600}>{u.name}</Anchor> },
           { key: "logins", label: "Logins", render: (u) => u.logins.length ? u.logins.map((l) => <Text key={l} size="sm" ff="monospace">{l}</Text>) : <Text c="dimmed">—</Text> },
           { key: "accounts", label: "Accounts", render: (u) => u.accounts.length ? u.accounts.map((a) => <AccountChip key={a.id} a={a} />) : <Text c="dimmed">—</Text> },
           { key: "projects", label: "Projects", render: (u) => u.projects.length ? <Group gap={4}>{u.projects.map((p) => <Anchor key={p} component={Link} to={nodeHref("config/projects/" + encodeURIComponent(p))} size="sm">{p}</Anchor>)}</Group> : <Text c="dimmed">—</Text> },

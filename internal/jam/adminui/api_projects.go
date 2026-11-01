@@ -14,16 +14,9 @@ import (
 // The projects JSON API: the project list and a project's pages with their
 // writes — the same store and jam calls as projects.go and project_edit.go.
 
-func managedJSON(marks map[jam.ConfigKey]jam.ConfigMark, kind, name string) *Managed {
-	if m := managedOf(marks, kind, name); m != nil {
-		return &Managed{Commit: m.Commit, Applied: m.Applied}
-	}
-	return nil
-}
-
-func contextPanelOf(p contextPanel, marks map[jam.ConfigKey]jam.ConfigMark) ContextPanel {
+func contextPanelOf(p contextPanel) ContextPanel {
 	out := ContextPanel{Scope: p.Scope, Core: p.Core, CoreBytes: p.CoreBytes, Budget: p.Budget, Over: p.Over, Empty: p.Empty,
-		ShowResources: p.ShowResources, Leaves: []ContextLeaf{}, Resources: []ContextResource{}, YAML: p.YAML, Managed: managedJSON(marks, p.Kind, p.Name)}
+		ShowResources: p.ShowResources, Leaves: []ContextLeaf{}, Resources: []ContextResource{}, YAML: p.YAML}
 	for _, l := range p.Leaves {
 		out.Leaves = append(out.Leaves, ContextLeaf{Name: l.Name, ReadWhen: l.ReadWhen})
 	}
@@ -62,7 +55,7 @@ func squawkRowsOf(t squawkTable) []SquawkRow {
 	return out
 }
 
-func projectDetailOf(store jam.Store, img jam.ImageResolver, msgs SquawkReader, marks map[jam.ConfigKey]jam.ConfigMark, name string, withLog bool) (ProjectDetail, bool) {
+func projectDetailOf(store jam.Store, img jam.ImageResolver, msgs SquawkReader, name string, withLog bool) (ProjectDetail, bool) {
 	section := sectionOverview
 	if withLog {
 		section = sectionIntercom
@@ -71,10 +64,10 @@ func projectDetailOf(store jam.Store, img jam.ImageResolver, msgs SquawkReader, 
 	if !ok {
 		return ProjectDetail{}, false
 	}
-	out := ProjectDetail{Name: name, Managed: managedJSON(marks, jam.ConfigKindProject, name), InUseBy: d.InUseBy, Renamable: name != "default",
+	out := ProjectDetail{Name: name, InUseBy: d.InUseBy, Renamable: name != "default",
 		ChatService: d.ChatService, ChatServices: append([]string{}, d.ChatServices...), Members: []MemberRow{}, Rooms: []RoomRow{},
 		Roles: len(d.Roles), Agents: d.Agents, LiveAgents: d.LiveCoves, Escalation: []ChainRow{}, DefaultChain: chainRowOf(d.DefaultChain),
-		Context: contextPanelOf(d.Context, marks), LogConfigured: d.LogConfigured, Squawks: squawkRowsOf(d.Squawks)}
+		Context: contextPanelOf(d.Context), LogConfigured: d.LogConfigured, Squawks: squawkRowsOf(d.Squawks)}
 	for _, m := range d.Members {
 		row := MemberRow{UserID: string(m.UserID), Name: m.Name, Handle: m.Handle, Delivery: []DeliveryRow{}, DeliverySpec: m.DeliverySpec}
 		for _, p := range m.Delivery {
@@ -98,7 +91,6 @@ func projectCreated(name string) Created {
 func apiProjects(api *http.ServeMux, src frameSource, msgs SquawkReader, log *slog.Logger) {
 	store := src.store
 	api.HandleFunc("GET "+apiPrefix+"projects", func(w http.ResponseWriter, r *http.Request) {
-		marks := src.marks()
 		out := ProjectsResponse{Projects: []ProjectRow{}}
 		for _, name := range slices.Sorted(slices.Values(store.ListProjects())) {
 			p, ok := store.GetProject(name)
@@ -106,7 +98,7 @@ func apiProjects(api *http.ServeMux, src frameSource, msgs SquawkReader, log *sl
 				continue
 			}
 			out.Projects = append(out.Projects, ProjectRow{Name: name, Members: len(store.ListMembers(p.ID)), Roles: len(store.ListRoles(name)),
-				Rooms: len(jam.ListRooms(store, p)), Managed: managedJSON(marks, jam.ConfigKindProject, name)})
+				Rooms: len(jam.ListRooms(store, p))})
 		}
 		slices.SortFunc(out.Projects, func(a, b ProjectRow) int { return cmp.Compare(a.Name, b.Name) })
 		writeJSON(w, http.StatusOK, out)
@@ -125,7 +117,7 @@ func apiProjects(api *http.ServeMux, src frameSource, msgs SquawkReader, log *sl
 		writeJSON(w, http.StatusCreated, projectCreated(name))
 	})
 	api.HandleFunc("GET "+apiPrefix+"projects/{project}", func(w http.ResponseWriter, r *http.Request) {
-		d, ok := projectDetailOf(store, src.img, msgs, src.marks(), r.PathValue("project"), r.URL.Query().Get("section") == string(sectionIntercom))
+		d, ok := projectDetailOf(store, src.img, msgs, r.PathValue("project"), r.URL.Query().Get("section") == string(sectionIntercom))
 		if !ok {
 			writeAPIError(w, http.StatusNotFound, "not_found", "no such project")
 			return
@@ -177,7 +169,7 @@ func apiProjects(api *http.ServeMux, src frameSource, msgs SquawkReader, log *sl
 				return
 			}
 			log.Info("ui project "+what, "operator", jam.OperatorID(r), "project", project)
-			d, ok := projectDetailOf(store, src.img, msgs, src.marks(), project, r.URL.Query().Get("section") == string(sectionIntercom))
+			d, ok := projectDetailOf(store, src.img, msgs, project, r.URL.Query().Get("section") == string(sectionIntercom))
 			if !ok {
 				writeAPIError(w, http.StatusNotFound, "not_found", "project no longer exists")
 				return

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -7,10 +7,15 @@ import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { project } from "./fixtures";
 import type { UserDetail } from "../api/types";
+import { setBranch } from "../branch/branch";
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const at = ADMIN + "config/projects/acme/members";
-const alice: UserDetail = { user: { id: "usr_1", name: "alice", logins: [], accounts: [], projects: ["acme"], managed: null }, removed: false, loginSpec: "", oidcSpec: "", connections: [], appTokens: [] };
+const alice: UserDetail = { user: { id: "usr_1", name: "alice", logins: [], accounts: [], projects: ["acme"] }, removed: false, loginSpec: "", oidcSpec: "", connections: [], appTokens: [] };
+
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
 
 describe("project members", () => {
   it("adds a member", async () => {

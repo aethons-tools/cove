@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MantineProvider } from "@mantine/core";
@@ -9,12 +9,17 @@ import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { StatusBadge } from "../ui/StatusBadge";
 import { agents } from "./fixtures";
+import { setBranch } from "../branch/branch";
 
 const tree = () => server.use(
   http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })),
   http.get("/app/admin/suggest", () => HttpResponse.json([])),
 );
 const at = ADMIN + "config/projects/acme/agents";
+
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
 
 describe("a project's agents", () => {
   it("lists roles and agents with their links", async () => {

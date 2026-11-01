@@ -5,11 +5,11 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
 import type { SpecDetail } from "../api/types";
+import { useConfigEditable } from "../branch/branch";
 import { adminApi, nodeHref } from "../paths";
 import { ConfirmAction } from "../ui/ConfirmAction";
 import { EditForm } from "../ui/EditForm";
 import { Facts } from "../ui/Facts";
-import { ManagedBadge, driftNote } from "../ui/ManagedBadge";
 import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { specsKey } from "./ModelSpecsPage";
@@ -39,7 +39,7 @@ function Spec({ d, dataKey }: { d: SpecDetail; dataKey: unknown[] }) {
   const client = useQueryClient();
   const navigate = useNavigate();
   const f = d.fields;
-  const drift = driftNote(d.managed);
+  const editable = useConfigEditable();
   const save = useAdminMutation((v: SpecValues) => adminApi.post<SpecDetail>(`model-specs/${enc(d.name)}`, v), {
     invalidate: [specsKey], onSuccess: (x) => client.setQueryData(dataKey, x),
   });
@@ -49,10 +49,9 @@ function Spec({ d, dataKey }: { d: SpecDetail; dataKey: unknown[] }) {
       <Group justify="space-between" wrap="wrap">
         <Group gap="sm" align="baseline">
           <Title order={2}>{d.name}</Title>
-          <ManagedBadge managed={d.managed} />
           <Text size="sm" c="dimmed" ff="monospace">{f.type} {f.version}</Text>
         </Group>
-        <ConfirmAction label="Delete" confirm={`Delete model-spec ${d.name}?${drift ? " " + drift : ""}`} onConfirm={() => remove.mutateAsync(undefined)} />
+        <ConfirmAction label="Delete" confirm={`Delete model-spec ${d.name}?`} onConfirm={() => remove.mutateAsync(undefined)} />
       </Group>
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Section title="Harness" sub="who the agent runs as, and on what model">
@@ -95,20 +94,20 @@ function Spec({ d, dataKey }: { d: SpecDetail; dataKey: unknown[] }) {
               ["Settings", chips(d.settingsKeys), "none"],
             ]} />
           ) : <Text size="sm" c="dimmed">No body.</Text>}
-          <details>
+          {editable && <details>
             <summary style={{ cursor: "pointer" }}>Edit model-spec</summary>
-            <Card withBorder mt="xs"><EditSpec key={JSON.stringify(f)} d={d} confirm={drift ? `${drift} Save anyway?` : undefined} onSave={(v) => save.mutateAsync(v)} /></Card>
-          </details>
+            <Card withBorder mt="xs"><EditSpec key={JSON.stringify(f)} d={d} onSave={(v) => save.mutateAsync(v)} /></Card>
+          </details>}
         </Stack>
       </Section>
     </Stack>
   );
 }
 
-function EditSpec({ d, confirm, onSave }: { d: SpecDetail; confirm?: string; onSave: (v: SpecValues) => Promise<unknown> }) {
+function EditSpec({ d, onSave }: { d: SpecDetail; onSave: (v: SpecValues) => Promise<unknown> }) {
   const [v, setV] = useState<SpecValues>({ ...d.fields });
   return (
-    <EditForm submit="Save model-spec" confirm={confirm} onSubmit={() => onSave(v)}>
+    <EditForm submit="Save model-spec" onSubmit={() => onSave(v)}>
       <SpecFields value={v} onChange={setV} choices={d.choices} />
     </EditForm>
   );

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -7,6 +7,7 @@ import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { draftPage, draftView, kit } from "./fixtures";
 import type { DraftPage } from "../api/types";
+import { setBranch } from "../branch/branch";
 
 const at = ADMIN + "config/kits/web";
 const api = "/app/admin/api/kits/web/draft";
@@ -17,6 +18,10 @@ const base = (p: DraftPage) => server.use(
 );
 const ok = (p: DraftPage, message: string) => HttpResponse.json({ page: p, message });
 const publishButton = () => screen.findByRole("button", { name: "Publish" });
+
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
 
 describe("publishing a draft", () => {
   it("is blocked by problems", async () => {

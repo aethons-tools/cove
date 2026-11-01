@@ -73,20 +73,20 @@ func projectAgentsOf(store jam.Store, img jam.ImageResolver, items []attnItem, p
 	return out
 }
 
-func roleDetailOf(store jam.Store, img jam.ImageResolver, items []attnItem, marks map[jam.ConfigKey]jam.ConfigMark, project, name string, canRequest, setupOn bool) (RoleDetail, bool) {
+func roleDetailOf(store jam.Store, img jam.ImageResolver, items []attnItem, project, name string, canRequest, setupOn bool) (RoleDetail, bool) {
 	d, ok := buildRoleDetail(store, img, project, name)
 	if !ok {
 		return RoleDetail{}, false
 	}
 	r := d.Role
-	out := RoleDetail{Project: d.Project, Name: name, Managed: managedJSON(marks, jam.ConfigKindRole, d.ConfigName), Kit: r.Kit,
+	out := RoleDetail{Project: d.Project, Name: name, Kit: r.Kit,
 		ModelSpec: r.ModelSpecName(), ModelSpecDefault: r.ModelSpec == "", TTL: ttlText(r.Scope.TTL), Dests: []DestRow{},
 		Addressing: append([]string{}, r.Scope.Addressing...), EgressManaged: d.EgressManaged, EgressDomains: []string{},
 		Allocation: []Setting{}, Standing: []StandingRow{}, Holders: []HolderRow{}, Running: coveRows(d.Coves, items),
 		Form: RoleForm{Destinations: d.Form.Destinations, Addressing: d.Form.Addressing, TTL: d.Form.TTL, Kit: r.Kit, ModelSpec: r.ModelSpec,
 			MaxEphemeral: d.Form.MaxEphemeral, MaxPersonal: d.Form.MaxPersonal, MaxPersonalPerOwner: d.Form.MaxPersonalPerOwner,
 			IdleAfter: d.Form.IdleAfter, NagEvery: d.Form.NagEvery, ReclaimAfter: d.Form.ReclaimAfter, Egress: d.Form.Egress},
-		Context: contextPanelOf(d.Context, marks), CanRequest: canRequest, SetupEnabled: setupOn,
+		Context: contextPanelOf(d.Context), CanRequest: canRequest, SetupEnabled: setupOn,
 		Attn: attnFlag(items, "agents", d.Project+"/"+name)}
 	if r.Scope.Egress != nil {
 		out.EgressDomains = append(out.EgressDomains, r.Scope.Egress.Domains...)
@@ -157,7 +157,7 @@ func apiRoles(api *http.ServeMux, src frameSource, ra roleAPI, log *slog.Logger)
 		writeJSON(w, http.StatusCreated, Created{ID: name, Path: "config/projects/" + url.PathEscape(orDefaultProject(project)) + "/agents/" + url.PathEscape(name)})
 	})
 	api.HandleFunc("GET "+apiPrefix+"projects/{project}/roles/{role}", func(w http.ResponseWriter, r *http.Request) {
-		d, ok := roleDetailOf(store, src.img, src.items(), src.marks(), r.PathValue("project"), r.PathValue("role"), canRequest, ra.setup != nil)
+		d, ok := roleDetailOf(store, src.img, src.items(), r.PathValue("project"), r.PathValue("role"), canRequest, ra.setup != nil)
 		if !ok {
 			writeAPIError(w, http.StatusNotFound, "not_found", "no such role")
 			return
@@ -198,7 +198,7 @@ func apiRoles(api *http.ServeMux, src frameSource, ra roleAPI, log *slog.Logger)
 				return
 			}
 			log.Info("ui role "+what, "operator", jam.OperatorID(r), "project", orDefaultProject(project), "role", name)
-			d, ok := roleDetailOf(store, src.img, src.items(), src.marks(), project, name, canRequest, ra.setup != nil)
+			d, ok := roleDetailOf(store, src.img, src.items(), project, name, canRequest, ra.setup != nil)
 			if !ok {
 				writeAPIError(w, http.StatusNotFound, "not_found", "role no longer exists")
 				return

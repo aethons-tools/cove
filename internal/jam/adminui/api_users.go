@@ -15,7 +15,7 @@ import (
 // The users JSON API: the users list and a user's page with their writes —
 // the same store and jam calls as the HTML pages (users.go).
 
-func userRow(store jam.Store, marks map[jam.ConfigKey]jam.ConfigMark, u jam.User) UserRow {
+func userRow(store jam.Store, u jam.User) UserRow {
 	v := jam.NewUserView(store, u)
 	row := UserRow{ID: string(u.ID), Name: u.Name, Logins: []string{}, Accounts: []AccountRow{}, Projects: []string{}}
 	row.Logins = append(row.Logins, u.Logins...)
@@ -23,19 +23,16 @@ func userRow(store jam.Store, marks map[jam.ConfigKey]jam.ConfigMark, u jam.User
 	for _, a := range v.Accounts {
 		row.Accounts = append(row.Accounts, AccountRow{ID: string(a.ID), Connection: a.Connection, ServiceUID: a.ServiceUID, Handle: a.Handle})
 	}
-	if m := managedOf(marks, jam.ConfigKindUser, u.Name); m != nil {
-		row.Managed = &Managed{Commit: m.Commit, Applied: m.Applied}
-	}
 	return row
 }
 
-func userDetailOf(store jam.Store, marks map[jam.ConfigKey]jam.ConfigMark, ref string) (UserDetail, bool) {
+func userDetailOf(store jam.Store, ref string) (UserDetail, bool) {
 	d, ok := buildUserDetail(store, ref)
 	if !ok {
 		return UserDetail{}, false
 	}
 	u, _ := store.GetUser(d.User.ID)
-	out := UserDetail{User: userRow(store, marks, u), Removed: d.Removed, LoginSpec: d.LoginSpec, OIDCSpec: d.OIDCSpec, Connections: []ConnectionChoice{},
+	out := UserDetail{User: userRow(store, u), Removed: d.Removed, LoginSpec: d.LoginSpec, OIDCSpec: d.OIDCSpec, Connections: []ConnectionChoice{},
 		AppTokens: appTokenRows(store, u.ID)}
 	for _, c := range d.Connections {
 		out.Connections = append(out.Connections, ConnectionChoice{Name: c.Name, Kind: c.Kind})
@@ -60,12 +57,11 @@ func appTokenRows(store jam.Store, user ident.ID) []AppTokenRow {
 func apiUsers(api *http.ServeMux, src frameSource, log *slog.Logger) {
 	store := src.store
 	api.HandleFunc("GET "+apiPrefix+"users", func(w http.ResponseWriter, r *http.Request) {
-		marks := src.marks()
 		us := store.ListUsers()
 		slices.SortFunc(us, func(a, b jam.User) int { return cmp.Compare(a.Name, b.Name) })
 		out := UsersResponse{Users: []UserRow{}}
 		for _, u := range us {
-			out.Users = append(out.Users, userRow(store, marks, u))
+			out.Users = append(out.Users, userRow(store, u))
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
@@ -88,7 +84,7 @@ func apiUsers(api *http.ServeMux, src frameSource, log *slog.Logger) {
 		writeJSON(w, http.StatusCreated, Created{ID: string(u.ID), Path: "config/users/" + url.PathEscape(string(u.ID))})
 	})
 	api.HandleFunc("GET "+apiPrefix+"users/{user}", func(w http.ResponseWriter, r *http.Request) {
-		d, ok := userDetailOf(store, src.marks(), r.PathValue("user"))
+		d, ok := userDetailOf(store, r.PathValue("user"))
 		if !ok {
 			writeAPIError(w, http.StatusNotFound, "not_found", "no such user")
 			return
@@ -114,7 +110,7 @@ func apiUsers(api *http.ServeMux, src frameSource, log *slog.Logger) {
 				return
 			}
 			log.Info("ui user "+what, "operator", jam.OperatorID(r), "user", id)
-			d, _ := userDetailOf(store, src.marks(), string(id))
+			d, _ := userDetailOf(store, string(id))
 			writeJSON(w, http.StatusOK, d)
 		}
 	}

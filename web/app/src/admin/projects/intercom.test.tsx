@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -7,10 +7,15 @@ import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { project } from "./fixtures";
 import type { SquawkRow } from "../api/types";
+import { setBranch } from "../branch/branch";
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const at = ADMIN + "config/projects/acme/intercom";
 const sq = (s: Partial<SquawkRow>): SquawkRow => ({ at: "Oct 28 10:00", from: "alice", fromId: "usr_1", agentId: "", channel: "eng", channelId: "chn_1", project: "acme", body: "", plain: false, to: [], ...s });
+
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
 
 describe("project intercom", () => {
   it("adds and removes rooms", async () => {

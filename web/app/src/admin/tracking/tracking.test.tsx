@@ -50,6 +50,23 @@ describe("Tracking", () => {
     expect(screen.getByText(/Diff, review the plan, then apply it/)).toBeInTheDocument();
   });
 
+  it("with no branch open, the first apply is offered and sent", async () => {
+    tree();
+    let applied: unknown;
+    const waiting = page({ source: { ...source, commit: "", applied: "" }, follow: follow({ state: "awaiting-confirm", applied: "" }) });
+    server.use(
+      http.get("/app/admin/api/tracking", () => HttpResponse.json(waiting)),
+      http.post("/app/admin/api/tracking/diff", () => HttpResponse.json(plan())),
+      http.post("/app/admin/api/tracking/apply", async ({ request }) => { applied = await request.json(); return HttpResponse.json({ tracking: page({ source }), message: "applied" }); }),
+    );
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at);
+    await user.click(await screen.findByRole("button", { name: "Diff" }));
+    await user.click(await screen.findByRole("button", { name: "Apply this plan" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Apply this plan" }));
+    await waitFor(() => expect(applied).toEqual({ plan: "d1" }));
+  });
+
   it("shows a failed check's error", async () => {
     tree();
     server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, follow: follow({ state: "failed", error: "config plan has refusals: kit x" }) }))));

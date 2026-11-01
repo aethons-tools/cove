@@ -6,6 +6,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
 import type { Created, ProjectAgents, Requested } from "../api/types";
+import { useConfigEditable } from "../branch/branch";
 import { adminApi, nodeHref } from "../paths";
 import { AttnFlag } from "../ui/AttnFlag";
 import { StateCell } from "../ui/CovesTable";
@@ -44,6 +45,7 @@ function Agents({ d }: { d: ProjectAgents }) {
   const p = d.project;
   const navigate = useNavigate();
   const request = useRequest(p);
+  const editable = useConfigEditable();
   const [f, setF] = useState({ name: "", destinations: "", ttlSeconds: "", kit: "", modelSpec: "" });
   const set = (k: keyof typeof f) => (v: string) => setF({ ...f, [k]: v });
   const create = useAdminMutation(() => adminApi.post<Created>(`projects/${enc(p)}/roles`, f), {
@@ -56,7 +58,7 @@ function Agents({ d }: { d: ProjectAgents }) {
         <Text size="sm" c="dimmed">{p}'s roles — what a grant of each lets an agent reach — and its agents</Text>
       </div>
       <Title order={3}>Roles</Title>
-      <details>
+      {editable && <details>
         <summary style={{ cursor: "pointer" }}>New role</summary>
         <Card withBorder mt="xs">
           <EditForm submit="Create role" onSubmit={() => create.mutateAsync(undefined)}>
@@ -67,7 +69,7 @@ function Agents({ d }: { d: ProjectAgents }) {
             <TypeAhead label="Model-spec" description="optional; blank = claude-default" kind="model-specs" value={f.modelSpec} onChange={set("modelSpec")} />
           </EditForm>
         </Card>
-      </details>
+      </details>}
       <DataTable rows={d.roles} rowKey={(r) => r.name} empty="No roles." columns={[
         { key: "n", label: "Role", render: (r) => <Group gap={6}><Anchor component={Link} to={nodeHref(`config/projects/${enc(p)}/agents/${enc(r.name)}`)} fw={600} ff="monospace">{r.name}</Anchor><AttnFlag flag={r.attn} /></Group> },
         { key: "d", label: "Destinations", render: (r) => r.destinations.length

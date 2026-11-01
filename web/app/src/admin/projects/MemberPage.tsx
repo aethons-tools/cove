@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import type { ProjectDetail, UserDetail } from "../api/types";
 import { adminApi, nodeHref } from "../paths";
 import { ConfirmAction } from "../ui/ConfirmAction";
-import { driftNote } from "../ui/ManagedBadge";
 import { Section } from "../ui/Section";
 import { UserPage } from "../users/UserPage";
 import { Delivery } from "./MembersPage";
@@ -28,10 +27,9 @@ function Membership({ d }: { d: ProjectDetail }) {
   const { data: u } = useQuery<UserDetail>({ queryKey: ["admin", "user", user], queryFn: () => adminApi.get(`users/${enc(user)}`) });
   const m = d.members.find((x) => x.userId === user || x.name === user);
   if (!m) return u ? <Text size="sm" c="dimmed">{u.user.name} is not a member of {p}.</Text> : null;
-  const drift = driftNote(d.managed);
   return (
     <Section title={`Member of ${p}`} sub="where they get DMs here; edit it on the project's Members page"
-      actions={<ConfirmAction label={`Remove from ${p}`} confirm={`Remove ${m.name} from ${p}?${drift ? " " + drift : ""}`}
+      actions={<ConfirmAction label={`Remove from ${p}`} confirm={`Remove ${m.name} from ${p}?`}
         onConfirm={async () => {
           await write.mutateAsync({ path: `members/${enc(m.userId)}`, del: true });
           void navigate(nodeHref(`config/projects/${enc(p)}/members`));

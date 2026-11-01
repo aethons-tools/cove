@@ -1,18 +1,18 @@
 import { Badge, Code, Group, List, Stack, Table, Text, Textarea } from "@mantine/core";
 import { useState } from "react";
 import type { ContextPanel as Panel } from "../api/types";
+import { useConfigEditable } from "../branch/branch";
 import { ConfirmAction } from "./ConfirmAction";
 import { EditForm } from "./EditForm";
-import { ManagedBadge, driftNote } from "./ManagedBadge";
 import { Section } from "./Section";
 
 // ContextPanel is an agent-context card (Jam, a project or a role): the
 // stored layer, its delivered size against the budget, and the YAML editor.
 export function ContextPanel({ panel, onSave, onClear }: { panel: Panel; onSave: (yaml: string) => Promise<unknown>; onClear: () => Promise<unknown> }) {
   const [yaml, setYaml] = useState(panel.yaml);
-  const drift = driftNote(panel.managed);
+  const editable = useConfigEditable();
   return (
-    <Section title="Agent context" sub={<>{panel.scope} — what every agent is told when raised</>} actions={<ManagedBadge managed={panel.managed} />}>
+    <Section title="Agent context" sub={<>{panel.scope} — what every agent is told when raised</>}>
       <Stack gap="xs">
         <Group gap="xs">
           <Badge variant="light" color={panel.over ? "red" : "gray"}>{panel.coreBytes.toLocaleString()} / {panel.budget.toLocaleString()} bytes</Badge>
@@ -31,14 +31,14 @@ export function ContextPanel({ panel, onSave, onClear }: { panel: Panel; onSave:
             )}
           </>
         )}
-        <details>
+        {editable && <details>
           <summary style={{ cursor: "pointer" }}>Edit agent context</summary>
-          <EditForm submit="Save context" confirm={drift ? `${drift} Save anyway?` : undefined} onSubmit={() => onSave(yaml)}>
+          <EditForm submit="Save context" onSubmit={() => onSave(yaml)}>
             <Textarea label="YAML" autosize minRows={8} spellCheck={false} value={yaml} onChange={(e) => setYaml(e.currentTarget.value)} styles={{ input: { fontFamily: "var(--mantine-font-family-monospace)" } }}
               description={<>core, leaves (name, read-when, body){panel.showResources && ", resources"} — the jam context file format, bodies inline. Never put a credential here.</>} />
           </EditForm>
-          {!panel.empty && <Group mt="xs"><ConfirmAction label="Clear" confirm={`Remove this ${panel.scope} agent context?${drift ? " " + drift : ""}`} onConfirm={onClear} /></Group>}
-        </details>
+          {!panel.empty && <Group mt="xs"><ConfirmAction label="Clear" confirm={`Remove this ${panel.scope} agent context?`} onConfirm={onClear} /></Group>}
+        </details>}
       </Stack>
     </Section>
   );

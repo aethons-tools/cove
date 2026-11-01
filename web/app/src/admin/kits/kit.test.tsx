@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/server";
@@ -7,6 +7,7 @@ import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { kit, kitView } from "./fixtures";
 import type { KitDetail } from "../api/types";
+import { setBranch } from "../branch/branch";
 
 const at = ADMIN + "config/kits/web";
 const api = "/app/admin/api/kits/web";
@@ -14,10 +15,36 @@ const base = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse
 const serve = (pick: (q: URLSearchParams) => KitDetail) => server.use(http.get(api, ({ request }) => HttpResponse.json(pick(new URL(request.url).searchParams))));
 const ok = (k: KitDetail, message: string) => HttpResponse.json({ kit: k, message });
 
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
+
+describe("a kit's page outside a branch", () => {
+  it("keeps Sync and Untrack, hides the config edits, and shows them on a branch", async () => {
+    setBranch("");
+    base();
+    serve(() => kit({ source: { repo: "https://github.com/acme/kits", repoLink: "", dir: "", ref: "main", commit: "abc", commitLink: "" } }));
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByRole("button", { name: "Sync" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Untrack" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
+    expect(screen.queryByText("Push new version")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Draft" })).toBeNull();
+    act(() => setBranch("jam/me"));
+    expect(await screen.findByText("Push new version")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pin" })).toBeInTheDocument();
+    // Back on the followed branch, the edits go at once.
+    act(() => setBranch(""));
+    expect(screen.queryByText("Push new version")).toBeNull();
+    expect(screen.getByRole("button", { name: "Sync" })).toBeInTheDocument();
+  });
+});
+
 describe("a kit's page", () => {
   it("shows the rail with its links, and pins after confirming", async () => {
     base();
-    serve(() => kit({ managed: { commit: "abc1234", applied: "x" } }));
+    serve(() => kit());
     server.use(http.post(api + "/pin", () => ok(kit({ current: 1, versions: kit().versions.map((v) => ({ ...v, current: v.n === 1 })) }), "web current is now v1")));
     const user = userEvent.setup();
     renderAdmin(adminBoot, at);
@@ -26,7 +53,7 @@ describe("a kit's page", () => {
     expect(within(rail).getByRole("link", { name: "diff v1" })).toHaveAttribute("href", at + "?v=2&diff=1");
     expect(within(rail).getByRole("link", { name: "diff current" })).toHaveAttribute("href", at + "?v=1&diff=2");
     await user.click(within(rail).getByRole("button", { name: "Pin" }));
-    expect(await screen.findByText("Make v1 the current version of web? Roles bound to it raise v1 from now on. This will drift from the config repo (managed · config @abc1234).")).toBeInTheDocument();
+    expect(await screen.findByText("Make v1 the current version of web? Roles bound to it raise v1 from now on.")).toBeInTheDocument();
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Pin" }));
     expect(await screen.findByText("web current is now v1")).toBeInTheDocument();
   });

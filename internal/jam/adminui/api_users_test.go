@@ -146,17 +146,3 @@ func TestUsersAPIRefusals(t *testing.T) {
 	h.ServeHTTP(rec, appui.WithPrincipal(r, appui.Principal{Admin: true, Local: true}))
 	wantErr(t, rec, 415, "bad_request")
 }
-
-func TestUsersAPIManaged(t *testing.T) {
-	h, _ := managedUI(t)
-	var d adminui.UserDetail
-	apiDo(t, h, "GET", "/app/admin/api/users/bob", nil, &d)
-	if d.User.Managed == nil || d.User.Managed.Commit != "abc1234" {
-		t.Errorf("managed = %+v", d.User.Managed)
-	}
-	var list adminui.UsersResponse
-	apiDo(t, h, "GET", "/app/admin/api/users", nil, &list)
-	if len(list.Users) != 1 || list.Users[0].Managed == nil || len(list.Users[0].Projects) != 1 {
-		t.Errorf("list = %+v", list.Users)
-	}
-}

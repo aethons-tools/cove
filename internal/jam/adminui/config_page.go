@@ -181,3 +181,6 @@ func applyMsg(res jam.ConfigApplyResult) string {
 // configPlanStaleMsg is the page's answer to an Apply whose reviewed plan is
 // no longer the plan (the Jam or the repo changed since the Diff).
 const configPlanStaleMsg = "The Jam or the config repo changed since this plan was shown; nothing was applied. Run Diff again and review the new plan."
+
+// configTime is a config apply's time as the UI shows it.
+func configTime(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") }

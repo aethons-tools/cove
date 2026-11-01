@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -8,9 +8,10 @@ import { server } from "../../test/server";
 import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import type { ContextPanel, Dashboard } from "../api/types";
+import { setBranch } from "../branch/branch";
 
 const panel = (p: Partial<ContextPanel> = {}): ContextPanel => ({
-  scope: "Jam-wide", core: "", coreBytes: 0, budget: 4096, over: false, empty: true, showResources: false, leaves: [], resources: [], yaml: "", managed: null, ...p,
+  scope: "Jam-wide", core: "", coreBytes: 0, budget: 4096, over: false, empty: true, showResources: false, leaves: [], resources: [], yaml: "", ...p,
 });
 const dash = (d: Partial<Dashboard> = {}): Dashboard => ({
   stats: { studios: 3, running: 2, waiting: 1, settingUp: 0, idled: 0, attention: 0, projects: 4, agents: 5, users: 6, specs: 7 },
@@ -28,6 +29,10 @@ const mount = (d: Dashboard) => {
   );
   return renderAdmin(adminBoot, ADMIN, qc);
 };
+
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
 
 describe("the dashboard", () => {
   it("shows the tiles, linked to their lists", async () => {

@@ -66,8 +66,8 @@ function Agent({ d }: { d: AgentDetail }) {
         </Group>
         <Group gap="xs">
           {d.sessionsEnabled && <Button component={Link} to={nodeHref(`agents/${enc(d.id)}/session`)} size="xs" variant="light">Open live timeline</Button>}
-          {d.running && d.canEdit && <ConfirmAction label="Teardown" confirm={`Tear down ${d.id}?`} onConfirm={() => teardown.mutateAsync(undefined)} />}
-          {d.hasActor && <ConfirmAction label="Revoke" confirm={`Revoke ${d.id}? This invalidates its token.`} onConfirm={() => revoke.mutateAsync(undefined)} />}
+          {d.running && d.canEdit && <ConfirmAction live label="Teardown" confirm={`Tear down ${d.id}?`} onConfirm={() => teardown.mutateAsync(undefined)} />}
+          {d.hasActor && <ConfirmAction live label="Revoke" confirm={`Revoke ${d.id}? This invalidates its token.`} onConfirm={() => revoke.mutateAsync(undefined)} />}
         </Group>
       </Group>
       {!d.running && (
@@ -127,7 +127,7 @@ function Identity({ d, onGrant, onRemove }: { d: AgentDetail; onGrant: (b: unkno
             {d.grants.length === 0 && <Text size="sm" c="dimmed">no grants</Text>}
             {d.grants.map((x) => (
               <Badge key={`${x.project}/${x.role}`} variant="light" color="gray" tt="none" title={x.destinations.length ? `destinations: ${x.destinations.join(", ")}` : "no destinations"}
-                rightSection={<ConfirmAction label="Remove" trigger="×" ariaLabel={`Remove grant ${x.project}/${x.role}`} variant="subtle" size="compact-xs"
+                rightSection={<ConfirmAction live label="Remove" trigger="×" ariaLabel={`Remove grant ${x.project}/${x.role}`} variant="subtle" size="compact-xs"
                   confirm={`Remove ${x.role} grant on ${x.project} from ${d.id}?`} onConfirm={() => onRemove(x.project, x.role)} />}>
                 <Anchor component={Link} to={roleHref(x.project, x.role)} inherit>{x.project}/{x.role}</Anchor>
               </Badge>
@@ -137,7 +137,7 @@ function Identity({ d, onGrant, onRemove }: { d: AgentDetail; onGrant: (b: unkno
           <details>
             <summary style={{ cursor: "pointer" }}>+ Grant</summary>
             <Card withBorder mt="xs">
-              <EditForm submit="Add" onSubmit={() => onGrant(g)} resetOnSuccess={() => setG({ role: "", project: g.project, destinations: "" })}>
+              <EditForm live submit="Add" onSubmit={() => onGrant(g)} resetOnSuccess={() => setG({ role: "", project: g.project, destinations: "" })}>
                 <TypeAhead label="Role" kind="roles" project={g.project} required value={g.role} onChange={set("role")} />
                 <TypeAhead label="Project" kind="projects" value={g.project} onChange={set("project")} />
                 <TypeAhead label="Destination overrides" description="e.g. git=git-pat" kind="destinations" list value={g.destinations} onChange={set("destinations")} />
@@ -166,7 +166,7 @@ function Access({ d, onUnshare }: { d: AgentDetail; onUnshare: (user: string) =>
             { key: "r", label: "Rights", render: (s) => s.rights.join(", ") },
             { key: "e", label: "Expires", render: (s) => <>{s.expired && <Text span c="dimmed">expired </Text>}{s.expiresAt}</> },
             { key: "g", label: "Granted by", render: (s) => mono(s.grantedBy) },
-            { key: "x", label: "", render: (s) => <ConfirmAction label="Unshare" confirm={`Unshare ${d.id} from ${s.user}? Their open SSH connections close unless they have access another way.`} onConfirm={() => onUnshare(s.userId)} /> },
+            { key: "x", label: "", render: (s) => <ConfirmAction live label="Unshare" confirm={`Unshare ${d.id} from ${s.user}? Their open SSH connections close unless they have access another way.`} onConfirm={() => onUnshare(s.userId)} /> },
           ]} />
           <Table>
             <Table.Thead><Table.Tr><Table.Th>Connected</Table.Th><Table.Th>Right</Table.Th><Table.Th>Since</Table.Th></Table.Tr></Table.Thead>

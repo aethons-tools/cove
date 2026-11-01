@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse, delay } from "msw";
@@ -6,13 +6,18 @@ import { server } from "../../test/server";
 import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import type { AppTokenRow, UserDetail, UserRow } from "../api/types";
+import { setBranch } from "../branch/branch";
 
-const alice: UserRow = { id: "usr_1", name: "alice", logins: ["a@x"], accounts: [{ id: "acc_1", connection: "discord", serviceUid: "42", handle: "ali" }], projects: ["acme"], managed: null };
+const alice: UserRow = { id: "usr_1", name: "alice", logins: ["a@x"], accounts: [{ id: "acc_1", connection: "discord", serviceUid: "42", handle: "ali" }], projects: ["acme"] };
 const detail = (u: Partial<UserRow> = {}, d: Partial<UserDetail> = {}): UserDetail =>
   ({ user: { ...alice, ...u }, removed: false, loginSpec: "a@x", oidcSpec: "", connections: [{ name: "discord", kind: "discord" }], appTokens: [], ...d });
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const err = (status: number, code: string, error: string) => HttpResponse.json({ error, code }, { status });
+
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
 
 describe("the users list", () => {
   it("lists users, linking each", async () => {
@@ -82,16 +87,6 @@ describe("a user's page", () => {
     await user.type(name, "alicia");
     await user.click(screen.getByRole("button", { name: "Rename" }));
     await waitFor(() => expect(router.state.location.pathname).toBe(ADMIN + "config/users/usr_1"));
-  });
-
-  it("confirms a managed user's rename with the drift note", async () => {
-    tree();
-    server.use(http.get("/app/admin/api/users/usr_1", () => HttpResponse.json(detail({ managed: { commit: "abc1234", applied: "x" } }))));
-    const user = userEvent.setup();
-    renderAdmin(adminBoot, ADMIN + "config/users/usr_1");
-    expect(await screen.findByText("managed · config @abc1234")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Rename" }));
-    expect(await screen.findByText("This will drift from the config repo (managed · config @abc1234). Rename anyway?")).toBeInTheDocument();
   });
 
   it("is read-only for a removed user", async () => {

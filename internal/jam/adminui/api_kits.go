@@ -51,12 +51,12 @@ func kitFileOf(f *ctxFileView) *KitFile {
 		Note: f.Note, Missing: f.Missing, Masked: f.Masked, Hidden: f.Hidden}
 }
 
-func kitDetailOf(store jam.Store, items []attnItem, marks map[jam.ConfigKey]jam.ConfigMark, name string, view, diff int, file string, canSource bool) (KitDetail, bool) {
+func kitDetailOf(store jam.Store, items []attnItem, name string, view, diff int, file string, canSource bool) (KitDetail, bool) {
 	d, ok := buildKitDetail(store, name, view, diff, file)
 	if !ok {
 		return KitDetail{}, false
 	}
-	out := KitDetail{Name: name, Managed: managedJSON(marks, jam.ConfigKindKit, name), Current: d.Current, Versions: []KitVersionRow{},
+	out := KitDetail{Name: name, Current: d.Current, Versions: []KitVersionRow{},
 		View: kitViewOf(d.View), Uses: []KitUse{}, Chain: []KitParent{}, ChainErr: d.ChainErr, UsedByKits: []KitChild{}, IsDefault: d.IsDefault,
 		Source: sourceInfo(d.Source), SetWith: d.SetWith, CanSource: canSource, File: kitFileOf(d.File), Attn: attnFlag(items, "specs", "kit:"+name)}
 	for _, v := range d.Versions {
@@ -111,7 +111,7 @@ func apiKits(api *http.ServeMux, src frameSource, f jam.KitFetcher, log *slog.Lo
 	store := src.store
 	canSource := f != nil
 	done := func(w http.ResponseWriter, name, msg string) {
-		d, ok := kitDetailOf(store, src.items(), src.marks(), name, 0, 0, "", canSource)
+		d, ok := kitDetailOf(store, src.items(), name, 0, 0, "", canSource)
 		if !ok {
 			writeAPIError(w, http.StatusNotFound, "not_found", "kit no longer exists")
 			return
@@ -119,11 +119,11 @@ func apiKits(api *http.ServeMux, src frameSource, f jam.KitFetcher, log *slog.Lo
 		writeJSON(w, http.StatusOK, KitResult{Kit: d, Message: msg})
 	}
 	api.HandleFunc("GET "+apiPrefix+"kits", func(w http.ResponseWriter, r *http.Request) {
-		marks, items := src.marks(), src.items()
+		items := src.items()
 		out := KitsResponse{Kits: []KitRow{}, CanSource: canSource}
 		for _, k := range kitListRows(store) {
 			out.Kits = append(out.Kits, KitRow{Name: k.Name, Current: k.Current, Count: k.Count, Base: k.Base, Egress: k.Egress, UsedBy: k.UsedBy,
-				Invalid: k.Invalid, Draft: k.Draft, Managed: managedJSON(marks, jam.ConfigKindKit, k.Name), Attn: attnFlag(items, "specs", "kit:"+k.Name)})
+				Invalid: k.Invalid, Draft: k.Draft, Attn: attnFlag(items, "specs", "kit:"+k.Name)})
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
@@ -153,7 +153,7 @@ func apiKits(api *http.ServeMux, src frameSource, f jam.KitFetcher, log *slog.Lo
 		q := r.URL.Query()
 		view, _ := strconv.Atoi(q.Get("v"))
 		diff, _ := strconv.Atoi(q.Get("diff"))
-		d, ok := kitDetailOf(store, src.items(), src.marks(), r.PathValue("name"), view, diff, q.Get("file"), canSource)
+		d, ok := kitDetailOf(store, src.items(), r.PathValue("name"), view, diff, q.Get("file"), canSource)
 		if !ok {
 			writeAPIError(w, http.StatusNotFound, "not_found", "no such kit")
 			return

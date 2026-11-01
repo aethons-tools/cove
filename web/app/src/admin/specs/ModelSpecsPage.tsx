@@ -5,11 +5,11 @@ import { Link, useLocation, useNavigate } from "react-router";
 import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
 import type { Created, SpecsResponse } from "../api/types";
+import { useConfigEditable } from "../branch/branch";
 import { adminApi, nodeHref } from "../paths";
 import { ConfirmAction } from "../ui/ConfirmAction";
 import { DataTable } from "../ui/DataTable";
 import { EditForm } from "../ui/EditForm";
-import { ManagedBadge, driftNote } from "../ui/ManagedBadge";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { SpecFields, type SpecValues } from "./SpecFields";
 
@@ -29,6 +29,7 @@ export function ModelSpecsPage() {
 
 function Specs({ d }: { d: SpecsResponse }) {
   const navigate = useNavigate();
+  const editable = useConfigEditable();
   const [v, setV] = useState<SpecValues>({ ...d.new, name: "" });
   const create = useAdminMutation(() => adminApi.post<Created>("model-specs", v), { invalidate: [specsKey], onSuccess: (c) => void navigate(nodeHref(c.path)) });
   const remove = useAdminMutation((name: string) => adminApi.del(`model-specs/${enc(name)}`), { invalidate: [specsKey] });
@@ -38,16 +39,16 @@ function Specs({ d }: { d: SpecsResponse }) {
         <Title order={2}>Model-specs</Title>
         <Text size="sm" c="dimmed">How an agent runs — harness, principal, model and policy; open one to edit it</Text>
       </div>
-      <details>
+      {editable && <details>
         <summary style={{ cursor: "pointer" }}>New model-spec</summary>
         <Card withBorder mt="xs">
           <EditForm submit="Create model-spec" onSubmit={() => create.mutateAsync(undefined)}>
             <SpecFields value={v} onChange={setV} choices={d.choices} />
           </EditForm>
         </Card>
-      </details>
+      </details>}
       <DataTable rows={d.specs} rowKey={(s) => s.name} empty="No model-specs." columns={[
-        { key: "n", label: "Name", render: (s) => <Group gap={6}><Anchor component={Link} to={nodeHref("config/model-specs/" + enc(s.name))} fw={600} ff="monospace">{s.name}</Anchor><ManagedBadge managed={s.managed} /></Group> },
+        { key: "n", label: "Name", render: (s) => <Anchor component={Link} to={nodeHref("config/model-specs/" + enc(s.name))} fw={600} ff="monospace">{s.name}</Anchor> },
         { key: "t", label: "Type", render: (s) => mono(s.type) },
         { key: "v", label: "Version", render: (s) => <Group gap={4}>{mono(s.version)}{s.versionConstraint && <Badge size="sm" variant="light" color="gray" title="runtime version constraint">{s.versionConstraint}</Badge>}</Group> },
         { key: "p", label: "Principal", render: (s) => mono(s.principal) },
@@ -55,7 +56,7 @@ function Specs({ d }: { d: SpecsResponse }) {
         { key: "o", label: "Policy", render: (s) => mono(s.mode, "default") },
         { key: "r", label: "Provider", render: (s) => mono(s.provider) },
         { key: "u", label: "Used by", render: (s) => s.usedBy || <Text span c="dimmed">0</Text> },
-        { key: "d", label: "", render: (s) => <ConfirmAction label="Delete" confirm={`Delete model-spec ${s.name}?${driftNote(s.managed) ? " " + driftNote(s.managed) : ""}`} onConfirm={() => remove.mutateAsync(s.name)} /> },
+        { key: "d", label: "", render: (s) => <ConfirmAction label="Delete" confirm={`Delete model-spec ${s.name}?`} onConfirm={() => remove.mutateAsync(s.name)} /> },
       ]} />
     </Stack>
   );

@@ -68,13 +68,13 @@ func outboundSpecText(s *jam.OutboundSpec) string {
 	return out
 }
 
-func destDetailOf(store jam.Store, marks map[jam.ConfigKey]jam.ConfigMark, name string) (DestDetail, bool) {
+func destDetailOf(store jam.Store, name string) (DestDetail, bool) {
 	d, ok := buildDestDetail(store, name)
 	if !ok {
 		return DestDetail{}, false
 	}
 	x := d.Dest
-	out := DestDetail{Name: x.Name, Managed: managedJSON(marks, jam.ConfigKindDestination, x.Name), Methods: methodNames(),
+	out := DestDetail{Name: x.Name, Methods: methodNames(),
 		Fields: DestFields{Route: x.Route, Upstream: x.Upstream, IdentityIn: string(x.IdentityIn), Apply: string(x.Apply), CredName: x.CredName,
 			Env: d.Form.Env, AllowPaths: d.Form.AllowPaths, Note: x.Note, LogHeadersIn: headerLogText(x.LogHeadersIn), LogHeadersOut: headerLogText(x.LogHeadersOut), Git: x.Git},
 		IdentityInSpec: inboundSpecText(x.IdentityInSpec), ApplySpec: outboundSpecText(x.ApplySpec),
@@ -108,9 +108,9 @@ func specChoicesOf(c specChoices) SpecChoices {
 	return out
 }
 
-func specDetailOf(u specUI, marks map[jam.ConfigKey]jam.ConfigMark, m jam.ModelSpec) SpecDetail {
+func specDetailOf(u specUI, m jam.ModelSpec) SpecDetail {
 	d := u.detail(m)
-	out := SpecDetail{Name: m.Name, Managed: managedJSON(marks, jam.ConfigKindModelSpec, m.Name), Fields: specFieldsOf(d), Choices: specChoicesOf(d.Choices),
+	out := SpecDetail{Name: m.Name, Fields: specFieldsOf(d), Choices: specChoicesOf(d.Choices),
 		HeaderRules: []HeaderRuleRow{}, Allow: append([]string{}, m.Policy.Allow...), Deny: append([]string{}, m.Policy.Deny...), HasClaude: m.Claude != nil,
 		ProviderEnvKeys: []string{}, Plugins: []string{}, SettingsKeys: []string{}, Uses: []SpecUse{}}
 	for _, r := range m.Principal.Headers {
@@ -142,12 +142,12 @@ func createConflict(err error) error {
 func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(string) bool, log *slog.Logger) {
 	store := src.store
 	api.HandleFunc("GET "+apiPrefix+"destinations", func(w http.ResponseWriter, r *http.Request) {
-		marks, items := src.marks(), src.items()
+		items := src.items()
 		out := DestinationsResponse{Destinations: []DestListRow{}, Methods: methodNames()}
 		for _, d := range destListRows(store) {
 			out.Destinations = append(out.Destinations, DestListRow{Name: d.Name, Route: d.Route, Upstream: d.Upstream, IdentityIn: string(d.IdentityIn),
 				Apply: string(d.Apply), CredName: d.CredName, EnvKeys: append([]string{}, d.EnvKeys...), GitRouted: d.GitRouted, UsedBy: d.UsedBy,
-				Managed: managedJSON(marks, jam.ConfigKindDestination, d.Name), Attn: attnFlag(items, "specs", "dest:"+d.Name)})
+				Attn: attnFlag(items, "specs", "dest:"+d.Name)})
 		}
 		slices.SortFunc(out.Destinations, func(a, b DestListRow) int { return cmp.Compare(a.Name, b.Name) })
 		writeJSON(w, http.StatusOK, out)
@@ -169,7 +169,7 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 		writeJSON(w, http.StatusCreated, Created{ID: d.Name, Path: "config/destinations/" + url.PathEscape(d.Name)})
 	})
 	api.HandleFunc("GET "+apiPrefix+"destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		d, ok := destDetailOf(store, src.marks(), r.PathValue("name"))
+		d, ok := destDetailOf(store, r.PathValue("name"))
 		if !ok {
 			writeAPIError(w, http.StatusNotFound, "not_found", "no such destination")
 			return
@@ -190,7 +190,7 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 			return
 		}
 		log.Info("ui destination updated", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
-		out, ok := destDetailOf(store, src.marks(), d.Name)
+		out, ok := destDetailOf(store, d.Name)
 		if !ok {
 			writeAPIError(w, http.StatusNotFound, "not_found", "destination no longer exists")
 			return
@@ -207,12 +207,11 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 	})
 
 	api.HandleFunc("GET "+apiPrefix+"model-specs", func(w http.ResponseWriter, r *http.Request) {
-		marks := src.marks()
 		seed := u.detail(jam.ModelSpec{Type: jam.HarnessClaude, Claude: &jam.ClaudeSpec{Provider: "anthropic"}})
 		out := SpecsResponse{Specs: []SpecListRow{}, New: specFieldsOf(seed), Choices: specChoicesOf(seed.Choices)}
 		for _, m := range store.ListModelSpecs() {
 			row := SpecListRow{Name: m.Name, Type: string(m.Type), Version: m.Version, VersionConstraint: m.VersionConstraint, Principal: m.Principal.Credential,
-				ModelID: m.Model.ID, Effort: m.Model.Effort, Mode: m.Policy.Mode, UsedBy: len(specUses(store, m.Name)), Managed: managedJSON(marks, jam.ConfigKindModelSpec, m.Name)}
+				ModelID: m.Model.ID, Effort: m.Model.Effort, Mode: m.Policy.Mode, UsedBy: len(specUses(store, m.Name))}
 			if m.Claude != nil {
 				row.Provider = m.Claude.Provider
 			}
@@ -243,7 +242,7 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 			writeAPIError(w, http.StatusNotFound, "not_found", "no such model-spec")
 			return
 		}
-		writeJSON(w, http.StatusOK, specDetailOf(u, src.marks(), m))
+		writeJSON(w, http.StatusOK, specDetailOf(u, m))
 	})
 	api.HandleFunc("POST "+apiPrefix+"model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string
@@ -264,7 +263,7 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 			writeAPIError(w, http.StatusNotFound, "not_found", "model-spec no longer exists")
 			return
 		}
-		writeJSON(w, http.StatusOK, specDetailOf(u, src.marks(), stored))
+		writeJSON(w, http.StatusOK, specDetailOf(u, stored))
 	})
 	api.HandleFunc("DELETE "+apiPrefix+"model-specs/{name}", func(w http.ResponseWriter, r *http.Request) {
 		if err := store.RemoveModelSpec(r.PathValue("name")); err != nil {

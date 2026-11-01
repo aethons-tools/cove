@@ -53,14 +53,6 @@ export interface TreeResponse {
   nodes: TreeNode[];
 }
 /**
- * Managed marks an object the tracked config repo manages: the commit it was
- * applied from (7 chars) and when.
- */
-export interface Managed {
-  commit: string;
-  applied: string;
-}
-/**
  * DiffLine is one line of a line diff (linediff.Line): Op is " " (context),
  * "+", "-" or "…" (a collapsed run of unchanged lines).
  */
@@ -95,7 +87,6 @@ export interface UserRow {
   logins: string[];
   accounts: AccountRow[];
   projects: string[];
-  managed?: Managed | null; // nil: the config repo doesn't manage it
 }
 /**
  * UsersResponse is GET /app/admin/api/users.
@@ -245,7 +236,6 @@ export interface ProjectRow {
   members: number /* int */;
   roles: number /* int */;
   rooms: number /* int */;
-  managed?: Managed | null;
 }
 /**
  * ProjectsResponse is GET /app/admin/api/projects.
@@ -284,7 +274,6 @@ export interface ContextPanel {
   leaves: ContextLeaf[];
   resources: ContextResource[];
   yaml: string;
-  managed?: Managed | null; // its config object's mark
 }
 /**
  * DeliveryRow is where a member gets DMs: service:address.
@@ -362,7 +351,6 @@ export interface ToCell {
  */
 export interface ProjectDetail {
   name: string;
-  managed?: Managed | null;
   inUseBy: string; // what still references it ("" = deletable)
   renamable: boolean;
   chatService: string; // "" = none
@@ -504,7 +492,6 @@ export interface RoleForm {
 export interface RoleDetail {
   project: string;
   name: string;
-  managed?: Managed | null;
   kit: string; // "" = no kit
   modelSpec: string; // the spec it runs (the default's name when unset)
   modelSpecDefault: boolean;
@@ -591,7 +578,6 @@ export interface DestListRow {
   envKeys: string[];
   gitRouted: boolean;
   usedBy: number /* int */; // roles whose scope lists it
-  managed?: Managed | null;
   attn?: AttnFlag | null;
 }
 /**
@@ -647,7 +633,6 @@ export interface DestFields {
  */
 export interface DestDetail {
   name: string;
-  managed?: Managed | null;
   fields: DestFields;
   methods: string[];
   identityInSpec: string; // a custom spec as the Broker section shows it; "" = none
@@ -675,7 +660,6 @@ export interface SpecListRow {
   mode: string;
   provider: string; // "" = no claude body
   usedBy: number /* int */;
-  managed?: Managed | null;
 }
 /**
  * SpecChoices are the model-spec form's select options; principals are
@@ -728,7 +712,6 @@ export interface HeaderRuleRow {
  */
 export interface SpecDetail {
   name: string;
-  managed?: Managed | null;
   fields: SpecFields;
   choices: SpecChoices;
   headerRules: HeaderRuleRow[];
@@ -760,7 +743,6 @@ export interface KitRow {
   usedBy: number /* int */;
   invalid: boolean; // the current version isn't a valid studio kit
   draft: boolean; // an open draft
-  managed?: Managed | null;
   attn?: AttnFlag | null;
 }
 /**
@@ -920,7 +902,6 @@ export interface DraftInfo {
  */
 export interface KitDetail {
   name: string;
-  managed?: Managed | null;
   current: number /* int */;
   versions: KitVersionRow[];
   view: KitView;

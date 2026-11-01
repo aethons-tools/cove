@@ -2,12 +2,12 @@ import { Anchor, Badge, Button, Group, Loader, NativeSelect, Paper, SimpleGrid, 
 import { useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import type { Created, ProjectDetail } from "../api/types";
+import { useConfigEditable } from "../branch/branch";
 import { adminApi, nodeHref } from "../paths";
 import { Problem } from "../../Problem";
 import { ConfirmAction } from "../ui/ConfirmAction";
 import { ContextPanel } from "../ui/ContextPanel";
 import { EditForm } from "../ui/EditForm";
-import { ManagedBadge, driftNote } from "../ui/ManagedBadge";
 import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { projectsKey, useProject, useProjectWrite } from "./useProject";
@@ -39,10 +39,10 @@ export function ProjectPage() {
   return <ProjectGate body={(d) => <Overview key={d.name} d={d} />} />;
 }
 
-function ChatService({ d, confirm, onSave }: { d: ProjectDetail; confirm?: string; onSave: (service: string) => Promise<unknown> }) {
+function ChatService({ d, onSave }: { d: ProjectDetail; onSave: (service: string) => Promise<unknown> }) {
   const [service, setService] = useState(d.chatService);
   return (
-    <EditForm submit="Save" confirm={confirm} onSubmit={() => onSave(service)}>
+    <EditForm submit="Save" onSubmit={() => onSave(service)}>
       <NativeSelect label="Chat service" value={service} onChange={(e) => setService(e.currentTarget.value)}
         data={d.chatServices.map((s) => ({ value: s, label: s || "none — tracker @-mentions only" }))} />
     </EditForm>
@@ -53,7 +53,7 @@ function Overview({ d }: { d: ProjectDetail }) {
   const navigate = useNavigate();
   const p = d.name;
   const base = "config/projects/" + enc(p);
-  const drift = driftNote(d.managed);
+  const editable = useConfigEditable();
   const write = useProjectWrite(p);
   const [name, setName] = useState(p);
   const rename = useAdminMutation((n: string) => adminApi.post<Created>(`projects/${enc(p)}/rename`, { name: n }), {
@@ -72,19 +72,18 @@ function Overview({ d }: { d: ProjectDetail }) {
       <Group justify="space-between" wrap="wrap">
         <Group gap="sm" align="baseline">
           <Title order={2}>{p}</Title>
-          <ManagedBadge managed={d.managed} />
           {d.chatService ? <Badge variant="light" color="gray">chat: {d.chatService}</Badge> : <Text size="sm" c="dimmed">tracker @-mentions only</Text>}
         </Group>
         <Group gap="xs" align="flex-end">
           {d.renamable && (
-            <EditForm submit="Rename" confirm={drift ? `${drift} Rename anyway?` : undefined} onSubmit={() => rename.mutateAsync(name)}>
+            <EditForm submit="Rename" onSubmit={() => rename.mutateAsync(name)}>
               <TextInput aria-label="New name" size="xs" required value={name} onChange={(e) => setName(e.currentTarget.value)} />
             </EditForm>
           )}
-          {d.inUseBy
+          {editable && (d.inUseBy
             ? <Button size="xs" color="red" variant="light" disabled title={`Still referenced by ${d.inUseBy} — remove its roles, agents and grants first`}>Delete</Button>
             : <ConfirmAction label="Delete" onConfirm={() => remove.mutateAsync(undefined)}
-                confirm={`Delete project ${p}? Its roster, escalation and chat service go with it; its channels are archived (history stays readable) and its name is freed.${drift ? " " + drift : ""}`} />}
+                confirm={`Delete project ${p}? Its roster, escalation and chat service go with it; its channels are archived (history stays readable) and its name is freed.`} />)}
         </Group>
       </Group>
       <SimpleGrid cols={{ base: 2, sm: 4 }}>
@@ -96,8 +95,8 @@ function Overview({ d }: { d: ProjectDetail }) {
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Section title="Chat service" sub="what backs human DMs">
           {/* Keyed by the stored value: a refetch resets the select to it. */}
-          <ChatService key={d.chatService} d={d} confirm={drift ? `${drift} Save anyway?` : undefined}
-            onSave={(service) => write.mutateAsync({ path: "chat-service", body: { service } })} />
+          {editable ? <ChatService key={d.chatService} d={d} onSave={(service) => write.mutateAsync({ path: "chat-service", body: { service } })} />
+            : <Text size="sm">{d.chatService || "none — tracker @-mentions only"}</Text>}
         </Section>
       </SimpleGrid>
       <ContextPanel key={d.context.yaml} panel={d.context} onSave={(yaml) => write.mutateAsync({ path: "context", body: { yaml } })}

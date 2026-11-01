@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -7,15 +7,42 @@ import { server } from "../../test/server";
 import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { project } from "./fixtures";
+import { setBranch } from "../branch/branch";
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const at = ADMIN + "config/projects/acme";
+
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
+
+describe("outside a branch", () => {
+  it("the list offers no New project, and the overview no edits", async () => {
+    setBranch("");
+    tree();
+    server.use(
+      http.get("/app/admin/api/projects", () => HttpResponse.json({ projects: [{ name: "acme", members: 2, roles: 1, rooms: 0 }] })),
+      http.get("/app/admin/api/projects/acme", () => HttpResponse.json(project({ chatService: "disc" }))),
+    );
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, ADMIN + "config/projects");
+    const link = await screen.findByRole("link", { name: "acme" });
+    expect(screen.queryByText("New project")).toBeNull();
+    await user.click(link);
+    expect(await screen.findByRole("heading", { name: "acme" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rename" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.queryByText("Edit agent context")).toBeNull();
+    expect(screen.getAllByText(/disc/).length).toBeGreaterThan(0);
+  });
+});
 
 describe("the projects list", () => {
   it("lists projects and creates one", async () => {
     tree();
     server.use(
-      http.get("/app/admin/api/projects", () => HttpResponse.json({ projects: [{ name: "acme", members: 2, roles: 1, rooms: 0, managed: null }] })),
+      http.get("/app/admin/api/projects", () => HttpResponse.json({ projects: [{ name: "acme", members: 2, roles: 1, rooms: 0 }] })),
       http.post("/app/admin/api/projects", () => HttpResponse.json({ id: "beta", path: "config/projects/beta" }, { status: 201 })),
       http.get("/app/admin/api/projects/beta", () => HttpResponse.json(project({ name: "beta" }))),
     );

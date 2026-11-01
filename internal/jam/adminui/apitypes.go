@@ -52,13 +52,6 @@ type TreeResponse struct {
 	Nodes []TreeNode `json:"nodes"`
 }
 
-// Managed marks an object the tracked config repo manages: the commit it was
-// applied from (7 chars) and when.
-type Managed struct {
-	Commit  string `json:"commit"`
-	Applied string `json:"applied"`
-}
-
 // DiffLine is one line of a line diff (linediff.Line): Op is " " (context),
 // "+", "-" or "…" (a collapsed run of unchanged lines).
 type DiffLine struct {
@@ -89,7 +82,6 @@ type UserRow struct {
 	Logins   []string     `json:"logins"`
 	Accounts []AccountRow `json:"accounts"`
 	Projects []string     `json:"projects"`
-	Managed  *Managed     `json:"managed" tstype:"Managed | null"` // nil: the config repo doesn't manage it
 }
 
 // UsersResponse is GET /app/admin/api/users.
@@ -220,11 +212,10 @@ type TrackingResult struct {
 
 // ProjectRow is one project in the list.
 type ProjectRow struct {
-	Name    string   `json:"name"`
-	Members int      `json:"members"`
-	Roles   int      `json:"roles"`
-	Rooms   int      `json:"rooms"`
-	Managed *Managed `json:"managed" tstype:"Managed | null"`
+	Name    string `json:"name"`
+	Members int    `json:"members"`
+	Roles   int    `json:"roles"`
+	Rooms   int    `json:"rooms"`
 }
 
 // ProjectsResponse is GET /app/admin/api/projects.
@@ -259,7 +250,6 @@ type ContextPanel struct {
 	Leaves        []ContextLeaf     `json:"leaves"`
 	Resources     []ContextResource `json:"resources"`
 	YAML          string            `json:"yaml"`
-	Managed       *Managed          `json:"managed" tstype:"Managed | null"` // its config object's mark
 }
 
 // DeliveryRow is where a member gets DMs: service:address.
@@ -328,7 +318,6 @@ type ToCell struct {
 // ProjectDetail is a project's pages: its overview and sections.
 type ProjectDetail struct {
 	Name          string       `json:"name"`
-	Managed       *Managed     `json:"managed" tstype:"Managed | null"`
 	InUseBy       string       `json:"inUseBy"` // what still references it ("" = deletable)
 	Renamable     bool         `json:"renamable"`
 	ChatService   string       `json:"chatService"`  // "" = none
@@ -458,7 +447,6 @@ type RoleForm struct {
 type RoleDetail struct {
 	Project          string        `json:"project"`
 	Name             string        `json:"name"`
-	Managed          *Managed      `json:"managed" tstype:"Managed | null"`
 	Kit              string        `json:"kit"`       // "" = no kit
 	ModelSpec        string        `json:"modelSpec"` // the spec it runs (the default's name when unset)
 	ModelSpecDefault bool          `json:"modelSpecDefault"`
@@ -539,7 +527,6 @@ type DestListRow struct {
 	EnvKeys    []string  `json:"envKeys"`
 	GitRouted  bool      `json:"gitRouted"`
 	UsedBy     int       `json:"usedBy"` // roles whose scope lists it
-	Managed    *Managed  `json:"managed" tstype:"Managed | null"`
 	Attn       *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
 }
 
@@ -589,7 +576,6 @@ type DestFields struct {
 // DestDetail is a destination's page.
 type DestDetail struct {
 	Name           string         `json:"name"`
-	Managed        *Managed       `json:"managed" tstype:"Managed | null"`
 	Fields         DestFields     `json:"fields"`
 	Methods        []string       `json:"methods"`
 	IdentityInSpec string         `json:"identityInSpec"` // a custom spec as the Broker section shows it; "" = none
@@ -606,17 +592,16 @@ type DestDetail struct {
 
 // SpecListRow is one model-spec in the list.
 type SpecListRow struct {
-	Name              string   `json:"name"`
-	Type              string   `json:"type"`
-	Version           string   `json:"version"`
-	VersionConstraint string   `json:"versionConstraint"`
-	Principal         string   `json:"principal"`
-	ModelID           string   `json:"modelId"`
-	Effort            string   `json:"effort"`
-	Mode              string   `json:"mode"`
-	Provider          string   `json:"provider"` // "" = no claude body
-	UsedBy            int      `json:"usedBy"`
-	Managed           *Managed `json:"managed" tstype:"Managed | null"`
+	Name              string `json:"name"`
+	Type              string `json:"type"`
+	Version           string `json:"version"`
+	VersionConstraint string `json:"versionConstraint"`
+	Principal         string `json:"principal"`
+	ModelID           string `json:"modelId"`
+	Effort            string `json:"effort"`
+	Mode              string `json:"mode"`
+	Provider          string `json:"provider"` // "" = no claude body
+	UsedBy            int    `json:"usedBy"`
 }
 
 // SpecChoices are the model-spec form's select options; principals are
@@ -664,7 +649,6 @@ type HeaderRuleRow struct {
 // SpecDetail is a model-spec's page.
 type SpecDetail struct {
 	Name            string          `json:"name"`
-	Managed         *Managed        `json:"managed" tstype:"Managed | null"`
 	Fields          SpecFields      `json:"fields"`
 	Choices         SpecChoices     `json:"choices"`
 	HeaderRules     []HeaderRuleRow `json:"headerRules"`
@@ -694,7 +678,6 @@ type KitRow struct {
 	UsedBy  int       `json:"usedBy"`
 	Invalid bool      `json:"invalid"` // the current version isn't a valid studio kit
 	Draft   bool      `json:"draft"`   // an open draft
-	Managed *Managed  `json:"managed" tstype:"Managed | null"`
 	Attn    *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
 }
 
@@ -838,7 +821,6 @@ type DraftInfo struct {
 // KitDetail is a kit's page at a version (?v=), a diff (?diff=) and a file (?file=).
 type KitDetail struct {
 	Name       string          `json:"name"`
-	Managed    *Managed        `json:"managed" tstype:"Managed | null"`
 	Current    int             `json:"current"`
 	Versions   []KitVersionRow `json:"versions"`
 	View       KitView         `json:"view"`

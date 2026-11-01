@@ -71,7 +71,7 @@ function Agents({ d }: { d: AgentsResponse }) {
         { key: "i", label: "Image", render: (a) => <StateCell v={a.image} title="raised on an older image than its role would run now" /> },
         { key: "l", label: "Last seen", render: (a) => a.lastSeen || <Text span c="dimmed">—</Text> },
         ...(d.canEdit ? [{ key: "x", label: "", render: (a: AgentsResponse["agents"][number]) => a.hasStudio && (
-          <ConfirmAction label="Teardown" confirm={`Tear down ${a.id}?`} onConfirm={() => remove.mutateAsync(a.id)} />
+          <ConfirmAction live label="Teardown" confirm={`Tear down ${a.id}?`} onConfirm={() => remove.mutateAsync(a.id)} />
         ) }] : []),
       ]} />
     </Stack>
@@ -87,7 +87,7 @@ function Raise() {
     <details>
       <summary style={{ cursor: "pointer" }}>Raise agent</summary>
       <Card withBorder mt="xs">
-        <EditForm submit="Raise" onSubmit={() => raise.mutateAsync(undefined)}>
+        <EditForm live submit="Raise" onSubmit={() => raise.mutateAsync(undefined)}>
           <TextInput label="Label" description="its name; the agent gets its own id" required autoComplete="off" value={f.id} onChange={(e) => set("id")(e.currentTarget.value)} />
           <TypeAhead label="Role" kind="roles" project={f.project} required value={f.role} onChange={set("role")} />
           <TypeAhead label="Project" kind="projects" value={f.project} onChange={set("project")} />
@@ -107,7 +107,7 @@ function Enroll({ onEnrolled }: { onEnrolled: (e: Enrolled) => void }) {
     <details>
       <summary style={{ cursor: "pointer" }}>Enroll agent</summary>
       <Card withBorder mt="xs">
-        <EditForm submit="Enroll" onSubmit={() => enroll.mutateAsync(undefined)} resetOnSuccess={() => setF({ id: "", role: "", project: f.project, destinations: "" })}>
+        <EditForm live submit="Enroll" onSubmit={() => enroll.mutateAsync(undefined)} resetOnSuccess={() => setF({ id: "", role: "", project: f.project, destinations: "" })}>
           <TextInput label="Agent id" required autoComplete="off" value={f.id} onChange={(e) => set("id")(e.currentTarget.value)} />
           <TypeAhead label="Role" kind="roles" project={f.project} required value={f.role} onChange={set("role")} />
           <TypeAhead label="Project" kind="projects" value={f.project} onChange={set("project")} />

@@ -10,7 +10,7 @@ export function AppTokens({ user, tokens, refKey }: { user: UserRow; tokens: App
   const client = useQueryClient();
   return (
     <AppTokenList tokens={tokens} empty="No apps are connected." revoke={(t) => (
-      <ConfirmAction label="Revoke" confirm={`Revoke ${t.label}? It is signed out of ${user.name} at once.`}
+      <ConfirmAction live label="Revoke" confirm={`Revoke ${t.label}? It is signed out of ${user.name} at once.`}
         onConfirm={async () => {
           await adminApi.del(`users/${encodeURIComponent(user.id)}/app-tokens/${encodeURIComponent(t.id)}`);
           await client.invalidateQueries({ queryKey: refKey });

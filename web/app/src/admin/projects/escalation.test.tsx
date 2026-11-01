@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -7,6 +7,7 @@ import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { project } from "./fixtures";
 import type { ChainRow } from "../api/types";
+import { setBranch } from "../branch/branch";
 
 const tree = () => server.use(
   http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })),
@@ -15,6 +16,10 @@ const tree = () => server.use(
 const at = ADMIN + "config/projects/acme/escalation";
 const def: ChainRow = { category: "", spec: "user:alice,user:ghost@15m", tiers: [{ timeout: "15m", targets: [{ text: "user:alice", unknown: false }, { text: "user:ghost", unknown: true }] }] };
 const ops: ChainRow = { category: "ops", spec: "channel:eng@1h", tiers: [{ timeout: "1h", targets: [{ text: "channel:eng", unknown: false }] }] };
+
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
 
 describe("project escalation", () => {
   it("shows chains and flags unknown targets", async () => {

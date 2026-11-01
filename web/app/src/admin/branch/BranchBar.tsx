@@ -13,8 +13,8 @@ const listKey = ["admin", "config", "branches"];
 
 // BranchBar heads every Config page (docs/usage/jam/config-branches.md):
 // the followed branch, read-only, with Create and Open branch; or the open
-// branch, with its links, Merge, PR and Back. Without the branch editor on
-// the serve (404) it shows nothing; another failure is shown.
+// branch, with its links, Merge, PR and Back. Without a config repo (404)
+// the config is read-only, and it says so; another failure is shown.
 export function BranchBar() {
   const branch = useBranch();
   const head = useHead();
@@ -27,9 +27,12 @@ export function BranchBar() {
   const [name, setName] = useState("");
   const [refused, setRefused] = useState("");
   const [prURL, setPrURL] = useState("");
-  // No branch editor (no config repo): nothing. Any other failure says why,
-  // rather than hiding the bar.
-  if (error && error.status !== 404) {
+  // No config repo: no branches, so nothing here edits the config. Any
+  // other failure says why, rather than hiding the bar.
+  if (error?.status === 404) {
+    return <Alert color="gray" mb="md" title="Read-only">This Jam has no config repo. Set config.github, config.gitlab or config.git in the serve config to edit its config on branches.</Alert>;
+  }
+  if (error) {
     return <Alert color="red" mb="md" title="The config branches can't be listed">{error.message}</Alert>;
   }
   if (!data) return null;
@@ -96,7 +99,7 @@ export function BranchBar() {
               {link && <Anchor size="sm" href={link} rel="noopener noreferrer">{noun[0]!.toUpperCase() + noun.slice(1)}</Anchor>}
             </Group>
             <Group gap="xs">
-              <ConfirmAction label="Merge" color="jam" variant="filled" confirm={`Merge ${branch} into ${data.followed}? The Jam applies it at once.`} onConfirm={merge} />
+              <ConfirmAction live label="Merge" color="jam" variant="filled" confirm={`Merge ${branch} into ${data.followed}? The Jam applies it at once.`} onConfirm={merge} />
               {data.canPR && !link && <Button size="xs" variant="light" onClick={() => void openPR()}>{data.prNoun === "merge request" ? "MR" : "PR"}</Button>}
               {openMenu}
               <Button size="xs" variant="subtle" onClick={() => switchTo("")}>Back to {data.followed}</Button>

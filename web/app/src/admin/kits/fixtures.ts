@@ -7,7 +7,7 @@ export const kitView = (v: Partial<KitView> = {}): KitView => ({
 });
 
 export const kit = (k: Partial<KitDetail> = {}): KitDetail => ({
-  name: "web", managed: null, current: 2,
+  name: "web", current: 2,
   versions: [{ n: 1, prev: 0, current: false, digest: "aaa", pushed: "2026-10-27 10:00", source: null }, { n: 2, prev: 1, current: true, digest: "abc123def456", pushed: "2026-10-28 10:00", source: null }],
   view: kitView(), diff: null, uses: [{ project: "acme", role: "coder", implicit: false }], chain: [], chainErr: "", effective: null, usedByKits: [],
   isDefault: false, source: null, setWith: "", canSource: true, draft: null,
