@@ -17,7 +17,7 @@ import (
 
 const configStoreError = "config store error"
 
-// ConfigStatus maps a config diff, apply, track or sync error to an HTTP
+// ConfigStatus maps a config diff or sync error to an HTTP
 // status and a message safe to show: a refused or stale plan and an
 // untracked Jam 409; a bad source, kit or checkout 400; a fetch, auth or
 // limit failure 502 with the fetcher's redacted message; anything else 500

@@ -235,7 +235,7 @@ func TestConfigWriteKitDirRoundTrip(t *testing.T) {
 	if d.Trees[d.Current] != s.Trees[s.Current] {
 		t.Fatal("the replica's stored tree differs")
 	}
-	if code, out, _ := runJam("config", "diff", "--dir", repo, "--admin-url", dstURL); code != 0 || strings.Contains(out, "create ") {
+	if code, out, _ := runJam("config", "diff", "--dir", repo, "--admin-url", dstURL); code != 0 || !planIsEmpty(out) {
 		t.Fatalf("diff after the apply: %d\n%s", code, out)
 	}
 	if _, _, err := jam.PushKitFiles(src, "builder", kittreetest.Files("kit.yml", "kind: studio\nprompt: plain now\n")); err != nil {
@@ -444,7 +444,7 @@ func TestConfigWriteRewritesOldContextDirRepo(t *testing.T) {
 		}
 	}
 	before, _ := st.GetKit("app")
-	if code, out, errs := runJam("config", "diff", "--dir", repo, "--admin-url", url); code != 0 || strings.Contains(out, "create ") {
+	if code, out, errs := runJam("config", "diff", "--dir", repo, "--admin-url", url); code != 0 || !planIsEmpty(out) {
 		t.Fatalf("diff after the write: %d\n%s\n%s", code, out, errs)
 	}
 	applyDir(t, st, repo) // adopts, makes no new version

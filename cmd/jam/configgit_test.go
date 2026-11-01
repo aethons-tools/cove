@@ -44,6 +44,17 @@ func applyDir(t *testing.T, st *jam.MemStore, dir string) jam.ConfigApplyResult 
 	return res
 }
 
+// planIsEmpty reports whether a printed plan has no create, update, delete
+// or forget item.
+func planIsEmpty(out string) bool {
+	for _, verb := range []string{"create  ", "update  ", "delete  ", "forget  "} {
+		if strings.Contains("\n"+out, "\n"+verb) {
+			return false
+		}
+	}
+	return true
+}
+
 func mustMkdir(t *testing.T, p string) {
 	t.Helper()
 	if err := os.MkdirAll(p, 0o755); err != nil {
@@ -160,7 +171,7 @@ func TestConfigWriteThenDiffReplicates(t *testing.T) {
 	if !applyDir(t, dst, repo).Applied {
 		t.Fatal("seed apply wrote nothing")
 	}
-	if code, out, errs := runJam("config", "diff", "--dir", repo, "--admin-url", dstURL); code != 0 || strings.Contains(out, "create ") {
+	if code, out, errs := runJam("config", "diff", "--dir", repo, "--admin-url", dstURL); code != 0 || !planIsEmpty(out) {
 		t.Fatalf("diff after the apply: %d\n%s\n%s", code, out, errs)
 	}
 	back := gitDir(t)
@@ -355,8 +366,9 @@ func TestConfigSyncWritesOverJamEdit(t *testing.T) {
 }
 
 // A mark whose object was removed in Jam is a visible "forget" item in the
-// plan of the repo without it.
-func TestConfigDiffShowsStaleMark(t *testing.T) {
+// plan of the repo without it; applying forgets it and leaves a later object
+// of that name alone.
+func TestConfigStaleMarkForgottenOnApply(t *testing.T) {
 	url, st := configServer(t)
 	repo := gitDir(t)
 	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
@@ -367,6 +379,22 @@ func TestConfigDiffShowsStaleMark(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "forget  user bob  (mark only)") {
 		t.Fatalf("diff: %d\n%s\n%s", code, out, errs)
 	}
+	// Applying it removes the mark only; a bob created later is unmanaged
+	// and the next apply leaves it alone.
+	if res := applyDir(t, st, repo); res.Counts[jam.ConfigForget] != 1 {
+		t.Fatalf("apply counts %v, want 1 forgotten", res.Counts)
+	}
+	if len(st.ListConfigMarks()) != 0 {
+		t.Fatalf("marks kept: %v", st.ListConfigMarks())
+	}
+	_, err := st.CreateUser(jam.User{ID: ident.New(ident.User), Name: "bob", Status: jam.StatusLive})
+	cfgMust(t, err)
+	code, out, errs = runJam("config", "diff", "--dir", repo, "--admin-url", url)
+	if code != 0 || strings.Contains(out, "delete") || !strings.Contains(out, "unmanaged: user bob") {
+		t.Fatalf("re-plan: %d\n%s\n%s", code, out, errs)
+	}
+	applyDir(t, st, repo)
+	findUser(t, st, "bob")
 }
 
 func TestConfigWriteRefusesBehindPin(t *testing.T) {

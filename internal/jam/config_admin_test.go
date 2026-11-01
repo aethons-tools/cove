@@ -218,11 +218,9 @@ func TestConfigRoutesRejectBadUpload(t *testing.T) {
 			if len(c.body) > configtar.MaxUpload && name != "oversize" {
 				t.Fatalf("fixture is %d bytes, over the upload cap", len(c.body))
 			}
-			for _, route := range []string{"diff"} {
-				msg := postTar(t, ts.URL+"/admin/config/"+route, c.body, c.want, nil)
-				if c.want == http.StatusRequestEntityTooLarge && !strings.Contains(msg, "config tree too large (limit 16 MiB)") {
-					t.Errorf("%s: %s", route, msg)
-				}
+			msg := postTar(t, ts.URL+"/admin/config/diff", c.body, c.want, nil)
+			if c.want == http.StatusRequestEntityTooLarge && !strings.Contains(msg, "config tree too large (limit 16 MiB)") {
+				t.Errorf("diff: %s", msg)
 			}
 		})
 	}
@@ -230,19 +228,17 @@ func TestConfigRoutesRejectBadUpload(t *testing.T) {
 	// (or any other type) is 415 before the body is read.
 	good := packTree(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"})
 	for _, ct := range []string{"text/plain", "", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"} {
-		for _, route := range []string{"diff"} {
-			req, _ := http.NewRequest("POST", ts.URL+"/admin/config/"+route, bytes.NewReader(good))
-			if ct != "" {
-				req.Header.Set("Content-Type", ct)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			resp.Body.Close()
-			if resp.StatusCode != http.StatusUnsupportedMediaType {
-				t.Errorf("%s %q = %d, want 415", route, ct, resp.StatusCode)
-			}
+		req, _ := http.NewRequest("POST", ts.URL+"/admin/config/diff", bytes.NewReader(good))
+		if ct != "" {
+			req.Header.Set("Content-Type", ct)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnsupportedMediaType {
+			t.Errorf("diff %q = %d, want 415", ct, resp.StatusCode)
 		}
 	}
 	if code := postTar(t, ts.URL+"/admin/config/diff", good, http.StatusOK, nil); code == "" {
