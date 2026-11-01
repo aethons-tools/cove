@@ -223,21 +223,17 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	if _, err := store.CreateConnection(jam.Connection{Kind: "linear", Name: "linear"}); err != nil {
 		t.Fatal(err)
 	}
-	room, err := c.PutRoom("acme", jam.RoomBody{Name: "eng-help", Ref: "ACME-1"})
-	if err != nil || room.Name != "eng-help" || room.Connection != "linear" {
-		t.Fatalf("PutRoom = %+v, %v", room, err)
+	if _, _, err := jam.PutRoom(store, "acme", jam.RoomBody{Name: "eng-help", Ref: "ACME-1"}); err != nil {
+		t.Fatalf("PutRoom: %v", err)
 	}
-	if err := c.RenameRoom("acme", string(room.ID), "help"); err != nil {
-		t.Fatalf("RenameRoom: %v", err)
-	}
-	if rooms, err := c.ListRooms("acme"); err != nil || len(rooms) != 1 || rooms[0].Name != "help" {
+	if rooms, err := c.ListRooms("acme"); err != nil || len(rooms) != 1 || rooms[0].Name != "eng-help" || rooms[0].Connection != "linear" {
 		t.Fatalf("ListRooms = %+v, %v", rooms, err)
 	}
 	if ms, err := c.ListMembers("acme"); err != nil || len(ms) != 1 || ms[0].User != "alice" {
 		t.Fatalf("ListMembers = %+v, %v", ms, err)
 	}
 
-	if err := c.RemoveRoom("acme", "help"); err != nil {
+	if err := jam.RemoveRoom(store, "acme", "eng-help"); err != nil {
 		t.Fatalf("RemoveRoom: %v", err)
 	}
 	if rooms, err := c.ListRooms("acme"); err != nil || len(rooms) != 0 {
@@ -280,7 +276,7 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	}
 }
 
-// TestClientEscalationPolicy exercises SetEscalationPolicy/GetEscalationPolicy
+// TestClientEscalationPolicy exercises GetEscalationPolicy (seeded through the store)
 // against a real Jam admin handler + MemStore.
 func TestClientEscalationPolicy(t *testing.T) {
 	ts, store := newServer(t)
@@ -291,7 +287,7 @@ func TestClientEscalationPolicy(t *testing.T) {
 		{Targets: []string{"human:alice", "human:bob"}, Timeout: 15 * time.Minute},
 		{Targets: []string{"human:carol"}, Timeout: time.Hour},
 	}
-	if err := c.SetEscalationPolicy("acme", "", tiers); err != nil {
+	if err := store.SetEscalationPolicy("acme", "", tiers); err != nil {
 		t.Fatalf("SetEscalationPolicy: %v", err)
 	}
 	v, err := c.GetEscalationPolicy("acme")
@@ -307,7 +303,7 @@ func TestClientEscalationPolicy(t *testing.T) {
 	}
 }
 
-// TestClientEscalationCategory exercises SetEscalationPolicy/GetEscalationPolicy
+// TestClientEscalationCategory exercises GetEscalationPolicy (seeded through the store)
 // with a category, asserting the view carries both the default and the category
 // chain without disturbing each other.
 func TestClientEscalationCategory(t *testing.T) {
@@ -317,10 +313,10 @@ func TestClientEscalationCategory(t *testing.T) {
 
 	def := []jam.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}}
 	infra := []jam.EscalationTier{{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}
-	if err := c.SetEscalationPolicy("acme", "", def); err != nil {
+	if err := store.SetEscalationPolicy("acme", "", def); err != nil {
 		t.Fatalf("SetEscalationPolicy(default): %v", err)
 	}
-	if err := c.SetEscalationPolicy("acme", "infra", infra); err != nil {
+	if err := store.SetEscalationPolicy("acme", "infra", infra); err != nil {
 		t.Fatalf("SetEscalationPolicy(infra): %v", err)
 	}
 	v, err := c.GetEscalationPolicy("acme")
@@ -336,14 +332,14 @@ func TestClientEscalationCategory(t *testing.T) {
 	}
 }
 
-// TestClientChatService exercises SetChatService/GetChatService (set, get,
-// clear) against a real Jam admin handler + MemStore.
+// TestClientChatService exercises GetChatService (seeded through the store; set,
+// get, clear) against a real Jam admin handler + MemStore.
 func TestClientChatService(t *testing.T) {
 	ts, store := newServer(t)
 	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
-	if err := c.SetChatService("acme", "discord"); err != nil {
+	if err := store.SetChatService("acme", "discord"); err != nil {
 		t.Fatalf("SetChatService: %v", err)
 	}
 	svc, err := c.GetChatService("acme")
@@ -354,7 +350,7 @@ func TestClientChatService(t *testing.T) {
 		t.Fatalf("GetChatService = %q, want discord", svc)
 	}
 
-	if err := c.SetChatService("acme", ""); err != nil {
+	if err := store.SetChatService("acme", ""); err != nil {
 		t.Fatalf("SetChatService (clear): %v", err)
 	}
 	svc, err = c.GetChatService("acme")
@@ -803,24 +799,39 @@ func TestImportConfigConflict(t *testing.T) {
 }
 
 func TestClientContextRoundTrip(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
 	c := New(ts.URL, "")
-	for _, scope := range []ContextScope{{Project: jam.DefaultProject, Role: "guest"}, {Project: jam.DefaultProject}, {Jam: true}} {
-		if err := c.SetContext(scope, jam.ContextBody{Core: "C"}); err != nil {
-			t.Fatalf("SetContext %+v: %v", scope, err)
+	for _, sc := range []struct {
+		scope ContextScope
+		set   func() error
+		clear func() error
+	}{
+		{ContextScope{Project: jam.DefaultProject, Role: "guest"},
+			func() error {
+				return jam.SetRoleContextChecked(store, jam.DefaultProject, "guest", jam.ContextBody{Core: "C"})
+			},
+			func() error { return jam.ClearRoleContext(store, jam.DefaultProject, "guest") }},
+		{ContextScope{Project: jam.DefaultProject},
+			func() error {
+				return jam.SetProjectContextChecked(store, jam.DefaultProject, jam.ContextBody{Core: "C"})
+			},
+			func() error { return jam.SetProjectContextChecked(store, jam.DefaultProject, jam.ContextBody{}) }},
+		{ContextScope{Jam: true},
+			func() error { return jam.SetJamContextChecked(store, jam.ContextBody{Core: "C"}) },
+			func() error { return jam.SetJamContextChecked(store, jam.ContextBody{}) }},
+	} {
+		if err := sc.set(); err != nil {
+			t.Fatalf("set %+v: %v", sc.scope, err)
 		}
-		if b, err := c.GetContext(scope); err != nil || b.Core != "C" {
-			t.Fatalf("GetContext %+v = %+v, %v", scope, b, err)
+		if b, err := c.GetContext(sc.scope); err != nil || b.Core != "C" {
+			t.Fatalf("GetContext %+v = %+v, %v", sc.scope, b, err)
 		}
-		if err := c.ClearContext(scope); err != nil {
-			t.Fatalf("ClearContext %+v: %v", scope, err)
+		if err := sc.clear(); err != nil {
+			t.Fatalf("clear %+v: %v", sc.scope, err)
 		}
-		if b, _ := c.GetContext(scope); b.Core != "" {
-			t.Fatalf("after clear %+v: %+v", scope, b)
+		if b, _ := c.GetContext(sc.scope); b.Core != "" {
+			t.Fatalf("after clear %+v: %+v", sc.scope, b)
 		}
-	}
-	if err := c.SetContext(ContextScope{Jam: true}, jam.ContextBody{Core: strings.Repeat("x", 900)}); err == nil || !strings.Contains(err.Error(), "900 bytes") {
-		t.Fatalf("over-budget err = %v", err)
 	}
 }
 

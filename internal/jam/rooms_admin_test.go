@@ -105,35 +105,27 @@ func TestRenameAndRemoveRoom(t *testing.T) {
 	}
 }
 
+// GET /admin/projects/{p}/rooms stays; the room's writes are store-level
+// (TestPutRoom, TestRenameAndRemoveRoom) and gone as routes.
 func TestAdminRoomRoutes(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
 	if _, err := store.CreateConnection(Connection{Kind: "linear", Name: "linear"}); err != nil {
 		t.Fatal(err)
 	}
-	rec := doJSON(t, h, "POST", "/admin/projects/acme/rooms", RoomBody{Name: "eng", Ref: "ACME-1"})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST room = %d %s", rec.Code, rec.Body)
+	if _, _, err := PutRoom(store, "acme", RoomBody{Name: "eng", Ref: "ACME-1"}); err != nil {
+		t.Fatal(err)
 	}
-	if rec := doJSON(t, h, "POST", "/admin/projects/acme/rooms", RoomBody{Name: "eng", Ref: "ACME-2"}); rec.Code != http.StatusOK {
-		t.Fatalf("POST room again (upsert) = %d", rec.Code)
+	if _, _, err := PutRoom(store, "acme", RoomBody{Name: "eng", Ref: "ACME-2"}); err != nil {
+		t.Fatalf("upsert: %v", err)
 	}
-	if rec := doJSON(t, h, "POST", "/admin/projects/acme/rooms", RoomBody{Name: "ops", Ref: "ACME-2"}); rec.Code != http.StatusConflict {
-		t.Fatalf("POST room on a taken ref = %d, want 409", rec.Code)
+	if _, _, err := PutRoom(store, "acme", RoomBody{Name: "ops", Ref: "ACME-2"}); !errors.Is(err, ErrBindingTaken) {
+		t.Fatalf("room on a taken ref: %v, want ErrBindingTaken", err)
 	}
 	var rooms []RoomView
 	getJSON(t, h, "/admin/projects/acme/rooms", &rooms)
 	if len(rooms) != 1 || rooms[0].Ref != "ACME-2" {
 		t.Fatalf("rooms = %+v", rooms)
-	}
-	if rec := doJSON(t, h, "PUT", "/admin/projects/acme/rooms/eng/name", RenameBody{Name: "help"}); rec.Code != http.StatusNoContent {
-		t.Fatalf("rename = %d %s", rec.Code, rec.Body)
-	}
-	if rec := doReq(t, h, "DELETE", "/admin/projects/acme/rooms/help", nil); rec.Code != http.StatusNoContent {
-		t.Fatalf("DELETE = %d", rec.Code)
-	}
-	if rec := doReq(t, h, "DELETE", "/admin/projects/acme/rooms/help", nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("DELETE again = %d, want 404", rec.Code)
 	}
 	if rec := doReq(t, h, "GET", "/admin/projects/nope/rooms", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("GET unknown project = %d", rec.Code)

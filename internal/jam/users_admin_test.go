@@ -205,8 +205,8 @@ func TestAdminConnectionsListAndInUse(t *testing.T) {
 		}
 	}
 	mustCreateProject(t, store, "acme")
-	if rec := doJSON(t, h, "PUT", "/admin/projects/acme/chat-service", ChatServiceBody{Service: "discord-main"}); rec.Code != http.StatusNoContent {
-		t.Fatalf("chat service by connection name = %d %s", rec.Code, rec.Body.String())
+	if err := store.SetChatService("acme", "discord-main"); err != nil {
+		t.Fatalf("chat service by connection name = %v", err)
 	}
 	var cs ChatServiceView
 	getJSON(t, h, "/admin/projects/acme/chat-service", &cs)
@@ -216,7 +216,9 @@ func TestAdminConnectionsListAndInUse(t *testing.T) {
 	if err := store.RemoveConnection(c.ID); !errors.Is(err, ErrConnectionInUse) {
 		t.Fatalf("remove a chat service's connection = %v, want ErrConnectionInUse", err)
 	}
-	doJSON(t, h, "PUT", "/admin/projects/acme/chat-service", ChatServiceBody{Service: ""})
+	if err := store.SetChatService("acme", ""); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.RemoveConnection(c.ID); err != nil {
 		t.Fatalf("remove = %v", err)
 	}

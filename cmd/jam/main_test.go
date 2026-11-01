@@ -255,16 +255,16 @@ func TestProjectMemberAndRoomCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// room add/list/rename/rm
+	// room list (the room is seeded through the store; its CLI writes are gone)
+	if _, _, err := jam.PutRoom(store, "acme", jam.RoomBody{Name: "eng-help", Ref: "ACME-1"}); err != nil {
+		t.Fatal(err)
+	}
 	steps := []struct {
 		argv []string
 		want string
 	}{
-		{[]string{"room", "add", "--admin-url", ts.URL, "--ref", "ACME-1", "acme", "eng-help"}, "room\teng-help\tchn_"},
 		{[]string{"room", "list", "--admin-url", ts.URL, "acme"}, "linear-acme\tref=ACME-1"},
-		{[]string{"room", "rename", "--admin-url", ts.URL, "acme", "eng-help", "help"}, "renamed room eng-help to help"},
 		{[]string{"project", "member", "list", "--admin-url", ts.URL, "acme"}, "member\talice\tusr_"},
-		{[]string{"room", "rm", "--admin-url", ts.URL, "acme", "help"}, "removed room help"},
 	}
 	for _, st := range steps {
 		out.Reset()
@@ -276,12 +276,12 @@ func TestProjectMemberAndRoomCommands(t *testing.T) {
 			t.Fatalf("%v: output %q lacks %q", st.argv, out.String(), st.want)
 		}
 	}
+	if err := jam.RemoveRoom(store, "acme", "eng-help"); err != nil {
+		t.Fatal(err)
+	}
 	out.Reset()
 	if code := run([]string{"room", "list", "--admin-url", ts.URL, "acme"}, getenv, &out, &errb); code != 0 || out.Len() != 0 {
 		t.Fatalf("room list after rm: exit=%d out=%q", code, out.String())
-	}
-	if code := run([]string{"room", "add", "--admin-url", ts.URL, "acme", "x"}, getenv, &out, &errb); code != 2 {
-		t.Fatalf("room add without --ref: exit=%d, want 2", code)
 	}
 
 	// role add --addressing plumbs through to the role's Scope.Addressing
@@ -374,9 +374,9 @@ func TestProjectMemberAndRoomCommands(t *testing.T) {
 	}
 }
 
-// TestProjectEscalationCommands exercises `project escalation set|list|clear`
-// end-to-end through httptest.Server + MemStore, including the --tier
-// 'targets@timeout' parse and its missing-'@' error.
+// TestProjectEscalationCommands exercises `project escalation list` end-to-end
+// through httptest.Server + MemStore (seeded through the store; the set and
+// clear verbs are gone), and the tier-spec parse the removed --tier used.
 func TestProjectEscalationCommands(t *testing.T) {
 	store := jam.NewMemStore()
 	mustCreateProject(t, store, "p")
@@ -386,121 +386,64 @@ func TestProjectEscalationCommands(t *testing.T) {
 	getenv := func(string) string { return "" }
 
 	var out, errb bytes.Buffer
-
-	// project escalation set with two --tier flags
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "escalation", "set", "--admin-url", ts.URL, "p",
-		"--tier", "human:alice,human:bob@15m",
-		"--tier", "human:carol@1h",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project escalation set: exit=%d stderr=%s", code, errb.String())
+	list := func() string {
+		t.Helper()
+		out.Reset()
+		errb.Reset()
+		if code := run([]string{"project", "escalation", "list", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
+			t.Fatalf("project escalation list: exit=%d stderr=%s", code, errb.String())
+		}
+		return out.String()
 	}
 
-	// project escalation list shows both tiers in order
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "escalation", "list", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project escalation list: exit=%d stderr=%s", code, errb.String())
+	var tiers []jam.EscalationTier
+	for _, spec := range []string{"human:alice,human:bob@15m", "human:carol@1h"} {
+		tier, err := jam.ParseEscalationTierSpec(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tiers = append(tiers, tier)
 	}
-	if !strings.Contains(out.String(), "default\ttier 0\thuman:alice,human:bob\ttimeout=15m0s") || !strings.Contains(out.String(), "default\ttier 1\thuman:carol\ttimeout=1h0m0s") {
-		t.Fatalf("project escalation list output missing expected fields:\n%s", out.String())
+	if err := store.SetEscalationPolicy("p", "", tiers); err != nil {
+		t.Fatal(err)
 	}
-
-	// project escalation clear empties the policy
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "escalation", "clear", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project escalation clear: exit=%d stderr=%s", code, errb.String())
-	}
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "escalation", "list", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project escalation list (after clear): exit=%d stderr=%s", code, errb.String())
-	}
-	if strings.TrimSpace(out.String()) != "" {
-		t.Fatalf("project escalation list after clear should be empty:\n%s", out.String())
+	got := list()
+	if !strings.Contains(got, "default\ttier 0\thuman:alice,human:bob\ttimeout=15m0s") || !strings.Contains(got, "default\ttier 1\thuman:carol\ttimeout=1h0m0s") {
+		t.Fatalf("project escalation list output missing expected fields:\n%s", got)
 	}
 
-	// --tier missing '@timeout' is a parse error
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "escalation", "set", "--admin-url", ts.URL, "p",
-		"--tier", "human:alice",
-	}, getenv, &out, &errb); code == 0 {
-		t.Fatalf("project escalation set with malformed --tier should fail, got exit=0 out=%s", out.String())
+	// a category chain lists alongside the default; clearing it leaves the default
+	infra, err := jam.ParseEscalationTierSpec("human:sre@10m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetEscalationPolicy("p", "infra", []jam.EscalationTier{infra}); err != nil {
+		t.Fatal(err)
+	}
+	if got := list(); !strings.Contains(got, "default\ttier 0\thuman:alice,human:bob\ttimeout=15m0s") || !strings.Contains(got, "infra\ttier 0\thuman:sre\ttimeout=10m0s") {
+		t.Fatalf("project escalation list missing default or infra chain:\n%s", got)
+	}
+	if err := store.SetEscalationPolicy("p", "infra", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := list(); !strings.Contains(got, "default\ttier 0") || strings.Contains(got, "infra\ttier") {
+		t.Fatalf("project escalation list after clearing infra:\n%s", got)
+	}
+	if err := store.SetEscalationPolicy("p", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := list(); strings.TrimSpace(got) != "" {
+		t.Fatalf("project escalation list after clear should be empty:\n%s", got)
+	}
+
+	// a tier missing '@timeout' is a parse error
+	if _, err := jam.ParseEscalationTierSpec("human:alice"); err == nil || !strings.Contains(err.Error(), "missing '@timeout'") {
+		t.Fatalf("malformed tier spec err = %v", err)
 	}
 }
 
-// TestProjectEscalationCategoryCommands exercises `--category` on
-// set/list/clear: setting a category chain alongside the default, listing both,
-// then clearing just the category and confirming the default survives.
-func TestProjectEscalationCategoryCommands(t *testing.T) {
-	store := jam.NewMemStore()
-	mustCreateProject(t, store, "p")
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
-	ts := httptest.NewServer(h)
-	defer ts.Close()
-	getenv := func(string) string { return "" }
-
-	var out, errb bytes.Buffer
-
-	// default chain
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "escalation", "set", "--admin-url", ts.URL, "p",
-		"--tier", "human:oncall@30m",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project escalation set (default): exit=%d stderr=%s", code, errb.String())
-	}
-
-	// infra category chain
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "escalation", "set", "--admin-url", ts.URL, "--category", "infra", "p",
-		"--tier", "human:sre@10m",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project escalation set --category infra: exit=%d stderr=%s", code, errb.String())
-	}
-
-	// list shows both default and infra
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "escalation", "list", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project escalation list: exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "default\ttier 0\thuman:oncall\ttimeout=30m0s") {
-		t.Fatalf("project escalation list missing default chain:\n%s", out.String())
-	}
-	if !strings.Contains(out.String(), "infra\ttier 0\thuman:sre\ttimeout=10m0s") {
-		t.Fatalf("project escalation list missing infra chain:\n%s", out.String())
-	}
-
-	// clear --category infra removes just infra
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "escalation", "clear", "--admin-url", ts.URL, "--category", "infra", "p"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project escalation clear --category infra: exit=%d stderr=%s", code, errb.String())
-	}
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"project", "escalation", "list", "--admin-url", ts.URL, "p"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project escalation list (after clear infra): exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "default\ttier 0\thuman:oncall\ttimeout=30m0s") {
-		t.Fatalf("project escalation list should still show default chain after clearing infra:\n%s", out.String())
-	}
-	if strings.Contains(out.String(), "infra\ttier") {
-		t.Fatalf("project escalation list should not show infra chain after clear:\n%s", out.String())
-	}
-}
-
-// TestProjectChatServiceCommands exercises `project chat-service
-// set|show|clear` end-to-end through httptest.Server + MemStore.
+// TestProjectChatServiceCommands exercises `project chat-service show`
+// end-to-end through httptest.Server + MemStore (set and clear are store-level).
 func TestProjectChatServiceCommands(t *testing.T) {
 	store := jam.NewMemStore()
 	mustCreateProject(t, store, "p")
@@ -510,59 +453,49 @@ func TestProjectChatServiceCommands(t *testing.T) {
 	getenv := func(string) string { return "" }
 
 	var out, errb bytes.Buffer
+	show := func() string {
+		t.Helper()
+		out.Reset()
+		errb.Reset()
+		if code := run([]string{"project", "chat-service", "show", "--admin-url", ts.URL, "--project", "p"}, getenv, &out, &errb); code != 0 {
+			t.Fatalf("project chat-service show: exit=%d stderr=%s", code, errb.String())
+		}
+		return strings.TrimSpace(out.String())
+	}
+	if got := show(); got != "(none)" {
+		t.Fatalf("project chat-service show (before set) = %q, want (none)", got)
+	}
+	if err := store.SetChatService("p", "discord"); err != nil {
+		t.Fatal(err)
+	}
+	if got := show(); got != "discord" {
+		t.Fatalf("project chat-service show (after set) = %q, want discord", got)
+	}
+	if err := store.SetChatService("p", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := show(); got != "(none)" {
+		t.Fatalf("project chat-service show (after clear) = %q, want (none)", got)
+	}
+}
 
-	// show before set prints "(none)"
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "chat-service", "show", "--admin-url", ts.URL, "--project", "p",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project chat-service show: exit=%d stderr=%s", code, errb.String())
-	}
-	if strings.TrimSpace(out.String()) != "(none)" {
-		t.Fatalf("project chat-service show (before set) = %q, want (none)", out.String())
-	}
-
-	// set
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "chat-service", "set", "--admin-url", ts.URL, "--project", "p", "--service", "discord",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project chat-service set: exit=%d stderr=%s", code, errb.String())
-	}
-
-	// show reflects it
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "chat-service", "show", "--admin-url", ts.URL, "--project", "p",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project chat-service show: exit=%d stderr=%s", code, errb.String())
-	}
-	if strings.TrimSpace(out.String()) != "discord" {
-		t.Fatalf("project chat-service show (after set) = %q, want discord", out.String())
-	}
-
-	// clear
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "chat-service", "clear", "--admin-url", ts.URL, "--project", "p",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project chat-service clear: exit=%d stderr=%s", code, errb.String())
-	}
-
-	// show is back to "(none)"
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"project", "chat-service", "show", "--admin-url", ts.URL, "--project", "p",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("project chat-service show: exit=%d stderr=%s", code, errb.String())
-	}
-	if strings.TrimSpace(out.String()) != "(none)" {
-		t.Fatalf("project chat-service show (after clear) = %q, want (none)", out.String())
+// The project, room and context config-writing verbs are gone: each is its
+// group's unknown subcommand.
+func TestProjectConfigVerbsGone(t *testing.T) {
+	for _, gone := range [][]string{
+		{"project", "create", "acme"}, {"project", "rm", "acme"}, {"project", "rename", "acme", "x"},
+		{"project", "escalation", "set", "acme"}, {"project", "escalation", "clear", "acme"},
+		{"project", "chat-service", "set"}, {"project", "chat-service", "clear"},
+		{"room", "add", "acme", "eng"}, {"room", "rename", "acme", "eng", "x"}, {"room", "rm", "acme", "eng"},
+		{"context", "set"}, {"context", "clear"},
+	} {
+		var out, errb bytes.Buffer
+		if code := run(gone, func(string) string { return "" }, &out, &errb); code != 2 {
+			t.Errorf("%v: exit = %d, want 2", gone, code)
+		}
+		if !strings.Contains(errb.String(), "unknown subcommand") {
+			t.Errorf("%v: stderr = %q, want the unknown-subcommand error", gone, errb.String())
+		}
 	}
 }
 

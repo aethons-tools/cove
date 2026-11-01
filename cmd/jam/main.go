@@ -133,10 +133,10 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "manager", Brief: "manage Studio Managers (add|list|rotate|revoke) via the admin API", Run: cmdManager},
 			{Name: "model-spec", Brief: "manage model-specs — how a cove runs its agent: harness, version, principal, model, policy (add|list|show|update|delete) via the admin API", Run: cmdModelSpec},
 			{Name: "role", Brief: "manage roles (add|list|rm|inspect|images) via the admin API", Run: cmdRole},
-			{Name: "project", Brief: "create, list, rename or remove projects (create|list|rename|rm), or manage a project's members (member list), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
+			{Name: "project", Brief: "list projects (list), or show a project's members (member list), escalation policy (escalation list), or chat service (chat-service show) via the admin API", Run: cmdProject},
 			{Name: "user", Brief: "manage users — the people agents talk to (list|show|oidc) via the admin API", Run: cmdUser},
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
-			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
+			{Name: "room", Brief: "list a project's rooms — named channels on a Linear issue or a Discord channel (list) via the admin API", Run: cmdRoom},
 			{Name: "connection", Brief: "list connections to external services — a Linear workspace, a Discord bot (list) via the admin API", Run: cmdConnection},
 			{Name: "kit", Brief: "manage the kit registry (push <dir>|list|show|versions|diff|pin|rm|import|track|untrack|sync|draft)", Run: cmdKit},
 			{Name: "config", Brief: "keep the Jam's configuration in git: write it out (write <dir> [--all]); plan and apply a checkout or a git source (diff|apply [--dir <path> | --git <src>] [--yes]); follow one config source (track --git <src> | sync | untrack) via the admin API", Run: cmdConfig},
@@ -150,7 +150,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "cove", Brief: "deprecated alias for studio", Run: cmdCove},
 			{Name: "standing", Brief: "declare, list, dismiss, reset or upgrade a role's named standing sessions (add|list|rm|reset|upgrade) via the admin API", Run: cmdStanding},
 			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; pushed to running studios shortly", Run: cmdEgress},
-			{Name: "context", Brief: "show, set or clear authored session context for a role, project or the Jam (show|set|clear) via the admin API; applied at the next raise", Run: cmdContext},
+			{Name: "context", Brief: "show the authored session context for a role, project or the Jam (show) via the admin API", Run: cmdContext},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
 			{Name: "push", Brief: "push notification helpers (keygen: print a fresh VAPID key pair)", Run: func(args []string, _ cli.Globals, stdout, stderr io.Writer) int { return cmdPush(args, stdout, stderr) }},
 			{Name: "ssh-config", Brief: "print (or --write into ~/.ssh/config) a Host jam-<studio> block for SSH into a studio, fetching its certificate", Run: cmdSSHConfig},
@@ -672,36 +672,38 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdProject manages a project's members, escalation policy, or chat service
-// via the admin API. Member subcommands nest under "member"
+// cmdProject lists projects, and shows a project's members, escalation policy
+// and chat service via the admin API. Member subcommands nest under "member"
 // (cmdProjectMember): `project member list`. (A project's channels
 // are rooms: cmdRoom.)
 // Escalation subcommands nest under "escalation" and are handled by
-// cmdProjectEscalation: `project escalation set|list|clear`. Chat-service
+// cmdProjectEscalation: `project escalation list`. Chat-service
 // subcommands nest under "chat-service" and are handled by
-// cmdProjectChatService: `project chat-service set|clear|show`.
+// cmdProjectChatService: `project chat-service show`.
 func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	if len(args) >= 1 && (args[0] == "create" || args[0] == "list" || args[0] == "rm" || args[0] == "rename") {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "jam project: expected list, member list, escalation list, or chat-service show (a project's channels are rooms: jam room)")
+		return 2
+	}
+	switch args[0] {
+	case "list":
 		return cmdProjectLifecycle(args[0], args[1:], stdout, stderr)
-	}
-	if len(args) >= 1 && args[0] == "escalation" {
+	case "escalation":
 		return cmdProjectEscalation(args[1:], stdout, stderr)
-	}
-	if len(args) >= 1 && args[0] == "chat-service" {
+	case "chat-service":
 		return cmdProjectChatService(args[1:], stdout, stderr)
-	}
-	if len(args) >= 1 && args[0] == "member" {
+	case "member":
 		return cmdProjectMember(args[1:], stdout, stderr)
 	}
-	fmt.Fprintln(stderr, "jam project: expected create|list|rename|rm, member list, escalation set|list|clear, or chat-service set|clear|show (a project's channels are rooms: jam room)")
+	fmt.Fprintf(stderr, "jam project: unknown subcommand %q (want list|member|escalation|chat-service)\n", args[0])
 	return 2
 }
 
 // cmdProjectEscalation manages a project's escalation policy via the admin
-// API: `project escalation set|list|clear`.
+// API: `project escalation list`.
 func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "jam project escalation: expected set|list|clear")
+		fmt.Fprintln(stderr, "jam project escalation: expected list")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -709,9 +711,6 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
-	category := fs.String("category", "", "escalation category (default chain when empty); set/clear")
-	var tiers tierFlags
-	fs.Var(&tiers, "tier", "a tier as 'target,target@timeout' (repeatable, ordered); set only")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -723,16 +722,6 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "set":
-		if len(pos) != 1 || len(tiers) == 0 {
-			fmt.Fprintln(stderr, "jam project escalation set: expected <project> and at least one --tier 'targets@timeout'")
-			return 2
-		}
-		if err := c.SetEscalationPolicy(pos[0], *category, tiers); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "set escalation policy for", pos[0], "-", len(tiers), "tier(s)")
 	case "list":
 		if len(pos) != 1 {
 			fmt.Fprintln(stderr, "jam project escalation list: expected one project name")
@@ -756,16 +745,6 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stdout, "%s\ttier %d\t%s\ttimeout=%s\n", cat, i, strings.Join(tr.Targets, ","), tr.Timeout)
 			}
 		}
-	case "clear":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam project escalation clear: expected one project name")
-			return 2
-		}
-		if err := c.SetEscalationPolicy(pos[0], *category, nil); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "cleared escalation policy for", pos[0])
 	default:
 		fmt.Fprintln(stderr, "jam project escalation: unknown subcommand", sub)
 		return 2
@@ -773,9 +752,7 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdProjectLifecycle creates, lists or removes projects via the admin API:
-// `project create <name>`, `project list`, `project rm <name>`. A project must
-// exist before roles, grants or its roster can name it (except "default").
+// cmdProjectLifecycle lists projects via the admin API: `project list`.
 func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("project "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
@@ -785,15 +762,8 @@ func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) in
 	if !ok {
 		return code
 	}
-	if want := map[string]int{"create": 1, "list": 0, "rm": 1, "rename": 2}[sub]; len(pos) != want {
-		switch want {
-		case 2:
-			fmt.Fprintf(stderr, "jam project %s: expected <project> <new-name>\n", sub)
-		case 1:
-			fmt.Fprintf(stderr, "jam project %s: expected <project>\n", sub)
-		default:
-			fmt.Fprintf(stderr, "jam project %s: unexpected arguments\n", sub)
-		}
+	if len(pos) != 0 {
+		fmt.Fprintf(stderr, "jam project %s: unexpected arguments\n", sub)
 		return 2
 	}
 	if err := validateApp(*app); err != nil {
@@ -803,24 +773,6 @@ func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) in
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "create":
-		if err := c.CreateProject(pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "created project", pos[0])
-	case "rm":
-		if err := c.RemoveProject(pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "removed project", pos[0])
-	case "rename":
-		if err := c.RenameProject(pos[0], pos[1]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "renamed project", pos[0], "to", pos[1])
 	case "list":
 		names, err := c.ListProjects()
 		if err != nil {
@@ -835,10 +787,10 @@ func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) in
 }
 
 // cmdProjectChatService manages a project's chat service (the service backing
-// its humans' DMs) via the admin API: `project chat-service set|clear|show`.
+// its humans' DMs) via the admin API: `project chat-service show`.
 func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "jam project chat-service: expected set|clear|show")
+		fmt.Fprintln(stderr, "jam project chat-service: expected show")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -847,7 +799,6 @@ func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name")
-	service := fs.String("service", "", "chat service (set), e.g. discord")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -863,26 +814,6 @@ func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "set":
-		if *project == "" || *service == "" {
-			fmt.Fprintln(stderr, "jam project chat-service set: expected --project and --service")
-			return 2
-		}
-		if err := c.SetChatService(*project, *service); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "set chat service for", *project, "to", *service)
-	case "clear":
-		if *project == "" {
-			fmt.Fprintln(stderr, "jam project chat-service clear: expected --project")
-			return 2
-		}
-		if err := c.SetChatService(*project, ""); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "cleared chat service for", *project)
 	case "show":
 		if *project == "" {
 			fmt.Fprintln(stderr, "jam project chat-service show: expected --project")
@@ -920,19 +851,6 @@ type multiFlag []string
 func (m *multiFlag) String() string { return strings.Join(*m, ",") }
 func (m *multiFlag) Set(v string) error {
 	*m = append(*m, v)
-	return nil
-}
-
-// tierFlags collects repeatable --tier values, parsing 'targets@timeout'.
-type tierFlags []jam.EscalationTier
-
-func (t *tierFlags) String() string { return fmt.Sprintf("%d tiers", len(*t)) }
-func (t *tierFlags) Set(v string) error {
-	tier, err := jam.ParseEscalationTierSpec(v)
-	if err != nil {
-		return err
-	}
-	*t = append(*t, tier)
 	return nil
 }
 

@@ -199,41 +199,4 @@ func registerRooms(mux *http.ServeMux, store Store, log *slog.Logger) {
 		}
 		writeJSON(w, http.StatusOK, ListRooms(store, p))
 	})
-	mux.HandleFunc("POST /admin/projects/{project}/rooms", func(w http.ResponseWriter, r *http.Request) {
-		var b RoomBody
-		if !decode(w, r, &b) {
-			return
-		}
-		v, created, err := PutRoom(store, r.PathValue("project"), b)
-		if err != nil {
-			fail(w, err)
-			return
-		}
-		log.Info("admin room put", "operator", OperatorID(r), "project", r.PathValue("project"), "room", v.ID, "name", v.Name, "created", created)
-		status := http.StatusOK
-		if created {
-			status = http.StatusCreated
-		}
-		writeJSON(w, status, v)
-	})
-	mux.HandleFunc("PUT /admin/projects/{project}/rooms/{room}/name", func(w http.ResponseWriter, r *http.Request) {
-		var b RenameBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := RenameRoom(store, r.PathValue("project"), r.PathValue("room"), b.Name); err != nil {
-			fail(w, err)
-			return
-		}
-		log.Info("admin room renamed", "operator", OperatorID(r), "project", r.PathValue("project"), "room", r.PathValue("room"), "name", b.Name)
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("DELETE /admin/projects/{project}/rooms/{room}", func(w http.ResponseWriter, r *http.Request) {
-		if err := RemoveRoom(store, r.PathValue("project"), r.PathValue("room")); err != nil {
-			fail(w, err)
-			return
-		}
-		log.Info("admin room removed", "operator", OperatorID(r), "project", r.PathValue("project"), "room", r.PathValue("room"))
-		w.WriteHeader(http.StatusNoContent)
-	})
 }

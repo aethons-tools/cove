@@ -54,32 +54,15 @@ type GrantSummary struct {
 	Addressing   []string          `json:"addressing,omitempty"`
 }
 
-// EscalationBody is the PUT /admin/projects/{project}/escalation body: the
-// tiers for one category ("" targets the default/uncategorized chain).
-type EscalationBody struct {
-	Category string           `json:"category,omitempty"`
-	Tiers    []EscalationTier `json:"tiers"`
-}
-
 // EscalationView is the GET /admin/projects/{project}/escalation response.
 type EscalationView struct {
 	Default    []EscalationTier            `json:"default"`
 	ByCategory map[string][]EscalationTier `json:"by_category,omitempty"`
 }
 
-// ChatServiceBody is the PUT /admin/projects/{project}/chat-service body.
-type ChatServiceBody struct {
-	Service string `json:"service"` // "" clears (tracker @-mentions only)
-}
-
 // ChatServiceView is the GET /admin/projects/{project}/chat-service response.
 type ChatServiceView struct {
 	Service string `json:"service"`
-}
-
-// ProjectBody is the POST /admin/projects request.
-type ProjectBody struct {
-	Name string `json:"name"`
 }
 
 // RoleBody is the POST /admin/roles request.
@@ -629,40 +612,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	mux.HandleFunc("GET /admin/projects", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, store.ListProjects())
 	})
-	mux.HandleFunc("POST /admin/projects", func(w http.ResponseWriter, r *http.Request) {
-		var b ProjectBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := store.CreateProject(b.Name); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin project created", "operator", OperatorID(r), "project", b.Name)
-		w.WriteHeader(http.StatusCreated)
-	})
-	mux.HandleFunc("PUT /admin/projects/{project}/name", func(w http.ResponseWriter, r *http.Request) {
-		var b ProjectBody
-		if !decode(w, r, &b) {
-			return
-		}
-		project := r.PathValue("project")
-		if err := store.RenameProject(project, b.Name); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin project renamed", "operator", OperatorID(r), "project", project, "name", b.Name)
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("DELETE /admin/projects/{project}", func(w http.ResponseWriter, r *http.Request) {
-		project := r.PathValue("project")
-		if err := store.RemoveProject(project); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin project removed", "operator", OperatorID(r), "project", project)
-		w.WriteHeader(http.StatusNoContent)
-	})
 	mux.HandleFunc("GET /admin/roles", func(w http.ResponseWriter, r *http.Request) {
 		project := r.URL.Query().Get("project")
 		var out []RoleSummary
@@ -812,18 +761,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		p, _ := store.GetProject(r.PathValue("project"))
 		writeJSON(w, http.StatusOK, EscalationView{Default: p.Escalation, ByCategory: p.EscalationByCategory})
 	})
-	mux.HandleFunc("PUT /admin/projects/{project}/escalation", func(w http.ResponseWriter, r *http.Request) {
-		var b EscalationBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := store.SetEscalationPolicy(r.PathValue("project"), b.Category, b.Tiers); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin escalation policy", "operator", OperatorID(r), "project", r.PathValue("project"), "category", b.Category, "tiers", len(b.Tiers))
-		w.WriteHeader(http.StatusNoContent)
-	})
 
 	mux.HandleFunc("GET /admin/projects/{project}/chat-service", func(w http.ResponseWriter, r *http.Request) {
 		p, _ := store.GetProject(r.PathValue("project"))
@@ -832,18 +769,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			v.Service = c.Name
 		}
 		writeJSON(w, http.StatusOK, v)
-	})
-	mux.HandleFunc("PUT /admin/projects/{project}/chat-service", func(w http.ResponseWriter, r *http.Request) {
-		var b ChatServiceBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := store.SetChatService(r.PathValue("project"), b.Service); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin chat-service", "operator", OperatorID(r), "project", r.PathValue("project"), "service", b.Service)
-		w.WriteHeader(http.StatusNoContent)
 	})
 
 	mux.HandleFunc("POST /admin/kits", func(w http.ResponseWriter, r *http.Request) {

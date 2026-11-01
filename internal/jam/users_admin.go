@@ -15,11 +15,6 @@ import (
 // accounts and connections. A {user} path parameter is a name or a usr_ id;
 // {account} an acc_ id; a connection a name or a con_ id.
 
-// RenameBody renames an entity.
-type RenameBody struct {
-	Name string `json:"name"`
-}
-
 // OIDCBody replaces a user's OIDC bindings.
 type OIDCBody struct {
 	OIDC []OIDCIdentity `json:"oidc"`

@@ -328,16 +328,13 @@ func TestAdminGrantAddRemove(t *testing.T) {
 	}
 }
 
-// TestAdminEscalationRoutes PUTs an escalation policy then GETs it back,
-// asserting a round-trip through a real MemStore + admin handler.
+// TestAdminEscalationRoutes sets an escalation policy in the store then GETs it
+// back, asserting the read route reflects a real MemStore.
 func TestAdminEscalationRoutes(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	rec := doJSON(t, h, "PUT", "/admin/projects/acme/escalation", EscalationBody{
-		Tiers: []EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
-	})
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("PUT escalation = %d, body=%s", rec.Code, rec.Body.String())
+	if err := store.SetEscalationPolicy("acme", "", []EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}}); err != nil {
+		t.Fatal(err)
 	}
 	var got EscalationView
 	getJSON(t, h, "/admin/projects/acme/escalation", &got)
@@ -346,23 +343,16 @@ func TestAdminEscalationRoutes(t *testing.T) {
 	}
 }
 
-// TestAdminEscalationCategoryRoutes PUTs a category-scoped chain alongside the
+// TestAdminEscalationCategoryRoutes sets a category-scoped chain alongside the
 // default chain, asserting GET returns both in EscalationView.
 func TestAdminEscalationCategoryRoutes(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	rec := doJSON(t, h, "PUT", "/admin/projects/acme/escalation", EscalationBody{
-		Tiers: []EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}},
-	})
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("PUT default escalation = %d, body=%s", rec.Code, rec.Body.String())
+	if err := store.SetEscalationPolicy("acme", "", []EscalationTier{{Targets: []string{"human:alice"}, Timeout: 15 * time.Minute}}); err != nil {
+		t.Fatal(err)
 	}
-	rec = doJSON(t, h, "PUT", "/admin/projects/acme/escalation", EscalationBody{
-		Category: "infra",
-		Tiers:    []EscalationTier{{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}},
-	})
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("PUT infra escalation = %d, body=%s", rec.Code, rec.Body.String())
+	if err := store.SetEscalationPolicy("acme", "infra", []EscalationTier{{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}); err != nil {
+		t.Fatal(err)
 	}
 	var got EscalationView
 	getJSON(t, h, "/admin/projects/acme/escalation", &got)
@@ -375,17 +365,16 @@ func TestAdminEscalationCategoryRoutes(t *testing.T) {
 	}
 }
 
-// TestChatServiceRoute PUTs a project's chat service then GETs it back,
-// asserting a round-trip through a real MemStore + admin handler, and that
+// TestChatServiceRoute sets a project's chat service in the store then GETs it
+// back, asserting the read route reflects a real MemStore, and that
 // operator auth (non-loopback) is enforced on the route like every other
 // /admin/* route.
 func TestChatServiceRoute(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
 
-	rec := doJSON(t, h, "PUT", "/admin/projects/acme/chat-service", ChatServiceBody{Service: "discord"})
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("PUT chat-service = %d, body=%s", rec.Code, rec.Body.String())
+	if err := store.SetChatService("acme", "discord"); err != nil {
+		t.Fatal(err)
 	}
 	var got ChatServiceView
 	getJSON(t, h, "/admin/projects/acme/chat-service", &got)

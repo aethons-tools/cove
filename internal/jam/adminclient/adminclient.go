@@ -307,23 +307,6 @@ func (c *Client) ListProjects() ([]string, error) {
 	return out, err
 }
 
-// CreateProject records a new, empty project (ErrConflict if it exists).
-func (c *Client) CreateProject(name string) error {
-	return c.do("POST", "/admin/projects", jam.ProjectBody{Name: name}, nil)
-}
-
-// RenameProject renames a project; ErrConflict for a taken name, ErrNotFound
-// if absent.
-func (c *Client) RenameProject(project, name string) error {
-	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/name", jam.ProjectBody{Name: name}, nil)
-}
-
-// RemoveProject deletes a project; ErrConflict while a role or grant still
-// references it, ErrNotFound if absent.
-func (c *Client) RemoveProject(name string) error {
-	return c.do("DELETE", "/admin/projects/"+url.PathEscape(name), nil, nil)
-}
-
 // Actors lists every enrolled actor with its resolved effective grants — never
 // a token or hash.
 func (c *Client) Actors() ([]jam.ActorSummary, error) {
@@ -404,34 +387,11 @@ func (c *Client) RemoveKit(name string) error {
 	return c.do("DELETE", "/admin/kits/"+name, nil, nil)
 }
 
-// PutRoom adds project's room b.Name, or rebinds it.
-func (c *Client) PutRoom(project string, b jam.RoomBody) (jam.RoomView, error) {
-	var v jam.RoomView
-	err := c.do("POST", "/admin/projects/"+url.PathEscape(project)+"/rooms", b, &v)
-	return v, err
-}
-
 // ListRooms lists project's rooms.
 func (c *Client) ListRooms(project string) ([]jam.RoomView, error) {
 	var out []jam.RoomView
 	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/rooms", nil, &out)
 	return out, err
-}
-
-// RenameRoom renames project's room (a name or an id).
-func (c *Client) RenameRoom(project, room, name string) error {
-	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/rooms/"+url.PathEscape(room)+"/name", jam.RenameBody{Name: name}, nil)
-}
-
-// RemoveRoom removes project's room (a name or an id).
-func (c *Client) RemoveRoom(project, room string) error {
-	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/rooms/"+url.PathEscape(room), nil, nil)
-}
-
-// SetEscalationPolicy replaces the tier chain for project's category wholesale
-// ("" targets the default/uncategorized chain).
-func (c *Client) SetEscalationPolicy(project, category string, tiers []jam.EscalationTier) error {
-	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/escalation", jam.EscalationBody{Category: category, Tiers: tiers}, nil)
 }
 
 // GetEscalationPolicy fetches project's escalation policy: the default chain
@@ -440,12 +400,6 @@ func (c *Client) GetEscalationPolicy(project string) (jam.EscalationView, error)
 	var v jam.EscalationView
 	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/escalation", nil, &v)
 	return v, err
-}
-
-// SetChatService sets (or clears, with "") the chat service backing project's
-// human DMs.
-func (c *Client) SetChatService(project, service string) error {
-	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/chat-service", jam.ChatServiceBody{Service: service}, nil)
 }
 
 // GetChatService returns project's configured chat service ("" if none).
@@ -709,16 +663,6 @@ func (c *Client) GetContext(s ContextScope) (jam.ContextBody, error) {
 	var out jam.ContextBody
 	err := c.do("GET", contextPath(s), nil, &out)
 	return out, err
-}
-
-// SetContext replaces the authored context layer for s; Jam validates budgets.
-func (c *Client) SetContext(s ContextScope, b jam.ContextBody) error {
-	return c.do("PUT", contextPath(s), b, nil)
-}
-
-// ClearContext removes the authored context layer for s.
-func (c *Client) ClearContext(s ContextScope) error {
-	return c.do("DELETE", contextPath(s), nil, nil)
 }
 
 // ExportConfig fetches a full config snapshot (GET /admin/config).
