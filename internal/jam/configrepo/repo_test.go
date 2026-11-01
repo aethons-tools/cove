@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing/filemode"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/gitsource/gittest"
@@ -55,5 +56,18 @@ func TestBadAuthIsRedacted(t *testing.T) {
 	_, err := r.Branches(ctx)
 	if err == nil || strings.Contains(err.Error(), token) || !strings.Contains(err.Error(), "auth") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A credential that cannot be had is a remote failure (an operator's to
+// fix, 502), redacted, not a clone fault.
+func TestAuthUnavailableIsRemote(t *testing.T) {
+	r, _, _ := served(t, map[string]string{"users/bob.yml": "kind: user\n"})
+	r.Auth = func() (transport.AuthMethod, error) {
+		return nil, errors.New("key https://u:s3cret@vault.example/x unreadable")
+	}
+	_, err := r.Branches(ctx)
+	if !errors.Is(err, ErrRemote) || !strings.Contains(err.Error(), "auth unavailable") || strings.Contains(err.Error(), "s3cret") {
+		t.Fatalf("branches: %v", err)
 	}
 }

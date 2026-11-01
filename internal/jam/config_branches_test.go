@@ -293,3 +293,20 @@ func TestSaveKeepsUntouchedHandEdits(t *testing.T) {
 		t.Fatalf("bob rewritten: %q", got)
 	}
 }
+
+// A symlink committed to a branch's config dir does not load: the
+// workspace refuses it (400), as the tree loader refuses one on disk.
+// (Repo.Commit writes only regular files, so the branch is a local repo's
+// main, committed by hand; the Jam follows another branch.)
+func TestBranchSymlinkRefused(t *testing.T) {
+	dir, _ := localGitRepo(t, map[string]string{"config/users/bob.yml": localBob})
+	commitSymlink(t, dir, "config/users/eve.yml", "/etc/passwd")
+	env := allCreds
+	env.Followed = gitsource.Source{Repo: dir, Dir: "config", Ref: "release"}
+	repo := &configrepo.Repo{URL: dir, Branch: "release", Path: filepath.Join(t.TempDir(), "config-repo")}
+	b := &ConfigBranches{Repo: repo, Dir: "config", Env: env, Live: NewMemStore()}
+	_, err := b.Workspace(context.Background(), "main")
+	if WriteStatus(err, 0) != http.StatusBadRequest || !strings.Contains(err.Error(), "users/eve.yml is a symlink") {
+		t.Fatalf("workspace: %v", err)
+	}
+}

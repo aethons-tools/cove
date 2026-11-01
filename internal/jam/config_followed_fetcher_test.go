@@ -3,6 +3,8 @@ package jam
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/aethons-tools/cove/internal/jam/configrepo"
@@ -163,5 +166,86 @@ func TestKitSourceStillRefusesLocal(t *testing.T) {
 	}
 	if c := rest.calls(); len(c) != 0 {
 		t.Fatalf("a refused kit source was fetched: %v", c)
+	}
+}
+
+// commitSymlink commits a symlink at p (to target) on the local repo dir's
+// main and returns the new head.
+func commitSymlink(t *testing.T, dir, p, target string) string {
+	t.Helper()
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := filepath.Join(dir, filepath.FromSlash(p))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, full); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Add(p); err != nil {
+		t.Fatal(err)
+	}
+	sig := &object.Signature{Name: "t", Email: "t@t", When: time.Now()}
+	h, err := wt.Commit("link", &git.CommitOptions{Author: sig, Committer: sig})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h.String()
+}
+
+// A symlink in the followed config dir is refused (400) as the tree loader
+// refuses one on disk; one outside the config dir is never checked out.
+func TestFollowedFetcherRefusesSymlink(t *testing.T) {
+	f, _ := localFollowed(t, map[string]string{"config/users/bob.yml": localBob}, nil)
+	ctx := context.Background()
+	commitSymlink(t, f.Repo.URL, "docs-link", "config")
+	if err := f.Fetch(ctx, f.Followed, func(string, string) error { return nil }); err != nil {
+		t.Fatalf("a symlink outside the config dir: %v", err)
+	}
+	commitSymlink(t, f.Repo.URL, "config/users/eve.yml", "/etc/passwd")
+	called := false
+	err := f.Fetch(ctx, f.Followed, func(string, string) error { called = true; return nil })
+	if called || WriteStatus(err, 0) != http.StatusBadRequest || !strings.Contains(err.Error(), "config/users/eve.yml is a symlink") {
+		t.Fatalf("fetch: called=%v %v", called, err)
+	}
+	st := NewMemStore()
+	env := allCreds
+	env.Followed = f.Followed
+	_, err = ApplyConfigSource(ctx, st, f, gitsource.Source{}, env, syncOpts(), nil, "alice")
+	if status, msg := ConfigStatus(err); status != http.StatusBadRequest || !strings.Contains(msg, "is a symlink") {
+		t.Fatalf("apply: %d %s", status, msg)
+	}
+	if len(st.ListUsers()) != 0 {
+		t.Fatal("a refused tree was applied")
+	}
+}
+
+// materializeFiles refuses a non-regular file before writing any.
+func TestMaterializeFilesRefusesSymlinkFirst(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]configrepo.File{}
+	for i := range 20 {
+		files[fmt.Sprintf("users/u%d.yml", i)] = configrepo.File{Data: []byte(localBob), Mode: filemode.Regular}
+	}
+	files["users/link.yml"] = configrepo.File{Data: []byte("/etc/passwd"), Mode: filemode.Symlink}
+	if err := materializeFiles(dir, files); WriteStatus(err, 0) != http.StatusBadRequest {
+		t.Fatalf("materialize: %v", err)
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 0 {
+		t.Fatalf("wrote %v", ents)
+	}
+}
+
+func TestFollowedFetcherMissingBranch(t *testing.T) {
+	f, _ := localFollowed(t, map[string]string{"config/users/bob.yml": localBob}, nil)
+	f.Followed.Ref = "nope"
+	if _, err := f.Resolve(context.Background(), f.Followed); !errors.Is(err, configrepo.ErrNoBranch) {
+		t.Fatalf("resolve: %v", err)
 	}
 }

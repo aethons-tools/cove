@@ -112,7 +112,9 @@ func (r *Repo) open(ctx context.Context) (*git.Repository, transport.AuthMethod,
 		auth, err = r.Creds.AuthFor(r.URL)
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("config repo: %w", err)
+		// The credential (a token or ssh key) could not be had: a remote
+		// failure an operator fixes in the serve config, not a clone fault.
+		return nil, nil, &remoteError{fmt.Sprintf("config repo: fetch %s: auth unavailable: %s", gitsource.Redact(r.URL), gitsource.Redact(err.Error()))}
 	}
 	err = repo.FetchContext(ctx, &git.FetchOptions{RemoteName: remoteName, Auth: auth, Force: true, Prune: true,
 		RefSpecs: []config.RefSpec{"+refs/heads/*:refs/remotes/origin/*"}})

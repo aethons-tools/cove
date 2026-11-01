@@ -50,8 +50,9 @@ func (f *FollowedFetcher) Resolve(ctx context.Context, src gitsource.Source) (st
 	return "", configrepo.ErrNoBranch
 }
 
-// Fetch checks the followed branch's head out of the clone into a temp dir
-// and calls fn with it (removed after), or is Rest's fetch.
+// Fetch checks the followed branch's head's config dir (Followed.Dir) out
+// of the clone into a temp dir and calls fn with its root (removed after),
+// or is Rest's fetch.
 func (f *FollowedFetcher) Fetch(ctx context.Context, src gitsource.Source, fn func(root, commit string) error) error {
 	if !f.followed(src) {
 		if f.Rest == nil {
@@ -68,18 +69,44 @@ func (f *FollowedFetcher) Fetch(ctx context.Context, src gitsource.Source, fn fu
 		return err
 	}
 	defer os.RemoveAll(dir)
-	if err := materializeFiles(dir, files); err != nil {
+	if err := materializeFiles(dir, filesUnder(files, src.Dir)); err != nil {
 		return err
 	}
 	return fn(dir, head)
+}
+
+// filesUnder is files' files in dir ("" = all), at their repo paths: only
+// the config dir is checked out, so nothing outside it (a symlink, say)
+// can fail the load.
+func filesUnder(files map[string]configrepo.File, dir string) map[string]configrepo.File {
+	if dir == "" {
+		return files
+	}
+	out := map[string]configrepo.File{}
+	for p, f := range files {
+		if strings.HasPrefix(p, dir+"/") {
+			out[p] = f
+		}
+	}
+	return out
 }
 
 // errNoGitSources is a fetch on a serve with no git access.
 var errNoGitSources = writeErr(http.StatusServiceUnavailable, "config: git sources are not available on this serve")
 
 // materializeFiles writes files (slash paths) into dir at their modes:
-// executable 0755, else 0644. A path leading out of dir is refused.
+// executable 0755, else 0644. The config tree holds only regular files: a
+// symlink (or any other mode) is refused (400) before anything is written,
+// as the tree loader refuses a symlink on disk. A path leading out of dir
+// is refused.
 func materializeFiles(dir string, files map[string]configrepo.File) error {
+	for p, f := range files {
+		switch f.Mode {
+		case filemode.Regular, filemode.Deprecated, filemode.Executable:
+		default:
+			return writeErr(http.StatusBadRequest, "config repo: %s is a symlink (or submodule); the config tree holds only regular files", p)
+		}
+	}
 	for p, f := range files {
 		full := filepath.Join(dir, filepath.FromSlash(p))
 		if !strings.HasPrefix(full, dir+string(filepath.Separator)) {
