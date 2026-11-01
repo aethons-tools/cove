@@ -324,14 +324,14 @@ func TestDraftStudioRaiseReservesItsLabel(t *testing.T) {
 	spec := RaiseSpec{Project: "default", Role: "dev", KitDraft: "my-app"}
 	done := make(chan error, 1)
 	go func() {
-		_, _, _, _, err := RaiseManual(context.Background(), store, sup, "try", spec)
+		_, _, _, _, err := RaiseManual(context.Background(), store, sup, nil, "try", spec)
 		done <- err
 	}()
 	<-fb.started
 	// Bounded: an unreserved second raise would join the build's wait.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, _, _, _, err := RaiseManual(ctx, store, sup, "try", spec)
+	_, _, _, _, err := RaiseManual(ctx, store, sup, nil, "try", spec)
 	if err == nil || err.Error() != `a live session is already labelled "try"` || WriteStatus(err, 500) != http.StatusConflict {
 		t.Fatalf("second raise while the first builds = %v", err)
 	}
@@ -339,11 +339,11 @@ func TestDraftStudioRaiseReservesItsLabel(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, err := RaiseManual(context.Background(), store, sup, "try", spec); err == nil || WriteStatus(err, 500) != http.StatusConflict {
+	if _, _, _, _, err := RaiseManual(context.Background(), store, sup, nil, "try", spec); err == nil || WriteStatus(err, 500) != http.StatusConflict {
 		t.Fatalf("raise over the live session = %v", err)
 	}
 	// A failed raise releases its reservation.
-	if _, _, _, _, err := RaiseManual(context.Background(), store, sup, "other", RaiseSpec{Project: "default", Role: "nope"}); err == nil {
+	if _, _, _, _, err := RaiseManual(context.Background(), store, sup, nil, "other", RaiseSpec{Project: "default", Role: "nope"}); err == nil {
 		t.Fatal("raise of an unknown role succeeded")
 	}
 	if sup.labelPending("other") {

@@ -135,8 +135,7 @@ agent page's **Access** card shows the same, with an Unshare button
 
 Jam pauses a studio about a minute after its agent goes quiet. An open SSH or
 preview connection (or one still opening) counts as activity: while there is one, Jam
-does not pause the studio, tear it down for waiting (wait-max, a role's
-on-idle teardown), or nag or reclaim a personal session — the agent is still
+does not pause the studio, tear it down by a role's on-idle teardown, or nag or reclaim a personal session — the agent is still
 woken as usual. When the last connection closes, those timers carry on from
 where they were, so a personal session already past its reclaim-after can be
 reclaimed soon after you disconnect.

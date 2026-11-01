@@ -276,9 +276,6 @@ func stateVolumes(name string) []string {
 // same actor id is raised again. Ephemeral and personal sessions get none:
 // always fresh (COV-249).
 func (l *Launcher) stateMounts(spec jam.RaiseSpec, name string) ([]backend.Mount, error) {
-	if spec.SessionKind != jam.SessionKindStanding {
-		return nil, nil
-	}
 	vols := stateVolumes(name)
 	for _, v := range vols {
 		// -v would auto-create the volume, but without the labels the sweep keys on.

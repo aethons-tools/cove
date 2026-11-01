@@ -79,7 +79,8 @@ allocation: {max-ephemeral: 4, max-personal: 3, max-personal-per-owner: 1}
   ephemeral studios.
 - `kit` binds a kit by name ([kits.md](kits.md#binding-a-kit-to-a-role)); `model-spec` binds a [model-spec](model-specs.md#binding-a-role) by name (must exist; unset = `claude-default`); `role list` shows `model-spec=…`.
 - `allocation.max-ephemeral` is the role's **allocation policy**: the cap on its
-  concurrent ephemeral (Requisitioner-raised) sessions. Jam's Allocator reads it
+  concurrent ephemeral sessions — Requisitioner-raised and manual
+  (`studio raise`, the admin UI) alike. Jam's Allocator reads it
   live on each grant, so an applied change counts on the next grant. Unset = the Requisitioner's `max-concurrent`
   ([requisitioner.md](requisitioner.md#config-runtimerequisitioner)).
 - `allocation.max-personal` caps the role's concurrent **personal sessions** across all

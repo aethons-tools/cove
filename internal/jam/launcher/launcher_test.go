@@ -371,20 +371,22 @@ func TestTeardownRemoves(t *testing.T) {
 	}
 }
 
-// TestRaiseMountsStateOnlyForStanding: a standing raise first creates its
+// TestRaiseMountsStateForEveryKind: a raise first creates its
 // <container>-agent-data and <container>-workspace volumes labeled with its
 // actor id, then mounts them at /agent-data and the agent's WorkDir (so a
-// re-raise under the same actor id re-attaches them); ephemeral and personal
-// raises create and mount nothing (COV-249).
-func TestRaiseMountsStateOnlyForStanding(t *testing.T) {
+// re-raise under the same actor id re-attaches them), whatever its kind.
+func TestRaiseMountsStateForEveryKind(t *testing.T) {
+	persisted := []backend.Mount{
+		{Volume: "jam-studio-s1-agent-data", Target: "/agent-data"},
+		{Volume: "jam-studio-s1-workspace", Target: "/work/here"},
+	}
+	// Every kind persists its state (uniform sessions): a crashed session is
+	// re-raised over it.
 	for kind, want := range map[string][]backend.Mount{
-		"":                      nil,
-		"ephemeral":             nil,
-		jam.SessionKindPersonal: nil,
-		jam.SessionKindStanding: {
-			{Volume: "jam-studio-s1-agent-data", Target: "/agent-data"},
-			{Volume: "jam-studio-s1-workspace", Target: "/work/here"},
-		},
+		"":                      persisted,
+		"ephemeral":             persisted,
+		jam.SessionKindPersonal: persisted,
+		jam.SessionKindStanding: persisted,
 	} {
 		ops := &fakeOps{}
 		l := New(Config{

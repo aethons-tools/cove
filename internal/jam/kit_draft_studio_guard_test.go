@@ -28,7 +28,7 @@ func TestDraftRaiseRequestGone(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _, _, _, err = RaiseManual(ctx, store, sup, "try", RaiseSpec{Role: "dev", KitDraft: "my-app"})
+		_, _, _, _, err = RaiseManual(ctx, store, sup, nil, "try", RaiseSpec{Role: "dev", KitDraft: "my-app"})
 	}()
 	select {
 	case <-fb.started:
@@ -51,7 +51,7 @@ func TestDraftRaiseRequestGone(t *testing.T) {
 		t.Fatalf("build = %+v %v, want it still running on %s", st, err, s.Tree)
 	}
 	release()
-	if _, _, _, _, err := RaiseManual(context.Background(), store, sup, "try", RaiseSpec{Role: "dev", KitDraft: "my-app"}); err != nil {
+	if _, _, _, _, err := RaiseManual(context.Background(), store, sup, nil, "try", RaiseSpec{Role: "dev", KitDraft: "my-app"}); err != nil {
 		t.Fatalf("raise after = %v", err)
 	}
 }

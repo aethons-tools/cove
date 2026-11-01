@@ -21,7 +21,11 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	defaultContextDir = filepath.Join(tmp, "context")
-	defaultConversationMarker = filepath.Join(tmp, ".cove-conversation")
+	// Every session writes its conversation marker once the agent replies;
+	// the shared default lives in a directory that doesn't exist, so it is
+	// never written and one test's conversation can't make the next resume.
+	// Tests of resuming set their own marker (conversationWL).
+	defaultConversationMarker = filepath.Join(tmp, "no-such-dir", ".cove-conversation")
 	defaultClearMarker = filepath.Join(tmp, ".cove-clear-pending")
 	check := guardRealPaths(claudeSettingsPath, claudeMCPConfigPath)
 	code := m.Run()

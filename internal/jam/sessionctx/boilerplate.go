@@ -38,14 +38,9 @@ func Boilerplate(f SessionFacts) Layer {
 		if !structured {
 			turns += " Ending your turn is how you wait."
 		}
+		comms = strings.TrimSpace(ownChannel)
 		if f.Unit != "" {
-			comms = "`send` without `to` posts to your ticket."
-			turns += "\n- Your ticket: keep its state current with `report` (in-review with the PR link, needs-input, blocked, done), and call `end` as your last action once it is finished."
-			if structured {
-				turns += " " + structuredTicket
-			}
-		} else {
-			comms = strings.TrimSpace(ownChannel)
+			turns += "\n- " + ticketLine
 		}
 	}
 	lines := []string{
@@ -79,11 +74,12 @@ const TurnProtocolStructured = 2
 const legacyBackground = "Background processes you start outlive the turn but freeze while the studio is paused as you wait — finish work within the turn."
 
 // structuredTurns replaces the legacy turns line for a cove that speaks the
-// structured turn end; structuredTicket is a ticket session's extra.
-const (
-	structuredTurns  = "- Turns: each turn is one `claude -p` run; ending your turn is how you wait. New messages arrive in your prompt. End your turn with your reply — your final text is posted for you (to your own channel unless `turn_end` names another recipient); end with no text when there is nothing to say, and don't also `send` it. Text you write before a tool call is posted to your own channel as you go, so don't `send` it either. It doesn't wake other sessions: to get one to act, `send` to it. Ending your turn marks the messages you were shown as handled; `turn_end` changes that, what wakes you, or what happens next (compact, end). Background processes you start outlive your turn but freeze while the studio is paused as you wait. To keep something running (a preview), use `keep_start`: the studio isn't paused while it runs, it wakes you if it exits, and it stops with your session; agree with the person how long it should run and set a `wake_at` to ask them then."
-	structuredTicket = "Your final text is a comment on your ticket: end with no text when your `report` already says it."
-)
+// structured turn end.
+const structuredTurns = "- Turns: each turn is one `claude -p` run; ending your turn is how you wait. New messages arrive in your prompt. End your turn with your reply — your final text is posted for you (to your own channel unless `turn_end` names another recipient); end with no text when there is nothing to say, and don't also `send` it. Text you write before a tool call is posted to your own channel as you go, so don't `send` it either. It doesn't wake other sessions: to get one to act, `send` to it. Ending your turn marks the messages you were shown as handled; `turn_end` changes that, what wakes you, or what happens next (compact, end). Background processes you start outlive your turn but freeze while the studio is paused as you wait. To keep something running (a preview), use `keep_start`: the studio isn't paused while it runs, it wakes you if it exits, and it stops with your session; agree with the person how long it should run and set a `wake_at` to ask them then."
+
+// ticketLine is a ticket session's extra: it keeps its ticket current and
+// ends only once its work has landed — when it can't, it waits for help.
+const ticketLine = "Your ticket: keep it current with `report` (in-review + PR link, needs-input, blocked, done). `end` only once your work has landed; if it can't, report why, `call_in` who can help, and wait."
 
 const changingTheKit = `# Changing the kit
 

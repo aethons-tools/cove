@@ -32,6 +32,7 @@ func TestCardStateMapping(t *testing.T) {
 	}{
 		{"paused", jam.Instance{Phase: jam.PhaseIdled}, sessionevents.Status{}, false, CardSleeping, "paused", ""},
 		{"raising", jam.Instance{Phase: jam.PhaseRaising}, sessionevents.Status{}, false, CardThinking, "starting", ""},
+		{"recovering", jam.Instance{Phase: jam.PhaseRecovering}, sessionevents.Status{}, false, CardThinking, "recovering", ""},
 		{"asking", asking, sessionevents.Status{}, false, CardIdle, "needs you", ""},
 		{"paused and asking", pausedAsking, sessionevents.Status{}, false, CardSleeping, "needs you", ""},
 		{"blocked", live(jam.ActivityBlocked), sessionevents.Status{}, false, CardIdle, "blocked", ""},

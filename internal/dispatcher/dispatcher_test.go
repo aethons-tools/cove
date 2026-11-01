@@ -287,3 +287,16 @@ func TestTickRedispatchStartsNewSession(t *testing.T) {
 		t.Fatalf("raises = %+v, want one new session", r.specs)
 	}
 }
+
+// A ticket session waits for people instead of exiting: it calls them in and
+// ends only once its work has landed.
+func TestTurnEndProtocolNoExitOnQuestion(t *testing.T) {
+	for _, want := range []string{"`call_in`", "only once your work has landed"} {
+		if !strings.Contains(turnEndProtocol, want) {
+			t.Errorf("turnEndProtocol missing %q", want)
+		}
+	}
+	if strings.Contains(turnEndProtocol, "ask with `send` and end your turn") {
+		t.Error("turnEndProtocol still tells a stuck session to end its turn after a send")
+	}
+}

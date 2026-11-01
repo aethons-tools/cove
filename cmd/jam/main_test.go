@@ -642,6 +642,9 @@ type grantAllSessions struct{}
 func (grantAllSessions) GrantPersonal(context.Context, string, string, string, string) (bool, error) {
 	return true, nil
 }
+func (grantAllSessions) GrantEphemeral(context.Context, string, string, string) (bool, error) {
+	return true, nil
+}
 func (grantAllSessions) RecordRelease(context.Context, string, string, string) error { return nil }
 
 // TestSessionCommandsRoundTrip exercises `session request|list|release` end to

@@ -61,8 +61,13 @@ func TestAPISessionHead(t *testing.T) {
 		}
 	}
 	op := decodeAs[SessionHead](t, sessAPI(t, e, p, "GET", standing.ActorID, "", true))
-	if op.Label != "spider" || op.Kind != "standing" || !op.CanRestart || !op.CanUpgrade || op.RestartLabel != "Restart" || op.CanRelease {
+	if op.Label != "spider" || op.Kind != "standing" || !op.CanRestart || !op.CanEnd || !op.CanUpgrade || op.RestartLabel != "Restart" || op.CanRelease {
 		t.Errorf("standing head (operator) = %+v", op)
+	}
+	// Every kind restarts (its studio, keeping the session); a personal
+	// session ends by Release.
+	if pop := decodeAs[SessionHead](t, sessAPI(t, e, p, "GET", personal.ActorID, "", true)); !pop.CanRestart || pop.CanEnd || !pop.CanRelease || pop.RestartLabel != "Restart" {
+		t.Errorf("personal head (operator) = %+v", pop)
 	}
 }
 
@@ -153,6 +158,10 @@ func TestAPISessionActions(t *testing.T) {
 		{personal, "release", false, 204, ""},
 		{standing, "upgrade", true, 204, ""},
 		{standing, "restart", true, 204, ""},
+		{standing, "end", false, 403, `"code":"forbidden"`},
+		{personal, "end", true, 403, `"code":"forbidden"`},
+		{personal, "restart", true, 204, ""},
+		{standing, "end", true, 204, ""},
 	} {
 		rec := sessAPI(t, e, p, "POST", tc.inst.ActorID+"/"+tc.action, "{}", tc.admin)
 		if rec.Code != tc.code || !strings.Contains(rec.Body.String(), tc.want) {
@@ -162,8 +171,9 @@ func TestAPISessionActions(t *testing.T) {
 			checkJSONHeaders(t, rec)
 		}
 	}
-	if len(ops.torn) != 2 || ops.torn[0] != personal.ActorID || ops.torn[1] != standing.ActorID || len(ops.upgraded) != 1 {
-		t.Errorf("ops: torn %v, upgraded %v", ops.torn, ops.upgraded)
+	if len(ops.torn) != 2 || ops.torn[0] != personal.ActorID || ops.torn[1] != standing.ActorID || len(ops.upgraded) != 1 ||
+		len(ops.restarted) != 2 || ops.restarted[0] != standing.ActorID || ops.restarted[1] != personal.ActorID {
+		t.Errorf("ops: torn %v, upgraded %v, restarted %v", ops.torn, ops.upgraded, ops.restarted)
 	}
 	// A command that fails upstream says so; a form post is refused.
 	ops.cmdErr = errNoStream

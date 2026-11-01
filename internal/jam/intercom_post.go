@@ -187,15 +187,19 @@ func (ic *Intercom) Reconcile() error {
 
 // ---- sessions' home channels ----
 
-// SetUp gives a session its home channel (HomeChannel): it joins its
-// ticket's channel, or its own session channel is created.
+// SetUp gives a session its home channel (HomeChannel, its own session
+// channel) and, for a session on a ticket, joins it to the ticket's channel
+// too, so the issue's comments reach it.
 func (ic *Intercom) SetUp(inst Instance) error {
-	_, err := ic.HomeChannel(inst)
+	if _, err := ic.HomeChannel(inst); err != nil {
+		return err
+	}
+	_, _, err := ic.ownTicketChannel(inst)
 	return err
 }
 
-// Ended withdraws an ended session's open asks, then takes it out of its
-// ticket's channel, or archives its session channel (history stays readable; Notify still reaches it).
+// Ended withdraws an ended session's open asks, takes it out of its
+// ticket's channel, and archives its session channel (history stays readable; Notify still reaches it).
 func (ic *Intercom) Ended(inst Instance) error {
 	ic.withdrawAsksOf(ident.ID(inst.ActorID))
 	if inst.Unit != "" {
@@ -204,7 +208,9 @@ func (ic *Intercom) Ended(inst Instance) error {
 			return err
 		}
 		if ok {
-			return ic.store.LeaveChannel(ch.ID, ident.ID(inst.ActorID), ic.tail())
+			if err := ic.store.LeaveChannel(ch.ID, ident.ID(inst.ActorID), ic.tail()); err != nil {
+				return err
+			}
 		}
 	}
 	ch, ok := ic.ownSessionChannel(inst)
@@ -215,25 +221,29 @@ func (ic *Intercom) Ended(inst Instance) error {
 }
 
 // HomeChannel is the channel a session is always in, where it posts with no
-// address: its ticket's channel for a session on a ticket (joined, created
-// on demand), else its own session channel. A session channel is created on
-// first use with the session in it — and, for a personal session, the user
-// who started it, called in once (one who later leaves stays out).
+// address: its own session channel, whatever started it. A session channel
+// is created on first use with the session in it — and, for a personal
+// session, the user who started it, called in once (one who later leaves
+// stays out).
 func (ic *Intercom) HomeChannel(inst Instance) (Channel, error) {
-	if inst.Unit != "" {
-		ch, ok, err := ic.ticketChannel(inst, true)
-		if err != nil {
-			return Channel{}, err
-		}
-		if ok {
-			if err := ic.store.JoinChannel(ch.ID, ident.ID(inst.ActorID), ic.tail()); err != nil { // a no-op while it is one
-				return Channel{}, err
-			}
-			return ch, nil
-		}
-		// No tracker: the session has its own channel instead.
-	}
 	return ic.sessionChannel(inst)
+}
+
+// ownTicketChannel is the channel of inst's ticket, created on demand, with
+// inst joined to it (a no-op while it is a member). ok=false when inst has no
+// ticket on the tracker.
+func (ic *Intercom) ownTicketChannel(inst Instance) (Channel, bool, error) {
+	if inst.Unit == "" {
+		return Channel{}, false, nil
+	}
+	ch, ok, err := ic.ticketChannel(inst, true)
+	if err != nil || !ok {
+		return Channel{}, false, err
+	}
+	if err := ic.store.JoinChannel(ch.ID, ident.ID(inst.ActorID), ic.tail()); err != nil {
+		return Channel{}, false, err
+	}
+	return ch, true, nil
 }
 
 // ownSessionChannel is the session channel inst is in, in its project: the
@@ -528,7 +538,7 @@ func (ic *Intercom) MayReach(u ident.ID, inst Instance) bool {
 	if !ok || inst.Phase == PhaseGone || !ic.projectUser(p.ID, u) {
 		return false
 	}
-	if inst.Unit != "" || !isPersonal(inst) {
+	if !isPersonal(inst) {
 		return true
 	}
 	ch, ok := ic.store.ChannelByKey(p.ID, SourceSession, inst.ActorID)
@@ -658,9 +668,6 @@ func (ic *Intercom) homeWithMember(p Poster, project Project, ref string, globs 
 	u, found := ic.memberUser(project, ref)
 	if !found || !anyAllowed([]string{"user:" + u.Name, "user:" + string(u.ID)}, globs) {
 		return Channel{}, false
-	}
-	if p.Session.Unit != "" {
-		return Channel{}, false // a ticket session's home is its ticket: user: stays a chat
 	}
 	home, err := ic.HomeChannel(*p.Session)
 	if err != nil || home.Kind != SourceSession || !ic.isMemberOf(home, u.ID) {
@@ -797,7 +804,8 @@ func (ic *Intercom) resolveTicket(p Poster, project Project, ref string, globs [
 	}
 	switch {
 	case own:
-		return ic.HomeChannel(*p.Session)
+		ch, _, err := ic.ownTicketChannel(*p.Session)
+		return ch, err
 	case !connOK:
 		return Channel{}, ErrSendUnresolved
 	case !isKey && ticketkey.IsGitHub(key):
@@ -826,11 +834,6 @@ func (ic *Intercom) resolveSession(p Poster, project Project, ref string, globs 
 	case own:
 		return ic.HomeChannel(target)
 	case found && anyAllowed([]string{"session:" + sessionLabel(target), "session:" + target.ActorID}, globs):
-		// A ticket session's home is its ticket: reaching it needs what
-		// addressing that ticket needs (session: is no way around ticket:).
-		if tracker, ok := ic.tracker(); ok && !sessionTicketAllowed(ic.store, tracker, *p.Session, target, globs) {
-			return Channel{}, ErrSendDenied
-		}
 		return ic.HomeChannel(target)
 	case anyAllowed([]string{"session:" + ref}, globs):
 		return Channel{}, ErrSendUnresolved

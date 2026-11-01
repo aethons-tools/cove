@@ -20,8 +20,8 @@ func TestBoilerplatePerKind(t *testing.T) {
 			[]string{"a personal session for alice", "`send` without `to` posts to your own channel, which alice is in", "until alice releases"},
 			nil},
 		{SessionFacts{Kind: "", Project: "acme", Role: "worker", Unit: "AET-9"},
-			[]string{"an ephemeral worker session for role worker in project acme", "without `to` posts to your ticket"},
-			[]string{"owner"}},
+			[]string{"an ephemeral worker session for role worker in project acme", "`send` without `to` posts to your own channel", "only once your work has landed", "`call_in`"},
+			[]string{"owner", "posts to your ticket", "as your last action once it is finished"}},
 	}
 	for _, c := range cases {
 		l := Boilerplate(c.f)
@@ -177,8 +177,8 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 		if strings.Contains(core, "Background processes you start die") {
 			t.Errorf("%q: still says background processes die", f.Kind)
 		}
-		if got := strings.Contains(core, "comment on your ticket"); got != (f.Unit != "") {
-			t.Errorf("%q: ticket comment line = %v", f.Kind, got)
+		if strings.Contains(core, "comment on your ticket") {
+			t.Errorf("%q: final text must go to the session's own channel, not the ticket", f.Kind)
 		}
 		if len(core) > BudgetBoilerplate {
 			t.Errorf("%q: boilerplate %d bytes > budget %d", f.Kind, len(core), BudgetBoilerplate)
@@ -187,14 +187,16 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 	// The legacy boilerplate, pinned: these hashes are the output before the
 	// structured turn end existed, but for the background-process sentence
 	// corrected since (processes outlive the turn; the pause freezes them) and
-	// the mission line widened since to the status line (mission and focus).
+	// the mission line widened since to the status line (mission and focus),
+	// and the ticket session told its home is its own channel and to wait
+	// rather than exit (uniform sessions).
 	for i, c := range []struct {
 		f    SessionFacts
 		hash string
 	}{
 		{SessionFacts{Kind: KindStanding, Name: "bot", Project: "acme", Role: "r", Previews: true}, "812818fbdc362ff2068cf13a277f21ecb61222fd1d1037d572838378e9d825aa"},
 		{SessionFacts{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "r"}, "6a61d6a0a93880f67e6cb19fe14f4059ce8c9404191eff602d5e4f913819c3e5"},
-		{SessionFacts{Project: "acme", Role: "r", Unit: "AET-9"}, "323aff5c7f71baefc3380f5985f4b22c2a0348c03cdf8d6ca135cff7373a7151"},
+		{SessionFacts{Project: "acme", Role: "r", Unit: "AET-9"}, "d0fa9683a74970de5d97753e40b826c79fd646b4e656f7ff3ff2437d62273228"},
 		{SessionFacts{Project: "acme", Role: "r"}, "295eb04930f3015be4ce3f2eaba7e8eb1f6704c043f69017b276e714bc96a1a5"},
 	} {
 		core := Boilerplate(c.f).Core

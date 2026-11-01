@@ -153,7 +153,7 @@ func TestSquawksSendValidation(t *testing.T) {
 func TestSquawksSendDefaults(t *testing.T) {
 	f := newSqFixture(t)
 	code, r := f.send(f.ticket, `{"body":"status: working"}`)
-	if code != http.StatusOK || r.ID == "" || r.Channel.Kind != "ticket" || r.Channel.Label != "ACME-7" {
+	if code != http.StatusOK || r.ID == "" || r.Channel.Kind != "session" {
 		t.Fatalf("ticket default = %d %+v", code, r)
 	}
 	code, r = f.send(f.personal, `{"body":"done?"}`)
