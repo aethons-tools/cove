@@ -143,7 +143,6 @@ func TestLiveConfigWritesRefused(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "open a branch") {
 		t.Fatalf("message %s", rec.Body)
 	}
-	wantErr(t, apiDo(t, h, "DELETE", "/app/admin/api/tracking/managed/user/bob", nil, nil), 409, "conflict")
 	if _, ok := live.LookupName(ident.User, "carol"); ok {
 		t.Fatal("carol written live")
 	}

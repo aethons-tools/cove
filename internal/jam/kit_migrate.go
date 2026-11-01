@@ -148,7 +148,7 @@ func sha256Hex(s string) string {
 // jam rename's kit migration could not rewrite it), and clears every other
 // open one. Its texts are fixed:
 // the kit's name and version, and the reason the migration recorded. The
-// migration, the import and every RunConfigDriftCheck round call it.
+// migration, the import and every RunConfigChecks round call it.
 func kitMigrateConditions(store Store, t *condition.Tracker) {
 	open := map[string]bool{}
 	for _, k := range store.ListKits() {

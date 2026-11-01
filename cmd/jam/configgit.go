@@ -24,16 +24,16 @@ var configStdin io.Reader = os.Stdin
 
 // cmdConfig keeps a Jam's configuration in git: `config write <dir> [--all]`,
 // `config diff|apply [--dir <path> | --git <src>]` (neither: the followed
-// repo), `config sync`, `config status`, `config release <kind>/<name>`.
+// repo), `config sync`, `config status`.
 func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] | sync [--yes] | status | release <kind>/<name>"
+	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] | sync [--yes] | status"
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
-	case "write", "diff", "apply", "sync", "status", "release":
+	case "write", "diff", "apply", "sync", "status":
 	default:
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -95,26 +95,6 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			n += len(files)
 		}
 		fmt.Fprintf(stdout, "wrote %d files to %s (removed %d); review with git diff\n", n, target, len(exp.Remove))
-		return 0
-	}
-	if sub == "release" {
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam config release: expected one <kind>/<name> (a role: role/<project>/<role>)")
-			return 2
-		}
-		kind, name, ok := strings.Cut(pos[0], "/")
-		if !ok || kind == "" || name == "" {
-			fmt.Fprintln(stderr, "jam config release: expected one <kind>/<name> (a role: role/<project>/<role>)")
-			return 2
-		}
-		c, err := client()
-		if err != nil {
-			return fail(err)
-		}
-		if err := c.ConfigRelease(kind, name); err != nil {
-			return fail(err)
-		}
-		fmt.Fprintf(stdout, "released %s %s: it stays in Jam, unmanaged\n", kind, name)
 		return 0
 	}
 	if len(pos) != 0 {

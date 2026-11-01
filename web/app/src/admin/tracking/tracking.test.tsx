@@ -8,7 +8,7 @@ import { ADMIN } from "../paths";
 import type { Plan, Tracking } from "../api/types";
 
 const page = (t: Partial<Tracking> = {}): Tracking =>
-  ({ source: null, rows: [], drifted: 0, statesErr: false, lastCommit: "", lastApplied: "", canGit: true, plan: null, follow: follow(), ...t });
+  ({ source: null, rows: [], lastCommit: "", lastApplied: "", canGit: true, plan: null, follow: follow(), ...t });
 const follow = (f: Partial<Tracking["follow"]> = {}): Tracking["follow"] => ({ state: "in-sync", head: "abc1234", applied: "abc1234", error: "", checked: "2026-10-31 10:00 UTC", ...f });
 const source = { label: "https://github.com/acme/jam@main", repo: "https://github.com/acme/jam", repoLink: "https://github.com/acme/jam", dir: "", ref: "main", commit: "abc1234", commitLink: "", applied: "2026-10-28 10:00 UTC" };
 const plan = (p: Partial<Plan> = {}): Plan => ({
@@ -16,7 +16,7 @@ const plan = (p: Partial<Plan> = {}): Plan => ({
   ops: [{ action: "create", kind: "user", name: "bob", path: "", file: "users/bob.yml", lines: [{ op: "+", text: "kind: user" }], tooLarge: false, diff: "" }],
   forget: [], unmanaged: [], kitSources: [], refusals: [], serve: { state: "", keys: [] }, ...p,
 });
-const rows = [{ kind: "role", name: "app/ic", path: "config/projects/app/agents/ic", commit: "abc1234", applied: "x", state: "drifted" }];
+const rows = [{ kind: "role", name: "app/ic", path: "config/projects/app/agents/ic", commit: "abc1234", applied: "x" }];
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const at = ADMIN + "config/tracking";
@@ -99,28 +99,14 @@ describe("Tracking", () => {
     expect(screen.getByText("users/bob.yml")).toBeInTheDocument();
   });
 
-  it("releases a managed object after confirming", async () => {
+  it("lists managed objects with no Release, state or Force", async () => {
     tree();
-    server.use(
-      http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ rows, follow: follow({ state: "off" }) }))),
-      http.delete("/app/admin/api/tracking/managed/role/app/ic", () => HttpResponse.json({ tracking: page({ follow: follow({ state: "off" }) }), message: "released role app/ic; it stays in Jam, unmanaged" })),
-    );
-    const user = userEvent.setup();
+    server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ rows, plan: plan(), follow: follow({ state: "off" }) }))));
     renderAdmin(adminBoot, at);
     expect(await screen.findByRole("link", { name: "app/ic" })).toHaveAttribute("href", ADMIN + "config/projects/app/agents/ic");
-    await user.click(screen.getByRole("button", { name: "Release" }));
-    expect(await screen.findByText("Stop managing role app/ic from the config repo? It stays in Jam, unmanaged.")).toBeInTheDocument();
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Release" }));
-    expect(await screen.findByText("released role app/ic; it stays in Jam, unmanaged")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("link", { name: "app/ic" })).toBeNull());
-  });
-
-  it("offers no Release while following a repo", async () => {
-    tree();
-    server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, rows }))));
-    renderAdmin(adminBoot, at);
-    expect(await screen.findByRole("link", { name: "app/ic" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Release" })).toBeNull();
+    expect(screen.queryByText(/Force/)).toBeNull();
+    expect(screen.queryByText(/differ from the repo/)).toBeNull();
   });
 
   it("holds Apply while a re-plan runs", async () => {

@@ -239,7 +239,7 @@ func TestKitDraftEscapesServerStrings(t *testing.T) {
 		case r.URL.Path == "/admin/kits/app/history":
 			v = []jam.KitVersionInfo{{Version: 1, Origin: bad, Current: true}}
 		case r.URL.Path == "/admin/kits/app/draft/publish":
-			v = jam.KitDraftPublish{Kit: "app", Version: 2, Pinned: []string{bad}, Drift: true, Warning: bad}
+			v = jam.KitDraftPublish{Kit: "app", Version: 2, Pinned: []string{bad}, Warning: bad}
 		case r.Method == "GET" || r.Method == "POST":
 			v = st
 		default:

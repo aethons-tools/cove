@@ -87,7 +87,7 @@ type ConfigEnv struct {
 	CredExists     func(string) bool
 	PoolConfigured bool
 	Serve          map[string]any     // the running serve's portable config; nil = unknown
-	Conditions     *condition.Tracker // config.drift is re-checked after every apply; nil = none
+	Conditions     *condition.Tracker // the import raises kit.migrate on it; nil = none
 	// Followed is the config repo the Jam follows (config.github in the serve
 	// config); zero = none. Syncs apply it, and its applies are recorded.
 	Followed gitsource.Source

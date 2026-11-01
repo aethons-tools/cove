@@ -28,38 +28,23 @@ describe("publishing a draft", () => {
     expect(b).toHaveAttribute("title", "Fix the problems first");
   });
 
-  it("needs the drift box on a managed kit, then confirms with the warning", async () => {
-    const d = draftView({ managed: true });
-    base(draftPage({ draft: d }));
+  it("publishes a managed kit with no drift checkbox", async () => {
+    base(draftPage({ draft: draftView() }));
     let sent: unknown;
     server.use(http.post(api + "/publish", async ({ request }) => {
       sent = await request.json();
-      return ok(draftPage({ draft: null, published: { version: 3, base: 2, pinned: [], warning: "", drift: true, configFiles: [{ path: "kits/web/kit.yml", change: "modified" }] } }), "published web v3");
+      return ok(draftPage({ draft: null, published: { version: 3, base: 2, pinned: [], warning: "" } }), "published web v3");
     }));
     const user = userEvent.setup();
     renderAdmin(adminBoot, at);
-    expect(await screen.findAllByText(d.driftWarning)).not.toHaveLength(0);
-    expect(await publishButton()).toBeDisabled();
-    await user.click(screen.getByLabelText("I understand this drifts from the config repo"));
+    expect(await publishButton()).toBeEnabled();
+    expect(screen.queryByRole("checkbox", { name: /drift/ })).toBeNull();
     await user.click(await publishButton());
-    expect(await screen.findByText(`Publish the draft as the next version of web? ${d.driftWarning}`)).toBeInTheDocument();
+    expect(await screen.findByText("Publish the draft as the next version of web?")).toBeInTheDocument();
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Publish" }));
-    await waitFor(() => expect(sent).toEqual({ etag: "e1", pin: false, drift: true }));
+    await waitFor(() => expect(sent).toEqual({ etag: "e1", pin: false }));
     expect(await screen.findByText("Published v3")).toBeInTheDocument();
-    expect(screen.getByText("kits/web/kit.yml")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "view v3" })).toHaveAttribute("href", at + "?v=3");
-  });
-
-  it("needs the drift box only with Pin when pinning drifts followers", async () => {
-    base(draftPage({ draft: draftView({ pinDrift: ["child"], pinDriftNote: "Pinning rewrites config-managed child: with Pin followers, this publish drifts from the config repo." }) }));
-    const user = userEvent.setup();
-    renderAdmin(adminBoot, at);
-    expect(await publishButton()).toBeEnabled();
-    await user.click(screen.getByLabelText(/^Pin followers/));
-    expect(await publishButton()).toBeDisabled();
-    expect(screen.getByText(/Pinning rewrites config-managed child/)).toBeInTheDocument();
-    await user.click(screen.getByLabelText(/^I understand this drifts from the config repo/));
-    expect(await publishButton()).toBeEnabled();
   });
 
   it("shows an upload over the limit inline", async () => {

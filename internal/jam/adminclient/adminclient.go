@@ -999,16 +999,6 @@ func (c *Client) ConfigExportTree(all bool) (jam.ConfigTreeExport, error) {
 	return exp, err
 }
 
-// ConfigRelease clears kind/name's managed mark (a role's name is
-// "<project>/<role>"); ErrNotFound when it has none.
-func (c *Client) ConfigRelease(kind, name string) error {
-	segs := strings.Split(name, "/")
-	for i, s := range segs {
-		segs[i] = url.PathEscape(s)
-	}
-	return c.do("DELETE", "/admin/config/managed/"+url.PathEscape(kind)+"/"+strings.Join(segs, "/"), nil, nil)
-}
-
 // KitDiff fetches kit name's version diff from → to (0 = the defaults: the
 // version before to, and current).
 func (c *Client) KitDiff(name string, from, to int) (jam.KitDiffResult, error) {

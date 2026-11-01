@@ -365,23 +365,21 @@ func TestConfigSourceRoutesRefuseCredentialURL(t *testing.T) {
 	}
 }
 
-// A role's name keeps its slash in the route.
-func TestConfigReleaseRoute(t *testing.T) {
-	st := appliedFull(t)
-	ts := configServer(t, st)
-	ic := ConfigKey{ConfigKindRole, "app/ic"}
-	before := len(st.ListConfigMarks())
-	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/role/app/ic", "", http.StatusNoContent, nil)
-	for _, mk := range st.ListConfigMarks() {
-		if mk.Key() == ic {
-			t.Fatal("role app/ic still managed")
-		}
+// Releasing a mark is gone: the config changes only through git.
+func TestConfigManagedRouteGone(t *testing.T) {
+	ts := configServer(t, appliedFull(t))
+	req, err := http.NewRequest("DELETE", ts.URL+"/admin/config/managed/user/bob", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(st.ListConfigMarks()) != before-1 {
-		t.Fatalf("release removed other marks: %v", st.ListConfigMarks())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
 	}
-	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/role/app/ic", "", http.StatusNotFound, nil)
-	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/widget/x", "", http.StatusBadRequest, nil)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("DELETE config/managed = %d, want 404 or 405", resp.StatusCode)
+	}
 }
 
 // export-tree renders each kit as its directory: base64 data and modes in

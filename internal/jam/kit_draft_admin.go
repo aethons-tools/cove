@@ -80,7 +80,7 @@ func registerKitDrafts(mux *http.ServeMux, store Store, log *slog.Logger) {
 			draftFail(w, r, log, err)
 			return
 		}
-		log.Info("kit draft published", "operator", OperatorID(r), "kit", name, "version", res.Version, "base", res.Base, "tree", shortTree(res.Tree), "pinned", len(res.Pinned), "drift", res.Drift)
+		log.Info("kit draft published", "operator", OperatorID(r), "kit", name, "version", res.Version, "base", res.Base, "tree", shortTree(res.Tree), "pinned", len(res.Pinned))
 		writeJSON(w, http.StatusOK, res)
 	})
 	// The whole tree, replaced by an uncompressed tar of files (kit draft

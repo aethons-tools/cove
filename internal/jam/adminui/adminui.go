@@ -107,7 +107,7 @@ func WithManagers(list func() []jam.ManagerStatus) Option {
 
 // WithConfigEnv gives the Config page the planner's view of the serve — the
 // env the admin API's WithConfig gets: its portable serve config, and the
-// conditions an apply or a release re-checks config.drift on. Unset fields
+// conditions the planner raises on. Unset fields
 // default to the Handler's credExists and WithPoolConfigured.
 func WithConfigEnv(env jam.ConfigEnv) Option {
 	return func(o *options) { o.configEnv = env }

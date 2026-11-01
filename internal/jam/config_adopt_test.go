@@ -547,21 +547,6 @@ func TestConfigWriteAllKitPromptRoundTrips(t *testing.T) {
 	}
 }
 
-// The drift check of a Jam holding a value the renderer once panicked on
-// (a multi-line note opening with a tab) renders it, rather than crashing
-// the serve's background goroutine.
-func TestConfigMarkStatesRendersTabbedNote(t *testing.T) {
-	st := appliedFull(t)
-	editGH(t, st, "\tfoo\nbar")
-	states, err := ConfigMarkStates(st)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.ContainsFunc(states, func(s ConfigMarkState) bool { return s.Name == "gh" && s.State == ConfigDrifted }) {
-		t.Fatalf("states %+v", states)
-	}
-}
-
 // A Postgres serve reloads every object from its JSON doc (no migration once
 // its roster schema is current): a repo written before a restart still
 // adopts after it (the live side planned from the snapshot round-tripped

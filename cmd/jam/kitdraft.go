@@ -298,9 +298,6 @@ func printDraftStatus(w io.Writer, st jam.KitDraftStatus) {
 	}
 	fmt.Fprintf(w, "etag %s\n", textesc.Escape(st.ETag, false))
 	fmt.Fprintf(w, "saved %s by %s (opened %s)\n", draftTime(st.UpdatedAt), textesc.Escape(st.Actor, false), draftTime(st.OpenedAt))
-	if st.Managed {
-		fmt.Fprintln(w, "managed by the config repo: publishing will drift from it")
-	}
 	fmt.Fprintf(w, "files (%d):\n", len(st.Entries))
 	for _, e := range st.Entries {
 		fmt.Fprintf(w, "  %s %9d  %s\n", textesc.Escape(e.Mode, false), e.Size, textesc.Escape(e.Path, false))

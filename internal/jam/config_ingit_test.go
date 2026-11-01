@@ -29,7 +29,7 @@ func TestConfigInGitRefusesLiveWrites(t *testing.T) {
 		{"POST", "/admin/users"}, {"PUT", "/admin/users/u/logins"}, {"POST", "/admin/projects"}, {"PUT", "/admin/projects/p/context"},
 		{"POST", "/admin/roles"}, {"PUT", "/admin/roles/p/r/egress"}, {"POST", "/admin/roles/p/r/standing"}, {"PUT", "/admin/jam/context"},
 		{"POST", "/admin/kits"}, {"POST", "/admin/kits/web/pin"}, {"POST", "/admin/kits/web/draft/publish"}, {"POST", "/admin/connections"},
-		{"POST", "/admin/config"}, {"DELETE", "/admin/config/managed/user/bob"},
+		{"POST", "/admin/config"},
 	} {
 		w := do(c.method, c.path, `{}`)
 		if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "config is in git") {

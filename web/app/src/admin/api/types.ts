@@ -154,7 +154,6 @@ export interface ManagedRow {
   path: string; // its page under the app's mount; "" = none
   commit: string;
   applied: string;
-  state: string; // in-sync, drifted, missing; "" = unknown
 }
 /**
  * ConfigKeyRow names a config object.
@@ -214,8 +213,6 @@ export interface Plan {
 export interface Tracking {
   source?: TrackingSource | null; // the followed repo; nil = none configured
   rows: ManagedRow[];
-  drifted: number /* int */;
-  statesErr: boolean; // could not compare with the live Jam
   lastCommit: string;
   lastApplied: string;
   canGit: boolean; // Diff and Apply are offered
@@ -989,13 +986,6 @@ export interface DraftYAMLDiff {
   note: string;
 }
 /**
- * ConfigFileRow is a config-repo file a drifting publish changes.
- */
-export interface ConfigFileRow {
-  path: string;
-  change: string;
-}
-/**
  * Published is a just-published draft.
  */
 export interface Published {
@@ -1003,8 +993,6 @@ export interface Published {
   base: number /* int */;
   pinned: string[];
   warning: string;
-  drift: boolean;
-  configFiles: ConfigFileRow[];
 }
 /**
  * DraftView is a kit's open draft.
@@ -1016,11 +1004,6 @@ export interface DraftView {
   etag: string;
   actor: string;
   updated: string;
-  managed: boolean; // config-managed: publishing drifts
-  driftWarning: string;
-  driftConfirm: string;
-  pinDrift: string[]; // managed followers Pin followers would rewrite
-  pinDriftNote: string;
   maxFile: string;
   problems: string[];
   size: string;

@@ -105,7 +105,7 @@ func operatorSig(r *http.Request) configrepo.Signature {
 func (br *branchRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	branch := strings.TrimSpace(r.Header.Get(BranchHeader))
 	write := r.Method != http.MethodGet && r.Method != http.MethodHead
-	if branch == "" && write && (onBranchPath(r.URL.Path) || strings.HasPrefix(r.URL.Path, apiPrefix+"tracking/managed/")) {
+	if branch == "" && write && onBranchPath(r.URL.Path) {
 		// The config is in git: it changes on a branch (or in the repo), never live.
 		writeAPIError(w, http.StatusConflict, "conflict", "the config is in git: open a branch to edit it")
 		return

@@ -142,7 +142,6 @@ type ManagedRow struct {
 	Path    string `json:"path"` // its page under the app's mount; "" = none
 	Commit  string `json:"commit"`
 	Applied string `json:"applied"`
-	State   string `json:"state"` // in-sync, drifted, missing; "" = unknown
 }
 
 // ConfigKeyRow names a config object.
@@ -196,8 +195,6 @@ type Plan struct {
 type Tracking struct {
 	Source      *TrackingSource `json:"source" tstype:"TrackingSource | null"` // the followed repo; nil = none configured
 	Rows        []ManagedRow    `json:"rows"`
-	Drifted     int             `json:"drifted"`
-	StatesErr   bool            `json:"statesErr"` // could not compare with the live Jam
 	LastCommit  string          `json:"lastCommit"`
 	LastApplied string          `json:"lastApplied"`
 	CanGit      bool            `json:"canGit"` // Diff and Apply are offered
@@ -903,45 +900,32 @@ type DraftYAMLDiff struct {
 	Note     string     `json:"note"`
 }
 
-// ConfigFileRow is a config-repo file a drifting publish changes.
-type ConfigFileRow struct {
-	Path   string `json:"path"`
-	Change string `json:"change"`
-}
-
 // Published is a just-published draft.
 type Published struct {
-	Version     int             `json:"version"`
-	Base        int             `json:"base"`
-	Pinned      []string        `json:"pinned"`
-	Warning     string          `json:"warning"`
-	Drift       bool            `json:"drift"`
-	ConfigFiles []ConfigFileRow `json:"configFiles"`
+	Version int      `json:"version"`
+	Base    int      `json:"base"`
+	Pinned  []string `json:"pinned"`
+	Warning string   `json:"warning"`
 }
 
 // DraftView is a kit's open draft.
 type DraftView struct {
-	Base         int            `json:"base"`
-	Current      int            `json:"current"`
-	Superseded   bool           `json:"superseded"` // the kit's current version isn't the base
-	ETag         string         `json:"etag"`
-	Actor        string         `json:"actor"`
-	Updated      string         `json:"updated"`
-	Managed      bool           `json:"managed"` // config-managed: publishing drifts
-	DriftWarning string         `json:"driftWarning"`
-	DriftConfirm string         `json:"driftConfirm"`
-	PinDrift     []string       `json:"pinDrift"` // managed followers Pin followers would rewrite
-	PinDriftNote string         `json:"pinDriftNote"`
-	MaxFile      string         `json:"maxFile"`
-	Problems     []string       `json:"problems"`
-	Size         string         `json:"size"`
-	Tree         []DraftRow     `json:"tree"`
-	Removed      []DraftRow     `json:"removed"`
-	Editor       *DraftEditor   `json:"editor" tstype:"DraftEditor | null"`
-	FileMissing  bool           `json:"fileMissing"`
-	Changes      *FilesDiff     `json:"changes" tstype:"FilesDiff | null"`
-	YAMLDiff     *DraftYAMLDiff `json:"yamlDiff" tstype:"DraftYAMLDiff | null"`
-	FileDiff     *KitFile       `json:"fileDiff" tstype:"KitFile | null"`
+	Base        int            `json:"base"`
+	Current     int            `json:"current"`
+	Superseded  bool           `json:"superseded"` // the kit's current version isn't the base
+	ETag        string         `json:"etag"`
+	Actor       string         `json:"actor"`
+	Updated     string         `json:"updated"`
+	MaxFile     string         `json:"maxFile"`
+	Problems    []string       `json:"problems"`
+	Size        string         `json:"size"`
+	Tree        []DraftRow     `json:"tree"`
+	Removed     []DraftRow     `json:"removed"`
+	Editor      *DraftEditor   `json:"editor" tstype:"DraftEditor | null"`
+	FileMissing bool           `json:"fileMissing"`
+	Changes     *FilesDiff     `json:"changes" tstype:"FilesDiff | null"`
+	YAMLDiff    *DraftYAMLDiff `json:"yamlDiff" tstype:"DraftYAMLDiff | null"`
+	FileDiff    *KitFile       `json:"fileDiff" tstype:"KitFile | null"`
 }
 
 // DraftPage is a kit's Draft section; Draft nil = no draft.

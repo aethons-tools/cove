@@ -17,9 +17,8 @@ export const kit = (k: Partial<KitDetail> = {}): KitDetail => ({
 
 
 export const draftView = (d: Partial<DraftView> = {}): DraftView => ({
-  base: 2, current: 2, superseded: false, etag: "e1", actor: "local", updated: "2026-10-28 10:00", managed: false,
-  driftWarning: "This kit is managed by the config repo: publishing drifts from it.", driftConfirm: "I understand this drifts from the config repo",
-  pinDrift: [], pinDriftNote: "", maxFile: "4 MiB", problems: [], size: "1 KiB",
+  base: 2, current: 2, superseded: false, etag: "e1", actor: "local", updated: "2026-10-28 10:00",
+  maxFile: "4 MiB", problems: [], size: "1 KiB",
   tree: [
     { depth: 0, name: "docs", dir: true, path: "", label: "docs", mode: "", size: 0, change: "" },
     { depth: 1, name: "a.md", dir: false, path: "docs/a.md", label: "docs/a.md", mode: "0644", size: 4, change: "modified" },

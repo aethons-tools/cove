@@ -73,22 +73,15 @@ func TestTrackingApplyStale(t *testing.T) {
 	}
 }
 
-func TestTrackingRelease(t *testing.T) {
+func TestTrackingHasNoRelease(t *testing.T) {
 	h, store := managedUI(t)
 	trackManaged(t, store)
-	var res adminui.TrackingResult
-	if rec := apiDo(t, h, "DELETE", "/app/admin/api/tracking/managed/role/app/ic", nil, &res); rec.Code != 200 {
-		t.Fatalf("release = %d %s", rec.Code, rec.Body)
+	if rec := apiDo(t, h, "DELETE", "/app/admin/api/tracking/managed/role/app/ic", nil, nil); rec.Code != 404 && rec.Code != 405 {
+		t.Fatalf("release = %d %s, want 404 or 405", rec.Code, rec.Body)
 	}
-	if res.Message != "released role app/ic; it stays in Jam, unmanaged" {
-		t.Errorf("message = %q", res.Message)
-	}
-	for _, r := range res.Tracking.Rows {
-		if r.Kind == "role" {
-			t.Errorf("role still managed: %+v", r)
-		}
-	}
-	for _, r := range res.Tracking.Rows {
+	var tr adminui.Tracking
+	apiDo(t, h, "GET", "/app/admin/api/tracking", nil, &tr)
+	for _, r := range tr.Rows {
 		want := map[string]string{"destination": "config/destinations/gh", "model-spec": "config/model-specs/fast", "kit": "config/kits/web-dev", "project": "config/projects/app"}[r.Kind]
 		if want != "" && r.Path != want {
 			t.Errorf("%s path = %q, want %q", r.Kind, r.Path, want)

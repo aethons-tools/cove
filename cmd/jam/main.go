@@ -2171,9 +2171,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("kit objects collected", "trees", gc.Trees, "blobs", gc.Blobs)
 	}
 	go conds.Run(context.Background(), 5*time.Second)
-	// config.drift (docs/usage/jam/config-git.md#drift-and-release): checked
-	// now, every minute, and after each config apply or release.
-	go jam.RunConfigDriftCheck(context.Background(), st, conds, jam.ConfigDriftEvery, log)
+	// The periodic conditions (kit.migrate, reserved destination env): checked
+	// now and every minute.
+	go jam.RunConfigChecks(context.Background(), st, conds, jam.ConfigChecksEvery, log)
 
 	var base jam.CredResolver = jam.NewSecretResolver(runner.OS{}, specs)
 	if names := cfg.gcpCredentials(); len(names) > 0 {
@@ -2864,7 +2864,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// resolves from the account pool by identity rather than from `credentials:`.
 		credExists := cfg.credConfigured
 		// One planner view of the serve for the config admin API and the UI's
-		// Config page; config.drift is re-checked on conds after each apply.
+		// Config page.
 		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds,
 			Followed: cfg.followedSource()}
 		if src := cfgEnv.Followed; src.Repo != "" {

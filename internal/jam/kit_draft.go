@@ -49,10 +49,6 @@ type KitDraftOpenBody struct {
 	From int `json:"from,omitempty"`
 }
 
-// DraftDriftWarning is the fixed warning a publish of a config-managed kit
-// answers with (KitDraftPublish.Warning), shown by the UI and the CLI.
-const DraftDriftWarning = "this will drift from the config repo; config write it to keep the repo in sync"
-
 // DraftETag is a draft's ETag: its tree hash, quoted.
 func DraftETag(tree string) string { return `"` + tree + `"` }
 

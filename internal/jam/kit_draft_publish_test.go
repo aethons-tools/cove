@@ -23,7 +23,7 @@ func TestPublishKitDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, err := PublishKitDraft(st, nil, "app", false, s.ETag)
-	if err != nil || res.Kit != "app" || res.Version != 2 || res.Tree != s.Tree || res.Base != 1 || res.Drift || res.Warning != "" || len(res.Pinned) != 0 {
+	if err != nil || res.Kit != "app" || res.Version != 2 || res.Tree != s.Tree || res.Base != 1 || res.Warning != "" || len(res.Pinned) != 0 {
 		t.Fatalf("publish = %+v %v", res, err)
 	}
 	k, _ := st.GetKit("app")
@@ -137,7 +137,7 @@ func TestPublishPinsFollowers(t *testing.T) {
 	}
 }
 
-func TestPublishManagedKitDrifts(t *testing.T) {
+func TestDraftPublishOfManagedKitPublishes(t *testing.T) {
 	st := NewMemStore()
 	pushApp(t, st, "kit.yml", "kind: studio\n")
 	if err := st.ApplyConfig(ConfigWrite{Marks: []ConfigMark{{Kind: ConfigKindKit, Name: "app", Commit: "abc1234", Digest: "d", AppliedAt: time.Unix(1, 0).UTC()}}}); err != nil {
@@ -146,7 +146,7 @@ func TestPublishManagedKitDrifts(t *testing.T) {
 	tag := openApp(t, st)
 	s, _ := PutKitDraftFile(st, nil, "app", "notes.md", 0, []byte("n\n"), tag, "local", draftNow)
 	res, err := PublishKitDraft(st, nil, "app", false, s.ETag)
-	if err != nil || res.Version != 2 || !res.Drift || res.Warning != "this will drift from the config repo; config write it to keep the repo in sync" {
+	if err != nil || res.Version != 2 || res.Warning != "" {
 		t.Fatalf("publish = %+v %v", res, err)
 	}
 }
@@ -264,16 +264,16 @@ func TestPublishPinRefusesUnrewritable(t *testing.T) {
 	wantNothingPublished(t, st, "web", "zed")
 }
 
-// TestPublishPinManagedFollowerDrifts: pinning a config-managed follower
-// drifts it from the config repo, so the answer warns.
-func TestPublishPinManagedFollowerDrifts(t *testing.T) {
+// TestPublishPinManagedFollower: pinning a config-managed follower publishes
+// without a warning.
+func TestPublishPinManagedFollower(t *testing.T) {
 	st := NewMemStore()
 	tag := pinnedFixture(t, st, map[string]string{"web": "kind: studio\nbase:\n  kit: app\n"})
 	if err := st.ApplyConfig(ConfigWrite{Marks: []ConfigMark{{Kind: ConfigKindKit, Name: "web", Commit: "abc1234", Digest: "d", AppliedAt: time.Unix(1, 0).UTC()}}}); err != nil {
 		t.Fatal(err)
 	}
 	res, err := PublishKitDraft(st, nil, "app", true, tag)
-	if err != nil || !res.Drift || res.Warning != DraftDriftWarning || !slices.Equal(res.Pinned, []string{"web v2 (app@v1)"}) {
+	if err != nil || res.Warning != "" || !slices.Equal(res.Pinned, []string{"web v2 (app@v1)"}) {
 		t.Fatalf("publish --pin = %+v %v", res, err)
 	}
 	if web, _ := st.GetKit("web"); web.Meta[2].Origin != "" {

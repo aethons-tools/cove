@@ -12,9 +12,8 @@ import (
 )
 
 // The followed repo links its repo and last applied commit (7 chars); each managed object
-// carries its state — drifted when edited in Jam, missing when gone (no
-// page then) — and the newest apply.
-func TestTrackingAPIStates(t *testing.T) {
+// carries its page (none for the Jam context) — and the newest apply.
+func TestTrackingAPIRows(t *testing.T) {
 	h, store := managedUI(t)
 	trackManaged(t, store)
 	for _, d := range store.ListDestinations() {
@@ -39,7 +38,7 @@ func TestTrackingAPIStates(t *testing.T) {
 	for _, r := range tr.Rows {
 		rows[r.Kind+" "+r.Name] = r
 	}
-	if r := rows["destination gh"]; r.State != jam.ConfigDrifted || r.Path != "config/destinations/gh" || r.Commit != "abc1234" || r.Applied != "1970-01-01 00:16 UTC" {
+	if r := rows["destination gh"]; r.Path != "config/destinations/gh" || r.Commit != "abc1234" || r.Applied != "1970-01-01 00:16 UTC" {
 		t.Errorf("gh = %+v", r)
 	}
 	var ctx adminui.ManagedRow
@@ -48,13 +47,13 @@ func TestTrackingAPIStates(t *testing.T) {
 			ctx = r
 		}
 	}
-	if ctx.State != jam.ConfigMissing || ctx.Path != "" {
+	if ctx.Kind == "" || ctx.Path != "" {
 		t.Errorf("jam context = %+v", ctx)
 	}
-	if r := rows["role app/ic"]; r.State != jam.ConfigInSync || r.Path != "config/projects/app/agents/ic" {
+	if r := rows["role app/ic"]; r.Path != "config/projects/app/agents/ic" {
 		t.Errorf("role = %+v", r)
 	}
-	if tr.Drifted != 2 || tr.StatesErr || tr.LastCommit != "abc1234" || tr.LastApplied != "1970-01-01 00:16 UTC" || tr.CanGit {
+	if tr.LastCommit != "abc1234" || tr.LastApplied != "1970-01-01 00:16 UTC" || tr.CanGit {
 		t.Errorf("tracking = %+v", tr)
 	}
 }
@@ -65,7 +64,7 @@ func TestTrackingAPIConnectionNoPath(t *testing.T) {
 	applyManaged(t, store, map[string]string{"connections/disc.yml": "kind: connection\nversion: 1\nservice: discord\ncred: tok\n"})
 	var tr adminui.Tracking
 	apiDo(t, uiHandler(t, store), "GET", "/app/admin/api/tracking", nil, &tr)
-	if len(tr.Rows) != 1 || tr.Rows[0].Kind != jam.ConfigKindConnection || tr.Rows[0].Path != "" || tr.Rows[0].State != jam.ConfigInSync {
+	if len(tr.Rows) != 1 || tr.Rows[0].Kind != jam.ConfigKindConnection || tr.Rows[0].Path != "" {
 		t.Errorf("rows = %+v", tr.Rows)
 	}
 }
@@ -87,7 +86,7 @@ func TestTrackingAPIOtherRecord(t *testing.T) {
 }
 
 // An object edited in Jam since its mark is updated by the plan (no refusal),
-// and applying it clears config.drift.
+// and applying it updates it.
 func TestTrackingAPIUpdatesEditedObject(t *testing.T) {
 	conds := condition.New(condition.Options{})
 	f := &cfgTreeFetcher{t: t, sha: managedSHA, files: map[string]string{"users/bob.yml": "kind: user\nversion: 1\nlogins: [bob@repo]\n"}}
@@ -97,10 +96,6 @@ func TestTrackingAPIUpdatesEditedObject(t *testing.T) {
 	bob, _ := jam.ResolveRegistryRef(store, ident.User, "bob")
 	if err := store.SetUserLogins(bob, []string{"bob@jam"}); err != nil {
 		t.Fatal(err)
-	}
-	jam.CheckConfigDrift(store, conds, nil)
-	if !conds.IsOpen(jam.ConfigDriftKey) {
-		t.Fatal("drift not raised")
 	}
 	var plan adminui.Plan
 	apiDo(t, h, "POST", "/app/admin/api/tracking/diff", map[string]bool{}, &plan)
@@ -116,9 +111,6 @@ func TestTrackingAPIUpdatesEditedObject(t *testing.T) {
 	}
 	if u, _ := store.GetUser(bob); len(u.Logins) != 1 || u.Logins[0] != "bob@repo" {
 		t.Errorf("logins %v", u.Logins)
-	}
-	if conds.IsOpen(jam.ConfigDriftKey) {
-		t.Error("the apply left config.drift open")
 	}
 }
 

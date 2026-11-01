@@ -438,11 +438,9 @@ func TestDraftAPIUploadPreamble(t *testing.T) {
 	}
 }
 
-// Publishing with Pin followers that would rewrite a config-managed follower
-// is flagged on the view and refused without the drift box; with it, the
-// follower's kit.yml is the config file to write. A managed kit's own publish
-// lists its changed paths, never content. Without Pin no box is needed.
-func TestDraftAPIPublishDrift(t *testing.T) {
+// Publishing with Pin followers publishes a config-managed follower too, with
+// no confirmation and no warning.
+func TestDraftAPIPublishPinManagedFollower(t *testing.T) {
 	store, h := draftFixture(t)
 	for name, yml := range map[string]string{"web": "kind: studio\nbase:\n  kit: app\n", "api": "kind: studio\nbase:\n  kit: app\n"} {
 		if _, _, err := jam.PushKitFiles(store, name, kittreetest.Files("kit.yml", yml)); err != nil {
@@ -451,52 +449,9 @@ func TestDraftAPIPublishDrift(t *testing.T) {
 	}
 	markManaged(t, store, "web")
 	putDraft(t, store, "run.sh", 0, "echo two\n")
-	d := getDraft(t, h, "").Draft
-	if d.Managed || !slices.Equal(d.PinDrift, []string{"web"}) ||
-		d.PinDriftNote != "Pinning rewrites config-managed web: with Pin followers, this publish drifts from the config repo." || d.DriftConfirm != "I understand this drifts from the config repo" {
-		t.Errorf("pin drift = %+v", d)
-	}
-	rec := apiDo(t, h, "POST", draftAPI+"/publish", map[string]any{"etag": d.ETag, "pin": true}, nil)
-	wantErr(t, rec, 400, "bad_request")
-	if !strings.Contains(rec.Body.String(), "pinning followers drifts config-managed web from the config repo: tick “I understand this drifts from the config repo” to publish") {
-		t.Errorf("unconfirmed pin publish = %s", rec.Body)
-	}
-	if k, _ := store.GetKit("app"); k.Current != 1 {
-		t.Fatal("an unconfirmed pin publish published")
-	}
 	var res adminui.DraftResult
-	apiDo(t, h, "POST", draftAPI+"/publish", map[string]any{"etag": d.ETag, "pin": true, "drift": true}, &res)
-	p := res.Page.Published
-	if p == nil || !p.Drift || len(p.Pinned) != 2 || len(p.ConfigFiles) != 1 || p.ConfigFiles[0] != (adminui.ConfigFileRow{Path: "kits/web/kit.yml", Change: "modified"}) {
-		t.Fatalf("pin publish = %+v", p)
-	}
-
-	// The managed kit's own publish: its changed paths only.
-	store2, h2 := draftFixture(t)
-	markManaged(t, store2, "app")
-	putDraft(t, store2, "run.sh", 0, "echo SECRET-CONTENT\n")
-	putDraft(t, store2, "docs/new.md", 0, "n\n")
-	if d := getDraft(t, h2, "").Draft; !d.Managed || d.DriftWarning != jam.DraftDriftWarning {
-		t.Errorf("managed draft = %+v", d)
-	}
-	rec = apiDo(t, h2, "POST", draftAPI+"/publish", map[string]any{"etag": draftETag(t, store2), "drift": true}, &res)
-	p = res.Page.Published
-	var files []string
-	for _, f := range p.ConfigFiles {
-		files = append(files, f.Change+" "+f.Path)
-	}
-	if !slices.Equal(files, []string{"added kits/app/docs/new.md", "modified kits/app/run.sh"}) || p.Warning != jam.DraftDriftWarning || strings.Contains(rec.Body.String(), "SECRET-CONTENT") {
-		t.Errorf("managed publish = %+v", p)
-	}
-
-	// Without Pin a managed follower is not rewritten.
-	store3, h3 := draftFixture(t)
-	if _, _, err := jam.PushKitFiles(store3, "web", kittreetest.Files("kit.yml", "kind: studio\nbase:\n  kit: app\n")); err != nil {
-		t.Fatal(err)
-	}
-	markManaged(t, store3, "web")
-	putDraft(t, store3, "run.sh", 0, "echo two\n")
-	if rec := apiDo(t, h3, "POST", draftAPI+"/publish", map[string]any{"etag": draftETag(t, store3)}, &res); rec.Code != 200 || res.Page.Published.Drift {
-		t.Errorf("publish without pin = %d %+v", rec.Code, res.Page.Published)
+	rec := apiDo(t, h, "POST", draftAPI+"/publish", map[string]any{"etag": draftETag(t, store), "pin": true}, &res)
+	if p := res.Page.Published; rec.Code != 200 || p == nil || len(p.Pinned) != 2 || p.Warning != "" {
+		t.Fatalf("pin publish = %d %+v", rec.Code, p)
 	}
 }
