@@ -8,15 +8,15 @@ import { ADMIN } from "../paths";
 import type { Plan, Tracking } from "../api/types";
 
 const page = (t: Partial<Tracking> = {}): Tracking =>
-  ({ source: null, rows: [], drifted: 0, statesErr: false, lastCommit: "", lastApplied: "", canGit: true, plan: null, follow: follow(), ...t });
+  ({ source: null, rows: [], lastCommit: "", lastApplied: "", canGit: true, plan: null, follow: follow(), ...t });
 const follow = (f: Partial<Tracking["follow"]> = {}): Tracking["follow"] => ({ state: "in-sync", head: "abc1234", applied: "abc1234", error: "", checked: "2026-10-31 10:00 UTC", ...f });
 const source = { label: "https://github.com/acme/jam@main", repo: "https://github.com/acme/jam", repoLink: "https://github.com/acme/jam", dir: "", ref: "main", commit: "abc1234", commitLink: "", applied: "2026-10-28 10:00 UTC" };
 const plan = (p: Partial<Plan> = {}): Plan => ({
-  source: "https://github.com/acme/jam@main", commit: "abc1234", digest: "d1", forced: false, hasDrift: false, changes: 1, unchanged: 0,
-  ops: [{ action: "create", kind: "user", name: "bob", path: "", file: "users/bob.yml", drift: false, unmanaged: false, lines: [{ op: "+", text: "kind: user" }], tooLarge: false, diff: "" }],
+  source: "https://github.com/acme/jam@main", commit: "abc1234", digest: "d1", changes: 1, unchanged: 0,
+  ops: [{ action: "create", kind: "user", name: "bob", path: "", file: "users/bob.yml", lines: [{ op: "+", text: "kind: user" }], tooLarge: false, diff: "" }],
   forget: [], unmanaged: [], kitSources: [], refusals: [], serve: { state: "", keys: [] }, ...p,
 });
-const rows = [{ kind: "role", name: "app/ic", path: "config/projects/app/agents/ic", commit: "abc1234", applied: "x", state: "drifted" }];
+const rows = [{ kind: "role", name: "app/ic", path: "config/projects/app/agents/ic", commit: "abc1234", applied: "x" }];
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const at = ADMIN + "config/tracking";
@@ -48,6 +48,23 @@ describe("Tracking", () => {
     renderAdmin(adminBoot, at);
     expect(await screen.findByText("waiting for you")).toBeInTheDocument();
     expect(screen.getByText(/Diff, review the plan, then apply it/)).toBeInTheDocument();
+  });
+
+  it("with no branch open, the first apply is offered and sent", async () => {
+    tree();
+    let applied: unknown;
+    const waiting = page({ source: { ...source, commit: "", applied: "" }, follow: follow({ state: "awaiting-confirm", applied: "" }) });
+    server.use(
+      http.get("/app/admin/api/tracking", () => HttpResponse.json(waiting)),
+      http.post("/app/admin/api/tracking/diff", () => HttpResponse.json(plan())),
+      http.post("/app/admin/api/tracking/apply", async ({ request }) => { applied = await request.json(); return HttpResponse.json({ tracking: page({ source }), message: "applied" }); }),
+    );
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at);
+    await user.click(await screen.findByRole("button", { name: "Diff" }));
+    await user.click(await screen.findByRole("button", { name: "Apply this plan" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Apply this plan" }));
+    await waitFor(() => expect(applied).toEqual({ plan: "d1" }));
   });
 
   it("shows a failed check's error", async () => {
@@ -99,42 +116,14 @@ describe("Tracking", () => {
     expect(screen.getByText("users/bob.yml")).toBeInTheDocument();
   });
 
-  it("releases a managed object after confirming", async () => {
+  it("lists managed objects with no Release, state or Force", async () => {
     tree();
-    server.use(
-      http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ rows, follow: follow({ state: "off" }) }))),
-      http.delete("/app/admin/api/tracking/managed/role/app/ic", () => HttpResponse.json({ tracking: page({ follow: follow({ state: "off" }) }), message: "released role app/ic; it stays in Jam, unmanaged" })),
-    );
-    const user = userEvent.setup();
+    server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ rows, plan: plan(), follow: follow({ state: "off" }) }))));
     renderAdmin(adminBoot, at);
     expect(await screen.findByRole("link", { name: "app/ic" })).toHaveAttribute("href", ADMIN + "config/projects/app/agents/ic");
-    await user.click(screen.getByRole("button", { name: "Release" }));
-    expect(await screen.findByText("Stop managing role app/ic from the config repo? It stays in Jam, unmanaged.")).toBeInTheDocument();
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Release" }));
-    expect(await screen.findByText("released role app/ic; it stays in Jam, unmanaged")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("link", { name: "app/ic" })).toBeNull());
-  });
-
-  it("re-plans with force", async () => {
-    tree();
-    let body: unknown;
-    server.use(
-      http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source }))),
-      http.post("/app/admin/api/tracking/diff", async ({ request }) => { body = await request.json(); return HttpResponse.json(plan({ hasDrift: true, forced: (body as { force: boolean }).force })); }),
-    );
-    const user = userEvent.setup();
-    renderAdmin(adminBoot, at);
-    await user.click(await screen.findByRole("button", { name: "Diff" }));
-    await user.click(await screen.findByRole("checkbox", { name: /Force/ }));
-    await waitFor(() => expect(body).toEqual({ force: true }));
-  });
-
-  it("offers no Release while following a repo", async () => {
-    tree();
-    server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, rows }))));
-    renderAdmin(adminBoot, at);
-    expect(await screen.findByRole("link", { name: "app/ic" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Release" })).toBeNull();
+    expect(screen.queryByText(/Force/)).toBeNull();
+    expect(screen.queryByText(/differ from the repo/)).toBeNull();
   });
 
   it("holds Apply while a re-plan runs", async () => {
@@ -142,12 +131,13 @@ describe("Tracking", () => {
     let calls = 0;
     server.use(
       http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, rows }))),
-      http.post("/app/admin/api/tracking/diff", async () => { calls++; if (calls > 1) await delay(300); return HttpResponse.json(plan({ hasDrift: true })); }),
+      http.post("/app/admin/api/tracking/diff", async () => { calls++; if (calls > 1) await delay(300); return HttpResponse.json(plan()); }),
     );
     const user = userEvent.setup();
     renderAdmin(adminBoot, at);
     await user.click(await screen.findByRole("button", { name: "Diff" }));
-    await user.click(await screen.findByRole("checkbox", { name: /Force/ }));
+    await screen.findByRole("button", { name: "Apply this plan" });
+    await user.click(screen.getByRole("button", { name: "Diff" }));
     expect(screen.getByRole("button", { name: "Apply this plan" })).toBeDisabled();
     await waitFor(() => expect(screen.getByRole("button", { name: "Apply this plan" })).toBeEnabled());
   });

@@ -1,7 +1,7 @@
 import { Alert, Anchor, Badge, Button, Group, Menu, Modal, Paper, Stack, Text, TextInput } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
 import type { ConfigBranchResult, ConfigBranches, ConfigMergeResult, ConfigPR } from "../api/types";
@@ -13,8 +13,8 @@ const listKey = ["admin", "config", "branches"];
 
 // BranchBar heads every Config page (docs/usage/jam/config-branches.md):
 // the followed branch, read-only, with Create and Open branch; or the open
-// branch, with its links, Merge, PR and Back. Without the branch editor on
-// the serve (404) it shows nothing; another failure is shown.
+// branch, with its links, Merge, PR and Back. Without a config repo (404)
+// the config is read-only, and it says so; another failure is shown.
 export function BranchBar() {
   const branch = useBranch();
   const head = useHead();
@@ -27,9 +27,21 @@ export function BranchBar() {
   const [name, setName] = useState("");
   const [refused, setRefused] = useState("");
   const [prURL, setPrURL] = useState("");
-  // No branch editor (no config repo): nothing. Any other failure says why,
-  // rather than hiding the bar.
-  if (error && error.status !== 404) {
+  const noRepo = error?.status === 404;
+  // A tab still holding a branch (sessionStorage) on a Jam with no repo would
+  // render forms whose writes always 409: drop it, so the console is read-only.
+  useEffect(() => {
+    if (noRepo && branch) {
+      setBranch("");
+      void client.invalidateQueries();
+    }
+  }, [noRepo, branch, client]);
+  // No config repo: no branches, so nothing here edits the config. Any
+  // other failure says why, rather than hiding the bar.
+  if (noRepo) {
+    return <Alert color="gray" mb="md" title="Read-only">This Jam has no config repo. Set config.github, config.gitlab or config.git in the serve config to edit its config on branches.</Alert>;
+  }
+  if (error) {
     return <Alert color="red" mb="md" title="The config branches can't be listed">{error.message}</Alert>;
   }
   if (!data) return null;
@@ -96,7 +108,7 @@ export function BranchBar() {
               {link && <Anchor size="sm" href={link} rel="noopener noreferrer">{noun[0]!.toUpperCase() + noun.slice(1)}</Anchor>}
             </Group>
             <Group gap="xs">
-              <ConfirmAction label="Merge" color="jam" variant="filled" confirm={`Merge ${branch} into ${data.followed}? The Jam applies it at once.`} onConfirm={merge} />
+              <ConfirmAction live label="Merge" color="jam" variant="filled" confirm={`Merge ${branch} into ${data.followed}? The Jam applies it at once.`} onConfirm={merge} />
               {data.canPR && !link && <Button size="xs" variant="light" onClick={() => void openPR()}>{data.prNoun === "merge request" ? "MR" : "PR"}</Button>}
               {openMenu}
               <Button size="xs" variant="subtle" onClick={() => switchTo("")}>Back to {data.followed}</Button>

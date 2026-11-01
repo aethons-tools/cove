@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -130,7 +129,7 @@ func (b *ConfigBranches) load(ctx context.Context, branch string) (*ConfigWorksp
 	scratch := NewMemStore()
 	src := b.Env.Followed
 	src.Ref = branch
-	_, err = ApplyConfigTree(ctx, scratch, b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{Source: src, Commit: head, Force: true, Now: time.Now()}, nil, "branch:"+branch)
+	_, err = ApplyConfigTree(ctx, scratch, b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{Source: src, Commit: head, Now: time.Now()}, nil, "branch:"+branch)
 	if errors.Is(err, ErrConfigRefused) {
 		return nil, writeErr(http.StatusConflict, "branch %s does not plan: %s", branch, strings.TrimPrefix(err.Error(), ErrConfigRefused.Error()+":\n"))
 	}
@@ -151,7 +150,7 @@ func (b *ConfigBranches) treeOf(files map[string]configrepo.File) (*ConfigTree, 
 		return nil, err
 	}
 	defer os.RemoveAll(tmp)
-	if err := b.materialize(tmp, files); err != nil {
+	if err := materializeFiles(tmp, b.configFiles(files)); err != nil {
 		return nil, err
 	}
 	return LoadConfigTree(tmp)
@@ -166,29 +165,15 @@ func (b *ConfigBranches) configPath(p string) (string, bool) {
 	return rel, ok
 }
 
-// materialize writes files' config-dir files into dir at their modes.
-func (b *ConfigBranches) materialize(dir string, files map[string]configrepo.File) error {
+// configFiles is files' config-dir files, by path relative to the dir.
+func (b *ConfigBranches) configFiles(files map[string]configrepo.File) map[string]configrepo.File {
+	out := make(map[string]configrepo.File, len(files))
 	for p, f := range files {
-		rel, ok := b.configPath(p)
-		if !ok {
-			continue
-		}
-		full := filepath.Join(dir, filepath.FromSlash(rel))
-		if !strings.HasPrefix(full, dir+string(filepath.Separator)) {
-			return fmt.Errorf("config branch: unsafe path %q", p)
-		}
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return err
-		}
-		mode := os.FileMode(0o644)
-		if f.Mode == filemode.Executable {
-			mode = 0o755
-		}
-		if err := os.WriteFile(full, f.Data, mode); err != nil {
-			return err
+		if rel, ok := b.configPath(p); ok {
+			out[rel] = f
 		}
 	}
-	return nil
+	return out
 }
 
 // Save commits ws's store back to its branch: the files whose rendering
@@ -267,6 +252,7 @@ func (b *ConfigBranches) diff(before, after ConfigTreeExport) configrepo.Changes
 // configBranchStatus maps the configrepo errors (and conflicts) for ConfigStatus.
 func configBranchStatus(err error) (int, string, bool) {
 	var ce *configrepo.ConflictError
+	var co *configrepo.CheckedOutError
 	switch {
 	case errors.Is(err, configrepo.ErrStale):
 		return http.StatusConflict, err.Error(), true
@@ -276,6 +262,8 @@ func configBranchStatus(err error) (int, string, bool) {
 		return http.StatusConflict, err.Error(), true
 	case errors.Is(err, configrepo.ErrFollowedBranch):
 		return http.StatusBadRequest, err.Error(), true
+	case errors.As(err, &co):
+		return http.StatusConflict, co.Error(), true
 	case errors.As(err, &ce):
 		return http.StatusConflict, "Merge refused: " + ce.Error() + ". Open a pull request instead.", true
 	case errors.Is(err, configrepo.ErrRemote):
@@ -347,7 +335,7 @@ func (b *ConfigBranches) Merge(ctx context.Context, branch, head string, author 
 		if err != nil {
 			return err
 		}
-		res, err := ApplyConfigTree(ctx, b.Live, b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{DryRun: true, Force: true, Source: b.Env.Followed, Now: time.Now()}, nil, "merge:"+branch)
+		res, err := ApplyConfigTree(ctx, b.Live, b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{DryRun: true, Source: b.Env.Followed, Now: time.Now()}, nil, "merge:"+branch)
 		if err != nil {
 			return err
 		}

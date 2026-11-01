@@ -4,7 +4,7 @@ read_when: You are writing a kit prompt, debugging what a session was told (or w
 owns: session-context layers, delivery order and precedence, the SANDBOX.md vs context precedence, core budgets, the /agent-data/context layout, the JAM_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
 prereqs: coves.md
 tier: leaf
-updated: 2026-10-30
+updated: 2026-11-01
 ---
 
 # Session context
@@ -15,7 +15,7 @@ layers, in delivery order:
 | Layer | Source | Core budget |
 |-------|--------|-------------|
 | Boilerplate | built in, per session kind (ephemeral / personal / standing): the sandbox rules (persistence, the egress proxy, human-gated kit changes — leaves `boilerplate/changing-the-kit.md` and `boilerplate/hardening-limits.md`), turn model, intercom rules (the default recipient, if any), for ticket sessions how they finish (`report`, `end`), a Status line (set [`mission`](intercom.md#what-the-tools-do) to the end goal on getting a task, and `focus` to what it is on now whenever that changes), and — when studio previews are enabled on the Jam — a Previews line: `expose(port, name)` publishes a served port to collaborators at a URL to post in the channel; `unexpose`/`exposures` manage them; a studio restart clears them | 2400 B |
-| Kit | the studio kit's `prompt` as the core, its `notes` as leaves, and a generated `kit/tools.md` from its `build-args` ([kits.md](kits.md)) | 800 B — `kit push` rejects more; a kit stored before the budget is truncated at raise, its full text kept as `kit/CORE-full.md` |
+| Kit | the studio kit's `prompt` as the core, its `notes` as leaves, and a generated `kit/tools.md` from its `build-args` ([kits.md](kits.md)) | 800 B — a version with more is refused; a kit stored before the budget is truncated at raise, its full text kept as `kit/CORE-full.md` |
 | Studio | generated at raise: granted destinations (upstream, env keys, git routing, each destination's [note](connector.md#notes-for-sessions)), effective egress (the role's policy, else the kit ceiling), message targets | 1600 B — never truncated: long lists move to `studio/destinations.md`, `egress.md`, `targets.md` |
 | Project | authored: the project's goals and [resources](session-context-authoring.md) | 1200 B |
 | Role | authored: rules for the role | 1200 B |

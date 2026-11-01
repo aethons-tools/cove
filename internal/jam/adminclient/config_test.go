@@ -2,12 +2,14 @@ package adminclient
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/configtar"
@@ -36,16 +38,17 @@ func TestConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	diff, err := c.ConfigDiff(tree, false)
+	diff, err := c.ConfigDiff(tree)
 	if err != nil || diff.Applied || len(diff.Plan.Ops) != 1 || diff.Plan.Ops[0].Action != jam.ConfigCreate {
 		t.Fatalf("ConfigDiff = %+v, %v", diff, err)
 	}
-	if _, err := c.ConfigApply(tree, false, "stale"); !errors.Is(err, ErrConflict) {
-		t.Fatalf("ConfigApply stale = %v, want ErrConflict", err)
+	lt, err := jam.LoadConfigTree(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	res, err := c.ConfigApply(tree, true, diff.Plan.Digest)
-	if err != nil || !res.Applied || res.Counts[jam.ConfigCreate] != 1 {
-		t.Fatalf("ConfigApply = %+v, %v", res, err)
+	if _, err := jam.ApplyConfigTree(context.Background(), store, nil, lt, jam.ConfigEnv{CredExists: creds},
+		jam.ConfigApplyOptions{Source: gitsource.Source{Repo: jam.ConfigDirRepo}, Commit: jam.ConfigDirCommit, Now: time.Unix(1, 0)}, nil, "test"); err != nil {
+		t.Fatal(err)
 	}
 	exp, err := c.ConfigExportTree(false)
 	if err != nil || exp.Files["users/bob.yml"] == "" {
@@ -53,15 +56,6 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 	if exp, err = c.ConfigExportTree(true); err != nil || exp.Files["users/bob.yml"] == "" {
 		t.Fatalf("ConfigExportTree all = %+v, %v", exp, err)
-	}
-	if err := c.ConfigRelease(jam.ConfigKindUser, "bob"); err != nil {
-		t.Fatalf("ConfigRelease = %v", err)
-	}
-	if len(store.ListConfigMarks()) != 0 {
-		t.Fatalf("marks after release: %v", store.ListConfigMarks())
-	}
-	if err := c.ConfigRelease(jam.ConfigKindUser, "bob"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("second ConfigRelease = %v, want ErrNotFound", err)
 	}
 }
 
@@ -80,25 +74,22 @@ func TestConfigSourceMethods(t *testing.T) {
 		return New(ts.URL, ""), store
 	}
 	none, _ := serve(gitsource.Source{})
-	if _, err := none.ConfigDiffSource("", false); !errors.Is(err, ErrConflict) {
+	if _, err := none.ConfigDiffSource(""); !errors.Is(err, ErrConflict) {
 		t.Fatalf("diff with no followed repo = %v, want ErrConflict", err)
 	}
-	if _, err := none.ConfigSync(false, ""); !errors.Is(err, ErrConflict) {
+	if _, err := none.ConfigSync(""); !errors.Is(err, ErrConflict) {
 		t.Fatalf("sync with no followed repo = %v, want ErrConflict", err)
 	}
 	c, _ := serve(gitsource.Source{Repo: repo, Ref: "main"})
-	diff, err := c.ConfigDiffSource("", false)
+	diff, err := c.ConfigDiffSource("")
 	if err != nil || diff.Plan.Ops[0].Action != jam.ConfigCreate {
 		t.Fatalf("ConfigDiffSource = %+v, %v", diff, err)
 	}
-	if res, err := c.ConfigSync(false, diff.Plan.Digest); err != nil || !res.Applied {
+	if res, err := c.ConfigSync(diff.Plan.Digest); err != nil || !res.Applied {
 		t.Fatalf("ConfigSync = %+v, %v", res, err)
 	}
 	if s, err := c.ConfigFollow(); err != nil || s.Applied != diff.Commit {
 		t.Fatalf("ConfigFollow = %+v, %v", s, err)
-	}
-	if res, err := c.ConfigApplySource(repo+"@main", false, ""); err != nil || res.Applied {
-		t.Fatalf("ConfigApplySource = %+v, %v", res, err)
 	}
 }
 

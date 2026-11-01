@@ -110,11 +110,11 @@ func plannedKitYML(w ConfigWrite, k Kit, v int) string {
 	return ""
 }
 
-func planOn(t *testing.T, st *MemStore, tr *ConfigTree, force bool) ConfigPlan {
+func planOn(t *testing.T, st *MemStore, tr *ConfigTree) ConfigPlan {
 	t.Helper()
 	return PlanConfig(ConfigPlanInput{
 		Tree: tr, Snapshot: st.ExportConfig(), Instances: st.ListInstances(), Marks: st.ListConfigMarks(),
-		Env: allCreds, Source: gitsource.Source{Repo: ConfigDirRepo}, Commit: ConfigDirCommit, Force: force, Now: planNow,
+		Env: allCreds, Source: gitsource.Source{Repo: ConfigDirRepo}, Commit: ConfigDirCommit, Now: planNow,
 	})
 }
 
@@ -139,7 +139,7 @@ func opOf(p ConfigPlan, kind, name string) ConfigOp {
 
 func TestPlanCreatesInOrder(t *testing.T) {
 	tr := treeOf(t, fullTreeFiles) // every kind once; role app/ic binds kit app (../web-dev) and model-spec fast
-	p := planOn(t, NewMemStore(), tr, false)
+	p := planOn(t, NewMemStore(), tr)
 	if len(p.Refusals) > 0 {
 		t.Fatal(p.Refusals)
 	}
@@ -162,8 +162,8 @@ func TestPlanCreatesInOrder(t *testing.T) {
 		t.Fatalf("marks %+v", p.write.Marks)
 	}
 	st := NewMemStore()
-	applyPlan(t, st, planOn(t, st, tr, false))
-	if again := planOn(t, st, tr, false); again.Counts()[ConfigUnchanged] != len(again.Ops) || len(again.Refusals) > 0 {
+	applyPlan(t, st, planOn(t, st, tr))
+	if again := planOn(t, st, tr); again.Counts()[ConfigUnchanged] != len(again.Ops) || len(again.Refusals) > 0 {
 		t.Fatalf("full tree re-plan: %+v", again)
 	}
 }
@@ -171,38 +171,26 @@ func TestPlanCreatesInOrder(t *testing.T) {
 func TestPlanTable(t *testing.T) {
 	st := NewMemStore()
 	tr := treeOf(t, map[string]string{"destinations/gh.yml": ghDest})
-	applyPlan(t, st, planOn(t, st, tr, false))
+	applyPlan(t, st, planOn(t, st, tr))
 
-	if o := opOf(planOn(t, st, tr, false), ConfigKindDestination, "gh"); o.Action != ConfigUnchanged {
+	if o := opOf(planOn(t, st, tr), ConfigKindDestination, "gh"); o.Action != ConfigUnchanged {
 		t.Fatalf("re-plan %+v", o)
 	}
 	changed := treeOf(t, map[string]string{"destinations/gh.yml": ghDest + "note: hi\n"})
-	if o := opOf(planOn(t, st, changed, false), ConfigKindDestination, "gh"); o.Action != ConfigUpdate || o.Drift {
+	if o := opOf(planOn(t, st, changed), ConfigKindDestination, "gh"); o.Action != ConfigUpdate {
 		t.Fatalf("update %+v", o)
 	}
-	d, _ := findDestination(st, "gh")
-	d.Note = "edited in Jam"
-	_ = st.AddDestination(d)
-	p := planOn(t, st, changed, false)
-	if o := opOf(p, ConfigKindDestination, "gh"); !o.Drift || !slices.Contains(p.Refusals,
-		"destination gh drifted (edited in Jam since config @dir); re-run with --force or config write it first") {
-		t.Fatalf("drift %+v %v", o, p.Refusals)
-	}
-	if p := planOn(t, st, changed, true); len(p.Refusals) > 0 || !opOf(p, ConfigKindDestination, "gh").Drift {
-		t.Fatalf("forced %+v", p)
-	}
 	_ = st.AddDestination(Destination{Name: "other", Route: "/o/", Upstream: "https://o.example"})
-	same := treeOf(t, map[string]string{"destinations/gh.yml": ghDest + "note: edited in Jam\n",
+	same := treeOf(t, map[string]string{"destinations/gh.yml": ghDest,
 		"destinations/other.yml": "kind: destination\nversion: 1\nroute: /o/\nupstream: https://o.example\n"})
-	if o := opOf(planOn(t, st, same, false), ConfigKindDestination, "other"); o.Action != ConfigAdopt {
+	if o := opOf(planOn(t, st, same), ConfigKindDestination, "other"); o.Action != ConfigAdopt {
 		t.Fatalf("adopt %+v", o)
 	}
 	differs := treeOf(t, map[string]string{"destinations/other.yml": "kind: destination\nversion: 1\nroute: /x/\nupstream: https://o.example\n"})
-	if p := planOn(t, st, differs, false); !slices.Contains(p.Refusals,
-		"destination other exists and is not managed; config write --all it into the repo, or rename") {
-		t.Fatalf("refusal %v", p.Refusals)
+	if p := planOn(t, st, differs); len(p.Refusals) > 0 || opOf(p, ConfigKindDestination, "other").Action != ConfigUpdate {
+		t.Fatalf("unmanaged update %+v", p)
 	}
-	if p := planOn(t, st, treeOf(t, nil), false); !slices.Contains(p.Unmanaged, ConfigKey{ConfigKindDestination, "other"}) {
+	if p := planOn(t, st, treeOf(t, nil)); !slices.Contains(p.Unmanaged, ConfigKey{ConfigKindDestination, "other"}) {
 		t.Fatalf("unmanaged %v", p.Unmanaged)
 	}
 }
@@ -213,7 +201,7 @@ func TestPlanReferencesResolveAgainstPlannedState(t *testing.T) {
 		"projects/app/roles/ic.yml": "kind: role\nversion: 1\nkit: web-dev\nmodel-spec: nope\n",
 		"users/bob.yml":             "kind: user\nversion: 1\n",
 	})
-	p := planOn(t, NewMemStore(), tr, false)
+	p := planOn(t, NewMemStore(), tr)
 	for _, want := range []string{
 		"projects/app/project.yml: member ghost is not a user in the repo or Jam",
 		"projects/app/roles/ic.yml: kit web-dev not found (not in the repo or Jam)",
@@ -237,7 +225,7 @@ func TestPlanSeededDefaultModelSpec(t *testing.T) {
 		t.Fatal(created, err)
 	}
 	tr := treeOf(t, map[string]string{"model-specs/" + DefaultModelSpec + ".yml": "kind: model-spec\nversion: 1\ntype: claude\nharness-version: 2.1.99\nprincipal: {credential: anthropic}\nclaude: {provider: anthropic}\n"})
-	p := planOn(t, st, tr, false)
+	p := planOn(t, st, tr)
 	if len(p.Refusals) > 0 || opOf(p, ConfigKindModelSpec, DefaultModelSpec).Action != ConfigUpdate {
 		t.Fatalf("%+v", p)
 	}
@@ -253,7 +241,7 @@ func TestPlanReapplyIsUnchanged(t *testing.T) {
 	if len(tr.Refusals) > 0 {
 		t.Fatal(tr.Refusals)
 	}
-	first := planOn(t, st, tr, false)
+	first := planOn(t, st, tr)
 	kinds := map[string]bool{}
 	for _, o := range first.Ops {
 		kinds[o.Kind] = true
@@ -262,30 +250,30 @@ func TestPlanReapplyIsUnchanged(t *testing.T) {
 		t.Fatalf("fixture must cover every kind: %v", kinds)
 	}
 	applyPlan(t, st, first)
-	again := planOn(t, st, tr, false)
+	again := planOn(t, st, tr)
 	if len(again.Ops) != len(first.Ops) || len(again.Refusals) > 0 {
 		t.Fatalf("re-plan %+v", again)
 	}
 	for _, o := range again.Ops {
-		if o.Action != ConfigUnchanged || o.Drift {
-			t.Errorf("%s %s: %s drift=%v\nbefore:\n%s\nafter:\n%s", o.Kind, o.Name, o.Action, o.Drift, o.Before, o.After)
+		if o.Action != ConfigUnchanged {
+			t.Errorf("%s %s: %s\nbefore:\n%s\nafter:\n%s", o.Kind, o.Name, o.Action, o.Before, o.After)
 		}
 	}
 	exp, _ := ExportConfigTree(st.ExportConfig(), st.ListConfigMarks(), nil, false)
-	if p := planOn(t, st, exportTree(t, exp), false); len(p.Refusals) > 0 || p.Counts()[ConfigUnchanged] != len(p.Ops) || len(p.Ops) != len(first.Ops) {
+	if p := planOn(t, st, exportTree(t, exp)); len(p.Refusals) > 0 || p.Counts()[ConfigUnchanged] != len(p.Ops) || len(p.Ops) != len(first.Ops) {
 		t.Fatalf("write-then-plan is not a no-op: %+v", p)
 	}
 }
 
 func TestPlanPinsRefused(t *testing.T) {
-	p := planOn(t, NewMemStore(), treeOf(t, map[string]string{"projects/app/roles/ic.yml": "kind: role\nversion: 1\nkit: web@v2\n"}), false)
+	p := planOn(t, NewMemStore(), treeOf(t, map[string]string{"projects/app/roles/ic.yml": "kind: role\nversion: 1\nkit: web@v2\n"}))
 	if !slices.Contains(p.Refusals, "projects/app/roles/ic.yml: kit web@v2 pins a version; versions are per-Jam — name the kit") {
 		t.Fatal(p.Refusals)
 	}
 }
 
 func TestPlanHostKeyInRepoJamYML(t *testing.T) {
-	p := planOn(t, NewMemStore(), treeOf(t, map[string]string{"jam.yml": "listen: \":443\"\n"}), false)
+	p := planOn(t, NewMemStore(), treeOf(t, map[string]string{"jam.yml": "listen: \":443\"\n"}))
 	if !slices.Contains(p.Refusals, "jam.yml: listen is a host key; put it in jam.local.yml") {
 		t.Fatal(p.Refusals)
 	}
@@ -313,7 +301,7 @@ func TestPlanServeConfigDiff(t *testing.T) {
 
 func TestPlanRefusalWritesNothing(t *testing.T) {
 	tr := treeOf(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n", "kits/app/kit.yml": "kind: studio\nbase: {kit: ../../x}\n"})
-	p := planOn(t, NewMemStore(), tr, false)
+	p := planOn(t, NewMemStore(), tr)
 	if len(p.Refusals) == 0 {
 		t.Fatal("expected a refusal")
 	}
@@ -322,7 +310,7 @@ func TestPlanRefusalWritesNothing(t *testing.T) {
 
 func TestPlanDigestStable(t *testing.T) {
 	tr := treeOf(t, fullTreeFiles)
-	a, b := planOn(t, NewMemStore(), tr, false), planOn(t, NewMemStore(), tr, false)
+	a, b := planOn(t, NewMemStore(), tr), planOn(t, NewMemStore(), tr)
 	if a.Digest == "" || a.Digest != b.Digest {
 		t.Fatalf("%q vs %q", a.Digest, b.Digest)
 	}
@@ -330,8 +318,8 @@ func TestPlanDigestStable(t *testing.T) {
 
 func TestPlanConnectionServiceCannotChange(t *testing.T) {
 	st := NewMemStore()
-	applyPlan(t, st, planOn(t, st, treeOf(t, map[string]string{"connections/acme.yml": "kind: connection\nversion: 1\nservice: linear\n"}), false))
-	p := planOn(t, st, treeOf(t, map[string]string{"connections/acme.yml": "kind: connection\nversion: 1\nservice: discord\n"}), false)
+	applyPlan(t, st, planOn(t, st, treeOf(t, map[string]string{"connections/acme.yml": "kind: connection\nversion: 1\nservice: linear\n"})))
+	p := planOn(t, st, treeOf(t, map[string]string{"connections/acme.yml": "kind: connection\nversion: 1\nservice: discord\n"}))
 	if !slices.Contains(p.Refusals, "connections/acme.yml: service cannot change (linear → discord); remove the file, apply, then add it back") {
 		t.Fatal(p.Refusals)
 	}
@@ -348,7 +336,7 @@ members: [{user: bob, delivery: [{service: discord, address: "111"}]}]
 rooms: [{key: ops, bindings: [{connection: acme, ref: c1}]}, {key: old}]
 `,
 	}
-	applyPlan(t, st, planOn(t, st, treeOf(t, base), false))
+	applyPlan(t, st, planOn(t, st, treeOf(t, base)))
 	proj, _ := st.GetProject("app")
 	bob, _ := st.liveUserNamed("bob")
 	ms, _ := st.GetMembership(proj.ID, bob.ID)
@@ -361,7 +349,7 @@ version: 1
 members: [{user: bob, delivery: [{service: discord, address: "111"}]}]
 rooms: [{key: ops, label: Ops, bindings: [{connection: acme, ref: c1}]}]
 `
-	p := planOn(t, st, treeOf(t, base), false)
+	p := planOn(t, st, treeOf(t, base))
 	if o := opOf(p, ConfigKindProject, "app"); o.Action != ConfigUpdate {
 		t.Fatalf("%+v %v", o, p.Refusals)
 	}
@@ -407,24 +395,24 @@ func roomTree(rooms string) map[string]string {
 
 func TestPlanRoomRenameKeepsItsBinding(t *testing.T) {
 	st := NewMemStore()
-	applyPlan(t, st, planOn(t, st, treeOf(t, roomTree("  - {key: ops, bindings: [{connection: acme, ref: c1}]}\n")), false))
+	applyPlan(t, st, planOn(t, st, treeOf(t, roomTree("  - {key: ops, bindings: [{connection: acme, ref: c1}]}\n"))))
 	renamed := treeOf(t, roomTree("  - {key: operations, bindings: [{connection: acme, ref: c1}]}\n"))
-	p := planOn(t, st, renamed, false)
+	p := planOn(t, st, renamed)
 	applyPlan(t, st, p)
 	proj, _ := st.GetProject("app")
 	if rooms := st.ListChannels(proj.ID, SourceRoom); len(rooms) != 1 || rooms[0].Key != "operations" || len(rooms[0].Bindings) != 1 {
 		t.Fatalf("rooms %+v", rooms)
 	}
-	if again := planOn(t, st, renamed, false); again.Counts()[ConfigUnchanged] != len(again.Ops) {
+	if again := planOn(t, st, renamed); again.Counts()[ConfigUnchanged] != len(again.Ops) {
 		t.Fatalf("re-plan %+v", again.Ops)
 	}
 }
 
 func TestPlanBindingMovesBetweenRooms(t *testing.T) {
 	st := NewMemStore()
-	applyPlan(t, st, planOn(t, st, treeOf(t, roomTree("  - {key: b}\n  - {key: z, bindings: [{connection: acme, ref: c1}]}\n")), false))
+	applyPlan(t, st, planOn(t, st, treeOf(t, roomTree("  - {key: b}\n  - {key: z, bindings: [{connection: acme, ref: c1}]}\n"))))
 	moved := treeOf(t, roomTree("  - {key: b, bindings: [{connection: acme, ref: c1}]}\n  - {key: z}\n"))
-	p := planOn(t, st, moved, false)
+	p := planOn(t, st, moved)
 	applyPlan(t, st, p)
 	proj, _ := st.GetProject("app")
 	rooms := st.ListChannels(proj.ID, SourceRoom)
@@ -449,9 +437,9 @@ func TestPlanBindingMovesBetweenRooms(t *testing.T) {
 func TestPlanRoomBindingOrderIsNotAChange(t *testing.T) {
 	st := NewMemStore()
 	files := roomTree("  - {key: ops, bindings: [{connection: acme, ref: c2}, {connection: acme, ref: c1}]}\n")
-	applyPlan(t, st, planOn(t, st, treeOf(t, files), false))
+	applyPlan(t, st, planOn(t, st, treeOf(t, files)))
 	files["projects/app/project.yml"] = "kind: project\nversion: 1\nrooms:\n  - {key: ops, bindings: [{connection: acme, ref: c1}, {connection: acme, ref: c2}]}\n"
-	p := planOn(t, st, treeOf(t, files), false)
+	p := planOn(t, st, treeOf(t, files))
 	if o := opOf(p, ConfigKindProject, "app"); o.Action != ConfigUnchanged || len(p.write.Channels) != 0 {
 		t.Fatalf("%+v %+v", o, p.write.Channels)
 	}
@@ -461,10 +449,10 @@ func TestPlanRoomBindingOrderIsNotAChange(t *testing.T) {
 // the managed kit it names is never planned as a delete.
 func TestPlanRefusesUnfetchedKitSources(t *testing.T) {
 	st := NewMemStore()
-	applyPlan(t, st, planOn(t, st, treeOf(t, map[string]string{"kits/app/kit.yml": "kind: studio\n"}), false))
+	applyPlan(t, st, planOn(t, st, treeOf(t, map[string]string{"kits/app/kit.yml": "kind: studio\n"})))
 	p := planOn(t, st, treeOf(t, map[string]string{
 		"kits/app.source.yml": "kind: kit-source\nversion: 1\ngit: https://github.com/acme/kits//app@main\n",
-	}), false)
+	}))
 	if !slices.Contains(p.Refusals, "kits: the kit sources (kits/<name>.source.yml) were not fetched") {
 		t.Fatalf("refusals %v", p.Refusals)
 	}
@@ -476,11 +464,11 @@ func TestPlanRefusesUnfetchedKitSources(t *testing.T) {
 var cfgSrc = gitsource.Source{Repo: "https://github.com/acme/jam", Dir: "cfg", Ref: "main"}
 
 // gitPlanOn plans tr against st as an apply of src at commit.
-func gitPlanOn(t *testing.T, st *MemStore, tr *ConfigTree, src gitsource.Source, commit string, force bool) ConfigPlan {
+func gitPlanOn(t *testing.T, st *MemStore, tr *ConfigTree, src gitsource.Source, commit string) ConfigPlan {
 	t.Helper()
 	return PlanConfig(ConfigPlanInput{
 		Tree: tr, Snapshot: st.ExportConfig(), Instances: st.ListInstances(), Marks: st.ListConfigMarks(),
-		Env: allCreds, Source: src, Commit: commit, Force: force, Now: planNow,
+		Env: allCreds, Source: src, Commit: commit, Now: planNow,
 	})
 }
 
@@ -499,7 +487,7 @@ func sourceKitJam(t *testing.T) (*MemStore, *fakeFetcher) {
 	t.Helper()
 	kits := newFakeFetcher(t, map[string]string{"main": "k1"}, map[string]map[string]string{"k1": {"app/kit.yml": "kind: studio\nprompt: hi\n"}})
 	st := NewMemStore()
-	p := gitPlanOn(t, st, fetchedTree(t, map[string]string{"kits/app.source.yml": appSourceYML}, repoFetcher{kitsRepo: kits}), cfgSrc, "c1", false)
+	p := gitPlanOn(t, st, fetchedTree(t, map[string]string{"kits/app.source.yml": appSourceYML}, repoFetcher{kitsRepo: kits}), cfgSrc, "c1")
 	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigCreate || op.Path != "kits/app.source.yml" {
 		t.Fatalf("op %+v", op)
 	}
@@ -525,12 +513,12 @@ func TestPlanSourceKitCreateTracksIt(t *testing.T) {
 func TestPlanSourceKitReapplyAndCommitOnlyMove(t *testing.T) {
 	st, kits := sourceKitJam(t)
 	files := map[string]string{"kits/app.source.yml": appSourceYML}
-	again := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c1", false)
+	again := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c1")
 	if op := opOf(again, ConfigKindKit, "app"); op.Action != ConfigUnchanged || len(again.write.Kits) != 0 {
 		t.Fatalf("reapply: %+v kits=%d", op, len(again.write.Kits))
 	}
 	kits.commit("main", "k2", map[string]string{"app/kit.yml": "kind: studio\nprompt: hi\n", "README": "moved"})
-	moved := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c1", false)
+	moved := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c1")
 	if op := opOf(moved, ConfigKindKit, "app"); op.Action != ConfigUnchanged || ConfigChanges(moved) != 0 {
 		t.Fatalf("commit-only move: %+v", moved.Ops)
 	}
@@ -542,26 +530,27 @@ func TestPlanSourceKitReapplyAndCommitOnlyMove(t *testing.T) {
 	}
 }
 
-func TestPlanSourceKitUpdateAndDrift(t *testing.T) {
+func TestPlanSourceKitUpdateOverEdit(t *testing.T) {
 	st, kits := sourceKitJam(t)
 	files := map[string]string{"kits/app.source.yml": appSourceYML}
 	kits.commit("main", "k2", map[string]string{"app/kit.yml": "kind: studio\nprompt: two\n"})
-	p := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c2", false)
-	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigUpdate || op.Drift {
+	p := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c2")
+	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigUpdate {
 		t.Fatalf("op %+v", op)
 	}
+	// Edited in Jam since: the repo still wins.
 	if _, _, err := PushStudioKit(st, "app", "kind: studio\nprompt: jam\n"); err != nil {
 		t.Fatal(err)
 	}
-	p = gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c2", false)
-	if !slices.Contains(p.Refusals, "kit app drifted (edited in Jam since config @c1); re-run with --force or config write it first") {
-		t.Fatalf("refusals %v", p.Refusals)
+	p = gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c2")
+	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigUpdate || len(p.Refusals) > 0 {
+		t.Fatalf("op %+v refusals %v", op, p.Refusals)
 	}
 }
 
 // A kit sync that lands the content the config repo also has makes the next
-// plan unchanged with a stale mark: the plan lists the mark to refresh, so a
-// later real change is not refused as drift.
+// plan unchanged with a stale mark: the plan lists the mark to refresh, so
+// the mark records what Jam holds.
 func TestPlanRefreshesStaleMarkOfUnchangedKit(t *testing.T) {
 	st, kits := sourceKitJam(t)
 	files := map[string]string{"kits/app.source.yml": appSourceYML}
@@ -569,7 +558,7 @@ func TestPlanRefreshesStaleMarkOfUnchangedKit(t *testing.T) {
 	if _, _, err := PushStudioKit(st, "app", "kind: studio\nprompt: two\n"); err != nil { // as a kit sync would
 		t.Fatal(err)
 	}
-	p := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c2", false)
+	p := gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c2")
 	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigUnchanged || ConfigChanges(p) != 0 {
 		t.Fatalf("ops %+v", p.Ops)
 	}
@@ -577,13 +566,13 @@ func TestPlanRefreshesStaleMarkOfUnchangedKit(t *testing.T) {
 		p.refreshMarks[0].Digest == markOf(st, ConfigKindKit, "app").Digest {
 		t.Fatalf("refresh marks %+v", p.refreshMarks)
 	}
-	// With the refreshed mark written, the repo's next change is no drift.
+	// With the refreshed mark written, the repo's next change is an update.
 	if err := st.ApplyConfig(ConfigWrite{Kits: p.write.Kits, Marks: p.refreshMarks}); err != nil {
 		t.Fatal(err)
 	}
 	kits.commit("main", "k3", map[string]string{"app/kit.yml": "kind: studio\nprompt: three\n"})
-	p = gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c3", false)
-	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigUpdate || op.Drift || len(p.Refusals) > 0 {
+	p = gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c3")
+	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigUpdate || len(p.Refusals) > 0 {
 		t.Fatalf("op %+v refusals %v", op, p.Refusals)
 	}
 }
@@ -591,7 +580,7 @@ func TestPlanRefreshesStaleMarkOfUnchangedKit(t *testing.T) {
 func TestPlanInlineKitFromGitRecordsProvenanceAndUntracks(t *testing.T) {
 	st := NewMemStore()
 	tr := treeOf(t, map[string]string{"kits/web/kit.yml": "kind: studio\n"})
-	applyPlan(t, st, gitPlanOn(t, st, tr, cfgSrc, "c9", false))
+	applyPlan(t, st, gitPlanOn(t, st, tr, cfgSrc, "c9"))
 	k, _ := st.GetKit("web")
 	want := KitSource{Repo: cfgSrc.Repo, Dir: "cfg/kits/web", Ref: "main", Commit: "c9"}
 	if k.Source != nil || k.Meta[1].Source == nil || *k.Meta[1].Source != want {
@@ -600,13 +589,13 @@ func TestPlanInlineKitFromGitRecordsProvenanceAndUntracks(t *testing.T) {
 	if mk := markOf(st, ConfigKindKit, "web"); mk.Commit != "c9" {
 		t.Fatalf("mark %+v", mk)
 	}
-	// Tracked in Jam since: the repo's inline copy is an update over drift
-	// that untracks it, with no new version (same config).
+	// Tracked in Jam since: the repo's inline copy is an update that
+	// untracks it, with no new version (same config).
 	if err := st.SetKitSource("web", &KitSource{Repo: kitsRepo, Dir: "web", Ref: "main"}); err != nil {
 		t.Fatal(err)
 	}
-	p := gitPlanOn(t, st, tr, cfgSrc, "c9", true)
-	if op := opOf(p, ConfigKindKit, "web"); op.Action != ConfigUpdate || !op.Drift || op.Path != "kits/web/kit.yml" {
+	p := gitPlanOn(t, st, tr, cfgSrc, "c9")
+	if op := opOf(p, ConfigKindKit, "web"); op.Action != ConfigUpdate || op.Path != "kits/web/kit.yml" {
 		t.Fatalf("op %+v", op)
 	}
 	applyPlan(t, st, p)
@@ -624,12 +613,12 @@ func TestPlanSourceKitFetchFailureIsNotADelete(t *testing.T) {
 	}})
 	st := NewMemStore()
 	files := map[string]string{"kits/app.source.yml": appSourceYML}
-	applyPlan(t, st, gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c1", false))
+	applyPlan(t, st, gitPlanOn(t, st, fetchedTree(t, files, repoFetcher{kitsRepo: kits}), cfgSrc, "c1"))
 	if _, ok := st.GetKit("base"); !ok || markOf(st, ConfigKindKit, "base").Name == "" {
 		t.Fatal("the ancestor is not a managed kit")
 	}
 	broken := fetchedTree(t, files, repoFetcher{}) // the kits repo is unreachable
-	p := gitPlanOn(t, st, broken, cfgSrc, "c2", false)
+	p := gitPlanOn(t, st, broken, cfgSrc, "c2")
 	for _, n := range []string{"app", "base"} {
 		if op := opOf(p, ConfigKindKit, n); op.Action == ConfigDelete {
 			t.Fatalf("an unreachable source plans a delete: %+v", op)
@@ -648,7 +637,7 @@ func TestPlanSourceKitFetchFailureIsNotADelete(t *testing.T) {
 		{"no git", "kits/app.source.yml", "kind: kit-source\nversion: 1\n", "kits/app.source.yml"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := gitPlanOn(t, st, fetchedTree(t, map[string]string{tc.path: tc.body}, repoFetcher{kitsRepo: kits}), cfgSrc, "c3", false)
+			p := gitPlanOn(t, st, fetchedTree(t, map[string]string{tc.path: tc.body}, repoFetcher{kitsRepo: kits}), cfgSrc, "c3")
 			for _, n := range []string{"app", "base"} {
 				if op := opOf(p, ConfigKindKit, n); op.Action == ConfigDelete {
 					t.Fatalf("a refused source file plans a delete: %+v", op)
@@ -667,11 +656,11 @@ func TestPlanKitCycleIsNotADelete(t *testing.T) {
 	applyPlan(t, st, planOn(t, st, treeOf(t, map[string]string{
 		"kits/a/kit.yml": "kind: studio\n",
 		"kits/b/kit.yml": "kind: studio\nbase: {kit: a}\n",
-	}), false))
+	})))
 	p := planOn(t, st, treeOf(t, map[string]string{
 		"kits/a/kit.yml": "kind: studio\nbase: {kit: b}\n",
 		"kits/b/kit.yml": "kind: studio\nbase: {kit: a}\n",
-	}), false)
+	}))
 	if !slices.Contains(p.Refusals, "kits: cycle among a, b") {
 		t.Fatalf("refusals %v", p.Refusals)
 	}
@@ -685,7 +674,7 @@ func TestPlanKitCycleIsNotADelete(t *testing.T) {
 // A tracked kit's delete is located at its .source.yml.
 func TestPlanSourceKitDeleteIsAtItsSourceFile(t *testing.T) {
 	st, _ := sourceKitJam(t)
-	p := gitPlanOn(t, st, treeOf(t, map[string]string{}), cfgSrc, "c2", false)
+	p := gitPlanOn(t, st, treeOf(t, map[string]string{}), cfgSrc, "c2")
 	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigDelete || op.Path != "kits/app.source.yml" {
 		t.Fatalf("op %+v", op)
 	}
@@ -715,4 +704,107 @@ func liveCanon(t *testing.T, st Store, name string) []byte {
 	t.Helper()
 	v, _ := LoadKitVersion(st, name, 0)
 	return kitCanon(v.Tree, st.KitBlob, nil)
+}
+
+func userOf(st *MemStore, name string) User {
+	for _, u := range st.ListUsers() {
+		if u.Name == name {
+			return u
+		}
+	}
+	return User{}
+}
+
+// The repo always wins: an unmanaged object the repo holds differently is
+// updated and marked, never refused.
+func TestPlanUpdatesUnmanagedObject(t *testing.T) {
+	st := NewMemStore()
+	if _, err := st.CreateUser(User{ID: ident.New(ident.User), Name: "bob", Status: StatusLive, Logins: []string{"bob@old.example"}}); err != nil {
+		t.Fatal(err)
+	}
+	p := planOn(t, st, treeOf(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\nlogins: [bob@new.example]\n"}))
+	if len(p.Refusals) > 0 || len(p.Ops) != 1 {
+		t.Fatalf("ops %+v refusals %v", p.Ops, p.Refusals)
+	}
+	if op := p.Ops[0]; op.Kind != ConfigKindUser || op.Name != "bob" || op.Action != ConfigUpdate {
+		t.Fatalf("op %+v", op)
+	}
+	applyPlan(t, st, p)
+	if u := userOf(st, "bob"); !slices.Equal(u.Logins, []string{"bob@new.example"}) {
+		t.Fatalf("user %+v", u)
+	}
+	if mk := markOf(st, ConfigKindUser, "bob"); mk.Commit != ConfigDirCommit {
+		t.Fatalf("mark %+v", mk)
+	}
+}
+
+func TestPlanAdoptsEqualUnmanaged(t *testing.T) {
+	st := NewMemStore()
+	if _, err := st.CreateUser(User{ID: ident.New(ident.User), Name: "bob", Status: StatusLive, Logins: []string{"bob@example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	p := planOn(t, st, treeOf(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\nlogins: [bob@example.com]\n"}))
+	if op := opOf(p, ConfigKindUser, "bob"); op.Action != ConfigAdopt || len(p.Refusals) > 0 {
+		t.Fatalf("op %+v refusals %v", op, p.Refusals)
+	}
+	applyPlan(t, st, p)
+	if mk := markOf(st, ConfigKindUser, "bob"); mk.Commit != ConfigDirCommit {
+		t.Fatalf("mark %+v", mk)
+	}
+}
+
+func TestPlanUpdatesUnmanagedKit(t *testing.T) {
+	st := NewMemStore()
+	if _, _, err := PushStudioKit(st, "k", "kind: studio\nprompt: jam\n"); err != nil {
+		t.Fatal(err)
+	}
+	p := planOn(t, st, treeOf(t, map[string]string{"kits/k/kit.yml": "kind: studio\nprompt: repo\n"}))
+	if op := opOf(p, ConfigKindKit, "k"); op.Action != ConfigUpdate || len(p.Refusals) > 0 {
+		t.Fatalf("op %+v refusals %v", op, p.Refusals)
+	}
+	applyPlan(t, st, p)
+	if k, _ := st.GetKit("k"); !slices.Contains(k.VersionNumbers(), 2) {
+		t.Fatalf("no v2: %v", k.VersionNumbers())
+	}
+	if mk := markOf(st, ConfigKindKit, "k"); mk.Commit != ConfigDirCommit {
+		t.Fatalf("mark %+v", mk)
+	}
+}
+
+// A managed object edited in Jam since its mark is overwritten: the plan
+// shows the Jam edit it replaces, with no refusal.
+func TestPlanOverwritesEditedManaged(t *testing.T) {
+	st := NewMemStore()
+	applyPlan(t, st, planOn(t, st, treeOf(t, map[string]string{"destinations/gh.yml": ghDest})))
+	d, _ := findDestination(st, "gh")
+	d.Note = "edited in Jam"
+	_ = st.AddDestination(d)
+	p := planOn(t, st, treeOf(t, map[string]string{"destinations/gh.yml": ghDest + "note: repo\n"}))
+	if op := opOf(p, ConfigKindDestination, "gh"); op.Action != ConfigUpdate || !strings.Contains(op.Before, "note: edited in Jam") ||
+		!strings.Contains(op.After, "note: repo") || len(p.Refusals) > 0 {
+		t.Fatalf("op %+v refusals %v", op, p.Refusals)
+	}
+	applyPlan(t, st, p)
+	if d, _ := findDestination(st, "gh"); d.Note != "repo" {
+		t.Fatalf("destination %+v", d)
+	}
+}
+
+func TestPlanDeletesEditedManaged(t *testing.T) {
+	st := NewMemStore()
+	applyPlan(t, st, planOn(t, st, treeOf(t, map[string]string{"destinations/gh.yml": ghDest})))
+	d, _ := findDestination(st, "gh")
+	d.Note = "edited in Jam"
+	_ = st.AddDestination(d)
+	p := planOn(t, st, treeOf(t, nil))
+	if op := opOf(p, ConfigKindDestination, "gh"); op.Action != ConfigDelete || len(p.Refusals) > 0 {
+		t.Fatalf("op %+v refusals %v", op, p.Refusals)
+	}
+	applyPlan(t, st, p)
+	if _, ok := findDestination(st, "gh"); ok {
+		t.Fatal("gh not deleted")
+	}
+	if mk := markOf(st, ConfigKindDestination, "gh"); mk.Name != "" {
+		t.Fatalf("mark kept %+v", mk)
+	}
 }

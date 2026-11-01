@@ -2,11 +2,11 @@ import { Anchor, Badge, Card, Group, Stack, Text, TextInput, Title } from "@mant
 import { useState } from "react";
 import { Link } from "react-router";
 import type { ProjectDetail } from "../api/types";
+import { useConfigEditable } from "../branch/branch";
 import { nodeHref } from "../paths";
 import { ConfirmAction } from "../ui/ConfirmAction";
 import { DataTable } from "../ui/DataTable";
 import { EditForm } from "../ui/EditForm";
-import { driftNote } from "../ui/ManagedBadge";
 import { Section } from "../ui/Section";
 import { SquawkTable } from "../ui/SquawkTable";
 import { TypeAhead } from "../ui/TypeAhead";
@@ -23,7 +23,7 @@ export function IntercomPage() {
 function Intercom({ d }: { d: ProjectDetail }) {
   const p = d.name;
   const write = useProjectWrite(p, "intercom");
-  const drift = driftNote(d.managed);
+  const editable = useConfigEditable();
   const [name, setName] = useState("");
   const [connection, setConnection] = useState("");
   const [ref, setRef] = useState("");
@@ -42,20 +42,20 @@ function Intercom({ d }: { d: ProjectDetail }) {
           { key: "n", label: "Name", render: (r) => <Text fw={600} ff="monospace" size="sm">{r.name}</Text> },
           { key: "c", label: "Connection", render: (r) => <Group gap={4}>{r.connection}<Badge size="sm" variant="light" color="gray">{r.kind}</Badge></Group> },
           { key: "r", label: "Ref", render: (r) => <Group gap={4}><Text size="sm" ff="monospace">{r.ref}</Text>{r.postOnly && <Badge size="sm" variant="light" color="gray" title="another channel receives this ref's replies">post-only</Badge>}</Group> },
-          { key: "x", label: "", render: (r) => <ConfirmAction label="Remove" confirm={`Remove room ${r.name} from ${p}?${drift ? " " + drift : ""}`}
+          { key: "x", label: "", render: (r) => <ConfirmAction label="Remove" confirm={`Remove room ${r.name} from ${p}?`}
             onConfirm={() => write.mutateAsync({ path: `rooms/${enc(r.name)}`, del: true })} /> },
         ]} />
-        <details>
+        {editable && <details>
           <summary style={{ cursor: "pointer" }}>Add room</summary>
           <Card withBorder mt="xs">
-            <EditForm submit="Add room" confirm={drift ? `${drift} Save anyway?` : undefined} resetOnSuccess={() => { setName(""); setConnection(""); setRef(""); }}
+            <EditForm submit="Add room" resetOnSuccess={() => { setName(""); setConnection(""); setRef(""); }}
               onSubmit={() => write.mutateAsync({ path: "rooms", body: { name, connection, ref } })}>
               <TextInput label="Name" description="an existing name is rebound" required value={name} onChange={(e) => setName(e.currentTarget.value)} />
               <TypeAhead label="Connection" description="a connection name, or a service (its connection)" kind="services" required placeholder="discord" value={connection} onChange={setConnection} />
               <TextInput label="Ref" description="the service's channel id" required value={ref} onChange={(e) => setRef(e.currentTarget.value)} />
             </EditForm>
           </Card>
-        </details>
+        </details>}
       </Section>
       <Title order={3}>Recent messages</Title>
       {d.logConfigured ? <SquawkTable rows={d.squawks} /> : <Text c="dimmed" size="sm">The message log is unavailable.</Text>}

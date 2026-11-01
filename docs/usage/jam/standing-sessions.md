@@ -1,10 +1,10 @@
 ---
-summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again (resuming its conversation and workspace) if it dies, and tears it down with its state when the name is removed. Covers declaring, the `standing add|list|rm|reset|upgrade` verbs and admin routes, keep-alive with backoff, reset, upgrading to the current image, dismissal, admission, and messaging.
+summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again (resuming its conversation and workspace) if it dies, and tears it down with its state when the name is removed. Covers declaring, declaring one in the config repo, the `standing list|reset|upgrade` verbs and admin routes, keep-alive with backoff, reset, upgrading to the current image, dismissal, admission, and messaging.
 read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing, resetting or upgrading one (e.g. its image is stale after a jam, kit or model-spec change), or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
-owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the declaration ↔ session map (session ids), the `standing add|list|rm|reset|upgrade` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (the queue, prepare-first, idle wait, `--wait`), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
+owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the declaration ↔ session map (session ids), the `standing list|reset|upgrade` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (the queue, prepare-first, idle wait, `--wait`), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 prereqs: roster.md for roles; standing-state.md for what a restart keeps; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-26
+updated: 2026-11-01
 ---
 
 # Standing sessions
@@ -18,10 +18,21 @@ When the name is removed, Jam tears the studio down and deletes that state. Its 
 
 ## Declaring one
 
+A standing session is declared on its role, in the role's file in the config
+repo (`allocation.standing`, a list of `{name, prompt}`), and changes only by
+a commit: by hand, or on the role page in the admin console on a branch
+([roster.md](roster.md#roles), [config-branches.md](config-branches.md)).
+
+```yaml
+allocation:                  # projects/acme/roles/reviewer.yml
+  standing:
+    - {name: alice-bot, prompt: "You review every PR on acme/app …"}
 ```
-jam standing add  --project acme --role reviewer --name alice-bot --prompt-file alice.md
+
+Removing the entry dismisses it ([Dismissal](#dismissal)). Operating them is live:
+
+```
 jam standing list --project acme --role reviewer
-jam standing rm    --project acme --role reviewer alice-bot
 jam standing reset --project acme --role reviewer alice-bot
 jam standing upgrade --project acme --role reviewer alice-bot
 ```
@@ -29,44 +40,31 @@ jam standing upgrade --project acme --role reviewer alice-bot
 Like every admin verb they take `--app`/`--admin-url`/`--token`
 ([operators.md](operators.md)); without `--project` they act on the `default` project.
 
-- **add** declares the name with its prompt. The prompt file is read on the host
-  and sent in the request body. It never goes on argv. Both `--name` and
-  `--prompt-file` are required.
 - **list** prints each declared name, its session id (`-` until first raised), and that
   studio's `phase` and [`image`](coves.md#the-studio-verbs) status (`-` when none runs,
   or — with a warning on stderr — when Jam can't list studios).
-- **rm** removes the name. Jam then tears its studio down and deletes its state
-  (see [Dismissal](#dismissal)).
 - **reset** keeps the name but deletes its studio and state, so Jam raises it
   fresh (see [Reset](#reset)).
 - **upgrade** queues a restart on the current image, keeping its state
   (`--force`, `--wait`; see [Upgrading a standing session](#upgrading-a-standing-session)).
 
-The declarations live on the role (`allocation.standing`, a list of
-`{name, prompt}`). Each write reads the role, changes only that list, and writes it
-back, so the role's scope, kit and other allocation settings are kept. Re-running
-`role add` for the role keeps its standing declarations
-([roster.md](roster.md#roles)).
-
 Each declaration **is a session** (Jam's standing-session map): its first raise
 starts one with a minted `ses_…` id (`standing list` shows it); every restart or
 upgrade sets that same session up in a new studio — same id, conversation and
 workspace — and a [reset](#reset) ends it. Sessions from before session ids keep
-their `standing-<project>-<role>-<name>` id. A name is refused with **400** if
-it is already declared on the role or contains `/`.
+their `standing-<project>-<role>-<name>` id. A name is refused if
+it is declared twice on the role or contains `/`.
 
 ## The admin routes
 
 | Route | Result |
 |---|---|
-| `POST /admin/roles/{project}/{role}/standing` `{name, prompt}` | **201**. **400** if the name or prompt is missing, the name is already declared or contains `/`. **404** for an unknown role. |
 | `GET /admin/roles/{project}/{role}/standing` | **200** with the declared list, prompts included, each with its pending `upgrade` state (omitted when none). **404** for an unknown role. |
-| `DELETE /admin/roles/{project}/{role}/standing/{name}` | **204**. **404** if the role or the name doesn't exist. |
 | `POST /admin/roles/{project}/{role}/standing/{name}/upgrade[?force=true]` | **202** `{"pending":true,"state":…}` queued; **200** already current or not started yet. **409** a reset is pending or the session id is held by another studio; **404**; **503** without the standing reconciler. See [Upgrading](#upgrading-a-standing-session). |
 | `POST /admin/roles/{project}/{role}/standing/{name}/reset` | **200** `{"pending":false}`: studio torn down and state deleted, declaration kept. **202** `{"pending":true,"reason":…}`: still in progress (see [Reset](#reset)). **404** if the role or the name doesn't exist. **409** if the session id is held by a studio that isn't this session. **503** without the standing reconciler. |
 
 The role page in the admin UI has **Upgrade** and **Reset** buttons (with a
-confirm) beside **Dismiss** on each standing session ([ui-pages.md](ui-pages.md)).
+confirm) on each standing session, and on a branch **Dismiss** ([ui-projects.md](ui-projects.md#role-pages)).
 
 ## What "kept alive" means
 
@@ -164,8 +162,8 @@ Pending upgrades are **in memory**: re-run `standing upgrade` after a Jam restar
 Once a name is no longer declared, or its role is removed, the next pass tears its
 studio down and **deletes its volumes** once no container uses them (retrying
 every pass until it can), so declaring the name again starts fresh. This also
-covers a name dismissed while its studio was down. `standing rm` only changes
-the declaration, so the studio goes away within about one pass (30s). The
+covers a name dismissed while its studio was down. Removing the name only changes
+the declaration, so the studio goes away within about one pass (30s) of the apply. The
 teardown releases the reservation like any other.
 
 To stop a standing session for good, remove its name. Tearing its studio down by

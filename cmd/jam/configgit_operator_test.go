@@ -9,9 +9,10 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
+	"gopkg.in/yaml.v3"
 )
 
-// operatorDestinations is an operator's NEA destinations as `destination
+// operatorDestinations is an operator's NEA destinations as the removed `destination
 // import` reads them: GitLab API with custom Private-Token specs both ways,
 // GitLab git with a custom inbound (prefixes, explicit raw encoding),
 // basic-password out and git: true.
@@ -49,16 +50,21 @@ const operatorDestinations = `destinations:
 // object adopts, and the repo files are the operator's bytes.
 func TestConfigWriteAllAdoptsOperatorJam(t *testing.T) {
 	url, st := configServer(t)
-	if code, out, errs := runJam("destination", "add", "--name", "nea-atlassian", "--route", "/nea-atlassian/",
-		"--upstream", "https://nexteraanalytics.atlassian.net", "--identity-in", "basic-password", "--cred-name", "atlassian-agent-apikey",
-		"--apply", "basic-password", "--env", "JIRA_API_TOKEN={token}", "--log-headers-in", "all", "--log-headers-out", "all",
-		"--admin-url", url); code != 0 {
-		t.Fatalf("destination add: %d %s %s", code, out, errs)
+	// The operator's destinations, seeded straight into the store (the
+	// `destination add|import` verbs that created them are gone).
+	if err := st.AddDestination(jam.Destination{Name: "nea-atlassian", Route: "/nea-atlassian/", Upstream: "https://nexteraanalytics.atlassian.net",
+		IdentityIn: jam.ApplyBasicPassword, CredName: "atlassian-agent-apikey", Apply: jam.ApplyBasicPassword,
+		Env: map[string]string{"JIRA_API_TOKEN": "{token}"}, LogHeadersIn: jam.HeaderLogAll, LogHeadersOut: jam.HeaderLogAll}); err != nil {
+		t.Fatal(err)
 	}
-	imp := filepath.Join(t.TempDir(), "dests.yml")
-	mustWrite(t, imp, operatorDestinations, 0o644)
-	if code, out, errs := runJam("destination", "import", imp, "--admin-url", url); code != 0 {
-		t.Fatalf("destination import: %d %s %s", code, out, errs)
+	var imported jam.Config
+	if err := yaml.Unmarshal([]byte(operatorDestinations), &imported); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range imported.Destinations {
+		if err := st.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
 	}
 	brent, err := st.CreateUser(jam.User{ID: ident.New(ident.User), Name: "Brent", Status: jam.StatusLive})
 	if err != nil {

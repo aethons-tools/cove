@@ -24,20 +24,24 @@ const appMount = "/app/admin/"
 // apiPrefix is the admin app's JSON API.
 const apiPrefix = "/app/admin/api/"
 
+// fetchers is the admin app's git access: kits for the kit pages, config
+// for the Config page's followed repo.
+type fetchers struct{ kits, config jam.KitFetcher }
+
 // registerApp mounts the admin app's pages and its JSON API on mux. The API
 // refuses cross-origin writes before any of its handlers runs.
-func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra roleAPI, su specUI, aa agentAPI, da dashAPI, trustedOrigins []string, f jam.KitFetcher, env jam.ConfigEnv, branches *jam.ConfigBranches, log *slog.Logger) {
+func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra roleAPI, su specUI, aa agentAPI, da dashAPI, trustedOrigins []string, f fetchers, env jam.ConfigEnv, branches *jam.ConfigBranches, log *slog.Logger) {
 	api := http.NewServeMux()
 	api.HandleFunc("GET "+apiPrefix+"bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, adminBootstrap(r, src.items()))
 	})
 	api.HandleFunc("GET "+apiPrefix+"tree", treeHandler(src))
 	apiUsers(api, src, log)
-	apiTracking(api, src.store, f, env, log)
+	apiTracking(api, src.store, f.config, env, log)
 	apiProjects(api, src, msgs, log)
 	apiRoles(api, src, ra, log)
 	apiSpecs(api, src, su, ra.credExists, log)
-	apiKits(api, src, f, log)
+	apiKits(api, src, f.kits, log)
 	apiKitDraft(api, src.store, log)
 	apiAgents(api, src, aa, log)
 	apiSession(api, aa.sess, aa.hub, log)

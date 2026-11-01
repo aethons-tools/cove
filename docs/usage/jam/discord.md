@@ -1,10 +1,10 @@
 ---
 summary: Discord delivery for a Project — a member's delivery profile (inbox channel) and Discord account, the per-project chat service, how chats and rooms are posted to Discord, the reply loop, and who a Discord reply is attributed to.
-read_when: You are setting up a human's Discord inbox or binding them to their Discord user id (`--delivery discord:<channel>`, `account add --connection discord --uid`), setting a project's chat service, or a Discord reply was routed or attributed (to a member vs a display name) differently than you expected.
-owns: membership delivery profiles and the `--delivery service:address` syntax, the Discord user-id binding and its Jam-wide uniqueness, Project.ChatService and the `project chat-service` verbs, the Discord egress + reply loop (receipts), and the Discord reply attribution rules (bound id / unbound member's inbox / account)
+read_when: You are setting up a human's Discord inbox or binding them to their Discord user id (a member's `delivery` in the config repo, `account add --connection discord --uid`), setting a project's chat service, or a Discord reply was routed or attributed (to a member vs a display name) differently than you expected.
+owns: membership delivery profiles (a member's `delivery: [{service, address}]`), the Discord user-id binding and its Jam-wide uniqueness, Project.ChatService (`chat-service:` in project.yml) and the `project chat-service show` verbs, the Discord egress + reply loop (receipts), and the Discord reply attribution rules (bound id / unbound member's inbox / account)
 prereqs: comms-addressing.md for a Project's members and rooms and `send(to=…)` targets this delivers; intercom.md for the Discord relay engine; serve.md for `runtime.discord`
 tier: leaf
-updated: 2026-10-07
+updated: 2026-11-01
 ---
 
 # Discord delivery & reply attribution
@@ -29,17 +29,20 @@ A **Project** carries `ChatService string` — the service backing
 that project's human DMs (e.g. `"discord"`); empty means tracker `@`-mentions
 only, same as before this field existed.
 
-Set a member's inbox with `--delivery service:address` on `project member add`
-(repeatable — one flag per service), and bind their Discord user id as an
-**account** on the `discord` connection:
+Set a member's inbox as a `delivery` on their membership in the project's
+`project.yml` in the config repo (one entry per service), and bind their
+Discord user id as an **account** on the `discord` connection (live):
 
+```yaml
+# projects/<project>/project.yml
+members: [{user: alice, delivery: [{service: discord, address: "<inbox-channel-id>"}]}]
 ```
-jam project member add <project> alice --delivery discord:<inbox-channel-id>
+```
 jam account add --connection discord --uid <alice's-discord-user-id> --user alice
 ```
 
-The service and address must be non-empty; a third `:user-id` part exits `2`
-(bind the id as an account instead). A Discord user id is a snowflake (all
+The service and address must be non-empty (a Discord user id is an account,
+not a delivery). A Discord user id is a snowflake (all
 digits). A Discord
 user id binds **one person Jam-wide** (their Discord account in the
 [identity registry](roster.md)) — binding it to anyone else, in any project, is
@@ -48,17 +51,10 @@ user id binds **one person Jam-wide** (their Discord account in the
 → Settings → Advanced → **Developer Mode** on, then right-click yourself →
 **Copy User ID**.
 
-Manage a project's chat service with `jam project chat-service`:
-
-```
-jam project chat-service set   --project <project> --service discord
-jam project chat-service show  --project <project>
-jam project chat-service clear --project <project>
-```
-
-`set` requires `--project` and `--service`; `clear` is `set` with `""` under
-the hood; `show` prints the configured service or `(none)`. All three take the
-same admin-client flags as every other `jam` verb.
+A project's chat service is `chat-service: discord` in its `project.yml`
+(absent = none), committed to the config repo. `jam project chat-service show
+--project <project>` prints the configured service or `(none)`, with the same
+admin-client flags as every other `jam` verb.
 
 ## Egress & the reply loop
 

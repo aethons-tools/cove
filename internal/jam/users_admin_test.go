@@ -2,6 +2,7 @@ package jam
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -10,87 +11,53 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 )
 
-func TestAdminUsersLifecycle(t *testing.T) {
+func TestAdminUsersReadAndOIDC(t *testing.T) {
 	h, store := newTestAdmin(t)
-	rec := doJSON(t, h, "POST", "/admin/users", UserBody{Name: "alice", Logins: []string{"auth0|a"}})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST user = %d %s", rec.Code, rec.Body.String())
+	alice, err := store.CreateUser(User{Name: "alice", Logins: []string{"auth0|a"}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	var alice UserView
-	decodeBody(t, rec, &alice)
-	if alice.ID.Kind() != ident.User || alice.Name != "alice" || !slices.Equal(alice.Logins, []string{"auth0|a"}) {
-		t.Fatalf("created = %+v", alice)
-	}
-	if rec := doJSON(t, h, "POST", "/admin/users", UserBody{Name: "alice"}); rec.Code != http.StatusConflict {
-		t.Fatalf("duplicate name = %d, want 409", rec.Code)
-	}
-	if rec := doJSON(t, h, "POST", "/admin/users", UserBody{Name: "bob", Logins: []string{"auth0|a"}}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("taken login = %d, want 400", rec.Code)
-	}
-	if rec := doJSON(t, h, "POST", "/admin/users", UserBody{Name: "a b"}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("bad name = %d, want 400", rec.Code)
-	}
-
 	// name and id both address the user
 	var byName, byID UserView
 	getJSON(t, h, "/admin/users/alice", &byName)
 	getJSON(t, h, "/admin/users/"+string(alice.ID), &byID)
-	if byName.ID != alice.ID || byID.Name != "alice" {
+	if byName.ID != alice.ID || byID.Name != "alice" || !slices.Equal(byName.Logins, []string{"auth0|a"}) {
 		t.Fatalf("by name %+v, by id %+v", byName, byID)
 	}
 	if rec := doReq(t, h, "GET", "/admin/users/nobody", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown user = %d, want 404", rec.Code)
 	}
-
-	if rec := doJSON(t, h, "PUT", "/admin/users/alice/name", RenameBody{Name: "alicia"}); rec.Code != http.StatusNoContent {
-		t.Fatalf("rename = %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := doJSON(t, h, "PUT", "/admin/users/alicia/logins", LoginsBody{Logins: []string{"auth0|a", "local"}}); rec.Code != http.StatusNoContent {
-		t.Fatalf("logins = %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := doJSON(t, h, "PUT", "/admin/users/alicia/oidc", OIDCBody{OIDC: []OIDCIdentity{{Issuer: "i", Subject: "s"}}}); rec.Code != http.StatusNoContent {
+	if rec := doJSON(t, h, "PUT", "/admin/users/alice/oidc", OIDCBody{OIDC: []OIDCIdentity{{Issuer: "i", Subject: "s"}}}); rec.Code != http.StatusNoContent {
 		t.Fatalf("oidc = %d %s", rec.Code, rec.Body.String())
 	}
-	if u, _ := store.GetUser(alice.ID); u.Name != "alicia" || len(u.Logins) != 2 || len(u.OIDC) != 1 {
+	if u, _ := store.GetUser(alice.ID); len(u.OIDC) != 1 {
 		t.Fatalf("stored = %+v", u)
 	}
 	var list []UserView
 	getJSON(t, h, "/admin/users", &list)
-	if len(list) != 1 || list[0].Name != "alicia" {
+	if len(list) != 1 || list[0].Name != "alice" {
 		t.Fatalf("list = %+v", list)
-	}
-
-	if rec := doReq(t, h, "DELETE", "/admin/users/alicia", nil); rec.Code != http.StatusNoContent {
-		t.Fatalf("delete = %d %s", rec.Code, rec.Body.String())
-	}
-	getJSON(t, h, "/admin/users", &list)
-	if len(list) != 0 {
-		t.Fatalf("list after delete = %+v", list)
-	}
-	var removed UserView
-	getJSON(t, h, "/admin/users/"+string(alice.ID), &removed)
-	if removed.Status != StatusRemoved {
-		t.Fatalf("removed user by id = %+v", removed)
-	}
-	if rec := doJSON(t, h, "PUT", "/admin/users/"+string(alice.ID)+"/name", RenameBody{Name: "x"}); rec.Code != http.StatusConflict {
-		t.Fatalf("rename removed = %d, want 409", rec.Code)
 	}
 }
 
-func TestAdminUserRemoveRefusedWhileOwningPersonalSession(t *testing.T) {
-	h, store := newTestAdmin(t)
-	if rec := doJSON(t, h, "POST", "/admin/users", UserBody{Name: "alice"}); rec.Code != http.StatusCreated {
-		t.Fatal(rec.Body.String())
+func TestUserCheckedWritesRefusedWhileOwningPersonalSession(t *testing.T) {
+	_, store := newTestAdmin(t)
+	alice, err := store.CreateUser(User{Name: "alice"})
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := store.PutInstance(Instance{ActorID: "personal-alice-1", Project: DefaultProject, Owner: "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if rec := doReq(t, h, "DELETE", "/admin/users/alice", nil); rec.Code != http.StatusConflict {
-		t.Fatalf("delete with a live personal session = %d, want 409", rec.Code)
+	if err := RemoveUserChecked(store, alice.ID); !errors.Is(err, ErrUserBusy) {
+		t.Fatalf("remove with a live personal session = %v, want ErrUserBusy", err)
 	}
 	// A session's owner is still a name (until 1a-3c): renaming would orphan it.
-	if rec := doJSON(t, h, "PUT", "/admin/users/alice/name", RenameBody{Name: "alicia"}); rec.Code != http.StatusConflict {
-		t.Fatalf("rename with a live personal session = %d, want 409", rec.Code)
+	if err := RenameUserChecked(store, alice.ID, "alicia"); !errors.Is(err, ErrUserBusy) {
+		t.Fatalf("rename with a live personal session = %v, want ErrUserBusy", err)
+	}
+	if RegistryErrStatus(ErrUserBusy) != http.StatusConflict {
+		t.Fatal("ErrUserBusy should map to 409")
 	}
 }
 
@@ -113,13 +80,13 @@ func TestAdminAccountLinkToRemovedUserWritesNothing(t *testing.T) {
 	}
 }
 
-func TestAdminProjectMembers(t *testing.T) {
+func TestAdminProjectMembersList(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	doJSON(t, h, "POST", "/admin/users", UserBody{Name: "alice"})
-	body := MemberBody{Delivery: []DeliveryProfile{{Service: "discord", Address: "inbox-a"}}}
-	if rec := doJSON(t, h, "PUT", "/admin/projects/acme/members/alice", body); rec.Code != http.StatusNoContent {
-		t.Fatalf("PUT member = %d %s", rec.Code, rec.Body.String())
+	alice, _ := store.CreateUser(User{Name: "alice"})
+	acme, _ := store.GetProject("acme")
+	if err := store.PutMembership(Membership{ProjectID: acme.ID, UserID: alice.ID, Delivery: []DeliveryProfile{{Service: "discord", Address: "inbox-a"}}}); err != nil {
+		t.Fatal(err)
 	}
 	var members []MemberView
 	getJSON(t, h, "/admin/projects/acme/members", &members)
@@ -127,24 +94,14 @@ func TestAdminProjectMembers(t *testing.T) {
 		t.Fatalf("members = %+v", members)
 	}
 	// The surfaces see the member.
-	acme, _ := store.GetProject("acme")
 	if ms := MembersOf(store, acme.ID); len(ms) != 1 || ms[0].User.Name != "alice" {
 		t.Fatalf("members = %+v", ms)
 	}
-	if rec := doJSON(t, h, "PUT", "/admin/projects/ghost/members/alice", MemberBody{}); rec.Code != http.StatusNotFound {
+	if rec := doReq(t, h, "GET", "/admin/projects/ghost/members", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown project = %d, want 404", rec.Code)
 	}
-	if rec := doJSON(t, h, "PUT", "/admin/projects/acme/members/nobody", MemberBody{}); rec.Code != http.StatusNotFound {
-		t.Fatalf("unknown user = %d, want 404", rec.Code)
-	}
-	if rec := doJSON(t, h, "PUT", "/admin/projects/acme/members/alice", MemberBody{Delivery: []DeliveryProfile{{Service: "discord"}}}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("delivery without an address = %d, want 400", rec.Code)
-	}
-	if rec := doReq(t, h, "DELETE", "/admin/projects/acme/members/alice", nil); rec.Code != http.StatusNoContent {
-		t.Fatalf("DELETE member = %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := doReq(t, h, "DELETE", "/admin/projects/acme/members/alice", nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("DELETE non-member = %d, want 404", rec.Code)
+	if err := store.PutMembership(Membership{ProjectID: acme.ID, UserID: alice.ID, Delivery: []DeliveryProfile{{Service: "discord"}}}); err == nil {
+		t.Fatal("delivery without an address was accepted")
 	}
 }
 
@@ -153,8 +110,11 @@ func TestAdminAccounts(t *testing.T) {
 	if _, err := store.CreateConnection(Connection{Kind: "discord", Name: "discord"}); err != nil {
 		t.Fatal(err)
 	}
-	doJSON(t, h, "POST", "/admin/users", UserBody{Name: "alice"})
-	doJSON(t, h, "POST", "/admin/users", UserBody{Name: "bob"})
+	for _, n := range []string{"alice", "bob"} {
+		if _, err := store.CreateUser(User{Name: n}); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	var conns []Connection
 	getJSON(t, h, "/admin/connections", &conns)
@@ -224,52 +184,82 @@ func decodeBody(t *testing.T, rec *httptest.ResponseRecorder, out any) {
 	}
 }
 
-func TestAdminConnectionsLifecycle(t *testing.T) {
+func TestAdminConnectionsListAndInUse(t *testing.T) {
 	h, store := newTestAdmin(t)
-	rec := doJSON(t, h, "POST", "/admin/connections", ConnectionBody{Kind: "discord", Name: "discord-main", Cred: "bot-tok"})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST connection = %d %s", rec.Code, rec.Body.String())
+	c, err := store.CreateConnection(Connection{Kind: "discord", Name: "discord-main", CredName: "bot-tok"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	var c Connection
-	decodeBody(t, rec, &c)
-	if c.ID.Kind() != ident.Connection || c.CredName != "bot-tok" {
-		t.Fatalf("created = %+v", c)
+	var conns []Connection
+	getJSON(t, h, "/admin/connections", &conns)
+	if len(conns) != 1 || conns[0].ID != c.ID || conns[0].CredName != "bot-tok" {
+		t.Fatalf("connections = %+v", conns)
 	}
-	for name, b := range map[string]ConnectionBody{
+	for name, bad := range map[string]Connection{
 		"duplicate":    {Kind: "discord", Name: "discord-main"},
 		"unknown kind": {Kind: "slack", Name: "s"},
 		"bad name":     {Kind: "linear", Name: "a b"},
 	} {
-		if rec := doJSON(t, h, "POST", "/admin/connections", b); rec.Code < 400 {
-			t.Errorf("%s = %d, want a refusal", name, rec.Code)
+		if _, err := store.CreateConnection(bad); err == nil {
+			t.Errorf("%s: CreateConnection accepted it", name)
 		}
 	}
-	if rec := doJSON(t, h, "PUT", "/admin/connections/discord-main/name", RenameBody{Name: "discord-acme"}); rec.Code != http.StatusNoContent {
-		t.Fatalf("rename = %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := doJSON(t, h, "PUT", "/admin/connections/discord-acme/cred", CredBody{Cred: "bot-tok-2"}); rec.Code != http.StatusNoContent {
-		t.Fatalf("set cred = %d %s", rec.Code, rec.Body.String())
-	}
-	if got, _ := store.GetConnection(c.ID); got.Name != "discord-acme" || got.CredName != "bot-tok-2" {
-		t.Fatalf("stored = %+v", got)
-	}
 	mustCreateProject(t, store, "acme")
-	if rec := doJSON(t, h, "PUT", "/admin/projects/acme/chat-service", ChatServiceBody{Service: "discord-acme"}); rec.Code != http.StatusNoContent {
-		t.Fatalf("chat service by connection name = %d %s", rec.Code, rec.Body.String())
+	if err := store.SetChatService("acme", "discord-main"); err != nil {
+		t.Fatalf("chat service by connection name = %v", err)
 	}
 	var cs ChatServiceView
 	getJSON(t, h, "/admin/projects/acme/chat-service", &cs)
-	if cs.Service != "discord-acme" {
+	if cs.Service != "discord-main" {
 		t.Fatalf("chat service view = %+v", cs)
 	}
-	if rec := doReq(t, h, "DELETE", "/admin/connections/discord-acme", nil); rec.Code != http.StatusConflict {
-		t.Fatalf("remove a chat service's connection = %d, want 409", rec.Code)
+	if err := store.RemoveConnection(c.ID); !errors.Is(err, ErrConnectionInUse) {
+		t.Fatalf("remove a chat service's connection = %v, want ErrConnectionInUse", err)
 	}
-	doJSON(t, h, "PUT", "/admin/projects/acme/chat-service", ChatServiceBody{Service: ""})
-	if rec := doReq(t, h, "DELETE", "/admin/connections/"+string(c.ID), nil); rec.Code != http.StatusNoContent {
-		t.Fatalf("remove = %d %s", rec.Code, rec.Body.String())
+	if err := store.SetChatService("acme", ""); err != nil {
+		t.Fatal(err)
 	}
-	if rec := doReq(t, h, "DELETE", "/admin/connections/discord-acme", nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("remove again by name = %d, want 404", rec.Code)
+	if err := store.RemoveConnection(c.ID); err != nil {
+		t.Fatalf("remove = %v", err)
+	}
+}
+
+func TestUserConfigRoutesGone(t *testing.T) {
+	h, store := newTestAdmin(t)
+	if _, err := store.CreateUser(User{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateConnection(Connection{Kind: "discord", Name: "discord"}); err != nil {
+		t.Fatal(err)
+	}
+	mustCreateProject(t, store, "acme")
+	for _, gone := range []struct{ method, path string }{
+		{"POST", "/admin/users"},
+		{"PUT", "/admin/users/alice/name"},
+		{"PUT", "/admin/users/alice/logins"},
+		{"DELETE", "/admin/users/alice"},
+		{"PUT", "/admin/projects/acme/members/alice"},
+		{"DELETE", "/admin/projects/acme/members/alice"},
+		{"POST", "/admin/connections"},
+		{"PUT", "/admin/connections/discord/name"},
+		{"PUT", "/admin/connections/discord/cred"},
+		{"DELETE", "/admin/connections/discord"},
+	} {
+		if rec := doJSON(t, h, gone.method, gone.path, map[string]string{}); rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s %s = %d, want 404 or 405", gone.method, gone.path, rec.Code)
+		}
+	}
+	// The kept neighbours still answer (fresh names: a live route above may have removed the first set).
+	if _, err := store.CreateUser(User{Name: "bob"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateConnection(Connection{Kind: "discord", Name: "discord-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := doJSON(t, h, "PUT", "/admin/users/bob/oidc", OIDCBody{OIDC: []OIDCIdentity{{Issuer: "i", Subject: "s"}}}); rec.Code != http.StatusNoContent {
+		t.Errorf("PUT oidc = %d %s, want 204", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(t, h, "POST", "/admin/accounts", AccountBody{Connection: "discord-2", ServiceUID: "1", User: "bob"}); rec.Code != http.StatusCreated {
+		t.Errorf("POST account = %d %s, want 201", rec.Code, rec.Body.String())
 	}
 }

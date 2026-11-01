@@ -24,8 +24,6 @@ type configMarkRow struct {
 	Href       string // its page; "" for a connection or a missing object
 	Commit     string // the config commit it was applied from (7 chars)
 	Applied    string
-	State      string // jam.ConfigInSync|ConfigDrifted|ConfigMissing; "" = unknown
-	ReleaseURL string
 }
 
 // configPage is the Config page payload.
@@ -33,8 +31,6 @@ type configPage struct {
 	Title       string
 	Source      *configSourceView // the followed repo; nil = none configured
 	Rows        []configMarkRow
-	Drifted     int    // rows drifted or missing
-	StatesErr   bool   // the live Jam could not be compared (see the log)
 	LastCommit  string // the newest mark's commit (7 chars)
 	LastApplied string // and time
 	CanGit      bool   // a fetcher: Diff, Apply and Track are offered
@@ -63,25 +59,23 @@ func configObjectHref(kind, name string) string {
 	return ""
 }
 
-// configReleaseURL is the UI's release route for kind/name (a role's name
-// keeps its slash).
-func configReleaseURL(kind, name string) string {
-	segs := strings.Split(name, "/")
-	for i, s := range segs {
-		segs[i] = url.PathEscape(s)
-	}
-	return "/app/admin/config/managed/" + url.PathEscape(kind) + "/" + strings.Join(segs, "/")
-}
-
-// newConfigSourceView is the followed repo as shown. The stored source is
-// re-parsed (gitsource.Parse) first: one that does not parse — never one the
-// API built, say a hand-made URL with userinfo — is shown only as "invalid",
-// so the page never renders a credential. Its commit is 7 chars, as on the
+// newConfigSourceView is the followed repo as shown, labelled label (the
+// serve's ConfigEnv.FollowedLabel: a git repo, a local path or ssh, does not
+// re-parse as a kit source). With no label the stored source is re-parsed
+// (gitsource.Parse) first: one that does not parse — never one the API
+// built, say a hand-made URL with userinfo — is shown only as "invalid", so
+// the page never renders a credential. Its commit is 7 chars, as on the
 // managed badges.
-func newConfigSourceView(cs jam.ConfigSource) *configSourceView {
-	v := &configSourceView{Label: cs.Source().String()}
-	if _, err := gitsource.Parse(v.Label); err != nil {
-		v.Label, v.Repo, v.Ref = "invalid", "invalid", "invalid"
+func newConfigSourceView(cs jam.ConfigSource, label string) *configSourceView {
+	v := &configSourceView{Label: label}
+	if v.Label == "" {
+		v.Label = cs.Source().String()
+		if _, err := gitsource.Parse(v.Label); err != nil {
+			v.Label = "invalid"
+		}
+	}
+	if v.Label == "invalid" {
+		v.Repo, v.Ref = "invalid", "invalid"
 	} else {
 		v.sourceView = *newSourceView(&jam.KitSource{Repo: cs.Repo, Dir: cs.Dir, Ref: cs.Ref, Commit: cs.Commit})
 	}
@@ -92,43 +86,25 @@ func newConfigSourceView(cs jam.ConfigSource) *configSourceView {
 	return v
 }
 
-// configMarkStates is jam.ConfigMarkStates; a test swaps it to reach the
-// page's "could not compare" state, which no stored state produces.
-var configMarkStates = jam.ConfigMarkStates
-
 // buildConfigPage gathers the Config page: the followed repo (with its last
 // apply when the stored record is of it), every managed object with its
 // state, and the newest apply.
-func buildConfigPage(store jam.Store, followed gitsource.Source, canGit bool, log *slog.Logger) configPage {
+func buildConfigPage(store jam.Store, env jam.ConfigEnv, canGit bool, log *slog.Logger) configPage {
+	followed := env.Followed
 	d := configPage{Title: "Config", CanGit: canGit}
 	if followed.Repo != "" {
 		cs := jam.ConfigSource{Repo: followed.Repo, Dir: followed.Dir, Ref: followed.Ref}
 		if rec, ok := store.GetConfigSource(); ok && rec.Source() == followed {
 			cs = rec
 		}
-		d.Source = newConfigSourceView(cs)
-	}
-	states, err := configMarkStates(store)
-	if err != nil {
-		log.Warn("ui config: drift not computed", "err", err.Error())
-		d.StatesErr = true
-		states = nil
-		for _, mk := range store.ListConfigMarks() {
-			states = append(states, jam.ConfigMarkState{ConfigMark: mk}) // State "" = unknown
-		}
+		d.Source = newConfigSourceView(cs, env.FollowedLabel)
 	}
 	var newest time.Time
-	for _, s := range states {
-		row := configMarkRow{Kind: s.Kind, Name: s.Name, Href: configObjectHref(s.Kind, s.Name), Commit: jam.ShortConfigCommit(s.Commit),
-			Applied: configTime(s.AppliedAt), State: s.State, ReleaseURL: configReleaseURL(s.Kind, s.Name)}
-		if s.State == jam.ConfigMissing {
-			row.Href = ""
-		}
-		if s.State != "" && s.State != jam.ConfigInSync {
-			d.Drifted++
-		}
-		if s.AppliedAt.After(newest) {
-			newest, d.LastCommit = s.AppliedAt, row.Commit
+	for _, mk := range store.ListConfigMarks() {
+		row := configMarkRow{Kind: mk.Kind, Name: mk.Name, Href: configObjectHref(mk.Kind, mk.Name), Commit: jam.ShortConfigCommit(mk.Commit),
+			Applied: configTime(mk.AppliedAt)}
+		if mk.AppliedAt.After(newest) {
+			newest, d.LastCommit = mk.AppliedAt, row.Commit
 		}
 		d.Rows = append(d.Rows, row)
 	}
@@ -151,7 +127,6 @@ type planOpView struct {
 // Apply posts back.
 type planView struct {
 	Source, Commit string // as planned (commit: 7 chars)
-	Forced         bool   // planned as a forced apply
 	Digest         string
 	Ops            []planOpView
 	Unchanged      int
@@ -160,15 +135,14 @@ type planView struct {
 	KitSources     []jam.ConfigKitSource // commits: 7 chars
 	Refusals       []string
 	Serve          jam.ServeConfigDiff
-	HasDrift       bool // the force checkbox is offered
-	Changes        int  // jam.ConfigChanges
+	Changes        int // jam.ConfigChanges
 }
 
-func newPlanView(res jam.ConfigApplyResult, forced bool) *planView {
+func newPlanView(res jam.ConfigApplyResult) *planView {
 	p := res.Plan
-	v := &planView{Source: res.Source, Commit: jam.ShortConfigCommit(res.Commit), Forced: forced, Digest: p.Digest,
+	v := &planView{Source: res.Source, Commit: jam.ShortConfigCommit(res.Commit), Digest: p.Digest,
 		Forget: p.Forget, Unmanaged: p.Unmanaged, Refusals: p.Refusals, Serve: p.ServeConfig,
-		HasDrift: p.HasDrift(), Changes: jam.ConfigChanges(p)}
+		Changes: jam.ConfigChanges(p)}
 	for _, ks := range p.KitSources {
 		ks.Commit = jam.ShortConfigCommit(ks.Commit)
 		v.KitSources = append(v.KitSources, ks)
@@ -207,3 +181,6 @@ func applyMsg(res jam.ConfigApplyResult) string {
 // configPlanStaleMsg is the page's answer to an Apply whose reviewed plan is
 // no longer the plan (the Jam or the repo changed since the Diff).
 const configPlanStaleMsg = "The Jam or the config repo changed since this plan was shown; nothing was applied. Run Diff again and review the new plan."
+
+// configTime is a config apply's time as the UI shows it.
+func configTime(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") }

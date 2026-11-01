@@ -52,13 +52,6 @@ type TreeResponse struct {
 	Nodes []TreeNode `json:"nodes"`
 }
 
-// Managed marks an object the tracked config repo manages: the commit it was
-// applied from (7 chars) and when.
-type Managed struct {
-	Commit  string `json:"commit"`
-	Applied string `json:"applied"`
-}
-
 // DiffLine is one line of a line diff (linediff.Line): Op is " " (context),
 // "+", "-" or "…" (a collapsed run of unchanged lines).
 type DiffLine struct {
@@ -89,7 +82,6 @@ type UserRow struct {
 	Logins   []string     `json:"logins"`
 	Accounts []AccountRow `json:"accounts"`
 	Projects []string     `json:"projects"`
-	Managed  *Managed     `json:"managed" tstype:"Managed | null"` // nil: the config repo doesn't manage it
 }
 
 // UsersResponse is GET /app/admin/api/users.
@@ -142,7 +134,6 @@ type ManagedRow struct {
 	Path    string `json:"path"` // its page under the app's mount; "" = none
 	Commit  string `json:"commit"`
 	Applied string `json:"applied"`
-	State   string `json:"state"` // in-sync, drifted, missing; "" = unknown
 }
 
 // ConfigKeyRow names a config object.
@@ -160,16 +151,14 @@ type KitSourceRow struct {
 
 // PlanOpRow is one change a plan makes.
 type PlanOpRow struct {
-	Action    string     `json:"action"`
-	Kind      string     `json:"kind"`
-	Name      string     `json:"name"`
-	Path      string     `json:"path"` // the object's page; "" for a create or none
-	File      string     `json:"file"` // in the repo
-	Drift     bool       `json:"drift"`
-	Unmanaged bool       `json:"unmanaged"`
-	Lines     []DiffLine `json:"lines"`    // Jam → repo
-	TooLarge  bool       `json:"tooLarge"` // too large to diff here
-	Diff      string     `json:"diff"`     // a kit update's version diff (text)
+	Action   string     `json:"action"`
+	Kind     string     `json:"kind"`
+	Name     string     `json:"name"`
+	Path     string     `json:"path"`     // the object's page; "" for a create or none
+	File     string     `json:"file"`     // in the repo
+	Lines    []DiffLine `json:"lines"`    // Jam → repo
+	TooLarge bool       `json:"tooLarge"` // too large to diff here
+	Diff     string     `json:"diff"`     // a kit update's version diff (text)
 }
 
 // ServeDiff compares the repo's serve config with this serve's.
@@ -183,8 +172,6 @@ type Plan struct {
 	Source     string         `json:"source"`
 	Commit     string         `json:"commit"`
 	Digest     string         `json:"digest"`
-	Forced     bool           `json:"forced"`
-	HasDrift   bool           `json:"hasDrift"` // offer Force
 	Changes    int            `json:"changes"`
 	Unchanged  int            `json:"unchanged"`
 	Ops        []PlanOpRow    `json:"ops"`
@@ -200,8 +187,6 @@ type Plan struct {
 type Tracking struct {
 	Source      *TrackingSource `json:"source" tstype:"TrackingSource | null"` // the followed repo; nil = none configured
 	Rows        []ManagedRow    `json:"rows"`
-	Drifted     int             `json:"drifted"`
-	StatesErr   bool            `json:"statesErr"` // could not compare with the live Jam
 	LastCommit  string          `json:"lastCommit"`
 	LastApplied string          `json:"lastApplied"`
 	CanGit      bool            `json:"canGit"` // Diff and Apply are offered
@@ -227,11 +212,10 @@ type TrackingResult struct {
 
 // ProjectRow is one project in the list.
 type ProjectRow struct {
-	Name    string   `json:"name"`
-	Members int      `json:"members"`
-	Roles   int      `json:"roles"`
-	Rooms   int      `json:"rooms"`
-	Managed *Managed `json:"managed" tstype:"Managed | null"`
+	Name    string `json:"name"`
+	Members int    `json:"members"`
+	Roles   int    `json:"roles"`
+	Rooms   int    `json:"rooms"`
 }
 
 // ProjectsResponse is GET /app/admin/api/projects.
@@ -266,7 +250,6 @@ type ContextPanel struct {
 	Leaves        []ContextLeaf     `json:"leaves"`
 	Resources     []ContextResource `json:"resources"`
 	YAML          string            `json:"yaml"`
-	Managed       *Managed          `json:"managed" tstype:"Managed | null"` // its config object's mark
 }
 
 // DeliveryRow is where a member gets DMs: service:address.
@@ -335,7 +318,6 @@ type ToCell struct {
 // ProjectDetail is a project's pages: its overview and sections.
 type ProjectDetail struct {
 	Name          string       `json:"name"`
-	Managed       *Managed     `json:"managed" tstype:"Managed | null"`
 	InUseBy       string       `json:"inUseBy"` // what still references it ("" = deletable)
 	Renamable     bool         `json:"renamable"`
 	ChatService   string       `json:"chatService"`  // "" = none
@@ -465,7 +447,6 @@ type RoleForm struct {
 type RoleDetail struct {
 	Project          string        `json:"project"`
 	Name             string        `json:"name"`
-	Managed          *Managed      `json:"managed" tstype:"Managed | null"`
 	Kit              string        `json:"kit"`       // "" = no kit
 	ModelSpec        string        `json:"modelSpec"` // the spec it runs (the default's name when unset)
 	ModelSpecDefault bool          `json:"modelSpecDefault"`
@@ -546,7 +527,6 @@ type DestListRow struct {
 	EnvKeys    []string  `json:"envKeys"`
 	GitRouted  bool      `json:"gitRouted"`
 	UsedBy     int       `json:"usedBy"` // roles whose scope lists it
-	Managed    *Managed  `json:"managed" tstype:"Managed | null"`
 	Attn       *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
 }
 
@@ -596,7 +576,6 @@ type DestFields struct {
 // DestDetail is a destination's page.
 type DestDetail struct {
 	Name           string         `json:"name"`
-	Managed        *Managed       `json:"managed" tstype:"Managed | null"`
 	Fields         DestFields     `json:"fields"`
 	Methods        []string       `json:"methods"`
 	IdentityInSpec string         `json:"identityInSpec"` // a custom spec as the Broker section shows it; "" = none
@@ -613,17 +592,16 @@ type DestDetail struct {
 
 // SpecListRow is one model-spec in the list.
 type SpecListRow struct {
-	Name              string   `json:"name"`
-	Type              string   `json:"type"`
-	Version           string   `json:"version"`
-	VersionConstraint string   `json:"versionConstraint"`
-	Principal         string   `json:"principal"`
-	ModelID           string   `json:"modelId"`
-	Effort            string   `json:"effort"`
-	Mode              string   `json:"mode"`
-	Provider          string   `json:"provider"` // "" = no claude body
-	UsedBy            int      `json:"usedBy"`
-	Managed           *Managed `json:"managed" tstype:"Managed | null"`
+	Name              string `json:"name"`
+	Type              string `json:"type"`
+	Version           string `json:"version"`
+	VersionConstraint string `json:"versionConstraint"`
+	Principal         string `json:"principal"`
+	ModelID           string `json:"modelId"`
+	Effort            string `json:"effort"`
+	Mode              string `json:"mode"`
+	Provider          string `json:"provider"` // "" = no claude body
+	UsedBy            int    `json:"usedBy"`
 }
 
 // SpecChoices are the model-spec form's select options; principals are
@@ -671,7 +649,6 @@ type HeaderRuleRow struct {
 // SpecDetail is a model-spec's page.
 type SpecDetail struct {
 	Name            string          `json:"name"`
-	Managed         *Managed        `json:"managed" tstype:"Managed | null"`
 	Fields          SpecFields      `json:"fields"`
 	Choices         SpecChoices     `json:"choices"`
 	HeaderRules     []HeaderRuleRow `json:"headerRules"`
@@ -701,7 +678,6 @@ type KitRow struct {
 	UsedBy  int       `json:"usedBy"`
 	Invalid bool      `json:"invalid"` // the current version isn't a valid studio kit
 	Draft   bool      `json:"draft"`   // an open draft
-	Managed *Managed  `json:"managed" tstype:"Managed | null"`
 	Attn    *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
 }
 
@@ -845,7 +821,6 @@ type DraftInfo struct {
 // KitDetail is a kit's page at a version (?v=), a diff (?diff=) and a file (?file=).
 type KitDetail struct {
 	Name       string          `json:"name"`
-	Managed    *Managed        `json:"managed" tstype:"Managed | null"`
 	Current    int             `json:"current"`
 	Versions   []KitVersionRow `json:"versions"`
 	View       KitView         `json:"view"`
@@ -907,45 +882,32 @@ type DraftYAMLDiff struct {
 	Note     string     `json:"note"`
 }
 
-// ConfigFileRow is a config-repo file a drifting publish changes.
-type ConfigFileRow struct {
-	Path   string `json:"path"`
-	Change string `json:"change"`
-}
-
 // Published is a just-published draft.
 type Published struct {
-	Version     int             `json:"version"`
-	Base        int             `json:"base"`
-	Pinned      []string        `json:"pinned"`
-	Warning     string          `json:"warning"`
-	Drift       bool            `json:"drift"`
-	ConfigFiles []ConfigFileRow `json:"configFiles"`
+	Version int      `json:"version"`
+	Base    int      `json:"base"`
+	Pinned  []string `json:"pinned"`
+	Warning string   `json:"warning"`
 }
 
 // DraftView is a kit's open draft.
 type DraftView struct {
-	Base         int            `json:"base"`
-	Current      int            `json:"current"`
-	Superseded   bool           `json:"superseded"` // the kit's current version isn't the base
-	ETag         string         `json:"etag"`
-	Actor        string         `json:"actor"`
-	Updated      string         `json:"updated"`
-	Managed      bool           `json:"managed"` // config-managed: publishing drifts
-	DriftWarning string         `json:"driftWarning"`
-	DriftConfirm string         `json:"driftConfirm"`
-	PinDrift     []string       `json:"pinDrift"` // managed followers Pin followers would rewrite
-	PinDriftNote string         `json:"pinDriftNote"`
-	MaxFile      string         `json:"maxFile"`
-	Problems     []string       `json:"problems"`
-	Size         string         `json:"size"`
-	Tree         []DraftRow     `json:"tree"`
-	Removed      []DraftRow     `json:"removed"`
-	Editor       *DraftEditor   `json:"editor" tstype:"DraftEditor | null"`
-	FileMissing  bool           `json:"fileMissing"`
-	Changes      *FilesDiff     `json:"changes" tstype:"FilesDiff | null"`
-	YAMLDiff     *DraftYAMLDiff `json:"yamlDiff" tstype:"DraftYAMLDiff | null"`
-	FileDiff     *KitFile       `json:"fileDiff" tstype:"KitFile | null"`
+	Base        int            `json:"base"`
+	Current     int            `json:"current"`
+	Superseded  bool           `json:"superseded"` // the kit's current version isn't the base
+	ETag        string         `json:"etag"`
+	Actor       string         `json:"actor"`
+	Updated     string         `json:"updated"`
+	MaxFile     string         `json:"maxFile"`
+	Problems    []string       `json:"problems"`
+	Size        string         `json:"size"`
+	Tree        []DraftRow     `json:"tree"`
+	Removed     []DraftRow     `json:"removed"`
+	Editor      *DraftEditor   `json:"editor" tstype:"DraftEditor | null"`
+	FileMissing bool           `json:"fileMissing"`
+	Changes     *FilesDiff     `json:"changes" tstype:"FilesDiff | null"`
+	YAMLDiff    *DraftYAMLDiff `json:"yamlDiff" tstype:"DraftYAMLDiff | null"`
+	FileDiff    *KitFile       `json:"fileDiff" tstype:"KitFile | null"`
 }
 
 // DraftPage is a kit's Draft section; Draft nil = no draft.

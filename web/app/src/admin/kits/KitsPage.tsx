@@ -6,12 +6,12 @@ import { Link, useLocation, useNavigate } from "react-router";
 import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
 import type { Created, KitsResponse } from "../api/types";
+import { useConfigEditable } from "../branch/branch";
 import { adminApi, nodeHref } from "../paths";
 import { AttnFlag } from "../ui/AttnFlag";
 import { ConfirmAction } from "../ui/ConfirmAction";
 import { DataTable } from "../ui/DataTable";
 import { EditForm } from "../ui/EditForm";
-import { ManagedBadge, driftNote } from "../ui/ManagedBadge";
 import { useAdminMutation } from "../ui/useAdminMutation";
 
 export const kitsKey = ["admin", "kits"];
@@ -19,13 +19,14 @@ const enc = encodeURIComponent;
 export const mono = { fontFamily: "var(--mantine-font-family-monospace)" };
 
 // deleteKitConfirm is a kit's Delete confirm.
-export const deleteKitConfirm = (name: string, drift: string) => `Delete kit ${name} and all its versions?${drift ? " " + drift : ""}`;
+export const deleteKitConfirm = (name: string) => `Delete kit ${name} and all its versions?`;
 
 // KitsPage is Config › Kits: versioned studio kits, New kit and Import.
 export function KitsPage() {
   const { data, error, isPending } = useQuery<KitsResponse, ApiError>({ queryKey: kitsKey, queryFn: () => adminApi.get("kits") });
   const here = useLocation();
   const navigate = useNavigate();
+  const editable = useConfigEditable();
   const [name, setName] = useState("");
   const [config, setConfig] = useState("");
   const [imp, setImp] = useState({ source: "", name: "", track: true });
@@ -42,7 +43,7 @@ export function KitsPage() {
         <Title order={2}>Kits</Title>
         <Text size="sm" c="dimmed">Versioned studio kits — open one to see its versions, diff them, or push a new one</Text>
       </div>
-      <details>
+      {editable && <details>
         <summary style={{ cursor: "pointer" }}>New kit</summary>
         <Card withBorder mt="xs">
           <EditForm submit="Create kit" onSubmit={() => create.mutateAsync(undefined)}>
@@ -51,12 +52,12 @@ export function KitsPage() {
               spellCheck={false} styles={{ input: mono }} placeholder={"kind: studio\negress: [github.com]\nprompt: You work on …"} value={config} onChange={(e) => setConfig(e.currentTarget.value)} />
           </EditForm>
         </Card>
-      </details>
+      </details>}
       {data?.canSource && (
         <details>
           <summary style={{ cursor: "pointer" }}>Import from git</summary>
           <Card withBorder mt="xs">
-            <EditForm submit="Import" onSubmit={() => importKit.mutateAsync(undefined)}>
+            <EditForm live submit="Import" onSubmit={() => importKit.mutateAsync(undefined)}>
               <TextInput label="Source" description="https://host/org/repo[//dir]@ref — a kit.yml in the repo (or dir); imported as a new version" required autoComplete="off" spellCheck={false}
                 placeholder="https://github.com/acme/kits//web@main" value={imp.source} onChange={(e) => setImp({ ...imp, source: e.currentTarget.value })} />
               <TextInput label="Kit name" description="optional — defaults to the kit's own name, then its directory's or repo's" pattern="[A-Za-z0-9_.\-]*" autoComplete="off"
@@ -71,7 +72,7 @@ export function KitsPage() {
           { key: "n", label: "Kit", render: (k) => (
             <Group gap={6}>
               <Anchor component={Link} to={nodeHref("config/kits/" + enc(k.name))} fw={600} ff="monospace">{k.name}</Anchor>
-              <AttnFlag flag={k.attn} /><ManagedBadge managed={k.managed} />
+              <AttnFlag flag={k.attn} />
               {k.draft && <Badge size="sm" variant="light" color="gray" title="An open draft">draft</Badge>}
             </Group>
           ) },
@@ -79,9 +80,9 @@ export function KitsPage() {
           { key: "b", label: "Base", render: (k) => k.invalid ? <Badge size="sm" color="red" variant="light" title="The current version is not a valid studio kit">invalid</Badge> : k.base },
           { key: "e", label: "Egress", render: (k) => k.invalid ? <Text c="dimmed" size="sm">—</Text> : `${k.egress} domain(s)` },
           { key: "r", label: "Roles", render: (k) => k.usedBy || <Text span c="dimmed">0</Text> },
-          { key: "d", label: "", render: (k) => k.usedBy
+          { key: "d", label: "", render: (k) => !editable ? null : k.usedBy
             ? <Button size="xs" color="red" variant="light" disabled title="Roles use this kit — rebind them first">Delete</Button>
-            : <ConfirmAction label="Delete" confirm={deleteKitConfirm(k.name, driftNote(k.managed))} onConfirm={() => remove.mutateAsync(k.name)} /> },
+            : <ConfirmAction label="Delete" confirm={deleteKitConfirm(k.name)} onConfirm={() => remove.mutateAsync(k.name)} /> },
         ]} />
       )}
     </Stack>

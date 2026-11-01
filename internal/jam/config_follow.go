@@ -64,7 +64,7 @@ func (f *ConfigFollower) Status() ConfigFollowStatus {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.status.State == "" {
-		return ConfigFollowStatus{State: ConfigFollowOff, Source: configSourceLabel(f.Env.Followed)}
+		return ConfigFollowStatus{State: ConfigFollowOff, Source: configSourceLabel(f.Env, f.Env.Followed)}
 	}
 	return f.status
 }
@@ -83,7 +83,7 @@ func (f *ConfigFollower) Tick(ctx context.Context) {
 	f.tickMu.Lock()
 	defer f.tickMu.Unlock()
 	src := f.Env.Followed
-	st := ConfigFollowStatus{Source: configSourceLabel(src), CheckedAt: f.now()}
+	st := ConfigFollowStatus{Source: configSourceLabel(f.Env, src), CheckedAt: f.now()}
 	if src.Repo == "" {
 		st.State = ConfigFollowOff
 		f.set(st)
@@ -108,7 +108,7 @@ func (f *ConfigFollower) Tick(ctx context.Context) {
 		f.set(st)
 		f.Env.Conditions.Raise(condition.Condition{Key: ConfigFollowKey, Severity: condition.Info,
 			Summary: "the config repo's first apply is waiting to be confirmed",
-			Fix:     "Review the plan on Config › Tracking and press Confirm and apply, or run `jam config sync`."})
+			Fix:     "On Config › Tracking press Diff, review the plan and press Apply this plan, or run `jam config sync`."})
 		return
 	}
 	f.mu.Lock()
@@ -120,7 +120,7 @@ func (f *ConfigFollower) Tick(ctx context.Context) {
 		f.Env.Conditions.Clear(ConfigFollowKey)
 		return
 	}
-	res, err := ApplyConfigSource(ctx, f.Store, f.Fetcher, src, f.Env, ConfigApplyOptions{Force: true, Now: st.CheckedAt}, f.Log, configFollowActor)
+	res, err := ApplyConfigSource(ctx, f.Store, f.Fetcher, src, f.Env, ConfigApplyOptions{Now: st.CheckedAt}, f.Log, configFollowActor)
 	if err != nil {
 		status, msg := ConfigStatus(err)
 		if status == http.StatusInternalServerError && f.Log != nil {
@@ -187,7 +187,7 @@ func (f *ConfigFollower) Refresh() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	st := f.status
-	st.Source, st.Applied, st.Error = configSourceLabel(f.Env.Followed), rec.Commit, ""
+	st.Source, st.Applied, st.Error = configSourceLabel(f.Env, f.Env.Followed), rec.Commit, ""
 	if st.Head == "" || st.Head == rec.Commit || st.State != ConfigFollowFailed {
 		st.State = ConfigFollowInSync
 		if st.Head == "" {

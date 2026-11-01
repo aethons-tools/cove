@@ -57,6 +57,13 @@ export function useBranch(): string {
   return useSyncExternalStore(subscribe, getBranch);
 }
 
+// useConfigEditable is whether this tab may edit the config: only on a
+// branch. On the followed branch a page shows its config read-only (the
+// server refuses the write), keeping only its live-state controls.
+export function useConfigEditable(): boolean {
+  return useBranch() !== "";
+}
+
 // useHead is the head this tab last read.
 export function useHead(): string {
   return useSyncExternalStore(subscribe, getHead);

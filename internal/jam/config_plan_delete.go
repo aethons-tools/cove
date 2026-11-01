@@ -21,9 +21,9 @@ var configDeleteOrder = []string{ConfigKindRole, ConfigKindProject, ConfigKindKi
 	ConfigKindDestination, ConfigKindConnection, ConfigKindUser, ConfigKindJamContext}
 
 // planDeletes plans the delete of every managed object the repo no longer
-// holds, in configDeleteOrder, each behind its guard (deleteObject) and the
-// drift check. A mark whose object Jam no longer has is dropped with no op,
-// as a plan Forget item.
+// holds, in configDeleteOrder, each behind its guard (deleteObject), whatever
+// was edited in Jam since its mark. A mark whose object Jam no longer has is
+// dropped with no op, as a plan Forget item.
 func (p *planner) planDeletes() {
 	for _, kind := range configDeleteOrder {
 		for _, key := range p.deleteKeys(kind) {
@@ -33,17 +33,11 @@ func (p *planner) planDeletes() {
 				p.w.RemoveMarks = append(p.w.RemoveMarks, key)
 				continue
 			}
-			drift := cur.Digest() != p.marks[key].Digest
-			if drift && !p.in.Force {
-				p.refuseDrift(key)
-				p.op(key, ConfigDelete, true, cur.Canon, nil) // the diff shows Jam's side; no write
-				continue
-			}
 			if err := p.deleteObject(key); err != nil {
 				p.refuse("cannot delete %s: %s", key, err)
 				continue
 			}
-			p.op(key, ConfigDelete, drift, cur.Canon, nil)
+			p.op(key, ConfigDelete, cur.Canon, nil)
 			p.w.RemoveMarks = append(p.w.RemoveMarks, key)
 		}
 	}

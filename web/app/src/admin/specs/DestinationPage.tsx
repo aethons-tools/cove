@@ -5,12 +5,12 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
 import type { DestDetail } from "../api/types";
+import { useConfigEditable } from "../branch/branch";
 import { adminApi, nodeHref } from "../paths";
 import { ConfirmAction } from "../ui/ConfirmAction";
 import { DataTable } from "../ui/DataTable";
 import { EditForm } from "../ui/EditForm";
 import { Facts } from "../ui/Facts";
-import { ManagedBadge, driftNote } from "../ui/ManagedBadge";
 import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { DestFields, destBody, type DestValues } from "./DestFields";
@@ -40,7 +40,7 @@ function Destination({ d, dataKey }: { d: DestDetail; dataKey: unknown[] }) {
   const client = useQueryClient();
   const navigate = useNavigate();
   const f = d.fields;
-  const drift = driftNote(d.managed);
+  const editable = useConfigEditable();
   const save = useAdminMutation((v: DestValues) => adminApi.post<DestDetail>(`destinations/${enc(d.name)}`, destBody(v)), {
     invalidate: [destsKey], onSuccess: (x) => client.setQueryData(dataKey, x),
   });
@@ -51,10 +51,9 @@ function Destination({ d, dataKey }: { d: DestDetail; dataKey: unknown[] }) {
       <Group justify="space-between" wrap="wrap">
         <Group gap="sm" align="baseline">
           <Title order={2}>{d.name}</Title>
-          <ManagedBadge managed={d.managed} />
           <Text size="sm" c="dimmed" ff="monospace">{f.route} → {f.upstream}</Text>
         </Group>
-        <ConfirmAction label="Delete" confirm={deleteDestConfirm(d.name, d.uses.length, drift)} onConfirm={() => remove.mutateAsync(undefined)} />
+        <ConfirmAction label="Delete" confirm={deleteDestConfirm(d.name, d.uses.length)} onConfirm={() => remove.mutateAsync(undefined)} />
       </Group>
       {d.conflicts.length > 0 && (
         <Alert color="red" title={`Connector conflict in ${d.conflictRoles.length} role(s): ${d.conflictRoles.join(", ")}`}>
@@ -97,20 +96,20 @@ function Destination({ d, dataKey }: { d: DestDetail; dataKey: unknown[] }) {
             { key: "c", label: "Credential", render: (u) => u.credIsRole ? <>{mono(u.cred)} <Text span size="sm" c="dimmed">role mapping</Text></>
               : f.credName ? <>{mono(f.credName)} <Text span size="sm" c="dimmed">default</Text></> : <Text span size="sm" c="dimmed">none</Text> },
           ]} />
-          <details>
+          {editable && <details>
             <summary style={{ cursor: "pointer" }}>Edit destination</summary>
-            <Card withBorder mt="xs"><EditDest key={JSON.stringify(f)} d={d} confirm={drift ? `${drift} Save anyway?` : undefined} onSave={(v) => save.mutateAsync(v)} /></Card>
-          </details>
+            <Card withBorder mt="xs"><EditDest key={JSON.stringify(f)} d={d} onSave={(v) => save.mutateAsync(v)} /></Card>
+          </details>}
         </Stack>
       </Section>
     </Stack>
   );
 }
 
-function EditDest({ d, confirm, onSave }: { d: DestDetail; confirm?: string; onSave: (v: DestValues) => Promise<unknown> }) {
+function EditDest({ d, onSave }: { d: DestDetail; onSave: (v: DestValues) => Promise<unknown> }) {
   const [v, setV] = useState<DestValues>({ ...d.fields });
   return (
-    <EditForm submit="Save destination" confirm={confirm} onSubmit={() => onSave(v)}>
+    <EditForm submit="Save destination" onSubmit={() => onSave(v)}>
       <DestFields value={v} onChange={setV} methods={d.methods} stored={d.fields} />
     </EditForm>
   );

@@ -4,7 +4,7 @@ read_when: You want to SSH or point an IDE at an agent's studio, let a teammate 
 owns: the studio-collaboration user and operator guide — jam ssh-config/ssh-proxy/ssh and login --participant, the access rules and share grants (studio share/unshare/access, revocation) for every right, the ssh: serve-config block's setup steps, and the tunnel/cert mechanism at the level an operator needs
 prereqs: serve.md (serve config, credentials), roster.md (roles, users), operators.md (login)
 tier: leaf
-updated: 2026-10-31
+updated: 2026-11-01
 ---
 
 # Studio collaboration (SSH, IDEs and previews)
@@ -26,8 +26,8 @@ studio's port over a tunnel the studio dials back.
    `jam-ssh-ca: { command: ["cat", "/path/to/jam-ssh-ca"] }`.
 3. Add `ssh: { ca-cred: jam-ssh-ca }` to the serve config
    ([serve.md](serve.md)) and restart `jam serve`.
-4. Let members in where wanted: `jam role add … --collaborate-ssh members`
-   ([roster.md](roster.md)).
+4. Let members in where wanted: `collaborate: {ssh: members}` in the role's
+   file in the config repo ([roster.md](roster.md#roles)).
 
 Studios raised after the restart trust the CA; one already running does not
 until its next raise. The same holds for rotating the CA key: a studio picks

@@ -4,7 +4,7 @@ read_when: You need a model-spec's principal to send an extra upstream header (e
 owns: model-spec principal header rules — their schema, validation, broker application and UI syntax
 prereqs: model-specs.md for the model-spec entity; header-specs.md for destination identity/apply headers
 tier: leaf
-updated: 2026-10-06
+updated: 2026-11-01
 ---
 
 # Model-spec principal header rules
@@ -67,8 +67,8 @@ it as an `ensure-list-item` rule on its spec (the legacy-flag scan writes it).
 
 ## Validation
 
-At every write (`jam model-spec add`/`update`, the admin UI, config import),
-each rule is checked; a refusal is a 400 naming `principal.headers[i]` and never
+At every write (a config plan of `model-specs/<name>.yml`, the admin UI on a branch, a snapshot import),
+each rule is checked; a refusal names `principal.headers[i]` and never
 echoes a value:
 
 - `name` is a valid HTTP header name the proxy can carry — not hop-by-hop

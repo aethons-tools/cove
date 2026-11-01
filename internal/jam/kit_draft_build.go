@@ -32,6 +32,18 @@ const (
 // KitDraftLogCap is how much of a build's log is kept: its last 1 MiB.
 const KitDraftLogCap = 1 << 20
 
+// kitDraftBuildsOff answers a draft studio's raise on a Jam with no
+// connected Studio Manager that builds images.
+const kitDraftBuildsOff = "test builds need a connected Studio Manager that builds images (runtime.studio-managers)"
+
+// shortTree is a tree hash's 12-hex prefix, for logs.
+func shortTree(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
+
 // KitDraftBuilder is implemented by a Launcher that can test-build a kit
 // draft (the colima launcher). It builds def's chain with the real harness
 // and hardening, the top stage from the draft's tree, tagged tag (never a
@@ -669,7 +681,7 @@ func (b *KitDraftBuilds) Ensure(ctx context.Context, def KitDefinition, ref KitD
 	defer b.mu.Unlock()
 	if j.state != DraftBuildSucceeded {
 		line, _, _ := strings.Cut(j.errText, "\n")
-		return KitDraftImage{}, "", KitObjects{}, writeErr(http.StatusBadRequest, "draft %s: the test build failed (see jam kit draft build %s --show --manager %s): %s", ref.Kit, ref.Kit, manager, textesc.Escape(line, false))
+		return KitDraftImage{}, "", KitObjects{}, writeErr(http.StatusBadRequest, "draft %s: the test build on %s failed: %s", ref.Kit, manager, textesc.Escape(line, false))
 	}
 	return KitDraftImage{Tag: j.tag, ID: j.imageID}, manager, objs, nil
 }

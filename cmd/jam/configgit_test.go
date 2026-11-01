@@ -32,6 +32,29 @@ func configServer(t *testing.T) (string, *jam.MemStore) {
 	return ts.URL, st
 }
 
+// applyDir applies the config checkout dir to st as a --dir apply did,
+// seeding state for tests of the kept verbs.
+func applyDir(t *testing.T, st *jam.MemStore, dir string) jam.ConfigApplyResult {
+	t.Helper()
+	tr, err := jam.LoadConfigTree(dir)
+	cfgMust(t, err)
+	res, err := jam.ApplyConfigTree(context.Background(), st, nil, tr, jam.ConfigEnv{CredExists: func(string) bool { return true }},
+		jam.ConfigApplyOptions{Source: gitsource.Source{Repo: jam.ConfigDirRepo}, Commit: jam.ConfigDirCommit, Now: time.Unix(1, 0)}, nil, "test")
+	cfgMust(t, err)
+	return res
+}
+
+// planIsEmpty reports whether a printed plan has no create, update, delete
+// or forget item.
+func planIsEmpty(out string) bool {
+	for _, verb := range []string{"create  ", "update  ", "delete  ", "forget  "} {
+		if strings.Contains("\n"+out, "\n"+verb) {
+			return false
+		}
+	}
+	return true
+}
+
 func mustMkdir(t *testing.T, p string) {
 	t.Helper()
 	if err := os.MkdirAll(p, 0o755); err != nil {
@@ -126,7 +149,7 @@ func seedJam(t *testing.T, st *jam.MemStore) {
 	cfgMust(t, st.SetJamContext(sessionctx.Layer{Core: "jam rules"}))
 }
 
-func TestConfigWriteThenApplyReplicates(t *testing.T) {
+func TestConfigWriteThenDiffReplicates(t *testing.T) {
 	srcURL, src := configServer(t)
 	seedJam(t, src)
 	repo := gitDir(t)
@@ -145,11 +168,11 @@ func TestConfigWriteThenApplyReplicates(t *testing.T) {
 	if len(dst.ListUsers()) != 0 {
 		t.Fatal("diff wrote")
 	}
-	if code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", dstURL); code != 0 || !strings.Contains(out, "applied") {
-		t.Fatalf("apply: %d\n%s\n%s", code, out, errs)
+	if !applyDir(t, dst, repo).Applied {
+		t.Fatal("seed apply wrote nothing")
 	}
-	if code, out, _ := runJam("config", "apply", "--dir", repo, "--admin-url", dstURL); code != 0 || !strings.Contains(out, "nothing to apply") || strings.Contains(out, "[y/N]") {
-		t.Fatalf("second apply: %d\n%s", code, out)
+	if code, out, errs := runJam("config", "diff", "--dir", repo, "--admin-url", dstURL); code != 0 || !planIsEmpty(out) {
+		t.Fatalf("diff after the apply: %d\n%s\n%s", code, out, errs)
 	}
 	back := gitDir(t)
 	runJam("config", "write", back, "--all", "--admin-url", dstURL)
@@ -175,7 +198,7 @@ func TestConfigWriteRemovesOnlyManagedGone(t *testing.T) {
 	repo := gitDir(t)
 	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
 	mustWrite(t, filepath.Join(repo, "README.md"), "mine\n", 0o644)
-	runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	applyDir(t, st, repo)
 	bob := findUser(t, st, "bob")
 	if err := st.RemoveUser(bob.ID); err != nil {
 		t.Fatal(err)
@@ -189,25 +212,28 @@ func TestConfigWriteRemovesOnlyManagedGone(t *testing.T) {
 	}
 }
 
-func TestConfigApplyPromptsAndRefuses(t *testing.T) {
-	url, st := configServer(t)
-	repo := gitDir(t)
-	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
+func TestConfigSyncPromptsAndRefuses(t *testing.T) {
+	cfgURL, _, update := gittest.Serve(t, map[string]string{"jam/users/bob.yml": "kind: user\nversion: 1\n"})
+	followed, err := gitsource.Parse(cfgURL + "//jam@main")
+	cfgMust(t, err)
+	url, st := configGitServer(t, followed)
 	configStdin = strings.NewReader("n\n")
 	t.Cleanup(func() { configStdin = os.Stdin })
-	if code, out, errs := runJam("config", "apply", "--dir", repo, "--admin-url", url); code != 1 || !strings.Contains(out, "Apply 1 change? [y/N]") || !strings.Contains(errs, "aborted") || len(st.ListUsers()) != 0 {
-		t.Fatalf("declined apply: %d %s", code, out)
+	if code, out, errs := runJam("config", "sync", "--admin-url", url); code != 1 || !strings.Contains(out, "Apply 1 change? [y/N]") || !strings.Contains(errs, "aborted") || len(st.ListUsers()) != 0 {
+		t.Fatalf("declined sync: %d %s", code, out)
 	}
-	mustWrite(t, filepath.Join(repo, "projects/app/roles/ic.yml"), "kind: role\nversion: 1\nkit: nope\n", 0o644)
-	code, out, _ := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	update(map[string]string{"jam/projects/app/roles/ic.yml": "kind: role\nversion: 1\nkit: nope\n"})
+	code, out, _ := runJam("config", "sync", "--yes", "--admin-url", url)
 	if code != 1 || !strings.Contains(out, "refused:\n  projects/app/roles/ic.yml: ") {
 		t.Fatalf("refusals: %d\n%s", code, out)
 	}
 }
 
-func TestConfigDiffRejectsForce(t *testing.T) {
-	if code, _, _ := runJam("config", "diff", "--dir", t.TempDir(), "--force"); code != 2 {
-		t.Fatalf("diff --force: %d, want 2", code)
+func TestConfigRejectsForce(t *testing.T) {
+	for _, sub := range []string{"diff", "sync"} {
+		if code, _, _ := runJam("config", sub, "--force"); code != 2 {
+			t.Errorf("%s --force: %d, want 2", sub, code)
+		}
 	}
 }
 
@@ -292,10 +318,23 @@ func TestConfigDiffWithoutTrackedSource(t *testing.T) {
 	}
 }
 
+// config apply is gone: the config changes only through git, by sync.
+func TestConfigApplyGone(t *testing.T) {
+	url, st := configServer(t)
+	repo := gitDir(t)
+	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
+	code, _, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	if code != 2 || !strings.Contains(errs, "jam config: expected write <dir>") || strings.Contains(errs, "apply") || len(st.ListUsers()) != 0 {
+		t.Fatalf("config apply: %d %s", code, errs)
+	}
+	if code, out, errs := runJam("config", "diff", "--dir", repo, "--admin-url", url); code != 0 || !strings.Contains(out, "create  user bob") || len(st.ListUsers()) != 0 {
+		t.Fatalf("config diff --dir: %d %s %s", code, out, errs)
+	}
+}
+
 func TestConfigVerbFlags(t *testing.T) {
 	for _, args := range [][]string{
 		{"config", "diff", "--dir", "x", "--git", "https://github.com/a/b@main"},
-		{"config", "apply", "--dir", "x", "--git", "https://github.com/a/b@main"},
 		{"config", "track"},
 		{"config", "sync", "--git", "https://github.com/a/b@main"},
 		{"config", "status", "extra"},
@@ -306,54 +345,55 @@ func TestConfigVerbFlags(t *testing.T) {
 	}
 }
 
-func TestConfigApplyForceWritesOverDrift(t *testing.T) {
-	url, st := configServer(t)
-	repo := gitDir(t)
-	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
-	if code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url); code != 0 {
-		t.Fatalf("apply: %d %s %s", code, out, errs)
+// The repo wins over an edit made in Jam since the last sync.
+func TestConfigSyncWritesOverJamEdit(t *testing.T) {
+	cfgURL, _, update := gittest.Serve(t, map[string]string{"jam/users/bob.yml": "kind: user\nversion: 1\n"})
+	followed, err := gitsource.Parse(cfgURL + "//jam@main")
+	cfgMust(t, err)
+	url, st := configGitServer(t, followed)
+	if code, out, errs := runJam("config", "sync", "--yes", "--admin-url", url); code != 0 {
+		t.Fatalf("sync: %d %s %s", code, out, errs)
 	}
 	cfgMust(t, st.SetUserLogins(findUser(t, st, "bob").ID, []string{"bob@jam"}))
-	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\nlogins: [bob@repo]\n", 0o644)
-	code, out, _ := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
-	if code != 1 || !strings.Contains(out, "user bob drifted") {
-		t.Fatalf("apply without --force: %d\n%s", code, out)
-	}
-	code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--force", "--admin-url", url)
-	if code != 0 || !strings.Contains(out, "update  user bob  (drift)") || !strings.Contains(out, "1 updated") {
-		t.Fatalf("apply --force: %d\n%s\n%s", code, out, errs)
+	update(map[string]string{"jam/users/bob.yml": "kind: user\nversion: 1\nlogins: [bob@repo]\n"})
+	code, out, errs := runJam("config", "sync", "--yes", "--admin-url", url)
+	if code != 0 || !strings.Contains(out, "update  user bob\n") || !strings.Contains(out, "1 updated") {
+		t.Fatalf("sync: %d\n%s\n%s", code, out, errs)
 	}
 	if got := findUser(t, st, "bob").Logins; !reflect.DeepEqual(got, []string{"bob@repo"}) {
 		t.Fatalf("logins %v", got)
 	}
 }
 
-// A mark whose object was removed in Jam is a visible "forget" item that
-// apply removes, so a later unmanaged object of that name stays untouched.
-func TestConfigApplyForgetsStaleMark(t *testing.T) {
+// A mark whose object was removed in Jam is a visible "forget" item in the
+// plan of the repo without it; applying forgets it and leaves a later object
+// of that name alone.
+func TestConfigStaleMarkForgottenOnApply(t *testing.T) {
 	url, st := configServer(t)
 	repo := gitDir(t)
 	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
-	runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	applyDir(t, st, repo)
 	cfgMust(t, st.RemoveUser(findUser(t, st, "bob").ID))
 	cfgMust(t, os.Remove(filepath.Join(repo, "users/bob.yml")))
 	code, out, errs := runJam("config", "diff", "--dir", repo, "--admin-url", url)
 	if code != 0 || !strings.Contains(out, "forget  user bob  (mark only)") {
 		t.Fatalf("diff: %d\n%s\n%s", code, out, errs)
 	}
-	code, out, errs = runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
-	if code != 0 || !strings.Contains(out, "1 forgotten") {
-		t.Fatalf("apply: %d\n%s\n%s", code, out, errs)
+	// Applying it removes the mark only; a bob created later is unmanaged
+	// and the next apply leaves it alone.
+	if res := applyDir(t, st, repo); res.Counts[jam.ConfigForget] != 1 {
+		t.Fatalf("apply counts %v, want 1 forgotten", res.Counts)
 	}
 	if len(st.ListConfigMarks()) != 0 {
 		t.Fatalf("marks kept: %v", st.ListConfigMarks())
 	}
 	_, err := st.CreateUser(jam.User{ID: ident.New(ident.User), Name: "bob", Status: jam.StatusLive})
 	cfgMust(t, err)
-	code, out, _ = runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	code, out, errs = runJam("config", "diff", "--dir", repo, "--admin-url", url)
 	if code != 0 || strings.Contains(out, "delete") || !strings.Contains(out, "unmanaged: user bob") {
-		t.Fatalf("re-apply: %d\n%s", code, out)
+		t.Fatalf("re-plan: %d\n%s\n%s", code, out, errs)
 	}
+	applyDir(t, st, repo)
 	findUser(t, st, "bob")
 }
 
@@ -365,7 +405,7 @@ func TestConfigWriteRefusesBehindPin(t *testing.T) {
 	}
 	repo := gitDir(t)
 	code, _, errs := runJam("config", "write", repo, "--all", "--admin-url", url)
-	if code != 1 || !strings.Contains(errs, "kit app pins web-dev@v1 but web-dev is at v2; versions are per-Jam — re-push app against v2 (or pin web-dev to v1) before config write") {
+	if code != 1 || !strings.Contains(errs, "kit app pins web-dev@v1 but web-dev is at v2; versions are per-Jam — build app on web-dev by name (its current version) before config write") {
 		t.Fatalf("%d %s", code, errs)
 	}
 	if len(readTree(t, repo)) != 0 {
@@ -373,89 +413,62 @@ func TestConfigWriteRefusesBehindPin(t *testing.T) {
 	}
 }
 
-func TestPrintConfigPlanDriftedDelete(t *testing.T) {
-	var b strings.Builder
-	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigDelete,
-		Drift: true, Before: "# users/bob.yml\nkind: user\n"}}})
-	want := "delete  user bob  (drift)\n  jam:\n    # users/bob.yml\n    kind: user\n  repo:\n    (not in the repo)\n"
-	if !strings.HasPrefix(b.String(), want) {
-		t.Fatalf("got %q", b.String())
-	}
-}
-
-func TestConfigRelease(t *testing.T) {
-	url, st := configServer(t)
-	repo := gitDir(t)
-	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
-	if code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url); code != 0 {
-		t.Fatalf("apply: %d %s %s", code, out, errs)
-	}
-	code, out, errs := runJam("config", "release", "user/bob", "--admin-url", url)
-	if code != 0 || !strings.Contains(out, "released user bob") || len(st.ListConfigMarks()) != 0 {
-		t.Fatalf("release: %d\n%s\n%s marks=%v", code, out, errs, st.ListConfigMarks())
-	}
-	findUser(t, st, "bob") // the object stays
-	if code, _, errs := runJam("config", "release", "user/bob", "--admin-url", url); code != 1 || !strings.Contains(errs, "user bob is not managed") {
-		t.Fatalf("second release: %d %s", code, errs)
-	}
-	for _, bad := range [][]string{{"bob"}, {"user/"}, {"/bob"}, {}, {"user/bob", "extra"}} {
-		args := append([]string{"config", "release"}, bad...)
-		if code, _, _ := runJam(append(args, "--admin-url", url)...); code != 2 {
-			t.Errorf("release %v: exit %d, want 2", bad, code)
-		}
-	}
-}
-
-// config write captures a Jam-side edit; the following apply --dir has
-// nothing to change but still reaches the server, whose metadata-only write
-// refreshes the stale mark — so the next real repo change is not refused as
-// drift (issue 010), and there is no prompt.
-func TestConfigWriteThenApplyRefreshesMark(t *testing.T) {
-	url, st := configServer(t)
-	repo := gitDir(t)
-	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
-	if code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url); code != 0 {
-		t.Fatalf("apply: %d %s %s", code, out, errs)
+// config write captures a Jam-side edit; the following sync has nothing to
+// change but still reaches the server, whose metadata-only write refreshes
+// the stale mark — so the next real repo change is not refused as drift
+// (issue 010), and there is no prompt.
+func TestConfigWriteThenSyncRefreshesMark(t *testing.T) {
+	cfgURL, _, update := gittest.Serve(t, map[string]string{"jam/users/bob.yml": "kind: user\nversion: 1\n"})
+	followed, err := gitsource.Parse(cfgURL + "//jam@main")
+	cfgMust(t, err)
+	url, st := configGitServer(t, followed)
+	if code, out, errs := runJam("config", "sync", "--yes", "--admin-url", url); code != 0 {
+		t.Fatalf("sync: %d %s %s", code, out, errs)
 	}
 	cfgMust(t, st.SetUserLogins(findUser(t, st, "bob").ID, []string{"bob@jam"}))
+	repo := gitDir(t)
 	if code, out, errs := runJam("config", "write", repo, "--admin-url", url); code != 0 {
 		t.Fatalf("write: %d %s %s", code, out, errs)
 	}
-	code, out, errs := runJam("config", "apply", "--dir", repo, "--admin-url", url) // no --yes: must not prompt
+	// The repo carries Jam's edit now: nothing to change, so no prompt.
+	update(map[string]string{"jam/users/bob.yml": "kind: user\nversion: 1\nlogins: [bob@jam]\n"})
+	code, out, errs := runJam("config", "sync", "--admin-url", url)
 	if code != 0 || !strings.Contains(out, "nothing to apply") || strings.Contains(out, "[y/N]") {
-		t.Fatalf("zero-change apply: %d\n%s\n%s", code, out, errs)
+		t.Fatalf("zero-change sync: %d\n%s\n%s", code, out, errs)
 	}
-	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\nlogins: [bob@repo]\n", 0o644)
-	code, out, errs = runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	update(map[string]string{"jam/users/bob.yml": "kind: user\nversion: 1\nlogins: [bob@repo]\n"})
+	code, out, errs = runJam("config", "sync", "--yes", "--admin-url", url)
 	if code != 0 || strings.Contains(out, "drift") || !strings.Contains(out, "1 updated") {
 		t.Fatalf("next change: %d\n%s\n%s", code, out, errs)
 	}
 }
 
-// A refused update — drifted, or of an object the repo does not manage —
-// prints Jam's and the repo's canonical forms as a compact line diff.
-func TestPrintConfigPlanRefusedUpdateDiff(t *testing.T) {
+// An update prints Jam's and the repo's canonical forms as a compact line
+// diff (what the apply overwrites); a delete prints Jam's side.
+func TestPrintConfigPlanUpdateAndDeleteDiff(t *testing.T) {
 	before := "# users/bob.yml\nkind: user\nversion: 1\nlogins:\n- a@x\n"
 	after := "# users/bob.yml\nkind: user\nversion: 1\nlogins:\n- b@x\n"
-	for _, op := range []jam.ConfigOp{
-		{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigUpdate, Unmanaged: true, Before: before, After: after},
-		{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigUpdate, Drift: true, Before: before, After: after},
-	} {
-		var b strings.Builder
-		printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{op}})
-		mark := "(drift)"
-		if op.Unmanaged {
-			mark = "(not managed)"
-		}
-		want := "update  user bob  " + mark + "\n  --- jam\n  +++ repo\n  … 1 unchanged line(s)\n   kind: user\n   version: 1\n   logins:\n  -- a@x\n  +- b@x\n"
-		if !strings.HasPrefix(b.String(), want) {
-			t.Errorf("got %q\nwant prefix %q", b.String(), want)
-		}
+	var b strings.Builder
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigUpdate, Before: before, After: after}}})
+	want := "update  user bob\n  --- jam\n  +++ repo\n  … 1 unchanged line(s)\n   kind: user\n   version: 1\n   logins:\n  -- a@x\n  +- b@x\n"
+	if !strings.HasPrefix(b.String(), want) {
+		t.Errorf("update: got %q\nwant prefix %q", b.String(), want)
+	}
+	b.Reset()
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigDelete, Before: "# users/bob.yml\nkind: user\n"}}})
+	want = "delete  user bob\n  jam:\n    # users/bob.yml\n    kind: user\n  repo:\n    (not in the repo)\n"
+	if !strings.HasPrefix(b.String(), want) {
+		t.Errorf("delete: got %q\nwant prefix %q", b.String(), want)
+	}
+	b.Reset()
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigCreate, After: after}}})
+	if !strings.HasPrefix(b.String(), "create  user bob\n0 unchanged\n") {
+		t.Errorf("create: got %q", b.String())
 	}
 	// A kit's canonical form is its kit.yml and file listing: the diff points
 	// at the changed line.
-	var b strings.Builder
-	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindKit, Name: "ic", Action: jam.ConfigUpdate, Unmanaged: true,
+	b.Reset()
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindKit, Name: "ic", Action: jam.ConfigUpdate,
 		Before: "kind: studio\nprompt: a\n# files:\n#   0644 25 aa kit.yml\n# source: https://x/k//ic@main\n",
 		After:  "kind: studio\nprompt: b\n# files:\n#   0644 25 bb kit.yml\n# source: https://x/k//ic@main\n"}}})
 	if !strings.Contains(b.String(), "  -prompt: a\n  +prompt: b\n") || !strings.Contains(b.String(), "  -#   0644 25 aa kit.yml\n  +#   0644 25 bb kit.yml\n") {
@@ -510,14 +523,14 @@ func TestPrintConfigPlanKitSourceOnlyChange(t *testing.T) {
 	}
 	var b strings.Builder
 	printConfigPlan(&b, planKitDir(t, store, "kind: studio\n"))
-	if !strings.Contains(b.String(), "update  kit app  (not managed)\n") || !strings.Contains(b.String(), "  -# source: ") || strings.Contains(b.String(), "no changes") {
+	if !strings.Contains(b.String(), "update  kit app\n") || !strings.Contains(b.String(), "  -# source: ") || strings.Contains(b.String(), "no changes") {
 		t.Errorf("source-only change: %q", b.String())
 	}
 }
 
-// A drifted kit update prints its version diff (Jam's current tree → the
-// repo's) under its line.
-func TestPrintConfigPlanDriftedKitVersionDiff(t *testing.T) {
+// A kit edited in Jam since its apply prints its version diff (Jam's current
+// tree → the repo's) under its update line.
+func TestPrintConfigPlanEditedKitVersionDiff(t *testing.T) {
 	store := jam.NewMemStore()
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "kits", "app"), 0o755); err != nil {
@@ -539,7 +552,7 @@ func TestPrintConfigPlanDriftedKitVersionDiff(t *testing.T) {
 	}
 	var b strings.Builder
 	printConfigPlan(&b, planKitDir(t, store, "kind: studio\nprompt: repo\n"))
-	if !strings.Contains(b.String(), "update  kit app  (drift)\n    kit.yml:\n       kind: studio\n      -prompt: jam\n      +prompt: repo\n") {
-		t.Errorf("drifted kit: %q", b.String())
+	if !strings.Contains(b.String(), "update  kit app\n    kit.yml:\n       kind: studio\n      -prompt: jam\n      +prompt: repo\n") {
+		t.Errorf("edited kit: %q", b.String())
 	}
 }

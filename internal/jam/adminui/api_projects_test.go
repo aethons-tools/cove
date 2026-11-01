@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminui"
 )
@@ -20,7 +21,8 @@ func (l fakeLog) Squawks(legacy bool) []adminui.Logged {
 }
 
 func TestProjectsAPI(t *testing.T) {
-	h, store := adminHandler(t)
+	e := editOn(t, editSetup{})
+	h := e.H
 	var c adminui.Created
 	if rec := apiDo(t, h, "POST", "/app/admin/api/projects", map[string]string{"name": "acme"}, &c); rec.Code != 201 || c.Path != "config/projects/acme" {
 		t.Fatalf("create = %d %+v %s", rec.Code, c, rec.Body)
@@ -41,23 +43,32 @@ func TestProjectsAPI(t *testing.T) {
 		t.Fatalf("rename = %d %+v %s", rec.Code, c, rec.Body)
 	}
 	wantErr(t, apiDo(t, h, "GET", "/app/admin/api/projects/acme", nil, nil), 404, "not_found")
-	if err := store.PutRole("acme2", jam.Role{Name: "coder"}); err != nil {
-		t.Fatal(err)
-	}
+	e.Edit(func(st jam.Store) {
+		if err := st.PutRole("acme2", jam.Role{Name: "coder"}); err != nil {
+			t.Fatal(err)
+		}
+	})
 	apiDo(t, h, "GET", "/app/admin/api/projects/acme2", nil, &d)
 	if d.InUseBy == "" || d.Roles != 1 {
 		t.Errorf("in use = %+v", d)
 	}
 	wantErr(t, apiDo(t, h, "DELETE", "/app/admin/api/projects/acme2", nil, nil), 409, "conflict")
-	if err := store.RemoveRole("acme2", "coder"); err != nil {
-		t.Fatal(err)
-	}
+	e.Edit(func(st jam.Store) {
+		if err := st.RemoveRole("acme2", "coder"); err != nil {
+			t.Fatal(err)
+		}
+	})
 	if rec := apiDo(t, h, "DELETE", "/app/admin/api/projects/acme2", nil, nil); rec.Code != 204 {
 		t.Errorf("delete = %d %s", rec.Code, rec.Body)
 	}
-	if _, ok := store.GetProject("default"); !ok {
-		mustCreateProject(t, store, "default")
+	if _, ok := e.Store().GetProject("acme2"); ok {
+		t.Error("acme2 still on the branch")
 	}
+	e.Edit(func(st jam.Store) {
+		if _, ok := st.GetProject("default"); !ok {
+			mustCreateProject(t, st, "default")
+		}
+	})
 	d = adminui.ProjectDetail{}
 	apiDo(t, h, "GET", "/app/admin/api/projects/default", nil, &d)
 	if d.Name != "default" || d.Renamable {
@@ -66,11 +77,12 @@ func TestProjectsAPI(t *testing.T) {
 }
 
 func TestProjectSectionsAPI(t *testing.T) {
-	h, store := adminHandler(t)
-	mustCreateProject(t, store, "acme")
-	if _, err := store.CreateConnection(jam.Connection{Kind: "discord", Name: "disc", CredName: "tok"}); err != nil {
+	seed := newStore(t)
+	mustCreateProject(t, seed, "acme")
+	if _, err := seed.CreateConnection(jam.Connection{Kind: "discord", Name: "disc", CredName: "tok"}); err != nil {
 		t.Fatal(err)
 	}
+	h := editOn(t, editSetup{seed: seed}).H
 	var d adminui.ProjectDetail
 	apiDo(t, h, "POST", "/app/admin/api/projects/acme/chat-service", map[string]string{"service": "disc"}, &d)
 	if d.ChatService != "disc" {
@@ -88,6 +100,10 @@ func TestProjectSectionsAPI(t *testing.T) {
 	if len(d.Rooms) != 1 || d.Rooms[0].Name != "eng" || d.Rooms[0].Ref != "123" {
 		t.Fatalf("rooms = %+v", d.Rooms)
 	}
+	// Refused before the chain below is saved: a refusal reloads the branch,
+	// and a branch naming an unknown user does not load.
+	rec := apiDo(t, h, "POST", "/app/admin/api/projects/acme/escalation", map[string]string{"category": "x", "tiers": "user:a@soon"}, nil)
+	wantErr(t, rec, 400, "bad_request")
 	apiDo(t, h, "POST", "/app/admin/api/projects/acme/escalation", map[string]string{"category": "", "tiers": "user:ghost,channel:eng@15m"}, &d)
 	if len(d.DefaultChain.Tiers) != 1 || len(d.Escalation) != 1 {
 		t.Fatalf("chain = %+v", d.DefaultChain)
@@ -96,9 +112,9 @@ func TestProjectSectionsAPI(t *testing.T) {
 	if len(tg) != 2 || !tg[0].Unknown || tg[1].Unknown || d.DefaultChain.Tiers[0].Timeout != "15m" {
 		t.Errorf("targets = %+v", d.DefaultChain.Tiers[0])
 	}
-	rec := apiDo(t, h, "POST", "/app/admin/api/projects/acme/escalation", map[string]string{"category": "x", "tiers": "user:a@soon"}, nil)
-	wantErr(t, rec, 400, "bad_request")
-	apiDo(t, h, "DELETE", "/app/admin/api/projects/acme/escalation?category=", nil, &d)
+	if rec := apiDo(t, h, "DELETE", "/app/admin/api/projects/acme/escalation?category=", nil, &d); rec.Code != 200 {
+		t.Errorf("clear = %d %s", rec.Code, rec.Body)
+	}
 	if len(d.Escalation) != 0 {
 		t.Errorf("after clear = %+v", d.Escalation)
 	}
@@ -109,19 +125,24 @@ func TestProjectSectionsAPI(t *testing.T) {
 }
 
 func TestProjectMembersAPI(t *testing.T) {
-	h, store := adminHandler(t)
-	mustCreateProject(t, store, "acme")
-	alice, _ := store.CreateUser(jam.User{Name: "alice"})
+	seed := newStore(t)
+	mustCreateProject(t, seed, "acme")
+	if _, err := seed.CreateUser(jam.User{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	e := editOn(t, editSetup{seed: seed})
+	h := e.H
+	alice, _ := e.Store().LookupName(ident.User, "alice") // the branch's id
 	var d adminui.ProjectDetail
 	apiDo(t, h, "POST", "/app/admin/api/projects/acme/members", map[string]any{"user": "alice", "delivery": "discord:chan-1", "add": true}, &d)
-	if len(d.Members) != 1 || d.Members[0].UserID != string(alice.ID) || d.Members[0].DeliverySpec != "discord:chan-1" {
+	if len(d.Members) != 1 || d.Members[0].UserID != string(alice) || d.Members[0].DeliverySpec != "discord:chan-1" {
 		t.Fatalf("members = %+v", d.Members)
 	}
 	apiDo(t, h, "POST", "/app/admin/api/projects/acme/members", map[string]any{"user": "alice", "delivery": "", "add": true}, &d)
 	if d.Members[0].DeliverySpec != "discord:chan-1" {
 		t.Errorf("re-add lost delivery: %+v", d.Members[0])
 	}
-	apiDo(t, h, "POST", "/app/admin/api/projects/acme/members", map[string]any{"user": string(alice.ID), "delivery": ""}, &d)
+	apiDo(t, h, "POST", "/app/admin/api/projects/acme/members", map[string]any{"user": string(alice), "delivery": ""}, &d)
 	if d.Members[0].DeliverySpec != "" {
 		t.Errorf("edit kept delivery: %+v", d.Members[0])
 	}
@@ -129,14 +150,16 @@ func TestProjectMembersAPI(t *testing.T) {
 	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "is an account") {
 		t.Errorf("discord user id = %d %s", rec.Code, rec.Body)
 	}
-	apiDo(t, h, "DELETE", "/app/admin/api/projects/acme/members/"+string(alice.ID), nil, &d)
+	// The refusal reloaded the branch, which mints its ids afresh.
+	alice, _ = e.Store().LookupName(ident.User, "alice")
+	apiDo(t, h, "DELETE", "/app/admin/api/projects/acme/members/"+string(alice), nil, &d)
 	if len(d.Members) != 0 {
 		t.Errorf("after remove = %+v", d.Members)
 	}
 }
 
 func TestProjectAPIGone(t *testing.T) {
-	h, _ := adminHandler(t)
+	h := editOn(t, editSetup{}).H
 	for _, c := range []struct{ method, path string }{
 		{"POST", "/app/admin/api/projects/gone/chat-service"}, {"POST", "/app/admin/api/projects/gone/members"},
 		{"DELETE", "/app/admin/api/projects/gone/rooms/x"}, {"POST", "/app/admin/api/projects/gone/escalation"},

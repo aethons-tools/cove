@@ -4,7 +4,7 @@ read_when: You are running the Studio Manager live test (a Jam container plus a 
 owns: the Studio Manager live-test procedure, its expected results, and the gate it set for deleting the in-process launcher (done in plan 6)
 prereqs: container.md (running Jam in a container); ../studio-manager.md (the manager's config); studio-managers.md (Jam's side)
 tier: leaf
-updated: 2026-10-27
+updated: 2026-11-01
 ---
 
 # Studio Manager live test
@@ -20,7 +20,7 @@ This run gated the removal of the in-process launcher (done in plan 6); the runb
 - A trusted cert for `jam.local.aethons.tools` in the secrets directory's `tls/`, and the OIDC tenant from the container config ([container.md](container.md#running-it-with-the-dev-compose)).
 - Jam and the manager on one version ([lockstep](container.md#version-lockstep)): `just build && just jam-image` from one checkout, or a release image with that release's `jam-studio-manager`.
 - The `anthropic` and `git` destinations need credentials in the container: uncomment the `anthropic-key` and `git-pat` placeholders in `dev/jam.container.yml` and the secrets directory's `credentials.yml`, fill in real values, and restart Jam (`just dev-jam-up`).
-- After step 2, a project and a role that grant the `anthropic` and `git` destinations ([roster.md](roster.md), [coves.md](coves.md#raising-a-real-managed-studio)), and a kit for the role ([kits.md](kits.md)).
+- After step 2, a project and a role that grant the `anthropic` and `git` destinations ([roster.md](roster.md), [coves.md](coves.md#raising-a-real-managed-studio)), and a kit for the role ([kits.md](kits.md)), committed to the config repo the Jam follows (a local one: [dev/README.md](../../../dev/README.md#config-a-local-repo)).
 - `jam` on the Mac, signed in: `jam login --admin-url https://jam.local.aethons.tools:8081` ([admin access](container.md#admin-access)).
 
 The examples use the manager name `mac-1`, the role `acme/guest` and the kit `app`.
@@ -52,7 +52,7 @@ The examples use the manager name `mac-1`, the role `acme/guest` and the kit `ap
    The agent reaches Anthropic and git through Jam (activity `running`, then `waiting`).
 
 6. **A kit build on the manager.**
-   Change a build-affecting field of the role's kit and `jam kit push <dir>`, then raise `live-2` as in item 5.
+   Change a build-affecting field of the role's kit (`kits/app/` in the config repo), commit it and wait for Jam to apply it (`jam config status`), then raise `live-2` as in item 5.
    Expect: the manager builds the new image, and the raise waits for it, then goes `live`.
    `jam role images acme/guest` shows a `mac-1` row with the new tag.
 
@@ -62,10 +62,7 @@ The examples use the manager name `mac-1`, the role `acme/guest` and the kit `ap
    Then send the session a message in the Inbox (`/app/user`).
    Expect: Jam unpauses it, it reconnects, and it is woken: phase `live`, activity `running`.
 
-8. **A draft build on the manager.**
-   `jam kit draft open app`, edit a file with `kit draft put`, then `jam kit draft build app --manager mac-1` ([drafts](kits-drafts.md#test-build)).
-   Expect: the build log streams, ending in `built draft app @<tree> (digest sha256:…)`. `kit draft build app --show` names `mac-1`.
-   Optionally `studio raise … --kit-draft app --manager mac-1` reuses that image.
+8. **A draft build on the manager.** Retired: live kit drafts and their test builds were removed ([kits-drafts.md](kits-drafts.md)). The recorded run passed it; a new run skips it.
 
 9. **Jam restarts and the manager reconnects.**
    `docker compose -f dev/docker-compose.yml restart jam`.

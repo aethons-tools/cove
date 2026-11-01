@@ -305,30 +305,6 @@ func TestLoadConfigTreeKitDirWithoutKitYml(t *testing.T) {
 	}
 }
 
-// The same source is the same repo, ref and checkout dir, however the dir
-// is spelled.
-func TestPlannerTracksSourceCleansDir(t *testing.T) {
-	m := newMemState()
-	m.kits["ic"] = Kit{Name: "ic", Source: &KitSource{Repo: kitsRepo, Dir: "./ic/", Ref: "main", Commit: "c1"}}
-	p := &planner{m: m}
-	for _, tc := range []struct {
-		at   KitSource
-		want bool
-	}{
-		{KitSource{Repo: kitsRepo, Dir: "ic", Ref: "main", Commit: "c2"}, true},
-		{KitSource{Repo: kitsRepo, Dir: "ic", Ref: "dev"}, false},
-		{KitSource{Repo: kitsRepo, Dir: "other", Ref: "main"}, false},
-		{KitSource{Repo: "https://github.com/acme/other", Dir: "ic", Ref: "main"}, false},
-	} {
-		if got := p.tracksSource("ic", tc.at); got != tc.want {
-			t.Errorf("tracksSource(%+v) = %v", tc.at, got)
-		}
-	}
-	if p.tracksSource("missing", KitSource{Repo: kitsRepo, Dir: "ic", Ref: "main"}) {
-		t.Error("a missing kit tracks a source")
-	}
-}
-
 // A value the renderer cannot write (here jam.yml holding a channel) is an
 // error naming what failed, never a panic; the log has the panic's type and
 // stack, never its value.
@@ -369,9 +345,8 @@ func trackedBehind(t *testing.T) (*MemStore, KitFetcher, *fakeFetcher, string) {
 	return st, f, kits, dir
 }
 
-// An unmanaged kit tracking the very source its .source.yml names is that
-// kit, whatever commit each side is at: the plan adopts it and updates it
-// to the fetched commit, instead of refusing.
+// An unmanaged kit tracking the source its .source.yml names, at an older
+// commit: the plan updates it to the fetched commit and manages it.
 func TestConfigPlanAdoptsTrackedKitBehind(t *testing.T) {
 	st, f, _, dir := trackedBehind(t)
 	p := planDirUnmarked(t, st, f, dir)
@@ -379,7 +354,7 @@ func TestConfigPlanAdoptsTrackedKitBehind(t *testing.T) {
 		t.Fatalf("refusals %v", p.Refusals)
 	}
 	op := opOf(p, ConfigKindKit, "ic")
-	if op.Action != ConfigUpdate || op.Unmanaged || !strings.Contains(op.Before, "prompt: work the ticket\n") || !strings.Contains(op.After, "then review") {
+	if op.Action != ConfigUpdate || !strings.Contains(op.Before, "prompt: work the ticket\n") || !strings.Contains(op.After, "then review") {
 		t.Fatalf("op %+v", op)
 	}
 	applyPlan(t, st, p)
@@ -396,15 +371,15 @@ func TestConfigPlanAdoptsTrackedKitBehind(t *testing.T) {
 	}
 }
 
-// Only the same source adopts: a .source.yml naming another ref of the
-// repo, or an inline kit.yml, that differs from Jam's kit is still refused
-// — with both sides in the plan.
-func TestConfigPlanRefusesOtherSourceForUnmanagedKit(t *testing.T) {
+// The repo always wins: a .source.yml naming another ref of the repo, or an
+// inline kit.yml, that differs from Jam's unmanaged kit updates it — with
+// both sides in the plan.
+func TestConfigPlanUpdatesUnmanagedKitFromOtherSource(t *testing.T) {
 	t.Run("other ref", func(t *testing.T) {
 		st, f, kits, dir := trackedBehind(t)
 		kits.commit("dev", "d1", map[string]string{"ic/kit.yml": "kind: studio\nprompt: dev\n"})
 		mustWrite(t, filepath.Join(dir, "kits/ic.source.yml"), string(renderKitSourceFile(KitSource{Repo: kitsRepo, Dir: "ic", Ref: "dev"})), 0o644)
-		assertUnmanagedRefusal(t, planDirUnmarked(t, st, f, dir), ConfigKindKit, "ic")
+		assertUnmanagedUpdate(t, planDirUnmarked(t, st, f, dir), ConfigKindKit, "ic")
 	})
 	t.Run("inline", func(t *testing.T) {
 		st, f, _, dir := trackedBehind(t)
@@ -412,14 +387,13 @@ func TestConfigPlanRefusesOtherSourceForUnmanagedKit(t *testing.T) {
 			t.Fatal(err)
 		}
 		mustWrite(t, filepath.Join(dir, "kits/ic/kit.yml"), "kind: studio\nprompt: work the ticket, then review\n", 0o644)
-		assertUnmanagedRefusal(t, planDirUnmarked(t, st, f, dir), ConfigKindKit, "ic")
+		assertUnmanagedUpdate(t, planDirUnmarked(t, st, f, dir), ConfigKindKit, "ic")
 	})
 }
 
-// An unmanaged object whose repo copy differs is refused, and the plan
-// carries both canonical forms (an op flagged Unmanaged) so the diff shows
-// why; a refused plan never applies.
-func TestConfigPlanUnmanagedRefusalShowsBothSides(t *testing.T) {
+// An unmanaged object whose repo copy differs is updated, and the plan
+// carries both canonical forms so the diff shows the change.
+func TestConfigPlanUnmanagedUpdateShowsBothSides(t *testing.T) {
 	st := NewMemStore()
 	must(t, CreateDestination(st, Destination{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com",
 		IdentityIn: ApplyBearer, CredName: "gh", Apply: ApplyBearer, Note: "jam"}, func(string) bool { return true }))
@@ -436,20 +410,19 @@ func TestConfigPlanUnmanagedRefusalShowsBothSides(t *testing.T) {
 	}
 	mustWrite(t, path, strings.Replace(string(b), "note: jam", "note: repo", 1), 0o644)
 	p := planDirUnmarked(t, st, nil, dir)
-	op := assertUnmanagedRefusal(t, p, ConfigKindDestination, "gh")
+	op := assertUnmanagedUpdate(t, p, ConfigKindDestination, "gh")
 	if !strings.Contains(op.Before, "note: jam") || !strings.Contains(op.After, "note: repo") {
 		t.Errorf("op sides:\n%s\n---\n%s", op.Before, op.After)
 	}
 }
 
-func assertUnmanagedRefusal(t *testing.T, p ConfigPlan, kind, name string) ConfigOp {
+func assertUnmanagedUpdate(t *testing.T, p ConfigPlan, kind, name string) ConfigOp {
 	t.Helper()
-	key := ConfigKey{kind, name}
-	if !slices.Contains(p.Refusals, key.String()+" exists and is not managed; config write --all it into the repo, or rename") {
+	if len(p.Refusals) > 0 {
 		t.Errorf("refusals %v", p.Refusals)
 	}
 	op := opOf(p, kind, name)
-	if !op.Unmanaged || op.Action != ConfigUpdate || op.Before == "" || op.After == "" || op.Before == op.After {
+	if op.Action != ConfigUpdate || op.Before == "" || op.After == "" || op.Before == op.After {
 		t.Errorf("op %+v", op)
 	}
 	return op
@@ -571,21 +544,6 @@ func TestConfigWriteAllKitPromptRoundTrips(t *testing.T) {
 				t.Errorf("%s", r)
 			}
 		})
-	}
-}
-
-// The drift check of a Jam holding a value the renderer once panicked on
-// (a multi-line note opening with a tab) renders it, rather than crashing
-// the serve's background goroutine.
-func TestConfigMarkStatesRendersTabbedNote(t *testing.T) {
-	st := appliedFull(t)
-	editGH(t, st, "\tfoo\nbar")
-	states, err := ConfigMarkStates(st)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.ContainsFunc(states, func(s ConfigMarkState) bool { return s.Name == "gh" && s.State == ConfigDrifted }) {
-		t.Fatalf("states %+v", states)
 	}
 }
 

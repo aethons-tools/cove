@@ -2,11 +2,18 @@ package adminui_test
 
 import (
 	"context"
+	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -14,6 +21,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/configrepo"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/gitsource/gittest"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 // branchUI is a live Jam following a served repo (users/bob.yml on main,
@@ -34,6 +42,105 @@ func branchUI(t *testing.T) (http.Handler, jam.Store, *jam.ConfigBranches, strin
 	}
 	h := adminui.Handler(live, testLogger(), nil, nil, anyCred, nil, adminui.WithConfigEnv(env), adminui.WithConfigBranches(b, factory))
 	return h, live, b, url
+}
+
+// editBranch is the branch every branchEdit request is served on.
+const editBranch = "jam/edit"
+
+// branchEdit is a Jam following a served repo with editBranch open, its
+// console editing that branch: config writes are made there, as an
+// operator's are. Store is the branch workspace's store.
+type branchEdit struct {
+	t    *testing.T
+	H    http.Handler // serves every request on editBranch
+	Live jam.Store
+	b    *jam.ConfigBranches
+	url  string
+}
+
+// editSetup is what editOn builds: the branch holds seed's config (nil:
+// none); the console's handlers are built with cred (nil: anyCred), log
+// (nil: testLogger) and opts.
+type editSetup struct {
+	seed jam.Store
+	cred func(string) bool
+	log  *slog.Logger
+	opts []adminui.Option
+}
+
+// editOn opens editBranch as s sets it up.
+func editOn(t *testing.T, s editSetup) *branchEdit {
+	t.Helper()
+	seed, cred, log, opts := s.seed, s.cred, s.log, slices.Clone(s.opts)
+	if cred == nil {
+		cred = anyCred
+	}
+	if log == nil {
+		log = testLogger()
+	}
+	ctx := context.Background()
+	url, _, _ := gittest.Serve(t, map[string]string{"README.md": "the Jam's config is under config/\n"}, gittest.WithPush())
+	repo := &configrepo.Repo{URL: url, Branch: "main", Path: filepath.Join(t.TempDir(), "repo")}
+	head, err := repo.CreateBranch(ctx, editBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seed != nil {
+		exp, err := jam.ExportConfigTree(seed.ExportConfig(), nil, nil, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ch := configrepo.Changes{Put: map[string]configrepo.File{}}
+		for p, c := range exp.Files {
+			ch.Put["config/"+p] = configrepo.File{Data: []byte(c), Mode: filemode.Regular}
+		}
+		for dir, fs := range exp.Kits {
+			for _, f := range fs {
+				mode := filemode.Regular
+				if f.Mode&0o111 != 0 {
+					mode = filemode.Executable
+				}
+				ch.Put["config/"+dir+"/"+f.Path] = configrepo.File{Data: f.Data, Mode: mode}
+			}
+		}
+		if _, err := repo.Commit(ctx, editBranch, head, ch, configrepo.Signature{Name: "seed", Email: "seed@jam"}, "seed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live := newStore(t)
+	env := jam.ConfigEnv{CredExists: cred, Followed: gitsource.Source{Repo: url, Ref: "main", Dir: "config"}}
+	b := &jam.ConfigBranches{Repo: repo, Dir: "config", Env: env, Live: live}
+	opts = append([]adminui.Option{adminui.WithConfigEnv(env)}, opts...)
+	factory := func(st jam.Store) http.Handler {
+		return adminui.Handler(st, log, nil, nil, cred, nil, opts...)
+	}
+	h := adminui.Handler(live, log, nil, nil, cred, nil, append(opts, adminui.WithConfigBranches(b, factory))...)
+	return &branchEdit{t: t, H: modHandler{h, onBranch(editBranch)}, Live: live, b: b, url: url}
+}
+
+// Store is the branch's config as the console reads it now.
+func (e *branchEdit) Store() jam.Store {
+	e.t.Helper()
+	ws, err := e.b.Workspace(context.Background(), editBranch)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return ws.Store
+}
+
+// Edit changes the branch's config by hand (a push) with fn.
+func (e *branchEdit) Edit(fn func(jam.Store)) {
+	e.t.Helper()
+	ws, err := e.b.Workspace(context.Background(), editBranch)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	ws.Lock()
+	defer ws.Unlock()
+	fn(ws.Store)
+	if err := e.b.Save(context.Background(), ws, configrepo.Signature{Name: "hand", Email: "hand@jam"}, "by hand"); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 // apiDoWith is apiDo with the request adjusted by mod first.
@@ -142,7 +249,6 @@ func TestLiveConfigWritesRefused(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "open a branch") {
 		t.Fatalf("message %s", rec.Body)
 	}
-	wantErr(t, apiDo(t, h, "DELETE", "/app/admin/api/tracking/managed/user/bob", nil, nil), 409, "conflict")
 	if _, ok := live.LookupName(ident.User, "carol"); ok {
 		t.Fatal("carol written live")
 	}
@@ -188,4 +294,141 @@ func TestBranchesAPIGitLab(t *testing.T) {
 	if !strings.HasSuffix(list.TreeLink, "/-/tree/") || list.PRNoun != "merge request" || !list.CanPR {
 		t.Fatalf("list = %+v", list)
 	}
+}
+
+// A local repo has no web page and no pull requests.
+func TestBranchesAPILocal(t *testing.T) {
+	_, _, b, url := branchUI(t)
+	bare := filepath.Join(t.TempDir(), "config.git")
+	if out, err := exec.Command("git", "clone", "--bare", url, bare).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v %s", err, out)
+	}
+	b.PRs = nil
+	b.Repo.URL = bare
+	h := adminui.Handler(newStore(t), testLogger(), nil, nil, anyCred, nil, adminui.WithConfigBranches(b, func(jam.Store) http.Handler { return http.NotFoundHandler() }))
+	var raw map[string]any
+	apiDo(t, h, "GET", "/app/admin/api/config/branches", nil, &raw)
+	if raw["canPR"] != false || raw["treeLink"] != "" || raw["repoLink"] != "" {
+		t.Fatalf("list = %+v", raw)
+	}
+}
+
+// The draft editor works on a branch: a draft opened, saved and published
+// there is committed as the kit's new files.
+func TestBranchKitDraftSaveAndPublish(t *testing.T) {
+	seed := newStore(t)
+	if _, _, err := jam.PushKitFiles(seed, "app", kittreetest.Files("kit.yml", "kind: studio\n", "run.sh*", "echo\n")); err != nil {
+		t.Fatal(err)
+	}
+	e := editOn(t, editSetup{seed: seed})
+	var res adminui.DraftResult
+	if rec := apiDo(t, e.H, "POST", draftAPI, map[string]int{}, &res); rec.Code != 200 || res.Page.Draft == nil {
+		t.Fatalf("open = %d %s", rec.Code, rec.Body)
+	}
+	if rec := apiDo(t, e.H, "POST", draftAPI+"/save", map[string]any{"etag": res.Page.Draft.ETag, "path": "run.sh", "content": "echo two\n", "executable": true}, &res); rec.Code != 200 {
+		t.Fatalf("save = %d %s", rec.Code, rec.Body)
+	}
+	if rec := apiDo(t, e.H, "POST", draftAPI+"/publish", map[string]any{"etag": res.Page.Draft.ETag}, &res); rec.Code != 200 || res.Page.Published == nil {
+		t.Fatalf("publish = %d %s", rec.Code, rec.Body)
+	}
+	e.b.Drop(editBranch) // read the branch back from the repo
+	var d adminui.KitDetail
+	apiDo(t, e.H, "GET", "/app/admin/api/kits/app?file=run.sh", nil, &d)
+	if d.File == nil || d.File.Content != "echo two\n" {
+		t.Fatalf("committed run.sh = %+v", d.File)
+	}
+	if len(e.Live.ListKits()) != 0 {
+		t.Error("the draft reached the live Jam")
+	}
+}
+
+// localCheckout is a non-bare local config repo (users/bob.yml on main,
+// main checked out in it) with jam/alice checked out in a linked worktree,
+// and a live Jam following it with the branch editor on.
+func localCheckout(t *testing.T) (h http.Handler, dir, worktree string) {
+	t.Helper()
+	root := t.TempDir()
+	dir, worktree = filepath.Join(root, "jam-config"), filepath.Join(root, "alice")
+	git := func(cwd string, args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = cwd
+		c.Env = append(c.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git(root, "init", "-q", "-b", "main", dir)
+	git(dir, "config", "commit.gpgsign", "false")
+	if err := os.MkdirAll(filepath.Join(dir, "users"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "users", "bob.yml"), []byte("kind: user\nversion: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(dir, "add", "-A")
+	git(dir, "commit", "-q", "-m", "init")
+	git(dir, "worktree", "add", "-q", "-b", "jam/alice", worktree)
+	live := newStore(t)
+	env := jam.ConfigEnv{CredExists: anyCred, Followed: gitsource.Source{Repo: dir, Ref: "main"}, FollowedLabel: dir}
+	repo := &configrepo.Repo{URL: dir, Branch: "main", Path: filepath.Join(root, "state", "config-repo")}
+	b := &jam.ConfigBranches{Repo: repo, Env: env, Live: live}
+	factory := func(st jam.Store) http.Handler {
+		return adminui.Handler(st, testLogger(), nil, nil, anyCred, nil, adminui.WithConfigEnv(env))
+	}
+	h = adminui.Handler(live, testLogger(), nil, nil, anyCred, nil, adminui.WithConfigEnv(env), adminui.WithConfigBranches(b, factory))
+	return h, dir, worktree
+}
+
+// A save onto a branch checked out in a local repo's worktree, and a Merge
+// into the followed branch checked out in the repo itself, are refused 409
+// naming the branch and the path; nothing is moved.
+func TestBranchCheckedOutRefused(t *testing.T) {
+	h, dir, worktree := localCheckout(t)
+	rec := apiDoWith(t, h, onBranch("jam/alice"), "POST", "/app/admin/api/users", map[string]string{"name": "carol"}, nil)
+	e := apiErr(t, rec)
+	if want := "jam/alice is checked out in " + worktree + "; check out another branch, or merge it yourself"; rec.Code != 409 || e.Error != want {
+		t.Fatalf("save on a checked-out branch = %d %q, want 409 %q", rec.Code, e.Error, want)
+	}
+	if rec := apiDo(t, h, "POST", "/app/admin/api/config/branches", map[string]string{"name": "jam/bob"}, nil); rec.Code != 200 {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	}
+	if rec := apiDoWith(t, h, onBranch("jam/bob"), "POST", "/app/admin/api/users", map[string]string{"name": "carol"}, nil); rec.Code != 201 {
+		t.Fatalf("edit = %d %s", rec.Code, rec.Body)
+	}
+	var list adminui.ConfigBranches
+	apiDo(t, h, "GET", "/app/admin/api/config/branches", nil, &list)
+	head := ""
+	for _, br := range list.Branches {
+		if br.Name == "jam/bob" {
+			head = br.Head
+		}
+	}
+	mainBefore := gitRev(t, dir, "main")
+	rec = apiDo(t, h, "POST", "/app/admin/api/config/branches/merge", map[string]string{"branch": "jam/bob", "head": head}, nil)
+	e = apiErr(t, rec)
+	if want := "main is checked out in " + dir + "; check out another branch, or merge it yourself"; rec.Code != 409 || e.Error != want {
+		t.Fatalf("merge into a checked-out main = %d %q, want 409 %q", rec.Code, e.Error, want)
+	}
+	if gitRev(t, dir, "main") != mainBefore {
+		t.Error("the refused merge moved main")
+	}
+}
+
+func apiErr(t *testing.T, rec *httptest.ResponseRecorder) adminui.APIError {
+	t.Helper()
+	var e adminui.APIError
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil {
+		t.Fatalf("%d %s: %v", rec.Code, rec.Body, err)
+	}
+	return e
+}
+
+func gitRev(t *testing.T, dir, ref string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "rev-parse", ref).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out))
 }

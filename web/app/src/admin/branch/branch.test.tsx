@@ -6,7 +6,7 @@ import { server } from "../../test/server";
 import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import type { ConfigBranches } from "../api/types";
-import { setBranch } from "./branch";
+import { getBranch, setBranch } from "./branch";
 
 const list = (over: Partial<ConfigBranches> = {}): ConfigBranches => ({
   followed: "main", defaultName: "jam/local", canPR: true, repoLink: "https://github.com/acme/jam", treeLink: "https://github.com/acme/jam/tree/", prNoun: "pull request",
@@ -107,13 +107,25 @@ describe("the branch bar", () => {
     expect(await screen.findByText(/auth failed/)).toBeInTheDocument();
   });
 
-  it("shows nothing without the branch editor", async () => {
+  it("BranchBar shows Read-only without a repo", async () => {
     serve();
     server.use(http.get("/app/admin/api/config/branches", () => HttpResponse.json({ error: "no such API route", code: "not_found" }, { status: 404 })));
     renderAdmin(adminBoot, at);
-    await screen.findByText(/Projects/);
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("Read-only")).toBeInTheDocument();
+    expect(within(alert).getByText("This Jam has no config repo. Set config.github, config.gitlab or config.git in the serve config to edit its config on branches.")).toBeInTheDocument();
     expect(screen.queryByText(/can't be listed/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Create branch" })).toBeNull();
+  });
+
+  it("drops a branch the tab still holds when the Jam has no repo", async () => {
+    serve();
+    server.use(http.get("/app/admin/api/config/branches", () => HttpResponse.json({ error: "no such API route", code: "not_found" }, { status: 404 })));
+    setBranch("jam/alice");
+    renderAdmin(adminBoot, at);
+    expect(within(await screen.findByRole("alert")).getByText("Read-only")).toBeInTheDocument();
+    await waitFor(() => expect(getBranch()).toBe(""));
+    expect(sessionStorage.getItem("jam.admin.configBranch")).toBeNull();
   });
 
   it("on GitLab, links the branch's page and offers a merge request", async () => {

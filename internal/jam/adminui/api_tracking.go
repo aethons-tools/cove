@@ -60,7 +60,7 @@ func planOf(store jam.Store, v *planView) *Plan {
 	if v == nil {
 		return nil
 	}
-	p := &Plan{Source: v.Source, Commit: v.Commit, Digest: v.Digest, Forced: v.Forced, HasDrift: v.HasDrift, Changes: v.Changes, Unchanged: v.Unchanged,
+	p := &Plan{Source: v.Source, Commit: v.Commit, Digest: v.Digest, Changes: v.Changes, Unchanged: v.Unchanged,
 		Ops: []PlanOpRow{}, Forget: keyRows(v.Forget), Unmanaged: keyRows(v.Unmanaged), KitSources: []KitSourceRow{}, Refusals: []string{},
 		Serve: ServeDiff{State: v.Serve.State, Keys: append([]string{}, v.Serve.Keys...)}}
 	p.Refusals = append(p.Refusals, v.Refusals...)
@@ -68,7 +68,7 @@ func planOf(store jam.Store, v *planView) *Plan {
 		p.KitSources = append(p.KitSources, KitSourceRow{Path: ks.Path, Source: ks.Source, Commit: ks.Commit})
 	}
 	for _, op := range v.Ops {
-		row := PlanOpRow{Action: op.Action, Kind: op.Kind, Name: op.Name, File: op.Path, Drift: op.Drift, Unmanaged: op.Unmanaged,
+		row := PlanOpRow{Action: op.Action, Kind: op.Kind, Name: op.Name, File: op.Path,
 			Lines: diffLines(op.Lines), TooLarge: op.TooLarge, Diff: op.Diff}
 		if op.Href != "" {
 			row.Path = objectPath(store, op.Kind, op.Name)
@@ -79,13 +79,13 @@ func planOf(store jam.Store, v *planView) *Plan {
 }
 
 func trackingOf(store jam.Store, env jam.ConfigEnv, d configPage) Tracking {
-	t := Tracking{Rows: []ManagedRow{}, Drifted: d.Drifted, StatesErr: d.StatesErr, LastCommit: d.LastCommit, LastApplied: d.LastApplied,
+	t := Tracking{Rows: []ManagedRow{}, LastCommit: d.LastCommit, LastApplied: d.LastApplied,
 		CanGit: d.CanGit, Plan: planOf(store, d.Plan), Follow: followOf(env)}
 	if s := d.Source; s != nil {
 		t.Source = &TrackingSource{Label: s.Label, Repo: s.Repo, RepoLink: s.RepoLink, Dir: s.Dir, Ref: s.Ref, Commit: s.Commit, CommitLink: s.CommitLink, Applied: s.Applied}
 	}
 	for _, r := range d.Rows {
-		row := ManagedRow{Kind: r.Kind, Name: r.Name, Commit: r.Commit, Applied: r.Applied, State: r.State}
+		row := ManagedRow{Kind: r.Kind, Name: r.Name, Commit: r.Commit, Applied: r.Applied}
 		if r.Href != "" {
 			row.Path = objectPath(store, r.Kind, r.Name)
 		}
@@ -118,21 +118,12 @@ func trackingFail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err 
 
 func apiTracking(api *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.ConfigEnv, log *slog.Logger) {
 	canGit := f != nil
-	page := func() configPage { return buildConfigPage(store, env.Followed, canGit, log) }
+	page := func() configPage { return buildConfigPage(store, env, canGit, log) }
 	done := func(w http.ResponseWriter, d configPage, msg string) {
 		writeJSON(w, http.StatusOK, TrackingResult{Tracking: trackingOf(store, env, d), Message: msg})
 	}
 	api.HandleFunc("GET "+apiPrefix+"tracking", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, trackingOf(store, env, page()))
-	})
-	api.HandleFunc("DELETE "+apiPrefix+"tracking/managed/{kind}/{name...}", func(w http.ResponseWriter, r *http.Request) {
-		key := jam.ConfigKey{Kind: r.PathValue("kind"), Name: r.PathValue("name")}
-		if err := jam.ReleaseConfigMark(store, key, env.Conditions, log, jam.OperatorID(r)); err != nil {
-			trackingFail(w, r, log, err)
-			return
-		}
-		log.Info("ui config released", "operator", jam.OperatorID(r), "kind", key.Kind, "name", key.Name)
-		done(w, page(), "released "+key.Kind+" "+key.Name+"; it stays in Jam, unmanaged")
 	})
 	// git wraps the actions that need a fetcher: without one they don't exist.
 	git := func(h http.HandlerFunc) http.HandlerFunc {
@@ -144,22 +135,21 @@ func apiTracking(api *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.
 		}
 	}
 	api.HandleFunc("POST "+apiPrefix+"tracking/diff", git(func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Force bool }
+		var body struct{}
 		if !decodeJSON(w, r, &body) {
 			return
 		}
 		res, err := jam.ApplyConfigSource(r.Context(), store, f, gitsource.Source{}, env,
-			jam.ConfigApplyOptions{DryRun: true, Force: body.Force, Now: time.Now()}, log, jam.OperatorID(r))
+			jam.ConfigApplyOptions{DryRun: true, Now: time.Now()}, log, jam.OperatorID(r))
 		if err != nil {
 			trackingFail(w, r, log, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, planOf(store, newPlanView(res, body.Force)))
+		writeJSON(w, http.StatusOK, planOf(store, newPlanView(res)))
 	}))
 	api.HandleFunc("POST "+apiPrefix+"tracking/apply", git(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Plan  string
-			Force bool
+			Plan string
 		}
 		if !decodeJSON(w, r, &body) {
 			return
@@ -170,9 +160,9 @@ func apiTracking(api *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.
 			return
 		}
 		res, err := jam.ApplyConfigSource(r.Context(), store, f, gitsource.Source{}, env,
-			jam.ConfigApplyOptions{Force: body.Force, WantDigest: digest, Now: time.Now()}, log, jam.OperatorID(r))
+			jam.ConfigApplyOptions{WantDigest: digest, Now: time.Now()}, log, jam.OperatorID(r))
 		if errors.Is(err, jam.ErrConfigPlanChanged) {
-			log.Info("ui config apply refused: plan changed since reviewed", "operator", jam.OperatorID(r), "forced", body.Force)
+			log.Info("ui config apply refused: plan changed since reviewed", "operator", jam.OperatorID(r))
 			writeAPIError(w, http.StatusConflict, "conflict", configPlanStaleMsg)
 			return
 		}
@@ -180,7 +170,7 @@ func apiTracking(api *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.
 			trackingFail(w, r, log, err)
 			return
 		}
-		log.Info("ui config applied", "operator", jam.OperatorID(r), "source", res.Source, "commit", res.Commit, "applied", res.Applied, "forced", body.Force)
+		log.Info("ui config applied", "operator", jam.OperatorID(r), "source", res.Source, "commit", res.Commit, "applied", res.Applied)
 		if env.Follower != nil {
 			env.Follower.Refresh() // a confirm leaves awaiting-confirm now
 		}

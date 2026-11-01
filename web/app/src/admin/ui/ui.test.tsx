@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MantineProvider, TextInput } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
@@ -10,12 +10,49 @@ import { ApiError } from "../../api/client";
 import { EditForm } from "./EditForm";
 import { ConfirmAction } from "./ConfirmAction";
 import { DataTable } from "./DataTable";
-import { ManagedBadge, driftNote } from "./ManagedBadge";
 import { DiffView } from "./DiffView";
+import { setBranch } from "../branch/branch";
 
 const wrap = (ui: ReactNode) => render(
   <MantineProvider theme={theme} env="test"><Notifications /><MemoryRouter>{ui}</MemoryRouter></MantineProvider>,
 );
+
+// The write controls are config edits: they show on a branch.
+beforeEach(() => setBranch("b"));
+afterEach(() => setBranch(""));
+
+describe("outside a branch", () => {
+  it("an EditForm renders nothing, and its submit once a branch is open", async () => {
+    setBranch("");
+    wrap(<EditForm submit="Rename" onSubmit={async () => {}}><TextInput label="Name" /></EditForm>);
+    expect(screen.queryByRole("button", { name: "Rename" })).toBeNull();
+    expect(screen.queryByLabelText("Name")).toBeNull();
+    act(() => setBranch("b"));
+    expect(await screen.findByRole("button", { name: "Rename" })).toBeInTheDocument();
+    act(() => setBranch(""));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Rename" })).toBeNull());
+  });
+
+  it("a live EditForm renders", () => {
+    setBranch("");
+    wrap(<EditForm live submit="Request" onSubmit={async () => {}} />);
+    expect(screen.getByRole("button", { name: "Request" })).toBeInTheDocument();
+  });
+
+  it("a ConfirmAction renders nothing, and its button once a branch is open", async () => {
+    setBranch("");
+    wrap(<ConfirmAction label="Delete" confirm="Delete it?" onConfirm={async () => {}} />);
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    act(() => setBranch("b"));
+    expect(await screen.findByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  it("a live ConfirmAction renders", () => {
+    setBranch("");
+    wrap(<ConfirmAction live label="Reset" confirm="Reset it?" onConfirm={async () => {}} />);
+    expect(screen.getByRole("button", { name: "Reset" })).toBeInTheDocument();
+  });
+});
 
 describe("EditForm", () => {
   it("asks first when it has a confirm", async () => {
@@ -99,18 +136,6 @@ describe("display pieces", () => {
     wrap(<DataTable columns={[{ key: "n", label: "Name", render: (r: { n: string }) => r.n }]} rows={[]} rowKey={(r) => r.n} empty="No users." />);
     expect(screen.getByText("No users.")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Name" })).toBeInTheDocument();
-  });
-
-  it("ManagedBadge links Tracking", () => {
-    wrap(<ManagedBadge managed={{ commit: "abc1234", applied: "2026-10-28 10:00 UTC" }} />);
-    expect(screen.getByRole("link", { name: "managed · config @abc1234" })).toHaveAttribute("href", "/app/admin/config/tracking");
-    expect(driftNote({ commit: "abc1234", applied: "" })).toBe("This will drift from the config repo (managed · config @abc1234).");
-    expect(driftNote(null)).toBe("");
-  });
-
-  it("ManagedBadge renders nothing for an unmanaged object", () => {
-    const { container } = wrap(<ManagedBadge managed={null} />);
-    expect(container.querySelector("a")).toBeNull();
   });
 
   it("DiffView prefixes lines", () => {

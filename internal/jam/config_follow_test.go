@@ -206,3 +206,40 @@ func s(fl *ConfigFollower) string { return fl.Status().Error }
 type failApplyStore struct{ Store }
 
 func (failApplyStore) ApplyConfig(ConfigWrite) error { return errors.New("disk on fire") }
+
+func TestFollowerAppliesLocalRepo(t *testing.T) {
+	st := NewMemStore()
+	f, commit := localFollowed(t, map[string]string{"config/users/bob.yml": localBob}, nil)
+	env := allCreds
+	env.Followed = f.Followed
+	fl, _ := followerFor(t, st, f, env)
+	ctx := context.Background()
+	if _, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, fl.Env, syncOpts(), nil, "alice"); err != nil {
+		t.Fatal(err) // the confirmed first apply
+	}
+	head := commit(map[string]string{"config/users/eve.yml": localBob})
+	fl.Tick(ctx)
+	if s := fl.Status(); s.State != ConfigFollowInSync || s.Applied != head || s.Head != head {
+		t.Fatalf("status %+v, want applied %s", s, head)
+	}
+	if !hasUser(st, "eve") {
+		t.Fatal("eve was not applied")
+	}
+}
+
+func TestFollowedLabel(t *testing.T) {
+	env := allCreds
+	env.Followed = gitsource.Source{Repo: "git@h:x.git", Ref: "main"}
+	env.FollowedLabel = "git@h:x.git@main"
+	fl, _ := followerFor(t, NewMemStore(), nil, env)
+	if s := fl.Status(); s.Source != env.FollowedLabel {
+		t.Fatalf("status before a tick %+v", s)
+	}
+	fl.Tick(context.Background())
+	if s := fl.Status(); s.Source != env.FollowedLabel {
+		t.Fatalf("status %+v", s)
+	}
+	if got := configSourceLabel(env, gitsource.Source{Repo: "git@h:y.git", Ref: "main"}); got != "invalid" {
+		t.Fatalf("another unparsable source is %q", got)
+	}
+}

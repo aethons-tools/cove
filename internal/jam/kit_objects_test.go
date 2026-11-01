@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"log/slog"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -38,23 +37,6 @@ func TestConfigSnapshotSharesBlobs(t *testing.T) {
 	}
 	if b := st.ExportConfig().KitBlobs[sha]; len(b) == 0 || &b[0] == &live[0] {
 		t.Fatal("ExportConfig must not share the store's blobs")
-	}
-}
-
-func TestConfigMarkStatesDoesNotCopyBlobs(t *testing.T) {
-	st, _ := bigKitStore(t)
-	if _, err := ConfigMarkStates(st); err != nil { // warm up
-		t.Fatal(err)
-	}
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
-	if _, err := ConfigMarkStates(st); err != nil {
-		t.Fatal(err)
-	}
-	runtime.ReadMemStats(&after)
-	if n := after.TotalAlloc - before.TotalAlloc; n > uint64(kittree.MaxFile)/2 {
-		t.Fatalf("ConfigMarkStates allocated %d bytes for a %d-byte blob", n, kittree.MaxFile)
 	}
 }
 

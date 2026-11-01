@@ -222,7 +222,7 @@ func TestMigrateKitRenameLogsNamesOnly(t *testing.T) {
 func TestConfigPlanRefusesPreRenameKitNames(t *testing.T) {
 	st := NewMemStore()
 	tr := treeOf(t, map[string]string{"kits/web/kit.yml": parentYML, "kits/web/Dockerfile": oldDockerfile})
-	p := gitPlanOn(t, st, tr, cfgSrc, "c1", false)
+	p := gitPlanOn(t, st, tr, cfgSrc, "c1")
 	want := "kit web: Dockerfile uses " + legacynames.KitRenames[2].Old + ", renamed JAM_STUDIO_BASE_IMAGE (docs/usage/jam/renamed-from-at.md)"
 	if !slices.ContainsFunc(p.Refusals, func(r string) bool { return strings.Contains(r, want) }) {
 		t.Fatalf("refusals = %v, want one containing %q", p.Refusals, want)

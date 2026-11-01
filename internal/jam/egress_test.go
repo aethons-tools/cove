@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"errors"
 	"net/http"
 	"reflect"
 	"strings"
@@ -51,9 +52,9 @@ func TestNormalizeEgressRejects(t *testing.T) {
 	}
 }
 
-// PUT stores the normalized list and keeps every other role field; GET reports
-// it as managed; DELETE reverts to the kit default (nil).
-func TestAdminEgressSetShowClear(t *testing.T) {
+// SetRoleEgress stores the normalized list and keeps every other role field;
+// GET reports it as managed; ClearRoleEgress reverts to the kit default (nil).
+func TestRoleEgressSetShowClear(t *testing.T) {
 	h, store := newTestAdmin(t)
 	orig := putStandingRole(t, store)
 
@@ -63,8 +64,8 @@ func TestAdminEgressSetShowClear(t *testing.T) {
 		t.Fatalf("unset policy = %+v, want managed=false domains=[]", view)
 	}
 
-	if rec := doJSON(t, h, "PUT", "/admin/roles/acme/reviewer/egress", EgressPolicy{Domains: []string{"B.org", "a.com", ".b.org"}}); rec.Code != http.StatusNoContent {
-		t.Fatalf("set = %d, body=%s", rec.Code, rec.Body.String())
+	if n, err := SetRoleEgress(store, "acme", "reviewer", []string{"B.org", "a.com", ".b.org"}); err != nil || n != 2 {
+		t.Fatalf("set = %d, %v", n, err)
 	}
 	got, _ := store.GetRole("acme", "reviewer")
 	keep := orig
@@ -78,8 +79,8 @@ func TestAdminEgressSetShowClear(t *testing.T) {
 	}
 
 	// An empty list is a valid, managed policy (nothing beyond base + infra).
-	if rec := doJSON(t, h, "PUT", "/admin/roles/acme/reviewer/egress", EgressPolicy{}); rec.Code != http.StatusNoContent {
-		t.Fatalf("set empty = %d, body=%s", rec.Code, rec.Body.String())
+	if _, err := SetRoleEgress(store, "acme", "reviewer", nil); err != nil {
+		t.Fatalf("set empty: %v", err)
 	}
 	got, _ = store.GetRole("acme", "reviewer")
 	if got.Scope.Egress == nil || len(got.Scope.Egress.Domains) != 0 {
@@ -90,8 +91,8 @@ func TestAdminEgressSetShowClear(t *testing.T) {
 		t.Fatalf("empty view = %+v", view)
 	}
 
-	if rec := doReq(t, h, "DELETE", "/admin/roles/acme/reviewer/egress", nil); rec.Code != http.StatusNoContent {
-		t.Fatalf("clear = %d, body=%s", rec.Code, rec.Body.String())
+	if err := ClearRoleEgress(store, "acme", "reviewer"); err != nil {
+		t.Fatalf("clear: %v", err)
 	}
 	got, _ = store.GetRole("acme", "reviewer")
 	if !reflect.DeepEqual(got, orig) {
@@ -99,39 +100,39 @@ func TestAdminEgressSetShowClear(t *testing.T) {
 	}
 }
 
-func TestAdminEgressValidation(t *testing.T) {
+func TestRoleEgressValidation(t *testing.T) {
 	h, store := newTestAdmin(t)
 	putStandingRole(t, store)
 
-	rec := doJSON(t, h, "PUT", "/admin/roles/acme/reviewer/egress", EgressPolicy{Domains: []string{"ok.com", "https://evil.com"}})
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "https://evil.com") {
-		t.Fatalf("bad domain = %d %q, want 400 naming it", rec.Code, rec.Body.String())
+	_, err := SetRoleEgress(store, "acme", "reviewer", []string{"ok.com", "https://evil.com"})
+	var we *WriteError
+	if !errors.As(err, &we) || we.Status != http.StatusBadRequest || !strings.Contains(err.Error(), "https://evil.com") {
+		t.Fatalf("bad domain = %v, want a 400 naming it", err)
 	}
 	if got, _ := store.GetRole("acme", "reviewer"); got.Scope.Egress != nil {
 		t.Fatalf("a rejected set must not store anything: %+v", got.Scope.Egress)
 	}
-	for _, c := range []struct{ method, path string }{
-		{"GET", "/admin/roles/acme/nobody/egress"},
-		{"PUT", "/admin/roles/acme/nobody/egress"},
-		{"DELETE", "/admin/roles/acme/nobody/egress"},
-	} {
-		var rec = doJSON(t, h, c.method, c.path, EgressPolicy{Domains: []string{"a.com"}})
-		if rec.Code != http.StatusNotFound {
-			t.Fatalf("%s %s = %d, want 404", c.method, c.path, rec.Code)
-		}
+	if _, err := SetRoleEgress(store, "acme", "nobody", []string{"a.com"}); err == nil || WriteStatus(err, 500) != http.StatusNotFound {
+		t.Fatalf("set on a missing role = %v, want 404", err)
+	}
+	if err := ClearRoleEgress(store, "acme", "nobody"); err == nil || WriteStatus(err, 500) != http.StatusNotFound {
+		t.Fatalf("clear on a missing role = %v, want 404", err)
+	}
+	if rec := doReq(t, h, "GET", "/admin/roles/acme/nobody/egress", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("GET missing role egress = %d, want 404", rec.Code)
 	}
 }
 
-// Re-putting a role (`role add` again) keeps its egress policy: it is managed
-// only by the egress endpoints.
-func TestAdminRolePutKeepsEgress(t *testing.T) {
-	h, store := newTestAdmin(t)
+// Re-putting a role keeps its egress policy: it is managed only by
+// SetRoleEgress/ClearRoleEgress.
+func TestRolePutKeepsEgress(t *testing.T) {
+	_, store := newTestAdmin(t)
 	putStandingRole(t, store)
-	if rec := doJSON(t, h, "PUT", "/admin/roles/acme/reviewer/egress", EgressPolicy{Domains: []string{"a.com"}}); rec.Code != http.StatusNoContent {
-		t.Fatalf("set = %d", rec.Code)
+	if _, err := SetRoleEgress(store, "acme", "reviewer", []string{"a.com"}); err != nil {
+		t.Fatal(err)
 	}
-	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "reviewer", MaxEphemeral: 5}); rec.Code != http.StatusCreated {
-		t.Fatalf("re-put role = %d", rec.Code)
+	if err := PutRoleKeeping(store, "acme", Role{Name: "reviewer", Allocation: RoleAllocation{MaxEphemeral: 5}}); err != nil {
+		t.Fatalf("re-put role: %v", err)
 	}
 	got, _ := store.GetRole("acme", "reviewer")
 	if got.Allocation.MaxEphemeral != 5 || got.Scope.Egress == nil || !reflect.DeepEqual(got.Scope.Egress.Domains, []string{"a.com"}) {

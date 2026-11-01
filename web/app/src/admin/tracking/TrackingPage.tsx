@@ -7,7 +7,6 @@ import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
 import type { FollowStatus, Plan, Tracking, TrackingResult, TrackingSource } from "../api/types";
 import { adminApi, nodeHref } from "../paths";
-import { ConfirmAction } from "../ui/ConfirmAction";
 import { DataTable } from "../ui/DataTable";
 import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
@@ -42,12 +41,11 @@ function TrackingBody({ t }: { t: Tracking }) {
     setPlan(r.tracking.plan ?? null);
     if (r.message) notifications.show({ color: "green", message: r.message });
   };
-  const write = useAdminMutation((v: { path: string; body?: unknown; del?: boolean }) =>
-    v.del ? adminApi.del<TrackingResult>(v.path) : adminApi.post<TrackingResult>(v.path, v.body), { onSuccess: done, mutationKey: writing });
-  const diff = useAdminMutation((force: boolean) => adminApi.post<Plan>("tracking/diff", { force }), { onSuccess: setPlan, mutationKey: writing });
-  const runDiff = (force: boolean) => {
+  const write = useAdminMutation((v: { path: string; body?: unknown }) => adminApi.post<TrackingResult>(v.path, v.body), { onSuccess: done, mutationKey: writing });
+  const diff = useAdminMutation(() => adminApi.post<Plan>("tracking/diff", {}), { onSuccess: setPlan, mutationKey: writing });
+  const runDiff = () => {
     if (busy) return;
-    diff.mutate(force, { onError: (e) => notifications.show({ color: "red", message: e.message }) });
+    diff.mutate(undefined, { onError: (e) => notifications.show({ color: "red", message: e.message }) });
   };
   return (
     <Stack>
@@ -58,28 +56,23 @@ function TrackingBody({ t }: { t: Tracking }) {
               <SourceFacts s={t.source} f={t.follow} />
               {t.follow.state === "awaiting-confirm" && <Text size="sm">The first apply from this repo is waiting for you: Diff, review the plan, then apply it. After that the Jam applies each new commit on its own.</Text>}
               {t.follow.error && <Alert color="red" title="The last check failed; the Jam retries every minute">{t.follow.error}</Alert>}
-              {t.canGit ? <Group><Button size="xs" onClick={() => runDiff(false)} loading={diff.isPending} disabled={busy}>Diff</Button></Group>
+              {t.canGit ? <Group><Button size="xs" onClick={runDiff} loading={diff.isPending} disabled={busy}>Diff</Button></Group>
                 : <Text size="sm" c="dimmed">Git actions are not available on this serve.</Text>}
             </Stack>
           ) : (
-            <Text size="sm" c="dimmed">No config repo is configured: set <Code>config.github</Code> in the serve config{t.lastCommit && `. The objects below were last applied from config @${t.lastCommit} at ${t.lastApplied}`}.</Text>
+            <Text size="sm" c="dimmed">No config repo is configured: set <Code>config.github</Code>, <Code>config.gitlab</Code> or <Code>config.git</Code> in the serve config{t.lastCommit && `. The objects below were last applied from config @${t.lastCommit} at ${t.lastApplied}`}.</Text>
           )}
         </Section>
       </SimpleGrid>
-      <Section title="Managed objects" sub={<>{t.rows.length} from the config repo{t.drifted > 0 && <> · <Badge color="yellow">{t.drifted} differ from the repo</Badge></>}{t.lastCommit && ` · last applied config @${t.lastCommit} at ${t.lastApplied}`}</>}>
-        {t.statesErr && <Alert color="red" mb="xs">Could not compare with the live Jam (see the serve log); states are unknown.</Alert>}
-        <DataTable rows={t.rows} rowKey={(r) => `${r.kind}/${r.name}`} empty="Nothing is managed yet — apply a config repo, or run jam config apply --dir." columns={[
+      <Section title="Managed objects" sub={<>{t.rows.length} from the config repo{t.lastCommit && ` · last applied config @${t.lastCommit} at ${t.lastApplied}`}</>}>
+        <DataTable rows={t.rows} rowKey={(r) => `${r.kind}/${r.name}`} empty="Nothing is managed yet — follow a config repo and confirm its first apply." columns={[
           { key: "o", label: "Object", render: (r) => <Group gap={4}><Badge variant="outline" color="gray">{r.kind}</Badge>{r.path ? <Anchor component={Link} to={nodeHref(r.path)} ff="monospace">{r.name}</Anchor> : <Text span ff="monospace">{r.name}</Text>}</Group> },
           { key: "f", label: "From", render: (r) => <Text size="sm" ff="monospace">@{r.commit}</Text> },
           { key: "a", label: "Applied", render: (r) => r.applied },
-          { key: "s", label: "State", render: (r) => r.state === "in-sync" ? <Text c="dimmed" size="sm">in sync</Text> : r.state ? <Badge color="yellow">{r.state}</Badge> : <Text c="dimmed" size="sm">unknown</Text> },
-          // Following a repo, it alone manages the config: nothing to release.
-          { key: "x", label: "", render: (r) => t.follow.state !== "off" && t.source ? null : <ConfirmAction label="Release" disabled={busy} confirm={`Stop managing ${r.kind} ${r.name} from the config repo? It stays in Jam, unmanaged.`}
-            onConfirm={() => write.mutateAsync({ path: `tracking/managed/${encodeURIComponent(r.kind)}/${r.name.split("/").map(encodeURIComponent).join("/")}`, del: true })} /> },
         ]} />
       </Section>
-      {plan && <PlanView plan={plan} busy={busy} onForce={(f) => runDiff(f)}
-        onApply={() => write.mutateAsync({ path: "tracking/apply", body: { plan: plan.digest, force: plan.forced } })} />}
+      {plan && <PlanView plan={plan} busy={busy}
+        onApply={() => write.mutateAsync({ path: "tracking/apply", body: { plan: plan.digest } })} />}
     </Stack>
   );
 }

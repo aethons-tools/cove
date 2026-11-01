@@ -9,8 +9,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 const fakeToken = "ghp_SECRETTOKEN123"
@@ -198,5 +200,54 @@ func TestKitSourceAdminSetAlso(t *testing.T) {
 	code, body := call(t, "POST", ts.URL+"/admin/kits/import", `{"source":"https://git.example.com/acme/kits//app@main"}`)
 	if code != 200 || !strings.Contains(body, `"name":"app"`) || !strings.Contains(body, `"also":[{"name":"web-dev","version":1`) {
 		t.Fatalf("import = %d %s", code, body)
+	}
+}
+
+// Kits change only in git, and live kit drafts are gone: the push, pin, rm,
+// draft and draft-build routes are gone; the reads and the git-source
+// routes (import, track, sync) stay.
+func TestKitConfigRoutesGone(t *testing.T) {
+	ts, st, _ := kitSourceAdmin(t)
+	if _, _, err := PushKitFiles(st, "web", kittreetest.Files("kit.yml", "kind: studio\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenKitDraft(st, "web", 0, "op", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ method, path string }{
+		{"POST", "/admin/kits"},
+		{"POST", "/admin/kits/web/versions"},
+		{"POST", "/admin/kits/web/pin"},
+		{"DELETE", "/admin/kits/web"},
+		{"POST", "/admin/kits/web/draft"},
+		{"GET", "/admin/kits/web/draft"},
+		{"PUT", "/admin/kits/web/draft"},
+		{"DELETE", "/admin/kits/web/draft"},
+		{"POST", "/admin/kits/web/draft/publish"},
+		{"GET", "/admin/kits/web/draft/files/kit.yml"},
+		{"PUT", "/admin/kits/web/draft/files/kit.yml"},
+		{"DELETE", "/admin/kits/web/draft/files/kit.yml"},
+		{"POST", "/admin/kits/web/draft/build"},
+		{"GET", "/admin/kits/web/draft/build"},
+		{"DELETE", "/admin/kits/web/draft/build"},
+	} {
+		if code, body := call(t, c.method, ts.URL+c.path, "{}"); code != http.StatusNotFound && code != http.StatusMethodNotAllowed {
+			t.Errorf("%s %s = %d %s, want 404 or 405", c.method, c.path, code, body)
+		}
+	}
+	// The kept neighbours still answer: the reads, and import from git.
+	for _, p := range []string{"/admin/kits", "/admin/kits/web", "/admin/kits/web/versions", "/admin/kits/web/history"} {
+		if code, body := call(t, "GET", ts.URL+p, ""); code != http.StatusOK {
+			t.Errorf("GET %s = %d %s, want 200", p, code, body)
+		}
+	}
+	if code, body := call(t, "POST", ts.URL+"/admin/kits/import", goodSrc); code != http.StatusOK {
+		t.Errorf("import = %d %s, want 200", code, body)
+	}
+	if k, ok := st.GetKit("web"); !ok || k.Current != 1 {
+		t.Errorf("a removed route changed kit web: %+v", k)
+	}
+	if _, ok := st.GetKitDraft("web"); !ok {
+		t.Error("a removed route discarded the draft")
 	}
 }

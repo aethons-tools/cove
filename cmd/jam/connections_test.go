@@ -44,38 +44,6 @@ func TestResolveServeConnection(t *testing.T) {
 	if _, _, err := resolveServeConnection(st, "runtime.x", "discord", "nocred", "", demanded); err == nil || !strings.Contains(err.Error(), "not a demanded credential") {
 		t.Errorf("undeclared credential: err = %v", err)
 	}
-
-	// The deprecated *-token-cred binds the implicit connection named by kind:
-	// created when absent, its credential set when it has none.
-	st2 := jam.NewMemStore()
-	c, cred, err = resolveServeConnection(st2, "runtime.discord", "discord", "", "bot-tok", demanded)
-	if err != nil || c.Name != "discord" || c.Kind != "discord" || cred != "bot-tok" {
-		t.Fatalf("legacy, absent = %+v %q %v", c, cred, err)
-	}
-	if got, _ := st2.GetConnection(c.ID); got.CredName != "bot-tok" {
-		t.Fatalf("legacy connection cred = %q", got.CredName)
-	}
-	again, _, err := resolveServeConnection(st2, "runtime.discord", "discord", "", "bot-tok", demanded)
-	if err != nil || again.ID != c.ID || len(st2.ListConnections()) != 1 {
-		t.Fatalf("legacy, present = %+v %v; connections %+v", again, err, st2.ListConnections())
-	}
-	// Renaming the implicit connection keeps the legacy key bound to it (the
-	// connection of its kind), never forking a second, empty one.
-	if err := st2.RenameConnection(c.ID, "discord-main"); err != nil {
-		t.Fatal(err)
-	}
-	renamed, _, err := resolveServeConnection(st2, "runtime.discord", "discord", "", "bot-tok", demanded)
-	if err != nil || renamed.ID != c.ID || len(st2.ListConnections()) != 1 {
-		t.Fatalf("legacy after rename = %+v %v; connections %+v", renamed, err, st2.ListConnections())
-	}
-	// The legacy key is the credential's source: changing it rebinds.
-	demanded["bot-tok-2"] = credSpec{}
-	if _, cred, err := resolveServeConnection(st2, "runtime.discord", "discord", "", "bot-tok-2", demanded); err != nil || cred != "bot-tok-2" {
-		t.Fatalf("legacy cred change = %q, %v", cred, err)
-	}
-	if got, _ := st2.GetConnection(c.ID); got.CredName != "bot-tok-2" {
-		t.Fatalf("stored cred = %q, want bot-tok-2", got.CredName)
-	}
 }
 
 func mustConnID(t *testing.T, st jam.Store, name string) ident.ID {
@@ -118,5 +86,45 @@ func TestServeConfigConnectionKeys(t *testing.T) {
 		if err == nil {
 			t.Errorf("%s: accepted, want an error", name)
 		}
+	}
+}
+
+func TestLegacyTokenCredBindsExisting(t *testing.T) {
+	demanded := map[string]credSpec{"bot": {}}
+	st := jam.NewMemStore()
+	if _, err := st.CreateConnection(jam.Connection{Kind: "discord", Name: "discord", CredName: "bot"}); err != nil {
+		t.Fatal(err)
+	}
+	c, cred, err := resolveServeConnection(st, "runtime.discord", "discord", "", "bot", demanded)
+	if err != nil || c.Name != "discord" || cred != "bot" {
+		t.Fatalf("= %+v %q %v", c, cred, err)
+	}
+}
+
+func TestLegacyTokenCredNoConnection(t *testing.T) {
+	st := jam.NewMemStore()
+	_, _, err := resolveServeConnection(st, "runtime.discord", "discord", "", "bot", map[string]credSpec{"bot": {}})
+	want := "runtime.discord: no discord connection (the deprecated *-token-cred no longer creates one; add connections/discord.yml to the config repo, or set runtime.discord.connection)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+	if _, ok := st.ConnectionOfKind("discord"); ok {
+		t.Fatal("a connection was created")
+	}
+}
+
+func TestLegacyTokenCredOtherCred(t *testing.T) {
+	st := jam.NewMemStore()
+	c, err := st.CreateConnection(jam.Connection{Kind: "discord", Name: "discord", CredName: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = resolveServeConnection(st, "runtime.discord", "discord", "", "bot", map[string]credSpec{"bot": {}, "old": {}})
+	want := `runtime.discord: the discord connection's credential is "old", not "bot" (set it in the config repo, or set runtime.discord.connection)`
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+	if got, _ := st.GetConnection(c.ID); got.CredName != "old" {
+		t.Fatalf("cred = %q", got.CredName)
 	}
 }

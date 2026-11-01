@@ -148,7 +148,7 @@ func sha256Hex(s string) string {
 // jam rename's kit migration could not rewrite it), and clears every other
 // open one. Its texts are fixed:
 // the kit's name and version, and the reason the migration recorded. The
-// migration, the import and every RunConfigDriftCheck round call it.
+// migration, the import and every RunConfigChecks round call it.
 func kitMigrateConditions(store Store, t *condition.Tracker) {
 	open := map[string]bool{}
 	for _, k := range store.ListKits() {
@@ -158,7 +158,7 @@ func kitMigrateConditions(store Store, t *condition.Tracker) {
 			t.Raise(condition.Condition{Key: key, Severity: condition.Warning,
 				Summary: fmt.Sprintf("kit %s v%d could not be migrated to a tree", k.Name, k.Current),
 				Detail:  reason,
-				Fix:     "push the kit as a directory (a Dockerfile next to kit.yml), or pin a version that migrated (jam kit pin)"})
+				Fix:     "commit the kit to the config repo as a directory (kits/<name>/, a Dockerfile next to kit.yml)"})
 			continue
 		}
 		if c, ok := legacyKitCondition(store, k); ok {

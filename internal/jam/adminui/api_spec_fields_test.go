@@ -13,8 +13,17 @@ import (
 func specCred(name string) bool { return name == "anth" }
 
 func specHandler(store jam.Store, pool bool) http.Handler {
-	return adminui.Handler(store, testLogger(), nil, nil, specCred, nil,
-		adminui.WithCredentialNames("anth"), adminui.WithPoolConfigured(pool))
+	return adminui.Handler(store, testLogger(), nil, nil, specCred, nil, specOpts(pool)...)
+}
+
+func specOpts(pool bool) []adminui.Option {
+	return []adminui.Option{adminui.WithCredentialNames("anth"), adminui.WithPoolConfigured(pool)}
+}
+
+// specEdit is a branch editor with specHandler's handlers.
+func specEdit(t *testing.T, pool bool) *branchEdit {
+	t.Helper()
+	return editOn(t, editSetup{cred: specCred, opts: specOpts(pool)})
 }
 
 // fullSpec is a valid create body with every field set; tests override
@@ -37,12 +46,12 @@ func fullSpec(over map[string]string) map[string]string {
 // A create stores every field the body carries; the detail shows them back
 // in the edit fields' syntax.
 func TestModelSpecsAPIFields(t *testing.T) {
-	store := newStore(t)
-	h := specHandler(store, false)
+	e := specEdit(t, false)
+	h := e.H
 	if rec := apiDo(t, h, "POST", "/app/admin/api/model-specs", fullSpec(nil), nil); rec.Code != 201 {
 		t.Fatalf("create = %d %s", rec.Code, rec.Body)
 	}
-	m, ok := store.GetModelSpec("s1")
+	m, ok := e.Store().GetModelSpec("s1")
 	if !ok {
 		t.Fatal("not stored")
 	}
@@ -85,12 +94,12 @@ func TestModelSpecsAPIFields(t *testing.T) {
 
 // Empty list and map fields stay unset.
 func TestModelSpecsAPIMinimal(t *testing.T) {
-	store := newStore(t)
-	if rec := apiDo(t, specHandler(store, false), "POST", "/app/admin/api/model-specs",
+	e := specEdit(t, false)
+	if rec := apiDo(t, e.H, "POST", "/app/admin/api/model-specs",
 		map[string]string{"name": "min", "type": "claude", "version": "2.1.0", "principal": "anth", "provider": "anthropic", "settings": " {} "}, nil); rec.Code != 201 {
 		t.Fatalf("create = %d %s", rec.Code, rec.Body)
 	}
-	m, _ := store.GetModelSpec("min")
+	m, _ := e.Store().GetModelSpec("min")
 	if m.Claude == nil || m.Claude.ProviderEnv != nil || m.Claude.Settings != nil || m.Claude.Plugins != nil || m.Policy.Allow != nil || m.Principal.Headers != nil {
 		t.Fatalf("empty fields should stay unset: %+v %+v", m, m.Claude)
 	}
@@ -129,7 +138,7 @@ func TestModelSpecsAPIRefusals(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			store := newStore(t)
-			rec := apiDo(t, specHandler(store, false), "POST", "/app/admin/api/model-specs", fullSpec(tc.over), nil)
+			rec := apiDo(t, adminui.RegisterAppForTest(store, testLogger(), nil, nil, specCred, nil, specOpts(false)...), "POST", "/app/admin/api/model-specs", fullSpec(tc.over), nil)
 			if rec.Code != 400 || !strings.Contains(rec.Body.String(), tc.want) {
 				t.Fatalf("= %d %s, want 400 containing %q", rec.Code, rec.Body, tc.want)
 			}
@@ -145,8 +154,8 @@ func TestModelSpecsAPIRefusals(t *testing.T) {
 
 // WithPoolConfigured offers the pool principal and lets a spec name it.
 func TestModelSpecsAPIPool(t *testing.T) {
-	store := newStore(t)
-	h := specHandler(store, true)
+	e := specEdit(t, true)
+	h := e.H
 	if rec := apiDo(t, h, "POST", "/app/admin/api/model-specs", fullSpec(map[string]string{"principal": jam.PoolPrincipal}), nil); rec.Code != 201 {
 		t.Fatalf("pool principal with a pool = %d %s", rec.Code, rec.Body)
 	}
@@ -161,7 +170,7 @@ func TestModelSpecsAPIPool(t *testing.T) {
 		t.Errorf("new-spec choices = %v", list.Choices.Principals)
 	}
 	var off adminui.SpecsResponse
-	apiDo(t, specHandler(store, false), "GET", "/app/admin/api/model-specs", nil, &off)
+	apiDo(t, specHandler(e.Store(), false), "GET", "/app/admin/api/model-specs", nil, &off)
 	if strings.Join(off.Choices.Principals, ",") != "anth" {
 		t.Errorf("no pool: choices = %v", off.Choices.Principals)
 	}
@@ -170,26 +179,26 @@ func TestModelSpecsAPIPool(t *testing.T) {
 // An edit replaces every field (the name is the key, never renamed); a
 // refused edit changes nothing; a missing spec is a 404.
 func TestModelSpecsAPIEdit(t *testing.T) {
-	store := newStore(t)
-	h := specHandler(store, false)
+	e := specEdit(t, false)
+	h := e.H
 	apiDo(t, h, "POST", "/app/admin/api/model-specs", fullSpec(map[string]string{"name": "default"}), nil)
 	var d adminui.SpecDetail
 	if rec := apiDo(t, h, "POST", "/app/admin/api/model-specs/default",
 		map[string]string{"type": "claude", "version": "3.0.0", "principal": "anth", "provider": "anthropic", "name": "renamed"}, &d); rec.Code != 200 {
 		t.Fatalf("edit = %d %s", rec.Code, rec.Body)
 	}
-	m, _ := store.GetModelSpec("default")
+	m, _ := e.Store().GetModelSpec("default")
 	if m.Version != "3.0.0" || m.Model.ID != "" || m.Policy.Mode != "" || m.Policy.Allow != nil || m.Note != "" || m.Principal.Headers != nil ||
 		m.Claude.Provider != "anthropic" || m.Claude.ProviderEnv != nil || m.Claude.Settings != nil || m.Claude.Plugins != nil {
 		t.Fatalf("after edit = %+v %+v", m, m.Claude)
 	}
-	if _, ok := store.GetModelSpec("renamed"); ok || d.Name != "default" {
+	if _, ok := e.Store().GetModelSpec("renamed"); ok || d.Name != "default" {
 		t.Error("an edit must not rename")
 	}
 	for _, over := range []map[string]string{{"mode": "yolo"}, {"providerEnv": "nope"}, {"settings": "[]"}, {"headers": "nope"}} {
 		wantErr(t, apiDo(t, h, "POST", "/app/admin/api/model-specs/default", fullSpec(over), nil), 400, "bad_request")
 	}
-	if m2, _ := store.GetModelSpec("default"); m2.Version != "3.0.0" {
+	if m2, _ := e.Store().GetModelSpec("default"); m2.Version != "3.0.0" {
 		t.Error("a refused edit changed the stored spec")
 	}
 	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/model-specs/ghost", fullSpec(nil), nil), 404, "not_found")

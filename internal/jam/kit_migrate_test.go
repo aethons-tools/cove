@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -248,9 +249,8 @@ func TestMigrateKitTreesRekeysTheMark(t *testing.T) {
 			if _, err := MigrateKitTrees(st, nil, nil); err != nil {
 				t.Fatal(err)
 			}
-			states, err := ConfigMarkStates(st)
-			if err != nil || len(states) != 1 || states[0].State != ConfigInSync {
-				t.Fatalf("states = %+v %v", states, err)
+			if states := markStates(t, st); !slices.Equal(states, []string{"in-sync"}) {
+				t.Fatalf("states = %v", states)
 			}
 		})
 	}
@@ -263,9 +263,8 @@ func TestMigrateKitTreesKeepsADriftedMark(t *testing.T) {
 	if _, err := MigrateKitTrees(st, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	states, err := ConfigMarkStates(st)
-	if err != nil || len(states) != 1 || states[0].State != ConfigDrifted {
-		t.Fatalf("states = %+v %v", states, err)
+	if states := markStates(t, st); !slices.Equal(states, []string{"drifted"}) {
+		t.Fatalf("states = %v", states)
 	}
 }
 
@@ -278,12 +277,11 @@ func TestMigrateKitTreesBrokenManagedKit(t *testing.T) {
 	if _, err := MigrateKitTrees(st, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	states, err := ConfigMarkStates(st)
-	if err != nil || len(states) != 1 || states[0].State != ConfigInSync {
-		t.Fatalf("states = %+v %v", states, err)
+	if states := markStates(t, st); !slices.Equal(states, []string{"in-sync"}) {
+		t.Fatalf("states = %v", states)
 	}
-	p := planOn(t, st, treeOf(t, map[string]string{"kits/app/kit.yml": "kind: studio\n"}), false)
-	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigUpdate || op.Drift || len(p.Refusals) != 0 {
+	p := planOn(t, st, treeOf(t, map[string]string{"kits/app/kit.yml": "kind: studio\n"}))
+	if op := opOf(p, ConfigKindKit, "app"); op.Action != ConfigUpdate || len(p.Refusals) != 0 {
 		t.Fatalf("op %+v refusals %v", op, p.Refusals)
 	}
 	applyPlan(t, st, p)
@@ -429,9 +427,31 @@ func TestLegacyContextRefusals(t *testing.T) {
 	}
 }
 
-// The minute drift loop re-evaluates kit.migrate: a push of a good version
+// markStates compares each managed mark's digest with its live object's, in
+// the planner's canonical form: "in-sync", "drifted" or "missing".
+func markStates(t *testing.T, st Store) []string {
+	t.Helper()
+	live, err := exportObjects(stateFromSnapshot(st.configSnapshot(), nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, mk := range st.ListConfigMarks() {
+		switch o, ok := live[mk.Key()]; {
+		case !ok:
+			out = append(out, "missing")
+		case o.Digest() != mk.Digest:
+			out = append(out, "drifted")
+		default:
+			out = append(out, "in-sync")
+		}
+	}
+	return out
+}
+
+// The minute checks loop re-evaluates kit.migrate: a push of a good version
 // clears it, as does removing the kit; a broken current reopens it.
-func TestRunConfigDriftCheckReevaluatesKitMigrate(t *testing.T) {
+func TestRunConfigChecksReevaluatesKitMigrate(t *testing.T) {
 	st := NewMemStore()
 	if err := st.PutKitDocs([]Kit{
 		legacyDoc("app", `{"kind":"studio"}`, `{"kind":"studio","base":{"context":"!!not base64"}}`),
@@ -456,7 +476,7 @@ func TestRunConfigDriftCheckReevaluatesKitMigrate(t *testing.T) {
 	once := func() { // a cancelled loop checks once, then returns
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		RunConfigDriftCheck(ctx, st, tr, time.Hour, nil)
+		RunConfigChecks(ctx, st, tr, time.Hour, nil)
 	}
 	once()
 	if tr.IsOpen(app) || tr.IsOpen(gone) {

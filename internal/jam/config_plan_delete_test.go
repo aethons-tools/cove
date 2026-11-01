@@ -12,7 +12,7 @@ import (
 func appliedFull(t *testing.T) *MemStore {
 	t.Helper()
 	st := NewMemStore()
-	applyPlan(t, st, planOn(t, st, treeOf(t, fullTreeFiles), false))
+	applyPlan(t, st, planOn(t, st, treeOf(t, fullTreeFiles)))
 	return st
 }
 
@@ -63,7 +63,7 @@ func userNamed(t *testing.T, st *MemStore, name string) User {
 
 func TestPlanDeletesReverseOrder(t *testing.T) {
 	st := appliedFull(t)
-	p := planOn(t, st, treeOf(t, nil), false)
+	p := planOn(t, st, treeOf(t, nil))
 	if len(p.Refusals) > 0 {
 		t.Fatal(p.Refusals)
 	}
@@ -91,7 +91,7 @@ func TestPlanDeletesReverseOrder(t *testing.T) {
 	if _, ok := st.liveUserNamed("bob"); ok {
 		t.Fatal("user bob still live")
 	}
-	if again := planOn(t, st, treeOf(t, nil), false); len(again.Ops) != 0 || len(again.Refusals) != 0 {
+	if again := planOn(t, st, treeOf(t, nil)); len(again.Ops) != 0 || len(again.Refusals) != 0 {
 		t.Fatalf("re-plan after deletes: %+v", again)
 	}
 }
@@ -124,7 +124,7 @@ func TestPlanDeleteGuards(t *testing.T) {
 			}
 			files := without(fullTreeFiles, tc.remove...)
 			maps.Copy(files, tc.edit)
-			p := planOn(t, st, treeOf(t, files), false)
+			p := planOn(t, st, treeOf(t, files))
 			if !slices.ContainsFunc(p.Refusals, func(s string) bool { return strings.HasPrefix(s, tc.want) }) {
 				t.Fatalf("refusals %v, want prefix %q", p.Refusals, tc.want)
 			}
@@ -153,7 +153,7 @@ func TestPlanUserDeleteRefusedByUnmanagedMembership(t *testing.T) {
 		t.Fatalf("fixture still names bob:\n%s", proj)
 	}
 	files["projects/app/project.yml"] = proj
-	p := planOn(t, st, treeOf(t, files), false)
+	p := planOn(t, st, treeOf(t, files))
 	if !slices.Contains(p.Refusals, "cannot delete user bob: project side lists them as a member") {
 		t.Fatal(p.Refusals)
 	}
@@ -170,32 +170,16 @@ func TestPlanUserDeleteRefusedByUnmanagedMembership(t *testing.T) {
 	if err := st.RemoveMember(side.ID, bob.ID); err != nil {
 		t.Fatal(err)
 	}
-	p = planOn(t, st, treeOf(t, files), false)
+	p = planOn(t, st, treeOf(t, files))
 	if len(p.Refusals) > 0 || opOf(p, ConfigKindUser, "bob").Action != ConfigDelete {
 		t.Fatalf("%v %+v", p.Refusals, opOf(p, ConfigKindUser, "bob"))
-	}
-}
-
-func TestPlanDeleteDrift(t *testing.T) {
-	st := appliedFull(t)
-	d, _ := findDestination(st, "gh")
-	d.Note = "edited"
-	_ = st.AddDestination(d)
-	tr := treeOf(t, without(fullTreeFiles, "destinations/gh.yml"))
-	p := planOn(t, st, tr, false)
-	if !slices.Contains(p.Refusals, "destination gh drifted (edited in Jam since config @dir); re-run with --force or config write it first") {
-		t.Fatal(p.Refusals)
-	}
-	forced := planOn(t, st, tr, true)
-	if o := opOf(forced, ConfigKindDestination, "gh"); len(forced.Refusals) > 0 || o.Action != ConfigDelete || !o.Drift {
-		t.Fatalf("forced %+v %v", o, forced.Refusals)
 	}
 }
 
 func TestPlanForgetsMarkOfVanishedObject(t *testing.T) {
 	st := appliedFull(t)
 	_ = st.RemoveDestination("gh")
-	p := planOn(t, st, treeOf(t, without(fullTreeFiles, "destinations/gh.yml")), false)
+	p := planOn(t, st, treeOf(t, without(fullTreeFiles, "destinations/gh.yml")))
 	if opOf(p, ConfigKindDestination, "gh").Action != "" || !slices.Contains(p.write.RemoveMarks, ConfigKey{ConfigKindDestination, "gh"}) {
 		t.Fatalf("%+v", p)
 	}
@@ -212,30 +196,26 @@ func TestPlanForgetsMarkOfVanishedObject(t *testing.T) {
 func TestPlanUnmanagedUntouched(t *testing.T) {
 	st := appliedFull(t)
 	_, _ = st.CreateUser(User{Name: "carol"})
-	p := planOn(t, st, treeOf(t, fullTreeFiles), false)
+	p := planOn(t, st, treeOf(t, fullTreeFiles))
 	if !slices.Contains(p.Unmanaged, ConfigKey{ConfigKindUser, "carol"}) || opOf(p, ConfigKindUser, "carol").Action != "" {
 		t.Fatalf("%+v", p)
 	}
 }
 
-// A drifted delete refused without --force still shows Jam's side in the
-// plan (and writes nothing), as a refused drifted update does: the reviewer
-// sees what a forced delete would drop, and the UI knows to offer force.
-func TestPlanDeleteDriftShowsJamSide(t *testing.T) {
+// A delete shows Jam's side in the plan, edits made in Jam included: the
+// reviewer sees what the delete drops.
+func TestPlanDeleteShowsJamSide(t *testing.T) {
 	st := appliedFull(t)
 	d, _ := findDestination(st, "gh")
 	d.Note = "edited"
 	_ = st.AddDestination(d)
-	p := planOn(t, st, treeOf(t, without(fullTreeFiles, "destinations/gh.yml")), false)
+	p := planOn(t, st, treeOf(t, without(fullTreeFiles, "destinations/gh.yml")))
 	o := opOf(p, ConfigKindDestination, "gh")
-	if o.Action != ConfigDelete || !o.Drift || !strings.Contains(o.Before, "edited") || o.After != "" || !p.HasDrift() {
-		t.Fatalf("%+v", o)
+	if o.Action != ConfigDelete || !strings.Contains(o.Before, "edited") || o.After != "" || len(p.Refusals) > 0 {
+		t.Fatalf("%+v %v", o, p.Refusals)
 	}
-	if slices.Contains(p.write.RemoveMarks, ConfigKey{ConfigKindDestination, "gh"}) || len(p.write.RemoveDestinations) != 0 {
-		t.Fatal("a refused delete writes")
-	}
-	if planOn(t, appliedFull(t), treeOf(t, fullTreeFiles), false).HasDrift() {
-		t.Fatal("a clean re-plan has drift")
+	if !slices.Contains(p.write.RemoveMarks, ConfigKey{ConfigKindDestination, "gh"}) || len(p.write.RemoveDestinations) != 1 {
+		t.Fatalf("write %+v", p.write)
 	}
 }
 
@@ -246,7 +226,7 @@ func TestPlanDeleteUserDropsPushSubscriptions(t *testing.T) {
 	if err := st.PutPushSubscription(PushSubscription{Endpoint: "https://push/1", UserID: bob.ID}); err != nil {
 		t.Fatal(err)
 	}
-	p := planOn(t, st, treeOf(t, nil), false)
+	p := planOn(t, st, treeOf(t, nil))
 	if len(p.Refusals) > 0 {
 		t.Fatal(p.Refusals)
 	}

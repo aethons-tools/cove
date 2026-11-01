@@ -1,10 +1,10 @@
 ---
 summary: Parents in the same repo — a git kit's `base.kit: ../web` path parent, how import/track/sync bring a repo's kit set in as one unit (root first, each child pinned to the exact `name@vN` its parent got), naming, atomicity, the set refusals and their messages, locking, and how a set shows in the CLI and the kit page.
-read_when: A kit in a git repo builds on another kit in the same repo (`base: { kit: ../web }`), you are importing, tracking or syncing such a kit and want to know which kits it writes and at which versions, a set import was refused (not from this source, local push newer, leaves the checkout, no kit.yml, cycle, too deep, name used twice), or a kit push said `path parents resolve only in a git import`.
+read_when: A kit in a git repo builds on another kit in the same repo (`base: { kit: ../web }`), you are importing, tracking or syncing such a kit and want to know which kits it writes and at which versions, a set import was refused (not from this source, local version newer, leaves the checkout, no kit.yml, cycle, too deep, name used twice), or a kit was refused with `path parents resolve only in a git import`.
 owns: the kit-set story — path-parent syntax and resolution, set naming/order/pinning, the stored name@vN rewrite, set atomicity, set track/sync, the set refusals and their texts, set locking and its accepted race, the `also` result, the CLI ancestor lines, the UI flash suffix and the kit page's set note
 prereqs: kits-inheritance.md for `base.kit`, follow vs pin and the chain rules; kits-git.md for sources, import vs track/sync and provenance
 tier: leaf
-updated: 2026-10-24
+updated: 2026-11-01
 ---
 
 # Parents in the same repo
@@ -37,9 +37,10 @@ tracking https://github.com/acme/kits//app@main
 - Syntax: a non-empty relative slash path of at most 200 bytes, with no
   backslash. Otherwise the kit is invalid: `base.kit: not a valid parent path
   (…)`.
-- Paths resolve only in a git `import`, `track` or `sync`. `kit push` of a
-  file with a path parent is refused: `path parents resolve only in a git
-  import (kit import/track --git)`.
+- Paths resolve in a git `import`, `track` or `sync`, and across `kits/` in
+  the config repo, where the apply re-pins them to the parent's current
+  version ([config-git.md](config-git.md#layout)). Elsewhere a path parent is
+  refused: `path parents resolve only in a git import (kit import/track --git)`.
 - A set's root may itself name a registry parent (`kit: web-dev`), so a set
   can sit on a kit owned elsewhere. The whole chain, set and registry
   ancestors together, is still capped at 4 kits.
@@ -94,7 +95,7 @@ API answers **409** for the first two and **400** for the rest.
 | Message | Means |
 |---|---|
 | `kit web-dev exists and is not from <repo>//web; rename the kit or untrack it first` | The name belongs to a kit that tracks another repo or dir, or that has never been imported from this repo and dir. That kit is untouched. |
-| `kit web-dev has a local push newer than its last import from <repo>//web; re-push or untrack it first` | A `kit push` came after its last import from here. |
+| `kit web-dev has a local version newer than its last import from <repo>//web; untrack it first` | A version from elsewhere (the config repo, say) came after its last import from here. |
 | `parent path ../x (of app) leaves the checkout` | The path climbs out of the repo. |
 | `parent path ../x (of app) has no kit.yml` | No readable `kit.yml` there, or it resolves outside the checkout. |
 | `cycle: app → web-dev → app` | The paths loop. |

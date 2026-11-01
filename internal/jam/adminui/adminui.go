@@ -63,6 +63,7 @@ type options struct {
 	exposures       func(actorID string) []jam.Exposure
 	previewURL      func(actorID, name string) (string, error)
 	kitFetcher      jam.KitFetcher
+	configFetcher   jam.KitFetcher // nil = kitFetcher (WithConfigFetcher)
 	configEnv       jam.ConfigEnv
 	setupManagers   func() []string            // nil: no manager selector on a role's Setup tab (WithSetupManagers)
 	setup           *jam.SetupDeps             // nil: no Setup tabs (WithSetupDeps)
@@ -91,6 +92,13 @@ func WithKitFetcher(f jam.KitFetcher) Option {
 	return func(o *options) { o.kitFetcher = f }
 }
 
+// WithConfigFetcher is the fetcher the Config page's diff and apply read
+// the followed repo through (jam.FollowedFetcher); unset, they use
+// WithKitFetcher's. The kit pages always use WithKitFetcher's.
+func WithConfigFetcher(f jam.KitFetcher) Option {
+	return func(o *options) { o.configFetcher = f }
+}
+
 // WithManagers shows a read-only Managers panel on the dashboard, one row per
 // status list returns. Rotating and revoking stay on the CLI and admin API.
 func WithManagers(list func() []jam.ManagerStatus) Option {
@@ -99,7 +107,7 @@ func WithManagers(list func() []jam.ManagerStatus) Option {
 
 // WithConfigEnv gives the Config page the planner's view of the serve — the
 // env the admin API's WithConfig gets: its portable serve config, and the
-// conditions an apply or a release re-checks config.drift on. Unset fields
+// conditions the planner raises on. Unset fields
 // default to the Handler's credExists and WithPoolConfigured.
 func WithConfigEnv(env jam.ConfigEnv) Option {
 	return func(o *options) { o.configEnv = env }
@@ -121,8 +129,19 @@ func WithAppTokenRevoke(revoke func(ident.ID)) Option {
 
 // Handler returns the UI mux (no auth wrap). store is the primary dependency:
 // every read view is an in-process read. log records write-action outcomes
-// (never secret values — see writes.go).
+// (never secret values — see writes.go). Config writes are made on a branch
+// (WithConfigBranches); without one, on a Jam with no config repo, they are
+// refused: its config is read-only.
 func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.SessionAllocator, credExists func(string) bool, msgs SquawkReader, opts ...Option) http.Handler {
+	mux, o := newMux(store, log, sup, alloc, credExists, msgs, opts)
+	if o.branches != nil && o.branchHandler != nil {
+		return &branchRouter{live: mux, b: o.branches, factory: o.branchHandler}
+	}
+	return readOnlyRouter{live: mux}
+}
+
+// newMux is Handler's mux, before the config-write routing, and its options.
+func newMux(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.SessionAllocator, credExists func(string) bool, msgs SquawkReader, opts []Option) (*http.ServeMux, options) {
 	var o options
 	for _, opt := range opts {
 		opt(&o)
@@ -135,12 +154,13 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		cfgEnv.CredExists = credExists
 	}
 	cfgEnv.PoolConfigured = cfgEnv.PoolConfigured || o.poolConfigured
+	cfgFetcher := o.configFetcher
+	if cfgFetcher == nil {
+		cfgFetcher = o.kitFetcher
+	}
 	registerApp(mux, src, msgs, roleAPI{sup: sup, alloc: alloc, credExists: credExists, setup: o.setup, managers: o.setupManagers},
 		specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured},
 		agentAPI{sup: sup, alloc: alloc, msgs: msgs, sess: o.sessStore, hub: o.sessHub, acc: accessDeps{o.live, o.exposures, o.previewURL}, setup: o.setup, credExists: credExists},
-		dashAPI{managers: o.managers, sup: sup, amURL: o.alertmanagerURL}, o.trustedOrigins, o.kitFetcher, cfgEnv, o.branches, log)
-	if o.branches != nil && o.branchHandler != nil {
-		return &branchRouter{live: mux, b: o.branches, factory: o.branchHandler}
-	}
-	return mux
+		dashAPI{managers: o.managers, sup: sup, amURL: o.alertmanagerURL}, o.trustedOrigins, fetchers{kits: o.kitFetcher, config: cfgFetcher}, cfgEnv, o.branches, log)
+	return mux, o
 }

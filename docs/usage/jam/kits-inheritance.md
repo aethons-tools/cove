@@ -1,10 +1,10 @@
 ---
-summary: Kits building on kits — `base: { kit: <name>[@vN] }`, following vs pinning a parent, the chain rules and errors, how a chain's definition merges, how its image builds stage by stage, staleness, the `rm`/`pin` guards, and where the chain shows (`kit show`, `kit list`, the kit page).
-read_when: You want one kit to build on another (a role bound to `my-app` gets `default → web-dev → my-app`), are choosing between following and pinning a parent, a push or raise failed with a parent/cycle/too-deep error, a `kit rm` or `kit pin` was refused because of child kits, or a child studio went `image=stale` after its parent changed.
-owns: the kit-inheritance story — the `base.kit` syntax and its refusals, follow vs pin, the chain cap/cycle/missing-parent errors, the merge rules, push-time checks on the merged kit, the stage-by-stage chain build and stage cache, chain staleness, the recorded raise chain, the rm/pin chain guards, and the chain in `kit show`/`kit list`
+summary: Kits building on kits — `base: { kit: <name>[@vN] }`, following vs pinning a parent, the chain rules and errors, how a chain's definition merges, how its image builds stage by stage, staleness, the delete guard, and where the chain shows (`kit show`, `kit list`, the kit page).
+read_when: You want one kit to build on another (a role bound to `my-app` gets `default → web-dev → my-app`), are choosing between following and pinning a parent, a config plan, import or raise failed with a parent/cycle/too-deep error, a kit's delete was refused because of child kits, or a child studio went `image=stale` after its parent changed.
+owns: the kit-inheritance story — the `base.kit` syntax and its refusals, follow vs pin, the chain cap/cycle/missing-parent errors, the merge rules, store-time checks on the merged kit, the stage-by-stage chain build and stage cache, chain staleness, the recorded raise chain, the delete chain guard, and the chain in `kit show`/`kit list`
 prereqs: kits.md for the StudioKit schema, versions and the `kit` verbs
 tier: leaf
-updated: 2026-10-25
+updated: 2026-11-01
 ---
 
 # Kits building on kits
@@ -17,7 +17,7 @@ the child gets the whole chain — for example `default → web-dev → my-app`.
 ```yaml
 kind: studio
 base:
-  kit: web-dev            # follow web-dev's current version; or web-dev@v3 to pin
+  kit: web-dev            # follow web-dev's current version (web-dev@v3 pins, outside the config repo)
 # OPTIONAL: a Dockerfile next to this kit.yml is this kit's own stage, built FROM web-dev's
 egress: [api.acme.dev]
 prompt: "You work on my-app …"
@@ -26,9 +26,11 @@ prompt: "You work on my-app …"
 ## The parent reference
 
 - **`kit: <name>`** follows the parent's *current* version. It resolves to
-  whatever is current at push, raise, build and staleness time.
-- **`kit: <name>@v<N>`** pins version N (N ≥ 1). The parent's later pushes
-  don't affect the child.
+  whatever is current when the version is stored, and at raise, build and staleness time.
+- **`kit: <name>@v<N>`** pins version N (N ≥ 1). The parent's later versions
+  don't affect the child. The config repo refuses a pin (versions are per-Jam:
+  [config-git.md](config-git.md#layout)); a pin comes from a kit's own git
+  source, or from a path parent (below).
 - **The child's own stage:** a `Dockerfile` next to the child's `kit.yml`
   makes its [directory](kits-directory.md#the-directory) the stage's build
   context; its `FROM ${JAM_STUDIO_BASE_IMAGE}` now resolves to the parent's stage.
@@ -40,7 +42,7 @@ prompt: "You work on my-app …"
 
 **The chain** runs from the child up to its **root**, a kit whose base is not
 `kit:` (the blessed default, a gated `image:` or a plain context). It holds at
-most **4 kits**, counting the kit itself. These fail at push and, fail-closed,
+most **4 kits**, counting the kit itself. These fail when a version is stored (a config plan, a git import) and, fail-closed,
 at raise. A raise never falls back to another base:
 
 | Error | Means |
@@ -64,16 +66,16 @@ Root first, the kit itself last:
 | `prompt` | the non-empty prompts joined by a blank line, root first |
 | `notes` | by name, in order of first appearance; a child's note of the same name replaces the earlier one in place |
 
-**At push** the kit's own fields are validated as usual, then its chain is
+**When a version is stored** the kit's own fields are validated as usual, then its chain is
 resolved. The **merged** prompt must fit 800 bytes and the merged notes must
-number 20 or fewer. Each pushed version records the parent version it was
-pushed against.
+number 20 or fewer. Each version records the parent version it was
+stored against (`pushed against` in `kit show`).
 
-The chain resolves even when the definition is unchanged. So re-pushing an
-unchanged child whose parent is now missing or invalid fails with a 400; it does
-not report `unchanged`.
+The chain resolves even when the definition is unchanged. So an unchanged
+child whose parent is now missing or invalid fails; it does not report
+`unchanged`.
 
-A parent whose prompt grows after a child was pushed doesn't block the child's
+A parent whose prompt grows after a child was stored doesn't block the child's
 raise. The session context truncates the merged prompt with its usual warning
 ([session-context.md](session-context.md)).
 
@@ -97,7 +99,7 @@ launcher builds the chain from the root down:
 
 A stage is cached as `jam-kit-base:<32 hex>`, keyed on the parent stage, the
 kit's own `base` and its build context's tree hash. So siblings of one parent share its stage, and a pinned
-parent's stage survives the parent's later pushes. A following and a pinned
+parent's stage survives the parent's later versions. A following and a pinned
 child with identical contexts still build separate stages, because their
 `base.kit` text differs.
 
@@ -126,13 +128,10 @@ notes come from the current chain.
 
 ## Guards
 
-- **`kit rm <parent>`** is refused (409) while any kit's *current* version
-  names it as parent, whether it follows or pins. The error lists the children
-  (`kit web-dev is the parent of my-app, ops`). The role guard is unchanged.
-- **`kit pin <parent> <N>`** is refused (409) while any kit's current version
-  *follows* it, since those children would silently move. The error lists them;
-  pin them to a version or point them elsewhere first. Children that pin a
-  version don't block. A version that doesn't exist is a 404.
+- **Deleting a parent** (its `kits/<parent>/` removed from the config repo) is
+  refused while any kit's *current* version names it as parent, whether it
+  follows or pins: `cannot delete kit web-dev: …` lists the children. The role
+  guard is unchanged ([kits.md](kits.md#the-kit-verbs)).
 - A role binds a chained kit like any other kit.
 
 ## Seeing the chain
@@ -141,7 +140,7 @@ notes come from the current chain.
   `# built on: default@v1 → web-dev (follows, now v5; pushed against v3)`. The
   direct parent is shown with how it's tracked; a pinned one reads
   `web-dev@v3 (pinned)`. A chained kit's effective output carries the comment
-  `# effective view (base.kit flattened); use --own to edit and re-push`.
+  `# effective view (base.kit flattened); use --own for the kit.yml to commit`.
   `--own` prints only the kit's own YAML (its `file:` notes read from its
   files into `body:`). A chain
   that doesn't resolve prints `# chain error: …` and falls back to the kit's own
@@ -161,6 +160,7 @@ nothing new fetches nothing and checks nothing).
 
 A git kit may also name a parent **by path** in the same repo
 (`kit: ../web`). A git import, track or sync then brings the repo's kit set in
-as one unit, each child pinned to the exact version its parent got; a
-`kit push` refuses a path. The rules are in
+as one unit, each child pinned to the exact version its parent got; in the
+config repo a path parent (`kit: ../web`) is re-pinned to the parent's current
+version on apply ([config-git.md](config-git.md#layout)). The rules are in
 [kits-path-parents.md](kits-path-parents.md).

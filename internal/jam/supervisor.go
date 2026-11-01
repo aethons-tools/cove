@@ -400,7 +400,8 @@ func (s *Supervisor) trackerOf() func() (ident.ID, bool) {
 // and, if the launcher reports ErrKitNotReady, resolves the definition from the
 // registry and PrepareKits it before retrying. Unset (the default) leaves an
 // unnamed-kit raise with no kit so hermetic tests and un-wired setups are
-// unaffected.
+// unaffected. While the config repo manages the default kit, a raise runs its
+// current version instead of ref's (ref.Version 0 always means current).
 func (s *Supervisor) SetDefaultStudioKit(ref KitRef) { s.defaultStudioKit = &ref }
 
 func (s *Supervisor) tailSeq() int64 {
@@ -682,11 +683,18 @@ func (s *Supervisor) kitSourceFor(role Role) (kitSource, bool, error) {
 		return kitSource{ref: ref, ver: ver, named: true}, true, nil
 	}
 	if s.defaultStudioKit != nil {
-		ver, ok := LoadKitVersion(s.store, s.defaultStudioKit.ID, s.defaultStudioKit.Version)
-		if !ok {
+		// The wired version, unless the config repo manages the default kit:
+		// then its current version, so a commit to kits/default/ reaches the
+		// next raise without a serve restart. Version 0 is current too.
+		id, version := s.defaultStudioKit.ID, s.defaultStudioKit.Version
+		if KitManaged(s.store, id) {
+			version = 0
+		}
+		ver, ok := LoadKitVersion(s.store, id, version)
+		if !ok || ver.Version == 0 {
 			return kitSource{}, false, fmt.Errorf("default studio kit %s not in registry", s.defaultStudioKit)
 		}
-		return kitSource{ref: KitRef{ID: s.defaultStudioKit.ID, Version: s.defaultStudioKit.Version}, ver: ver}, true, nil
+		return kitSource{ref: KitRef{ID: id, Version: ver.Version}, ver: ver}, true, nil
 	}
 	return kitSource{}, false, nil
 }

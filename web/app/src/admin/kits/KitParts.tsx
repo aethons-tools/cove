@@ -13,7 +13,7 @@ const chips = (xs: string[]): ReactNode | null => xs.length ? <Group gap={4}>{xs
 const kvList = (xs: { key: string; value: string }[]): ReactNode | null => xs.length ? <>{xs.map((x) => <div key={x.key}>{mono(x.key)} <Text span c="dimmed">{x.value}</Text></div>)}</> : null;
 
 export const maskedNote = "A packed context in this text is shown masked («packed context, not shown»); remove it before pushing.";
-export const hiddenNote = (kit: string) => <>This kit.yml is not shown: it may hold a packed context. Write it out with <code>jam config write &lt;dir&gt; --all</code> (it is <code>kits/{kit}/kit.yml</code>), fix it, and push that directory with <code>jam kit push</code>.</>;
+export const hiddenNote = (kit: string) => <>This kit.yml is not shown: it may hold a packed context. Write it out with <code>jam config write &lt;dir&gt; --all</code> (it is <code>kits/{kit}/kit.yml</code>), fix it, and commit it to the config repo.</>;
 
 // VersionCard is a version: what a studio raising it gets, then its YAML.
 export function VersionCard({ k }: { k: KitDetail }) {

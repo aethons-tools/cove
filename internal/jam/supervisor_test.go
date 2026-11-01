@@ -18,6 +18,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
 	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/kittree"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 	"github.com/aethons-tools/cove/internal/studio"
 )
 
@@ -244,6 +245,64 @@ func TestSupervisorPreparesKitOnNotReadyThenRaises(t *testing.T) {
 	}
 	if _, ok := store.GetInstance("spider"); !ok {
 		t.Fatal("prepared+raised cove must be recorded")
+	}
+}
+
+// While the config repo manages the default kit, a role with no kit raises the
+// kit's current version — a commit to kits/default/ after serve start reaches
+// the next raise — not the version wired at serve start.
+func TestSupervisorRaisesManagedDefaultKitCurrent(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	id := studio.DefaultStudioKitID
+	if _, _, err := PushKitFiles(store, id, kittreetest.Files("kit.yml", "kind: studio\negress: [one.example]\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyConfig(ConfigWrite{Marks: []ConfigMark{{Kind: ConfigKindKit, Name: id, Commit: "abc1234", Digest: "d", AppliedAt: time.Unix(1, 0).UTC()}}}); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := EnsureDefaultStudioKit(store)
+	if err != nil || ref.Version != 1 {
+		t.Fatalf("default ref = %+v, %v", ref, err)
+	}
+	sup.SetDefaultStudioKit(ref)
+	// The next apply pushes v2.
+	if _, _, err := PushKitFiles(store, id, kittreetest.Files("kit.yml", "kind: studio\negress: [two.example]\n")); err != nil {
+		t.Fatal(err)
+	}
+	def, have, err := sup.raiseKit("default", Role{Name: "guest"})
+	if err != nil || !have {
+		t.Fatalf("raiseKit = %v, %v", have, err)
+	}
+	if def.Ref.Version != 2 || !slices.Contains(def.Kit.Egress, "two.example") {
+		t.Fatalf("raise resolved %v egress %v, want v2's", def.Ref, def.Kit.Egress)
+	}
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest"}); err != nil {
+		t.Fatal(err)
+	}
+	if fl.gotSpec.Kit.ID != id || fl.gotSpec.Kit.Version != 2 {
+		t.Fatalf("raise spec.Kit = %v, want %s v2", fl.gotSpec.Kit, id)
+	}
+	if inst, _ := store.GetInstance("w1"); inst.Kit.Version != 2 {
+		t.Fatalf("instance recorded kit %v, want v2", inst.Kit)
+	}
+}
+
+// An unmanaged default kit raises exactly the version wired at serve start.
+func TestSupervisorRaisesUnmanagedDefaultKitWired(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	ref, err := EnsureDefaultStudioKit(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup.SetDefaultStudioKit(ref)
+	if _, _, err := PushKitFiles(store, studio.DefaultStudioKitID, kittreetest.Files("kit.yml", "kind: studio\negress: [two.example]\n")); err != nil {
+		t.Fatal(err)
+	}
+	def, have, err := sup.raiseKit("default", Role{Name: "guest"})
+	if err != nil || !have || def.Ref.Version != ref.Version {
+		t.Fatalf("raiseKit = %v %v %v, want the wired %v", def.Ref, have, err, ref)
 	}
 }
 

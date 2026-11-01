@@ -410,7 +410,7 @@ func (m *memState) requireProject(name string) (p Project, created bool, err err
 	if name == DefaultProject {
 		return newProject(name), true, nil
 	}
-	return Project{}, false, fmt.Errorf("%w: %q (create it with `jam project create %s`)", ErrProjectNotFound, name, name)
+	return Project{}, false, fmt.Errorf("%w: %q (add the project to the config repo first)", ErrProjectNotFound, name)
 }
 
 // grantProjects resolves every project a's grants name, returning the records

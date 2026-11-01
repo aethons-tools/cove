@@ -3,6 +3,7 @@ package cove
 import (
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -38,7 +39,8 @@ func mentionExempt(rel string) bool {
 		"docs/superpowers/",
 		"testdata/install-legacy.sh",
 		"deleted_test.go",
-		".gitignore", // names the stale staged dirs so they are never committed
+		"cmd/jam/stale_conditions.go", // clears the removed drift condition left open by name
+		".gitignore",                  // names the stale staged dirs so they are never committed
 	} {
 		if strings.HasPrefix(rel, p) {
 			return true
@@ -126,6 +128,97 @@ func TestDeprecatedKitDirsStayDeleted(t *testing.T) {
 			if seg == ".at-cove" || seg == ".at-jam" {
 				t.Errorf("%s is tracked; %s/ is deprecated", rel, seg)
 				break
+			}
+		}
+	}
+}
+
+// removedConfigVerbs are the live config-write verbs "always a repo" removed
+// (docs/superpowers/specs/2026-10-31-always-a-repo-design.md): config changes
+// only by a commit to the config repo. Each is matched as a whole word, so
+// `jam kit pin` does not match `jam kit pinned`.
+var removedConfigVerbs = []string{
+	"jam role add", "jam role rm",
+	"jam project create", "jam project rm", "jam project rename",
+	"jam user add", "jam user rename", "jam user rm",
+	"jam connection add", "jam connection cred",
+	"jam room add",
+	"jam context set", "jam context clear",
+	"jam kit push", "jam kit pin", "jam kit rm", "jam kit draft",
+	"jam standing add", "jam egress set", "jam destination add",
+	"jam model-spec add",
+	"jam config apply", "jam config release",
+	// The rest of the config writes the same slice removed.
+	"jam project member add", "jam project member rm",
+	"jam project escalation set", "jam project escalation clear",
+	"jam project chat-service set", "jam project chat-service clear",
+	"jam user login", "jam room rm", "jam room rename",
+	"jam connection rm", "jam connection rename",
+	"jam standing rm", "jam egress clear",
+	"jam destination rm", "jam destination import",
+	"jam model-spec update", "jam model-spec delete",
+}
+
+// removedConfigMentions matches a removed verb, `--force` on a line with
+// `config apply` or `config sync`, or the removed `config.drift` condition.
+var removedConfigMentions = func() *regexp.Regexp {
+	alts := make([]string, 0, len(removedConfigVerbs)+2)
+	for _, v := range removedConfigVerbs {
+		alts = append(alts, regexp.QuoteMeta(v)+`\b`)
+	}
+	alts = append(alts,
+		`config (?:apply|sync)\b[^\n]*--force`,
+		`--force\b[^\n]*config (?:apply|sync)\b`,
+		`config\.drift\b`)
+	return regexp.MustCompile(strings.Join(alts, "|"))
+}()
+
+// removedVerbScope reports whether rel is text that teaches people or agents
+// how to change config: the docs (not the design history), the dev and
+// deploy scripts, the studio image payload, renovate.json, and the product
+// text in non-test Go and in the web clients' non-test sources.
+func removedVerbScope(rel string) bool {
+	if mentionExempt(rel) {
+		return false
+	}
+	for _, p := range []string{"docs/", "dev/", "deploy/", "images/"} {
+		if strings.HasPrefix(rel, p) {
+			return true
+		}
+	}
+	switch {
+	case rel == "renovate.json": // its rule descriptions tell operators how to bump pins
+		return true
+	case strings.HasPrefix(rel, "internal/"), strings.HasPrefix(rel, "cmd/"):
+		return strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, "_test.go")
+	case strings.HasPrefix(rel, "web/app/src/"), strings.HasPrefix(rel, "web/vscode/src/"):
+		return (strings.HasSuffix(rel, ".ts") || strings.HasSuffix(rel, ".tsx")) &&
+			!strings.Contains(rel, ".test.")
+	}
+	return false
+}
+
+// isAuditMessage reports whether a match follows an audit log prefix: the
+// message "admin jam context set" names the Jam-wide context, not the verb.
+func isAuditMessage(before string) bool {
+	return strings.HasSuffix(before, "admin ") || strings.HasSuffix(before, "ui ")
+}
+
+func TestNoRemovedConfigVerbsInDocs(t *testing.T) {
+	for _, rel := range gitLsFiles(t) {
+		if !removedVerbScope(rel) {
+			continue
+		}
+		b, err := os.ReadFile(rel)
+		if err != nil {
+			continue // listed but deleted in the working tree
+		}
+		for i, line := range strings.Split(string(b), "\n") {
+			for _, loc := range removedConfigMentions.FindAllStringIndex(line, -1) {
+				if isAuditMessage(line[:loc[0]]) {
+					continue
+				}
+				t.Errorf("%s:%d mentions %q; config changes only by a commit to the config repo", rel, i+1, line[loc[0]:loc[1]])
 			}
 		}
 	}

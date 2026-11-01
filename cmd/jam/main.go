@@ -5,7 +5,6 @@
 package main
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"crypto/tls"
@@ -22,7 +21,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"text/tabwriter"
@@ -71,7 +69,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sshca"
 	"github.com/aethons-tools/cove/internal/jam/userui"
 	"github.com/aethons-tools/cove/internal/jam/vscodeext"
-	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/mintcmd"
@@ -84,6 +81,7 @@ import (
 	"github.com/aethons-tools/cove/internal/tracker"
 	"github.com/aethons-tools/cove/internal/usersecret"
 	"github.com/aethons-tools/cove/internal/wakeon"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"gopkg.in/yaml.v3"
 )
 
@@ -127,18 +125,18 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "serve", Brief: "run the broker + loopback admin API", Run: cmdServe},
 			{Name: "enroll", Brief: "enroll an identity (via the admin API) and print its snippet", Run: cmdEnroll},
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
-			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
+			{Name: "destination", Brief: "list destinations (list) via the admin API", Run: cmdDestination},
 			{Name: "attention", Brief: "list operator-attention conditions (list [--all]) via the admin API", Run: cmdAttention},
 			{Name: "manager", Brief: "manage Studio Managers (add|list|rotate|revoke) via the admin API", Run: cmdManager},
-			{Name: "model-spec", Brief: "manage model-specs — how a cove runs its agent: harness, version, principal, model, policy (add|list|show|update|delete) via the admin API", Run: cmdModelSpec},
-			{Name: "role", Brief: "manage roles (add|list|rm|inspect|images) via the admin API", Run: cmdRole},
-			{Name: "project", Brief: "create, list, rename or remove projects (create|list|rename|rm), or manage a project's members (member add|list|rm), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
-			{Name: "user", Brief: "manage users — the people agents talk to (add|list|show|rename|rm|login|oidc) via the admin API", Run: cmdUser},
+			{Name: "model-spec", Brief: "show model-specs — how a cove runs its agent: harness, version, principal, model, policy (list|show) via the admin API", Run: cmdModelSpec},
+			{Name: "role", Brief: "list and inspect roles (list|inspect|images) via the admin API", Run: cmdRole},
+			{Name: "project", Brief: "list projects (list), or show a project's members (member list), escalation policy (escalation list), or chat service (chat-service show) via the admin API", Run: cmdProject},
+			{Name: "user", Brief: "manage users — the people agents talk to (list|show|oidc) via the admin API", Run: cmdUser},
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
-			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
-			{Name: "connection", Brief: "manage connections to external services — a Linear workspace, a Discord bot (add|list|rename|cred|rm) via the admin API", Run: cmdConnection},
-			{Name: "kit", Brief: "manage the kit registry (push <dir>|list|show|versions|diff|pin|rm|import|track|untrack|sync|draft)", Run: cmdKit},
-			{Name: "config", Brief: "keep the Jam's configuration in git: write it out (write <dir> [--all]); plan and apply a checkout or a git source (diff|apply [--dir <path> | --git <src>] [--yes] [--force]); follow one config source (track --git <src> | sync | untrack) via the admin API", Run: cmdConfig},
+			{Name: "room", Brief: "list a project's rooms — named channels on a Linear issue or a Discord channel (list) via the admin API", Run: cmdRoom},
+			{Name: "connection", Brief: "list connections to external services — a Linear workspace, a Discord bot (list) via the admin API", Run: cmdConnection},
+			{Name: "kit", Brief: "manage the kit registry (list|show|versions|diff|import|track|untrack|sync)", Run: cmdKit},
+			{Name: "config", Brief: "keep the Jam's configuration in git: write it out (write <dir> [--all]); plan a checkout or a git source, never applying it (diff [--dir <path> | --git <src>]); apply the followed repo (sync [--yes]); show the follower (status) via the admin API", Run: cmdConfig},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
 			{Name: "pool", Brief: "manage the subscription-OAuth account pool (add|list) — writes the host-side pool store", Run: cmdPool},
@@ -147,9 +145,9 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "actors", Brief: "list actors and their grants", Run: cmdActors},
 			{Name: "studio", Brief: "manage studios (raise|list|status|teardown|inspect) via the admin API, and who may reach one (share|unshare|access)", Run: cmdStudio},
 			{Name: "cove", Brief: "deprecated alias for studio", Run: cmdCove},
-			{Name: "standing", Brief: "declare, list, dismiss, reset or upgrade a role's named standing sessions (add|list|rm|reset|upgrade) via the admin API", Run: cmdStanding},
-			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; pushed to running studios shortly", Run: cmdEgress},
-			{Name: "context", Brief: "show, set or clear authored session context for a role, project or the Jam (show|set|clear) via the admin API; applied at the next raise", Run: cmdContext},
+			{Name: "standing", Brief: "list, reset or upgrade a role's named standing sessions (list|reset|upgrade) via the admin API", Run: cmdStanding},
+			{Name: "egress", Brief: "show a role's raw-egress policy (show) via the admin API", Run: cmdEgress},
+			{Name: "context", Brief: "show the authored session context for a role, project or the Jam (show) via the admin API", Run: cmdContext},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
 			{Name: "push", Brief: "push notification helpers (keygen: print a fresh VAPID key pair)", Run: func(args []string, _ cli.Globals, stdout, stderr io.Writer) int { return cmdPush(args, stdout, stderr) }},
 			{Name: "ssh-config", Brief: "print (or --write into ~/.ssh/config) a Host jam-<studio> block for SSH into a studio, fetching its certificate", Run: cmdSSHConfig},
@@ -399,51 +397,21 @@ func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// oauthBetaDoc is the doc the removed --oauth-beta flag points at.
-const oauthBetaDoc = "docs/usage/jam/pool.md"
-
 func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "jam destination: expected add|list|rm|import")
+		fmt.Fprintln(stderr, "jam destination: expected list")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
+	if sub != "list" {
+		fmt.Fprintf(stderr, "jam destination: unknown subcommand %q (want list)\n", sub)
+		return 2
+	}
 	fs := flag.NewFlagSet("destination "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token for an OIDC-gated admin API (env: JAM_ADMIN_TOKEN)")
-	// add flags
-	var d jam.Destination
-	fs.StringVar(&d.Name, "name", "", "destination name")
-	fs.StringVar(&d.Route, "route", "", "inbound path prefix, e.g. /git/")
-	fs.StringVar(&d.Upstream, "upstream", "", "upstream base URL")
-	var identityIn, apply string
-	fs.StringVar(&identityIn, "identity-in", "", "bearer|basic-password|x-api-key|raw (custom header specs: destination import)")
-	fs.StringVar(&d.CredName, "cred-name", "", "credential name to inject")
-	fs.StringVar(&apply, "apply", "", "bearer|basic-password|x-api-key|raw (custom header specs: destination import)")
-	// --oauth-beta was removed (COV-241); it stays registered only to refuse
-	// with a pointer to its replacement rather than "flag provided but not defined".
-	oauthBeta := fs.Bool("oauth-beta", false, "REMOVED: the broker adds the oauth-2025-04-20 anthropic-beta for every subscription-pool credential (see "+oauthBetaDoc+")")
-	var envKV []string
-	fs.Func("env", "client env KEY=TEMPLATE a studio sets for this destination (repeatable; templates: {url} {base} {host} {token})", func(s string) error {
-		envKV = append(envKV, s)
-		return nil
-	})
-	fs.Func("allow-path", "path.Match pattern (after the route) the broker may forward; repeatable; none = any path", func(s string) error {
-		d.AllowPaths = append(d.AllowPaths, s)
-		return nil
-	})
-	fs.BoolVar(&d.Git, "git", false, "route studios' git for this destination's upstream host (e.g. https://github.com/) through it")
-	fs.StringVar(&d.Note, "note", "", "usage hint shown to sessions granted this destination (≤300 bytes)")
-	fs.Func("log-headers-in", "troubleshooting log of incoming headers: none|examined|all (secrets redacted)", func(s string) error {
-		d.LogHeadersIn = jam.HeaderLog(s)
-		return nil
-	})
-	fs.Func("log-headers-out", "troubleshooting log of outgoing headers: none|changed|all (secrets redacted)", func(s string) error {
-		d.LogHeadersOut = jam.HeaderLog(s)
-		return nil
-	})
-	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	_, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
 	}
@@ -451,31 +419,9 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		fmt.Fprintln(stderr, "jam destination:", err)
 		return 2
 	}
-	if *oauthBeta {
-		fmt.Fprintf(stderr, "jam destination: --oauth-beta was removed: the broker now adds the oauth-2025-04-20 anthropic-beta to every request carrying a subscription-pool credential, so drop the flag (a non-pool subscription token takes a model-spec principal header rule instead) — see %s\n", oauthBetaDoc)
-		return 2
-	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "add":
-		d.IdentityIn, d.Apply = jam.ApplyMethod(identityIn), jam.ApplyMethod(apply)
-		for _, kv := range envKV {
-			k, v, ok := strings.Cut(kv, "=")
-			if !ok || k == "" {
-				fmt.Fprintf(stderr, "jam destination add: --env %q: want KEY=TEMPLATE\n", kv)
-				return 2
-			}
-			if d.Env == nil {
-				d.Env = map[string]string{}
-			}
-			d.Env[k] = v
-		}
-		if err := c.AddDestination(d); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "added destination", d.Name)
 	case "list":
 		ds, err := c.ListDestinations()
 		if err != nil {
@@ -501,40 +447,8 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			}
 			fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s%s)\n", dd.Name, dd.Route, dd.Upstream, dd.CredName, dd.Apply, ob)
 		}
-	case "rm":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam destination rm: expected one destination name")
-			return 2
-		}
-		if err := c.RemoveDestination(pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "removed destination", pos[0])
-	case "import":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam destination import: expected one YAML file path")
-			return 2
-		}
-		data, err := os.ReadFile(pos[0])
-		if err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		var conf jam.Config
-		if err := yaml.Unmarshal(data, &conf); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		for _, dd := range conf.Destinations {
-			if err := c.AddDestination(dd); err != nil {
-				fmt.Fprintln(stderr, "jam:", err)
-				return 1
-			}
-			fmt.Fprintln(stdout, "imported destination", dd.Name)
-		}
 	default:
-		fmt.Fprintln(stderr, "jam destination: unknown subcommand", sub)
+		fmt.Fprintf(stderr, "jam destination: unknown subcommand %q (want list)\n", sub)
 		return 2
 	}
 	return 0
@@ -542,35 +456,22 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 
 func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "jam role: expected add|list|rm|inspect|images")
+		fmt.Fprintln(stderr, "jam role: expected list|inspect|images")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	if sub == "inspect" {
 		return cmdRoleInspect(rest, stdout, stderr)
 	}
+	if sub != "list" && sub != "images" {
+		fmt.Fprintf(stderr, "jam role: unknown subcommand %q (want list|inspect|images)\n", sub)
+		return 2
+	}
 	fs := flag.NewFlagSet("role "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
-	name := fs.String("name", "", "role name")
-	dests := fs.String("destinations", "", "comma-separated destination names, each optionally name=credential (the credential the broker injects; default: the destination's cred-name)")
-	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. user:*,channel:eng-help (user:<name> or user:<usr_id>; human: is read as user:)")
-	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
-	kitName := fs.String("kit", "", "bind a registered kit (name)")
-	modelSpec := fs.String("model-spec", "", "bind a model-spec (name); empty = "+jam.DefaultModelSpec)
-	maxEphemeral := fs.Int("max-ephemeral", 0, "cap on this role's concurrent ephemeral (Requisitioner) sessions (0 = unset: the Requisitioner's max-concurrent applies)")
-	maxPersonal := fs.Int("max-personal", 0, "cap on this role's concurrent personal sessions across all owners (0 = no personal sessions)")
-	maxPersonalPerOwner := fs.Int("max-personal-per-owner", 0, "cap on one owner's concurrent personal sessions of this role (0 = the pool cap only)")
-	idleAfter := fs.Duration("idle-after", 0, "nag a personal session's owner once it has waited on them this long (0 = default 4h)")
-	nagEvery := fs.Duration("nag-every", 0, "then re-nag the owner this often (0 = default 24h)")
-	reclaimAfter := fs.Duration("reclaim-after", 0, "reclaim a personal session once it has waited on its owner this long (0 = never)")
-	idleTimeout := fs.Duration("idle-timeout", 0, "after a turn ends with nothing waking the session for this long, apply --on-idle (0 = no idle timeout)")
-	onIdle := fs.String("on-idle", "", "what the idle timeout does: wake (default) | teardown")
-	timeZone := fs.String("time-zone", "", "IANA time zone the role's cron alarms are evaluated in (default UTC)")
-	collabPreview := fs.String("collaborate-preview", "", "who may view this role's studio previews: members (default) | none")
-	collabSSH := fs.String("collaborate-ssh", "", "who may ssh into this role's studios: members | none (default)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -582,48 +483,6 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "add":
-		if *name == "" {
-			fmt.Fprintln(stderr, "jam role add: --name is required")
-			return 2
-		}
-		if *maxEphemeral < 0 || *maxPersonal < 0 || *maxPersonalPerOwner < 0 {
-			fmt.Fprintln(stderr, "jam role add: --max-ephemeral, --max-personal and --max-personal-per-owner must be >= 0")
-			return 2
-		}
-		if *idleAfter < 0 || *nagEvery < 0 || *reclaimAfter < 0 {
-			fmt.Fprintln(stderr, "jam role add: --idle-after, --nag-every and --reclaim-after must be >= 0")
-			return 2
-		}
-		te := jam.TurnEndPolicy{IdleTimeout: *idleTimeout, OnIdle: *onIdle, TimeZone: *timeZone}
-		if err := jam.ValidateTurnEnd(te); err != nil {
-			fmt.Fprintln(stderr, "jam role add:", err)
-			return 2
-		}
-		collab := jam.CollaboratePolicy{Preview: *collabPreview, SSH: *collabSSH}
-		if err := collab.Validate(); err != nil {
-			fmt.Fprintln(stderr, "jam role add:", err)
-			return 2
-		}
-		ds, creds, err := jam.ParseDestinations(*dests)
-		if err != nil {
-			fmt.Fprintln(stderr, "jam role add:", err)
-			return 2
-		}
-		r := jam.Role{
-			TurnEnd: te, Collaborate: collab,
-			Name: *name, Kit: *kitName, ModelSpec: *modelSpec,
-			Scope: jam.Scope{Destinations: ds, Credentials: creds, Addressing: splitCSV(*addressing), TTL: *ttl},
-			Allocation: jam.RoleAllocation{
-				MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner,
-				IdleAfter: *idleAfter, NagEvery: *nagEvery, ReclaimAfter: *reclaimAfter,
-			},
-		}
-		if err := c.PutRole(*project, r); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "added role", firstNonEmpty(*project, jam.DefaultProject)+"/"+*name)
 	case "list":
 		roles, err := c.ListRoles(*project)
 		if err != nil {
@@ -633,16 +492,6 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		for _, r := range roles {
 			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tidle-timeout=%s\ton-idle=%s\ttime-zone=%s\tegress=%s\tcollaborate-preview=%s\tcollaborate-ssh=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, r.TurnEnd.IdleTimeout, r.TurnEnd.Action(), r.TurnEnd.Location(), egressState(r.Scope.Egress), collabLabel(r.Collaborate.Preview, "members"), collabLabel(r.Collaborate.SSH, "none"))
 		}
-	case "rm":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam role rm: expected one role name")
-			return 2
-		}
-		if err := c.RemoveRole(firstNonEmpty(*project, jam.DefaultProject), pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "removed role", pos[0])
 	case "images":
 		if len(pos) != 1 || pos[0] == "" {
 			fmt.Fprintln(stderr, "usage: jam role images <project>/<role>")
@@ -671,36 +520,38 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdProject manages a project's members, escalation policy, or chat service
-// via the admin API. Member subcommands nest under "member"
-// (cmdProjectMember): `project member add|list|rm`. (A project's channels
+// cmdProject lists projects, and shows a project's members, escalation policy
+// and chat service via the admin API. Member subcommands nest under "member"
+// (cmdProjectMember): `project member list`. (A project's channels
 // are rooms: cmdRoom.)
 // Escalation subcommands nest under "escalation" and are handled by
-// cmdProjectEscalation: `project escalation set|list|clear`. Chat-service
+// cmdProjectEscalation: `project escalation list`. Chat-service
 // subcommands nest under "chat-service" and are handled by
-// cmdProjectChatService: `project chat-service set|clear|show`.
+// cmdProjectChatService: `project chat-service show`.
 func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	if len(args) >= 1 && (args[0] == "create" || args[0] == "list" || args[0] == "rm" || args[0] == "rename") {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "jam project: expected list, member list, escalation list, or chat-service show (a project's channels are rooms: jam room)")
+		return 2
+	}
+	switch args[0] {
+	case "list":
 		return cmdProjectLifecycle(args[0], args[1:], stdout, stderr)
-	}
-	if len(args) >= 1 && args[0] == "escalation" {
+	case "escalation":
 		return cmdProjectEscalation(args[1:], stdout, stderr)
-	}
-	if len(args) >= 1 && args[0] == "chat-service" {
+	case "chat-service":
 		return cmdProjectChatService(args[1:], stdout, stderr)
-	}
-	if len(args) >= 1 && args[0] == "member" {
+	case "member":
 		return cmdProjectMember(args[1:], stdout, stderr)
 	}
-	fmt.Fprintln(stderr, "jam project: expected create|list|rename|rm, member add|list|rm, escalation set|list|clear, or chat-service set|clear|show (a project's channels are rooms: jam room)")
+	fmt.Fprintf(stderr, "jam project: unknown subcommand %q (want list|member|escalation|chat-service)\n", args[0])
 	return 2
 }
 
 // cmdProjectEscalation manages a project's escalation policy via the admin
-// API: `project escalation set|list|clear`.
+// API: `project escalation list`.
 func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "jam project escalation: expected set|list|clear")
+		fmt.Fprintln(stderr, "jam project escalation: expected list")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -708,9 +559,6 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
-	category := fs.String("category", "", "escalation category (default chain when empty); set/clear")
-	var tiers tierFlags
-	fs.Var(&tiers, "tier", "a tier as 'target,target@timeout' (repeatable, ordered); set only")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -722,16 +570,6 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "set":
-		if len(pos) != 1 || len(tiers) == 0 {
-			fmt.Fprintln(stderr, "jam project escalation set: expected <project> and at least one --tier 'targets@timeout'")
-			return 2
-		}
-		if err := c.SetEscalationPolicy(pos[0], *category, tiers); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "set escalation policy for", pos[0], "-", len(tiers), "tier(s)")
 	case "list":
 		if len(pos) != 1 {
 			fmt.Fprintln(stderr, "jam project escalation list: expected one project name")
@@ -755,16 +593,6 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stdout, "%s\ttier %d\t%s\ttimeout=%s\n", cat, i, strings.Join(tr.Targets, ","), tr.Timeout)
 			}
 		}
-	case "clear":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam project escalation clear: expected one project name")
-			return 2
-		}
-		if err := c.SetEscalationPolicy(pos[0], *category, nil); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "cleared escalation policy for", pos[0])
 	default:
 		fmt.Fprintln(stderr, "jam project escalation: unknown subcommand", sub)
 		return 2
@@ -772,9 +600,7 @@ func cmdProjectEscalation(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdProjectLifecycle creates, lists or removes projects via the admin API:
-// `project create <name>`, `project list`, `project rm <name>`. A project must
-// exist before roles, grants or its roster can name it (except "default").
+// cmdProjectLifecycle lists projects via the admin API: `project list`.
 func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("project "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
@@ -784,15 +610,8 @@ func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) in
 	if !ok {
 		return code
 	}
-	if want := map[string]int{"create": 1, "list": 0, "rm": 1, "rename": 2}[sub]; len(pos) != want {
-		switch want {
-		case 2:
-			fmt.Fprintf(stderr, "jam project %s: expected <project> <new-name>\n", sub)
-		case 1:
-			fmt.Fprintf(stderr, "jam project %s: expected <project>\n", sub)
-		default:
-			fmt.Fprintf(stderr, "jam project %s: unexpected arguments\n", sub)
-		}
+	if len(pos) != 0 {
+		fmt.Fprintf(stderr, "jam project %s: unexpected arguments\n", sub)
 		return 2
 	}
 	if err := validateApp(*app); err != nil {
@@ -802,24 +621,6 @@ func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) in
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "create":
-		if err := c.CreateProject(pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "created project", pos[0])
-	case "rm":
-		if err := c.RemoveProject(pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "removed project", pos[0])
-	case "rename":
-		if err := c.RenameProject(pos[0], pos[1]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "renamed project", pos[0], "to", pos[1])
 	case "list":
 		names, err := c.ListProjects()
 		if err != nil {
@@ -834,10 +635,10 @@ func cmdProjectLifecycle(sub string, rest []string, stdout, stderr io.Writer) in
 }
 
 // cmdProjectChatService manages a project's chat service (the service backing
-// its humans' DMs) via the admin API: `project chat-service set|clear|show`.
+// its humans' DMs) via the admin API: `project chat-service show`.
 func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "jam project chat-service: expected set|clear|show")
+		fmt.Fprintln(stderr, "jam project chat-service: expected show")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -846,7 +647,6 @@ func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name")
-	service := fs.String("service", "", "chat service (set), e.g. discord")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -862,26 +662,6 @@ func cmdProjectChatService(args []string, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "set":
-		if *project == "" || *service == "" {
-			fmt.Fprintln(stderr, "jam project chat-service set: expected --project and --service")
-			return 2
-		}
-		if err := c.SetChatService(*project, *service); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "set chat service for", *project, "to", *service)
-	case "clear":
-		if *project == "" {
-			fmt.Fprintln(stderr, "jam project chat-service clear: expected --project")
-			return 2
-		}
-		if err := c.SetChatService(*project, ""); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "cleared chat service for", *project)
 	case "show":
 		if *project == "" {
 			fmt.Fprintln(stderr, "jam project chat-service show: expected --project")
@@ -922,34 +702,17 @@ func (m *multiFlag) Set(v string) error {
 	return nil
 }
 
-// tierFlags collects repeatable --tier values, parsing 'targets@timeout'.
-type tierFlags []jam.EscalationTier
-
-func (t *tierFlags) String() string { return fmt.Sprintf("%d tiers", len(*t)) }
-func (t *tierFlags) Set(v string) error {
-	tier, err := jam.ParseEscalationTierSpec(v)
-	if err != nil {
-		return err
-	}
-	*t = append(*t, tier)
-	return nil
-}
-
 func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "jam kit: expected push|list|show|versions|diff|pin|rm|import|track|untrack|sync|draft")
+		fmt.Fprintln(stderr, "jam kit: expected list|show|versions|diff|import|track|untrack|sync")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
-	if sub == "draft" { // its own verbs and flags (kitdraft.go)
-		return cmdKitDraft(rest, stdout, stderr)
-	}
 	fs := flag.NewFlagSet("kit "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	name := fs.String("name", "", "kit name")
-	config := fs.String("config", "", "push: a kit.yml to push alone (or - for stdin); otherwise push <dir>")
 	version := fs.Int("version", 0, "kit version (show; 0 = current)")
 	gitSrc := fs.String("git", "", "git source <repo>[//dir]@<ref>; import and track only")
 	from := fs.Int("from", 0, "diff: the older version (default: the one before --to)")
@@ -966,39 +729,6 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "push":
-		if *config == "-" && *name == "" {
-			fmt.Fprintln(stderr, "jam kit push: --name is required with --config")
-			return 2
-		}
-		files, kitName, err := kitPushFiles(pos, *config, *name)
-		if errors.Is(err, errKitPushUsage) {
-			fmt.Fprintln(stderr, "jam kit push:", err)
-			return 2
-		}
-		if err != nil {
-			fmt.Fprintln(stderr, "jam kit push:", err)
-			return 1
-		}
-		if kitName, err = checkKitPush(files, kitName, *name != ""); err != nil {
-			fmt.Fprintln(stderr, "jam kit push:", err)
-			return 1
-		}
-		var body bytes.Buffer
-		if err := kittree.WriteTar(&body, files); err != nil {
-			fmt.Fprintln(stderr, "jam kit push:", err)
-			return 1
-		}
-		res, err := c.PushKitTree(kitName, body.Bytes())
-		if err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		if res.Unchanged {
-			fmt.Fprintf(stdout, "%s unchanged (current v%d)\n", kitName, res.Version)
-		} else {
-			fmt.Fprintf(stdout, "pushed %s v%d\n", kitName, res.Version)
-		}
 	case "diff":
 		if len(pos) != 1 {
 			fmt.Fprintln(stderr, "jam kit diff: expected one kit name")
@@ -1077,7 +807,7 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprint(stdout, kitBuiltOnHeader(res))
 		if len(res.Chain) > 0 && res.Effective != "" && !*own {
-			fmt.Fprintln(stdout, "# effective view (base.kit flattened); use --own to edit and re-push")
+			fmt.Fprintln(stdout, "# effective view (base.kit flattened); use --own for the kit.yml to commit")
 		}
 		fmt.Fprint(stdout, string(y))
 		if len(res.Files) > 0 {
@@ -1194,31 +924,6 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		} else {
 			fmt.Fprintf(stdout, "synced %s v%d (%s)\n", res.Name, res.Version, shortCommit(res.Commit))
 		}
-	case "pin":
-		if len(pos) != 2 {
-			fmt.Fprintln(stderr, "jam kit pin: expected <name> <version>")
-			return 2
-		}
-		v, err := strconv.Atoi(pos[1])
-		if err != nil {
-			fmt.Fprintln(stderr, "jam kit pin: version must be an integer")
-			return 2
-		}
-		if err := c.PinKit(pos[0], v); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "pinned %s to v%d\n", pos[0], v)
-	case "rm":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam kit rm: expected one kit name")
-			return 2
-		}
-		if err := c.RemoveKit(pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "removed kit", pos[0])
 	default:
 		fmt.Fprintln(stderr, "jam kit: unknown subcommand", sub)
 		return 2
@@ -1325,7 +1030,6 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	role := fs.String("role", "", "role to raise the studio for")
 	unit := fs.String("unit", "", "unit of work (e.g. issue identifier)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the workload prompt (raise only; read host-side, never passed on argv)")
-	kitDraft := fs.String("kit-draft", "", "raise only: run this kit's draft instead of the role's kit (its test build is built first when needed)")
 	activity := fs.String("activity", "", "reported activity: running|holding|waiting|blocked|done (status only)")
 	var managers multiFlag
 	fs.Var(&managers, "manager", "raise only: a manager the studio may land on, in preference order (repeatable; default any)")
@@ -1355,17 +1059,12 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			prompt = string(b)
 		}
-		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit, Prompt: prompt, KitDraft: *kitDraft, Managers: managers, PlacementTimeout: *placementTimeout})
+		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit, Prompt: prompt, Managers: managers, PlacementTimeout: *placementTimeout})
 		if err != nil {
-			// Escaped: a draft studio's problems quote kit.yml values.
 			fmt.Fprintln(stderr, "jam:", textesc.Escape(err.Error(), false))
 			return 1
 		}
-		if res.KitDraftTree != "" {
-			fmt.Fprintf(stdout, "raised %s as session %s (phase=%s) from the draft of %s @%s\n", res.Label, res.ID, res.Phase, textesc.Escape(*kitDraft, false), textesc.Escape(treePrefix(res.KitDraftTree), false))
-		} else {
-			fmt.Fprintf(stdout, "raised %s as session %s (phase=%s)\n", res.Label, res.ID, res.Phase)
-		}
+		fmt.Fprintf(stdout, "raised %s as session %s (phase=%s)\n", res.Label, res.ID, res.Phase)
 	case "list":
 		coves, err := c.ListCoves()
 		if err != nil {
@@ -1408,7 +1107,7 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 }
 
 // cmdSession requests, lists and releases the caller's personal sessions. The
-// caller is the project member whose user holds the login (`user add --login`) of the
+// caller is the project member whose user holds the login (a user's login) of the
 // operator identity the admin API authenticates.
 func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -1484,25 +1183,26 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdStanding manages a role's standing-session declarations: Jam keeps one
-// cove running per declared name, restarts it (state kept) if it dies, and
-// tears it down with its state once the name is removed. reset deletes a
-// declared name's cove and state so Jam raises it afresh; upgrade re-raises it
-// on the current image, keeping its state.
+// cmdStanding lists a role's standing-session declarations (which change only
+// in git) and acts on them: reset deletes a declared name's cove and state so
+// Jam raises it afresh; upgrade re-raises it on the current image, keeping its
+// state.
 func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "jam standing: expected add|list|rm|reset|upgrade")
+		fmt.Fprintln(stderr, "jam standing: expected list|reset|upgrade")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
+	if sub != "list" && sub != "reset" && sub != "upgrade" {
+		fmt.Fprintf(stderr, "jam standing: unknown subcommand %q (want list|reset|upgrade)\n", sub)
+		return 2
+	}
 	fs := flag.NewFlagSet("standing "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role the standing session belongs to")
-	name := fs.String("name", "", "standing session name, unique within the role (add only)")
-	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (add only; read host-side, never passed on argv)")
 	force := fs.Bool("force", false, "upgrade only: don't wait for the session to be idle, and restart it even if already current")
 	wait := fs.Bool("wait", false, "upgrade only: poll `standing list` until the upgrade is done")
 	waitTimeout := fs.Duration("wait-timeout", 15*time.Minute, "upgrade --wait only: give up after this long")
@@ -1514,7 +1214,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "jam standing:", err)
 		return 2
 	}
-	if *role == "" && (sub == "add" || sub == "list" || sub == "rm" || sub == "reset" || sub == "upgrade") {
+	if *role == "" && (sub == "list" || sub == "reset" || sub == "upgrade") {
 		fmt.Fprintf(stderr, "jam standing %s: --role is required\n", sub)
 		return 2
 	}
@@ -1522,21 +1222,6 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "add":
-		if *name == "" || *promptFile == "" {
-			fmt.Fprintln(stderr, "jam standing add: --name and --prompt-file are required")
-			return 2
-		}
-		b, err := os.ReadFile(*promptFile)
-		if err != nil {
-			fmt.Fprintln(stderr, "jam standing add: --prompt-file:", err)
-			return 1
-		}
-		if err := c.AddStanding(proj, *role, jam.StandingSession{Name: *name, Prompt: string(b)}); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "declared standing session %s/%s/%s\n", proj, *role, *name)
 	case "list":
 		list, err := c.ListStanding(proj, *role)
 		if err != nil {
@@ -1568,16 +1253,6 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			fmt.Fprintln(stdout, line)
 		}
-	case "rm":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam standing rm: expected one standing session name")
-			return 2
-		}
-		if err := c.RemoveStanding(proj, *role, pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "dismissed standing session", pos[0])
 	case "reset":
 		if len(pos) != 1 {
 			fmt.Fprintln(stderr, "jam standing reset: expected one standing session name")
@@ -1703,22 +1378,25 @@ func egressState(p *jam.EgressPolicy) string {
 	}
 }
 
-// cmdEgress manages a role's raw-egress policy: the list Jam pushes into each
+// cmdEgress shows a role's raw-egress policy: the list Jam pushes into each
 // cove of the role at raise, replacing the kit's policy list within the kit's
-// ceiling. A change reaches running studios within one reconcile pass.
+// ceiling. The policy changes only in git.
 func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "jam egress: expected set|show|clear")
+		fmt.Fprintln(stderr, "jam egress: expected show")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
+	if sub != "show" {
+		fmt.Fprintf(stderr, "jam egress: unknown subcommand %q (want show)\n", sub)
+		return 2
+	}
 	fs := flag.NewFlagSet("egress "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
-	role := fs.String("role", "", "role whose egress policy to manage")
-	none := fs.Bool("none", false, "set an empty policy: nothing beyond the sealed base and the kit's infra domains (set only)")
+	role := fs.String("role", "", "role whose egress policy to show")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -1728,7 +1406,7 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch sub {
-	case "set", "show", "clear":
+	case "show":
 	default:
 		fmt.Fprintln(stderr, "jam egress: unknown subcommand", sub)
 		return 2
@@ -1737,22 +1415,7 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "jam egress %s: --role is required\n", sub)
 		return 2
 	}
-	var domains []string
-	switch {
-	case sub == "set" && *none && len(pos) > 0:
-		fmt.Fprintln(stderr, "jam egress set: give domains or --none, not both")
-		return 2
-	case sub == "set" && !*none:
-		for _, d := range strings.Split(strings.Join(pos, ","), ",") {
-			if d = strings.TrimSpace(d); d != "" {
-				domains = append(domains, d)
-			}
-		}
-		if len(domains) == 0 {
-			fmt.Fprintln(stderr, "jam egress set: expected a comma-separated domain list, or --none for an empty policy")
-			return 2
-		}
-	case sub != "set" && len(pos) > 0:
+	if len(pos) > 0 {
 		fmt.Fprintf(stderr, "jam egress %s: unexpected arguments\n", sub)
 		return 2
 	}
@@ -1760,12 +1423,6 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "set":
-		if err := c.SetEgress(proj, *role, domains); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "set egress policy for %s/%s; running studios pick it up shortly\n", proj, *role)
 	case "show":
 		v, err := c.ShowEgress(proj, *role)
 		if err != nil {
@@ -1782,12 +1439,6 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				fmt.Fprintln(stdout, d)
 			}
 		}
-	case "clear":
-		if err := c.ClearEgress(proj, *role); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "cleared egress policy for %s/%s (kit default); running studios pick it up shortly\n", proj, *role)
 	}
 	return 0
 }
@@ -1973,7 +1624,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "jam: warning: ignoring unknown jam.yml key(s): %s\n", strings.Join(unknown, ", "))
 		for _, k := range unknown {
 			if k == "destinations" {
-				fmt.Fprintln(stderr, "jam: note: destinations are managed via the admin API — run `jam destination import`")
+				fmt.Fprintln(stderr, "jam: note: destinations are managed in the config repo (see `jam config`)")
 			}
 		}
 	}
@@ -2143,6 +1794,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Warn("conditions not loaded; starting empty", "reason", err.Error())
 	}
 	clearStaleCredConditions(conds, cfg.credNames())
+	clearRemovedConditions(conds)
 	// Kits as trees (docs/usage/jam/kits-directory.md#stored-as-trees): every
 	// pre-tree version becomes a tree, once; then unreferenced kit objects go.
 	// A failed migration fails closed: a half-read registry would raise kits
@@ -2164,15 +1816,19 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	jam.ReservedDestinationEnvConditions(st, conds)
+	// Live kit drafts can only be left from before config moved to git (branch
+	// drafts live in workspace stores): drop them, so the collection below
+	// frees what only they held.
+	jam.DiscardLiveKitDrafts(st, log)
 	if gc, err := st.GCKitObjects(); err != nil {
 		log.Warn("kit object collection failed (retried next start)", "reason", err.Error())
 	} else if gc.Trees+gc.Blobs > 0 {
 		log.Info("kit objects collected", "trees", gc.Trees, "blobs", gc.Blobs)
 	}
 	go conds.Run(context.Background(), 5*time.Second)
-	// config.drift (docs/usage/jam/config-git.md#drift-and-release): checked
-	// now, every minute, and after each config apply or release.
-	go jam.RunConfigDriftCheck(context.Background(), st, conds, jam.ConfigDriftEvery, log)
+	// The periodic conditions (kit.migrate, reserved destination env): checked
+	// now and every minute.
+	go jam.RunConfigChecks(context.Background(), st, conds, jam.ConfigChecksEvery, log)
 
 	var base jam.CredResolver = jam.NewSecretResolver(runner.OS{}, specs)
 	if names := cfg.gcpCredentials(); len(names) > 0 {
@@ -2428,8 +2084,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// The Allocator is Jam's capacity authority, built whenever Jam serves
 	// (not only with a Requisitioner): it admits the Requisitioner's ephemeral raises and
 	// operators' personal-session requests against
-	// the roster's per-(project, role) policy (`role add --max-ephemeral
-	// --max-personal --max-personal-per-owner`), read live on each grant. The
+	// the roster's per-(project, role) policy (the role's max-ephemeral
+	// and max-personal caps), read live on each grant. The
 	// Requisitioner's max-concurrent is the ephemeral fallback for its own
 	// (project, role), seeded only when a Requisitioner is configured.
 	//
@@ -2489,7 +2145,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 
 	// Standing reconciler: keeps one live cove per standing session declared on a
-	// role (`jam standing add`) — raises a missing or dead one under its
+	// role in git — raises a missing or dead one under its
 	// per-name actor id (admitted by the Allocator, released on a failed raise,
 	// with per-name backoff) and tears down one whose name was removed. Resident
 	// whenever Jam serves; with no declarations a tick does nothing.
@@ -2867,13 +2523,36 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// resolves from the account pool by identity rather than from `credentials:`.
 		credExists := cfg.credConfigured
 		// One planner view of the serve for the config admin API and the UI's
-		// Config page; config.drift is re-checked on conds after each apply.
+		// Config page.
 		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds,
 			Followed: cfg.followedSource()}
-		// The config repo the Jam follows (config.github): checked now and
-		// every minute; a new commit applies once the first is confirmed.
+		if src := cfgEnv.Followed; src.Repo != "" {
+			// Named as configured: a config.git url (a local path or ssh)
+			// does not re-parse as a kit source, and carries no password.
+			cfgEnv.FollowedLabel = src.String()
+		}
+		// The followed config repo's clone, built once: the branch editor
+		// and the follower read through it.
+		var configRepo *configrepo.Repo
+		if src := cfgEnv.Followed; src.Repo != "" {
+			dir, err := cfg.stateDir()
+			if err != nil {
+				fmt.Fprintln(stderr, "jam:", err)
+				return 1
+			}
+			if configRepo, err = newConfigRepo(cfg, specs, kitFetcher, dir); err != nil {
+				fmt.Fprintln(stderr, "jam:", err)
+				return 1
+			}
+		}
+		// The followed branch is read through the clone, whatever its kind;
+		// every other source (a kit's .source.yml) through kitFetcher.
+		configFetcher := &jam.FollowedFetcher{Repo: configRepo, Followed: cfgEnv.Followed, Rest: kitFetcher}
+		// The config repo the Jam follows (config.github, gitlab or git):
+		// checked now and every minute; a new commit applies once the first
+		// is confirmed.
 		if cfgEnv.Followed.Repo != "" {
-			cfgEnv.Follower = &jam.ConfigFollower{Store: st, Fetcher: kitFetcher, Env: cfgEnv, Log: log}
+			cfgEnv.Follower = &jam.ConfigFollower{Store: st, Fetcher: configFetcher, Env: cfgEnv, Log: log}
 			go cfgEnv.Follower.Run(context.Background(), jam.ConfigFollowEvery)
 		}
 
@@ -2961,7 +2640,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Warn("setup inspect: sealed egress base unreadable; egress shows no sealed rows", "err", err.Error())
 		}
 		setupDeps := jam.SetupDeps{Store: st, Sup: sup, Images: images, SealedEgress: sealed}
-		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps),
+		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigFetcher(configFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps),
 			adminui.WithAppTokenRevoke(appTokenLive.Revoke)}
 		if built.router != nil {
 			uiOpts = append(uiOpts, adminui.WithSetupManagers(built.router.AvailableNames))
@@ -2998,12 +2677,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// state dir. Branch handlers are the same admin UI over a branch's
 		// scratch store, with no supervisor (a branch raises nothing).
 		if src := cfgEnv.Followed; src.Repo != "" {
-			dir, err := cfg.stateDir()
-			if err != nil {
-				fmt.Fprintln(stderr, "jam:", err)
-				return 1
-			}
-			repo := &configrepo.Repo{URL: src.Repo, Branch: src.Ref, Creds: kitFetcher.Creds, Path: filepath.Join(dir, "config-repo")}
 			token := func() (string, error) {
 				cr, ok := kitFetcher.Creds.For(src.Repo)
 				if !ok {
@@ -3011,11 +2684,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				}
 				return cr.Token()
 			}
-			var prs configrepo.PRs = configrepo.GitHub{URL: src.Repo, Token: token}
-			if cfg.configRepo().kind == "gitlab" {
+			var prs configrepo.PRs // nil for git: no pull requests to open
+			switch cfg.configRepo().kind {
+			case "github":
+				prs = configrepo.GitHub{URL: src.Repo, Token: token}
+			case "gitlab":
 				prs = configrepo.GitLab{URL: src.Repo, Token: token}
 			}
-			branches := &jam.ConfigBranches{Repo: repo, PRs: prs, Dir: src.Dir, Fetcher: kitFetcher, Env: cfgEnv, Live: st, Log: log}
+			branches := &jam.ConfigBranches{Repo: configRepo, PRs: prs, Dir: src.Dir, Fetcher: configFetcher, Env: cfgEnv, Live: st, Log: log}
 			branchOpts := slices.Clone(uiOpts)
 			factory := func(bs jam.Store) http.Handler {
 				return adminui.Handler(bs, log, nil, nil, credExists, squawkReader, branchOpts...)
@@ -3066,17 +2742,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithAdminRoute("/admin/vscode", vscodeext.Routes("/admin", vscodeext.Embedded(), nil)),
 			jam.WithAdminRoute("/admin/vscode/jam.vsix", vscodeext.Routes("/admin", vscodeext.Embedded(), nil)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
-			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
+			jam.WithModelSpecs(st),
 			jam.WithKitFetcher(st, kitFetcher, log),
-			jam.WithConfig(st, kitFetcher, cfgEnv, log),
+			jam.WithConfig(st, configFetcher, cfgEnv, log),
 			jam.WithSetupInspect(setupDeps, log),
 		}
 		if managerHub != nil {
 			adminOpts = append(adminOpts, managers.AdminRoutes(managerHub)...)
-		}
-		if cfgEnv.Followed.Repo != "" {
-			// The config is in git: the admin API refuses live config writes.
-			adminOpts = append(adminOpts, jam.WithConfigInGit(cfgEnv.Followed))
 		}
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, browser, adminOpts...)
 		var adminServe http.Handler = admin
@@ -3155,16 +2827,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 func logTailSeq(lg interface{ TailSeq() (int64, bool) }) int64 {
 	seq, _ := lg.TailSeq()
 	return seq
-}
-
-func splitCSV(s string) []string {
-	var out []string
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }
 
 func main() {
@@ -3348,7 +3010,7 @@ func resolveKitFetcher(cfg serveConfig, specs map[string]secret.Spec) (*gitsourc
 	f := &gitsource.Fetcher{MaxBytes: 50 << 20, Timeout: 60 * time.Second}
 	// The followed config repo's credential, for exactly its URL (the longest
 	// prefix, so it wins over a kits.git prefix above it).
-	if src := cfg.followedSource(); src.Repo != "" {
+	if src := cfg.followedSource(); src.Repo != "" && cfg.configRepo().kind != "git" {
 		host := cfg.configRepo()
 		name := host.Cred
 		spec := specs[name]
@@ -3390,11 +3052,43 @@ func resolveKitFetcher(cfg serveConfig, specs map[string]secret.Spec) (*gitsourc
 	return f, nil
 }
 
-// validatePushedKit validates a studio-kit config before it is stored, so a
-// malformed kit is caught at push, not at raise.
-func validatePushedKit(data []byte) error {
-	_, err := studio.ParseStudioKit(data)
-	return err
+// newConfigRepo is the clone of the followed config repo, under dir. A
+// github or gitlab repo authenticates through the kit fetcher's credential;
+// a git repo carries its own Auth: none for a local path, the ssh key
+// (resolved on every use, and once now so a broken supply fails serve) with
+// the pinned host keys, written to dir, for ssh.
+func newConfigRepo(cfg serveConfig, specs map[string]secret.Spec, f *gitsource.Fetcher, dir string) (*configrepo.Repo, error) {
+	src, host := cfg.followedSource(), cfg.configRepo()
+	repo := &configrepo.Repo{URL: src.Repo, Branch: src.Ref, Path: filepath.Join(dir, "config-repo")}
+	if host.kind != "git" {
+		repo.Creds = f.Creds
+		return repo, nil
+	}
+	if configrepo.IsLocal(src.Repo) {
+		repo.Auth = func() (transport.AuthMethod, error) { return nil, nil }
+		return repo, nil
+	}
+	spec := specs[host.Cred]
+	key := func() (string, error) {
+		v, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{spec})
+		if err != nil {
+			return "", err
+		}
+		return v[spec.Name], nil
+	}
+	if _, err := key(); err != nil {
+		return nil, fmt.Errorf("config.git.cred %q: %w", host.Cred, err)
+	}
+	// Host keys are public; the file is the only thing written.
+	khFile := filepath.Join(dir, "config-repo-known_hosts")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(khFile, []byte(strings.TrimRight(host.HostKeys, "\n")+"\n"), 0o644); err != nil {
+		return nil, fmt.Errorf("config.git.host-keys: %w", err)
+	}
+	repo.Auth = configrepo.SSHAuth(configrepo.SSHUser(src.Repo), key, khFile)
+	return repo, nil
 }
 
 // studioShowEgress returns the effective ceiling and the excluded (Anthropic)

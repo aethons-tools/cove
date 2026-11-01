@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -8,6 +8,7 @@ import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { draftPage, draftView, kit } from "./fixtures";
 import type { DraftEditor, DraftPage } from "../api/types";
+import { setBranch } from "../branch/branch";
 
 const at = ADMIN + "config/kits/web";
 const api = "/app/admin/api/kits/web/draft";
@@ -20,6 +21,10 @@ const base = (page: (q: URLSearchParams) => DraftPage) => server.use(
 );
 const ok = (p: DraftPage, message: string) => HttpResponse.json({ page: p, message });
 const editorOn = (q: URLSearchParams) => { const f = q.get("file"); return f ? withEditor({ path: f, label: f }) : draftPage(); };
+
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
 
 describe("the draft editor", () => {
   it("saves the text with the draft's etag", async () => {

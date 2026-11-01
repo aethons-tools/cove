@@ -68,7 +68,7 @@ func searchResultOf(d searchData) SearchResult {
 
 func apiDash(api *http.ServeMux, src frameSource, msgs SquawkReader, da dashAPI, log *slog.Logger) {
 	store := src.store
-	jamContext := func() ContextPanel { return contextPanelOf(jamPanel(store), src.marks()) }
+	jamContext := func() ContextPanel { return contextPanelOf(jamPanel(store)) }
 	api.HandleFunc("GET "+apiPrefix+"dashboard", func(w http.ResponseWriter, r *http.Request) {
 		items := src.items()
 		s := dashboardStats(store)

@@ -4,7 +4,7 @@ read_when: You want to know what a studio (or a raise of a role now) gets — it
 owns: setup inspection (role/studio inspect, GET …/setup routes), setup snapshots, the image-facts reader, setup redaction rules and their known limits, the admin console's Setup section on agent and role pages
 prereqs: coves.md, session-context.md, connector.md
 tier: leaf
-updated: 2026-10-28
+updated: 2026-11-01
 ---
 
 # Inspecting a studio's setup
@@ -59,7 +59,7 @@ In this order:
 | `destinations` | per destination in scope: route, upstream, identity-in/apply, credential **name**, git routing, allow-paths, env keys |
 | `env` | the [connector](connector.md) env an agent spawn gets (redacted), then the image `ENV` and its `JAM_SSHENV` transfer set |
 | `model` | the resolved model-spec, as of now (never stale; not recorded at raise) |
-| `kit` | kit ref, chain root first with provenance and each link's tree (`tree <12 hex>, N files`; `1 file`; `not loadable` for a broken or unstored version), build args, image tag, image id and labels; a [draft studio](kits-drafts.md#draft-studio)'s section is headed `kit (draft @<tree[:7]>)`, names its kit `<kit> (draft @<tree[:7]>)` and its own link `<kit> (draft)`, provenance `draft, not published` |
+| `kit` | kit ref, chain root first with provenance and each link's tree (`tree <12 hex>, N files`; `1 file`; `not loadable` for a broken or unstored version), build args, image tag, image id and labels |
 | `seed` | what the image seeds into `/agent-data`: `CLAUDE.md` and its `@` imports, skills, `settings.json`, the `.refresh` list; other files by path and size only |
 | `mcp` | the kit's MCP servers (no args, no header values) and the intercom tools |
 | `policy` | allocation, standing, turn-end, collaborate, escalation; for a studio its idle override and alarms (name, schedule, next fire, gate set or not) |

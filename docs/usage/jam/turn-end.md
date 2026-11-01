@@ -4,7 +4,7 @@ read_when: You want a ticket session to report its ticket's state or a session t
 owns: the turn-end model, the `end`, `idle_timeout`, `report` and `alarm_*` tools and their `/end`, `/idle`, `/report`, `/alarms` endpoints, how a ticket session finishes (blocked when ended without a final report), the alarm limits, firing rules and gates (`RunGate`/`GateResult`), the role's turn-end policy (`--idle-timeout`/`--on-idle`/`--time-zone` semantics), the `holding` activity (its wake/pause/teardown semantics and the WaitSeq rule), and wake reasons (kinds, rendering, the legacy fallback). Does NOT own reply detection, wait-max, or warm-timeout pausing — see intercom.md.
 prereqs: coves.md for Phase vs Activity; intercom.md for the wake-on engine and how a reply is detected
 tier: leaf
-updated: 2026-10-28
+updated: 2026-11-01
 ---
 
 # Turn end
@@ -77,7 +77,7 @@ with several duties at different times, or "check the PR every 5 minutes".
 
 - **`schedule`** is an RFC 3339 time (fires once; future, within 366 days) or a
   5-field cron expression or descriptor (`*/5 * * * *`, `@daily`), evaluated in
-  the role's time zone (`role add --time-zone`, IANA name, default UTC). A
+  the role's time zone (`turn-end.time-zone` in its file, IANA name, default UTC). A
   recurring alarm may fire at most once a minute (`@every 10s` and 6-field cron
   are refused). **`note`** (≤ 1000 bytes) is what the wake tells the agent.
 - **Limits:** 20 alarms per session; names are lowercase letters, digits, `-`
@@ -115,8 +115,8 @@ wakes the agent only once CI is green, at no turn cost while it isn't.
 
 ## Idle timeout
 
-A role can give its sessions an idle timeout: `jam role add --idle-timeout D
---on-idle wake|teardown` ([roster.md](roster.md#roles) has the flag reference).
+A role can give its sessions an idle timeout: `turn-end: {idle-timeout: D,
+on-idle: wake|teardown}` in its file in the config repo ([roster.md](roster.md#roles) has the field reference).
 
 - It is **armed when a turn ends** (the session leaves `running` for `holding` or
   `waiting`): the deadline is that moment plus the agent's override, or else the

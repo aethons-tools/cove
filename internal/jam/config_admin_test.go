@@ -163,11 +163,9 @@ func TestConfigRoutes(t *testing.T) {
 	if diff.Applied || len(st.ListUsers()) != 0 || diff.Plan.Ops[0].Action != ConfigCreate {
 		t.Fatalf("diff wrote or misplanned: %+v", diff)
 	}
-	postTar(t, ts.URL+"/admin/config/apply?plan=stale", body, http.StatusConflict, nil)
-	var res ConfigApplyResult
-	postTar(t, ts.URL+"/admin/config/apply?plan="+diff.Plan.Digest, body, http.StatusOK, &res)
-	if !res.Applied || len(st.ListUsers()) != 1 {
-		t.Fatalf("%+v", res)
+	if res, err := ApplyConfigTree(context.Background(), st, nil, treeOf(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"}),
+		allCreds, dirOpts(), nil, "local"); err != nil || !res.Applied || len(st.ListUsers()) != 1 {
+		t.Fatalf("seed: %+v, %v", res, err)
 	}
 	var exp ConfigTreeExport
 	getURLJSON(t, ts.URL+"/admin/config/export-tree", &exp)
@@ -186,10 +184,6 @@ func TestConfigRoutes(t *testing.T) {
 		t.Fatalf("export-tree?all=1 %+v", exp)
 	}
 
-	refused := packTree(t, map[string]string{"projects/app/roles/ic.yml": "kind: role\nversion: 1\nkit: missing\n"})
-	if msg := postTar(t, ts.URL+"/admin/config/apply", refused, http.StatusConflict, nil); !strings.Contains(msg, "config plan has refusals") {
-		t.Fatalf("refused apply: %s", msg)
-	}
 	if msg := sendJSON(t, "POST", ts.URL+"/admin/config/diff", `{}`, http.StatusConflict, nil); !strings.Contains(msg, "no config repo is configured") {
 		t.Fatalf("json body without a tracked source: %s", msg)
 	}
@@ -224,11 +218,9 @@ func TestConfigRoutesRejectBadUpload(t *testing.T) {
 			if len(c.body) > configtar.MaxUpload && name != "oversize" {
 				t.Fatalf("fixture is %d bytes, over the upload cap", len(c.body))
 			}
-			for _, route := range []string{"diff", "apply"} {
-				msg := postTar(t, ts.URL+"/admin/config/"+route, c.body, c.want, nil)
-				if c.want == http.StatusRequestEntityTooLarge && !strings.Contains(msg, "config tree too large (limit 16 MiB)") {
-					t.Errorf("%s: %s", route, msg)
-				}
+			msg := postTar(t, ts.URL+"/admin/config/diff", c.body, c.want, nil)
+			if c.want == http.StatusRequestEntityTooLarge && !strings.Contains(msg, "config tree too large (limit 16 MiB)") {
+				t.Errorf("diff: %s", msg)
 			}
 		})
 	}
@@ -236,19 +228,17 @@ func TestConfigRoutesRejectBadUpload(t *testing.T) {
 	// (or any other type) is 415 before the body is read.
 	good := packTree(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"})
 	for _, ct := range []string{"text/plain", "", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"} {
-		for _, route := range []string{"diff", "apply"} {
-			req, _ := http.NewRequest("POST", ts.URL+"/admin/config/"+route, bytes.NewReader(good))
-			if ct != "" {
-				req.Header.Set("Content-Type", ct)
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			resp.Body.Close()
-			if resp.StatusCode != http.StatusUnsupportedMediaType {
-				t.Errorf("%s %q = %d, want 415", route, ct, resp.StatusCode)
-			}
+		req, _ := http.NewRequest("POST", ts.URL+"/admin/config/diff", bytes.NewReader(good))
+		if ct != "" {
+			req.Header.Set("Content-Type", ct)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnsupportedMediaType {
+			t.Errorf("diff %q = %d, want 415", ct, resp.StatusCode)
 		}
 	}
 	if code := postTar(t, ts.URL+"/admin/config/diff", good, http.StatusOK, nil); code == "" {
@@ -322,10 +312,6 @@ func TestConfigSyncRoutes(t *testing.T) {
 	if resp.StatusCode != http.StatusUnsupportedMediaType {
 		t.Fatalf("text/plain sync = %d", resp.StatusCode)
 	}
-	sendJSON(t, "POST", ts.URL+"/admin/config/apply", src, http.StatusOK, &res)
-	if res.Applied {
-		t.Fatalf("re-apply wrote: %+v", res)
-	}
 	cfg.failNext = fmt.Errorf("%w: repository https://github.com/acme/jam not found", gitsource.ErrFetch)
 	if msg := sendJSON(t, "POST", ts.URL+"/admin/config/diff", src, http.StatusBadGateway, nil); !strings.Contains(msg, "not found") {
 		t.Fatalf("fetch failure: %s", msg)
@@ -352,7 +338,7 @@ func TestConfigSourceRoutesRefuseCredentialURL(t *testing.T) {
 	defer ts.Close()
 	const token = "ghp_s3cretTOKEN"
 	body := `{"source":"https://x-access-token:` + token + `@github.com/acme/jam@main"}`
-	for _, route := range []struct{ method, path string }{{"POST", "/admin/config/diff"}, {"POST", "/admin/config/apply"}} {
+	for _, route := range []struct{ method, path string }{{"POST", "/admin/config/diff"}} {
 		if msg := sendJSON(t, route.method, ts.URL+route.path, body, http.StatusBadRequest, nil); strings.Contains(msg, token) {
 			t.Errorf("%s %s echoes the token: %s", route.method, route.path, msg)
 		}
@@ -365,23 +351,21 @@ func TestConfigSourceRoutesRefuseCredentialURL(t *testing.T) {
 	}
 }
 
-// A role's name keeps its slash in the route.
-func TestConfigReleaseRoute(t *testing.T) {
-	st := appliedFull(t)
-	ts := configServer(t, st)
-	ic := ConfigKey{ConfigKindRole, "app/ic"}
-	before := len(st.ListConfigMarks())
-	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/role/app/ic", "", http.StatusNoContent, nil)
-	for _, mk := range st.ListConfigMarks() {
-		if mk.Key() == ic {
-			t.Fatal("role app/ic still managed")
-		}
+// Releasing a mark is gone: the config changes only through git.
+func TestConfigManagedRouteGone(t *testing.T) {
+	ts := configServer(t, appliedFull(t))
+	req, err := http.NewRequest("DELETE", ts.URL+"/admin/config/managed/user/bob", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(st.ListConfigMarks()) != before-1 {
-		t.Fatalf("release removed other marks: %v", st.ListConfigMarks())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
 	}
-	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/role/app/ic", "", http.StatusNotFound, nil)
-	sendJSON(t, "DELETE", ts.URL+"/admin/config/managed/widget/x", "", http.StatusBadRequest, nil)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("DELETE config/managed = %d, want 404 or 405", resp.StatusCode)
+	}
 }
 
 // export-tree renders each kit as its directory: base64 data and modes in
@@ -458,4 +442,51 @@ func TestConfigImportRaisesKitMigrate(t *testing.T) {
 func withConds(env ConfigEnv, t *condition.Tracker) ConfigEnv {
 	env.Conditions = t
 	return env
+}
+
+// Applying an arbitrary tree or source is gone: the config changes only
+// through git (the followed repo, by sync). Diff, sync and follow stay.
+func TestConfigApplyGone(t *testing.T) {
+	st := NewMemStore()
+	ts := configServer(t, st)
+	body := packTree(t, map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"})
+	for _, ct := range []string{"application/gzip", "application/json"} {
+		req, err := http.NewRequest("POST", ts.URL+"/admin/config/apply", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", ct)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("POST /admin/config/apply (%s) = %d, want 404 or 405", ct, resp.StatusCode)
+		}
+	}
+	if len(st.ListUsers()) != 0 {
+		t.Fatal("a removed route wrote")
+	}
+	var diff ConfigApplyResult
+	postTar(t, ts.URL+"/admin/config/diff", body, http.StatusOK, &diff) // a --dir plan stays
+	if diff.Applied || len(diff.Plan.Ops) != 1 {
+		t.Fatalf("diff: %+v", diff)
+	}
+	if msg := sendJSON(t, "POST", ts.URL+"/admin/config/sync", `{}`, http.StatusConflict, nil); !strings.Contains(msg, "no config repo is configured") {
+		t.Fatalf("sync without a followed repo: %s", msg)
+	}
+}
+
+// With config in git, the snapshot import (POST /admin/config, jam import) is
+// refused: it would be a live edit. diff, sync and follow are not.
+func TestConfigImportRefusedWhenInGit(t *testing.T) {
+	st := NewMemStore()
+	f, _ := cfgFetcher(t, cfgFiles)
+	ts := configServerEnv(t, st, f, followEnv)
+	if msg := sendJSON(t, "POST", ts.URL+"/admin/config", `{}`, http.StatusConflict, nil); !strings.Contains(msg, "config is in git") {
+		t.Fatalf("import = %s", msg)
+	}
+	sendJSON(t, "POST", ts.URL+"/admin/config/diff", `{}`, http.StatusOK, nil)
+	sendJSON(t, "GET", ts.URL+"/admin/config/follow", "", http.StatusOK, nil)
 }

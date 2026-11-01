@@ -42,7 +42,7 @@ func withoutReservedEnv(d Destination) Destination {
 // ReservedDestinationEnvConditions opens destination.env:<name> for each
 // destination with a stored reserved env key, and clears every other open
 // one. Fixed texts: the destination's name and the key names, never a value.
-// Serve start and every RunConfigDriftCheck round call it.
+// Serve start and every RunConfigChecks round call it.
 func ReservedDestinationEnvConditions(store Store, t *condition.Tracker) {
 	open := map[string]bool{}
 	for _, d := range store.ListDestinations() {

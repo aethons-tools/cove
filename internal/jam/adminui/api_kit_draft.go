@@ -42,8 +42,7 @@ func draftPageOf(p draftPage) DraftPage {
 	out := DraftPage{Name: p.Name, Current: p.Current, Versions: append([]int{}, p.Versions...)}
 	if v := p.Draft; v != nil {
 		d := &DraftView{Base: v.Base, Current: v.Current, Superseded: v.Superseded, ETag: v.ETag, Actor: v.Actor, Updated: v.Updated,
-			Managed: v.Managed, DriftWarning: v.DriftWarning, DriftConfirm: v.DriftConfirm, PinDrift: append([]string{}, v.PinDrift...),
-			PinDriftNote: v.PinDriftNote, MaxFile: v.MaxFile, Problems: []string{}, Size: v.Size, Tree: draftRows(v.Tree), Removed: draftRows(v.Removed),
+			MaxFile: v.MaxFile, Problems: []string{}, Size: v.Size, Tree: draftRows(v.Tree), Removed: draftRows(v.Removed),
 			FileMissing: v.FileMissing, Changes: filesDiffOf(v.Changes), FileDiff: kitFileOf(v.FileDiff)}
 		for _, pr := range v.Problems {
 			d.Problems = append(d.Problems, jam.SetupDisplayText(pr))
@@ -58,10 +57,7 @@ func draftPageOf(p draftPage) DraftPage {
 		out.Draft = d
 	}
 	if pb := p.Published; pb != nil {
-		out.Published = &Published{Version: pb.Version, Base: pb.Base, Pinned: append([]string{}, pb.Pinned...), Warning: pb.Warning, Drift: pb.Drift, ConfigFiles: []ConfigFileRow{}}
-		for _, f := range pb.ConfigFiles {
-			out.Published.ConfigFiles = append(out.Published.ConfigFiles, ConfigFileRow{Path: f.Path, Change: f.Change})
-		}
+		out.Published = &Published{Version: pb.Version, Base: pb.Base, Pinned: append([]string{}, pb.Pinned...), Warning: pb.Warning}
 	}
 	return out
 }
@@ -317,32 +313,27 @@ func apiKitDraft(api *http.ServeMux, store jam.Store, log *slog.Logger) {
 	})
 	api.HandleFunc("POST "+base+"/publish", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			ETag       string
-			Pin, Drift bool
+			ETag string
+			Pin  bool
 		}
 		name, ok := draftJSON(w, r, store, &body)
 		if !ok {
 			return
 		}
-		if !body.Drift {
-			if jam.KitManaged(store, name) {
-				writeAPIError(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("kit %s is managed by the config repo: tick “%s” to publish", name, draftDriftConfirm))
-				return
-			}
-			if managed := managedFollowersToPin(store, name); body.Pin && len(managed) > 0 {
-				writeAPIError(w, http.StatusBadRequest, "bad_request", fmt.Sprintf("pinning followers drifts config-managed %s from the config repo: tick “%s” to publish", strings.Join(managed, ", "), draftDriftConfirm))
-				return
-			}
+		if body.Pin {
+			// The console edits a draft on a branch, whose commit is the
+			// kit's files: the config repo names a parent without a version,
+			// so a follower pinned to one could not be committed.
+			writeAPIError(w, http.StatusBadRequest, "bad_request", pinOnBranchMsg)
+			return
 		}
-		k, _ := store.GetKit(name)
-		prev := k.Current
-		res, err := jam.PublishKitDraft(store, log, name, body.Pin, body.ETag)
+		res, err := jam.PublishKitDraft(store, log, name, false, body.ETag)
 		if err != nil {
 			draftFailJSON(w, r, log, err)
 			return
 		}
-		log.Info("ui kit draft published", "operator", jam.OperatorID(r), "kit", name, "version", res.Version, "base", res.Base, "tree", shortDigest(res.Tree), "pinned", len(res.Pinned), "drift", res.Drift)
-		answer(w, r, name, draftQuery{}, fmt.Sprintf("published %s v%d", name, res.Version), newPublishView(store, name, prev, res))
+		log.Info("ui kit draft published", "operator", jam.OperatorID(r), "kit", name, "version", res.Version, "base", res.Base, "tree", shortDigest(res.Tree))
+		answer(w, r, name, draftQuery{}, fmt.Sprintf("published %s v%d", name, res.Version), newPublishView(res))
 	})
 	api.HandleFunc("GET "+base+"/download", func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Query().Get("path")
@@ -362,3 +353,6 @@ func modeOf(exec bool) fs.FileMode {
 	}
 	return 0o644
 }
+
+// pinOnBranchMsg refuses a console publish with Pin followers.
+const pinOnBranchMsg = "Pin followers can't be committed: the config repo names a kit's parent without a version (versions are per-Jam); publish without it"

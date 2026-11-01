@@ -23,7 +23,7 @@ var configFetchTimeout = ConfigFetchTimeout
 
 // ErrConfigNotTracked is a sync, or a diff/apply naming no source, on a Jam
 // with no followed config repo.
-var ErrConfigNotTracked = errors.New("no config repo is configured (config.github in the serve config)")
+var ErrConfigNotTracked = errors.New("no config repo is configured (config.github, config.gitlab or config.git in the serve config)")
 
 // ApplyConfigSource fetches the config repo src (zero = env.Followed, else
 // ErrConfigNotTracked), loads its tree at src.Dir, and plans or applies it as
@@ -142,15 +142,19 @@ func configCheckoutDir(root, dir string) (string, error) {
 }
 
 // configSourceLabel is how logs and results name a run's source: "dir" for
-// an upload, else the source as gitsource.Parse renders it. A source that
-// does not re-parse (never one the API built — say, a hand-made URL with
-// userinfo) is "invalid", so no log line can carry a credential.
-func configSourceLabel(src gitsource.Source) string {
+// an upload, env.FollowedLabel for the followed source when set, else the
+// source as gitsource.Parse renders it. A source that does not re-parse
+// (never one the API built — say, a hand-made URL with userinfo) is
+// "invalid", so no log line can carry a credential.
+func configSourceLabel(env ConfigEnv, src gitsource.Source) string {
 	switch src.Repo {
 	case ConfigDirRepo:
 		return "dir"
 	case "":
 		return ""
+	}
+	if env.FollowedLabel != "" && src == env.Followed {
+		return env.FollowedLabel
 	}
 	if _, err := gitsource.Parse(src.String()); err != nil {
 		return "invalid"

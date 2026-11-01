@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"mime"
 	"net/http"
 	"sort"
 	"strconv"
@@ -15,7 +14,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
-	"github.com/aethons-tools/cove/internal/studio"
 	"gopkg.in/yaml.v3"
 )
 
@@ -54,65 +52,15 @@ type GrantSummary struct {
 	Addressing   []string          `json:"addressing,omitempty"`
 }
 
-// EscalationBody is the PUT /admin/projects/{project}/escalation body: the
-// tiers for one category ("" targets the default/uncategorized chain).
-type EscalationBody struct {
-	Category string           `json:"category,omitempty"`
-	Tiers    []EscalationTier `json:"tiers"`
-}
-
 // EscalationView is the GET /admin/projects/{project}/escalation response.
 type EscalationView struct {
 	Default    []EscalationTier            `json:"default"`
 	ByCategory map[string][]EscalationTier `json:"by_category,omitempty"`
 }
 
-// ChatServiceBody is the PUT /admin/projects/{project}/chat-service body.
-type ChatServiceBody struct {
-	Service string `json:"service"` // "" clears (tracker @-mentions only)
-}
-
 // ChatServiceView is the GET /admin/projects/{project}/chat-service response.
 type ChatServiceView struct {
 	Service string `json:"service"`
-}
-
-// ProjectBody is the POST /admin/projects request.
-type ProjectBody struct {
-	Name string `json:"name"`
-}
-
-// RoleBody is the POST /admin/roles request.
-type RoleBody struct {
-	Project      string            `json:"project"`
-	Name         string            `json:"name"`
-	Destinations []string          `json:"destinations"`
-	Credentials  map[string]string `json:"credentials,omitempty"`
-	Addressing   []string          `json:"addressing,omitempty"`
-	TTLSeconds   int64             `json:"ttl_seconds"`
-	Kit          string            `json:"kit,omitempty"`
-	// ModelSpec binds a model-spec by name; "" = DefaultModelSpec.
-	ModelSpec    string `json:"model_spec,omitempty"`
-	MaxEphemeral int    `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
-	// MaxPersonal is the role's personal-session pool cap; 0 = none.
-	MaxPersonal int `json:"max_personal,omitempty"`
-	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
-	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
-	// IdleAfterSeconds / NagEverySeconds / ReclaimAfterSeconds are the
-	// personal-session idle ladder (RoleAllocation.IdleAfter etc.) in seconds;
-	// 0 = the default (4h / 24h / never).
-	IdleAfterSeconds    int64 `json:"idle_after_seconds,omitempty"`
-	NagEverySeconds     int64 `json:"nag_every_seconds,omitempty"`
-	ReclaimAfterSeconds int64 `json:"reclaim_after_seconds,omitempty"`
-	// IdleTimeoutSeconds / OnIdle are the role's turn-end policy
-	// (Role.TurnEnd): 0 = no idle timeout; on_idle "" = wake.
-	IdleTimeoutSeconds int64  `json:"idle_timeout_seconds,omitempty"`
-	OnIdle             string `json:"on_idle,omitempty"`
-	TimeZone           string `json:"time_zone,omitempty"` // IANA zone cron alarms run in; "" = UTC
-	// CollaboratePreview / CollaborateSSH are the role's studio-collaboration
-	// policy (Role.Collaborate): "" = default, members | none.
-	CollaboratePreview string `json:"collaborate_preview,omitempty"`
-	CollaborateSSH     string `json:"collaborate_ssh,omitempty"`
 }
 
 // RoleSummary is a GET /admin/roles item.
@@ -148,21 +96,6 @@ type RoleSummary struct {
 	CollaborateSSH     string `json:"collaborate_ssh,omitempty"`
 	// Egress is the role's egress policy; nil = the kit's default list.
 	Egress *EgressPolicy `json:"egress,omitempty"`
-}
-
-// KitBody is the POST /admin/kits request.
-type KitBody struct {
-	Name   string `json:"name"`
-	Config string `json:"config"`
-}
-
-// KitResult is the POST /admin/kits response.
-type KitResult struct {
-	Name    string `json:"name"`
-	Version int    `json:"version"`
-	// Unchanged reports the pushed definition equalled the current version, so
-	// no new version was made (Version is the existing current).
-	Unchanged bool `json:"unchanged,omitempty"`
 }
 
 // KitSummary is a GET /admin/kits item.
@@ -214,11 +147,6 @@ type KitConfigResult struct {
 	Own string `json:"own,omitempty"`
 }
 
-// PinBody is the POST /admin/kits/{name}/pin request.
-type PinBody struct {
-	Version int `json:"version"`
-}
-
 // GrantBody is the POST /admin/actors/{id}/grants request.
 type GrantBody struct {
 	Project   string    `json:"project"`
@@ -233,9 +161,6 @@ type CoveRaiseBody struct {
 	Role    string `json:"role"`
 	Unit    string `json:"unit,omitempty"`
 	Prompt  string `json:"prompt,omitempty"`
-	// KitDraft runs this kit's draft instead of the role's kit (a draft
-	// studio, docs/usage/jam/kits-drafts.md#draft-studio).
-	KitDraft string `json:"kit_draft,omitempty"`
 	// Managers, in preference order, are where the raise may land (empty = any);
 	// PlacementTimeout is a Go duration for how long to look for one that
 	// accepts ("" = do not wait).
@@ -252,7 +177,6 @@ type CoveRaiseResult struct {
 	LaunchSecret string `json:"launch_secret"`
 	Phase        string `json:"phase"`
 	Location     string `json:"location,omitempty"`
-	KitDraftTree string `json:"kit_draft_tree,omitempty"` // a draft studio: the draft tree it runs
 }
 
 // CoveSummary is a GET /admin/coves item: runtime only, never a token or hash.
@@ -453,14 +377,17 @@ func RosterSummaries(store Store) []ActorSummary {
 // session-events export).
 type AdminOption func(*adminMux)
 
+// errConfigInGitText refuses the snapshot import (POST /admin/config) on a Jam
+// whose config is in git: it would be a live edit.
+const errConfigInGitText = "config is in git: edit it on a branch in the admin console, or in the repo"
+
 // adminMux is the /admin/* mux an AdminOption mounts on, with the settings
 // an option hands the core routes: conds, the conditions tracker the config
 // import raises kit.migrate on (WithConfig's ConfigEnv.Conditions; nil = none).
 type adminMux struct {
 	*http.ServeMux
 	conds    *condition.Tracker
-	inGit    bool             // WithConfigInGit: live config writes are refused
-	followed gitsource.Source // the repo they live in
+	followed gitsource.Source // WithConfig's followed config repo: the snapshot import is refused when set
 }
 
 func WithAdminRoute(pattern string, h http.Handler) AdminOption {
@@ -504,6 +431,7 @@ func importConfigMigrated(store Store, snap ConfigSnapshot, t *condition.Tracker
 func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, browser http.Handler, opts ...AdminOption) http.Handler {
 	mux := http.NewServeMux()
 	var importConds *condition.Tracker // set from the options below, before any request
+	var importFollowed gitsource.Source
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
@@ -520,38 +448,16 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	mux.HandleFunc("GET /admin/destinations", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, store.ListDestinations())
 	})
-	mux.HandleFunc("POST /admin/destinations", func(w http.ResponseWriter, r *http.Request) {
-		var d Destination
-		if !decode(w, r, &d) {
-			return
-		}
-		if err := ValidateDestination(d, credExists); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
-			return
-		}
-		// An upsert: `destination add` of an existing name replaces it.
-		if err := store.AddDestination(d); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		log.Info("admin destination added", "operator", OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
-		w.WriteHeader(http.StatusCreated)
-	})
-	mux.HandleFunc("DELETE /admin/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		if err := store.RemoveDestination(name); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		log.Info("admin destination removed", "operator", OperatorID(r), "name", name)
-		w.WriteHeader(http.StatusNoContent)
-	})
 	mux.HandleFunc("GET /admin/config", func(w http.ResponseWriter, r *http.Request) {
 		// The snapshot carries token hashes; it is written to the client but
 		// never logged.
 		writeJSON(w, http.StatusOK, store.ExportConfig())
 	})
 	mux.HandleFunc("POST /admin/config", func(w http.ResponseWriter, r *http.Request) {
+		if importFollowed.Repo != "" { // the config is in git: a snapshot import is a live edit
+			http.Error(w, errConfigInGitText, http.StatusConflict)
+			return
+		}
 		var snap ConfigSnapshot
 		if !decode(w, r, &snap) {
 			return
@@ -629,40 +535,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	mux.HandleFunc("GET /admin/projects", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, store.ListProjects())
 	})
-	mux.HandleFunc("POST /admin/projects", func(w http.ResponseWriter, r *http.Request) {
-		var b ProjectBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := store.CreateProject(b.Name); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin project created", "operator", OperatorID(r), "project", b.Name)
-		w.WriteHeader(http.StatusCreated)
-	})
-	mux.HandleFunc("PUT /admin/projects/{project}/name", func(w http.ResponseWriter, r *http.Request) {
-		var b ProjectBody
-		if !decode(w, r, &b) {
-			return
-		}
-		project := r.PathValue("project")
-		if err := store.RenameProject(project, b.Name); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin project renamed", "operator", OperatorID(r), "project", project, "name", b.Name)
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("DELETE /admin/projects/{project}", func(w http.ResponseWriter, r *http.Request) {
-		project := r.PathValue("project")
-		if err := store.RemoveProject(project); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin project removed", "operator", OperatorID(r), "project", project)
-		w.WriteHeader(http.StatusNoContent)
-	})
 	mux.HandleFunc("GET /admin/roles", func(w http.ResponseWriter, r *http.Request) {
 		project := r.URL.Query().Get("project")
 		var out []RoleSummary
@@ -690,76 +562,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
-	})
-	mux.HandleFunc("POST /admin/roles", func(w http.ResponseWriter, r *http.Request) {
-		var b RoleBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if b.Name == "" {
-			http.Error(w, "name is required", http.StatusBadRequest)
-			return
-		}
-		if b.MaxEphemeral < 0 || b.MaxPersonal < 0 || b.MaxPersonalPerOwner < 0 {
-			http.Error(w, "max_ephemeral, max_personal and max_personal_per_owner must be >= 0", http.StatusBadRequest)
-			return
-		}
-		// nag_every 0 means the default, so ">= 0" also keeps a set nag_every > 0.
-		if b.IdleAfterSeconds < 0 || b.NagEverySeconds < 0 || b.ReclaimAfterSeconds < 0 {
-			http.Error(w, "idle_after_seconds, nag_every_seconds and reclaim_after_seconds must be >= 0", http.StatusBadRequest)
-			return
-		}
-		collab := CollaboratePolicy{Preview: b.CollaboratePreview, SSH: b.CollaborateSSH}
-		if err := collab.Validate(); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		te := TurnEndPolicy{IdleTimeout: time.Duration(b.IdleTimeoutSeconds) * time.Second, OnIdle: b.OnIdle, TimeZone: b.TimeZone}
-		if err := ValidateTurnEnd(te); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if b.Kit != "" {
-			if _, ok := store.GetKit(b.Kit); !ok {
-				http.Error(w, "kit does not exist", http.StatusBadRequest)
-				return
-			}
-		}
-		role := Role{
-			Name:      b.Name,
-			Scope:     Scope{Destinations: b.Destinations, Credentials: b.Credentials, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
-			Kit:       b.Kit,
-			ModelSpec: b.ModelSpec,
-			Allocation: RoleAllocation{
-				MaxEphemeral: b.MaxEphemeral, MaxPersonal: b.MaxPersonal, MaxPersonalPerOwner: b.MaxPersonalPerOwner,
-				IdleAfter:    time.Duration(b.IdleAfterSeconds) * time.Second,
-				NagEvery:     time.Duration(b.NagEverySeconds) * time.Second,
-				ReclaimAfter: time.Duration(b.ReclaimAfterSeconds) * time.Second,
-			},
-			TurnEnd:     te,
-			Collaborate: collab,
-		}
-		if err := ValidateCredentials(role.Scope, credExists); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		// Standing declarations and the egress policy are managed by their own
-		// routes, not this body: re-putting a role keeps them.
-		if err := PutRoleKeeping(store, b.Project, role); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin role put", "operator", OperatorID(r), "project", orDefaultProject(b.Project), "role", b.Name)
-		w.WriteHeader(http.StatusCreated)
-	})
-	mux.HandleFunc("DELETE /admin/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
-		project, name := r.PathValue("project"), r.PathValue("name")
-		if err := store.RemoveRole(project, name); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		log.Info("admin role removed", "operator", OperatorID(r), "project", project, "role", name)
-		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /admin/roles/{project}/{role}/images", func(w http.ResponseWriter, r *http.Request) {
 		if sup == nil {
@@ -812,18 +614,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		p, _ := store.GetProject(r.PathValue("project"))
 		writeJSON(w, http.StatusOK, EscalationView{Default: p.Escalation, ByCategory: p.EscalationByCategory})
 	})
-	mux.HandleFunc("PUT /admin/projects/{project}/escalation", func(w http.ResponseWriter, r *http.Request) {
-		var b EscalationBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := store.SetEscalationPolicy(r.PathValue("project"), b.Category, b.Tiers); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin escalation policy", "operator", OperatorID(r), "project", r.PathValue("project"), "category", b.Category, "tiers", len(b.Tiers))
-		w.WriteHeader(http.StatusNoContent)
-	})
 
 	mux.HandleFunc("GET /admin/projects/{project}/chat-service", func(w http.ResponseWriter, r *http.Request) {
 		p, _ := store.GetProject(r.PathValue("project"))
@@ -833,67 +623,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		writeJSON(w, http.StatusOK, v)
 	})
-	mux.HandleFunc("PUT /admin/projects/{project}/chat-service", func(w http.ResponseWriter, r *http.Request) {
-		var b ChatServiceBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := store.SetChatService(r.PathValue("project"), b.Service); err != nil {
-			http.Error(w, err.Error(), projectErrStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin chat-service", "operator", OperatorID(r), "project", r.PathValue("project"), "service", b.Service)
-		w.WriteHeader(http.StatusNoContent)
-	})
 
-	mux.HandleFunc("POST /admin/kits", func(w http.ResponseWriter, r *http.Request) {
-		var b KitBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if b.Name == "" || b.Config == "" {
-			http.Error(w, "name and config are required", http.StatusBadRequest)
-			return
-		}
-		// Config rule of engagement: parse the (human-input) config as YAML and
-		// store it as canonical JSON. The jam kit registry holds STUDIO kits only,
-		// validated strictly (kind, KnownFields), so a malformed, typo'd or
-		// non-studio config is rejected here at ingestion rather than at a raise.
-		// An unchanged definition keeps the current version.
-		v, unchanged, err := PushStudioKit(store, b.Name, b.Config)
-		if err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
-			return
-		}
-		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", b.Name, "version", v, "unchanged", unchanged)
-		writeJSON(w, http.StatusCreated, KitResult{Name: b.Name, Version: v, Unchanged: unchanged})
-	})
-	// A kit directory: an uncompressed tar of its files, read within the tree
-	// limits as it streams, the body capped at kittree.MaxUpload (413 past it).
-	mux.HandleFunc("POST /admin/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		if !studio.TagSafeName(name) {
-			http.Error(w, unsafeKitNameText, http.StatusBadRequest)
-			return
-		}
-		// A tar body only, checked before the body is read: a browser's
-		// no-cors text/plain POST to the loopback admin port is refused.
-		if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/x-tar" {
-			http.Error(w, "kit push: Content-Type must be application/x-tar", http.StatusUnsupportedMediaType)
-			return
-		}
-		files, ok := readKitTar(w, r, "kit", name)
-		if !ok {
-			return
-		}
-		ref, unchanged, err := PushKitFiles(store, name, files)
-		if err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
-			return
-		}
-		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", name, "version", ref.Version, "unchanged", unchanged, "files", len(files))
-		writeJSON(w, http.StatusCreated, KitResult{Name: name, Version: ref.Version, Unchanged: unchanged})
-	})
 	mux.HandleFunc("GET /admin/kits", func(w http.ResponseWriter, r *http.Request) {
 		var out []KitSummary
 		for _, k := range store.ListKits() {
@@ -989,27 +719,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		writeJSON(w, http.StatusOK, d)
 	})
-	mux.HandleFunc("POST /admin/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
-		var b PinBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := PinKitChecked(store, r.PathValue("name"), b.Version); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusNotFound))
-			return
-		}
-		log.Info("admin kit pinned", "operator", OperatorID(r), "kit", r.PathValue("name"), "version", b.Version)
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("DELETE /admin/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		if err := RemoveKitChecked(store, log, name); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusNotFound))
-			return
-		}
-		log.Info("admin kit removed", "operator", OperatorID(r), "kit", name)
-		w.WriteHeader(http.StatusNoContent)
-	})
 
 	mux.HandleFunc("GET /admin/coves", func(w http.ResponseWriter, r *http.Request) {
 		// ?role= (with optional ?project=) lists one role's coves, resolving only
@@ -1038,17 +747,14 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, alloc, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt, KitDraft: b.KitDraft, Placement: placement})
+		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, alloc, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt, Placement: placement})
 		if err != nil {
 			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
 			return
 		}
 		// The kit name is only logged after a successful raise: tag-safe by then.
-		log.Info("admin cove raised", "operator", OperatorID(r), "id", id, "label", b.ID, "project", inst.Project, "role", b.Role, "kit_draft", b.KitDraft)
+		log.Info("admin cove raised", "operator", OperatorID(r), "id", id, "label", b.ID, "project", inst.Project, "role", b.Role)
 		res := CoveRaiseResult{ID: id, Label: b.ID, Token: tok, LaunchSecret: secret, Phase: string(inst.Phase), Location: inst.Location}
-		if inst.KitDraft != nil {
-			res.KitDraftTree = inst.KitDraft.Tree
-		}
 		writeJSON(w, http.StatusCreated, res)
 	})
 	mux.HandleFunc("POST /admin/coves/{id}/status", func(w http.ResponseWriter, r *http.Request) {
@@ -1088,25 +794,20 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 
 	registerPersonalSessions(mux, store, sup, alloc, log)
 	registerStanding(mux, store, sup, log)
-	registerEgress(mux, store, log)
+	registerEgress(mux, store)
 	registerContext(mux, store, log)
 	registerUsers(mux, store, log)
 	registerRooms(mux, store, log)
-	registerKitDrafts(mux, store, log)
-	registerKitDraftBuilds(mux, sup.KitDraftBuilds, log)
 
 	am := &adminMux{ServeMux: mux}
 	for _, o := range opts {
 		o(am)
 	}
 	importConds = am.conds
-	var inner http.Handler = mux
-	if am.inGit {
-		inner = configInGitGuard(mux)
-	}
-	guarded := authMiddleware(auth, log, inner) // guards every /admin/* route
+	importFollowed = am.followed
+	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if browser == nil {
-		return draftFilePathGuard(guarded)
+		return guarded
 	}
 	// The browser app (/app, its legacy redirects, and /me/studios) owns its own
 	// gates, so it is mounted OUTSIDE the /admin/* authenticator. Its session
@@ -1114,7 +815,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	parent := http.NewServeMux()
 	parent.Handle("/admin/", guarded)
 	parent.Handle("/", browser)
-	return draftFilePathGuard(parent)
+	return parent
 }
 
 // projectErrStatus maps a store error to its HTTP status: an unknown project or

@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -10,14 +11,14 @@ import (
 func TestAdminProjectCreateListRemove(t *testing.T) {
 	h, store := newTestAdmin(t)
 
-	if rec := doJSON(t, h, "POST", "/admin/projects", ProjectBody{Name: "acme"}); rec.Code != http.StatusCreated {
-		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	if err := store.CreateProject("acme"); err != nil {
+		t.Fatalf("create = %v", err)
 	}
-	if rec := doJSON(t, h, "POST", "/admin/projects", ProjectBody{Name: "acme"}); rec.Code != http.StatusConflict {
-		t.Fatalf("duplicate create = %d, want 409", rec.Code)
+	if err := store.CreateProject("acme"); !errors.Is(err, ErrProjectExists) {
+		t.Fatalf("duplicate create = %v, want ErrProjectExists", err)
 	}
-	if rec := doJSON(t, h, "POST", "/admin/projects", ProjectBody{}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("create without a name = %d, want 400", rec.Code)
+	if err := store.CreateProject(""); err == nil {
+		t.Fatal("create without a name succeeded")
 	}
 	var names []string
 	getJSON(t, h, "/admin/projects", &names)
@@ -28,17 +29,49 @@ func TestAdminProjectCreateListRemove(t *testing.T) {
 	if err := store.PutRole("acme", Role{Name: "worker"}); err != nil {
 		t.Fatal(err)
 	}
-	if rec := doReq(t, h, "DELETE", "/admin/projects/acme", nil); rec.Code != http.StatusConflict {
-		t.Fatalf("remove while a role references it = %d, want 409", rec.Code)
+	if err := store.RemoveProject("acme"); !errors.Is(err, ErrProjectInUse) {
+		t.Fatalf("remove while a role references it = %v, want ErrProjectInUse", err)
 	}
 	if err := store.RemoveRole("acme", "worker"); err != nil {
 		t.Fatal(err)
 	}
-	if rec := doReq(t, h, "DELETE", "/admin/projects/acme", nil); rec.Code != http.StatusNoContent {
-		t.Fatalf("remove = %d %s", rec.Code, rec.Body)
+	if err := store.RemoveProject("acme"); err != nil {
+		t.Fatalf("remove = %v", err)
 	}
-	if rec := doReq(t, h, "DELETE", "/admin/projects/acme", nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("remove of an absent project = %d, want 404", rec.Code)
+	if err := store.RemoveProject("acme"); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatalf("remove of an absent project = %v, want ErrProjectNotFound", err)
+	}
+}
+
+// The project, room, escalation, chat-service and context config routes are
+// gone: those settings change only in git. GET /admin/projects still lists.
+func TestProjectConfigRoutesGone(t *testing.T) {
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
+	for _, gone := range []struct{ method, path string }{
+		{"POST", "/admin/projects"},
+		{"PUT", "/admin/projects/acme/name"},
+		{"DELETE", "/admin/projects/acme"},
+		{"PUT", "/admin/projects/acme/escalation"},
+		{"PUT", "/admin/projects/acme/chat-service"},
+		{"POST", "/admin/projects/acme/rooms"},
+		{"PUT", "/admin/projects/acme/rooms/eng/name"},
+		{"DELETE", "/admin/projects/acme/rooms/eng"},
+		{"PUT", "/admin/roles/acme/worker/context"},
+		{"DELETE", "/admin/roles/acme/worker/context"},
+		{"PUT", "/admin/projects/acme/context"},
+		{"DELETE", "/admin/projects/acme/context"},
+		{"PUT", "/admin/jam/context"},
+		{"DELETE", "/admin/jam/context"},
+	} {
+		if rec := doJSON(t, h, gone.method, gone.path, map[string]string{"name": "x"}); rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s %s = %d, want 404 or 405", gone.method, gone.path, rec.Code)
+		}
+	}
+	var names []string
+	getJSON(t, h, "/admin/projects", &names) // fails the test unless 200
+	if len(names) != 1 || names[0] != "acme" {
+		t.Fatalf("a gone route changed the projects: %v", names)
 	}
 }
 
@@ -46,23 +79,26 @@ func TestAdminProjectCreateListRemove(t *testing.T) {
 // operator to create the project — never an implicit creation.
 func TestAdminWritesIntoUnknownProject404(t *testing.T) {
 	h, store := newTestAdmin(t)
-	if _, err := store.CreateUser(User{Name: "alice"}); err != nil {
-		t.Fatal(err)
-	}
 	writes := []struct {
 		method, path string
 		body         any
 	}{
-		{"POST", "/admin/roles", RoleBody{Project: "ghost", Name: "worker"}},
-		{"PUT", "/admin/projects/ghost/members/alice", MemberBody{}},
 		{"POST", "/admin/projects/ghost/channels", RosterChannel{Name: "eng", Ref: "ENG-1"}},
-		{"PUT", "/admin/projects/ghost/escalation", EscalationBody{}},
-		{"PUT", "/admin/projects/ghost/chat-service", ChatServiceBody{Service: "discord"}},
 	}
 	for _, w := range writes {
 		if rec := doJSON(t, h, w.method, w.path, w.body); rec.Code != http.StatusNotFound {
 			t.Errorf("%s %s = %d %s, want 404", w.method, w.path, rec.Code, rec.Body)
 		}
+	}
+	// The store-level project writes refuse an unknown project the same way.
+	if err := store.PutRole("ghost", Role{Name: "worker"}); !errors.Is(err, ErrProjectNotFound) {
+		t.Errorf("PutRole(ghost) = %v, want ErrProjectNotFound", err)
+	}
+	if err := store.SetEscalationPolicy("ghost", "", nil); !errors.Is(err, ErrProjectNotFound) {
+		t.Errorf("SetEscalationPolicy(ghost) = %v, want ErrProjectNotFound", err)
+	}
+	if err := store.SetChatService("ghost", "discord"); !errors.Is(err, ErrProjectNotFound) {
+		t.Errorf("SetChatService(ghost) = %v, want ErrProjectNotFound", err)
 	}
 	if got := store.ListProjects(); len(got) != 0 {
 		t.Fatalf("a refused write created a project: %v", got)

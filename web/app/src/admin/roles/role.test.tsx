@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -7,6 +7,7 @@ import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { role } from "./fixtures";
 import type { RoleDetail } from "../api/types";
+import { setBranch } from "../branch/branch";
 
 const tree = () => server.use(
   http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })),
@@ -17,7 +18,35 @@ const api = "/app/admin/api/projects/acme/roles/coder";
 const serve = (d: RoleDetail = role()) => server.use(http.get(api, () => HttpResponse.json(d)));
 const ok = (d: RoleDetail, message = "") => HttpResponse.json({ role: d, message });
 
+afterEach(() => setBranch(""));
+
+describe("a role's page outside a branch", () => {
+  it("shows Request agent and the standing Reset, but no config edits", async () => {
+    tree(); serve();
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByRole("button", { name: "Request agent" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upgrade" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(screen.queryByText("Edit scope")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save scope" })).toBeNull();
+    expect(screen.queryByText(/managed ·/)).toBeNull();
+  });
+
+  it("shows the config edits once a branch is open", async () => {
+    tree(); serve();
+    setBranch("jam/me");
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(screen.getByText("Edit scope")).toBeInTheDocument();
+    expect(screen.queryByText(/managed ·/)).toBeNull();
+  });
+});
+
 describe("a role's page", () => {
+  beforeEach(() => setBranch("jam/test"));
+
   it("shows its facts and scope", async () => {
     tree(); serve();
     renderAdmin(adminBoot, at);
@@ -73,7 +102,7 @@ describe("a role's page", () => {
   });
 
   it("declares, upgrades and dismisses standing agents", async () => {
-    const managed = role({ managed: { commit: "abc1234", applied: "x" } });
+    const managed = role();
     tree(); serve(managed);
     server.use(
       http.post(api + "/standing", () => ok(managed)),
@@ -87,7 +116,7 @@ describe("a role's page", () => {
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Upgrade" }));
     expect(await screen.findByText(/upgrade of standing agent ic queued/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Dismiss" }));
-    expect(await screen.findByText("Dismiss standing agent ic? It stops, and its conversation and workspace are deleted. This will drift from the config repo (managed · config @abc1234).")).toBeInTheDocument();
+    expect(await screen.findByText("Dismiss standing agent ic? It stops, and its conversation and workspace are deleted.")).toBeInTheDocument();
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Dismiss" }));
     expect(await screen.findByText("No standing agents.")).toBeInTheDocument();
   });

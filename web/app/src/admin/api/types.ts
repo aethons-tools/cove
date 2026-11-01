@@ -53,14 +53,6 @@ export interface TreeResponse {
   nodes: TreeNode[];
 }
 /**
- * Managed marks an object the tracked config repo manages: the commit it was
- * applied from (7 chars) and when.
- */
-export interface Managed {
-  commit: string;
-  applied: string;
-}
-/**
  * DiffLine is one line of a line diff (linediff.Line): Op is " " (context),
  * "+", "-" or "…" (a collapsed run of unchanged lines).
  */
@@ -95,7 +87,6 @@ export interface UserRow {
   logins: string[];
   accounts: AccountRow[];
   projects: string[];
-  managed?: Managed | null; // nil: the config repo doesn't manage it
 }
 /**
  * UsersResponse is GET /app/admin/api/users.
@@ -154,7 +145,6 @@ export interface ManagedRow {
   path: string; // its page under the app's mount; "" = none
   commit: string;
   applied: string;
-  state: string; // in-sync, drifted, missing; "" = unknown
 }
 /**
  * ConfigKeyRow names a config object.
@@ -180,8 +170,6 @@ export interface PlanOpRow {
   name: string;
   path: string; // the object's page; "" for a create or none
   file: string; // in the repo
-  drift: boolean;
-  unmanaged: boolean;
   lines: DiffLine[]; // Jam → repo
   tooLarge: boolean; // too large to diff here
   diff: string; // a kit update's version diff (text)
@@ -200,8 +188,6 @@ export interface Plan {
   source: string;
   commit: string;
   digest: string;
-  forced: boolean;
-  hasDrift: boolean; // offer Force
   changes: number /* int */;
   unchanged: number /* int */;
   ops: PlanOpRow[];
@@ -218,8 +204,6 @@ export interface Plan {
 export interface Tracking {
   source?: TrackingSource | null; // the followed repo; nil = none configured
   rows: ManagedRow[];
-  drifted: number /* int */;
-  statesErr: boolean; // could not compare with the live Jam
   lastCommit: string;
   lastApplied: string;
   canGit: boolean; // Diff and Apply are offered
@@ -252,7 +236,6 @@ export interface ProjectRow {
   members: number /* int */;
   roles: number /* int */;
   rooms: number /* int */;
-  managed?: Managed | null;
 }
 /**
  * ProjectsResponse is GET /app/admin/api/projects.
@@ -291,7 +274,6 @@ export interface ContextPanel {
   leaves: ContextLeaf[];
   resources: ContextResource[];
   yaml: string;
-  managed?: Managed | null; // its config object's mark
 }
 /**
  * DeliveryRow is where a member gets DMs: service:address.
@@ -369,7 +351,6 @@ export interface ToCell {
  */
 export interface ProjectDetail {
   name: string;
-  managed?: Managed | null;
   inUseBy: string; // what still references it ("" = deletable)
   renamable: boolean;
   chatService: string; // "" = none
@@ -511,7 +492,6 @@ export interface RoleForm {
 export interface RoleDetail {
   project: string;
   name: string;
-  managed?: Managed | null;
   kit: string; // "" = no kit
   modelSpec: string; // the spec it runs (the default's name when unset)
   modelSpecDefault: boolean;
@@ -598,7 +578,6 @@ export interface DestListRow {
   envKeys: string[];
   gitRouted: boolean;
   usedBy: number /* int */; // roles whose scope lists it
-  managed?: Managed | null;
   attn?: AttnFlag | null;
 }
 /**
@@ -654,7 +633,6 @@ export interface DestFields {
  */
 export interface DestDetail {
   name: string;
-  managed?: Managed | null;
   fields: DestFields;
   methods: string[];
   identityInSpec: string; // a custom spec as the Broker section shows it; "" = none
@@ -682,7 +660,6 @@ export interface SpecListRow {
   mode: string;
   provider: string; // "" = no claude body
   usedBy: number /* int */;
-  managed?: Managed | null;
 }
 /**
  * SpecChoices are the model-spec form's select options; principals are
@@ -735,7 +712,6 @@ export interface HeaderRuleRow {
  */
 export interface SpecDetail {
   name: string;
-  managed?: Managed | null;
   fields: SpecFields;
   choices: SpecChoices;
   headerRules: HeaderRuleRow[];
@@ -767,7 +743,6 @@ export interface KitRow {
   usedBy: number /* int */;
   invalid: boolean; // the current version isn't a valid studio kit
   draft: boolean; // an open draft
-  managed?: Managed | null;
   attn?: AttnFlag | null;
 }
 /**
@@ -927,7 +902,6 @@ export interface DraftInfo {
  */
 export interface KitDetail {
   name: string;
-  managed?: Managed | null;
   current: number /* int */;
   versions: KitVersionRow[];
   view: KitView;
@@ -993,13 +967,6 @@ export interface DraftYAMLDiff {
   note: string;
 }
 /**
- * ConfigFileRow is a config-repo file a drifting publish changes.
- */
-export interface ConfigFileRow {
-  path: string;
-  change: string;
-}
-/**
  * Published is a just-published draft.
  */
 export interface Published {
@@ -1007,8 +974,6 @@ export interface Published {
   base: number /* int */;
   pinned: string[];
   warning: string;
-  drift: boolean;
-  configFiles: ConfigFileRow[];
 }
 /**
  * DraftView is a kit's open draft.
@@ -1020,11 +985,6 @@ export interface DraftView {
   etag: string;
   actor: string;
   updated: string;
-  managed: boolean; // config-managed: publishing drifts
-  driftWarning: string;
-  driftConfirm: string;
-  pinDrift: string[]; // managed followers Pin followers would rewrite
-  pinDriftNote: string;
   maxFile: string;
   problems: string[];
   size: string;

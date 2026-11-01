@@ -4,7 +4,7 @@ read_when: You are viewing or editing one project in the Jam admin console — i
 owns: a project's pages (/app/admin/config/projects/<name>[/members[/<user>]|agents|intercom|escalation]), creating a project and a role, the role page (/app/admin/config/projects/<project>/agents/<role>), and the project list (/app/admin/config/projects)
 prereqs: ui-console.md for the Config tree and URLs; ui-attention.md for the badges; ui-editing.md for the write rules; projects.md for the project lifecycle; roster.md for roles and grants
 tier: leaf
-updated: 2026-10-28
+updated: 2026-11-01
 ---
 
 # Admin console project pages
@@ -22,7 +22,10 @@ the project's [attention badges](ui-attention.md).
 ## Sections
 
 Each page's edits are in place: a write answers with the page's content
-refreshed.
+refreshed. Config edits (project, members, rooms, escalation, chat service,
+roles, context) are offered only on a branch of the config repo, where each
+save is a commit ([config-branches.md](config-branches.md)); a standing
+reset or upgrade, and Request, stay live.
 
 - **Overview** (`…/<name>`) — counts (members, agents live of all, roles,
   rooms, escalation chains), each linking to its page; the **chat service** (none — tracker
@@ -30,8 +33,8 @@ refreshed.
   ([ui-pages.md](ui-pages.md#agent-context-cards)). **Rename** (except
   `default`) renames the project and opens its new URL; **Delete** is disabled
   while a member, a role, a session not yet gone or an actor's grant still
-  references the project, and names what does — the same rule as `project rm`
-  ([projects.md](projects.md)).
+  references the project, and names what does — the same rule as a project's
+  delete in the config repo ([projects.md](projects.md)).
 - **Members** (`…/members`) — the users agents here can address (with handle
   and delivery). **Add member** (a user, and delivery: one `service:address`
   per line); per member, **Edit** delivery and **Remove**. A member's page
@@ -83,9 +86,7 @@ only that section:
   grant overrides the scope; grants are managed on the agent's page) and the role's
   running agents.
 
-**Request agent** and **Delete** (which returns to the project's Agents page) are on the page header. These writes share
-one lock with the JSON admin API's role, egress and standing routes, so an edit
-here and a CLI change can't overwrite each other.
+**Request agent** and **Delete** (which returns to the project's Agents page) are on the page header.
 
 The role's **Agent context** card is in
 [ui-pages.md](ui-pages.md#agent-context-cards). The page's **Setup** section, read

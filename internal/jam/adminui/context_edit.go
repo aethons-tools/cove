@@ -20,7 +20,6 @@ type contextPanel struct {
 	Leaves            []sessionctx.Leaf
 	Resources         []sessionctx.Resource
 	YAML              string
-	Kind, Name        string // the layer's config object (jam-context/jam, project/<p>, role/<p>/<r>): its badge and drift warning
 }
 
 func newContextPanel(scope string, l sessionctx.Layer, rs []sessionctx.Resource, budget int, showResources bool) contextPanel {
@@ -42,9 +41,7 @@ func newContextPanel(scope string, l sessionctx.Layer, rs []sessionctx.Resource,
 
 // jamPanel is the dashboard's Jam-wide session-context card; it swaps itself.
 func jamPanel(store jam.Store) contextPanel {
-	p := newContextPanel("Jam-wide", store.GetJamContext(), nil, sessionctx.BudgetJam, false)
-	p.Kind, p.Name = jam.ConfigKindJamContext, "jam"
-	return p
+	return newContextPanel("Jam-wide", store.GetJamContext(), nil, sessionctx.BudgetJam, false)
 }
 
 // setJamContext stores the Jam-wide context layer (b empty: clears it) and

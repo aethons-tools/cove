@@ -127,6 +127,15 @@ func (r *Repo) Commit(ctx context.Context, branch, wantHead string, ch Changes, 
 
 // push sets branch to commit on the remote; a non-fast-forward is ErrStale.
 func (r *Repo) push(ctx context.Context, repo *git.Repository, auth transport.AuthMethod, branch string, commit plumbing.Hash) error {
+	if IsLocal(r.URL) {
+		dirs, err := checkedOut(LocalPath(r.URL))
+		if err != nil {
+			return fmt.Errorf("config repo: reading the local repo's checkouts: %w", err)
+		}
+		if dir, ok := dirs[branch]; ok {
+			return &CheckedOutError{Branch: branch, Dir: dir}
+		}
+	}
 	local := plumbing.NewBranchReferenceName(branch)
 	if err := repo.Storer.SetReference(plumbing.NewHashReference(local, commit)); err != nil {
 		return err
@@ -268,3 +277,17 @@ func writeCommit(repo *git.Repository, tree plumbing.Hash, msg string, author Si
 	}
 	return repo.Storer.SetEncodedObject(o)
 }
+
+// CheckedOutError is a write that would move a branch a local config repo
+// has checked out (in Dir, the repo or one of its worktrees). It is
+// ErrCheckedOut; its message names the branch and the path.
+type CheckedOutError struct {
+	Branch, Dir string
+}
+
+func (e *CheckedOutError) Error() string {
+	return fmt.Sprintf("%s is checked out in %s; check out another branch, or merge it yourself", e.Branch, e.Dir)
+}
+
+// Is makes a CheckedOutError match ErrCheckedOut.
+func (e *CheckedOutError) Is(target error) bool { return target == ErrCheckedOut }

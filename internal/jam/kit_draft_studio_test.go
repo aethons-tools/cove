@@ -166,7 +166,7 @@ func TestDraftStudioRefusals(t *testing.T) {
 	fb := &fakeDraftBuilder{err: errors.New("RUN make: exit 2\nmore detail")}
 	sup, store, _, s := draftStudioSetup(t, fb)
 	_, err := raiseDraftStudio(t, sup, "d1")
-	if err == nil || !strings.Contains(err.Error(), "draft my-app: the test build failed (see jam kit draft build my-app --show --manager local): RUN make: exit 2") ||
+	if err == nil || !strings.Contains(err.Error(), "draft my-app: the test build on local failed: RUN make: exit 2") ||
 		strings.Contains(err.Error(), "more detail") || WriteStatus(err, 500) != 400 {
 		t.Fatalf("failed build: %v", err)
 	}
@@ -211,16 +211,15 @@ func TestDraftStudioRefusals(t *testing.T) {
 	}
 }
 
-// A test build of an older tree, started through the admin API, is running:
-// a raise of the current tree does not wait on it, it is refused. The API
-// and the raise share the supervisor's one registry.
+// A test build of an older tree, started on the supervisor's registry, is
+// running: a raise of the current tree does not wait on it, it is refused.
+// The build and the raise share the supervisor's one registry.
 func TestDraftStudioRefusesWhileAnotherTreeBuilds(t *testing.T) {
 	fb := &fakeDraftBuilder{started: make(chan string, 1), release: make(chan struct{})}
 	sup, store, _, s := draftStudioSetup(t, fb)
 	t.Cleanup(func() { close(fb.release) })
-	h := NewAdminHandler(store, sup, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.DiscardHandler), nil)
-	if w := draftDo(t, h, "POST", "/admin/kits/my-app/draft/build", "application/json", s.ETag, nil); w.Code != http.StatusAccepted {
-		t.Fatalf("start = %d %s", w.Code, w.Body)
+	if _, err := sup.KitDraftBuilds().Start("my-app", s.ETag, "op", ""); err != nil {
+		t.Fatalf("start = %v", err)
 	}
 	<-fb.started
 	if _, err := PutKitDraftFile(store, slog.New(slog.DiscardHandler), "my-app", "notes.txt", 0, []byte("x"), s.ETag, "op", draftNow); err != nil {

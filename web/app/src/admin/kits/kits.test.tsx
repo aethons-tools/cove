@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -7,13 +7,18 @@ import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { kit } from "./fixtures";
 import type { KitRow } from "../api/types";
+import { setBranch } from "../branch/branch";
 
-const row = (r: Partial<KitRow> = {}): KitRow => ({ name: "web", current: 2, count: 3, base: "blessed default", egress: 2, usedBy: 1, invalid: false, draft: false, managed: null, attn: null, ...r });
+const row = (r: Partial<KitRow> = {}): KitRow => ({ name: "web", current: 2, count: 3, base: "blessed default", egress: 2, usedBy: 1, invalid: false, draft: false, attn: null, ...r });
 const base = (canSource = true, kits = [row(), row({ name: "bad", invalid: true, usedBy: 0, draft: true })]) => server.use(
   http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })),
   http.get("/app/admin/api/kits", () => HttpResponse.json({ kits, canSource })),
 );
 const at = ADMIN + "config/kits";
+
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
 
 describe("the kits list", () => {
   it("shows kits, invalid and draft ones too", async () => {

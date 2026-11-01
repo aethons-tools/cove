@@ -28,7 +28,6 @@ var (
 type ConfigApplyOptions struct {
 	Source     gitsource.Source // {Repo: ConfigDirRepo} for --dir; the git source for --git (set by ApplyConfigSource)
 	Commit     string           // ConfigDirCommit for --dir
-	Force      bool             // write over drift
 	DryRun     bool             // plan only (config diff)
 	WantDigest string           // "" = any plan; else the reviewed plan's digest
 	Now        time.Time
@@ -70,32 +69,25 @@ func applyConfigTreeLocked(ctx context.Context, store Store, f KitFetcher, tree 
 	if err := configFetchErr(ctx); err != nil {
 		return ConfigApplyResult{}, err
 	}
-	res, wrote, err := planAndWriteConfig(store, tree, env, opt, log, actor)
-	if wrote {
-		// configMu only: a refreshed mark or the write itself can clear
-		// config.drift, an adopt or forget can raise it.
-		checkConfigDriftLocked(store, env.Conditions, log)
-	}
-	return res, err
+	return planAndWriteConfig(store, tree, env, opt, log, actor)
 }
 
 // planAndWriteConfig plans the fetched tree and, unless a dry run, refused
-// or stale, writes it, holding kitMu for just that. wrote reports a
-// non-dry-run apply that reached the store (with or without changes).
-func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (_ ConfigApplyResult, wrote bool, _ error) {
+// or stale, writes it, holding kitMu for just that.
+func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt ConfigApplyOptions, log *slog.Logger, actor string) (ConfigApplyResult, error) {
 	kitMu.Lock() // configMu → kitMu → store mu, as every kit writer takes kitMu before the store
 	defer kitMu.Unlock()
 	plan := PlanConfig(ConfigPlanInput{Tree: tree, Snapshot: store.configSnapshot(), Instances: store.ListInstances(),
-		Marks: store.ListConfigMarks(), Env: env, Source: opt.Source, Commit: opt.Commit, Force: opt.Force, Now: opt.Now})
-	res := ConfigApplyResult{Plan: plan, Source: configSourceLabel(opt.Source), Commit: provenanceCommit(opt.Commit)}
+		Marks: store.ListConfigMarks(), Env: env, Source: opt.Source, Commit: opt.Commit, Now: opt.Now})
+	res := ConfigApplyResult{Plan: plan, Source: configSourceLabel(env, opt.Source), Commit: provenanceCommit(opt.Commit)}
 	if opt.DryRun {
-		return res, false, nil
+		return res, nil
 	}
 	if len(plan.Refusals) > 0 {
-		return res, false, fmt.Errorf("%w:\n%s", ErrConfigRefused, strings.Join(plan.Refusals, "\n"))
+		return res, fmt.Errorf("%w:\n%s", ErrConfigRefused, strings.Join(plan.Refusals, "\n"))
 	}
 	if opt.WantDigest != "" && opt.WantDigest != plan.Digest {
-		return res, false, ErrConfigPlanChanged
+		return res, ErrConfigPlanChanged
 	}
 	res.Counts = plan.Counts()
 	changes := planChanges(plan)
@@ -108,20 +100,20 @@ func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt Config
 		// version, no other mark, no audit entry.
 		if meta := (ConfigWrite{Kits: w.Kits, KitObjects: w.KitObjects, Marks: plan.refreshMarks, ConfigSource: w.ConfigSource}); !meta.Empty() {
 			if err := store.ApplyConfig(meta); err != nil {
-				return res, false, fmt.Errorf("config apply: write: %w", err)
+				return res, fmt.Errorf("config apply: write: %w", err)
 			}
 		}
-		return res, true, nil
+		return res, nil
 	}
 	if err := store.ApplyConfig(w); err != nil {
-		return res, false, fmt.Errorf("config apply: write: %w", err)
+		return res, fmt.Errorf("config apply: write: %w", err)
 	}
 	if len(w.RemoveKits) > 0 {
 		gcKitObjects(store, log)
 	}
 	res.Applied = true
-	logConfigApply(log, actor, opt, plan)
-	return res, true, nil
+	logConfigApply(log, actor, env, opt, plan)
+	return res, nil
 }
 
 // planChanges reports whether plan writes anything beyond re-marking
@@ -151,17 +143,17 @@ var configAuditMsgs = map[string]map[string]string{
 }
 
 // logConfigApply writes the apply's audit: one "config applied" entry with
-// the source, commit, counts, operator and forced, then each written object's
+// the source, commit, counts and operator, then each written object's
 // usual admin entry with via=config. Names only, never values.
-func logConfigApply(log *slog.Logger, actor string, opt ConfigApplyOptions, plan ConfigPlan) {
+func logConfigApply(log *slog.Logger, actor string, env ConfigEnv, opt ConfigApplyOptions, plan ConfigPlan) {
 	if log == nil {
 		return
 	}
-	source := configSourceLabel(opt.Source)
+	source := configSourceLabel(env, opt.Source)
 	n := plan.Counts()
 	log.Info("config applied", "operator", actor, "source", source, "commit", opt.Commit,
 		"created", n[ConfigCreate], "updated", n[ConfigUpdate], "deleted", n[ConfigDelete],
-		"adopted", n[ConfigAdopt], "forgotten", n[ConfigForget], "unchanged", n[ConfigUnchanged], "forced", opt.Force)
+		"adopted", n[ConfigAdopt], "forgotten", n[ConfigForget], "unchanged", n[ConfigUnchanged])
 	for _, op := range plan.Ops {
 		if msg, ok := configAuditMsgs[op.Kind][op.Action]; ok {
 			log.Info(msg, "operator", actor, "via", "config", "kind", op.Kind, "name", op.Name)

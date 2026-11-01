@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -6,11 +6,16 @@ import { server } from "../../test/server";
 import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { spec, specFields } from "./fixtures";
+import { setBranch } from "../branch/branch";
 
 const base = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const at = ADMIN + "config/model-specs/fast";
-const row = { name: "fast", type: "claude", version: "2.1.3", versionConstraint: "2.x", principal: "anthropic", modelId: "claude-opus-5-5", effort: "high", mode: "", provider: "anthropic", usedBy: 1, managed: null };
+const row = { name: "fast", type: "claude", version: "2.1.3", versionConstraint: "2.x", principal: "anthropic", modelId: "claude-opus-5-5", effort: "high", mode: "", provider: "anthropic", usedBy: 1 };
 const list = (specs = [row]) => ({ specs, new: specFields({ version: "", principal: "" }), choices: spec().choices });
+
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
 
 describe("model specs", () => {
   it("lists them and creates one", async () => {

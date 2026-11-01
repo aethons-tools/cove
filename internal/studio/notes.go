@@ -29,7 +29,7 @@ func (sk StudioKit) Leaves() []sessionctx.Leaf {
 func (sk StudioKit) CheckNotes() error {
 	for _, n := range sk.Notes {
 		if n.File != "" {
-			return fmt.Errorf("studio kit: note %q: file %q was not read — `jam kit push` inlines note files; elsewhere use body", n.Name, n.File)
+			return fmt.Errorf("studio kit: note %q: file %q was not read — a kit directory inlines note files; elsewhere use body", n.Name, n.File)
 		}
 		if n.Name == sessionctx.ToolsLeaf {
 			return fmt.Errorf("studio kit: note name %s is reserved for the generated tool list", sessionctx.ToolsLeaf)

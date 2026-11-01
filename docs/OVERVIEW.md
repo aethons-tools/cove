@@ -4,7 +4,7 @@ read_when: You need what this repo builds, the studio image's security model, th
 owns: the project overview: studio image assembly, security model, package map
 prereqs: none
 tier: leaf
-updated: 2026-10-31
+updated: 2026-11-01
 ---
 
 # cove — Project Overview
@@ -176,7 +176,7 @@ dangles.
 
 **A Jam role's egress replaces the policy list, within the ceiling, at raise.**
 When Jam raises a cove for a role with an egress policy
-([`jam egress set`](usage/jam/roster.md#role-egress)), the manager runs the
+([`scope.egress`](usage/jam/roster.md#role-egress) in its file in the config repo), the manager runs the
 sealed, root-only `apply-role-egress.sh` via host `docker exec -u root` after sshd
 answers and **before jam-studio-agent (and so the agent) starts**. It reads the role's
 domains on stdin, refuses — changing nothing — any domain the ceiling doesn't cover

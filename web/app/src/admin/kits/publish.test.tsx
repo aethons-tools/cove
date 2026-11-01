@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -7,6 +7,7 @@ import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
 import { draftPage, draftView, kit } from "./fixtures";
 import type { DraftPage } from "../api/types";
+import { setBranch } from "../branch/branch";
 
 const at = ADMIN + "config/kits/web";
 const api = "/app/admin/api/kits/web/draft";
@@ -18,6 +19,10 @@ const base = (p: DraftPage) => server.use(
 const ok = (p: DraftPage, message: string) => HttpResponse.json({ page: p, message });
 const publishButton = () => screen.findByRole("button", { name: "Publish" });
 
+// The config edits show on a branch.
+beforeEach(() => setBranch("jam/test"));
+afterEach(() => setBranch(""));
+
 describe("publishing a draft", () => {
   it("is blocked by problems", async () => {
     base(draftPage({ draft: draftView({ problems: ["kit.yml: unknown field bogus"] }) }));
@@ -28,38 +33,24 @@ describe("publishing a draft", () => {
     expect(b).toHaveAttribute("title", "Fix the problems first");
   });
 
-  it("needs the drift box on a managed kit, then confirms with the warning", async () => {
-    const d = draftView({ managed: true });
-    base(draftPage({ draft: d }));
+  it("publishes a managed kit with no drift checkbox", async () => {
+    base(draftPage({ draft: draftView() }));
     let sent: unknown;
     server.use(http.post(api + "/publish", async ({ request }) => {
       sent = await request.json();
-      return ok(draftPage({ draft: null, published: { version: 3, base: 2, pinned: [], warning: "", drift: true, configFiles: [{ path: "kits/web/kit.yml", change: "modified" }] } }), "published web v3");
+      return ok(draftPage({ draft: null, published: { version: 3, base: 2, pinned: [], warning: "" } }), "published web v3");
     }));
     const user = userEvent.setup();
     renderAdmin(adminBoot, at);
-    expect(await screen.findAllByText(d.driftWarning)).not.toHaveLength(0);
-    expect(await publishButton()).toBeDisabled();
-    await user.click(screen.getByLabelText("I understand this drifts from the config repo"));
+    expect(await publishButton()).toBeEnabled();
+    expect(screen.queryByRole("checkbox", { name: /drift/ })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /Pin followers/ })).toBeNull();
     await user.click(await publishButton());
-    expect(await screen.findByText(`Publish the draft as the next version of web? ${d.driftWarning}`)).toBeInTheDocument();
+    expect(await screen.findByText("Publish the draft as the next version of web?")).toBeInTheDocument();
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Publish" }));
-    await waitFor(() => expect(sent).toEqual({ etag: "e1", pin: false, drift: true }));
+    await waitFor(() => expect(sent).toEqual({ etag: "e1", pin: false }));
     expect(await screen.findByText("Published v3")).toBeInTheDocument();
-    expect(screen.getByText("kits/web/kit.yml")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "view v3" })).toHaveAttribute("href", at + "?v=3");
-  });
-
-  it("needs the drift box only with Pin when pinning drifts followers", async () => {
-    base(draftPage({ draft: draftView({ pinDrift: ["child"], pinDriftNote: "Pinning rewrites config-managed child: with Pin followers, this publish drifts from the config repo." }) }));
-    const user = userEvent.setup();
-    renderAdmin(adminBoot, at);
-    expect(await publishButton()).toBeEnabled();
-    await user.click(screen.getByLabelText(/^Pin followers/));
-    expect(await publishButton()).toBeDisabled();
-    expect(screen.getByText(/Pinning rewrites config-managed child/)).toBeInTheDocument();
-    await user.click(screen.getByLabelText(/^I understand this drifts from the config repo/));
-    expect(await publishButton()).toBeEnabled();
   });
 
   it("shows an upload over the limit inline", async () => {

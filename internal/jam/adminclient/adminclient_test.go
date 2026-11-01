@@ -60,7 +60,7 @@ func mustCreateProject(t *testing.T, store jam.Store, name string) {
 	}
 }
 
-// TestClientRoundTrip exercises AddDestination, Enroll and Revoke against a
+// TestClientRoundTrip exercises ListDestinations, Enroll and Revoke against a
 // real Jam admin handler + MemStore (not just a wire-format mock), proving
 // the client's requests actually drive store side effects end to end. Scope
 // now comes entirely from the role, so the role must be put before Enroll.
@@ -68,7 +68,7 @@ func TestClientRoundTrip(t *testing.T) {
 	ts, store := newServer(t)
 	c := New(ts.URL, "")
 
-	if err := c.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword}); err != nil {
+	if err := store.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword}); err != nil {
 		t.Fatalf("AddDestination: %v", err)
 	}
 	ds, err := c.ListDestinations()
@@ -91,15 +91,6 @@ func TestClientRoundTrip(t *testing.T) {
 	}
 	if _, ok := store.Lookup(jam.HashToken(res.Token)); ok {
 		t.Fatal("identity present after Revoke")
-	}
-}
-
-func TestClientAddDestinationRejected(t *testing.T) {
-	ts, _ := newServer(t)
-	c := New(ts.URL, "")
-	err := c.AddDestination(jam.Destination{Name: "bad", Route: "/bad/", Upstream: "https://x", IdentityIn: jam.ApplyBearer, CredName: "nope", Apply: jam.ApplyBearer})
-	if err == nil {
-		t.Fatal("expected error for unresolvable cred_name")
 	}
 }
 
@@ -136,11 +127,9 @@ func TestClientSendsBearer(t *testing.T) {
 }
 
 func TestClientRoleAndGrantRoundTrips(t *testing.T) {
-	var gotPath, gotMethod, gotBody string
+	var gotPath, gotMethod string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod, gotPath = r.Method, r.URL.RequestURI()
-		b, _ := io.ReadAll(r.Body)
-		gotBody = string(b)
 		switch {
 		case r.URL.Path == "/admin/roles" && r.Method == "GET":
 			_, _ = w.Write([]byte(`[{"project":"acme","name":"guest","destinations":["anthropic"],"credentials":{"anthropic":"anthropic-sub"},"repos":["acme/*"],"ttl_seconds":3600}]`))
@@ -155,12 +144,6 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 	defer srv.Close()
 	c := New(srv.URL, "")
 
-	if err := c.PutRole("acme", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, Credentials: map[string]string{"anthropic": "anthropic-sub"}, TTL: time.Hour}}); err != nil {
-		t.Fatalf("PutRole: %v", err)
-	}
-	if gotMethod != "POST" || gotPath != "/admin/roles" || !strings.Contains(gotBody, `"ttl_seconds":3600`) || !strings.Contains(gotBody, `"credentials":{"anthropic":"anthropic-sub"}`) {
-		t.Fatalf("PutRole wire = %s %s %s", gotMethod, gotPath, gotBody)
-	}
 	roles, err := c.ListRoles("acme")
 	if err != nil || len(roles) != 1 || roles[0].Scope.TTL != time.Hour || roles[0].Scope.Credentials["anthropic"] != "anthropic-sub" {
 		t.Fatalf("ListRoles = %+v, %v", roles, err)
@@ -172,13 +155,6 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 	projs, err := c.ListProjects()
 	if err != nil || len(projs) != 1 || projs[0] != "acme" {
 		t.Fatalf("ListProjects = %+v, %v", projs, err)
-	}
-
-	if err := c.RemoveRole("acme", "guest"); err != nil {
-		t.Fatalf("RemoveRole: %v", err)
-	}
-	if gotMethod != "DELETE" || gotPath != "/admin/roles/acme/guest" {
-		t.Fatalf("RemoveRole wire = %s %s", gotMethod, gotPath)
 	}
 
 	roster, err := c.Actors()
@@ -212,45 +188,36 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
-	if _, err := c.CreateUser(jam.UserBody{Name: "alice"}); err != nil {
-		t.Fatalf("CreateUser: %v", err)
+	alice, err := store.CreateUser(jam.User{Name: "alice"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := c.PutMember("acme", "alice", nil); err != nil {
-		t.Fatalf("PutMember: %v", err)
+	acme, _ := store.GetProject("acme")
+	if err := store.PutMembership(jam.Membership{ProjectID: acme.ID, UserID: alice.ID}); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := c.CreateConnection(jam.ConnectionBody{Kind: "linear", Name: "linear"}); err != nil {
-		t.Fatalf("CreateConnection: %v", err)
+	if _, err := store.CreateConnection(jam.Connection{Kind: "linear", Name: "linear"}); err != nil {
+		t.Fatal(err)
 	}
-	room, err := c.PutRoom("acme", jam.RoomBody{Name: "eng-help", Ref: "ACME-1"})
-	if err != nil || room.Name != "eng-help" || room.Connection != "linear" {
-		t.Fatalf("PutRoom = %+v, %v", room, err)
+	if _, _, err := jam.PutRoom(store, "acme", jam.RoomBody{Name: "eng-help", Ref: "ACME-1"}); err != nil {
+		t.Fatalf("PutRoom: %v", err)
 	}
-	if err := c.RenameRoom("acme", string(room.ID), "help"); err != nil {
-		t.Fatalf("RenameRoom: %v", err)
-	}
-	if rooms, err := c.ListRooms("acme"); err != nil || len(rooms) != 1 || rooms[0].Name != "help" {
+	if rooms, err := c.ListRooms("acme"); err != nil || len(rooms) != 1 || rooms[0].Name != "eng-help" || rooms[0].Connection != "linear" {
 		t.Fatalf("ListRooms = %+v, %v", rooms, err)
 	}
 	if ms, err := c.ListMembers("acme"); err != nil || len(ms) != 1 || ms[0].User != "alice" {
 		t.Fatalf("ListMembers = %+v, %v", ms, err)
 	}
 
-	if err := c.RemoveMember("acme", "alice"); err != nil {
-		t.Fatalf("RemoveMember: %v", err)
-	}
-	if err := c.RemoveRoom("acme", "help"); err != nil {
+	if err := jam.RemoveRoom(store, "acme", "eng-help"); err != nil {
 		t.Fatalf("RemoveRoom: %v", err)
-	}
-	ms, err := c.ListMembers("acme")
-	if err != nil || len(ms) != 0 {
-		t.Fatalf("members after removal = %+v, %v", ms, err)
 	}
 	if rooms, err := c.ListRooms("acme"); err != nil || len(rooms) != 0 {
 		t.Fatalf("rooms after removal = %+v, %v", rooms, err)
 	}
 
-	// PutRole with Scope.Addressing round-trips via ListRoles.
-	if err := c.PutRole("acme", jam.Role{Name: "impl", Scope: jam.Scope{Addressing: []string{"human:*", "channel:eng-help"}}}); err != nil {
+	// A role's Scope.Addressing round-trips via ListRoles.
+	if err := store.PutRole("acme", jam.Role{Name: "impl", Scope: jam.Scope{Addressing: []string{"human:*", "channel:eng-help"}}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
 	roles, err := c.ListRoles("acme")
@@ -266,8 +233,8 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	if len(got) != 2 || got[0] != "human:*" || got[1] != "channel:eng-help" {
 		t.Fatalf("role addressing = %+v, roles=%+v", got, roles)
 	}
-	// PutRole with Allocation.MaxEphemeral round-trips via ListRoles.
-	if err := c.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}}); err != nil {
+	// A role's Allocation round-trips via ListRoles.
+	if err := store.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
 	roles, err = c.ListRoles("acme")
@@ -285,7 +252,7 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	}
 }
 
-// TestClientEscalationPolicy exercises SetEscalationPolicy/GetEscalationPolicy
+// TestClientEscalationPolicy exercises GetEscalationPolicy (seeded through the store)
 // against a real Jam admin handler + MemStore.
 func TestClientEscalationPolicy(t *testing.T) {
 	ts, store := newServer(t)
@@ -296,7 +263,7 @@ func TestClientEscalationPolicy(t *testing.T) {
 		{Targets: []string{"human:alice", "human:bob"}, Timeout: 15 * time.Minute},
 		{Targets: []string{"human:carol"}, Timeout: time.Hour},
 	}
-	if err := c.SetEscalationPolicy("acme", "", tiers); err != nil {
+	if err := store.SetEscalationPolicy("acme", "", tiers); err != nil {
 		t.Fatalf("SetEscalationPolicy: %v", err)
 	}
 	v, err := c.GetEscalationPolicy("acme")
@@ -312,7 +279,7 @@ func TestClientEscalationPolicy(t *testing.T) {
 	}
 }
 
-// TestClientEscalationCategory exercises SetEscalationPolicy/GetEscalationPolicy
+// TestClientEscalationCategory exercises GetEscalationPolicy (seeded through the store)
 // with a category, asserting the view carries both the default and the category
 // chain without disturbing each other.
 func TestClientEscalationCategory(t *testing.T) {
@@ -322,10 +289,10 @@ func TestClientEscalationCategory(t *testing.T) {
 
 	def := []jam.EscalationTier{{Targets: []string{"human:oncall"}, Timeout: 30 * time.Minute}}
 	infra := []jam.EscalationTier{{Targets: []string{"human:sre"}, Timeout: 10 * time.Minute}}
-	if err := c.SetEscalationPolicy("acme", "", def); err != nil {
+	if err := store.SetEscalationPolicy("acme", "", def); err != nil {
 		t.Fatalf("SetEscalationPolicy(default): %v", err)
 	}
-	if err := c.SetEscalationPolicy("acme", "infra", infra); err != nil {
+	if err := store.SetEscalationPolicy("acme", "infra", infra); err != nil {
 		t.Fatalf("SetEscalationPolicy(infra): %v", err)
 	}
 	v, err := c.GetEscalationPolicy("acme")
@@ -341,14 +308,14 @@ func TestClientEscalationCategory(t *testing.T) {
 	}
 }
 
-// TestClientChatService exercises SetChatService/GetChatService (set, get,
-// clear) against a real Jam admin handler + MemStore.
+// TestClientChatService exercises GetChatService (seeded through the store; set,
+// get, clear) against a real Jam admin handler + MemStore.
 func TestClientChatService(t *testing.T) {
 	ts, store := newServer(t)
 	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
-	if err := c.SetChatService("acme", "discord"); err != nil {
+	if err := store.SetChatService("acme", "discord"); err != nil {
 		t.Fatalf("SetChatService: %v", err)
 	}
 	svc, err := c.GetChatService("acme")
@@ -359,7 +326,7 @@ func TestClientChatService(t *testing.T) {
 		t.Fatalf("GetChatService = %q, want discord", svc)
 	}
 
-	if err := c.SetChatService("acme", ""); err != nil {
+	if err := store.SetChatService("acme", ""); err != nil {
 		t.Fatalf("SetChatService (clear): %v", err)
 	}
 	svc, err = c.GetChatService("acme")
@@ -380,21 +347,19 @@ func TestClientUsersMembersAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := New(ts.URL, "")
-	u, err := c.CreateUser(jam.UserBody{Name: "dave", Logins: []string{"auth0|d"}})
-	if err != nil || u.Name != "dave" {
-		t.Fatalf("CreateUser = %+v, %v", u, err)
-	}
-	if err := c.RenameUser("dave", "david"); err != nil {
-		t.Fatalf("RenameUser: %v", err)
+	u, err := store.CreateUser(jam.User{Name: "david", Logins: []string{"auth0|d"}})
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := c.SetUserOIDC("david", []jam.OIDCIdentity{{Issuer: "i", Subject: "s"}}); err != nil {
 		t.Fatalf("SetUserOIDC: %v", err)
 	}
-	if err := c.SetUserLogins(string(u.ID), nil); err != nil {
-		t.Fatalf("SetUserLogins: %v", err)
+	if err := store.SetUserLogins(u.ID, nil); err != nil {
+		t.Fatal(err)
 	}
-	if err := c.PutMember("acme", "david", []jam.DeliveryProfile{{Service: "discord", Address: "chan-9"}}); err != nil {
-		t.Fatalf("PutMember: %v", err)
+	acme, _ := store.GetProject("acme")
+	if err := store.PutMembership(jam.Membership{ProjectID: acme.ID, UserID: u.ID, Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-9"}}}); err != nil {
+		t.Fatal(err)
 	}
 	ms, err := c.ListMembers("acme")
 	if err != nil || len(ms) != 1 || ms[0].Delivery[0].Address != "chan-9" {
@@ -423,12 +388,6 @@ func TestClientUsersMembersAccounts(t *testing.T) {
 	if users, err := c.ListUsers(); err != nil || len(users) != 1 {
 		t.Fatalf("ListUsers = %+v, %v", users, err)
 	}
-	if err := c.RemoveMember("acme", "david"); err != nil {
-		t.Fatalf("RemoveMember: %v", err)
-	}
-	if err := c.RemoveUser("david"); err != nil {
-		t.Fatalf("RemoveUser: %v", err)
-	}
 }
 
 // TestClientEnrollBodyIsTrimmed proves Enroll's wire body carries only
@@ -456,14 +415,10 @@ func TestClientEnrollBodyIsTrimmed(t *testing.T) {
 }
 
 func TestClientKitRoundTrips(t *testing.T) {
-	var gotMethod, gotPath, gotBody string
+	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod, gotPath = r.Method, r.URL.RequestURI()
-		b, _ := io.ReadAll(r.Body)
-		gotBody = string(b)
+		gotPath = r.URL.RequestURI()
 		switch {
-		case r.URL.Path == "/admin/kits" && r.Method == "POST":
-			_, _ = w.Write([]byte(`{"name":"web","version":3}`))
 		case r.URL.Path == "/admin/kits" && r.Method == "GET":
 			_, _ = w.Write([]byte(`[{"name":"web","current":3,"versions":3}]`))
 		case r.URL.Path == "/admin/kits/web/versions":
@@ -477,13 +432,6 @@ func TestClientKitRoundTrips(t *testing.T) {
 	defer srv.Close()
 	c := New(srv.URL, "")
 
-	res, err := c.PushKit("web", "name: web\n")
-	if err != nil || res.Version != 3 {
-		t.Fatalf("PushKit = %+v, %v (body=%s)", res, err, gotBody)
-	}
-	if gotMethod != "POST" || gotPath != "/admin/kits" || !strings.Contains(gotBody, `"config":"name: web\n"`) {
-		t.Fatalf("push wire = %s %s %s", gotMethod, gotPath, gotBody)
-	}
 	if kits, err := c.ListKits(); err != nil || len(kits) != 1 || kits[0].Current != 3 {
 		t.Fatalf("ListKits = %+v, %v", kits, err)
 	}
@@ -495,28 +443,6 @@ func TestClientKitRoundTrips(t *testing.T) {
 	}
 	if vers, err := c.KitVersions("web"); err != nil || len(vers) != 3 {
 		t.Fatalf("KitVersions = %+v, %v", vers, err)
-	}
-	if err := c.PinKit("web", 1); err != nil {
-		t.Fatalf("PinKit: %v", err)
-	}
-	if err := c.RemoveKit("web"); err != nil {
-		t.Fatalf("RemoveKit: %v", err)
-	}
-}
-
-func TestClientPutRoleCarriesKit(t *testing.T) {
-	var gotBody string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		gotBody = string(b)
-		w.WriteHeader(http.StatusCreated)
-	}))
-	defer srv.Close()
-	if err := New(srv.URL, "").PutRole("acme", jam.Role{Name: "impl", Kit: "builder"}); err != nil {
-		t.Fatalf("PutRole: %v", err)
-	}
-	if !strings.Contains(gotBody, `"kit":"builder"`) {
-		t.Fatalf("PutRole body missing kit: %s", gotBody)
 	}
 }
 
@@ -614,33 +540,21 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	}
 }
 
-// TestClientStandingRoundTrip declares, lists and dismisses standing sessions
-// through the client; the role's other fields survive.
-func TestClientStandingRoundTrip(t *testing.T) {
+// TestClientListStanding lists the standing sessions declared through the
+// store (they change only in git).
+func TestClientListStanding(t *testing.T) {
 	ts, store := newServer(t)
 	c := New(ts.URL, "")
 
-	if err := c.AddStanding(jam.DefaultProject, "guest", jam.StandingSession{Name: "alice-bot", Prompt: "review PRs"}); err != nil {
+	if err := jam.AddStanding(store, jam.DefaultProject, "guest", jam.StandingSession{Name: "alice-bot", Prompt: "review PRs"}); err != nil {
 		t.Fatalf("AddStanding: %v", err)
-	}
-	if err := c.AddStanding(jam.DefaultProject, "guest", jam.StandingSession{Name: "alice-bot", Prompt: "again"}); err == nil {
-		t.Fatal("a duplicate name must error (400)")
 	}
 	list, err := c.ListStanding(jam.DefaultProject, "guest")
 	if err != nil || len(list) != 1 || list[0] != (jam.StandingStatus{StandingSession: jam.StandingSession{Name: "alice-bot", Prompt: "review PRs"}}) {
 		t.Fatalf("ListStanding = %+v, %v", list, err)
 	}
-	if r, _ := store.GetRole(jam.DefaultProject, "guest"); len(r.Scope.Destinations) != 1 || r.Scope.TTL != time.Hour {
-		t.Fatalf("role scope not kept: %+v", r.Scope)
-	}
 	if _, err := c.ResetStanding(jam.DefaultProject, "guest", "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("reset of an undeclared name = %v, want ErrNotFound", err)
-	}
-	if err := c.RemoveStanding(jam.DefaultProject, "guest", "alice-bot"); err != nil {
-		t.Fatalf("RemoveStanding: %v", err)
-	}
-	if list, err := c.ListStanding(jam.DefaultProject, "guest"); err != nil || len(list) != 0 {
-		t.Fatalf("after rm = %+v, %v", list, err)
 	}
 	if _, err := c.ListStanding(jam.DefaultProject, "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown role = %v, want ErrNotFound", err)
@@ -732,9 +646,9 @@ func TestClientUpgradeStanding(t *testing.T) {
 	}
 }
 
-// TestClientEgressRoundTrip sets, shows and clears a role's egress policy
-// through the client; ListRoles carries it; a bad domain surfaces the 400.
-func TestClientEgressRoundTrip(t *testing.T) {
+// TestClientShowEgress shows a role's egress policy (set through the store)
+// through the client; ListRoles carries it.
+func TestClientShowEgress(t *testing.T) {
 	ts, store := newServer(t)
 	c := New(ts.URL, "")
 
@@ -742,8 +656,8 @@ func TestClientEgressRoundTrip(t *testing.T) {
 	if err != nil || view.Managed || len(view.Domains) != 0 {
 		t.Fatalf("ShowEgress (unset) = %+v, %v", view, err)
 	}
-	if err := c.SetEgress(jam.DefaultProject, "guest", []string{"B.org", "a.com"}); err != nil {
-		t.Fatalf("SetEgress: %v", err)
+	if _, err := jam.SetRoleEgress(store, jam.DefaultProject, "guest", []string{"B.org", "a.com"}); err != nil {
+		t.Fatalf("SetRoleEgress: %v", err)
 	}
 	view, err = c.ShowEgress(jam.DefaultProject, "guest")
 	if err != nil || !view.Managed || strings.Join(view.Domains, ",") != "a.com,b.org" {
@@ -752,24 +666,6 @@ func TestClientEgressRoundTrip(t *testing.T) {
 	roles, err := c.ListRoles(jam.DefaultProject)
 	if err != nil || len(roles) != 1 || roles[0].Scope.Egress == nil || len(roles[0].Scope.Egress.Domains) != 2 {
 		t.Fatalf("ListRoles egress = %+v, %v", roles, err)
-	}
-	if r, _ := store.GetRole(jam.DefaultProject, "guest"); len(r.Scope.Destinations) != 1 || r.Scope.TTL != time.Hour {
-		t.Fatalf("role scope not kept: %+v", r.Scope)
-	}
-	if err := c.SetEgress(jam.DefaultProject, "guest", []string{"https://evil.com"}); err == nil || !strings.Contains(err.Error(), "https://evil.com") {
-		t.Fatalf("bad domain err = %v, want it to name the domain", err)
-	}
-	if err := c.SetEgress(jam.DefaultProject, "guest", nil); err != nil {
-		t.Fatalf("SetEgress(empty): %v", err)
-	}
-	if view, _ := c.ShowEgress(jam.DefaultProject, "guest"); !view.Managed || len(view.Domains) != 0 {
-		t.Fatalf("empty policy view = %+v", view)
-	}
-	if err := c.ClearEgress(jam.DefaultProject, "guest"); err != nil {
-		t.Fatalf("ClearEgress: %v", err)
-	}
-	if r, _ := store.GetRole(jam.DefaultProject, "guest"); r.Scope.Egress != nil {
-		t.Fatalf("after clear = %+v, want nil", r.Scope.Egress)
 	}
 	if _, err := c.ShowEgress(jam.DefaultProject, "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown role = %v, want ErrNotFound", err)
@@ -819,67 +715,51 @@ func TestImportConfigConflict(t *testing.T) {
 }
 
 func TestClientContextRoundTrip(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
 	c := New(ts.URL, "")
-	for _, scope := range []ContextScope{{Project: jam.DefaultProject, Role: "guest"}, {Project: jam.DefaultProject}, {Jam: true}} {
-		if err := c.SetContext(scope, jam.ContextBody{Core: "C"}); err != nil {
-			t.Fatalf("SetContext %+v: %v", scope, err)
+	for _, sc := range []struct {
+		scope ContextScope
+		set   func() error
+		clear func() error
+	}{
+		{ContextScope{Project: jam.DefaultProject, Role: "guest"},
+			func() error {
+				return jam.SetRoleContextChecked(store, jam.DefaultProject, "guest", jam.ContextBody{Core: "C"})
+			},
+			func() error { return jam.ClearRoleContext(store, jam.DefaultProject, "guest") }},
+		{ContextScope{Project: jam.DefaultProject},
+			func() error {
+				return jam.SetProjectContextChecked(store, jam.DefaultProject, jam.ContextBody{Core: "C"})
+			},
+			func() error { return jam.SetProjectContextChecked(store, jam.DefaultProject, jam.ContextBody{}) }},
+		{ContextScope{Jam: true},
+			func() error { return jam.SetJamContextChecked(store, jam.ContextBody{Core: "C"}) },
+			func() error { return jam.SetJamContextChecked(store, jam.ContextBody{}) }},
+	} {
+		if err := sc.set(); err != nil {
+			t.Fatalf("set %+v: %v", sc.scope, err)
 		}
-		if b, err := c.GetContext(scope); err != nil || b.Core != "C" {
-			t.Fatalf("GetContext %+v = %+v, %v", scope, b, err)
+		if b, err := c.GetContext(sc.scope); err != nil || b.Core != "C" {
+			t.Fatalf("GetContext %+v = %+v, %v", sc.scope, b, err)
 		}
-		if err := c.ClearContext(scope); err != nil {
-			t.Fatalf("ClearContext %+v: %v", scope, err)
+		if err := sc.clear(); err != nil {
+			t.Fatalf("clear %+v: %v", sc.scope, err)
 		}
-		if b, _ := c.GetContext(scope); b.Core != "" {
-			t.Fatalf("after clear %+v: %+v", scope, b)
+		if b, _ := c.GetContext(sc.scope); b.Core != "" {
+			t.Fatalf("after clear %+v: %+v", sc.scope, b)
 		}
-	}
-	if err := c.SetContext(ContextScope{Jam: true}, jam.ContextBody{Core: strings.Repeat("x", 900)}); err == nil || !strings.Contains(err.Error(), "900 bytes") {
-		t.Fatalf("over-budget err = %v", err)
 	}
 }
 
 func TestClientConnections(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
 	c := New(ts.URL, "")
-	conn, err := c.CreateConnection(jam.ConnectionBody{Kind: "linear", Name: "linear-acme", Cred: "lin-tok"})
-	if err != nil || conn.CredName != "lin-tok" {
-		t.Fatalf("CreateConnection = %+v, %v", conn, err)
+	conn, err := store.CreateConnection(jam.Connection{Kind: "linear", Name: "linear-acme", CredName: "lin-tok"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := c.RenameConnection("linear-acme", "linear-main"); err != nil {
-		t.Fatalf("RenameConnection: %v", err)
-	}
-	if err := c.SetConnectionCred("linear-main", "lin-tok-2"); err != nil {
-		t.Fatalf("SetConnectionCred: %v", err)
-	}
-	if list, err := c.ListConnections(); err != nil || len(list) != 1 || list[0].Name != "linear-main" || list[0].CredName != "lin-tok-2" {
+	if list, err := c.ListConnections(); err != nil || len(list) != 1 || list[0].ID != conn.ID || list[0].CredName != "lin-tok" {
 		t.Fatalf("ListConnections = %+v, %v", list, err)
-	}
-	if err := c.RemoveConnection(string(conn.ID)); err != nil {
-		t.Fatalf("RemoveConnection: %v", err)
-	}
-}
-
-// TestRaiseCoveDraftTimeout: a draft studio's raise outwaits the client's
-// default timeout (its build may run first); a plain raise keeps it.
-func TestRaiseCoveDraftTimeout(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var b jam.CoveRaiseBody
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		time.Sleep(300 * time.Millisecond)
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(jam.CoveRaiseResult{ID: "ses_1", Label: b.ID, KitDraftTree: b.KitDraft + "-tree"})
-	}))
-	t.Cleanup(ts.Close)
-	c := New(ts.URL, "")
-	c.httpc.Timeout = 50 * time.Millisecond
-	if _, err := c.RaiseCove(CoveRaiseParams{ID: "w1", Role: "guest"}); err == nil {
-		t.Fatal("a plain raise outwaited the client's timeout")
-	}
-	res, err := c.RaiseCove(CoveRaiseParams{ID: "w2", Role: "guest", KitDraft: "app"})
-	if err != nil || res.KitDraftTree != "app-tree" || c.httpc.Timeout != 50*time.Millisecond {
-		t.Fatalf("draft raise = %+v %v (client timeout now %v)", res, err, c.httpc.Timeout)
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/kittree"
-	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 const unsafeDraftPath = "draft app: a file has an unsafe path (empty, absolute, a . or .. segment, invalid UTF-8, or a control or format character)"
@@ -235,45 +234,6 @@ func TestDraftWritesSurviveConcurrentGC(t *testing.T) {
 	}
 }
 
-func TestReplaceKitDraft(t *testing.T) {
-	st := NewMemStore()
-	pushApp(t, st, "kit.yml", "kind: studio\n", "old.sh", "old\n")
-	tag := openApp(t, st)
-	files := kittreetest.Files("kit.yml", "kind: studio\nprompt: synced\n", "run.sh*", "echo\n", ".dockerignore", "*.log\n", "debug.log", "x")
-	s, err := ReplaceKitDraft(st, nil, "app", files, tag, "local", draftNow)
-	want := []DraftChange{{".dockerignore", "added"}, {"kit.yml", "modified"}, {"old.sh", "removed"}, {"run.sh", "added"}}
-	if err != nil || !slices.Equal(s.Changed, want) || len(s.Problems) != 0 {
-		t.Fatalf("replace = %+v %v, want %+v", s, err, want)
-	}
-	if _, _, _, err := KitDraftFile(st, "app", "debug.log"); err == nil {
-		t.Fatal(".dockerignore must filter the sync")
-	}
-	same, err := ReplaceKitDraft(st, nil, "app", files, s.ETag, "local", draftNow)
-	if err != nil || same.ETag != s.ETag || len(same.Changed) != 0 {
-		t.Fatalf("same files = %+v %v (unchanged)", same, err)
-	}
-	// Stale or missing If-Match (Review Focus 1), nothing written.
-	_, err = ReplaceKitDraft(st, nil, "app", kittreetest.Files("kit.yml", "kind: studio\n"), tag, "local", draftNow)
-	wantErr(t, err, "draft app changed since you loaded it (reload)", 412)
-	_, err = ReplaceKitDraft(st, nil, "app", kittreetest.Files("kit.yml", "kind: studio\n"), "", "local", draftNow)
-	wantErr(t, err, "draft app: If-Match is required (send the etag from the draft status)", 428)
-	// No kit.yml is a problem, not a refusal.
-	s, err = ReplaceKitDraft(st, nil, "app", kittreetest.Files("notes.md", "n\n"), s.ETag, "local", draftNow)
-	if err != nil || !slices.Equal(s.Problems, []string{"kit app: kit.yml missing at the root"}) {
-		t.Fatalf("no kit.yml = %+v %v", s, err)
-	}
-	// The file rules hold.
-	_, err = ReplaceKitDraft(st, nil, "app", []kittree.File{{Path: "a\nb"}}, s.ETag, "local", draftNow)
-	wantErr(t, err, unsafeDraftPath, 400)
-	withDraftLimits(t, 1, kittree.MaxTotal, kittree.MaxFile)
-	_, err = ReplaceKitDraft(st, nil, "app", kittreetest.Files("a", "1", "b", "2"), s.ETag, "local", draftNow)
-	wantErr(t, err, "draft app: 2 files (limit 1)", 400)
-}
-
-// TestRenameKitDraftFile: a rename moves the content and mode in one save,
-// refuses a missing source, a taken, unsafe, ignored or file-over-directory
-// target (unechoed) and a stale ETag, leaves a rename to itself a no-op, and
-// applies a file renamed to .dockerignore.
 func TestRenameKitDraftFile(t *testing.T) {
 	st := NewMemStore()
 	pushApp(t, st, "kit.yml", "kind: studio\n", "run.sh*", "echo\n", "sub/x", "x", ".dockerignore", "*.log\n", "rules", "sub\n")

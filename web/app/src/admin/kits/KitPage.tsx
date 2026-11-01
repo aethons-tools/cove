@@ -6,13 +6,13 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from "reac
 import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
 import type { KitDetail, KitResult } from "../api/types";
+import { useConfigEditable } from "../branch/branch";
 import { adminApi, nodeHref } from "../paths";
 import { AttnFlag } from "../ui/AttnFlag";
 import { ConfirmAction } from "../ui/ConfirmAction";
 import { DiffView } from "../ui/DiffView";
 import { EditForm } from "../ui/EditForm";
 import { Facts } from "../ui/Facts";
-import { ManagedBadge, driftNote } from "../ui/ManagedBadge";
 import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { FileCard, FilesCard, FilesDiffCard, VersionCard, hiddenNote, maskedNote } from "./KitParts";
@@ -47,7 +47,7 @@ function Kit({ k }: { k: KitDetail }) {
   const navigate = useNavigate();
   const base = nodeHref("config/kits/" + enc(k.name));
   const href = (q: Record<string, string | number>) => `${base}?${new URLSearchParams(Object.entries(q).map(([a, b]) => [a, String(b)]))}`;
-  const drift = driftNote(k.managed);
+  const editable = useConfigEditable();
   // A write answers with the kit at its current version: show that page.
   const done = (r: KitResult) => {
     client.setQueryData(["admin", "kit", k.name, "", "", ""], r.kit);
@@ -58,9 +58,9 @@ function Kit({ k }: { k: KitDetail }) {
   const write = useAdminMutation((x: { path: string; body?: unknown; del?: boolean }) =>
     x.del ? adminApi.del<KitResult>(`kits/${enc(k.name)}/${x.path}`) : adminApi.post<KitResult>(`kits/${enc(k.name)}/${x.path}`, x.body ?? {}), { invalidate: [kitsKey], onSuccess: done });
   const remove = useAdminMutation(() => adminApi.del(`kits/${enc(k.name)}`), { invalidate: [kitsKey], onSuccess: () => void navigate(nodeHref("config/kits")) });
-  const del = k.uses.length || k.usedByKits.length || k.isDefault
-    ? <Button size="xs" color="red" variant="light" disabled title={k.isDefault ? "The built-in default kit is re-seeded at serve start" : "Roles or kits use this kit — rebind them first"}>Delete</Button>
-    : <ConfirmAction label="Delete" confirm={deleteKitConfirm(k.name, drift)} onConfirm={() => remove.mutateAsync(undefined)} />;
+  const del = !editable ? null : k.uses.length || k.usedByKits.length || k.isDefault
+    ? <Button size="xs" color="red" variant="light" disabled title={k.isDefault ? "The built-in default kit: serve seeds it at start until the config repo has kits/default/, then the repo owns it" : "Roles or kits use this kit — rebind them first"}>Delete</Button>
+    : <ConfirmAction label="Delete" confirm={deleteKitConfirm(k.name)} onConfirm={() => remove.mutateAsync(undefined)} />;
   const viewFile = (p: string) => href({ v: k.view.n, file: p });
   const diffFile = (p: string) => href({ v: k.diff?.to ?? k.view.n, diff: k.diff?.from ?? 0, file: p });
   return (
@@ -68,17 +68,16 @@ function Kit({ k }: { k: KitDetail }) {
       <Group justify="space-between" wrap="wrap">
         <Group gap="sm" align="baseline">
           <Title order={2}>{k.name}</Title>
-          <ManagedBadge managed={k.managed} />
           <AttnFlag flag={k.attn} />
           <Badge>current v{k.current}</Badge>
           <Text size="sm" c="dimmed">{k.versions.length} version(s)</Text>
-          {k.draft && <Badge component="a" href="#draft" variant="light" color="gray" style={{ cursor: "pointer" }}>draft · base v{k.draft.base}</Badge>}
+          {editable && k.draft && <Badge component="a" href="#draft" variant="light" color="gray" style={{ cursor: "pointer" }}>draft · base v{k.draft.base}</Badge>}
         </Group>
         {del}
       </Group>
       <Grid>
         <Grid.Col span={{ base: 12, md: 3 }}>
-          <VersionRail k={k} href={href} drift={drift} onPin={(n) => write.mutateAsync({ path: "pin", body: { version: n } })} />
+          <VersionRail k={k} href={href} onPin={(n) => write.mutateAsync({ path: "pin", body: { version: n } })} />
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 9 }}>
           <Stack>
@@ -100,29 +99,31 @@ function Kit({ k }: { k: KitDetail }) {
                 {!k.uses.length && !k.usedByKits.length && <Text size="sm" c="dimmed">No role or kit uses this kit.</Text>}
               </Group>
             </Section>
-            <SourceCard k={k} drift={drift} busy={write.isPending}
+            <SourceCard k={k} busy={write.isPending}
               onSync={() => write.mutateAsync({ path: "sync" })} onUntrack={() => write.mutateAsync({ path: "source", del: true })}
               onTrack={(source) => write.mutateAsync({ path: "source", body: { source } })} />
             <Section title="Versions" sub="and where each came from">
               <Table>
-                <Table.Thead><Table.Tr><Table.Th>Version</Table.Th><Table.Th>Pushed</Table.Th><Table.Th>Source</Table.Th><Table.Th>Commit</Table.Th></Table.Tr></Table.Thead>
+                <Table.Thead><Table.Tr><Table.Th>Version</Table.Th><Table.Th>Created</Table.Th><Table.Th>Source</Table.Th><Table.Th>Commit</Table.Th></Table.Tr></Table.Thead>
                 <Table.Tbody>{k.versions.map((v) => (
                   <Table.Tr key={v.n}>
                     <Table.Td><Anchor component={Link} to={href({ v: v.n })}>v{v.n}</Anchor>{v.current && <Badge size="sm" ml={6}>current</Badge>}</Table.Td>
                     <Table.Td>{v.pushed || <Text span c="dimmed">—</Text>}</Table.Td>
-                    <Table.Td>{v.source ? <>{repo(v.source)}{v.source.dir && <Text span ff="monospace"> //{v.source.dir}</Text>} <Text span ff="monospace">@{v.source.ref}</Text></> : <Text span c="dimmed">pushed</Text>}</Table.Td>
+                    <Table.Td>{v.source ? <>{repo(v.source)}{v.source.dir && <Text span ff="monospace"> //{v.source.dir}</Text>} <Text span ff="monospace">@{v.source.ref}</Text></> : <Text span c="dimmed" title="From a config commit, the built-in default, or a push before config moved to git">config</Text>}</Table.Td>
                     <Table.Td>{v.source ? commit(v.source) : <Text span c="dimmed">—</Text>}</Table.Td>
                   </Table.Tr>
                 ))}</Table.Tbody>
               </Table>
             </Section>
-            <DraftSection kit={k.name} />
-            <Card withBorder>
-              <details>
-                <summary style={{ cursor: "pointer", fontWeight: 600 }}>Push new version</summary>
-                <PushForm key={`${k.view.n}/${k.view.pushText}`} k={k} confirm={drift ? `${drift} Push anyway?` : undefined} onPush={(config) => write.mutateAsync({ path: "versions", body: { config } })} />
-              </details>
-            </Card>
+            {editable && <>
+              <DraftSection kit={k.name} />
+              <Card withBorder>
+                <details>
+                  <summary style={{ cursor: "pointer", fontWeight: 600 }}>Push new version</summary>
+                  <PushForm key={`${k.view.n}/${k.view.pushText}`} k={k} onPush={(config) => write.mutateAsync({ path: "versions", body: { config } })} />
+                </details>
+              </Card>
+            </>}
           </Stack>
         </Grid.Col>
       </Grid>
@@ -134,8 +135,8 @@ type Src = NonNullable<KitDetail["source"]>;
 const repo = (s: Src) => s.repoLink ? <Anchor href={s.repoLink} rel="noopener noreferrer" ff="monospace" size="sm">{s.repo}</Anchor> : <Text span ff="monospace" size="sm">{s.repo}</Text>;
 const commit = (s: Src) => !s.commit ? <Text span c="dimmed">—</Text> : s.commitLink ? <Anchor href={s.commitLink} rel="noopener noreferrer" ff="monospace" size="sm">{s.commit}</Anchor> : <Text span ff="monospace" size="sm">{s.commit}</Text>;
 
-function SourceCard({ k, drift, busy, onSync, onUntrack, onTrack }: {
-  k: KitDetail; drift: string; busy: boolean; onSync: () => Promise<unknown>; onUntrack: () => Promise<unknown>; onTrack: (source: string) => Promise<unknown>;
+function SourceCard({ k, busy, onSync, onUntrack, onTrack }: {
+  k: KitDetail; busy: boolean; onSync: () => Promise<unknown>; onUntrack: () => Promise<unknown>; onTrack: (source: string) => Promise<unknown>;
 }) {
   const [source, setSource] = useState("");
   const s = k.source;
@@ -147,18 +148,17 @@ function SourceCard({ k, drift, busy, onSync, onUntrack, onTrack }: {
             <Facts rows={[["Repo", repo(s)], ...(s.dir ? [["Dir", <Text span ff="monospace">{s.dir}</Text>] as [string, React.ReactNode]] : []), ["Ref", <Text span ff="monospace">{s.ref}</Text>], ["Last synced", commit(s)]]} />
             {k.canSource && (
               <Group gap="xs">
-                {drift ? <ConfirmAction label="Sync" color="jam" variant="filled" confirm={`${drift} Sync anyway?`} onConfirm={onSync} />
-                  : <Button size="xs" loading={busy} disabled={busy} onClick={() => { void onSync().catch((e: Error) => notifications.show({ color: "red", message: e.message, autoClose: false })); }}>Sync</Button>}
-                <ConfirmAction label="Untrack" confirm={`Stop tracking the source of ${k.name}? Its versions are kept.${drift ? " " + drift : ""}`} onConfirm={onUntrack} />
+                <Button size="xs" loading={busy} disabled={busy} onClick={() => { void onSync().catch((e: Error) => notifications.show({ color: "red", message: e.message, autoClose: false })); }}>Sync</Button>
+                <ConfirmAction live label="Untrack" confirm={`Stop tracking the source of ${k.name}? Its versions are kept.`} onConfirm={onUntrack} />
               </Group>
             )}
           </>
-        ) : <Text size="sm" c="dimmed">Not tracked — pushed by hand, or imported once.</Text>}
+        ) : <Text size="sm" c="dimmed">Not tracked — its versions come from config commits, or were imported once.</Text>}
         {k.setWith && <Text size="sm" c="dimmed">Part of a set with {k.setWith} — imported from the same repo.</Text>}
         {k.canSource && !s && (
           <details>
             <summary style={{ cursor: "pointer" }}>Track…</summary>
-            <EditForm submit="Track" confirm={drift ? `${drift} Track anyway?` : undefined} onSubmit={() => onTrack(source)}>
+            <EditForm live submit="Track" onSubmit={() => onTrack(source)}>
               <TextInput label="Source" description={`https://host/org/repo[//dir]@ref — imports it as a new version of ${k.name} and tracks it for Sync`} required autoComplete="off" spellCheck={false}
                 placeholder="https://github.com/acme/kits//web@main" value={source} onChange={(e) => setSource(e.currentTarget.value)} />
             </EditForm>
@@ -169,10 +169,10 @@ function SourceCard({ k, drift, busy, onSync, onUntrack, onTrack }: {
   );
 }
 
-function PushForm({ k, confirm, onPush }: { k: KitDetail; confirm?: string; onPush: (config: string) => Promise<unknown> }) {
+function PushForm({ k, onPush }: { k: KitDetail; onPush: (config: string) => Promise<unknown> }) {
   const [config, setConfig] = useState(k.view.pushText);
   return (
-    <EditForm submit="Push version" confirm={confirm} onSubmit={() => onPush(config)}>
+    <EditForm submit="Push version" onSubmit={() => onPush(config)}>
       {k.view.hidden ? <Text size="sm">{hiddenNote(k.name)}</Text> : k.view.masked && <Alert color="red" p="xs">{maskedNote}</Alert>}
       <Textarea label="Studio kit YAML" description={`pre-filled with v${k.view.n}; pushing makes a new current version (an unchanged kit makes none)`} required autosize minRows={12}
         spellCheck={false} styles={{ input: mono }} value={config} onChange={(e) => setConfig(e.currentTarget.value)} />

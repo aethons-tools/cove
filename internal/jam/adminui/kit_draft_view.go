@@ -49,12 +49,7 @@ type draftView struct {
 	ETag          string // the draft's ETag at this read: the forms send it back
 	Actor         string
 	Updated       string
-	Managed       bool     // config-managed: publishing drifts
-	DriftWarning  string   // jam.DraftDriftWarning, shown when Managed
-	DriftConfirm  string   // the box a drifting publish ticks (draftDriftConfirm)
-	PinDrift      []string // config-managed followers Pin followers would rewrite
-	PinDriftNote  string   // the warning naming them, next to the Pin box
-	MaxFile       string   // the per-file limit, for the upload hints
+	MaxFile       string // the per-file limit, for the upload hints
 	Problems      []string
 	Size          string       // the draft's total size
 	Tree          []draftRow   // its files, nested by directory
@@ -111,8 +106,8 @@ func newDraftView(kit string, st jam.KitDraftStatus, base kittree.Tree) *draftVi
 	v := &draftView{
 		Base: st.Base, Current: st.Current, Superseded: st.Base != st.Current,
 		ETag: st.ETag, Actor: st.Actor, Updated: st.UpdatedAt.UTC().Format("2006-01-02 15:04"),
-		Managed: st.Managed, DriftWarning: jam.DraftDriftWarning, DriftConfirm: draftDriftConfirm, Problems: st.Problems,
-		MaxFile: kittree.SizeText(kittree.MaxFile),
+		Problems: st.Problems,
+		MaxFile:  kittree.SizeText(kittree.MaxFile),
 	}
 	var total int64
 	for _, e := range st.Entries {
@@ -158,10 +153,6 @@ func buildDraftPage(store jam.Store, name string, q draftQuery) (draftPage, bool
 		return p, true, fmt.Errorf("kit %s draft: base v%d's tree could not be read", name, st.Base)
 	}
 	p.Draft = newDraftView(name, st, base.Tree)
-	if managed := managedFollowersToPin(store, name); len(managed) > 0 {
-		p.Draft.PinDrift = managed
-		p.Draft.PinDriftNote = "Pinning rewrites config-managed " + strings.Join(managed, ", ") + ": with Pin followers, this publish drifts from the config repo."
-	}
 	if q.File != "" && !q.Diff {
 		if err := openDraftFile(store, name, q.File, p.Draft); err != nil {
 			return p, true, err

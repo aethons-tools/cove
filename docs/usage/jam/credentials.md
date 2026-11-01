@@ -4,7 +4,7 @@ read_when: You are supplying the real secrets a Jam brokers or uses — writing 
 owns: the jam credentials-file format and location, the value/command/global/mint source vocabulary and the minters: library, the `exchange: gcp` demand setting, the demand/supply split (serve config demands by name, the file supplies), which references must name a demanded credential, and fail-closed on an unsupplied demand
 prereqs: serve.md for the serve config that demands credentials
 tier: leaf
-updated: 2026-10-31
+updated: 2026-11-01
 ---
 
 # The Jam credentials file
@@ -101,12 +101,12 @@ credential:
 | Reference | Where |
 |---|---|
 | `store-postgres.password-cred` | the DB password ([serve.md](serve.md#postgres-store-store-postgres)) |
-| a connection's credential (`jam connection add --cred` / `connection cred`), checked when serve starts the connection — the Discord bot token, the tracker token | [serve.md](serve.md) (`runtime.discord.connection`, `runtime.requisitioner.connection`; the deprecated `bot-token-cred` / `tracker-token-cred` name one directly) |
-| a destination's `cred-name` | validated at `destination add` ([serve.md](serve.md#destinations)) |
+| a connection's credential (`cred:` in `connections/<name>.yml` in the config repo), checked when serve starts the connection — the Discord bot token, the tracker token | [serve.md](serve.md) (`runtime.discord.connection`, `runtime.requisitioner.connection`; the deprecated `bot-token-cred` / `tracker-token-cred` name one directly) |
+| a destination's `cred_name` | validated by the config plan ([serve.md](serve.md#destinations)) |
 | `pool.cred-name` | the pool's anthropic credential ([pool.md](pool.md)) |
 | `ssh.ca-cred` | the studio-collaboration SSH CA key ([serve.md](serve.md), [collaboration.md](collaboration.md)) |
 | `metrics.token-cred` | the `/metrics` scrape token ([monitoring.md](monitoring.md#metrics)) |
-| `config.github.cred`, `config.gitlab.cred` | the followed config repo's token, for exactly its URL; any source but gcp-exchange or the pool's ([config-git-sources.md](config-git-sources.md)) |
+| `config.github.cred`, `config.gitlab.cred`, `config.git.cred` | the followed config repo's token, for exactly its URL (for `config.git`, an SSH private key); any source but gcp-exchange or the pool's ([config-git-sources.md](config-git-sources.md)) |
 | `kits.git[].cred` | a git token for kit sources, by repo-URL prefix; plain static only. The prefix must be https (or loopback http), end in `/`, and have a dotted host or loopback; refs containing `/` need a portless host ([serve.md](serve.md), [kits-git.md](kits-git.md)) |
 
 A demand may carry one non-secret setting, **`exchange: gcp`**:
@@ -133,5 +133,6 @@ An inline strategy is a **hard parse error**, not a silent alias (unlike the
 `runtime.requisitioner.tracker-token`. The error names the field and points at
 this file. To migrate, move each strategy into `credentials.yml` under the same
 name, leave only the bare name under `credentials:`, and replace the inline
-token with a connection whose credential names it (or the deprecated
-`bot-token-cred` / `tracker-token-cred`).
+token with a connection whose credential names it (the deprecated
+`bot-token-cred` / `tracker-token-cred` bind only an existing such connection:
+[serve.md](serve.md#the-serve-config)).

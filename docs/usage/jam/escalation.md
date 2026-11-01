@@ -1,10 +1,10 @@
 ---
 summary: The escalation engine — a per-project, category-keyed ordered policy of human tiers + per-tier timeouts that calls people into a waiting session's channel when it asks for a person, opt-in and independent of wake-on's reply/max-wait clock.
 read_when: You want a waiting session that asked for a person to actively reach people instead of passively waiting — configuring ordered tiers of people to call in with per-tier timeouts, routing by block category, or operating/tuning the resident escalation engine.
-owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), when an escalation opens (needs-input or `escalate`), tiers as call-ins and the escalation notice (immediate tier 0, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.escalation-poll-interval` config, and the `jam project escalation set|list|clear [--category]` commands.
+owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), when an escalation opens (needs-input or `escalate`), tiers as call-ins and the escalation notice (immediate tier 0, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.escalation-poll-interval` config, and where it is set (`escalation:` / `escalation-by-category:` in project.yml; `jam project escalation list`).
 prereqs: intercom.md for the wake-on engine, the Waiting/suspend model, home channels and call-in escalation builds on, and the other brokered studio tools `escalate` sits alongside; comms-addressing.md for the Project members tiers resolve against
 tier: leaf
-updated: 2026-10-23
+updated: 2026-11-01
 ---
 
 # Escalation (human tiers)
@@ -52,8 +52,8 @@ a person** until the session is next woken, which opens an escalation once it
 waits (below). A session typically calls `escalate` before ending its turn, so the
 category is set before Jam evaluates who to call in.
 
-Operator commands take a matching `--category <name>` flag — see [Operator
-commands](#operator-commands-jam-project-escalation) below. Jam
+A project sets a chain per category under `escalation-by-category` — see
+[Setting the policy](#setting-the-policy) below. Jam
 **auto-detecting** a category itself (e.g. stamping `infra` on an egress-wall
 denial or a `401`, without the studio calling `escalate`) is not implemented yet
 — see [Not yet](#not-yet-deferred).
@@ -130,33 +130,29 @@ read; the top-level key wins when both are set, and an invalid one stops `serve`
 at startup. The engine only does anything
 for a Project that has an escalation policy set.
 
-## Operator commands: `jam project escalation`
+## Setting the policy
 
+A project's chains are in its `project.yml` in the config repo, changed by a
+commit (or on the admin console's project Escalation page, on a branch:
+[ui-projects.md](ui-projects.md#sections)):
+
+```yaml
+# projects/acme/project.yml
+escalation:                       # the default chain, tier 0 first
+  - {targets: ["user:alice", "user:bob"], timeout: 15m}
+  - {targets: ["user:carol"], timeout: 1h}
+escalation-by-category:           # a chain per category (see Categories above)
+  infra: [{targets: ["user:sre"], timeout: 10m}]
 ```
-jam project escalation set   <project> [--category <name>] --tier 'user:alice,user:bob@15m' [--tier 'user:carol@1h' …]
-jam project escalation list  <project>
-jam project escalation clear <project> [--category <name>]
-```
 
-The admin UI's project Escalation page edits the same chains ([ui-projects.md](ui-projects.md#sections)).
-
-- `set` **replaces** the whole ordered policy for one chain. Each `--tier` is
-  `comma,separated,targets@duration` — a comma-separated list of `user:<name>`
-  targets, an `@`, then a positive `time.ParseDuration` timeout (e.g. `15m`,
-  `1h`); a tier with no targets is refused. Repeat
-  `--tier` in order; the first is tier 0.
-- `list` prints the default chain (labeled `default`), then each configured
-  category's chain (labeled by category name), each tier's index, targets, and
-  timeout.
-- `clear` removes one chain — the Project reverts to today's passive wait for
-  that chain.
-- `--category <name>` on `set`/`clear` targets that category's chain (see
-  [Categories](#categories-routing-by-block-kind) above) instead of the
-  default; omitted on either, it's the default chain. Example:
-  `jam project escalation set acme --category infra --tier 'user:sre@10m'`.
-
-All three take the same admin-client flags (`--app`/`--admin-url`/`--token`) as
-every other `jam` verb — see [operators.md](operators.md).
+- Each tier is a list of `user:<name>` targets and a positive
+  `time.ParseDuration` timeout (e.g. `15m`, `1h`); a tier with no targets is
+  refused. A chain left out reverts the Project to today's passive wait for it.
+- `jam project escalation list <project>` prints the default chain (labeled
+  `default`), then each configured category's chain (labeled by category
+  name), each tier's index, targets, and timeout. It takes the same
+  admin-client flags (`--app`/`--admin-url`/`--token`) as every other `jam`
+  verb — see [operators.md](operators.md).
 
 ## Not yet (deferred)
 

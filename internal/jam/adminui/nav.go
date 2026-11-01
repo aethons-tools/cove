@@ -21,12 +21,3 @@ type frameSource struct {
 func (s frameSource) items() []attnItem {
 	return append(conditionItems(s.conds.Open()), attention(s.store, s.img)...)
 }
-
-// marks is every managed mark by object.
-func (s frameSource) marks() map[jam.ConfigKey]jam.ConfigMark {
-	out := map[jam.ConfigKey]jam.ConfigMark{}
-	for _, mk := range s.store.ListConfigMarks() {
-		out[mk.Key()] = mk
-	}
-	return out
-}

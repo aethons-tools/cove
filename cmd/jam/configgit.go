@@ -23,17 +23,17 @@ import (
 var configStdin io.Reader = os.Stdin
 
 // cmdConfig keeps a Jam's configuration in git: `config write <dir> [--all]`,
-// `config diff|apply [--dir <path> | --git <src>]` (neither: the followed
-// repo), `config sync`, `config status`, `config release <kind>/<name>`.
+// `config diff [--dir <path> | --git <src>]` (neither: the followed repo, planned
+// only), `config sync`, `config status`.
 func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] [--force] | sync [--yes] [--force] | status | release <kind>/<name>"
+	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | sync [--yes] | status"
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
-	case "write", "diff", "apply", "sync", "status", "release":
+	case "write", "diff", "sync", "status":
 	default:
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -51,14 +51,8 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	case "diff":
 		dir = fs.String("dir", "", "the config checkout to plan against the Jam")
 		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to plan (default: the followed repo)")
-	case "apply":
-		dir = fs.String("dir", "", "the config checkout to apply")
-		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to apply (default: the followed repo)")
-		yes = fs.Bool("yes", false, "apply without the confirmation prompt")
-		force = fs.Bool("force", false, "write over drift")
 	case "sync":
 		yes = fs.Bool("yes", false, "apply without the confirmation prompt")
-		force = fs.Bool("force", false, "write over drift")
 	}
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
@@ -99,26 +93,6 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "wrote %d files to %s (removed %d); review with git diff\n", n, target, len(exp.Remove))
 		return 0
 	}
-	if sub == "release" {
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam config release: expected one <kind>/<name> (a role: role/<project>/<role>)")
-			return 2
-		}
-		kind, name, ok := strings.Cut(pos[0], "/")
-		if !ok || kind == "" || name == "" {
-			fmt.Fprintln(stderr, "jam config release: expected one <kind>/<name> (a role: role/<project>/<role>)")
-			return 2
-		}
-		c, err := client()
-		if err != nil {
-			return fail(err)
-		}
-		if err := c.ConfigRelease(kind, name); err != nil {
-			return fail(err)
-		}
-		fmt.Fprintf(stdout, "released %s %s: it stays in Jam, unmanaged\n", kind, name)
-		return 0
-	}
 	if len(pos) != 0 {
 		fmt.Fprintf(stderr, "jam config %s: unexpected argument %q\n", sub, pos[0])
 		return 2
@@ -139,15 +113,13 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		printConfigFollow(stdout, s)
 		return 0
 	}
-	t := configTarget{source: *git, sync: sub == "sync"}
+	t := configTarget{source: *git}
 	if *dir != "" {
 		if t.tree, err = configtar.Pack(*dir); err != nil {
 			return fail(err)
 		}
 	}
-	// apply and sync preview with their own --force, so the reviewed plan
-	// (and its digest) is the one the forced apply writes.
-	res, err := t.diff(c, sub != "diff" && *force)
+	res, err := t.diff(c)
 	if err != nil {
 		return fail(err)
 	}
@@ -175,7 +147,7 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	applied, err := t.apply(c, *force, res.Plan.Digest)
+	applied, err := c.ConfigSync(res.Plan.Digest)
 	if err != nil {
 		return fail(err)
 	}
@@ -189,29 +161,18 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// configTarget is what a diff, apply or sync plans: a packed --dir tree, a
-// --git source, or (neither) the followed repo — through /sync for sync.
+// configTarget is what a diff plans: a packed --dir tree, a --git source, or
+// (neither) the followed repo. Sync plans the followed repo, then applies it.
 type configTarget struct {
 	tree   []byte
 	source string
-	sync   bool
 }
 
-func (t configTarget) diff(c *adminclient.Client, force bool) (jam.ConfigApplyResult, error) {
+func (t configTarget) diff(c *adminclient.Client) (jam.ConfigApplyResult, error) {
 	if t.tree != nil {
-		return c.ConfigDiff(t.tree, force)
+		return c.ConfigDiff(t.tree)
 	}
-	return c.ConfigDiffSource(t.source, force)
-}
-
-func (t configTarget) apply(c *adminclient.Client, force bool, digest string) (jam.ConfigApplyResult, error) {
-	switch {
-	case t.tree != nil:
-		return c.ConfigApply(t.tree, force, digest)
-	case t.sync:
-		return c.ConfigSync(force, digest)
-	}
-	return c.ConfigApplySource(t.source, force, digest)
+	return c.ConfigDiffSource(t.source)
 }
 
 // printConfigFollow prints the follower's status, one field a line.
@@ -241,6 +202,24 @@ func printConfigSource(w io.Writer, res jam.ConfigApplyResult) {
 	}
 }
 
+// printLineDiff prints Jam's canonical form against the repo's as a compact
+// line diff, or both in full when too large to diff.
+func printLineDiff(w io.Writer, before, after string, indent func(string) string) {
+	lines, tooLarge := linediff.Diff(before, after)
+	if tooLarge {
+		fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(before), indent(after))
+		return
+	}
+	fmt.Fprintf(w, "  --- jam\n  +++ repo\n")
+	for _, l := range lines {
+		if l.Op == "…" {
+			fmt.Fprintf(w, "  … %s\n", l.Text)
+		} else {
+			fmt.Fprintf(w, "  %s%s\n", l.Op, l.Text)
+		}
+	}
+}
+
 // insideGitWorkTree reports whether dir or an ancestor holds a .git.
 func insideGitWorkTree(dir string) bool {
 	for {
@@ -255,8 +234,10 @@ func insideGitWorkTree(dir string) bool {
 	}
 }
 
-// printConfigPlan renders a plan: one line per changed object, drift blocks,
-// the unchanged count, unmanaged objects, the serve-config state, refusals.
+// printConfigPlan renders a plan: one line per changed object, under it
+// what the apply overwrites (an update's Jam → repo line diff, a kit's
+// version diff) or deletes (Jam's side), then the unchanged count, unmanaged
+// objects, the serve-config state, refusals.
 func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 	for _, ks := range p.KitSources {
 		fmt.Fprintf(w, "kit-source  %s  %s @ %s\n", ks.Path, ks.Source, jam.ShortConfigCommit(ks.Commit))
@@ -271,37 +252,15 @@ func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 			unchanged++
 			continue
 		}
-		mark := ""
+		fmt.Fprintf(w, "%s  %s %s\n", op.Action, op.Kind, op.Name)
 		switch {
-		case op.Drift:
-			mark = "  (drift)"
-		case op.Unmanaged:
-			mark = "  (not managed)"
-		}
-		fmt.Fprintf(w, "%s  %s %s%s\n", op.Action, op.Kind, op.Name, mark)
-		if op.Kind == jam.ConfigKindKit && op.Diff != "" {
+		case op.Kind == jam.ConfigKindKit && op.Diff != "":
 			fmt.Fprintln(w, indent(textesc.Escape(op.Diff, true))) // kit.yml's line diff, then the files
-			continue
-		}
-		if !op.Drift && !op.Unmanaged {
-			continue
-		}
-		if op.After == "" { // a delete: the repo no longer has it
+		case op.Before == "": // a create: nothing in Jam to overwrite
+		case op.After == "": // a delete: what Jam loses
 			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n    (not in the repo)\n", indent(op.Before))
-			continue
-		}
-		lines, tooLarge := linediff.Diff(op.Before, op.After)
-		if tooLarge {
-			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(op.Before), indent(op.After))
-			continue
-		}
-		fmt.Fprintf(w, "  --- jam\n  +++ repo\n")
-		for _, l := range lines {
-			if l.Op == "…" {
-				fmt.Fprintf(w, "  … %s\n", l.Text)
-			} else {
-				fmt.Fprintf(w, "  %s%s\n", l.Op, l.Text)
-			}
+		default: // an update: what it overwrites
+			printLineDiff(w, op.Before, op.After, indent)
 		}
 	}
 	for _, k := range p.Forget {

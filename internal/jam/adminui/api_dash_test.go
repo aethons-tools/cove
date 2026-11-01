@@ -56,9 +56,8 @@ func TestDashboardAPI(t *testing.T) {
 }
 
 func TestJamContextAPI(t *testing.T) {
-	store := newStore(t)
 	var logs bytes.Buffer
-	h := adminui.Handler(store, slog.New(slog.NewTextHandler(&logs, nil)), nil, nil, anyCred, nil)
+	h := editOn(t, editSetup{log: slog.New(slog.NewTextHandler(&logs, nil))}).H
 	var p adminui.ContextPanel
 	if rec := apiDo(t, h, "POST", "/app/admin/api/jam/context", map[string]string{"yaml": "core: hello secretish"}, &p); rec.Code != 200 || !strings.Contains(p.Core, "hello secretish") {
 		t.Fatalf("set = %d %s", rec.Code, rec.Body)

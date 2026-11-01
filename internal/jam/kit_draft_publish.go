@@ -22,16 +22,14 @@ type KitDraftPublishBody struct {
 }
 
 // KitDraftPublish answers a publish: the new version and its tree, the
-// draft's base, the followers pinned ("web v5 (app@v3)"), and, for a
-// config-managed kit (or a managed follower pinned), Drift with
-// DraftDriftWarning. Warning also says when the draft could not be closed.
+// draft's base and the followers pinned ("web v5 (app@v3)"). Warning says
+// when the draft could not be closed.
 type KitDraftPublish struct {
 	Kit     string   `json:"kit"`
 	Version int      `json:"version"`
 	Tree    string   `json:"tree"`
 	Base    int      `json:"base"`
 	Pinned  []string `json:"pinned,omitempty"`
-	Drift   bool     `json:"drift,omitempty"`
 	Warning string   `json:"warning,omitempty"`
 }
 
@@ -76,7 +74,7 @@ func PublishKitDraft(store Store, log *slog.Logger, name string, pin bool, ifMat
 		return KitDraftPublish{}, err
 	}
 	pending := []pendingKitVersion{{ref: ref, meta: meta, tree: tree, objs: KitObjects{Trees: []kittree.Tree{tree}}}}
-	res := KitDraftPublish{Kit: name, Base: d.Base, Drift: KitManaged(store, name)}
+	res := KitDraftPublish{Kit: name, Base: d.Base}
 	if pin {
 		pins, err := pinFollowersLocked(store, name, k.Current)
 		if err != nil {
@@ -84,7 +82,6 @@ func PublishKitDraft(store Store, log *slog.Logger, name string, pin bool, ifMat
 		}
 		for _, p := range pins {
 			res.Pinned = append(res.Pinned, fmt.Sprintf("%s v%d (%s@v%d)", p.ref.ID, p.ref.Version, name, k.Current))
-			res.Drift = res.Drift || KitManaged(store, p.ref.ID)
 		}
 		pending = append(pending, pins...)
 	}
@@ -92,9 +89,6 @@ func PublishKitDraft(store Store, log *slog.Logger, name string, pin bool, ifMat
 		return KitDraftPublish{}, fmt.Errorf("kit %s: publish: %w", name, err)
 	}
 	res.Version, res.Tree = ref.Version, d.Tree
-	if res.Drift {
-		res.Warning = DraftDriftWarning
-	}
 	if err := store.RemoveKitDraft(name); err != nil {
 		// The version is written: the publish succeeded, so it answers
 		// 200 with a fixed warning; the store error goes to the log only.

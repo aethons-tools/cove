@@ -2,7 +2,6 @@ package jam
 
 import (
 	"fmt"
-	"log/slog"
 	"net/http"
 	"regexp"
 	"slices"
@@ -75,12 +74,9 @@ func EgressFingerprint(p *EgressPolicy) string {
 	return "d:" + strings.Join(p.Domains, ",")
 }
 
-// registerEgress mounts a role's egress-policy routes. Each write is a
-// read-modify-write of the Role that keeps every other field, under the shared
-// role lock (SetRoleEgress/ClearRoleEgress). The routes only write the Role: the supervisor's
-// reconcile pass notices the drift and re-applies it to the role's running coves
-// (a paused cove gets it when it resumes).
-func registerEgress(mux *http.ServeMux, store Store, log *slog.Logger) {
+// registerEgress mounts the read route for a role's egress policy; the policy
+// changes only in git.
+func registerEgress(mux *http.ServeMux, store Store) {
 	notFound := func(w http.ResponseWriter, project, role string) {
 		http.Error(w, fmt.Sprintf("role %s/%s does not exist", project, role), http.StatusNotFound)
 	}
@@ -98,30 +94,5 @@ func registerEgress(mux *http.ServeMux, store Store, log *slog.Logger) {
 			view.Domains = append(view.Domains, role.Scope.Egress.Domains...)
 		}
 		writeJSON(w, http.StatusOK, view)
-	})
-
-	mux.HandleFunc("PUT /admin/roles/{project}/{role}/egress", func(w http.ResponseWriter, r *http.Request) {
-		project, roleName := r.PathValue("project"), r.PathValue("role")
-		var b EgressPolicy
-		if !decode(w, r, &b) {
-			return
-		}
-		n, err := SetRoleEgress(store, project, roleName, b.Domains)
-		if err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
-			return
-		}
-		log.Info("admin role egress set", "operator", OperatorID(r), "project", project, "role", roleName, "domains", n)
-		w.WriteHeader(http.StatusNoContent)
-	})
-
-	mux.HandleFunc("DELETE /admin/roles/{project}/{role}/egress", func(w http.ResponseWriter, r *http.Request) {
-		project, roleName := r.PathValue("project"), r.PathValue("role")
-		if err := ClearRoleEgress(store, project, roleName); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
-			return
-		}
-		log.Info("admin role egress cleared", "operator", OperatorID(r), "project", project, "role", roleName)
-		w.WriteHeader(http.StatusNoContent)
 	})
 }

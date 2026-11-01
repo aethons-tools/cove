@@ -37,14 +37,10 @@ type ConfigOp struct {
 	Kind   string `json:"kind"`
 	Name   string `json:"name"`
 	Action string `json:"action"`
-	Drift  bool   `json:"drift,omitempty"`
-	// Unmanaged: a refused update of an object Jam has but the repo does not
-	// manage; Before and After show why the repo copy did not adopt.
-	Unmanaged bool   `json:"unmanaged,omitempty"`
-	Path      string `json:"path,omitempty"`
-	Before    string `json:"before,omitempty"` // Jam's canonical form (update, delete)
-	After     string `json:"after,omitempty"`  // the repo's (create, update)
-	Diff      string `json:"diff,omitempty"`   // a kit update's version diff, Jam → repo (kittree.DiffText)
+	Path   string `json:"path,omitempty"`
+	Before string `json:"before,omitempty"` // Jam's canonical form (update, delete)
+	After  string `json:"after,omitempty"`  // the repo's (create, update)
+	Diff   string `json:"diff,omitempty"`   // a kit update's version diff, Jam → repo (kittree.DiffText)
 }
 
 // ConfigPlan is a config tree planned against a Jam: every object's action,
@@ -61,8 +57,8 @@ type ConfigPlan struct {
 	write       ConfigWrite
 	// refreshMarks are the marks of unchanged objects whose recorded digest
 	// is not the repo's (a kit sync landed the repo's content, say): a
-	// write that applies nothing else still rewrites them, so the next real
-	// change is not refused as drift. They are in write.Marks too.
+	// write that applies nothing else still rewrites them, so the mark
+	// records what Jam holds. They are in write.Marks too.
 	refreshMarks []ConfigMark
 }
 
@@ -86,22 +82,19 @@ func (o ConfigPlan) Counts() map[string]int {
 	return n
 }
 
-// HasDrift reports whether any op is flagged drift: an object edited in Jam
-// since its last apply that the plan updates or deletes. A forced plan keeps
-// the flag, so the force choice stays visible.
-func (o ConfigPlan) HasDrift() bool {
-	return slices.ContainsFunc(o.Ops, func(op ConfigOp) bool { return op.Drift })
-}
-
 // ConfigEnv is what the planner needs from the serve beyond the store.
 type ConfigEnv struct {
 	CredExists     func(string) bool
 	PoolConfigured bool
 	Serve          map[string]any     // the running serve's portable config; nil = unknown
-	Conditions     *condition.Tracker // config.drift is re-checked after every apply; nil = none
+	Conditions     *condition.Tracker // the import raises kit.migrate on it; nil = none
 	// Followed is the config repo the Jam follows (config.github in the serve
 	// config); zero = none. Syncs apply it, and its applies are recorded.
 	Followed gitsource.Source
+	// FollowedLabel is how logs, results and pages name Followed ("" =
+	// configSourceLabel's rendering): a git repo (a local path or ssh) does
+	// not re-parse as a kit source, so the serve names it as configured.
+	FollowedLabel string
 	// Follower follows Followed; nil = none. The admin follow route reads its
 	// status, and a sync (the first apply's confirm) refreshes it. Planning
 	// never reads it.
@@ -117,14 +110,8 @@ type ConfigPlanInput struct {
 	Env       ConfigEnv
 	Source    gitsource.Source // {Repo: ConfigDirRepo} for --dir
 	Commit    string           // ConfigDirCommit for --dir
-	Force     bool
 	Now       time.Time
 }
-
-// seededConfigObjects are the objects every serve creates for itself: on a
-// fresh replica they exist unmanaged, so a differing repo copy is adopted and
-// updated instead of refused.
-var seededConfigObjects = map[ConfigKey]bool{{ConfigKindModelSpec, DefaultModelSpec}: true}
 
 type planner struct {
 	in    ConfigPlanInput
@@ -134,11 +121,8 @@ type planner struct {
 	marks map[ConfigKey]ConfigMark
 	repo  map[ConfigKey]bool
 	paths map[ConfigKey]string // op paths other than Key.Path(): kits kept by reference
-	// adoptable are unmanaged objects a differing repo copy adopts and
-	// updates: a live kit tracking the very source its .source.yml names.
-	adoptable map[ConfigKey]bool
-	plan      ConfigPlan
-	w         ConfigWrite
+	plan  ConfigPlan
+	w     ConfigWrite
 }
 
 // PlanConfig plans in.Tree against the Jam in in.Snapshot: it classifies
@@ -153,7 +137,7 @@ func PlanConfig(in ConfigPlanInput) ConfigPlan {
 	m := stateFromSnapshot(in.Snapshot, in.Instances)
 	live, err := exportObjects(m, nil)
 	p := &planner{in: in, m: m, store: &MemStore{memState: m}, live: live, marks: map[ConfigKey]ConfigMark{}, repo: map[ConfigKey]bool{},
-		paths: map[ConfigKey]string{}, adoptable: map[ConfigKey]bool{}}
+		paths: map[ConfigKey]string{}}
 	if err != nil {
 		p.refuse("jam: %s", err)
 	}
@@ -183,59 +167,39 @@ func (p *planner) credExists(name string) bool {
 	return p.in.Env.CredExists != nil && p.in.Env.CredExists(name)
 }
 
-// classify is §3's table for an object the repo holds. ok=false: refused.
-func (p *planner) classify(key ConfigKey, repo configObject) (action string, drift, ok bool) {
+// classify is §3's table for an object the repo holds. The repo always
+// wins: an object Jam has is updated to the repo's copy whether or not it is
+// managed, and whatever was edited in Jam since its mark.
+func (p *planner) classify(key ConfigKey, repo configObject) string {
 	p.repo[key] = true
 	cur, exists := p.live[key]
-	mark, managed := p.marks[key]
+	_, managed := p.marks[key]
 	switch {
 	case !exists:
-		return ConfigCreate, false, true
-	case !managed && bytes.Equal(cur.Canon, repo.Canon):
-		return ConfigAdopt, false, true
-	case !managed && (seededConfigObjects[key] || p.adoptable[key]):
-		return ConfigUpdate, false, true
-	case !managed:
-		p.refuse("%s exists and is not managed; config write --all it into the repo, or rename", key)
-		p.op(key, ConfigUpdate, false, cur.Canon, repo.Canon) // the diff shows both sides
-		p.plan.Ops[len(p.plan.Ops)-1].Unmanaged = true
-		return "", false, false
+		return ConfigCreate
+	case bytes.Equal(cur.Canon, repo.Canon) && !managed:
+		return ConfigAdopt
 	case bytes.Equal(cur.Canon, repo.Canon):
-		return ConfigUnchanged, false, true
+		return ConfigUnchanged
 	}
-	drift = cur.Digest() != mark.Digest
-	if drift && !p.in.Force {
-		p.refuseDrift(key)
-		p.op(key, ConfigUpdate, true, cur.Canon, repo.Canon) // the diff shows both sides
-		return "", true, false
-	}
-	return ConfigUpdate, drift, true
-}
-
-// refuseDrift refuses a write over a managed object edited in Jam since its
-// last apply.
-func (p *planner) refuseDrift(key ConfigKey) {
-	p.refuse("%s drifted (edited in Jam since config @%s); re-run with --force or config write it first", key, ShortConfigCommit(p.marks[key].Commit))
+	return ConfigUpdate
 }
 
 // upsert classifies key and, for a create or update, runs write against the
 // planned state; a write error is a refusal located at the object's file.
 func (p *planner) upsert(key ConfigKey, repo configObject, write func(create bool) error) {
-	action, drift, ok := p.classify(key, repo)
-	if !ok {
-		return
-	}
+	action := p.classify(key, repo)
 	if action == ConfigCreate || action == ConfigUpdate {
 		if err := write(action == ConfigCreate); err != nil {
 			p.refuse("%s: %s", key.Path(), err)
 			return
 		}
 	}
-	p.record(key, action, drift, repo)
+	p.record(key, action, repo)
 }
 
 // record emits key's op and its new mark.
-func (p *planner) record(key ConfigKey, action string, drift bool, repo configObject) {
+func (p *planner) record(key ConfigKey, action string, repo configObject) {
 	var before, after []byte
 	if action == ConfigUpdate {
 		before = p.live[key].Canon
@@ -243,7 +207,7 @@ func (p *planner) record(key ConfigKey, action string, drift bool, repo configOb
 	if action == ConfigCreate || action == ConfigUpdate {
 		after = repo.Canon
 	}
-	p.op(key, action, drift, before, after)
+	p.op(key, action, before, after)
 	mk := ConfigMark{Kind: key.Kind, Name: key.Name, Commit: p.in.Commit, Digest: repo.Digest(), AppliedAt: p.in.Now}
 	p.w.Marks = append(p.w.Marks, mk)
 	if action == ConfigUnchanged && p.marks[key].Digest != mk.Digest {
@@ -255,12 +219,12 @@ func (p *planner) refuse(format string, a ...any) {
 	p.plan.Refusals = append(p.plan.Refusals, fmt.Sprintf(format, a...))
 }
 
-func (p *planner) op(key ConfigKey, action string, drift bool, before, after []byte) {
+func (p *planner) op(key ConfigKey, action string, before, after []byte) {
 	file := key.Path()
 	if pp, ok := p.paths[key]; ok {
 		file = pp
 	}
-	p.plan.Ops = append(p.plan.Ops, ConfigOp{Kind: key.Kind, Name: key.Name, Action: action, Drift: drift,
+	p.plan.Ops = append(p.plan.Ops, ConfigOp{Kind: key.Kind, Name: key.Name, Action: action,
 		Path: file, Before: string(before), After: string(after)})
 }
 
@@ -469,22 +433,15 @@ func (p *planner) planKits() {
 			tracked = &at
 		}
 		repo := configObject{Key: key, Canon: kitCanon(e.tree, kittree.MapBlobs(e.blobs), tracked)}
-		if track && p.tracksSource(e.Name, at) {
-			p.adoptable[key] = true // only its ref moved since Jam last synced it
-		}
 		n := len(p.plan.Ops)
-		action, drift, ok := p.classify(key, repo)
-		if !ok {
-			p.setKitDiff(n, e)
-			continue
-		}
+		action := p.classify(key, repo)
 		if doc, write := configKitDoc(p.store, e, at, track, p.in.Now); write {
 			docs = append(docs, doc)
 			if !e.Unchanged {
 				versioned = append(versioned, e)
 			}
 		}
-		p.record(key, action, drift, repo)
+		p.record(key, action, repo)
 		p.setKitDiff(n, e)
 	}
 	objs := kitSetObjects(versioned)
@@ -526,14 +483,6 @@ func (p *planner) setKitDiff(n int, e kitSetEntry) {
 			p.plan.Ops[i].Diff = p.kitDiff(e)
 		}
 	}
-}
-
-// tracksSource reports whether live kit name already tracks at's repo, dir
-// and ref (its commit aside): the repo's .source.yml names the source the
-// kit follows, so the repo copy is that kit, whatever commit each side is at.
-func (p *planner) tracksSource(name string, at KitSource) bool {
-	k, ok := p.m.kits[name]
-	return ok && sameSource(k.Source, at.Repo, at.Dir) && k.Source.Ref == at.Ref
 }
 
 // kitProvenance is the KitSource entry e's new version records and whether

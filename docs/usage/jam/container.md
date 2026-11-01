@@ -4,7 +4,7 @@ read_when: You want to run Jam from its container image (the dev compose `jam` s
 owns: the Jam container image (name, tags, platforms, contents, build), the container serve config's shape, the compose `jam` service and its `just` recipes, the container's ports/admin access/volumes, and what a launcher-free serve needs at runtime
 prereqs: serve.md for the serve config; studio-managers.md for how managers connect
 tier: leaf
-updated: 2026-10-27
+updated: 2026-11-01
 ---
 
 # Jam in a container
@@ -40,7 +40,7 @@ What is inside (`images/jam/Dockerfile`):
 
 Why nothing else is needed: `jam serve` runs no external programs except two kinds of [credential](credentials.md) resolvers.
 `command:` entries are exec'd directly, with no shell. `mint:` entries run `jam mint`, which ships in the image.
-Git fetches (kit and config sources) are in-process go-git. Jam never needs a docker socket, SSH keys, `host-gateway` or loopback access to studios.
+Git fetches (kit and config sources) are in-process go-git. Jam never needs a docker socket, SSH key files, `host-gateway` or loopback access to studios. A local `config.git` repo must be mounted into the container, and `url` is its path there ([config-git-sources.md](config-git-sources.md#a-local-or-ssh-repo-configgit)).
 
 ## Running it with the dev compose
 

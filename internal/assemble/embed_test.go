@@ -661,7 +661,7 @@ func TestSandboxMDIsPlainWithJamGuard(t *testing.T) {
 	if len(head) > 300 {
 		t.Errorf("the guard is the only Jam-side cost; keep it short (%d bytes)", len(head))
 	}
-	for _, want := range []string{"jam kit draft", "jam egress set", "http://127.0.0.1:3128"} {
+	for _, want := range []string{"a commit to the config repo", "the role file's `scope.egress`", "http://127.0.0.1:3128"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("SANDBOX.md missing %q:\n%s", want, s)
 		}

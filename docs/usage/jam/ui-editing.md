@@ -1,16 +1,19 @@
 ---
-summary: What the Jam admin console can change — enroll/revoke agents, roles and grants, raising and tearing down agents and requesting a personal agent, and the kit/destination/model-spec registry — with the type-ahead fields, how a write's outcome and refusals show, and the gate/CSRF/audit rules every write obeys.
-read_when: You want to change something from the Jam admin UI instead of the CLI — enroll or revoke an agent, add a grant, create a role, raise or tear down an agent, request a personal agent, edit a kit/destination/model-spec — or a UI write was refused and you want to know why.
+summary: What the Jam admin console can change — live, enroll/revoke agents and grants, raising and tearing down agents and requesting a personal agent; on a branch of the config repo, roles, kits, destinations and model-specs — with the type-ahead fields, how a write's outcome and refusals show, and the gate/CSRF/audit rules every write obeys.
+read_when: You want to change something from the Jam admin UI — enroll or revoke an agent, add a grant, raise or tear down an agent, request a personal agent, or (on a branch) create a role or edit a kit/destination/model-spec — or a UI write was refused and you want to know why.
 owns: the admin console's write surface — enroll/revoke/grant/role create-delete, the type-ahead reference fields, create panels, confirmations and how refusals show, the CSRF origin check and audit logging, runtime raise/teardown and Request, and the config-plane editing pointers
 prereqs: ui.md for reaching the UI and its sections; roster.md for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive
 tier: leaf
-updated: 2026-10-28
+updated: 2026-11-01
 ---
 
 # Editing from the admin UI
 
-Beyond viewing, the [admin UI](ui.md) can do the roster day-job, raise and tear
-down studios, and edit the config registry. Every write obeys the same gate as
+Beyond viewing, the [admin UI](ui.md) can do the roster day-job and raise and tear
+down studios, live, and edit the configuration **on a branch** of the config repo,
+where each save is a commit ([config-branches.md](config-branches.md)). Off a branch,
+or on a Jam with no config repo, config pages are read-only: their forms and buttons
+are hidden. Every write obeys the same gate as
 the views, is audit-logged against the operator, and is refused unless it comes
 from the UI itself.
 
@@ -24,7 +27,7 @@ verbs in [roster.md](roster.md):
   is never shown again, stored in a list, or logged. For the full connection
   snippet (env vars / git config), use the CLI `jam enroll`.
 - **Revoke** an agent and **add/remove** its grants on its
-  [agent page](ui-pages.md#agent-pages); **create/delete** a role (and edit it
+  [agent page](ui-pages.md#agent-pages). On a branch, **create/delete** a role (and edit it
   on its [role page](ui-projects.md#role-pages)).
 - Destination fields (role, enroll/grant overrides) take the CLI's
   `name=credential` syntax ([roster.md](roster.md#roles)); an unknown credential
@@ -88,7 +91,9 @@ obey the same gate, CSRF, and audit-logging as the roster edits above.
 
 ### Config plane (kits, destinations, model-specs)
 
-- **Kits** — create a kit (name + studio-kit YAML, validated like `kit push`)
+On a branch only; each save is a commit to it ([config-branches.md](config-branches.md)).
+
+- **Kits** — create a kit (name + studio-kit YAML, validated like a kit in the config repo)
   and delete an unused one; each kit's page shows its versions, diffs them,
   pins one, and pushes new versions — see [ui-pages.md](ui-pages.md#kit-pages); its
   Draft section edits a draft ([kits-drafts-ui.md](kits-drafts-ui.md)).
@@ -102,4 +107,3 @@ A kit config references credentials by name only (no secret values), and a
 destination's `cred-name` (or a model-spec's principal) is a reference, not a secret — the UI shows the name
 but never a credential value. These actions obey the same
 gate, CSRF, and audit-logging as the other edits.
-Objects a config repo manages carry a `managed · config @<commit>` badge, and every write to one asks first — see [ui-config.md](ui-config.md).

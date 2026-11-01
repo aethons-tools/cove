@@ -4,7 +4,7 @@ read_when: You are enabling or operating Jam's automatic intake — having it po
 owns: the operator-facing Requisitioner story — the poll→claim→raise flow, the `runtime.requisitioner` serve-config block, and the concurrency-cap model
 prereqs: coves.md for what a raised managed studio does (the supervisor + Launcher own its lifecycle); studio-managers.md for the Studio Manager a raised studio needs; roster.md for the role tickets are raised for
 tier: leaf
-updated: 2026-10-26
+updated: 2026-11-01
 ---
 
 # The Requisitioner
@@ -67,7 +67,7 @@ runtime:
     project: acme             # optional
     max-concurrent: 5         # required, > 0 — the backpressure cap (fallback: the role's roster max-ephemeral wins when set)
     poll-interval: 30s        # optional; defaults to 30s
-    connection: linear-acme   # a connection of the tracker's kind, `linear` or `github` (`jam connection add --kind linear --name linear-acme --cred linear-bot`); its credential is demanded in credentials.md, never inline here
+    connection: linear-acme   # a connection of the tracker's kind, `linear` or `github` (`connections/linear-acme.yml` in the config repo: `service: linear`, `cred: linear-bot`); its credential is demanded in credentials.md, never inline here
     linear:                   # the Linear team + lifecycle-state map
       team: AET
       class-label-prefix: "class:"
@@ -95,7 +95,7 @@ runtime:
   requisitioner:
     role: worker
     max-concurrent: 5
-    connection: gh-acme       # jam connection add --kind github --name gh-acme --cred github-bot
+    connection: gh-acme       # connections/gh-acme.yml in the config repo: service: github, cred: github-bot
     github:
       repo: acme/board        # owner/name
       class-label-prefix: "class:"

@@ -187,7 +187,7 @@ func TestExportConfigTreeRefusesBehindPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
-	want := "kit app pins web-dev@v1 but web-dev is at v2; versions are per-Jam — re-push app against v2 (or pin web-dev to v1) before config write"
+	want := "kit app pins web-dev@v1 but web-dev is at v2; versions are per-Jam — build app on web-dev by name (its current version) before config write"
 	if !errors.Is(err, ErrConfigKitPinBehind) || err.Error() != want {
 		t.Fatalf("err = %v\nwant %s", err, want)
 	}

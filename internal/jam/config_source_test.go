@@ -43,7 +43,7 @@ func TestSyncTheFollowedSource(t *testing.T) {
 	f, _ := cfgFetcher(t, cfgFiles)
 	ctx := context.Background()
 	if _, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, allCreds, syncOpts(), nil, "alice"); !errors.Is(err, ErrConfigNotTracked) ||
-		err.Error() != "no config repo is configured (config.github in the serve config)" {
+		err.Error() != "no config repo is configured (config.github, config.gitlab or config.git in the serve config)" {
 		t.Fatalf("sync without a followed source: %v", err)
 	}
 	if ConfigFollowConfirmed(st, followEnv) {
@@ -180,15 +180,15 @@ func TestConfigFetchFailureTracksNothing(t *testing.T) {
 
 func TestConfigAuditNeverLogsUserinfo(t *testing.T) {
 	var buf bytes.Buffer
-	logConfigApply(slog.New(slog.NewJSONHandler(&buf, nil)), "alice",
+	logConfigApply(slog.New(slog.NewJSONHandler(&buf, nil)), "alice", allCreds,
 		ConfigApplyOptions{Source: gitsource.Source{Repo: "https://tok3n@github.com/acme/jam", Ref: "main"}, Commit: "c1"}, ConfigPlan{})
 	if strings.Contains(buf.String(), "tok3n") || !strings.Contains(buf.String(), `"source":"invalid"`) {
 		t.Fatalf("audit:\n%s", buf.String())
 	}
-	if got := configSourceLabel(cfgSrc); got != "https://github.com/acme/jam//cfg@main" {
+	if got := configSourceLabel(allCreds, cfgSrc); got != "https://github.com/acme/jam//cfg@main" {
 		t.Fatal(got)
 	}
-	if got := configSourceLabel(gitsource.Source{Repo: ConfigDirRepo}); got != "dir" {
+	if got := configSourceLabel(allCreds, gitsource.Source{Repo: ConfigDirRepo}); got != "dir" {
 		t.Fatal(got)
 	}
 }

@@ -27,11 +27,11 @@ func putSpec(t *testing.T, st Store, name, model string) {
 }
 
 func TestRoleModelSpecAdminRoundTrip(t *testing.T) {
-	h, st, _ := newModelSpecAdmin(t, false)
+	h, st := newModelSpecAdmin(t)
 	putSpec(t, st, "opus", "claude-opus-5-5")
 
-	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Name: "w", ModelSpec: "opus"}); rec.Code != http.StatusCreated {
-		t.Fatalf("put role = %d %s", rec.Code, rec.Body)
+	if err := PutRoleKeeping(st, "", Role{Name: "w", ModelSpec: "opus"}); err != nil {
+		t.Fatalf("put role: %v", err)
 	}
 	rec := doReq(t, h, "GET", "/admin/roles", nil)
 	var roles []RoleSummary
@@ -43,17 +43,17 @@ func TestRoleModelSpecAdminRoundTrip(t *testing.T) {
 	}
 
 	// Unknown name rejected; the stored role is unchanged.
-	rec = doJSON(t, h, "POST", "/admin/roles", RoleBody{Name: "w", ModelSpec: "ghost"})
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `model-spec "ghost" does not exist`) {
-		t.Fatalf("unknown spec = %d %s", rec.Code, rec.Body)
+	err := PutRoleKeeping(st, "", Role{Name: "w", ModelSpec: "ghost"})
+	if WriteStatus(err, 0) != http.StatusBadRequest || err == nil || !strings.Contains(err.Error(), `model-spec "ghost" does not exist`) {
+		t.Fatalf("unknown spec = %v", err)
 	}
 	if r, _ := st.GetRole("", "w"); r.ModelSpec != "opus" {
 		t.Fatalf("refused put changed the role: %+v", r)
 	}
 
 	// Empty is accepted (even before claude-default exists) and resolves to it.
-	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Name: "plain"}); rec.Code != http.StatusCreated {
-		t.Fatalf("unbound role = %d %s", rec.Code, rec.Body)
+	if err := PutRoleKeeping(st, "", Role{Name: "plain"}); err != nil {
+		t.Fatalf("unbound role: %v", err)
 	}
 	if r, _ := st.GetRole("", "plain"); r.ModelSpec != "" || r.ModelSpecName() != DefaultModelSpec {
 		t.Fatalf("unbound role = %+v resolves to %q", r, r.ModelSpecName())
@@ -85,7 +85,7 @@ func TestRoleWritersCheckModelSpec(t *testing.T) {
 }
 
 func TestDeleteReferencedModelSpecConflicts(t *testing.T) {
-	h, st, _ := newModelSpecAdmin(t, false)
+	st := NewMemStore()
 	putSpec(t, st, "opus", "")
 	putSpec(t, st, DefaultModelSpec, "")
 	putSpec(t, st, "spare", "")
@@ -96,28 +96,25 @@ func TestDeleteReferencedModelSpecConflicts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"opus", DefaultModelSpec} {
-		rec := doReq(t, h, "DELETE", "/admin/model-specs/"+name, nil)
-		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "default/") {
-			t.Fatalf("delete %s = %d %s, want 409 naming the role", name, rec.Code, rec.Body)
+		err := st.RemoveModelSpec(name)
+		if !errors.Is(err, ErrModelSpecInUse) || ModelSpecRemoveStatus(err) != http.StatusConflict || !strings.Contains(err.Error(), "default/") {
+			t.Fatalf("remove %s = %v, want ErrModelSpecInUse (409) naming the role", name, err)
 		}
 		if _, ok := st.GetModelSpec(name); !ok {
-			t.Fatalf("%s deleted despite the 409", name)
+			t.Fatalf("%s removed despite the refusal", name)
 		}
 	}
-	if rec := doReq(t, h, "DELETE", "/admin/model-specs/spare", nil); rec.Code != http.StatusNoContent {
-		t.Fatalf("delete unreferenced = %d", rec.Code)
+	if err := st.RemoveModelSpec("spare"); err != nil {
+		t.Fatalf("remove unreferenced: %v", err)
 	}
-	if rec := doReq(t, h, "DELETE", "/admin/model-specs/spare", nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("delete absent = %d", rec.Code)
-	}
-	if err := st.RemoveModelSpec("opus"); !errors.Is(err, ErrModelSpecInUse) {
-		t.Fatalf("store remove = %v, want ErrModelSpecInUse", err)
+	if err := st.RemoveModelSpec("spare"); err == nil || ModelSpecRemoveStatus(err) != http.StatusNotFound {
+		t.Fatalf("remove absent = %v, want 404", err)
 	}
 	if err := st.RemoveRole("", "bound"); err != nil {
 		t.Fatal(err)
 	}
-	if rec := doReq(t, h, "DELETE", "/admin/model-specs/opus", nil); rec.Code != http.StatusNoContent {
-		t.Fatalf("delete once unbound = %d %s", rec.Code, rec.Body)
+	if err := st.RemoveModelSpec("opus"); err != nil {
+		t.Fatalf("remove once unbound: %v", err)
 	}
 }
 

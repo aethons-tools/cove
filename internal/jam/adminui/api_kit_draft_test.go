@@ -145,14 +145,9 @@ func TestDraftAPIPublishManaged(t *testing.T) {
 	store, h := draftFixture(t)
 	markManaged(t, store, "app")
 	putDraft(t, store, "docs/new.md", 0, "n\n")
-	rec := apiDo(t, h, "POST", draftAPI+"/publish", map[string]any{"etag": draftETag(t, store)}, nil)
-	wantErr(t, rec, 400, "bad_request")
-	if !strings.Contains(rec.Body.String(), "kit app is managed by the config repo") {
-		t.Errorf("unconfirmed = %s", rec.Body)
-	}
 	var res adminui.DraftResult
-	apiDo(t, h, "POST", draftAPI+"/publish", map[string]any{"etag": draftETag(t, store), "drift": true}, &res)
-	if res.Page.Published == nil || !res.Page.Published.Drift || len(res.Page.Published.ConfigFiles) == 0 {
-		t.Errorf("published = %+v", res.Page.Published)
+	rec := apiDo(t, h, "POST", draftAPI+"/publish", map[string]any{"etag": draftETag(t, store)}, &res)
+	if rec.Code != 200 || res.Page.Published == nil || res.Page.Published.Warning != "" {
+		t.Errorf("publish = %d %+v", rec.Code, res.Page.Published)
 	}
 }
