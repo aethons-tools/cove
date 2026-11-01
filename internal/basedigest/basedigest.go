@@ -105,11 +105,11 @@ func parse(s string) []string {
 	return out
 }
 
-// VersionNote is what `version` appends on a `just local` build, so one is
-// never mistaken for a release: " (local studio base <ref>)", else "".
+// VersionNote is what `version` notes on a `just local` build, so one is
+// never mistaken for a release: "local studio base <ref>", else "".
 func VersionNote() string {
 	if l := LocalRef(); l != "" {
-		return " (local studio base " + l + ")"
+		return "local studio base " + l
 	}
 	return ""
 }

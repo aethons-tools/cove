@@ -8,7 +8,8 @@ import (
 
 func TestJamVersionAndMintVersion(t *testing.T) {
 	var out, errb bytes.Buffer
-	if code := run([]string{"version"}, func(string) string { return "" }, &out, &errb); code != 0 || !strings.HasPrefix(out.String(), "jam ") {
+	// jam version is the bare version, for use in image tags: $(jam version).
+	if code := run([]string{"version"}, func(string) string { return "" }, &out, &errb); code != 0 || out.String() != version+"\n" {
 		t.Fatalf("jam version: code %d out %q err %q", code, out.String(), errb.String())
 	}
 	out.Reset()

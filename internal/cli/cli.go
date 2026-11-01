@@ -35,9 +35,15 @@ type Command struct {
 
 // App is a registry + dispatcher for one binary.
 type App struct {
-	Name     string
-	Version  string
-	Commands []Command
+	Name    string
+	Version string
+	// BareVersion makes version (and --version) print Version alone, so
+	// `$(<name> version)` can go straight into, e.g., an image tag.
+	BareVersion bool
+	// VersionNote, when set, follows the version (e.g. a local-build marker);
+	// with BareVersion it goes to stderr, keeping stdout the bare version.
+	VersionNote string
+	Commands    []Command
 }
 
 // Run parses leading globals, handles version/help, then dispatches to a command.
@@ -60,8 +66,7 @@ func (a App) Run(argv []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if *ver {
-		fmt.Fprintln(stdout, a.Name+" "+a.Version)
-		return 0
+		return a.printVersion(stdout, stderr)
 	}
 	rest := fs.Args()
 	if len(rest) == 0 {
@@ -71,8 +76,7 @@ func (a App) Run(argv []string, stdout, stderr io.Writer) int {
 	name, cmdArgs := rest[0], rest[1:]
 	switch name {
 	case "version":
-		fmt.Fprintln(stdout, a.Name+" "+a.Version)
-		return 0
+		return a.printVersion(stdout, stderr)
 	case "help":
 		a.usage(stdout)
 		return 0
@@ -85,6 +89,21 @@ func (a App) Run(argv []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stderr, "%s: unknown command %q\n\n", a.Name, name)
 	a.usage(stderr)
 	return 2
+}
+
+func (a App) printVersion(stdout, stderr io.Writer) int {
+	switch {
+	case !a.BareVersion && a.VersionNote != "":
+		fmt.Fprintf(stdout, "%s %s (%s)\n", a.Name, a.Version, a.VersionNote)
+	case !a.BareVersion:
+		fmt.Fprintln(stdout, a.Name+" "+a.Version)
+	default:
+		fmt.Fprintln(stdout, a.Version)
+		if a.VersionNote != "" {
+			fmt.Fprintf(stderr, "%s: %s\n", a.Name, a.VersionNote)
+		}
+	}
+	return 0
 }
 
 func (a App) usage(w io.Writer) {

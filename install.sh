@@ -207,7 +207,10 @@ main() {
     info "pre-rename binaries still in $bindir: $stale — point your service and scripts at jam, then delete them (docs/usage/jam/renamed-from-at.md)"
   fi
   if command -v "$bindir/jam" >/dev/null 2>&1; then
-    info "$("$bindir/jam" version 2>/dev/null || echo "jam $version")"
+    # jam version prints the bare version (older releases: "jam <version>").
+    local v
+    v="$("$bindir/jam" version 2>/dev/null)" || v="$version"
+    info "jam ${v#jam }"
   fi
 }
 
