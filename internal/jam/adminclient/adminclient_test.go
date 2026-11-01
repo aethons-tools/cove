@@ -415,14 +415,10 @@ func TestClientEnrollBodyIsTrimmed(t *testing.T) {
 }
 
 func TestClientKitRoundTrips(t *testing.T) {
-	var gotMethod, gotPath, gotBody string
+	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod, gotPath = r.Method, r.URL.RequestURI()
-		b, _ := io.ReadAll(r.Body)
-		gotBody = string(b)
+		gotPath = r.URL.RequestURI()
 		switch {
-		case r.URL.Path == "/admin/kits" && r.Method == "POST":
-			_, _ = w.Write([]byte(`{"name":"web","version":3}`))
 		case r.URL.Path == "/admin/kits" && r.Method == "GET":
 			_, _ = w.Write([]byte(`[{"name":"web","current":3,"versions":3}]`))
 		case r.URL.Path == "/admin/kits/web/versions":
@@ -436,13 +432,6 @@ func TestClientKitRoundTrips(t *testing.T) {
 	defer srv.Close()
 	c := New(srv.URL, "")
 
-	res, err := c.PushKit("web", "name: web\n")
-	if err != nil || res.Version != 3 {
-		t.Fatalf("PushKit = %+v, %v (body=%s)", res, err, gotBody)
-	}
-	if gotMethod != "POST" || gotPath != "/admin/kits" || !strings.Contains(gotBody, `"config":"name: web\n"`) {
-		t.Fatalf("push wire = %s %s %s", gotMethod, gotPath, gotBody)
-	}
 	if kits, err := c.ListKits(); err != nil || len(kits) != 1 || kits[0].Current != 3 {
 		t.Fatalf("ListKits = %+v, %v", kits, err)
 	}
@@ -454,12 +443,6 @@ func TestClientKitRoundTrips(t *testing.T) {
 	}
 	if vers, err := c.KitVersions("web"); err != nil || len(vers) != 3 {
 		t.Fatalf("KitVersions = %+v, %v", vers, err)
-	}
-	if err := c.PinKit("web", 1); err != nil {
-		t.Fatalf("PinKit: %v", err)
-	}
-	if err := c.RemoveKit("web"); err != nil {
-		t.Fatalf("RemoveKit: %v", err)
 	}
 }
 
@@ -774,28 +757,6 @@ func TestClientConnections(t *testing.T) {
 	}
 	if list, err := c.ListConnections(); err != nil || len(list) != 1 || list[0].ID != conn.ID || list[0].CredName != "lin-tok" {
 		t.Fatalf("ListConnections = %+v, %v", list, err)
-	}
-}
-
-// TestRaiseCoveDraftTimeout: a draft studio's raise outwaits the client's
-// default timeout (its build may run first); a plain raise keeps it.
-func TestRaiseCoveDraftTimeout(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var b jam.CoveRaiseBody
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		time.Sleep(300 * time.Millisecond)
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(jam.CoveRaiseResult{ID: "ses_1", Label: b.ID, KitDraftTree: b.KitDraft + "-tree"})
-	}))
-	t.Cleanup(ts.Close)
-	c := New(ts.URL, "")
-	c.httpc.Timeout = 50 * time.Millisecond
-	if _, err := c.RaiseCove(CoveRaiseParams{ID: "w1", Role: "guest"}); err == nil {
-		t.Fatal("a plain raise outwaited the client's timeout")
-	}
-	res, err := c.RaiseCove(CoveRaiseParams{ID: "w2", Role: "guest", KitDraft: "app"})
-	if err != nil || res.KitDraftTree != "app-tree" || c.httpc.Timeout != 50*time.Millisecond {
-		t.Fatalf("draft raise = %+v %v (client timeout now %v)", res, err, c.httpc.Timeout)
 	}
 }
 

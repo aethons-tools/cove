@@ -285,21 +285,6 @@ func (c *Client) LoginConfig() (jam.OperatorLoginConfig, error) {
 	return lc, err
 }
 
-// PushKit pushes a new version of a kit config, returning the new version number.
-func (c *Client) PushKit(name, config string) (jam.KitResult, error) {
-	var res jam.KitResult
-	err := c.do("POST", "/admin/kits", jam.KitBody{Name: name, Config: config}, &res)
-	return res, err
-}
-
-// PushKitTree pushes a kit directory, an uncompressed tar of its files
-// (kittree.WriteTar), as kit name's next version.
-func (c *Client) PushKitTree(name string, tarBody []byte) (jam.KitResult, error) {
-	var res jam.KitResult
-	err := c.doRaw("POST", "/admin/kits/"+url.PathEscape(name)+"/versions", "application/x-tar", tarBody, &res)
-	return res, err
-}
-
 // ListKits lists every kit in the registry.
 func (c *Client) ListKits() ([]jam.KitSummary, error) {
 	var out []jam.KitSummary
@@ -323,17 +308,6 @@ func (c *Client) KitVersions(name string) ([]int, error) {
 	var out []int
 	err := c.do("GET", "/admin/kits/"+name+"/versions", nil, &out)
 	return out, err
-}
-
-// PinKit rolls a kit's current pointer to an existing version.
-func (c *Client) PinKit(name string, version int) error {
-	return c.do("POST", "/admin/kits/"+name+"/pin", jam.PinBody{Version: version}, nil)
-}
-
-// RemoveKit deletes a kit from the registry. Fails (409 from the server) if a
-// role still references it.
-func (c *Client) RemoveKit(name string) error {
-	return c.do("DELETE", "/admin/kits/"+name, nil, nil)
 }
 
 // ListRooms lists project's rooms.
@@ -363,21 +337,16 @@ func (c *Client) GetChatService(project string) (string, error) {
 // CoveRaiseParams are the inputs to raising a managed cove. Scope/kit come from
 // the named role.
 type CoveRaiseParams struct {
-	ID       string
-	Project  string
-	Role     string
-	Unit     string
-	Prompt   string // workload prompt for the raised cove's agent; read from a file host-side, never argv
-	KitDraft string // run this kit's draft (a draft studio); the raise may build it first
+	ID      string
+	Project string
+	Role    string
+	Unit    string
+	Prompt  string // workload prompt for the raised cove's agent; read from a file host-side, never argv
 	// Managers, in preference order, are where the raise may land (empty = any);
 	// PlacementTimeout is a Go duration for how long to look ("" = do not wait).
 	Managers         []string
 	PlacementTimeout string
 }
-
-// draftRaiseTimeout bounds a draft studio's raise, which may run the
-// draft's test build first.
-const draftRaiseTimeout = 30 * time.Minute
 
 // placementMargin is the time a request keeps beyond its placement timeout for
 // the rest of the raise (launch, enrollment, the answer).
@@ -397,16 +366,11 @@ func (c *Client) withPlacementWait(floor time.Duration, placementTimeout string)
 }
 
 // RaiseCove raises a managed cove for a role and returns its runtime result
-// (including the identity token, once). A draft studio's raise (KitDraft)
-// may build its image first, so it waits up to draftRaiseTimeout.
+// (including the identity token, once).
 func (c *Client) RaiseCove(p CoveRaiseParams) (jam.CoveRaiseResult, error) {
 	var res jam.CoveRaiseResult
-	body := jam.CoveRaiseBody{ID: p.ID, Project: p.Project, Role: p.Role, Unit: p.Unit, Prompt: p.Prompt, KitDraft: p.KitDraft, Managers: p.Managers, PlacementTimeout: p.PlacementTimeout}
-	floor := c.httpc.Timeout
-	if p.KitDraft != "" {
-		floor = draftRaiseTimeout
-	}
-	httpc := c.withPlacementWait(floor, p.PlacementTimeout)
+	body := jam.CoveRaiseBody{ID: p.ID, Project: p.Project, Role: p.Role, Unit: p.Unit, Prompt: p.Prompt, Managers: p.Managers, PlacementTimeout: p.PlacementTimeout}
+	httpc := c.withPlacementWait(c.httpc.Timeout, p.PlacementTimeout)
 	err := c.doWith(httpc, "POST", "/admin/coves", body, &res)
 	return res, err
 }

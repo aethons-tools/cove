@@ -524,33 +524,47 @@ func TestAdminRejectsNonLoopback(t *testing.T) {
 	}
 }
 
+// mustPushStudioKit pushes config as kit name's next version, failing the
+// test on error, and returns the version.
+func mustPushStudioKit(t *testing.T, store Store, name, config string) (int, bool) {
+	t.Helper()
+	v, unchanged, err := PushStudioKit(store, name, config)
+	if err != nil {
+		t.Fatalf("push %s: %v", name, err)
+	}
+	return v, unchanged
+}
+
+// pushStatus is the status a refused kit push (PushStudioKit) answered with.
+func pushStatus(store Store, name, config string) int {
+	_, _, err := PushStudioKit(store, name, config)
+	if err == nil {
+		return 0
+	}
+	return WriteStatus(err, http.StatusInternalServerError)
+}
+
 func TestAdminKitsCRUD(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
 	// push v1, v2 — two valid, distinct configs (parsed and validated as a
 	// studio kit, stored as kit.yml byte for byte). v2 adds an egress domain
 	// so the versions differ.
-	var r1 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\nname: web\n"}), &r1)
-	if r1.Version != 1 {
-		t.Fatalf("push v1 = %+v", r1)
+	if v, _ := mustPushStudioKit(t, store, "web", "kind: studio\nname: web\n"); v != 1 {
+		t.Fatalf("push v1 = v%d", v)
 	}
-	var r2 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\negress:\n  - example.com\n"}), &r2)
-	if r2.Version != 2 {
-		t.Fatalf("push v2 = %+v", r2)
+	if v, _ := mustPushStudioKit(t, store, "web", "kind: studio\negress:\n  - example.com\n"); v != 2 {
+		t.Fatalf("push v2 = v%d", v)
 	}
 	// re-pushing the current kit.yml makes no new version
-	var r3 KitResult
-	decodeJSON(t, doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\negress:\n  - example.com\n"}), &r3)
-	if r3.Version != 2 || !r3.Unchanged {
-		t.Fatalf("unchanged push = %+v, want v2 unchanged", r3)
+	if v, unchanged := mustPushStudioKit(t, store, "web", "kind: studio\negress:\n  - example.com\n"); v != 2 || !unchanged {
+		t.Fatalf("unchanged push = v%d unchanged=%v, want v2 unchanged", v, unchanged)
 	}
 	// a legacy in-file name must match the name it's pushed under
-	if code := doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "kind: studio\nname: api\n"}).Code; code != http.StatusBadRequest {
+	if code := pushStatus(store, "web", "kind: studio\nname: api\n"); code != http.StatusBadRequest {
 		t.Fatalf("mismatched legacy name push = %d, want 400", code)
 	}
 	// an invalid config (unknown field) is rejected at ingestion, not stored
-	if code := doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nnope: 1\n"}).Code; code != http.StatusBadRequest {
+	if code := pushStatus(store, "web", "name: web\nnope: 1\n"); code != http.StatusBadRequest {
 		t.Fatalf("invalid config push = %d, want 400", code)
 	}
 	// list (still 2 versions — the rejected push stored nothing)
@@ -577,40 +591,40 @@ func TestAdminKitsCRUD(t *testing.T) {
 		t.Fatalf("versions = %+v", vers)
 	}
 	// pin back to 1
-	if rec := doJSON(t, h, "POST", "/admin/kits/web/pin", PinBody{Version: 1}); rec.Code != http.StatusNoContent {
-		t.Fatalf("pin = %d", rec.Code)
+	if err := PinKitChecked(store, "web", 1); err != nil {
+		t.Fatalf("pin = %v", err)
 	}
 	getJSON(t, h, "/admin/kits/web", &cur)
 	if cur.Version != 1 {
 		t.Fatalf("after pin, current = %d", cur.Version)
 	}
 	// pin to absent → 404
-	if rec := doJSON(t, h, "POST", "/admin/kits/web/pin", PinBody{Version: 9}); rec.Code != http.StatusNotFound {
-		t.Fatalf("pin absent = %d", rec.Code)
+	if err := PinKitChecked(store, "web", 9); err == nil || WriteStatus(err, http.StatusNotFound) != http.StatusNotFound {
+		t.Fatalf("pin absent = %v", err)
 	}
 	// rm
-	if rec := doReq(t, h, "DELETE", "/admin/kits/web", nil); rec.Code != http.StatusNoContent {
-		t.Fatalf("rm = %d", rec.Code)
+	if err := RemoveKitChecked(store, slog.New(slog.DiscardHandler), "web"); err != nil {
+		t.Fatalf("rm = %v", err)
 	}
 }
 
 func TestAdminKitRemoveBlockedByRole(t *testing.T) {
-	h, store := newTestAdmin(t)
+	_, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
+	mustPushStudioKit(t, store, "builder", "kind: studio\nname: builder\n")
 	if err := store.PutRole("acme", Role{Name: "impl", Kit: "builder"}); err != nil {
 		t.Fatal(err)
 	}
 	// rm while referenced → 409
-	if rec := doReq(t, h, "DELETE", "/admin/kits/builder", nil); rec.Code != http.StatusConflict {
-		t.Fatalf("rm referenced kit = %d, want 409", rec.Code)
+	if err := RemoveKitChecked(store, slog.New(slog.DiscardHandler), "builder"); WriteStatus(err, http.StatusNotFound) != http.StatusConflict {
+		t.Fatalf("rm referenced kit = %v, want 409", err)
 	}
 }
 
 func TestAdminRoleSummaryShowsKit(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
+	mustPushStudioKit(t, store, "builder", "kind: studio\nname: builder\n")
 	if err := store.PutRole("acme", Role{Name: "impl", Kit: "builder"}); err != nil {
 		t.Fatal(err)
 	}
@@ -622,12 +636,11 @@ func TestAdminRoleSummaryShowsKit(t *testing.T) {
 }
 
 func TestAdminKitsPushRejectsNonStudioConfig(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	_, store := newTestAdmin(t)
 	// A config without kind: studio is rejected (fail-closed on the authoritative
 	// server path), even if otherwise valid-looking.
-	rec := doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "web", Config: "name: web\nsecrets: {}\n"})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("push non-studio config = %d, want 400", rec.Code)
+	if code := pushStatus(store, "web", "name: web\nsecrets: {}\n"); code != http.StatusBadRequest {
+		t.Fatalf("push non-studio config = %d, want 400", code)
 	}
 }
 

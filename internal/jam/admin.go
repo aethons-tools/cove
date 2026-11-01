@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"mime"
 	"net/http"
 	"sort"
 	"strconv"
@@ -15,7 +14,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/snippet"
-	"github.com/aethons-tools/cove/internal/studio"
 	"gopkg.in/yaml.v3"
 )
 
@@ -100,21 +98,6 @@ type RoleSummary struct {
 	Egress *EgressPolicy `json:"egress,omitempty"`
 }
 
-// KitBody is the POST /admin/kits request.
-type KitBody struct {
-	Name   string `json:"name"`
-	Config string `json:"config"`
-}
-
-// KitResult is the POST /admin/kits response.
-type KitResult struct {
-	Name    string `json:"name"`
-	Version int    `json:"version"`
-	// Unchanged reports the pushed definition equalled the current version, so
-	// no new version was made (Version is the existing current).
-	Unchanged bool `json:"unchanged,omitempty"`
-}
-
 // KitSummary is a GET /admin/kits item.
 type KitSummary struct {
 	Name     string `json:"name"`
@@ -164,11 +147,6 @@ type KitConfigResult struct {
 	Own string `json:"own,omitempty"`
 }
 
-// PinBody is the POST /admin/kits/{name}/pin request.
-type PinBody struct {
-	Version int `json:"version"`
-}
-
 // GrantBody is the POST /admin/actors/{id}/grants request.
 type GrantBody struct {
 	Project   string    `json:"project"`
@@ -183,9 +161,6 @@ type CoveRaiseBody struct {
 	Role    string `json:"role"`
 	Unit    string `json:"unit,omitempty"`
 	Prompt  string `json:"prompt,omitempty"`
-	// KitDraft runs this kit's draft instead of the role's kit (a draft
-	// studio, docs/usage/jam/kits-drafts.md#draft-studio).
-	KitDraft string `json:"kit_draft,omitempty"`
 	// Managers, in preference order, are where the raise may land (empty = any);
 	// PlacementTimeout is a Go duration for how long to look for one that
 	// accepts ("" = do not wait).
@@ -202,7 +177,6 @@ type CoveRaiseResult struct {
 	LaunchSecret string `json:"launch_secret"`
 	Phase        string `json:"phase"`
 	Location     string `json:"location,omitempty"`
-	KitDraftTree string `json:"kit_draft_tree,omitempty"` // a draft studio: the draft tree it runs
 }
 
 // CoveSummary is a GET /admin/coves item: runtime only, never a token or hash.
@@ -642,54 +616,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		writeJSON(w, http.StatusOK, v)
 	})
 
-	mux.HandleFunc("POST /admin/kits", func(w http.ResponseWriter, r *http.Request) {
-		var b KitBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if b.Name == "" || b.Config == "" {
-			http.Error(w, "name and config are required", http.StatusBadRequest)
-			return
-		}
-		// Config rule of engagement: parse the (human-input) config as YAML and
-		// store it as canonical JSON. The jam kit registry holds STUDIO kits only,
-		// validated strictly (kind, KnownFields), so a malformed, typo'd or
-		// non-studio config is rejected here at ingestion rather than at a raise.
-		// An unchanged definition keeps the current version.
-		v, unchanged, err := PushStudioKit(store, b.Name, b.Config)
-		if err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
-			return
-		}
-		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", b.Name, "version", v, "unchanged", unchanged)
-		writeJSON(w, http.StatusCreated, KitResult{Name: b.Name, Version: v, Unchanged: unchanged})
-	})
-	// A kit directory: an uncompressed tar of its files, read within the tree
-	// limits as it streams, the body capped at kittree.MaxUpload (413 past it).
-	mux.HandleFunc("POST /admin/kits/{name}/versions", func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		if !studio.TagSafeName(name) {
-			http.Error(w, unsafeKitNameText, http.StatusBadRequest)
-			return
-		}
-		// A tar body only, checked before the body is read: a browser's
-		// no-cors text/plain POST to the loopback admin port is refused.
-		if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/x-tar" {
-			http.Error(w, "kit push: Content-Type must be application/x-tar", http.StatusUnsupportedMediaType)
-			return
-		}
-		files, ok := readKitTar(w, r, "kit", name)
-		if !ok {
-			return
-		}
-		ref, unchanged, err := PushKitFiles(store, name, files)
-		if err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
-			return
-		}
-		log.Info("admin kit pushed", "operator", OperatorID(r), "kit", name, "version", ref.Version, "unchanged", unchanged, "files", len(files))
-		writeJSON(w, http.StatusCreated, KitResult{Name: name, Version: ref.Version, Unchanged: unchanged})
-	})
 	mux.HandleFunc("GET /admin/kits", func(w http.ResponseWriter, r *http.Request) {
 		var out []KitSummary
 		for _, k := range store.ListKits() {
@@ -785,27 +711,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		}
 		writeJSON(w, http.StatusOK, d)
 	})
-	mux.HandleFunc("POST /admin/kits/{name}/pin", func(w http.ResponseWriter, r *http.Request) {
-		var b PinBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := PinKitChecked(store, r.PathValue("name"), b.Version); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusNotFound))
-			return
-		}
-		log.Info("admin kit pinned", "operator", OperatorID(r), "kit", r.PathValue("name"), "version", b.Version)
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("DELETE /admin/kits/{name}", func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		if err := RemoveKitChecked(store, log, name); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusNotFound))
-			return
-		}
-		log.Info("admin kit removed", "operator", OperatorID(r), "kit", name)
-		w.WriteHeader(http.StatusNoContent)
-	})
 
 	mux.HandleFunc("GET /admin/coves", func(w http.ResponseWriter, r *http.Request) {
 		// ?role= (with optional ?project=) lists one role's coves, resolving only
@@ -834,17 +739,14 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt, KitDraft: b.KitDraft, Placement: placement})
+		inst, id, tok, secret, err := RaiseManual(r.Context(), store, sup, b.ID, RaiseSpec{Project: b.Project, Role: b.Role, Unit: b.Unit, Prompt: b.Prompt, Placement: placement})
 		if err != nil {
 			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
 			return
 		}
 		// The kit name is only logged after a successful raise: tag-safe by then.
-		log.Info("admin cove raised", "operator", OperatorID(r), "id", id, "label", b.ID, "project", inst.Project, "role", b.Role, "kit_draft", b.KitDraft)
+		log.Info("admin cove raised", "operator", OperatorID(r), "id", id, "label", b.ID, "project", inst.Project, "role", b.Role)
 		res := CoveRaiseResult{ID: id, Label: b.ID, Token: tok, LaunchSecret: secret, Phase: string(inst.Phase), Location: inst.Location}
-		if inst.KitDraft != nil {
-			res.KitDraftTree = inst.KitDraft.Tree
-		}
 		writeJSON(w, http.StatusCreated, res)
 	})
 	mux.HandleFunc("POST /admin/coves/{id}/status", func(w http.ResponseWriter, r *http.Request) {
@@ -888,8 +790,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	registerContext(mux, store, log)
 	registerUsers(mux, store, log)
 	registerRooms(mux, store, log)
-	registerKitDrafts(mux, store, log)
-	registerKitDraftBuilds(mux, sup.KitDraftBuilds, log)
 
 	am := &adminMux{ServeMux: mux}
 	for _, o := range opts {
@@ -902,7 +802,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	}
 	guarded := authMiddleware(auth, log, inner) // guards every /admin/* route
 	if browser == nil {
-		return draftFilePathGuard(guarded)
+		return guarded
 	}
 	// The browser app (/app, its legacy redirects, and /me/studios) owns its own
 	// gates, so it is mounted OUTSIDE the /admin/* authenticator. Its session
@@ -910,7 +810,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	parent := http.NewServeMux()
 	parent.Handle("/admin/", guarded)
 	parent.Handle("/", browser)
-	return draftFilePathGuard(parent)
+	return parent
 }
 
 // projectErrStatus maps a store error to its HTTP status: an unknown project or

@@ -1,12 +1,13 @@
 package jam
 
 import (
-	"gopkg.in/yaml.v3"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/studio"
+	"gopkg.in/yaml.v3"
 )
 
 // chainAdmin is an admin handler over a store holding web-dev v1, my-app and
@@ -21,13 +22,31 @@ func chainAdmin(t *testing.T) (http.Handler, Store) {
 	return h, st
 }
 
-func TestAdminKitRmGuardedByChildren(t *testing.T) {
-	h, st := chainAdmin(t)
-	rec := doReq(t, h, "DELETE", "/admin/kits/web-dev", nil)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("rm parent = %d %s", rec.Code, rec.Body)
+// rmKit removes kit name through the guarded store function the console's
+// workspace writes use, answering its error's HTTP status (204 on success).
+func rmKit(st Store, name string) (int, string) {
+	if err := RemoveKitChecked(st, slog.New(slog.DiscardHandler), name); err != nil {
+		return WriteStatus(err, http.StatusNotFound), err.Error()
 	}
-	if got, want := strings.TrimSpace(rec.Body.String()), "kit web-dev is the parent of my-app, other-kit, pinned-kit"; got != want {
+	return http.StatusNoContent, ""
+}
+
+// pinKit pins kit name to version through PinKitChecked, answering its
+// error's HTTP status (204 on success).
+func pinKit(st Store, name string, version int) (int, string) {
+	if err := PinKitChecked(st, name, version); err != nil {
+		return WriteStatus(err, http.StatusNotFound), err.Error()
+	}
+	return http.StatusNoContent, ""
+}
+
+func TestAdminKitRmGuardedByChildren(t *testing.T) {
+	_, st := chainAdmin(t)
+	code, body := rmKit(st, "web-dev")
+	if code != http.StatusConflict {
+		t.Fatalf("rm parent = %d %s", code, body)
+	}
+	if got, want := body, "kit web-dev is the parent of my-app, other-kit, pinned-kit"; got != want {
 		t.Errorf("body = %q, want %q", got, want)
 	}
 	if _, ok := st.GetKit("web-dev"); !ok {
@@ -35,34 +54,33 @@ func TestAdminKitRmGuardedByChildren(t *testing.T) {
 	}
 	// Leaves can go, then the parent.
 	for _, n := range []string{"my-app", "other-kit", "pinned-kit", "web-dev"} {
-		if rec := doReq(t, h, "DELETE", "/admin/kits/"+n, nil); rec.Code != http.StatusNoContent {
-			t.Fatalf("rm %s = %d %s", n, rec.Code, rec.Body)
+		if code, body := rmKit(st, n); code != http.StatusNoContent {
+			t.Fatalf("rm %s = %d %s", n, code, body)
 		}
 	}
 }
 
 func TestAdminKitRmRoleGuardUnchanged(t *testing.T) {
-	h, st := chainAdmin(t)
+	_, st := chainAdmin(t)
 	mustCreateProject(t, st, "acme")
 	if err := st.PutRole("acme", Role{Name: "impl", Kit: "my-app"}); err != nil {
 		t.Fatal(err)
 	}
-	rec := doReq(t, h, "DELETE", "/admin/kits/my-app", nil)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "is referenced by role acme/impl") {
-		t.Fatalf("rm = %d %s", rec.Code, rec.Body)
+	if code, body := rmKit(st, "my-app"); code != http.StatusConflict || !strings.Contains(body, "is referenced by role acme/impl") {
+		t.Fatalf("rm = %d %s", code, body)
 	}
 }
 
 func TestAdminKitPinGuardedByFollowers(t *testing.T) {
-	h, st := chainAdmin(t)
+	_, st := chainAdmin(t)
 	mustEnsure(t, st, "web-dev", chainKit("", "base2")) // v2
-	rec := doJSON(t, h, "POST", "/admin/kits/web-dev/pin", PinBody{Version: 1})
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("pin = %d %s", rec.Code, rec.Body)
+	code, body := pinKit(st, "web-dev", 1)
+	if code != http.StatusConflict {
+		t.Fatalf("pin = %d %s", code, body)
 	}
 	want := "kit web-dev is followed by my-app, other-kit (pin those to a web-dev version, or point them elsewhere)"
-	if got := strings.TrimSpace(rec.Body.String()); got != want {
-		t.Errorf("body = %q, want %q", got, want)
+	if body != want {
+		t.Errorf("body = %q, want %q", body, want)
 	}
 	if k, _ := st.GetKit("web-dev"); k.Current != 2 {
 		t.Errorf("current = %d, want unchanged 2", k.Current)
@@ -70,17 +88,17 @@ func TestAdminKitPinGuardedByFollowers(t *testing.T) {
 }
 
 func TestAdminKitPinAllowedWithOnlyPinnedChildren(t *testing.T) {
-	h, st := newTestAdmin(t)
+	_, st := newTestAdmin(t)
 	mustEnsure(t, st, "web-dev", chainKit("", "base"))
 	mustEnsure(t, st, "web-dev", chainKit("", "base2"))
 	mustEnsure(t, st, "pinned-kit", chainKit("web-dev@v1", "p"))
-	if rec := doJSON(t, h, "POST", "/admin/kits/web-dev/pin", PinBody{Version: 1}); rec.Code != http.StatusNoContent {
-		t.Fatalf("pin = %d %s", rec.Code, rec.Body)
+	if code, body := pinKit(st, "web-dev", 1); code != http.StatusNoContent {
+		t.Fatalf("pin = %d %s", code, body)
 	}
 	// An unreferenced kit pins freely, and a missing one is still 404.
 	mustEnsure(t, st, "solo", chainKit("", "s"))
-	if rec := doJSON(t, h, "POST", "/admin/kits/nope/pin", PinBody{Version: 1}); rec.Code != http.StatusNotFound {
-		t.Errorf("pin missing = %d", rec.Code)
+	if code, _ := pinKit(st, "nope", 1); code != http.StatusNotFound {
+		t.Errorf("pin missing = %d", code)
 	}
 }
 
@@ -131,9 +149,9 @@ func TestAdminKitListParentColumn(t *testing.T) {
 }
 
 func TestAdminKitPinBadVersionIs404(t *testing.T) {
-	h, _ := chainAdmin(t)
-	if rec := doJSON(t, h, "POST", "/admin/kits/web-dev/pin", PinBody{Version: 99}); rec.Code != http.StatusNotFound {
-		t.Fatalf("pin v99 = %d %s, want 404 (not the follow 409)", rec.Code, rec.Body)
+	_, st := chainAdmin(t)
+	if code, body := pinKit(st, "web-dev", 99); code != http.StatusNotFound {
+		t.Fatalf("pin v99 = %d %s, want 404 (not the follow 409)", code, body)
 	}
 }
 

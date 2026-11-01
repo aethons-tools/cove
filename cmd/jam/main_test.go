@@ -22,6 +22,7 @@ import (
 	"github.com/aethons-tools/cove/internal/allocator"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 // aliveLauncher is a trivial jam.Launcher for CLI-level tests that need a
@@ -442,28 +443,45 @@ func TestRoleConfigVerbsGone(t *testing.T) {
 	}
 }
 
+// The kit config-writing verbs and the whole kit draft group are gone: each
+// is the kit group's unknown subcommand; studio raise has no --kit-draft.
+func TestKitConfigVerbsGone(t *testing.T) {
+	for _, gone := range [][]string{
+		{"kit", "push", "dir"}, {"kit", "pin", "app", "2"}, {"kit", "rm", "app"},
+		{"kit", "draft", "open", "app"}, {"kit", "draft", "status", "app"}, {"kit", "draft", "publish", "app"},
+		{"kit", "draft", "build", "app"},
+	} {
+		var out, errb bytes.Buffer
+		if code := run(gone, func(string) string { return "" }, &out, &errb); code != 2 {
+			t.Errorf("%v: exit = %d, want 2", gone, code)
+		}
+		if !strings.Contains(errb.String(), "unknown subcommand") {
+			t.Errorf("%v: stderr = %q, want the unknown-subcommand error", gone, errb.String())
+		}
+	}
+	var out, errb bytes.Buffer
+	if code := run([]string{"studio", "raise", "--id", "try", "--role", "guest", "--kit-draft", "app"}, func(string) string { return "" }, &out, &errb); code != 2 {
+		t.Errorf("studio raise --kit-draft: exit = %d, want 2 (%s)", code, errb.String())
+	}
+}
+
+// A raise's server error is escaped.
+func TestStudioRaiseEscapesTheServerError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "raise: kit.yml: base \"a\x1b[2Jb\" unknown", http.StatusBadRequest)
+	}))
+	t.Cleanup(ts.Close)
+	var out, errb bytes.Buffer
+	code := run([]string{"studio", "raise", "--admin-url", ts.URL, "--id", "try", "--role", "guest"}, func(string) string { return "" }, &out, &errb)
+	if code != 1 || strings.Contains(errb.String(), "\x1b") || !strings.Contains(errb.String(), `a\x1b[2Jb`) {
+		t.Fatalf("raise: %d %q", code, errb.String())
+	}
+}
+
 func TestUnknownCommandExits2(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := run([]string{"bogus"}, func(string) string { return "" }, &out, &errb); code != 2 {
 		t.Fatalf("exit = %d, want 2", code)
-	}
-}
-
-func TestKitPushRejectsMalformedConfig(t *testing.T) {
-	dir := t.TempDir()
-	bad := filepath.Join(dir, "bad.yml")
-	if err := os.WriteFile(bad, []byte("name: x\nnope_unknown_key: true\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var out, errb bytes.Buffer
-	code := cmdKit([]string{"push", "--name", "x", "--config", bad}, cli.Globals{}, &out, &errb)
-	if code == 0 {
-		t.Fatalf("expected non-zero exit for a malformed kit config; stderr=%q", errb.String())
-	}
-	// Pin down that the rejection came from config parsing (not some unrelated
-	// failure), so this test can't silently pass for the wrong reason.
-	if !strings.Contains(errb.String(), "invalid studio kit config") {
-		t.Fatalf("stderr = %q, want it to contain %q", errb.String(), "invalid studio kit config")
 	}
 }
 
@@ -474,53 +492,17 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 	defer ts.Close()
 	getenv := func(string) string { return "" }
 
-	dir := t.TempDir()
-	valid := filepath.Join(dir, "valid.yml")
-	if err := os.WriteFile(valid, []byte("kind: studio\nname: web\negress:\n  - github.com\n  - claude.ai\nbuild-args:\n  A: b\n"), 0o600); err != nil {
-		t.Fatal(err)
+	// two versions, seeded in the store (kits change only in git)
+	for _, cfg := range []string{
+		"kind: studio\nname: web\negress:\n  - github.com\n  - claude.ai\nbuild-args:\n  A: b\n",
+		"kind: studio\negress:\n  - github.com\n  - claude.ai\nbuild-args:\n  A: c\n",
+	} {
+		if _, _, err := jam.PushStudioKit(store, "web", cfg); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	var out, errb bytes.Buffer
-
-	// kit push
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", valid,
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("kit push: exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "pushed web v1") {
-		t.Fatalf("kit push output missing expected text:\n%s", out.String())
-	}
-
-	// an identical re-push makes no new version
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", valid,
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("kit push (same): exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "web unchanged (current v1)") {
-		t.Fatalf("identical kit push output:\n%s", out.String())
-	}
-
-	// a changed kit makes a second version, for pin to target
-	changed := filepath.Join(dir, "changed.yml")
-	if err := os.WriteFile(changed, []byte("kind: studio\negress:\n  - github.com\n  - claude.ai\nbuild-args:\n  A: c\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"kit", "push", "--admin-url", ts.URL, "--name", "web", "--config", changed,
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("kit push (v2): exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "pushed web v2") {
-		t.Fatalf("kit push (v2) output missing expected text:\n%s", out.String())
-	}
 
 	// kit list
 	out.Reset()
@@ -552,41 +534,6 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "v1") || !strings.Contains(out.String(), "v2") {
 		t.Fatalf("kit versions output missing expected versions:\n%s", out.String())
-	}
-
-	// kit pin
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"kit", "pin", "--admin-url", ts.URL, "web", "1"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("kit pin: exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "pinned web to v1") {
-		t.Fatalf("kit pin output missing expected text:\n%s", out.String())
-	}
-
-	// bind a role to the kit (the role's CLI write is gone)
-	if err := store.PutRole(jam.DefaultProject, jam.Role{Name: "impl", Kit: "web", Scope: jam.Scope{Destinations: []string{"anthropic"}}}); err != nil {
-		t.Fatal(err)
-	}
-
-	// kit rm — must fail while a role still references it (409-style store error)
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"kit", "rm", "--admin-url", ts.URL, "web"}, getenv, &out, &errb); code == 0 {
-		t.Fatalf("kit rm: expected non-zero exit while role %q still references kit web; stdout=%s", "impl", out.String())
-	}
-
-	// remove the referencing role, then kit rm should succeed
-	if err := store.RemoveRole(jam.DefaultProject, "impl"); err != nil {
-		t.Fatal(err)
-	}
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"kit", "rm", "--admin-url", ts.URL, "web"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("kit rm: exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "removed kit web") {
-		t.Fatalf("kit rm output missing expected text:\n%s", out.String())
 	}
 }
 
@@ -1105,40 +1052,6 @@ func TestEgressShowCommand(t *testing.T) {
 	}
 }
 
-// A kit.yml with the old client-side base.context-dir is refused before
-// anything is sent: the directory itself is now the build context.
-func TestKitPushRefusesTheOldDirField(t *testing.T) {
-	store := jam.NewMemStore()
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
-	ts := httptest.NewServer(h)
-	defer ts.Close()
-	getenv := func(string) string { return "" }
-
-	dir := t.TempDir()
-	ctx := filepath.Join(dir, "ctx")
-	if err := os.MkdirAll(ctx, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(ctx, "Dockerfile"), []byte("FROM ${JAM_STUDIO_BASE_IMAGE}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	kitFile := filepath.Join(dir, "kit.yml")
-	if err := os.WriteFile(kitFile, []byte("kind: studio\nname: ctxkit\nbase:\n  context-dir: ctx\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, args := range [][]string{{"--name", "ctxkit", "--config", kitFile}, {dir}} {
-		var out, errb bytes.Buffer
-		code := run(append([]string{"kit", "push", "--admin-url", ts.URL}, args...), getenv, &out, &errb)
-		if code == 0 || !strings.Contains(errb.String(), "base.context-dir is no longer supported; put a Dockerfile next to kit.yml") {
-			t.Fatalf("%v: exit=%d stderr=%s", args, code, errb.String())
-		}
-	}
-	if _, ok := store.GetKit("ctxkit"); ok {
-		t.Fatal("a refused push stored a kit")
-	}
-}
-
 func TestKitPushValidatesStudioKit(t *testing.T) {
 	good := "kind: studio\nname: web\negress:\n  - github.com\n"
 	bad := "kind: studio\nname: web\nworkers: {}\n"
@@ -1232,59 +1145,28 @@ func TestEnrollCommandLegacyServerFallsBack(t *testing.T) {
 	}
 }
 
-// kit push <dir> reads note files from the kit directory and refuses bad notes.
-func TestKitPushNotes(t *testing.T) {
+// kit show prints a broken version's own fixed error, and --own carries a
+// directory kit's note file contents.
+func TestKitShowNotesAndBroken(t *testing.T) {
 	store := jam.NewMemStore()
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
-	dir := filepath.Join(t.TempDir(), "web")
-	write := func(name, body string) {
-		t.Helper()
-		p := filepath.Join(dir, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("docs/release.md", "RELEASE STEPS")
-	write("kit.yml", "kind: studio\nnotes:\n  - name: release.md\n    read-when: releasing\n    file: docs/release.md\n")
-	var out, errb bytes.Buffer
-	if code := run([]string{"kit", "push", "--admin-url", ts.URL, dir}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("push: exit=%d stderr=%s", code, errb.String())
-	}
-	v, ok := jam.LoadKitVersion(store, "web", 0)
-	if !ok || v.Err != nil || len(v.Kit.Notes) != 1 || v.Kit.Notes[0].Body != "RELEASE STEPS" {
-		t.Fatalf("stored kit must read the note body from its directory: %+v %v", v.Kit.Notes, v.Err)
+	if _, _, err := jam.PushKitFiles(store, "web", kittreetest.Files("docs/release.md", "RELEASE STEPS",
+		"kit.yml", "kind: studio\nnotes:\n  - name: release.md\n    read-when: releasing\n    file: docs/release.md\n")); err != nil {
+		t.Fatal(err)
 	}
 	if err := store.PutKitDocs([]jam.Kit{{Name: "old", Current: 1, Broken: map[int]string{1: "its base.context is not a readable tar.gz"}}}, jam.KitObjects{}); err != nil {
 		t.Fatal(err)
 	}
-	out.Reset()
-	errb.Reset()
+	var out, errb bytes.Buffer
 	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "old"}, getenv, &out, &errb); code != 1 || !strings.Contains(errb.String(), "kit old@v1 could not be migrated to a tree: its base.context is not a readable tar.gz") {
 		t.Fatalf("show of a broken version: exit=%d stderr=%s", code, errb.String())
 	}
 	out.Reset()
 	if code := run([]string{"kit", "show", "--admin-url", ts.URL, "--own", "web"}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "RELEASE STEPS") {
 		t.Fatalf("show --own must carry the note file's contents: exit=%d\n%s", code, out.String())
-	}
-	for name, body := range map[string]string{
-		"reserved": "kind: studio\nnotes:\n  - {name: tools.md, read-when: w, body: B}\n",
-		"escape":   "kind: studio\nnotes:\n  - {name: x.md, read-when: w, file: ../../etc/passwd}\n",
-		"missing":  "kind: studio\nnotes:\n  - {name: x.md, read-when: w, file: docs/nope.md}\n",
-	} {
-		write("kit.yml", body)
-		errb.Reset()
-		if code := run([]string{"kit", "push", "--admin-url", ts.URL, dir}, getenv, &out, &errb); code == 0 {
-			t.Errorf("%s: push must fail", name)
-		}
-	}
-	if k, _ := store.GetKit("web"); k.Current != 1 {
-		t.Fatalf("a refused push made a version: current v%d", k.Current)
 	}
 }
 

@@ -2,7 +2,6 @@ package jam
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -151,33 +150,32 @@ func TestDraftPublishOfManagedKitPublishes(t *testing.T) {
 	}
 }
 
-func TestPublishRoute(t *testing.T) {
-	var logs bytes.Buffer
+// A publish needs the draft's etag, and the version it makes shows the
+// draft origin in the kit's history.
+func TestPublishRecordsDraftOrigin(t *testing.T) {
 	st := NewMemStore()
-	h := NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(&logs, nil)), nil)
+	log := slog.New(slog.DiscardHandler)
+	h := NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, log, nil)
 	pushApp(t, st, "kit.yml", "kind: studio\n")
-	open := draftDo(t, h, "POST", "/admin/kits/app/draft", "application/json", "", nil)
-	put := draftDo(t, h, "PUT", "/admin/kits/app/draft/files/run.sh", "application/octet-stream", open.Header().Get("ETag"), []byte("echo SECRET\n"))
-	tag := put.Header().Get("ETag")
-	if w := draftDo(t, h, "POST", "/admin/kits/app/draft/publish", "text/plain", tag, []byte(`{}`)); w.Code != http.StatusUnsupportedMediaType {
-		t.Fatalf("text/plain = %d", w.Code)
+	d, err := OpenKitDraft(st, "app", 0, "op", draftNow)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if w := draftDo(t, h, "POST", "/admin/kits/app/draft/publish", "application/json", "", []byte(`{}`)); w.Code != http.StatusPreconditionRequired {
-		t.Fatalf("no If-Match = %d", w.Code)
+	put, err := PutKitDraftFile(st, log, "app", "run.sh", 0, []byte("echo SECRET\n"), DraftETag(d.Tree), "op", draftNow)
+	if err != nil {
+		t.Fatal(err)
 	}
-	w := draftDo(t, h, "POST", "/admin/kits/app/draft/publish", "application/json", tag, []byte(`{"pin":false}`))
-	var res KitDraftPublish
-	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &res) != nil || res.Version != 2 {
-		t.Fatalf("publish = %d %s", w.Code, w.Body)
+	if _, err := PublishKitDraft(st, log, "app", false, ""); WriteStatus(err, 500) != http.StatusPreconditionRequired {
+		t.Fatalf("no If-Match = %v", err)
+	}
+	res, err := PublishKitDraft(st, log, "app", false, put.ETag)
+	if err != nil || res.Version != 2 {
+		t.Fatalf("publish = %+v %v", res, err)
 	}
 	var hist []KitVersionInfo
 	getJSON(t, h, "/admin/kits/app/history", &hist)
 	if len(hist) != 2 || hist[0].Origin != "" || hist[1].Origin != "draft" {
 		t.Fatalf("history = %+v", hist)
-	}
-	out := logs.String()
-	if !strings.Contains(out, "kit draft published") || !strings.Contains(out, "version=2") || strings.Contains(out, "SECRET") {
-		t.Fatalf("audit log:\n%s", out)
 	}
 }
 
@@ -302,15 +300,20 @@ func TestPublishCloseFails(t *testing.T) {
 	mem := NewMemStore()
 	gcs := 0
 	st := failDraftClose{Store: mem, gcs: &gcs}
-	h := NewAdminHandler(st, nil, nil, LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(&logs, nil)), nil)
+	log := slog.New(slog.NewTextHandler(&logs, nil))
 	pushApp(t, mem, "kit.yml", "kind: studio\n")
-	open := draftDo(t, h, "POST", "/admin/kits/app/draft", "application/json", "", nil)
-	put := draftDo(t, h, "PUT", "/admin/kits/app/draft/files/run.sh", "application/octet-stream", open.Header().Get("ETag"), []byte("echo SECRET\n"))
+	d, err := OpenKitDraft(st, "app", 0, "op", draftNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put, err := PutKitDraftFile(st, log, "app", "run.sh", 0, []byte("echo SECRET\n"), DraftETag(d.Tree), "op", draftNow)
+	if err != nil {
+		t.Fatal(err)
+	}
 	gcs = 0
-	w := draftDo(t, h, "POST", "/admin/kits/app/draft/publish", "application/json", put.Header().Get("ETag"), []byte(`{}`))
-	var res KitDraftPublish
-	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &res) != nil || res.Version != 2 || res.Warning != "published v2; the draft could not be closed — discard it" {
-		t.Fatalf("publish = %d %s", w.Code, w.Body)
+	res, err := PublishKitDraft(st, log, "app", false, put.ETag)
+	if err != nil || res.Version != 2 || res.Warning != "published v2; the draft could not be closed — discard it" {
+		t.Fatalf("publish = %+v %v", res, err)
 	}
 	if gcs != 1 {
 		t.Fatalf("GC ran %d times, want 1", gcs)
@@ -322,14 +325,11 @@ func TestPublishCloseFails(t *testing.T) {
 	if !strings.Contains(out, "level=WARN") || !strings.Contains(out, "kit draft: published but not closed") || !strings.Contains(out, "store down") || strings.Contains(out, "SECRET") || strings.Contains(out, "level=ERROR") {
 		t.Fatalf("log:\n%s", out)
 	}
-	// The draft is still open; discarding it fails the same way, a 500
-	// whose log line names the method and the route.
-	logs.Reset()
-	if w := draftDo(t, h, "DELETE", "/admin/kits/app/draft", "", put.Header().Get("ETag"), nil); w.Code != http.StatusInternalServerError {
-		t.Fatalf("discard = %d %s", w.Code, w.Body)
-	}
-	if out := logs.String(); !strings.Contains(out, "method=DELETE") || !strings.Contains(out, `route="DELETE /admin/kits/{name}/draft"`) {
-		t.Fatalf("500 log:\n%s", out)
+	// The draft is still open; discarding it fails the same way: a store
+	// error, not the operator's (no WriteError).
+	_, err = DiscardKitDraft(st, log, "app", put.ETag)
+	if _, isWrite := errors.AsType[*WriteError](err); err == nil || isWrite {
+		t.Fatalf("discard = %v", err)
 	}
 }
 

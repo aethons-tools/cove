@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -148,5 +149,33 @@ func TestReplaceKitYMLDoesNotRevertARacingPush(t *testing.T) {
 	v, _ := LoadKitVersion(mem, "app", 0)
 	if _, ok := v.Tree.Lookup("b.sh"); !ok || v.Version != 3 {
 		t.Fatalf("current v%d %+v: the racing push was reverted", v.Version, v.Tree)
+	}
+}
+
+// The refusals the CLI's kit push (now gone) asserted hold where a push is
+// stored (the console's workspace writes and an apply push through
+// PushKitFiles): an unknown field, a reserved or escaping note, an unsafe
+// path (never echoed) or name is refused and stores nothing.
+func TestPushKitFilesRefusesBadInput(t *testing.T) {
+	st := NewMemStore()
+	for _, c := range []struct {
+		name, want string
+		files      []kittree.File
+	}{
+		{"unknown field", "field nope_unknown_key not found", kittreetest.Files("kit.yml", "name: x\nnope_unknown_key: true\n")},
+		{"reserved note", "note name tools.md is reserved", kittreetest.Files("kit.yml", "kind: studio\nnotes:\n  - {name: tools.md, read-when: w, body: B}\n")},
+		{"escaping note", "file must be a relative path inside the kit directory", kittreetest.Files("kit.yml", "kind: studio\nnotes:\n  - {name: x.md, read-when: w, file: ../../etc/passwd}\n")},
+		{"unsafe path", "unsafe path", kittreetest.Files("kit.yml", "kind: studio\n", "evil\x1b[2Jname", "x")},
+	} {
+		_, _, err := PushKitFiles(st, "web", c.files)
+		if err == nil || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), "evil") {
+			t.Errorf("%s: err = %v, want it to contain %q", c.name, err, c.want)
+		}
+	}
+	if _, _, err := PushKitFiles(st, "bad name", kittreetest.Files("kit.yml", "kind: studio\n")); err == nil || WriteStatus(err, 500) != 400 {
+		t.Errorf("unsafe name: err = %v, want a 400", err)
+	}
+	if len(st.ListKits()) != 0 {
+		t.Fatalf("a refused push stored a kit: %+v", st.ListKits())
 	}
 }

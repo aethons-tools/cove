@@ -44,11 +44,6 @@ type DraftChange struct {
 	Kind string `json:"kind"`
 }
 
-// KitDraftOpenBody is the POST /admin/kits/{name}/draft request; From 0 = current.
-type KitDraftOpenBody struct {
-	From int `json:"from,omitempty"`
-}
-
 // DraftETag is a draft's ETag: its tree hash, quoted.
 func DraftETag(tree string) string { return `"` + tree + `"` }
 

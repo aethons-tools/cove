@@ -5,7 +5,6 @@
 package main
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"crypto/tls"
@@ -22,7 +21,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"text/tabwriter"
@@ -71,7 +69,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sshca"
 	"github.com/aethons-tools/cove/internal/jam/userui"
 	"github.com/aethons-tools/cove/internal/jam/vscodeext"
-	"github.com/aethons-tools/cove/internal/kittree"
 	"github.com/aethons-tools/cove/internal/logging"
 	"github.com/aethons-tools/cove/internal/mint"
 	"github.com/aethons-tools/cove/internal/mintcmd"
@@ -138,7 +135,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
 			{Name: "room", Brief: "list a project's rooms — named channels on a Linear issue or a Discord channel (list) via the admin API", Run: cmdRoom},
 			{Name: "connection", Brief: "list connections to external services — a Linear workspace, a Discord bot (list) via the admin API", Run: cmdConnection},
-			{Name: "kit", Brief: "manage the kit registry (push <dir>|list|show|versions|diff|pin|rm|import|track|untrack|sync|draft)", Run: cmdKit},
+			{Name: "kit", Brief: "manage the kit registry (list|show|versions|diff|import|track|untrack|sync)", Run: cmdKit},
 			{Name: "config", Brief: "keep the Jam's configuration in git: write it out (write <dir> [--all]); plan and apply a checkout or a git source (diff|apply [--dir <path> | --git <src>] [--yes]); follow one config source (track --git <src> | sync | untrack) via the admin API", Run: cmdConfig},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
@@ -707,19 +704,15 @@ func (m *multiFlag) Set(v string) error {
 
 func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "jam kit: expected push|list|show|versions|diff|pin|rm|import|track|untrack|sync|draft")
+		fmt.Fprintln(stderr, "jam kit: expected list|show|versions|diff|import|track|untrack|sync")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
-	if sub == "draft" { // its own verbs and flags (kitdraft.go)
-		return cmdKitDraft(rest, stdout, stderr)
-	}
 	fs := flag.NewFlagSet("kit "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	name := fs.String("name", "", "kit name")
-	config := fs.String("config", "", "push: a kit.yml to push alone (or - for stdin); otherwise push <dir>")
 	version := fs.Int("version", 0, "kit version (show; 0 = current)")
 	gitSrc := fs.String("git", "", "git source <repo>[//dir]@<ref>; import and track only")
 	from := fs.Int("from", 0, "diff: the older version (default: the one before --to)")
@@ -736,39 +729,6 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "push":
-		if *config == "-" && *name == "" {
-			fmt.Fprintln(stderr, "jam kit push: --name is required with --config")
-			return 2
-		}
-		files, kitName, err := kitPushFiles(pos, *config, *name)
-		if errors.Is(err, errKitPushUsage) {
-			fmt.Fprintln(stderr, "jam kit push:", err)
-			return 2
-		}
-		if err != nil {
-			fmt.Fprintln(stderr, "jam kit push:", err)
-			return 1
-		}
-		if kitName, err = checkKitPush(files, kitName, *name != ""); err != nil {
-			fmt.Fprintln(stderr, "jam kit push:", err)
-			return 1
-		}
-		var body bytes.Buffer
-		if err := kittree.WriteTar(&body, files); err != nil {
-			fmt.Fprintln(stderr, "jam kit push:", err)
-			return 1
-		}
-		res, err := c.PushKitTree(kitName, body.Bytes())
-		if err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		if res.Unchanged {
-			fmt.Fprintf(stdout, "%s unchanged (current v%d)\n", kitName, res.Version)
-		} else {
-			fmt.Fprintf(stdout, "pushed %s v%d\n", kitName, res.Version)
-		}
 	case "diff":
 		if len(pos) != 1 {
 			fmt.Fprintln(stderr, "jam kit diff: expected one kit name")
@@ -964,31 +924,6 @@ func cmdKit(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		} else {
 			fmt.Fprintf(stdout, "synced %s v%d (%s)\n", res.Name, res.Version, shortCommit(res.Commit))
 		}
-	case "pin":
-		if len(pos) != 2 {
-			fmt.Fprintln(stderr, "jam kit pin: expected <name> <version>")
-			return 2
-		}
-		v, err := strconv.Atoi(pos[1])
-		if err != nil {
-			fmt.Fprintln(stderr, "jam kit pin: version must be an integer")
-			return 2
-		}
-		if err := c.PinKit(pos[0], v); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "pinned %s to v%d\n", pos[0], v)
-	case "rm":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam kit rm: expected one kit name")
-			return 2
-		}
-		if err := c.RemoveKit(pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "removed kit", pos[0])
 	default:
 		fmt.Fprintln(stderr, "jam kit: unknown subcommand", sub)
 		return 2
@@ -1095,7 +1030,6 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	role := fs.String("role", "", "role to raise the studio for")
 	unit := fs.String("unit", "", "unit of work (e.g. issue identifier)")
 	promptFile := fs.String("prompt-file", "", "path to a file containing the workload prompt (raise only; read host-side, never passed on argv)")
-	kitDraft := fs.String("kit-draft", "", "raise only: run this kit's draft instead of the role's kit (its test build is built first when needed)")
 	activity := fs.String("activity", "", "reported activity: running|holding|waiting|blocked|done (status only)")
 	var managers multiFlag
 	fs.Var(&managers, "manager", "raise only: a manager the studio may land on, in preference order (repeatable; default any)")
@@ -1125,17 +1059,12 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			prompt = string(b)
 		}
-		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit, Prompt: prompt, KitDraft: *kitDraft, Managers: managers, PlacementTimeout: *placementTimeout})
+		res, err := c.RaiseCove(adminclient.CoveRaiseParams{ID: *id, Project: *project, Role: *role, Unit: *unit, Prompt: prompt, Managers: managers, PlacementTimeout: *placementTimeout})
 		if err != nil {
-			// Escaped: a draft studio's problems quote kit.yml values.
 			fmt.Fprintln(stderr, "jam:", textesc.Escape(err.Error(), false))
 			return 1
 		}
-		if res.KitDraftTree != "" {
-			fmt.Fprintf(stdout, "raised %s as session %s (phase=%s) from the draft of %s @%s\n", res.Label, res.ID, res.Phase, textesc.Escape(*kitDraft, false), textesc.Escape(treePrefix(res.KitDraftTree), false))
-		} else {
-			fmt.Fprintf(stdout, "raised %s as session %s (phase=%s)\n", res.Label, res.ID, res.Phase)
-		}
+		fmt.Fprintf(stdout, "raised %s as session %s (phase=%s)\n", res.Label, res.ID, res.Phase)
 	case "list":
 		coves, err := c.ListCoves()
 		if err != nil {
