@@ -94,8 +94,8 @@ func TestDestinationsAPIViews(t *testing.T) {
 // unset; a bad env line, a duplicate key, a bad pattern, a bad logging value
 // or an unknown credential is refused and nothing is stored.
 func TestDestinationsAPIFields(t *testing.T) {
-	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
+	e := editOn(t, editSetup{cred: credOK})
+	h := e.H
 	const pats = "/v1/projects/p1/models/*:rawPredict\r\n\r\n  /v1/projects/p1/models/*:streamRawPredict  \n"
 	if rec := apiDo(t, h, "POST", "/app/admin/api/destinations", map[string]string{
 		"name": " gh ", "route": " /api/v3/ ", "upstream": "https://api.github.com", "identityIn": "bearer", "credName": "known-cred", "apply": "bearer",
@@ -104,7 +104,7 @@ func TestDestinationsAPIFields(t *testing.T) {
 	}, nil); rec.Code != 201 {
 		t.Fatalf("create = %d %s", rec.Code, rec.Body)
 	}
-	d := destNamed(t, store, "gh")
+	d := destNamed(t, e.Store(), "gh")
 	if d.Route != "/api/v3/" || d.Env["GH_HOST"] != "{host}" || d.Env["GH_ENTERPRISE_TOKEN"] != "{token}" || len(d.Env) != 2 || !d.Git || d.Note != "use git over https" ||
 		d.CredName != "known-cred" || d.IdentityIn != jam.ApplyBearer || d.LogHeadersIn != jam.HeaderLogExamined || d.LogHeadersOut != "" {
 		t.Fatalf("stored = %+v", d)
@@ -145,8 +145,8 @@ func TestDestinationsAPIFields(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `env line \"GH_HOST\" is not KEY=TEMPLATE`) {
 		t.Errorf("no equals = %s", rec.Body)
 	}
-	if len(store.ListDestinations()) != 1 {
-		t.Errorf("a refused create stored: %+v", store.ListDestinations())
+	if len(e.Store().ListDestinations()) != 1 {
+		t.Errorf("a refused create stored: %+v", e.Store().ListDestinations())
 	}
 
 	// An edit replaces every field; a bad field is refused on edit too.
@@ -156,7 +156,7 @@ func TestDestinationsAPIFields(t *testing.T) {
 	}, &out); rec.Code != 200 {
 		t.Fatalf("edit = %d %s", rec.Code, rec.Body)
 	}
-	if d := destNamed(t, store, "gh"); d.Upstream != "https://ghe.example/api/v3" || d.CredName != "" || len(d.Env) != 1 || d.Git || len(d.AllowPaths) != 0 || d.LogHeadersIn != "" || d.Note != "" {
+	if d := destNamed(t, e.Store(), "gh"); d.Upstream != "https://ghe.example/api/v3" || d.CredName != "" || len(d.Env) != 1 || d.Git || len(d.AllowPaths) != 0 || d.LogHeadersIn != "" || d.Note != "" {
 		t.Errorf("after edit = %+v", d)
 	}
 	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/destinations/gh", map[string]string{"route": "/api/v3/", "upstream": "https://x", "env": "nope"}, nil), 400, "bad_request")

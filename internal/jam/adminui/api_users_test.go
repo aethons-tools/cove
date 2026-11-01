@@ -55,10 +55,11 @@ func wantErr(t *testing.T, rec *httptest.ResponseRecorder, status int, code stri
 }
 
 func TestUsersAPI(t *testing.T) {
-	h, store := adminHandler(t)
-	if _, err := store.CreateConnection(jam.Connection{Kind: "discord", Name: "disc", CredName: "tok"}); err != nil {
+	seed := newStore(t)
+	if _, err := seed.CreateConnection(jam.Connection{Kind: "discord", Name: "disc", CredName: "tok"}); err != nil {
 		t.Fatal(err)
 	}
+	h := editOn(t, editSetup{seed: seed}).H
 	var created adminui.Created
 	if rec := apiDo(t, h, "POST", "/app/admin/api/users", map[string]string{"name": "alice", "logins": "a@x\n\nlocal", "oidc": ""}, &created); rec.Code != 201 {
 		t.Fatalf("create = %d %s", rec.Code, rec.Body)
@@ -85,17 +86,8 @@ func TestUsersAPI(t *testing.T) {
 		t.Errorf("renamed = %+v", d.User)
 	}
 	apiDo(t, h, "POST", "/app/admin/api/users/alicia/logins", map[string]string{"logins": "z@x"}, &d)
-	apiDo(t, h, "POST", "/app/admin/api/users/alicia/oidc", map[string]string{"oidc": "https://idp.example:sub-1"}, &d)
-	if d.LoginSpec != "z@x" || d.OIDCSpec != "https://idp.example:sub-1" {
-		t.Errorf("logins/oidc = %q %q", d.LoginSpec, d.OIDCSpec)
-	}
-	apiDo(t, h, "POST", "/app/admin/api/users/alicia/accounts", map[string]string{"connection": "disc", "uid": "42", "handle": "ali"}, &d)
-	if len(d.User.Accounts) != 1 || d.User.Accounts[0].Connection != "disc" || d.User.Accounts[0].ServiceUID != "42" || d.User.Accounts[0].Handle != "ali" {
-		t.Fatalf("accounts = %+v", d.User.Accounts)
-	}
-	apiDo(t, h, "DELETE", "/app/admin/api/users/alicia/accounts/"+d.User.Accounts[0].ID, nil, &d)
-	if len(d.User.Accounts) != 0 {
-		t.Errorf("after unlink = %+v", d.User.Accounts)
+	if d.LoginSpec != "z@x" {
+		t.Errorf("logins = %q", d.LoginSpec)
 	}
 	if rec := apiDo(t, h, "DELETE", "/app/admin/api/users/alicia", nil, nil); rec.Code != 204 {
 		t.Errorf("remove = %d %s", rec.Code, rec.Body)
@@ -106,8 +98,34 @@ func TestUsersAPI(t *testing.T) {
 	}
 }
 
-func TestUsersAPIRefusals(t *testing.T) {
+// A user's OIDC identities and chat accounts are live state: written on a
+// Jam with no config repo too.
+func TestUsersAPILiveState(t *testing.T) {
 	h, store := adminHandler(t)
+	if _, err := store.CreateConnection(jam.Connection{Kind: "discord", Name: "disc", CredName: "tok"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateUser(jam.User{Name: "alicia"}); err != nil {
+		t.Fatal(err)
+	}
+	var d adminui.UserDetail
+	apiDo(t, h, "POST", "/app/admin/api/users/alicia/oidc", map[string]string{"oidc": "https://idp.example:sub-1"}, &d)
+	if d.OIDCSpec != "https://idp.example:sub-1" {
+		t.Errorf("oidc = %q", d.OIDCSpec)
+	}
+	apiDo(t, h, "POST", "/app/admin/api/users/alicia/accounts", map[string]string{"connection": "disc", "uid": "42", "handle": "ali"}, &d)
+	if len(d.User.Accounts) != 1 || d.User.Accounts[0].Connection != "disc" || d.User.Accounts[0].ServiceUID != "42" || d.User.Accounts[0].Handle != "ali" {
+		t.Fatalf("accounts = %+v", d.User.Accounts)
+	}
+	apiDo(t, h, "DELETE", "/app/admin/api/users/alicia/accounts/"+d.User.Accounts[0].ID, nil, &d)
+	if len(d.User.Accounts) != 0 {
+		t.Errorf("after unlink = %+v", d.User.Accounts)
+	}
+}
+
+func TestUsersAPIRefusals(t *testing.T) {
+	store := newStore(t)
+	h := adminui.RegisterAppForTest(store, testLogger(), nil, nil, anyCred, nil)
 	if _, err := store.CreateUser(jam.User{Name: "bob"}); err != nil {
 		t.Fatal(err)
 	}

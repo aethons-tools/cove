@@ -11,7 +11,8 @@ import (
 )
 
 func TestKitsAPI(t *testing.T) {
-	h, store := adminHandler(t)
+	e := editOn(t, editSetup{})
+	h := e.H
 	var c adminui.Created
 	if rec := apiDo(t, h, "POST", "/app/admin/api/kits", map[string]string{"name": "k", "config": "kind: studio\nprompt: one\n"}, &c); rec.Code != 201 || c.Path != "config/kits/k" {
 		t.Fatalf("create = %d %s", rec.Code, rec.Body)
@@ -35,9 +36,11 @@ func TestKitsAPI(t *testing.T) {
 	if res.Message != "k current is now v1" || res.Kit.Current != 1 {
 		t.Errorf("pin = %q %d", res.Message, res.Kit.Current)
 	}
-	if _, _, err := jam.PushKitFiles(store, "k", kittreetest.Files("kit.yml", "kind: studio\nprompt: three\n", "run.sh", "echo hi\n", "a b%.txt", "spaced\n")); err != nil {
-		t.Fatal(err)
-	}
+	e.Edit(func(st jam.Store) {
+		if _, _, err := jam.PushKitFiles(st, "k", kittreetest.Files("kit.yml", "kind: studio\nprompt: three\n", "run.sh", "echo hi\n", "a b%.txt", "spaced\n")); err != nil {
+			t.Fatal(err)
+		}
+	})
 	var d adminui.KitDetail
 	apiDo(t, h, "GET", "/app/admin/api/kits/k?v=3&diff=2", nil, &d)
 	if d.Diff == nil || d.FilesDiff == nil || len(d.FilesDiff.Rows) == 0 || d.View.N != 3 {

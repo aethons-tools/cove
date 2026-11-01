@@ -121,12 +121,12 @@ func TestAdminAPITrustedOrigins(t *testing.T) {
 		h.ServeHTTP(rec, appui.WithPrincipal(r, appui.Principal{Admin: true, Local: true}))
 		return rec.Code
 	}
-	plain, _ := adminHandler(t)
+	plain := editOn(t, editSetup{}).H
 	if got := write(plain, "Origin", "http://localhost:8090", "p0"); got != http.StatusForbidden {
 		t.Errorf("proxied write without trusted origins = %d, want 403", got)
 	}
-	store := newStore(t)
-	h := adminui.Handler(store, testLogger(), nil, nil, anyCred, nil, adminui.WithTrustedOrigins("http://localhost:8090"))
+	e := editOn(t, editSetup{opts: []adminui.Option{adminui.WithTrustedOrigins("http://localhost:8090")}})
+	h := e.H
 	for i, tc := range []struct {
 		header, value string
 		want          int
@@ -141,7 +141,7 @@ func TestAdminAPITrustedOrigins(t *testing.T) {
 		if got := write(h, tc.header, tc.value, project); got != tc.want {
 			t.Errorf("%s: %s → %d, want %d", tc.header, tc.value, got, tc.want)
 		}
-		if _, ok := store.GetProject(project); ok != (tc.want == http.StatusCreated) {
+		if _, ok := e.Store().GetProject(project); ok != (tc.want == http.StatusCreated) {
 			t.Errorf("%s: %s: project stored = %v, want %v", tc.header, tc.value, ok, tc.want == http.StatusCreated)
 		}
 	}

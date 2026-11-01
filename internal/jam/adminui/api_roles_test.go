@@ -15,8 +15,10 @@ import (
 )
 
 func TestRolesAPI(t *testing.T) {
-	h, store := adminHandler(t)
-	mustCreateProject(t, store, "acme")
+	seed := newStore(t)
+	mustCreateProject(t, seed, "acme")
+	e := editOn(t, editSetup{seed: seed})
+	h := e.H
 	var c adminui.Created
 	if rec := apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles", map[string]any{"name": "coder", "destinations": "", "ttlSeconds": "3600"}, &c); rec.Code != 201 ||
 		c.Path != "config/projects/acme/agents/coder" {
@@ -46,7 +48,7 @@ func TestRolesAPI(t *testing.T) {
 	}
 	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/coder/allocation", map[string]string{"maxPersonal": "x"}, nil), 400, "bad_request")
 	apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/coder/allocation", map[string]string{"maxPersonal": "2", "idleAfter": "90m"}, &res)
-	if r, _ := store.GetRole("acme", "coder"); r.Allocation.MaxPersonal != 2 || r.Allocation.IdleAfter != 90*time.Minute {
+	if r, _ := e.Store().GetRole("acme", "coder"); r.Allocation.MaxPersonal != 2 || r.Allocation.IdleAfter != 90*time.Minute {
 		t.Errorf("allocation = %+v", r.Allocation)
 	}
 	apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/coder/egress", map[string]string{"domains": "a.example.com\n.b.example.com"}, &res)
@@ -70,8 +72,8 @@ func TestRolesAPI(t *testing.T) {
 	if len(res.Role.Standing) != 0 {
 		t.Errorf("after dismiss = %+v", res.Role.Standing)
 	}
-	var pa adminui.ProjectAgents
-	apiDo(t, h, "GET", "/app/admin/api/projects/acme/agents", nil, &pa)
+	var pa adminui.ProjectAgents // live state: read over the branch's config
+	apiDo(t, uiHandler(t, e.Store()), "GET", "/app/admin/api/projects/acme/agents", nil, &pa)
 	if len(pa.Roles) != 1 || pa.Roles[0].Name != "coder" || pa.Agents == nil || pa.CanRequest {
 		t.Errorf("agents view = %+v", pa)
 	}

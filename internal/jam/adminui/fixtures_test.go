@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,7 +35,14 @@ func draftFixture(t *testing.T) (jam.Store, http.Handler) {
 	if _, err := jam.OpenKitDraft(store, "app", 0, "local", time.Unix(100, 0).UTC()); err != nil {
 		t.Fatal(err)
 	}
-	return store, uiHandler(t, store)
+	return store, draftHandler(store, testLogger())
+}
+
+// draftHandler serves the draft editor's writes on store itself, as tests
+// of the editor's own handlers need: on a branch, a refused write reloads
+// the branch, and a draft is never in the repo.
+func draftHandler(store jam.Store, log *slog.Logger) http.Handler {
+	return adminui.RegisterAppForTest(store, log, nil, nil, anyCred, nil)
 }
 
 // draftETag is kit app's draft ETag now.

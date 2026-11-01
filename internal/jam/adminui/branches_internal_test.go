@@ -16,6 +16,9 @@ func TestOnBranchPath(t *testing.T) {
 		apiPrefix + "kits/web/sync":                                 false,
 		apiPrefix + "kits/web/source":                               false,
 		apiPrefix + "kits/web/pin":                                  true,
+		apiPrefix + "kits/web/draft/build":                          true, // no live test build any more
+		apiPrefix + "tracking/apply":                                false,
+		apiPrefix + "config/branches":                               false,
 	} {
 		if got := onBranchPath(p); got != want {
 			t.Errorf("%s = %v, want %v", p, got, want)

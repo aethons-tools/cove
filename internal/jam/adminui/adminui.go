@@ -129,8 +129,19 @@ func WithAppTokenRevoke(revoke func(ident.ID)) Option {
 
 // Handler returns the UI mux (no auth wrap). store is the primary dependency:
 // every read view is an in-process read. log records write-action outcomes
-// (never secret values — see writes.go).
+// (never secret values — see writes.go). Config writes are made on a branch
+// (WithConfigBranches); without one, on a Jam with no config repo, they are
+// refused: its config is read-only.
 func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.SessionAllocator, credExists func(string) bool, msgs SquawkReader, opts ...Option) http.Handler {
+	mux, o := newMux(store, log, sup, alloc, credExists, msgs, opts)
+	if o.branches != nil && o.branchHandler != nil {
+		return &branchRouter{live: mux, b: o.branches, factory: o.branchHandler}
+	}
+	return readOnlyRouter{live: mux}
+}
+
+// newMux is Handler's mux, before the config-write routing, and its options.
+func newMux(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.SessionAllocator, credExists func(string) bool, msgs SquawkReader, opts []Option) (*http.ServeMux, options) {
 	var o options
 	for _, opt := range opts {
 		opt(&o)
@@ -151,8 +162,5 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured},
 		agentAPI{sup: sup, msgs: msgs, sess: o.sessStore, hub: o.sessHub, acc: accessDeps{o.live, o.exposures, o.previewURL}, setup: o.setup, credExists: credExists},
 		dashAPI{managers: o.managers, sup: sup, amURL: o.alertmanagerURL}, o.trustedOrigins, fetchers{kits: o.kitFetcher, config: cfgFetcher}, cfgEnv, o.branches, log)
-	if o.branches != nil && o.branchHandler != nil {
-		return &branchRouter{live: mux, b: o.branches, factory: o.branchHandler}
-	}
-	return mux
+	return mux, o
 }

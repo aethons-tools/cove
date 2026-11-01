@@ -84,8 +84,7 @@ func TestProjectAPIInUseBy(t *testing.T) {
 // room without its fields, an empty chain, a bad delivery line, an unknown
 // user.
 func TestProjectAPIEditRefusals(t *testing.T) {
-	store := seedProjects(t)
-	h := uiHandler(t, store)
+	h := editOn(t, editSetup{seed: seedProjects(t)}).H
 	for _, tc := range []struct {
 		path string
 		body map[string]any

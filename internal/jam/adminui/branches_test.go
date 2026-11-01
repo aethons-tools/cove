@@ -2,12 +2,16 @@ package adminui_test
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -15,6 +19,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/configrepo"
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 	"github.com/aethons-tools/cove/internal/jam/gitsource/gittest"
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 )
 
 // branchUI is a live Jam following a served repo (users/bob.yml on main,
@@ -35,6 +40,105 @@ func branchUI(t *testing.T) (http.Handler, jam.Store, *jam.ConfigBranches, strin
 	}
 	h := adminui.Handler(live, testLogger(), nil, nil, anyCred, nil, adminui.WithConfigEnv(env), adminui.WithConfigBranches(b, factory))
 	return h, live, b, url
+}
+
+// editBranch is the branch every branchEdit request is served on.
+const editBranch = "jam/edit"
+
+// branchEdit is a Jam following a served repo with editBranch open, its
+// console editing that branch: config writes are made there, as an
+// operator's are. Store is the branch workspace's store.
+type branchEdit struct {
+	t    *testing.T
+	H    http.Handler // serves every request on editBranch
+	Live jam.Store
+	b    *jam.ConfigBranches
+	url  string
+}
+
+// editSetup is what editOn builds: the branch holds seed's config (nil:
+// none); the console's handlers are built with cred (nil: anyCred), log
+// (nil: testLogger) and opts.
+type editSetup struct {
+	seed jam.Store
+	cred func(string) bool
+	log  *slog.Logger
+	opts []adminui.Option
+}
+
+// editOn opens editBranch as s sets it up.
+func editOn(t *testing.T, s editSetup) *branchEdit {
+	t.Helper()
+	seed, cred, log, opts := s.seed, s.cred, s.log, slices.Clone(s.opts)
+	if cred == nil {
+		cred = anyCred
+	}
+	if log == nil {
+		log = testLogger()
+	}
+	ctx := context.Background()
+	url, _, _ := gittest.Serve(t, map[string]string{"README.md": "the Jam's config is under config/\n"}, gittest.WithPush())
+	repo := &configrepo.Repo{URL: url, Branch: "main", Path: filepath.Join(t.TempDir(), "repo")}
+	head, err := repo.CreateBranch(ctx, editBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seed != nil {
+		exp, err := jam.ExportConfigTree(seed.ExportConfig(), nil, nil, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ch := configrepo.Changes{Put: map[string]configrepo.File{}}
+		for p, c := range exp.Files {
+			ch.Put["config/"+p] = configrepo.File{Data: []byte(c), Mode: filemode.Regular}
+		}
+		for dir, fs := range exp.Kits {
+			for _, f := range fs {
+				mode := filemode.Regular
+				if f.Mode&0o111 != 0 {
+					mode = filemode.Executable
+				}
+				ch.Put["config/"+dir+"/"+f.Path] = configrepo.File{Data: f.Data, Mode: mode}
+			}
+		}
+		if _, err := repo.Commit(ctx, editBranch, head, ch, configrepo.Signature{Name: "seed", Email: "seed@jam"}, "seed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	live := newStore(t)
+	env := jam.ConfigEnv{CredExists: cred, Followed: gitsource.Source{Repo: url, Ref: "main", Dir: "config"}}
+	b := &jam.ConfigBranches{Repo: repo, Dir: "config", Env: env, Live: live}
+	opts = append([]adminui.Option{adminui.WithConfigEnv(env)}, opts...)
+	factory := func(st jam.Store) http.Handler {
+		return adminui.Handler(st, log, nil, nil, cred, nil, opts...)
+	}
+	h := adminui.Handler(live, log, nil, nil, cred, nil, append(opts, adminui.WithConfigBranches(b, factory))...)
+	return &branchEdit{t: t, H: modHandler{h, onBranch(editBranch)}, Live: live, b: b, url: url}
+}
+
+// Store is the branch's config as the console reads it now.
+func (e *branchEdit) Store() jam.Store {
+	e.t.Helper()
+	ws, err := e.b.Workspace(context.Background(), editBranch)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return ws.Store
+}
+
+// Edit changes the branch's config by hand (a push) with fn.
+func (e *branchEdit) Edit(fn func(jam.Store)) {
+	e.t.Helper()
+	ws, err := e.b.Workspace(context.Background(), editBranch)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	ws.Lock()
+	defer ws.Unlock()
+	fn(ws.Store)
+	if err := e.b.Save(context.Background(), ws, configrepo.Signature{Name: "hand", Email: "hand@jam"}, "by hand"); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 // apiDoWith is apiDo with the request adjusted by mod first.
@@ -204,5 +308,34 @@ func TestBranchesAPILocal(t *testing.T) {
 	apiDo(t, h, "GET", "/app/admin/api/config/branches", nil, &raw)
 	if raw["canPR"] != false || raw["treeLink"] != "" || raw["repoLink"] != "" {
 		t.Fatalf("list = %+v", raw)
+	}
+}
+
+// The draft editor works on a branch: a draft opened, saved and published
+// there is committed as the kit's new files.
+func TestBranchKitDraftSaveAndPublish(t *testing.T) {
+	seed := newStore(t)
+	if _, _, err := jam.PushKitFiles(seed, "app", kittreetest.Files("kit.yml", "kind: studio\n", "run.sh*", "echo\n")); err != nil {
+		t.Fatal(err)
+	}
+	e := editOn(t, editSetup{seed: seed})
+	var res adminui.DraftResult
+	if rec := apiDo(t, e.H, "POST", draftAPI, map[string]int{}, &res); rec.Code != 200 || res.Page.Draft == nil {
+		t.Fatalf("open = %d %s", rec.Code, rec.Body)
+	}
+	if rec := apiDo(t, e.H, "POST", draftAPI+"/save", map[string]any{"etag": res.Page.Draft.ETag, "path": "run.sh", "content": "echo two\n", "executable": true}, &res); rec.Code != 200 {
+		t.Fatalf("save = %d %s", rec.Code, rec.Body)
+	}
+	if rec := apiDo(t, e.H, "POST", draftAPI+"/publish", map[string]any{"etag": res.Page.Draft.ETag}, &res); rec.Code != 200 || res.Page.Published == nil {
+		t.Fatalf("publish = %d %s", rec.Code, rec.Body)
+	}
+	e.b.Drop(editBranch) // read the branch back from the repo
+	var d adminui.KitDetail
+	apiDo(t, e.H, "GET", "/app/admin/api/kits/app?file=run.sh", nil, &d)
+	if d.File == nil || d.File.Content != "echo two\n" {
+		t.Fatalf("committed run.sh = %+v", d.File)
+	}
+	if len(e.Live.ListKits()) != 0 {
+		t.Error("the draft reached the live Jam")
 	}
 }

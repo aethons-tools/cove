@@ -112,7 +112,7 @@ func TestDraftAPIOpenAndDiscardRefusals(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	h := uiHandler(t, store)
+	h := draftHandler(store, testLogger())
 	if pg := getDraft(t, h, ""); pg.Draft != nil || pg.Current != 2 || !slices.Equal(pg.Versions, []int{1, 2}) {
 		t.Errorf("no draft = %+v", pg)
 	}
@@ -357,7 +357,7 @@ func (failDraftPut) PutKitDraft(jam.KitDraft, jam.KitObjects) error {
 func TestDraftAPISaveAuditAndUnchanged(t *testing.T) {
 	store, _ := draftFixture(t)
 	var logs bytes.Buffer
-	h := adminui.Handler(store, slog.New(slog.NewTextHandler(&logs, nil)), nil, nil, anyCred, nil)
+	h := draftHandler(store, slog.New(slog.NewTextHandler(&logs, nil)))
 	var res adminui.DraftResult
 	apiDo(t, h, "POST", draftAPI+"/save", map[string]any{"etag": draftETag(t, store), "path": "run.sh", "content": "echo secret\r\n", "executable": true}, &res)
 	d, _ := store.GetKitDraft("app")
@@ -383,7 +383,7 @@ func TestDraftAPISaveAuditAndUnchanged(t *testing.T) {
 	wantErr(t, apiDo(t, h, "POST", draftAPI+"/mode", map[string]any{"etag": draftETag(t, store), "path": "nope"}, nil), 404, "not_found")
 
 	logs.Reset()
-	bad := adminui.Handler(failDraftPut{store}, slog.New(slog.NewTextHandler(&logs, nil)), nil, nil, anyCred, nil)
+	bad := draftHandler(failDraftPut{store}, slog.New(slog.NewTextHandler(&logs, nil)))
 	rec := apiDo(t, bad, "POST", draftAPI+"/save", map[string]any{"etag": draftETag(t, store), "path": "run.sh", "content": "echo other\n"}, nil)
 	wantErr(t, rec, 500, "internal")
 	if strings.Contains(rec.Body.String(), "disk on fire") || !strings.Contains(logs.String(), "disk on fire") {

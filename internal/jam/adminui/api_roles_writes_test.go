@@ -35,12 +35,13 @@ func TestRolesAPICreateFields(t *testing.T) {
 		Principal: jam.ModelPrincipal{Credential: "c"}, Claude: &jam.ClaudeSpec{Provider: "anthropic"}}); err != nil {
 		t.Fatal(err)
 	}
-	h := adminui.Handler(store, testLogger(), nil, nil, credOK, nil)
+	e := editOn(t, editSetup{seed: store, cred: func(n string) bool { return credOK(n) || n == "c" }})
+	h := e.H
 	const path = "/app/admin/api/projects/acme/roles"
 	if rec := apiDo(t, h, "POST", path, map[string]string{"name": " w ", "destinations": "git=known-cred,anthropic", "ttlSeconds": "3600", "kit": "web", "modelSpec": "opus"}, nil); rec.Code != 201 {
 		t.Fatalf("create = %d %s", rec.Code, rec.Body)
 	}
-	r, ok := store.GetRole("acme", "w")
+	r, ok := e.Store().GetRole("acme", "w")
 	if !ok || r.Scope.Credentials["git"] != "known-cred" || strings.Join(r.Scope.Destinations, ",") != "git,anthropic" || r.Scope.TTL != time.Hour || r.Kit != "web" || r.ModelSpec != "opus" {
 		t.Fatalf("stored role = %+v", r)
 	}
@@ -61,12 +62,12 @@ func TestRolesAPICreateFields(t *testing.T) {
 			t.Errorf("%v = %s, want %q (and no credential name)", tc.body, rec.Body, tc.want)
 		}
 	}
-	if _, ok := store.GetRole("acme", "x"); ok {
+	if _, ok := e.Store().GetRole("acme", "x"); ok {
 		t.Error("a refused create stored the role")
 	}
 	// Credential names are references, not secrets: the agents view shows the mapping.
-	var pa adminui.ProjectAgents
-	apiDo(t, h, "GET", "/app/admin/api/projects/acme/agents", nil, &pa)
+	var pa adminui.ProjectAgents // live state: read over the branch's config
+	apiDo(t, uiHandler(t, e.Store()), "GET", "/app/admin/api/projects/acme/agents", nil, &pa)
 	if !strings.Contains(fmt.Sprintf("%+v", pa.Roles), "known-cred") {
 		t.Errorf("roles = %+v, want the credential mapping", pa.Roles)
 	}
