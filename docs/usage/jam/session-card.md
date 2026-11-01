@@ -20,7 +20,7 @@ design: [session status card](../../superpowers/specs/2026-10-30-session-status-
 ## What it shows
 
 - **Left border** — the session's color ([session-colors.md](session-colors.md); none without one).
-- **Icon** — a grey box with a robot silhouette until real icons arrive; in VS Code it has VS Code's 2px corners. The **context bar** sits just right of it: how full the main thread's context window is, green through
+- **Icon** — a grey box (VS Code's 2px corners, everywhere) with a robot silhouette until real icons arrive. The **context bar** sits just right of it: how full the main thread's context window is, green through
   yellow to red, pulsing from 85%. No bar until the window is reported.
 - **Name** and the **state pill** (the tool in progress in its tooltip).
 - **Count icons**, each hidden at 0: open asks (orange, pulsing), alarms,
