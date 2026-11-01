@@ -166,7 +166,7 @@ func (b *ConfigBranches) carryDrafts(from, to *ConfigWorkspace) {
 		kit, ok := to.Store.GetKit(c.draft.Kit)
 		switch {
 		case c.baseTree == "":
-			b.logDraftLost(to.Branch, c.draft.Kit, "its files are not all in the workspace")
+			b.logDraftLost(to.Branch, c.draft.Kit, "its kit, base version or files are not all in the workspace")
 			continue
 		case !ok || kit.Trees[kit.Current] != c.baseTree:
 			b.logDraftLost(to.Branch, c.draft.Kit, "its kit changed on the branch")
@@ -298,9 +298,8 @@ func (b *ConfigBranches) Save(ctx context.Context, ws *ConfigWorkspace, author c
 // checkPlans refuses a save whose tree would not plan: the branch could not
 // be loaded again (say, an escalation chain naming a user who does not
 // exist). It plans exactly what the next load reads: the branch's files at
-// ws's head with ch applied. The save never edits a .source.yml, so a kit
-// source that fails to fetch here is the network, not the change: 503, try
-// again.
+// ws's head with ch applied. A kit source whose fetch fails here is the
+// network or the remote, not the change: 503, try again, with the refusals.
 func (b *ConfigBranches) checkPlans(ctx context.Context, ws *ConfigWorkspace, ch configrepo.Changes) error {
 	head, files, err := b.Repo.Files(ctx, ws.Branch)
 	if err != nil {
@@ -325,8 +324,8 @@ func (b *ConfigBranches) checkPlans(ctx context.Context, ws *ConfigWorkspace, ch
 	switch {
 	case err != nil:
 		return err
-	case len(tree.KitGroupsFailed) > 0:
-		return writeErr(http.StatusServiceUnavailable, "not saved: the branch's kit sources could not be fetched to check the save; try again")
+	case tree.KitFetchFailed:
+		return writeErr(http.StatusServiceUnavailable, "not saved: the branch's kit sources could not be fetched to check the save; try again: %s", strings.Join(res.Plan.Refusals, "\n"))
 	case len(res.Plan.Refusals) > 0:
 		return writeErr(http.StatusConflict, "not saved: the branch would no longer load: %s", strings.Join(res.Plan.Refusals, "\n"))
 	}

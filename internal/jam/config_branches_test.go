@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -308,5 +309,40 @@ func TestBranchSymlinkRefused(t *testing.T) {
 	_, err := b.Workspace(context.Background(), "main")
 	if WriteStatus(err, 0) != http.StatusBadRequest || !strings.Contains(err.Error(), "users/eve.yml is a symlink") {
 		t.Fatalf("workspace: %v", err)
+	}
+}
+
+// A save whose kit source can't be fetched to check it is a 503 to retry,
+// naming the fetch error; nothing is committed. A save that changes no file
+// fetches nothing.
+func TestSaveKitSourceFetchFails(t *testing.T) {
+	b, _, _ := branchesFor(t)
+	kits := newFakeFetcher(t, map[string]string{"main": "c1"}, map[string]map[string]string{"c1": {
+		"app/kit.yml": "kind: studio\n",
+	}})
+	b.Fetcher = repoFetcher{kitsRepo: kits}
+	handPush(t, b, "jam/alice", map[string]string{"jam/kits/app.source.yml": appSourceYML})
+	ws, err := b.Workspace(context.Background(), "jam/alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := ws.HeadNow()
+	fetches := kits.fetches
+	if err := b.Save(context.Background(), ws, opAlice, "nothing"); err != nil {
+		t.Fatalf("no-op save = %v", err)
+	}
+	if kits.fetches != fetches {
+		t.Errorf("a no-op save fetched %d time(s)", kits.fetches-fetches)
+	}
+	if _, err := ws.Store.CreateUser(User{Name: "carol"}); err != nil {
+		t.Fatal(err)
+	}
+	kits.failNext = fmt.Errorf("%w: connection refused", gitsource.ErrFetch)
+	err = b.Save(context.Background(), ws, opAlice, "add carol")
+	if WriteStatus(err, 500) != http.StatusServiceUnavailable || !strings.Contains(err.Error(), "try again") || !strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("save with a failing fetch = %v", err)
+	}
+	if h, _, _ := b.Repo.Files(context.Background(), "jam/alice"); h != head {
+		t.Errorf("the branch moved on a refused save")
 	}
 }

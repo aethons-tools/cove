@@ -136,6 +136,7 @@ func FetchConfigKits(ctx context.Context, f KitFetcher, tree *ConfigTree) {
 				refuse("%s: %s", tree.KitSources[n].Path, err)
 			}
 			tree.KitGroupsFailed[g] = true
+			tree.KitFetchFailed = true
 			continue
 		}
 		tree.KitGroups[g] = ConfigKitGroup{Source: gsrc, Commit: commit}
