@@ -44,10 +44,10 @@ function TrackingBody({ t }: { t: Tracking }) {
   };
   const write = useAdminMutation((v: { path: string; body?: unknown; del?: boolean }) =>
     v.del ? adminApi.del<TrackingResult>(v.path) : adminApi.post<TrackingResult>(v.path, v.body), { onSuccess: done, mutationKey: writing });
-  const diff = useAdminMutation((force: boolean) => adminApi.post<Plan>("tracking/diff", { force }), { onSuccess: setPlan, mutationKey: writing });
-  const runDiff = (force: boolean) => {
+  const diff = useAdminMutation(() => adminApi.post<Plan>("tracking/diff", {}), { onSuccess: setPlan, mutationKey: writing });
+  const runDiff = () => {
     if (busy) return;
-    diff.mutate(force, { onError: (e) => notifications.show({ color: "red", message: e.message }) });
+    diff.mutate(undefined, { onError: (e) => notifications.show({ color: "red", message: e.message }) });
   };
   return (
     <Stack>
@@ -58,7 +58,7 @@ function TrackingBody({ t }: { t: Tracking }) {
               <SourceFacts s={t.source} f={t.follow} />
               {t.follow.state === "awaiting-confirm" && <Text size="sm">The first apply from this repo is waiting for you: Diff, review the plan, then apply it. After that the Jam applies each new commit on its own.</Text>}
               {t.follow.error && <Alert color="red" title="The last check failed; the Jam retries every minute">{t.follow.error}</Alert>}
-              {t.canGit ? <Group><Button size="xs" onClick={() => runDiff(false)} loading={diff.isPending} disabled={busy}>Diff</Button></Group>
+              {t.canGit ? <Group><Button size="xs" onClick={runDiff} loading={diff.isPending} disabled={busy}>Diff</Button></Group>
                 : <Text size="sm" c="dimmed">Git actions are not available on this serve.</Text>}
             </Stack>
           ) : (
@@ -78,8 +78,8 @@ function TrackingBody({ t }: { t: Tracking }) {
             onConfirm={() => write.mutateAsync({ path: `tracking/managed/${encodeURIComponent(r.kind)}/${r.name.split("/").map(encodeURIComponent).join("/")}`, del: true })} /> },
         ]} />
       </Section>
-      {plan && <PlanView plan={plan} busy={busy} onForce={(f) => runDiff(f)}
-        onApply={() => write.mutateAsync({ path: "tracking/apply", body: { plan: plan.digest, force: plan.forced } })} />}
+      {plan && <PlanView plan={plan} busy={busy}
+        onApply={() => write.mutateAsync({ path: "tracking/apply", body: { plan: plan.digest } })} />}
     </Stack>
   );
 }

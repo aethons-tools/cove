@@ -12,8 +12,8 @@ const page = (t: Partial<Tracking> = {}): Tracking =>
 const follow = (f: Partial<Tracking["follow"]> = {}): Tracking["follow"] => ({ state: "in-sync", head: "abc1234", applied: "abc1234", error: "", checked: "2026-10-31 10:00 UTC", ...f });
 const source = { label: "https://github.com/acme/jam@main", repo: "https://github.com/acme/jam", repoLink: "https://github.com/acme/jam", dir: "", ref: "main", commit: "abc1234", commitLink: "", applied: "2026-10-28 10:00 UTC" };
 const plan = (p: Partial<Plan> = {}): Plan => ({
-  source: "https://github.com/acme/jam@main", commit: "abc1234", digest: "d1", forced: false, hasDrift: false, changes: 1, unchanged: 0,
-  ops: [{ action: "create", kind: "user", name: "bob", path: "", file: "users/bob.yml", drift: false, unmanaged: false, lines: [{ op: "+", text: "kind: user" }], tooLarge: false, diff: "" }],
+  source: "https://github.com/acme/jam@main", commit: "abc1234", digest: "d1", changes: 1, unchanged: 0,
+  ops: [{ action: "create", kind: "user", name: "bob", path: "", file: "users/bob.yml", lines: [{ op: "+", text: "kind: user" }], tooLarge: false, diff: "" }],
   forget: [], unmanaged: [], kitSources: [], refusals: [], serve: { state: "", keys: [] }, ...p,
 });
 const rows = [{ kind: "role", name: "app/ic", path: "config/projects/app/agents/ic", commit: "abc1234", applied: "x", state: "drifted" }];
@@ -115,20 +115,6 @@ describe("Tracking", () => {
     await waitFor(() => expect(screen.queryByRole("link", { name: "app/ic" })).toBeNull());
   });
 
-  it("re-plans with force", async () => {
-    tree();
-    let body: unknown;
-    server.use(
-      http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source }))),
-      http.post("/app/admin/api/tracking/diff", async ({ request }) => { body = await request.json(); return HttpResponse.json(plan({ hasDrift: true, forced: (body as { force: boolean }).force })); }),
-    );
-    const user = userEvent.setup();
-    renderAdmin(adminBoot, at);
-    await user.click(await screen.findByRole("button", { name: "Diff" }));
-    await user.click(await screen.findByRole("checkbox", { name: /Force/ }));
-    await waitFor(() => expect(body).toEqual({ force: true }));
-  });
-
   it("offers no Release while following a repo", async () => {
     tree();
     server.use(http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, rows }))));
@@ -142,12 +128,13 @@ describe("Tracking", () => {
     let calls = 0;
     server.use(
       http.get("/app/admin/api/tracking", () => HttpResponse.json(page({ source, rows }))),
-      http.post("/app/admin/api/tracking/diff", async () => { calls++; if (calls > 1) await delay(300); return HttpResponse.json(plan({ hasDrift: true })); }),
+      http.post("/app/admin/api/tracking/diff", async () => { calls++; if (calls > 1) await delay(300); return HttpResponse.json(plan()); }),
     );
     const user = userEvent.setup();
     renderAdmin(adminBoot, at);
     await user.click(await screen.findByRole("button", { name: "Diff" }));
-    await user.click(await screen.findByRole("checkbox", { name: /Force/ }));
+    await screen.findByRole("button", { name: "Apply this plan" });
+    await user.click(screen.getByRole("button", { name: "Diff" }));
     expect(screen.getByRole("button", { name: "Apply this plan" })).toBeDisabled();
     await waitFor(() => expect(screen.getByRole("button", { name: "Apply this plan" })).toBeEnabled());
   });

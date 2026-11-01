@@ -36,14 +36,14 @@ func TestConfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	diff, err := c.ConfigDiff(tree, false)
+	diff, err := c.ConfigDiff(tree)
 	if err != nil || diff.Applied || len(diff.Plan.Ops) != 1 || diff.Plan.Ops[0].Action != jam.ConfigCreate {
 		t.Fatalf("ConfigDiff = %+v, %v", diff, err)
 	}
-	if _, err := c.ConfigApply(tree, false, "stale"); !errors.Is(err, ErrConflict) {
+	if _, err := c.ConfigApply(tree, "stale"); !errors.Is(err, ErrConflict) {
 		t.Fatalf("ConfigApply stale = %v, want ErrConflict", err)
 	}
-	res, err := c.ConfigApply(tree, true, diff.Plan.Digest)
+	res, err := c.ConfigApply(tree, diff.Plan.Digest)
 	if err != nil || !res.Applied || res.Counts[jam.ConfigCreate] != 1 {
 		t.Fatalf("ConfigApply = %+v, %v", res, err)
 	}
@@ -80,24 +80,24 @@ func TestConfigSourceMethods(t *testing.T) {
 		return New(ts.URL, ""), store
 	}
 	none, _ := serve(gitsource.Source{})
-	if _, err := none.ConfigDiffSource("", false); !errors.Is(err, ErrConflict) {
+	if _, err := none.ConfigDiffSource(""); !errors.Is(err, ErrConflict) {
 		t.Fatalf("diff with no followed repo = %v, want ErrConflict", err)
 	}
-	if _, err := none.ConfigSync(false, ""); !errors.Is(err, ErrConflict) {
+	if _, err := none.ConfigSync(""); !errors.Is(err, ErrConflict) {
 		t.Fatalf("sync with no followed repo = %v, want ErrConflict", err)
 	}
 	c, _ := serve(gitsource.Source{Repo: repo, Ref: "main"})
-	diff, err := c.ConfigDiffSource("", false)
+	diff, err := c.ConfigDiffSource("")
 	if err != nil || diff.Plan.Ops[0].Action != jam.ConfigCreate {
 		t.Fatalf("ConfigDiffSource = %+v, %v", diff, err)
 	}
-	if res, err := c.ConfigSync(false, diff.Plan.Digest); err != nil || !res.Applied {
+	if res, err := c.ConfigSync(diff.Plan.Digest); err != nil || !res.Applied {
 		t.Fatalf("ConfigSync = %+v, %v", res, err)
 	}
 	if s, err := c.ConfigFollow(); err != nil || s.Applied != diff.Commit {
 		t.Fatalf("ConfigFollow = %+v, %v", s, err)
 	}
-	if res, err := c.ConfigApplySource(repo+"@main", false, ""); err != nil || res.Applied {
+	if res, err := c.ConfigApplySource(repo+"@main", ""); err != nil || res.Applied {
 		t.Fatalf("ConfigApplySource = %+v, %v", res, err)
 	}
 }

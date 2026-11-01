@@ -160,7 +160,6 @@ type planOpView struct {
 // Apply posts back.
 type planView struct {
 	Source, Commit string // as planned (commit: 7 chars)
-	Forced         bool   // planned as a forced apply
 	Digest         string
 	Ops            []planOpView
 	Unchanged      int
@@ -169,15 +168,14 @@ type planView struct {
 	KitSources     []jam.ConfigKitSource // commits: 7 chars
 	Refusals       []string
 	Serve          jam.ServeConfigDiff
-	HasDrift       bool // the force checkbox is offered
-	Changes        int  // jam.ConfigChanges
+	Changes        int // jam.ConfigChanges
 }
 
-func newPlanView(res jam.ConfigApplyResult, forced bool) *planView {
+func newPlanView(res jam.ConfigApplyResult) *planView {
 	p := res.Plan
-	v := &planView{Source: res.Source, Commit: jam.ShortConfigCommit(res.Commit), Forced: forced, Digest: p.Digest,
+	v := &planView{Source: res.Source, Commit: jam.ShortConfigCommit(res.Commit), Digest: p.Digest,
 		Forget: p.Forget, Unmanaged: p.Unmanaged, Refusals: p.Refusals, Serve: p.ServeConfig,
-		HasDrift: p.HasDrift(), Changes: jam.ConfigChanges(p)}
+		Changes: jam.ConfigChanges(p)}
 	for _, ks := range p.KitSources {
 		ks.Commit = jam.ShortConfigCommit(ks.Commit)
 		v.KitSources = append(v.KitSources, ks)

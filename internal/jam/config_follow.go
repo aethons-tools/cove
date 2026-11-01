@@ -120,7 +120,7 @@ func (f *ConfigFollower) Tick(ctx context.Context) {
 		f.Env.Conditions.Clear(ConfigFollowKey)
 		return
 	}
-	res, err := ApplyConfigSource(ctx, f.Store, f.Fetcher, src, f.Env, ConfigApplyOptions{Force: true, Now: st.CheckedAt}, f.Log, configFollowActor)
+	res, err := ApplyConfigSource(ctx, f.Store, f.Fetcher, src, f.Env, ConfigApplyOptions{Now: st.CheckedAt}, f.Log, configFollowActor)
 	if err != nil {
 		status, msg := ConfigStatus(err)
 		if status == http.StatusInternalServerError && f.Log != nil {

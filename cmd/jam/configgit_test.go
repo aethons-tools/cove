@@ -205,9 +205,11 @@ func TestConfigApplyPromptsAndRefuses(t *testing.T) {
 	}
 }
 
-func TestConfigDiffRejectsForce(t *testing.T) {
-	if code, _, _ := runJam("config", "diff", "--dir", t.TempDir(), "--force"); code != 2 {
-		t.Fatalf("diff --force: %d, want 2", code)
+func TestConfigRejectsForce(t *testing.T) {
+	for _, sub := range []string{"diff", "apply", "sync"} {
+		if code, _, _ := runJam("config", sub, "--force"); code != 2 {
+			t.Errorf("%s --force: %d, want 2", sub, code)
+		}
 	}
 }
 
@@ -306,7 +308,8 @@ func TestConfigVerbFlags(t *testing.T) {
 	}
 }
 
-func TestConfigApplyForceWritesOverDrift(t *testing.T) {
+// The repo wins over an edit made in Jam since the last apply.
+func TestConfigApplyWritesOverJamEdit(t *testing.T) {
 	url, st := configServer(t)
 	repo := gitDir(t)
 	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\n", 0o644)
@@ -315,13 +318,9 @@ func TestConfigApplyForceWritesOverDrift(t *testing.T) {
 	}
 	cfgMust(t, st.SetUserLogins(findUser(t, st, "bob").ID, []string{"bob@jam"}))
 	mustWrite(t, filepath.Join(repo, "users/bob.yml"), "kind: user\nversion: 1\nlogins: [bob@repo]\n", 0o644)
-	code, out, _ := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
-	if code != 1 || !strings.Contains(out, "user bob drifted") {
-		t.Fatalf("apply without --force: %d\n%s", code, out)
-	}
-	code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--force", "--admin-url", url)
-	if code != 0 || !strings.Contains(out, "update  user bob  (drift)") || !strings.Contains(out, "1 updated") {
-		t.Fatalf("apply --force: %d\n%s\n%s", code, out, errs)
+	code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url)
+	if code != 0 || !strings.Contains(out, "update  user bob\n") || !strings.Contains(out, "1 updated") {
+		t.Fatalf("apply: %d\n%s\n%s", code, out, errs)
 	}
 	if got := findUser(t, st, "bob").Logins; !reflect.DeepEqual(got, []string{"bob@repo"}) {
 		t.Fatalf("logins %v", got)
@@ -370,16 +369,6 @@ func TestConfigWriteRefusesBehindPin(t *testing.T) {
 	}
 	if len(readTree(t, repo)) != 0 {
 		t.Fatal("a refused write wrote files")
-	}
-}
-
-func TestPrintConfigPlanDriftedDelete(t *testing.T) {
-	var b strings.Builder
-	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigDelete,
-		Drift: true, Before: "# users/bob.yml\nkind: user\n"}}})
-	want := "delete  user bob  (drift)\n  jam:\n    # users/bob.yml\n    kind: user\n  repo:\n    (not in the repo)\n"
-	if !strings.HasPrefix(b.String(), want) {
-		t.Fatalf("got %q", b.String())
 	}
 }
 
@@ -432,37 +421,6 @@ func TestConfigWriteThenApplyRefreshesMark(t *testing.T) {
 	}
 }
 
-// A refused update — drifted, or of an object the repo does not manage —
-// prints Jam's and the repo's canonical forms as a compact line diff.
-func TestPrintConfigPlanRefusedUpdateDiff(t *testing.T) {
-	before := "# users/bob.yml\nkind: user\nversion: 1\nlogins:\n- a@x\n"
-	after := "# users/bob.yml\nkind: user\nversion: 1\nlogins:\n- b@x\n"
-	for _, op := range []jam.ConfigOp{
-		{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigUpdate, Unmanaged: true, Before: before, After: after},
-		{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigUpdate, Drift: true, Before: before, After: after},
-	} {
-		var b strings.Builder
-		printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{op}})
-		mark := "(drift)"
-		if op.Unmanaged {
-			mark = "(not managed)"
-		}
-		want := "update  user bob  " + mark + "\n  --- jam\n  +++ repo\n  … 1 unchanged line(s)\n   kind: user\n   version: 1\n   logins:\n  -- a@x\n  +- b@x\n"
-		if !strings.HasPrefix(b.String(), want) {
-			t.Errorf("got %q\nwant prefix %q", b.String(), want)
-		}
-	}
-	// A kit's canonical form is its kit.yml and file listing: the diff points
-	// at the changed line.
-	var b strings.Builder
-	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindKit, Name: "ic", Action: jam.ConfigUpdate, Unmanaged: true,
-		Before: "kind: studio\nprompt: a\n# files:\n#   0644 25 aa kit.yml\n# source: https://x/k//ic@main\n",
-		After:  "kind: studio\nprompt: b\n# files:\n#   0644 25 bb kit.yml\n# source: https://x/k//ic@main\n"}}})
-	if !strings.Contains(b.String(), "  -prompt: a\n  +prompt: b\n") || !strings.Contains(b.String(), "  -#   0644 25 aa kit.yml\n  +#   0644 25 bb kit.yml\n") {
-		t.Errorf("kit diff %q", b.String())
-	}
-}
-
 // A kit update prints its version diff under its line, escaped for the
 // terminal, in place of the listing diff.
 func TestPrintConfigPlanKitVersionDiff(t *testing.T) {
@@ -497,7 +455,7 @@ func planKitDir(t *testing.T, store jam.Store, kitYML string) jam.ConfigPlan {
 }
 
 // A kit whose tree is unchanged but whose source differs (tracked in Jam,
-// inline in the repo) shows the `# source:` line diff, not "no changes".
+// inline in the repo) is an update.
 func TestPrintConfigPlanKitSourceOnlyChange(t *testing.T) {
 	store := jam.NewMemStore()
 	if _, err := store.PushKit("app", "kind: studio\n"); err != nil {
@@ -510,14 +468,14 @@ func TestPrintConfigPlanKitSourceOnlyChange(t *testing.T) {
 	}
 	var b strings.Builder
 	printConfigPlan(&b, planKitDir(t, store, "kind: studio\n"))
-	if !strings.Contains(b.String(), "update  kit app  (not managed)\n") || !strings.Contains(b.String(), "  -# source: ") || strings.Contains(b.String(), "no changes") {
+	if !strings.HasPrefix(b.String(), "update  kit app\n0 unchanged\n") {
 		t.Errorf("source-only change: %q", b.String())
 	}
 }
 
-// A drifted kit update prints its version diff (Jam's current tree → the
-// repo's) under its line.
-func TestPrintConfigPlanDriftedKitVersionDiff(t *testing.T) {
+// A kit edited in Jam since its apply prints its version diff (Jam's current
+// tree → the repo's) under its update line.
+func TestPrintConfigPlanEditedKitVersionDiff(t *testing.T) {
 	store := jam.NewMemStore()
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "kits", "app"), 0o755); err != nil {
@@ -539,7 +497,7 @@ func TestPrintConfigPlanDriftedKitVersionDiff(t *testing.T) {
 	}
 	var b strings.Builder
 	printConfigPlan(&b, planKitDir(t, store, "kind: studio\nprompt: repo\n"))
-	if !strings.Contains(b.String(), "update  kit app  (drift)\n    kit.yml:\n       kind: studio\n      -prompt: jam\n      +prompt: repo\n") {
-		t.Errorf("drifted kit: %q", b.String())
+	if !strings.Contains(b.String(), "update  kit app\n    kit.yml:\n       kind: studio\n      -prompt: jam\n      +prompt: repo\n") {
+		t.Errorf("edited kit: %q", b.String())
 	}
 }

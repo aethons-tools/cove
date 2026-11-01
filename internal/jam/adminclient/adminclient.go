@@ -90,17 +90,10 @@ func (c *Client) doConfig(method, path string, body any, out any) error {
 	return c.doWith(&hc, method, path, body, out)
 }
 
-// configPath is a config route with its force and plan query.
-func configPath(path string, force bool, planDigest string) string {
-	q := url.Values{}
-	if force {
-		q.Set("force", "1")
-	}
+// configPath is a config route with its plan query ("" = none).
+func configPath(path, planDigest string) string {
 	if planDigest != "" {
-		q.Set("plan", planDigest)
-	}
-	if len(q) > 0 {
-		path += "?" + q.Encode()
+		path += "?" + url.Values{"plan": {planDigest}}.Encode()
 	}
 	return path
 }
@@ -946,36 +939,34 @@ func (c *Client) KitHistory(name string) ([]jam.KitVersionInfo, error) {
 }
 
 // ConfigDiff plans a packed config tree (configtar.Pack) against Jam without
-// writing. force plans as a forced apply would (drift is an update, not a
-// refusal), so its digest matches ConfigApply(tree, true, …).
-func (c *Client) ConfigDiff(tree []byte, force bool) (jam.ConfigApplyResult, error) {
+// writing.
+func (c *Client) ConfigDiff(tree []byte) (jam.ConfigApplyResult, error) {
 	var res jam.ConfigApplyResult
-	err := c.doRaw("POST", configPath("/admin/config/diff", force, ""), "application/gzip", tree, &res)
+	err := c.doRaw("POST", "/admin/config/diff", "application/gzip", tree, &res)
 	return res, err
 }
 
-// ConfigApply applies a packed config tree. force writes over drift;
-// planDigest (may be "") is the reviewed plan's digest — a different plan is
+// ConfigApply applies a packed config tree. planDigest (may be "") is the reviewed plan's digest — a different plan is
 // a 409 (ErrConflict), as is a plan with refusals.
-func (c *Client) ConfigApply(tree []byte, force bool, planDigest string) (jam.ConfigApplyResult, error) {
+func (c *Client) ConfigApply(tree []byte, planDigest string) (jam.ConfigApplyResult, error) {
 	var res jam.ConfigApplyResult
-	err := c.doRaw("POST", configPath("/admin/config/apply", force, planDigest), "application/gzip", tree, &res)
+	err := c.doRaw("POST", configPath("/admin/config/apply", planDigest), "application/gzip", tree, &res)
 	return res, err
 }
 
 // ConfigDiffSource plans a git config source ("" = the followed repo) without
-// writing; force plans as a forced apply would.
-func (c *Client) ConfigDiffSource(source string, force bool) (jam.ConfigApplyResult, error) {
+// writing.
+func (c *Client) ConfigDiffSource(source string) (jam.ConfigApplyResult, error) {
 	var res jam.ConfigApplyResult
-	err := c.doConfig("POST", configPath("/admin/config/diff", force, ""), jam.ConfigSourceBody{Source: source}, &res)
+	err := c.doConfig("POST", "/admin/config/diff", jam.ConfigSourceBody{Source: source}, &res)
 	return res, err
 }
 
 // ConfigApplySource applies a git config source ("" = the followed repo); a
 // different plan than planDigest, or one with refusals, is ErrConflict.
-func (c *Client) ConfigApplySource(source string, force bool, planDigest string) (jam.ConfigApplyResult, error) {
+func (c *Client) ConfigApplySource(source, planDigest string) (jam.ConfigApplyResult, error) {
 	var res jam.ConfigApplyResult
-	err := c.doConfig("POST", configPath("/admin/config/apply", force, planDigest), jam.ConfigSourceBody{Source: source}, &res)
+	err := c.doConfig("POST", configPath("/admin/config/apply", planDigest), jam.ConfigSourceBody{Source: source}, &res)
 	return res, err
 }
 
@@ -988,9 +979,9 @@ func (c *Client) ConfigFollow() (jam.ConfigFollowStatus, error) {
 
 // ConfigSync applies the followed config repo (ErrConflict when none, or
 // for a stale planDigest or refusals).
-func (c *Client) ConfigSync(force bool, planDigest string) (jam.ConfigApplyResult, error) {
+func (c *Client) ConfigSync(planDigest string) (jam.ConfigApplyResult, error) {
 	var res jam.ConfigApplyResult
-	err := c.doConfig("POST", configPath("/admin/config/sync", force, planDigest), jam.ConfigSourceBody{}, &res)
+	err := c.doConfig("POST", configPath("/admin/config/sync", planDigest), jam.ConfigSourceBody{}, &res)
 	return res, err
 }
 

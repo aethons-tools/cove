@@ -15,7 +15,6 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/configtar"
-	"github.com/aethons-tools/cove/internal/jam/linediff"
 	"github.com/aethons-tools/cove/internal/textesc"
 )
 
@@ -26,7 +25,7 @@ var configStdin io.Reader = os.Stdin
 // `config diff|apply [--dir <path> | --git <src>]` (neither: the followed
 // repo), `config sync`, `config status`, `config release <kind>/<name>`.
 func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] [--force] | sync [--yes] [--force] | status | release <kind>/<name>"
+	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] | sync [--yes] | status | release <kind>/<name>"
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -55,10 +54,8 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		dir = fs.String("dir", "", "the config checkout to apply")
 		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to apply (default: the followed repo)")
 		yes = fs.Bool("yes", false, "apply without the confirmation prompt")
-		force = fs.Bool("force", false, "write over drift")
 	case "sync":
 		yes = fs.Bool("yes", false, "apply without the confirmation prompt")
-		force = fs.Bool("force", false, "write over drift")
 	}
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
@@ -145,9 +142,7 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return fail(err)
 		}
 	}
-	// apply and sync preview with their own --force, so the reviewed plan
-	// (and its digest) is the one the forced apply writes.
-	res, err := t.diff(c, sub != "diff" && *force)
+	res, err := t.diff(c)
 	if err != nil {
 		return fail(err)
 	}
@@ -175,7 +170,7 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	applied, err := t.apply(c, *force, res.Plan.Digest)
+	applied, err := t.apply(c, res.Plan.Digest)
 	if err != nil {
 		return fail(err)
 	}
@@ -197,21 +192,21 @@ type configTarget struct {
 	sync   bool
 }
 
-func (t configTarget) diff(c *adminclient.Client, force bool) (jam.ConfigApplyResult, error) {
+func (t configTarget) diff(c *adminclient.Client) (jam.ConfigApplyResult, error) {
 	if t.tree != nil {
-		return c.ConfigDiff(t.tree, force)
+		return c.ConfigDiff(t.tree)
 	}
-	return c.ConfigDiffSource(t.source, force)
+	return c.ConfigDiffSource(t.source)
 }
 
-func (t configTarget) apply(c *adminclient.Client, force bool, digest string) (jam.ConfigApplyResult, error) {
+func (t configTarget) apply(c *adminclient.Client, digest string) (jam.ConfigApplyResult, error) {
 	switch {
 	case t.tree != nil:
-		return c.ConfigApply(t.tree, force, digest)
+		return c.ConfigApply(t.tree, digest)
 	case t.sync:
-		return c.ConfigSync(force, digest)
+		return c.ConfigSync(digest)
 	}
-	return c.ConfigApplySource(t.source, force, digest)
+	return c.ConfigApplySource(t.source, digest)
 }
 
 // printConfigFollow prints the follower's status, one field a line.
@@ -255,8 +250,9 @@ func insideGitWorkTree(dir string) bool {
 	}
 }
 
-// printConfigPlan renders a plan: one line per changed object, drift blocks,
-// the unchanged count, unmanaged objects, the serve-config state, refusals.
+// printConfigPlan renders a plan: one line per changed object (a kit update
+// with its version diff), the unchanged count, unmanaged objects, the
+// serve-config state, refusals.
 func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 	for _, ks := range p.KitSources {
 		fmt.Fprintf(w, "kit-source  %s  %s @ %s\n", ks.Path, ks.Source, jam.ShortConfigCommit(ks.Commit))
@@ -271,37 +267,9 @@ func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 			unchanged++
 			continue
 		}
-		mark := ""
-		switch {
-		case op.Drift:
-			mark = "  (drift)"
-		case op.Unmanaged:
-			mark = "  (not managed)"
-		}
-		fmt.Fprintf(w, "%s  %s %s%s\n", op.Action, op.Kind, op.Name, mark)
+		fmt.Fprintf(w, "%s  %s %s\n", op.Action, op.Kind, op.Name)
 		if op.Kind == jam.ConfigKindKit && op.Diff != "" {
 			fmt.Fprintln(w, indent(textesc.Escape(op.Diff, true))) // kit.yml's line diff, then the files
-			continue
-		}
-		if !op.Drift && !op.Unmanaged {
-			continue
-		}
-		if op.After == "" { // a delete: the repo no longer has it
-			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n    (not in the repo)\n", indent(op.Before))
-			continue
-		}
-		lines, tooLarge := linediff.Diff(op.Before, op.After)
-		if tooLarge {
-			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(op.Before), indent(op.After))
-			continue
-		}
-		fmt.Fprintf(w, "  --- jam\n  +++ repo\n")
-		for _, l := range lines {
-			if l.Op == "…" {
-				fmt.Fprintf(w, "  … %s\n", l.Text)
-			} else {
-				fmt.Fprintf(w, "  %s%s\n", l.Op, l.Text)
-			}
 		}
 	}
 	for _, k := range p.Forget {

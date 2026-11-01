@@ -105,7 +105,7 @@ func TestApplyConfigTreeAudit(t *testing.T) {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	out := buf.String()
-	for _, want := range []string{`"msg":"config applied"`, `"operator":"alice"`, `"source":"dir"`, `"commit":"dir"`, `"created":2`, `"forced":false`,
+	for _, want := range []string{`"msg":"config applied"`, `"operator":"alice"`, `"source":"dir"`, `"commit":"dir"`, `"created":2`,
 		`"msg":"admin user created"`, `"msg":"admin destination added"`, `"via":"config"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("audit lacks %s:\n%s", want, out)
@@ -127,8 +127,8 @@ func TestApplyConfigTreeAudit(t *testing.T) {
 func TestApplyVsConcurrentKitPush(t *testing.T) {
 	st := NewMemStore()
 	tr := treeOf(t, map[string]string{"kits/web/kit.yml": "kind: studio\n", "kits/app/kit.yml": "kind: studio\nbase: {kit: ../web}\n"})
-	force := ConfigApplyOptions{Source: gitsource.Source{Repo: ConfigDirRepo}, Commit: ConfigDirCommit, Force: true, Now: time.Now()}
-	if res, err := ApplyConfigTree(context.Background(), st, nil, tr, allCreds, force, nil, "local"); err != nil || !res.Applied {
+	opt := ConfigApplyOptions{Source: gitsource.Source{Repo: ConfigDirRepo}, Commit: ConfigDirCommit, Now: time.Now()}
+	if res, err := ApplyConfigTree(context.Background(), st, nil, tr, allCreds, opt, nil, "local"); err != nil || !res.Applied {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	done := make(chan struct{})
@@ -139,7 +139,7 @@ func TestApplyVsConcurrentKitPush(t *testing.T) {
 		}
 	}()
 	for range 20 {
-		_, _ = ApplyConfigTree(context.Background(), st, nil, tr, allCreds, force, nil, "local")
+		_, _ = ApplyConfigTree(context.Background(), st, nil, tr, allCreds, opt, nil, "local")
 	}
 	select {
 	case <-done:

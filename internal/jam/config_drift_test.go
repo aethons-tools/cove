@@ -73,16 +73,14 @@ func TestCheckConfigDriftRaisesAndApplyClears(t *testing.T) {
 		c.Detail != "destination gh (drifted)" || c.Fix == "" {
 		t.Fatalf("%+v %v", c, ok)
 	}
-	// apply --force restores the repo's version and clears it in the same call.
+	// An apply restores the repo's version and clears it in the same call.
 	env := allCreds
 	env.Conditions = tr
-	opt := dirOpts()
-	opt.Force = true
-	if _, err := ApplyConfigTree(context.Background(), st, nil, treeOf(t, fullTreeFiles), env, opt, nil, "alice"); err != nil {
+	if _, err := ApplyConfigTree(context.Background(), st, nil, treeOf(t, fullTreeFiles), env, dirOpts(), nil, "alice"); err != nil {
 		t.Fatal(err)
 	}
 	if tr.IsOpen(ConfigDriftKey) {
-		t.Fatal("apply --force left config.drift open")
+		t.Fatal("the apply left config.drift open")
 	}
 }
 

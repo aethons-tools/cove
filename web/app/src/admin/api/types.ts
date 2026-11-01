@@ -180,8 +180,6 @@ export interface PlanOpRow {
   name: string;
   path: string; // the object's page; "" for a create or none
   file: string; // in the repo
-  drift: boolean;
-  unmanaged: boolean;
   lines: DiffLine[]; // Jam → repo
   tooLarge: boolean; // too large to diff here
   diff: string; // a kit update's version diff (text)
@@ -200,8 +198,6 @@ export interface Plan {
   source: string;
   commit: string;
   digest: string;
-  forced: boolean;
-  hasDrift: boolean; // offer Force
   changes: number /* int */;
   unchanged: number /* int */;
   ops: PlanOpRow[];

@@ -27,7 +27,7 @@ func TestReleaseConfigMark(t *testing.T) {
 		t.Fatal("release of the only drifted object left config.drift open")
 	}
 	// A repo without it now leaves it alone: unmanaged, not a delete.
-	p := planOn(t, st, treeOf(t, without(fullTreeFiles, "destinations/gh.yml")), false)
+	p := planOn(t, st, treeOf(t, without(fullTreeFiles, "destinations/gh.yml")))
 	if opOf(p, ConfigKindDestination, "gh").Action != "" || !slices.Contains(p.Unmanaged, gh) {
 		t.Fatalf("after release: %+v unmanaged=%v", opOf(p, ConfigKindDestination, "gh"), p.Unmanaged)
 	}

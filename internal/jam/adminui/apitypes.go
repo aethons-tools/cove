@@ -160,16 +160,14 @@ type KitSourceRow struct {
 
 // PlanOpRow is one change a plan makes.
 type PlanOpRow struct {
-	Action    string     `json:"action"`
-	Kind      string     `json:"kind"`
-	Name      string     `json:"name"`
-	Path      string     `json:"path"` // the object's page; "" for a create or none
-	File      string     `json:"file"` // in the repo
-	Drift     bool       `json:"drift"`
-	Unmanaged bool       `json:"unmanaged"`
-	Lines     []DiffLine `json:"lines"`    // Jam → repo
-	TooLarge  bool       `json:"tooLarge"` // too large to diff here
-	Diff      string     `json:"diff"`     // a kit update's version diff (text)
+	Action   string     `json:"action"`
+	Kind     string     `json:"kind"`
+	Name     string     `json:"name"`
+	Path     string     `json:"path"`     // the object's page; "" for a create or none
+	File     string     `json:"file"`     // in the repo
+	Lines    []DiffLine `json:"lines"`    // Jam → repo
+	TooLarge bool       `json:"tooLarge"` // too large to diff here
+	Diff     string     `json:"diff"`     // a kit update's version diff (text)
 }
 
 // ServeDiff compares the repo's serve config with this serve's.
@@ -183,8 +181,6 @@ type Plan struct {
 	Source     string         `json:"source"`
 	Commit     string         `json:"commit"`
 	Digest     string         `json:"digest"`
-	Forced     bool           `json:"forced"`
-	HasDrift   bool           `json:"hasDrift"` // offer Force
 	Changes    int            `json:"changes"`
 	Unchanged  int            `json:"unchanged"`
 	Ops        []PlanOpRow    `json:"ops"`

@@ -49,9 +49,9 @@ const maxConfigSourceBody = 64 << 10
 // WithConfig mounts the config-in-git admin API (under the /admin/*
 // operator gate):
 //
-//	POST   /admin/config/diff?force=1                plan a tree or a source (writes nothing)
-//	POST   /admin/config/apply?force=1&plan=<digest> apply it
-//	POST   /admin/config/sync?force=1&plan=<digest>  {}: apply the followed repo (config.github); the first apply's confirm
+//	POST   /admin/config/diff                        plan a tree or a source (writes nothing)
+//	POST   /admin/config/apply?plan=<digest>         apply it
+//	POST   /admin/config/sync?plan=<digest>          {}: apply the followed repo (config.github); the first apply's confirm
 //	GET    /admin/config/follow                      the follower's status (ConfigFollowStatus)
 //	GET    /admin/config/export-tree?all=1           render the managed (all: every) object
 //	DELETE /admin/config/managed/{kind}/{name}       release a mark (a role's name is <project>/<role>)
@@ -180,21 +180,18 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 	return func(mux *adminMux) {
 		mux.conds = env.Conditions // the config import raises kit.migrate here
 		mux.HandleFunc("POST /admin/config/diff", func(w http.ResponseWriter, r *http.Request) {
-			// force plans as a forced apply would, so the digests match.
-			run(w, r, "diff", ConfigApplyOptions{DryRun: true, Force: r.URL.Query().Get("force") == "1", Now: time.Now()})
+			run(w, r, "diff", ConfigApplyOptions{DryRun: true, Now: time.Now()})
 		})
 		mux.HandleFunc("POST /admin/config/apply", func(w http.ResponseWriter, r *http.Request) {
-			q := r.URL.Query()
-			run(w, r, "apply", ConfigApplyOptions{Force: q.Get("force") == "1", WantDigest: q.Get("plan"), Now: time.Now()})
+			run(w, r, "apply", ConfigApplyOptions{WantDigest: r.URL.Query().Get("plan"), Now: time.Now()})
 		})
 		mux.HandleFunc("POST /admin/config/sync", func(w http.ResponseWriter, r *http.Request) {
 			if !isJSON(r) {
 				http.Error(w, "config sync: Content-Type must be application/json", http.StatusUnsupportedMediaType)
 				return
 			}
-			q := r.URL.Query()
 			res, err := ApplyConfigSource(r.Context(), store, f, gitsource.Source{}, env,
-				ConfigApplyOptions{Force: q.Get("force") == "1", WantDigest: q.Get("plan"), Now: time.Now()}, log, OperatorID(r))
+				ConfigApplyOptions{WantDigest: r.URL.Query().Get("plan"), Now: time.Now()}, log, OperatorID(r))
 			if err != nil {
 				fail(w, r, "sync", err)
 				return

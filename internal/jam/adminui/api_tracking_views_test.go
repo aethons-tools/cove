@@ -86,9 +86,9 @@ func TestTrackingAPIOtherRecord(t *testing.T) {
 	}
 }
 
-// A drifted object is a refusal in the plan, offering Force; the forced plan
-// updates it, and applying it clears config.drift.
-func TestTrackingAPIForceWithDrift(t *testing.T) {
+// An object edited in Jam since its mark is updated by the plan (no refusal),
+// and applying it clears config.drift.
+func TestTrackingAPIUpdatesEditedObject(t *testing.T) {
 	conds := condition.New(condition.Options{})
 	f := &cfgTreeFetcher{t: t, sha: managedSHA, files: map[string]string{"users/bob.yml": "kind: user\nversion: 1\nlogins: [bob@repo]\n"}}
 	h, store := configUI(t, f, conds)
@@ -103,21 +103,16 @@ func TestTrackingAPIForceWithDrift(t *testing.T) {
 		t.Fatal("drift not raised")
 	}
 	var plan adminui.Plan
-	apiDo(t, h, "POST", "/app/admin/api/tracking/diff", map[string]bool{"force": false}, &plan)
-	if !plan.HasDrift || plan.Forced || !strings.Contains(strings.Join(plan.Refusals, "\n"), "user bob drifted (edited in Jam since config @abc1234)") ||
-		plan.Commit != "abc1234" || plan.Source != "https://github.com/acme/jam@main" {
-		t.Fatalf("drifted plan = %+v", plan)
+	apiDo(t, h, "POST", "/app/admin/api/tracking/diff", map[string]bool{}, &plan)
+	if len(plan.Refusals) != 0 || plan.Changes != 1 || plan.Commit != "abc1234" || plan.Source != "https://github.com/acme/jam@main" {
+		t.Fatalf("plan = %+v", plan)
 	}
-	if len(plan.Ops) != 1 || !plan.Ops[0].Drift || plan.Ops[0].Path != "config/users/"+string(bob) || len(plan.Ops[0].Lines) == 0 {
-		t.Errorf("drifted op = %+v", plan.Ops)
-	}
-	apiDo(t, h, "POST", "/app/admin/api/tracking/diff", map[string]bool{"force": true}, &plan)
-	if !plan.Forced || len(plan.Refusals) != 0 || plan.Changes != 1 || plan.Ops[0].Action != jam.ConfigUpdate {
-		t.Fatalf("forced plan = %+v", plan)
+	if len(plan.Ops) != 1 || plan.Ops[0].Action != jam.ConfigUpdate || plan.Ops[0].Path != "config/users/"+string(bob) || len(plan.Ops[0].Lines) == 0 {
+		t.Errorf("op = %+v", plan.Ops)
 	}
 	var res adminui.TrackingResult
-	if rec := apiDo(t, h, "POST", "/app/admin/api/tracking/apply", map[string]any{"plan": plan.Digest, "force": true}, &res); rec.Code != 200 || !strings.Contains(res.Message, "1 updated") {
-		t.Fatalf("forced apply = %d %+v", rec.Code, res)
+	if rec := apiDo(t, h, "POST", "/app/admin/api/tracking/apply", map[string]any{"plan": plan.Digest}, &res); rec.Code != 200 || !strings.Contains(res.Message, "1 updated") {
+		t.Fatalf("apply = %d %+v", rec.Code, res)
 	}
 	if u, _ := store.GetUser(bob); len(u.Logins) != 1 || u.Logins[0] != "bob@repo" {
 		t.Errorf("logins %v", u.Logins)
@@ -128,7 +123,7 @@ func TestTrackingAPIForceWithDrift(t *testing.T) {
 }
 
 // A plan with nothing to change counts the unchanged; a repo copy of an
-// unmanaged object that differs is refused and diffed, flagged unmanaged.
+// unmanaged object that differs is an update, diffed.
 func TestTrackingAPIPlanUnchangedAndUnmanaged(t *testing.T) {
 	f := &cfgTreeFetcher{t: t, sha: managedSHA, files: map[string]string{"users/bob.yml": "kind: user\nversion: 1\n"}}
 	h, store := configUI(t, f, nil)
@@ -136,7 +131,7 @@ func TestTrackingAPIPlanUnchangedAndUnmanaged(t *testing.T) {
 	trackManaged(t, store)
 	var plan adminui.Plan
 	apiDo(t, h, "POST", "/app/admin/api/tracking/diff", map[string]bool{}, &plan)
-	if plan.Changes != 0 || plan.Unchanged != 1 || len(plan.Ops) != 0 || plan.HasDrift {
+	if plan.Changes != 0 || plan.Unchanged != 1 || len(plan.Ops) != 0 {
 		t.Errorf("unchanged plan = %+v", plan)
 	}
 
@@ -147,7 +142,7 @@ func TestTrackingAPIPlanUnchangedAndUnmanaged(t *testing.T) {
 	}
 	trackManaged(t, store2)
 	apiDo(t, h2, "POST", "/app/admin/api/tracking/diff", map[string]bool{}, &plan)
-	if len(plan.Ops) != 1 || !plan.Ops[0].Unmanaged || plan.Ops[0].Path == "" || !strings.Contains(strings.Join(plan.Refusals, "\n"), "user bob exists and is not managed") {
+	if len(plan.Ops) != 1 || plan.Ops[0].Action != jam.ConfigUpdate || plan.Ops[0].Path == "" || len(plan.Refusals) != 0 {
 		t.Fatalf("unmanaged plan = %+v", plan)
 	}
 	if ops := diffOps(plan.Ops[0].Lines); !strings.Contains(ops, "-   - jam@x") || !strings.Contains(ops, "+   - repo@x") {

@@ -129,7 +129,7 @@ func (b *ConfigBranches) load(ctx context.Context, branch string) (*ConfigWorksp
 	scratch := NewMemStore()
 	src := b.Env.Followed
 	src.Ref = branch
-	_, err = ApplyConfigTree(ctx, scratch, b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{Source: src, Commit: head, Force: true, Now: time.Now()}, nil, "branch:"+branch)
+	_, err = ApplyConfigTree(ctx, scratch, b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{Source: src, Commit: head, Now: time.Now()}, nil, "branch:"+branch)
 	if errors.Is(err, ErrConfigRefused) {
 		return nil, writeErr(http.StatusConflict, "branch %s does not plan: %s", branch, strings.TrimPrefix(err.Error(), ErrConfigRefused.Error()+":\n"))
 	}
@@ -332,7 +332,7 @@ func (b *ConfigBranches) Merge(ctx context.Context, branch, head string, author 
 		if err != nil {
 			return err
 		}
-		res, err := ApplyConfigTree(ctx, b.Live, b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{DryRun: true, Force: true, Source: b.Env.Followed, Now: time.Now()}, nil, "merge:"+branch)
+		res, err := ApplyConfigTree(ctx, b.Live, b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{DryRun: true, Source: b.Env.Followed, Now: time.Now()}, nil, "merge:"+branch)
 		if err != nil {
 			return err
 		}
