@@ -119,8 +119,11 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return 2
 	}
 	app := cli.App{
-		Name:    "jam",
-		Version: version + basedigest.VersionNote(),
+		Name:        "jam",
+		Version:     version,
+		VersionNote: basedigest.VersionNote(),
+		// Bare, for image tags: $(jam version).
+		BareVersion: true,
 		Commands: []cli.Command{
 			{Name: "serve", Brief: "run the broker + loopback admin API", Run: cmdServe},
 			{Name: "enroll", Brief: "enroll an identity (via the admin API) and print its snippet", Run: cmdEnroll},

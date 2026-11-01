@@ -298,6 +298,10 @@ resolve → download → verify → replace flow — including the `checksums.tx
 verification — untouched. It reads the same `JAM_VERSION`/`BINDIR`/`JAM_SYSTEM`/`JAM_REPO`
 knobs, no-ops when already current, and takes `--version TAG` (pin) and `--dry-run`.
 
+**`jam version`** (and `jam --version`) prints the bare release version — `<N>-<MMDD>`, or `dev` for an unstamped build — and nothing else on stdout,
+so it can go straight into an image tag: `…/jam:$(jam version)` (the tags in [container.md](usage/jam/container.md)).
+A `just local` build adds its note on stderr ([local-build.md](local-build.md)). `jam-studio-manager version` and `jam mint version` still print `<name> <version>`.
+
 **Upgrading from a pre-rename release** (binaries `at-…`). Follow [the rename runbook](usage/jam/renamed-from-at.md); the old binary's `update` cannot fetch the new release.
 
 To **build from source instead** (the contributor path), use `just install` below,

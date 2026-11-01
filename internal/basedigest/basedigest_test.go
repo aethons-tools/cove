@@ -146,7 +146,7 @@ func TestVersionNote(t *testing.T) {
 		t.Fatalf("release VersionNote() = %q", got)
 	}
 	withFiles(t, fstest.MapFS{"blessed/watermark.txt": {Data: []byte(testWatermark)}, "blessed/local.txt": {Data: []byte("jam-studio-base:dev-1")}})
-	if got := VersionNote(); got != " (local studio base jam-studio-base:dev-1)" {
+	if got := VersionNote(); got != "local studio base jam-studio-base:dev-1" {
 		t.Fatalf("local VersionNote() = %q", got)
 	}
 }

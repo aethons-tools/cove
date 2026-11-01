@@ -146,7 +146,7 @@ assert_contains "release.yml: arm64 smoke guarded" "$arm_step" "github.event_nam
 # shellcheck disable=SC2016 # literal ${...} is the expected workflow text
 assert_contains "release.yml: arm64 smoke run" "$arm_step" 'docker run --rm --platform linux/arm64 "${JAM_IMAGE}:${VERSION}" version'
 # shellcheck disable=SC2016 # literal ${...} is the expected workflow text
-assert_contains "release.yml: arm64 smoke checks version" "$arm_step" 'test "$out" = "jam $VERSION"'
+assert_contains "release.yml: arm64 smoke checks version" "$arm_step" 'test "$out" = "$VERSION"'
 filter_block="$(awk '/^            go:/ {on=1; next} on && /^      - id:/ {exit} on {print}' "$rel")"
 assert_contains "release.yml: go filter has images/jam/**" "$filter_block" "- 'images/jam/**'"
 assert_contains "release.yml: go filter has jam-image.sh" "$filter_block" "- 'scripts/jam-image.sh'"

@@ -29,8 +29,9 @@ func main() {
 
 func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	app := cli.App{
-		Name:    "jam-studio-manager",
-		Version: version + basedigest.VersionNote(),
+		Name:        "jam-studio-manager",
+		Version:     version,
+		VersionNote: basedigest.VersionNote(),
 		Commands: []cli.Command{
 			{Name: "run", Brief: "run the Studio Manager until SIGINT or SIGTERM (run [--config <path>])",
 				Run: func(args []string, _ cli.Globals, _, stderr io.Writer) int {

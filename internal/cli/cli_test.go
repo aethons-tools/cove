@@ -44,6 +44,15 @@ func TestAppVersionAndHelp(t *testing.T) {
 		t.Fatalf("version cmd = %q", out.String())
 	}
 	out.Reset()
+	app.BareVersion, app.VersionNote = true, "local studio base x"
+	for _, argv := range [][]string{{"version"}, {"--version"}} {
+		out.Reset()
+		errOut.Reset()
+		if code := app.Run(argv, &out, &errOut); code != 0 || out.String() != "1.2.3\n" || errOut.String() != "tool: local studio base x\n" {
+			t.Fatalf("bare %v: code=%d out=%q err=%q", argv, code, out.String(), errOut.String())
+		}
+	}
+	out.Reset()
 	if code := app.Run([]string{"help"}, &out, &errOut); code != 0 || !strings.Contains(out.String(), "greet") {
 		t.Fatalf("help code=%d out=%q", code, out.String())
 	}
