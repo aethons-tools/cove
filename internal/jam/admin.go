@@ -377,14 +377,17 @@ func RosterSummaries(store Store) []ActorSummary {
 // session-events export).
 type AdminOption func(*adminMux)
 
+// errConfigInGitText refuses the snapshot import (POST /admin/config) on a Jam
+// whose config is in git: it would be a live edit.
+const errConfigInGitText = "config is in git (config.github): edit it on a branch in the admin console, or in the repo"
+
 // adminMux is the /admin/* mux an AdminOption mounts on, with the settings
 // an option hands the core routes: conds, the conditions tracker the config
 // import raises kit.migrate on (WithConfig's ConfigEnv.Conditions; nil = none).
 type adminMux struct {
 	*http.ServeMux
 	conds    *condition.Tracker
-	inGit    bool             // WithConfigInGit: live config writes are refused
-	followed gitsource.Source // the repo they live in
+	followed gitsource.Source // WithConfig's followed config repo: the snapshot import is refused when set
 }
 
 func WithAdminRoute(pattern string, h http.Handler) AdminOption {
@@ -428,6 +431,7 @@ func importConfigMigrated(store Store, snap ConfigSnapshot, t *condition.Tracker
 func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth OperatorAuthenticator, credExists func(string) bool, login *OperatorLoginConfig, log *slog.Logger, browser http.Handler, opts ...AdminOption) http.Handler {
 	mux := http.NewServeMux()
 	var importConds *condition.Tracker // set from the options below, before any request
+	var importFollowed gitsource.Source
 
 	mux.HandleFunc("GET /admin/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok"))
@@ -450,6 +454,10 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		writeJSON(w, http.StatusOK, store.ExportConfig())
 	})
 	mux.HandleFunc("POST /admin/config", func(w http.ResponseWriter, r *http.Request) {
+		if importFollowed.Repo != "" { // the config is in git: a snapshot import is a live edit
+			http.Error(w, errConfigInGitText, http.StatusConflict)
+			return
+		}
 		var snap ConfigSnapshot
 		if !decode(w, r, &snap) {
 			return
@@ -796,11 +804,8 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		o(am)
 	}
 	importConds = am.conds
-	var inner http.Handler = mux
-	if am.inGit {
-		inner = configInGitGuard(mux)
-	}
-	guarded := authMiddleware(auth, log, inner) // guards every /admin/* route
+	importFollowed = am.followed
+	guarded := authMiddleware(auth, log, mux) // guards every /admin/* route
 	if browser == nil {
 		return guarded
 	}

@@ -720,28 +720,11 @@ func (c *Client) ConfigDiff(tree []byte) (jam.ConfigApplyResult, error) {
 	return res, err
 }
 
-// ConfigApply applies a packed config tree. planDigest (may be "") is the
-// reviewed plan's digest — a different plan is a 409 (ErrConflict), as is a
-// plan with refusals.
-func (c *Client) ConfigApply(tree []byte, planDigest string) (jam.ConfigApplyResult, error) {
-	var res jam.ConfigApplyResult
-	err := c.doRaw("POST", configPath("/admin/config/apply", planDigest), "application/gzip", tree, &res)
-	return res, err
-}
-
 // ConfigDiffSource plans a git config source ("" = the followed repo) without
 // writing.
 func (c *Client) ConfigDiffSource(source string) (jam.ConfigApplyResult, error) {
 	var res jam.ConfigApplyResult
 	err := c.doConfig("POST", "/admin/config/diff", jam.ConfigSourceBody{Source: source}, &res)
-	return res, err
-}
-
-// ConfigApplySource applies a git config source ("" = the followed repo); a
-// different plan than planDigest, or one with refusals, is ErrConflict.
-func (c *Client) ConfigApplySource(source, planDigest string) (jam.ConfigApplyResult, error) {
-	var res jam.ConfigApplyResult
-	err := c.doConfig("POST", configPath("/admin/config/apply", planDigest), jam.ConfigSourceBody{Source: source}, &res)
 	return res, err
 }
 

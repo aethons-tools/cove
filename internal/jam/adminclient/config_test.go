@@ -2,12 +2,14 @@ package adminclient
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/configtar"
@@ -40,12 +42,13 @@ func TestConfigRoundTrip(t *testing.T) {
 	if err != nil || diff.Applied || len(diff.Plan.Ops) != 1 || diff.Plan.Ops[0].Action != jam.ConfigCreate {
 		t.Fatalf("ConfigDiff = %+v, %v", diff, err)
 	}
-	if _, err := c.ConfigApply(tree, "stale"); !errors.Is(err, ErrConflict) {
-		t.Fatalf("ConfigApply stale = %v, want ErrConflict", err)
+	lt, err := jam.LoadConfigTree(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	res, err := c.ConfigApply(tree, diff.Plan.Digest)
-	if err != nil || !res.Applied || res.Counts[jam.ConfigCreate] != 1 {
-		t.Fatalf("ConfigApply = %+v, %v", res, err)
+	if _, err := jam.ApplyConfigTree(context.Background(), store, nil, lt, jam.ConfigEnv{CredExists: creds},
+		jam.ConfigApplyOptions{Source: gitsource.Source{Repo: jam.ConfigDirRepo}, Commit: jam.ConfigDirCommit, Now: time.Unix(1, 0)}, nil, "test"); err != nil {
+		t.Fatal(err)
 	}
 	exp, err := c.ConfigExportTree(false)
 	if err != nil || exp.Files["users/bob.yml"] == "" {
@@ -87,9 +90,6 @@ func TestConfigSourceMethods(t *testing.T) {
 	}
 	if s, err := c.ConfigFollow(); err != nil || s.Applied != diff.Commit {
 		t.Fatalf("ConfigFollow = %+v, %v", s, err)
-	}
-	if res, err := c.ConfigApplySource(repo+"@main", ""); err != nil || res.Applied {
-		t.Fatalf("ConfigApplySource = %+v, %v", res, err)
 	}
 }
 

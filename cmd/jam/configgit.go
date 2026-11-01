@@ -23,17 +23,17 @@ import (
 var configStdin io.Reader = os.Stdin
 
 // cmdConfig keeps a Jam's configuration in git: `config write <dir> [--all]`,
-// `config diff|apply [--dir <path> | --git <src>]` (neither: the followed
-// repo), `config sync`, `config status`.
+// `config diff [--dir <path> | --git <src>]` (neither: the followed repo, planned
+// only), `config sync`, `config status`.
 func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
-	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | apply [--dir <path> | --git <src>] [--yes] | sync [--yes] | status"
+	const usage = "jam config: expected write <dir> [--all] [--force] | diff [--dir <path> | --git <src>] | sync [--yes] | status"
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
-	case "write", "diff", "apply", "sync", "status":
+	case "write", "diff", "sync", "status":
 	default:
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -51,10 +51,6 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	case "diff":
 		dir = fs.String("dir", "", "the config checkout to plan against the Jam")
 		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to plan (default: the followed repo)")
-	case "apply":
-		dir = fs.String("dir", "", "the config checkout to apply")
-		git = fs.String("git", "", "a config source <repo>[//<dir>]@<ref> to apply (default: the followed repo)")
-		yes = fs.Bool("yes", false, "apply without the confirmation prompt")
 	case "sync":
 		yes = fs.Bool("yes", false, "apply without the confirmation prompt")
 	}
@@ -117,7 +113,7 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		printConfigFollow(stdout, s)
 		return 0
 	}
-	t := configTarget{source: *git, sync: sub == "sync"}
+	t := configTarget{source: *git}
 	if *dir != "" {
 		if t.tree, err = configtar.Pack(*dir); err != nil {
 			return fail(err)
@@ -151,7 +147,7 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	applied, err := t.apply(c, res.Plan.Digest)
+	applied, err := c.ConfigSync(res.Plan.Digest)
 	if err != nil {
 		return fail(err)
 	}
@@ -165,12 +161,11 @@ func cmdConfig(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// configTarget is what a diff, apply or sync plans: a packed --dir tree, a
-// --git source, or (neither) the followed repo — through /sync for sync.
+// configTarget is what a diff plans: a packed --dir tree, a --git source, or
+// (neither) the followed repo. Sync plans the followed repo, then applies it.
 type configTarget struct {
 	tree   []byte
 	source string
-	sync   bool
 }
 
 func (t configTarget) diff(c *adminclient.Client) (jam.ConfigApplyResult, error) {
@@ -178,16 +173,6 @@ func (t configTarget) diff(c *adminclient.Client) (jam.ConfigApplyResult, error)
 		return c.ConfigDiff(t.tree)
 	}
 	return c.ConfigDiffSource(t.source)
-}
-
-func (t configTarget) apply(c *adminclient.Client, digest string) (jam.ConfigApplyResult, error) {
-	switch {
-	case t.tree != nil:
-		return c.ConfigApply(t.tree, digest)
-	case t.sync:
-		return c.ConfigSync(digest)
-	}
-	return c.ConfigApplySource(t.source, digest)
 }
 
 // printConfigFollow prints the follower's status, one field a line.

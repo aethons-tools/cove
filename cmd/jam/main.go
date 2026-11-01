@@ -136,7 +136,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "room", Brief: "list a project's rooms — named channels on a Linear issue or a Discord channel (list) via the admin API", Run: cmdRoom},
 			{Name: "connection", Brief: "list connections to external services — a Linear workspace, a Discord bot (list) via the admin API", Run: cmdConnection},
 			{Name: "kit", Brief: "manage the kit registry (list|show|versions|diff|import|track|untrack|sync)", Run: cmdKit},
-			{Name: "config", Brief: "keep the Jam's configuration in git: write it out (write <dir> [--all]); plan and apply a checkout or a git source (diff|apply [--dir <path> | --git <src>] [--yes]); follow one config source (track --git <src> | sync | untrack) via the admin API", Run: cmdConfig},
+			{Name: "config", Brief: "keep the Jam's configuration in git: write it out (write <dir> [--all]); plan a checkout or a git source, never applying it (diff [--dir <path> | --git <src>]); apply the followed repo (sync [--yes]); show the follower (status) via the admin API", Run: cmdConfig},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
 			{Name: "import", Brief: "import a Jam config backup into an EMPTY Jam via the admin API (refuses if config already exists)", Run: cmdImport},
 			{Name: "pool", Brief: "manage the subscription-OAuth account pool (add|list) — writes the host-side pool store", Run: cmdPool},
@@ -2740,10 +2740,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		if managerHub != nil {
 			adminOpts = append(adminOpts, managers.AdminRoutes(managerHub)...)
-		}
-		if cfgEnv.Followed.Repo != "" {
-			// The config is in git: the admin API refuses live config writes.
-			adminOpts = append(adminOpts, jam.WithConfigInGit(cfgEnv.Followed))
 		}
 		admin := jam.NewAdminHandler(st, sup, personalAllocator{alloc}, auth, credExists, cfg.operatorLoginConfig(), log, browser, adminOpts...)
 		var adminServe http.Handler = admin

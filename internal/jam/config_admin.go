@@ -37,7 +37,7 @@ func ConfigStatus(err error) (int, string) {
 	return status, msg
 }
 
-// ConfigSourceBody is the JSON body of POST /admin/config/diff and /apply
+// ConfigSourceBody is the JSON body of POST /admin/config/diff
 // (Source "" = the followed repo) and POST /admin/config/sync ({}).
 type ConfigSourceBody struct {
 	Source string `json:"source,omitempty"`
@@ -50,12 +50,11 @@ const maxConfigSourceBody = 64 << 10
 // operator gate):
 //
 //	POST   /admin/config/diff                        plan a tree or a source (writes nothing)
-//	POST   /admin/config/apply?plan=<digest>         apply it
 //	POST   /admin/config/sync?plan=<digest>          {}: apply the followed repo (config.github); the first apply's confirm
 //	GET    /admin/config/follow                      the follower's status (ConfigFollowStatus)
 //	GET    /admin/config/export-tree?all=1           render the managed (all: every) object
 //
-// diff and apply take a configtar body (application/gzip) or a {source}
+// diff takes a configtar body (application/gzip) or a {source}
 // body (application/json; "" = the followed repo); sync takes {} — any
 // other Content-Type is 415, so a browser's no-cors POST cannot trigger
 // one. An oversize upload is 413, a malformed or unsafe one or a bad source
@@ -137,16 +136,12 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 		ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		return ct == "application/json"
 	}
-	// run plans (opt.DryRun) or applies the request's tree or source and answers.
+	// run plans the request's tree or source (opt.DryRun) and answers.
 	run := func(w http.ResponseWriter, r *http.Request, what string, opt ConfigApplyOptions) {
 		var res ConfigApplyResult
 		var err error
 		switch ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct {
 		case "application/gzip":
-			if !opt.DryRun && refusedApply(env, true, gitsource.Source{}) {
-				http.Error(w, ErrConfigInGit.Error(), http.StatusConflict)
-				return
-			}
 			tr, ok := upload(w, r)
 			if !ok {
 				return
@@ -158,10 +153,6 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 			if !ok {
 				return
 			}
-			if !opt.DryRun && refusedApply(env, false, src) {
-				http.Error(w, ErrConfigInGit.Error(), http.StatusConflict)
-				return
-			}
 			res, err = ApplyConfigSource(r.Context(), store, f, src, env, opt, log, OperatorID(r))
 		default: // e.g. a browser's no-cors text/plain POST to the loopback admin port
 			http.Error(w, "config tree: Content-Type must be application/gzip (a tree) or application/json (a source)", http.StatusUnsupportedMediaType)
@@ -171,18 +162,13 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 			fail(w, r, what, err)
 			return
 		}
-		if !opt.DryRun && env.Follower != nil {
-			env.Follower.Refresh() // an apply of the followed repo confirms it
-		}
 		writeJSON(w, http.StatusOK, res)
 	}
 	return func(mux *adminMux) {
 		mux.conds = env.Conditions // the config import raises kit.migrate here
+		mux.followed = env.Followed
 		mux.HandleFunc("POST /admin/config/diff", func(w http.ResponseWriter, r *http.Request) {
 			run(w, r, "diff", ConfigApplyOptions{DryRun: true, Now: time.Now()})
-		})
-		mux.HandleFunc("POST /admin/config/apply", func(w http.ResponseWriter, r *http.Request) {
-			run(w, r, "apply", ConfigApplyOptions{WantDigest: r.URL.Query().Get("plan"), Now: time.Now()})
 		})
 		mux.HandleFunc("POST /admin/config/sync", func(w http.ResponseWriter, r *http.Request) {
 			if !isJSON(r) {

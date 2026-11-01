@@ -208,7 +208,7 @@ func TestWriteConfigTreeRefusesUnsafePaths(t *testing.T) {
 	}
 }
 
-// config write writes a kit as its directory (modes kept); apply --dir
+// config write writes a kit as its directory (modes kept); a --dir apply
 // replicates it with the same tree and nothing left to apply; a file the
 // kit drops is removed by the next write.
 func TestConfigWriteKitDirRoundTrip(t *testing.T) {
@@ -229,16 +229,14 @@ func TestConfigWriteKitDirRoundTrip(t *testing.T) {
 		t.Fatalf("run.sh %v %v", fi, err)
 	}
 	dstURL, dst := configServer(t)
-	if code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", dstURL); code != 0 {
-		t.Fatalf("apply: %d\n%s\n%s", code, out, errs)
-	}
+	applyDir(t, dst, repo)
 	s, _ := src.GetKit("builder")
 	d, _ := dst.GetKit("builder")
 	if d.Trees[d.Current] != s.Trees[s.Current] {
 		t.Fatal("the replica's stored tree differs")
 	}
-	if code, out, _ := runJam("config", "apply", "--dir", repo, "--admin-url", dstURL); code != 0 || !strings.Contains(out, "nothing to apply") {
-		t.Fatalf("second apply: %d\n%s", code, out)
+	if code, out, _ := runJam("config", "diff", "--dir", repo, "--admin-url", dstURL); code != 0 || strings.Contains(out, "create ") {
+		t.Fatalf("diff after the apply: %d\n%s", code, out)
 	}
 	if _, _, err := jam.PushKitFiles(src, "builder", kittreetest.Files("kit.yml", "kind: studio\nprompt: plain now\n")); err != nil {
 		t.Fatal(err)
@@ -429,9 +427,9 @@ func TestConfigWriteRewritesOldContextDirRepo(t *testing.T) {
 	mustWrite(t, filepath.Join(repo, "kits/app/kit.yml"), "kind: studio\nbase:\n  context-dir: context\n", 0o644)
 	mustWrite(t, filepath.Join(repo, "kits/app/context/Dockerfile"), "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n", 0o644)
 	mustWrite(t, filepath.Join(repo, "kits/app/context/run.sh"), "echo\n", 0o755)
-	code, out, errs := runJam("config", "apply", "--dir", repo, "--admin-url", url)
+	code, out, errs := runJam("config", "diff", "--dir", repo, "--admin-url", url)
 	if code == 0 || !strings.Contains(out+errs, "base.context-dir is no longer supported; put a Dockerfile next to kit.yml; a config repo written by an older Jam: run jam config write <repo> and commit") {
-		t.Fatalf("apply on the old repo: %d %s %s", code, out, errs)
+		t.Fatalf("diff on the old repo: %d %s %s", code, out, errs)
 	}
 	if code, out, errs := runJam("config", "write", repo, "--all", "--admin-url", url); code != 0 {
 		t.Fatalf("write: %d %s %s", code, out, errs)
@@ -446,13 +444,11 @@ func TestConfigWriteRewritesOldContextDirRepo(t *testing.T) {
 		}
 	}
 	before, _ := st.GetKit("app")
-	if code, out, errs := runJam("config", "apply", "--dir", repo, "--yes", "--admin-url", url); code != 0 || !strings.Contains(out, "0 created, 0 updated") {
-		t.Fatalf("apply after the write (adopts, no new version): %d\n%s\n%s", code, out, errs)
+	if code, out, errs := runJam("config", "diff", "--dir", repo, "--admin-url", url); code != 0 || strings.Contains(out, "create ") {
+		t.Fatalf("diff after the write: %d\n%s\n%s", code, out, errs)
 	}
+	applyDir(t, st, repo) // adopts, makes no new version
 	if after, _ := st.GetKit("app"); after.Current != before.Current {
 		t.Fatalf("apply made a version: v%d → v%d", before.Current, after.Current)
-	}
-	if code, out, errs := runJam("config", "apply", "--dir", repo, "--admin-url", url); code != 0 || !strings.Contains(out, "nothing to apply") {
-		t.Fatalf("second apply: %d\n%s\n%s", code, out, errs)
 	}
 }
