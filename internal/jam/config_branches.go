@@ -16,6 +16,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 
 	"github.com/aethons-tools/cove/internal/jam/configrepo"
+	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 // The config branch editor (docs/usage/jam/config-branches.md): the admin
@@ -35,6 +36,9 @@ type ConfigBranches struct {
 
 	mu         sync.Mutex
 	workspaces map[string]*ConfigWorkspace
+	// dropped are workspaces Drop forgot, kept until the branch loads again
+	// so their open kit drafts carry over (carryDrafts).
+	dropped map[string]*ConfigWorkspace
 }
 
 // ConfigWorkspace is one branch at Head, loaded into Store. A save moves
@@ -84,14 +88,21 @@ func (b *ConfigBranches) Workspace(ctx context.Context, branch string) (*ConfigW
 		return nil, configrepo.ErrNoBranch
 	}
 	b.mu.Lock()
-	if ws, ok := b.workspaces[branch]; ok && ws.HeadNow() == head {
+	prev, ok := b.workspaces[branch]
+	if ok && prev.HeadNow() == head {
 		b.mu.Unlock()
-		return ws, nil
+		return prev, nil
+	}
+	if !ok {
+		prev = b.dropped[branch]
 	}
 	b.mu.Unlock()
 	ws, err := b.load(ctx, branch)
 	if err != nil {
 		return nil, err
+	}
+	if prev != nil {
+		b.carryDrafts(prev, ws)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -99,14 +110,79 @@ func (b *ConfigBranches) Workspace(ctx context.Context, branch string) (*ConfigW
 		b.workspaces = map[string]*ConfigWorkspace{}
 	}
 	b.workspaces[branch] = ws
+	delete(b.dropped, branch)
 	return ws, nil
 }
 
-// Drop forgets branch's cached workspace.
+// Drop forgets branch's cached workspace; its open kit drafts carry over to
+// the next one loaded.
 func (b *ConfigBranches) Drop(branch string) {
 	b.mu.Lock()
-	delete(b.workspaces, branch)
-	b.mu.Unlock()
+	defer b.mu.Unlock()
+	if ws, ok := b.workspaces[branch]; ok {
+		if b.dropped == nil {
+			b.dropped = map[string]*ConfigWorkspace{}
+		}
+		b.dropped[branch] = ws
+		delete(b.workspaces, branch)
+	}
+}
+
+// carryDrafts copies from's open kit drafts into to, a fresh load of the
+// same branch: a draft is never committed until it is published, so a
+// reload would otherwise lose it. Version numbers restart with each load,
+// so a draft is rebased onto its kit's current version, but only when that
+// version holds the files the draft was opened from; a kit that changed on
+// the branch since (a push, another tab's publish) loses the draft, logged,
+// rather than having its change overwritten by a later publish.
+func (b *ConfigBranches) carryDrafts(from, to *ConfigWorkspace) {
+	from.Store.mu.RLock()
+	drafts := make([]KitDraft, 0, len(from.Store.kitDrafts))
+	for _, d := range from.Store.kitDrafts {
+		drafts = append(drafts, d)
+	}
+	from.Store.mu.RUnlock()
+	for _, d := range drafts {
+		oldKit, ok1 := from.Store.GetKit(d.Kit)
+		kit, ok2 := to.Store.GetKit(d.Kit)
+		if !ok1 || !ok2 || oldKit.Trees[d.Base] == "" || oldKit.Trees[d.Base] != kit.Trees[kit.Current] {
+			b.logDraftLost(to.Branch, d.Kit)
+			continue
+		}
+		tree, ok := from.Store.KitTree(d.Tree)
+		if !ok {
+			b.logDraftLost(to.Branch, d.Kit)
+			continue
+		}
+		objs := KitObjects{Trees: []kittree.Tree{tree}, Blobs: map[string][]byte{}}
+		for _, e := range tree.Entries {
+			if data, ok := from.Store.KitBlob(e.SHA256); ok {
+				objs.Blobs[e.SHA256] = data
+			}
+		}
+		d.Base = kit.Current
+		if err := to.Store.PutKitDraft(d, objs); err != nil {
+			b.logDraftLost(to.Branch, d.Kit)
+		}
+	}
+}
+
+func (b *ConfigBranches) logDraftLost(branch, kit string) {
+	if b.Log != nil {
+		b.Log.Info("config branch: kit draft not carried over (its kit changed on the branch)", "branch", branch, "kit", kit)
+	}
+}
+
+// Unchanged reports whether ws's config still renders as it did at its
+// head: a refused write that changed nothing keeps the workspace (and its
+// open kit drafts) as it is.
+func (b *ConfigBranches) Unchanged(ws *ConfigWorkspace) bool {
+	exp, err := renderWorkspace(ws.Store)
+	if err != nil {
+		return false
+	}
+	ch := b.diff(ws.base, exp)
+	return len(ch.Put) == 0 && len(ch.Delete) == 0
 }
 
 // planEnv is Env without the follower: a branch's plans never touch it.
@@ -186,6 +262,9 @@ func (b *ConfigBranches) configFiles(files map[string]configrepo.File) map[strin
 func (b *ConfigBranches) Save(ctx context.Context, ws *ConfigWorkspace, author configrepo.Signature, msg string) error {
 	exp, err := renderWorkspace(ws.Store)
 	if err == nil {
+		err = b.checkPlans(ctx, ws, exp)
+	}
+	if err == nil {
 		var head string
 		if head, err = b.Repo.Commit(ctx, ws.Branch, ws.HeadNow(), b.diff(ws.base, exp), author, msg); err == nil {
 			ws.setHead(head)
@@ -195,6 +274,43 @@ func (b *ConfigBranches) Save(ctx context.Context, ws *ConfigWorkspace, author c
 	}
 	b.Drop(ws.Branch)
 	return err
+}
+
+// checkPlans refuses a save whose tree would not plan: the branch could not
+// be loaded again (say, an escalation chain naming a user who does not
+// exist). The rendering is planned into a fresh store, as a load would.
+func (b *ConfigBranches) checkPlans(ctx context.Context, ws *ConfigWorkspace, exp ConfigTreeExport) error {
+	files := map[string]configrepo.File{}
+	full := func(rel string) string { return path.Join(b.Dir, rel) }
+	for p, c := range exp.Files {
+		files[full(p)] = configrepo.File{Data: []byte(c), Mode: filemode.Regular}
+	}
+	for dir, fs := range exp.Kits {
+		for _, f := range fs {
+			mode := filemode.Regular
+			if f.Mode&0o111 != 0 {
+				mode = filemode.Executable
+			}
+			files[full(dir+"/"+f.Path)] = configrepo.File{Data: f.Data, Mode: mode}
+		}
+	}
+	tree, err := b.treeOf(files)
+	if err != nil {
+		return err
+	}
+	src := b.Env.Followed
+	src.Ref = ws.Branch
+	res, err := ApplyConfigTree(ctx, NewMemStore(), b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{DryRun: true, Source: src, Commit: ws.HeadNow(), Now: time.Now()}, nil, "save:"+ws.Branch)
+	refusals := res.Plan.Refusals
+	if errors.Is(err, ErrConfigRefused) {
+		refusals = []string{strings.TrimPrefix(err.Error(), ErrConfigRefused.Error()+":\n")}
+	} else if err != nil {
+		return err
+	}
+	if len(refusals) > 0 {
+		return writeErr(http.StatusConflict, "not saved: the branch would no longer load: %s", strings.Join(refusals, "\n"))
+	}
+	return nil
 }
 
 // renderWorkspace is st's config tree as the repo holds it. No serve config:

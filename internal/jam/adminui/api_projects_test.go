@@ -100,16 +100,20 @@ func TestProjectSectionsAPI(t *testing.T) {
 	if len(d.Rooms) != 1 || d.Rooms[0].Name != "eng" || d.Rooms[0].Ref != "123" {
 		t.Fatalf("rooms = %+v", d.Rooms)
 	}
-	// Refused before the chain below is saved: a refusal reloads the branch,
-	// and a branch naming an unknown user does not load.
 	rec := apiDo(t, h, "POST", "/app/admin/api/projects/acme/escalation", map[string]string{"category": "x", "tiers": "user:a@soon"}, nil)
 	wantErr(t, rec, 400, "bad_request")
-	apiDo(t, h, "POST", "/app/admin/api/projects/acme/escalation", map[string]string{"category": "", "tiers": "user:ghost,channel:eng@15m"}, &d)
+	// A chain naming an unknown user would leave the branch unable to load:
+	// the save is refused and nothing is committed.
+	rec = apiDo(t, h, "POST", "/app/admin/api/projects/acme/escalation", map[string]string{"category": "", "tiers": "user:ghost,channel:eng@15m"}, nil)
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "the branch would no longer load") {
+		t.Fatalf("unknown-user chain = %d %s", rec.Code, rec.Body)
+	}
+	apiDo(t, h, "POST", "/app/admin/api/projects/acme/escalation", map[string]string{"category": "", "tiers": "channel:eng@15m"}, &d)
 	if len(d.DefaultChain.Tiers) != 1 || len(d.Escalation) != 1 {
 		t.Fatalf("chain = %+v", d.DefaultChain)
 	}
 	tg := d.DefaultChain.Tiers[0].Targets
-	if len(tg) != 2 || !tg[0].Unknown || tg[1].Unknown || d.DefaultChain.Tiers[0].Timeout != "15m" {
+	if len(tg) != 1 || tg[0].Unknown || d.DefaultChain.Tiers[0].Timeout != "15m" {
 		t.Errorf("targets = %+v", d.DefaultChain.Tiers[0])
 	}
 	if rec := apiDo(t, h, "DELETE", "/app/admin/api/projects/acme/escalation?category=", nil, &d); rec.Code != 200 {
@@ -150,8 +154,10 @@ func TestProjectMembersAPI(t *testing.T) {
 	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "is an account") {
 		t.Errorf("discord user id = %d %s", rec.Code, rec.Body)
 	}
-	// The refusal reloaded the branch, which mints its ids afresh.
-	alice, _ = e.Store().LookupName(ident.User, "alice")
+	// The refusal changed nothing, so the workspace (and its ids) is kept.
+	if again, _ := e.Store().LookupName(ident.User, "alice"); again != alice {
+		t.Errorf("alice's id moved after a refused write: %s → %s", alice, again)
+	}
 	apiDo(t, h, "DELETE", "/app/admin/api/projects/acme/members/"+string(alice), nil, &d)
 	if len(d.Members) != 0 {
 		t.Errorf("after remove = %+v", d.Members)

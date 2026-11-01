@@ -60,12 +60,14 @@ type branchEdit struct {
 
 // editSetup is what editOn builds: the branch holds seed's config (nil:
 // none); the console's handlers are built with cred (nil: anyCred), log
-// (nil: testLogger) and opts.
+// (nil: testLogger) and opts; pool is the serve's subscription pool, as the
+// branch's planner sees it.
 type editSetup struct {
 	seed jam.Store
 	cred func(string) bool
 	log  *slog.Logger
 	opts []adminui.Option
+	pool bool
 }
 
 // editOn opens editBranch as s sets it up.
@@ -108,7 +110,7 @@ func editOn(t *testing.T, s editSetup) *branchEdit {
 		}
 	}
 	live := newStore(t)
-	env := jam.ConfigEnv{CredExists: cred, Followed: gitsource.Source{Repo: url, Ref: "main", Dir: "config"}}
+	env := jam.ConfigEnv{CredExists: cred, PoolConfigured: s.pool, Followed: gitsource.Source{Repo: url, Ref: "main", Dir: "config"}}
 	b := &jam.ConfigBranches{Repo: repo, Dir: "config", Env: env, Live: live}
 	opts = append([]adminui.Option{adminui.WithConfigEnv(env)}, opts...)
 	factory := func(st jam.Store) http.Handler {
@@ -431,4 +433,132 @@ func gitRev(t *testing.T, dir, ref string) string {
 		t.Fatal(err)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// draftedBranch is a branch holding kit app with an open draft whose run.sh
+// was saved as "echo draft"; it returns the edit and the draft's ETag.
+func draftedBranch(t *testing.T) (*branchEdit, string) {
+	t.Helper()
+	seed := newStore(t)
+	if _, _, err := jam.PushKitFiles(seed, "app", kittreetest.Files("kit.yml", "kind: studio\n", "run.sh*", "echo\n")); err != nil {
+		t.Fatal(err)
+	}
+	e := editOn(t, editSetup{seed: seed})
+	var res adminui.DraftResult
+	if rec := apiDo(t, e.H, "POST", draftAPI, map[string]int{}, &res); rec.Code != 200 || res.Page.Draft == nil {
+		t.Fatalf("open = %d %s", rec.Code, rec.Body)
+	}
+	if rec := apiDo(t, e.H, "POST", draftAPI+"/save", map[string]any{"etag": res.Page.Draft.ETag, "path": "run.sh", "content": "echo draft\n", "executable": true}, &res); rec.Code != 200 {
+		t.Fatalf("save = %d %s", rec.Code, rec.Body)
+	}
+	return e, res.Page.Draft.ETag
+}
+
+// draftOf is the branch's open draft of app, nil when there is none.
+func draftOf(t *testing.T, e *branchEdit) *adminui.DraftView {
+	t.Helper()
+	var p adminui.DraftPage
+	if rec := apiDo(t, e.H, "GET", draftAPI, nil, &p); rec.Code != 200 {
+		t.Fatalf("draft = %d %s", rec.Code, rec.Body)
+	}
+	return p.Draft
+}
+
+// push commits files to the branch behind the workspace's back (a hand push).
+func (e *branchEdit) push(files map[string]string) {
+	e.t.Helper()
+	ctx := context.Background()
+	bs, err := e.b.Repo.Branches(ctx)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	head := ""
+	for _, b := range bs {
+		if b.Name == editBranch {
+			head = b.Head
+		}
+	}
+	ch := configrepo.Changes{Put: map[string]configrepo.File{}}
+	for p, c := range files {
+		ch.Put[p] = configrepo.File{Data: []byte(c), Mode: filemode.Regular}
+	}
+	if _, err := e.b.Repo.Commit(ctx, editBranch, head, ch, configrepo.Signature{Name: "hand", Email: "hand@jam"}, "by hand"); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// A refused write that changed nothing keeps the workspace: an open draft
+// survives both a refused config write and a stale draft save.
+func TestBranchRefusedWriteKeepsDraft(t *testing.T) {
+	e, etag := draftedBranch(t)
+	if rec := apiDo(t, e.H, "POST", "/app/admin/api/users", map[string]any{"name": "Not A Name!"}, nil); rec.Code/100 != 4 {
+		t.Fatalf("bad user = %d %s", rec.Code, rec.Body)
+	}
+	if d := draftOf(t, e); d == nil {
+		t.Fatal("the draft was lost to a refused config write")
+	}
+	if rec := apiDo(t, e.H, "POST", draftAPI+"/save", map[string]any{"etag": "stale", "path": "run.sh", "content": "echo other\n", "executable": true}, nil); rec.Code != 412 {
+		t.Fatalf("stale save = %d %s", rec.Code, rec.Body)
+	}
+	if d := draftOf(t, e); d == nil || d.ETag != etag {
+		t.Fatalf("draft after a stale save = %+v, want it kept at %s", d, etag)
+	}
+}
+
+// A reload (the branch moved: a hand push) carries an open draft over when
+// its kit is unchanged on the branch, and drops it when the kit changed.
+func TestBranchReloadCarriesDraft(t *testing.T) {
+	e, etag := draftedBranch(t)
+	e.push(map[string]string{"config/users/carol.yml": "kind: user\nversion: 1\n"})
+	d := draftOf(t, e)
+	if d == nil || d.ETag != etag {
+		t.Fatalf("draft after a push elsewhere = %+v, want it carried over at %s", d, etag)
+	}
+	var res adminui.DraftResult
+	if rec := apiDo(t, e.H, "POST", draftAPI+"/publish", map[string]any{"etag": etag}, &res); rec.Code != 200 || res.Page.Published == nil {
+		t.Fatalf("publish of the carried draft = %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestBranchReloadDropsDraftOfChangedKit(t *testing.T) {
+	e, _ := draftedBranch(t)
+	e.push(map[string]string{"config/kits/app/kit.yml": "kind: studio\nprompt: changed by hand\n"})
+	if d := draftOf(t, e); d != nil {
+		t.Fatalf("draft = %+v, want it dropped: its kit changed on the branch", d)
+	}
+}
+
+// A save that would leave the branch unable to load commits nothing.
+func TestBranchUnloadableSaveRefused(t *testing.T) {
+	seed := newStore(t)
+	mustCreateProject(t, seed, "acme")
+	e := editOn(t, editSetup{seed: seed})
+	before := e.headOf()
+	rec := apiDo(t, e.H, "POST", "/app/admin/api/projects/acme/escalation", map[string]string{"category": "", "tiers": "user:ghost@15m"}, nil)
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "not saved: the branch would no longer load") {
+		t.Fatalf("unloadable save = %d %s", rec.Code, rec.Body)
+	}
+	if after := e.headOf(); after != before {
+		t.Fatalf("branch moved %s → %s on a refused save", before, after)
+	}
+	var d adminui.ProjectDetail
+	apiDo(t, e.H, "GET", "/app/admin/api/projects/acme", nil, &d)
+	if len(d.Escalation) != 0 {
+		t.Errorf("the refused chain is in the workspace: %+v", d.Escalation)
+	}
+}
+
+// headOf is the branch's head in the repo.
+func (e *branchEdit) headOf() string {
+	e.t.Helper()
+	bs, err := e.b.Repo.Branches(context.Background())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	for _, b := range bs {
+		if b.Name == editBranch {
+			return b.Head
+		}
+	}
+	return ""
 }

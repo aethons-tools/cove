@@ -34,9 +34,11 @@ files in the draft, then publish it, or discard it.
   validation error, a missing parent, a `base.context…` field. A draft with
   problems cannot be published.
 - A draft is working state in the branch's workspace, not in the repo: a draft
-  save makes no commit, and the draft is lost when the workspace is dropped
-  (the branch moved, a refused save). `kit <name> already has a draft`
-  (409) refuses a second one.
+  save makes no commit. When the workspace reloads (the branch moved, a
+  refused save), the draft carries over if its kit is unchanged on the branch;
+  if the kit changed meanwhile (a push, another tab's publish), the draft is
+  dropped (logged `kit draft not carried over`) rather than published over
+  that change. `kit <name> already has a draft` (409) refuses a second one.
 - Another version may land while a draft is open: the draft then shows
   `base: 1, current: 2`. Publishing still makes the draft's tree the kit's
   files, without the other version's changes (no merge).
