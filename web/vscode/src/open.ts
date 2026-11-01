@@ -338,14 +338,15 @@ export type GoDeps = {
   now(): number;
 };
 
-// goTo goes to jam's conversation: its session's studio window when one is
-// open (this window's own: its conversation tab), else its tab in jam's hub.
-// Outside that hub it leaves a pending request (the hub reads it on
-// activation and focus) and opens or focuses the hub.
-export async function goTo(d: GoDeps, jam: string, channel: string, session: string): Promise<void> {
+// goTo goes to jam's conversation: with viaWindow, its session's studio window
+// when one is open (this window's own: its conversation tab), else its tab in
+// jam's hub. Outside that hub it leaves a pending request (the hub reads it on
+// activation and focus) and opens or focuses the hub. A rail click passes
+// viaWindow false: the tab even when a window is open (a double-click opens the window).
+export async function goTo(d: GoDeps, jam: string, channel: string, session: string, viaWindow = true): Promise<void> {
   const here = jam === d.windowJam;
   if (here && session && session === d.ownSession) return d.openTab(channel);
-  if (session && d.isConnected(session)) return here ? d.openSession(session) : d.focusStudio(session);
+  if (viaWindow && session && d.isConnected(session)) return here ? d.openSession(session) : d.focusStudio(session);
   if (here && d.isHub) return d.openTab(channel);
   await d.writePending(jam, { channel, at: d.now() });
   await d.openHub(jam);

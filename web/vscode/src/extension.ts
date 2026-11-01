@@ -81,6 +81,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const hubDir = vscode.Uri.joinPath(ctx.globalStorageUri, "hub");
   // studioDir holds the studio windows' workspace files (open.ts studioWorkspace).
   const studioDir = vscode.Uri.joinPath(ctx.globalStorageUri, "studios");
+  // A studio workspace file is opened by its file: URI: global storage can be
+  // vscode-userdata: (VSCodium), which the window opener can't read, so it
+  // misses the file's remoteAuthority and opens a local window (ENOPRO).
+  const studioFileUri = (name: string) => vscode.Uri.file(vscode.Uri.joinPath(studioDir, name).fsPath);
   const kind = windowKind(vscode.workspace, hubDir, process.platform);
   const jams = () => {
     const c = vscode.workspace.getConfiguration("jam");
@@ -203,12 +207,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
     openFolder: async (u) => void (await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.parse(u), { forceNewWindow: true })),
     writeStudioFile: async (name, text) => {
       await fsp.mkdir(studioDir.fsPath, { recursive: true });
-      const f = vscode.Uri.joinPath(studioDir, name);
+      const f = studioFileUri(name);
       await fsp.writeFile(f.fsPath, text);
       return f.toString();
     },
     studioFile: async (name) => {
-      const f = vscode.Uri.joinPath(studioDir, name);
+      const f = studioFileUri(name);
       return (await fsp.access(f.fsPath).then(() => true, () => false)) ? f.toString() : undefined;
     },
     // The hub is local: from a studio window it must not stay on the SSH connection.
@@ -416,9 +420,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
     asExternalUri: async (u) => (await vscode.env.asExternalUri(vscode.Uri.parse(u))).toString(),
     openBoard: (id) => boards.open(id),
     openSession: (id) => guard(() => openSession(openDeps, id))(),
-    // A rail click: the session's studio window when one is open, else (until
-    // the hub) the conversation in the web app.
-    goTo: (channel, session) => goToConversation(channel, session),
+    // A rail click: the conversation's tab, even when its session's studio
+    // window is open (a double-click, the session intent, opens that).
+    goTo: (channel, session) => goToConversation(channel, session, undefined, false),
     // An ask elsewhere: the window's conversation tab (opened if need be: the
     // hub or a studio window only), scrolled to it.
     revealConversation: (anchor) =>
@@ -499,12 +503,13 @@ export function activate(ctx: vscode.ExtensionContext): void {
       now: Date.now,
     };
   };
-  // goToConversation goes to a conversation of jam (default: this window's).
-  const goToConversation = (channel: string, session: string, jam?: string) =>
+  // goToConversation goes to a conversation of jam (default: this window's);
+  // viaWindow as goTo's.
+  const goToConversation = (channel: string, session: string, jam?: string, viaWindow = true) =>
     guard(async () => {
       const j = jam ?? jamUrl();
       if (j instanceof Error) throw j;
-      await goTo(goDeps(), j, channel, session);
+      await goTo(goDeps(), j, channel, session, viaWindow);
     })();
   if (kind?.kind === "hub") {
     const takePending = async (): Promise<void> => {

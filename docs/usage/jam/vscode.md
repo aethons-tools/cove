@@ -101,7 +101,7 @@ If the studio isn't running, the cert step says so and nothing opens. Opening ne
 ## The rail and the hub
 
 Every window has the **rail** (the Conversations view), and one **hub** window holds conversations as tabs;
-a click goes to the session's studio window if open, else to its hub tab: [vscode-hub.md](vscode-hub.md).
+a click opens the conversation's hub tab, a double-click the session's studio window: [vscode-hub.md](vscode-hub.md).
 
 ## Panes
 

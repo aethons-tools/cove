@@ -132,7 +132,7 @@ describe("activate", () => {
     }
   });
 
-  it("a rail click on a session with a window focuses it; without one goes to the hub", async () => {
+  it("a rail click goes to the hub even when the session has a window; a double-click focuses the window", async () => {
     mock.reset();
     const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
     const fsp = await import("node:fs/promises");
@@ -161,10 +161,15 @@ describe("activate", () => {
       ctx.state.set(`jam.connected.${SES}`, Date.now() - 91_000);
       rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
       await vi.waitFor(() => expect(hubOpens()).toHaveLength(3));
+      // A click goes to the conversation even when its session's window is open;
+      // a double-click (the session intent) brings the window to the front.
       ctx.state.set(`jam.connected.${SES}`, Date.now());
       rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
-      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(4));
-      expect(openFolderCalls()[3]).toEqual(["vscode.openFolder", expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/studios/jam-${SES}.code-workspace` }), { forceNewWindow: true }]);
+      await vi.waitFor(() => expect(hubOpens()).toHaveLength(4));
+      expect(openFolderCalls()).toHaveLength(4);
+      rail.receive({ type: "open", intent: { kind: "session", id: SES } });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(5));
+      expect(openFolderCalls()[4]).toEqual(["vscode.openFolder", expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/studios/jam-${SES}.code-workspace` }), { forceNewWindow: true }]);
       expect(vscode.env.openExternal).not.toHaveBeenCalled();
     } finally {
       getExt.mockImplementation(() => undefined);
@@ -782,6 +787,35 @@ describe("session windows", () => {
     vi.stubEnv("XDG_CONFIG_HOME", home);
   };
   const OTHER = "ses_1abcdefghjkmnpqrstvwxyz012";
+
+  it("the studio window opens from a file: URI even when global storage is vscode-userdata: (VSCodium)", async () => {
+    mock.reset();
+    await sshHome();
+    const getExt = vi.mocked(vscode.extensions.getExtension);
+    getExt.mockImplementation(() => ({}) as vscode.Extension<unknown>);
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["remote.SSH.localServerDownload"] = "always";
+      const ctx = fakeContext();
+      const dir = ctx.globalStorageUri.fsPath;
+      (ctx as { globalStorageUri: unknown }).globalStorageUri = vscode.Uri.parse(`vscode-userdata://${dir}`);
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      expect(openFolderCalls()[0]).toEqual([
+        "vscode.openFolder",
+        expect.objectContaining({ scheme: "file", fsPath: `${dir}/studios/jam-${SES}.code-workspace` }),
+        { forceNewWindow: true },
+      ]);
+    } finally {
+      getExt.mockImplementation(() => undefined);
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+      deactivate();
+    }
+  });
 
   it("a link sets up SSH and opens the studio window in a new window; nothing goes under sessions/", async () => {
     mock.reset();
