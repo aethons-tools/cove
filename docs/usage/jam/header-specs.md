@@ -4,7 +4,7 @@ read_when: You are adding a destination whose upstream wants the credential in a
 owns: the `identity_in`/`apply` presets, the custom header-spec schema (`identity_in_spec`/`apply_spec`), its validation and storage compatibility
 prereqs: serve.md#destinations for the destination verb
 tier: leaf
-updated: 2026-10-23
+updated: 2026-11-01
 ---
 
 # Destination header specs (`identity_in` / `apply`)
@@ -37,21 +37,22 @@ the UI select and every pre-existing destination use):
 ## Custom specs
 
 Set the field to `custom` and give the spec in `identity_in_spec` /
-`apply_spec` — via `jam destination import` YAML (or the admin API JSON):
+`apply_spec`, in the destination's file in the config repo ([serve.md](serve.md#destinations)):
 
 ```yaml
-destinations:
-  - name: gitlab
-    route: /gitlab/
-    upstream: https://gitlab.example.com
-    identity_in: custom
-    identity_in_spec: {header: Private-Token}
-    cred_name: gitlab-pat
-    apply: custom
-    apply_spec: {header: Private-Token, template: "{cred}"}
+# destinations/gitlab.yml
+kind: destination
+version: 1
+route: /gitlab/
+upstream: https://gitlab.example.com
+identity_in: custom
+identity_in_spec: {header: Private-Token}
+cred_name: gitlab-pat
+apply: custom
+apply_spec: {header: Private-Token, template: "{cred}"}
 ```
 
-Validated at write (admin API, UI, `import` of a backup — see
+Validated at write (the config plan, the UI on a branch, `import` of a backup — see
 [backup.md](backup.md)): header names are valid HTTP tokens, and not
 hop-by-hop (`Connection`, `Keep-Alive`, `Proxy-*`, `TE`, `Trailer`,
 `Transfer-Encoding`, `Upgrade`, …) or `Host`, which the proxy can't carry; `template` contains `{cred}` exactly once and is

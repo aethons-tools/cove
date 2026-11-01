@@ -1,10 +1,10 @@
 ---
-summary: Model-specs — named, harness-typed descriptions of how a cove runs its agent (harness family + exact CLI version pin + runtime version-constraint, principal credential by name, model, permission policy, per-harness body incl. build-time plugins); the YAML schema and version-constraint syntax, validation, the version-split migration, what a spec builds into the image (harness layer), binding a role to one, the seeded claude-default, how a spec reaches the cove and what the claude harness applies, the `jam model-spec` verb and the admin API.
+summary: Model-specs — named, harness-typed descriptions of how a cove runs its agent (harness family + exact CLI version pin + runtime version-constraint, principal credential by name, model, permission policy, per-harness body incl. build-time plugins); the YAML schema and version-constraint syntax, validation, the version-split migration, what a spec builds into the image (harness layer), binding a role to one, the seeded claude-default, how a spec reaches the cove and what the claude harness applies, its file in the config repo, the `jam model-spec` verb and the admin API.
 read_when: You are authoring, listing, changing or deleting a model-spec, binding a role to one, a model-spec write or delete was refused, a cove failed its claude version check, you are bumping the harness CLI version or plugins, or you need to know which spec fields a cove actually applies and when an edit takes effect.
-owns: the model-spec entity — its schema, the version / version-constraint split and its migration, version-constraint syntax, validation rules, the spec's harness-layer build inputs, role binding and the claude-default seed, delivery to the cove and the claude harness's use of it, the `jam model-spec` verb and the `/admin/model-specs` admin API
+owns: the model-spec entity — its schema, the version / version-constraint split and its migration, version-constraint syntax, validation rules, the spec's harness-layer build inputs, role binding and the claude-default seed, delivery to the cove and the claude harness's use of it, its `model-specs/<name>.yml` file, the `jam model-spec` verb and the `/admin/model-specs` admin API
 prereqs: serve.md for serve-config `credentials:` and `pool:`; operators.md for `--app`/`--token`
 tier: leaf
-updated: 2026-10-28
+updated: 2026-11-01
 ---
 
 # Model-specs
@@ -47,12 +47,12 @@ claude:                     # the body matching `type` (required)
 
 ## Validation
 
-Every write (`add`, `update`, and config [import](backup.md)) is checked; a refusal
-is a 400 naming the field, and nothing is stored.
+Every write (a config plan, a branch save, a snapshot [import](backup.md)) is checked; a refusal
+names the field, and nothing is stored.
 
 | Field | Rule |
 |-------|------|
-| `name` | Required (same rule as destinations). It is the key: `update` cannot rename. |
+| `name` | Required (same rule as destinations): in the config repo, the file name. It is the key. |
 | `type` | Required; a known harness family (`claude`). |
 | `version` | Required; an exact `X.Y.Z` release (digits only — no `v`, suffix or range: a range belongs in `version-constraint`). |
 | `version-constraint` | Optional; a valid [version constraint](#version-constraints) that **admits `version`** (else every cove would fail its check). |
@@ -92,23 +92,23 @@ A pre-release/build suffix on the installed version is ignored. Anything else
 
 ## Binding a role
 
-A role names its spec with `model_spec` (`jam role add --model-spec NAME`, the
-role forms in the admin UI — [roster.md](roster.md#roles)). Empty means
-`claude-default`. Every role write checks the name exists (400 otherwise), and a
+A role names its spec with `model-spec: NAME` in its file in the config repo
+(or the role forms in the admin UI on a branch — [roster.md](roster.md#roles)). Empty means
+`claude-default`. The plan checks the name exists, and a
 spec a role resolves to — explicitly, or `claude-default` via an unbound role —
-cannot be deleted (409 naming the role).
+cannot be deleted (refused naming the role).
 
-**`claude-default`** is seeded at `jam serve` startup when absent (an
-operator's edits to it are kept): type `claude`, provider `anthropic`,
+**`claude-default`** is seeded at `jam serve` startup when absent (never
+over the config repo's copy): type `claude`, provider `anthropic`,
 `policy.mode: bypassPermissions`, version `modelspec.DefaultClaudeVersion` with
 no separate constraint, plugins `[superpowers@claude-plugins-official]`, the claude-default preferences as `claude.settings` (moved out of the managed
 settings, [model-spec-harness.md](model-spec-harness.md#managed-settings-vs-preferences-cov-245)),
 no model/effort — exactly how coves ran before model-specs.
 `DefaultClaudeVersion` is one Renovate-bumped constant: a bump moves **new**
 seeds and raises that deliver no spec —
-**not** a `claude-default` already stored. Bump that one yourself
-(`jam model-spec show claude-default > s.yaml`, edit `version`,
-`jam model-spec update s.yaml`, or the admin UI). Its principal is `pool` when a
+**not** a `claude-default` already stored. Bump that one yourself: edit
+`harness-version` in `model-specs/claude-default.yml` and commit (or the
+admin UI on a branch). Its principal is `pool` when a
 [`pool:`](pool.md) is configured, else the `cred_name` of the destination named
 `anthropic` (or else routed at `/anthropic/`). With neither, nothing is seeded
 (a WARN, retried each startup) and unbound roles deliver no spec: their coves
@@ -155,21 +155,21 @@ All subcommands go through the [admin API](serve.md#exposing-the-admin-api-fail-
 and take the usual `--admin-url`, `--app` and `--token` flags ([operators.md](operators.md)).
 
 ```
-jam model-spec add <file.yaml>      # create; fails if the name exists
-jam model-spec update <file.yaml>   # replace every field; fails if absent
-jam model-spec show <name>          # print as YAML (a valid update input)
+jam model-spec show <name>          # print as YAML
 jam model-spec list                 # name, type, version, principal, provider
-jam model-spec delete <name>
 ```
 
-Spec files are decoded strictly: an unknown key (e.g. a typo like `notes:`) is an
-error rather than silently dropped. A typical edit is
-`show NAME > spec.yaml`, edit, `update spec.yaml`.
+A spec is added, changed or deleted by a commit to the config repo:
+`model-specs/<name>.yml` ([config-git.md](config-git.md#layout)) carries the
+schema above with `kind: model-spec` and `version: 1` on top, the harness
+version as `harness-version` (`version` is the file's), and no `name:` (the
+file name is it). Spec files are decoded strictly: an unknown key (e.g. a
+typo like `notes:`) is an error rather than silently dropped.
 
 ## In the admin UI
 
-The [admin console](ui-console.md) lists model-specs at `/app/admin/config/model-specs` and creates, edits
-and deletes them through the same validation as the verb — see
+The [admin console](ui-console.md) lists model-specs at `/app/admin/config/model-specs` and, on a branch,
+creates, edits and deletes them through the same validation — see
 [ui-pages.md](ui-pages.md#model-spec-pages).
 
 ## Admin API
@@ -177,10 +177,7 @@ and deletes them through the same validation as the verb — see
 | Method + path | Effect |
 |---------------|--------|
 | `GET /admin/model-specs` | List (sorted by name). |
-| `POST /admin/model-specs` | Create — 201; 409 if the name exists; 400 if invalid. |
 | `GET /admin/model-specs/{name}` | Show — 404 if absent. |
-| `PUT /admin/model-specs/{name}` | Replace — 204; 404 if absent; 400 if the body's name differs. |
-| `DELETE /admin/model-specs/{name}` | Delete — 204; 404 if absent; 409 while a role resolves to it. |
 
 Model-specs persist in the Postgres `model_specs` table (one jsonb doc per name)
 and are included in [config backups](backup.md).

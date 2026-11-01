@@ -108,7 +108,7 @@ func (f *ConfigFollower) Tick(ctx context.Context) {
 		f.set(st)
 		f.Env.Conditions.Raise(condition.Condition{Key: ConfigFollowKey, Severity: condition.Info,
 			Summary: "the config repo's first apply is waiting to be confirmed",
-			Fix:     "Review the plan on Config › Tracking and press Confirm and apply, or run `jam config sync`."})
+			Fix:     "On Config › Tracking press Diff, review the plan and press Apply this plan, or run `jam config sync`."})
 		return
 	}
 	f.mu.Lock()

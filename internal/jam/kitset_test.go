@@ -267,7 +267,7 @@ func TestSetRefusesNewerLocalPush(t *testing.T) {
 		t.Fatal(err)
 	}
 	setRefused(t, st, f, "", setSrc("app"),
-		"kit web-dev has a local push newer than its last import from https://github.com/acme/kits//web; re-push or untrack it first")
+		"kit web-dev has a local version newer than its last import from https://github.com/acme/kits//web; untrack it first")
 }
 
 func TestSetRefusesBadPaths(t *testing.T) {

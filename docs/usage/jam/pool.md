@@ -4,7 +4,7 @@ read_when: You are enabling or operating the subscription account pool — seedi
 owns: the subscription account pool — the `pool:` behavior, the identity→account binding + bearer injection, the broker's oauth beta for pool credentials (and the oauth_beta flag's removal), the `jam pool` verb, the broker-owned refresher (endpoint + egress), and the pool rollout
 prereqs: serve.md for the `pool:` config block + the broker model and `destination` verb; coves.md for how a raised cove is credentialed
 tier: leaf
-updated: 2026-10-05
+updated: 2026-11-01
 ---
 
 # The subscription account pool
@@ -58,11 +58,17 @@ jam pool list --store /var/lib/jam/pool.json    # names + expiries, never tokens
 
 `pool add`/`list` write the host-side store file **directly** (not via the admin
 API); `--from-file` defaults to stdin. Then point the anthropic destination at the
-pool:
+pool, by a commit to the config repo ([serve.md](serve.md#destinations)):
 
-```
-jam destination add --name anthropic --route /anthropic/ --upstream https://api.anthropic.com \
-  --identity-in bearer --cred-name anthropic-sub --apply bearer
+```yaml
+# destinations/anthropic.yml
+kind: destination
+version: 1
+route: /anthropic/
+upstream: https://api.anthropic.com
+identity_in: bearer
+cred_name: anthropic-sub
+apply: bearer
 ```
 
 The pool's `cred-name` does **not** need a `credentials:` entry — with a `pool:`
@@ -79,8 +85,7 @@ supplied: whatever the route, the actor's model-spec (even one that fails to
 resolve) or its [header rules](model-spec-headers.md) (it is applied after them,
 so a `set` rule can't drop it). Nothing to configure.
 
-It replaced the destination `oauth_beta` flag and `jam destination add
---oauth-beta` (COV-241), both now refused with a pointer here. A stored or
+It replaced the destination `oauth_beta` flag (COV-241), now refused with a pointer here. A stored or
 backed-up destination still carrying the flag keeps loading; the
 [legacy-flag scan](model-spec-harness.md#the-legacy-oauth_beta-scan) clears it.
 A flagged destination whose credential is **not** the pool (a single subscription

@@ -166,7 +166,7 @@ func TestDraftStudioRefusals(t *testing.T) {
 	fb := &fakeDraftBuilder{err: errors.New("RUN make: exit 2\nmore detail")}
 	sup, store, _, s := draftStudioSetup(t, fb)
 	_, err := raiseDraftStudio(t, sup, "d1")
-	if err == nil || !strings.Contains(err.Error(), "draft my-app: the test build failed (see jam kit draft build my-app --show --manager local): RUN make: exit 2") ||
+	if err == nil || !strings.Contains(err.Error(), "draft my-app: the test build on local failed: RUN make: exit 2") ||
 		strings.Contains(err.Error(), "more detail") || WriteStatus(err, 500) != 400 {
 		t.Fatalf("failed build: %v", err)
 	}

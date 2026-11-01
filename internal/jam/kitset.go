@@ -254,7 +254,7 @@ func checkSetAncestor(store Store, name, repo, dir string) error {
 	}
 	for _, v := range k.VersionNumbers() {
 		if m, ok := k.Meta[v]; v > last && (!ok || m.Source == nil) {
-			return writeErr(http.StatusConflict, "kit %s has a local push newer than its last import from %s; re-push or untrack it first", name, from)
+			return writeErr(http.StatusConflict, "kit %s has a local version newer than its last import from %s; untrack it first", name, from)
 		}
 	}
 	return nil

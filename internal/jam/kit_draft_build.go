@@ -681,7 +681,7 @@ func (b *KitDraftBuilds) Ensure(ctx context.Context, def KitDefinition, ref KitD
 	defer b.mu.Unlock()
 	if j.state != DraftBuildSucceeded {
 		line, _, _ := strings.Cut(j.errText, "\n")
-		return KitDraftImage{}, "", KitObjects{}, writeErr(http.StatusBadRequest, "draft %s: the test build failed (see jam kit draft build %s --show --manager %s): %s", ref.Kit, ref.Kit, manager, textesc.Escape(line, false))
+		return KitDraftImage{}, "", KitObjects{}, writeErr(http.StatusBadRequest, "draft %s: the test build on %s failed: %s", ref.Kit, manager, textesc.Escape(line, false))
 	}
 	return KitDraftImage{Tag: j.tag, ID: j.imageID}, manager, objs, nil
 }

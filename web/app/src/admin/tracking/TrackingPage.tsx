@@ -60,12 +60,12 @@ function TrackingBody({ t }: { t: Tracking }) {
                 : <Text size="sm" c="dimmed">Git actions are not available on this serve.</Text>}
             </Stack>
           ) : (
-            <Text size="sm" c="dimmed">No config repo is configured: set <Code>config.github</Code> in the serve config{t.lastCommit && `. The objects below were last applied from config @${t.lastCommit} at ${t.lastApplied}`}.</Text>
+            <Text size="sm" c="dimmed">No config repo is configured: set <Code>config.github</Code>, <Code>config.gitlab</Code> or <Code>config.git</Code> in the serve config{t.lastCommit && `. The objects below were last applied from config @${t.lastCommit} at ${t.lastApplied}`}.</Text>
           )}
         </Section>
       </SimpleGrid>
       <Section title="Managed objects" sub={<>{t.rows.length} from the config repo{t.lastCommit && ` · last applied config @${t.lastCommit} at ${t.lastApplied}`}</>}>
-        <DataTable rows={t.rows} rowKey={(r) => `${r.kind}/${r.name}`} empty="Nothing is managed yet — apply a config repo, or run jam config apply --dir." columns={[
+        <DataTable rows={t.rows} rowKey={(r) => `${r.kind}/${r.name}`} empty="Nothing is managed yet — follow a config repo and confirm its first apply." columns={[
           { key: "o", label: "Object", render: (r) => <Group gap={4}><Badge variant="outline" color="gray">{r.kind}</Badge>{r.path ? <Anchor component={Link} to={nodeHref(r.path)} ff="monospace">{r.name}</Anchor> : <Text span ff="monospace">{r.name}</Text>}</Group> },
           { key: "f", label: "From", render: (r) => <Text size="sm" ff="monospace">@{r.commit}</Text> },
           { key: "a", label: "Applied", render: (r) => r.applied },

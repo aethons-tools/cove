@@ -4,7 +4,7 @@ read_when: You are snapshotting a Jam's config for backup, or restoring it onto 
 owns: the `jam export` / `jam import` command surface and the backup file's scope + semantics
 prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
 tier: leaf
-updated: 2026-10-29
+updated: 2026-11-01
 ---
 
 # Backing up and restoring Jam config
@@ -82,7 +82,10 @@ jam import [--format json|yaml] <FILE|->
 
 Restores a snapshot into a **fresh** Jam. Import is **fail-closed**: if the target
 already holds any config, it refuses and writes nothing (so it can never
-half-merge or clobber a running server). Format is sniffed from the content when
+half-merge or clobber a running server). On a Jam that follows a config repo
+it is refused too (409 `config is in git: edit it on a branch in the admin
+console, or in the repo`): the repo is the config, so restore by following it
+([config-git.md](config-git.md#replicating-a-jam)). Format is sniffed from the content when
 `--format` is omitted.
 
 ```

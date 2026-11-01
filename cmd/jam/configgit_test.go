@@ -405,7 +405,7 @@ func TestConfigWriteRefusesBehindPin(t *testing.T) {
 	}
 	repo := gitDir(t)
 	code, _, errs := runJam("config", "write", repo, "--all", "--admin-url", url)
-	if code != 1 || !strings.Contains(errs, "kit app pins web-dev@v1 but web-dev is at v2; versions are per-Jam — re-push app against v2 (or pin web-dev to v1) before config write") {
+	if code != 1 || !strings.Contains(errs, "kit app pins web-dev@v1 but web-dev is at v2; versions are per-Jam — build app on web-dev by name (its current version) before config write") {
 		t.Fatalf("%d %s", code, errs)
 	}
 	if len(readTree(t, repo)) != 0 {

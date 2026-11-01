@@ -4,7 +4,7 @@ read_when: You are upgrading a Jam host or a workstation from a release whose bi
 owns: the at-/cove → jam old→new name table, the jam-rename upgrade runbook, what the jam-rename migrations do, and how to remove what the old release left
 prereqs: serve.md for running serve
 tier: leaf
-updated: 2026-10-27
+updated: 2026-11-01
 ---
 
 # Renamed from `at-*` and `cove-*` to `jam`
@@ -79,8 +79,8 @@ Hosts enrolled with a saved enroll snippet: fetch it again — it now exports
   shows it as a *migration* version); a kit pinned to such a parent version is
   re-pinned to the migrated one. A kit that can't be rewritten, or that pins
   an old parent version that wasn't migrated, keeps its version and shows a
-  `kit.migrate:<name>` condition. Kits kept in git (config-as-code or a
-  tracked source) show drift until you rename there too; a push, a config
+  `kit.migrate:<name>` condition. Kits kept in git (the config repo or a
+  tracked source) plan as an update until you rename there too; a config
   apply or a draft publish that still uses an old name is refused with the
   new name in the message. Kit drafts are not rewritten.
 - **Destinations** (at serve start): a stored destination env key now under `JAM_` (Jam's own

@@ -1,16 +1,16 @@
 ---
 summary: Kits from git — importing a studio kit from a repository (`kit import`), tracking it and pulling new commits by hand (`kit track|sync|untrack`), the `<repo>[//<dir>]@<ref>` source syntax, version provenance, `kits.git` credentials, the fetch limits, and what each fetch error means.
-read_when: You want a kit's definition to live in a git repo instead of a file you `kit push`, are writing a `--git` source, giving Jam a token for a private kit repo, wondering why a sync said `unchanged`, or an import/track/sync failed (auth, ref or kit.yml not found, escape refused, limit exceeded).
+read_when: You want a kit's definition to live in its own git repo instead of the config repo, are writing a `--git` source, giving Jam a token for a private kit repo, wondering why a sync said `unchanged`, or an import/track/sync failed (auth, ref or kit.yml not found, escape refused, limit exceeded).
 owns: the git kit-source story — the source syntax and its refusals, the in-repo kit.yml layout, import vs track/sync semantics and the unchanged rules, version provenance in `versions`/`show`, kits.git credential matching + username rules + anonymous fetch, the fetch limits, the kit-source admin API status codes, and kit-source troubleshooting
 prereqs: kits.md for the StudioKit schema, versions and the `kit` verbs; serve.md for where the `kits` block sits in the serve config
 tier: leaf
-updated: 2026-10-24
+updated: 2026-11-01
 ---
 
 # Kits from git
 
-Instead of `kit push`ing a file, a kit can be **imported from a git
-repository**: Jam fetches the repo itself (a shallow, read-only checkout over
+Instead of living in the config repo (`kits/<name>/`, [kits.md](kits.md)), a
+kit can be **imported from its own git repository**: Jam fetches the repo itself (a shallow, read-only checkout over
 https), reads one `kit.yml`, and records it as a new version of the kit — with
 the repo, dir, ref and commit as that version's **provenance**. A kit can also
 **track** a source, so `kit sync` pulls the newest commit of its ref when an
@@ -90,11 +90,9 @@ field, else the base of `<dir>`, else the repo's name (`kits.git` → `kits`).
 - **`sync <name>`** re-imports the tracked source. It first resolves the ref
   (no checkout); when the ref still points at the last synced commit **and**
   the current version came from the same repo, dir and ref (at any commit),
-  it fetches nothing and prints `web unchanged (<commit>)`. So pinning a
-  tracked kit back to an older version (`kit pin`) and then syncing reports
-  `unchanged` and keeps the pin until the next upstream commit. Otherwise it fetches and imports the new commit
+  it fetches nothing and prints `web unchanged (<commit>)`. Otherwise it fetches and imports the new commit
   (identical content reuses the current version) and advances the tracked
-  commit. So after a `kit push` replaced current, `sync` brings the
+  commit. So after another version replaced current, `sync` brings the
   source's content back as a new version. A source pinned to a commit id
   never changes.
 - **`untrack <name>`** forgets the source; versions and their provenance stay.
@@ -187,9 +185,9 @@ failure (the message is already redacted), and **500** for a store failure.
 ## In a config repo
 
 A config repo can reference a kit by its source (`kits/<name>.source.yml`);
-`config sync` then fetches and tracks it as a managed kit. See
-[config-git-sources.md](config-git-sources.md) for how changes made in Jam show
-as drift.
+every config apply then fetches and tracks it as a managed kit. See
+[config-git-sources.md](config-git-sources.md#kit-references-kitsnamesourceyml)
+for how a `kit sync` away from the repo's copy shows on the next plan.
 
 ## Future work
 

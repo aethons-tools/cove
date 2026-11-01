@@ -23,7 +23,7 @@ var configFetchTimeout = ConfigFetchTimeout
 
 // ErrConfigNotTracked is a sync, or a diff/apply naming no source, on a Jam
 // with no followed config repo.
-var ErrConfigNotTracked = errors.New("no config repo is configured (config.github in the serve config)")
+var ErrConfigNotTracked = errors.New("no config repo is configured (config.github, config.gitlab or config.git in the serve config)")
 
 // ApplyConfigSource fetches the config repo src (zero = env.Followed, else
 // ErrConfigNotTracked), loads its tree at src.Dir, and plans or applies it as

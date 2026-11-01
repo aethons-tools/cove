@@ -28,8 +28,8 @@ type Scope struct {
 	Addressing  []string          `json:"addressing,omitempty"` // allowed comms targets (globs, kind-prefixed)
 	TTL         time.Duration     `json:"ttl"`
 	// Egress is the role's raw-egress policy, applied to its coves at raise; nil
-	// = the kit's default list. Managed only by the egress endpoints
-	// (`jam egress set|show|clear`); a role re-put keeps it.
+	// = the kit's default list. Set by the role file's `scope.egress` in the
+	// config repo.
 	Egress *EgressPolicy `json:"egress,omitempty"`
 }
 
@@ -70,8 +70,8 @@ type RoleAllocation struct {
 	// Jam reclaims it; 0 = never.
 	ReclaimAfter time.Duration `json:"reclaim_after,omitempty"`
 	// Standing is the role's declared standing sessions — the desired state the
-	// standing reconciler keeps running, one cove per name. Managed only by the
-	// standing endpoints (`jam standing add|rm|list`); a role re-put keeps it.
+	// standing reconciler keeps running, one cove per name. Set by the role
+	// file's `allocation.standing` in the config repo.
 	Standing []StandingSession `json:"standing,omitempty"`
 }
 

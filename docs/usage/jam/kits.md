@@ -1,26 +1,28 @@
 ---
-summary: The kit registry operator guide — authoring and storing named, versioned StudioKits in Jam with `kit push|list|show|versions|pin|rm|import|track|untrack|sync`, the StudioKit schema (incl. kit-declared MCP servers), and binding one to a role with `role add --kit`.
-read_when: You are registering a kit in Jam, pushing a kit directory or a new version, rolling a kit's current version back, binding a kit to a role, giving a kit's sessions extra MCP servers, or making a kit build on another kit (the detail is in kits-inheritance.md).
+summary: The kit registry operator guide — authoring named, versioned StudioKits as `kits/<name>/` in the config repo, inspecting them with `kit list|show|versions|diff` (and `import|track|untrack|sync` from git), the StudioKit schema (incl. kit-declared MCP servers), and binding one to a role with the role file's `kit:`.
+read_when: You are adding a kit to Jam, changing a kit's files or rolling one back, binding a kit to a role, giving a kit's sessions extra MCP servers, or making a kit build on another kit (the detail is in kits-inheritance.md).
 owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`) incl. `mcp-servers`, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a kit binds to
 tier: leaf
-updated: 2026-10-27
+updated: 2026-11-01
 ---
 
 # The kit registry
 
 Jam stores **studio kits** — the small, directly-authored definition a brokered
-studio is built and raised from — so a kit lives in Jam's data store and a role
-references it by name. The registry is **studio-only**
+studio is built and raised from — and a role references one by name. A kit is
+authored as a directory in the config repo, `kits/<name>/` (or referenced by
+its own git source, `kits/<name>.source.yml`), and changes only by a commit:
+by hand, or as a [draft](kits-drafts.md) on a branch in the admin console
+([config-git.md](config-git.md#layout)). The registry is **studio-only**
 ([migration note](studio-kit-migration.md)).
 
 ## The StudioKit
 
 A StudioKit is YAML, the `kit.yml` of a kit directory, with a `kind: studio`
 discriminator and its content fields. Unknown fields are
-rejected, so a full-kit field on a studio kit fails at `push`. A kit **does not
-name itself**: its name is the registry key it is pushed under (how `kit push` picks it:
-[the verbs](#the-kit-verbs)), and must be tag-safe (`[A-Za-z0-9_.-]`).
+rejected, so a full-kit field on a studio kit fails the plan. A kit **does not
+name itself**: its name is its directory's (`kits/<name>/`), and must be tag-safe (`[A-Za-z0-9_.-]`).
 
 ```yaml
 kind: studio
@@ -34,7 +36,7 @@ prompt: "You work on the web service …"   # orients the session
 notes:                     # leaves shipped into sessions' context (kit/<name>)
   - name: release.md
     read-when: you are cutting a release
-    file: docs/release.md  # relative to the kit directory, read from it at push; or body: |
+    file: docs/release.md  # relative to the kit directory, read from it when the version is stored; or body: |
 mcp-servers:               # extra MCP servers for the session's agent (env refs, never secrets)
   linear:
     type: http
@@ -48,8 +50,8 @@ mcp-servers:               # extra MCP servers for the session's agent (env refs
 | `egress` | The kit's allow-list, capped by the [ceiling](#the-egress-ceiling-cov-208). |
 | `build-args` | Image build arguments. A key may not collide with a `secrets` name — secrets reach the session at raise, never the build. |
 | `secrets` | Secret **demands** (name + description only); values are resolved at raise. In this slice demands are declarative only: per-demand env injection into the session is not wired yet (only the brokered identity token is injected today). |
-| `prompt` | The kit layer's always-on core (≤ 800 bytes; `kit push` rejects more) of the [session context](session-context.md). |
-| `notes` | Leaves the kit ships into its sessions' context (`name`, `read-when`, `body` or a `file` in the kit directory, read at push); at most 20, same rules as [authored leaves](session-context-authoring.md). `tools.md` is reserved: every kit layer gains a generated `kit/tools.md` from `build-args`. Like `prompt`, a raise-time input — editing notes does not rebuild the image (a note *file* of a `Dockerfile` kit is part of its build context). In `kit.yml` the key is `read-when` (kit fields are kebab-case); the context admin API spells it `read_when`. |
+| `prompt` | The kit layer's always-on core (≤ 800 bytes; a version with more is refused) of the [session context](session-context.md). |
+| `notes` | Leaves the kit ships into its sessions' context (`name`, `read-when`, `body` or a `file` in the kit directory, read when the version is stored); at most 20, same rules as [authored leaves](session-context-authoring.md). `tools.md` is reserved: every kit layer gains a generated `kit/tools.md` from `build-args`. Like `prompt`, a raise-time input — editing notes does not rebuild the image (a note *file* of a `Dockerfile` kit is part of its build context). In `kit.yml` the key is `read-when` (kit fields are kebab-case); the context admin API spells it `read_when`. |
 
 A kit version is a **directory**: `kit.yml` plus its files; a `Dockerfile` beside `kit.yml` is the build context — the files, limits and `.dockerignore` are in [kits-directory.md](kits-directory.md).
 
@@ -64,8 +66,8 @@ the cove's own **`messaging`** server (`jam-studio-agent mcp`, the
 
 - **`messaging` is reserved** — a kit can neither declare nor override it.
 - **No secret values.** Every header value must be an env reference `${VAR}`,
-  optionally after one scheme word (`Bearer ${VAR}`); a literal is rejected at
-  `kit push` (and again by the harness). Claude Code expands `${VAR}` from the
+  optionally after one scheme word (`Bearer ${VAR}`); a literal is rejected
+  when the version is stored (and again by the harness). Claude Code expands `${VAR}` from the
   agent's environment at start; a server whose variable is unset fails to load
   without affecting the others. (Per-demand `secrets` injection is not wired yet
   — see the table — so today a variable must come from the image or connector.)
@@ -77,8 +79,8 @@ the cove's own **`messaging`** server (`jam-studio-agent mcp`, the
 
 ### Building on another kit (`base.kit`)
 
-`base: { kit: web-dev }` (follow its current version) or `kit: web-dev@v3` (pin)
-builds this kit on a parent kit's image and merges its definition over the
+`base: { kit: web-dev }` (follow its current version; in the config repo also
+the path form `kit: ../web-dev`) builds this kit on a parent kit's image and merges its definition over the
 parent's. The rules, errors, staleness and guards are in
 [kits-inheritance.md](kits-inheritance.md).
 
@@ -107,82 +109,80 @@ Anthropic only through the Jam broker (see [pool.md](pool.md)). An authored
 prints the effective `egress ceiling:` and an `excluded (COV-208):` line, and
 prepare logs the excluded roots.
 
-**Legacy `name:`.** Kit files and registry rows from before names left the schema may still carry `name:`. It is accepted on input (and kept in the stored `kit.yml`, byte for byte), may name the kit at `kit push` ([the verbs](#the-kit-verbs)), and must equal the name the kit is pushed under — a file that names itself `web` can't be pushed as `api` (drop the field). Existing rows keep working as-is.
+**Legacy `name:`.** Kit files and registry rows from before names left the schema may still carry `name:`. It is accepted on input (and kept in the stored `kit.yml`, byte for byte) and must equal the kit's name — a `kits/api/kit.yml` that names itself `web` is refused (drop the field). Existing rows keep working as-is.
 
 ## The model
 
 A registered kit is a name holding **immutable, monotonically-numbered
-versions**, behind a mutable **current** pointer:
+versions**, behind a **current** pointer:
 
-- **push** a studio kit → it becomes the next version (`v1`, `v2`, …) and *current*
-  advances to it. Pushing a definition identical to *current* makes no new
-  version (`kit push` prints `web unchanged (current v3)`).
-- A **role references a kit by name** (not `name@version`); the name resolves to
-  *current*. Upgrades don't churn role bindings.
-- **pin** *current* to an older version to **roll back** (or forward); versions
-  are never mutated or deleted.
-- Each version records its **provenance** — when it was pushed and, for one
-  imported from git, the repo, dir, ref and commit (`kit versions`, `kit show`).
+- **A commit** that changes a kit's files, once applied, makes the next version
+  (`v1`, `v2`, …) and *current* advances to it. Files equal to *current*'s make
+  no version.
+- A **role references a kit by name** (not `name@version`; the config repo
+  refuses a pin, as versions are per-Jam); the name resolves to *current*.
+  Upgrades don't churn role bindings.
+- **Roll back** by committing the old files (`git revert`): that is a new
+  version with the old content. Versions are never mutated or deleted.
+- Each version records its **provenance** — when it was stored and where from:
+  the config repo, dir, ref and commit, or for a kit from its own git source,
+  that repo, dir, ref and commit (`kit versions`, `kit show`).
 
-On `push` the directory is read, filtered by its `.dockerignore`, checked, and its `kit.yml` parsed and validated as a studio kit. The version stores the files, `kit.yml` byte for byte. A push whose files equal *current*'s makes no version. A malformed or non-studio kit is rejected at `push`, not at a later raise.
+A version's directory is read, filtered by its `.dockerignore`, checked, and
+its `kit.yml` validated as a studio kit ([kits-directory.md](kits-directory.md));
+it stores the files, `kit.yml` byte for byte. A malformed kit is refused by the plan, not at a later raise.
 
 ## The `kit` verbs
 
 ```
-jam kit push ./web                                       # → "pushed web v3" (name: --name, else kit.yml's name:, else the dir's)
-jam kit push ./web --name web-dev                        # push the directory under another name
-jam kit push --config ./kit.yml --name web               # push kit.yml alone (a one-file version)
-jam kit push --config - --name web                       # read kit.yml from stdin
 jam kit list                                             # name  current=vN  versions=K  [parent=base-kit[@vN]]
 jam kit show web                                         # current version's kit, its files (# files (tree <12 hex>):), ceiling/excluded
 jam kit show web --version 1                             # a specific version's config
 jam kit show web --own                                   # the kit's own YAML, not the merged one; `file:` notes shown with their contents
 jam kit versions web                                     # VERSION CURRENT PUSHED SOURCE COMMIT
 jam kit diff web [--from 2] [--to 3]                     # kit.yml's line diff, then the files added/removed/modified/mode (default: current vs the one before)
-jam kit pin web 1                                        # roll current back to v1 (409 while a kit follows web)
-jam kit rm web                                           # remove the kit (all versions; 409 while a kit is built on it)
 jam kit import --git <repo>[//dir]@<ref> [--name N]      # import a kit from git as a new version
 jam kit track web --git <repo>[//dir]@<ref>              # import and keep the source for sync
 jam kit sync web                                         # re-import from the tracked source
 jam kit untrack web                                      # stop tracking (versions are kept)
 ```
 
-- `kit push` **validates** the directory before sending it — a refused file or
-  a malformed or non-studio kit is rejected client-side, not stored. Any pre-existing
-  full-kit row now fails `kit show`/resolution (see the [migration
-  note](studio-kit-migration.md)).
 - `import`/`track`/`sync`/`untrack` take the kit **from git** — Jam fetches
   `<dir>/kit.yml` from the repo itself; the source syntax, sync rules,
-  credentials and errors are in [kits-git.md](kits-git.md).
+  credentials and errors are in [kits-git.md](kits-git.md). A kit the config
+  repo references by `kits/<name>.source.yml` is fetched by the config apply
+  instead ([config-git-sources.md](config-git-sources.md#kit-references-kitsnamesourceyml)).
 - `kit diff` reads `GET /admin/kits/{name}/diff?from=N&to=M` (admin only). A
   binary file, or one over 64 KiB, gets a one-line marker, never its bytes. A
   broken version answers 400 with its own error.
-- `kit rm` is **fail-closed**: a kit that any role references (or another kit
-  [builds on](kits-inheritance.md#guards)) can't be removed; the command reports
-  the referencing role or kits. Rebind the role first.
+- Removing `kits/<name>/` from the repo deletes the kit, **fail-closed**: a kit
+  that any role references (or another kit [builds on](kits-inheritance.md#guards))
+  can't be removed; the plan refuses it naming the referencing role or kits
+  (`cannot delete kit web: role app/ic binds it`). Rebind the role first.
 
-The admin UI does the same from each kit's page — versions, diffs, pin, push ([ui-pages.md](ui-pages.md#kit-pages)); its "push a new version" box edits `kit.yml` and keeps the version's other files. A version's page shows its `kit.yml` as stored and a **Files** table (path, mode, size, `kit.yml` included). A diff shows the `kit.yml` line diff, then the files added, removed, modified (sizes) or mode-changed, with the unchanged counted. `&file=<path>` shows one file or its line diff (binary or over 64 KiB: sizes only).
+The admin UI shows the same on each kit's page — versions, diffs, files
+([ui-pages.md](ui-pages.md#kit-pages)); on a branch it also edits the kit. A
+diff shows the `kit.yml` line diff, then the files added, removed, modified
+(sizes) or mode-changed; `&file=<path>` shows one file or its line diff
+(binary or over 64 KiB: sizes only).
 
 All verbs take the admin-client flags (`--app`/`--admin-url`/`--token`); see [operators.md](operators.md).
-To change a kit's files before they become a version, open a **draft** (`kit draft open|status|get|put|rm|sync|publish|discard`): see [kits-drafts.md](kits-drafts.md).
 
 ## Binding a kit to a role
 
-```
-jam role add --project acme --name builder --destinations anthropic,git --kit web
-```
-
-`--kit` names a registered kit (it must already exist — `role add` fails closed
-otherwise); the role resolves to its *current* version. See
-[roster.md](roster.md) for the rest of the role surface.
+A role's file in the config repo names its kit, `kit: web`
+(`projects/acme/roles/builder.yml`). It names a kit in the repo or in Jam (a missing one fails the plan:
+`kit web not found (not in the repo or Jam)`); the role resolves to its
+*current* version. See [roster.md](roster.md) for the rest of the role.
 
 ## Role to kit, and the default kit
 
 A brokered cove for the role raises from that kit. Resolution is
 **fail-closed**: a name absent from the registry, or not tag-safe, fails the
-raise. A role with `--kit` unset (`""`) raises the built-in **`default`** studio
+raise. A role with no `kit:` raises the built-in **`default`** studio
 kit — the blessed base, a minimal Anthropic-free egress list and a generic
-prompt — which Jam **seeds into the registry at serve start** (idempotent), so
+prompt — which Jam **seeds into the registry at serve start** (idempotent,
+and skipped once the config repo manages `default`), so
 it is inspectable/versioned like any other (`kit show default`).
 
 The supervisor carries only a light **reference** (`<id>@v<n>`) on each raise; the

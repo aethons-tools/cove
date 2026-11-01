@@ -1,10 +1,10 @@
 ---
 summary: The comms target space and access-graph — kind-prefixed user:/chat:/channel:/ticket: targets (human: alias), each naming a channel of the channel log; a Project's members and rooms, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
 read_when: You want a studio's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a studio may address, or managing a Project's members and rooms.
-owns: the target space (user:<name|usr_id>/chat:/channel:<name>/ticket:<key> + globs; the human: alias) and which channel each names, a Project's members and rooms (incl. a user's `--login` link and `--oidc` identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and the project/role --addressing operator commands
+owns: the target space (user:<name|usr_id>/chat:/channel:<name>/ticket:<key> + globs; the human: alias) and which channel each names, a Project's members and rooms (incl. a user's `logins` and OIDC identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and where members, rooms and a role's addressing are set
 prereqs: intercom.md for the /squawks endpoint and jam-studio-agent mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
-updated: 2026-10-26
+updated: 2026-11-01
 ---
 
 # Comms addressing (target space & access-graph)
@@ -83,43 +83,45 @@ project's record. The upgrade logs each of these.
 A Project's members also back its **escalation policy** — ordered tiers
 called into a waiting session's channel; see [escalation.md](escalation.md).
 
-Manage members and rooms with `jam`:
+Users, connections, members and rooms are config: files in the config repo
+([config-git.md](config-git.md#layout)), changed by a commit, by hand or on a
+branch in the admin console ([config-branches.md](config-branches.md)):
 
+```yaml
+# users/alice.yml: kind: user, version: 1, and
+logins: ['auth0|abc123']
+# connections/acme.yml: kind: connection, version: 1, and
+service: linear            # linear | discord | github
+cred: acme-linear          # a credential NAME
+# projects/acme/project.yml: kind: project, version: 1, and
+members: [{user: alice, delivery: [{service: discord, address: "<inbox-channel>"}]}]
+rooms: [{key: ops, bindings: [{connection: acme, ref: ACME-1}]}]
 ```
-jam user add <name> [--login 'auth0|abc123']... [--oidc <issuer>:<subject>]...
-jam user list | show <user> | rename <user> <new> | rm <user>
-jam user login <user> [<login>...]        # replaces the set; none clears it
-jam user oidc  <user> [<issuer>:<subject>...]
-jam project member add  <project> <user> [--delivery discord:<inbox-channel>]...
-jam project member list <project> | rm <project> <user>
+
+Live, through `jam` ([operators.md](operators.md) for its flags):
+```
+jam user list | show <user>
+jam user oidc  <user> [<issuer>:<subject>...]   # replaces the set; none clears it
+jam project member list <project>
 jam account add --connection linear --handle alice.h --user <user>     # tracker @-handle
 jam account list [--connection c] | link <account> <user> | unlink <account>
-jam connection add --kind linear|discord|github --name <n> [--cred <credential>]
-jam connection list | rename <c> <new> | cred <c> <credential> | rm <c>
-jam room add <project> <name> --ref ACME-1 [--connection <name|id|kind>]   # adds, or rebinds
-jam room list <project> | rename <project> <room> <new> | rm <project> <room>
+jam connection list
+jam room list <project>
 ```
 
-A `<user>` is a name or a `usr_` id; renaming a user changes nothing else
-(nothing refers to names). `user rm` tombstones the user and ends their
-memberships; it and `user rename` are refused (409) while the user owns a live
-personal session. The admin API behind these is `/admin/users`, `/admin/projects/{p}/members`, `/admin/accounts`,
-`/admin/connections` and `/admin/projects/{p}/rooms` (the per-project `/humans`,
-`/channels` and `/roster` routes, and `project roster`, are gone).
+A `<user>` is a name (its file name) or a `usr_` id. Removing a user's file
+tombstones the user; the plan refuses it while the user owns a live personal
+session, is in an escalation tier or is a project member. The admin API
+behind the verbs is `/admin/users`, `/admin/projects/{p}/members`,
+`/admin/accounts`, `/admin/connections` and `/admin/projects/{p}/rooms`.
 
-A room's `--connection` is a connection name or id, or a kind (`linear`,
-`discord`, `github`: that kind's connection, created if there is none); default the tracker's connection (the Requisitioner's, else a linear or github connection; with no tracker connection at all, `linear`, created).
-A `github` room's ref is a ticket key (`owner/repo#<n>`); on the GitHub tracker's connection it must be on the tracker's repo (any case), else it is refused with "github ticket key is not on the tracker's repo" — nothing could be delivered there.
-A `<room>` is a name or a `chn_` id, and renaming one changes nothing but which `channel:`
-addressing globs match it. `room list` marks a room that only posts to its ref
-(another channel receives its replies) `post-only`. `--delivery` and `--oidc`
-are both repeatable (one flag per binding). Because an OIDC issuer is commonly
-a URL that itself contains colons, `--oidc` splits on the **final** colon: the
+A room binding's `connection` names a connection in the repo or Jam. A `github` room's ref is a ticket key (`owner/repo#<n>`); on the GitHub tracker's connection it must be on the tracker's repo (any case), else it is refused with "github ticket key is not on the tracker's repo" — nothing could be delivered there.
+A room is named by its `key` (or a `chn_` id); renaming one changes only which `channel:` globs match it. `room list` marks a room that only posts to its ref
+(another channel receives its replies) `post-only`. Because an OIDC issuer is commonly
+a URL that itself contains colons, `user oidc` splits on the **final** colon: the
 subject is the text after it, the issuer everything before. `user list` shows
 each binding as `oidc=<issuer>:<subject>`. A malformed value (empty issuer or subject) exits `2`
-(the admin route answers `400`). All subcommands take the same admin-client flags
-(`--app`/`--admin-url`/`--token`) as every other `jam` verb — see
-[operators.md](operators.md).
+(the admin route answers `400`).
 
 ## Delivery profiles & per-project chat service
 
@@ -133,13 +135,13 @@ Discord egress, the reply loop, and who a Discord reply is attributed to live in
 A `Role`'s `Scope` gains `Addressing []string` — an allow-list of target globs,
 alongside `Destinations`. A `Grant`'s `Override.Addressing`, when set,
 **replaces** the role's addressing (no merge — same semantics as `Override.Destinations`).
-Set it at role-creation with `role add --addressing`:
+Set it in the role's file as `scope.addressing`, a list of globs beside
+`scope.destinations` ([roster.md](roster.md#roles)):
 
+```yaml
+# projects/acme/roles/impl.yml
+scope: {addressing: ["user:*", "channel:eng-help"]}
 ```
-jam role add --project acme --name impl --addressing 'user:*,channel:eng-help'
-```
-
-`--addressing` is a comma-separated list of globs, mirroring `--destinations`.
 
 **Authorization mirrors the broker's `Decide`:** resolved live at send time,
 **additive across the actor's grants in the session's project**. Everything is

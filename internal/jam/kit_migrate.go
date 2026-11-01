@@ -158,7 +158,7 @@ func kitMigrateConditions(store Store, t *condition.Tracker) {
 			t.Raise(condition.Condition{Key: key, Severity: condition.Warning,
 				Summary: fmt.Sprintf("kit %s v%d could not be migrated to a tree", k.Name, k.Current),
 				Detail:  reason,
-				Fix:     "push the kit as a directory (a Dockerfile next to kit.yml), or pin a version that migrated (jam kit pin)"})
+				Fix:     "commit the kit to the config repo as a directory (kits/<name>/, a Dockerfile next to kit.yml)"})
 			continue
 		}
 		if c, ok := legacyKitCondition(store, k); ok {

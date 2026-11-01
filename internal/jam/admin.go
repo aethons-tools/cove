@@ -379,7 +379,7 @@ type AdminOption func(*adminMux)
 
 // errConfigInGitText refuses the snapshot import (POST /admin/config) on a Jam
 // whose config is in git: it would be a live edit.
-const errConfigInGitText = "config is in git (config.github): edit it on a branch in the admin console, or in the repo"
+const errConfigInGitText = "config is in git: edit it on a branch in the admin console, or in the repo"
 
 // adminMux is the /admin/* mux an AdminOption mounts on, with the settings
 // an option hands the core routes: conds, the conditions tracker the config

@@ -243,7 +243,7 @@ func legacyKitCondition(store Store, k Kit) (condition.Condition, bool) {
 				return condition.Condition{Key: key, Severity: condition.Warning,
 					Summary: fmt.Sprintf("kit %s v%d pins %s, which still uses the pre-rename name %s", k.Name, k.Current, ref, old),
 					Detail:  fmt.Sprintf("%s of %s names %s; Jam now passes %s", path, ref, old, legacynames.NewKitName(old)),
-					Fix:     "pin it to a version of " + parent + " without pre-rename names (jam kit pin) (" + renamedFromAtDoc + ")"}, true
+					Fix:     "commit " + parent + " without pre-rename names to the config repo; " + k.Name + " builds on it by name, so on its current version (" + renamedFromAtDoc + ")"}, true
 			}
 		}
 		v = pv

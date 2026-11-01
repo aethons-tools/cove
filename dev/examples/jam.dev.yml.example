@@ -25,10 +25,19 @@ tls:
 ui-hosts:
   - jam.local.aethons.tools
 # DEV ONLY: loopback /app requests act as this user with no login (no IdP
-# callbacks needed). The user needs a login, an OIDC identity and a project
-# membership: jam user login|oidc, project member add.
+# callbacks needed). The user needs a login and a project membership (in the
+# config repo: users/you.yml `logins:`, a project.yml `members:`) and an OIDC
+# identity (jam user oidc).
 # dev-identity:
 #   user: you
+
+# The config repo this Jam follows: config changes only by a commit to it.
+# A local bare repo is simplest for dev (dev/README.md#config-a-local-repo;
+# all the forms: docs/usage/jam/config-git-sources.md).
+# config:
+#   git:
+#     url: /home/you/jam-config.git   # an absolute path
+#     branch: main
 
 # Loopback admin API — plain HTTP is fine on loopback (no OIDC needed).
 admin-listen: "127.0.0.1:8081"
@@ -81,10 +90,15 @@ credentials:
 #      its ~/.claude/.credentials.json here as ./credentials.json):
 #        jam pool add  --store dev/pool.dev.json --name pool-a --from-file ./credentials.json
 #        jam pool list --store dev/pool.dev.json     # names + expiries, never tokens
-#   2. Flip the anthropic destination to the pool (bearer identity):
-#        jam destination add --name anthropic --route /anthropic/ \
-#          --upstream https://api.anthropic.com \
-#          --identity-in bearer --cred-name anthropic-sub --apply bearer
+#   2. Flip the anthropic destination to the pool (bearer identity): commit
+#      destinations/anthropic.yml to the config repo:
+#        kind: destination
+#        version: 1
+#        route: /anthropic/
+#        upstream: https://api.anthropic.com
+#        identity_in: bearer
+#        cred_name: anthropic-sub
+#        apply: bearer
 #
 # dev/pool.dev.json holds REAL subscription tokens — gitignored.
 # The refresher calls https://platform.claude.com/v1/oauth/token, so that host

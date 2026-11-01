@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a Jam service — writing its serv
 owns: the `jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/config/kits/blobs/previews), the layered `--config` overlay + the host-key table, the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-10-31
+updated: 2026-11-01
 ---
 
 # Running Jam (`jam serve`)
@@ -13,7 +13,9 @@ updated: 2026-10-31
 (the reverse proxy studios send Anthropic/git through) and a **loopback admin API**
 (the control plane the `jam` admin verbs talk to). Both are backed by a
 single **Postgres** store (`store-postgres`, required). The serve config is bootstrap-only: destinations,
-roles, and enrollments are managed at runtime via the admin API, not this file.
+roles, kits and the rest of the configuration live in the config repo the Jam
+follows ([config-git.md](config-git.md)); enrollments and grants are made at
+runtime via the admin API.
 
 ```
 jam serve --config /etc/jam/jam.yml
@@ -97,7 +99,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `pool` | no | Enables the [subscription-OAuth account pool](pool.md): the anthropic destination's credential is resolved from a pool of subscription accounts by cove identity, coves launch in subscription mode, and a background refresher rotates pool tokens. Requires `pool.store` (the path to the pool JSON file) and `cred-name`; `refresh-interval`/`refresh-margin` default to 5m/15m and `token-url`/`client-id`/`scope` default to the probed Claude Code constants. Absent ⇒ the anthropic destination keeps its configured credential and coves launch in API-key mode. |
 | `metrics` | no | Serves the operator-attention exposition at `/metrics` on the broker listener: `token-cred` (required) names a demanded credential holding the Prometheus scrape token; `alertmanager-url` (optional) is linked from the admin UI's Health tab. Unset ⇒ no `/metrics`. See [monitoring.md](monitoring.md). |
 | `ssh` | no | Enables studio SSH collaboration: Jam's SSH user CA issues short-lived (8h) certs for the studio's `agent` user, and every studio Jam raises trusts it. `ca-cred` (required) names a demanded, plain static credential whose value is the CA's **ed25519** private key (OpenSSH or PKCS#8 PEM, unencrypted), supplied by the [credentials file](credentials.md) — e.g. generate it with `ssh-keygen -t ed25519 -f jam-ssh-ca -N ''` and supply it as `{ command: ["cat", "/path/to/jam-ssh-ca"] }`. The key stays in Jam's memory and is never logged. Unset ⇒ SSH collaboration off. Setting it up and using it: [collaboration.md](collaboration.md). |
-| `config` | no | The config repo this Jam follows: `config.github` or `config.gitlab` (exactly one), each `{url, cred, branch, dir}`. `url` (required) is the repo's `https` URL (plain `http` only for loopback), with no userinfo; `cred` (required) names a demanded credential (any source but `exchange: gcp` or the pool's) that can read and push it and open pull (GitHub) or merge (GitLab) requests, used for exactly that URL (a GitLab token as `oauth2`); `branch` defaults to `main`; `dir` is the repo dir holding the config (clean and relative; default the root). The Jam checks the branch every minute and applies new commits once the first apply is confirmed: [config-git-sources.md](config-git-sources.md). A host key. |
+| `config` | no | The config repo this Jam follows, the only way its configuration changes: exactly one of `config.github`, `config.gitlab` (each `{url, cred, branch, dir}`, an `https` repo) and `config.git` (a local path or SSH: `{url, branch, dir, cred, host-keys}`). Unset ⇒ the stored config runs read-only. The fields, URL forms and errors: [config-git-sources.md](config-git-sources.md). A host key. |
 | `kits` | no | Git credentials for [kit git sources](kits-git.md): `kits.git` is a list of `{url, cred}`. `url` is a repo-URL **prefix** — `https` (plain `http` only for a loopback host), ending in `/`, with no userinfo, and a **dotted host or loopback** (a single-label host is refused); each url may appear once. `cred` names a demanded, plain static credential (not `exchange: gcp`, not the pool's), supplied by the [credentials file](credentials.md): the token, or `user:token`. Unset ⇒ repos are fetched anonymously (public only). Prefix matching, the username Jam sends and the fetch limits are in [kits-git.md](kits-git.md#credentials-kitsgit). |
 | `blobs` | no | The attachments bucket, S3-compatible (Garage, AWS S3, R2, GCS interop, MinIO): `endpoint` (`http(s)://host[:port]`, no userinfo), `bucket`, `region`, `path-style` (true for Garage and MinIO), `max-size` (per file, e.g. `25MB`, the default; at most `1GB`), and `access-key-cred` / `secret-key-cred` — demanded, plain static credentials resolved in memory and never logged. At startup Jam checks the bucket and **refuses to start** if it is unreachable or missing. Unset ⇒ attachments off. See [attachments.md](attachments.md). |
 | `previews` | no | Enables [studio previews](previews.md), served on the admin listener at `<name>--<label>.<domain>`, with login at `jam.<domain>`. `domain` (required) is a lowercase DNS name of at least two labels, e.g. `jam-previews.example`: use a registrable domain apart from the admin host's, against cookie tossing (framing works either way; serve warns when they share one; [previews.md](previews.md#setting-up-previews-operator)). `tls.cert` / `tls.key` (required) is a wildcard certificate covering `*.<domain>`, served by SNI next to the admin cert. serve fails at startup if it does not cover the domain. Point DNS `*.<domain>` at the Jam host. Requires the admin listener on TLS (`admin-listen` plus `admin-tls`, or off-loopback with `tls:`) and `operator-auth.oidc.browser-client-id`. Every request for `<domain>` or a name under it goes to the preview handler (404 unless it is a preview or the login host), so reach the admin API and UI at a name outside `<domain>`: not `jam.<domain>`. serve refuses an `admin-listen` host or `ui-hosts` entry under it. Register `https://jam.<domain>/__jam/auth/callback` as a redirect URI with the IdP. Unset ⇒ previews off. |
@@ -105,8 +107,8 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | `runtime.lease-ttl` / `runtime.reconcile-interval` | no | Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See [coves.md](coves.md). |
 | `runtime.listen` | no | Optional **plaintext** Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `:443` mux alongside the broker. |
 | `runtime.studio-managers` | no | `true` lets remote Studio Managers connect and registers the `manager` admin verbs. Studios run on Studio Managers only; the old `runtime.launcher` block is removed and refused at startup (see [studio-managers.md](studio-managers.md#retiring-the-in-process-launcher)). See [studio-managers.md](studio-managers.md). |
-| `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), exactly one of a `linear` or `github` block, and `connection`: a **connection** of that kind, whose credential must be demanded in `credentials:`. Serve refuses to start on an unknown connection, another kind, or an undemanded credential. The deprecated, Linear-only `tracker-token-cred: <credential>` still works (with a warning) by binding the implicit connection named `linear`. Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
-| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires `connection`: a connection of kind `discord` whose credential (the bot token) is demanded in `credentials:`, resolved on the host — never logged/injected; the deprecated `bot-token-cred` binds the implicit connection named `discord`. No Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
+| `runtime.requisitioner` | no | Enables the Requisitioner: Jam polls a tracker and raises a managed studio per ready ticket. Requires `role`, `max-concurrent` (>0), exactly one of a `linear` or `github` block, and `connection`: a **connection** of that kind, whose credential must be demanded in `credentials:`. Serve refuses to start on an unknown connection, another kind, or an undemanded credential. The deprecated, Linear-only `tracker-token-cred: <credential>` still works (with a warning), but only binds an **existing** `linear` connection whose credential is that one; it never creates or rebinds one. Without one, serve refuses to start (`… no linear connection (the deprecated *-token-cred no longer creates one; add connections/linear.yml to the config repo, or set runtime.requisitioner.connection)`, or `the linear connection's credential is "<x>", not "<y>"`). Its pre-rename key is still accepted with a warning ([renamed-from-harbor.md](renamed-from-harbor.md)). See [requisitioner.md](requisitioner.md). |
+| `runtime.discord` | no | Enables the resident Discord relay engine (egress and reply-routing ingress). Requires `connection`: a connection of kind `discord` whose credential (the bot token) is demanded in `credentials:`, resolved on the host — never logged/injected; the deprecated `bot-token-cred` only binds an **existing** `discord` connection whose credential is that one, with the same refusals as `tracker-token-cred` above. No Requisitioner needed. Polls every project whose chat service is `discord`. See [discord.md](discord.md) and [intercom.md](intercom.md#enabling-it). |
 | `runtime.push` | no | Web Push notifications for the Jam app. `vapid-private-key-cred` (required): a `credentials:` entry holding the base64url P-256 VAPID private key, resolved on the host — never on disk, in argv or logs; `subject` (required): `mailto:` or `https:` contact for the push service; `preview` (default `true`; `false` sends the body "New message"). Runs the egress-only push relay engine (its mark lives in `relay-markers.json`). Omitted ⇒ push off. Generate a key with `jam push keygen`. |
 | `runtime.wake` | no | Wake-on engine timing: `poll-interval`, `wait-max`, `warm-timeout`; and `session-wake-limit`, the agent-to-agent loop breaker (default 8; `0` = session posts never wake sessions; negative refused). Each field falls back to the matching `runtime.requisitioner` field, then the default. See [intercom.md](intercom.md#waiting-for-a-reply-wake-on). |
 | `runtime.escalation-poll-interval` | no | How often the escalation engine checks waiting sessions (default 30s; falls back to `runtime.requisitioner.escalation-poll-interval`). The engine runs with or without a Requisitioner. See [escalation.md](escalation.md). |
@@ -239,7 +241,7 @@ later file overrides an earlier one. One `--config` behaves as before.
 
 The first file is the portable, repo-owned one (a Jam's `jam.yml`); per-host settings belong in a later file. With
 two or more `--config` files, the first may not set a **host key**; serve
-refuses to start (and `config diff`/`apply` refuse) with
+refuses to start (and `config diff` refuses) with
 `jam.yml: listen is a host key; put it in jam.local.yml`.
 
 | Host key | Why it is per-host |
@@ -277,32 +279,44 @@ defended Jam.
 
 A **destination** is one brokered upstream: a path prefix on the broker that maps
 to an upstream base URL plus how the identity arrives and how the real credential
-is applied. Destinations are managed at runtime via the admin API:
+is applied. A destination is a file in the config repo,
+`destinations/<name>.yml` ([config-git.md](config-git.md#layout)); add, change or
+remove one by a commit:
 
+```yaml
+# destinations/anthropic.yml
+kind: destination
+version: 1
+route: /anthropic/
+upstream: https://api.anthropic.com
+identity_in: x-api-key
+cred_name: anthropic-key
+apply: x-api-key
 ```
-jam destination add \
-  --name anthropic --route /anthropic/ --upstream https://api.anthropic.com \
-  --identity-in x-api-key --cred-name anthropic-key --apply x-api-key
-jam destination add \
-  --name git --route /git/ --upstream https://github.com \
-  --identity-in basic-password --cred-name git-pat --apply basic-password
-jam destination list
-jam destination rm <name>
-jam destination import <file.yaml>   # bulk add from a YAML with a `destinations:` list
+```yaml
+# destinations/git.yml
+kind: destination
+version: 1
+route: /git/
+upstream: https://github.com
+identity_in: basic-password
+cred_name: git-pat
+apply: basic-password
 ```
 
-- `--identity-in` / `--apply` are a preset, `bearer | basic-password | x-api-key | raw` —
+`jam destination list` prints them.
+
+- `identity_in` / `apply` are a preset, `bearer | basic-password | x-api-key | raw` —
   how the studio presents its identity, and how Jam applies the real credential;
-  other headers take a custom spec via `import` — see [header-specs.md](header-specs.md).
+  other headers take a custom spec (`identity_in_spec` / `apply_spec`) — see [header-specs.md](header-specs.md).
   The identity header is always stripped before forwarding, so a Jam identity
   token never reaches the upstream.
-- `--oauth-beta` was **removed** (an error, as is a write carrying the old
-  `oauth_beta` field): the broker now adds that beta for every
+- `oauth_beta` was **removed** (a file carrying it is refused): the broker now adds that beta for every
   [pool](pool.md#the-oauth-beta) credential.
-- `--env KEY=TEMPLATE` (repeatable) and `--git` declare what a studio must set
+- `env: {KEY: TEMPLATE}` and `git: true` declare what a studio must set
   to use the destination — see [connector.md](connector.md), which also covers
   the `gh` (GitHub API) destinations.
-- `--allow-path PATTERN` (repeatable) limits what the broker forwards: a
+- `allow_paths: [PATTERN, …]` limits what the broker forwards: a
   [`path.Match`](https://pkg.go.dev/path#Match) pattern over the path *after* the
   route (`*` never crosses `/`; a path with `..` or `//` never matches). Any other
   path is refused **403** before the credential is resolved. No patterns means
@@ -310,16 +324,16 @@ jam destination import <file.yaml>   # bulk add from a YAML with a `destinations
   needs. [vertex.md](vertex.md) uses it to limit a GCP token to Claude model calls.
 - The broker forwards the path after the route **as the client escaped it**,
   so an encoded segment such as a GitLab project id `group%2Frepo` reaches the
-  upstream intact. `--allow-path` matches its decoded form; a request whose
+  upstream intact. `allow_paths` matches its decoded form; a request whose
   route prefix arrives percent-encoded is refused **400**.
-- `--log-headers-in none|examined|all` / `--log-headers-out none|changed|all`
+- `log_headers_in: none|examined|all` / `log_headers_out: none|changed|all`
   turn on redacted troubleshooting header logs for the destination — see
   [destination-header-logging.md](destination-header-logging.md).
-- `--note` (≤ 300 bytes) is a usage hint shown to sessions granted the destination —
+- `note` (≤ 300 bytes) is a usage hint shown to sessions granted the destination —
   see [connector.md](connector.md#notes-for-sessions).
-- `--cred-name` must resolve to a `credentials:` entry in the serve config —
+- `cred_name` must resolve to a `credentials:` entry in the serve config —
   or, when the [pool](pool.md) is enabled, the pool's `cred-name` (which the
-  pool resolves by identity, not from `credentials:`). Validated at add time.
+  pool resolves by identity, not from `credentials:`). Validated by the plan.
   It is the destination's **default** credential: a role may map the
   destination to a different one ([roster.md](roster.md)).
 - **No repo policy.** Jam does not scope a git destination by `owner/repo`; the

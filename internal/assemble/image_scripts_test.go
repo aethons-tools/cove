@@ -527,7 +527,7 @@ func TestSeedAgentDataWithBaseImageSeed(t *testing.T) {
 	if !strings.Contains(read(t, filepath.Join(dest, "CLAUDE.md")), "@SANDBOX.md") {
 		t.Fatal("CLAUDE.md must import SANDBOX.md in a plain cove")
 	}
-	if !strings.Contains(read(t, filepath.Join(dest, "SANDBOX.md")), "jam kit draft") {
+	if !strings.Contains(read(t, filepath.Join(dest, "SANDBOX.md")), "a commit to the config repo") {
 		t.Fatal("a plain cove must get the plain SANDBOX.md")
 	}
 	for _, p := range []string{"reference/progressive-disclosure.md", "skills/docs-audit/SKILL.md", "settings.json", "COLLABORATOR.md"} {
@@ -542,7 +542,7 @@ func TestSeedAgentDataWithBaseImageSeed(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedAgentData(t, seed, dest)
-	if !strings.Contains(read(t, filepath.Join(dest, "SANDBOX.md")), "jam kit draft") {
+	if !strings.Contains(read(t, filepath.Join(dest, "SANDBOX.md")), "a commit to the config repo") {
 		t.Fatal("SANDBOX.md must be restored from the image every boot")
 	}
 	if read(t, filepath.Join(dest, "COLLABORATOR.md")) != "role" {

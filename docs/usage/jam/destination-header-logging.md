@@ -4,7 +4,7 @@ read_when: A brokered request fails auth (401/403 from Jam or the upstream) and 
 owns: the destination header-logging levels, their log lines and redaction rules, and their rate limit
 prereqs: serve.md#destinations for destinations; header-specs.md for identity_in/apply
 tier: leaf
-updated: 2026-10-23
+updated: 2026-11-01
 ---
 
 # Destination header logging
@@ -51,8 +51,7 @@ At most 60 lines per destination and direction per minute; the rest are dropped.
 
 ## Setting it
 
-- **UI:** the destination's *Edit* form, *Log incoming headers* / *Log outgoing headers*. The page's Broker section shows *Header logging* as on (with both levels) or off, so a destination left logging is easy to spot.
-- **CLI:** `jam destination add … --log-headers-in examined --log-headers-out changed`.
-- **Import, admin API, config files:** `log_headers_in: examined`, `log_headers_out: changed`.
+- **Config repo:** `log_headers_in: examined`, `log_headers_out: changed` in `destinations/<name>.yml`, committed by hand ([serve.md](serve.md#destinations)).
+- **UI, on a branch:** the destination's *Edit* form, *Log incoming headers* / *Log outgoing headers*; the save is a commit ([config-branches.md](config-branches.md)). The page's Broker section shows *Header logging* as on (with both levels) or off, so a destination left logging is easy to spot.
 
-Any other value is refused 400.
+Any other value is refused.

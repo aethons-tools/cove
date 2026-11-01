@@ -1,10 +1,10 @@
 ---
 summary: Personal sessions — a person's own long-lived session of a role, started from the Inbox's New session (any project member) or by an operator, admitted against the role's pool and per-owner caps, conversed with in its session channel (the Inbox, and Discord when set up), and released by that owner (or reclaimed by the idle ladder); the idle ladder; the `session request|list|release` verbs and their admin routes.
 read_when: You want Jam to raise a session of a role for you personally (from the Inbox or the CLI), or you are setting a role's personal caps, or a `session` command answered 400/403/409 and you need to know why, or you want to know how to talk to your session, or your session is nagging you (or was reclaimed) and you want to know why, how to tune it, or how to answer a nag with `keep`/`release`.
-owns: the personal-session story — New session in the Inbox, owner resolution (project member ↔ login), admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `--idle-after`/`--nag-every`/`--reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
-prereqs: comms-addressing.md for a Project's members and a user's `--login`; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
+owns: the personal-session story — New session in the Inbox, owner resolution (project member ↔ login), admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `idle-after`/`nag-every`/`reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
+prereqs: comms-addressing.md for a Project's members and a user's logins; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-10-28
+updated: 2026-11-01
 ---
 
 # Personal sessions
@@ -45,7 +45,7 @@ in your inbox channel does not reach it. The session is never torn down for
 `wait-max`; it [escalates](escalation.md) only when it calls `escalate` and the
 project has a policy (you are already in its channel); it ends when you release it, or
 when the [idle ladder](#the-idle-ladder) reclaims it (only if its role sets
-`--reclaim-after`).
+`reclaim-after`).
 
 ## The idle ladder
 
@@ -90,21 +90,22 @@ wake-on engine walks it up a ladder set by the role:
    notice is delivered even though the session is gone.
 
 A nag that fails to send is retried on the next tick and never ends the session;
-a reclaim waits until its notice has been sent. The three settings are role flags:
+a reclaim waits until its notice has been sent. The three settings are in
+the role's file in the config repo:
 
-```
-jam role add --project acme --name pair --max-personal 3 \
-  --idle-after 4h --nag-every 24h --reclaim-after 72h
+```yaml
+# projects/acme/roles/pair.yml
+allocation: {max-personal: 3, idle-after: 4h, nag-every: 24h, reclaim-after: 72h}
 ```
 
-`0` (unset) means the default; negative values are refused
+Unset means the default; negative values are refused
 ([roster.md](roster.md#roles)). Nags need the Discord relay to deliver them; without it there are no nags, but a configured reclaim still
 happens.
 
 ## Starting one from the Inbox
 
 **New session**, beside New message in the [Inbox](intercom-ui.md) rail, offers
-every role with `--max-personal` above 0 in each of your projects (a full one is
+every role with `max-personal` above 0 in each of your projects (a full one is
 shown greyed, with why). Pick one, optionally write a first message, and
 **Start**: Jam starts the session owned by you (the same admission as below; no
 login link needed, you are signed in), opens its session channel with you in it,
@@ -118,31 +119,29 @@ Discord inbox ([discord.md](discord.md)).
 Jam finds the owner by matching the caller's **admin login** (the operator
 identity: your OIDC `sub`, which `jam whoami` shows, or `local` on a
 loopback-only Jam) against the **user** holding that login, who must be a
-member of the target project:
+member of the target project. Both are in the config repo:
 
-```
-jam user login alice 'auth0|abc123'
-jam project member add acme alice
-```
+`logins: ['auth0|abc123']` in `users/alice.yml`, and `members: [{user: alice}]`
+in `projects/acme/project.yml`.
 
-A login belongs to one user Jam-wide. `--login` is described with the
+A login belongs to one user Jam-wide. Logins are described with the
 rest of a project's members in [comms-addressing.md](comms-addressing.md#project-members-and-rooms).
 If no member of the project is linked to your login, every `session` call answers
 **403**.
 
 ## Admission: two caps, one ledger
 
-A role admits personal sessions only when it sets a pool cap:
+A role admits personal sessions only when it sets a pool cap, in its file in
+the config repo:
 
-```
-jam role add --project acme --name pair --destinations anthropic,git \
-  --max-personal 3 --max-personal-per-owner 1
+```yaml
+allocation: {max-personal: 3, max-personal-per-owner: 1}   # projects/acme/roles/pair.yml
 ```
 
-- `--max-personal` is the pool: the cap on concurrent personal sessions of the
-  role across all owners. `0` (the default) means the role admits no personal
+- `max-personal` is the pool: the cap on concurrent personal sessions of the
+  role across all owners. Unset (the default) means the role admits no personal
   sessions.
-- `--max-personal-per-owner` caps one owner's share. `0` means only the pool
+- `max-personal-per-owner` caps one owner's share. Unset means only the pool
   cap applies.
 
 The flags themselves are described in [roster.md](roster.md#roles). Any member

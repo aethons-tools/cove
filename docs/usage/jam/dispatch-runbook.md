@@ -4,7 +4,7 @@ read_when: You are bringing up a real Jam dispatch loop for the first time (or r
 owns: the ordered end-to-end dispatch stand-up procedure and its field gotchas; it links to the reference docs it stitches together and never restates their schemas
 prereqs: serve.md, roster.md, requisitioner.md, coves.md — this runbook orders them, it does not replace them
 tier: leaf
-updated: 2026-10-26
+updated: 2026-11-01
 ---
 
 # Runbook: Jam dispatch, end to end
@@ -32,18 +32,24 @@ doc that owns the detail; this runbook only owns the **order** and the
    `credentials` (anthropic + git + the DB password), and `runtime.studio-managers: true`
    with a connected [Studio Manager](studio-managers.md) that builds studios from the role's studio kit. Start it (`:443` needs privilege). Full schema:
    [serve.md](serve.md).
-3. **Destinations** — `jam destination add` for `anthropic` and `git`. Each `--cred-name` must resolve to a `credentials:`
-   entry, **validated at add time** — so add the credential to the serve config
-   and restart before adding the destination. [serve.md](serve.md#destinations).
-4. **Role** — `jam role add --name worker --destinations anthropic,git
-   --ttl 24h`. The git credential's own scope bounds which repos it reaches. A role with **no `--ttl` mints non-expiring
-   tokens** — always set one for ephemeral studios. [roster.md](roster.md).
-5. **Requisitioner** — add `runtime.requisitioner` (`role`, `max-concurrent`,
-   `connection` — a linear connection, `jam connection add --kind linear
-   --name linear --cred <credential>` — `linear.team` + `states`). Restart serve. It polls the
+3. **Config repo** — point the serve config's `config:` block at the Jam's
+   config repo and confirm the first apply ([config-git-sources.md](config-git-sources.md)).
+   Steps 4–6's objects are files there, added by a commit (by hand, or on a
+   branch in the admin console: [config-branches.md](config-branches.md)).
+4. **Destinations** — `destinations/anthropic.yml` and `destinations/git.yml`.
+   Each `cred_name` must resolve to a `credentials:` entry, **validated by the
+   plan** — so add the credential to the serve config and restart before
+   committing the destination. [serve.md](serve.md#destinations).
+5. **Project and role** — `projects/acme/project.yml` and
+   `projects/acme/roles/worker.yml` with
+   `scope: {destinations: [anthropic, git], ttl: 24h}`. The git credential's own scope bounds which repos it reaches. A role with **no `ttl` mints non-expiring
+   tokens** — always set one for ephemeral studios. [roster.md](roster.md#roles).
+6. **Requisitioner** — commit a linear connection (`connections/linear.yml`:
+   `service: linear`, `cred: <credential>`), then add `runtime.requisitioner` (`role`, `max-concurrent`,
+   `project: acme`, `connection: linear`, `linear.team` + `states`). Restart serve. It polls the
    `ready` state and raises one studio per **dispatch-labeled** ticket, bounded by
    the cap. [requisitioner.md](requisitioner.md).
-6. **Trigger** — label a ticket `dispatch:go`, move it to your `ready` state, and
+7. **Trigger** — label a ticket `dispatch:go`, move it to your `ready` state, and
    watch `jam studio list`. The kit registry ([kits.md](kits.md)) is **not**
    required — the Studio Manager builds from the role's studio kit ([studio-managers.md](studio-managers.md)).
 

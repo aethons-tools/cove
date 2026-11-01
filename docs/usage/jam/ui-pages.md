@@ -4,7 +4,7 @@ read_when: You are viewing or editing a user, agent, destination, model-spec or 
 owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui-console.md for the Config tree and URLs; ui-editing.md for the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-10-29
+updated: 2026-11-01
 ---
 
 # Admin UI entity pages
@@ -15,6 +15,12 @@ existing name is refused with "edit it on its page") and then open the new
 object's page, where every field is pre-filled — so an edit can't silently drop
 a field the form didn't show.
 
+Config forms and buttons (create, edit, delete, push, pin) appear only on a
+branch of the config repo, where each save is a commit
+([config-branches.md](config-branches.md)); elsewhere these pages are
+read-only. Live state stays editable anywhere: a user's OIDC identities,
+accounts and app tokens, an agent's grants, and a kit's import, track, sync and untrack.
+
 ## Project and role pages
 
 A project's pages (and its role and member pages) are in
@@ -22,9 +28,9 @@ A project's pages (and its role and member pages) are in
 
 ## User pages
 
-`/app/admin/config/users` lists and creates users; `/app/admin/config/users/<id>` renames one, replaces its
-logins and OIDC identities, adds or unlinks accounts, and removes it (rename and
-remove are refused while the user owns a live personal session).
+`/app/admin/config/users` lists and (on a branch) creates users; `/app/admin/config/users/<id>` renames one, replaces its
+logins and removes it (on a branch; rename and
+remove are refused while the user owns a live personal session), and replaces its OIDC identities and adds or unlinks accounts.
 The page lists the user's [app tokens](app-tokens.md) (label, created, last used, expiry,
 operator standing) and revokes one.
 
@@ -161,7 +167,7 @@ current version (of how many), the current version's base kind and egress count,
 and how many roles raise it (for `default`, that includes roles with no kit
 set). A kit built on a parent shows `kit: <parent>[@vN]` as its base. A kit
 whose current version won't parse is marked **invalid**. The **New kit** form
-takes a name and studio-kit YAML and validates it exactly as `kit push` does
+takes a name and studio-kit YAML and validates it as a kit in the config repo
 ([kits.md](kits.md)); an existing name is refused — push new versions on the
 kit's page. **Import from git** takes `<repo>[//<dir>]@<ref>` and an optional
 name and imports the kit as a new version, then opens its page. Its **Track this

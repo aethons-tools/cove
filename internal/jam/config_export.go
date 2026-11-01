@@ -260,8 +260,8 @@ type kitPinBehindError struct {
 }
 
 func (e *kitPinBehindError) Error() string {
-	return fmt.Sprintf("kit %s pins %s@v%d but %s is at v%d; versions are per-Jam — re-push %s against v%d (or pin %s to v%d) before config write",
-		e.kit, e.parent, e.pin, e.parent, e.cur, e.kit, e.cur, e.parent, e.pin)
+	return fmt.Sprintf("kit %s pins %s@v%d but %s is at v%d; versions are per-Jam — build %s on %s by name (its current version) before config write",
+		e.kit, e.parent, e.pin, e.parent, e.cur, e.kit, e.parent)
 }
 
 func (e *kitPinBehindError) Unwrap() error { return ErrConfigKitPinBehind }

@@ -84,10 +84,46 @@ privileged port needs root — run the built binary under `sudo` directly for th
 **Skip login with `dev-identity`** (handy for UI work): set
 `dev-identity: {user: <name>}` in `jam.dev.yml`, and loopback requests to
 `/app` act as that user, with no IdP and no callbacks. The user needs a login
-(`jam user login`), an OIDC identity (`jam user oidc`) and a project
-membership. See `dev-identity` in [serve.md](../docs/usage/jam/serve.md). To
+and a project membership, both in the config repo (`users/<name>.yml`'s
+`logins:`, a `project.yml`'s `members:`), and an OIDC identity
+(`jam user oidc`). See `dev-identity` in [serve.md](../docs/usage/jam/serve.md). To
 work on the Jam app with hot reload, run `just app-dev` beside `just dev-serve`
 ([web-app.md](../docs/web-app.md#dev-loop)).
+
+## Config: a local repo
+
+A Jam's config changes only by a commit to the repo it follows. A dev Jam has
+no GitHub or GitLab repo, so it follows a local one with `config.git`
+([config-git-sources.md](../docs/usage/jam/config-git-sources.md#a-local-or-ssh-repo-configgit)).
+Make it **bare**: Jam never moves a branch that is checked out in the repo, so
+a bare repo lets the console's Merge land on `main`. Edit by hand in a clone.
+
+```sh
+git init --bare -b main ~/jam-config.git
+git clone ~/jam-config.git ~/jam-config
+just jam config write --all ~/jam-config   # the running dev Jam's config, as files
+cd ~/jam-config && git add -A && git commit -m "jam config" && git push origin main
+```
+
+(On a fresh Jam, `config write --all` writes what Jam seeded, the default kit and
+model spec; commit at least one file so `main` exists.) Then add the repo to
+`dev/jam.dev.yml`, with an absolute path:
+
+```yaml
+config:
+  git:
+    url: /home/you/jam-config.git
+    branch: main
+```
+
+Restart `just dev-serve` and confirm the first apply: `just jam config sync`
+(or Config › Tracking: **Diff**, then **Apply this plan**). From then on:
+
+- **In the console:** Config › **Create branch**, edit, **Merge**. There is no
+  PR button for a plain repo.
+- **By hand:** edit `~/jam-config`, `just jam config diff --dir ~/jam-config`
+  to see the plan, then commit and `git push`; Jam applies it within a minute
+  (`just jam config status`).
 
 ## Jam in a container
 

@@ -43,7 +43,7 @@ func TestSyncTheFollowedSource(t *testing.T) {
 	f, _ := cfgFetcher(t, cfgFiles)
 	ctx := context.Background()
 	if _, err := ApplyConfigSource(ctx, st, f, gitsource.Source{}, allCreds, syncOpts(), nil, "alice"); !errors.Is(err, ErrConfigNotTracked) ||
-		err.Error() != "no config repo is configured (config.github in the serve config)" {
+		err.Error() != "no config repo is configured (config.github, config.gitlab or config.git in the serve config)" {
 		t.Fatalf("sync without a followed source: %v", err)
 	}
 	if ConfigFollowConfirmed(st, followEnv) {

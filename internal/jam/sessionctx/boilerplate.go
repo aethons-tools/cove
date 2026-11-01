@@ -90,8 +90,8 @@ const changingTheKit = `# Changing the kit
 You cannot rebuild your own cove or widen its access. When you need something the sandbox lacks:
 
 1. Work out the exact change: an egress domain, a tool and version, an env var.
-2. Message a human (who started you, or a project contact) with the change and why. Name where it goes: the role's studio kit ` + "`kit.yml`" + ` (` + "`egress:`" + `, ` + "`build-args:`" + `, ` + "`base:`" + `), or the role's egress policy (` + "`jam egress set`" + `), which an operator manages.
-3. It takes effect after the kit's draft is published (` + "`jam kit draft publish <kit>`" + `, or ` + "`jam kit push`" + `) and the cove is re-raised; an egress-policy change reaches a running cove within a reconcile pass.
+2. Message a human (who started you, or a project contact) with the change and why. Name where it goes: the role's studio kit ` + "`kit.yml`" + ` (` + "`egress:`" + `, ` + "`build-args:`" + `, ` + "`base:`" + `), or the role's egress policy (the role file's ` + "`scope.egress`" + `). Both live in the config repo, which an operator changes.
+3. It takes effect once the change is committed to the config repo (on a branch in the admin console, or by hand) and Jam applies it: a kit change when the cove is re-raised, an egress-policy change in a running cove within a reconcile pass.
 
 A one-off install or ` + "`export`" + ` in this session is fine for now but will not survive a rebuild.`
 
@@ -99,7 +99,7 @@ const hardeningLimits = `# What no one changes from inside
 
 Your cove is built kit base → harness → hardening. The hardening layer is applied last, is a security boundary, and always wins; neither you nor the kit can alter what it owns:
 
-- **Egress**: the proxy and the nftables rules. Your effective allow-list is your role's egress policy (` + "`jam egress set`" + `, operator-managed) inside the kit's ceiling; it is applied as root before you start and may be re-applied while you run. You cannot change it from inside.
+- **Egress**: the proxy and the nftables rules. Your effective allow-list is your role's egress policy (the role file's ` + "`scope.egress`" + ` in the config repo, operator-managed) inside the kit's ceiling; it is applied as root before you start and may be re-applied while you run. You cannot change it from inside.
 - **sshd, the entrypoint and the git credential helper.**
 - **The managed agent settings** (` + "`/etc/claude-code/managed-settings.json`" + `).
 - **The sealed environment**: ` + "`CLAUDE_CONFIG_DIR`" + ` (always /agent-data) and the proxy variables.

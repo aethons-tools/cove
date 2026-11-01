@@ -4,7 +4,7 @@ read_when: You want a role's coves to run Claude on Vertex AI under Jam, are add
 owns: the Vertex brokering recipe — the per-region vertex destination (route, upstream, client env, allow-paths), the model-spec it pairs with, and why the cove needs no GCP credential or Google egress
 prereqs: serve.md#destinations for the destination verb; credentials.md for `exchange: gcp`; model-specs.md for `claude.provider`
 tier: leaf
-updated: 2026-10-26
+updated: 2026-11-01
 ---
 
 # Claude on Vertex AI through Jam
@@ -56,18 +56,25 @@ Claude Code's gateway mode (`CLAUDE_CODE_SKIP_VERTEX_AUTH=1` plus
 It sends `ANTHROPIC_CUSTOM_HEADERS` on every request, which is how the identity
 travels. So both sides use the `bearer` presets:
 
-```
-jam destination add --name vertex-us-east5 --route /vertex/us-east5/ \
-  --upstream https://us-east5-aiplatform.googleapis.com \
-  --identity-in bearer --cred-name vertex-gcp --apply bearer \
-  --env 'ANTHROPIC_VERTEX_BASE_URL={url}/v1' \
-  --env 'CLAUDE_CODE_SKIP_VERTEX_AUTH=1' \
-  --env 'ANTHROPIC_CUSTOM_HEADERS=Authorization: Bearer {token}' \
-  --allow-path '/v1/projects/my-proj/locations/us-east5/publishers/anthropic/models/*:rawPredict' \
-  --allow-path '/v1/projects/my-proj/locations/us-east5/publishers/anthropic/models/*:streamRawPredict'
+```yaml
+# destinations/vertex-us-east5.yml in the config repo
+kind: destination
+version: 1
+route: /vertex/us-east5/
+upstream: https://us-east5-aiplatform.googleapis.com
+identity_in: bearer
+cred_name: vertex-gcp
+apply: bearer
+env:
+  ANTHROPIC_VERTEX_BASE_URL: "{url}/v1"
+  CLAUDE_CODE_SKIP_VERTEX_AUTH: "1"
+  ANTHROPIC_CUSTOM_HEADERS: "Authorization: Bearer {token}"
+allow_paths:
+  - /v1/projects/my-proj/locations/us-east5/publishers/anthropic/models/*:rawPredict
+  - /v1/projects/my-proj/locations/us-east5/publishers/anthropic/models/*:streamRawPredict
 ```
 
-- **Always set `--allow-path`.** A `cloud-platform` token would otherwise
+- **Always set `allow_paths`.** A `cloud-platform` token would otherwise
   turn the route into a general Vertex AI proxy holding the service account's
   powers. The patterns pin the project, the region and Anthropic's
   publisher models. Token counting (`count-tokens:rawPredict`) is covered by the
