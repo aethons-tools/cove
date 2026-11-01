@@ -39,6 +39,7 @@ type ConfigTree struct {
 	KitSources        map[string]KitSourceRef   // kits/<n>.source.yml by kit name
 	KitGroups         map[string]ConfigKitGroup // the checkouts FetchConfigKits loaded them from (kitGroupKey)
 	KitGroupsFailed   map[string]bool           // kitGroupKey of each repo and ref whose fetch or load failed (a refusal); its kits are never planned as deletes
+	KitFetchFailed    bool                      // a kit source's fetch itself failed (the network or the remote, not its content)
 	KitsFetched       bool                      // FetchConfigKits ran: Kits holds the source kits' sets too
 	KitCycle          []string                  // kits a cycle refusal left out of Kits, sorted; never planned as deletes
 	KitSourcesRefused []string                  // kits whose kits/<n>.source.y(a)ml was refused (misnamed, unparseable); never planned as deletes

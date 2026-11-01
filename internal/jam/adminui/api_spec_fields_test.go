@@ -23,7 +23,7 @@ func specOpts(pool bool) []adminui.Option {
 // specEdit is a branch editor with specHandler's handlers.
 func specEdit(t *testing.T, pool bool) *branchEdit {
 	t.Helper()
-	return editOn(t, editSetup{cred: specCred, opts: specOpts(pool)})
+	return editOn(t, editSetup{cred: specCred, opts: specOpts(pool), pool: pool})
 }
 
 // fullSpec is a valid create body with every field set; tests override
