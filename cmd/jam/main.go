@@ -133,11 +133,11 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "manager", Brief: "manage Studio Managers (add|list|rotate|revoke) via the admin API", Run: cmdManager},
 			{Name: "model-spec", Brief: "manage model-specs — how a cove runs its agent: harness, version, principal, model, policy (add|list|show|update|delete) via the admin API", Run: cmdModelSpec},
 			{Name: "role", Brief: "manage roles (add|list|rm|inspect|images) via the admin API", Run: cmdRole},
-			{Name: "project", Brief: "create, list, rename or remove projects (create|list|rename|rm), or manage a project's members (member add|list|rm), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
-			{Name: "user", Brief: "manage users — the people agents talk to (add|list|show|rename|rm|login|oidc) via the admin API", Run: cmdUser},
+			{Name: "project", Brief: "create, list, rename or remove projects (create|list|rename|rm), or manage a project's members (member list), escalation policy (escalation set|list|clear), or chat service (chat-service set|clear|show) via the admin API", Run: cmdProject},
+			{Name: "user", Brief: "manage users — the people agents talk to (list|show|oidc) via the admin API", Run: cmdUser},
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
 			{Name: "room", Brief: "manage a project's rooms — named channels on a Linear issue or a Discord channel (add|list|rename|rm) via the admin API", Run: cmdRoom},
-			{Name: "connection", Brief: "manage connections to external services — a Linear workspace, a Discord bot (add|list|rename|cred|rm) via the admin API", Run: cmdConnection},
+			{Name: "connection", Brief: "list connections to external services — a Linear workspace, a Discord bot (list) via the admin API", Run: cmdConnection},
 			{Name: "kit", Brief: "manage the kit registry (push <dir>|list|show|versions|diff|pin|rm|import|track|untrack|sync|draft)", Run: cmdKit},
 			{Name: "config", Brief: "keep the Jam's configuration in git: write it out (write <dir> [--all]); plan and apply a checkout or a git source (diff|apply [--dir <path> | --git <src>] [--yes]); follow one config source (track --git <src> | sync | untrack) via the admin API", Run: cmdConfig},
 			{Name: "export", Brief: "export the Jam config (actors, roles, kits, destinations, model-specs, projects) to a file (or stdout) via the admin API", Run: cmdExport},
@@ -674,7 +674,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 
 // cmdProject manages a project's members, escalation policy, or chat service
 // via the admin API. Member subcommands nest under "member"
-// (cmdProjectMember): `project member add|list|rm`. (A project's channels
+// (cmdProjectMember): `project member list`. (A project's channels
 // are rooms: cmdRoom.)
 // Escalation subcommands nest under "escalation" and are handled by
 // cmdProjectEscalation: `project escalation set|list|clear`. Chat-service
@@ -693,7 +693,7 @@ func cmdProject(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) >= 1 && args[0] == "member" {
 		return cmdProjectMember(args[1:], stdout, stderr)
 	}
-	fmt.Fprintln(stderr, "jam project: expected create|list|rename|rm, member add|list|rm, escalation set|list|clear, or chat-service set|clear|show (a project's channels are rooms: jam room)")
+	fmt.Fprintln(stderr, "jam project: expected create|list|rename|rm, member list, escalation set|list|clear, or chat-service set|clear|show (a project's channels are rooms: jam room)")
 	return 2
 }
 
@@ -1409,7 +1409,7 @@ func cmdStudio(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 }
 
 // cmdSession requests, lists and releases the caller's personal sessions. The
-// caller is the project member whose user holds the login (`user add --login`) of the
+// caller is the project member whose user holds the login (a user's login) of the
 // operator identity the admin API authenticates.
 func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {

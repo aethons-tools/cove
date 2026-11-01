@@ -242,32 +242,28 @@ func TestProjectMemberAndRoomCommands(t *testing.T) {
 
 	var out, errb bytes.Buffer
 
-	// user add + project member add
-	for _, argv := range [][]string{
-		{"user", "add", "--admin-url", ts.URL, "--login", "auth0|abc", "alice"},
-		{"project", "member", "add", "--admin-url", ts.URL, "acme", "alice"},
-	} {
-		out.Reset()
-		errb.Reset()
-		if code := run(argv, getenv, &out, &errb); code != 0 {
-			t.Fatalf("%v: exit=%d stderr=%s", argv, code, errb.String())
-		}
+	// seed a member and a connection directly (their CLI verbs are gone)
+	alice, err := store.CreateUser(jam.User{Name: "alice", Logins: []string{"auth0|abc"}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if m, ok := jam.MemberByLogin(store, "acme", "auth0|abc"); !ok || m.User.Name != "alice" {
-		t.Fatalf("user add --login + member add did not link alice: %+v,%v", m, ok)
+	acme, _ := store.GetProject("acme")
+	if err := store.PutMembership(jam.Membership{ProjectID: acme.ID, UserID: alice.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateConnection(jam.Connection{Kind: "linear", Name: "linear-acme"}); err != nil {
+		t.Fatal(err)
 	}
 
-	// connection add + room add/list/rename/rm
+	// room add/list/rename/rm
 	steps := []struct {
 		argv []string
 		want string
 	}{
-		{[]string{"connection", "add", "--admin-url", ts.URL, "--kind", "linear", "--name", "linear-acme"}, ""},
 		{[]string{"room", "add", "--admin-url", ts.URL, "--ref", "ACME-1", "acme", "eng-help"}, "room\teng-help\tchn_"},
 		{[]string{"room", "list", "--admin-url", ts.URL, "acme"}, "linear-acme\tref=ACME-1"},
 		{[]string{"room", "rename", "--admin-url", ts.URL, "acme", "eng-help", "help"}, "renamed room eng-help to help"},
 		{[]string{"project", "member", "list", "--admin-url", ts.URL, "acme"}, "member\talice\tusr_"},
-		{[]string{"project", "member", "rm", "--admin-url", ts.URL, "acme", "alice"}, ""},
 		{[]string{"room", "rm", "--admin-url", ts.URL, "acme", "help"}, "removed room help"},
 	}
 	for _, st := range steps {
@@ -1601,50 +1597,51 @@ func TestUserMemberAccountCommands(t *testing.T) {
 		}
 		return out.String()
 	}
-	exec(0, "user", "add", "--login", "auth0|d", "--oidc", "https://accounts.google.com:dave-sub", "dave")
-	exec(0, "project", "member", "add", "--delivery", "discord:chan-9", "acme", "dave")
-	exec(0, "account", "add", "--connection", "discord", "--uid", "123456789", "--user", "dave")
+	dave, err := store.CreateUser(jam.User{Name: "david", Logins: []string{"auth0|d"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	acme, _ := store.GetProject("acme")
+	if err := store.PutMembership(jam.Membership{ProjectID: acme.ID, UserID: dave.ID, Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-9"}}}); err != nil {
+		t.Fatal(err)
+	}
+	exec(0, "user", "oidc", "david", "https://accounts.google.com:dave-sub")
+	exec(2, "user", "oidc", "david", "no-colon")
+	exec(0, "account", "add", "--connection", "discord", "--uid", "123456789", "--user", "david")
 
 	m, ok := jam.MemberByLogin(store, "acme", "auth0|d")
-	if !ok || m.User.Name != "dave" || len(m.User.OIDC) != 1 || m.DiscordUID != "123456789" {
-		t.Fatalf("dave = %+v, %v", m, ok)
+	if !ok || m.User.Name != "david" || len(m.User.OIDC) != 1 || m.DiscordUID != "123456789" {
+		t.Fatalf("david = %+v, %v", m, ok)
 	}
 	if d, ok := m.Inbox("discord"); !ok || d != "chan-9" {
 		t.Fatalf("inbox = %q, %v", d, ok)
 	}
-	show := exec(0, "user", "show", "dave")
+	show := exec(0, "user", "show", "david")
 	if !strings.Contains(show, "login=auth0|d") || !strings.Contains(show, "projects=acme") || !strings.Contains(show, "uid=123456789") {
 		t.Fatalf("user show:\n%s", show)
 	}
 	if list := exec(0, "project", "member", "list", "acme"); !strings.Contains(list, "delivery=discord:chan-9") {
 		t.Fatalf("member list:\n%s", list)
 	}
-	exec(0, "user", "rename", "dave", "david")
-	exec(0, "user", "login", "david")
-	if u := exec(0, "user", "list"); !strings.Contains(u, "user\tdavid") || strings.Contains(u, "login=") {
-		t.Fatalf("user list after rename + clearing logins:\n%s", u)
+	if u := exec(0, "user", "list"); !strings.Contains(u, "user\tdavid") {
+		t.Fatalf("user list:\n%s", u)
 	}
 	if conns := exec(0, "connection", "list"); !strings.Contains(conns, "connection\tdiscord") {
 		t.Fatalf("connection list:\n%s", conns)
 	}
-	exec(0, "connection", "add", "--kind", "linear", "--name", "linear-acme", "--cred", "lin-tok")
-	exec(0, "connection", "rename", "linear-acme", "linear-main")
-	exec(0, "connection", "cred", "linear-main", "lin-tok-2")
-	if conns := exec(0, "connection", "list"); !strings.Contains(conns, "connection\tlinear-main") || !strings.Contains(conns, "cred=lin-tok-2") {
-		t.Fatalf("connection list after add/rename/cred:\n%s", conns)
-	}
-	exec(0, "connection", "rm", "linear-main")
-	exec(2, "connection", "add", "--kind", "linear")
-
-	exec(2, "user", "add", "--oidc", "no-colon", "erin")
-	exec(2, "user", "login", "--login", "x", "david")    // --login is add's; the set is positional
-	exec(0, "project", "member", "add", "acme", "david") // no --delivery: keeps the inbox
-	if list := exec(0, "project", "member", "list", "acme"); !strings.Contains(list, "delivery=discord:chan-9") {
-		t.Fatalf("member add without --delivery dropped the inbox:\n%s", list)
-	}
-	exec(2, "project", "member", "add", "--delivery", "discord:chan:123", "acme", "david")
 	exec(2, "account", "add", "--connection", "discord")
-	exec(1, "user", "add", "david")
+
+	// The config-writing verbs are gone: each is the group's unknown subcommand.
+	for _, gone := range [][]string{
+		{"user", "add", "erin"}, {"user", "rename", "david", "x"}, {"user", "rm", "david"}, {"user", "login", "david"},
+		{"project", "member", "add", "acme", "david"}, {"project", "member", "rm", "acme", "david"},
+		{"connection", "add"}, {"connection", "rename", "discord", "x"}, {"connection", "cred", "discord", "x"}, {"connection", "rm", "discord"},
+	} {
+		exec(2, gone...)
+		if !strings.Contains(errb.String(), "unknown subcommand") {
+			t.Errorf("%v: stderr = %q, want the unknown-subcommand error", gone, errb.String())
+		}
+	}
 }
 
 // `studio raise --manager … --placement-timeout …` posts the managers in flag

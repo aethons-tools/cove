@@ -212,14 +212,16 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	mustCreateProject(t, store, "acme")
 	c := New(ts.URL, "")
 
-	if _, err := c.CreateUser(jam.UserBody{Name: "alice"}); err != nil {
-		t.Fatalf("CreateUser: %v", err)
+	alice, err := store.CreateUser(jam.User{Name: "alice"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := c.PutMember("acme", "alice", nil); err != nil {
-		t.Fatalf("PutMember: %v", err)
+	acme, _ := store.GetProject("acme")
+	if err := store.PutMembership(jam.Membership{ProjectID: acme.ID, UserID: alice.ID}); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := c.CreateConnection(jam.ConnectionBody{Kind: "linear", Name: "linear"}); err != nil {
-		t.Fatalf("CreateConnection: %v", err)
+	if _, err := store.CreateConnection(jam.Connection{Kind: "linear", Name: "linear"}); err != nil {
+		t.Fatal(err)
 	}
 	room, err := c.PutRoom("acme", jam.RoomBody{Name: "eng-help", Ref: "ACME-1"})
 	if err != nil || room.Name != "eng-help" || room.Connection != "linear" {
@@ -235,15 +237,8 @@ func TestClientRosterAndAddressing(t *testing.T) {
 		t.Fatalf("ListMembers = %+v, %v", ms, err)
 	}
 
-	if err := c.RemoveMember("acme", "alice"); err != nil {
-		t.Fatalf("RemoveMember: %v", err)
-	}
 	if err := c.RemoveRoom("acme", "help"); err != nil {
 		t.Fatalf("RemoveRoom: %v", err)
-	}
-	ms, err := c.ListMembers("acme")
-	if err != nil || len(ms) != 0 {
-		t.Fatalf("members after removal = %+v, %v", ms, err)
 	}
 	if rooms, err := c.ListRooms("acme"); err != nil || len(rooms) != 0 {
 		t.Fatalf("rooms after removal = %+v, %v", rooms, err)
@@ -380,21 +375,19 @@ func TestClientUsersMembersAccounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := New(ts.URL, "")
-	u, err := c.CreateUser(jam.UserBody{Name: "dave", Logins: []string{"auth0|d"}})
-	if err != nil || u.Name != "dave" {
-		t.Fatalf("CreateUser = %+v, %v", u, err)
-	}
-	if err := c.RenameUser("dave", "david"); err != nil {
-		t.Fatalf("RenameUser: %v", err)
+	u, err := store.CreateUser(jam.User{Name: "david", Logins: []string{"auth0|d"}})
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := c.SetUserOIDC("david", []jam.OIDCIdentity{{Issuer: "i", Subject: "s"}}); err != nil {
 		t.Fatalf("SetUserOIDC: %v", err)
 	}
-	if err := c.SetUserLogins(string(u.ID), nil); err != nil {
-		t.Fatalf("SetUserLogins: %v", err)
+	if err := store.SetUserLogins(u.ID, nil); err != nil {
+		t.Fatal(err)
 	}
-	if err := c.PutMember("acme", "david", []jam.DeliveryProfile{{Service: "discord", Address: "chan-9"}}); err != nil {
-		t.Fatalf("PutMember: %v", err)
+	acme, _ := store.GetProject("acme")
+	if err := store.PutMembership(jam.Membership{ProjectID: acme.ID, UserID: u.ID, Delivery: []jam.DeliveryProfile{{Service: "discord", Address: "chan-9"}}}); err != nil {
+		t.Fatal(err)
 	}
 	ms, err := c.ListMembers("acme")
 	if err != nil || len(ms) != 1 || ms[0].Delivery[0].Address != "chan-9" {
@@ -422,12 +415,6 @@ func TestClientUsersMembersAccounts(t *testing.T) {
 	}
 	if users, err := c.ListUsers(); err != nil || len(users) != 1 {
 		t.Fatalf("ListUsers = %+v, %v", users, err)
-	}
-	if err := c.RemoveMember("acme", "david"); err != nil {
-		t.Fatalf("RemoveMember: %v", err)
-	}
-	if err := c.RemoveUser("david"); err != nil {
-		t.Fatalf("RemoveUser: %v", err)
 	}
 }
 
@@ -838,23 +825,14 @@ func TestClientContextRoundTrip(t *testing.T) {
 }
 
 func TestClientConnections(t *testing.T) {
-	ts, _ := newServer(t)
+	ts, store := newServer(t)
 	c := New(ts.URL, "")
-	conn, err := c.CreateConnection(jam.ConnectionBody{Kind: "linear", Name: "linear-acme", Cred: "lin-tok"})
-	if err != nil || conn.CredName != "lin-tok" {
-		t.Fatalf("CreateConnection = %+v, %v", conn, err)
+	conn, err := store.CreateConnection(jam.Connection{Kind: "linear", Name: "linear-acme", CredName: "lin-tok"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := c.RenameConnection("linear-acme", "linear-main"); err != nil {
-		t.Fatalf("RenameConnection: %v", err)
-	}
-	if err := c.SetConnectionCred("linear-main", "lin-tok-2"); err != nil {
-		t.Fatalf("SetConnectionCred: %v", err)
-	}
-	if list, err := c.ListConnections(); err != nil || len(list) != 1 || list[0].Name != "linear-main" || list[0].CredName != "lin-tok-2" {
+	if list, err := c.ListConnections(); err != nil || len(list) != 1 || list[0].ID != conn.ID || list[0].CredName != "lin-tok" {
 		t.Fatalf("ListConnections = %+v, %v", list, err)
-	}
-	if err := c.RemoveConnection(string(conn.ID)); err != nil {
-		t.Fatalf("RemoveConnection: %v", err)
 	}
 }
 

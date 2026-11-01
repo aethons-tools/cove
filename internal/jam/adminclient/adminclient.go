@@ -741,13 +741,6 @@ func (c *Client) ListUsers() ([]jam.UserView, error) {
 	return out, err
 }
 
-// CreateUser creates a user.
-func (c *Client) CreateUser(b jam.UserBody) (jam.UserView, error) {
-	var out jam.UserView
-	err := c.do("POST", "/admin/users", b, &out)
-	return out, err
-}
-
 // GetUser fetches a user by name or id.
 func (c *Client) GetUser(user string) (jam.UserView, error) {
 	var out jam.UserView
@@ -755,24 +748,9 @@ func (c *Client) GetUser(user string) (jam.UserView, error) {
 	return out, err
 }
 
-// RenameUser renames a user (by name or id).
-func (c *Client) RenameUser(user, name string) error {
-	return c.do("PUT", "/admin/users/"+url.PathEscape(user)+"/name", jam.RenameBody{Name: name}, nil)
-}
-
-// SetUserLogins replaces a user's logins.
-func (c *Client) SetUserLogins(user string, logins []string) error {
-	return c.do("PUT", "/admin/users/"+url.PathEscape(user)+"/logins", jam.LoginsBody{Logins: logins}, nil)
-}
-
 // SetUserOIDC replaces a user's OIDC bindings.
 func (c *Client) SetUserOIDC(user string, ids []jam.OIDCIdentity) error {
 	return c.do("PUT", "/admin/users/"+url.PathEscape(user)+"/oidc", jam.OIDCBody{OIDC: ids}, nil)
-}
-
-// RemoveUser removes (tombstones) a user.
-func (c *Client) RemoveUser(user string) error {
-	return c.do("DELETE", "/admin/users/"+url.PathEscape(user), nil, nil)
 }
 
 // ListMembers lists project's members.
@@ -780,16 +758,6 @@ func (c *Client) ListMembers(project string) ([]jam.MemberView, error) {
 	var out []jam.MemberView
 	err := c.do("GET", "/admin/projects/"+url.PathEscape(project)+"/members", nil, &out)
 	return out, err
-}
-
-// PutMember adds user to project, or replaces their delivery there.
-func (c *Client) PutMember(project, user string, delivery []jam.DeliveryProfile) error {
-	return c.do("PUT", "/admin/projects/"+url.PathEscape(project)+"/members/"+url.PathEscape(user), jam.MemberBody{Delivery: delivery}, nil)
-}
-
-// RemoveMember ends user's membership of project.
-func (c *Client) RemoveMember(project, user string) error {
-	return c.do("DELETE", "/admin/projects/"+url.PathEscape(project)+"/members/"+url.PathEscape(user), nil, nil)
 }
 
 // ListConnections lists the live connections.
@@ -825,28 +793,6 @@ func (c *Client) LinkAccount(account, user string) error {
 // UnlinkAccount unlinks an account from its user.
 func (c *Client) UnlinkAccount(account string) error {
 	return c.do("DELETE", "/admin/accounts/"+url.PathEscape(account)+"/user", nil, nil)
-}
-
-// CreateConnection creates a connection (an external service instance).
-func (c *Client) CreateConnection(b jam.ConnectionBody) (jam.Connection, error) {
-	var out jam.Connection
-	err := c.do("POST", "/admin/connections", b, &out)
-	return out, err
-}
-
-// RenameConnection renames a connection (by name or id).
-func (c *Client) RenameConnection(conn, name string) error {
-	return c.do("PUT", "/admin/connections/"+url.PathEscape(conn)+"/name", jam.RenameBody{Name: name}, nil)
-}
-
-// SetConnectionCred names the credential a connection uses.
-func (c *Client) SetConnectionCred(conn, cred string) error {
-	return c.do("PUT", "/admin/connections/"+url.PathEscape(conn)+"/cred", jam.CredBody{Cred: cred}, nil)
-}
-
-// RemoveConnection removes (tombstones) a connection.
-func (c *Client) RemoveConnection(conn string) error {
-	return c.do("DELETE", "/admin/connections/"+url.PathEscape(conn), nil, nil)
 }
 
 // ListConditions lists operator-attention conditions (state: open|resolved|all).
