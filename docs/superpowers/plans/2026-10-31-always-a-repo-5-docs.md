@@ -27,6 +27,7 @@
   - `jam config apply`, `jam config release`;
   - `--force` next to `config apply` or `sync`;
   - `config.drift`.
+- **Agent-facing product text** in Go that names a removed verb is updated too, and the guard also walks `internal/` non-test `.go` files for these strings. A known case: `internal/jam/sessionctx/boilerplate.go` and `internal/jam/identity.go` comments say `jam egress set`.
 - **`dev/` and `deploy/` scripts** that call removed verbs are updated to a config repo, or the call is dropped. Grep them.
 
 ## Review Focus
