@@ -23,10 +23,15 @@ export function SessionCard({ card, compact = false }: { card: Card; compact?: b
   const { used, window } = card.context;
   const pct = window > 0 ? Math.min(100, Math.round((used * 100) / window)) : 0;
   return (
-    <div className="sc" data-compact={compact || undefined}>
+    // The session's color is the card's left border (docs/usage/jam/session-colors.md).
+    <div className="sc" data-compact={compact || undefined} style={card.color ? { borderLeftColor: card.color } : undefined}>
       <div className="sc-top">
-        {/* The icon is the session's color until real icons (docs/usage/jam/session-colors.md). */}
-        <div className="sc-icon" aria-hidden style={card.color ? { background: card.color, borderColor: card.color } : undefined} />
+        {/* A robot silhouette until real agent icons. */}
+        <div className="sc-icon" aria-hidden>
+          <svg viewBox="0 0 24 24">
+            <path d="M11 2.5a1 1 0 1 1 2 0V4h3.5A3.5 3.5 0 0 1 20 7.5v6a3.5 3.5 0 0 1-3.5 3.5h-9A3.5 3.5 0 0 1 4 13.5v-6A3.5 3.5 0 0 1 7.5 4H11V2.5zM9 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm6 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM2 9h1v4H2a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1zm19 0h1a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-1V9zM7 18h10a2 2 0 0 1 2 2v2H5v-2a2 2 0 0 1 2-2z" />
+          </svg>
+        </div>
         {window > 0 && (
           <div className="sc-ctx" data-hot={pct >= 85 || undefined} title={`context ${pct}% full`}>
             <div className="sc-ctx-fill" style={{ height: `${pct}%`, background: contextColor(pct) }} />

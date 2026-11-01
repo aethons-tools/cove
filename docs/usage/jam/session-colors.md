@@ -1,5 +1,5 @@
 ---
-summary: Session colors — each session's color from a fixed 24-color palette, assigned by Jam when it is raised and kept for good; how it is picked, where it is stored, and where it shows (the VS Code studio window's title bar, the session's chat bubbles and the composer, its status card's icon).
+summary: Session colors — each session's color from a fixed 24-color palette, assigned by Jam when it is raised and kept for good; how it is picked, where it is stored, and where it shows (the VS Code studio window's title bar, the session's chat bubbles and the composer, its status card's left border).
 read_when: You want to know why a session or a studio window has the color it has, why two sessions share one, or you are changing the palette, the assignment, the `session_colors` table or a place the color shows.
 owns: the session palette, the assignment rule, the session_colors table, the color fields of the user API, and where the color shows
 prereqs: coves.md for raising and session phases; session-card.md for the status card; vscode.md for studio windows
@@ -36,4 +36,4 @@ The user API carries `color` (`#rrggbb`; omitted for none) on `SessionHead`, `Se
   A studio window opened before this was a plain remote folder: opening that session through Jam gives a **second window, once**. Close the old one.
 - **Chat bubbles:** a 3px left border on the session's messages, in the web app and VS Code alike. Yours and other people's have none.
 - **The composer:** the same border on its left edge, when the conversation is a session's home.
-- **The status card's icon** is filled with the color ([session-card.md](session-card.md)).
+- **The status card's left border** is the color ([session-card.md](session-card.md)).
