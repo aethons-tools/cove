@@ -36,7 +36,7 @@
 - `docs/DEVELOPMENT.md`/`dev/README` dev Jam setup now uses `config.git` with a local repo. There is a worked example.
 - `monitoring.md` no longer lists `config.drift`.
 - The deprecated `*-token-cred` docs say they bind an existing connection only.
-- The studio template's `SANDBOX.md` text about `jam kit draft` (it lives outside this repo: `/agent-data/SANDBOX.md:27-29` mirrors it) is out of scope. It gets a note in the PR description.
+- The studio template `images/jam-studio-base/image-files/home/agent/.init-agent-data/SANDBOX.md:27-29` (payload: instructions for agents inside a built studio) says an operator changes the sandbox with `jam kit draft …` or `jam egress set`. It must say: a commit to the config repo (the kit's files, or the role's egress), through a branch in the admin console or by hand. Update the tests pinning the old strings (`internal/assemble/embed_test.go:664`, `internal/assemble/image_scripts_test.go:530,545`) to the new text. The sandbox-side copy at `/agent-data/SANDBOX.md` refreshes from that template; it is not edited here.
 
 ---
 
