@@ -132,7 +132,7 @@ describe("activate", () => {
     }
   });
 
-  it("a rail click on a session with a window focuses it; without one goes to the hub", async () => {
+  it("a rail click goes to the hub even when the session has a window; a double-click focuses the window", async () => {
     mock.reset();
     const home = await mkdtemp(path.join(tmpdir(), "jamext-"));
     const fsp = await import("node:fs/promises");
@@ -161,10 +161,15 @@ describe("activate", () => {
       ctx.state.set(`jam.connected.${SES}`, Date.now() - 91_000);
       rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
       await vi.waitFor(() => expect(hubOpens()).toHaveLength(3));
+      // A click goes to the conversation even when its session's window is open;
+      // a double-click (the session intent) brings the window to the front.
       ctx.state.set(`jam.connected.${SES}`, Date.now());
       rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
-      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(4));
-      expect(openFolderCalls()[3]).toEqual(["vscode.openFolder", expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/studios/jam-${SES}.code-workspace` }), { forceNewWindow: true }]);
+      await vi.waitFor(() => expect(hubOpens()).toHaveLength(4));
+      expect(openFolderCalls()).toHaveLength(4);
+      rail.receive({ type: "open", intent: { kind: "session", id: SES } });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(5));
+      expect(openFolderCalls()[4]).toEqual(["vscode.openFolder", expect.objectContaining({ fsPath: `${ctx.globalStorageUri.path}/studios/jam-${SES}.code-workspace` }), { forceNewWindow: true }]);
       expect(vscode.env.openExternal).not.toHaveBeenCalled();
     } finally {
       getExt.mockImplementation(() => undefined);

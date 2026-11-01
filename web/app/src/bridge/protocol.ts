@@ -33,7 +33,7 @@ export type OpenIntent =
   | { kind: "preview"; session: string; port: number; url: string; inBrowser: boolean }
   | { kind: "reveal"; anchor?: string } // show the Conversation view, then scroll to anchor
   | { kind: "session"; id: string } // open that session's code window (the extension link)
-  | { kind: "go"; channel: string; session: string }; // a rail row's click: its window if open, else the conversation
+  | { kind: "go"; channel: string; session: string }; // a rail row's click: the conversation's tab (a double-click is "session")
 export type PaneToExt =
   | { type: "ready"; pane: PaneName }
   | { type: "request"; id: number; req: BridgeRequest }

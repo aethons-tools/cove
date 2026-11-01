@@ -352,6 +352,17 @@ describe("goTo", () => {
     await goTo(f.d, A, CHN, ID);
     expect(f.calls).toEqual([`openTab ${CHN}`]);
   });
+  it("a rail click goes to the conversation's tab, not the session's open window", async () => {
+    const f = deps({ connected: true, hub: true });
+    await goTo(f.d, A, CHN, ID, false);
+    expect(f.calls).toEqual([`openTab ${CHN}`]);
+    const g = deps({ connected: true });
+    await goTo(g.d, A, CHN, ID, false);
+    expect(g.calls).toEqual([`pending ${A} ${CHN} 5`, `openHub ${A}`]);
+    const h = deps({ connected: true, own: ID });
+    await goTo(h.d, A, CHN, ID, false);
+    expect(h.calls).toEqual([`openTab ${CHN}`]);
+  });
   it("elsewhere: pending first, then the hub", async () => {
     const f = deps();
     await goTo(f.d, A, CHN, "");
