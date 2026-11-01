@@ -783,6 +783,35 @@ describe("session windows", () => {
   };
   const OTHER = "ses_1abcdefghjkmnpqrstvwxyz012";
 
+  it("the studio window opens from a file: URI even when global storage is vscode-userdata: (VSCodium)", async () => {
+    mock.reset();
+    await sshHome();
+    const getExt = vi.mocked(vscode.extensions.getExtension);
+    getExt.mockImplementation(() => ({}) as vscode.Extension<unknown>);
+    const fetchSpy = jamFetch([]);
+    try {
+      mock.config["jam.url"] = JAM;
+      mock.config["remote.SSH.localServerDownload"] = "always";
+      const ctx = fakeContext();
+      const dir = ctx.globalStorageUri.fsPath;
+      (ctx as { globalStorageUri: unknown }).globalStorageUri = vscode.Uri.parse(`vscode-userdata://${dir}`);
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      mock.uriHandler!.handleUri({ path: `/session/${SES}`, query: "" });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      expect(openFolderCalls()[0]).toEqual([
+        "vscode.openFolder",
+        expect.objectContaining({ scheme: "file", fsPath: `${dir}/studios/jam-${SES}.code-workspace` }),
+        { forceNewWindow: true },
+      ]);
+    } finally {
+      getExt.mockImplementation(() => undefined);
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+      deactivate();
+    }
+  });
+
   it("a link sets up SSH and opens the studio window in a new window; nothing goes under sessions/", async () => {
     mock.reset();
     await sshHome();

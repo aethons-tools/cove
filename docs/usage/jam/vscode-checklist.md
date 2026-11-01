@@ -73,6 +73,7 @@ VSCodium (with the `.vsix` installed in VSCodium):
 - [ ] *Open in VSCodium* without Open Remote - SSH offers to install `jeanp413.open-remote-ssh`, and never asks about localServerDownload.
 - [ ] With it installed, *Open in VSCodium* asks once to trust the host key, then the studio window opens on `/home/agent/workspace` (the Remote - SSH log shows the local `ssh` fallback) and the terminal works.
 - [ ] The studio installed `vscodium-reh-…` itself (`~/.vscodium-server`).
+- [ ] The studio window is remote, not a local window failing with ENOPRO ("no filesystem provider"), and its title bar has the session's color: the Jam log's `openFolder` line is a `file:` URI.
 - [ ] Closing the window and the conversation tab work as in VS Code.
 - [ ] VS Code still connects with the new `PreferredAuthentications` line.
 
