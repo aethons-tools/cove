@@ -4,7 +4,7 @@ read_when: You are reading or changing a session's status card — its state and
 owns: the status card's contents, its state mapping, how its counts (subagents included) are derived, the client-built sparkline, and where the card shows
 prereqs: intercom-ui.md for the rail and the live refresh; session-events.md for the event stream Presence derives from; coves.md for session phases and activity
 tier: leaf
-updated: 2026-10-31
+updated: 2026-11-01
 ---
 
 # The session status card
@@ -19,7 +19,8 @@ design: [session status card](../../superpowers/specs/2026-10-30-session-status-
 
 ## What it shows
 
-- **Icon** — a box filled with the session's color ([session-colors.md](session-colors.md); plain without one) until real icons arrive; in VS Code it has VS Code's 2px corners. The **context bar** sits just right of it: how full the main thread's context window is, green through
+- **Left border** — the session's color ([session-colors.md](session-colors.md); none without one).
+- **Icon** — a grey box (VS Code's 2px corners, everywhere) with a robot silhouette until real icons arrive. The **context bar** sits just right of it: how full the main thread's context window is, green through
   yellow to red, pulsing from 85%. No bar until the window is reported.
 - **Name** and the **state pill** (the tool in progress in its tooltip).
 - **Count icons**, each hidden at 0: open asks (orange, pulsing), alarms,

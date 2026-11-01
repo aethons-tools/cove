@@ -45,20 +45,25 @@ export const studioFileName = (studio: string): string => `jam-${studio}.code-wo
 
 const COLOR_RE = /^#[0-9a-f]{6}$/;
 
-// studioWorkspace is the studio's workspace file: its remote folder, and with
-// a color, the title bar in it (dimmed when the window is inactive).
-export function studioWorkspace(studio: string, color: string): string {
-  const w: Record<string, unknown> = { folders: [{ uri: remoteUri(studio) }], remoteAuthority: `ssh-remote+jam-${studio}` };
+// studioWorkspace is the studio's workspace file: its remote folder, named
+// for the session (label: its name, else its id), the window title naming it
+// in place of the file's "jam-<studio> (Workspace)", and with a color, the
+// title bar in it (dimmed when the window is inactive).
+export function studioWorkspace(studio: string, color: string, label = ""): string {
+  // "$" would start a window.title variable.
+  const name = label.replace(/[$\s]+/g, " ").trim() || studio;
+  const settings: Record<string, unknown> = {
+    "window.title": `\${dirty}\${activeEditorShort}\${separator}${name}\${separator}\${appName}`,
+  };
   if (COLOR_RE.test(color)) {
-    w.settings = {
-      "workbench.colorCustomizations": {
-        "titleBar.activeBackground": color,
-        "titleBar.activeForeground": "#ffffff",
-        "titleBar.inactiveBackground": `${color}99`,
-        "titleBar.inactiveForeground": "#ffffffaa",
-      },
+    settings["workbench.colorCustomizations"] = {
+      "titleBar.activeBackground": color,
+      "titleBar.activeForeground": "#ffffff",
+      "titleBar.inactiveBackground": `${color}99`,
+      "titleBar.inactiveForeground": "#ffffffaa",
     };
   }
+  const w = { folders: [{ uri: remoteUri(studio), name }], remoteAuthority: `ssh-remote+jam-${studio}`, settings };
   return JSON.stringify(w, null, 2) + "\n";
 }
 
@@ -236,7 +241,7 @@ export async function openSession(d: OpenDeps, id: string): Promise<void> {
     }
     await d.remember?.(id);
     step("opening the window");
-    const uri = await ui.writeStudioFile(studioFileName(id), studioWorkspace(id, s.head.color ?? ""));
+    const uri = await ui.writeStudioFile(studioFileName(id), studioWorkspace(id, s.head.color ?? "", s.head.label));
     log(`openFolder ${uri}`);
     await ui.openFolder(uri);
     log("openFolder returned");

@@ -386,23 +386,33 @@ describe("readPending", () => {
 
 describe("studio workspace files", () => {
   const COLOR = "#aa3f4e";
-  it("opens the remote folder, title bar in the session's color", () => {
-    const w = JSON.parse(studioWorkspace(ID, COLOR));
-    expect(w.folders).toEqual([{ uri: remoteUri(ID) }]);
+  it("opens the remote folder, named for the session, title bar in the session's color", () => {
+    const w = JSON.parse(studioWorkspace(ID, COLOR, "spider"));
+    expect(w.folders).toEqual([{ uri: remoteUri(ID), name: "spider" }]);
     expect(w.remoteAuthority).toBe(`ssh-remote+jam-${ID}`);
-    expect(w.settings).toEqual({ "workbench.colorCustomizations": {
-      "titleBar.activeBackground": COLOR, "titleBar.activeForeground": "#ffffff",
-      "titleBar.inactiveBackground": `${COLOR}99`, "titleBar.inactiveForeground": "#ffffffaa",
-    } });
+    expect(w.settings).toEqual({
+      "window.title": "${dirty}${activeEditorShort}${separator}spider${separator}${appName}",
+      "workbench.colorCustomizations": {
+        "titleBar.activeBackground": COLOR, "titleBar.activeForeground": "#ffffff",
+        "titleBar.inactiveBackground": `${COLOR}99`, "titleBar.inactiveForeground": "#ffffffaa",
+      },
+    });
     expect(studioWorkspace(ID, COLOR).endsWith("}\n")).toBe(true);
   });
-  it.each([[""], ["red"], ["#AA3F4E;x"]])("no color (%j): no settings", (c) => {
-    expect(JSON.parse(studioWorkspace(ID, c))).not.toHaveProperty("settings");
+  it.each([[""], ["red"], ["#AA3F4E;x"]])("no color (%j): no title-bar colors, still the title", (c) => {
+    const w = JSON.parse(studioWorkspace(ID, c, "spider"));
+    expect(w.settings).not.toHaveProperty("workbench.colorCustomizations");
+    expect(w.settings["window.title"]).toContain("spider");
   });
-  it("openSession writes the session's file with its color", async () => {
+  it.each([["", ID], ["  ", ID], ["a  b\nc", "a b c"], ["${env:HOME}", "{env:HOME}"]])("label %j names it %j", (label, name) => {
+    const w = JSON.parse(studioWorkspace(ID, COLOR, label));
+    expect(w.folders[0].name).toBe(name);
+    expect(w.settings["window.title"]).toBe(`\${dirty}\${activeEditorShort}\${separator}${name}\${separator}\${appName}`);
+  });
+  it("openSession writes the session's file with its color and name", async () => {
     const f = fake({ global: "always", head: { id: ID, label: "Ada", channel: "chn_1", ssh: "jam ssh x", color: COLOR } });
     await openSession(f.d, ID);
-    expect(f.files.get(studioFileName(ID))).toBe(studioWorkspace(ID, COLOR));
+    expect(f.files.get(studioFileName(ID))).toBe(studioWorkspace(ID, COLOR, "Ada"));
     expect(f.ui.openFolder).toHaveBeenCalledWith(STUDIO);
   });
   it("focusStudioUri: the studio's file, or (opened before files) its remote folder", async () => {

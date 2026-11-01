@@ -21,17 +21,19 @@ describe("SessionCard", () => {
     expect(container.querySelector(".sc-focus")).toBeNull();
   });
 
-  it("fills the icon with the session's color, the context bar beside it", () => {
+  it("borders the card in the session's color; the icon is a grey robot, the context bar beside it", () => {
     const { container } = show(card({ color: "#aa3f4e", context: { used: 50_000, window: 200_000 } }));
+    expect((container.querySelector(".sc") as HTMLElement).style.borderLeftColor).toBe("rgb(170, 63, 78)");
     const icon = container.querySelector(".sc-icon") as HTMLElement;
-    expect(icon.style.background).toContain("rgb(170, 63, 78)");
+    expect(icon.getAttribute("style")).toBeNull();
+    expect(icon.querySelector("svg path")).not.toBeNull();
     expect(icon.querySelector(".sc-ctx")).toBeNull();
     expect(container.querySelector(".sc-icon + .sc-ctx")).not.toBeNull();
   });
 
-  it("no color: a plain icon", () => {
+  it("no color: no colored border", () => {
     const { container } = show(card({ context: { used: 50_000, window: 200_000 } }));
-    expect((container.querySelector(".sc-icon") as HTMLElement).getAttribute("style")).toBeNull();
+    expect((container.querySelector(".sc") as HTMLElement).getAttribute("style")).toBeNull();
   });
 
   it("shows the focus under the mission", () => {

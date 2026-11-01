@@ -1,9 +1,12 @@
 /* The session status card (SessionCard). */
-.sc { --sc-icon: 72px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sc { --sc-icon: 72px; display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  border-left: 4px solid transparent; padding-left: 8px; }
 .sc[data-compact] { --sc-icon: 52px; gap: 2px; }
 .sc-top { display: flex; gap: 10px; align-items: stretch; min-width: 0; }
-.sc-icon { flex: none; width: var(--sc-icon); height: var(--sc-icon); border-radius: var(--sc-icon-radius, 8px); position: relative;
-  border: 1px solid var(--mantine-color-default-border); background: var(--mantine-color-default-hover); }
+.sc-icon { flex: none; width: var(--sc-icon); height: var(--sc-icon); border-radius: 2px; position: relative;
+  display: grid; place-items: center; color: var(--mantine-color-gray-6);
+  background: light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5)); }
+.sc-icon svg { width: 62%; height: 62%; fill: currentColor; }
 .sc-ctx { flex: none; position: relative; height: var(--sc-icon); width: 6px; margin-left: -4px; border-radius: 3px; overflow: hidden;
   background: color-mix(in srgb, var(--mantine-color-text) 18%, transparent); }
 .sc-ctx-fill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 3px; }
