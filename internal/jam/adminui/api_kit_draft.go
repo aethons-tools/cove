@@ -320,12 +320,19 @@ func apiKitDraft(api *http.ServeMux, store jam.Store, log *slog.Logger) {
 		if !ok {
 			return
 		}
-		res, err := jam.PublishKitDraft(store, log, name, body.Pin, body.ETag)
+		if body.Pin {
+			// The console edits a draft on a branch, whose commit is the
+			// kit's files: the config repo names a parent without a version,
+			// so a follower pinned to one could not be committed.
+			writeAPIError(w, http.StatusBadRequest, "bad_request", pinOnBranchMsg)
+			return
+		}
+		res, err := jam.PublishKitDraft(store, log, name, false, body.ETag)
 		if err != nil {
 			draftFailJSON(w, r, log, err)
 			return
 		}
-		log.Info("ui kit draft published", "operator", jam.OperatorID(r), "kit", name, "version", res.Version, "base", res.Base, "tree", shortDigest(res.Tree), "pinned", len(res.Pinned))
+		log.Info("ui kit draft published", "operator", jam.OperatorID(r), "kit", name, "version", res.Version, "base", res.Base, "tree", shortDigest(res.Tree))
 		answer(w, r, name, draftQuery{}, fmt.Sprintf("published %s v%d", name, res.Version), newPublishView(res))
 	})
 	api.HandleFunc("GET "+base+"/download", func(w http.ResponseWriter, r *http.Request) {
@@ -346,3 +353,6 @@ func modeOf(exec bool) fs.FileMode {
 	}
 	return 0o644
 }
+
+// pinOnBranchMsg refuses a console publish with Pin followers.
+const pinOnBranchMsg = "Pin followers can't be committed: the config repo names a kit's parent without a version (versions are per-Jam); publish without it"

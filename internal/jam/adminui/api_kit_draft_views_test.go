@@ -438,20 +438,21 @@ func TestDraftAPIUploadPreamble(t *testing.T) {
 	}
 }
 
-// Publishing with Pin followers publishes a config-managed follower too, with
-// no confirmation and no warning.
-func TestDraftAPIPublishPinManagedFollower(t *testing.T) {
+// Publishing with Pin followers is refused (400) and publishes nothing: the
+// draft is on a branch, and the config repo cannot hold a pinned follower.
+func TestDraftAPIPublishPinRefused(t *testing.T) {
 	store, h := draftFixture(t)
-	for name, yml := range map[string]string{"web": "kind: studio\nbase:\n  kit: app\n", "api": "kind: studio\nbase:\n  kit: app\n"} {
-		if _, _, err := jam.PushKitFiles(store, name, kittreetest.Files("kit.yml", yml)); err != nil {
-			t.Fatal(err)
-		}
+	if _, _, err := jam.PushKitFiles(store, "web", kittreetest.Files("kit.yml", "kind: studio\nbase:\n  kit: app\n")); err != nil {
+		t.Fatal(err)
 	}
-	markManaged(t, store, "web")
 	putDraft(t, store, "run.sh", 0, "echo two\n")
-	var res adminui.DraftResult
-	rec := apiDo(t, h, "POST", draftAPI+"/publish", map[string]any{"etag": draftETag(t, store), "pin": true}, &res)
-	if p := res.Page.Published; rec.Code != 200 || p == nil || len(p.Pinned) != 2 || p.Warning != "" {
-		t.Fatalf("pin publish = %d %+v", rec.Code, p)
+	before, _ := store.GetKit("app")
+	rec := apiDo(t, h, "POST", draftAPI+"/publish", map[string]any{"etag": draftETag(t, store), "pin": true}, nil)
+	wantErr(t, rec, 400, "bad_request")
+	if !strings.Contains(rec.Body.String(), "Pin followers can't be committed") {
+		t.Errorf("pin publish = %s", rec.Body)
+	}
+	if after, _ := store.GetKit("app"); after.Current != before.Current {
+		t.Errorf("a refused publish made v%d", after.Current)
 	}
 }

@@ -56,8 +56,10 @@ draft.
 - No change from *current*: 409 `draft <kit> has no changes` (draft kept);
   problems: 400 `draft <kit> has problems: …`.
 - Kits that follow this one build on the new version once the branch is
-  merged. **Pin followers** does not work on a branch: the repo names a parent
-  without a version ([config-git.md](config-git.md#layout)), so the publish fails. Leave it off.
+  merged. Followers are never pinned: the repo names a parent without a
+  version ([config-git.md](config-git.md#layout)), so a publish asking to pin
+  them is refused 400 `Pin followers can't be committed: the config repo names
+  a kit's parent without a version (versions are per-Jam); publish without it`.
 - The commit is the branch save's ([config-branches.md](config-branches.md#saving)):
   one commit, authored by the operator.
 

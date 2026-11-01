@@ -30,7 +30,7 @@ How: the branch is loaded into a **workspace**, a scratch store holding its conf
 
 - **Someone pushed meanwhile.** A branch that moved since it was read is picked up before the next request; a push that lands between read and save refuses the save (409 "the branch moved since it was read; reload it") and the workspace is dropped.
 - **A branch that doesn't plan** (a broken file pushed by hand) can't be opened: 409 naming the refusals. Fix it in git.
-- **A checked-out branch** of a local `config.git` repo is never moved: the save, Merge or branch create is refused ([config-git-sources.md](config-git-sources.md#a-local-or-ssh-repo-configgit)).
+- **A checked-out branch** of a local `config.git` repo is never moved: a save or Merge onto it is refused 409 (the message: [config-git-sources.md](config-git-sources.md#a-local-or-ssh-repo-configgit)).
 
 ## Merge and PR
 

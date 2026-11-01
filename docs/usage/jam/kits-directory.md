@@ -33,7 +33,7 @@ and inside it. `base.image` and a `Dockerfile` exclude each other.
 
 A root `.dockerignore` (docker's syntax) filters what is **stored**: ignored
 files are never read, sent or kept.
-`kit.yml`, `Dockerfile` and `.dockerignore` are always kept. A kit draft applies it on
+`kit.yml`, `Dockerfile` and `.dockerignore` are always kept. A kit draft on a branch applies it on
 every write too ([kits-drafts.md](kits-drafts.md)).
 
 ## Limits

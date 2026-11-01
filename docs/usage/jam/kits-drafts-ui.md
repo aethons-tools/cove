@@ -22,9 +22,9 @@ jumps to the section). Every write follows the console's
   time, **Discard** (it asks first), and a notice when a newer version has
   landed since the draft was opened.
 - **Publish** card: the problems, if any (the button stays disabled, and a
-  forged request is still refused 400), and the **Pin followers** box (leave
-  it off on a branch: [kits-drafts.md](kits-drafts.md#publish)); **Publish**
-  asks first, and commits the kit's files to the branch.
+  forged request is still refused 400); **Publish** asks first, and commits
+  the kit's files to the branch. There is no Pin followers box
+  ([kits-drafts.md](kits-drafts.md#publish)).
 - **Files**: the draft's tree by directory, with each file's mode, size and
   its change against the base; files dropped since the base are listed last,
   struck through. **Add file** takes a path and either an upload or nothing
@@ -45,10 +45,9 @@ jumps to the section). Every write follows the console's
   them?`), and leaving the page gets the browser's own prompt: each would drop
   it.
 
-The **Published** card shows the new version (linked), each follower
-pinned and any warning.
+The **Published** card shows the new version (linked) and any warning.
 
 UI writes log `ui kit draft opened|saved|discarded|published` with the
 kit, the operator and the tree's first 12 hex digits (a publish also the
-version, base and count pinned), never content or a path.
+version and base), never content or a path.
 

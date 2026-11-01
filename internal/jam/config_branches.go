@@ -252,6 +252,7 @@ func (b *ConfigBranches) diff(before, after ConfigTreeExport) configrepo.Changes
 // configBranchStatus maps the configrepo errors (and conflicts) for ConfigStatus.
 func configBranchStatus(err error) (int, string, bool) {
 	var ce *configrepo.ConflictError
+	var co *configrepo.CheckedOutError
 	switch {
 	case errors.Is(err, configrepo.ErrStale):
 		return http.StatusConflict, err.Error(), true
@@ -261,6 +262,8 @@ func configBranchStatus(err error) (int, string, bool) {
 		return http.StatusConflict, err.Error(), true
 	case errors.Is(err, configrepo.ErrFollowedBranch):
 		return http.StatusBadRequest, err.Error(), true
+	case errors.As(err, &co):
+		return http.StatusConflict, co.Error(), true
 	case errors.As(err, &ce):
 		return http.StatusConflict, "Merge refused: " + ce.Error() + ". Open a pull request instead.", true
 	case errors.Is(err, configrepo.ErrRemote):

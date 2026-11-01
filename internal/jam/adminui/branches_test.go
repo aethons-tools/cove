@@ -2,9 +2,11 @@ package adminui_test
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -338,4 +340,95 @@ func TestBranchKitDraftSaveAndPublish(t *testing.T) {
 	if len(e.Live.ListKits()) != 0 {
 		t.Error("the draft reached the live Jam")
 	}
+}
+
+// localCheckout is a non-bare local config repo (users/bob.yml on main,
+// main checked out in it) with jam/alice checked out in a linked worktree,
+// and a live Jam following it with the branch editor on.
+func localCheckout(t *testing.T) (h http.Handler, dir, worktree string) {
+	t.Helper()
+	root := t.TempDir()
+	dir, worktree = filepath.Join(root, "jam-config"), filepath.Join(root, "alice")
+	git := func(cwd string, args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = cwd
+		c.Env = append(c.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git(root, "init", "-q", "-b", "main", dir)
+	git(dir, "config", "commit.gpgsign", "false")
+	if err := os.MkdirAll(filepath.Join(dir, "users"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "users", "bob.yml"), []byte("kind: user\nversion: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(dir, "add", "-A")
+	git(dir, "commit", "-q", "-m", "init")
+	git(dir, "worktree", "add", "-q", "-b", "jam/alice", worktree)
+	live := newStore(t)
+	env := jam.ConfigEnv{CredExists: anyCred, Followed: gitsource.Source{Repo: dir, Ref: "main"}, FollowedLabel: dir}
+	repo := &configrepo.Repo{URL: dir, Branch: "main", Path: filepath.Join(root, "state", "config-repo")}
+	b := &jam.ConfigBranches{Repo: repo, Env: env, Live: live}
+	factory := func(st jam.Store) http.Handler {
+		return adminui.Handler(st, testLogger(), nil, nil, anyCred, nil, adminui.WithConfigEnv(env))
+	}
+	h = adminui.Handler(live, testLogger(), nil, nil, anyCred, nil, adminui.WithConfigEnv(env), adminui.WithConfigBranches(b, factory))
+	return h, dir, worktree
+}
+
+// A save onto a branch checked out in a local repo's worktree, and a Merge
+// into the followed branch checked out in the repo itself, are refused 409
+// naming the branch and the path; nothing is moved.
+func TestBranchCheckedOutRefused(t *testing.T) {
+	h, dir, worktree := localCheckout(t)
+	rec := apiDoWith(t, h, onBranch("jam/alice"), "POST", "/app/admin/api/users", map[string]string{"name": "carol"}, nil)
+	e := apiErr(t, rec)
+	if want := "jam/alice is checked out in " + worktree + "; check out another branch, or merge it yourself"; rec.Code != 409 || e.Error != want {
+		t.Fatalf("save on a checked-out branch = %d %q, want 409 %q", rec.Code, e.Error, want)
+	}
+	if rec := apiDo(t, h, "POST", "/app/admin/api/config/branches", map[string]string{"name": "jam/bob"}, nil); rec.Code != 200 {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	}
+	if rec := apiDoWith(t, h, onBranch("jam/bob"), "POST", "/app/admin/api/users", map[string]string{"name": "carol"}, nil); rec.Code != 201 {
+		t.Fatalf("edit = %d %s", rec.Code, rec.Body)
+	}
+	var list adminui.ConfigBranches
+	apiDo(t, h, "GET", "/app/admin/api/config/branches", nil, &list)
+	head := ""
+	for _, br := range list.Branches {
+		if br.Name == "jam/bob" {
+			head = br.Head
+		}
+	}
+	mainBefore := gitRev(t, dir, "main")
+	rec = apiDo(t, h, "POST", "/app/admin/api/config/branches/merge", map[string]string{"branch": "jam/bob", "head": head}, nil)
+	e = apiErr(t, rec)
+	if want := "main is checked out in " + dir + "; check out another branch, or merge it yourself"; rec.Code != 409 || e.Error != want {
+		t.Fatalf("merge into a checked-out main = %d %q, want 409 %q", rec.Code, e.Error, want)
+	}
+	if gitRev(t, dir, "main") != mainBefore {
+		t.Error("the refused merge moved main")
+	}
+}
+
+func apiErr(t *testing.T, rec *httptest.ResponseRecorder) adminui.APIError {
+	t.Helper()
+	var e adminui.APIError
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil {
+		t.Fatalf("%d %s: %v", rec.Code, rec.Body, err)
+	}
+	return e
+}
+
+func gitRev(t *testing.T, dir, ref string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "rev-parse", ref).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(out))
 }

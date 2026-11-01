@@ -44,6 +44,7 @@ describe("publishing a draft", () => {
     renderAdmin(adminBoot, at);
     expect(await publishButton()).toBeEnabled();
     expect(screen.queryByRole("checkbox", { name: /drift/ })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /Pin followers/ })).toBeNull();
     await user.click(await publishButton());
     expect(await screen.findByText("Publish the draft as the next version of web?")).toBeInTheDocument();
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Publish" }));
