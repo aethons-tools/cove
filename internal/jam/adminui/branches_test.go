@@ -3,6 +3,7 @@ package adminui_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -517,6 +518,44 @@ func TestBranchReloadCarriesDraft(t *testing.T) {
 	var res adminui.DraftResult
 	if rec := apiDo(t, e.H, "POST", draftAPI+"/publish", map[string]any{"etag": etag}, &res); rec.Code != 200 || res.Page.Published == nil {
 		t.Fatalf("publish of the carried draft = %d %s", rec.Code, rec.Body)
+	}
+	e.b.Drop(editBranch) // read the branch back from the repo
+	var d2 adminui.KitDetail
+	apiDo(t, e.H, "GET", "/app/admin/api/kits/app?file=run.sh", nil, &d2)
+	if d2.File == nil || d2.File.Content != "echo draft\n" {
+		t.Fatalf("committed run.sh = %+v, want the carried draft's", d2.File)
+	}
+}
+
+// A refused save reloads the workspace; the open draft carries over.
+func TestBranchRefusedSaveCarriesDraft(t *testing.T) {
+	e, etag := draftedBranch(t)
+	e.Edit(func(st jam.Store) { mustCreateProject(t, st, "acme") })
+	if rec := apiDo(t, e.H, "POST", "/app/admin/api/projects/acme/escalation", map[string]string{"category": "", "tiers": "user:ghost@15m"}, nil); rec.Code != 409 {
+		t.Fatalf("unloadable save = %d %s", rec.Code, rec.Body)
+	}
+	if d := draftOf(t, e); d == nil || d.ETag != etag {
+		t.Fatalf("draft after a refused save = %+v, want it carried at %s", d, etag)
+	}
+}
+
+// A branch deleted on the host and created again starts clean: no draft of
+// the old one comes back.
+func TestBranchRecreatedStartsClean(t *testing.T) {
+	e, _ := draftedBranch(t)
+	e.b.Drop(editBranch)
+	// main takes the branch's files, so the recreated branch holds kit app
+	// exactly as the draft's base: only forgetting stops a carry.
+	gittest.Git(t, e.url, "update-ref", "refs/heads/main", "refs/heads/"+editBranch)
+	gittest.Git(t, e.url, "branch", "-D", editBranch)
+	if _, err := e.b.Workspace(context.Background(), editBranch); !errors.Is(err, configrepo.ErrNoBranch) {
+		t.Fatalf("workspace of the deleted branch = %v", err)
+	}
+	if _, err := e.b.Create(context.Background(), editBranch); err != nil {
+		t.Fatal(err)
+	}
+	if d, ok := e.Store().GetKitDraft("app"); ok {
+		t.Fatalf("draft = %+v on the recreated branch, want none", d)
 	}
 }
 

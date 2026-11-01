@@ -16,7 +16,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 
 	"github.com/aethons-tools/cove/internal/jam/configrepo"
-	"github.com/aethons-tools/cove/internal/kittree"
 )
 
 // The config branch editor (docs/usage/jam/config-branches.md): the admin
@@ -85,6 +84,7 @@ func (b *ConfigBranches) Workspace(ctx context.Context, branch string) (*ConfigW
 		}
 	}
 	if head == "" {
+		b.forget(branch) // deleted on the host: nothing of it carries to a branch of the same name
 		return nil, configrepo.ErrNoBranch
 	}
 	b.mu.Lock()
@@ -120,12 +120,35 @@ func (b *ConfigBranches) Drop(branch string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if ws, ok := b.workspaces[branch]; ok {
-		if b.dropped == nil {
-			b.dropped = map[string]*ConfigWorkspace{}
-		}
-		b.dropped[branch] = ws
-		delete(b.workspaces, branch)
+		b.dropLocked(ws)
 	}
+}
+
+// DropWorkspace is Drop of ws only: a late failure on an older workspace of
+// the branch never drops a newer one.
+func (b *ConfigBranches) DropWorkspace(ws *ConfigWorkspace) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.workspaces[ws.Branch] == ws {
+		b.dropLocked(ws)
+	}
+}
+
+func (b *ConfigBranches) dropLocked(ws *ConfigWorkspace) {
+	if b.dropped == nil {
+		b.dropped = map[string]*ConfigWorkspace{}
+	}
+	b.dropped[ws.Branch] = ws
+	delete(b.workspaces, ws.Branch)
+}
+
+// forget drops everything kept for branch, its drafts included: the branch
+// is gone, or a new one of the same name begins.
+func (b *ConfigBranches) forget(branch string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.workspaces, branch)
+	delete(b.dropped, branch)
 }
 
 // carryDrafts copies from's open kit drafts into to, a fresh load of the
@@ -136,46 +159,37 @@ func (b *ConfigBranches) Drop(branch string) {
 // the branch since (a push, another tab's publish) loses the draft, logged,
 // rather than having its change overwritten by a later publish.
 func (b *ConfigBranches) carryDrafts(from, to *ConfigWorkspace) {
-	from.Store.mu.RLock()
-	drafts := make([]KitDraft, 0, len(from.Store.kitDrafts))
-	for _, d := range from.Store.kitDrafts {
-		drafts = append(drafts, d)
-	}
-	from.Store.mu.RUnlock()
-	for _, d := range drafts {
-		oldKit, ok1 := from.Store.GetKit(d.Kit)
-		kit, ok2 := to.Store.GetKit(d.Kit)
-		if !ok1 || !ok2 || oldKit.Trees[d.Base] == "" || oldKit.Trees[d.Base] != kit.Trees[kit.Current] {
-			b.logDraftLost(to.Branch, d.Kit)
+	from.Lock() // a request still running on the old workspace finishes first
+	carried := from.Store.draftCarries()
+	from.Unlock()
+	for _, c := range carried {
+		kit, ok := to.Store.GetKit(c.draft.Kit)
+		switch {
+		case c.baseTree == "":
+			b.logDraftLost(to.Branch, c.draft.Kit, "its files are not all in the workspace")
+			continue
+		case !ok || kit.Trees[kit.Current] != c.baseTree:
+			b.logDraftLost(to.Branch, c.draft.Kit, "its kit changed on the branch")
 			continue
 		}
-		tree, ok := from.Store.KitTree(d.Tree)
-		if !ok {
-			b.logDraftLost(to.Branch, d.Kit)
-			continue
-		}
-		objs := KitObjects{Trees: []kittree.Tree{tree}, Blobs: map[string][]byte{}}
-		for _, e := range tree.Entries {
-			if data, ok := from.Store.KitBlob(e.SHA256); ok {
-				objs.Blobs[e.SHA256] = data
-			}
-		}
+		d := c.draft
 		d.Base = kit.Current
-		if err := to.Store.PutKitDraft(d, objs); err != nil {
-			b.logDraftLost(to.Branch, d.Kit)
+		if err := to.Store.PutKitDraft(d, c.objs); err != nil {
+			b.logDraftLost(to.Branch, c.draft.Kit, err.Error())
 		}
 	}
 }
 
-func (b *ConfigBranches) logDraftLost(branch, kit string) {
+func (b *ConfigBranches) logDraftLost(branch, kit, why string) {
 	if b.Log != nil {
-		b.Log.Info("config branch: kit draft not carried over (its kit changed on the branch)", "branch", branch, "kit", kit)
+		b.Log.Info("config branch: kit draft not carried over", "branch", branch, "kit", kit, "why", why)
 	}
 }
 
 // Unchanged reports whether ws's config still renders as it did at its
 // head: a refused write that changed nothing keeps the workspace (and its
-// open kit drafts) as it is.
+// open kit drafts) as it is. Kit drafts are not rendered; a draft write is
+// one PutKitDraft, which a refusal leaves as it was.
 func (b *ConfigBranches) Unchanged(ws *ConfigWorkspace) bool {
 	exp, err := renderWorkspace(ws.Store)
 	if err != nil {
@@ -261,38 +275,45 @@ func (b *ConfigBranches) configFiles(files map[string]configrepo.File) map[strin
 // the unsaved edit).
 func (b *ConfigBranches) Save(ctx context.Context, ws *ConfigWorkspace, author configrepo.Signature, msg string) error {
 	exp, err := renderWorkspace(ws.Store)
+	var ch configrepo.Changes
 	if err == nil {
-		err = b.checkPlans(ctx, ws, exp)
+		ch = b.diff(ws.base, exp)
+		if len(ch.Put) == 0 && len(ch.Delete) == 0 {
+			return nil // nothing to commit (a draft write, a no-op save)
+		}
+		err = b.checkPlans(ctx, ws, ch)
 	}
 	if err == nil {
 		var head string
-		if head, err = b.Repo.Commit(ctx, ws.Branch, ws.HeadNow(), b.diff(ws.base, exp), author, msg); err == nil {
+		if head, err = b.Repo.Commit(ctx, ws.Branch, ws.HeadNow(), ch, author, msg); err == nil {
 			ws.setHead(head)
 			ws.base = exp
 			return nil
 		}
 	}
-	b.Drop(ws.Branch)
+	b.DropWorkspace(ws)
 	return err
 }
 
 // checkPlans refuses a save whose tree would not plan: the branch could not
 // be loaded again (say, an escalation chain naming a user who does not
-// exist). The rendering is planned into a fresh store, as a load would.
-func (b *ConfigBranches) checkPlans(ctx context.Context, ws *ConfigWorkspace, exp ConfigTreeExport) error {
-	files := map[string]configrepo.File{}
-	full := func(rel string) string { return path.Join(b.Dir, rel) }
-	for p, c := range exp.Files {
-		files[full(p)] = configrepo.File{Data: []byte(c), Mode: filemode.Regular}
+// exist). It plans exactly what the next load reads: the branch's files at
+// ws's head with ch applied. The save never edits a .source.yml, so a kit
+// source that fails to fetch here is the network, not the change: 503, try
+// again.
+func (b *ConfigBranches) checkPlans(ctx context.Context, ws *ConfigWorkspace, ch configrepo.Changes) error {
+	head, files, err := b.Repo.Files(ctx, ws.Branch)
+	if err != nil {
+		return err
 	}
-	for dir, fs := range exp.Kits {
-		for _, f := range fs {
-			mode := filemode.Regular
-			if f.Mode&0o111 != 0 {
-				mode = filemode.Executable
-			}
-			files[full(dir+"/"+f.Path)] = configrepo.File{Data: f.Data, Mode: mode}
-		}
+	if head != ws.HeadNow() {
+		return configrepo.ErrStale
+	}
+	for p, f := range ch.Put {
+		files[p] = f
+	}
+	for _, p := range ch.Delete {
+		delete(files, p)
 	}
 	tree, err := b.treeOf(files)
 	if err != nil {
@@ -300,15 +321,14 @@ func (b *ConfigBranches) checkPlans(ctx context.Context, ws *ConfigWorkspace, ex
 	}
 	src := b.Env.Followed
 	src.Ref = ws.Branch
-	res, err := ApplyConfigTree(ctx, NewMemStore(), b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{DryRun: true, Source: src, Commit: ws.HeadNow(), Now: time.Now()}, nil, "save:"+ws.Branch)
-	refusals := res.Plan.Refusals
-	if errors.Is(err, ErrConfigRefused) {
-		refusals = []string{strings.TrimPrefix(err.Error(), ErrConfigRefused.Error()+":\n")}
-	} else if err != nil {
+	res, err := ApplyConfigTree(ctx, NewMemStore(), b.Fetcher, tree, b.planEnv(), ConfigApplyOptions{DryRun: true, Source: src, Commit: head, Now: time.Now()}, nil, "save:"+ws.Branch)
+	switch {
+	case err != nil:
 		return err
-	}
-	if len(refusals) > 0 {
-		return writeErr(http.StatusConflict, "not saved: the branch would no longer load: %s", strings.Join(refusals, "\n"))
+	case len(tree.KitGroupsFailed) > 0:
+		return writeErr(http.StatusServiceUnavailable, "not saved: the branch's kit sources could not be fetched to check the save; try again")
+	case len(res.Plan.Refusals) > 0:
+		return writeErr(http.StatusConflict, "not saved: the branch would no longer load: %s", strings.Join(res.Plan.Refusals, "\n"))
 	}
 	return nil
 }
@@ -420,6 +440,8 @@ func (b *ConfigBranches) Create(ctx context.Context, name string) (ConfigBranchI
 	if err != nil {
 		return ConfigBranchInfo{}, err
 	}
+	b.forget(name) // a new branch starts clean, whatever an old one of its name left
+
 	return ConfigBranchInfo{Name: name, Head: head}, nil
 }
 

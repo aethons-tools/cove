@@ -164,7 +164,7 @@ func (br *branchRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if write {
 		if rec.status/100 != 2 {
 			if !br.b.Unchanged(ws) {
-				br.b.Drop(branch) // the failed write changed the scratch store; drafts carry over
+				br.b.DropWorkspace(ws) // the failed write changed the scratch store; drafts carry over
 			}
 		} else if err := br.b.Save(r.Context(), ws, operatorSig(r), "jam: "+r.Method+" "+strings.TrimPrefix(r.URL.Path, apiPrefix)); err != nil {
 			status, emsg := jam.ConfigStatus(err)

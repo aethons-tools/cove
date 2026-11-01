@@ -68,3 +68,38 @@ func (m *memState) applyRemoveKitDraft(kit string) bool {
 	delete(m.kitDrafts, kit)
 	return true
 }
+
+// draftCarry is one open draft with what carrying it to another store
+// needs: the tree its base version had ("" when the base or any of the
+// draft's files is missing) and the draft tree's objects.
+type draftCarry struct {
+	draft    KitDraft
+	baseTree string
+	objs     KitObjects
+}
+
+// draftCarries reads every open draft and its objects in one read, so a
+// copy never mixes states.
+func (m *memState) draftCarries() []draftCarry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]draftCarry, 0, len(m.kitDrafts))
+	for _, d := range m.kitDrafts {
+		c := draftCarry{draft: d}
+		tree, ok := m.kitTrees[d.Tree]
+		if k, kok := m.kits[d.Kit]; kok && ok {
+			c.baseTree = k.Trees[d.Base]
+			c.objs = KitObjects{Trees: []kittree.Tree{tree}, Blobs: map[string][]byte{}}
+			for _, e := range tree.Entries {
+				data, bok := m.kitBlobs[e.SHA256]
+				if !bok {
+					c.baseTree = ""
+					break
+				}
+				c.objs.Blobs[e.SHA256] = data
+			}
+		}
+		out = append(out, c)
+	}
+	return out
+}

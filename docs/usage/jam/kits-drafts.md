@@ -36,9 +36,11 @@ files in the draft, then publish it, or discard it.
 - A draft is working state in the branch's workspace, not in the repo: a draft
   save makes no commit. When the workspace reloads (the branch moved, a
   refused save), the draft carries over if its kit is unchanged on the branch;
-  if the kit changed meanwhile (a push, another tab's publish), the draft is
+  if the kit changed meanwhile (a push, or a publish from another Jam), the draft is
   dropped (logged `kit draft not carried over`) rather than published over
-  that change. `kit <name> already has a draft` (409) refuses a second one.
+  that change; so is a draft whose kit had a newer version than its base
+  (it no longer matches). A branch deleted and created again starts with no
+  drafts. `kit <name> already has a draft` (409) refuses a second one.
 - Another version may land while a draft is open: the draft then shows
   `base: 1, current: 2`. Publishing still makes the draft's tree the kit's
   files, without the other version's changes (no merge).
