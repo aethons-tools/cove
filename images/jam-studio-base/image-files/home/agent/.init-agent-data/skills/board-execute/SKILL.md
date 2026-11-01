@@ -13,9 +13,11 @@ Implement one issue. Three entry points share this procedure:
   change, verify, push, and open the PR yourself, then see it through to merge.
   Keep the ticket current with `report(state, summary, pr?)` as its state
   changes (`in-progress`, `in-review` with the PR url, `needs-input`, `blocked`,
-  `done`), and finish with `end` once it is merged and reported `done`. While the
-  PR is open, `alarm_set` a PR-watch alarm so you are woken for review comments,
-  failing CI, or the merge instead of polling.
+  `done`). Talk in your own session channel (`send` without `to`); `call_in`
+  the people you need. Call `end` only once your work has landed (merged, or the
+  PR handed off) and is reported — never end with work that is not pushed. While
+  the PR is open, `alarm_set` a PR-watch alarm so you are woken for review
+  comments, failing CI, or the merge instead of polling.
 - **Collaborator direct fix** (interactive, during review/troubleshooting): you
   make a small fix in place and open/update the PR yourself with `gh` or your
   connection. Do this **only** for review/troubleshoot fixes — greenfield and
@@ -45,8 +47,10 @@ Implement one issue. Three entry points share this procedure:
 
 ## When you hit a wall
 
-Don't guess or thrash. Stop and write back: a ticket session calls
+Don't guess or thrash, and don't exit. A ticket session calls
 `report(needs-input, <the specific question or blocker, and what you tried>)`
-(use `blocked` if it cannot proceed at all); otherwise comment on the issue and
-move it to the needs-input state. A human's reply is the "answered — resume"
-signal. Never silently widen scope to route around a blocker.
+(use `blocked` if it cannot proceed at all), says the same in its session
+channel, `call_in`s whoever can help, and ends its turn to wait — its studio
+and work stay alive, and escalation brings people to it. A human's reply wakes
+it to resume. Otherwise comment on the issue and move it to the needs-input
+state. Never silently widen scope to route around a blocker.

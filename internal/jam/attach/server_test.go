@@ -343,11 +343,13 @@ func TestDoneTearsDown(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// An agent exiting without end has its studio torn down and the session
+	// recovered (uniform sessions).
 	if !eventually(func() bool {
-		_, ok := store.GetInstance("w1")
-		return !ok
+		inst, ok := store.GetInstance("w1")
+		return !ok || inst.Phase == jam.PhaseRecovering
 	}) {
-		t.Fatal("instance w1 was never torn down")
+		t.Fatal("instance w1's studio was never torn down")
 	}
 }
 

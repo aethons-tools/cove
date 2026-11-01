@@ -30,9 +30,10 @@ const defaultGrace = 10 * time.Second
 // agent's turn ended while background tasks are still running.
 const defaultBackgroundWait = 30 * time.Minute
 
-// resumePrompt is a ticket studio's wake text: written into a live episode, or
-// as the first message of a new continued episode.
-const resumePrompt = "New input may have arrived on your ticket — use the intercom `read` tool to fetch it, then continue. Use `report` to update the ticket and `end` when the ticket is finished."
+// resumePrompt is an ephemeral session's wake text: written into a live
+// episode, or as the first message of a new continued episode.
+const resumePrompt = "A message may have arrived — use the intercom `read` tool to fetch new messages, then continue. " +
+	"`send` without `to` posts to your own channel. If you have a ticket, keep it current with `report`."
 
 // residentResumePrompt is resumePrompt's resident-mode (personal or standing
 // session) counterpart, delivered the same way when a Wake — typically the
@@ -45,10 +46,10 @@ const residentResumePrompt = "A reply may have arrived — use the intercom `rea
 const standingResumePrompt = "A message may have arrived — use the intercom `read` tool to fetch new messages, then continue. " +
 	"`send` without `to` posts to your own channel; pass `to` to answer anywhere else."
 
-// standingRestartPrompt is the first message of a standing session's first
+// restartPrompt is the first message of a session's first
 // episode when it resumes a prior conversation (its /agent-data survived a
 // restart): it replaces the raise prompt, which the conversation already holds.
-const standingRestartPrompt = "Your session was restarted (for example, Jam was upgraded or your studio was re-raised); " +
+const restartPrompt = "Your session was restarted (for example, Jam was upgraded or your studio was re-raised); " +
 	"your conversation and workspace are intact. Use the intercom `read` tool to fetch any messages that arrived meanwhile, " +
 	"then continue where you left off. `send` without `to` posts to your own channel; pass `to` to answer anywhere else. " +
 	"Set your `mission` and `focus` again once you know them."
@@ -116,10 +117,10 @@ type Config struct {
 	SessionKind string
 	// ContextFetchTimeout bounds each context refresh fetch; 0 = 3 s.
 	ContextFetchTimeout time.Duration
-	// ConversationMarker is the standing-session conversation marker's path;
-	// empty defaults to defaultConversationMarker. Only a "standing" session
-	// reads or writes it: present at Run start, the first episode continues
-	// the prior conversation with standingRestartPrompt (falling back once to a
+	// ConversationMarker is the conversation marker's path; empty defaults to
+	// defaultConversationMarker. Every session writes it once the agent
+	// replies; present at Run start, the first episode continues
+	// the prior conversation with restartPrompt (falling back once to a
 	// fresh start if that fails before the agent replies).
 	ConversationMarker string
 	// ClearMarker is the clear-pending file's path; empty defaults to
@@ -322,12 +323,13 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 	}
 	prompt := w.cfg.Prompt
 	continued := false
-	// A standing session's state persists across restarts (COV-249): when a
-	// prior conversation exists, the first episode continues it.
+	// A session's state persists across restarts (COV-249; every kind since
+	// uniform sessions): when a prior conversation exists, the first episode
+	// continues it.
 	// resuming: this episode continues from the marker (the fallback below
 	// applies to it, once). A Clear still pending (pressed before a restart)
 	// wins over the marker: start fresh.
-	persists := w.cfg.SessionKind == "standing"
+	persists := true // every kind's state persists across a restart (uniform sessions)
 	resuming := false
 	if fresh, ok := w.clearedStart(""); ok {
 		prompt = fresh
@@ -335,7 +337,7 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 		if _, err := os.Stat(w.cfg.ConversationMarker); err == nil {
 			// Built in the loop, once the context is refreshed: the restart
 			// prompt (and its batch) depends on the turn protocol in effect.
-			prompt, continued, resuming = standingRestartPrompt, true, true
+			prompt, continued, resuming = restartPrompt, true, true
 			w.log.Info("agentrun: resuming the prior conversation", "marker", w.cfg.ConversationMarker)
 		}
 	}
@@ -499,12 +501,9 @@ func (w *Workload) compactIdle(ctx context.Context, h studioagent.Handle, turn u
 func (w *Workload) spawn(ctx context.Context, h studioagent.Handle, turn uint32, continued bool) (Process, *idleTracker, *lineSplitter, error) {
 	split := &lineSplitter{max: maxEventLine, emit: func(line []byte, dropped uint64) { h.Event(turn, line, dropped) }}
 	tr := newIdleTracker(w.cfg.Harness.ParseEvent, func(msg string, a ...any) { w.log.Warn(msg, a...) })
-	// A reply means a conversation exists: a standing session's to continue
-	// after a restart, and (fresh) the one a pending Clear asked for.
-	var onReply []func()
-	if w.cfg.SessionKind == "standing" {
-		onReply = append(onReply, w.markConversation)
-	}
+	// A reply means a conversation exists: one to continue after a restart,
+	// and (fresh) the one a pending Clear asked for.
+	onReply := []func(){w.markConversation}
 	if !continued {
 		onReply = append(onReply, w.consumeClear)
 	}

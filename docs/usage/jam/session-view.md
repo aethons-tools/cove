@@ -1,6 +1,6 @@
 ---
 summary: The session view in the `/app/user` Jam app — a session's home channel adds a header (identity, state, cost, context use, uptime, quick actions) and a tabbed pane (Thinking, Previews, Artifacts, Status) that can sit right of or below the messages, with its layout remembered per session.
-read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Interrupt, Compact, Clear, Release, Restart/End, Upgrade), the side pane and its tabs, viewing a preview in the pane, the pane's layout memory and `?tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
+read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Interrupt, Compact, Clear, Release, Restart, End, Upgrade), the side pane and its tabs, viewing a preview in the pane, the pane's layout memory and `?tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
 owns: the session header (`GET /app/user/api/sessions/{id}`) and its actions (`POST /app/user/api/sessions/{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/api/sessions/{id}/pane/{tab}`) and its tabs, a preview's View here (`POST /app/user/api/sessions/{id}/frame`), the Thinking tab (`GET /app/user/session/{id}/thinking/events`, `GET /app/user/api/sessions/{id}/thinking[/raw]`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
 prereqs: intercom-ui.md for the user area this extends; session-events.md for the events the aggregates come from; previews.md for exposed ports; collaboration.md for who may SSH or open a preview; previews.md#framing-the-jam-pane for the frame tickets and cookie
 tier: leaf
@@ -40,7 +40,8 @@ One line, refreshed on push and every 30s (`GET /app/user/api/sessions/{id}`):
 | Action | Offered to | Does |
 |--------|------------|------|
 | Release | a personal session's owner, or an operator | tears it down |
-| End / Restart | operators, for non-personal sessions (Restart for standing) | tears it down; a standing session is raised again by its reconciler |
+| Restart | operators, every kind | restarts its studio, keeping the session: a standing one is raised again by its reconciler, any other is [recovered](coves.md#recovery) at once (re-raised with its state and conversation) |
+| End | operators, for non-personal sessions (a personal one ends by Release) | tears it down for good (its unfinished ticket is marked blocked) |
 | Upgrade | operators, standing sessions | queues an upgrade to the current image; the pending state shows beside it |
 
 ### Session controls

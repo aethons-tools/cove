@@ -54,8 +54,11 @@ func TestGitHubTicketChannel(t *testing.T) {
 	// Every spelling of one issue is one key, so one channel (F16).
 	variant := f.ticket
 	variant.ActorID, variant.Unit = string(ident.New(ident.Session)), "Acme/Board#007"
-	if home, err := f.ic.HomeChannel(variant); err != nil || home.ID != ch.ID {
-		t.Fatalf("HomeChannel(unit Acme/Board#007) = %+v, %v; want %s", home, err, ch.ID)
+	if err := f.ic.SetUp(variant); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := f.ic.TicketChannelOf(variant); !ok || got.ID != ch.ID {
+		t.Fatalf("TicketChannelOf(unit Acme/Board#007) = %+v, %v; want %s", got, ok, ch.ID)
 	}
 
 	// A unit that is no GitHub key (a manual raise's free text) has no
@@ -192,7 +195,7 @@ func TestListTargetsGitHubTicketSessions(t *testing.T) {
 		addressing []string
 		listed     bool
 	}{
-		{[]string{"session:*"}, false}, // another's ticket session needs ticket: addressing too
+		{[]string{"session:*"}, true}, // a ticket session is reached like any other
 		{[]string{"session:*", "ticket:acme/*"}, true},
 	} {
 		f := newGitHubICFixture(t, c.addressing...)
@@ -203,29 +206,6 @@ func TestListTargetsGitHubTicketSessions(t *testing.T) {
 		if slices.Contains(got, "session:"+f.ticket.ActorID) != c.listed {
 			t.Errorf("addressing %v: targets %v; want ticket session listed=%v", c.addressing, got, c.listed)
 		}
-	}
-}
-
-// ListTargets checks ticket sessions against the tracker serve resolved, not
-// whichever connection kind the store holds first (F7).
-func TestListTargetsUsesTheResolvedTracker(t *testing.T) {
-	f := newGitHubICFixture(t, "session:*", "ticket:gh-acme/*")
-	if _, err := f.store.CreateConnection(Connection{Kind: "linear", Name: "linear"}); err != nil {
-		t.Fatal(err)
-	}
-	listed := func(tracker func() (ident.ID, bool)) bool {
-		for _, tg := range ListTargets(f.store, tracker, f.actor, time.Now()) {
-			if tg.Kind == "session" && tg.Name == f.ticket.ActorID {
-				return true
-			}
-		}
-		return false
-	}
-	if !listed(f.ic.Tracker) {
-		t.Fatal("tracker gh-acme: ticket:gh-acme/* reaches acme/board#7's session")
-	}
-	if listed(nil) { // no resolved tracker: TrackerConnection, the linear one
-		t.Fatal("tracker linear: ticket:gh-acme/* must not reach the session")
 	}
 }
 
@@ -397,11 +377,11 @@ func TestTrackerRepoScopesBindingsAndTickets(t *testing.T) {
 
 // Final fix 4: a GitHub ticket is authorized by its canonical key only, and
 // a glob's GitHub-shaped parts are canonical too — so the spelling of the
-// address can't change the answer, and ticket: and session: agree.
+// address can't change the answer.
 func TestGitHubTicketAuthorizationIsCanonical(t *testing.T) {
 	for _, c := range []struct {
 		glob string
-		want error // for both ticket:acme/board#07 and the ticket session's session:
+		want error // for ticket:acme/board#07
 	}{
 		{"ticket:acme/board#??", ErrSendDenied}, // #07 is #7: one character
 		{"ticket:acme/board#07", nil},           // a glob's leading zeros are stripped
@@ -415,9 +395,6 @@ func TestGitHubTicketAuthorizationIsCanonical(t *testing.T) {
 		}
 		if _, err := f.plan(f.standing, "ticket:acme/board#07"); !errors.Is(err, c.want) {
 			t.Errorf("glob %s: ticket:acme/board#07 → %v; want %v", c.glob, err, c.want)
-		}
-		if _, err := f.plan(f.standing, "session:"+f.ticket.ActorID); !errors.Is(err, c.want) {
-			t.Errorf("glob %s: session:<ticket session> → %v; want %v", c.glob, err, c.want)
 		}
 	}
 }

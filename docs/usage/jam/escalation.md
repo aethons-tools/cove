@@ -73,21 +73,22 @@ escalated. Then:
    pre-tier-0 wait.
 2. If tier 0's timeout elapses with no reply, the engine calls in tier 1, and so on.
 3. Once the **last** tier has been called in, the engine stops advancing — it does
-   not loop, re-call, or tear the session down. Abandoning a studio with no reply at
-   all is wake-on's `wait-max`, not escalation's job (below).
+   not loop, re-call, or tear the session down. No session is torn down for
+   waiting; ending one nobody answers is the role's idle timeout's or an
+   operator's call.
 
 Each fresh Waiting-entry starts a new escalation from tier 0 — the engine's
 per-cove tier state resets whenever a studio re-enters Waiting.
 
 ## Two independent clocks
 
-Escalation's per-tier timer and wake-on's `wait-max` are **two independent
-clocks**, run by two separate engines:
+Escalation's per-tier timer and wake-on's clocks (the warm-timeout pause, the
+role's idle timeout) are **independent**, run by two separate engines:
 
 - **Escalation** only calls tiers in on a schedule; it never reads replies, never
   wakes a session, and never tears one down.
 - **Wake-on** (see [intercom.md](intercom.md#waiting-for-a-reply-wake-on)) owns
-  reply-detection, waking, and `wait-max` teardown — unchanged by escalation.
+  reply-detection, waking, pausing and the idle timeout — unchanged by escalation.
 
 A person's answer — in the session's channel, on any surface, at *any* tier —
 wakes it like any other reply. Escalation has no reply handling of its own; the
@@ -97,18 +98,12 @@ two engines share only the `Activity == Waiting` gate.
 
 A tier's `user:` targets are called into the session's home channel (people
 already in it stay in; called-in people stay members afterwards and may leave),
-and the session posts an **escalation notice** there: "Needs input on ACME-7 —
-called in alice, bob (escalation tier 1, infra). Replies here go to ACME-7's
-conversation, its issue included." The relays render it wherever the channel goes:
-
-- a **ticket channel**: a comment on its issue that `@`-mentions the tier's people
-  by their tracker handles (as before — also when a room holds the issue's
-  binding), and each called-in person's Discord inbox in a Discord-chat project.
-  A Discord reply to it lands in the ticket's conversation, so it is also posted
-  on the issue; the session's answer goes to the issue (and `/app/user`), not back to
-  that inbox;
-- a **session channel**: each member's Discord inbox, like any post there; a
-  person with only Linear sees it in [`/app/user`](intercom-ui.md).
+and the session posts an **escalation notice** there: "Needs input from
+worker-3 on ACME-7 — called in alice, bob (escalation tier 1, infra)." The home
+channel is the session's own channel for every session, a ticket session's
+included, so the notice reaches each member's Discord inbox like any post there
+(and Jam push); a person with only Linear sees it in
+[`/app/user`](intercom-ui.md). It is never a comment on the ticket's issue.
 
 Jam acts on the operator's policy here, so the comms access-graph
 (`Scope.Addressing`) is not consulted. The notice is for people: it never wakes

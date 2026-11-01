@@ -89,6 +89,16 @@ func newRelayKit(t *testing.T) *relayKit {
 }
 
 // send posts body from a session to addr ("" = its default channel).
+// ticketChannel sets the ticket session up and returns its ticket's channel
+// (its home is its own session channel).
+func (k *relayKit) ticketChannel() (jam.Channel, error) {
+	if err := k.ic.SetUp(k.ticket); err != nil {
+		return jam.Channel{}, err
+	}
+	ch, _ := k.ic.TicketChannelOf(k.ticket)
+	return ch, nil
+}
+
 func (k *relayKit) send(inst jam.Instance, addr, body string) intercom.Squawk {
 	k.t.Helper()
 	a := k.actor
@@ -126,11 +136,11 @@ func wantSurfaces(t *testing.T, what string, got []relay.Delivery, want map[stri
 
 func TestSurfacesTicket(t *testing.T) {
 	k := newRelayKit(t)
-	m := k.send(k.ticket, "", "status")
+	m := k.send(k.ticket, "ticket:ACME-7", "status")
 	wantSurfaces(t, "session on its ticket", k.dir.Surfaces("linear", m), map[string]string{"linear:ACME-7": ""})
 	wantSurfaces(t, "discord", k.dir.Surfaces("discord", m), nil)
 
-	ch, _ := k.ic.HomeChannel(k.ticket)
+	ch, _ := k.ticketChannel()
 	byAlice, err := k.ic.PostTrusted(ch, intercom.Squawk{From: k.alice.ID, Body: "from /me"})
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +222,7 @@ func TestSurfacesRooms(t *testing.T) {
 
 func TestRouteLinear(t *testing.T) {
 	k := newRelayKit(t)
-	ticket, _ := k.ic.HomeChannel(k.ticket)
+	ticket, _ := k.ticketChannel()
 	ev := relay.Event{ForeignID: "c1", Surface: "ACME-7", Author: "Stranger", AuthorID: "lin-9", Body: "hi", ReplyToForeign: "c0"}
 	r, ok := k.dir.Route("linear", "acme", ev)
 	if !ok || r.Channel != ticket.ID || r.From.Kind() != ident.Account || r.ReplyTo != "in:linear:c0" || r.Origin != k.linear.ID || r.OriginRef != "ACME-7" {
@@ -385,7 +395,7 @@ func putRoom(st jam.Store, project, name, service, ref string) error {
 // becomes a comment on the issue.
 func TestSurfacesSkipCallInNotice(t *testing.T) {
 	k := newRelayKit(t)
-	ch, _ := k.ic.HomeChannel(k.ticket)
+	ch, _ := k.ticketChannel()
 	if err := k.st.JoinChannel(ch.ID, k.alice.ID, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -399,9 +409,8 @@ func TestSurfacesSkipCallInNotice(t *testing.T) {
 	wantSurfaces(t, "call-in notice", k.dir.Surfaces("linear", m[0]), nil)
 }
 
-// An escalation notice in a ticket's conversation @-mentions the tier's
-// people on the issue (those with handles) and reaches each called-in
-// person's Discord inbox.
+// An escalation notice lands in the session's own channel: it reaches each
+// called-in person's Discord inbox and is never a comment on the issue.
 func TestSurfacesEscalationNotice(t *testing.T) {
 	k := newRelayKit(t)
 	var members []jam.Member
@@ -424,38 +433,15 @@ func TestSurfacesEscalationNotice(t *testing.T) {
 	if len(m) != 1 {
 		t.Fatalf("carol's inbox = %+v", m)
 	}
-	wantSurfaces(t, "linear", k.dir.Surfaces("linear", m[0]), map[string]string{"linear:ACME-7": "@alice.h @carol.h "})
+	wantSurfaces(t, "linear", k.dir.Surfaces("linear", m[0]), nil)
 	label := k.ic.PartyOf(ident.ID(k.ticket.ActorID)).Label + ": "
 	wantSurfaces(t, "discord", k.dir.Surfaces("discord", m[0]), map[string]string{"discord:inbox-A": label, "discord:inbox-B": label})
-}
-
-// A ticket whose issue binding a room holds still gets its escalation on the
-// issue: the notice goes to the ticket's key on the tracker.
-func TestSurfacesEscalationOnUnboundTicket(t *testing.T) {
-	k := newRelayKit(t)
-	if _, _, err := jam.PutRoom(k.st, "acme", jam.RoomBody{Name: "ops", Ref: "ACME-9"}); err != nil {
-		t.Fatal(err)
-	}
-	inst := jam.Instance{ActorID: string(ident.New(ident.Session)), Project: "acme", Role: "impl", Unit: "ACME-9", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting}
-	if err := k.st.PutInstance(inst); err != nil {
-		t.Fatal(err)
-	}
-	p, _ := k.st.GetProject("acme")
-	carol, _ := jam.MemberOf(k.st, p.ID, k.carol.ID)
-	if err := k.ic.Escalate(context.Background(), inst, 0, "", []jam.Member{carol}); err != nil {
-		t.Fatal(err)
-	}
-	m := k.lg.InboxSince(k.carol.ID, 0, 0)
-	if len(m) != 1 {
-		t.Fatalf("carol's inbox = %+v", m)
-	}
-	wantSurfaces(t, "linear", k.dir.Surfaces("linear", m[0]), map[string]string{"linear:ACME-9": "@carol.h "})
 }
 
 // Relays are paused for asks: a squawk with parts reaches no surface.
 func TestSurfacesSkipAsks(t *testing.T) {
 	k := newRelayKit(t)
-	ch, _ := k.ic.HomeChannel(k.ticket)
+	ch, _ := k.ticketChannel()
 	ev := intercom.AskEvent{Event: intercom.AskEventAsk, Question: "Merge?", Options: []intercom.AskOption{{ID: "yes", Label: "Yes"}, {ID: "no", Label: "No"}}}
 	m, err := k.ic.PostTrusted(ch, intercom.Squawk{From: ident.ID(k.ticket.ActorID), Body: "asked: Merge?", Parts: []intercom.Part{intercom.AskPart(ev)}})
 	if err != nil {
@@ -538,7 +524,7 @@ func TestSurfacesPushAsk(t *testing.T) {
 	k.dir.pushOn = true
 	devs := k.subscribe(k.alice.ID, "a1")
 	k.subscribe(k.bob.ID, "b1")
-	ch, _ := k.ic.HomeChannel(k.ticket)
+	ch, _ := k.ticketChannel()
 	for _, u := range []ident.ID{k.alice.ID, k.bob.ID} {
 		if err := k.st.JoinChannel(ch.ID, u, 1); err != nil {
 			t.Fatal(err)
@@ -553,7 +539,7 @@ func TestSurfacesPushAsk(t *testing.T) {
 	want := map[string]string{}
 	pushWant(want, k.alice.ID, devs...)
 	wantSurfaces(t, "an ask on a ticket", k.dir.Surfaces("push", m), want)
-	plain := k.send(k.ticket, "", "just progress")
+	plain := k.send(k.ticket, "ticket:ACME-7", "just progress")
 	wantSurfaces(t, "a ticket message", k.dir.Surfaces("push", plain), nil)
 }
 

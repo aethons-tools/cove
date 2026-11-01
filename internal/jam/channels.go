@@ -317,11 +317,11 @@ func NeedsPerson(i Instance) bool {
 }
 
 // instanceActive reports whether a session is currently reachable: running,
-// raising, or paused. Gone/Lost/Terminating instances are not offered as
-// recipients.
+// raising, paused, or recovering (its messages wait for its re-raise).
+// Gone/Lost/Terminating instances are not offered as recipients.
 func instanceActive(i Instance) bool {
 	switch i.Phase {
-	case PhaseLive, PhaseRaising, PhaseIdled:
+	case PhaseLive, PhaseRaising, PhaseIdled, PhaseRecovering:
 		return true
 	}
 	return false
@@ -331,7 +331,7 @@ func instanceActive(i Instance) bool {
 // live presence for the Active bucket.
 func activePhase(phase string) bool {
 	switch Phase(phase) {
-	case PhaseLive, PhaseRaising, PhaseIdled:
+	case PhaseLive, PhaseRaising, PhaseIdled, PhaseRecovering:
 		return true
 	}
 	return false

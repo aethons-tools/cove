@@ -332,7 +332,7 @@ func TestRaiseContextCarriesUnit(t *testing.T) {
 	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Unit: "AET-9", Prompt: "P"}); err != nil {
 		t.Fatal(err)
 	}
-	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "posts to your ticket") {
+	if c := fl.gotSpec.Context; c == nil || !strings.Contains(c.Core, "Your ticket: keep it current") {
 		t.Fatalf("want ticket default with a unit: %+v", c)
 	}
 }
@@ -431,6 +431,9 @@ func TestReportDoneTearsDown(t *testing.T) {
 	f := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, f)
 	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	if err := sup.SetEndRequested("w1", "finished"); err != nil { // asked to end: Done ends it
+		t.Fatal(err)
+	}
 	if err := sup.Report(context.Background(), "w1", ActivityDone); err != nil {
 		t.Fatal(err)
 	}
@@ -666,10 +669,13 @@ func TestReconcileLostKeepsState(t *testing.T) {
 	}
 }
 
+// A session raised before recovery existed (Recoverable unset) is reaped when
+// found dead; a recoverable one recovers (recovery_test.go).
 func TestReconcileReapsExpiredDead(t *testing.T) {
 	f := &fakeLauncher{liveness: LivenessDead}
 	sup, store, clk := supTestKit(t, f)
 	sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest"})
+	sup.patchInstance("w1", func(i *Instance) { i.Recoverable = false })
 	*clk = clk.Add(2 * time.Minute) // lease (60s) now expired
 	if err := sup.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
@@ -864,6 +870,7 @@ func TestReconcileResumesTerminating(t *testing.T) {
 			t.Fatal("expected instance after raise")
 		}
 		inst.Phase = PhaseLost
+		inst.Recoverable = false // a legacy session; a recoverable one recovers
 		if err := store.PutInstance(inst); err != nil {
 			t.Fatal(err)
 		}

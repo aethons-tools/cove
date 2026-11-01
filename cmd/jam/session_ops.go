@@ -60,6 +60,10 @@ func (o sessionOps) Teardown(ctx context.Context, actorID string) error {
 	return o.sup.Teardown(ctx, actorID)
 }
 
+func (o sessionOps) Restart(ctx context.Context, actorID string) error {
+	return o.sup.Restart(ctx, actorID)
+}
+
 func (o sessionOps) Upgrade(inst jam.Instance) (string, error) {
 	res, err := jam.UpgradeStanding(o.store, o.sup, jam.ProjectName(o.store, inst.Project), inst.Role, inst.Name, false)
 	if err != nil {

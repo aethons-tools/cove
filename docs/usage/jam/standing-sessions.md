@@ -99,7 +99,7 @@ The reconciler removes it on its next pass (standing ids are Jam's own) and
 raises the session normally, rather than failing "already exists" from then on.
 
 A standing studio is **resident**, like a personal session: it waits after every
-turn instead of ending, and it is never torn down for `wait-max` (see
+turn instead of ending, and it is never torn down for waiting (see
 [coves.md](coves.md#jam-studio-agent-the-in-cove-client) and
 [intercom.md](intercom.md#waiting-for-a-reply-wake-on)). Past the `warm-timeout`
 it is still paused and woken on a reply. It gets **no idle nags** and is never

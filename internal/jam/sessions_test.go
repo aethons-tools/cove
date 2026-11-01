@@ -29,6 +29,11 @@ func (f *fakeSessionAlloc) GrantPersonal(_ context.Context, project, role, id, o
 	return f.granted, f.grantErr
 }
 
+func (f *fakeSessionAlloc) GrantEphemeral(_ context.Context, project, role, id string) (bool, error) {
+	f.grants = append(f.grants, project+"/"+role+"/"+id+"/")
+	return f.granted, f.grantErr
+}
+
 func (f *fakeSessionAlloc) RecordRelease(_ context.Context, project, role, id string) error {
 	f.releases = append(f.releases, project+"/"+role+"/"+id)
 	return nil

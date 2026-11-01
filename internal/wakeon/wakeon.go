@@ -146,11 +146,12 @@ type ReportRecorder interface {
 // tracker can't freeze the wake-on tick.
 const blockTimeout = 15 * time.Second
 
+// Config tunes the engine. MaxWait is deprecated and ignored: no session is
+// torn down for waiting (serve warns when wait-max is set).
 type Config struct{ PollInterval, MaxWait, WarmTimeout time.Duration }
 
 const (
 	defaultPollInterval = 15 * time.Second
-	defaultMaxWait      = 30 * time.Minute
 	defaultWarmTimeout  = 60 * time.Second
 	// defaultKickDelay is how long a Kick waits before its tick, so a burst
 	// of appends (a relay batch, a busy channel) is answered by one sweep.
@@ -209,9 +210,6 @@ type Engine struct {
 func New(reg Registry, wake Waker, reap Reaper, idler Idler, inbox Inbox, cfg Config, log *slog.Logger) *Engine {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = defaultPollInterval
-	}
-	if cfg.MaxWait <= 0 {
-		cfg.MaxWait = defaultMaxWait
 	}
 	if cfg.WarmTimeout <= 0 {
 		cfg.WarmTimeout = defaultWarmTimeout
@@ -373,20 +371,9 @@ func (e *Engine) tick(ctx context.Context) {
 		if inst.Activity != jam.ActivityWaiting {
 			continue
 		}
-		// A resident session (personal or standing) waits for as long as it
-		// takes: it is never reaped for waiting (it is still idled and woken
-		// below). A personal one ends when its owner releases it, a standing one
-		// when an operator dismisses it. With an idle deadline armed, the role's
-		// on-idle action decides instead, and an alarm is itself a wake
-		// condition; wait-max is the backstop when neither is set.
-		if !jam.IsResident(inst.SessionKind) && !e.idleArmed(inst) && !(e.alarms != nil && len(inst.Alarms) > 0) &&
-			!inst.WaitingSince.IsZero() && e.now().Sub(inst.WaitingSince) > e.cfg.MaxWait && !e.tunnelsInUse(inst) {
-			e.blockUnfinished(ctx, inst, "wait-max")
-			if err := e.reap.Teardown(ctx, inst.ActorID); err != nil {
-				e.log.Warn("wakeon: teardown (max-wait) failed", "actor", inst.ActorID, "error", err.Error())
-			}
-			continue
-		}
+		// No session is torn down for waiting, whatever its kind: one waiting
+		// for help keeps its studio and its work. The role's idle timeout and
+		// on-idle action (fireIdle), end, and operators end sessions.
 		if e.runGates(ctx, inst) {
 			continue // resumed to run a gate; it runs on a later tick
 		}

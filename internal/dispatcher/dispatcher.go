@@ -62,15 +62,16 @@ const defaultPollInterval = 30 * time.Second
 // turnEndProtocol tells a ticket studio how it finishes (see
 // docs/usage/jam/turn-end.md#reporting-a-ticket): it owns its branch and PR
 // through merge, reports the ticket's state with `report`, and ends with
-// `end`. The cove's agent wrapper reads no result file.
+// `end` only once its work has landed; when stuck it waits for people rather
+// than exiting. The cove's agent wrapper reads no result file.
 const turnEndProtocol = `---
 Your task is described above. Do the work in this repository: make the changes and run the project's tests.
 You own this ticket through merge:
 - Work on a branch, push it, and open a pull request yourself (gh pr create).
 - Use the intercom ` + "`report`" + ` tool to keep the ticket's state current: in-review with the PR link once it is up, needs-input with your question when you are blocked on a person, blocked if you cannot proceed, done once it has merged.
 - While the PR is open, set an alarm (` + "`alarm_set`" + `) whose gate checks the PR (new review comments, failing CI, branch behind main, merged) so you are woken only when there is something to do; address review comments and keep the branch mergeable.
-- When the ticket is finished (merged, reported done), call ` + "`end`" + ` as your last action.
-If you need a person, ask with ` + "`send`" + ` and end your turn; their reply wakes you.`
+- Call ` + "`end`" + ` only once your work has landed (merged, reported done). Never end with work that is not pushed.
+If you need a person, ` + "`call_in`" + ` them into your channel (or ` + "`send`" + ` to them) and end your turn: their reply wakes you. If you are stuck, report needs-input or blocked and wait; escalation brings people to you.`
 
 type Dispatcher struct {
 	tracker  Tracker

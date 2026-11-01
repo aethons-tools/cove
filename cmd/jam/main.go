@@ -2512,6 +2512,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// tickets moves a ticket session's ticket (POST /report, and blocked on an
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
+	sup.SetTicketBlocker(tickets) // every teardown blocks an unfinished ticket
 	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml, att: att, boards: boards}, dc != nil, tickets, previewURL, log)
 	if cfg.Metrics != nil {
 		tok, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Metrics.TokenCred]})
@@ -2580,7 +2581,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	}()
 	go eng.Run(context.Background())
-	log.Info("Jam wake-on engine: resident", "wait-max", wcfg.MaxWait)
+	log.Info("Jam wake-on engine: resident")
+	if wcfg.MaxWait > 0 {
+		log.Warn("wait-max is deprecated and ignored: no session is torn down for waiting (use a role's idle timeout)", "wait-max", wcfg.MaxWait)
+	}
 
 	// Relay state shared by the Linear, Discord and push relay engines (one cursors
 	// file, one markers file, one directory). Every directory field is set

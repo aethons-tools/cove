@@ -69,7 +69,7 @@ func attention(store jam.Store, img jam.ImageResolver) []attnItem {
 		inst, _ := store.GetInstance(c.ID)
 		var broken, stale []string
 		switch jam.Phase(c.Phase) {
-		case jam.PhaseLost, jam.PhaseTerminating:
+		case jam.PhaseLost, jam.PhaseTerminating, jam.PhaseRecovering:
 			broken = append(broken, c.Phase)
 		}
 		if inst.EgressFailures > 0 {

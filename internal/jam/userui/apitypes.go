@@ -323,14 +323,15 @@ type SessionHead struct {
 	Card       SessionCard `json:"card"`
 	SSH        string      `json:"ssh"` // the copyable command; "" = not allowed
 	CanRelease bool        `json:"canRelease"`
-	CanRestart bool        `json:"canRestart"`
+	CanRestart bool        `json:"canRestart"` // restart its studio, keeping the session (operators, every kind)
+	CanEnd     bool        `json:"canEnd"`     // end it for good (operators; a personal session ends by Release)
 	CanUpgrade bool        `json:"canUpgrade"`
 	Ops        bool        `json:"ops"` // the session actions are wired
 	// CanInterrupt, CanCompact, CanClear: shown whenever Ops is set; disabled when false.
 	CanInterrupt bool   `json:"canInterrupt"`
 	CanCompact   bool   `json:"canCompact"`
 	CanClear     bool   `json:"canClear"`
-	RestartLabel string `json:"restartLabel"` // Restart (standing) or End
+	RestartLabel string `json:"restartLabel"` // always "Restart" (kept for older clients)
 	UpgradeState string `json:"upgradeState"`
 }
 

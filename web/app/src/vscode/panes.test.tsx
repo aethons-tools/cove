@@ -27,7 +27,7 @@ const signedIn = (target: PaneState["target"]): PaneState => ({ signedIn: true, 
 const head = (id: string, over: Partial<SessionHead> = {}): SessionHead => ({
   id, label: "spider", kind: "standing", ticket: "", role: "r", project: "p", owner: "",
   state: { label: "x", text: "is running", tool: "", class: "idle" }, since: "", openAsks: 0, cost: "", turnCost: "", tokens: "",
-  context: "", contextTip: "", uptime: "", mission: "", ssh: "", canRelease: false, canRestart: false, canUpgrade: false,
+  context: "", contextTip: "", uptime: "", mission: "", ssh: "", canRelease: false, canRestart: false, canEnd: false, canUpgrade: false,
   ops: true, canInterrupt: true, canCompact: false, canClear: false, restartLabel: "Restart", upgradeState: "", channel: "chn_a", card: card({ session: id, name: "card-spider" }), ...over,
 });
 const pane = (id: string, tab: string, over: Partial<SessionPane> = {}): SessionPane => ({

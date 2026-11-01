@@ -28,6 +28,8 @@ func cardOf(inst jam.Instance, st sessionevents.Status, known bool, inits int, t
 	switch inst.Phase {
 	case jam.PhaseRaising:
 		return set(CardThinking, "starting")
+	case jam.PhaseRecovering:
+		return set(CardThinking, "recovering")
 	case jam.PhaseIdled:
 		if jam.NeedsPerson(inst) && inst.Activity != jam.ActivityBlocked {
 			return set(CardSleeping, "needs you")

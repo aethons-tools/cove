@@ -152,8 +152,11 @@ func (fs *MemStore) RemoveStandingSession(project ident.ID, role, name string) e
 // session id, with label — the operator's --id — as its name, unique among
 // live sessions so it can address the session (ResolveSession) and be reused
 // once the session ends; a reused label is a new session that inherits
-// nothing. spec's ActorID and Name are set here.
-func RaiseManual(ctx context.Context, store Store, sup *Supervisor, label string, spec RaiseSpec) (Instance, string, string, string, error) {
+// nothing. spec's ActorID and Name are set here. It takes an ephemeral grant
+// from alloc first (nil: none is taken), like every other raise, so the
+// role's cap counts it; a denied grant is a 409, and a failed raise releases
+// the grant.
+func RaiseManual(ctx context.Context, store Store, sup *Supervisor, alloc SessionAllocator, label string, spec RaiseSpec) (Instance, string, string, string, error) {
 	if label == "" {
 		return Instance{}, "", "", "", writeErr(http.StatusBadRequest, "id (the session's label) is required")
 	}
@@ -162,7 +165,23 @@ func RaiseManual(ctx context.Context, store Store, sup *Supervisor, label string
 	}
 	defer sup.releaseLabel(label)
 	spec.ActorID, spec.Name = string(ident.New(ident.Session)), label
+	if alloc != nil {
+		project := orDefaultProject(spec.Project)
+		granted, err := alloc.GrantEphemeral(ctx, project, spec.Role, spec.ActorID)
+		if err != nil {
+			return Instance{}, "", "", "", writeErr(http.StatusBadGateway, "allocation failed: %s", err.Error())
+		}
+		if !granted {
+			return Instance{}, "", "", "", writeErr(http.StatusConflict, "role %s is at its session cap", spec.Role)
+		}
+	}
 	inst, tok, secret, err := sup.Raise(ctx, spec)
+	if err != nil && alloc != nil {
+		// Grant, then raise, then compensate: free the reserved slot.
+		if rerr := alloc.RecordRelease(context.WithoutCancel(ctx), orDefaultProject(spec.Project), spec.Role, spec.ActorID); rerr != nil && sup.log != nil {
+			sup.log.Warn("manual raise: compensating release failed", "id", spec.ActorID, "err", rerr.Error())
+		}
+	}
 	return inst, spec.ActorID, tok, secret, err
 }
 

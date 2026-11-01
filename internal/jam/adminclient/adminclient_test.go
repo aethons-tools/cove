@@ -560,6 +560,9 @@ type grantAll struct{ releases int }
 func (*grantAll) GrantPersonal(context.Context, string, string, string, string) (bool, error) {
 	return true, nil
 }
+func (*grantAll) GrantEphemeral(context.Context, string, string, string) (bool, error) {
+	return true, nil
+}
 func (g *grantAll) RecordRelease(context.Context, string, string, string) error {
 	g.releases++
 	return nil

@@ -23,7 +23,7 @@ raise (run → report → teardown).
    matching `dispatch-label-prefix` (default `dispatch:`). Only tickets
    explicitly tagged for dispatch are worked; an unlabeled READY backlog is left
    alone. Presence-only — the value after the prefix is unused.
-3. **Dedup** — skip any issue that already has a live session on it (an Instance
+3. **Dedup** — skip any issue that already has a live or recovering session on it (an Instance
    whose unit is the ticket), so a ticket is never raised twice. Each dispatch
    starts a new session (a minted `ses_…` id): a re-dispatch after the earlier
    one ended does not inherit its inbox.
@@ -38,8 +38,9 @@ raise (run → report → teardown).
    crash between claim and raise leaves the ticket claimed (recoverable), never
    double-raised. The transition also drops it from the next `ListReady`.
 6. **Raise** — set the session's starting [mission](intercom.md#what-the-tools-do) to the issue's title, then build the prompt (the issue brief + the turn-end protocol: own the
-   branch and PR through merge, keep the ticket current with `report`, finish with
-   `end` — see [turn-end.md](turn-end.md#reporting-a-ticket)) and call the supervisor's raise
+   branch and PR through merge, keep the ticket current with `report`, `end` only
+   once the work has landed, and wait for people rather than exit when stuck —
+   see [turn-end.md](turn-end.md#reporting-a-ticket)) and call the supervisor's raise
    with `role`/`project` from config and `unit = <ticket key>` (`AET-42`; GitHub
    `owner/repo#<n>`). On a raise
    failure the issue is moved to NEEDS INPUT (surfaced, not silently retried).
@@ -79,8 +80,8 @@ Set **exactly one** of `linear:` or `github:`; serve refuses to start otherwise
 to the tracker block's when unset (GitHub's; a Linear block's `poll-interval` is
 not read).
 
-The block also accepts `wake-poll-interval`, `wait-max`, and `warm-timeout` (the
-wake-on engine) and `escalation-poll-interval` (the escalation engine). These are now a
+The block also accepts `wake-poll-interval`, `wait-max` (deprecated and ignored),
+and `warm-timeout` (the wake-on engine) and `escalation-poll-interval` (the escalation engine). These are now a
 **fallback**: the matching `runtime.wake` field, or `runtime.escalation-poll-interval`,
 wins when set — see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) and
 [escalation.md](escalation.md). The Requisitioner also brings the tracker relay (Linear or GitHub comments), which

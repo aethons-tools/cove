@@ -85,15 +85,14 @@ func (ic *Intercom) Escalate(_ context.Context, inst Instance, tier int, categor
 	if category != "" {
 		why += ", " + category
 	}
-	subject, after := "from "+sessionLabel(inst), ""
-	if ch.Kind == SourceTicket {
-		subject = "on " + inst.Unit
-		after = " Replies here go to " + inst.Unit + "'s conversation, its issue included."
+	subject := "from " + sessionLabel(inst)
+	if inst.Unit != "" {
+		subject += " on " + inst.Unit
 	}
 	note := intercom.Squawk{
 		ID:          fmt.Sprintf("%s%s:%d:%d:%s", escalationPrefix, inst.ActorID, tier, time.Now().UnixNano(), strings.Join(ids, ",")),
 		From:        ident.ID(inst.ActorID),
-		Body:        fmt.Sprintf("Needs input %s — called in %s (%s).%s", subject, strings.Join(names, ", "), why, after),
+		Body:        fmt.Sprintf("Needs input %s — called in %s (%s).", subject, strings.Join(names, ", "), why),
 		ContentType: intercom.ContentPlain,
 	}
 	_, err = ic.PostTrusted(ch, note)

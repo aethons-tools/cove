@@ -901,3 +901,17 @@ func TestRunNeverReadsWorkerResult(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// An ephemeral session's wake text doesn't assume a ticket: a manual raise has
+// none, and a ticket session posts to its own channel like any other.
+func TestResumeTextEphemeralNeutral(t *testing.T) {
+	got := New(Config{}, nil).resumeText()
+	for _, want := range []string{"`read`", "own channel"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("resume text missing %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "`end` when the ticket is finished") || strings.Contains(got, "arrived on your ticket") {
+		t.Errorf("resume text assumes a ticket: %q", got)
+	}
+}

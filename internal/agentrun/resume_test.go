@@ -35,8 +35,8 @@ func TestStandingFirstEpisodeResumesWithMarker(t *testing.T) {
 	if len(f.calls) != 1 || !hasArg(f.calls[0].args, "--continue") {
 		t.Fatalf("first episode must --continue: %+v", f.calls)
 	}
-	if got := f.calls[0].in.next(t); got != standingRestartPrompt {
-		t.Fatalf("first prompt = %q; want standingRestartPrompt", got)
+	if got := f.calls[0].in.next(t); got != restartPrompt {
+		t.Fatalf("first prompt = %q; want restartPrompt", got)
 	}
 }
 
@@ -170,31 +170,33 @@ func TestStreamLogRotatesOverCap(t *testing.T) {
 	}
 }
 
-// Ephemeral and personal sessions never continue a prior conversation, marker
-// or not, and never write one.
-func TestNonStandingNeverContinues(t *testing.T) {
+// Every kind of session restarted over its persisted /agent-data resumes its
+// conversation (uniform sessions): with the marker its first episode runs
+// --continue with the restart prompt, and a fresh one writes the marker once
+// the agent replies.
+func TestEveryKindResumesConversation(t *testing.T) {
 	for _, kind := range []string{"", "ephemeral", "personal"} {
-		for _, present := range []bool{false, true} {
-			dir := t.TempDir()
-			marker := filepath.Join(dir, ".cove-conversation")
-			if present {
-				if err := os.WriteFile(marker, nil, 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			f := &scriptedSpawner{dir: dir}
-			if err := runEpisodes(conversationWL(t, dir, kind, marker, f), &recordHandle{}, 1); err != nil {
-				t.Fatal(err)
-			}
-			if hasArg(f.calls[0].args, "--continue") {
-				t.Fatalf("%q (marker=%v): first episode must not --continue", kind, present)
-			}
-			if got := f.calls[0].in.next(t); got != "p" {
-				t.Fatalf("%q: first prompt = %q", kind, got)
-			}
-			if _, err := os.Stat(marker); !present && err == nil {
-				t.Fatalf("%q: must not write a marker", kind)
-			}
+		dir := t.TempDir()
+		marker := filepath.Join(dir, ".cove-conversation")
+		if err := os.WriteFile(marker, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		f := &scriptedSpawner{dir: dir}
+		if err := runEpisodes(conversationWL(t, dir, kind, marker, f), &recordHandle{}, 1); err != nil {
+			t.Fatal(err)
+		}
+		if !hasArg(f.calls[0].args, "--continue") || f.calls[0].in.next(t) != restartPrompt {
+			t.Fatalf("%q: first episode must --continue with the restart prompt: %+v", kind, f.calls[0].args)
+		}
+
+		fresh := t.TempDir()
+		marker = filepath.Join(fresh, ".cove-conversation")
+		g := &scriptedSpawner{dir: fresh, lines: [][]string{{assistantLine}}}
+		if err := runEpisodes(conversationWL(t, fresh, kind, marker, g), &recordHandle{}, 1); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("%q: a replying session must write its marker", kind)
 		}
 	}
 }

@@ -13,7 +13,7 @@ const head = (over: Partial<SessionHead> = {}): SessionHead => ({
   state: { label: "intercom-spider", text: "is running", tool: "Bash", class: "busy" }, since: "4m", openAsks: 2,
   cost: "$1.20", turnCost: "$0.10", tokens: "1,200 in / 300 out tokens", context: "ctx 84k / 200k · 42%",
   contextTip: "context: 84,300 of 200,000 tokens (claude-x)", uptime: "2h 5m", mission: "Jam SPA slice 5", ssh: "jam ssh ses_1",
-  canRelease: false, canRestart: true, canUpgrade: true, ops: true,
+  canRelease: false, canRestart: true, canEnd: true, canUpgrade: true, ops: true,
   canInterrupt: true, canCompact: false, canClear: true, restartLabel: "Restart", upgradeState: "", channel: "chn_s", card: card(), ...over,
 });
 const pane = (tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
@@ -74,7 +74,7 @@ describe("the session header", () => {
     expect(await screen.findByRole("menuitem", { name: "Compact" })).toBeDisabled();
     await user.click(screen.getByRole("menuitem", { name: "Restart" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Restart intercom-spider?")).toBeInTheDocument();
+    expect(within(dialog).getByText(/^Restart intercom-spider\? Its studio restarts/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(posts).toEqual(["interrupt"]);
@@ -84,10 +84,16 @@ describe("the session header", () => {
     expect(within(d2).getByText(/forgets the conversation/)).toBeInTheDocument();
     await user.click(within(d2).getByRole("button", { name: "Clear" }));
     await waitFor(() => expect(posts).toEqual(["interrupt", "clear"]));
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "End" }));
+    const d3 = await screen.findByRole("dialog");
+    expect(within(d3).getByText(/for good/)).toBeInTheDocument();
+    await user.click(within(d3).getByRole("button", { name: "End" }));
+    await waitFor(() => expect(posts).toEqual(["interrupt", "clear", "end"]));
   });
 
   it("shows only what the viewer may do", async () => {
-    serve(head({ ops: false, canRestart: false, canUpgrade: false, ssh: "" }));
+    serve(head({ ops: false, canRestart: false, canEnd: false, canUpgrade: false, ssh: "" }));
     renderApp(boot, "/app/user/c/chn_s");
     await screen.findByRole("region", { name: "Session" });
     for (const name of ["Interrupt", "More actions", "Copy SSH"]) expect(screen.queryByRole("button", { name })).toBeNull();

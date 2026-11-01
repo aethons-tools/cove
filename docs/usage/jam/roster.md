@@ -70,7 +70,8 @@ jam role rm   [--project acme] guest
   ephemeral studios.
 - `--kit` binds a registered kit by name (optional; [kits.md](kits.md)); `--model-spec` binds a [model-spec](model-specs.md#binding-a-role) by name (must exist; empty = `claude-default`); `role list` shows `model-spec=…`.
 - `--max-ephemeral N` is the role's **allocation policy**: the cap on its
-  concurrent ephemeral (Requisitioner-raised) sessions. Jam's Allocator reads it
+  concurrent ephemeral sessions — Requisitioner-raised and manual
+  (`studio raise`, the admin UI) alike. Jam's Allocator reads it
   live from the roster on each grant, so an edit applies on the next grant with no
   restart. `0` (the default) = unset — the Requisitioner's `max-concurrent` applies
   as the fallback ([requisitioner.md](requisitioner.md#config-runtimerequisitioner)).

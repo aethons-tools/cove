@@ -69,6 +69,11 @@ type RaiseSpec struct {
 	// always sets it; the launcher stages it for jam-studio-agent, which delivers
 	// its core as an appended system prompt every turn.
 	Context *sessionctx.Bundle
+	// recovering marks a recovery's re-raise (reraise): its record is
+	// written only while the stored one is still recovering — an End,
+	// reset or dismissal that landed meanwhile wins, and the new studio
+	// and identity are rolled back.
+	recovering bool
 	// DraftImage, set by Supervisor.Raise for a draft studio
 	// (docs/usage/jam/kits-drafts.md#draft-studio), is the test build's image
 	// the launcher runs (by id) instead of the kit inventory's. nil for every
@@ -255,6 +260,7 @@ type Supervisor struct {
 	tail      tailReader
 	released  Releaser
 	channels  SessionChannels
+	tickets   TicketBlocker // nil = teardown leaves tickets as they are
 	// defaultStudioKit is the studio kit a raise runs from when its role names no
 	// kit (its light reference). nil leaves such a raise with no kit (hermetic
 	// tests, no kit wiring). Set once at wiring via SetDefaultStudioKit; the full
@@ -337,6 +343,42 @@ func (s *Supervisor) SetReleaser(r Releaser) { s.released = r }
 type SessionChannels interface {
 	SetUp(inst Instance) error
 	Ended(inst Instance) error
+}
+
+// TicketBlocker marks a ticket session's ticket blocked when it ends without
+// a final report (cmd/jam's tracker ticketer; a no-op for a ticketless or
+// terminally-reported session).
+type TicketBlocker interface {
+	BlockUnfinished(ctx context.Context, inst Instance, reason string) error
+}
+
+// ticketBlockTimeout bounds the tracker call a teardown makes, so a stalled
+// tracker can't hold a teardown up.
+const ticketBlockTimeout = 15 * time.Second
+
+// SetTicketBlocker has every teardown of a ticket session without a terminal
+// report first mark its ticket blocked, and record that as its report. Call
+// before serving.
+func (s *Supervisor) SetTicketBlocker(t TicketBlocker) { s.tickets = t }
+
+// blockUnfinished marks inst's ticket blocked before it is torn down
+// (best-effort, time-bounded: a failure is logged and the teardown goes
+// ahead), recording the blocked report so a retried teardown doesn't mark it
+// again.
+func (s *Supervisor) blockUnfinished(ctx context.Context, inst Instance, reason string) {
+	if s.tickets == nil || inst.Unit == "" || (inst.Report != nil && inst.Report.Terminal()) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ticketBlockTimeout)
+	defer cancel()
+	if err := s.tickets.BlockUnfinished(ctx, inst, reason); err != nil {
+		if s.log != nil {
+			s.log.Warn("teardown: mark ticket blocked failed; tearing down anyway", "id", inst.ActorID, "ticket", inst.Unit, "err", err.Error())
+		}
+		return
+	}
+	r := TicketReport{State: ReportBlocked, Summary: "session ended without a final report: " + reason, At: s.now()}
+	s.patchInstance(inst.ActorID, func(i *Instance) { i.Report = &r })
 }
 
 // SetSessionChannels wires the intercom in. Best effort: a failure is logged
@@ -523,7 +565,8 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	inst := Instance{
 		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit,
 		Owner: spec.Owner, OwnerID: spec.OwnerID, Name: spec.Name, SessionKind: spec.SessionKind,
-		Mission: NormalizeStatusLine(spec.Mission),
+		Mission:     NormalizeStatusLine(spec.Mission),
+		Recoverable: true, RaisePrompt: spec.Prompt,
 		Manager: placed.Manager, Location: placed.Location, Phase: PhaseLive, Activity: ActivityRunning,
 		Lease:            Lease{Holder: s.holder, Expiry: now.Add(s.ttl)},
 		LaunchSecretHash: HashToken(secret),
@@ -540,7 +583,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	if draft != nil {
 		inst.KitDraft, inst.ImageTag, inst.KitDraftImage = &draft.ref, draft.image.Tag, draft.image.ID
 	}
-	if err := s.store.PutInstance(inst); err != nil {
+	if err := s.putRaised(inst, spec.recovering); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
 			s.log.Warn("raise rollback: failed to tear down launched cove", "id", spec.ActorID, "error", tdErr)
 		}
@@ -574,6 +617,25 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		s.log.Info("cove raised", "id", spec.ActorID, "project", inst.Project, "role", spec.Role, "phase", string(inst.Phase))
 	}
 	return inst, tok, secret, nil
+}
+
+// errRecoveryOvertaken is a re-raise whose session was ended (or otherwise
+// stopped recovering) while it was in flight.
+var errRecoveryOvertaken = errors.New("the session stopped recovering during its re-raise")
+
+// putRaised records a raised instance. A recovery's re-raise writes it only
+// while the stored record is still recovering (under instMu, so a Teardown's
+// patch can't interleave); otherwise errRecoveryOvertaken.
+func (s *Supervisor) putRaised(inst Instance, recovering bool) error {
+	if !recovering {
+		return s.store.PutInstance(inst)
+	}
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	if cur, ok := s.store.GetInstance(inst.ActorID); !ok || cur.Phase != PhaseRecovering {
+		return errRecoveryOvertaken
+	}
+	return s.store.PutInstance(inst)
 }
 
 // kitFor resolves the studio kit a raise for role runs, for harness install h
@@ -972,7 +1034,7 @@ func (s *Supervisor) prepareKitAndRetry(ctx context.Context, manager string, spe
 		if s.log != nil {
 			s.log.Info("kit preparing; deferring raise to reconcile", "id", spec.ActorID, "kit", spec.Kit.String())
 		}
-		return Placed{}, KitDefinition{}, fmt.Errorf("kit %s is preparing; deferring", spec.Kit)
+		return Placed{}, KitDefinition{}, kitPreparingError{spec.Kit}
 	}
 	if s.log != nil {
 		s.log.Info("kit prepared; retrying raise", "id", spec.ActorID, "kit", spec.Kit.String())
@@ -1033,8 +1095,8 @@ func (s *Supervisor) Heartbeat(actorID string) error {
 	if !ok {
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
-	if inst.Phase == PhaseGone {
-		return fmt.Errorf("instance %q is gone", actorID)
+	if inst.Phase == PhaseGone || inst.Phase == PhaseRecovering {
+		return fmt.Errorf("instance %q is %s", actorID, inst.Phase)
 	}
 	now := s.now()
 	inst.LastSeen = now
@@ -1050,8 +1112,14 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	if err != nil {
 		return err
 	}
-	if inst.Phase == PhaseTerminating {
+	switch {
+	case inst.Phase == PhaseTerminating:
 		return s.Teardown(ctx, actorID)
+	case a == ActivityDone && inst.Phase == PhaseLost:
+		// Its agent exited without asking to end (a teardown in flight
+		// would be Terminating): recover the session. Marked Lost first, so
+		// a failure here is retried by Reconcile.
+		return s.markRecovering(ctx, inst, "agent exited")
 	}
 	return nil
 }
@@ -1064,8 +1132,9 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 	if !ok {
 		return Instance{}, fmt.Errorf("no instance for actor %q", actorID)
 	}
-	if inst.Phase == PhaseGone {
-		return Instance{}, fmt.Errorf("instance %q is gone", actorID)
+	if inst.Phase == PhaseGone || inst.Phase == PhaseRecovering {
+		// A recovering session's dead studio may still be reporting.
+		return Instance{}, fmt.Errorf("instance %q is %s", actorID, inst.Phase)
 	}
 	now := s.now()
 	enteringWaiting := a == ActivityWaiting && inst.Activity != ActivityWaiting
@@ -1120,7 +1189,12 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 		inst.Nags = 0
 	}
 	if a == ActivityDone {
-		inst.Phase = PhaseTerminating
+		switch {
+		case inst.Phase != PhaseTerminating && recoverable(inst):
+			inst.Phase = PhaseLost // Report recovers it; Reconcile retries a failed recovery
+		default:
+			inst.Phase = PhaseTerminating
+		}
 	}
 	return inst, s.store.PutInstance(inst)
 }
@@ -1597,6 +1671,7 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	if s.tunnels != nil {
 		s.tunnels.CloseAll(actorID)
 	}
+	s.blockUnfinished(ctx, inst, "session torn down")
 	if inst.Phase != PhaseTerminating && inst.Phase != PhaseLost {
 		inst.Phase = PhaseTerminating
 		s.patchInstance(actorID, func(i *Instance) {
@@ -1722,6 +1797,20 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		if inst.Phase == PhaseGone {
 			continue
 		}
+		if inst.Phase == PhaseRecovering {
+			if s.ownsDecision(inst, now) {
+				s.recoverDue(ctx, inst, now)
+			}
+			continue
+		}
+		if inst.Phase == PhaseLost && s.recoverableHere(inst) {
+			// Declared Lost but its recovery didn't start (a launcher
+			// failure): try again.
+			if err := s.markRecovering(ctx, inst, "lost"); err != nil && s.log != nil {
+				s.log.Warn("reconcile: recovering a lost session failed", "id", inst.ActorID, "err", err.Error())
+			}
+			continue
+		}
 		if inst.Phase == PhaseIdled {
 			// Paused on purpose: the wake-on engine owns its lifecycle
 			// (resume/teardown), unless its manager is gone.
@@ -1755,6 +1844,12 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		live, err := s.launcher.Probe(ctx, inst)
 		if err != nil || live == LivenessDead {
 			s.patchInstance(inst.ActorID, func(c *Instance) { c.Phase = PhaseLost })
+			if s.recoverableHere(inst) {
+				if rerr := s.markRecovering(ctx, inst, "lost"); rerr != nil && s.log != nil {
+					s.log.Warn("reconcile: recovering a lost session failed", "id", inst.ActorID, "err", rerr.Error())
+				}
+				continue
+			}
 			if derr := s.Teardown(ctx, inst.ActorID); derr != nil && s.log != nil {
 				s.log.Warn("reconcile teardown failed", "id", inst.ActorID, "err", derr.Error())
 			}

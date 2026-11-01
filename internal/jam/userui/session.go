@@ -28,6 +28,9 @@ type SessionOps interface {
 	Upgrade(inst jam.Instance) (string, error)
 	// UpgradeState is a standing session's pending upgrade ("" none).
 	UpgradeState(inst jam.Instance) string
+	// Restart restarts a session's studio, keeping the session (a standing
+	// one is re-raised by its reconciler, any other recovered).
+	Restart(ctx context.Context, actorID string) error
 	// Command sends a session-control press (interrupt, compact, clear),
 	// resuming a paused session first; by is who pressed it.
 	Command(ctx context.Context, inst jam.Instance, c jam.SessionCommand, by string) error
@@ -100,15 +103,11 @@ func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Insta
 	if h.d.Ops != nil {
 		hd.Ops = true
 		hd.CanRelease = mayRelease(inst, p, op)
-		hd.CanRestart = op
-		hd.RestartLabel = "End"
+		hd.CanRestart, hd.RestartLabel = op, "Restart"
+		hd.CanEnd = op && inst.SessionKind != jam.SessionKindPersonal // Release is how a personal session ends
 		if inst.SessionKind == jam.SessionKindStanding {
-			hd.RestartLabel = "Restart"
 			hd.CanUpgrade = op
 			hd.UpgradeState = h.d.Ops.UpgradeState(inst)
-		}
-		if inst.SessionKind == jam.SessionKindPersonal {
-			hd.CanRestart = false // Release is how a personal session ends
 		}
 		a := jam.CommandActivity(inst)
 		hd.CanInterrupt = jam.CommandAllowed(jam.CmdInterrupt, a)
@@ -208,8 +207,13 @@ func (h *handler) sessionOutcome(r *http.Request, p jam.Participant, inst jam.In
 		}
 		err = h.d.Ops.Teardown(r.Context(), inst.ActorID)
 	case "restart":
-		if !op || inst.SessionKind == jam.SessionKindPersonal {
+		if !op {
 			return http.StatusForbidden, "forbidden", "operators only"
+		}
+		err = h.d.Ops.Restart(r.Context(), inst.ActorID)
+	case "end":
+		if !op || inst.SessionKind == jam.SessionKindPersonal {
+			return http.StatusForbidden, "forbidden", "operators only (a personal session ends by release)"
 		}
 		err = h.d.Ops.Teardown(r.Context(), inst.ActorID)
 	case "upgrade":

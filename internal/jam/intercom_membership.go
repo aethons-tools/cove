@@ -147,9 +147,6 @@ func (ic *Intercom) resolveInvitee(p Poster, project Project, ch Channel, who st
 		}
 		if session && !(found && target.ActorID == p.Session.ActorID) {
 			allowed := found && anyAllowed([]string{"session:" + sessionLabel(target), "session:" + target.ActorID}, globs)
-			if tracker, ok := ic.tracker(); allowed && ok && !sessionTicketAllowed(ic.store, tracker, *p.Session, target, globs) {
-				allowed = false
-			}
 			switch {
 			case allowed:
 			case anyAllowed([]string{"session:" + ref}, globs) && !found:

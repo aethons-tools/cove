@@ -191,7 +191,9 @@ func (w *fakeWorld) Teardown(_ context.Context, id string) error {
 
 // PurgeState refuses state still in use by a live cove, like docker.
 func (w *fakeWorld) PurgeState(_ context.Context, id string) error {
-	if _, live := w.insts[id]; live || w.failPurge[id] {
+	// A container holds the volumes while its instance runs; a recovering
+	// one's studio is gone, so nothing holds them.
+	if inst, live := w.insts[id]; live && inst.Phase != jam.PhaseRecovering || w.failPurge[id] {
 		return errors.New("volume in use")
 	}
 	delete(w.state, id)
@@ -431,6 +433,39 @@ func TestSweep_PurgesUndeclaredState(t *testing.T) {
 	r.Tick(ctx)
 	if !slices.Equal(w.purged, []string{"standing-old-gone-x"}) || !w.state[botID] {
 		t.Fatalf("purged=%v state=%v", w.purged, w.state)
+	}
+}
+
+// Every session keeps state now (uniform sessions): the sweep never purges
+// the state of a session that still has an instance — a live or recovering
+// ticket session — only once it is gone.
+func TestSweep_SkipsLiveSessionsState(t *testing.T) {
+	r, w, _, _ := kit()
+	ctx := context.Background()
+	w.state["ses_worker"] = true
+	w.insts["ses_worker"] = jam.Instance{ActorID: "ses_worker", Project: "acme", Role: "worker", Unit: "AET-1", Phase: jam.PhaseRecovering}
+	r.Tick(ctx)
+	if len(w.purged) != 0 {
+		t.Fatalf("purged %v; a session with an instance keeps its state", w.purged)
+	}
+	delete(w.insts, "ses_worker")
+	r.Tick(ctx)
+	if !slices.Equal(w.purged, []string{"ses_worker"}) {
+		t.Fatalf("purged = %v; want the gone session's state", w.purged)
+	}
+}
+
+// A raise in flight has its identity enrolled and its volumes created before
+// its instance is recorded: the sweep spares state whose session has an
+// identity.
+func TestSweep_SkipsStateOfARaiseInFlight(t *testing.T) {
+	r, w, _, _ := kit()
+	actors := &fakeActors{ids: map[string]bool{"ses_new": true}}
+	r.SetActors(actors)
+	w.state["ses_new"] = true
+	r.Tick(context.Background())
+	if len(w.purged) != 0 {
+		t.Fatalf("purged %v; a session being raised keeps its state", w.purged)
 	}
 }
 

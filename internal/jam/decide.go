@@ -203,13 +203,12 @@ type Target struct {
 // ListTargets returns the actor's allowed-and-resolvable targets: the members,
 // rooms and other live sessions of each grant's project its addressing allows
 // (dedup by kind:name, grant then name order). An expired actor has none.
-// tracker is the tracker connection serve resolved (Intercom.Tracker), which
-// a ticket session's reachability is checked on; nil: TrackerConnection.
+// tracker is the tracker connection serve resolved (Intercom.Tracker); a
+// ticket session is listed like any other, so it is unused for now.
 func ListTargets(store Store, tracker func() (ident.ID, bool), a Actor, now time.Time) []Target {
 	if !a.Expiry.IsZero() && now.After(a.Expiry) {
 		return nil
 	}
-	trackerID, hasTracker := trackerOrDefault(store, tracker)
 	seen := map[string]bool{}
 	var out []Target
 	for _, g := range a.Grants {
@@ -236,9 +235,8 @@ func ListTargets(store Store, tracker func() (ident.ID, bool), a Actor, now time
 				out = append(out, Target{Kind: "channel", Name: c.Key, Project: g.Project})
 			}
 		}
-		self, _ := store.GetInstance(a.ID)
 		for _, inst := range liveSessionsOf(store, p.Name) {
-			if inst.ActorID == a.ID || hasTracker && !sessionTicketAllowed(store, trackerID, self, inst, globs) {
+			if inst.ActorID == a.ID {
 				continue
 			}
 			name := sessionAddressName(store, inst)
@@ -260,25 +258,6 @@ func trackerOrDefault(store Store, tracker func() (ident.ID, bool)) (ident.ID, b
 	}
 	c, ok := TrackerConnection(store)
 	return c.ID, ok
-}
-
-// sessionTicketAllowed reports whether a session whose addressing is globs
-// may reach target where target's home is its ticket (on tracker): no ticket,
-// the poster's own ticket, or a ticket: glob in any form resolveTicket takes
-// — the bare key, or scoped to the tracker connection by name or id.
-func sessionTicketAllowed(store Store, tracker ident.ID, poster, target Instance, globs []string) bool {
-	unit, onTicket := TicketUnit(store, tracker, target.Unit)
-	if !onTicket { // no ticket on tracker: its home is its own session channel
-		return true
-	}
-	if own, ok := TicketUnit(store, tracker, poster.Unit); ok && own == unit {
-		return true
-	}
-	forms := []string{"ticket:" + unit, "ticket:" + string(tracker) + "/" + unit}
-	if c, ok := store.GetConnection(tracker); ok {
-		forms = append(forms, "ticket:"+c.Name+"/"+unit)
-	}
-	return anyAllowed(forms, globs)
 }
 
 // liveSessionsOf lists the live sessions of the project named project, by id.

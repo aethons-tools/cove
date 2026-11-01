@@ -20,6 +20,7 @@ import (
 
 // agentAPI is what the agents API needs beyond the frame source.
 type agentAPI struct {
+	alloc      jam.SessionAllocator // a manual raise takes its grant here
 	sup        *jam.Supervisor
 	msgs       SquawkReader
 	sess       sessionevents.Store
@@ -139,7 +140,7 @@ func apiAgents(api *http.ServeMux, src frameSource, a agentAPI, log *slog.Logger
 			return
 		}
 		label, project, role := strings.TrimSpace(b.ID), strings.TrimSpace(b.Project), strings.TrimSpace(b.Role)
-		sid, err := raiseManual(r.Context(), store, a.sup, label, project, role, strings.TrimSpace(b.Unit), b.Prompt)
+		sid, err := raiseManual(r.Context(), store, a.sup, a.alloc, label, project, role, strings.TrimSpace(b.Unit), b.Prompt)
 		if err != nil {
 			apiFail(w, err, http.StatusBadRequest)
 			return

@@ -219,7 +219,7 @@ describe("the conversation view", () => {
       id: "ses_1", label: "intercom-spider", kind: "standing", ticket: "", role: "jam-ic", project: "test", owner: "",
       state: { label: "intercom-spider", text: "is running", tool: "Bash", class: "busy" }, since: "4m", openAsks: 0,
       cost: "", turnCost: "", tokens: "", context: "", contextTip: "", uptime: "", mission: "", ssh: "jam ssh ses_1",
-      canRelease: false, canRestart: true, canUpgrade: true, ops: true,
+      canRelease: false, canRestart: true, canEnd: true, canUpgrade: true, ops: true,
       canInterrupt: true, canCompact: false, canClear: true, restartLabel: "Restart", upgradeState: "", channel: "chn_a",
     })));
     render(

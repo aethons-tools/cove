@@ -38,7 +38,7 @@ func TestSurfacesNotify(t *testing.T) {
 	k.dir.notifyOn = true
 
 	// An ask naming bob in a ticket channel: not paused for parts.
-	tch, _ := k.ic.HomeChannel(k.ticket)
+	tch, _ := k.ticketChannel()
 	for _, u := range []ident.ID{k.alice.ID, k.bob.ID} {
 		if err := k.st.JoinChannel(tch.ID, u, 1); err != nil {
 			t.Fatal(err)

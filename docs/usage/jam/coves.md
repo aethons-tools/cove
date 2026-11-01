@@ -25,14 +25,17 @@ A managed studio has a durable **identity** (a roster [Actor](roster.md) — tok
 grants) and a runtime **Instance** keyed by that actor's id. The Instance carries
 two status fields with different owners:
 
-- **Phase** (Jam owns it): `raising → live → terminating → gone`, or
-  `→ lost → terminating` when the reconciler finds it dead. A `live` studio
+- **Phase** (Jam owns it): `raising → live → terminating → gone`, or, when its
+  studio dies (the reconciler finds it dead, or its agent exits without `end`),
+  `→ recovering → live` — see [Recovery](#recovery); a session raised before
+  recovery existed, or lost with its manager, goes `→ lost → terminating`. A `live` studio
   waiting for a reply can also go `→ idled` — paused (`docker pause`), with
-  lease-reaping suspended — and back `→ live` on reply or teardown past
-  `wait-max` (or the role's [idle timeout](turn-end.md#idle-timeout)); see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) for
+  lease-reaping suspended — and back `→ live` on reply, or torn down by the
+  role's [idle timeout](turn-end.md#idle-timeout) (never for waiting alone); see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) for
   the wake-on/pause mechanics.
 - **Activity** (the studio reports it, only while `live`): `running | holding |
-  waiting | blocked | done`. Reporting `done` tells Jam to tear the studio down.
+  waiting | blocked | done`. Reporting `done` after `end` (or during a teardown)
+  ends the session; without it the session [recovers](#recovery).
   `holding` means the turn ended but background tasks are still running — see
   [turn-end.md](turn-end.md#holding).
 
@@ -40,6 +43,39 @@ Each Instance is **leased** to the Jam process supervising it. A lease has a
 TTL; the owner renews it, and if it expires another process may take over
 (reconnect/failover). On restart, Jam re-adopts live Instances from the store
 instead of abandoning them — so in-progress work survives a restart.
+
+### Recovery
+
+A session whose studio dies — the reconciler finds it dead (lease expired,
+probe dead), or its agent exits without calling `end` (it reports `done`) — is
+not ended. It goes **`recovering`**: its studio is torn down and its identity
+revoked, but its Instance stays, so the Requisitioner still sees its ticket as
+worked and its allocator slot stays held; its channels and ticket are left as
+they are, and its [state volumes](standing-state.md) are kept. A dying studio's
+late reports are refused.
+
+The supervisor's reconcile loop re-raises it **under the same id**, on the
+manager it ran on while that is still configured, with the prompt it was first
+raised with; the new studio finds its conversation marker and
+[resumes](standing-state.md) instead. Its inbox cursor, focus, ticket report,
+alarms and escalation category carry over. The first attempt is 30s after the
+studio died; a failed attempt backs off (doubling, capped at 30m). Waiting on
+infrastructure — the kit's image still building, no manager available — is
+retried every 30s and uses up no attempt. After 5 failed attempts, or 2h, or
+once its manager is gone, Jam **gives up**: a final teardown, the ticket marked
+blocked if unfinished ([turn-end.md](turn-end.md#reporting-a-ticket)), the slot
+released. An End (or a standing dismissal or reset) that lands while a re-raise
+is in flight wins: the new studio and identity are rolled back. The state sweep
+spares a session's volumes while it has an instance or an identity (a raise in
+flight).
+
+An operator's **Restart** ([session-view.md](session-view.md)) uses the same
+path at once: it is refused for a session being ended or that asked to `end`.
+
+Not recovered (ended as before): a session that asked to `end`, one lost
+together with its manager (removed or force-revoked — its state went with it),
+and one raised before recovery existed. The rail shows a recovering session as
+*recovering*; the admin console lists it under attention.
 
 ### Managers and placement
 
@@ -80,7 +116,8 @@ jam studio teardown --id spider-42
 
 - `studio raise` starts a **new session** (a minted `ses_…` id, printed) and
   enrolls its identity (the role must exist — fail-closed), recording a `live`
-  Instance. `--id` is the session's **label**: unique among live sessions (409
+  Instance. It takes an ephemeral slot under the role's cap first, like a
+  Requisitioner raise (`409` when the cap is reached). `--id` is the session's **label**: unique among live sessions (409
   otherwise), it addresses the session in `status`/`teardown` (as does its id),
   and is free again once the session ends — a later raise under it is a new
   session that inherits nothing. The role supplies scope, exactly as with
@@ -260,7 +297,7 @@ toolless agent (COV-190). The same pre-flight checks `claude --version` against
 the role's [model-spec](model-specs.md#what-a-cove-applies) (`claude-default` adds
 no flags, so its coves launch with exactly the argv above). With the config written it proceeds:
 
-Every episode then ends the same way, for every session kind: the client reports `waiting` and blocks on a **wake**, which resumes the agent with `claude --continue` and a prompt naming [why it woke](turn-end.md#wake-reasons). A turn that **exited non-zero** (a crashed or auth/model-failed `claude`) is logged at **WARN** and still waits — the cause is in the agent's own `jam-studio-agent.log` (stderr) or `agent-stream.jsonl` (stdout). The session ends only when Jam tears it down: [`end`](turn-end.md#ending-a-session), the role's [idle timeout](turn-end.md#idle-timeout), `wait-max`, or a resident session's release/removal.
+Every episode then ends the same way, for every session kind: the client reports `waiting` and blocks on a **wake**, which resumes the agent with `claude --continue` and a prompt naming [why it woke](turn-end.md#wake-reasons). A turn that **exited non-zero** (a crashed or auth/model-failed `claude`) is logged at **WARN** and still waits — the cause is in the agent's own `jam-studio-agent.log` (stderr) or `agent-stream.jsonl` (stdout). The session ends only when Jam tears it down: [`end`](turn-end.md#ending-a-session), the role's [idle timeout](turn-end.md#idle-timeout), an operator, or a resident session's release/removal.
 
 A Jam **teardown** cancels the run, which sends the agent `SIGTERM` and then
 `SIGKILL` after a grace period. A `wake` that arrives while an episode is live goes **into** it: between turns it
@@ -329,9 +366,9 @@ resume prompt (every session waits after every episode, above). While an episode
 background task outstanding — [`holding`](turn-end.md#holding)), a wake is written into
 it instead — see the wake paragraph above. A resident session ends only when a teardown cancels the
 run: the owner's release for a personal session, or the name's removal for a
-standing one. Jam's wake-on engine never tears a resident session down for
-`wait-max`; only a personal session's optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.
-A restarted standing session resumes its conversation; others start fresh
+standing one. Jam's wake-on engine never tears any session down for
+waiting; only the role's idle timeout and a personal session's optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.
+A restarted or [recovered](#recovery) session resumes its conversation, whatever its kind
 ([standing-state.md](standing-state.md)).
 
 > **Still deferred:** jam-studio-agent becoming the image entrypoint under its own non-root account

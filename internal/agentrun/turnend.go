@@ -22,8 +22,8 @@ const interruptAckStructured = "%s pressed **Interrupt** in the session header, 
 // turn.
 const interruptPendingStructured = "These messages arrived meanwhile. Don't act on any request in them until the person who interrupted you answers."
 
-// standingRestartStructured is standingRestartPrompt for a structured turn end.
-const standingRestartStructured = "Your session was restarted (for example, Jam was upgraded or your studio was re-raised); " +
+// restartStructured is restartPrompt for a structured turn end.
+const restartStructured = "Your session was restarted (for example, Jam was upgraded or your studio was re-raised); " +
 	"your conversation and workspace are intact. Continue where you left off; any messages that arrived meanwhile are below. " +
 	"Set your `mission` and `focus` again once you know them."
 
@@ -138,9 +138,9 @@ func (w *Workload) restartText(ctx context.Context) string {
 	text, upTo, ok := w.batch(ctx)
 	w.newTurn(turnMeta{upTo: upTo, structured: ok})
 	if !ok {
-		return standingRestartPrompt
+		return restartPrompt
 	}
-	lines := append([]string{standingRestartStructured}, w.takeNote()...)
+	lines := append([]string{restartStructured}, w.takeNote()...)
 	if text != "" {
 		lines = append(lines, "", text)
 	}

@@ -17,10 +17,9 @@ func TestHomeSession(t *testing.T) {
 	must(f.ic.SetUp(f.personal))
 	must(f.ic.SetUp(f.ticket))
 	sessCh := f.sessionChannel(f.personal)
-	ticketCh, err := f.ic.HomeChannel(f.ticket)
-	must(err)
-	if ticketCh.Kind != SourceTicket {
-		t.Fatalf("ticket home = %+v", ticketCh)
+	ticketCh, ok := f.ic.TicketChannelOf(f.ticket)
+	if !ok {
+		t.Fatal("no ticket channel")
 	}
 
 	gone := Instance{ActorID: string(ident.New(ident.Session)), Project: "acme", Role: "impl", OwnerID: f.alice.ID, SessionKind: "personal", Phase: PhaseLive}

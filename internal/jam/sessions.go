@@ -55,6 +55,9 @@ var ErrNeedsLedger = errors.New("personal sessions need the allocation ledger (s
 // ErrNeedsLedger).
 type SessionAllocator interface {
 	GrantPersonal(ctx context.Context, project, role, reservationID, owner string) (bool, error)
+	// GrantEphemeral reserves a slot for a manual raise (the role's ephemeral
+	// cap, as the Requisitioner's raises).
+	GrantEphemeral(ctx context.Context, project, role, reservationID string) (bool, error)
 	RecordRelease(ctx context.Context, project, role, reservationID string) error
 }
 

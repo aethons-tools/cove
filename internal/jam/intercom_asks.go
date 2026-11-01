@@ -118,7 +118,7 @@ func (ic *Intercom) AnswerAsk(user ident.ID, askID string, version int, choice, 
 		return intercom.Ask{}, fmt.Errorf("%w: %q", intercom.ErrAskNotFound, askID)
 	}
 	ch, ok := ic.store.GetChannel(a.Channel)
-	if !ok || ch.Status != StatusLive || user.Kind() != ident.User || !ic.isMemberOf(ch, user) {
+	if !ok || ch.Status != StatusLive || user.Kind() != ident.User || !ic.mayAnswerIn(ch, user) {
 		return intercom.Ask{}, ErrSendDenied
 	}
 	ev := intercom.AskEvent{Event: intercom.AskEventAnswer, AskID: askID, Version: version, Choice: choice, Comment: comment}
@@ -161,13 +161,20 @@ func (ic *Intercom) OpenAsksIn(ch ident.ID) []intercom.Ask {
 }
 
 // MayAnswer reports whether person user may answer a now: it is open, in a
-// live channel they are a member of, and for them (Of) if it names anyone.
+// live channel they are a member of (or, for a ticket's channel, may see),
+// and for them (Of) if it names anyone.
 func (ic *Intercom) MayAnswer(user ident.ID, a intercom.Ask) bool {
 	if a.State != intercom.AskOpen || user.Kind() != ident.User || len(a.Of) > 0 && !slices.Contains(a.Of, user) {
 		return false
 	}
 	ch, ok := ic.store.GetChannel(a.Channel)
-	return ok && ch.Status == StatusLive && ic.isMemberOf(ch, user)
+	return ok && ch.Status == StatusLive && ic.mayAnswerIn(ch, user)
+}
+
+// mayAnswerIn reports whether person user may answer an ask in ch: a member,
+// or anyone who can see a ticket's channel (every project member).
+func (ic *Intercom) mayAnswerIn(ch Channel, user ident.ID) bool {
+	return ic.isMemberOf(ch, user) || ch.Kind == SourceTicket && ic.CanSee(user, ch)
 }
 
 // asksChanged tells the hook session's asks changed.

@@ -16,7 +16,7 @@ that channel's members. Jam holds the tracker token, does the platform I/O, and 
 
 ## What the tools do
 
-- **`send(text, to?, content_type?)`** — posts the squawk to a channel of the channel log and returns its id and channel (`200 {"id", "channel": {id, kind, label}}`; a studio on an older image just sees success); the relays render it onto Linear/Discord shortly after (see [Enabling it](#enabling-it)). With no `to`, it goes to the studio's **home channel**, the channel it is always in: its ticket's conversation when it has one, else its own **session channel** (for a [personal session](personal-sessions.md) the person who started it is in it; people can join a [standing session](standing-sessions.md#messaging)'s). With a `to` (`user:`, `chat:`, `channel:`, `ticket:`, `session:`) it goes to that channel instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is Jam's brokered identity (the agent can't spoof it). The body is markdown unless `content_type` opts out; see [Content type](#content-type-markdown-or-plain-text).
+- **`send(text, to?, content_type?)`** — posts the squawk to a channel of the channel log and returns its id and channel (`200 {"id", "channel": {id, kind, label}}`; a studio on an older image just sees success); the relays render it onto Linear/Discord shortly after (see [Enabling it](#enabling-it)). With no `to`, it goes to the studio's **home channel**, the channel it is always in: its own **session channel**, whatever started it (a ticket session is also a member of its ticket's conversation, so the issue's comments reach and wake it, and posts there with `to: ticket:<its key>`; for a [personal session](personal-sessions.md) the person who started it is in it; people can join a [standing session](standing-sessions.md#messaging)'s). With a `to` (`user:`, `chat:`, `channel:`, `ticket:`, `session:`) it goes to that channel instead — see [comms-addressing.md](comms-addressing.md) for the target space, authorization, and delivery/reply rules (single source; not duplicated here). The author is Jam's brokered identity (the agent can't spoof it). The body is markdown unless `content_type` opts out; see [Content type](#content-type-markdown-or-plain-text).
 - **`read(anchor?, id?, dir?, limit?)`** — reads the studio's inbox **as a queue**: the squawks delivered to it (others' posts in its channels), by default the next unprocessed ones after its durable commit cursor, oldest-first. Seek with `anchor` (`cursor` default / `start` / `end` / `id`) × `dir` (`forward` default / `backward`) × `limit` (default 50); the response also carries `committed_cursor` / `page_first` / `page_last`. Each entry has `channel` (`{id, kind, label}`; absent on a squawk from before the cutover) and `from` (`{id, kind: session|user|account, label}`), and keeps `author` (the sender's label) for older clients. **Reading never advances the cursor.** Self-scoped: `read` takes no target. See [The inbox as a durable queue](#the-inbox-as-a-durable-queue) below.
 - **`commit(up_to)`** — confirms the studio has processed its inbox up to a squawk id, advancing its durable commit cursor (monotonic, forward-only) so those squawks aren't handed to it again. Separate from `read` — reads don't commit. Self-scoped (the cursor is the caller's own; identity comes from the token, never the body).
 - **`list_targets()`** — lists the people, rooms and sessions this studio is currently authorized to `send(to=…)`; see [comms-addressing.md](comms-addressing.md#discovering-targets-get-squawkstargets-list_targets).
@@ -135,12 +135,12 @@ meanwhile, the wake text says so. The engine reacts **on signal**: every append 
 the channel log and every activity a studio reports runs a check about 200ms later
 (a burst coalesces into one), so a reply typically wakes its studio in well under a
 second; `poll-interval` is only the backstop for alarms, deadlines and a missed
-signal. A **`wait-max`** bounds the wait — a studio with no reply within it is
-torn down (no zombies), paused or not — unless the role's
-[idle timeout](turn-end.md#idle-timeout) is armed, which then decides instead. **Resident sessions are exempt from `wait-max`:**
-a [personal](personal-sessions.md) or [standing](standing-sessions.md) session waits
-after every turn and is never torn down for `wait-max` (it is still paused at
-`warm-timeout` and woken on a reply). A personal session instead climbs the
+signal. **No session is torn down for waiting**, whatever started it: a session
+waiting for help keeps its studio and its work (it is still paused at
+`warm-timeout` and woken on a reply). The role's
+[idle timeout](turn-end.md#idle-timeout), `end`, and operators end sessions;
+[escalation](escalation.md) draws attention to one that is stuck. `wait-max` is
+deprecated and ignored (serve warns when it is set). A personal session instead climbs the
 [idle ladder](personal-sessions.md#the-idle-ladder) — nags into its channel, and an
 optional reclaim. Its starter's `keep`/`release` reply to a nag is acted on by Jam
 and doesn't wake the agent ([personal-sessions.md](personal-sessions.md#the-idle-ladder)).
@@ -169,12 +169,11 @@ The engine always runs and is configured under `runtime.wake`:
 runtime:
   wake:
     poll-interval: 15s   # backstop sweep of waiting studios; replies wake on signal (default 15s)
-    wait-max: 24h        # max a (non-personal) cove may wait before teardown, paused or not (default 30m)
     warm-timeout: 5m     # how long a waiting cove stays live before it's paused (default 60s)
 ```
 
 Each field resolves independently: **`runtime.wake` > the matching `runtime.requisitioner`
-field** (`wake-poll-interval` / `wait-max` / `warm-timeout`, kept as a fallback for
+field** (`wake-poll-interval` / `warm-timeout`, kept as a fallback for
 existing configs) **> the default**. An invalid `runtime.wake` duration fails `serve`
 at startup; an invalid Requisitioner value still falls back to the default.
 
@@ -187,10 +186,10 @@ delivery (append `seq` > `WaitSeq`) counts as a reply. Waking a `running` studio
 entering `waiting` leaves `WaitSeq` alone, so a reply that landed during the run and was
 not yet woken for wakes the studio as soon as it waits. It is an append-sequence compare,
 not a wall-clock one (`WaitingSince` is unchanged, but now drives only
-`wait-max` teardown and `warm-timeout` pausing below, not reply-detection). It's fed
+`warm-timeout` pausing, not reply-detection). It's fed
 by the relay ingress engine above, so a Waiting studio wakes on a reply only once a relay
-has ingested it; with no relay configured, it's bounded only by `wait-max` teardown
-(pausing at `warm-timeout` still happens).
+has ingested it; with no relay configured, it waits until the idle timeout or an
+operator ends it (pausing at `warm-timeout` still happens).
 
 **Sessions wake sessions, with a loop breaker.** Another session's post wakes a
 waiting studio — but once a channel has had more than **8** (`runtime.wake.session-wake-limit`; `0` turns session wakes off) session posts in a
@@ -202,7 +201,7 @@ a session calling another in does.
 
 A Project may also configure an **escalation policy** that calls ordered tiers of
 people into a waiting session's channel on their own per-tier timers when it asks
-for a person, instead of leaving it to wait passively — a separate, independent clock from `wait-max` above; see
+for a person, instead of leaving it to wait passively — a separate, independent clock from the pause and idle timeout above; see
 [escalation.md](escalation.md).
 
 ## Not yet (later comms slices)
