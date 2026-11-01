@@ -87,6 +87,8 @@ Three ways in, all the same flow:
 
 Each one signs you in if needed and checks the session exists. If it doesn't, it says so and links the web app. Then it opens the session's **studio window**, `vscode-remote://ssh-remote+jam-<studio>/home/agent/workspace`, over Remote-SSH, in a new window, from a local workspace file whose title bar is the session's color ([session-colors.md](session-colors.md)). The window is titled with the session's name (`window.title`: the active editor, the name, the app) and its Explorer root carries the name too, instead of `jam-<studio> (Workspace)`; File › Open Recent still lists the file, `jam-<studio>`. A rename shows from the next open. If that window is already open, VS Code brings it to the front instead.
 
+**Workspace trust:** VS Code asks whether to trust each new studio window; an extension can't grant trust. The window needs two locations trusted: the studio's remote folder (new for every session, so asked once each) and its local workspace file. To be asked only about the first, trust the studios folder once: *Workspaces: Manage Workspace Trust* → *Add Folder* → `<globalStorage>/studios` (the folder named in [What it writes](#what-it-writes)). Turning trust off (`security.workspace.trust.enabled`) also stops the prompt, but for every folder you open, so the extension never does it for you.
+
 Before opening, it:
 - checks you may SSH into the session. If you can't, it says "You can't SSH into …" and offers the web app;
 - checks Remote-SSH is installed, and offers to install it if not;
