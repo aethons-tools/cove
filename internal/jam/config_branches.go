@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -151,7 +150,7 @@ func (b *ConfigBranches) treeOf(files map[string]configrepo.File) (*ConfigTree, 
 		return nil, err
 	}
 	defer os.RemoveAll(tmp)
-	if err := b.materialize(tmp, files); err != nil {
+	if err := materializeFiles(tmp, b.configFiles(files)); err != nil {
 		return nil, err
 	}
 	return LoadConfigTree(tmp)
@@ -166,29 +165,15 @@ func (b *ConfigBranches) configPath(p string) (string, bool) {
 	return rel, ok
 }
 
-// materialize writes files' config-dir files into dir at their modes.
-func (b *ConfigBranches) materialize(dir string, files map[string]configrepo.File) error {
+// configFiles is files' config-dir files, by path relative to the dir.
+func (b *ConfigBranches) configFiles(files map[string]configrepo.File) map[string]configrepo.File {
+	out := make(map[string]configrepo.File, len(files))
 	for p, f := range files {
-		rel, ok := b.configPath(p)
-		if !ok {
-			continue
-		}
-		full := filepath.Join(dir, filepath.FromSlash(rel))
-		if !strings.HasPrefix(full, dir+string(filepath.Separator)) {
-			return fmt.Errorf("config branch: unsafe path %q", p)
-		}
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return err
-		}
-		mode := os.FileMode(0o644)
-		if f.Mode == filemode.Executable {
-			mode = 0o755
-		}
-		if err := os.WriteFile(full, f.Data, mode); err != nil {
-			return err
+		if rel, ok := b.configPath(p); ok {
+			out[rel] = f
 		}
 	}
-	return nil
+	return out
 }
 
 // Save commits ws's store back to its branch: the files whose rendering

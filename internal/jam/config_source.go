@@ -142,15 +142,19 @@ func configCheckoutDir(root, dir string) (string, error) {
 }
 
 // configSourceLabel is how logs and results name a run's source: "dir" for
-// an upload, else the source as gitsource.Parse renders it. A source that
-// does not re-parse (never one the API built — say, a hand-made URL with
-// userinfo) is "invalid", so no log line can carry a credential.
-func configSourceLabel(src gitsource.Source) string {
+// an upload, env.FollowedLabel for the followed source when set, else the
+// source as gitsource.Parse renders it. A source that does not re-parse
+// (never one the API built — say, a hand-made URL with userinfo) is
+// "invalid", so no log line can carry a credential.
+func configSourceLabel(env ConfigEnv, src gitsource.Source) string {
 	switch src.Repo {
 	case ConfigDirRepo:
 		return "dir"
 	case "":
 		return ""
+	}
+	if env.FollowedLabel != "" && src == env.Followed {
+		return env.FollowedLabel
 	}
 	if _, err := gitsource.Parse(src.String()); err != nil {
 		return "invalid"

@@ -180,15 +180,15 @@ func TestConfigFetchFailureTracksNothing(t *testing.T) {
 
 func TestConfigAuditNeverLogsUserinfo(t *testing.T) {
 	var buf bytes.Buffer
-	logConfigApply(slog.New(slog.NewJSONHandler(&buf, nil)), "alice",
+	logConfigApply(slog.New(slog.NewJSONHandler(&buf, nil)), "alice", allCreds,
 		ConfigApplyOptions{Source: gitsource.Source{Repo: "https://tok3n@github.com/acme/jam", Ref: "main"}, Commit: "c1"}, ConfigPlan{})
 	if strings.Contains(buf.String(), "tok3n") || !strings.Contains(buf.String(), `"source":"invalid"`) {
 		t.Fatalf("audit:\n%s", buf.String())
 	}
-	if got := configSourceLabel(cfgSrc); got != "https://github.com/acme/jam//cfg@main" {
+	if got := configSourceLabel(allCreds, cfgSrc); got != "https://github.com/acme/jam//cfg@main" {
 		t.Fatal(got)
 	}
-	if got := configSourceLabel(gitsource.Source{Repo: ConfigDirRepo}); got != "dir" {
+	if got := configSourceLabel(allCreds, gitsource.Source{Repo: ConfigDirRepo}); got != "dir" {
 		t.Fatal(got)
 	}
 }

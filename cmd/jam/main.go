@@ -2867,8 +2867,13 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Config page; config.drift is re-checked on conds after each apply.
 		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds,
 			Followed: cfg.followedSource()}
+		if src := cfgEnv.Followed; src.Repo != "" {
+			// Named as configured: a config.git url (a local path or ssh)
+			// does not re-parse as a kit source, and carries no password.
+			cfgEnv.FollowedLabel = src.String()
+		}
 		// The followed config repo's clone, built once: the branch editor
-		// uses it and the follower will share it.
+		// and the follower read through it.
 		var configRepo *configrepo.Repo
 		if src := cfgEnv.Followed; src.Repo != "" {
 			dir, err := cfg.stateDir()
@@ -2881,10 +2886,14 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				return 1
 			}
 		}
-		// The config repo the Jam follows (config.github): checked now and
-		// every minute; a new commit applies once the first is confirmed.
+		// The followed branch is read through the clone, whatever its kind;
+		// every other source (a kit's .source.yml) through kitFetcher.
+		configFetcher := &jam.FollowedFetcher{Repo: configRepo, Followed: cfgEnv.Followed, Rest: kitFetcher}
+		// The config repo the Jam follows (config.github, gitlab or git):
+		// checked now and every minute; a new commit applies once the first
+		// is confirmed.
 		if cfgEnv.Followed.Repo != "" {
-			cfgEnv.Follower = &jam.ConfigFollower{Store: st, Fetcher: kitFetcher, Env: cfgEnv, Log: log}
+			cfgEnv.Follower = &jam.ConfigFollower{Store: st, Fetcher: configFetcher, Env: cfgEnv, Log: log}
 			go cfgEnv.Follower.Run(context.Background(), jam.ConfigFollowEvery)
 		}
 
@@ -2972,7 +2981,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			log.Warn("setup inspect: sealed egress base unreadable; egress shows no sealed rows", "err", err.Error())
 		}
 		setupDeps := jam.SetupDeps{Store: st, Sup: sup, Images: images, SealedEgress: sealed}
-		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps),
+		uiOpts := []adminui.Option{adminui.WithTrustedOrigins(cfg.UIOrigins...), adminui.WithSessions(sessStore, sessHub), adminui.WithCredentialNames(cfg.credNames()...), adminui.WithPoolConfigured(cfg.Pool != nil), adminui.WithConditions(conds, alertmanagerURL(cfg)), adminui.WithKitFetcher(kitFetcher), adminui.WithConfigFetcher(configFetcher), adminui.WithConfigEnv(cfgEnv), adminui.WithSetupDeps(setupDeps),
 			adminui.WithAppTokenRevoke(appTokenLive.Revoke)}
 		if built.router != nil {
 			uiOpts = append(uiOpts, adminui.WithSetupManagers(built.router.AvailableNames))
@@ -3023,7 +3032,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			case "gitlab":
 				prs = configrepo.GitLab{URL: src.Repo, Token: token}
 			}
-			branches := &jam.ConfigBranches{Repo: configRepo, PRs: prs, Dir: src.Dir, Fetcher: kitFetcher, Env: cfgEnv, Live: st, Log: log}
+			branches := &jam.ConfigBranches{Repo: configRepo, PRs: prs, Dir: src.Dir, Fetcher: configFetcher, Env: cfgEnv, Live: st, Log: log}
 			branchOpts := slices.Clone(uiOpts)
 			factory := func(bs jam.Store) http.Handler {
 				return adminui.Handler(bs, log, nil, nil, credExists, squawkReader, branchOpts...)
@@ -3076,7 +3085,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
 			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
 			jam.WithKitFetcher(st, kitFetcher, log),
-			jam.WithConfig(st, kitFetcher, cfgEnv, log),
+			jam.WithConfig(st, configFetcher, cfgEnv, log),
 			jam.WithSetupInspect(setupDeps, log),
 		}
 		if managerHub != nil {

@@ -87,7 +87,7 @@ func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt Config
 	defer kitMu.Unlock()
 	plan := PlanConfig(ConfigPlanInput{Tree: tree, Snapshot: store.configSnapshot(), Instances: store.ListInstances(),
 		Marks: store.ListConfigMarks(), Env: env, Source: opt.Source, Commit: opt.Commit, Force: opt.Force, Now: opt.Now})
-	res := ConfigApplyResult{Plan: plan, Source: configSourceLabel(opt.Source), Commit: provenanceCommit(opt.Commit)}
+	res := ConfigApplyResult{Plan: plan, Source: configSourceLabel(env, opt.Source), Commit: provenanceCommit(opt.Commit)}
 	if opt.DryRun {
 		return res, false, nil
 	}
@@ -120,7 +120,7 @@ func planAndWriteConfig(store Store, tree *ConfigTree, env ConfigEnv, opt Config
 		gcKitObjects(store, log)
 	}
 	res.Applied = true
-	logConfigApply(log, actor, opt, plan)
+	logConfigApply(log, actor, env, opt, plan)
 	return res, true, nil
 }
 
@@ -153,11 +153,11 @@ var configAuditMsgs = map[string]map[string]string{
 // logConfigApply writes the apply's audit: one "config applied" entry with
 // the source, commit, counts, operator and forced, then each written object's
 // usual admin entry with via=config. Names only, never values.
-func logConfigApply(log *slog.Logger, actor string, opt ConfigApplyOptions, plan ConfigPlan) {
+func logConfigApply(log *slog.Logger, actor string, env ConfigEnv, opt ConfigApplyOptions, plan ConfigPlan) {
 	if log == nil {
 		return
 	}
-	source := configSourceLabel(opt.Source)
+	source := configSourceLabel(env, opt.Source)
 	n := plan.Counts()
 	log.Info("config applied", "operator", actor, "source", source, "commit", opt.Commit,
 		"created", n[ConfigCreate], "updated", n[ConfigUpdate], "deleted", n[ConfigDelete],

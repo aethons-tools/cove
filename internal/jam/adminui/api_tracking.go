@@ -118,7 +118,7 @@ func trackingFail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err 
 
 func apiTracking(api *http.ServeMux, store jam.Store, f jam.KitFetcher, env jam.ConfigEnv, log *slog.Logger) {
 	canGit := f != nil
-	page := func() configPage { return buildConfigPage(store, env.Followed, canGit, log) }
+	page := func() configPage { return buildConfigPage(store, env, canGit, log) }
 	done := func(w http.ResponseWriter, d configPage, msg string) {
 		writeJSON(w, http.StatusOK, TrackingResult{Tracking: trackingOf(store, env, d), Message: msg})
 	}

@@ -64,7 +64,7 @@ func (f *ConfigFollower) Status() ConfigFollowStatus {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.status.State == "" {
-		return ConfigFollowStatus{State: ConfigFollowOff, Source: configSourceLabel(f.Env.Followed)}
+		return ConfigFollowStatus{State: ConfigFollowOff, Source: configSourceLabel(f.Env, f.Env.Followed)}
 	}
 	return f.status
 }
@@ -83,7 +83,7 @@ func (f *ConfigFollower) Tick(ctx context.Context) {
 	f.tickMu.Lock()
 	defer f.tickMu.Unlock()
 	src := f.Env.Followed
-	st := ConfigFollowStatus{Source: configSourceLabel(src), CheckedAt: f.now()}
+	st := ConfigFollowStatus{Source: configSourceLabel(f.Env, src), CheckedAt: f.now()}
 	if src.Repo == "" {
 		st.State = ConfigFollowOff
 		f.set(st)
@@ -187,7 +187,7 @@ func (f *ConfigFollower) Refresh() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	st := f.status
-	st.Source, st.Applied, st.Error = configSourceLabel(f.Env.Followed), rec.Commit, ""
+	st.Source, st.Applied, st.Error = configSourceLabel(f.Env, f.Env.Followed), rec.Commit, ""
 	if st.Head == "" || st.Head == rec.Commit || st.State != ConfigFollowFailed {
 		st.State = ConfigFollowInSync
 		if st.Head == "" {

@@ -73,15 +73,23 @@ func configReleaseURL(kind, name string) string {
 	return "/app/admin/config/managed/" + url.PathEscape(kind) + "/" + strings.Join(segs, "/")
 }
 
-// newConfigSourceView is the followed repo as shown. The stored source is
-// re-parsed (gitsource.Parse) first: one that does not parse — never one the
-// API built, say a hand-made URL with userinfo — is shown only as "invalid",
-// so the page never renders a credential. Its commit is 7 chars, as on the
+// newConfigSourceView is the followed repo as shown, labelled label (the
+// serve's ConfigEnv.FollowedLabel: a git repo, a local path or ssh, does not
+// re-parse as a kit source). With no label the stored source is re-parsed
+// (gitsource.Parse) first: one that does not parse — never one the API
+// built, say a hand-made URL with userinfo — is shown only as "invalid", so
+// the page never renders a credential. Its commit is 7 chars, as on the
 // managed badges.
-func newConfigSourceView(cs jam.ConfigSource) *configSourceView {
-	v := &configSourceView{Label: cs.Source().String()}
-	if _, err := gitsource.Parse(v.Label); err != nil {
-		v.Label, v.Repo, v.Ref = "invalid", "invalid", "invalid"
+func newConfigSourceView(cs jam.ConfigSource, label string) *configSourceView {
+	v := &configSourceView{Label: label}
+	if v.Label == "" {
+		v.Label = cs.Source().String()
+		if _, err := gitsource.Parse(v.Label); err != nil {
+			v.Label = "invalid"
+		}
+	}
+	if v.Label == "invalid" {
+		v.Repo, v.Ref = "invalid", "invalid"
 	} else {
 		v.sourceView = *newSourceView(&jam.KitSource{Repo: cs.Repo, Dir: cs.Dir, Ref: cs.Ref, Commit: cs.Commit})
 	}
@@ -99,14 +107,15 @@ var configMarkStates = jam.ConfigMarkStates
 // buildConfigPage gathers the Config page: the followed repo (with its last
 // apply when the stored record is of it), every managed object with its
 // state, and the newest apply.
-func buildConfigPage(store jam.Store, followed gitsource.Source, canGit bool, log *slog.Logger) configPage {
+func buildConfigPage(store jam.Store, env jam.ConfigEnv, canGit bool, log *slog.Logger) configPage {
+	followed := env.Followed
 	d := configPage{Title: "Config", CanGit: canGit}
 	if followed.Repo != "" {
 		cs := jam.ConfigSource{Repo: followed.Repo, Dir: followed.Dir, Ref: followed.Ref}
 		if rec, ok := store.GetConfigSource(); ok && rec.Source() == followed {
 			cs = rec
 		}
-		d.Source = newConfigSourceView(cs)
+		d.Source = newConfigSourceView(cs, env.FollowedLabel)
 	}
 	states, err := configMarkStates(store)
 	if err != nil {

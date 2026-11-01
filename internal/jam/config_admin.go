@@ -62,8 +62,9 @@ const maxConfigSourceBody = 64 << 10
 // one. An oversize upload is 413, a malformed or unsafe one or a bad source
 // 400, before anything is fetched or loaded. A refused or stale plan, or no
 // followed repo, is 409; a fetch, auth or limit failure 502 with the
-// fetcher's redacted message. f is the serve's one kit fetcher (kits.git
-// credentials); it fetches config repos and kits/<name>.source.yml kits.
+// fetcher's redacted message. f fetches config repos and
+// kits/<name>.source.yml kits: the serve's FollowedFetcher, which reads the
+// followed repo through its clone and the rest with kits.git credentials.
 // env.Serve is the running serve's portable config.
 func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) AdminOption {
 	if log == nil {
@@ -205,7 +206,7 @@ func WithConfig(store Store, f KitFetcher, env ConfigEnv, log *slog.Logger) Admi
 		})
 		mux.HandleFunc("GET /admin/config/follow", func(w http.ResponseWriter, r *http.Request) {
 			if env.Follower == nil {
-				writeJSON(w, http.StatusOK, ConfigFollowStatus{State: ConfigFollowOff, Source: configSourceLabel(env.Followed)})
+				writeJSON(w, http.StatusOK, ConfigFollowStatus{State: ConfigFollowOff, Source: configSourceLabel(env, env.Followed)})
 				return
 			}
 			writeJSON(w, http.StatusOK, env.Follower.Status())

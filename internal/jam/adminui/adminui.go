@@ -63,6 +63,7 @@ type options struct {
 	exposures       func(actorID string) []jam.Exposure
 	previewURL      func(actorID, name string) (string, error)
 	kitFetcher      jam.KitFetcher
+	configFetcher   jam.KitFetcher // nil = kitFetcher (WithConfigFetcher)
 	configEnv       jam.ConfigEnv
 	setupManagers   func() []string            // nil: no manager selector on a role's Setup tab (WithSetupManagers)
 	setup           *jam.SetupDeps             // nil: no Setup tabs (WithSetupDeps)
@@ -89,6 +90,13 @@ func WithSessions(store sessionevents.Store, hub *sessionevents.Hub) Option {
 // pages only show provenance.
 func WithKitFetcher(f jam.KitFetcher) Option {
 	return func(o *options) { o.kitFetcher = f }
+}
+
+// WithConfigFetcher is the fetcher the Config page's diff and apply read
+// the followed repo through (jam.FollowedFetcher); unset, they use
+// WithKitFetcher's. The kit pages always use WithKitFetcher's.
+func WithConfigFetcher(f jam.KitFetcher) Option {
+	return func(o *options) { o.configFetcher = f }
 }
 
 // WithManagers shows a read-only Managers panel on the dashboard, one row per
@@ -135,10 +143,14 @@ func Handler(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.S
 		cfgEnv.CredExists = credExists
 	}
 	cfgEnv.PoolConfigured = cfgEnv.PoolConfigured || o.poolConfigured
+	cfgFetcher := o.configFetcher
+	if cfgFetcher == nil {
+		cfgFetcher = o.kitFetcher
+	}
 	registerApp(mux, src, msgs, roleAPI{sup: sup, alloc: alloc, credExists: credExists, setup: o.setup, managers: o.setupManagers},
 		specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured},
 		agentAPI{sup: sup, msgs: msgs, sess: o.sessStore, hub: o.sessHub, acc: accessDeps{o.live, o.exposures, o.previewURL}, setup: o.setup, credExists: credExists},
-		dashAPI{managers: o.managers, sup: sup, amURL: o.alertmanagerURL}, o.trustedOrigins, o.kitFetcher, cfgEnv, o.branches, log)
+		dashAPI{managers: o.managers, sup: sup, amURL: o.alertmanagerURL}, o.trustedOrigins, fetchers{kits: o.kitFetcher, config: cfgFetcher}, cfgEnv, o.branches, log)
 	if o.branches != nil && o.branchHandler != nil {
 		return &branchRouter{live: mux, b: o.branches, factory: o.branchHandler}
 	}

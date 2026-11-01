@@ -30,7 +30,7 @@ func TestBuildConfigPageStatesUnknown(t *testing.T) {
 	}
 	defer func() { configMarkStates = prev }()
 	var logs bytes.Buffer
-	d := buildConfigPage(st, gitsource.Source{}, false, slog.New(slog.NewTextHandler(&logs, nil)))
+	d := buildConfigPage(st, jam.ConfigEnv{}, false, slog.New(slog.NewTextHandler(&logs, nil)))
 	if !d.StatesErr || d.Drifted != 0 || len(d.Rows) != 2 || d.LastCommit != "fedcba9" || d.LastApplied == "" {
 		t.Fatalf("page = %+v", d)
 	}
@@ -45,5 +45,19 @@ func TestBuildConfigPageStatesUnknown(t *testing.T) {
 	tr := trackingOf(st, jam.ConfigEnv{}, d)
 	if !tr.StatesErr || tr.Rows[0].Path == "" {
 		t.Errorf("tracking = %+v", tr)
+	}
+}
+
+// A git config repo (ssh or a local path) does not re-parse as a kit
+// source: the page shows it by the serve's label, not "invalid".
+func TestBuildConfigPageFollowedLabel(t *testing.T) {
+	env := jam.ConfigEnv{Followed: gitsource.Source{Repo: "git@h:x.git", Ref: "main"}, FollowedLabel: "git@h:x.git@main"}
+	d := buildConfigPage(jam.NewMemStore(), env, true, slog.New(slog.DiscardHandler))
+	if d.Source == nil || d.Source.Label != env.FollowedLabel || d.Source.Repo != "git@h:x.git" || d.Source.RepoLink != "" {
+		t.Fatalf("source = %+v", d.Source)
+	}
+	env.FollowedLabel = ""
+	if d := buildConfigPage(jam.NewMemStore(), env, true, slog.New(slog.DiscardHandler)); d.Source.Label != "invalid" {
+		t.Fatalf("unlabelled source = %+v", d.Source)
 	}
 }
