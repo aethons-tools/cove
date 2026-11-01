@@ -1,6 +1,9 @@
 package jam
 
 import (
+	"time"
+
+	"github.com/aethons-tools/cove/internal/kittree/kittreetest"
 	"reflect"
 	"slices"
 	"testing"
@@ -94,4 +97,29 @@ func mustParse(t *testing.T, text string) studio.StudioKit {
 		t.Fatal(err)
 	}
 	return sk
+}
+
+func TestEnsureDefaultStudioKitKeepsManaged(t *testing.T) {
+	st := NewMemStore()
+	if _, _, err := PushKitFiles(st, studio.DefaultStudioKitID, kittreetest.Files("kit.yml", "kind: studio\negress: [example.org]\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ApplyConfig(ConfigWrite{Marks: []ConfigMark{{Kind: ConfigKindKit, Name: studio.DefaultStudioKitID, Commit: "abc1234", Digest: "d", AppliedAt: time.Unix(1, 0).UTC()}}}); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := EnsureDefaultStudioKit(st)
+	if err != nil || ref.ID != studio.DefaultStudioKitID || ref.Version != 1 {
+		t.Fatalf("ref = %+v, %v", ref, err)
+	}
+	if _, ok := LoadKitVersion(st, studio.DefaultStudioKitID, 2); ok {
+		t.Fatal("v2 was pushed over a repo-managed default kit")
+	}
+}
+
+func TestEnsureDefaultStudioKitSeedsUnmanaged(t *testing.T) {
+	st := NewMemStore()
+	ref, err := EnsureDefaultStudioKit(st)
+	if err != nil || ref.ID != studio.DefaultStudioKitID || ref.Version != 1 {
+		t.Fatalf("ref = %+v, %v", ref, err)
+	}
 }

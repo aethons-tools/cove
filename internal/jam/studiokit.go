@@ -115,8 +115,14 @@ func studioKitCurrent(store Store, name string) (KitRef, KitVersion, error) {
 }
 
 // EnsureDefaultStudioKit seeds the built-in default studio kit into the registry
-// (idempotent) and returns its ref — what role.Kit == "" raises.
+// (idempotent) and returns its ref — unless the config repo manages it, then
+// its current version is returned untouched — what role.Kit == "" raises.
 func EnsureDefaultStudioKit(store Store) (KitRef, error) {
+	if KitManaged(store, studio.DefaultStudioKitID) {
+		if v, ok := LoadKitVersion(store, studio.DefaultStudioKitID, 0); ok && v.Version != 0 {
+			return KitRef{ID: studio.DefaultStudioKitID, Version: v.Version}, nil
+		}
+	}
 	return EnsureStudioKit(store, studio.DefaultStudioKitID, studio.DefaultStudioKit())
 }
 
