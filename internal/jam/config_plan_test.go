@@ -772,7 +772,7 @@ func TestPlanUpdatesUnmanagedKit(t *testing.T) {
 }
 
 // A managed object edited in Jam since its mark is overwritten: the plan
-// carries no drift and no refusal.
+// shows the Jam edit it replaces, with no refusal.
 func TestPlanOverwritesEditedManaged(t *testing.T) {
 	st := NewMemStore()
 	applyPlan(t, st, planOn(t, st, treeOf(t, map[string]string{"destinations/gh.yml": ghDest})))
@@ -780,8 +780,8 @@ func TestPlanOverwritesEditedManaged(t *testing.T) {
 	d.Note = "edited in Jam"
 	_ = st.AddDestination(d)
 	p := planOn(t, st, treeOf(t, map[string]string{"destinations/gh.yml": ghDest + "note: repo\n"}))
-	if op := opOf(p, ConfigKindDestination, "gh"); op != (ConfigOp{Kind: ConfigKindDestination, Name: "gh", Action: ConfigUpdate,
-		Path: op.Path, Before: op.Before, After: op.After}) || len(p.Refusals) > 0 {
+	if op := opOf(p, ConfigKindDestination, "gh"); op.Action != ConfigUpdate || !strings.Contains(op.Before, "note: edited in Jam") ||
+		!strings.Contains(op.After, "note: repo") || len(p.Refusals) > 0 {
 		t.Fatalf("op %+v refusals %v", op, p.Refusals)
 	}
 	applyPlan(t, st, p)

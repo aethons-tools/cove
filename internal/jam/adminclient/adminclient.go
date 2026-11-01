@@ -946,8 +946,9 @@ func (c *Client) ConfigDiff(tree []byte) (jam.ConfigApplyResult, error) {
 	return res, err
 }
 
-// ConfigApply applies a packed config tree. planDigest (may be "") is the reviewed plan's digest — a different plan is
-// a 409 (ErrConflict), as is a plan with refusals.
+// ConfigApply applies a packed config tree. planDigest (may be "") is the
+// reviewed plan's digest — a different plan is a 409 (ErrConflict), as is a
+// plan with refusals.
 func (c *Client) ConfigApply(tree []byte, planDigest string) (jam.ConfigApplyResult, error) {
 	var res jam.ConfigApplyResult
 	err := c.doRaw("POST", configPath("/admin/config/apply", planDigest), "application/gzip", tree, &res)

@@ -421,6 +421,39 @@ func TestConfigWriteThenApplyRefreshesMark(t *testing.T) {
 	}
 }
 
+// An update prints Jam's and the repo's canonical forms as a compact line
+// diff (what the apply overwrites); a delete prints Jam's side.
+func TestPrintConfigPlanUpdateAndDeleteDiff(t *testing.T) {
+	before := "# users/bob.yml\nkind: user\nversion: 1\nlogins:\n- a@x\n"
+	after := "# users/bob.yml\nkind: user\nversion: 1\nlogins:\n- b@x\n"
+	var b strings.Builder
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigUpdate, Before: before, After: after}}})
+	want := "update  user bob\n  --- jam\n  +++ repo\n  … 1 unchanged line(s)\n   kind: user\n   version: 1\n   logins:\n  -- a@x\n  +- b@x\n"
+	if !strings.HasPrefix(b.String(), want) {
+		t.Errorf("update: got %q\nwant prefix %q", b.String(), want)
+	}
+	b.Reset()
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigDelete, Before: "# users/bob.yml\nkind: user\n"}}})
+	want = "delete  user bob\n  jam:\n    # users/bob.yml\n    kind: user\n  repo:\n    (not in the repo)\n"
+	if !strings.HasPrefix(b.String(), want) {
+		t.Errorf("delete: got %q\nwant prefix %q", b.String(), want)
+	}
+	b.Reset()
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindUser, Name: "bob", Action: jam.ConfigCreate, After: after}}})
+	if !strings.HasPrefix(b.String(), "create  user bob\n0 unchanged\n") {
+		t.Errorf("create: got %q", b.String())
+	}
+	// A kit's canonical form is its kit.yml and file listing: the diff points
+	// at the changed line.
+	b.Reset()
+	printConfigPlan(&b, jam.ConfigPlan{Ops: []jam.ConfigOp{{Kind: jam.ConfigKindKit, Name: "ic", Action: jam.ConfigUpdate,
+		Before: "kind: studio\nprompt: a\n# files:\n#   0644 25 aa kit.yml\n# source: https://x/k//ic@main\n",
+		After:  "kind: studio\nprompt: b\n# files:\n#   0644 25 bb kit.yml\n# source: https://x/k//ic@main\n"}}})
+	if !strings.Contains(b.String(), "  -prompt: a\n  +prompt: b\n") || !strings.Contains(b.String(), "  -#   0644 25 aa kit.yml\n  +#   0644 25 bb kit.yml\n") {
+		t.Errorf("kit diff %q", b.String())
+	}
+}
+
 // A kit update prints its version diff under its line, escaped for the
 // terminal, in place of the listing diff.
 func TestPrintConfigPlanKitVersionDiff(t *testing.T) {
@@ -455,7 +488,7 @@ func planKitDir(t *testing.T, store jam.Store, kitYML string) jam.ConfigPlan {
 }
 
 // A kit whose tree is unchanged but whose source differs (tracked in Jam,
-// inline in the repo) is an update.
+// inline in the repo) shows the `# source:` line diff, not "no changes".
 func TestPrintConfigPlanKitSourceOnlyChange(t *testing.T) {
 	store := jam.NewMemStore()
 	if _, err := store.PushKit("app", "kind: studio\n"); err != nil {
@@ -468,7 +501,7 @@ func TestPrintConfigPlanKitSourceOnlyChange(t *testing.T) {
 	}
 	var b strings.Builder
 	printConfigPlan(&b, planKitDir(t, store, "kind: studio\n"))
-	if !strings.HasPrefix(b.String(), "update  kit app\n0 unchanged\n") {
+	if !strings.Contains(b.String(), "update  kit app\n") || !strings.Contains(b.String(), "  -# source: ") || strings.Contains(b.String(), "no changes") {
 		t.Errorf("source-only change: %q", b.String())
 	}
 }

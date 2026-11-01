@@ -15,6 +15,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
 	"github.com/aethons-tools/cove/internal/jam/configtar"
+	"github.com/aethons-tools/cove/internal/jam/linediff"
 	"github.com/aethons-tools/cove/internal/textesc"
 )
 
@@ -236,6 +237,24 @@ func printConfigSource(w io.Writer, res jam.ConfigApplyResult) {
 	}
 }
 
+// printLineDiff prints Jam's canonical form against the repo's as a compact
+// line diff, or both in full when too large to diff.
+func printLineDiff(w io.Writer, before, after string, indent func(string) string) {
+	lines, tooLarge := linediff.Diff(before, after)
+	if tooLarge {
+		fmt.Fprintf(w, "  jam:\n%s\n  repo:\n%s\n", indent(before), indent(after))
+		return
+	}
+	fmt.Fprintf(w, "  --- jam\n  +++ repo\n")
+	for _, l := range lines {
+		if l.Op == "…" {
+			fmt.Fprintf(w, "  … %s\n", l.Text)
+		} else {
+			fmt.Fprintf(w, "  %s%s\n", l.Op, l.Text)
+		}
+	}
+}
+
 // insideGitWorkTree reports whether dir or an ancestor holds a .git.
 func insideGitWorkTree(dir string) bool {
 	for {
@@ -250,9 +269,10 @@ func insideGitWorkTree(dir string) bool {
 	}
 }
 
-// printConfigPlan renders a plan: one line per changed object (a kit update
-// with its version diff), the unchanged count, unmanaged objects, the
-// serve-config state, refusals.
+// printConfigPlan renders a plan: one line per changed object, under it
+// what the apply overwrites (an update's Jam → repo line diff, a kit's
+// version diff) or deletes (Jam's side), then the unchanged count, unmanaged
+// objects, the serve-config state, refusals.
 func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 	for _, ks := range p.KitSources {
 		fmt.Fprintf(w, "kit-source  %s  %s @ %s\n", ks.Path, ks.Source, jam.ShortConfigCommit(ks.Commit))
@@ -268,8 +288,14 @@ func printConfigPlan(w io.Writer, p jam.ConfigPlan) {
 			continue
 		}
 		fmt.Fprintf(w, "%s  %s %s\n", op.Action, op.Kind, op.Name)
-		if op.Kind == jam.ConfigKindKit && op.Diff != "" {
+		switch {
+		case op.Kind == jam.ConfigKindKit && op.Diff != "":
 			fmt.Fprintln(w, indent(textesc.Escape(op.Diff, true))) // kit.yml's line diff, then the files
+		case op.Before == "": // a create: nothing in Jam to overwrite
+		case op.After == "": // a delete: what Jam loses
+			fmt.Fprintf(w, "  jam:\n%s\n  repo:\n    (not in the repo)\n", indent(op.Before))
+		default: // an update: what it overwrites
+			printLineDiff(w, op.Before, op.After, indent)
 		}
 	}
 	for _, k := range p.Forget {
