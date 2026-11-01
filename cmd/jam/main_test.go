@@ -1052,20 +1052,6 @@ func TestEgressShowCommand(t *testing.T) {
 	}
 }
 
-func TestKitPushValidatesStudioKit(t *testing.T) {
-	good := "kind: studio\nname: web\negress:\n  - github.com\n"
-	bad := "kind: studio\nname: web\nworkers: {}\n"
-	if err := validatePushedKit([]byte(good)); err != nil {
-		t.Fatalf("good studio kit rejected: %v", err)
-	}
-	if err := validatePushedKit([]byte(bad)); err == nil {
-		t.Fatal("bad studio kit must be rejected at push")
-	}
-	if err := validatePushedKit([]byte("name: web\n")); err == nil {
-		t.Fatal("non-studio kit must be rejected at push")
-	}
-}
-
 func TestStudioShowSurfacesExcludedRoots(t *testing.T) {
 	ceiling, excluded := studioShowEgress([]string{"github.com", "claude.ai"})
 	if len(ceiling) != 1 || ceiling[0] != "github.com" {

@@ -39,7 +39,8 @@ func mentionExempt(rel string) bool {
 		"docs/superpowers/",
 		"testdata/install-legacy.sh",
 		"deleted_test.go",
-		".gitignore", // names the stale staged dirs so they are never committed
+		"cmd/jam/stale_conditions.go", // clears the removed drift condition left open by name
+		".gitignore",                  // names the stale staged dirs so they are never committed
 	} {
 		if strings.HasPrefix(rel, p) {
 			return true
@@ -174,8 +175,8 @@ var removedConfigMentions = func() *regexp.Regexp {
 
 // removedVerbScope reports whether rel is text that teaches people or agents
 // how to change config: the docs (not the design history), the dev and
-// deploy scripts, the studio image payload, and the product text in non-test
-// Go and in the web clients' non-test sources.
+// deploy scripts, the studio image payload, renovate.json, and the product
+// text in non-test Go and in the web clients' non-test sources.
 func removedVerbScope(rel string) bool {
 	if mentionExempt(rel) {
 		return false
@@ -186,6 +187,8 @@ func removedVerbScope(rel string) bool {
 		}
 	}
 	switch {
+	case rel == "renovate.json": // its rule descriptions tell operators how to bump pins
+		return true
 	case strings.HasPrefix(rel, "internal/"), strings.HasPrefix(rel, "cmd/"):
 		return strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, "_test.go")
 	case strings.HasPrefix(rel, "web/app/src/"), strings.HasPrefix(rel, "web/vscode/src/"):

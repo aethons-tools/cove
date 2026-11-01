@@ -1396,7 +1396,7 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
-	role := fs.String("role", "", "role whose egress policy to manage")
+	role := fs.String("role", "", "role whose egress policy to show")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -1794,6 +1794,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Warn("conditions not loaded; starting empty", "reason", err.Error())
 	}
 	clearStaleCredConditions(conds, cfg.credNames())
+	clearRemovedConditions(conds)
 	// Kits as trees (docs/usage/jam/kits-directory.md#stored-as-trees): every
 	// pre-tree version becomes a tree, once; then unreferenced kit objects go.
 	// A failed migration fails closed: a half-read registry would raise kits
@@ -1815,6 +1816,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 1
 	}
 	jam.ReservedDestinationEnvConditions(st, conds)
+	// Live kit drafts can only be left from before config moved to git (branch
+	// drafts live in workspace stores): drop them, so the collection below
+	// frees what only they held.
+	jam.DiscardLiveKitDrafts(st, log)
 	if gc, err := st.GCKitObjects(); err != nil {
 		log.Warn("kit object collection failed (retried next start)", "reason", err.Error())
 	} else if gc.Trees+gc.Blobs > 0 {
@@ -3080,13 +3085,6 @@ func newConfigRepo(cfg serveConfig, specs map[string]secret.Spec, f *gitsource.F
 	}
 	repo.Auth = configrepo.SSHAuth(configrepo.SSHUser(src.Repo), key, khFile)
 	return repo, nil
-}
-
-// validatePushedKit validates a studio-kit config before it is stored, so a
-// malformed kit is caught at push, not at raise.
-func validatePushedKit(data []byte) error {
-	_, err := studio.ParseStudioKit(data)
-	return err
 }
 
 // studioShowEgress returns the effective ceiling and the excluded (Anthropic)

@@ -215,3 +215,32 @@ func DiscardKitDraft(store Store, log *slog.Logger, name, ifMatch string) (KitDr
 	gcKitObjects(store, log)
 	return d, nil
 }
+
+// DiscardLiveKitDrafts drops every kit draft in store, under kitMu, and
+// returns the kits whose draft it dropped. Serve calls it once at start on
+// the live store: config changes only through git, so drafts live in branch
+// workspace stores, and one in the live store is left from before the
+// upgrade — nothing can discard it, and it pins kit objects. It does not
+// collect objects (serve's start-up collection follows); a failed remove is
+// logged and the rest go on.
+func DiscardLiveKitDrafts(store Store, log *slog.Logger) []string {
+	kitMu.Lock()
+	defer kitMu.Unlock()
+	var dropped []string
+	for _, k := range store.ListKits() {
+		if _, open := store.GetKitDraft(k.Name); !open {
+			continue
+		}
+		if err := store.RemoveKitDraft(k.Name); err != nil {
+			if log != nil {
+				log.Warn("kit draft from before config moved to git not discarded (retried next start)", "kit", k.Name, "reason", err.Error())
+			}
+			continue
+		}
+		dropped = append(dropped, k.Name)
+	}
+	if len(dropped) > 0 && log != nil {
+		log.Info("kit drafts from before config moved to git discarded", "kits", dropped)
+	}
+	return dropped
+}

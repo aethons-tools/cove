@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam/condition"
 )
@@ -26,4 +28,35 @@ func TestClearStaleCredConditions(t *testing.T) {
 		t.Error("other kinds must be untouched")
 	}
 	clearStaleCredConditions(nil, []string{"x"}) // nil-safe
+}
+
+// loadedConds is a Persister holding the conditions a previous serve saved.
+type loadedConds []condition.Condition
+
+func (l loadedConds) Load(context.Context, time.Time) ([]condition.Condition, error) {
+	return l, nil
+}
+func (loadedConds) Save(context.Context, condition.Condition) error { return nil }
+func (loadedConds) Prune(context.Context, time.Time) error          { return nil }
+
+func TestClearRemovedConditions(t *testing.T) {
+	now := time.Now()
+	tr := condition.New(condition.Options{Persister: loadedConds{
+		{Key: removedDriftKey, Severity: condition.Warning, Summary: "drift", Since: now},
+		{Key: condition.Key("cred.unavailable", "x"), Severity: condition.Critical, Summary: "s", Since: now},
+	}})
+	if err := tr.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !tr.IsOpen(removedDriftKey) {
+		t.Fatal("setup: the drift condition was not loaded open")
+	}
+	clearRemovedConditions(tr)
+	if tr.IsOpen(removedDriftKey) {
+		t.Error("the reloaded drift condition is still open")
+	}
+	if !tr.IsOpen(condition.Key("cred.unavailable", "x")) {
+		t.Error("other conditions must be untouched")
+	}
+	clearRemovedConditions(nil) // nil-safe
 }

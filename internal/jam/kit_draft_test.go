@@ -1,6 +1,8 @@
 package jam
 
 import (
+	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -165,6 +167,53 @@ func TestDiscardKitDraft(t *testing.T) {
 	}
 	_, err = DiscardKitDraft(st, nil, "app", d.Tree)
 	wantErr(t, err, "kit app has no draft", 404)
+}
+
+// TestDiscardLiveKitDrafts: serve's start-up drops the live store's drafts
+// (left from before config moved to git), logs the kits at Info, and the
+// collection that follows frees the objects only a draft held.
+func TestDiscardLiveKitDrafts(t *testing.T) {
+	st := NewMemStore()
+	pushApp(t, st, "kit.yml", "kind: studio\n")
+	if _, _, err := PushKitFiles(st, "web", kittreetest.Files("kit.yml", "kind: studio\n")); err != nil {
+		t.Fatal(err)
+	}
+	d, err := OpenKitDraft(st, "app", 0, "local", draftNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr, blobs, err := kittree.BuildFiles(kittreetest.Files("draft-only.txt", "x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Tree = tr.Hash()
+	if err := st.PutKitDraft(d, KitObjects{Trees: []kittree.Tree{tr}, Blobs: blobs}); err != nil {
+		t.Fatal(err)
+	}
+	var buf strings.Builder
+	got := DiscardLiveKitDrafts(st, slog.New(slog.NewTextHandler(&buf, nil)))
+	if !slices.Equal(got, []string{"app"}) {
+		t.Fatalf("dropped %v, want [app]", got)
+	}
+	if _, ok := st.GetKitDraft("app"); ok {
+		t.Fatal("the live draft is still open")
+	}
+	if line := buf.String(); !strings.Contains(line, "level=INFO") || !strings.Contains(line, "kits=[app]") {
+		t.Errorf("log = %q, want an Info line naming the kits", line)
+	}
+	if _, err := st.GCKitObjects(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.KitTree(tr.Hash()); ok {
+		t.Fatal("the discarded draft's tree is still pinned")
+	}
+	if k, _ := st.GetKit("app"); k.Current != 1 {
+		t.Fatal("the discard touched the kit")
+	}
+	buf.Reset()
+	if got := DiscardLiveKitDrafts(st, slog.New(slog.NewTextHandler(&buf, nil))); len(got) != 0 || buf.Len() != 0 {
+		t.Fatalf("no drafts: dropped %v, logged %q", got, buf.String())
+	}
 }
 
 // TestRemoveKitDropsDraft: kit rm is not blocked by a draft and takes it

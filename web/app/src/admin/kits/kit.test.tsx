@@ -41,6 +41,19 @@ describe("a kit's page outside a branch", () => {
   });
 });
 
+describe("a kit's draft badge", () => {
+  it("shows only on a branch, where the draft section it links to is", async () => {
+    setBranch("");
+    base();
+    serve(() => kit({ draft: { base: 2 } }));
+    renderAdmin(adminBoot, at);
+    await screen.findByRole("heading", { name: "web" });
+    expect(screen.queryByText("draft · base v2")).toBeNull();
+    act(() => setBranch("jam/me"));
+    expect((await screen.findByText("draft · base v2")).closest("a")).toHaveAttribute("href", "#draft");
+  });
+});
+
 describe("a kit's page", () => {
   it("shows the rail with its links, and pins after confirming", async () => {
     base();
@@ -135,7 +148,7 @@ describe("a kit's page", () => {
     base();
     serve(() => kit({ isDefault: true }));
     renderAdmin(adminBoot, at);
-    expect(await screen.findByRole("button", { name: "Delete" })).toHaveAttribute("title", "The built-in default kit is re-seeded at serve start");
+    expect(await screen.findByRole("button", { name: "Delete" })).toHaveAttribute("title", "The built-in default kit: serve seeds it at start until the config repo has kits/default/, then the repo owns it");
   });
 
   it("says when it doesn't exist", async () => {

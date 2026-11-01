@@ -1,7 +1,7 @@
 import { Alert, Anchor, Badge, Button, Group, Menu, Modal, Paper, Stack, Text, TextInput } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
 import type { ConfigBranchResult, ConfigBranches, ConfigMergeResult, ConfigPR } from "../api/types";
@@ -27,9 +27,18 @@ export function BranchBar() {
   const [name, setName] = useState("");
   const [refused, setRefused] = useState("");
   const [prURL, setPrURL] = useState("");
+  const noRepo = error?.status === 404;
+  // A tab still holding a branch (sessionStorage) on a Jam with no repo would
+  // render forms whose writes always 409: drop it, so the console is read-only.
+  useEffect(() => {
+    if (noRepo && branch) {
+      setBranch("");
+      void client.invalidateQueries();
+    }
+  }, [noRepo, branch, client]);
   // No config repo: no branches, so nothing here edits the config. Any
   // other failure says why, rather than hiding the bar.
-  if (error?.status === 404) {
+  if (noRepo) {
     return <Alert color="gray" mb="md" title="Read-only">This Jam has no config repo. Set config.github, config.gitlab or config.git in the serve config to edit its config on branches.</Alert>;
   }
   if (error) {

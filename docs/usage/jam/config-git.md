@@ -160,7 +160,10 @@ from before the Jam followed a repo. Unmanaged objects the repo doesn't hold
 are never deleted: the default studio kit, the seeded `claude-default` model
 spec, the requisitioner's default project, the relay's author connections.
 Jam's own startup ensures skip an object the repo manages, so they never edit
-it: commit the repo's copy instead.
+it: commit the repo's copy instead. If the repo deletes the default model spec
+or the requisitioner's default project, serve recreates it, unmanaged, at its
+next start, and a grant or enrollment naming the default project recreates
+that project too; once the repo holds it again, the next apply adopts it.
 
 ## Replicating a Jam
 

@@ -59,7 +59,7 @@ function Kit({ k }: { k: KitDetail }) {
     x.del ? adminApi.del<KitResult>(`kits/${enc(k.name)}/${x.path}`) : adminApi.post<KitResult>(`kits/${enc(k.name)}/${x.path}`, x.body ?? {}), { invalidate: [kitsKey], onSuccess: done });
   const remove = useAdminMutation(() => adminApi.del(`kits/${enc(k.name)}`), { invalidate: [kitsKey], onSuccess: () => void navigate(nodeHref("config/kits")) });
   const del = !editable ? null : k.uses.length || k.usedByKits.length || k.isDefault
-    ? <Button size="xs" color="red" variant="light" disabled title={k.isDefault ? "The built-in default kit is re-seeded at serve start" : "Roles or kits use this kit — rebind them first"}>Delete</Button>
+    ? <Button size="xs" color="red" variant="light" disabled title={k.isDefault ? "The built-in default kit: serve seeds it at start until the config repo has kits/default/, then the repo owns it" : "Roles or kits use this kit — rebind them first"}>Delete</Button>
     : <ConfirmAction label="Delete" confirm={deleteKitConfirm(k.name)} onConfirm={() => remove.mutateAsync(undefined)} />;
   const viewFile = (p: string) => href({ v: k.view.n, file: p });
   const diffFile = (p: string) => href({ v: k.diff?.to ?? k.view.n, diff: k.diff?.from ?? 0, file: p });
@@ -71,7 +71,7 @@ function Kit({ k }: { k: KitDetail }) {
           <AttnFlag flag={k.attn} />
           <Badge>current v{k.current}</Badge>
           <Text size="sm" c="dimmed">{k.versions.length} version(s)</Text>
-          {k.draft && <Badge component="a" href="#draft" variant="light" color="gray" style={{ cursor: "pointer" }}>draft · base v{k.draft.base}</Badge>}
+          {editable && k.draft && <Badge component="a" href="#draft" variant="light" color="gray" style={{ cursor: "pointer" }}>draft · base v{k.draft.base}</Badge>}
         </Group>
         {del}
       </Group>
@@ -104,12 +104,12 @@ function Kit({ k }: { k: KitDetail }) {
               onTrack={(source) => write.mutateAsync({ path: "source", body: { source } })} />
             <Section title="Versions" sub="and where each came from">
               <Table>
-                <Table.Thead><Table.Tr><Table.Th>Version</Table.Th><Table.Th>Pushed</Table.Th><Table.Th>Source</Table.Th><Table.Th>Commit</Table.Th></Table.Tr></Table.Thead>
+                <Table.Thead><Table.Tr><Table.Th>Version</Table.Th><Table.Th>Created</Table.Th><Table.Th>Source</Table.Th><Table.Th>Commit</Table.Th></Table.Tr></Table.Thead>
                 <Table.Tbody>{k.versions.map((v) => (
                   <Table.Tr key={v.n}>
                     <Table.Td><Anchor component={Link} to={href({ v: v.n })}>v{v.n}</Anchor>{v.current && <Badge size="sm" ml={6}>current</Badge>}</Table.Td>
                     <Table.Td>{v.pushed || <Text span c="dimmed">—</Text>}</Table.Td>
-                    <Table.Td>{v.source ? <>{repo(v.source)}{v.source.dir && <Text span ff="monospace"> //{v.source.dir}</Text>} <Text span ff="monospace">@{v.source.ref}</Text></> : <Text span c="dimmed">pushed</Text>}</Table.Td>
+                    <Table.Td>{v.source ? <>{repo(v.source)}{v.source.dir && <Text span ff="monospace"> //{v.source.dir}</Text>} <Text span ff="monospace">@{v.source.ref}</Text></> : <Text span c="dimmed" title="From a config commit, the built-in default, or a push before config moved to git">config</Text>}</Table.Td>
                     <Table.Td>{v.source ? commit(v.source) : <Text span c="dimmed">—</Text>}</Table.Td>
                   </Table.Tr>
                 ))}</Table.Tbody>
@@ -153,7 +153,7 @@ function SourceCard({ k, busy, onSync, onUntrack, onTrack }: {
               </Group>
             )}
           </>
-        ) : <Text size="sm" c="dimmed">Not tracked — pushed by hand, or imported once.</Text>}
+        ) : <Text size="sm" c="dimmed">Not tracked — its versions come from config commits, or were imported once.</Text>}
         {k.setWith && <Text size="sm" c="dimmed">Part of a set with {k.setWith} — imported from the same repo.</Text>}
         {k.canSource && !s && (
           <details>
