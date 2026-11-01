@@ -380,7 +380,7 @@ jobs:
         run: |
           out="$(docker run --rm jam:ci version)"
           echo "$out"
-          test "$out" = "jam $VERSION"
+          test "$out" = "$VERSION"
 
       # main: publish the multi-arch image as <N>-<MMDD> + latest.
       - name: Log in to GHCR
@@ -408,7 +408,7 @@ jobs:
         run: |
           out="$(docker run --rm --platform linux/arm64 "${JAM_IMAGE}:${VERSION}" version)"
           echo "$out"
-          test "$out" = "jam $VERSION"
+          test "$out" = "$VERSION"
 
       - name: Publish release
         if: github.event_name == 'push'
