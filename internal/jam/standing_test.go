@@ -45,17 +45,17 @@ func putStandingRole(t *testing.T, store Store) Role {
 	return role
 }
 
-// Standing declarations round-trip through POST/GET/DELETE and keep every other
-// field of the role.
-func TestAdminStandingAddListRemove(t *testing.T) {
+// AddStanding/RemoveStanding declare and dismiss standing sessions, keep every
+// other field of the role, and GET lists them.
+func TestStandingAddListRemove(t *testing.T) {
 	h, store := newTestAdmin(t)
 	orig := putStandingRole(t, store)
 
-	if rec := doJSON(t, h, "POST", "/admin/roles/acme/reviewer/standing", StandingSession{Name: "alice-bot", Prompt: "review PRs"}); rec.Code != http.StatusCreated {
-		t.Fatalf("add = %d, body=%s", rec.Code, rec.Body.String())
+	if err := AddStanding(store, "acme", "reviewer", StandingSession{Name: "alice-bot", Prompt: "review PRs"}); err != nil {
+		t.Fatal(err)
 	}
-	if rec := doJSON(t, h, "POST", "/admin/roles/acme/reviewer/standing", StandingSession{Name: "bob-bot", Prompt: "triage"}); rec.Code != http.StatusCreated {
-		t.Fatalf("add 2 = %d, body=%s", rec.Code, rec.Body.String())
+	if err := AddStanding(store, "acme", "reviewer", StandingSession{Name: "bob-bot", Prompt: "triage"}); err != nil {
+		t.Fatal(err)
 	}
 	var list []StandingSession
 	getJSON(t, h, "/admin/roles/acme/reviewer/standing", &list)
@@ -70,60 +70,61 @@ func TestAdminStandingAddListRemove(t *testing.T) {
 		t.Fatalf("role after add = %+v, want %+v (other fields kept)", got, keep)
 	}
 
-	if rec := doReq(t, h, "DELETE", "/admin/roles/acme/reviewer/standing/alice-bot", nil); rec.Code != http.StatusNoContent {
-		t.Fatalf("rm = %d, body=%s", rec.Code, rec.Body.String())
+	if err := RemoveStanding(store, "acme", "reviewer", "alice-bot"); err != nil {
+		t.Fatal(err)
 	}
 	got, _ = store.GetRole("acme", "reviewer")
 	keep.Allocation.Standing = []StandingSession{{Name: "bob-bot", Prompt: "triage"}}
 	if !reflect.DeepEqual(got, keep) {
 		t.Fatalf("role after rm = %+v, want %+v", got, keep)
 	}
-	if rec := doReq(t, h, "DELETE", "/admin/roles/acme/reviewer/standing/alice-bot", nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("rm undeclared = %d, want 404", rec.Code)
+	if err := RemoveStanding(store, "acme", "reviewer", "alice-bot"); WriteStatus(err, 500) != http.StatusNotFound {
+		t.Fatalf("rm undeclared = %v, want 404", err)
 	}
 }
 
-func TestAdminStandingValidation(t *testing.T) {
+func TestStandingValidation(t *testing.T) {
 	h, store := newTestAdmin(t)
 	putStandingRole(t, store)
-	if rec := doJSON(t, h, "POST", "/admin/roles/acme/reviewer/standing", StandingSession{Name: "a b", Prompt: "p"}); rec.Code != http.StatusCreated {
-		t.Fatalf("seed = %d", rec.Code)
+	if err := AddStanding(store, "acme", "reviewer", StandingSession{Name: "a b", Prompt: "p"}); err != nil {
+		t.Fatalf("seed: %v", err)
 	}
 	cases := []struct {
-		path string
-		body StandingSession
-		code int
+		project, role string
+		body          StandingSession
+		code          int
 	}{
-		{"/admin/roles/acme/reviewer/standing", StandingSession{Prompt: "p"}, http.StatusBadRequest},              // no name
-		{"/admin/roles/acme/reviewer/standing", StandingSession{Name: "x"}, http.StatusBadRequest},                // no prompt
-		{"/admin/roles/acme/reviewer/standing", StandingSession{Name: "a b", Prompt: "p"}, http.StatusBadRequest}, // duplicate
-		{"/admin/roles/acme/reviewer/standing", StandingSession{Name: "a/b", Prompt: "p"}, http.StatusBadRequest}, // "/" can't name a route segment
-		{"/admin/roles/acme/nobody/standing", StandingSession{Name: "x", Prompt: "p"}, http.StatusNotFound},       // unknown role
-		{"/admin/roles/nowhere/reviewer/standing", StandingSession{Name: "x", Prompt: "p"}, http.StatusNotFound},  // unknown project
+		{"acme", "reviewer", StandingSession{Prompt: "p"}, http.StatusBadRequest},              // no name
+		{"acme", "reviewer", StandingSession{Name: "x"}, http.StatusBadRequest},                // no prompt
+		{"acme", "reviewer", StandingSession{Name: "a b", Prompt: "p"}, http.StatusBadRequest}, // duplicate
+		{"acme", "reviewer", StandingSession{Name: "a/b", Prompt: "p"}, http.StatusBadRequest}, // "/" can't name a route segment
+		{"acme", "nobody", StandingSession{Name: "x", Prompt: "p"}, http.StatusNotFound},       // unknown role
+		{"nowhere", "reviewer", StandingSession{Name: "x", Prompt: "p"}, http.StatusNotFound},  // unknown project
 	}
 	for _, c := range cases {
-		if rec := doJSON(t, h, "POST", c.path, c.body); rec.Code != c.code {
-			t.Fatalf("POST %s %+v = %d, want %d (body=%s)", c.path, c.body, rec.Code, c.code, rec.Body.String())
+		err := AddStanding(store, c.project, c.role, c.body)
+		if err == nil || WriteStatus(err, 500) != c.code {
+			t.Fatalf("AddStanding(%s/%s, %+v) = %v, want status %d", c.project, c.role, c.body, err, c.code)
 		}
 	}
 	if rec := doReq(t, h, "GET", "/admin/roles/acme/nobody/standing", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("list unknown role = %d, want 404", rec.Code)
 	}
-	if rec := doReq(t, h, "DELETE", "/admin/roles/acme/nobody/standing/x", nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("rm on unknown role = %d, want 404", rec.Code)
+	if err := RemoveStanding(store, "acme", "nobody", "x"); WriteStatus(err, 500) != http.StatusNotFound {
+		t.Fatalf("rm on unknown role = %v, want 404", err)
 	}
 }
 
-// Re-putting a role (`role add` again) keeps its standing declarations: they are
-// managed only by the standing endpoints.
-func TestAdminRolePutKeepsStanding(t *testing.T) {
-	h, store := newTestAdmin(t)
+// Re-putting a role keeps its standing declarations: they are managed only by
+// AddStanding/RemoveStanding.
+func TestRolePutKeepsStanding(t *testing.T) {
+	_, store := newTestAdmin(t)
 	putStandingRole(t, store)
-	if rec := doJSON(t, h, "POST", "/admin/roles/acme/reviewer/standing", StandingSession{Name: "alice-bot", Prompt: "p"}); rec.Code != http.StatusCreated {
-		t.Fatalf("add = %d", rec.Code)
+	if err := AddStanding(store, "acme", "reviewer", StandingSession{Name: "alice-bot", Prompt: "p"}); err != nil {
+		t.Fatal(err)
 	}
-	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "reviewer", MaxEphemeral: 5}); rec.Code != http.StatusCreated {
-		t.Fatalf("re-put role = %d", rec.Code)
+	if err := PutRoleKeeping(store, "acme", Role{Name: "reviewer", Allocation: RoleAllocation{MaxEphemeral: 5}}); err != nil {
+		t.Fatalf("re-put role: %v", err)
 	}
 	got, _ := store.GetRole("acme", "reviewer")
 	if got.Allocation.MaxEphemeral != 5 || len(got.Allocation.Standing) != 1 || got.Allocation.Standing[0].Name != "alice-bot" {

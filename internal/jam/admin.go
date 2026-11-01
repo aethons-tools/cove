@@ -65,39 +65,6 @@ type ChatServiceView struct {
 	Service string `json:"service"`
 }
 
-// RoleBody is the POST /admin/roles request.
-type RoleBody struct {
-	Project      string            `json:"project"`
-	Name         string            `json:"name"`
-	Destinations []string          `json:"destinations"`
-	Credentials  map[string]string `json:"credentials,omitempty"`
-	Addressing   []string          `json:"addressing,omitempty"`
-	TTLSeconds   int64             `json:"ttl_seconds"`
-	Kit          string            `json:"kit,omitempty"`
-	// ModelSpec binds a model-spec by name; "" = DefaultModelSpec.
-	ModelSpec    string `json:"model_spec,omitempty"`
-	MaxEphemeral int    `json:"max_ephemeral,omitempty"` // role's ephemeral-session cap; 0 = unset
-	// MaxPersonal is the role's personal-session pool cap; 0 = none.
-	MaxPersonal int `json:"max_personal,omitempty"`
-	// MaxPersonalPerOwner is one owner's personal-session cap; 0 = pool only.
-	MaxPersonalPerOwner int `json:"max_personal_per_owner,omitempty"`
-	// IdleAfterSeconds / NagEverySeconds / ReclaimAfterSeconds are the
-	// personal-session idle ladder (RoleAllocation.IdleAfter etc.) in seconds;
-	// 0 = the default (4h / 24h / never).
-	IdleAfterSeconds    int64 `json:"idle_after_seconds,omitempty"`
-	NagEverySeconds     int64 `json:"nag_every_seconds,omitempty"`
-	ReclaimAfterSeconds int64 `json:"reclaim_after_seconds,omitempty"`
-	// IdleTimeoutSeconds / OnIdle are the role's turn-end policy
-	// (Role.TurnEnd): 0 = no idle timeout; on_idle "" = wake.
-	IdleTimeoutSeconds int64  `json:"idle_timeout_seconds,omitempty"`
-	OnIdle             string `json:"on_idle,omitempty"`
-	TimeZone           string `json:"time_zone,omitempty"` // IANA zone cron alarms run in; "" = UTC
-	// CollaboratePreview / CollaborateSSH are the role's studio-collaboration
-	// policy (Role.Collaborate): "" = default, members | none.
-	CollaboratePreview string `json:"collaborate_preview,omitempty"`
-	CollaborateSSH     string `json:"collaborate_ssh,omitempty"`
-}
-
 // RoleSummary is a GET /admin/roles item.
 type RoleSummary struct {
 	Project      string            `json:"project"`
@@ -503,32 +470,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 	mux.HandleFunc("GET /admin/destinations", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, store.ListDestinations())
 	})
-	mux.HandleFunc("POST /admin/destinations", func(w http.ResponseWriter, r *http.Request) {
-		var d Destination
-		if !decode(w, r, &d) {
-			return
-		}
-		if err := ValidateDestination(d, credExists); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
-			return
-		}
-		// An upsert: `destination add` of an existing name replaces it.
-		if err := store.AddDestination(d); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		log.Info("admin destination added", "operator", OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
-		w.WriteHeader(http.StatusCreated)
-	})
-	mux.HandleFunc("DELETE /admin/destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		if err := store.RemoveDestination(name); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		log.Info("admin destination removed", "operator", OperatorID(r), "name", name)
-		w.WriteHeader(http.StatusNoContent)
-	})
 	mux.HandleFunc("GET /admin/config", func(w http.ResponseWriter, r *http.Request) {
 		// The snapshot carries token hashes; it is written to the client but
 		// never logged.
@@ -639,76 +580,6 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
-	})
-	mux.HandleFunc("POST /admin/roles", func(w http.ResponseWriter, r *http.Request) {
-		var b RoleBody
-		if !decode(w, r, &b) {
-			return
-		}
-		if b.Name == "" {
-			http.Error(w, "name is required", http.StatusBadRequest)
-			return
-		}
-		if b.MaxEphemeral < 0 || b.MaxPersonal < 0 || b.MaxPersonalPerOwner < 0 {
-			http.Error(w, "max_ephemeral, max_personal and max_personal_per_owner must be >= 0", http.StatusBadRequest)
-			return
-		}
-		// nag_every 0 means the default, so ">= 0" also keeps a set nag_every > 0.
-		if b.IdleAfterSeconds < 0 || b.NagEverySeconds < 0 || b.ReclaimAfterSeconds < 0 {
-			http.Error(w, "idle_after_seconds, nag_every_seconds and reclaim_after_seconds must be >= 0", http.StatusBadRequest)
-			return
-		}
-		collab := CollaboratePolicy{Preview: b.CollaboratePreview, SSH: b.CollaborateSSH}
-		if err := collab.Validate(); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		te := TurnEndPolicy{IdleTimeout: time.Duration(b.IdleTimeoutSeconds) * time.Second, OnIdle: b.OnIdle, TimeZone: b.TimeZone}
-		if err := ValidateTurnEnd(te); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if b.Kit != "" {
-			if _, ok := store.GetKit(b.Kit); !ok {
-				http.Error(w, "kit does not exist", http.StatusBadRequest)
-				return
-			}
-		}
-		role := Role{
-			Name:      b.Name,
-			Scope:     Scope{Destinations: b.Destinations, Credentials: b.Credentials, Addressing: b.Addressing, TTL: time.Duration(b.TTLSeconds) * time.Second},
-			Kit:       b.Kit,
-			ModelSpec: b.ModelSpec,
-			Allocation: RoleAllocation{
-				MaxEphemeral: b.MaxEphemeral, MaxPersonal: b.MaxPersonal, MaxPersonalPerOwner: b.MaxPersonalPerOwner,
-				IdleAfter:    time.Duration(b.IdleAfterSeconds) * time.Second,
-				NagEvery:     time.Duration(b.NagEverySeconds) * time.Second,
-				ReclaimAfter: time.Duration(b.ReclaimAfterSeconds) * time.Second,
-			},
-			TurnEnd:     te,
-			Collaborate: collab,
-		}
-		if err := ValidateCredentials(role.Scope, credExists); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		// Standing declarations and the egress policy are managed by their own
-		// routes, not this body: re-putting a role keeps them.
-		if err := PutRoleKeeping(store, b.Project, role); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusBadRequest))
-			return
-		}
-		log.Info("admin role put", "operator", OperatorID(r), "project", orDefaultProject(b.Project), "role", b.Name)
-		w.WriteHeader(http.StatusCreated)
-	})
-	mux.HandleFunc("DELETE /admin/roles/{project}/{name}", func(w http.ResponseWriter, r *http.Request) {
-		project, name := r.PathValue("project"), r.PathValue("name")
-		if err := store.RemoveRole(project, name); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		log.Info("admin role removed", "operator", OperatorID(r), "project", project, "role", name)
-		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /admin/roles/{project}/{role}/images", func(w http.ResponseWriter, r *http.Request) {
 		if sup == nil {
@@ -1013,7 +884,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 
 	registerPersonalSessions(mux, store, sup, alloc, log)
 	registerStanding(mux, store, sup, log)
-	registerEgress(mux, store, log)
+	registerEgress(mux, store)
 	registerContext(mux, store, log)
 	registerUsers(mux, store, log)
 	registerRooms(mux, store, log)

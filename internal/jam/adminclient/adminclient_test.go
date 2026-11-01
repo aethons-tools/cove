@@ -60,7 +60,7 @@ func mustCreateProject(t *testing.T, store jam.Store, name string) {
 	}
 }
 
-// TestClientRoundTrip exercises AddDestination, Enroll and Revoke against a
+// TestClientRoundTrip exercises ListDestinations, Enroll and Revoke against a
 // real Jam admin handler + MemStore (not just a wire-format mock), proving
 // the client's requests actually drive store side effects end to end. Scope
 // now comes entirely from the role, so the role must be put before Enroll.
@@ -68,7 +68,7 @@ func TestClientRoundTrip(t *testing.T) {
 	ts, store := newServer(t)
 	c := New(ts.URL, "")
 
-	if err := c.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword}); err != nil {
+	if err := store.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword}); err != nil {
 		t.Fatalf("AddDestination: %v", err)
 	}
 	ds, err := c.ListDestinations()
@@ -91,15 +91,6 @@ func TestClientRoundTrip(t *testing.T) {
 	}
 	if _, ok := store.Lookup(jam.HashToken(res.Token)); ok {
 		t.Fatal("identity present after Revoke")
-	}
-}
-
-func TestClientAddDestinationRejected(t *testing.T) {
-	ts, _ := newServer(t)
-	c := New(ts.URL, "")
-	err := c.AddDestination(jam.Destination{Name: "bad", Route: "/bad/", Upstream: "https://x", IdentityIn: jam.ApplyBearer, CredName: "nope", Apply: jam.ApplyBearer})
-	if err == nil {
-		t.Fatal("expected error for unresolvable cred_name")
 	}
 }
 
@@ -136,11 +127,9 @@ func TestClientSendsBearer(t *testing.T) {
 }
 
 func TestClientRoleAndGrantRoundTrips(t *testing.T) {
-	var gotPath, gotMethod, gotBody string
+	var gotPath, gotMethod string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod, gotPath = r.Method, r.URL.RequestURI()
-		b, _ := io.ReadAll(r.Body)
-		gotBody = string(b)
 		switch {
 		case r.URL.Path == "/admin/roles" && r.Method == "GET":
 			_, _ = w.Write([]byte(`[{"project":"acme","name":"guest","destinations":["anthropic"],"credentials":{"anthropic":"anthropic-sub"},"repos":["acme/*"],"ttl_seconds":3600}]`))
@@ -155,12 +144,6 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 	defer srv.Close()
 	c := New(srv.URL, "")
 
-	if err := c.PutRole("acme", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}, Credentials: map[string]string{"anthropic": "anthropic-sub"}, TTL: time.Hour}}); err != nil {
-		t.Fatalf("PutRole: %v", err)
-	}
-	if gotMethod != "POST" || gotPath != "/admin/roles" || !strings.Contains(gotBody, `"ttl_seconds":3600`) || !strings.Contains(gotBody, `"credentials":{"anthropic":"anthropic-sub"}`) {
-		t.Fatalf("PutRole wire = %s %s %s", gotMethod, gotPath, gotBody)
-	}
 	roles, err := c.ListRoles("acme")
 	if err != nil || len(roles) != 1 || roles[0].Scope.TTL != time.Hour || roles[0].Scope.Credentials["anthropic"] != "anthropic-sub" {
 		t.Fatalf("ListRoles = %+v, %v", roles, err)
@@ -172,13 +155,6 @@ func TestClientRoleAndGrantRoundTrips(t *testing.T) {
 	projs, err := c.ListProjects()
 	if err != nil || len(projs) != 1 || projs[0] != "acme" {
 		t.Fatalf("ListProjects = %+v, %v", projs, err)
-	}
-
-	if err := c.RemoveRole("acme", "guest"); err != nil {
-		t.Fatalf("RemoveRole: %v", err)
-	}
-	if gotMethod != "DELETE" || gotPath != "/admin/roles/acme/guest" {
-		t.Fatalf("RemoveRole wire = %s %s", gotMethod, gotPath)
 	}
 
 	roster, err := c.Actors()
@@ -240,8 +216,8 @@ func TestClientRosterAndAddressing(t *testing.T) {
 		t.Fatalf("rooms after removal = %+v, %v", rooms, err)
 	}
 
-	// PutRole with Scope.Addressing round-trips via ListRoles.
-	if err := c.PutRole("acme", jam.Role{Name: "impl", Scope: jam.Scope{Addressing: []string{"human:*", "channel:eng-help"}}}); err != nil {
+	// A role's Scope.Addressing round-trips via ListRoles.
+	if err := store.PutRole("acme", jam.Role{Name: "impl", Scope: jam.Scope{Addressing: []string{"human:*", "channel:eng-help"}}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
 	roles, err := c.ListRoles("acme")
@@ -257,8 +233,8 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	if len(got) != 2 || got[0] != "human:*" || got[1] != "channel:eng-help" {
 		t.Fatalf("role addressing = %+v, roles=%+v", got, roles)
 	}
-	// PutRole with Allocation.MaxEphemeral round-trips via ListRoles.
-	if err := c.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}}); err != nil {
+	// A role's Allocation round-trips via ListRoles.
+	if err := store.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
 	roles, err = c.ListRoles("acme")
@@ -487,22 +463,6 @@ func TestClientKitRoundTrips(t *testing.T) {
 	}
 }
 
-func TestClientPutRoleCarriesKit(t *testing.T) {
-	var gotBody string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		gotBody = string(b)
-		w.WriteHeader(http.StatusCreated)
-	}))
-	defer srv.Close()
-	if err := New(srv.URL, "").PutRole("acme", jam.Role{Name: "impl", Kit: "builder"}); err != nil {
-		t.Fatalf("PutRole: %v", err)
-	}
-	if !strings.Contains(gotBody, `"kit":"builder"`) {
-		t.Fatalf("PutRole body missing kit: %s", gotBody)
-	}
-}
-
 func TestCoveClientRoundTrip(t *testing.T) {
 	srv, store := newServer(t) // existing helper: httptest server over a real admin handler
 	defer srv.Close()
@@ -594,33 +554,21 @@ func TestClientPersonalSessionRoundTrip(t *testing.T) {
 	}
 }
 
-// TestClientStandingRoundTrip declares, lists and dismisses standing sessions
-// through the client; the role's other fields survive.
-func TestClientStandingRoundTrip(t *testing.T) {
+// TestClientListStanding lists the standing sessions declared through the
+// store (they change only in git).
+func TestClientListStanding(t *testing.T) {
 	ts, store := newServer(t)
 	c := New(ts.URL, "")
 
-	if err := c.AddStanding(jam.DefaultProject, "guest", jam.StandingSession{Name: "alice-bot", Prompt: "review PRs"}); err != nil {
+	if err := jam.AddStanding(store, jam.DefaultProject, "guest", jam.StandingSession{Name: "alice-bot", Prompt: "review PRs"}); err != nil {
 		t.Fatalf("AddStanding: %v", err)
-	}
-	if err := c.AddStanding(jam.DefaultProject, "guest", jam.StandingSession{Name: "alice-bot", Prompt: "again"}); err == nil {
-		t.Fatal("a duplicate name must error (400)")
 	}
 	list, err := c.ListStanding(jam.DefaultProject, "guest")
 	if err != nil || len(list) != 1 || list[0] != (jam.StandingStatus{StandingSession: jam.StandingSession{Name: "alice-bot", Prompt: "review PRs"}}) {
 		t.Fatalf("ListStanding = %+v, %v", list, err)
 	}
-	if r, _ := store.GetRole(jam.DefaultProject, "guest"); len(r.Scope.Destinations) != 1 || r.Scope.TTL != time.Hour {
-		t.Fatalf("role scope not kept: %+v", r.Scope)
-	}
 	if _, err := c.ResetStanding(jam.DefaultProject, "guest", "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("reset of an undeclared name = %v, want ErrNotFound", err)
-	}
-	if err := c.RemoveStanding(jam.DefaultProject, "guest", "alice-bot"); err != nil {
-		t.Fatalf("RemoveStanding: %v", err)
-	}
-	if list, err := c.ListStanding(jam.DefaultProject, "guest"); err != nil || len(list) != 0 {
-		t.Fatalf("after rm = %+v, %v", list, err)
 	}
 	if _, err := c.ListStanding(jam.DefaultProject, "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown role = %v, want ErrNotFound", err)
@@ -712,9 +660,9 @@ func TestClientUpgradeStanding(t *testing.T) {
 	}
 }
 
-// TestClientEgressRoundTrip sets, shows and clears a role's egress policy
-// through the client; ListRoles carries it; a bad domain surfaces the 400.
-func TestClientEgressRoundTrip(t *testing.T) {
+// TestClientShowEgress shows a role's egress policy (set through the store)
+// through the client; ListRoles carries it.
+func TestClientShowEgress(t *testing.T) {
 	ts, store := newServer(t)
 	c := New(ts.URL, "")
 
@@ -722,8 +670,8 @@ func TestClientEgressRoundTrip(t *testing.T) {
 	if err != nil || view.Managed || len(view.Domains) != 0 {
 		t.Fatalf("ShowEgress (unset) = %+v, %v", view, err)
 	}
-	if err := c.SetEgress(jam.DefaultProject, "guest", []string{"B.org", "a.com"}); err != nil {
-		t.Fatalf("SetEgress: %v", err)
+	if _, err := jam.SetRoleEgress(store, jam.DefaultProject, "guest", []string{"B.org", "a.com"}); err != nil {
+		t.Fatalf("SetRoleEgress: %v", err)
 	}
 	view, err = c.ShowEgress(jam.DefaultProject, "guest")
 	if err != nil || !view.Managed || strings.Join(view.Domains, ",") != "a.com,b.org" {
@@ -732,24 +680,6 @@ func TestClientEgressRoundTrip(t *testing.T) {
 	roles, err := c.ListRoles(jam.DefaultProject)
 	if err != nil || len(roles) != 1 || roles[0].Scope.Egress == nil || len(roles[0].Scope.Egress.Domains) != 2 {
 		t.Fatalf("ListRoles egress = %+v, %v", roles, err)
-	}
-	if r, _ := store.GetRole(jam.DefaultProject, "guest"); len(r.Scope.Destinations) != 1 || r.Scope.TTL != time.Hour {
-		t.Fatalf("role scope not kept: %+v", r.Scope)
-	}
-	if err := c.SetEgress(jam.DefaultProject, "guest", []string{"https://evil.com"}); err == nil || !strings.Contains(err.Error(), "https://evil.com") {
-		t.Fatalf("bad domain err = %v, want it to name the domain", err)
-	}
-	if err := c.SetEgress(jam.DefaultProject, "guest", nil); err != nil {
-		t.Fatalf("SetEgress(empty): %v", err)
-	}
-	if view, _ := c.ShowEgress(jam.DefaultProject, "guest"); !view.Managed || len(view.Domains) != 0 {
-		t.Fatalf("empty policy view = %+v", view)
-	}
-	if err := c.ClearEgress(jam.DefaultProject, "guest"); err != nil {
-		t.Fatalf("ClearEgress: %v", err)
-	}
-	if r, _ := store.GetRole(jam.DefaultProject, "guest"); r.Scope.Egress != nil {
-		t.Fatalf("after clear = %+v, want nil", r.Scope.Egress)
 	}
 	if _, err := c.ShowEgress(jam.DefaultProject, "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown role = %v, want ErrNotFound", err)

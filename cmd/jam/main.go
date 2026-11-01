@@ -128,11 +128,11 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "serve", Brief: "run the broker + loopback admin API", Run: cmdServe},
 			{Name: "enroll", Brief: "enroll an identity (via the admin API) and print its snippet", Run: cmdEnroll},
 			{Name: "revoke", Brief: "revoke an identity (via the admin API)", Run: cmdRevoke},
-			{Name: "destination", Brief: "manage destinations (add|list|rm|import) via the admin API", Run: cmdDestination},
+			{Name: "destination", Brief: "list destinations (list) via the admin API", Run: cmdDestination},
 			{Name: "attention", Brief: "list operator-attention conditions (list [--all]) via the admin API", Run: cmdAttention},
 			{Name: "manager", Brief: "manage Studio Managers (add|list|rotate|revoke) via the admin API", Run: cmdManager},
-			{Name: "model-spec", Brief: "manage model-specs — how a cove runs its agent: harness, version, principal, model, policy (add|list|show|update|delete) via the admin API", Run: cmdModelSpec},
-			{Name: "role", Brief: "manage roles (add|list|rm|inspect|images) via the admin API", Run: cmdRole},
+			{Name: "model-spec", Brief: "show model-specs — how a cove runs its agent: harness, version, principal, model, policy (list|show) via the admin API", Run: cmdModelSpec},
+			{Name: "role", Brief: "list and inspect roles (list|inspect|images) via the admin API", Run: cmdRole},
 			{Name: "project", Brief: "list projects (list), or show a project's members (member list), escalation policy (escalation list), or chat service (chat-service show) via the admin API", Run: cmdProject},
 			{Name: "user", Brief: "manage users — the people agents talk to (list|show|oidc) via the admin API", Run: cmdUser},
 			{Name: "account", Brief: "manage users' accounts on connected services (list|add|link|unlink) via the admin API", Run: cmdAccount},
@@ -148,8 +148,8 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "actors", Brief: "list actors and their grants", Run: cmdActors},
 			{Name: "studio", Brief: "manage studios (raise|list|status|teardown|inspect) via the admin API, and who may reach one (share|unshare|access)", Run: cmdStudio},
 			{Name: "cove", Brief: "deprecated alias for studio", Run: cmdCove},
-			{Name: "standing", Brief: "declare, list, dismiss, reset or upgrade a role's named standing sessions (add|list|rm|reset|upgrade) via the admin API", Run: cmdStanding},
-			{Name: "egress", Brief: "set, show or clear a role's raw-egress policy (set|show|clear) via the admin API; pushed to running studios shortly", Run: cmdEgress},
+			{Name: "standing", Brief: "list, reset or upgrade a role's named standing sessions (list|reset|upgrade) via the admin API", Run: cmdStanding},
+			{Name: "egress", Brief: "show a role's raw-egress policy (show) via the admin API", Run: cmdEgress},
 			{Name: "context", Brief: "show the authored session context for a role, project or the Jam (show) via the admin API", Run: cmdContext},
 			{Name: "session", Brief: "request, list or release your personal sessions (request|list|release) via the admin API", Run: cmdSession},
 			{Name: "push", Brief: "push notification helpers (keygen: print a fresh VAPID key pair)", Run: func(args []string, _ cli.Globals, stdout, stderr io.Writer) int { return cmdPush(args, stdout, stderr) }},
@@ -400,51 +400,21 @@ func cmdRevoke(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// oauthBetaDoc is the doc the removed --oauth-beta flag points at.
-const oauthBetaDoc = "docs/usage/jam/pool.md"
-
 func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "jam destination: expected add|list|rm|import")
+		fmt.Fprintln(stderr, "jam destination: expected list")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
+	if sub != "list" {
+		fmt.Fprintf(stderr, "jam destination: unknown subcommand %q (want list)\n", sub)
+		return 2
+	}
 	fs := flag.NewFlagSet("destination "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token for an OIDC-gated admin API (env: JAM_ADMIN_TOKEN)")
-	// add flags
-	var d jam.Destination
-	fs.StringVar(&d.Name, "name", "", "destination name")
-	fs.StringVar(&d.Route, "route", "", "inbound path prefix, e.g. /git/")
-	fs.StringVar(&d.Upstream, "upstream", "", "upstream base URL")
-	var identityIn, apply string
-	fs.StringVar(&identityIn, "identity-in", "", "bearer|basic-password|x-api-key|raw (custom header specs: destination import)")
-	fs.StringVar(&d.CredName, "cred-name", "", "credential name to inject")
-	fs.StringVar(&apply, "apply", "", "bearer|basic-password|x-api-key|raw (custom header specs: destination import)")
-	// --oauth-beta was removed (COV-241); it stays registered only to refuse
-	// with a pointer to its replacement rather than "flag provided but not defined".
-	oauthBeta := fs.Bool("oauth-beta", false, "REMOVED: the broker adds the oauth-2025-04-20 anthropic-beta for every subscription-pool credential (see "+oauthBetaDoc+")")
-	var envKV []string
-	fs.Func("env", "client env KEY=TEMPLATE a studio sets for this destination (repeatable; templates: {url} {base} {host} {token})", func(s string) error {
-		envKV = append(envKV, s)
-		return nil
-	})
-	fs.Func("allow-path", "path.Match pattern (after the route) the broker may forward; repeatable; none = any path", func(s string) error {
-		d.AllowPaths = append(d.AllowPaths, s)
-		return nil
-	})
-	fs.BoolVar(&d.Git, "git", false, "route studios' git for this destination's upstream host (e.g. https://github.com/) through it")
-	fs.StringVar(&d.Note, "note", "", "usage hint shown to sessions granted this destination (≤300 bytes)")
-	fs.Func("log-headers-in", "troubleshooting log of incoming headers: none|examined|all (secrets redacted)", func(s string) error {
-		d.LogHeadersIn = jam.HeaderLog(s)
-		return nil
-	})
-	fs.Func("log-headers-out", "troubleshooting log of outgoing headers: none|changed|all (secrets redacted)", func(s string) error {
-		d.LogHeadersOut = jam.HeaderLog(s)
-		return nil
-	})
-	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
+	_, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
 	}
@@ -452,31 +422,9 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 		fmt.Fprintln(stderr, "jam destination:", err)
 		return 2
 	}
-	if *oauthBeta {
-		fmt.Fprintf(stderr, "jam destination: --oauth-beta was removed: the broker now adds the oauth-2025-04-20 anthropic-beta to every request carrying a subscription-pool credential, so drop the flag (a non-pool subscription token takes a model-spec principal header rule instead) — see %s\n", oauthBetaDoc)
-		return 2
-	}
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "add":
-		d.IdentityIn, d.Apply = jam.ApplyMethod(identityIn), jam.ApplyMethod(apply)
-		for _, kv := range envKV {
-			k, v, ok := strings.Cut(kv, "=")
-			if !ok || k == "" {
-				fmt.Fprintf(stderr, "jam destination add: --env %q: want KEY=TEMPLATE\n", kv)
-				return 2
-			}
-			if d.Env == nil {
-				d.Env = map[string]string{}
-			}
-			d.Env[k] = v
-		}
-		if err := c.AddDestination(d); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "added destination", d.Name)
 	case "list":
 		ds, err := c.ListDestinations()
 		if err != nil {
@@ -502,40 +450,8 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			}
 			fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s%s)\n", dd.Name, dd.Route, dd.Upstream, dd.CredName, dd.Apply, ob)
 		}
-	case "rm":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam destination rm: expected one destination name")
-			return 2
-		}
-		if err := c.RemoveDestination(pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "removed destination", pos[0])
-	case "import":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam destination import: expected one YAML file path")
-			return 2
-		}
-		data, err := os.ReadFile(pos[0])
-		if err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		var conf jam.Config
-		if err := yaml.Unmarshal(data, &conf); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		for _, dd := range conf.Destinations {
-			if err := c.AddDestination(dd); err != nil {
-				fmt.Fprintln(stderr, "jam:", err)
-				return 1
-			}
-			fmt.Fprintln(stdout, "imported destination", dd.Name)
-		}
 	default:
-		fmt.Fprintln(stderr, "jam destination: unknown subcommand", sub)
+		fmt.Fprintf(stderr, "jam destination: unknown subcommand %q (want list)\n", sub)
 		return 2
 	}
 	return 0
@@ -543,35 +459,22 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 
 func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "jam role: expected add|list|rm|inspect|images")
+		fmt.Fprintln(stderr, "jam role: expected list|inspect|images")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
 	if sub == "inspect" {
 		return cmdRoleInspect(rest, stdout, stderr)
 	}
+	if sub != "list" && sub != "images" {
+		fmt.Fprintf(stderr, "jam role: unknown subcommand %q (want list|inspect|images)\n", sub)
+		return 2
+	}
 	fs := flag.NewFlagSet("role "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
-	name := fs.String("name", "", "role name")
-	dests := fs.String("destinations", "", "comma-separated destination names, each optionally name=credential (the credential the broker injects; default: the destination's cred-name)")
-	addressing := fs.String("addressing", "", "comma-separated comms target globs, e.g. user:*,channel:eng-help (user:<name> or user:<usr_id>; human: is read as user:)")
-	ttl := fs.Duration("ttl", 0, "default token lifetime for actors of this role (0 = no expiry)")
-	kitName := fs.String("kit", "", "bind a registered kit (name)")
-	modelSpec := fs.String("model-spec", "", "bind a model-spec (name); empty = "+jam.DefaultModelSpec)
-	maxEphemeral := fs.Int("max-ephemeral", 0, "cap on this role's concurrent ephemeral (Requisitioner) sessions (0 = unset: the Requisitioner's max-concurrent applies)")
-	maxPersonal := fs.Int("max-personal", 0, "cap on this role's concurrent personal sessions across all owners (0 = no personal sessions)")
-	maxPersonalPerOwner := fs.Int("max-personal-per-owner", 0, "cap on one owner's concurrent personal sessions of this role (0 = the pool cap only)")
-	idleAfter := fs.Duration("idle-after", 0, "nag a personal session's owner once it has waited on them this long (0 = default 4h)")
-	nagEvery := fs.Duration("nag-every", 0, "then re-nag the owner this often (0 = default 24h)")
-	reclaimAfter := fs.Duration("reclaim-after", 0, "reclaim a personal session once it has waited on its owner this long (0 = never)")
-	idleTimeout := fs.Duration("idle-timeout", 0, "after a turn ends with nothing waking the session for this long, apply --on-idle (0 = no idle timeout)")
-	onIdle := fs.String("on-idle", "", "what the idle timeout does: wake (default) | teardown")
-	timeZone := fs.String("time-zone", "", "IANA time zone the role's cron alarms are evaluated in (default UTC)")
-	collabPreview := fs.String("collaborate-preview", "", "who may view this role's studio previews: members (default) | none")
-	collabSSH := fs.String("collaborate-ssh", "", "who may ssh into this role's studios: members | none (default)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -583,48 +486,6 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "add":
-		if *name == "" {
-			fmt.Fprintln(stderr, "jam role add: --name is required")
-			return 2
-		}
-		if *maxEphemeral < 0 || *maxPersonal < 0 || *maxPersonalPerOwner < 0 {
-			fmt.Fprintln(stderr, "jam role add: --max-ephemeral, --max-personal and --max-personal-per-owner must be >= 0")
-			return 2
-		}
-		if *idleAfter < 0 || *nagEvery < 0 || *reclaimAfter < 0 {
-			fmt.Fprintln(stderr, "jam role add: --idle-after, --nag-every and --reclaim-after must be >= 0")
-			return 2
-		}
-		te := jam.TurnEndPolicy{IdleTimeout: *idleTimeout, OnIdle: *onIdle, TimeZone: *timeZone}
-		if err := jam.ValidateTurnEnd(te); err != nil {
-			fmt.Fprintln(stderr, "jam role add:", err)
-			return 2
-		}
-		collab := jam.CollaboratePolicy{Preview: *collabPreview, SSH: *collabSSH}
-		if err := collab.Validate(); err != nil {
-			fmt.Fprintln(stderr, "jam role add:", err)
-			return 2
-		}
-		ds, creds, err := jam.ParseDestinations(*dests)
-		if err != nil {
-			fmt.Fprintln(stderr, "jam role add:", err)
-			return 2
-		}
-		r := jam.Role{
-			TurnEnd: te, Collaborate: collab,
-			Name: *name, Kit: *kitName, ModelSpec: *modelSpec,
-			Scope: jam.Scope{Destinations: ds, Credentials: creds, Addressing: splitCSV(*addressing), TTL: *ttl},
-			Allocation: jam.RoleAllocation{
-				MaxEphemeral: *maxEphemeral, MaxPersonal: *maxPersonal, MaxPersonalPerOwner: *maxPersonalPerOwner,
-				IdleAfter: *idleAfter, NagEvery: *nagEvery, ReclaimAfter: *reclaimAfter,
-			},
-		}
-		if err := c.PutRole(*project, r); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "added role", firstNonEmpty(*project, jam.DefaultProject)+"/"+*name)
 	case "list":
 		roles, err := c.ListRoles(*project)
 		if err != nil {
@@ -634,16 +495,6 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		for _, r := range roles {
 			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tidle-timeout=%s\ton-idle=%s\ttime-zone=%s\tegress=%s\tcollaborate-preview=%s\tcollaborate-ssh=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, r.TurnEnd.IdleTimeout, r.TurnEnd.Action(), r.TurnEnd.Location(), egressState(r.Scope.Egress), collabLabel(r.Collaborate.Preview, "members"), collabLabel(r.Collaborate.SSH, "none"))
 		}
-	case "rm":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam role rm: expected one role name")
-			return 2
-		}
-		if err := c.RemoveRole(firstNonEmpty(*project, jam.DefaultProject), pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "removed role", pos[0])
 	case "images":
 		if len(pos) != 1 || pos[0] == "" {
 			fmt.Fprintln(stderr, "usage: jam role images <project>/<role>")
@@ -1403,25 +1254,26 @@ func cmdSession(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// cmdStanding manages a role's standing-session declarations: Jam keeps one
-// cove running per declared name, restarts it (state kept) if it dies, and
-// tears it down with its state once the name is removed. reset deletes a
-// declared name's cove and state so Jam raises it afresh; upgrade re-raises it
-// on the current image, keeping its state.
+// cmdStanding lists a role's standing-session declarations (which change only
+// in git) and acts on them: reset deletes a declared name's cove and state so
+// Jam raises it afresh; upgrade re-raises it on the current image, keeping its
+// state.
 func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "jam standing: expected add|list|rm|reset|upgrade")
+		fmt.Fprintln(stderr, "jam standing: expected list|reset|upgrade")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
+	if sub != "list" && sub != "reset" && sub != "upgrade" {
+		fmt.Fprintf(stderr, "jam standing: unknown subcommand %q (want list|reset|upgrade)\n", sub)
+		return 2
+	}
 	fs := flag.NewFlagSet("standing "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role the standing session belongs to")
-	name := fs.String("name", "", "standing session name, unique within the role (add only)")
-	promptFile := fs.String("prompt-file", "", "path to a file containing the session's prompt (add only; read host-side, never passed on argv)")
 	force := fs.Bool("force", false, "upgrade only: don't wait for the session to be idle, and restart it even if already current")
 	wait := fs.Bool("wait", false, "upgrade only: poll `standing list` until the upgrade is done")
 	waitTimeout := fs.Duration("wait-timeout", 15*time.Minute, "upgrade --wait only: give up after this long")
@@ -1433,7 +1285,7 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "jam standing:", err)
 		return 2
 	}
-	if *role == "" && (sub == "add" || sub == "list" || sub == "rm" || sub == "reset" || sub == "upgrade") {
+	if *role == "" && (sub == "list" || sub == "reset" || sub == "upgrade") {
 		fmt.Fprintf(stderr, "jam standing %s: --role is required\n", sub)
 		return 2
 	}
@@ -1441,21 +1293,6 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "add":
-		if *name == "" || *promptFile == "" {
-			fmt.Fprintln(stderr, "jam standing add: --name and --prompt-file are required")
-			return 2
-		}
-		b, err := os.ReadFile(*promptFile)
-		if err != nil {
-			fmt.Fprintln(stderr, "jam standing add: --prompt-file:", err)
-			return 1
-		}
-		if err := c.AddStanding(proj, *role, jam.StandingSession{Name: *name, Prompt: string(b)}); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "declared standing session %s/%s/%s\n", proj, *role, *name)
 	case "list":
 		list, err := c.ListStanding(proj, *role)
 		if err != nil {
@@ -1487,16 +1324,6 @@ func cmdStanding(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			}
 			fmt.Fprintln(stdout, line)
 		}
-	case "rm":
-		if len(pos) != 1 {
-			fmt.Fprintln(stderr, "jam standing rm: expected one standing session name")
-			return 2
-		}
-		if err := c.RemoveStanding(proj, *role, pos[0]); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintln(stdout, "dismissed standing session", pos[0])
 	case "reset":
 		if len(pos) != 1 {
 			fmt.Fprintln(stderr, "jam standing reset: expected one standing session name")
@@ -1622,22 +1449,25 @@ func egressState(p *jam.EgressPolicy) string {
 	}
 }
 
-// cmdEgress manages a role's raw-egress policy: the list Jam pushes into each
+// cmdEgress shows a role's raw-egress policy: the list Jam pushes into each
 // cove of the role at raise, replacing the kit's policy list within the kit's
-// ceiling. A change reaches running studios within one reconcile pass.
+// ceiling. The policy changes only in git.
 func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "jam egress: expected set|show|clear")
+		fmt.Fprintln(stderr, "jam egress: expected show")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
+	if sub != "show" {
+		fmt.Fprintf(stderr, "jam egress: unknown subcommand %q (want show)\n", sub)
+		return 2
+	}
 	fs := flag.NewFlagSet("egress "+sub, flag.ContinueOnError)
 	app := fs.String("app", defaultApp, "settings/token profile")
 	adminURLFlag := fs.String("admin-url", "", "Jam admin API URL (overrides the app's settings)")
 	token := fs.String("token", adminTokenEnv(stderr), "operator token (env: JAM_ADMIN_TOKEN)")
 	project := fs.String("project", "", "project name (default: "+jam.DefaultProject+")")
 	role := fs.String("role", "", "role whose egress policy to manage")
-	none := fs.Bool("none", false, "set an empty policy: nothing beyond the sealed base and the kit's infra domains (set only)")
 	pos, code, ok := cli.ParseFlags(fs, rest, stdout, stderr)
 	if !ok {
 		return code
@@ -1647,7 +1477,7 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch sub {
-	case "set", "show", "clear":
+	case "show":
 	default:
 		fmt.Fprintln(stderr, "jam egress: unknown subcommand", sub)
 		return 2
@@ -1656,22 +1486,7 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "jam egress %s: --role is required\n", sub)
 		return 2
 	}
-	var domains []string
-	switch {
-	case sub == "set" && *none && len(pos) > 0:
-		fmt.Fprintln(stderr, "jam egress set: give domains or --none, not both")
-		return 2
-	case sub == "set" && !*none:
-		for _, d := range strings.Split(strings.Join(pos, ","), ",") {
-			if d = strings.TrimSpace(d); d != "" {
-				domains = append(domains, d)
-			}
-		}
-		if len(domains) == 0 {
-			fmt.Fprintln(stderr, "jam egress set: expected a comma-separated domain list, or --none for an empty policy")
-			return 2
-		}
-	case sub != "set" && len(pos) > 0:
+	if len(pos) > 0 {
 		fmt.Fprintf(stderr, "jam egress %s: unexpected arguments\n", sub)
 		return 2
 	}
@@ -1679,12 +1494,6 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	adminURL := firstNonEmpty(*adminURLFlag, loadSettings(*app).AdminURL, defaultAdminURL)
 	c := adminclient.New(adminURL, resolveToken(*app, *token, stderr))
 	switch sub {
-	case "set":
-		if err := c.SetEgress(proj, *role, domains); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "set egress policy for %s/%s; running studios pick it up shortly\n", proj, *role)
 	case "show":
 		v, err := c.ShowEgress(proj, *role)
 		if err != nil {
@@ -1701,12 +1510,6 @@ func cmdEgress(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				fmt.Fprintln(stdout, d)
 			}
 		}
-	case "clear":
-		if err := c.ClearEgress(proj, *role); err != nil {
-			fmt.Fprintln(stderr, "jam:", err)
-			return 1
-		}
-		fmt.Fprintf(stdout, "cleared egress policy for %s/%s (kit default); running studios pick it up shortly\n", proj, *role)
 	}
 	return 0
 }
@@ -1892,7 +1695,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "jam: warning: ignoring unknown jam.yml key(s): %s\n", strings.Join(unknown, ", "))
 		for _, k := range unknown {
 			if k == "destinations" {
-				fmt.Fprintln(stderr, "jam: note: destinations are managed via the admin API — run `jam destination import`")
+				fmt.Fprintln(stderr, "jam: note: destinations are managed in the config repo (see `jam config`)")
 			}
 		}
 	}
@@ -2347,8 +2150,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// The Allocator is Jam's capacity authority, built whenever Jam serves
 	// (not only with a Requisitioner): it admits the Requisitioner's ephemeral raises and
 	// operators' personal-session requests against
-	// the roster's per-(project, role) policy (`role add --max-ephemeral
-	// --max-personal --max-personal-per-owner`), read live on each grant. The
+	// the roster's per-(project, role) policy (the role's max-ephemeral
+	// and max-personal caps), read live on each grant. The
 	// Requisitioner's max-concurrent is the ephemeral fallback for its own
 	// (project, role), seeded only when a Requisitioner is configured.
 	//
@@ -2408,7 +2211,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 
 	// Standing reconciler: keeps one live cove per standing session declared on a
-	// role (`jam standing add`) — raises a missing or dead one under its
+	// role in git — raises a missing or dead one under its
 	// per-name actor id (admitted by the Allocator, released on a failed raise,
 	// with per-name backoff) and tears down one whose name was removed. Resident
 	// whenever Jam serves; with no declarations a tick does nothing.
@@ -3001,7 +2804,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			jam.WithAdminRoute("/admin/vscode", vscodeext.Routes("/admin", vscodeext.Embedded(), nil)),
 			jam.WithAdminRoute("/admin/vscode/jam.vsix", vscodeext.Routes("/admin", vscodeext.Embedded(), nil)),
 			jam.WithAdminRoute("/admin/studios/", collabhttp.Routes("/admin", collabDeps(operatorPrincipal(st)))),
-			jam.WithModelSpecs(st, credExists, cfg.Pool != nil, log),
+			jam.WithModelSpecs(st),
 			jam.WithKitFetcher(st, kitFetcher, log),
 			jam.WithConfig(st, configFetcher, cfgEnv, log),
 			jam.WithSetupInspect(setupDeps, log),
@@ -3090,16 +2893,6 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 func logTailSeq(lg interface{ TailSeq() (int64, bool) }) int64 {
 	seq, _ := lg.TailSeq()
 	return seq
-}
-
-func splitCSV(s string) []string {
-	var out []string
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }
 
 func main() {

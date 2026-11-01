@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -71,33 +70,61 @@ func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder, out any) {
 	}
 }
 
-func TestAdminAddAndListDestination(t *testing.T) {
+func TestAdminListDestination(t *testing.T) {
 	h, store := newTestAdmin(t)
-	body := `{"name":"git","route":"/git/","upstream":"https://github.com","identity_in":"basic-password","cred_name":"git-pat","apply":"basic-password","repo_scoped":true}`
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, adminReq("POST", "/admin/destinations", body))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST status = %d, body=%s", rec.Code, rec.Body.String())
+	if err := store.AddDestination(Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: "basic-password", CredName: "git-pat", Apply: "basic-password"}); err != nil {
+		t.Fatal(err)
 	}
-	if len(store.ListDestinations()) != 1 {
-		t.Fatalf("store has %d destinations", len(store.ListDestinations()))
-	}
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, adminReq("GET", "/admin/destinations", ""))
 	var got []Destination
-	json.Unmarshal(rec.Body.Bytes(), &got)
+	getJSON(t, h, "/admin/destinations", &got)
 	if len(got) != 1 || got[0].Name != "git" {
 		t.Fatalf("GET destinations = %+v", got)
 	}
 }
 
+// Destinations change only in git: the write routes are gone, the read stays.
+func TestRoleConfigRoutesGone(t *testing.T) {
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", Role{Name: "dev", Scope: Scope{Destinations: []string{"git"}},
+		Allocation: RoleAllocation{Standing: []StandingSession{{Name: "bot", Prompt: "hi"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ method, path string }{
+		{"POST", "/admin/roles"},
+		{"DELETE", "/admin/roles/acme/dev"},
+		{"POST", "/admin/destinations"},
+		{"DELETE", "/admin/destinations/git"},
+		{"POST", "/admin/roles/acme/dev/standing"},
+		{"DELETE", "/admin/roles/acme/dev/standing/bot"},
+		{"PUT", "/admin/roles/acme/dev/egress"},
+		{"DELETE", "/admin/roles/acme/dev/egress"},
+		{"POST", "/admin/model-specs"},
+		{"PUT", "/admin/model-specs/default"},
+		{"DELETE", "/admin/model-specs/default"},
+	} {
+		if rec := doReq(t, h, c.method, c.path, strings.NewReader("{}")); rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s %s = %d, want 404 or 405", c.method, c.path, rec.Code)
+		}
+	}
+	// The kept neighbours still answer: the reads, and standing reset.
+	for _, p := range []string{"/admin/roles?project=acme", "/admin/destinations", "/admin/roles/acme/dev/standing", "/admin/roles/acme/dev/egress"} {
+		if rec := doReq(t, h, "GET", p, nil); rec.Code != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200", p, rec.Code)
+		}
+	}
+	if rec := doReq(t, h, "POST", "/admin/roles/acme/dev/standing/bot/reset", nil); rec.Code == http.StatusNotFound || rec.Code == http.StatusMethodNotAllowed {
+		t.Errorf("standing reset = %d, want it mounted", rec.Code)
+	}
+	if _, ok := store.GetRole("acme", "dev"); !ok || len(store.ListDestinations()) != 0 {
+		t.Error("a removed route changed the store")
+	}
+}
+
 func TestAdminRejectsUnresolvableCredName(t *testing.T) {
-	h, _ := newTestAdmin(t)
-	body := `{"name":"bad","route":"/bad/","upstream":"https://x","identity_in":"bearer","cred_name":"nope","apply":"bearer"}`
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, adminReq("POST", "/admin/destinations", body))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400 for unresolvable cred_name", rec.Code)
+	err := ValidateDestination(Destination{Name: "bad", Route: "/bad/", Upstream: "https://x", IdentityIn: "bearer", CredName: "nope", Apply: "bearer"}, func(n string) bool { return n == "git-pat" })
+	if err == nil {
+		t.Fatal("want an error for an unresolvable cred_name")
 	}
 }
 
@@ -191,19 +218,14 @@ func TestAdminLogsOperatorOnMutations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// add destination + enroll + revoke — each is a mutation and must be attributed.
-	h.ServeHTTP(httptest.NewRecorder(), adminReq("POST", "/admin/destinations",
-		`{"name":"git","route":"/git/","upstream":"https://github.com","identity_in":"basic-password","cred_name":"git-pat","apply":"basic-password"}`))
+	// enroll + revoke — each is a mutation and must be attributed.
 	h.ServeHTTP(httptest.NewRecorder(), adminReq("POST", "/admin/enrollments",
 		`{"id":"spider-18","project":"ACME","role":"guest"}`))
-	h.ServeHTTP(httptest.NewRecorder(), adminReq("DELETE", "/admin/destinations/git", ""))
 	h.ServeHTTP(httptest.NewRecorder(), adminReq("DELETE", "/admin/enrollments/spider-18", ""))
 
 	logs := logbuf.String()
 	for _, want := range []string{
-		`admin destination added`,
 		`admin enrolled`,
-		`admin destination removed`,
 		`admin revoked`,
 	} {
 		if !strings.Contains(logs, want) {
@@ -265,42 +287,35 @@ func TestLoginConfig404WhenNotConfigured(t *testing.T) {
 	}
 }
 
-func TestAdminRolesCRUD(t *testing.T) {
-	h, store := newTestAdmin(t) // existing helper: returns handler + store
+func TestAdminRolesList(t *testing.T) {
+	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	// create
-	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}, TTLSeconds: 3600})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST /admin/roles = %d", rec.Code)
+	if err := store.PutRole("acme", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
 	}
-	// list
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
 	if len(roles) != 1 || roles[0].Name != "guest" || roles[0].TTLSeconds != 3600 {
 		t.Fatalf("roles = %+v", roles)
 	}
-	// projects
 	var projs []string
 	getJSON(t, h, "/admin/projects", &projs)
 	if len(projs) == 0 {
 		t.Fatal("expected acme in projects")
 	}
-	// delete
-	rec = doReq(t, h, "DELETE", "/admin/roles/acme/guest", nil)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("DELETE role = %d", rec.Code)
-	}
 }
 
 func TestAdminEnrollRequiresExistingRole(t *testing.T) {
-	h, _ := newTestAdmin(t)
+	h, store := newTestAdmin(t)
 	// no role yet → 400 (fail closed)
 	rec := doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "x", Role: "guest"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("enroll with missing role = %d, want 400", rec.Code)
 	}
 	// create the role, then enroll succeeds
-	doJSON(t, h, "POST", "/admin/roles", RoleBody{Name: "guest", Destinations: []string{"anthropic"}})
+	if err := store.PutRole("default", Role{Name: "guest", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
+		t.Fatal(err)
+	}
 	rec = doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "x", Role: "guest"})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("enroll = %d, want 201", rec.Code)
@@ -310,8 +325,11 @@ func TestAdminEnrollRequiresExistingRole(t *testing.T) {
 func TestAdminGrantAddRemove(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme", "beta")
-	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "guest", Destinations: []string{"anthropic"}})
-	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "beta", Name: "review", Destinations: []string{"git"}})
+	for _, r := range []struct{ project, name, dest string }{{"acme", "guest", "anthropic"}, {"beta", "review", "git"}} {
+		if err := store.PutRole(r.project, Role{Name: r.name, Scope: Scope{Destinations: []string{r.dest}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "guest"})
 	rec := doJSON(t, h, "POST", "/admin/actors/m/grants", GrantBody{Project: "beta", Role: "review"})
 	if rec.Code != http.StatusCreated {
@@ -399,9 +417,8 @@ func TestChatServiceRoute(t *testing.T) {
 func TestAdminRoleAddressingRoundTrips(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Destinations: []string{"anthropic"}, Addressing: []string{"human:*", "channel:eng-help"}})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST role = %d", rec.Code)
+	if err := store.PutRole("acme", Role{Name: "impl", Scope: Scope{Destinations: []string{"anthropic"}, Addressing: []string{"human:*", "channel:eng-help"}}}); err != nil {
+		t.Fatal(err)
 	}
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
@@ -410,103 +427,67 @@ func TestAdminRoleAddressingRoundTrips(t *testing.T) {
 	}
 }
 
-// A role's max-ephemeral allocation policy round-trips through POST/GET
-// /admin/roles; a negative cap is rejected.
+// A role's max-ephemeral allocation policy reads back through GET /admin/roles.
 func TestAdminRoleMaxEphemeralRoundTrips(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", Destinations: []string{"anthropic"}, MaxEphemeral: 4})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST role = %d", rec.Code)
+	if err := store.PutRole("acme", Role{Name: "worker", Scope: Scope{Destinations: []string{"anthropic"}}, Allocation: RoleAllocation{MaxEphemeral: 4}}); err != nil {
+		t.Fatal(err)
 	}
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
 	if len(roles) != 1 || roles[0].MaxEphemeral != 4 {
 		t.Fatalf("roles = %+v, want max_ephemeral 4", roles)
 	}
-	if r, ok := store.GetRole("acme", "worker"); !ok || r.Allocation.MaxEphemeral != 4 {
-		t.Fatalf("stored role = %+v, %v", r, ok)
-	}
-	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "bad", MaxEphemeral: -1}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("negative max_ephemeral = %d, want 400", rec.Code)
-	}
 }
 
-// A role's personal caps round-trip through POST/GET /admin/roles; a negative
-// cap is rejected.
+// A role's personal caps read back through GET /admin/roles.
 func TestAdminRoleMaxPersonalRoundTrips(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", MaxPersonal: 3, MaxPersonalPerOwner: 1})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST role = %d", rec.Code)
+	if err := store.PutRole("acme", Role{Name: "worker", Allocation: RoleAllocation{MaxPersonal: 3, MaxPersonalPerOwner: 1}}); err != nil {
+		t.Fatal(err)
 	}
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
 	if len(roles) != 1 || roles[0].MaxPersonal != 3 || roles[0].MaxPersonalPerOwner != 1 {
 		t.Fatalf("roles = %+v, want max_personal 3 / per-owner 1", roles)
 	}
-	if r, ok := store.GetRole("acme", "worker"); !ok || r.Allocation.MaxPersonal != 3 || r.Allocation.MaxPersonalPerOwner != 1 {
-		t.Fatalf("stored role = %+v, %v", r, ok)
-	}
-	for _, b := range []RoleBody{{Project: "acme", Name: "bad", MaxPersonal: -1}, {Project: "acme", Name: "bad", MaxPersonalPerOwner: -1}} {
-		if rec := doJSON(t, h, "POST", "/admin/roles", b); rec.Code != http.StatusBadRequest {
-			t.Fatalf("negative personal cap %+v = %d, want 400", b, rec.Code)
-		}
-	}
 }
 
-// A role's personal idle settings round-trip through POST/GET /admin/roles as
-// seconds; a negative setting is rejected.
+// A role's personal idle settings read back through GET /admin/roles as seconds.
 func TestAdminRoleIdleSettingsRoundTrip(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "pair", IdleAfterSeconds: 3600, NagEverySeconds: 7200, ReclaimAfterSeconds: 259200})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST role = %d", rec.Code)
+	if err := store.PutRole("acme", Role{Name: "pair", Allocation: RoleAllocation{IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}}); err != nil {
+		t.Fatal(err)
 	}
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
 	if len(roles) != 1 || roles[0].IdleAfterSeconds != 3600 || roles[0].NagEverySeconds != 7200 || roles[0].ReclaimAfterSeconds != 259200 {
 		t.Fatalf("roles = %+v, want idle 3600 / nag 7200 / reclaim 259200", roles)
 	}
-	want := RoleAllocation{IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}
-	if r, ok := store.GetRole("acme", "pair"); !ok || !reflect.DeepEqual(r.Allocation, want) {
-		t.Fatalf("stored role = %+v, %v; want allocation %+v", r, ok, want)
-	}
-	for _, b := range []RoleBody{
-		{Project: "acme", Name: "bad", IdleAfterSeconds: -1},
-		{Project: "acme", Name: "bad", NagEverySeconds: -1},
-		{Project: "acme", Name: "bad", ReclaimAfterSeconds: -1},
-	} {
-		if rec := doJSON(t, h, "POST", "/admin/roles", b); rec.Code != http.StatusBadRequest {
-			t.Fatalf("negative idle setting %+v = %d, want 400", b, rec.Code)
-		}
-	}
 }
 
 func TestAdminRoleTurnEndRoundTrip(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "worker", IdleTimeoutSeconds: 1800, OnIdle: "teardown", TimeZone: "Europe/Berlin"})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST role = %d", rec.Code)
+	te := TurnEndPolicy{IdleTimeout: 30 * time.Minute, OnIdle: OnIdleTeardown, TimeZone: "Europe/Berlin"}
+	if err := store.PutRole("acme", Role{Name: "worker", TurnEnd: te}); err != nil {
+		t.Fatal(err)
 	}
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
 	if len(roles) != 1 || roles[0].IdleTimeoutSeconds != 1800 || roles[0].OnIdle != "teardown" || roles[0].TimeZone != "Europe/Berlin" {
 		t.Fatalf("roles = %+v", roles)
 	}
-	if r, _ := store.GetRole("acme", "worker"); r.TurnEnd != (TurnEndPolicy{IdleTimeout: 30 * time.Minute, OnIdle: OnIdleTeardown, TimeZone: "Europe/Berlin"}) {
-		t.Fatalf("stored turn-end = %+v", r.TurnEnd)
-	}
-	for _, b := range []RoleBody{
-		{Project: "acme", Name: "bad", IdleTimeoutSeconds: -1},
-		{Project: "acme", Name: "bad", OnIdle: "nap"},
-		{Project: "acme", Name: "bad", TimeZone: "Mars/Olympus"},
-	} {
-		if rec := doJSON(t, h, "POST", "/admin/roles", b); rec.Code != http.StatusBadRequest {
-			t.Fatalf("bad turn-end %+v = %d, want 400", b, rec.Code)
+}
+
+// The turn-end policy a role is saved with is validated by ValidateTurnEnd.
+func TestValidateTurnEndRejectsBad(t *testing.T) {
+	for _, te := range []TurnEndPolicy{{IdleTimeout: -time.Second}, {OnIdle: "nap"}, {TimeZone: "Mars/Olympus"}} {
+		if err := ValidateTurnEnd(te); err == nil {
+			t.Errorf("ValidateTurnEnd(%+v) = nil, want an error", te)
 		}
 	}
 }
@@ -617,8 +598,8 @@ func TestAdminKitRemoveBlockedByRole(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
 	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
-	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"}); rec.Code != http.StatusCreated {
-		t.Fatalf("role add = %d", rec.Code)
+	if err := store.PutRole("acme", Role{Name: "impl", Kit: "builder"}); err != nil {
+		t.Fatal(err)
 	}
 	// rm while referenced → 409
 	if rec := doReq(t, h, "DELETE", "/admin/kits/builder", nil); rec.Code != http.StatusConflict {
@@ -626,15 +607,13 @@ func TestAdminKitRemoveBlockedByRole(t *testing.T) {
 	}
 }
 
-func TestAdminRoleRejectsMissingKit(t *testing.T) {
+func TestAdminRoleSummaryShowsKit(t *testing.T) {
 	h, store := newTestAdmin(t)
-	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Name: "impl", Kit: "ghost"}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("role with missing kit = %d, want 400", rec.Code)
-	}
-	// roster/role summary reflects a valid kit
 	mustCreateProject(t, store, "acme")
 	doJSON(t, h, "POST", "/admin/kits", KitBody{Name: "builder", Config: "kind: studio\nname: builder\n"})
-	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "impl", Kit: "builder"})
+	if err := store.PutRole("acme", Role{Name: "impl", Kit: "builder"}); err != nil {
+		t.Fatal(err)
+	}
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
 	if len(roles) != 1 || roles[0].Kit != "builder" {
@@ -833,17 +812,19 @@ func TestWithAdminRouteIsGuarded(t *testing.T) {
 func TestAdminRoleCredentialsValidatedAndEchoed(t *testing.T) {
 	h, store := newTestAdmin(t) // credExists: git-pat, anthropic-key
 	mustCreateProject(t, store, "acme")
-	bad := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"git"}, Credentials: map[string]string{"git": "nope"}})
-	if bad.Code != http.StatusBadRequest {
-		t.Fatalf("unknown credential = %d, want 400", bad.Code)
+	credExists := func(n string) bool { return n == "git-pat" || n == "anthropic-key" }
+	if err := ValidateCredentials(Scope{Destinations: []string{"git"}, Credentials: map[string]string{"git": "nope"}}, credExists); err == nil {
+		t.Fatal("unknown credential: want an error")
 	}
-	notAllowed := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"anthropic"}, Credentials: map[string]string{"git": "git-pat"}})
-	if notAllowed.Code != http.StatusBadRequest {
-		t.Fatalf("credential for a destination not allowed = %d, want 400", notAllowed.Code)
+	if err := ValidateCredentials(Scope{Destinations: []string{"anthropic"}, Credentials: map[string]string{"git": "git-pat"}}, credExists); err == nil {
+		t.Fatal("credential for a destination not allowed: want an error")
 	}
-	ok := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"git"}, Credentials: map[string]string{"git": "git-pat"}})
-	if ok.Code != http.StatusCreated {
-		t.Fatalf("valid credentials = %d, want 201", ok.Code)
+	scope := Scope{Destinations: []string{"git"}, Credentials: map[string]string{"git": "git-pat"}}
+	if err := ValidateCredentials(scope, credExists); err != nil {
+		t.Fatalf("valid credentials: %v", err)
+	}
+	if err := store.PutRole("acme", Role{Name: "w", Scope: scope}); err != nil {
+		t.Fatal(err)
 	}
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
@@ -861,7 +842,9 @@ func TestAdminRoleCredentialsValidatedAndEchoed(t *testing.T) {
 func TestAdminGrantAndEnrollOverrideCredentialsValidated(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"anthropic"}})
+	if err := store.PutRole("acme", Role{Name: "w", Scope: Scope{Destinations: []string{"anthropic"}}}); err != nil {
+		t.Fatal(err)
+	}
 	ov := &Override{Credentials: map[string]string{"git": "git-pat"}} // git not in the effective scope
 	if rec := doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w", Overrides: ov}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("enroll with bad override = %d, want 400", rec.Code)
@@ -877,18 +860,18 @@ func TestAdminGrantAndEnrollOverrideCredentialsValidated(t *testing.T) {
 }
 
 func TestAdminAddDestinationValidatesEnv(t *testing.T) {
-	h, store := newTestAdmin(t)
-	bad := `{"name":"gh","route":"/api/v3/","upstream":"https://api.github.com","env":{"JAM_IDENTITY_TOKEN":"{token}"}}`
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, adminReq("POST", "/admin/destinations", bad))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("reserved env key = %d, want 400", rec.Code)
+	store := NewMemStore()
+	credExists := func(string) bool { return true }
+	bad := Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Env: map[string]string{"JAM_IDENTITY_TOKEN": "{token}"}}
+	if err := ValidateDestination(bad, credExists); err == nil {
+		t.Fatal("reserved env key: want an error")
 	}
-	good := `{"name":"gh","route":"/api/v3/","upstream":"https://api.github.com","env":{"GH_HOST":"{host}"},"git":true}`
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, adminReq("POST", "/admin/destinations", good))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("valid env = %d, body=%s", rec.Code, rec.Body.String())
+	good := Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Env: map[string]string{"GH_HOST": "{host}"}, Git: true}
+	if err := ValidateDestination(good, credExists); err != nil {
+		t.Fatalf("valid env: %v", err)
+	}
+	if err := store.AddDestination(good); err != nil {
+		t.Fatal(err)
 	}
 	if d := store.ListDestinations(); len(d) != 1 || d[0].Env["GH_HOST"] != "{host}" || !d[0].Git {
 		t.Fatalf("stored = %+v", d)
@@ -901,7 +884,9 @@ func TestAdminEnrollReturnsConnector(t *testing.T) {
 	if err := store.AddDestination(Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Env: map[string]string{"GH_HOST": "{host}"}}); err != nil {
 		t.Fatal(err)
 	}
-	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"gh"}})
+	if err := store.PutRole("acme", Role{Name: "w", Scope: Scope{Destinations: []string{"gh"}}}); err != nil {
+		t.Fatal(err)
+	}
 	rec := doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "m", Project: "acme", Role: "w"})
 	var res EnrollResult
 	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &res) != nil || res.Connector == nil || res.Connector.Env["GH_HOST"] != "{host}" {
@@ -928,31 +913,24 @@ func TestAdminConfigImportInvalidContext(t *testing.T) {
 func TestAdminRoleCollaborateRoundTripAndValidation(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "pair", CollaborateSSH: "members", CollaboratePreview: "none"})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST role = %d", rec.Code)
+	if err := PutRoleKeeping(store, "acme", Role{Name: "pair", Collaborate: CollaboratePolicy{SSH: "members", Preview: "none"}}); err != nil {
+		t.Fatal(err)
 	}
 	var roles []RoleSummary
 	getJSON(t, h, "/admin/roles?project=acme", &roles)
 	if len(roles) != 1 || roles[0].CollaborateSSH != "members" || roles[0].CollaboratePreview != "none" {
 		t.Fatalf("roles = %+v", roles)
 	}
-	if r, _ := store.GetRole("acme", "pair"); r.Collaborate != (CollaboratePolicy{Preview: "none", SSH: "members"}) {
-		t.Fatalf("stored = %+v", r.Collaborate)
-	}
 	// A re-put that leaves the policy zero keeps it.
-	if rec := doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "pair"}); rec.Code != http.StatusCreated {
-		t.Fatalf("re-put = %d", rec.Code)
+	if err := PutRoleKeeping(store, "acme", Role{Name: "pair"}); err != nil {
+		t.Fatalf("re-put: %v", err)
 	}
-	if r, _ := store.GetRole("acme", "pair"); r.Collaborate.SSH != "members" {
+	if r, _ := store.GetRole("acme", "pair"); r.Collaborate != (CollaboratePolicy{Preview: "none", SSH: "members"}) {
 		t.Fatalf("re-put dropped the policy: %+v", r.Collaborate)
 	}
-	for _, b := range []RoleBody{
-		{Project: "acme", Name: "bad", CollaborateSSH: "everyone"},
-		{Project: "acme", Name: "bad", CollaboratePreview: "yes"},
-	} {
-		if rec := doJSON(t, h, "POST", "/admin/roles", b); rec.Code != http.StatusBadRequest {
-			t.Fatalf("bad policy %+v = %d, want 400", b, rec.Code)
+	for _, c := range []CollaboratePolicy{{SSH: "everyone"}, {Preview: "yes"}} {
+		if err := c.Validate(); err == nil {
+			t.Fatalf("bad policy %+v: want an error", c)
 		}
 	}
 }

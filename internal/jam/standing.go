@@ -175,9 +175,9 @@ func writeStandingResult(w http.ResponseWriter, body any, pending bool, err erro
 	writeJSON(w, code, body)
 }
 
-// registerStanding mounts the standing-declaration routes. Writes go through
-// AddStanding/RemoveStanding, which hold the shared role lock. Reset and
-// upgrade need the supervisor (nil → 503).
+// registerStanding mounts the standing read route and the reset and upgrade
+// actions. Declarations change only in git. Reset and upgrade need the
+// supervisor (nil → 503).
 func registerStanding(mux *http.ServeMux, store Store, sup *Supervisor, log *slog.Logger) {
 
 	mux.HandleFunc("GET /admin/roles/{project}/{role}/standing", func(w http.ResponseWriter, r *http.Request) {
@@ -192,30 +192,6 @@ func registerStanding(mux *http.ServeMux, store Store, sup *Supervisor, log *slo
 				Upgrade: sup.StandingUpgradeState(r.PathValue("project"), role.Name, s.Name)})
 		}
 		writeJSON(w, http.StatusOK, out)
-	})
-
-	mux.HandleFunc("POST /admin/roles/{project}/{role}/standing", func(w http.ResponseWriter, r *http.Request) {
-		project, roleName := r.PathValue("project"), r.PathValue("role")
-		var b StandingSession
-		if !decode(w, r, &b) {
-			return
-		}
-		if err := AddStanding(store, project, roleName, b); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
-			return
-		}
-		log.Info("admin standing session declared", "operator", OperatorID(r), "project", project, "role", roleName, "name", b.Name)
-		w.WriteHeader(http.StatusCreated)
-	})
-
-	mux.HandleFunc("DELETE /admin/roles/{project}/{role}/standing/{name}", func(w http.ResponseWriter, r *http.Request) {
-		project, roleName, name := r.PathValue("project"), r.PathValue("role"), r.PathValue("name")
-		if err := RemoveStanding(store, project, roleName, name); err != nil {
-			http.Error(w, err.Error(), WriteStatus(err, http.StatusInternalServerError))
-			return
-		}
-		log.Info("admin standing session dismissed", "operator", OperatorID(r), "project", project, "role", roleName, "name", name)
-		w.WriteHeader(http.StatusNoContent)
 	})
 
 	// Reset: see ResetStanding. 200 {pending:false} when done, 202

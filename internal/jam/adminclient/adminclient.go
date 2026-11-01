@@ -194,28 +194,10 @@ func (c *Client) Revoke(id string) error {
 	return c.do("DELETE", "/admin/enrollments/"+id, nil, nil)
 }
 
-func (c *Client) AddDestination(d jam.Destination) error {
-	return c.do("POST", "/admin/destinations", d, nil)
-}
-
 func (c *Client) ListDestinations() ([]jam.Destination, error) {
 	var out []jam.Destination
 	err := c.do("GET", "/admin/destinations", nil, &out)
 	return out, err
-}
-
-func (c *Client) RemoveDestination(name string) error {
-	return c.do("DELETE", "/admin/destinations/"+name, nil, nil)
-}
-
-// CreateModelSpec adds a new model-spec (ErrConflict if the name exists).
-func (c *Client) CreateModelSpec(m jam.ModelSpec) error {
-	return c.do("POST", "/admin/model-specs", m, nil)
-}
-
-// UpdateModelSpec replaces an existing model-spec (ErrNotFound if absent).
-func (c *Client) UpdateModelSpec(m jam.ModelSpec) error {
-	return c.do("PUT", "/admin/model-specs/"+url.PathEscape(m.Name), m, nil)
 }
 
 // GetModelSpec fetches one model-spec (ErrNotFound if absent).
@@ -230,34 +212,6 @@ func (c *Client) ListModelSpecs() ([]jam.ModelSpec, error) {
 	var out []jam.ModelSpec
 	err := c.do("GET", "/admin/model-specs", nil, &out)
 	return out, err
-}
-
-// DeleteModelSpec removes a model-spec (ErrNotFound if absent).
-func (c *Client) DeleteModelSpec(name string) error {
-	return c.do("DELETE", "/admin/model-specs/"+url.PathEscape(name), nil, nil)
-}
-
-// PutRole creates or replaces a role within project. project == "" resolves to
-// jam.DefaultProject server-side.
-func (c *Client) PutRole(project string, r jam.Role) error {
-	return c.do("POST", "/admin/roles", jam.RoleBody{
-		Project: project, Name: r.Name,
-		Destinations: r.Scope.Destinations, Credentials: r.Scope.Credentials, Addressing: r.Scope.Addressing,
-		TTLSeconds:          int64(r.Scope.TTL / time.Second),
-		Kit:                 r.Kit,
-		ModelSpec:           r.ModelSpec,
-		MaxEphemeral:        r.Allocation.MaxEphemeral,
-		MaxPersonal:         r.Allocation.MaxPersonal,
-		MaxPersonalPerOwner: r.Allocation.MaxPersonalPerOwner,
-		IdleAfterSeconds:    int64(r.Allocation.IdleAfter / time.Second),
-		NagEverySeconds:     int64(r.Allocation.NagEvery / time.Second),
-		ReclaimAfterSeconds: int64(r.Allocation.ReclaimAfter / time.Second),
-		IdleTimeoutSeconds:  int64(r.TurnEnd.IdleTimeout / time.Second),
-		OnIdle:              r.TurnEnd.OnIdle,
-		TimeZone:            r.TurnEnd.TimeZone,
-		CollaboratePreview:  r.Collaborate.Preview,
-		CollaborateSSH:      r.Collaborate.SSH,
-	}, nil)
 }
 
 // ListRoles lists the roles configured for project ("" lists DefaultProject).
@@ -284,11 +238,6 @@ func (c *Client) ListRoles(project string) ([]jam.Role, error) {
 		roles[len(roles)-1].Scope.Egress = rs.Egress
 	}
 	return roles, nil
-}
-
-// RemoveRole deletes a role from project.
-func (c *Client) RemoveRole(project, name string) error {
-	return c.do("DELETE", "/admin/roles/"+project+"/"+name, nil, nil)
 }
 
 // RoleImages lists the current image of project/role on each connected manager.
@@ -520,25 +469,12 @@ func standingPath(project, role string) string {
 	return "/admin/roles/" + url.PathEscape(project) + "/" + url.PathEscape(role) + "/standing"
 }
 
-// AddStanding declares a named standing session on project's role; Jam then
-// keeps one cove running for it. The prompt travels in the request body, never
-// on argv.
-func (c *Client) AddStanding(project, role string, s jam.StandingSession) error {
-	return c.do("POST", standingPath(project, role), s, nil)
-}
-
 // ListStanding lists the standing sessions declared on project's role, prompts
 // included, each with its pending upgrade state ("" none).
 func (c *Client) ListStanding(project, role string) ([]jam.StandingStatus, error) {
 	var out []jam.StandingStatus
 	err := c.do("GET", standingPath(project, role), nil, &out)
 	return out, err
-}
-
-// RemoveStanding dismisses a standing session; Jam tears its cove down and
-// deletes its persisted state.
-func (c *Client) RemoveStanding(project, role, name string) error {
-	return c.do("DELETE", standingPath(project, role)+"/"+url.PathEscape(name), nil, nil)
 }
 
 // ResetStanding tears a declared standing session's cove down and deletes its
@@ -572,28 +508,12 @@ func egressPath(project, role string) string {
 	return "/admin/roles/" + url.PathEscape(project) + "/" + url.PathEscape(role) + "/egress"
 }
 
-// SetEgress sets project's role's egress policy to domains (nil or empty = a
-// set-but-empty policy: nothing beyond the sealed base + the kit's infra
-// domains). Jam normalizes the list; a bad domain is a 400 naming it. It takes
-// effect on running studios within one reconcile pass.
-func (c *Client) SetEgress(project, role string, domains []string) error {
-	if domains == nil {
-		domains = []string{}
-	}
-	return c.do("PUT", egressPath(project, role), jam.EgressPolicy{Domains: domains}, nil)
-}
-
 // ShowEgress returns project's role's egress policy; Managed false means the
 // kit's default list.
 func (c *Client) ShowEgress(project, role string) (jam.EgressView, error) {
 	var out jam.EgressView
 	err := c.do("GET", egressPath(project, role), nil, &out)
 	return out, err
-}
-
-// ClearEgress reverts project's role to the kit's default egress list.
-func (c *Client) ClearEgress(project, role string) error {
-	return c.do("DELETE", egressPath(project, role), nil, nil)
 }
 
 // setupTimeout bounds a setup inspect: a first read of an image's seed runs

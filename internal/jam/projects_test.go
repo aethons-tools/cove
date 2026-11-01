@@ -83,7 +83,6 @@ func TestAdminWritesIntoUnknownProject404(t *testing.T) {
 		method, path string
 		body         any
 	}{
-		{"POST", "/admin/roles", RoleBody{Project: "ghost", Name: "worker"}},
 		{"POST", "/admin/projects/ghost/channels", RosterChannel{Name: "eng", Ref: "ENG-1"}},
 	}
 	for _, w := range writes {
@@ -92,6 +91,9 @@ func TestAdminWritesIntoUnknownProject404(t *testing.T) {
 		}
 	}
 	// The store-level project writes refuse an unknown project the same way.
+	if err := store.PutRole("ghost", Role{Name: "worker"}); !errors.Is(err, ErrProjectNotFound) {
+		t.Errorf("PutRole(ghost) = %v, want ErrProjectNotFound", err)
+	}
 	if err := store.SetEscalationPolicy("ghost", "", nil); !errors.Is(err, ErrProjectNotFound) {
 		t.Errorf("SetEscalationPolicy(ghost) = %v, want ErrProjectNotFound", err)
 	}

@@ -148,14 +148,9 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	getenv := func(string) string { return "" }
 
 	var out, errb bytes.Buffer
-	// role add
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"role", "add", "--admin-url", ts.URL, "--project", "P",
-		"--name", "guest", "--destinations", "anthropic",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role add: exit=%d stderr=%s", code, errb.String())
+	// seed a role (its CLI write is gone)
+	if err := store.PutRole("P", jam.Role{Name: "guest", Scope: jam.Scope{Destinations: []string{"anthropic"}}}); err != nil {
+		t.Fatal(err)
 	}
 
 	// role list reflects it
@@ -178,12 +173,8 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	}
 
 	// a second role to grant
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"role", "add", "--admin-url", ts.URL, "--project", "P", "--name", "admin", "--destinations", "anthropic,git",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role add admin: exit=%d stderr=%s", code, errb.String())
+	if err := store.PutRole("P", jam.Role{Name: "admin", Scope: jam.Scope{Destinations: []string{"anthropic", "git"}}}); err != nil {
+		t.Fatal(err)
 	}
 
 	// grant
@@ -222,13 +213,6 @@ func TestRoleGrantUngrantRosterCommands(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "P/admin") {
 		t.Fatalf("roster still shows ungranted role:\n%s", out.String())
-	}
-
-	// role rm
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"role", "rm", "--admin-url", ts.URL, "--project", "P", "guest"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role rm: exit=%d stderr=%s", code, errb.String())
 	}
 }
 
@@ -284,92 +268,31 @@ func TestProjectMemberAndRoomCommands(t *testing.T) {
 		t.Fatalf("room list after rm: exit=%d out=%q", code, out.String())
 	}
 
-	// role add --addressing plumbs through to the role's Scope.Addressing
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"role", "add", "--admin-url", ts.URL, "--project", "acme",
-		"--name", "impl", "--addressing", "human:*,channel:eng-help",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role add --addressing: exit=%d stderr=%s", code, errb.String())
-	}
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "addressing=human:*,channel:eng-help") {
-		t.Fatalf("role list output missing addressing:\n%s", out.String())
-	}
-	// role add --max-ephemeral sets the role's allocation policy; role list shows it
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"role", "add", "--admin-url", ts.URL, "--project", "acme",
-		"--name", "worker", "--max-ephemeral", "4",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role add --max-ephemeral: exit=%d stderr=%s", code, errb.String())
-	}
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "max-ephemeral=4") {
-		t.Fatalf("role list output missing max-ephemeral:\n%s", out.String())
-	}
-	// role add --max-personal / --max-personal-per-owner set the personal caps
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"role", "add", "--admin-url", ts.URL, "--project", "acme",
-		"--name", "pair", "--max-personal", "3", "--max-personal-per-owner", "1",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role add --max-personal: exit=%d stderr=%s", code, errb.String())
-	}
-	if r, ok := store.GetRole("acme", "pair"); !ok || r.Allocation.MaxPersonal != 3 || r.Allocation.MaxPersonalPerOwner != 1 {
-		t.Fatalf("stored role = %+v,%v", r, ok)
-	}
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "max-personal=3\tmax-personal-per-owner=1") {
-		t.Fatalf("role list output missing personal caps:\n%s", out.String())
-	}
-	// role add --idle-after / --nag-every / --reclaim-after set the idle ladder
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"role", "add", "--admin-url", ts.URL, "--project", "acme",
-		"--name", "idler", "--idle-after", "1h", "--nag-every", "2h", "--reclaim-after", "72h",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role add --idle-after: exit=%d stderr=%s", code, errb.String())
-	}
-	if r, ok := store.GetRole("acme", "idler"); !ok || r.Allocation.IdleAfter != time.Hour || r.Allocation.NagEvery != 2*time.Hour || r.Allocation.ReclaimAfter != 72*time.Hour {
-		t.Fatalf("stored role = %+v,%v", r, ok)
-	}
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
-	}
-	if !strings.Contains(out.String(), "idle-after=1h0m0s\tnag-every=2h0m0s\treclaim-after=72h0m0s") {
-		t.Fatalf("role list output missing idle settings:\n%s", out.String())
-	}
-	for _, flagName := range []string{"--idle-after", "--nag-every", "--reclaim-after"} {
-		out.Reset()
-		errb.Reset()
-		if code := run([]string{"role", "add", "--admin-url", ts.URL, "--name", "bad", flagName, "-1h"}, getenv, &out, &errb); code != 2 {
-			t.Fatalf("role add %s -1h: exit=%d, want 2", flagName, code)
+	// role list shows what the store holds: addressing, the allocation caps,
+	// the idle ladder (their CLI write, role add, is gone)
+	for _, r := range []jam.Role{
+		{Name: "impl", Scope: jam.Scope{Addressing: []string{"human:*", "channel:eng-help"}}},
+		{Name: "worker", Allocation: jam.RoleAllocation{MaxEphemeral: 4}},
+		{Name: "pair", Allocation: jam.RoleAllocation{MaxPersonal: 3, MaxPersonalPerOwner: 1}},
+		{Name: "idler", Allocation: jam.RoleAllocation{IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}},
+	} {
+		if err := store.PutRole("acme", r); err != nil {
+			t.Fatal(err)
 		}
 	}
-	for _, flagName := range []string{"--max-personal", "--max-personal-per-owner"} {
-		out.Reset()
-		errb.Reset()
-		if code := run([]string{"role", "add", "--admin-url", ts.URL, "--name", "bad", flagName, "-1"}, getenv, &out, &errb); code != 2 {
-			t.Fatalf("role add %s -1: exit=%d, want 2", flagName, code)
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "acme"}, getenv, &out, &errb); code != 0 {
+		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
+	}
+	for _, want := range []string{
+		"addressing=human:*,channel:eng-help",
+		"max-ephemeral=4",
+		"max-personal=3\tmax-personal-per-owner=1",
+		"idle-after=1h0m0s\tnag-every=2h0m0s\treclaim-after=72h0m0s",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("role list output missing %q:\n%s", want, out.String())
 		}
 	}
 }
@@ -488,6 +411,26 @@ func TestProjectConfigVerbsGone(t *testing.T) {
 		{"project", "chat-service", "set"}, {"project", "chat-service", "clear"},
 		{"room", "add", "acme", "eng"}, {"room", "rename", "acme", "eng", "x"}, {"room", "rm", "acme", "eng"},
 		{"context", "set"}, {"context", "clear"},
+	} {
+		var out, errb bytes.Buffer
+		if code := run(gone, func(string) string { return "" }, &out, &errb); code != 2 {
+			t.Errorf("%v: exit = %d, want 2", gone, code)
+		}
+		if !strings.Contains(errb.String(), "unknown subcommand") {
+			t.Errorf("%v: stderr = %q, want the unknown-subcommand error", gone, errb.String())
+		}
+	}
+}
+
+// The role, standing, egress, destination and model-spec config-writing verbs
+// are gone: each is its group's unknown subcommand.
+func TestRoleConfigVerbsGone(t *testing.T) {
+	for _, gone := range [][]string{
+		{"role", "add", "--name", "x"}, {"role", "rm", "x"},
+		{"standing", "add", "--role", "x"}, {"standing", "rm", "--role", "x", "y"},
+		{"egress", "set", "--role", "x", "a.com"}, {"egress", "clear", "--role", "x"},
+		{"destination", "add", "--name", "x"}, {"destination", "rm", "x"}, {"destination", "import", "x.yaml"},
+		{"model-spec", "add", "x.yaml"}, {"model-spec", "update", "x.yaml"}, {"model-spec", "delete", "x"},
 	} {
 		var out, errb bytes.Buffer
 		if code := run(gone, func(string) string { return "" }, &out, &errb); code != 2 {
@@ -621,16 +564,9 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 		t.Fatalf("kit pin output missing expected text:\n%s", out.String())
 	}
 
-	// role add --kit
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{
-		"role", "add", "--admin-url", ts.URL, "--name", "impl", "--kit", "web", "--destinations", "anthropic",
-	}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role add --kit: exit=%d stderr=%s", code, errb.String())
-	}
-	if r, ok := store.GetRole(jam.DefaultProject, "impl"); !ok || r.Kit != "web" {
-		t.Fatalf("role add --kit did not bind the kit: role=%+v ok=%v", r, ok)
+	// bind a role to the kit (the role's CLI write is gone)
+	if err := store.PutRole(jam.DefaultProject, jam.Role{Name: "impl", Kit: "web", Scope: jam.Scope{Destinations: []string{"anthropic"}}}); err != nil {
+		t.Fatal(err)
 	}
 
 	// kit rm — must fail while a role still references it (409-style store error)
@@ -641,10 +577,8 @@ func TestKitCommandsRoundTrip(t *testing.T) {
 	}
 
 	// remove the referencing role, then kit rm should succeed
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"role", "rm", "--admin-url", ts.URL, "impl"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role rm: exit=%d stderr=%s", code, errb.String())
+	if err := store.RemoveRole(jam.DefaultProject, "impl"); err != nil {
+		t.Fatal(err)
 	}
 	out.Reset()
 	errb.Reset()
@@ -1063,37 +997,23 @@ func TestStandingUpgradeWait(t *testing.T) {
 	}
 }
 
-// `standing add|list|rm` declare, list and dismiss a role's standing sessions;
-// the prompt is read from a file host-side, and the role's other fields are kept.
-func TestStandingCommandsRoundTrip(t *testing.T) {
+// `standing list` lists a role's standing sessions (declared through the store;
+// declarations change only in git).
+func TestStandingListCommand(t *testing.T) {
 	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "reviewer", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: jam.RoleAllocation{MaxEphemeral: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := jam.AddStanding(store, "acme", "reviewer", jam.StandingSession{Name: "alice-bot", Prompt: "review every PR"}); err != nil {
 		t.Fatal(err)
 	}
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
-	promptFile := filepath.Join(t.TempDir(), "prompt.md")
-	if err := os.WriteFile(promptFile, []byte("review every PR"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 
 	var out, errb bytes.Buffer
-	if code := run([]string{"standing", "add", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "--name", "alice-bot", "--prompt-file", promptFile}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("standing add: exit=%d stderr=%s", code, errb.String())
-	}
-	r, _ := store.GetRole("acme", "reviewer")
-	if len(r.Allocation.Standing) != 1 || r.Allocation.Standing[0] != (jam.StandingSession{Name: "alice-bot", Prompt: "review every PR"}) {
-		t.Fatalf("standing = %+v", r.Allocation.Standing)
-	}
-	if r.Allocation.MaxEphemeral != 2 || len(r.Scope.Destinations) != 1 {
-		t.Fatalf("role fields not kept: %+v", r)
-	}
-
-	out.Reset()
-	errb.Reset()
 	if code := run([]string{"standing", "list", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("standing list: exit=%d stderr=%s", code, errb.String())
 	}
@@ -1101,28 +1021,8 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 		t.Fatalf("standing list output:\n%s", out.String())
 	}
 
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"standing", "rm", "--admin-url", ts.URL, "--project", "acme", "--role", "reviewer", "alice-bot"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("standing rm: exit=%d stderr=%s", code, errb.String())
-	}
-	if r, _ := store.GetRole("acme", "reviewer"); len(r.Allocation.Standing) != 0 {
-		t.Fatalf("standing after rm = %+v", r.Allocation.Standing)
-	}
-
-	// a server-side refusal (unknown role) exits 1
-	out.Reset()
-	errb.Reset()
-	if code := run([]string{"standing", "add", "--admin-url", ts.URL, "--project", "acme", "--role", "nobody", "--name", "x", "--prompt-file", promptFile}, getenv, &out, &errb); code != 1 {
-		t.Fatalf("add on unknown role: exit=%d, want 1 (stderr=%s)", code, errb.String())
-	}
-
 	// required-argument checks
 	for _, args := range [][]string{
-		{"standing", "add", "--admin-url", ts.URL, "--role", "reviewer", "--prompt-file", promptFile},
-		{"standing", "add", "--admin-url", ts.URL, "--role", "reviewer", "--name", "x"},
-		{"standing", "add", "--admin-url", ts.URL, "--name", "x", "--prompt-file", promptFile},
-		{"standing", "rm", "--admin-url", ts.URL, "--role", "reviewer"},
 		{"standing", "reset", "--admin-url", ts.URL, "--role", "reviewer"},
 		{"standing", "reset", "--admin-url", ts.URL, "x"},
 		{"standing", "upgrade", "--admin-url", ts.URL, "--role", "reviewer"},
@@ -1138,9 +1038,10 @@ func TestStandingCommandsRoundTrip(t *testing.T) {
 	}
 }
 
-// `egress set|show|clear` manage a role's egress policy; `role list` shows it
-// (kit default, none, or the list), and the role's other fields are kept.
-func TestEgressCommandsRoundTrip(t *testing.T) {
+// `egress show` reports a role's egress policy and `role list` carries it (kit
+// default, none, or the list); the policy is set through the store (it changes
+// only in git).
+func TestEgressShowCommand(t *testing.T) {
 	store := jam.NewMemStore()
 	mustCreateProject(t, store, "acme")
 	if err := store.PutRole("acme", jam.Role{Name: "reviewer", Scope: jam.Scope{Destinations: []string{"git"}, TTL: time.Hour}, Allocation: jam.RoleAllocation{MaxEphemeral: 2}}); err != nil {
@@ -1169,13 +1070,8 @@ func TestEgressCommandsRoundTrip(t *testing.T) {
 		t.Fatalf("role list (unset) = %q, want egress=kit", got)
 	}
 
-	runOK(append(append([]string{"egress", "set"}, flags...), "A.com, .b.org")...)
-	r, _ := store.GetRole("acme", "reviewer")
-	if r.Scope.Egress == nil || strings.Join(r.Scope.Egress.Domains, ",") != ".b.org,a.com" {
-		t.Fatalf("egress = %+v", r.Scope.Egress)
-	}
-	if r.Allocation.MaxEphemeral != 2 || len(r.Scope.Destinations) != 1 {
-		t.Fatalf("role fields not kept: %+v", r)
+	if _, err := jam.SetRoleEgress(store, "acme", "reviewer", []string{"A.com", ".b.org"}); err != nil {
+		t.Fatal(err)
 	}
 	if got := runOK(append([]string{"egress", "show"}, flags...)...); !strings.Contains(got, ".b.org") || !strings.Contains(got, "a.com") {
 		t.Fatalf("show = %q", got)
@@ -1184,9 +1080,8 @@ func TestEgressCommandsRoundTrip(t *testing.T) {
 		t.Fatalf("role list = %q, want egress=.b.org,a.com", got)
 	}
 
-	runOK(append([]string{"egress", "set", "--none"}, flags...)...)
-	if r, _ := store.GetRole("acme", "reviewer"); r.Scope.Egress == nil || len(r.Scope.Egress.Domains) != 0 {
-		t.Fatalf("--none = %+v, want set and empty", r.Scope.Egress)
+	if _, err := jam.SetRoleEgress(store, "acme", "reviewer", nil); err != nil {
+		t.Fatal(err)
 	}
 	if got := runOK("role", "list", "--admin-url", ts.URL, "--project", "acme"); !strings.Contains(got, "egress=none") {
 		t.Fatalf("role list = %q, want egress=none", got)
@@ -1195,26 +1090,12 @@ func TestEgressCommandsRoundTrip(t *testing.T) {
 		t.Fatalf("show (empty) = %q, want none", got)
 	}
 
-	runOK(append([]string{"egress", "clear"}, flags...)...)
-	if r, _ := store.GetRole("acme", "reviewer"); r.Scope.Egress != nil {
-		t.Fatalf("after clear = %+v, want nil", r.Scope.Egress)
-	}
-
-	// a server-side refusal (bad domain) exits 1 and names the domain
-	out.Reset()
-	errb.Reset()
-	if code := run(append(append([]string{"egress", "set"}, flags...), "https://evil.com"), getenv, &out, &errb); code != 1 || !strings.Contains(errb.String(), "https://evil.com") {
-		t.Fatalf("bad domain: exit=%d stderr=%s", code, errb.String())
-	}
-
 	// usage errors exit 2
 	for _, args := range [][]string{
 		{"egress"},
 		{"egress", "bogus", "--admin-url", ts.URL, "--role", "reviewer"},
 		{"egress", "show", "--admin-url", ts.URL},
-		{"egress", "set", "--admin-url", ts.URL, "--role", "reviewer"},                    // neither list nor --none
-		{"egress", "set", "--admin-url", ts.URL, "--role", "reviewer", "--none", "a.com"}, // both
-		{"egress", "clear", "--admin-url", ts.URL, "--role", "reviewer", "extra"},         // stray arg
+		{"egress", "show", "--admin-url", ts.URL, "--role", "reviewer", "extra"}, // stray arg
 	} {
 		out.Reset()
 		errb.Reset()
@@ -1282,7 +1163,7 @@ func TestStudioShowSurfacesExcludedRoots(t *testing.T) {
 	}
 }
 
-func TestRoleAddDestinationCredentials(t *testing.T) {
+func TestRoleListDestinationCredentials(t *testing.T) {
 	store := jam.NewMemStore()
 	mustCreateProject(t, store, "P")
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
@@ -1290,107 +1171,47 @@ func TestRoleAddDestinationCredentials(t *testing.T) {
 	defer ts.Close()
 	getenv := func(string) string { return "" }
 	var out, errb bytes.Buffer
-	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--project", "P", "--name", "w", "--destinations", "git=git-pat-cove,anthropic"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role add: exit=%d stderr=%s", code, errb.String())
+	ds, creds, err := jam.ParseDestinations("git=git-pat-cove,anthropic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("P", jam.Role{Name: "w", Scope: jam.Scope{Destinations: ds, Credentials: creds}}); err != nil {
+		t.Fatal(err)
 	}
 	r, ok := store.GetRole("P", "w")
 	if !ok || !slices.Equal(r.Scope.Destinations, []string{"git", "anthropic"}) || r.Scope.Credentials["git"] != "git-pat-cove" {
 		t.Fatalf("stored role = %+v, %v", r, ok)
 	}
-	out.Reset()
 	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "P"}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "dests=git=git-pat-cove,anthropic") {
 		t.Fatalf("role list: exit=%d out=%s", code, out.String())
 	}
-	errb.Reset()
-	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--name", "x", "--destinations", "git="}, getenv, &out, &errb); code != 2 {
-		t.Fatalf("malformed --destinations: exit=%d, want 2 (stderr=%s)", code, errb.String())
+	if _, _, err := jam.ParseDestinations("git="); err == nil {
+		t.Fatal("malformed destinations: want an error")
 	}
 }
 
-func TestDestinationAddEnvAndGit(t *testing.T) {
+func TestDestinationListEnvAndGit(t *testing.T) {
 	store := jam.NewMemStore()
 	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 	getenv := func(string) string { return "" }
 	var out, errb bytes.Buffer
-	if code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "gh", "--route", "/api/v3/", "--upstream", "https://api.github.com",
-		"--identity-in", "bearer", "--apply", "bearer", "--env", "GH_HOST={host}", "--env", "GH_ENTERPRISE_TOKEN={token}", "--git"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("destination add: exit=%d stderr=%s", code, errb.String())
+	if err := store.AddDestination(jam.Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer,
+		Env: map[string]string{"GH_HOST": "{host}", "GH_ENTERPRISE_TOKEN": "{token}"}, Git: true}); err != nil {
+		t.Fatal(err)
 	}
-	d := store.ListDestinations()
-	if len(d) != 1 || d[0].Env["GH_HOST"] != "{host}" || d[0].Env["GH_ENTERPRISE_TOKEN"] != "{token}" || !d[0].Git {
-		t.Fatalf("stored = %+v", d)
-	}
-	out.Reset()
 	if code := run([]string{"destination", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "env=GH_ENTERPRISE_TOKEN,GH_HOST") || !strings.Contains(out.String(), "git") {
 		t.Fatalf("destination list: exit=%d out=%s", code, out.String())
 	}
-	if code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "x", "--route", "/x/", "--upstream", "https://x", "--env", "NOEQUALS"}, getenv, &out, &errb); code != 2 {
-		t.Fatalf("malformed --env: exit=%d, want 2", code)
-	}
 }
 
-// The removed --oauth-beta flag is a hard error pointing at its replacement
-// (the broker's pool-credential beta), and nothing is written.
-func TestDestinationAddOAuthBetaRemoved(t *testing.T) {
-	store := jam.NewMemStore()
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
-	ts := httptest.NewServer(h)
-	defer ts.Close()
-	var out, errb bytes.Buffer
-	code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "anthropic", "--route", "/anthropic/", "--upstream", "https://api.anthropic.com",
-		"--identity-in", "bearer", "--cred-name", "anthropic-sub", "--apply", "bearer", "--oauth-beta"}, func(string) string { return "" }, &out, &errb)
-	if code != 2 || !strings.Contains(errb.String(), "--oauth-beta was removed") || !strings.Contains(errb.String(), "subscription-pool credential") ||
-		!strings.Contains(errb.String(), "docs/usage/jam/pool.md") {
-		t.Fatalf("exit=%d stderr=%s", code, errb.String())
-	}
-	if len(store.ListDestinations()) != 0 {
-		t.Fatal("nothing may be written when --oauth-beta is passed")
-	}
-}
-
-// --identity-in/--apply take preset names (incl. raw); a custom header spec
-// comes in through `destination import` YAML.
-func TestDestinationRawPresetAndCustomSpecImport(t *testing.T) {
-	store := jam.NewMemStore()
-	h := jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, func(string) bool { return true }, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
-	ts := httptest.NewServer(h)
-	defer ts.Close()
-	getenv := func(string) string { return "" }
-	var out, errb bytes.Buffer
-	if code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "linear", "--route", "/linear/", "--upstream", "https://api.linear.app",
-		"--identity-in", "raw", "--apply", "raw"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("destination add raw: exit=%d stderr=%s", code, errb.String())
-	}
-	if code := run([]string{"destination", "add", "--admin-url", ts.URL, "--name", "bad", "--route", "/bad/", "--upstream", "https://x",
-		"--apply", "custom"}, getenv, &out, &errb); code != 1 || !strings.Contains(errb.String(), "apply_spec") {
-		t.Fatalf("custom without spec: exit=%d stderr=%s", code, errb.String())
-	}
-	f := filepath.Join(t.TempDir(), "d.yaml")
-	if err := os.WriteFile(f, []byte(`destinations:
-  - name: gl
-    route: /gl/
-    upstream: https://gitlab.example
-    identity_in: custom
-    identity_in_spec: {header: Private-Token}
-    apply: custom
-    apply_spec: {header: Private-Token, template: "{cred}"}
-`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if code := run([]string{"destination", "import", "--admin-url", ts.URL, f}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("destination import: exit=%d stderr=%s", code, errb.String())
-	}
-	got := map[string]jam.Destination{}
-	for _, d := range store.ListDestinations() {
-		got[d.Name] = d
-	}
-	if got["linear"].Apply != jam.ApplyRaw || got["linear"].IdentityIn != jam.ApplyRaw {
-		t.Fatalf("linear = %+v", got["linear"])
-	}
-	if gl := got["gl"]; gl.ApplySpec == nil || gl.ApplySpec.Header != "Private-Token" || gl.IdentityInSpec == nil {
-		t.Fatalf("gl = %+v", gl)
+// A custom apply method without its spec is refused by ValidateDestination
+// (the check destinations changed in git still pass).
+func TestDestinationCustomSpecValidation(t *testing.T) {
+	err := jam.ValidateDestination(jam.Destination{Name: "bad", Route: "/bad/", Upstream: "https://x", Apply: "custom"}, func(string) bool { return true })
+	if err == nil || !strings.Contains(err.Error(), "apply_spec") {
+		t.Fatalf("custom without spec: %v", err)
 	}
 }
 
@@ -1467,7 +1288,7 @@ func TestKitPushNotes(t *testing.T) {
 	}
 }
 
-func TestRoleAddModelSpec(t *testing.T) {
+func TestRoleListModelSpec(t *testing.T) {
 	store := jam.NewMemStore()
 	mustCreateProject(t, store, "P")
 	if err := store.PutModelSpec(jam.ModelSpec{Name: "opus", Type: jam.HarnessClaude, Version: "2.1.0",
@@ -1479,26 +1300,23 @@ func TestRoleAddModelSpec(t *testing.T) {
 	defer ts.Close()
 	getenv := func(string) string { return "" }
 	var out, errb bytes.Buffer
-	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--project", "P", "--name", "w", "--model-spec", "opus"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role add: exit=%d stderr=%s", code, errb.String())
+	if err := jam.PutRoleKeeping(store, "P", jam.Role{Name: "w", ModelSpec: "opus"}); err != nil {
+		t.Fatal(err)
 	}
 	if r, _ := store.GetRole("P", "w"); r.ModelSpec != "opus" {
 		t.Fatalf("binding = %q", r.ModelSpec)
 	}
-	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--project", "P", "--name", "u"}, getenv, &out, &errb); code != 0 {
-		t.Fatalf("role add: exit=%d stderr=%s", code, errb.String())
+	if err := jam.PutRoleKeeping(store, "P", jam.Role{Name: "u"}); err != nil {
+		t.Fatal(err)
 	}
-	out.Reset()
 	if code := run([]string{"role", "list", "--admin-url", ts.URL, "--project", "P"}, getenv, &out, &errb); code != 0 {
 		t.Fatalf("role list: exit=%d stderr=%s", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "model-spec=opus") || !strings.Contains(out.String(), "model-spec=claude-default") {
 		t.Fatalf("role list:\n%s", out.String())
 	}
-	errb.Reset()
-	if code := run([]string{"role", "add", "--admin-url", ts.URL, "--project", "P", "--name", "w", "--model-spec", "ghost"}, getenv, &out, &errb); code == 0 ||
-		!strings.Contains(errb.String(), "does not exist") {
-		t.Fatalf("unknown spec: exit=%d stderr=%s", code, errb.String())
+	if err := jam.PutRoleKeeping(store, "P", jam.Role{Name: "w", ModelSpec: "ghost"}); err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("unknown spec: %v", err)
 	}
 }
 

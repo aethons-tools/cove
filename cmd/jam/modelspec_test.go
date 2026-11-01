@@ -5,12 +5,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"gopkg.in/yaml.v3"
 )
 
 const modelSpecYAML = `name: claude-default
@@ -48,18 +47,9 @@ func modelSpecServer(t *testing.T) (*httptest.Server, jam.Store) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	creds := func(n string) bool { return n == "anthropic" }
 	ts := httptest.NewServer(jam.NewAdminHandler(store, nil, nil, jam.LoopbackAuthenticator{}, creds, nil, log, nil,
-		jam.WithModelSpecs(store, creds, false, log)))
+		jam.WithModelSpecs(store)))
 	t.Cleanup(ts.Close)
 	return ts, store
-}
-
-func writeSpec(t *testing.T, body string) string {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "spec.yaml")
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return p
 }
 
 func runJam(args ...string) (int, string, string) {
@@ -68,21 +58,15 @@ func runJam(args ...string) (int, string, string) {
 	return code, out.String(), errb.String()
 }
 
-func TestModelSpecCommandLifecycle(t *testing.T) {
+// `model-spec list|show` read what the store holds (specs change only in git).
+func TestModelSpecReadCommands(t *testing.T) {
 	ts, store := modelSpecServer(t)
-	path := writeSpec(t, modelSpecYAML)
-
-	if code, out, errs := runJam("model-spec", "add", "--admin-url", ts.URL, path); code != 0 || !strings.Contains(out, "added model-spec claude-default") {
-		t.Fatalf("add: code=%d out=%q err=%q", code, out, errs)
+	var m jam.ModelSpec
+	if err := yaml.Unmarshal([]byte(modelSpecYAML), &m); err != nil {
+		t.Fatal(err)
 	}
-	got, ok := store.GetModelSpec("claude-default")
-	if !ok || got.Claude == nil || got.Claude.ProviderEnv["CLOUD_ML_REGION"] != "us-east5" ||
-		got.Claude.Settings["attribution"].(map[string]any)["commit"] != "" || got.Policy.Mode != "bypassPermissions" || got.VersionConstraint != "2.x" ||
-		len(got.Principal.Headers) != 2 || got.Principal.Headers[0].EnsureListItem != "oauth-2025-04-20" || got.Principal.Headers[1].Set != "bar" {
-		t.Fatalf("stored spec = %+v", got)
-	}
-	if code, _, errs := runJam("model-spec", "add", "--admin-url", ts.URL, path); code != 1 || !strings.Contains(errs, "already exists") {
-		t.Fatalf("duplicate add: code=%d err=%q", code, errs)
+	if err := store.PutModelSpec(m); err != nil {
+		t.Fatal(err)
 	}
 
 	code, out, errs := runJam("model-spec", "list", "--admin-url", ts.URL)
@@ -95,52 +79,11 @@ func TestModelSpecCommandLifecycle(t *testing.T) {
 		!strings.Contains(out, "ensure-list-item: oauth-2025-04-20") {
 		t.Fatalf("show: code=%d out=%q err=%q", code, out, errs)
 	}
-	// show's output is itself a valid spec file (round-trips through update).
-	shown := writeSpec(t, strings.Replace(out, `version: 2.1.0`, `version: 2.1.1`, 1))
-	if code, out, errs := runJam("model-spec", "update", "--admin-url", ts.URL, shown); code != 0 || !strings.Contains(out, "updated model-spec claude-default") {
-		t.Fatalf("update: code=%d out=%q err=%q", code, out, errs)
+	if code, _, _ := runJam("model-spec", "show", "--admin-url", ts.URL, "ghost"); code != 1 {
+		t.Fatalf("show of an absent spec: code=%d, want 1", code)
 	}
-	if got, _ := store.GetModelSpec("claude-default"); got.Version != "2.1.1" || len(got.Principal.Headers) != 2 {
-		t.Fatalf("after update version = %q", got.Version)
-	}
-
-	if code, out, errs := runJam("model-spec", "delete", "--admin-url", ts.URL, "claude-default"); code != 0 || !strings.Contains(out, "deleted model-spec claude-default") {
-		t.Fatalf("delete: code=%d out=%q err=%q", code, out, errs)
-	}
-	if code, _, _ := runJam("model-spec", "show", "--admin-url", ts.URL, "claude-default"); code != 1 {
-		t.Fatalf("show after delete: code=%d, want 1", code)
-	}
-	if code, _, _ := runJam("model-spec", "update", "--admin-url", ts.URL, path); code != 1 {
-		t.Fatalf("update of a deleted spec: code=%d, want 1", code)
-	}
-}
-
-func TestModelSpecCommandRefusals(t *testing.T) {
-	ts, store := modelSpecServer(t)
-	for name, tc := range map[string]struct {
-		body string
-		want string
-	}{
-		"unknown field":   {strings.Replace(modelSpecYAML, "note:", "notes:", 1), "notes"},
-		"unknown type":    {strings.Replace(modelSpecYAML, "type: claude", "type: codex", 1), `"codex"`},
-		"unknown cred":    {strings.Replace(modelSpecYAML, "credential: anthropic", "credential: ghost", 1), `"ghost"`},
-		"pool, no pool":   {strings.Replace(modelSpecYAML, "credential: anthropic", "credential: pool", 1), "pool"},
-		"bad mode":        {strings.Replace(modelSpecYAML, "mode: bypassPermissions", "mode: yolo", 1), `"yolo"`},
-		"protected env":   {strings.Replace(modelSpecYAML, "CLOUD_ML_REGION: us-east5", "HTTPS_PROXY: http://x", 1), "HTTPS_PROXY"},
-		"missing body":    {modelSpecYAML[:strings.Index(modelSpecYAML, "claude:\n")], "claude"},
-		"missing version": {strings.Replace(modelSpecYAML, "version: \"2.1.0\"\n", "", 1), "version"},
-		"range version":   {strings.Replace(modelSpecYAML, "version: \"2.1.0\"", "version: \"2.x\"", 1), "version-constraint"},
-	} {
-		code, _, errs := runJam("model-spec", "add", "--admin-url", ts.URL, writeSpec(t, tc.body))
-		if code == 0 || !strings.Contains(errs, tc.want) {
-			t.Errorf("%s: code=%d err=%q, want a failure mentioning %q", name, code, errs, tc.want)
-		}
-	}
-	if n := len(store.ListModelSpecs()); n != 0 {
-		t.Fatalf("refused specs reached the store: %d", n)
-	}
-	if code, _, _ := runJam("model-spec", "add", "--admin-url", ts.URL); code != 2 {
-		t.Fatalf("add without a file: code=%d, want 2", code)
+	if code, _, _ := runJam("model-spec", "show", "--admin-url", ts.URL); code != 2 {
+		t.Fatalf("show without a name: code=%d, want 2", code)
 	}
 	if code, _, _ := runJam("model-spec", "frob"); code != 2 {
 		t.Fatalf("unknown subcommand: code=%d, want 2", code)

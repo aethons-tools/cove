@@ -14,7 +14,9 @@ func TestCoveSummariesConnectorStatus(t *testing.T) {
 	if err := store.AddDestination(gh); err != nil {
 		t.Fatal(err)
 	}
-	doJSON(t, h, "POST", "/admin/roles", RoleBody{Project: "acme", Name: "w", Destinations: []string{"gh"}})
+	if err := store.PutRole("acme", Role{Name: "w", Scope: Scope{Destinations: []string{"gh"}}}); err != nil {
+		t.Fatal(err)
+	}
 	doJSON(t, h, "POST", "/admin/enrollments", EnrollBody{ID: "w1", Project: "acme", Role: "w"})
 	actor := actorByID(t, store, "w1")
 	want, err := ConnectorFor(store, actor)
