@@ -19,8 +19,8 @@ import type { Bridge } from "./bridge";
 export const DOUBLE_CLICK_MS = 250;
 
 // RailPane is the VS Code rail: the web rail's rows, where a click goes to
-// the conversation (its window if open) and a double-click opens the
-// session's studio window, under New message and New session, whose new
+// the conversation's tab (even when its session has a window open) and a
+// double-click opens the session's studio window or brings it to the front, under New message and New session, whose new
 // conversation opens in the hub (the go intent). No chimes or app badge.
 export function RailPane({ bridge, windows, active }: { bridge: Bridge; windows: string[]; active?: string }) {
   const { data, error, isPending } = useRail();

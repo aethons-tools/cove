@@ -186,6 +186,7 @@ export const Uri = {
     const path = decodeURIComponent(u.pathname);
     return { scheme: u.protocol.slice(0, -1), authority: u.host, path: u.pathname, query: u.search.slice(1), fsPath: path, toString: () => s };
   },
+  file: (fsPath: string): FakeUri => Uri.parse(`file://${fsPath.split("/").map(encodeURIComponent).join("/")}`),
   joinPath: (base: FakeUri, ...segs: string[]): FakeUri => {
     const path = [base.path.replace(/\/+$/, ""), ...segs].join("/");
     return Uri.parse(`${base.scheme}://${base.authority}${path}`);
