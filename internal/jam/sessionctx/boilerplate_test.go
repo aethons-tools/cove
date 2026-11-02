@@ -38,7 +38,7 @@ func TestBoilerplatePerKind(t *testing.T) {
 		if len(l.Core) > BudgetBoilerplate {
 			t.Errorf("%s: boilerplate %d bytes > budget %d", c.f.Kind, len(l.Core), BudgetBoilerplate)
 		}
-		for _, common := range []string{"one `claude -p` run", "Background processes", "allow-listed", "/home/agent/workspace", "boilerplate/hardening-limits.md"} {
+		for _, common := range []string{"- Turns:", "Background processes", "allow-listed", "/home/agent/workspace", "boilerplate/hardening-limits.md"} {
 			if !strings.Contains(l.Core, common) {
 				t.Errorf("%s: missing common %q", c.f.Kind, common)
 			}
@@ -176,6 +176,11 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 		}
 		if strings.Contains(core, "Background processes you start die") {
 			t.Errorf("%q: still says background processes die", f.Kind)
+		}
+		// agentrun: claude exits when a turn ends idle, and is held open (up
+		// to BackgroundWait) only while its background tasks run.
+		if strings.Contains(core, "each turn is one `claude -p` run") || !strings.Contains(core, "`claude` then exits") || !strings.Contains(core, "up to 30 min") {
+			t.Errorf("%q: the turns line misstates when claude exits:\n%s", f.Kind, core)
 		}
 		if strings.Contains(core, "comment on your ticket") {
 			t.Errorf("%q: final text must go to the session's own channel, not the ticket", f.Kind)
