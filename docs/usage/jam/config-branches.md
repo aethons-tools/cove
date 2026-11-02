@@ -4,7 +4,7 @@ read_when: You want to change a Jam's config (add a role, edit a kit, a user, a 
 owns: the branch context and its header, branch workspaces (scratch stores) and saves as commits, Create/Open/Merge/PR and their API, the per-file merge rule, the refusal of live config writes, what config paths a branch serves and what stays live, the bare clone in the state dir
 prereqs: config-git-sources.md (following config.github, config.gitlab or config.git); ui-config.md (the Tracking page); config-git.md (the repo layout)
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-02
 ---
 
 # The config branch editor
@@ -59,3 +59,4 @@ The header `X-Jam-Config-Branch: <branch>` (the console sends it while a branch 
 Branch API (operator-only, audit-logged as `ui config branch created|merged|pr`): `GET|POST /app/admin/api/config/branches`, `POST …/config/branches/merge` `{branch, head}`, `POST …/config/branches/pr` `{branch}`, `GET …/config/branches/pr?branch=`.
 
 Jam keeps a bare clone of the repo at `<state-dir>/config-repo`, fetched before every operation.
+The clone is only a cache (every write is pushed at once): when a fetch finds it damaged — a ref file left empty by a crash or a full disk (`ref file is empty`) — Jam deletes it, clones afresh and fetches again. Deleting `<state-dir>/config-repo` by hand is always safe.
