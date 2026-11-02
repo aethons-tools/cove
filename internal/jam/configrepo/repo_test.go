@@ -3,6 +3,7 @@ package configrepo
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -69,5 +70,25 @@ func TestAuthUnavailableIsRemote(t *testing.T) {
 	_, err := r.Branches(ctx)
 	if !errors.Is(err, ErrRemote) || !strings.Contains(err.Error(), "auth unavailable") || strings.Contains(err.Error(), "s3cret") {
 		t.Fatalf("branches: %v", err)
+	}
+}
+
+// A ref file a crash left empty (go-git rewrites refs in place) breaks every
+// fetch with "ref file is empty"; the clone is only a cache, so it is rebuilt.
+func TestEmptyRefFileRebuildsTheClone(t *testing.T) {
+	r, url, update := served(t, map[string]string{"users/bob.yml": "kind: user\n"})
+	if _, err := r.Branches(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.Path, "refs", "remotes", "origin", "main"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	update(map[string]string{"users/ann.yml": "kind: user\n"})
+	bs, err := r.Branches(ctx)
+	if err != nil || len(bs) != 1 || bs[0].Head != gittest.Head(t, url, "main") {
+		t.Fatalf("branches after an emptied ref = %+v %v", bs, err)
+	}
+	if _, files, err := r.Files(ctx, "main"); err != nil || files["users/ann.yml"].Data == nil {
+		t.Fatalf("files after an emptied ref: %v (ann missing: %v)", err, files["users/ann.yml"].Data == nil)
 	}
 }

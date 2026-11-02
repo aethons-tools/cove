@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/storage/filesystem/dotgit"
 
 	"github.com/aethons-tools/cove/internal/jam/gitsource"
 )
@@ -94,6 +96,29 @@ func (r *Repo) open(ctx context.Context) (*git.Repository, transport.AuthMethod,
 	if err != nil {
 		return nil, nil, fmt.Errorf("config repo: opening the clone: %w", err)
 	}
+	repo, auth, err := r.fetch(ctx, repo, remoteURL)
+	if errors.Is(err, dotgit.ErrEmptyRefFile) {
+		// go-git rewrites a ref in place, so a crash (or a full disk) mid-write
+		// leaves it empty, and every later fetch fails on it. The clone is only
+		// a cache of the remote (writes push at once): rebuild it and fetch again.
+		if err := os.RemoveAll(r.Path); err != nil {
+			return nil, nil, fmt.Errorf("config repo: removing the damaged clone: %w", err)
+		}
+		if repo, err = git.PlainInit(r.Path, true); err != nil {
+			return nil, nil, fmt.Errorf("config repo: recreating the clone: %w", err)
+		}
+		repo, auth, err = r.fetch(ctx, repo, remoteURL)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return repo, auth, nil
+}
+
+// fetch points the clone's origin at remoteURL and fetches every branch,
+// pruning those gone. A damaged clone's ErrEmptyRefFile is returned as is, for
+// open to rebuild it; any other fetch failure is explained.
+func (r *Repo) fetch(ctx context.Context, repo *git.Repository, remoteURL string) (*git.Repository, transport.AuthMethod, error) {
 	cfg, err := repo.Config()
 	if err != nil {
 		return nil, nil, fmt.Errorf("config repo: reading the clone's config: %w", err)
@@ -118,10 +143,13 @@ func (r *Repo) open(ctx context.Context) (*git.Repository, transport.AuthMethod,
 	}
 	err = repo.FetchContext(ctx, &git.FetchOptions{RemoteName: remoteName, Auth: auth, Force: true, Prune: true,
 		RefSpecs: []config.RefSpec{"+refs/heads/*:refs/remotes/origin/*"}})
-	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
-		return nil, nil, r.explain("fetch", err)
+	switch {
+	case err == nil, errors.Is(err, git.NoErrAlreadyUpToDate):
+		return repo, auth, nil
+	case errors.Is(err, dotgit.ErrEmptyRefFile):
+		return nil, nil, err
 	}
-	return repo, auth, nil
+	return nil, nil, r.explain("fetch", err)
 }
 
 // remoteError is a redacted remote failure; it matches ErrRemote.
