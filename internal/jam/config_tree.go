@@ -160,6 +160,9 @@ func (l *treeLoader) loadServe() {
 		}
 		l.tr.JamNotes = s
 		delete(m, jamNotesKey) // not a serve setting: never in the serve diff
+		if len(m) == 0 {
+			return // a jam.yml of notes only holds no serve config
+		}
 	}
 	l.tr.Serve = m
 }

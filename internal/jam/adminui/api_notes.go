@@ -18,6 +18,10 @@ func operatorNotesOf(notes string) OperatorNotes {
 	return out
 }
 
+// maxNotesBody bounds a notes write's body. Notes have no size limit of their
+// own; this only keeps one request from being unbounded.
+const maxNotesBody = 64 << 20
+
 // apiOperatorNotes mounts each config object's operator-notes write (a
 // branch write, like the rest of its config). Kits and the Jam keep theirs
 // in kit.yml and jam.yml.
@@ -27,7 +31,7 @@ func apiOperatorNotes(api *http.ServeMux, store jam.Store, log *slog.Logger) {
 			var f struct {
 				Notes string `json:"notes"`
 			}
-			if !decodeJSON(w, r, &f) {
+			if !decodeJSONMax(w, r, &f, maxNotesBody) {
 				return
 			}
 			key := jam.ConfigKey{Kind: kind, Name: name(r)}

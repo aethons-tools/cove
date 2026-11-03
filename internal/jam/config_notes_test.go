@@ -138,6 +138,10 @@ func TestOperatorNotesAreNotAServeSetting(t *testing.T) {
 	if sc := PlanConfig(in).ServeConfig; sc.State != "same" {
 		t.Fatalf("%+v", sc)
 	}
+	in.Tree = treeOf(t, map[string]string{"jam.yml": "operator-notes: only notes\n"})
+	if sc := PlanConfig(in).ServeConfig; sc.State != "absent" {
+		t.Fatalf("notes-only jam.yml: %+v", sc)
+	}
 	tr := treeOf(t, map[string]string{"jam.yml": "operator-notes: [a]\n"})
 	if !slices.Contains(tr.Refusals, "jam.yml: operator-notes must be a string") {
 		t.Fatal(tr.Refusals)

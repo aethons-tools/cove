@@ -60,7 +60,7 @@ export function DashboardPage() {
         {tiles.map(([n, label, to, color]) => <Tile key={label} n={n} label={label} to={to} color={color} />)}
       </SimpleGrid>
       <AttentionList items={data.attention} />
-      <OperatorNotes id="jam-notes" notes={data.jamNotes} where="jam.yml" />
+      <OperatorNotes notes={data.jamNotes} where="jam.yml" />
       <ContextPanel key={data.jamContext.yaml} panel={data.jamContext} onSave={(yaml) => save.mutateAsync(yaml)} onClear={() => clear.mutateAsync(undefined)} />
       {data.hasManagers && (
         <Section title="Managers">

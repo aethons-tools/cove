@@ -13,8 +13,8 @@ import { useAdminMutation } from "./useAdminMutation";
 // invalidate the page's query; with no path they live in a file (where:
 // kit.yml, jam.yml) and are shown only. Nothing renders for no notes and
 // nothing to edit.
-export function OperatorNotes({ notes, path, where, invalidate, id }: {
-  notes: Notes; path?: string; where?: string; invalidate?: unknown[][]; id?: string;
+export function OperatorNotes({ notes, path, where, invalidate }: {
+  notes: Notes; path?: string; where?: string; invalidate?: unknown[][];
 }) {
   const editable = useConfigEditable() && !!path;
   const [editing, setEditing] = useState(false);
@@ -25,16 +25,14 @@ export function OperatorNotes({ notes, path, where, invalidate, id }: {
     ? <Button size="xs" variant="subtle" onClick={() => setEditing(false)}>Cancel</Button>
     : <Button size="xs" variant="default" onClick={() => { setText(notes.markdown); setEditing(true); }}>{notes.markdown ? "Edit" : "Add notes"}</Button>);
   return (
-    <div id={id}>
-      <Section title="Operator notes" sub={`for operators only, never shown to agents${where ? ` · edit operator-notes in ${where}` : ""}`} actions={toggle}>
-        {editing ? (
-          <EditForm submit="Save notes" onSubmit={() => save.mutateAsync(text)}>
-            <Textarea label="Notes" description="markdown" autosize minRows={4} maxRows={30} value={text}
-              styles={{ input: { fontFamily: "var(--mantine-font-family-monospace)" } }} onChange={(e) => setText(e.currentTarget.value)} />
-          </EditForm>
-        ) : notes.html ? <MessageBody html={notes.html} plain={false} />
-          : <Text c="dimmed" size="sm">No notes.</Text>}
-      </Section>
-    </div>
+    <Section title="Operator notes" sub={`for operators only, never shown to agents${where ? ` · edit operator-notes in ${where}` : ""}`} actions={toggle}>
+      {editing ? (
+        <EditForm submit="Save notes" onSubmit={() => save.mutateAsync(text)}>
+          <Textarea label="Notes" description="markdown" autosize minRows={4} maxRows={30} value={text}
+            styles={{ input: { fontFamily: "var(--mantine-font-family-monospace)" } }} onChange={(e) => setText(e.currentTarget.value)} />
+        </EditForm>
+      ) : notes.html ? <MessageBody html={notes.html} plain={false} />
+        : <Text c="dimmed" size="sm">No notes.</Text>}
+    </Section>
   );
 }
