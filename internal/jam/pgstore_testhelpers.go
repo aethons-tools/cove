@@ -19,8 +19,8 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 		return err
 	}
 	// The Jam context lives in jam_settings, which is not truncated (it also
-	// holds migration markers); clear only the context row.
-	if _, err := s.pool.Exec(ctx, `DELETE FROM jam_settings WHERE key IN ('context', 'config_source')`); err != nil {
+	// holds migration markers); clear only the config rows.
+	if _, err := s.pool.Exec(ctx, `DELETE FROM jam_settings WHERE key IN ('context', 'config_source', 'operator_notes')`); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -55,5 +55,6 @@ func (s *PostgresStore) TruncateAllForTest(ctx context.Context) error {
 	s.marks = map[ConfigKey]ConfigMark{}
 	s.jamContext = sessionctx.Layer{}
 	s.configSource = nil
+	s.jamNotes = ""
 	return nil
 }
