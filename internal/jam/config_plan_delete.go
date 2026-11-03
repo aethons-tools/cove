@@ -13,12 +13,12 @@ import (
 // configKindOrder is the creates' kind order (spec §3: users, connections →
 // destinations, model specs → kits → projects → roles → Jam context).
 var configKindOrder = []string{ConfigKindUser, ConfigKindConnection, ConfigKindDestination, ConfigKindModelSpec,
-	ConfigKindKit, ConfigKindProject, ConfigKindRole, ConfigKindJamContext}
+	ConfigKindKit, ConfigKindProject, ConfigKindRole, ConfigKindJamContext, ConfigKindJamNotes}
 
 // configDeleteOrder is the creates' order reversed, except the Jam context,
 // which nothing references, goes last.
 var configDeleteOrder = []string{ConfigKindRole, ConfigKindProject, ConfigKindKit, ConfigKindModelSpec,
-	ConfigKindDestination, ConfigKindConnection, ConfigKindUser, ConfigKindJamContext}
+	ConfigKindDestination, ConfigKindConnection, ConfigKindUser, ConfigKindJamContext, ConfigKindJamNotes}
 
 // planDeletes plans the delete of every managed object the repo no longer
 // holds, in configDeleteOrder, each behind its guard (deleteObject), whatever
@@ -128,6 +128,9 @@ func (p *planner) deleteObject(key ConfigKey) error {
 	case ConfigKindJamContext:
 		p.w.JamContext = &sessionctx.Layer{}
 		m.applySetJamContext(sessionctx.Layer{})
+	case ConfigKindJamNotes:
+		p.w.JamNotes = new(string)
+		m.jamNotes = ""
 	default:
 		return fmt.Errorf("unknown kind %s", key.Kind)
 	}

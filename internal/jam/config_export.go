@@ -80,13 +80,16 @@ func exportObjects(m *memState, inTree func(kit string) bool) (out map[ConfigKey
 		if u.Status == StatusRemoved {
 			continue
 		}
-		add(UserFile{Kind: ConfigKindUser, Version: ConfigFileVersion, Name: u.Name, Logins: slices.Clone(u.Logins)})
+		add(UserFile{Kind: ConfigKindUser, Version: ConfigFileVersion, Name: u.Name, Logins: slices.Clone(u.Logins), OperatorNotes: u.OperatorNotes})
 	}
 	for _, c := range m.connections {
 		if c.Status == StatusRemoved {
 			continue
 		}
-		add(ConnectionFile{Kind: ConfigKindConnection, Version: ConfigFileVersion, Name: c.Name, Service: c.Kind, Cred: c.CredName})
+		add(ConnectionFile{
+			Kind: ConfigKindConnection, Version: ConfigFileVersion, Name: c.Name, Service: c.Kind, Cred: c.CredName,
+			OperatorNotes: c.OperatorNotes,
+		})
 	}
 	for name, p := range m.projects {
 		p.Name = name
@@ -98,6 +101,10 @@ func exportObjects(m *memState, inTree func(kit string) bool) (out map[ConfigKey
 	}
 	if !m.jamContext.Empty() {
 		add(JamContextFile{Layer: m.jamContext})
+	}
+	if m.jamNotes != "" {
+		o := jamNotesObject(m.jamNotes)
+		out[o.Key] = o
 	}
 	for _, n := range slices.Sorted(maps.Keys(m.kits)) { // sorted: the first refusal is deterministic
 		if inTree != nil && !inTree(n) {
@@ -216,7 +223,7 @@ func projectFileOf(m *memState, p Project) ProjectFile {
 	f := ProjectFile{
 		Kind: ConfigKindProject, Version: ConfigFileVersion, Name: p.Name,
 		Escalation: tierFiles(m, p.Escalation),
-		Resources:  slices.Clone(p.Resources), Context: p.Context,
+		Resources:  slices.Clone(p.Resources), Context: p.Context, OperatorNotes: p.OperatorNotes,
 	}
 	if p.ChatService != "" {
 		f.ChatService = connName(ident.ID(p.ChatService))
@@ -385,6 +392,7 @@ func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]
 		}
 	}
 	if serve != nil {
+		serve = withJamNotes(serve, m.jamNotes, want(ConfigKey{ConfigKindJamNotes, "jam"}))
 		if exp.Files["jam.yml"], err = renderServeYAML(serve); err != nil {
 			return ConfigTreeExport{}, err
 		}
@@ -405,6 +413,7 @@ func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]
 		case ConfigKindProject:
 			remove[k.Path()] = true
 			remove["projects/"+k.Name+"/context.md"] = true
+		case ConfigKindJamNotes: // in jam.yml, which is the serve config's
 		default:
 			remove[k.Path()] = true
 		}
@@ -425,4 +434,18 @@ func ExportConfigTree(snap ConfigSnapshot, marks []ConfigMark, serve map[string]
 func renderServeYAML(serve map[string]any) (_ string, err error) {
 	defer recoverRender(func() string { return "jam.yml" }, &err)
 	return string(renderYAML(serve)), nil
+}
+
+// withJamNotes is serve with jam.yml's operator-notes set to notes (dropped
+// when empty) when the export writes them, else as the serve has it.
+func withJamNotes(serve map[string]any, notes string, write bool) map[string]any {
+	if !write {
+		return serve
+	}
+	out := maps.Clone(serve)
+	delete(out, jamNotesKey)
+	if notes != "" {
+		out[jamNotesKey] = notes
+	}
+	return out
 }

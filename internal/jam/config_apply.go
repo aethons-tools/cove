@@ -140,6 +140,7 @@ var configAuditMsgs = map[string]map[string]string{
 	ConfigKindProject:     {ConfigCreate: "admin project created", ConfigUpdate: "admin project updated", ConfigDelete: "admin project removed"},
 	ConfigKindRole:        {ConfigCreate: "admin role put", ConfigUpdate: "admin role put", ConfigDelete: "admin role removed"},
 	ConfigKindJamContext:  {ConfigCreate: "admin jam context set", ConfigUpdate: "admin jam context set", ConfigDelete: "admin jam context set"},
+	ConfigKindJamNotes:    {ConfigCreate: "admin jam notes set", ConfigUpdate: "admin jam notes set", ConfigDelete: "admin jam notes set"},
 }
 
 // logConfigApply writes the apply's audit: one "config applied" entry with

@@ -59,8 +59,11 @@ type serveConfig struct {
 	// "<name> Jam" (its brand). Optional; one line, at
 	// most 64 characters, trimmed.
 	DisplayName string `yaml:"display-name"`
-	Listen      string `yaml:"listen"`
-	AdminListen string `yaml:"admin-listen"`
+	// OperatorNotes is the Jam's operator notes. Serve ignores it: a config
+	// apply takes it from the followed repo's jam.yml into the store.
+	OperatorNotes string `yaml:"operator-notes"`
+	Listen        string `yaml:"listen"`
+	AdminListen   string `yaml:"admin-listen"`
 	// UIHosts are extra Host values accepted for the browser UI on a loopback
 	// connection, beyond the loopback literals (127.0.0.1/::1/localhost). Set a
 	// custom loopback-bound hostname here (e.g. jam.local.example); otherwise

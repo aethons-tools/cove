@@ -1,6 +1,7 @@
 package storetest
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -107,6 +108,45 @@ func runConfigConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 		marks := st.ListConfigMarks()
 		if len(marks) != 2 || marks[0].Kind != jam.ConfigKindDestination || marks[1].Name != "app/ic" {
 			t.Fatalf("marks %+v", marks)
+		}
+	})
+	t.Run("operator notes are applied, exported, imported and cleared", func(t *testing.T) {
+		st := mk(t)
+		w, uid, cid, _ := full()
+		w.Connections[0].OperatorNotes, w.Users[0].OperatorNotes = "c", "u"
+		w.Destinations[0].OperatorNotes, w.ModelSpecs[0].OperatorNotes = "d", "m"
+		w.ModelSpecs[0].Principal.Credential = "pool" // valid, so the snapshot imports
+		w.ModelSpecs[0].Claude = &jam.ClaudeSpec{Provider: "anthropic"}
+		w.Projects[0].OperatorNotes, w.Roles[0].Role.OperatorNotes = "p", "r"
+		notes := "jam"
+		w.JamNotes = &notes
+		if err := st.ApplyConfig(w); err != nil {
+			t.Fatal(err)
+		}
+		check := func(st jam.Store) {
+			t.Helper()
+			u, _ := st.GetUser(uid)
+			c, _ := st.GetConnection(cid)
+			ms, _ := st.GetModelSpec("fast")
+			p, _ := st.GetProject("app")
+			r, _ := st.GetRole("app", "ic")
+			got := []string{c.OperatorNotes, u.OperatorNotes, st.ListDestinations()[0].OperatorNotes, ms.OperatorNotes,
+				p.OperatorNotes, r.OperatorNotes, st.GetJamNotes()}
+			if want := []string{"c", "u", "d", "m", "p", "r", "jam"}; !slices.Equal(got, want) {
+				t.Fatalf("notes %q, want %q", got, want)
+			}
+		}
+		check(st)
+		st2 := mk(t)
+		if err := st2.ImportConfig(st.ExportConfig()); err != nil {
+			t.Fatal(err)
+		}
+		check(st2)
+		if err := st.ApplyConfig(jam.ConfigWrite{JamNotes: new(string)}); err != nil {
+			t.Fatal(err)
+		}
+		if st.GetJamNotes() != "" {
+			t.Fatal("jam notes not cleared")
 		}
 	})
 	t.Run("apply config removes and tombstones", func(t *testing.T) {

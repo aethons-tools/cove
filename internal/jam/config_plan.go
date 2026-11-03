@@ -154,6 +154,7 @@ func PlanConfig(in ConfigPlanInput) ConfigPlan {
 	p.planProjects()
 	p.planRoles()
 	p.planJamContext()
+	p.planJamNotes()
 	p.planDeletes()
 	p.planUnmanaged()
 	slices.Sort(p.plan.Refusals)
@@ -293,6 +294,7 @@ func (p *planner) planUsers() {
 			if err != nil {
 				return err
 			}
+			u.OperatorNotes = f.OperatorNotes
 			p.m.applyPutUser(u)
 			p.w.Users = append(p.w.Users, u)
 			return nil
@@ -319,6 +321,7 @@ func (p *planner) planConnections() {
 			if err != nil {
 				return err
 			}
+			c.OperatorNotes = f.OperatorNotes
 			p.m.applyPutConnection(c)
 			p.w.Connections = append(p.w.Connections, c)
 			return nil
@@ -603,6 +606,7 @@ func (p *planner) writeProject(f ProjectFile, create bool) error {
 		return err
 	}
 	proj = setProjectContext(proj, f.Context, f.Resources)
+	proj.OperatorNotes = f.OperatorNotes
 	p.m.applyPutProject(proj)
 	p.w.Projects = append(p.w.Projects, proj)
 	if err := p.writeMembers(proj.ID, f.Members); err != nil {
@@ -785,6 +789,21 @@ func validateConfigRole(store Store, r *Role, credExists func(string) bool) erro
 		seen = append(seen, s)
 	}
 	return nil
+}
+
+// planJamNotes plans jam.yml's operator-notes. Empty counts as absent, as
+// for the Jam context.
+func (p *planner) planJamNotes() {
+	notes := p.in.Tree.JamNotes
+	if notes == "" {
+		return
+	}
+	o := jamNotesObject(notes)
+	p.upsert(o.Key, o, func(bool) error {
+		p.m.jamNotes = notes
+		p.w.JamNotes = &notes
+		return nil
+	})
 }
 
 // planJamContext plans the Jam-wide context.md. An empty one counts as

@@ -51,6 +51,9 @@ type Destination struct {
 	// this destination (headerlog.go); "" = none. Secrets are always redacted.
 	LogHeadersIn  HeaderLog `json:"log_headers_in,omitempty"  yaml:"log_headers_in,omitempty"`
 	LogHeadersOut HeaderLog `json:"log_headers_out,omitempty" yaml:"log_headers_out,omitempty"`
+	// OperatorNotes is free markdown for operators only: never shown to
+	// sessions (unlike Note) and of no effect on the broker.
+	OperatorNotes string `json:"operator_notes,omitempty" yaml:"operator-notes,omitempty"`
 }
 
 // ClientEnv is the env a studio sets for this destination, with {url} resolved

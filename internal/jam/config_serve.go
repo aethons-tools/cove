@@ -2,6 +2,7 @@ package jam
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"sort"
 	"strings"
@@ -126,10 +127,19 @@ func deletePath(m map[string]any, parts []string) {
 
 // DiffServeConfig returns the sorted dotted leaf paths at which repo and
 // running differ. A map present on one side only contributes each of its leaf
-// paths; nil means no difference.
+// paths; nil means no difference. jam.yml's operator-notes is not a serve
+// setting (the planner applies it as the Jam's notes), so it never differs.
 func DiffServeConfig(repo, running map[string]any) []string {
 	var out []string
-	diffInto("", repo, running, &out)
+	strip := func(m map[string]any) map[string]any {
+		if _, ok := m[jamNotesKey]; !ok {
+			return m
+		}
+		m = maps.Clone(m)
+		delete(m, jamNotesKey)
+		return m
+	}
+	diffInto("", strip(repo), strip(running), &out)
 	sort.Strings(out)
 	return out
 }

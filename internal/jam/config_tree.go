@@ -29,6 +29,7 @@ const ConfigDirCommit = "dir"
 type ConfigTree struct {
 	Serve             map[string]any // jam.yml; nil = absent
 	JamContext        *sessionctx.Layer
+	JamNotes          string // jam.yml's operator-notes; "" = none
 	Destinations      map[string]DestinationFile
 	ModelSpecs        map[string]ModelSpecFile
 	Users             map[string]UserFile
@@ -151,6 +152,14 @@ func (l *treeLoader) loadServe() {
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		l.refuse("jam.yml: not valid YAML")
 		return
+	}
+	if v, ok := m[jamNotesKey]; ok {
+		s, isStr := v.(string)
+		if !isStr && v != nil {
+			l.refuse("jam.yml: %s must be a string", jamNotesKey)
+		}
+		l.tr.JamNotes = s
+		delete(m, jamNotesKey) // not a serve setting: never in the serve diff
 	}
 	l.tr.Serve = m
 }
