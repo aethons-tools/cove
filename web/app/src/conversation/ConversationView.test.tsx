@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { act, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { focusManager } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -193,6 +193,38 @@ describe("the conversation view", () => {
     const btn = await screen.findByRole("button", { name: "Copy code" });
     expect(btn.textContent).toBe("");
     expect(btn.closest(".jam-body")!.textContent).toBe("rungo test\n");
+  });
+
+  it("says whether copying a message worked", async () => {
+    const writeText = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("no"));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: () => false });
+    try {
+      serve(conv({ messages: [msg(1, { raw: "**m1**" })] }));
+      renderApp(boot, "/app/user/c/chn_a");
+      // fireEvent: userEvent puts its own clipboard on navigator. Markdown:
+      // jsdom has no innerText, which Text copies.
+      fireEvent.click(await screen.findByRole("button", { name: "Markdown" }));
+      expect(await screen.findByText("Copied the message as markdown")).toBeInTheDocument();
+      expect(writeText).toHaveBeenCalledWith("**m1**");
+      fireEvent.click(screen.getByRole("button", { name: "Markdown" }));
+      expect(await screen.findByText("Couldn't copy the message")).toBeInTheDocument();
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+      Reflect.deleteProperty(window, "isSecureContext");
+      Reflect.deleteProperty(document, "execCommand");
+    }
+  });
+
+  it("shows a message's copy controls on hover, and lets the list take focus", async () => {
+    serve(conv());
+    renderApp(boot, "/app/user/c/chn_a");
+    const text = (await screen.findAllByRole("button", { name: "Text" }))[0]!;
+    expect(text.closest(".jam-msg-copy")).not.toBeNull(); // the hook body.css hides until hover (jsdom can't apply it)
+    // Focusable, so selecting text focuses the list, not the page: VS Code
+    // 1.143's copy then keeps the selection instead of focusing the composer.
+    expect(screen.getByText("m1").closest("[tabindex='-1']")).not.toBeNull();
   });
 
   it("keeps the rail on screen while switching conversations", async () => {

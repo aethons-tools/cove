@@ -76,6 +76,15 @@ export function Composer({ to, label, attachMax, onSent, ref, autoFocus, accent 
     },
   }));
 
+  // pasteAsCode puts pasted over t's selection, fenced as a code block.
+  const pasteAsCode = (t: HTMLTextAreaElement, pasted: string) => {
+    if (!pasted) return;
+    const start = t.selectionStart, end = t.selectionEnd;
+    const block = asCodeBlock(pasted, t.value.slice(0, start));
+    // execCommand keeps the browser's undo; jsdom lacks it.
+    if (!document.execCommand?.("insertText", false, block)) setText(t.value.slice(0, start) + block + t.value.slice(end));
+  };
+
   const push = () => {
     if (!text.trim()) return false;
     setDrafts([...draftsRef.current, { text, sel: box.current?.selectionStart ?? text.length }]);
@@ -140,6 +149,22 @@ export function Composer({ to, label, attachMax, onSent, ref, autoFocus, accent 
           onChange={(e) => setText(e.currentTarget.value)}
           onKeyDown={(e) => {
             asCode.current = keys.isPasteAsCodeKey(e, mac);
+            if (asCode.current) {
+              // A host that swallows the key leaves no paste event (VS Code's
+              // webview prevents it, then pastes through its own command), so
+              // once the key is dispatched, read the clipboard instead. A
+              // paste event first (it clears asCode) wins; so does the box
+              // losing focus meanwhile.
+              const ev = e.nativeEvent, t = e.currentTarget;
+              setTimeout(() => {
+                if (!ev.defaultPrevented || !asCode.current) return;
+                void navigator.clipboard?.readText().then((pasted) => {
+                  if (!asCode.current || !t.isConnected || document.activeElement !== t) return;
+                  asCode.current = false;
+                  pasteAsCode(t, pasted);
+                }, () => {});
+              });
+            }
             // The native event carries isComposing (React's synthetic one doesn't).
             if (keys.isSendKey(e.nativeEvent, mac)) { e.preventDefault(); void send(); return; }
             const d = keys.isDraftKey(e, mac);
@@ -160,10 +185,7 @@ export function Composer({ to, label, attachMax, onSent, ref, autoFocus, accent 
             const pasted = e.clipboardData?.getData("text/plain") ?? "";
             if (!pasted) return;
             e.preventDefault();
-            const t = e.currentTarget, start = t.selectionStart, end = t.selectionEnd;
-            const block = asCodeBlock(pasted, t.value.slice(0, start));
-            // execCommand keeps the browser's undo; jsdom lacks it.
-            if (!document.execCommand?.("insertText", false, block)) setText(t.value.slice(0, start) + block + t.value.slice(end));
+            pasteAsCode(e.currentTarget, pasted);
           }} />
         <Group gap={6} wrap="nowrap">
           {attachMax > 0 && <>

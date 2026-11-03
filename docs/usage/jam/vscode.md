@@ -185,6 +185,7 @@ Install it with `jam vscode install --code codium`. Sign-in, links and notificat
 | "your participant sign-in is missing" from `ssh-proxy` | The `jam` CLI predates the extension. Install `jam` from the same release or newer. |
 | "The jam CLI was not found" | Install `jam` or set `jam.cliPath` to its absolute path. |
 | "You can't SSH into …" | The session isn't shared with you; ask an operator ([collaboration.md](collaboration.md#who-may-connect)). The button opens the web app. |
+| ⌘C or *Copy* in a pane focuses the composer and copies nothing | A VS Code 1.143 bug ([microsoft/vscode#343489](https://github.com/microsoft/vscode/issues/343489)), fixed in 1.144; VSCodium 1.143 has it. The message list works around it; elsewhere, update. |
 | No OS banners on macOS | System Settings → Notifications → *terminal-notifier* must allow them. If the Jam output channel says the notifier was blocked (Gatekeeper, on a quarantined copy), run `xattr -dr com.apple.quarantine` on the extension's `dist/vendor`, or rely on the `osascript` fallback. |
 | `jam vscode install`: "this Jam doesn't serve the VS Code extension" or "built without" | The Jam predates serving it, or is a dev build. Install the release asset with *Extensions: Install from VSIX…*. |
 | Signed out after a revoke | Run *Jam: Sign In*. A revoked token also makes `ssh-proxy` fail with a "VS Code sign-in … was revoked" message. |
