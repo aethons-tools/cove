@@ -166,6 +166,11 @@ func writeConfigTx(ctx context.Context, tx pgx.Tx, w ConfigWrite) error {
 			}
 		}
 	}
+	if w.JamNotes != nil {
+		if err := pgSetJamSetting(ctx, tx, "operator_notes", *w.JamNotes); err != nil {
+			return err
+		}
+	}
 	for _, mk := range w.Marks {
 		doc, err := json.Marshal(mk)
 		if err != nil {
@@ -193,4 +198,22 @@ func writeConfigTx(ctx context.Context, tx pgx.Tx, w ConfigWrite) error {
 		}
 	}
 	return nil
+}
+
+// pgSetJamSetting upserts the jam_settings row key as v's JSON, or deletes it
+// for v's zero value.
+func pgSetJamSetting[T comparable](ctx context.Context, tx pgx.Tx, key string, v T) error {
+	var zero T
+	if v == zero {
+		_, err := tx.Exec(ctx, `DELETE FROM jam_settings WHERE key = $1`, key)
+		return err
+	}
+	doc, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO jam_settings (key, doc) VALUES ($1, $2)
+		 ON CONFLICT (key) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()`, key, doc)
+	return err
 }

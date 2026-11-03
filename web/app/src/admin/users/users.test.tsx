@@ -10,7 +10,7 @@ import { setBranch } from "../branch/branch";
 
 const alice: UserRow = { id: "usr_1", name: "alice", logins: ["a@x"], accounts: [{ id: "acc_1", connection: "discord", serviceUid: "42", handle: "ali" }], projects: ["acme"] };
 const detail = (u: Partial<UserRow> = {}, d: Partial<UserDetail> = {}): UserDetail =>
-  ({ user: { ...alice, ...u }, removed: false, loginSpec: "a@x", oidcSpec: "", connections: [{ name: "discord", kind: "discord" }], appTokens: [], ...d });
+  ({ user: { ...alice, ...u }, removed: false, loginSpec: "a@x", oidcSpec: "", connections: [{ name: "discord", kind: "discord" }], appTokens: [], notes: { markdown: "", html: "" }, ...d });
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const err = (status: number, code: string, error: string) => HttpResponse.json({ error, code }, { status });

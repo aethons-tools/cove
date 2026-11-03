@@ -41,6 +41,10 @@ type StudioKit struct {
 	// into the image at /etc/jam/mcp-servers.json (env references only — never
 	// secret values; see kit.ValidateMCPServers).
 	MCPServers map[string]kit.MCPServer `yaml:"mcp-servers,omitempty" json:"mcp-servers,omitempty"`
+	// OperatorNotes is free markdown for operators only: never part of a
+	// session's context, outside the build digest, and not inherited by a
+	// kit building on this one (Merge keeps the leaf's own).
+	OperatorNotes string `yaml:"operator-notes,omitempty" json:"operator-notes,omitempty"`
 	// BuildContext is the tree hash of the kit's build context (its tree minus
 	// kit.yml) when a Dockerfile sits next to kit.yml; "" otherwise. Set by
 	// ParseTree, never serialized; build-affecting (BuildDigest).

@@ -96,6 +96,7 @@ type ConfigWrite struct {
 	RemoveRoles        []ConfigRoleWrite // by ProjectID + Role.Name
 	Roles              []ConfigRoleWrite
 	JamContext         *sessionctx.Layer // nil = untouched; empty = cleared
+	JamNotes           *string           // the Jam's operator notes; nil = untouched; "" = cleared
 	Marks              []ConfigMark
 	RemoveMarks        []ConfigKey
 	ConfigSource       *ConfigSource // the tracked source's new record; nil = untouched
@@ -106,7 +107,7 @@ func (w ConfigWrite) Empty() bool {
 	return len(w.Connections)+len(w.Users)+len(w.Accounts)+len(w.Destinations)+len(w.RemoveDestinations)+
 		len(w.ModelSpecs)+len(w.RemoveModelSpecs)+len(w.Kits)+len(w.RemoveKits)+len(w.Projects)+
 		len(w.RemoveMemberships)+len(w.Memberships)+len(w.Channels)+len(w.RemoveRoles)+len(w.Roles)+
-		len(w.Marks)+len(w.RemoveMarks) == 0 && w.JamContext == nil && w.ConfigSource == nil && w.KitObjects.empty()
+		len(w.Marks)+len(w.RemoveMarks) == 0 && w.JamContext == nil && w.JamNotes == nil && w.ConfigSource == nil && w.KitObjects.empty()
 }
 
 // ListConfigMarks returns the managed marks, sorted by kind, then name.
@@ -331,6 +332,9 @@ func applyConfigWrite(m *memState, w ConfigWrite) {
 	}
 	if w.JamContext != nil {
 		m.applySetJamContext(*w.JamContext)
+	}
+	if w.JamNotes != nil {
+		m.jamNotes = *w.JamNotes
 	}
 	for _, mk := range w.Marks {
 		m.marks[mk.Key()] = mk

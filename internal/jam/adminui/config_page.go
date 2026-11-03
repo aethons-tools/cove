@@ -37,7 +37,8 @@ type configPage struct {
 	Plan        *planView
 }
 
-// configObjectHref is a config object's page; "" for a connection (no page).
+// configObjectHref is a config object's page; "" for a connection or the
+// Jam's notes (no page: jam.yml holds them).
 func configObjectHref(kind, name string) string {
 	switch kind {
 	case jam.ConfigKindDestination:

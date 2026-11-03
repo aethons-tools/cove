@@ -59,6 +59,9 @@ func kitDetailOf(store jam.Store, items []attnItem, name string, view, diff int,
 	out := KitDetail{Name: name, Current: d.Current, Versions: []KitVersionRow{},
 		View: kitViewOf(d.View), Uses: []KitUse{}, Chain: []KitParent{}, ChainErr: d.ChainErr, UsedByKits: []KitChild{}, IsDefault: d.IsDefault,
 		Source: sourceInfo(d.Source), SetWith: d.SetWith, CanSource: canSource, File: kitFileOf(d.File), Attn: attnFlag(items, "specs", "kit:"+name)}
+	if v, ok := jam.LoadKitVersion(store, name, 0); ok { // the current version's kit.yml
+		out.Notes = operatorNotesOf(v.Kit.OperatorNotes)
+	}
 	for _, v := range d.Versions {
 		out.Versions = append(out.Versions, KitVersionRow{N: v.N, Prev: v.Prev, Current: v.Current, Digest: v.Digest, Pushed: v.Pushed, Source: sourceInfo(v.Source)})
 	}

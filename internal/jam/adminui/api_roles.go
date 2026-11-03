@@ -87,7 +87,7 @@ func roleDetailOf(store jam.Store, img jam.ImageResolver, items []attnItem, proj
 			MaxEphemeral: d.Form.MaxEphemeral, MaxPersonal: d.Form.MaxPersonal, MaxPersonalPerOwner: d.Form.MaxPersonalPerOwner,
 			IdleAfter: d.Form.IdleAfter, NagEvery: d.Form.NagEvery, ReclaimAfter: d.Form.ReclaimAfter, Egress: d.Form.Egress},
 		Context: contextPanelOf(d.Context), CanRequest: canRequest, SetupEnabled: setupOn,
-		Attn: attnFlag(items, "agents", d.Project+"/"+name)}
+		Attn: attnFlag(items, "agents", d.Project+"/"+name), Notes: operatorNotesOf(r.OperatorNotes)}
 	if r.Scope.Egress != nil {
 		out.EgressDomains = append(out.EgressDomains, r.Scope.Egress.Domains...)
 	}

@@ -282,6 +282,16 @@ func (s *PostgresStore) load(ctx context.Context) error {
 			return fmt.Errorf("pgstore: decode jam_settings context: %w", err)
 		}
 	}
+	var jn []byte
+	switch err := s.pool.QueryRow(ctx, `SELECT doc FROM jam_settings WHERE key = 'operator_notes'`).Scan(&jn); {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return fmt.Errorf("pgstore: load jam_settings: %w", err)
+	default:
+		if err := json.Unmarshal(jn, &s.jamNotes); err != nil {
+			return fmt.Errorf("pgstore: decode jam_settings operator_notes: %w", err)
+		}
+	}
 	if err := s.loadDocs(ctx, "config_marks", func(doc []byte) error {
 		var mk ConfigMark
 		if err := json.Unmarshal(doc, &mk); err != nil {
@@ -547,6 +557,9 @@ func (s *PostgresStore) ImportConfig(snap ConfigSnapshot) error {
 			if _, err := tx.Exec(ctx, `INSERT INTO jam_settings (key, doc) VALUES ('context', $1)`, doc); err != nil {
 				return err
 			}
+		}
+		if err := pgSetJamSetting(ctx, tx, "operator_notes", snap.JamNotes); err != nil {
+			return err
 		}
 		// The marker is replaced, not merged: serve startup records one on an
 		// empty store before any import (MigrateModelSpecs).

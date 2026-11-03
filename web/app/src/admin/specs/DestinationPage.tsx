@@ -15,6 +15,7 @@ import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { DestFields, destBody, type DestValues } from "./DestFields";
 import { deleteDestConfirm, destsKey } from "./DestinationsPage";
+import { OperatorNotes } from "../ui/OperatorNotes";
 
 const enc = encodeURIComponent;
 const roleHref = (p: string, r: string) => nodeHref(`config/projects/${enc(p)}/agents/${enc(r)}`);
@@ -55,6 +56,7 @@ function Destination({ d, dataKey }: { d: DestDetail; dataKey: unknown[] }) {
         </Group>
         <ConfirmAction label="Delete" confirm={deleteDestConfirm(d.name, d.uses.length)} onConfirm={() => remove.mutateAsync(undefined)} />
       </Group>
+      <OperatorNotes notes={d.notes} path={`destinations/${enc(d.name)}/operator-notes`} invalidate={[dataKey]} />
       {d.conflicts.length > 0 && (
         <Alert color="red" title={`Connector conflict in ${d.conflictRoles.length} role(s): ${d.conflictRoles.join(", ")}`}>
           <Text size="sm">Agents holding these roles can't assemble a connector (Jam fails closed with 409) until one side changes:</Text>

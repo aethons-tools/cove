@@ -64,9 +64,10 @@ func CreateRole(store Store, project string, role Role) error {
 }
 
 // PutRoleKeeping creates or replaces a role, keeping an existing role's
-// standing declarations, egress policy and context: those have their own
-// writers (AddStanding/RemoveStanding, SetRoleEgress/ClearRoleEgress,
-// SetRoleContext/ClearRoleContext).
+// standing declarations, egress policy, context and operator notes: those
+// have their own writers (AddStanding/RemoveStanding,
+// SetRoleEgress/ClearRoleEgress, SetRoleContext/ClearRoleContext,
+// SetOperatorNotes).
 func PutRoleKeeping(store Store, project string, role Role) error {
 	roleMu.Lock()
 	defer roleMu.Unlock()
@@ -77,6 +78,7 @@ func PutRoleKeeping(store Store, project string, role Role) error {
 		role.Allocation.Standing = existing.Allocation.Standing
 		role.Scope.Egress = existing.Scope.Egress
 		role.Context = existing.Context
+		role.OperatorNotes = existing.OperatorNotes
 		if role.Collaborate == (CollaboratePolicy{}) {
 			role.Collaborate = existing.Collaborate
 		}

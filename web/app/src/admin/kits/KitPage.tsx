@@ -19,6 +19,7 @@ import { FileCard, FilesCard, FilesDiffCard, VersionCard, hiddenNote, maskedNote
 import { deleteKitConfirm, kitsKey, mono } from "./KitsPage";
 import { VersionRail } from "./VersionRail";
 import { DraftSection } from "./DraftSection";
+import { OperatorNotes } from "../ui/OperatorNotes";
 
 const enc = encodeURIComponent;
 
@@ -75,6 +76,7 @@ function Kit({ k }: { k: KitDetail }) {
         </Group>
         {del}
       </Group>
+      <OperatorNotes notes={k.notes} where={k.source ? "the kit.yml at its source" : "its kit.yml"} />
       <Grid>
         <Grid.Col span={{ base: 12, md: 3 }}>
           <VersionRail k={k} href={href} onPin={(n) => write.mutateAsync({ path: "pin", body: { version: n } })} />

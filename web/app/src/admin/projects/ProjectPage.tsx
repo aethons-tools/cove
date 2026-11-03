@@ -11,6 +11,7 @@ import { EditForm } from "../ui/EditForm";
 import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { projectsKey, useProject, useProjectWrite } from "./useProject";
+import { OperatorNotes } from "../ui/OperatorNotes";
 
 const enc = encodeURIComponent;
 
@@ -86,6 +87,7 @@ function Overview({ d }: { d: ProjectDetail }) {
                 confirm={`Delete project ${p}? Its roster, escalation and chat service go with it; its channels are archived (history stays readable) and its name is freed.`} />)}
         </Group>
       </Group>
+      <OperatorNotes notes={d.notes} path={`projects/${enc(p)}/operator-notes`} invalidate={[["admin", "project", p]]} />
       <SimpleGrid cols={{ base: 2, sm: 4 }}>
         {tile("members", d.members.length, "members")}
         {tile("agents", <>{d.liveAgents}</>, `agents live of ${d.agents} · ${d.roles} roles`)}

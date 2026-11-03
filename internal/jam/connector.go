@@ -87,7 +87,8 @@ func ConnectorFor(store Store, a Actor) (snippet.Connector, error) {
 // its roles are unbound and DefaultModelSpec is not stored (never seeded: the
 // harness keeps its built-in defaults). Roles resolving to different specs, or
 // an explicit binding to a spec that no longer exists, are an error — fail
-// closed rather than pick one. The spec carries names only, never a secret.
+// closed rather than pick one. The spec carries names only, never a secret,
+// and never its operator notes: it is delivered to the cove.
 func ModelSpecFor(store Store, a Actor) (*ModelSpec, error) {
 	n, explicit, by, err := modelSpecNameFor(store, a)
 	if err != nil || n == "" {
@@ -100,6 +101,7 @@ func ModelSpecFor(store Store, a Actor) (*ModelSpec, error) {
 		}
 		return nil, missingModelSpecErr(n, by)
 	}
+	m.OperatorNotes = ""
 	return &m, nil
 }
 

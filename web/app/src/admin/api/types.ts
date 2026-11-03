@@ -111,6 +111,15 @@ export interface UserDetail {
   oidcSpec: string; // the OIDC identities, one per line
   connections: ConnectionChoice[];
   appTokens: AppTokenRow[]; // newest first
+  notes: OperatorNotes; // operators only
+}
+/**
+ * OperatorNotes is a config object's operator notes: markdown for operators
+ * only, never shown to agents. HTML is its rendering ("" when there are none).
+ */
+export interface OperatorNotes {
+  markdown: string;
+  html: string;
 }
 /**
  * AppTokenRow is one of a user's app tokens (docs/usage/jam/app-tokens.md).
@@ -365,6 +374,7 @@ export interface ProjectDetail {
   context: ContextPanel;
   logConfigured: boolean;
   squawks: SquawkRow[]; // ?section=intercom: the newest in this project
+  notes: OperatorNotes; // operators only
 }
 /**
  * AttnFlag is a row's attention: its worst item's kind and why.
@@ -509,6 +519,7 @@ export interface RoleDetail {
   canRequest: boolean;
   setupEnabled: boolean;
   attn?: AttnFlag | null;
+  notes: OperatorNotes; // operators only
 }
 /**
  * RoleResult answers a role write: the role after it and a message ("" = none).
@@ -645,6 +656,7 @@ export interface DestDetail {
   uses: DestUse[];
   conflicts: DestConflict[];
   conflictRoles: string[];
+  notes: OperatorNotes; // operators only
 }
 /**
  * SpecListRow is one model-spec in the list.
@@ -722,6 +734,7 @@ export interface SpecDetail {
   plugins: string[];
   settingsKeys: string[];
   uses: SpecUse[];
+  notes: OperatorNotes; // operators only
 }
 /**
  * SpecsResponse is GET /app/admin/api/model-specs; New seeds the create form.
@@ -920,6 +933,7 @@ export interface KitDetail {
   filesDiff?: FilesDiff | null;
   file?: KitFile | null;
   attn?: AttnFlag | null;
+  notes: OperatorNotes; // operators only
 }
 /**
  * KitResult answers a kit write: the kit after it and its message.
@@ -1260,6 +1274,7 @@ export interface Dashboard {
   hasManagers: boolean;
   managers: ManagerRow[];
   coves: CoveRow[];
+  jamNotes: OperatorNotes; // jam.yml operator-notes; operators only
 }
 /**
  * HealthRow is one operator condition: open (Age: for how long) or resolved

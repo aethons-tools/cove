@@ -14,6 +14,7 @@ import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { specsKey } from "./ModelSpecsPage";
 import { SpecFields, type SpecValues } from "./SpecFields";
+import { OperatorNotes } from "../ui/OperatorNotes";
 
 const enc = encodeURIComponent;
 const mono = (s: string) => <Text span ff="monospace">{s}</Text>;
@@ -53,6 +54,7 @@ function Spec({ d, dataKey }: { d: SpecDetail; dataKey: unknown[] }) {
         </Group>
         <ConfirmAction label="Delete" confirm={`Delete model-spec ${d.name}?`} onConfirm={() => remove.mutateAsync(undefined)} />
       </Group>
+      <OperatorNotes notes={d.notes} path={`model-specs/${enc(d.name)}/operator-notes`} invalidate={[dataKey]} />
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Section title="Harness" sub="who the agent runs as, and on what model">
           <Facts rows={[

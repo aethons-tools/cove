@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a Jam service — writing its serv
 owns: the `jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/config/kits/blobs/previews), the layered `--config` overlay + the host-key table, the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-03
 ---
 
 # Running Jam (`jam serve`)
@@ -84,6 +84,7 @@ reach the Attach stream at all. `runtime.listen` is now only an **optional plain
 | Key | Required | Purpose |
 |-----|----------|---------|
 | `display-name` | no | Names this Jam in the [admin UI](ui.md): the title bar and browser tab title read `<name> Jam`. One line of printable text, at most 64 characters, trimmed; anything else fails serve at startup. Unset, the UI says "Jam". Don't end it in "Jam" — the title bar adds that. |
+| `operator-notes` | no | The Jam's operator notes (markdown, operators only). Not a serve setting: serve ignores it, a config apply takes it from the followed repo — [operator-notes.md](operator-notes.md). |
 | `listen` | yes | Address the cove-facing endpoint serves on — **both** the broker and the [Attach](coves.md#the-attach-stream) gRPC stream, multiplexed by `content-type`. Use `:443` in production — a sealed studio can only `CONNECT` to 443. |
 | `admin-listen` | no | Address the admin API serves on. Omit to run the broker alone. |
 | `ui-hosts` | no | Extra `Host` values the browser UI accepts on a **loopback** connection, beyond the loopback literals (`127.0.0.1`/`::1`/`localhost`). Set a custom name that DNS-binds to loopback (e.g. `jam.local.example`); otherwise the UI refuses it as a possible DNS-rebinding attempt. See [ui.md](ui.md#signing-in-one-login-one-principal). |

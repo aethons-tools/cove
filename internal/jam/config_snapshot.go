@@ -47,6 +47,8 @@ type ConfigSnapshot struct {
 	Projects   []Project   `json:"projects"`
 	// JamContext is the Jam-wide authored session-context layer; nil = none.
 	JamContext *sessionctx.Layer `json:"jam_context,omitempty"`
+	// JamNotes is the Jam's operator notes; "" = none.
+	JamNotes string `json:"jam_notes,omitempty"`
 	// ModelSpecSchema is the exporter's model-spec schema marker
 	// (ModelSpecSchemaVersion); 0 (absent) = a pre-COV-242 backup, whose specs
 	// an import migrates (MigrateSnapshotModelSpecs).
@@ -164,6 +166,7 @@ func (m *memState) exportConfig(shareBlobs bool) ConfigSnapshot {
 		jc := m.jamContext
 		snap.JamContext = &jc
 	}
+	snap.JamNotes = m.jamNotes
 	return copySnapshot(snap, shareBlobs)
 }
 
@@ -389,6 +392,9 @@ func nonEmptyConfigAggregates(m *memState) []string {
 	if !m.jamContext.Empty() {
 		names = append(names, "jam_context")
 	}
+	if m.jamNotes != "" {
+		names = append(names, "jam_notes")
+	}
 	return names
 }
 
@@ -524,6 +530,7 @@ func applyImport(m *memState, s ConfigSnapshot) {
 	if s.JamContext != nil {
 		m.jamContext = *s.JamContext
 	}
+	m.jamNotes = s.JamNotes
 }
 
 // ImportConfig restores a snapshot into an empty MemStore (fail-closed).

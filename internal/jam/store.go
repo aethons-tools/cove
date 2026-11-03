@@ -139,6 +139,9 @@ type Store interface {
 	// session-context layer; an empty layer clears it.
 	GetJamContext() sessionctx.Layer
 	SetJamContext(l sessionctx.Layer) error
+	// GetJamNotes reads the Jam's operator notes (written only by a config
+	// apply: ConfigWrite.JamNotes).
+	GetJamNotes() string
 	// ModelSpecSchema / SetModelSpecSchema read and record which one-time
 	// model-spec store migrations have run (ModelSpecSchemaVersion; 0 = none,
 	// a store written before COV-242). See MigrateModelSpecs.

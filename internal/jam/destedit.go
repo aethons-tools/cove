@@ -83,9 +83,10 @@ func UpdateDestination(store Store, d Destination, credExists func(string) bool)
 }
 
 // UpdateDestinationKeepSpecs is UpdateDestination for an editor that can't
-// edit header specs (the admin UI form): where d keeps identity_in / apply
-// "custom" with no spec, the stored spec is kept. The lookup and the write are
-// one step under destMu, so a concurrent spec change can't be reverted.
+// edit header specs or operator notes (the admin UI form): where d keeps
+// identity_in / apply "custom" with no spec, the stored spec is kept, and the
+// stored operator notes always are. The lookup and the write are one step
+// under destMu, so a concurrent spec change can't be reverted.
 func UpdateDestinationKeepSpecs(store Store, d Destination, credExists func(string) bool) error {
 	return updateDestination(store, d, credExists, true)
 }
@@ -107,6 +108,7 @@ func updateDestination(store Store, d Destination, credExists func(string) bool,
 		if d.Apply == ApplyCustom && d.ApplySpec == nil && cur.Apply == ApplyCustom {
 			d.ApplySpec = cur.ApplySpec
 		}
+		d.OperatorNotes = cur.OperatorNotes
 	}
 	if err := ValidateDestination(d, credExists); err != nil {
 		return err

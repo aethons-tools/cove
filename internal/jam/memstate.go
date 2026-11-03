@@ -79,6 +79,8 @@ type memState struct {
 	reads map[ident.ID]map[ident.ID]int64
 	// jamContext is the Jam-wide authored session-context layer; zero = none.
 	jamContext sessionctx.Layer
+	// jamNotes is the Jam's operator notes (jam.yml operator-notes); "" = none.
+	jamNotes string
 	// specSchema records which one-time model-spec store migrations have run
 	// (ModelSpecSchemaVersion); 0 = none.
 	specSchema int
@@ -128,6 +130,14 @@ func (m *memState) GetJamContext() sessionctx.Layer {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return sessionctx.Layer{Core: m.jamContext.Core, Leaves: slices.Clone(m.jamContext.Leaves)}
+}
+
+// GetJamNotes returns the Jam's operator notes: markdown for operators
+// only, never part of any session's context.
+func (m *memState) GetJamNotes() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.jamNotes
 }
 
 // ModelSpecSchema returns the recorded model-spec schema (0 = pre-COV-242).

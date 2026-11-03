@@ -103,6 +103,14 @@ type UserDetail struct {
 	OIDCSpec    string             `json:"oidcSpec"`  // the OIDC identities, one per line
 	Connections []ConnectionChoice `json:"connections"`
 	AppTokens   []AppTokenRow      `json:"appTokens"` // newest first
+	Notes       OperatorNotes      `json:"notes"`     // operators only
+}
+
+// OperatorNotes is a config object's operator notes: markdown for operators
+// only, never shown to agents. HTML is its rendering ("" when there are none).
+type OperatorNotes struct {
+	Markdown string `json:"markdown"`
+	HTML     string `json:"html"`
 }
 
 // AppTokenRow is one of a user's app tokens (docs/usage/jam/app-tokens.md).
@@ -317,21 +325,22 @@ type ToCell struct {
 
 // ProjectDetail is a project's pages: its overview and sections.
 type ProjectDetail struct {
-	Name          string       `json:"name"`
-	InUseBy       string       `json:"inUseBy"` // what still references it ("" = deletable)
-	Renamable     bool         `json:"renamable"`
-	ChatService   string       `json:"chatService"`  // "" = none
-	ChatServices  []string     `json:"chatServices"` // the select's options, "" first
-	Members       []MemberRow  `json:"members"`
-	Rooms         []RoomRow    `json:"rooms"`
-	Roles         int          `json:"roles"`
-	Agents        int          `json:"agents"`
-	LiveAgents    int          `json:"liveAgents"`
-	Escalation    []ChainRow   `json:"escalation"` // chains with tiers
-	DefaultChain  ChainRow     `json:"defaultChain"`
-	Context       ContextPanel `json:"context"`
-	LogConfigured bool         `json:"logConfigured"`
-	Squawks       []SquawkRow  `json:"squawks"` // ?section=intercom: the newest in this project
+	Name          string        `json:"name"`
+	InUseBy       string        `json:"inUseBy"` // what still references it ("" = deletable)
+	Renamable     bool          `json:"renamable"`
+	ChatService   string        `json:"chatService"`  // "" = none
+	ChatServices  []string      `json:"chatServices"` // the select's options, "" first
+	Members       []MemberRow   `json:"members"`
+	Rooms         []RoomRow     `json:"rooms"`
+	Roles         int           `json:"roles"`
+	Agents        int           `json:"agents"`
+	LiveAgents    int           `json:"liveAgents"`
+	Escalation    []ChainRow    `json:"escalation"` // chains with tiers
+	DefaultChain  ChainRow      `json:"defaultChain"`
+	Context       ContextPanel  `json:"context"`
+	LogConfigured bool          `json:"logConfigured"`
+	Squawks       []SquawkRow   `json:"squawks"` // ?section=intercom: the newest in this project
+	Notes         OperatorNotes `json:"notes"`   // operators only
 }
 
 // AttnFlag is a row's attention: its worst item's kind and why.
@@ -464,6 +473,7 @@ type RoleDetail struct {
 	CanRequest       bool          `json:"canRequest"`
 	SetupEnabled     bool          `json:"setupEnabled"`
 	Attn             *AttnFlag     `json:"attn" tstype:"AttnFlag | null"`
+	Notes            OperatorNotes `json:"notes"` // operators only
 }
 
 // RoleResult answers a role write: the role after it and a message ("" = none).
@@ -588,6 +598,7 @@ type DestDetail struct {
 	Uses           []DestUse      `json:"uses"`
 	Conflicts      []DestConflict `json:"conflicts"`
 	ConflictRoles  []string       `json:"conflictRoles"`
+	Notes          OperatorNotes  `json:"notes"` // operators only
 }
 
 // SpecListRow is one model-spec in the list.
@@ -659,6 +670,7 @@ type SpecDetail struct {
 	Plugins         []string        `json:"plugins"`
 	SettingsKeys    []string        `json:"settingsKeys"`
 	Uses            []SpecUse       `json:"uses"`
+	Notes           OperatorNotes   `json:"notes"` // operators only
 }
 
 // SpecsResponse is GET /app/admin/api/model-specs; New seeds the create form.
@@ -839,6 +851,7 @@ type KitDetail struct {
 	FilesDiff  *FilesDiff      `json:"filesDiff" tstype:"FilesDiff | null"`
 	File       *KitFile        `json:"file" tstype:"KitFile | null"`
 	Attn       *AttnFlag       `json:"attn" tstype:"AttnFlag | null"`
+	Notes      OperatorNotes   `json:"notes"` // operators only
 }
 
 // KitResult answers a kit write: the kit after it and its message.
@@ -1145,12 +1158,13 @@ type DashStats struct {
 
 // Dashboard is the admin area's root page.
 type Dashboard struct {
-	Stats       DashStats    `json:"stats"`
-	Attention   []AttnRow    `json:"attention"` // Jam-scope items
-	JamContext  ContextPanel `json:"jamContext"`
-	HasManagers bool         `json:"hasManagers"`
-	Managers    []ManagerRow `json:"managers"`
-	Coves       []CoveRow    `json:"coves"`
+	Stats       DashStats     `json:"stats"`
+	Attention   []AttnRow     `json:"attention"` // Jam-scope items
+	JamContext  ContextPanel  `json:"jamContext"`
+	HasManagers bool          `json:"hasManagers"`
+	Managers    []ManagerRow  `json:"managers"`
+	Coves       []CoveRow     `json:"coves"`
+	JamNotes    OperatorNotes `json:"jamNotes"` // jam.yml operator-notes; operators only
 }
 
 // HealthRow is one operator condition: open (Age: for how long) or resolved

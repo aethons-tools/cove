@@ -46,6 +46,7 @@ func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra role
 	apiAgents(api, src, aa, log)
 	apiSession(api, aa.sess, aa.hub, log)
 	apiDash(api, src, msgs, da, log)
+	apiOperatorNotes(api, src.store, log)
 	if branches != nil {
 		apiConfigBranches(api, branches, log)
 	}
@@ -110,14 +111,19 @@ func sameOriginAPI(trustedOrigins []string, next http.Handler) http.Handler {
 	})
 }
 
-// decodeJSON reads a write's JSON body into v; false (answered) when the body
-// isn't JSON.
+// decodeJSON reads a write's JSON body (at most 1 MiB) into v; false
+// (answered) when the body isn't JSON.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	return decodeJSONMax(w, r, v, 1<<20)
+}
+
+// decodeJSONMax is decodeJSON for a body of at most limit bytes.
+func decodeJSONMax(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
 	if ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct != "application/json" {
 		writeAPIError(w, http.StatusUnsupportedMediaType, "bad_request", "send JSON (Content-Type: application/json)")
 		return false
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(v); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(v); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "bad_request", "invalid JSON: "+err.Error())
 		return false
 	}

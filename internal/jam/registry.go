@@ -29,6 +29,8 @@ type User struct {
 	Status Status         `json:"status"`
 	Logins []string       `json:"logins,omitempty"`
 	OIDC   []OIDCIdentity `json:"oidc,omitempty"`
+	// OperatorNotes is free markdown for operators only.
+	OperatorNotes string `json:"operator_notes,omitempty"`
 }
 
 // Connection is one configured instance of an external service (a Linear
@@ -40,6 +42,8 @@ type Connection struct {
 	Name     string   `json:"name"`
 	CredName string   `json:"cred_name,omitempty"`
 	Status   Status   `json:"status"`
+	// OperatorNotes is free markdown for operators only.
+	OperatorNotes string `json:"operator_notes,omitempty"`
 }
 
 // ConnectionKinds are the services a connection may be.

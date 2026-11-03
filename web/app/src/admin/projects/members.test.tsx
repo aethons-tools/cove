@@ -11,7 +11,7 @@ import { setBranch } from "../branch/branch";
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
 const at = ADMIN + "config/projects/acme/members";
-const alice: UserDetail = { user: { id: "usr_1", name: "alice", logins: [], accounts: [], projects: ["acme"] }, removed: false, loginSpec: "", oidcSpec: "", connections: [], appTokens: [] };
+const alice: UserDetail = { user: { id: "usr_1", name: "alice", logins: [], accounts: [], projects: ["acme"] }, removed: false, loginSpec: "", oidcSpec: "", connections: [], appTokens: [], notes: { markdown: "", html: "" } };
 
 // The config edits show on a branch.
 beforeEach(() => setBranch("jam/test"));

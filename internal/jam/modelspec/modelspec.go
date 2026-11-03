@@ -47,6 +47,9 @@ type Spec struct {
 	Policy            Policy    `json:"policy,omitzero"     yaml:"policy,omitempty"`
 	Note              string    `json:"note,omitempty"      yaml:"note,omitempty"`
 	Claude            *Claude   `json:"claude,omitempty"    yaml:"claude,omitempty"`
+	// OperatorNotes is free markdown for operators only. Jam strips it from
+	// the spec it delivers to a cove (jam.ModelSpecFor).
+	OperatorNotes string `json:"operator_notes,omitempty" yaml:"operator-notes,omitempty"`
 }
 
 // RuntimeConstraint is the version constraint the harness checks the installed

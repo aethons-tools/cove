@@ -115,6 +115,9 @@ type Role struct {
 	// Collaborate is the role's studio-collaboration policy: which rights the
 	// project's members get on its studios. Zero = the defaults.
 	Collaborate CollaboratePolicy `json:"collaborate,omitzero"`
+	// OperatorNotes is free markdown for operators only: never part of the
+	// role's session context.
+	OperatorNotes string `json:"operator_notes,omitempty"`
 }
 
 // CollaboratePolicy is a role's studio-collaboration policy: which rights the
@@ -369,6 +372,9 @@ type Project struct {
 	// the context endpoints (`jam context … --project`).
 	Context   sessionctx.Layer      `json:"context,omitzero"`
 	Resources []sessionctx.Resource `json:"resources,omitempty"`
+	// OperatorNotes is free markdown for operators only: never part of the
+	// project's session context.
+	OperatorNotes string `json:"operator_notes,omitempty"`
 }
 
 // DefaultProject backs Jam-side default enrollment when no project is named.

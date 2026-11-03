@@ -36,6 +36,7 @@ const (
 	ConfigKindProject     = "project"
 	ConfigKindRole        = "role"
 	ConfigKindJamContext  = "jam-context"
+	ConfigKindJamNotes    = "jam-notes" // jam.yml's operator-notes
 )
 
 // ConfigKey names one config object.
@@ -67,6 +68,8 @@ func (k ConfigKey) Path() string {
 		return "projects/" + p + "/roles/" + r + ".yml"
 	case ConfigKindJamContext:
 		return "context.md"
+	case ConfigKindJamNotes:
+		return "jam.yml"
 	}
 	return k.Name
 }
@@ -403,6 +406,7 @@ type ModelSpecFile struct {
 	Policy            ModelPolicy    `yaml:"policy,omitempty"`
 	Note              string         `yaml:"note,omitempty"`
 	Claude            *ClaudeSpec    `yaml:"claude,omitempty"`
+	OperatorNotes     string         `yaml:"operator-notes,omitempty"`
 }
 
 func (f ModelSpecFile) configKey() ConfigKey { return ConfigKey{ConfigKindModelSpec, f.Name} }
@@ -417,6 +421,7 @@ func (f ModelSpecFile) spec() ModelSpec {
 	return ModelSpec{
 		Name: f.Name, Type: f.Type, Version: f.HarnessVersion, VersionConstraint: f.VersionConstraint,
 		Principal: f.Principal, Model: f.Model, Policy: f.Policy, Note: f.Note, Claude: f.Claude,
+		OperatorNotes: f.OperatorNotes,
 	}
 }
 
@@ -425,6 +430,7 @@ func modelSpecFileOf(ms ModelSpec) ModelSpecFile {
 		Kind: ConfigKindModelSpec, Version: ConfigFileVersion, Name: ms.Name, Type: ms.Type,
 		HarnessVersion: ms.Version, VersionConstraint: ms.VersionConstraint,
 		Principal: ms.Principal, Model: ms.Model, Policy: ms.Policy, Note: ms.Note, Claude: ms.Claude,
+		OperatorNotes: ms.OperatorNotes,
 	}
 }
 
@@ -446,6 +452,8 @@ type UserFile struct {
 	Version int      `yaml:"version"`
 	Name    string   `yaml:"name,omitempty"`
 	Logins  []string `yaml:"logins,omitempty"`
+	// OperatorNotes is free markdown for operators only (as on every kind).
+	OperatorNotes string `yaml:"operator-notes,omitempty"`
 }
 
 func (f UserFile) configKey() ConfigKey { return ConfigKey{ConfigKindUser, f.Name} }
@@ -471,11 +479,12 @@ func ParseUserFile(path, name string, data []byte) (UserFile, error) {
 // ConnectionFile is connections/<name>.yml. The connection's service kind is
 // service: (kind: is the file's); cred: names the credential, never its value.
 type ConnectionFile struct {
-	Kind    string `yaml:"kind"`
-	Version int    `yaml:"version"`
-	Name    string `yaml:"name,omitempty"`
-	Service string `yaml:"service"`
-	Cred    string `yaml:"cred,omitempty"`
+	Kind          string `yaml:"kind"`
+	Version       int    `yaml:"version"`
+	Name          string `yaml:"name,omitempty"`
+	Service       string `yaml:"service"`
+	Cred          string `yaml:"cred,omitempty"`
+	OperatorNotes string `yaml:"operator-notes,omitempty"`
 }
 
 func (f ConnectionFile) configKey() ConfigKey { return ConfigKey{ConfigKindConnection, f.Name} }
@@ -542,6 +551,7 @@ type ProjectFile struct {
 	Resources            []sessionctx.Resource           `yaml:"resources,omitempty"`
 	Members              []MemberFile                    `yaml:"members,omitempty"`
 	Rooms                []RoomFile                      `yaml:"rooms,omitempty"`
+	OperatorNotes        string                          `yaml:"operator-notes,omitempty"`
 	Context              sessionctx.Layer                `yaml:"-"`
 }
 
@@ -675,6 +685,8 @@ type RoleFile struct {
 	TurnEnd     TurnEndFile     `yaml:"turn-end,omitempty"`
 	Collaborate CollaborateFile `yaml:"collaborate,omitempty"`
 	Context     *ContextFile    `yaml:"context,omitempty"`
+	// OperatorNotes is for operators only; context: is what sessions read.
+	OperatorNotes string `yaml:"operator-notes,omitempty"`
 }
 
 func (f RoleFile) configKey() ConfigKey {
@@ -697,7 +709,7 @@ func negCheck(field string, n int) error {
 // role converts the file to a Role: durations parsed, negatives refused,
 // egress normalized. Its errors carry no path.
 func (f RoleFile) role() (Role, error) {
-	r := Role{Name: f.Name, Kit: f.Kit, ModelSpec: f.ModelSpec}
+	r := Role{Name: f.Name, Kit: f.Kit, ModelSpec: f.ModelSpec, OperatorNotes: f.OperatorNotes}
 	r.Scope = Scope{
 		Destinations: slices.Clone(f.Scope.Destinations), Credentials: maps.Clone(f.Scope.Credentials),
 		Addressing: slices.Clone(f.Scope.Addressing),
@@ -750,7 +762,10 @@ func (f RoleFile) role() (Role, error) {
 // roleFileOf is a role in canonical file form. userName resolves a user id in
 // an addressing entry to the user's name; unresolved entries stay verbatim.
 func roleFileOf(project, name string, r Role, userName func(ident.ID) (string, bool)) RoleFile {
-	f := RoleFile{Kind: ConfigKindRole, Version: ConfigFileVersion, Name: name, Project: project, Kit: r.Kit, ModelSpec: r.ModelSpec}
+	f := RoleFile{
+		Kind: ConfigKindRole, Version: ConfigFileVersion, Name: name, Project: project, Kit: r.Kit, ModelSpec: r.ModelSpec,
+		OperatorNotes: r.OperatorNotes,
+	}
 	f.Scope = RoleScopeFile{
 		Destinations: slices.Clone(r.Scope.Destinations), Credentials: maps.Clone(r.Scope.Credentials),
 		TTL: formatConfigDuration(r.Scope.TTL),
@@ -823,6 +838,17 @@ func (f JamContextFile) configFiles() map[string][]byte {
 		return map[string][]byte{}
 	}
 	return map[string][]byte{"context.md": RenderContextMarkdown(f.Layer)}
+}
+
+// jamNotesKey is the operator-notes key of jam.yml: the Jam's own notes,
+// applied like any config object (ConfigKindJamNotes), never a serve setting.
+const jamNotesKey = "operator-notes"
+
+// jamNotesObject is the Jam's operator notes as a config object. It has no
+// files of its own: jam.yml is the serve config's (ExportConfigTree writes the
+// notes into it).
+func jamNotesObject(notes string) configObject {
+	return configObject{Key: ConfigKey{ConfigKindJamNotes, "jam"}, Canon: renderYAML(map[string]string{jamNotesKey: notes})}
 }
 
 type contextFront struct {

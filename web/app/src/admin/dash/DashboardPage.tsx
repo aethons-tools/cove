@@ -12,6 +12,7 @@ import { CovesTable } from "../ui/CovesTable";
 import { DataTable } from "../ui/DataTable";
 import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
+import { OperatorNotes } from "../ui/OperatorNotes";
 
 const dashKey = ["admin", "dashboard"];
 
@@ -59,6 +60,7 @@ export function DashboardPage() {
         {tiles.map(([n, label, to, color]) => <Tile key={label} n={n} label={label} to={to} color={color} />)}
       </SimpleGrid>
       <AttentionList items={data.attention} />
+      <OperatorNotes notes={data.jamNotes} where="jam.yml" />
       <ContextPanel key={data.jamContext.yaml} panel={data.jamContext} onSave={(yaml) => save.mutateAsync(yaml)} onClear={() => clear.mutateAsync(undefined)} />
       {data.hasManagers && (
         <Section title="Managers">
