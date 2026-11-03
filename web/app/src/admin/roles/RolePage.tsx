@@ -17,7 +17,8 @@ import { StatusBadge } from "../ui/StatusBadge";
 import { TypeAhead } from "../ui/TypeAhead";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { useRequest } from "./AgentsPage";
-import { useRole, useRoleWrite } from "./useRole";
+import { roleKey, useRole, useRoleWrite } from "./useRole";
+import { OperatorNotes } from "../ui/OperatorNotes";
 
 const enc = encodeURIComponent;
 const edit = (label: string, body: ReactNode) => <details><summary style={{ cursor: "pointer" }}>{label}</summary><Card withBorder mt="xs">{body}</Card></details>;
@@ -68,6 +69,7 @@ function Role({ d }: { d: RoleDetail }) {
           <ConfirmAction label="Delete" confirm={`Delete role ${r} from ${p}?`} onConfirm={() => remove.mutateAsync(undefined)} />
         </Group>
       </Group>
+      <OperatorNotes notes={d.notes} path={`projects/${enc(p)}/roles/${enc(r)}/operator-notes`} invalidate={[roleKey(p, r)]} />
       <Section title="Scope" sub="what the broker lets it reach, with which credential, and who it may squawk">
         <Stack gap="xs">
           <DataTable rows={d.dests} rowKey={(x) => x.name} empty="No destinations." columns={[

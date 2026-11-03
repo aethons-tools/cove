@@ -4,7 +4,7 @@ read_when: You are writing a Jam's config into a repo for the first time, editin
 owns: the config repo layout and file kinds, the `jam config write|diff --dir` verbs, the plan actions and refusals, managed marks, unmanaged objects and Jam's own ensures, the `/admin/config/diff|export-tree` routes
 prereqs: serve.md (layered serve configs, host keys); backup.md (how this differs from export/import)
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-03
 ---
 
 # A Jam's configuration in git
@@ -36,7 +36,8 @@ Every non-kit file starts `kind:` (`destination`, `model-spec`, `user`,
 `connection`, `project`, `role`) and `version: 1`. Unknown fields are refused
 (`users/bob.yml: unknown field "oidc"`); a `name:` must equal the file name.
 Output of `config write` is deterministic (2-space yaml, sorted maps, members
-and rooms).
+and rooms). Every kind (and jam.yml) may carry `operator-notes:`, markdown for
+operators only: [operator-notes.md](operator-notes.md).
 
 ```yaml
 # users/bob.yml

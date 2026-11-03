@@ -75,7 +75,7 @@ func apiDash(api *http.ServeMux, src frameSource, msgs SquawkReader, da dashAPI,
 		d := Dashboard{
 			Stats: DashStats{Studios: s.Studios, Running: s.Running, Waiting: s.Waiting, SettingUp: s.SettingUp, Idled: s.Idled, Attention: s.Attention,
 				Projects: s.Projects, Agents: s.Agents, Users: s.Users, Specs: s.Specs},
-			Attention: attnRowsOf(inScope(items, "", "")), JamContext: jamContext(),
+			Attention: attnRowsOf(inScope(items, "", "")), JamContext: jamContext(), JamNotes: operatorNotesOf(store.GetJamNotes()),
 			HasManagers: da.managers != nil, Managers: []ManagerRow{}, Coves: coveRows(jam.CoveSummaries(store, da.sup), items),
 		}
 		if da.managers != nil {

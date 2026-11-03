@@ -17,5 +17,5 @@ export const role = (r: Partial<RoleDetail> = {}): RoleDetail => ({
   holders: [{ id: "ses_9", override: true }],
   running: [{ id: "ses_1", name: "ic", project: "acme", role: "coder", unit: "", status: "waiting", connector: "ok", image: "stale", manager: "", leaseHolder: "", raisedAt: "Oct 28 09:00", lastSeen: "10:00:00", attn: null }],
   form: { destinations: "gh=gh-pat,old", addressing: "user:*", ttl: "1h", kit: "web", modelSpec: "", maxEphemeral: "", maxPersonal: "2", maxPersonalPerOwner: "", idleAfter: "", nagEvery: "", reclaimAfter: "", egress: "a.example.com" },
-  context: { ...emptyContext, scope: "role", showResources: false }, canRequest: true, setupEnabled: false, attn: null, ...r,
+  context: { ...emptyContext, scope: "role", showResources: false }, canRequest: true, setupEnabled: false, attn: null, notes: { markdown: "", html: "" }, ...r,
 });

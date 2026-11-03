@@ -55,6 +55,8 @@ func configObjectHref(kind, name string) string {
 		return roleURL(p, r)
 	case jam.ConfigKindJamContext:
 		return "/app/admin/#jam-context"
+	case jam.ConfigKindJamNotes:
+		return "/app/admin/#jam-notes"
 	}
 	return ""
 }

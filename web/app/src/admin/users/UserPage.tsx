@@ -14,6 +14,7 @@ import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { AppTokens } from "./AppTokens";
 import { usersKey } from "./UsersPage";
+import { OperatorNotes } from "../ui/OperatorNotes";
 
 const enc = encodeURIComponent;
 
@@ -64,6 +65,7 @@ function UserBody({ d, refKey, byName }: { d: UserDetail; refKey: unknown[]; byN
         {!d.removed && <ConfirmAction label="Remove user" onConfirm={() => remove.mutateAsync(undefined)}
           confirm={`Remove user ${u.name}? They leave every project; history keeps showing them as removed.`} />}
       </Group>
+      {!d.removed && <OperatorNotes notes={d.notes} path={`${base}/operator-notes`} invalidate={[refKey]} />}
       {d.removed ? (
         <Alert color="gray">This user was removed. Their id still labels history as {u.name} (removed); nothing here can be changed.</Alert>
       ) : (

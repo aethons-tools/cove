@@ -16,7 +16,7 @@ const panel = (p: Partial<ContextPanel> = {}): ContextPanel => ({
 const dash = (d: Partial<Dashboard> = {}): Dashboard => ({
   stats: { studios: 3, running: 2, waiting: 1, settingUp: 0, idled: 0, attention: 0, projects: 4, agents: 5, users: 6, specs: 7 },
   attention: [{ kind: "broken", why: "kit k v2 does not parse", path: "config/kits/k" }],
-  jamContext: panel(), hasManagers: false, managers: [],
+  jamContext: panel(), jamNotes: { markdown: "", html: "" }, hasManagers: false, managers: [],
   coves: [{ id: "ses_1", name: "", project: "acme", role: "coder", unit: "", status: "running", connector: "", image: "", manager: "", leaseHolder: "", raisedAt: "", lastSeen: "", attn: null }],
   ...d,
 });

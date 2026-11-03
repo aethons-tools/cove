@@ -13,7 +13,9 @@ const notesMD = "# Why\n\nAsk **ops** before changing.\n\n- one\n- two\n"
 
 // notesTreeFiles is fullTreeFiles with operator-notes on every kind.
 func notesTreeFiles(notes string) map[string]string {
-	add := func(s string) string { return s + "operator-notes: |\n  " + strings.ReplaceAll(strings.TrimSuffix(notes, "\n"), "\n", "\n  ") + "\n" }
+	add := func(s string) string {
+		return s + "operator-notes: |\n  " + strings.ReplaceAll(strings.TrimSuffix(notes, "\n"), "\n", "\n  ") + "\n"
+	}
 	out := maps.Clone(fullTreeFiles)
 	for p, s := range out {
 		if strings.HasSuffix(p, ".yml") {
@@ -154,5 +156,36 @@ func TestModelSpecForStripsOperatorNotes(t *testing.T) {
 	}
 	if stored, _ := st.GetModelSpec(DefaultModelSpec); stored.OperatorNotes != notesMD {
 		t.Fatal("the store lost the notes")
+	}
+}
+
+// The console's write sets an object's notes and nothing else: written back,
+// only the notes differ from the repo.
+func TestSetOperatorNotes(t *testing.T) {
+	st := NewMemStore()
+	applyPlan(t, st, planOn(t, st, treeOf(t, fullTreeFiles)))
+	for _, k := range []ConfigKey{{ConfigKindUser, "bob"}, {ConfigKindConnection, "acme"}, {ConfigKindDestination, "gh"},
+		{ConfigKindModelSpec, "fast"}, {ConfigKindProject, "app"}, {ConfigKindRole, "app/ic"}} {
+		if err := SetOperatorNotes(st, k, notesMD); err != nil {
+			t.Fatalf("%s: %v", k, err)
+		}
+	}
+	p := planOn(t, st, treeOf(t, fullTreeFiles))
+	updates := 0
+	for _, o := range p.Ops {
+		if o.Action == ConfigUpdate {
+			updates++
+			if !strings.Contains(o.Before, "operator-notes: |") || strings.Contains(o.After, "operator-notes") {
+				t.Errorf("%s %s: before\n%s\nafter\n%s", o.Kind, o.Name, o.Before, o.After)
+			}
+		}
+	}
+	if updates != 6 {
+		t.Fatalf("%d updates, want 6: %+v", updates, p.Ops)
+	}
+	for _, k := range []ConfigKey{{ConfigKindKit, "app"}, {ConfigKindJamNotes, "jam"}, {ConfigKindUser, "nobody"}, {ConfigKindRole, "app/nope"}} {
+		if err := SetOperatorNotes(st, k, "x"); err == nil {
+			t.Errorf("%s: want a refusal", k)
+		}
 	}
 }

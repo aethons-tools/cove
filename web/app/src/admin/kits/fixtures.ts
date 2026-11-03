@@ -12,7 +12,7 @@ export const kit = (k: Partial<KitDetail> = {}): KitDetail => ({
   view: kitView(), diff: null, uses: [{ project: "acme", role: "coder", implicit: false }], chain: [], chainErr: "", effective: null, usedByKits: [],
   isDefault: false, source: null, setWith: "", canSource: true, draft: null,
   files: { n: 2, size: "1 KiB", rows: [{ path: "kit.yml", label: "kit.yml", mode: "0644", size: 30 }, { path: "a b.txt", label: "a b.txt", mode: "0644", size: 5 }], hidden: 0 },
-  filesDiff: null, file: null, attn: null, ...k,
+  filesDiff: null, file: null, attn: null, notes: { markdown: "", html: "" }, ...k,
 });
 
 

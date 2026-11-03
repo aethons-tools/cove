@@ -46,6 +46,7 @@ func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra role
 	apiAgents(api, src, aa, log)
 	apiSession(api, aa.sess, aa.hub, log)
 	apiDash(api, src, msgs, da, log)
+	apiOperatorNotes(api, src.store, log)
 	if branches != nil {
 		apiConfigBranches(api, branches, log)
 	}

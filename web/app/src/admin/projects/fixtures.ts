@@ -7,5 +7,5 @@ export const project = (p: Partial<ProjectDetail> = {}): ProjectDetail => ({
   members: [{ userId: "usr_1", name: "alice", handle: "ali", delivery: [{ service: "discord", address: "chan-1" }], deliverySpec: "discord:chan-1" }],
   rooms: [{ name: "eng", connection: "disc", kind: "discord", ref: "123", postOnly: false }],
   roles: 2, agents: 3, liveAgents: 1, escalation: [], defaultChain: { category: "", tiers: [], spec: "" },
-  context: emptyContext, logConfigured: true, squawks: [], ...p,
+  context: emptyContext, logConfigured: true, squawks: [], notes: { markdown: "", html: "" }, ...p,
 });

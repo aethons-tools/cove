@@ -68,6 +68,9 @@ func projectDetailOf(store jam.Store, img jam.ImageResolver, msgs SquawkReader, 
 		ChatService: d.ChatService, ChatServices: append([]string{}, d.ChatServices...), Members: []MemberRow{}, Rooms: []RoomRow{},
 		Roles: len(d.Roles), Agents: d.Agents, LiveAgents: d.LiveCoves, Escalation: []ChainRow{}, DefaultChain: chainRowOf(d.DefaultChain),
 		Context: contextPanelOf(d.Context), LogConfigured: d.LogConfigured, Squawks: squawkRowsOf(d.Squawks)}
+	if p, ok := store.GetProject(name); ok {
+		out.Notes = operatorNotesOf(p.OperatorNotes)
+	}
 	for _, m := range d.Members {
 		row := MemberRow{UserID: string(m.UserID), Name: m.Name, Handle: m.Handle, Delivery: []DeliveryRow{}, DeliverySpec: m.DeliverySpec}
 		for _, p := range m.Delivery {

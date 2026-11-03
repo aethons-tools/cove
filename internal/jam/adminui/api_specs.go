@@ -79,7 +79,7 @@ func destDetailOf(store jam.Store, name string) (DestDetail, bool) {
 			Env: d.Form.Env, AllowPaths: d.Form.AllowPaths, Note: x.Note, LogHeadersIn: headerLogText(x.LogHeadersIn), LogHeadersOut: headerLogText(x.LogHeadersOut), Git: x.Git},
 		IdentityInSpec: inboundSpecText(x.IdentityInSpec), ApplySpec: outboundSpecText(x.ApplySpec),
 		AllowPaths: append([]string{}, x.AllowPaths...), Env: []EnvRow{}, EnvImplied: d.EnvImplied, GitRouted: d.GitRouted, GitImplied: d.GitImplied,
-		Uses: []DestUse{}, Conflicts: []DestConflict{}, ConflictRoles: []string{}}
+		Uses: []DestUse{}, Conflicts: []DestConflict{}, ConflictRoles: []string{}, Notes: operatorNotesOf(x.OperatorNotes)}
 	for _, e := range d.Env {
 		out.Env = append(out.Env, EnvRow{Key: e.Key, Template: e.Template})
 	}
@@ -112,7 +112,7 @@ func specDetailOf(u specUI, m jam.ModelSpec) SpecDetail {
 	d := u.detail(m)
 	out := SpecDetail{Name: m.Name, Fields: specFieldsOf(d), Choices: specChoicesOf(d.Choices),
 		HeaderRules: []HeaderRuleRow{}, Allow: append([]string{}, m.Policy.Allow...), Deny: append([]string{}, m.Policy.Deny...), HasClaude: m.Claude != nil,
-		ProviderEnvKeys: []string{}, Plugins: []string{}, SettingsKeys: []string{}, Uses: []SpecUse{}}
+		ProviderEnvKeys: []string{}, Plugins: []string{}, SettingsKeys: []string{}, Uses: []SpecUse{}, Notes: operatorNotesOf(m.OperatorNotes)}
 	for _, r := range m.Principal.Headers {
 		if r.EnsureListItem != "" {
 			out.HeaderRules = append(out.HeaderRules, HeaderRuleRow{Name: r.Name, Op: "+=", Value: r.EnsureListItem})
@@ -250,6 +250,9 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 			return
 		}
 		m, err := specFromFields(formOf(body, specFields), r.PathValue("name"))
+		if cur, ok := store.GetModelSpec(m.Name); ok {
+			m.OperatorNotes = cur.OperatorNotes // not on the form: kept (the notes have their own write)
+		}
 		if err == nil {
 			err = jam.UpdateModelSpec(store, m, u.credExists, u.pool)
 		}

@@ -33,7 +33,7 @@ func userDetailOf(store jam.Store, ref string) (UserDetail, bool) {
 	}
 	u, _ := store.GetUser(d.User.ID)
 	out := UserDetail{User: userRow(store, u), Removed: d.Removed, LoginSpec: d.LoginSpec, OIDCSpec: d.OIDCSpec, Connections: []ConnectionChoice{},
-		AppTokens: appTokenRows(store, u.ID)}
+		AppTokens: appTokenRows(store, u.ID), Notes: operatorNotesOf(u.OperatorNotes)}
 	for _, c := range d.Connections {
 		out.Connections = append(out.Connections, ConnectionChoice{Name: c.Name, Kind: c.Kind})
 	}

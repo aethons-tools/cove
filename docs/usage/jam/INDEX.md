@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for the studio image and its security model
 tier: section
-updated: 2026-11-01
+updated: 2026-11-03
 ---
 
 # `jam` — operating the central service
@@ -59,6 +59,7 @@ five pillars), see the design history:
 | [model-spec-headers.md](model-spec-headers.md) | A model-spec's principal must send an extra upstream header (e.g. the `oauth-2025-04-20` beta for a subscription token outside the pool), a `principal.headers` write was refused, or a header rule isn't reaching the upstream. |
 | [backup.md](backup.md) | Backing up or restoring a Jam's config (actors, roles, kits, destinations, model-specs, projects) with `jam export`/`import` — the file's scope, the refuse-unless-empty restore, and the token-hash sensitivity note. |
 | [config-git.md](config-git.md) | You are writing a Jam's config into a repo for the first time, editing the repo's files by hand, standing up a replica, or a config diff, sync or merge refused, updated or listed something unmanaged. |
+| [operator-notes.md](operator-notes.md) | You want to record why a config object exists or how to handle it, for other operators only; are wondering whether agents see an object's notes; or a notes edit, its plan op or its console section behaves unexpectedly. |
 | [config-branches.md](config-branches.md) | You want to change a Jam's config (add a role, edit a kit, a user, a project) in the admin console, are merging a branch or opening a PR, wondering why a save, merge or live write was refused (stale branch, conflict, checked-out branch, read-only), or changing the branch editor (the router, workspaces, configrepo). |
 | [config-git-sources.md](config-git-sources.md) | You want a Jam to follow a config repo (on GitHub, GitLab, a local path or over SSH), or to know why it applied, or didn't apply, a commit; are confirming the first apply, running `config sync\|status\|diff --git`, are referencing a kit by its own git source (`kits/<name>.source.yml`), or a config sync or follow failed to fetch, refused a commit or a host key. |
 | [coves.md](coves.md) | You are raising/tearing down a managed studio, inspecting the runtime registry, need to know how a session whose studio died is recovered (re-raised with its state), tuning the supervisor's lease/reconcile timing, or running the cove-side Attach client (jam-studio-agent). |
