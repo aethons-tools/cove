@@ -87,12 +87,28 @@ describe("Composer", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText } });
     try {
       const { box } = mount();
+      box.focus();
       fireEvent.change(box, { target: { value: "see:" } });
       box.setSelectionRange(4, 4);
       fireEvent.keyDown(box, { code: "KeyV", key: "V", ctrlKey: true, shiftKey: true });
       await waitFor(() => expect(box.value).toBe("see:\n```\nx()\n```\n"));
     } finally {
       window.removeEventListener("keydown", swallow);
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("never reads the clipboard when the paste key isn't swallowed", async () => {
+    const readText = vi.fn().mockResolvedValue("nope");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText } });
+    try {
+      const { box } = mount();
+      fireEvent.keyDown(box, { code: "KeyV", key: "V", ctrlKey: true, shiftKey: true });
+      fireEvent.paste(box, { clipboardData: { getData: () => "y", files: [] } });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(readText).not.toHaveBeenCalled();
+      expect(box.value).toBe("```\ny\n```\n");
+    } finally {
       Reflect.deleteProperty(navigator, "clipboard");
     }
   });

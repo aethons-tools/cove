@@ -152,12 +152,17 @@ export function Composer({ to, label, attachMax, onSent, ref, autoFocus, accent 
             if (asCode.current) {
               // A host that swallows the key leaves no paste event (VS Code's
               // webview prevents it, then pastes through its own command), so
-              // once the key is dispatched, read the clipboard instead.
+              // once the key is dispatched, read the clipboard instead. A
+              // paste event first (it clears asCode) wins; so does the box
+              // losing focus meanwhile.
               const ev = e.nativeEvent, t = e.currentTarget;
               setTimeout(() => {
                 if (!ev.defaultPrevented || !asCode.current) return;
-                asCode.current = false;
-                void navigator.clipboard?.readText().then((pasted) => pasteAsCode(t, pasted), () => {});
+                void navigator.clipboard?.readText().then((pasted) => {
+                  if (!asCode.current || !t.isConnected || document.activeElement !== t) return;
+                  asCode.current = false;
+                  pasteAsCode(t, pasted);
+                }, () => {});
               });
             }
             // The native event carries isComposing (React's synthetic one doesn't).

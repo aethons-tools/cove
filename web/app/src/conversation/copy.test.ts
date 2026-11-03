@@ -26,6 +26,15 @@ describe("copyText", () => {
     expect(document.execCommand).toHaveBeenCalledWith("copy");
   });
 
+  it("puts focus back after the fallback", async () => {
+    stub(() => Promise.reject(new Error("no")), () => true);
+    const b = document.body.appendChild(document.createElement("button"));
+    b.focus();
+    await copyText("a");
+    expect(document.activeElement).toBe(b);
+    b.remove();
+  });
+
   it("says false when neither copies", async () => {
     stub(() => Promise.reject(new Error("no")), () => false);
     expect(await copyText("a")).toBe(false);

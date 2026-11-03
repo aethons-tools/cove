@@ -221,7 +221,7 @@ describe("the conversation view", () => {
     serve(conv());
     renderApp(boot, "/app/user/c/chn_a");
     const text = (await screen.findAllByRole("button", { name: "Text" }))[0]!;
-    expect(text.closest(".jam-msg-copy")).not.toBeNull(); // body.css hides it until the bubble is hovered
+    expect(text.closest(".jam-msg-copy")).not.toBeNull(); // the hook body.css hides until hover (jsdom can't apply it)
     // Focusable, so selecting text focuses the list, not the page: VS Code
     // 1.143's copy then keeps the selection instead of focusing the composer.
     expect(screen.getByText("m1").closest("[tabindex='-1']")).not.toBeNull();
