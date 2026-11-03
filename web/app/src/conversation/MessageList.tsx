@@ -31,7 +31,10 @@ export function MessageList({ messages, channel, earlier, loadingEarlier, onEarl
 
   if (messages.length === 0) return <Center flex={1}><Text c="dimmed">No messages yet.</Text></Center>;
   return (
-    <ScrollArea flex={1} viewportRef={viewport} onScrollPositionChange={() => {
+    // Focusable (never tabbed to), so selecting text focuses the list: VS Code
+    // 1.143's Copy refocuses the composer, losing the selection, when the
+    // page itself has focus (microsoft/vscode#343489, fixed in 1.144).
+    <ScrollArea flex={1} viewportRef={viewport} viewportProps={{ tabIndex: -1, style: { outline: "none" } }} onScrollPositionChange={() => {
       const el = viewport.current;
       if (el) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     }}>

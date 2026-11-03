@@ -1,4 +1,5 @@
 import { Anchor, Group, Image, Paper, Text, UnstyledButton } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import { useRef } from "react";
 import { Link } from "react-router";
 import { APP } from "../paths";
@@ -30,15 +31,19 @@ export function Message({ m, channel, onDiscuss }: { m: MessageRow; channel: str
     );
   }
   const textOf = () => (bodyRef.current?.querySelector(".jam-body") as HTMLElement | null)?.innerText.replace(/\n+$/, "") ?? "";
+  const copy = (text: string, as: string) => void copyText(text).then((ok) =>
+    notifications.show({ message: ok ? `Copied the message as ${as}` : "Couldn't copy the message", color: ok ? undefined : "red" }));
   return (
-    <Paper data-seq={m.seq} p="xs" my={4} maw="80%" ml={m.mine ? "auto" : 0} bg={m.mine ? "var(--mantine-primary-color-light)" : "var(--mantine-color-default-hover)"}
+    <Paper className="jam-msg" data-seq={m.seq} p="xs" my={4} maw="80%" ml={m.mine ? "auto" : 0} bg={m.mine ? "var(--mantine-primary-color-light)" : "var(--mantine-color-default-hover)"}
       // A session's bubble carries its color (docs/usage/jam/session-colors.md).
       style={m.color ? { borderLeft: `3px solid ${m.color}` } : undefined}>
       <Group justify="space-between" gap="xs" wrap="nowrap">
         <Text size="xs" fw={600}>{m.mine ? "you" : m.from}</Text>
         <Group gap={6} wrap="nowrap">
-          <UnstyledButton fz="xs" c="dimmed" title="Copy the message as text" onClick={() => void copyText(textOf())}>Text</UnstyledButton>
-          <UnstyledButton fz="xs" c="dimmed" title="Copy the message as markdown, exactly as sent" onClick={() => void copyText(m.raw)}>Markdown</UnstyledButton>
+          <Group className="jam-msg-copy" gap={6} wrap="nowrap">
+            <UnstyledButton fz="xs" c="dimmed" title="Copy the message as text" onClick={() => copy(textOf(), "text")}>Text</UnstyledButton>
+            <UnstyledButton fz="xs" c="dimmed" title="Copy the message as markdown, exactly as sent" onClick={() => copy(m.raw, "markdown")}>Markdown</UnstyledButton>
+          </Group>
           <Text size="xs" c="dimmed">{timeOf(m.time)}</Text>
         </Group>
       </Group>

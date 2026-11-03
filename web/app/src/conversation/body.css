@@ -18,3 +18,8 @@
 .jam-body table { border-collapse: collapse; margin: 0.5em 0; }
 .jam-body th, .jam-body td { border: 1px solid var(--mantine-color-default-border); padding: 0.2em 0.5em; }
 .jam-body img { max-width: 100%; }
+/* A message's copy controls show while the bubble is hovered or focused, where hovering is possible. */
+@media (hover: hover) {
+  .jam-msg .jam-msg-copy { opacity: 0; transition: opacity 0.1s; }
+  .jam-msg:hover .jam-msg-copy, .jam-msg:focus-within .jam-msg-copy { opacity: 1; }
+}

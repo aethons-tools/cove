@@ -65,7 +65,8 @@ principal menu; see [ui.md](ui.md)) with **Inbox** current.
   always scrolls there.
 - **Copy controls:** hovering a message (or tabbing to it) shows **Text** and
   **Markdown** beside the sender: what the bubble shows, or the body exactly as
-  sent. Each code block has a copy icon for just the code.
+  sent; a note says whether it copied. Each code block has a copy icon for
+  just the code.
 - **New message:** a picker of who to start a conversation with in the
   person's projects: other members (a chat with them), the live sessions they
   may reach (a standing or ticket session; a personal session only if they're
@@ -104,7 +105,9 @@ above the messages lists the conversation's open asks.
 - **Keys:** **⌘↵** (Ctrl+Enter off a Mac) sends; Enter and Shift+Enter insert
   a newline. **⌘⇧V** (Ctrl+Shift+V) pastes as a fenced code block on its own
   lines, its fence longer than any backtick run in the text; it rides the
-  browser's own paste-as-plain-text shortcut, so no permission prompt.
+  browser's own paste-as-plain-text shortcut, so no permission prompt. VS
+  Code's webview swallows that shortcut, so there the pane reads the clipboard
+  instead.
 - **Saved reply:** what you type is kept per conversation in the tab's session
   storage, so it survives switching conversations; a send or emptying the box
   clears it. It never leaves the browser.

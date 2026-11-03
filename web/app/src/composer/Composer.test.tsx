@@ -79,6 +79,24 @@ describe("Composer", () => {
     expect(plain).toBe(true); // not prevented: the browser pastes it as is
   });
 
+  it("pastes as code from the clipboard when the host swallows the paste key", async () => {
+    // VS Code's webview prevents ⌘⇧V/Ctrl+Shift+V, so no paste event follows.
+    const swallow = (e: KeyboardEvent) => { if (e.code === "KeyV") e.preventDefault(); };
+    window.addEventListener("keydown", swallow);
+    const readText = vi.fn().mockResolvedValue("x()");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText } });
+    try {
+      const { box } = mount();
+      fireEvent.change(box, { target: { value: "see:" } });
+      box.setSelectionRange(4, 4);
+      fireEvent.keyDown(box, { code: "KeyV", key: "V", ctrlKey: true, shiftKey: true });
+      await waitFor(() => expect(box.value).toBe("see:\n```\nx()\n```\n"));
+    } finally {
+      window.removeEventListener("keydown", swallow);
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   it("keeps the reply per recipient across remounts", async () => {
     const first = mount("chn_a");
     await userEvent.type(first.box, "for a");
