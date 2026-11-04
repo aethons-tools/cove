@@ -30,7 +30,7 @@ type fetchers struct{ kits, config jam.KitFetcher }
 
 // registerApp mounts the admin app's pages and its JSON API on mux. The API
 // refuses cross-origin writes before any of its handlers runs.
-func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra roleAPI, su specUI, aa agentAPI, da dashAPI, trustedOrigins []string, f fetchers, env jam.ConfigEnv, branches *jam.ConfigBranches, log *slog.Logger) {
+func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra roleAPI, su specUI, aa agentAPI, da dashAPI, trustedOrigins []string, f fetchers, env jam.ConfigEnv, branches *jam.ConfigBranches, builds *jam.KitDraftBuilds, log *slog.Logger) {
 	api := http.NewServeMux()
 	api.HandleFunc("GET "+apiPrefix+"bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, adminBootstrap(r, src.items()))
@@ -44,6 +44,7 @@ func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra role
 	apiKits(api, src, f.kits, log)
 	apiKitDraft(api, src.store, log)
 	apiKitDraftFiles(api, src.store, log)
+	apiKitDraftBuild(api, src.store, builds, log)
 	apiAgents(api, src, aa, log)
 	apiSession(api, aa.sess, aa.hub, log)
 	apiDash(api, src, msgs, da, log)

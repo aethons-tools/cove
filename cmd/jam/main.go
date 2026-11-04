@@ -2651,6 +2651,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		if managerHub != nil {
 			uiOpts = append(uiOpts, adminui.WithManagers(managerHub.Statuses))
 		}
+		if draftBuilds != nil { // a branch's kit drafts build through these
+			uiOpts = append(uiOpts, adminui.WithKitDraftBuilds(draftBuilds))
+		}
 		if sshCA != nil || previewURL != nil {
 			uiOpts = append(uiOpts, adminui.WithStudioAccess(liveConns), adminui.WithStudioPreviews(sup.Exposures, previewURL))
 		}

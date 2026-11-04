@@ -50,7 +50,7 @@ Nothing changes config live, whether or not a repo is set:
 - **The admin API and the `jam` CLI** have no config writes. Destinations, model specs, connections, users (name, logins, delete), projects (members, rooms, escalation, chat service), roles (egress, standing declarations), the Jam context and kits (push, pin, delete, drafts) are read-only there; `config write|diff|sync|status` remain. A snapshot import (`jam import`, `POST /admin/config`) on a Jam following a repo is 409 `config is in git: edit it on a branch in the admin console, or in the repo` ([backup.md](backup.md)).
 - **The admin console** refuses a config write off a branch: 409 `the config is in git: open a branch to edit it`, or on the followed branch `the followed branch is read-only; create or open a branch`. With no config repo: 409 `this Jam has no config repo, so its config is read-only: set config.github, config.gitlab or config.git in the serve config`.
 - **Still live:** sessions and grants, accounts, users' OIDC identities and app tokens, enrollments, coves, personal sessions, Studio Managers, standing resets, upgrades and restarts, a role's Request, kits from their own git sources (`kit import|track|untrack|sync`), and `jam import` on a Jam with no repo.
-- **Kit drafts** are edited on a branch, where publishing is a commit ([kits-drafts.md](kits-drafts.md)).
+- **Kit drafts** are edited on a branch, where publishing is a commit ([kits-drafts.md](kits-drafts.md)). A [test build](kits-drafts.md#test-build) of a branch's draft commits nothing.
 
 ## What a branch serves
 

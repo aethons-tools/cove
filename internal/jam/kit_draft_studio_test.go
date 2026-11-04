@@ -206,7 +206,7 @@ func TestDraftStudioRefusals(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = raiseDraftStudio(t, bare, "d5")
-	if err == nil || !strings.Contains(err.Error(), kitDraftBuildsOff) || WriteStatus(err, 500) != 503 {
+	if err == nil || !strings.Contains(err.Error(), KitDraftBuildsOff) || WriteStatus(err, 500) != 503 {
 		t.Fatalf("no builds wired: %v", err)
 	}
 }

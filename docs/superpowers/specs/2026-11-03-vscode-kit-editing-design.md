@@ -81,7 +81,7 @@ The test-build machinery still exists (`internal/jam/kit_draft_build.go`, `launc
 
 - Builds resolve the draft and its parents against the **branch's workspace**, and the job key includes the branch.
 - Routes under the kit's draft path on the admin API: start a build, read its status and log from an offset, cancel. They never commit (the branch router must not save after them).
-- *(My call:)* a draft image's tag names the kit and the digest of everything it is built from (the draft's tree **and** its resolved parents), so the same draft on two branches with different parents can't share a tag, and two builds of identical inputs share one. Builds of the same tag are serialized. The build record keeps the branch and that digest, so a later draft raise can find and reuse the image.
+- *(My call, revised while building:)* a draft image's tag stays `jam-kit-draft:<kit>-<tree12>`. A build is reused only when both the tree and the definition digest (its resolved parents and harness) match, and a draft raise runs the recorded image id, never the tag, so the same tree with other parents can't be mistaken for it. Builds of one tag never run at once on a manager (the other is refused 409 until it ends). The build record keeps the branch.
 - Without a draft-capable studio manager, Build answers clearly (the existing 503), and VS Code shows it.
 - The docs' "no test build" statements are replaced ([kits-drafts.md](../../usage/jam/kits-drafts.md) and its `#test-build` anchor).
 
