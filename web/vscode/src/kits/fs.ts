@@ -1,0 +1,201 @@
+// The jamkit: file system: a kit's draft on a config branch as a folder
+// (docs/usage/jam/vscode.md#editing-kits). Reads and writes go to the
+// draft's file API (docs/usage/jam/kits-drafts.md#file-api); each write is
+// conditional on the content this file system last read for that file, so a
+// change made elsewhere (the console, another window) is never overwritten:
+// the save fails and VS Code's own compare resolves it.
+import * as vscode from "vscode";
+import type { DraftFiles } from "../../../app/src/admin/api/types.js" with { "resolution-mode": "import" };
+import type { AdminApi } from "../admin/api";
+import { ApiError } from "../api";
+import { type KitPath, type KitRef, kitKey, kitUri, parseKitUri } from "./uri";
+
+export type KitApi = Pick<AdminApi, "files" | "readFile" | "writeFile" | "deleteFile" | "renameFile">;
+
+// LISTING_TTL_MS is how long a draft's listing answers stats and directory
+// reads before it is fetched again (VS Code stats often).
+const LISTING_TTL_MS = 2000;
+
+type Listing = { files: DraftFiles; at: number };
+
+export class KitFileSystem implements vscode.FileSystemProvider {
+  private changed = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+  readonly onDidChangeFile = this.changed.event;
+  private problems = new vscode.EventEmitter<{ ref: KitRef; files: DraftFiles }>();
+  // onProblems fires with each fresh listing of a kit's draft.
+  readonly onProblems = this.problems.event;
+  private gone = new vscode.EventEmitter<KitRef>();
+  // onDraftGone fires when the Jam says the kit has no draft.
+  readonly onDraftGone = this.gone.event;
+
+  private listings = new Map<string, Listing>();
+  private dirs = new Map<string, Set<string>>(); // directories made here, not yet holding a file
+  private shas = new Map<string, string>(); // a file's content as last read here
+
+  constructor(
+    private apiFor: (jam: string, branch: string) => KitApi | undefined,
+    private now: () => number = Date.now,
+  ) {}
+
+  watch(): vscode.Disposable {
+    return new vscode.Disposable(() => undefined);
+  }
+
+  // refresh drops root's listing so the next read fetches it.
+  refresh(root: vscode.Uri): void {
+    const p = parseKitUri(root);
+    if (p) this.listings.delete(kitKey(p));
+  }
+
+  // listing is the kit's draft listing, fetched again past LISTING_TTL_MS.
+  async listing(ref: KitRef, fresh = false): Promise<DraftFiles> {
+    const key = kitKey(ref);
+    const have = this.listings.get(key);
+    if (have && !fresh && this.now() - have.at < LISTING_TTL_MS) return have.files;
+    const files = await this.call(ref, undefined, (api) => api.files(ref.kit));
+    this.store(ref, files);
+    return files;
+  }
+
+  private store(ref: KitRef, files: DraftFiles): void {
+    this.listings.set(kitKey(ref), { files, at: this.now() });
+    const dirs = this.dirs.get(kitKey(ref));
+    if (dirs) for (const d of [...dirs]) if (files.files.some((f) => f.path.startsWith(`${d}/`))) dirs.delete(d);
+    this.problems.fire({ ref, files });
+  }
+
+  async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
+    const p = this.parse(uri);
+    if (p.path === "") return { type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0 };
+    const l = await this.listing(p);
+    const f = l.files.find((x) => x.path === p.path);
+    if (f) return { type: vscode.FileType.File, ctime: 0, mtime: mtimeOf(f.sha256), size: f.size };
+    if (this.isDir(p, l)) return { type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0 };
+    throw vscode.FileSystemError.FileNotFound(uri);
+  }
+
+  async readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
+    const p = this.parse(uri);
+    const l = await this.listing(p);
+    const prefix = p.path === "" ? "" : `${p.path}/`;
+    const out = new Map<string, vscode.FileType>();
+    const paths = [...l.files.map((f) => f.path), ...[...(this.dirs.get(kitKey(p)) ?? [])].map((d) => `${d}/`)];
+    for (const path of paths) {
+      if (!path.startsWith(prefix)) continue;
+      const rest = path.slice(prefix.length);
+      const [head, ...more] = rest.split("/");
+      if (!head) continue;
+      out.set(head, more.length > 0 ? vscode.FileType.Directory : vscode.FileType.File);
+    }
+    return [...out.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }
+
+  async createDirectory(uri: vscode.Uri): Promise<void> {
+    const p = this.parse(uri);
+    const key = kitKey(p);
+    if (!this.dirs.has(key)) this.dirs.set(key, new Set());
+    this.dirs.get(key)!.add(p.path);
+    this.changed.fire([{ type: vscode.FileChangeType.Created, uri }]);
+  }
+
+  async readFile(uri: vscode.Uri): Promise<Uint8Array> {
+    const p = this.parse(uri);
+    const r = await this.call(p, uri, (api) => api.readFile(p.kit, p.path));
+    this.shas.set(uri.toString(), r.sha256);
+    return r.bytes;
+  }
+
+  async writeFile(uri: vscode.Uri, content: Uint8Array, o: { create: boolean; overwrite: boolean }): Promise<void> {
+    const p = this.parse(uri);
+    const l = await this.listing(p, true);
+    const cur = l.files.find((f) => f.path === p.path);
+    if (!cur && !o.create) throw vscode.FileSystemError.FileNotFound(uri);
+    if (cur && !o.overwrite) throw vscode.FileSystemError.FileExists(uri);
+    const cond = cur ? { sha256: this.shas.get(uri.toString()) ?? cur.sha256 } : ("create" as const);
+    const files = await this.call(p, uri, (api) => api.writeFile(p.kit, p.path, content, cond));
+    const now = files.files.find((f) => f.path === p.path);
+    if (now) this.shas.set(uri.toString(), now.sha256);
+    this.store(p, files);
+    this.changed.fire([{ type: cur ? vscode.FileChangeType.Changed : vscode.FileChangeType.Created, uri }]);
+  }
+
+  async delete(uri: vscode.Uri, _o: { recursive: boolean }): Promise<void> {
+    const p = this.parse(uri);
+    const l = await this.listing(p, true);
+    const under = l.files.filter((f) => f.path === p.path || f.path.startsWith(`${p.path}/`));
+    const dirs = this.dirs.get(kitKey(p));
+    const hadDir = dirs?.delete(p.path) ?? false;
+    if (under.length === 0 && !hadDir) throw vscode.FileSystemError.FileNotFound(uri);
+    let files = l;
+    for (const f of under) {
+      const fu = kitUri(p.jam, p.branch, p.kit, f.path);
+      files = await this.call(p, fu, (api) => api.deleteFile(p.kit, f.path, this.shas.get(fu.toString()) ?? f.sha256));
+      this.shas.delete(fu.toString());
+    }
+    if (under.length > 0) this.store(p, files);
+    this.changed.fire([{ type: vscode.FileChangeType.Deleted, uri }]);
+  }
+
+  async rename(from: vscode.Uri, to: vscode.Uri, o: { overwrite: boolean }): Promise<void> {
+    const a = this.parse(from);
+    const b = this.parse(to);
+    if (kitKey(a) !== kitKey(b)) throw vscode.FileSystemError.NoPermissions("Files move only within one kit's draft.");
+    const l = await this.listing(a, true);
+    if (!o.overwrite && l.files.some((f) => f.path === b.path)) throw vscode.FileSystemError.FileExists(to);
+    const moves = l.files.filter((f) => f.path === a.path || f.path.startsWith(`${a.path}/`));
+    if (moves.length === 0) throw vscode.FileSystemError.FileNotFound(from);
+    let files = l;
+    for (const f of moves) {
+      const dest = b.path + f.path.slice(a.path.length);
+      const fu = kitUri(a.jam, a.branch, a.kit, f.path);
+      files = await this.call(a, fu, (api) => api.renameFile(a.kit, f.path, dest, this.shas.get(fu.toString()) ?? f.sha256));
+      this.shas.delete(fu.toString());
+    }
+    this.store(a, files);
+    this.changed.fire([
+      { type: vscode.FileChangeType.Deleted, uri: from },
+      { type: vscode.FileChangeType.Created, uri: to },
+    ]);
+  }
+
+  private isDir(p: KitPath, l: DraftFiles): boolean {
+    return l.files.some((f) => f.path.startsWith(`${p.path}/`)) || (this.dirs.get(kitKey(p))?.has(p.path) ?? false);
+  }
+
+  private parse(uri: vscode.Uri): KitPath {
+    const p = parseKitUri(uri);
+    if (!p) throw vscode.FileSystemError.FileNotFound(uri);
+    return p;
+  }
+
+  // call runs fn on ref's admin API, turning the Jam's refusals into file
+  // system errors (uri: the file it is about).
+  private async call<T>(ref: KitRef, uri: vscode.Uri | undefined, fn: (api: KitApi) => Promise<T>): Promise<T> {
+    const api = this.apiFor(ref.jam, ref.branch);
+    if (!api) throw vscode.FileSystemError.Unavailable("Sign in to this Jam to edit its kits.");
+    try {
+      return await fn(api);
+    } catch (e) {
+      if (!(e instanceof ApiError)) throw vscode.FileSystemError.Unavailable(e instanceof Error ? e.message : String(e));
+      if (e.code === "no_draft") {
+        this.listings.delete(kitKey(ref));
+        this.gone.fire({ jam: ref.jam, branch: ref.branch, kit: ref.kit });
+        throw vscode.FileSystemError.Unavailable(`Kit ${ref.kit}: the draft is gone (discarded, or the Jam restarted). Your unsaved edits are still open: reopen the kit from the Kits view, then save again.`);
+      }
+      if (e.status === 412) {
+        this.listings.delete(kitKey(ref));
+        if (uri) this.changed.fire([{ type: vscode.FileChangeType.Changed, uri }]);
+        throw vscode.FileSystemError.Unavailable(`${uri ? parseKitUri(uri)?.path : "The file"} changed on the Jam since you opened it: compare and save again.`);
+      }
+      if (e.status === 404) throw vscode.FileSystemError.FileNotFound(uri);
+      if (e.status === 409) throw vscode.FileSystemError.FileExists(e.message);
+      throw vscode.FileSystemError.Unavailable(e.message);
+    }
+  }
+}
+
+// mtimeOf turns a file's sha256 into a stat time that changes with its
+// content, so VS Code notices a file changed on the Jam.
+function mtimeOf(sha: string): number {
+  return Number.parseInt(sha.slice(0, 12), 16) || 1;
+}

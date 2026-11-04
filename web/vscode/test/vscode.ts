@@ -187,6 +187,7 @@ export const Uri = {
     return { scheme: u.protocol.slice(0, -1), authority: u.host, path: u.pathname, query: u.search.slice(1), fsPath: path, toString: () => s };
   },
   file: (fsPath: string): FakeUri => Uri.parse(`file://${fsPath.split("/").map(encodeURIComponent).join("/")}`),
+  from: (c: { scheme: string; authority?: string; path?: string }): FakeUri => Uri.parse(`${c.scheme}://${c.authority ?? ""}${c.path ?? ""}`),
   joinPath: (base: FakeUri, ...segs: string[]): FakeUri => {
     const path = [base.path.replace(/\/+$/, ""), ...segs].join("/");
     return Uri.parse(`${base.scheme}://${base.authority}${path}`);
@@ -308,4 +309,24 @@ export function fakeContext(globalStorage?: string): vs.ExtensionContext & { sec
   };
   mock.contexts.push(ctx);
   return ctx as unknown as vs.ExtensionContext & { secretValues: Map<string, string>; state: Map<string, unknown> };
+}
+
+// The file system API's types, as the kit file system uses them.
+export enum FileType { Unknown = 0, File = 1, Directory = 2, SymbolicLink = 64 }
+export enum FileChangeType { Changed = 1, Created = 2, Deleted = 3 }
+export class FileSystemError extends Error {
+  constructor(message: string, public code: string) {
+    super(message);
+  }
+  static FileNotFound = (m?: unknown) => new FileSystemError(String(m ?? ""), "FileNotFound");
+  static FileExists = (m?: unknown) => new FileSystemError(String(m ?? ""), "FileExists");
+  static FileIsADirectory = (m?: unknown) => new FileSystemError(String(m ?? ""), "FileIsADirectory");
+  static NoPermissions = (m?: unknown) => new FileSystemError(String(m ?? ""), "NoPermissions");
+  static Unavailable = (m?: unknown) => new FileSystemError(String(m ?? ""), "Unavailable");
+}
+export class Disposable {
+  constructor(private fn: () => void) {}
+  dispose(): void {
+    this.fn();
+  }
 }
