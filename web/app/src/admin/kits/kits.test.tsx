@@ -9,7 +9,7 @@ import { kit } from "./fixtures";
 import type { KitRow } from "../api/types";
 import { setBranch } from "../branch/branch";
 
-const row = (r: Partial<KitRow> = {}): KitRow => ({ name: "web", current: 2, count: 3, base: "blessed default", egress: 2, usedBy: 1, invalid: false, draft: false, attn: null, ...r });
+const row = (r: Partial<KitRow> = {}): KitRow => ({ name: "web", current: 2, count: 3, base: "blessed default", egress: 2, usedBy: 1, invalid: false, draft: false, tracked: false, attn: null, ...r });
 const base = (canSource = true, kits = [row(), row({ name: "bad", invalid: true, usedBy: 0, draft: true })]) => server.use(
   http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })),
   http.get("/app/admin/api/kits", () => HttpResponse.json({ kits, canSource })),

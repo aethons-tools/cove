@@ -125,8 +125,9 @@ func apiKits(api *http.ServeMux, src frameSource, f jam.KitFetcher, log *slog.Lo
 		items := src.items()
 		out := KitsResponse{Kits: []KitRow{}, CanSource: canSource}
 		for _, k := range kitListRows(store) {
+			kit, _ := store.GetKit(k.Name)
 			out.Kits = append(out.Kits, KitRow{Name: k.Name, Current: k.Current, Count: k.Count, Base: k.Base, Egress: k.Egress, UsedBy: k.UsedBy,
-				Invalid: k.Invalid, Draft: k.Draft, Attn: attnFlag(items, "specs", "kit:"+k.Name)})
+				Invalid: k.Invalid, Draft: k.Draft, Tracked: kit.Source != nil, Attn: attnFlag(items, "specs", "kit:"+k.Name)})
 		}
 		writeJSON(w, http.StatusOK, out)
 	})

@@ -43,6 +43,7 @@ func registerApp(mux *http.ServeMux, src frameSource, msgs SquawkReader, ra role
 	apiSpecs(api, src, su, ra.credExists, log)
 	apiKits(api, src, f.kits, log)
 	apiKitDraft(api, src.store, log)
+	apiKitDraftFiles(api, src.store, log)
 	apiAgents(api, src, aa, log)
 	apiSession(api, aa.sess, aa.hub, log)
 	apiDash(api, src, msgs, da, log)

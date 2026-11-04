@@ -756,7 +756,30 @@ export interface KitRow {
   usedBy: number /* int */;
   invalid: boolean; // the current version isn't a valid studio kit
   draft: boolean; // an open draft
+  tracked: boolean; // from its own git source: edited there
   attn?: AttnFlag | null;
+}
+/**
+ * DraftFiles is a kit draft's files (GET /app/admin/api/kits/{name}/draft/files,
+ * and every file API write's answer): the draft's ETag, its base and the
+ * kit's current version, its problems and each file.
+ */
+export interface DraftFiles {
+  etag: string;
+  base: number /* int */;
+  current: number /* int */;
+  problems: string[];
+  maxFile: number /* int64 */;
+  files: DraftFile[];
+}
+/**
+ * DraftFile is one file of a draft; SHA256 is the precondition its writes send.
+ */
+export interface DraftFile {
+  path: string;
+  exec: boolean;
+  size: number /* int64 */;
+  sha256: string;
 }
 /**
  * KitsResponse is GET /app/admin/api/kits.
