@@ -60,6 +60,13 @@ describe("Auth", () => {
     expect(u.searchParams.get("client")).toBe("VSCodium on host");
     expect(u.searchParams.get("redirect")).toBe("vscodium://aethons.jam/auth");
   });
+  it("keeps the exchange's admin flag", async () => {
+    const t = await setup(() => Response.json({ token: "tok1", expires_at: "e", user: "ann", admin: true }));
+    const p = t.auth.signIn(URL_);
+    await tick();
+    t.auth.handleCallback(new URLSearchParams({ code: "c1", state: t.stateOf() }));
+    expect((await p).admin).toBe(true);
+  });
   it("signIn opens the consent URL and completes on the matching callback", async () => {
     const t = await setup();
     const p = t.auth.signIn(URL_);
@@ -69,7 +76,7 @@ describe("Auth", () => {
     expect(u.searchParams.get("client")).toBe("VS Code on host");
     expect(t.auth.handleCallback(new URLSearchParams({ code: "c1", state: t.stateOf() }))).toBe(true);
     const s = await p;
-    expect(s).toEqual({ url: URL_, token: "tok1", user: "ann", expiresAt: "2027-01-01T00:00:00Z" });
+    expect(s).toEqual({ url: URL_, token: "tok1", user: "ann", expiresAt: "2027-01-01T00:00:00Z", admin: false });
     const [ex, init] = t.fetchFn.mock.calls[0] as [string, RequestInit];
     expect(ex).toBe(`${URL_}/app/auth/app-token/exchange`);
     const body = JSON.parse(init.body as string);

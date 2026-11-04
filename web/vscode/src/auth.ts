@@ -8,7 +8,9 @@ import { appTokenFileHolds, removeAppTokenFile, writeAppTokenFile } from "./toke
 export const SIGN_IN_TIMEOUT_MS = 5 * 60_000;
 export const SESSION_KEY = "jam.session";
 
-export type Session = { url: string; token: string; user: string; expiresAt: string };
+// admin: the token may use the admin API (absent on a session saved before
+// admin access existed).
+export type Session = { url: string; token: string; user: string; expiresAt: string; admin?: boolean };
 
 export interface SecretsLike {
   get(k: string): Thenable<string | undefined>;
@@ -114,7 +116,7 @@ export class Auth {
     });
     if (res.status === 400) throw new Error("Jam refused the sign-in code; try again");
     if (!res.ok) throw new Error(`Jam sign-in failed (HTTP ${res.status})`);
-    let j: { token?: unknown; expires_at?: unknown; user?: unknown };
+    let j: { token?: unknown; expires_at?: unknown; user?: unknown; admin?: unknown };
     try {
       j = (await res.json()) as typeof j;
     } catch {
@@ -123,7 +125,7 @@ export class Auth {
     if (typeof j?.token !== "string" || j.token === "" || typeof j.user !== "string" || j.user === "") {
       throw new Error("Jam sign-in failed (unexpected response)");
     }
-    return { url, token: j.token, user: j.user, expiresAt: typeof j.expires_at === "string" ? j.expires_at : "" };
+    return { url, token: j.token, user: j.user, expiresAt: typeof j.expires_at === "string" ? j.expires_at : "", admin: j.admin === true };
   }
 
   // handleCallback is true when q belongs to the pending sign-in.
