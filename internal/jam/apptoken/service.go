@@ -278,6 +278,9 @@ type exchangeResponse struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expires_at"`
 	User      string    `json:"user"`
+	// Admin reports whether the token may use the admin API (operator
+	// standing at consent).
+	Admin bool `json:"admin"`
 }
 
 func (s *Service) exchange(w http.ResponseWriter, r *http.Request) {
@@ -323,5 +326,5 @@ func (s *Service) exchange(w http.ResponseWriter, r *http.Request) {
 		s.c.Log.Info("app token evicted", "user", u.ID, "token", id)
 	}
 	s.c.Log.Info("app token issued", "user", u.ID, "token", t.ID, "label", t.Label, "operator", t.Operator())
-	_ = json.NewEncoder(w).Encode(exchangeResponse{Token: raw, ExpiresAt: t.ExpiresAt, User: u.Name})
+	_ = json.NewEncoder(w).Encode(exchangeResponse{Token: raw, ExpiresAt: t.ExpiresAt, User: u.Name, Admin: t.Admin})
 }

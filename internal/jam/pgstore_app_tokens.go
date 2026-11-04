@@ -24,9 +24,9 @@ func (s *PostgresStore) PutAppToken(t AppToken) ([]ident.ID, error) {
 			}
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO app_tokens (id, user_id, token_hash, label, operator_id, created_at, last_used_at, expires_at)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-			t.ID, t.UserID, t.Hash, t.Label, t.OperatorID, t.CreatedAt, t.LastUsedAt, t.ExpiresAt)
+			`INSERT INTO app_tokens (id, user_id, token_hash, label, operator_id, admin, created_at, last_used_at, expires_at)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+			t.ID, t.UserID, t.Hash, t.Label, t.OperatorID, t.Admin, t.CreatedAt, t.LastUsedAt, t.ExpiresAt)
 		return err
 	}); err != nil {
 		return nil, err
@@ -90,14 +90,14 @@ func (s *PostgresStore) DeleteExpiredAppTokens(now time.Time) ([]ident.ID, error
 
 // loadAppTokens fills the app-token maps. load's part; no lock.
 func (s *PostgresStore) loadAppTokens(ctx context.Context) error {
-	rows, err := s.pool.Query(ctx, `SELECT id, user_id, token_hash, label, operator_id, created_at, last_used_at, expires_at FROM app_tokens`)
+	rows, err := s.pool.Query(ctx, `SELECT id, user_id, token_hash, label, operator_id, admin, created_at, last_used_at, expires_at FROM app_tokens`)
 	if err != nil {
 		return fmt.Errorf("pgstore: load app_tokens: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var t AppToken
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Hash, &t.Label, &t.OperatorID, &t.CreatedAt, &t.LastUsedAt, &t.ExpiresAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.UserID, &t.Hash, &t.Label, &t.OperatorID, &t.Admin, &t.CreatedAt, &t.LastUsedAt, &t.ExpiresAt); err != nil {
 			return err
 		}
 		t.CreatedAt, t.LastUsedAt, t.ExpiresAt = t.CreatedAt.UTC(), t.LastUsedAt.UTC(), t.ExpiresAt.UTC()

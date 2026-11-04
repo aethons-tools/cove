@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -227,12 +228,13 @@ func TestConsentShowsClientAndUser(t *testing.T) {
 			t.Errorf("body lacks %q:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, "<mac>") || strings.Contains(body, "operator rights") {
+	if strings.Contains(body, "<mac>") || strings.Contains(body, "operator rights") || !strings.Contains(body, "It can't use the admin console") {
 		t.Fatalf("body:\n%s", body)
 	}
 	// With operator standing, the page says so and until when.
 	w = f.get(consentQuery(nil), idCookie+"=id:sub-alice", atCookie+"=at:op-1")
-	if body := w.Body.String(); !strings.Contains(body, "with your operator rights, until 28 November 2026") {
+	if body := w.Body.String(); !strings.Contains(body, "with your operator rights, until 28 November 2026") ||
+		!strings.Contains(body, "the admin console's API") || strings.Contains(body, "can't use the admin console") {
 		t.Fatalf("operator body:\n%s", body)
 	}
 }
@@ -348,8 +350,23 @@ func TestExchangeOperatorStandingFromAccessCookie(t *testing.T) {
 	code := f.allow(consentQuery(nil), idCookie+"=id:sub-alice", atCookie+"=at:op-1")
 	got := decode(t, f.exchange(map[string]string{"code": code, "code_verifier": testVerifier, "redirect": testRedirect}))
 	row, ok := f.store.AppTokenByHash(jam.HashToken(got.Token))
-	if !ok || row.OperatorID != "op-1" {
+	if !ok || row.OperatorID != "op-1" || !row.Admin {
 		t.Fatalf("row %+v", row)
+	}
+}
+
+// The exchange answer says whether the token may use the admin API.
+func TestExchangeReportsAdmin(t *testing.T) {
+	for _, c := range []struct {
+		cookies []string
+		admin   bool
+	}{{[]string{idCookie + "=id:sub-alice", atCookie + "=at:op-1"}, true}, {[]string{idCookie + "=id:sub-alice"}, false}} {
+		f := newFixture(t)
+		code := f.allow(consentQuery(nil), c.cookies...)
+		w := f.exchange(map[string]string{"code": code, "code_verifier": testVerifier, "redirect": testRedirect})
+		if want := fmt.Sprintf(`"admin":%v`, c.admin); !strings.Contains(w.Body.String(), want) {
+			t.Errorf("body %s, want %s", w.Body, want)
+		}
 	}
 }
 

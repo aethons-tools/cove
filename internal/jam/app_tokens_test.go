@@ -40,6 +40,18 @@ func putTestAppToken(t *testing.T, s Store, operatorID string) (AppToken, string
 	return tok, raw
 }
 
+// Only a token minted with operator standing may use the admin API.
+func TestNewAppTokenAdmin(t *testing.T) {
+	op, _, err := NewAppToken("usr_x", "", "op1", appTokenT0)
+	if err != nil || !op.Admin {
+		t.Fatalf("operator token %+v, %v", op, err)
+	}
+	m, _, err := NewAppToken("usr_x", "", "", appTokenT0)
+	if err != nil || m.Admin {
+		t.Fatalf("member token %+v, %v", m, err)
+	}
+}
+
 func TestNewAppTokenHashOnly(t *testing.T) {
 	tok, raw, err := NewAppToken("usr_x", "VS Code", "", appTokenT0)
 	if err != nil {
