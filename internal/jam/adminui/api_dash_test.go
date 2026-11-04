@@ -82,6 +82,15 @@ func TestJamContextAPI(t *testing.T) {
 	if rec.Code != 403 {
 		t.Errorf("cross-origin = %d", rec.Code)
 	}
+	// An app token has no cookie to forge: no origin check.
+	r = httptest.NewRequest("POST", "/app/admin/api/jam/context", strings.NewReader(`{"yaml":"core: x"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", "https://evil.example")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, appui.WithPrincipal(r, appui.Principal{Admin: true, Bearer: true, AdminAPI: true, Operator: jam.Operator{ID: "op-1"}}))
+	if rec.Code == 403 {
+		t.Errorf("cross-origin bearer = %d %s", rec.Code, rec.Body)
+	}
 }
 
 func TestHealthAPI(t *testing.T) {

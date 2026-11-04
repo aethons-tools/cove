@@ -102,7 +102,8 @@ func sameOriginAPI(trustedOrigins []string, next http.Handler) http.Handler {
 		switch r.Method {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 		default:
-			if !browserauth.SameOrigin(r, trusted) {
+			// An app token has no cookie to forge (appui.Principal.Bearer).
+			if p, _ := appui.PrincipalFrom(r); !p.Bearer && !browserauth.SameOrigin(r, trusted) {
 				writeAPIError(w, http.StatusForbidden, "forbidden", "cross-origin request refused")
 				return
 			}

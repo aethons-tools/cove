@@ -72,6 +72,31 @@ func TestBearerOperatorStanding(t *testing.T) {
 	if op := jam.OperatorID(rr); op != "op-1" {
 		t.Fatalf("operator %q", op)
 	}
+	if !p.AdminAPI || !p.Bearer {
+		t.Fatalf("an operator token minted now may use the admin API: %+v", p)
+	}
+}
+
+// A token minted before admin access existed keeps its standing elsewhere
+// but not the admin API.
+func TestBearerOldOperatorTokenNoAdminAPI(t *testing.T) {
+	f := newFixture(t)
+	tok, raw, err := jam.NewAppToken(f.alice.ID, "VS Code", "op-1", f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok.Admin = false
+	if _, err := f.store.PutAppToken(tok); err != nil {
+		t.Fatal(err)
+	}
+	rr, done, err := f.svc.Bearer()(httptest.NewRequest("GET", "/", nil), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer done()
+	if p, _ := appui.PrincipalFrom(rr); !p.Admin || p.AdminAPI || !p.Bearer {
+		t.Fatalf("principal %+v", p)
+	}
 }
 
 func TestBearerUserInNoProject(t *testing.T) {

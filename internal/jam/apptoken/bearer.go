@@ -8,7 +8,8 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/appui"
 )
 
-// Bearer authenticates an /app/user request by app token: the request acts
+// Bearer authenticates an /app/user (or, with admin access, /app/admin/api)
+// request by app token: the request acts
 // as the token's user (a participant when they are in a project) with the
 // operator standing recorded at consent, and is tracked so revoking the token
 // ends it.
@@ -18,7 +19,7 @@ func (s *Service) Bearer() appui.BearerFunc {
 		if err != nil {
 			return nil, nil, err
 		}
-		p := appui.Principal{Admin: t.Operator(), Operator: jam.Operator{ID: t.OperatorID}}
+		p := appui.Principal{Admin: t.Operator(), Operator: jam.Operator{ID: t.OperatorID}, Bearer: true, AdminAPI: t.Admin && t.Operator()}
 		if part, ok := jam.ParticipantByUser(s.c.Store, u.ID); ok {
 			p.User = &part
 		}

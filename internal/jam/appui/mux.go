@@ -68,7 +68,12 @@ func Handler(d Deps) *http.ServeMux {
 	// The Jam app's pre-cutover home: the same path, now under /app/user/.
 	mux.Handle("/app/next/", LegacyRedirect("/app/next/", "/app/user/"))
 	if d.Admin != nil {
-		mux.Handle("/app/admin/", RefuseBearer(d.Gate.Wrap(RequireAdmin(WithShell(d.Admin, d.Shell)))))
+		admin := WithShell(d.Admin, d.Shell)
+		cookie := d.Gate.Wrap(RequireAdmin(admin))
+		mux.Handle("/app/admin/", RefuseBearer(cookie))
+		// The admin API also takes an app token with admin access
+		// (docs/usage/jam/app-tokens.md#bearer-scope).
+		mux.Handle("/app/admin/api/", withBearer(d.Bearer, d.SessionCookies, requireAdminAPI(admin), cookie))
 	}
 	mux.Handle("GET /app/{$}", d.Gate.Wrap(WithShell(http.HandlerFunc(landing), d.Shell)))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
