@@ -1,6 +1,6 @@
 # Jam in VS Code: editing kits
 
-Status: draft for review (2026-11-03). Builds on [the hub design](2026-10-30-vscode-hub-design.md) and the [config branch editor](2026-10-31-config-branch-editor-design.md).
+Status: approved (2026-11-04). Builds on [the hub design](2026-10-30-vscode-hub-design.md) and the [config branch editor](2026-10-31-config-branch-editor-design.md).
 
 ## Why
 
@@ -32,7 +32,7 @@ This is the first piece of a bigger move. The user wants the console's config ed
 - Losing an edit without being told. A save that the Jam refused must not look saved.
 - Two editors on the same kit silently overwriting each other (VS Code and the console, or two VS Code windows).
 - A member (non-operator) token, or a token minted before this change, gaining admin access.
-- The extension's admin access being wider than the same operator's browser session.
+- The extension's admin access being wider than the same operator's browser session, except for the standing lifetime accepted below.
 
 ## Decided
 
@@ -49,7 +49,8 @@ Today `/app/admin/` refuses every bearer ([app-tokens.md](../../usage/jam/app-to
 
 - `/app/admin/api/` accepts a bearer whose token has operator standing **and** was minted with admin consent. The HTML console stays bearer-free.
 - *(My call:)* admin consent is new and explicit, but not a choice. When the signing-in user is an operator, the consent page says the client gets admin access, and the token records an admin flag. There is no opt-out checkbox and no new client parameter. Tokens minted before this change carry no flag and stay refused, so access never widens silently. The exchange answer says whether the token has admin access. The extension shows the Kits view only then, and it asks for a new sign-in when an operator's old token gets the "no admin access" refusal.
-- The rules a bearer has elsewhere apply: a cookie plus a bearer is a 400; revocation and the 30-day fixed lifetime of operator tokens are unchanged. The operator is the token's recorded operator (the branch router already falls back to `Principal.Operator.ID` for commit authorship).
+- The rules a bearer has elsewhere apply: a cookie plus a bearer is a 400; revocation and the 30-day fixed lifetime of operator tokens are unchanged.
+- **Standing is not re-checked (the user's choice, "fine for now").** A token keeps the operator standing recorded at consent for its 30 days, unlike the browser session, which drops it soon after the IdP removes `jam:admin`. Demoting an operator therefore also means revoking their app tokens; the docs say so. A shorter admin window or a re-check is a possible later change. The operator is the token's recorded operator (the branch router already falls back to `Principal.Operator.ID` for commit authorship).
 - The extension's host proxy accepts admin API paths only for its own host-side calls (the kit filesystem, the kits view). *(My call:)* webview panes stay limited to `/app/user/` until a slice puts an admin pane in VS Code.
 
 ### Branch
