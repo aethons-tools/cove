@@ -33,21 +33,26 @@ The **Kits** view is in the Jam sidebar of the hub (collapsed at first).
 - Then the kits: `v<N>`, `draft` when one is open, or **from its git repo**
   for a kit with its own source, which you edit in that repo.
 - Click a kit to open it. With no draft, one is opened from the current
-  version. The kit joins the hub as the folder **web (jam/ann)**: the
-  explorer, search and editors work on it as on any folder.
+  version. Open kits are under one folder of the hub, **Jam kits
+  (<jam host>)**, as `<branch>/<kit>/` (a branch's `/` shows as `~`): the
+  explorer, search and editors work on them as on any folder. That folder
+  joins the hub with the first kit you open, which restarts the extensions
+  once (VS Code does that when a window's first folder changes); it then
+  stays.
 - A kit with a draft has **Build** and **Publish** buttons, and **Discard** and
   **Open in Console** in its menu. The view's title has Refresh, Switch Config
   Branch… and Open in Console (the console opens on the same branch).
 
 ## Files and saves
 
-A kit's files are `jamkit://<jam host>/<branch>/<kit>/<path>` (a branch's `/`
-is written `~`). Each save is conditional on the file's content as you opened
-it ([kits-drafts.md](kits-drafts.md#file-api)), so an edit to another file,
-in the console or another window, never refuses it.
+A kit's files are `jamkit://<jam host>/<branch>/<kit>/<path>`. Each save is
+conditional on the file's content as you opened it (remembered across
+reloads; [kits-drafts.md](kits-drafts.md#file-api)), so an edit to another
+file, in the console or another window, never refuses it.
 
 - **"… changed on the Jam since you opened it"**: someone changed that file.
-  Nothing was overwritten. Use VS Code's compare, then save again.
+  Nothing was overwritten. Run *File: Compare Active File with Saved* to see
+  the Jam's version, then save again (that overwrites it).
 - **"the draft is gone (discarded, or the Jam restarted)"**: the draft no
   longer exists; drafts live in memory. Your unsaved editors stay open. The
   kit reads **draft gone — reopen**: click it, then save again.
@@ -68,7 +73,9 @@ when one is reused, is in [kits-drafts.md](kits-drafts.md#test-build).
 
 ## Publish and Discard
 
-Both ask first. **Publish** commits the draft to the branch (refused with
-the Jam's message when it has problems or no changes) and closes the folder;
+Both ask first, and act on the branch of the kit's folder (not the
+view's, if you switched since). Publish saves the kit's unsaved files
+first, if you agree. **Publish** commits the draft to the branch (refused with
+the Jam's message when it has problems or no changes) and closes the kit;
 the commit is the branch's, as in the console. **Discard** drops the draft
-and closes the folder.
+and closes the kit.

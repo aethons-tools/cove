@@ -11,7 +11,12 @@ const listing = (files: { path: string; sha256: string; size?: number; exec?: bo
   files: files.map((f) => ({ size: 1, exec: false, ...f })),
 });
 
-function fake(initial = listing([{ path: "kit.yml", sha256: "k1" }, { path: "bin/run.sh", sha256: "r1", exec: true }])) {
+function memo() {
+  const m = new Map<string, unknown>();
+  return { get: <T,>(k: string) => m.get(k) as T | undefined, update: async (k: string, v: unknown) => void m.set(k, v) };
+}
+
+function fake(initial = listing([{ path: "kit.yml", sha256: "k1" }, { path: "bin/run.sh", sha256: "r1", exec: true }]), o: ConstructorParameters<typeof KitFileSystem>[1] = {}) {
   let now = initial;
   const api = {
     files: vi.fn(async () => now),
@@ -30,7 +35,7 @@ function fake(initial = listing([{ path: "kit.yml", sha256: "k1" }, { path: "bin
     }),
   } satisfies KitApi;
   const apiFor = vi.fn((_jam: string, _branch: string) => api as KitApi);
-  const fs = new KitFileSystem(apiFor);
+  const fs = new KitFileSystem(apiFor, o);
   const set = (l: DraftFiles) => {
     now = l;
     fs.refresh(kitUri("jam.example", "jam/alice", "web"));
@@ -99,6 +104,45 @@ describe("KitFileSystem", () => {
     expect(api.renameFile).toHaveBeenCalledWith("web", "kit.yml", "kit2.yml", "k1");
     await fs.delete(u("bin"), { recursive: true });
     expect(api.deleteFile).toHaveBeenCalledWith("web", "bin/run.sh", "r1");
+  });
+  it("keeps guarding a save after a restart (the content read is remembered)", async () => {
+    const state = memo();
+    const a = fake(undefined, { state });
+    await a.fs.readFile(u("kit.yml"));
+    const b = fake(listing([{ path: "kit.yml", sha256: "k9" }]), { state });
+    await b.fs.writeFile(u("kit.yml"), enc("x"), { create: false, overwrite: true });
+    expect(b.api.writeFile).toHaveBeenCalledWith("web", "kit.yml", enc("x"), { sha256: "k1" });
+  });
+  it("refuses to save a file it never read, rather than overwrite blind", async () => {
+    const { fs, api } = fake();
+    const err = await fs.writeFile(u("kit.yml"), enc("x"), { create: false, overwrite: true }).catch((e) => e);
+    expect(err).toBeInstanceOf(FileSystemError);
+    expect(String(err.message)).toMatch(/Compare Active File with Saved/);
+    expect(api.writeFile).not.toHaveBeenCalled();
+  });
+  it("advances a file's mtime whenever its content changes", async () => {
+    let t = 1000;
+    const { fs, set } = fake(undefined, { state: memo(), now: () => t });
+    const m1 = (await fs.stat(u("kit.yml"))).mtime;
+    t = 500; // a clock going back still moves mtime forward
+    set(listing([{ path: "kit.yml", sha256: "k2" }]));
+    const m2 = (await fs.stat(u("kit.yml"))).mtime;
+    expect(m2).toBeGreaterThan(m1);
+    expect((await fs.stat(u("kit.yml"))).mtime).toBe(m2);
+  });
+  it("tells how to recover from a conflict", async () => {
+    const { fs, api } = fake();
+    await fs.readFile(u("kit.yml"));
+    api.writeFile.mockRejectedValueOnce(new ApiError("changed", 412, "changed"));
+    const err = await fs.writeFile(u("kit.yml"), enc("x"), { create: false, overwrite: true }).catch((e) => e);
+    expect(String(err.message)).toMatch(/Compare Active File with Saved/);
+  });
+  it("shows the open kits under one root folder, by branch", async () => {
+    const { fs } = fake(undefined, { openKits: () => [{ jam: "jam.example", branch: "jam/alice", kit: "web" }, { jam: "other", branch: "x", kit: "y" }] });
+    const root = Uri.parse("jamkit://jam.example/") as never;
+    expect((await fs.stat(root)).type).toBe(FileType.Directory);
+    expect(await fs.readDirectory(root)).toEqual([["jam~alice", FileType.Directory]]);
+    expect(await fs.readDirectory(Uri.parse("jamkit://jam.example/jam~alice") as never)).toEqual([["web", FileType.Directory]]);
   });
   it("toggles a file's executable bit, keeping its content", async () => {
     const { fs, api } = fake();

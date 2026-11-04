@@ -60,6 +60,7 @@ export const mock = {
 const message = () => vi.fn(async (..._a: unknown[]) => mock.answers.shift());
 
 export const window = {
+  activeTextEditor: undefined as unknown,
   showInformationMessage: message(),
   showWarningMessage: message(),
   showErrorMessage: message(),
@@ -163,6 +164,7 @@ export enum StatusBarAlignment { Left = 1, Right = 2 }
 export enum ProgressLocation { SourceControl = 1, Window = 10, Notification = 15 }
 
 export const workspace = {
+  textDocuments: [] as unknown[],
   workspaceFolders: undefined as undefined | { uri: { scheme: string; authority: string; toString?(): string }; name?: string }[],
   updateWorkspaceFolders: vi.fn((start: number, del: number, ...add: { uri: { scheme: string; authority: string }; name?: string }[]) => {
     const now = [...(workspace.workspaceFolders ?? [])];

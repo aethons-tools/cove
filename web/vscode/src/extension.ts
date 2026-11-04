@@ -59,7 +59,7 @@ import { BranchState } from "./admin/branch";
 import { runBuild } from "./kits/build";
 import { KitFileSystem } from "./kits/fs";
 import { attachProblems } from "./kits/problems";
-import { KIT_SCHEME, parseKitUri } from "./kits/uri";
+import { KIT_SCHEME } from "./kits/uri";
 import { KitsController } from "./kits/view";
 import { ThinkingStreams } from "./thinking";
 import { Updater } from "./update";
@@ -585,13 +585,17 @@ export function activate(ctx: vscode.ExtensionContext): void {
     const s = await auths.authFor(url).session(url);
     return s?.admin === true ? new AdminApi(url, s.token, (...a) => fetch(...a), branch) : undefined;
   };
-  const kitFs = new KitFileSystem(async (slug, branch) => {
-    const url = jams().list.find((u) => jamSlug(u) === slug);
-    return url === undefined ? undefined : adminFor(url, () => branch);
-  });
+  let kitsView: KitsController | undefined;
+  const kitFs = new KitFileSystem(
+    async (slug, branch) => {
+      const url = jams().list.find((u) => jamSlug(u) === slug);
+      return url === undefined ? undefined : adminFor(url, () => branch);
+    },
+    { state: ctx.workspaceState, openKits: () => kitsView?.openKits() ?? [] },
+  );
   ctx.subscriptions.push(vscode.workspace.registerFileSystemProvider(KIT_SCHEME, kitFs, { isCaseSensitive: true }));
   const setProblems = attachProblems();
-  const kitsView = new KitsController({
+  kitsView = new KitsController({
     jamUrl: () => {
       const u = jamUrl();
       return typeof u === "string" ? u : undefined;
@@ -600,20 +604,21 @@ export function activate(ctx: vscode.ExtensionContext): void {
     branches: branchState,
     makeApi: (url, token, branch) => new AdminApi(url, token, (...a) => fetch(...a), branch),
     openExternal: (u) => Promise.resolve(vscode.env.openExternal(vscode.Uri.parse(u))),
+    state: ctx.workspaceState,
+    onOpenChanged: (jam) => kitFs.rootChanged(jam),
   });
+  const kits = kitsView;
   ctx.subscriptions.push(
     kitFs.onProblems(({ ref, files }) => setProblems(ref, files)),
-    kitFs.onDraftGone((ref) => kitsView.markGone(ref)),
-    vscode.window.registerTreeDataProvider("jam.kits", kitsView),
-    { dispose: auths.onChange(() => kitsView.refresh()) },
+    kitFs.onDraftGone((ref) => kits.markGone(ref)),
+    vscode.window.registerTreeDataProvider("jam.kits", kits),
+    { dispose: auths.onChange(() => kits.refresh()) },
   );
   // kitCmd runs a Kits command on the kit it names (a view item, a name or a
   // jamkit: URI); a refused admin token asks for a new sign-in.
-  const kitCmd = (fn: (kit: string, arg: unknown) => Promise<unknown>) => async (arg: unknown) => {
+  const kitCmd = (fn: (arg: unknown) => Promise<unknown>) => async (arg: unknown) => {
     try {
-      const kit = kitsView.kitOf(arg);
-      if (kit === undefined) throw new Error("Pick a kit in the Kits view.");
-      await fn(kit, arg);
+      await fn(arg ?? vscode.window.activeTextEditor?.document.uri);
     } catch (e) {
       if (e instanceof SignedOutError) return signOutOnce();
       if (e instanceof NoAdminError) {
@@ -625,13 +630,13 @@ export function activate(ctx: vscode.ExtensionContext): void {
     }
   };
   const kitReg = (id: string, cb: (...a: unknown[]) => unknown) => ctx.subscriptions.push(vscode.commands.registerCommand(id, cb));
-  kitReg("jam.kits.open", kitCmd((kit) => kitsView.open(kit)));
-  kitReg("jam.kits.publish", kitCmd((kit) => kitsView.publish(kit)));
-  kitReg("jam.kits.discard", kitCmd((kit) => kitsView.discard(kit)));
-  kitReg("jam.kits.openInConsole", kitCmd((kit) => kitsView.openInConsole(kit)));
+  kitReg("jam.kits.open", kitCmd((arg) => kits.open(arg)));
+  kitReg("jam.kits.publish", kitCmd((arg) => kits.publish(arg)));
+  kitReg("jam.kits.discard", kitCmd((arg) => kits.discard(arg)));
+  kitReg("jam.kits.openInConsole", kitCmd((arg) => kits.openInConsole(arg)));
   kitReg(
     "jam.kits.toggleExec",
-    kitCmd(async (_kit, arg) => {
+    kitCmd(async (arg) => {
       const exec = await kitFs.toggleExec(arg as vscode.Uri);
       void vscode.window.showInformationMessage(exec ? "The file is executable now." : "The file is not executable now.");
     }),
@@ -641,17 +646,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
   let buildOut: vscode.OutputChannel | undefined;
   kitReg(
     "jam.kits.build",
-    kitCmd(async (kit, arg) => {
-      const at = arg instanceof Object && "scheme" in arg ? parseKitUri(arg as vscode.Uri) : undefined;
-      const branch = at?.branch ?? kitsView.branch;
-      const url = at ? jams().list.find((u) => jamSlug(u) === at.jam) : kitsView.jamUrl();
+    kitCmd(async (arg) => {
+      const ref = kits.refOf(arg);
+      const { kit, branch } = ref;
+      const url = jams().list.find((u) => jamSlug(u) === ref.jam);
       if (!url || !branch) throw new Error("Open the Kits view to pick a branch first.");
-      const dirty = vscode.workspace.textDocuments.filter((d) => d.isDirty && parseKitUri(d.uri)?.kit === kit && parseKitUri(d.uri)?.branch === branch);
-      if (dirty.length > 0) {
-        const a = await vscode.window.showWarningMessage(`Kit ${kit} has unsaved files. Save them and build?`, { modal: true }, "Save and Build");
-        if (a !== "Save and Build") return;
-        for (const d of dirty) if (!(await d.save())) throw new Error(`${parseKitUri(d.uri)?.path} could not be saved.`);
-      }
+      if (!(await kits.saveDirty(ref, "Build"))) return;
       const api = await adminFor(url, () => branch);
       if (!api) throw new NoAdminError();
       const { etag } = await api.files(kit);
@@ -669,9 +669,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
       if (a === "Show Log") out.show();
     }),
   );
-  kitReg("jam.kits.switchBranch", guard(() => kitsView.switchBranch()));
-  kitReg("jam.kits.createBranch", guard(() => kitsView.createBranch()));
-  kitReg("jam.kits.refresh", () => kitsView.refresh());
+  kitReg("jam.kits.switchBranch", guard(() => kits.switchBranch()));
+  kitReg("jam.kits.createBranch", guard(() => kits.createBranch()));
+  kitReg("jam.kits.refresh", () => kits.refresh());
 
   // --- Notifications: the window holds its one stream while signed in. ---
   const osNotifier = new OsNotifier({ platform: process.platform, extensionPath: ctx.extensionPath, execFile: runNotify, chmod: fsp.chmod, log });

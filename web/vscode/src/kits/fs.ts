@@ -8,7 +8,7 @@ import * as vscode from "vscode";
 import type { DraftFiles } from "../../../app/src/admin/api/types.js" with { "resolution-mode": "import" };
 import type { AdminApi } from "../admin/api";
 import { ApiError } from "../api";
-import { type KitPath, type KitRef, kitKey, kitUri, parseKitUri } from "./uri";
+import { KIT_SCHEME, type KitPath, type KitRef, kitKey, kitUri, parseKitUri } from "./uri";
 
 export type KitApi = Pick<AdminApi, "files" | "readFile" | "writeFile" | "deleteFile" | "renameFile">;
 
@@ -17,6 +17,26 @@ export type KitApi = Pick<AdminApi, "files" | "readFile" | "writeFile" | "delete
 const LISTING_TTL_MS = 2000;
 
 type Listing = { files: DraftFiles; at: number };
+
+export interface MementoLike {
+  get<T>(key: string): T | undefined;
+  update(key: string, value: unknown): Thenable<void> | Promise<void>;
+}
+
+export type KitFsOptions = {
+  // state keeps what was read (and each file's mtime) across reloads.
+  state?: MementoLike;
+  // openKits are the kits shown under the Jam's root folder.
+  openKits?: () => KitRef[];
+  now?: () => number;
+};
+
+const SHAS_KEY = "jam.kitFs.read";
+const TIMES_KEY = "jam.kitFs.mtimes";
+
+// COMPARE_HINT is how to get past a refused save: compare re-reads the
+// file from the Jam, after which a save goes through.
+const COMPARE_HINT = "Run 'File: Compare Active File with Saved' to see the Jam's version, then save again";
 
 export class KitFileSystem implements vscode.FileSystemProvider {
   private changed = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
@@ -30,15 +50,45 @@ export class KitFileSystem implements vscode.FileSystemProvider {
 
   private listings = new Map<string, Listing>();
   private dirs = new Map<string, Set<string>>(); // directories made here, not yet holding a file
-  private shas = new Map<string, string>(); // a file's content as last read here
+  // shas is each file's content as last read here (a save's precondition);
+  // times its mtime per content. Both persist in o.state.
+  private shas: Map<string, string>;
+  private times: Map<string, { sha: string; t: number }>;
+  private now: () => number;
 
   constructor(
     private apiFor: (jam: string, branch: string) => KitApi | undefined | Promise<KitApi | undefined>,
-    private now: () => number = Date.now,
-  ) {}
+    private o: KitFsOptions = {},
+  ) {
+    this.now = o.now ?? Date.now;
+    this.shas = new Map(Object.entries(o.state?.get<Record<string, string>>(SHAS_KEY) ?? {}));
+    this.times = new Map(Object.entries(o.state?.get<Record<string, { sha: string; t: number }>>(TIMES_KEY) ?? {}));
+  }
+
+  private setSha(uri: vscode.Uri, sha: string | undefined): void {
+    if (sha === undefined) this.shas.delete(uri.toString());
+    else this.shas.set(uri.toString(), sha);
+    void this.o.state?.update(SHAS_KEY, Object.fromEntries(this.shas));
+  }
+
+  // mtime is uri's stat time: it moves forward whenever its content does.
+  private mtime(uri: vscode.Uri, sha: string): number {
+    const k = uri.toString();
+    const have = this.times.get(k);
+    if (have?.sha === sha) return have.t;
+    const t = Math.max(this.now(), (have?.t ?? 0) + 1);
+    this.times.set(k, { sha, t });
+    void this.o.state?.update(TIMES_KEY, Object.fromEntries(this.times));
+    return t;
+  }
 
   watch(): vscode.Disposable {
     return new vscode.Disposable(() => undefined);
+  }
+
+  // rootChanged tells VS Code the Jam's root folder lists other kits now.
+  rootChanged(jam: string): void {
+    this.changed.fire([{ type: vscode.FileChangeType.Changed, uri: vscode.Uri.from({ scheme: KIT_SCHEME, authority: jam, path: "/" }) }]);
   }
 
   // refresh drops root's listing so the next read fetches it.
@@ -65,16 +115,19 @@ export class KitFileSystem implements vscode.FileSystemProvider {
   }
 
   async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
+    if (this.rootChildren(uri) !== undefined) return { type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0 };
     const p = this.parse(uri);
     if (p.path === "") return { type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0 };
     const l = await this.listing(p);
     const f = l.files.find((x) => x.path === p.path);
-    if (f) return { type: vscode.FileType.File, ctime: 0, mtime: mtimeOf(f.sha256), size: f.size };
+    if (f) return { type: vscode.FileType.File, ctime: 0, mtime: this.mtime(uri, f.sha256), size: f.size };
     if (this.isDir(p, l)) return { type: vscode.FileType.Directory, ctime: 0, mtime: 0, size: 0 };
     throw vscode.FileSystemError.FileNotFound(uri);
   }
 
   async readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
+    const top = this.rootChildren(uri);
+    if (top !== undefined) return top.map((n) => [n, vscode.FileType.Directory]);
     const p = this.parse(uri);
     const l = await this.listing(p);
     const prefix = p.path === "" ? "" : `${p.path}/`;
@@ -101,7 +154,7 @@ export class KitFileSystem implements vscode.FileSystemProvider {
   async readFile(uri: vscode.Uri): Promise<Uint8Array> {
     const p = this.parse(uri);
     const r = await this.call(p, uri, (api) => api.readFile(p.kit, p.path));
-    this.shas.set(uri.toString(), r.sha256);
+    this.setSha(uri, r.sha256);
     return r.bytes;
   }
 
@@ -111,10 +164,14 @@ export class KitFileSystem implements vscode.FileSystemProvider {
     const cur = l.files.find((f) => f.path === p.path);
     if (!cur && !o.create) throw vscode.FileSystemError.FileNotFound(uri);
     if (cur && !o.overwrite) throw vscode.FileSystemError.FileExists(uri);
-    const cond = cur ? { sha256: this.shas.get(uri.toString()) ?? cur.sha256 } : ("create" as const);
+    const read = this.shas.get(uri.toString());
+    if (cur && read === undefined) {
+      throw vscode.FileSystemError.Unavailable(`${p.path}: Jam can't tell whether it changed since you opened it. ${COMPARE_HINT}.`);
+    }
+    const cond = cur ? { sha256: read! } : ("create" as const);
     const files = await this.call(p, uri, (api) => api.writeFile(p.kit, p.path, content, cond));
     const now = files.files.find((f) => f.path === p.path);
-    if (now) this.shas.set(uri.toString(), now.sha256);
+    if (now) this.setSha(uri, now.sha256);
     this.store(p, files);
     this.changed.fire([{ type: cur ? vscode.FileChangeType.Changed : vscode.FileChangeType.Created, uri }]);
   }
@@ -130,7 +187,7 @@ export class KitFileSystem implements vscode.FileSystemProvider {
     for (const f of under) {
       const fu = kitUri(p.jam, p.branch, p.kit, f.path);
       files = await this.call(p, fu, (api) => api.deleteFile(p.kit, f.path, this.shas.get(fu.toString()) ?? f.sha256));
-      this.shas.delete(fu.toString());
+      this.setSha(fu, undefined);
     }
     if (under.length > 0) this.store(p, files);
     this.changed.fire([{ type: vscode.FileChangeType.Deleted, uri }]);
@@ -149,7 +206,7 @@ export class KitFileSystem implements vscode.FileSystemProvider {
       const dest = b.path + f.path.slice(a.path.length);
       const fu = kitUri(a.jam, a.branch, a.kit, f.path);
       files = await this.call(a, fu, (api) => api.renameFile(a.kit, f.path, dest, this.shas.get(fu.toString()) ?? f.sha256));
-      this.shas.delete(fu.toString());
+      this.setSha(fu, undefined);
     }
     this.store(a, files);
     this.changed.fire([
@@ -168,9 +225,20 @@ export class KitFileSystem implements vscode.FileSystemProvider {
     const r = await this.call(p, uri, (api) => api.readFile(p.kit, p.path));
     const files = await this.call(p, uri, (api) => api.writeFile(p.kit, p.path, r.bytes, { sha256: r.sha256 }, !cur.exec));
     const now = files.files.find((f) => f.path === p.path);
-    if (now) this.shas.set(uri.toString(), now.sha256);
+    if (now) this.setSha(uri, now.sha256);
     this.store(p, files);
     return !cur.exec;
+  }
+
+  // rootChildren lists the Jam's root folder (its open kits' branches) or a
+  // branch directory (its open kits); undefined below a kit.
+  private rootChildren(uri: vscode.Uri): string[] | undefined {
+    if (uri.scheme !== KIT_SCHEME) return undefined;
+    const segs = uri.path.split("/").filter((x) => x !== "");
+    if (segs.length >= 2) return undefined;
+    const open = (this.o.openKits?.() ?? []).filter((k) => k.jam === uri.authority);
+    const names = segs.length === 0 ? open.map((k) => k.branch.replaceAll("/", "~")) : open.filter((k) => k.branch.replaceAll("/", "~") === segs[0]).map((k) => k.kit);
+    return [...new Set(names)].sort();
   }
 
   private isDir(p: KitPath, l: DraftFiles): boolean {
@@ -200,7 +268,7 @@ export class KitFileSystem implements vscode.FileSystemProvider {
       if (e.status === 412) {
         this.listings.delete(kitKey(ref));
         if (uri) this.changed.fire([{ type: vscode.FileChangeType.Changed, uri }]);
-        throw vscode.FileSystemError.Unavailable(`${uri ? parseKitUri(uri)?.path : "The file"} changed on the Jam since you opened it: compare and save again.`);
+        throw vscode.FileSystemError.Unavailable(`${uri ? parseKitUri(uri)?.path : "The file"} changed on the Jam since you opened it. ${COMPARE_HINT}.`);
       }
       if (e.status === 404) throw vscode.FileSystemError.FileNotFound(uri);
       if (e.status === 409) throw vscode.FileSystemError.FileExists(e.message);
@@ -209,8 +277,4 @@ export class KitFileSystem implements vscode.FileSystemProvider {
   }
 }
 
-// mtimeOf turns a file's sha256 into a stat time that changes with its
-// content, so VS Code notices a file changed on the Jam.
-function mtimeOf(sha: string): number {
-  return Number.parseInt(sha.slice(0, 12), 16) || 1;
-}
+

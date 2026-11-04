@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { diagnostics, mock, workspace } from "./vscode";
+import { diagnostics, mock, Uri, window, workspace } from "./vscode";
 import { BranchState } from "../src/admin/branch";
 import { KitsController, type KitNode } from "../src/kits/view";
 import { attachProblems } from "../src/kits/problems";
@@ -9,6 +9,11 @@ import type { Session } from "../src/auth";
 
 const URL_ = "https://jam.example";
 const row = (name: string, o: Record<string, unknown> = {}) => ({ name, current: 2, count: 2, base: "", egress: 0, usedBy: 0, invalid: false, draft: false, tracked: false, attn: null, ...o });
+
+function memo() {
+  const m = new Map<string, unknown>();
+  return { get: <T,>(k: string) => m.get(k) as T | undefined, update: async (k: string, v: unknown) => void m.set(k, v) };
+}
 
 function setup(o: { admin?: boolean; branches?: string[]; kits?: ReturnType<typeof row>[] } = {}) {
   const api = {
@@ -28,13 +33,15 @@ function setup(o: { admin?: boolean; branches?: string[]; kits?: ReturnType<type
   const branches = new BranchState({ get: <T,>(k: string) => state.get(k) as T, update: async (k: string, v: unknown) => void state.set(k, v) });
   const session: Session = { url: URL_, token: "t", user: "ann", expiresAt: "", admin: o.admin ?? true };
   const makeApi = vi.fn((_url: string, _token: string, _branch: () => string) => api as never);
-  const c = new KitsController({ jamUrl: () => URL_, session: async () => session, branches, makeApi, openExternal: vi.fn(async () => true) });
+  const c = new KitsController({ jamUrl: () => URL_, session: async () => session, branches, makeApi, openExternal: vi.fn(async () => true), state: memo() });
   return { api, c, branches, makeApi };
 }
 const labels = (ns: KitNode[], c: KitsController) => ns.map((n) => c.getTreeItem(n)).map((i) => [i.label, i.description ?? ""]);
 
 beforeEach(() => {
   workspace.workspaceFolders = undefined;
+  workspace.textDocuments = [];
+  window.activeTextEditor = undefined;
   mock.answers.length = 0;
   diagnostics.clear();
 });
@@ -76,17 +83,16 @@ describe("the Kits view", () => {
     expect(api.createBranch).toHaveBeenCalledWith("jam/alice");
     expect(branches.get(URL_)).toBe("jam/alice");
   });
-  it("opens a kit's draft as a folder, once", async () => {
+  it("opens kits under one root folder that stays (the first folder never changes again)", async () => {
     const { c, api } = setup();
     await c.getChildren();
     await c.open("app");
     expect(api.openDraft).toHaveBeenCalledWith("app", 0);
-    expect(workspace.updateWorkspaceFolders).toHaveBeenCalled();
-    expect(workspace.workspaceFolders?.map((f) => [String(f.uri), f.name])).toEqual([["jamkit://jam.example/jam~alice/app", "app (jam/alice)"]]);
+    expect(workspace.workspaceFolders?.map((f) => [String(f.uri), f.name])).toEqual([["jamkit://jam.example/", "Jam kits (jam.example)"]]);
     await c.open("web");
     expect(api.openDraft).toHaveBeenCalledTimes(1); // web already has a draft
-    await c.open("web");
-    expect(workspace.workspaceFolders).toHaveLength(2);
+    expect(workspace.workspaceFolders).toHaveLength(1);
+    expect(c.openKits().map((k) => k.kit)).toEqual(["app", "web"]);
   });
   it("publishes after asking, and closes the folder", async () => {
     const { c, api } = setup();
@@ -98,7 +104,32 @@ describe("the Kits view", () => {
     mock.answers.push("Publish");
     await c.publish("web");
     expect(api.publish).toHaveBeenCalledWith("web", '"e1"', "h1");
-    expect(workspace.workspaceFolders).toEqual([]);
+    expect(c.openKits()).toEqual([]);
+  });
+  it("acts on the branch of the folder a command came from", async () => {
+    const { c, api, makeApi } = setup();
+    await c.getChildren();
+    mock.answers.push("Discard");
+    await c.discard(Uri.parse("jamkit://jam.example/jam~bob/web/kit.yml") as never);
+    const branchFns = makeApi.mock.calls.map((x) => x[2]());
+    expect(branchFns).toContain("jam/bob");
+    expect(String(vi.mocked(window.showWarningMessage).mock.calls.at(-1)?.[0])).toMatch(/jam\/bob/);
+    expect(api.discard).toHaveBeenCalled();
+  });
+  it("saves the kit's unsaved files before publishing, if you agree", async () => {
+    const { c, api } = setup();
+    await c.getChildren();
+    const save = vi.fn(async () => true);
+    workspace.textDocuments = [{ isDirty: true, uri: Uri.parse("jamkit://jam.example/jam~alice/web/kit.yml"), save }] as never;
+    mock.answers.push("Save and Publish", "Publish");
+    await c.publish("web");
+    expect(save).toHaveBeenCalled();
+    expect(api.publish).toHaveBeenCalled();
+  });
+  it("takes the kit from the active editor when run from the palette", () => {
+    const { c } = setup();
+    window.activeTextEditor = { document: { uri: Uri.parse("jamkit://jam.example/jam~alice/web/x") } } as never;
+    expect(c.kitOf(undefined)).toBe("web");
   });
   it("discards after asking", async () => {
     const { c, api } = setup();

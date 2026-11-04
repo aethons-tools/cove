@@ -7,7 +7,8 @@ import { type AdminApi, NoAdminError } from "../admin/api";
 import type { BranchState } from "../admin/branch";
 import type { Session } from "../auth";
 import { jamSlug } from "../jams";
-import { type KitRef, kitKey, kitUri, parseKitUri } from "./uri";
+import type { MementoLike } from "./fs";
+import { KIT_SCHEME, type KitRef, kitKey, kitUri, parseKitUri } from "./uri";
 
 export type KitsApi = Pick<AdminApi, "head" | "branches" | "createBranch" | "kits" | "openDraft" | "files" | "publish" | "discard">;
 
@@ -17,7 +18,13 @@ export type KitsDeps = {
   branches: BranchState;
   makeApi: (url: string, token: string, branch: () => string) => KitsApi;
   openExternal: (url: string) => Promise<boolean>;
+  // state keeps the kits open under the Jam's root folder.
+  state?: MementoLike;
+  // onOpenChanged: the open kits changed (the root folder's listing).
+  onOpenChanged?: (jam: string) => void;
 };
+
+const OPEN_KEY = "jam.kits.open";
 
 export type KitNode =
   | { kind: "signIn" }
@@ -36,14 +43,6 @@ export class KitsController implements vscode.TreeDataProvider<KitNode> {
 
   constructor(private d: KitsDeps) {}
 
-  jamUrl(): string | undefined {
-    return this.d.jamUrl();
-  }
-
-  // branch is the config branch the view edits on ("" before the first load).
-  get branch(): string {
-    return this.branchName;
-  }
 
   refresh(): void {
     this.changed.fire(undefined);
@@ -139,78 +138,116 @@ export class KitsController implements vscode.TreeDataProvider<KitNode> {
     this.refresh();
   }
 
-  // open opens kit's draft (opening one from its current version when it has
-  // none, or it is gone) as a folder; an open folder is revealed.
-  async open(kit: string): Promise<void> {
-    const api = await this.need();
-    const ref = this.ref(kit)!;
-    const row = this.rows.get(kit);
-    if (row?.tracked) throw new Error(`Kit ${kit} lives in its own git repo: edit it there.`);
+  // openKits are the kits shown under the Jam's root folder.
+  openKits(): KitRef[] {
+    return this.d.state?.get<KitRef[]>(OPEN_KEY) ?? [];
+  }
+
+  private async setOpen(ref: KitRef, open: boolean): Promise<void> {
+    const rest = this.openKits().filter((k) => kitKey(k) !== kitKey(ref));
+    await this.d.state?.update(OPEN_KEY, open ? [...rest, ref] : rest);
+    this.d.onOpenChanged?.(ref.jam);
+  }
+
+  // open opens a kit's draft (opening one from its current version when it
+  // has none, or it is gone) under the Jam's root folder, which joins the
+  // workspace once and stays: VS Code restarts every extension when the
+  // first folder changes.
+  async open(arg: unknown): Promise<void> {
+    const ref = this.refOf(arg);
+    const api = await this.apiOn(ref);
+    const row = ref.branch === this.branchName ? this.rows.get(ref.kit) : undefined;
+    if (row?.tracked) throw new Error(`Kit ${ref.kit} lives in its own git repo: edit it there.`);
     if (!row?.draft || this.gone.has(kitKey(ref))) {
-      await api.openDraft(kit, 0).catch((e: unknown) => {
+      await api.openDraft(ref.kit, 0).catch((e: unknown) => {
         if (!(e instanceof Error && /already has a draft/.test(e.message))) throw e;
       });
       this.gone.delete(kitKey(ref));
-      if (row) this.rows.set(kit, { ...row, draft: true });
+      if (row) this.rows.set(ref.kit, { ...row, draft: true });
     }
-    const uri = kitUri(ref.jam, ref.branch, kit);
+    await this.setOpen(ref, true);
+    const root = vscode.Uri.from({ scheme: KIT_SCHEME, authority: ref.jam, path: "/" });
     const folders = vscode.workspace.workspaceFolders ?? [];
-    if (folders.some((f) => String(f.uri) === String(uri))) {
-      await vscode.commands.executeCommand("revealInExplorer", uri);
-    } else {
-      vscode.workspace.updateWorkspaceFolders(folders.length, 0, { uri, name: `${kit} (${ref.branch})` });
+    if (!folders.some((f) => String(f.uri) === String(root))) {
+      vscode.workspace.updateWorkspaceFolders(folders.length, 0, { uri: root, name: `Jam kits (${ref.jam})` });
     }
+    await vscode.commands.executeCommand("revealInExplorer", kitUri(ref.jam, ref.branch, ref.kit));
     this.refresh();
   }
 
-  async publish(kit: string): Promise<void> {
-    const api = await this.need();
-    const ok = await vscode.window.showWarningMessage(
-      `Publish kit ${kit}? Its draft is committed to branch ${this.branchName}.`,
-      { modal: true },
-      "Publish",
-    );
+  // saveDirty saves ref's unsaved editors first, if the operator agrees;
+  // false when they don't.
+  async saveDirty(ref: KitRef, verb: string): Promise<boolean> {
+    const dirty = vscode.workspace.textDocuments.filter((d) => {
+      const p = d.isDirty ? parseKitUri(d.uri) : undefined;
+      return p !== undefined && kitKey(p) === kitKey(ref);
+    });
+    if (dirty.length === 0) return true;
+    const a = await vscode.window.showWarningMessage(`Kit ${ref.kit} has unsaved files. Save them and ${verb.toLowerCase()}?`, { modal: true }, `Save and ${verb}`);
+    if (a !== `Save and ${verb}`) return false;
+    for (const d of dirty) if (!(await d.save())) throw new Error(`${parseKitUri(d.uri)?.path} could not be saved.`);
+    return true;
+  }
+
+  async publish(arg: unknown): Promise<void> {
+    const ref = this.refOf(arg);
+    const api = await this.apiOn(ref);
+    if (!(await this.saveDirty(ref, "Publish"))) return;
+    const ok = await vscode.window.showWarningMessage(`Publish kit ${ref.kit}? Its draft is committed to branch ${ref.branch}.`, { modal: true }, "Publish");
     if (ok !== "Publish") return;
-    const f = await api.files(kit);
-    const r = await api.publish(kit, f.etag, this.head || api.head);
-    this.closeFolder(kit);
+    const f = await api.files(ref.kit);
+    const r = await api.publish(ref.kit, f.etag, api.head || this.head);
+    await this.setOpen(ref, false);
     this.refresh();
-    void vscode.window.showInformationMessage(r.message || `Published ${kit}.`);
+    void vscode.window.showInformationMessage(r.message || `Published ${ref.kit}.`);
   }
 
-  async discard(kit: string): Promise<void> {
-    const api = await this.need();
-    const ok = await vscode.window.showWarningMessage(`Discard the draft of kit ${kit}? Its unpublished changes are lost.`, { modal: true }, "Discard");
+  async discard(arg: unknown): Promise<void> {
+    const ref = this.refOf(arg);
+    const api = await this.apiOn(ref);
+    const ok = await vscode.window.showWarningMessage(
+      `Discard the draft of kit ${ref.kit} on branch ${ref.branch}? Its unpublished changes are lost.`,
+      { modal: true },
+      "Discard",
+    );
     if (ok !== "Discard") return;
-    const f = await api.files(kit);
-    await api.discard(kit, f.etag);
-    this.closeFolder(kit);
+    const f = await api.files(ref.kit);
+    await api.discard(ref.kit, f.etag);
+    await this.setOpen(ref, false);
     this.refresh();
   }
 
-  async openInConsole(kit?: string): Promise<void> {
+  async openInConsole(arg?: unknown): Promise<void> {
     const url = this.d.jamUrl();
     if (!url) return;
-    const page = kit ? `config/kits/${encodeURIComponent(kit)}` : "config";
-    await this.d.openExternal(`${url}/app/admin/${page}?branch=${encodeURIComponent(this.branchName)}`);
+    const ref = arg === undefined ? undefined : this.refOf(arg);
+    const page = ref ? `config/kits/${encodeURIComponent(ref.kit)}` : "config";
+    await this.d.openExternal(`${url}/app/admin/${page}?branch=${encodeURIComponent(ref?.branch ?? this.branchName)}`);
   }
 
   // kitOf is the kit a command was run on: a view item, a kit name, or a
   // jamkit: URI (the explorer).
+  // With no argument (the command palette), the active editor's kit.
   kitOf(arg: unknown): string | undefined {
+    if (arg === undefined) arg = vscode.window.activeTextEditor?.document.uri;
     if (typeof arg === "string") return arg;
     if (arg && typeof arg === "object" && "row" in arg) return (arg as { row: KitRow }).row.name;
     if (arg instanceof Object && "scheme" in arg) return parseKitUri(arg as vscode.Uri)?.kit;
     return undefined;
   }
 
-  private closeFolder(kit: string): void {
-    const ref = this.ref(kit);
-    if (!ref) return;
-    const uri = String(kitUri(ref.jam, ref.branch, kit));
-    const folders = vscode.workspace.workspaceFolders ?? [];
-    const i = folders.findIndex((f) => String(f.uri) === uri);
-    if (i >= 0) vscode.workspace.updateWorkspaceFolders(i, 1);
+  // refOf is the kit a command was run on, on its own branch: a jamkit: URI
+  // names its branch; a view item or a name is on the view's.
+  refOf(arg: unknown): KitRef {
+    if (arg === undefined) arg = vscode.window.activeTextEditor?.document.uri;
+    if (arg instanceof Object && "scheme" in arg) {
+      const p = parseKitUri(arg as vscode.Uri);
+      if (p) return { jam: p.jam, branch: p.branch, kit: p.kit };
+    }
+    const kit = this.kitOf(arg);
+    const ref = kit === undefined ? undefined : this.ref(kit);
+    if (!ref) throw new Error("Pick a kit in the Kits view.");
+    return ref;
   }
 
   private ref(kit: string): KitRef | undefined {
@@ -222,6 +259,16 @@ export class KitsController implements vscode.TreeDataProvider<KitNode> {
     const api = await this.api();
     if (!api) throw new NoAdminError();
     return api;
+  }
+
+  // apiOn is the admin client on ref's branch (ref must be this hub's Jam).
+  private async apiOn(ref: KitRef): Promise<KitsApi> {
+    const api = await this.need();
+    const url = this.d.jamUrl()!;
+    if (jamSlug(url) !== ref.jam) throw new Error(`Kit ${ref.kit} belongs to another Jam: use its hub.`);
+    if (ref.branch === this.branchName) return api;
+    const s = await this.d.session(url);
+    return this.d.makeApi(url, s!.token, () => ref.branch);
   }
 
   // api is the admin client for this window's Jam, on the chosen branch;
