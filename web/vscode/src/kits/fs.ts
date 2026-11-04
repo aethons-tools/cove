@@ -1,5 +1,5 @@
 // The jamkit: file system: a kit's draft on a config branch as a folder
-// (docs/usage/jam/vscode.md#editing-kits). Reads and writes go to the
+// (docs/usage/jam/vscode-kits.md). Reads and writes go to the
 // draft's file API (docs/usage/jam/kits-drafts.md#file-api); each write is
 // conditional on the content this file system last read for that file, so a
 // change made elsewhere (the console, another window) is never overwritten:
@@ -33,7 +33,7 @@ export class KitFileSystem implements vscode.FileSystemProvider {
   private shas = new Map<string, string>(); // a file's content as last read here
 
   constructor(
-    private apiFor: (jam: string, branch: string) => KitApi | undefined,
+    private apiFor: (jam: string, branch: string) => KitApi | undefined | Promise<KitApi | undefined>,
     private now: () => number = Date.now,
   ) {}
 
@@ -158,6 +158,21 @@ export class KitFileSystem implements vscode.FileSystemProvider {
     ]);
   }
 
+  // toggleExec flips file uri's executable bit (VS Code has none) and
+  // returns the new one.
+  async toggleExec(uri: vscode.Uri): Promise<boolean> {
+    const p = this.parse(uri);
+    const l = await this.listing(p, true);
+    const cur = l.files.find((f) => f.path === p.path);
+    if (!cur) throw vscode.FileSystemError.FileNotFound(uri);
+    const r = await this.call(p, uri, (api) => api.readFile(p.kit, p.path));
+    const files = await this.call(p, uri, (api) => api.writeFile(p.kit, p.path, r.bytes, { sha256: r.sha256 }, !cur.exec));
+    const now = files.files.find((f) => f.path === p.path);
+    if (now) this.shas.set(uri.toString(), now.sha256);
+    this.store(p, files);
+    return !cur.exec;
+  }
+
   private isDir(p: KitPath, l: DraftFiles): boolean {
     return l.files.some((f) => f.path.startsWith(`${p.path}/`)) || (this.dirs.get(kitKey(p))?.has(p.path) ?? false);
   }
@@ -171,7 +186,7 @@ export class KitFileSystem implements vscode.FileSystemProvider {
   // call runs fn on ref's admin API, turning the Jam's refusals into file
   // system errors (uri: the file it is about).
   private async call<T>(ref: KitRef, uri: vscode.Uri | undefined, fn: (api: KitApi) => Promise<T>): Promise<T> {
-    const api = this.apiFor(ref.jam, ref.branch);
+    const api = await this.apiFor(ref.jam, ref.branch);
     if (!api) throw vscode.FileSystemError.Unavailable("Sign in to this Jam to edit its kits.");
     try {
       return await fn(api);

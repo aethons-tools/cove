@@ -93,6 +93,7 @@ export const window = {
     dispose: () => {},
   })),
   treeViews: [] as { id: string; badge: unknown; options: { treeDataProvider: unknown } }[],
+  registerTreeDataProvider: vi.fn((_id: string, _p: unknown) => disposable()),
   createTreeView: vi.fn((id: string, options: { treeDataProvider: unknown }) => {
     const v = { id, options, badge: undefined as unknown, dispose: () => {} };
     window.treeViews.push(v);
@@ -162,7 +163,14 @@ export enum StatusBarAlignment { Left = 1, Right = 2 }
 export enum ProgressLocation { SourceControl = 1, Window = 10, Notification = 15 }
 
 export const workspace = {
-  workspaceFolders: undefined as undefined | { uri: { scheme: string; authority: string } }[],
+  workspaceFolders: undefined as undefined | { uri: { scheme: string; authority: string; toString?(): string }; name?: string }[],
+  updateWorkspaceFolders: vi.fn((start: number, del: number, ...add: { uri: { scheme: string; authority: string }; name?: string }[]) => {
+    const now = [...(workspace.workspaceFolders ?? [])];
+    now.splice(start, del, ...add);
+    workspace.workspaceFolders = now;
+    return true;
+  }),
+  registerFileSystemProvider: vi.fn((_scheme: string, _p: unknown, _o?: unknown) => disposable()),
   workspaceFile: undefined as undefined | { scheme: string; authority: string; path: string },
   getConfiguration: vi.fn((section: string) => ({
     get: (key: string) => mock.config[`${section}.${key}`],
@@ -330,3 +338,24 @@ export class Disposable {
     this.fn();
   }
 }
+
+export enum DiagnosticSeverity { Error = 0, Warning = 1, Information = 2, Hint = 3 }
+export class Range {
+  constructor(public startLine: number, public startCharacter: number, public endLine: number, public endCharacter: number) {}
+}
+export class Diagnostic {
+  source?: string;
+  constructor(public range: Range, public message: string, public severity?: DiagnosticSeverity) {}
+}
+export const diagnostics = new Map<string, Diagnostic[]>();
+export const languages = {
+  createDiagnosticCollection: vi.fn((_name: string) => ({
+    set: (uri: { toString(): string }, d: Diagnostic[] | undefined) => {
+      if (d && d.length > 0) diagnostics.set(uri.toString(), d);
+      else diagnostics.delete(uri.toString());
+    },
+    delete: (uri: { toString(): string }) => void diagnostics.delete(uri.toString()),
+    clear: () => diagnostics.clear(),
+    dispose: () => {},
+  })),
+};

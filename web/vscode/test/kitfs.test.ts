@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { FileChangeType, FileSystemError, FileType, Uri } from "vscode";
+import { FileChangeType, FileSystemError, FileType, Uri } from "./vscode";
 import { ApiError } from "../src/api";
 import { KitFileSystem, type KitApi } from "../src/kits/fs";
 import { kitUri, parseKitUri } from "../src/kits/uri";
@@ -37,7 +37,7 @@ function fake(initial = listing([{ path: "kit.yml", sha256: "k1" }, { path: "bin
   };
   return { api, apiFor, fs, set };
 }
-const u = (p = "") => kitUri("jam.example", "jam/alice", "web", p) as unknown as Uri;
+const u = (p = "") => kitUri("jam.example", "jam/alice", "web", p);
 
 describe("kit URIs", () => {
   it("round-trip a branch with a slash", () => {
@@ -99,6 +99,11 @@ describe("KitFileSystem", () => {
     expect(api.renameFile).toHaveBeenCalledWith("web", "kit.yml", "kit2.yml", "k1");
     await fs.delete(u("bin"), { recursive: true });
     expect(api.deleteFile).toHaveBeenCalledWith("web", "bin/run.sh", "r1");
+  });
+  it("toggles a file's executable bit, keeping its content", async () => {
+    const { fs, api } = fake();
+    expect(await fs.toggleExec(u("bin/run.sh"))).toBe(false);
+    expect(api.writeFile).toHaveBeenCalledWith("web", "bin/run.sh", enc("content of bin/run.sh"), { sha256: "r1" }, false);
   });
   it("reports the draft's problems after each listing", async () => {
     const { fs, set } = fake();

@@ -54,7 +54,7 @@ read: a stale one is refused 412 `draft <kit> changed since you loaded it
 ## File API
 
 For editors that work on files (the VS Code extension,
-[vscode.md](vscode.md#editing-kits)), the draft's files are also plain
+[vscode-kits.md](vscode-kits.md)), the draft's files are also plain
 bytes, under `/app/admin/api/kits/<kit>/draft/`, on a branch like every
 draft write. Each write is conditional on **the file it touches**: its
 sha256, not the draft's ETag, so a change to another file never refuses it.

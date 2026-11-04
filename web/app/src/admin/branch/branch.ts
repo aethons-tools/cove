@@ -34,6 +34,17 @@ export function setBranch(name: string): void {
   notify();
 }
 
+// adoptBranchFromLink opens the branch a link names (?branch=<name>, as the
+// VS Code extension's Open in Console sends) and drops it from the URL.
+export function adoptBranchFromLink(loc: Location = window.location, history: History = window.history): void {
+  const u = new URL(loc.href);
+  const name = u.searchParams.get("branch");
+  if (name === null) return;
+  setBranch(name.trim());
+  u.searchParams.delete("branch");
+  history.replaceState(history.state, "", u.pathname + u.search + u.hash);
+}
+
 // getHead is the head this tab last read on its branch ("" = none yet).
 export function getHead(): string {
   return head;

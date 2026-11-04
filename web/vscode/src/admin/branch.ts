@@ -1,5 +1,5 @@
 // The config branch kit editing works on, remembered per Jam
-// (docs/usage/jam/vscode.md#editing-kits). "" = not chosen: the Jam's
+// (docs/usage/jam/vscode-kits.md). "" = not chosen: the Jam's
 // default name for the operator (jam/<operator>).
 export interface MementoLike {
   get<T>(key: string): T | undefined;

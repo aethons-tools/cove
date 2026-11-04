@@ -11,6 +11,7 @@ import { Problem } from "../Problem";
 import type { Bootstrap } from "./api/types";
 import { adminRoutes } from "./AdminApp";
 import { adminApi } from "./paths";
+import { adoptBranchFromLink } from "./branch/branch";
 
 // loadBootstrap reads the bootstrap webapp injected into index.html, or (the
 // Vite dev server's index has none) fetches it.
@@ -25,6 +26,7 @@ async function loadBootstrap(): Promise<Bootstrap> {
 export async function start(el: HTMLElement): Promise<void> {
   const root = createRoot(el);
   registerSW();
+  adoptBranchFromLink();
   let boot;
   try {
     boot = await loadBootstrap();

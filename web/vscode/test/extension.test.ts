@@ -53,11 +53,13 @@ function jamFetch(calls: Call[]) {
 }
 
 describe("activate", () => {
-  it("activate registers five view providers and seven commands, and no tree view", () => {
+  it("activate registers five view providers, the Kits tree, the jamkit: file system and the commands", () => {
     mock.reset();
     const ctx = fakeContext();
     activate(ctx);
-    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(7);
+    expect(vscode.commands.registerCommand).toHaveBeenCalledTimes(16);
+    expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledWith("jam.kits", expect.anything());
+    expect(vscode.workspace.registerFileSystemProvider).toHaveBeenCalledWith("jamkit", expect.anything(), { isCaseSensitive: true });
     expect(vscode.window.createTreeView).not.toHaveBeenCalled();
     expect(vscode.window.registerUriHandler).toHaveBeenCalledTimes(1);
     expect(vscode.window.registerWebviewViewProvider).toHaveBeenCalledTimes(5);

@@ -1,0 +1,74 @@
+---
+summary: Editing kits in the Jam VS Code extension — the hub's Kits view, the config branch it edits on, a kit's draft opened as a jamkit: folder, saves and conflicts, the Problems view, Build, Publish and Discard, and Open in Console.
+read_when: You want to edit a kit's files in VS Code or VSCodium instead of the console, are choosing the branch the Kits view edits on, a kit save failed ("changed on the Jam", "the draft is gone"), the Kits view asks you to sign in again, or a Build from VS Code failed.
+owns: the extension's kit editing (the Kits view, jamkit: URIs and folders, save conditions and their errors as VS Code shows them, the kit problems in the Problems view, the Build command and its Jam Kit Build output, Publish/Discard/Toggle Executable/Open in Console from VS Code, the remembered branch)
+prereqs: vscode.md (installing and signing in); kits-drafts.md (drafts, the file API, test builds); config-branches.md (branches); app-tokens.md (admin access)
+tier: leaf
+updated: 2026-11-04
+---
+
+# Editing kits in VS Code
+
+An operator edits a kit as an ordinary folder in the hub window. The files are
+the kit's **draft** on your config branch, served by the Jam
+([kits-drafts.md](kits-drafts.md)): the same draft the console's Draft
+section edits. A save writes the draft and commits nothing. **Publish**
+commits it to the branch, and merging stays in the console.
+
+## Access
+
+Kit editing needs a sign-in that may use the admin API: an operator's, made
+after admin access existed ([app-tokens.md](app-tokens.md#operator-standing)).
+Otherwise the Kits view shows **Kit editing needs an operator sign-in — sign in
+again**, which runs *Jam: Sign In*.
+
+## The Kits view
+
+The **Kits** view is in the Jam sidebar of the hub (collapsed at first).
+
+- Its first row is the branch: **Branch: jam/ann** (click to switch, or
+  create one), or **Create branch jam/ann** when your default branch doesn't
+  exist yet. The choice is remembered per Jam. The followed branch is never
+  offered: it is read-only ([config-branches.md](config-branches.md)).
+- Then the kits: `v<N>`, `draft` when one is open, or **from its git repo**
+  for a kit with its own source, which you edit in that repo.
+- Click a kit to open it. With no draft, one is opened from the current
+  version. The kit joins the hub as the folder **web (jam/ann)**: the
+  explorer, search and editors work on it as on any folder.
+- A kit with a draft has **Build** and **Publish** buttons, and **Discard** and
+  **Open in Console** in its menu. The view's title has Refresh, Switch Config
+  Branch… and Open in Console (the console opens on the same branch).
+
+## Files and saves
+
+A kit's files are `jamkit://<jam host>/<branch>/<kit>/<path>` (a branch's `/`
+is written `~`). Each save is conditional on the file's content as you opened
+it ([kits-drafts.md](kits-drafts.md#file-api)), so an edit to another file,
+in the console or another window, never refuses it.
+
+- **"… changed on the Jam since you opened it"**: someone changed that file.
+  Nothing was overwritten. Use VS Code's compare, then save again.
+- **"the draft is gone (discarded, or the Jam restarted)"**: the draft no
+  longer exists; drafts live in memory. Your unsaved editors stay open. The
+  kit reads **draft gone — reopen**: click it, then save again.
+- New folders exist only in VS Code until a file is saved in them.
+- VS Code has no executable bit: use **Toggle Executable** on a file in the
+  explorer.
+
+The draft's problems (a bad `kit.yml`, a missing parent) are in the Problems
+view, on the file they name or on `kit.yml`, after every save.
+
+## Build
+
+**Build** (*Jam Kits: Build Kit Draft*, or the kit's button) builds the
+draft as saved; unsaved editors of the kit are saved first, if you agree. The
+log streams into the **Jam Kit Build** output, and a notification says
+whether it built. Cancel stops the build on the Jam. What a build is, and
+when one is reused, is in [kits-drafts.md](kits-drafts.md#test-build).
+
+## Publish and Discard
+
+Both ask first. **Publish** commits the draft to the branch (refused with
+the Jam's message when it has problems or no changes) and closes the folder;
+the commit is the branch's, as in the console. **Discard** drops the draft
+and closes the folder.

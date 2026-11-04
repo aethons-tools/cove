@@ -34,6 +34,17 @@ const at = ADMIN + "config/projects";
 
 afterEach(() => setBranch(""));
 
+describe("a link naming a branch", () => {
+  it("opens it in this tab and leaves the URL clean", async () => {
+    const { adoptBranchFromLink, getBranch, setBranch } = await import("./branch");
+    window.history.replaceState(null, "", "/app/admin/config/kits/web?branch=jam%2Falice#x");
+    adoptBranchFromLink();
+    expect(getBranch()).toBe("jam/alice");
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/app/admin/config/kits/web#x");
+    setBranch("");
+  });
+});
+
 describe("the branch bar", () => {
   it("on the followed branch: read-only, and no header", async () => {
     const seen = serve();

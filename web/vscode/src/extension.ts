@@ -54,6 +54,13 @@ import { SESSION_PANES, SessionPaneProvider } from "./panes/session";
 import { NeedsYou } from "./needsyou";
 import { RailViewProvider } from "./panes/rail";
 import { ConversationPanels } from "./panes/conversation";
+import { AdminApi, NoAdminError } from "./admin/api";
+import { BranchState } from "./admin/branch";
+import { runBuild } from "./kits/build";
+import { KitFileSystem } from "./kits/fs";
+import { attachProblems } from "./kits/problems";
+import { KIT_SCHEME, parseKitUri } from "./kits/uri";
+import { KitsController } from "./kits/view";
 import { ThinkingStreams } from "./thinking";
 import { Updater } from "./update";
 
@@ -570,6 +577,101 @@ export function activate(ctx: vscode.ExtensionContext): void {
     providers.set(name, p);
     ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(p.viewType, p));
   }
+
+  // --- Kits (docs/usage/jam/vscode-kits.md): kit drafts as jamkit:
+  // folders, and the hub's Kits view. ---
+  const branchState = new BranchState(ctx.globalState);
+  const adminFor = async (url: string, branch: () => string): Promise<AdminApi | undefined> => {
+    const s = await auths.authFor(url).session(url);
+    return s?.admin === true ? new AdminApi(url, s.token, (...a) => fetch(...a), branch) : undefined;
+  };
+  const kitFs = new KitFileSystem(async (slug, branch) => {
+    const url = jams().list.find((u) => jamSlug(u) === slug);
+    return url === undefined ? undefined : adminFor(url, () => branch);
+  });
+  ctx.subscriptions.push(vscode.workspace.registerFileSystemProvider(KIT_SCHEME, kitFs, { isCaseSensitive: true }));
+  const setProblems = attachProblems();
+  const kitsView = new KitsController({
+    jamUrl: () => {
+      const u = jamUrl();
+      return typeof u === "string" ? u : undefined;
+    },
+    session: (url) => auths.authFor(url).session(url),
+    branches: branchState,
+    makeApi: (url, token, branch) => new AdminApi(url, token, (...a) => fetch(...a), branch),
+    openExternal: (u) => Promise.resolve(vscode.env.openExternal(vscode.Uri.parse(u))),
+  });
+  ctx.subscriptions.push(
+    kitFs.onProblems(({ ref, files }) => setProblems(ref, files)),
+    kitFs.onDraftGone((ref) => kitsView.markGone(ref)),
+    vscode.window.registerTreeDataProvider("jam.kits", kitsView),
+    { dispose: auths.onChange(() => kitsView.refresh()) },
+  );
+  // kitCmd runs a Kits command on the kit it names (a view item, a name or a
+  // jamkit: URI); a refused admin token asks for a new sign-in.
+  const kitCmd = (fn: (kit: string, arg: unknown) => Promise<unknown>) => async (arg: unknown) => {
+    try {
+      const kit = kitsView.kitOf(arg);
+      if (kit === undefined) throw new Error("Pick a kit in the Kits view.");
+      await fn(kit, arg);
+    } catch (e) {
+      if (e instanceof SignedOutError) return signOutOnce();
+      if (e instanceof NoAdminError) {
+        const a = await vscode.window.showWarningMessage(e.message, "Sign In");
+        if (a === "Sign In") await vscode.commands.executeCommand("jam.signIn");
+        return;
+      }
+      show(e);
+    }
+  };
+  const kitReg = (id: string, cb: (...a: unknown[]) => unknown) => ctx.subscriptions.push(vscode.commands.registerCommand(id, cb));
+  kitReg("jam.kits.open", kitCmd((kit) => kitsView.open(kit)));
+  kitReg("jam.kits.publish", kitCmd((kit) => kitsView.publish(kit)));
+  kitReg("jam.kits.discard", kitCmd((kit) => kitsView.discard(kit)));
+  kitReg("jam.kits.openInConsole", kitCmd((kit) => kitsView.openInConsole(kit)));
+  kitReg(
+    "jam.kits.toggleExec",
+    kitCmd(async (_kit, arg) => {
+      const exec = await kitFs.toggleExec(arg as vscode.Uri);
+      void vscode.window.showInformationMessage(exec ? "The file is executable now." : "The file is not executable now.");
+    }),
+  );
+  // Build: the draft as saved, so unsaved editors of the kit are saved first
+  // (asked); the log streams into the Jam Kit Build output.
+  let buildOut: vscode.OutputChannel | undefined;
+  kitReg(
+    "jam.kits.build",
+    kitCmd(async (kit, arg) => {
+      const at = arg instanceof Object && "scheme" in arg ? parseKitUri(arg as vscode.Uri) : undefined;
+      const branch = at?.branch ?? kitsView.branch;
+      const url = at ? jams().list.find((u) => jamSlug(u) === at.jam) : kitsView.jamUrl();
+      if (!url || !branch) throw new Error("Open the Kits view to pick a branch first.");
+      const dirty = vscode.workspace.textDocuments.filter((d) => d.isDirty && parseKitUri(d.uri)?.kit === kit && parseKitUri(d.uri)?.branch === branch);
+      if (dirty.length > 0) {
+        const a = await vscode.window.showWarningMessage(`Kit ${kit} has unsaved files. Save them and build?`, { modal: true }, "Save and Build");
+        if (a !== "Save and Build") return;
+        for (const d of dirty) if (!(await d.save())) throw new Error(`${parseKitUri(d.uri)?.path} could not be saved.`);
+      }
+      const api = await adminFor(url, () => branch);
+      if (!api) throw new NoAdminError();
+      const { etag } = await api.files(kit);
+      buildOut ??= vscode.window.createOutputChannel("Jam Kit Build");
+      const out = buildOut;
+      out.clear();
+      out.show(true);
+      const v = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Building kit ${kit} (${branch})`, cancellable: true },
+        (_p, token) => runBuild(api, kit, etag, out, token),
+      );
+      if (v.state === "succeeded") return void vscode.window.showInformationMessage(`Kit ${kit} builds.`);
+      const line = (v.error ?? "").split("\n")[0] || v.state;
+      const a = await vscode.window.showErrorMessage(`Kit ${kit} did not build: ${line}`, "Show Log");
+      if (a === "Show Log") out.show();
+    }),
+  );
+  kitReg("jam.kits.switchBranch", guard(() => kitsView.switchBranch()));
+  kitReg("jam.kits.createBranch", guard(() => kitsView.createBranch()));
+  kitReg("jam.kits.refresh", () => kitsView.refresh());
 
   // --- Notifications: the window holds its one stream while signed in. ---
   const osNotifier = new OsNotifier({ platform: process.platform, extensionPath: ctx.extensionPath, execFile: runNotify, chmod: fsp.chmod, log });

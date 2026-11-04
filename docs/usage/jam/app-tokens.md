@@ -57,7 +57,7 @@ Expired tokens are deleted hourly.
 If the user is an operator at consent, the token records the operator id.
 Standing comes from the verified access-token cookie of the browser login, never from loopback trust or the dev identity.
 Such a token acts as that operator in the user area and on `/me/studios` (SSH and previews on any session), as the browser session does.
-It may also use the admin API, `/app/admin/api/`, as that operator: the VS Code extension edits kits through it ([vscode.md](vscode.md#editing-kits)).
+It may also use the admin API, `/app/admin/api/`, as that operator: the VS Code extension edits kits through it ([vscode-kits.md](vscode-kits.md)).
 The consent page says so. It never reaches the console's pages under `/app/admin/`.
 
 A token minted before admin access existed keeps working everywhere else but gets `403` (`no_admin`) from the admin API: sign in again for a new one.

@@ -26,7 +26,7 @@ describe("the manifest", () => {
     expect(pkg.displayName).toBe("Jam");
     expect(pkg.engines.vscode).toBe("^1.105.0");
     expect(pkg.main).toBe("./dist/extension.js");
-    expect(pkg.activationEvents).toEqual(["onUri", "onWebviewPanel:jam.board", "onWebviewPanel:jam.conversationTab", "onStartupFinished"]);
+    expect(pkg.activationEvents).toEqual(["onUri", "onWebviewPanel:jam.board", "onWebviewPanel:jam.conversationTab", "onFileSystem:jamkit", "onStartupFinished"]);
   });
 
   it("activationEvents include onStartupFinished", () => {
@@ -39,7 +39,8 @@ describe("the manifest", () => {
     const registered = vi_registered();
     const ids = pkg.contributes.commands.map((c: { command: string }) => c.command);
     expect(ids.sort()).toEqual(
-      ["jam.addJam", "jam.forgetHostKey", "jam.openHub", "jam.openSession", "jam.signIn", "jam.signOut", "jam.switchJam"],
+      ["jam.addJam", "jam.forgetHostKey", "jam.kits.build", "jam.kits.createBranch", "jam.kits.discard", "jam.kits.open", "jam.kits.openInConsole",
+        "jam.kits.publish", "jam.kits.refresh", "jam.kits.switchBranch", "jam.kits.toggleExec", "jam.openHub", "jam.openSession", "jam.signIn", "jam.signOut", "jam.switchJam"],
     );
     for (const id of ids) expect(registered).toContain(id);
   });
@@ -56,6 +57,7 @@ describe("the manifest", () => {
         { type: "webview", id: "jam.status", name: "Session Status", when: "jam.window == session || jam.window == hub" },
         { type: "webview", id: "jam.artifacts", name: "Artifacts", visibility: "collapsed", when: "jam.window == session || jam.window == hub" },
         { type: "webview", id: "jam.previews", name: "Previews", visibility: "collapsed", when: "jam.window == session || jam.window == hub" },
+        { id: "jam.kits", name: "Kits", visibility: "collapsed", when: "jam.window == hub" },
       ],
       jamPanel: [{ type: "webview", id: "jam.thinking", name: "Thinking", when: "jam.window == session || jam.window == hub" }],
     });
@@ -71,15 +73,22 @@ describe("the manifest", () => {
     });
   });
 
+  it("kit commands show only where they apply: the Kits view, a jamkit: file, the hub", () => {
+    const m = pkg.contributes.menus;
+    const palette = new Map(m.commandPalette.map((e: { command: string; when: string }) => [e.command, e.when]));
+    for (const c of ["jam.kits.open", "jam.kits.createBranch"]) expect(palette.get(c)).toBe("false");
+    for (const c of ["jam.kits.build", "jam.kits.publish", "jam.kits.discard", "jam.kits.toggleExec"]) expect(palette.get(c)).toBe("resourceScheme == jamkit");
+    for (const e of m["view/item/context"]) expect(e.when).toMatch(/^view == jam.kits && viewItem/);
+    for (const e of m["explorer/context"]) expect(e.when).toMatch(/^resourceScheme == jamkit/);
+  });
+
   it("Open Hub is a Jam command", () => {
     expect(pkg.contributes.commands).toContainEqual({ command: "jam.openHub", title: "Open Hub", category: "Jam" });
   });
 
   it("the palette shows Switch Jam only with several Jams; no view welcome", () => {
-    expect(pkg.contributes.menus).toEqual({
-      commandPalette: [{ command: "jam.switchJam", when: "jam.multiJam" }],
-      "view/title": [{ command: "jam.switchJam", when: "view == jam.rail && jam.multiJam && jam.window == ''", group: "navigation" }],
-    });
+    expect(pkg.contributes.menus.commandPalette[0]).toEqual({ command: "jam.switchJam", when: "jam.multiJam" });
+    expect(pkg.contributes.menus["view/title"][0]).toEqual({ command: "jam.switchJam", when: "view == jam.rail && jam.multiJam && jam.window == ''", group: "navigation" });
     expect(pkg.contributes.commands).toContainEqual({ command: "jam.switchJam", title: "Switch Jam…", category: "Jam", icon: "$(arrow-swap)" });
     expect(pkg.contributes.viewsWelcome).toBeUndefined();
   });
