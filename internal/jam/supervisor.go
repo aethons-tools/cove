@@ -743,7 +743,7 @@ type draftRaise struct {
 // placement managers), waited for.
 func (s *Supervisor) raiseDraft(ctx context.Context, spec RaiseSpec, role Role) (draftRaise, error) {
 	if s.draftBuilds == nil {
-		return draftRaise{}, writeErr(http.StatusServiceUnavailable, kitDraftBuildsOff)
+		return draftRaise{}, writeErr(http.StatusServiceUnavailable, KitDraftBuildsOff)
 	}
 	h, err := s.raiseHarness(spec.Project, role)
 	if err != nil {

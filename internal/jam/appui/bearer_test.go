@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// fakeBearer accepts "good" (a member) and "op" (a member with operator
-// standing); done counts the finished requests.
+// fakeBearer accepts "good" (a member), "op" (a member with operator
+// standing) and "opadmin" (operator standing, minted with admin access);
+// done counts the finished requests.
 type fakeBearer struct{ done int }
 
 func (f *fakeBearer) fn(r *http.Request, raw string) (*http.Request, func(), error) {
@@ -20,6 +22,8 @@ func (f *fakeBearer) fn(r *http.Request, raw string) (*http.Request, func(), err
 	case "good":
 	case "op":
 		p.Admin, p.Operator = true, jam.Operator{ID: "op-1"}
+	case "opadmin":
+		p.Admin, p.Operator, p.AdminAPI = true, jam.Operator{ID: "op-1"}, true
 	default:
 		return nil, nil, errors.New("invalid")
 	}
@@ -119,11 +123,45 @@ func TestUserBearerOnLoopbackNotLocalAdmin(t *testing.T) {
 	}
 }
 
+// An admin-flagged operator token reaches the admin API as that operator,
+// cross-origin writes included (no cookie to forge).
+func TestAdminAPIBearer(t *testing.T) {
+	m := bearerMux(t, &fakeBearer{})
+	w := serveReq(m, bearerReq("GET", "/app/admin/api/users", "opadmin", false))
+	if w.Code != 200 || w.Body.String() != "admin /app/admin/api/users set=true user=true admin=true local=false op=op-1" {
+		t.Fatalf("%d %q", w.Code, w.Body)
+	}
+	r := bearerReq("POST", "/app/admin/api/kits", "opadmin", false)
+	r.Header.Set("Origin", "https://evil.example")
+	if w := serveReq(m, r); w.Code != 200 {
+		t.Fatalf("cross-origin bearer post: %d %q", w.Code, w.Body)
+	}
+}
+
+// Tokens without admin access get a JSON 403 the client can act on.
+func TestAdminAPIBearerNoAdminFlag(t *testing.T) {
+	m := bearerMux(t, &fakeBearer{})
+	for _, tok := range []string{"op", "good"} {
+		w := serveReq(m, bearerReq("GET", "/app/admin/api/users", tok, false))
+		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), `"code":"no_admin"`) {
+			t.Errorf("%s: %d %q", tok, w.Code, w.Body)
+		}
+	}
+	if w := serveReq(m, bearerReq("GET", "/app/admin/api/users", "nope", false)); w.Code != http.StatusUnauthorized {
+		t.Errorf("invalid: %d", w.Code)
+	}
+	r := bearerReq("GET", "/app/admin/api/users", "opadmin", false)
+	r.AddCookie(&http.Cookie{Name: "jam_app_id", Value: "alice"})
+	if w := serveReq(m, r); w.Code != http.StatusBadRequest {
+		t.Errorf("bearer+cookie: %d", w.Code)
+	}
+}
+
 func TestAdminRefusesBearer(t *testing.T) {
 	m := bearerMux(t, &fakeBearer{})
 	for _, loop := range []bool{false, true} {
-		for _, tok := range []string{"good", "op", "nope"} {
-			if w := serveReq(m, bearerReq("GET", "/app/admin/api/users", tok, loop)); w.Code != http.StatusUnauthorized {
+		for _, tok := range []string{"good", "op", "opadmin", "nope"} {
+			if w := serveReq(m, bearerReq("GET", "/app/admin/config/kits", tok, loop)); w.Code != http.StatusUnauthorized {
 				t.Errorf("loopback=%v %s: %d %q", loop, tok, w.Code, w.Body)
 			}
 		}

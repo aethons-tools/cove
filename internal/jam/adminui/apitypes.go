@@ -690,7 +690,28 @@ type KitRow struct {
 	UsedBy  int       `json:"usedBy"`
 	Invalid bool      `json:"invalid"` // the current version isn't a valid studio kit
 	Draft   bool      `json:"draft"`   // an open draft
+	Tracked bool      `json:"tracked"` // from its own git source: edited there
 	Attn    *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
+}
+
+// DraftFiles is a kit draft's files (GET /app/admin/api/kits/{name}/draft/files,
+// and every file API write's answer): the draft's ETag, its base and the
+// kit's current version, its problems and each file.
+type DraftFiles struct {
+	ETag     string      `json:"etag"`
+	Base     int         `json:"base"`
+	Current  int         `json:"current"`
+	Problems []string    `json:"problems"`
+	MaxFile  int64       `json:"maxFile"`
+	Files    []DraftFile `json:"files"`
+}
+
+// DraftFile is one file of a draft; SHA256 is the precondition its writes send.
+type DraftFile struct {
+	Path   string `json:"path"`
+	Exec   bool   `json:"exec"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
 }
 
 // KitsResponse is GET /app/admin/api/kits.

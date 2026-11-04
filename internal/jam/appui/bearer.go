@@ -1,6 +1,7 @@
 package appui
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 )
@@ -25,6 +26,25 @@ func bearerToken(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(h[7:]), true
+}
+
+// noAdminAPI is the admin API's answer to an app token without admin access,
+// in the API's JSON envelope so a client can tell it from a sign-out.
+const noAdminAPI = "this app token has no admin access: sign in again"
+
+// requireAdminAPI lets through a bearer request whose token may use the
+// admin API (Principal.AdminAPI, with operator standing); any other gets 403
+// code no_admin.
+func requireAdminAPI(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if p, ok := PrincipalFrom(r); !ok || !p.Admin || !p.AdminAPI {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": noAdminAPI, "code": "no_admin"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // RefuseBearer answers 401 to any request carrying a bearer token, loopback

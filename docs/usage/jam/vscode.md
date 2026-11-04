@@ -4,7 +4,7 @@ read_when: You want to open an agent's session or studio in VS Code or VSCodium 
 owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session's studio window and the connected mark; conversation tabs, the four views, board tabs, its empty states and link rules; VS Code and OS notifications; and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; VSCodium and Open Remote - SSH; its troubleshooting
 prereqs: collaboration.md for who may SSH and the ssh_config block the CLI writes; app-tokens.md for the sign-in token
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-04
 ---
 
 # The Jam VS Code extension
@@ -104,6 +104,7 @@ If the studio isn't running, the cert step says so and nothing opens. Opening ne
 
 Every window has the **rail** (the Conversations view), and one **hub** window holds conversations as tabs;
 a click opens the conversation's hub tab, a double-click the session's studio window: [vscode-hub.md](vscode-hub.md).
+Operators also edit kits from the hub's Kits view: [vscode-kits.md](vscode-kits.md).
 
 ## Panes
 

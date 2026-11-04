@@ -71,6 +71,14 @@ type options struct {
 	appTokenRevoke  func(ident.ID)             // nil: revoking an app token ends no requests (WithAppTokenRevoke)
 	branches        *jam.ConfigBranches        // nil: no branch editor (WithConfigBranches)
 	branchHandler   func(jam.Store) http.Handler
+	draftBuilds     *jam.KitDraftBuilds // nil: Build answers 503 (WithKitDraftBuilds)
+}
+
+// WithKitDraftBuilds turns on kit draft test builds
+// (docs/usage/jam/kits-drafts.md#test-build): a branch's handlers build its
+// own drafts through b.
+func WithKitDraftBuilds(b *jam.KitDraftBuilds) Option {
+	return func(o *options) { o.draftBuilds = b }
 }
 
 // WithConditions shows operator-attention conditions: open critical/warning
@@ -161,6 +169,6 @@ func newMux(store jam.Store, log *slog.Logger, sup *jam.Supervisor, alloc jam.Se
 	registerApp(mux, src, msgs, roleAPI{sup: sup, alloc: alloc, credExists: credExists, setup: o.setup, managers: o.setupManagers},
 		specUI{store: store, credExists: credExists, credNames: o.credNames, pool: o.poolConfigured},
 		agentAPI{sup: sup, alloc: alloc, msgs: msgs, sess: o.sessStore, hub: o.sessHub, acc: accessDeps{o.live, o.exposures, o.previewURL}, setup: o.setup, credExists: credExists},
-		dashAPI{managers: o.managers, sup: sup, amURL: o.alertmanagerURL}, o.trustedOrigins, fetchers{kits: o.kitFetcher, config: cfgFetcher}, cfgEnv, o.branches, log)
+		dashAPI{managers: o.managers, sup: sup, amURL: o.alertmanagerURL}, o.trustedOrigins, fetchers{kits: o.kitFetcher, config: cfgFetcher}, cfgEnv, o.branches, o.draftBuilds, log)
 	return mux, o
 }

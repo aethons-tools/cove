@@ -51,6 +51,26 @@ The draft's **ETag** is its tree hash. Every write sends back the ETag it
 read: a stale one is refused 412 `draft <kit> changed since you loaded it
 (reload)`. Nothing is merged: reload the draft and make the edit again.
 
+## File API
+
+For editors that work on files (the VS Code extension,
+[vscode-kits.md](vscode-kits.md)), the draft's files are also plain
+bytes, under `/app/admin/api/kits/<kit>/draft/`, on a branch like every
+draft write. Each write is conditional on **the file it touches**: its
+sha256, not the draft's ETag, so a change to another file never refuses it.
+
+| Route | Does |
+|---|---|
+| `GET files` | `{etag, base, current, problems, maxFile, files: [{path, exec, size, sha256}]}` |
+| `GET files/<path>` | The file's bytes; `ETag` is its sha256 |
+| `PUT files/<path>` | Writes the body. `If-Match: "<sha256>"` replaces that content, `If-None-Match: *` creates; `?exec=1` or `?exec=0` sets the mode (else kept; a new file is not executable). Answers like `GET files` |
+| `DELETE files/<path>` | Removes it, with `If-Match` |
+| `POST files-rename` | JSON `{from, to, sha256}`: `from` must still have `sha256`; `to` taken is 409 |
+
+A failed condition is 412 code `changed`, a write with neither header 428
+`precondition_required`, and a kit with no draft 404 `no_draft`. The draft's
+other rules (limits, `.dockerignore`, problems) hold as for any save.
+
 ## Publish
 
 Publish checks the draft as a kit in the repo is checked, makes its tree the
@@ -67,5 +87,30 @@ draft.
 - The commit is the branch save's ([config-branches.md](config-branches.md#saving)):
   one commit, authored by the operator.
 
-There is no test build or draft studio: a kit's image is built when the
-merged version is raised.
+## Test build
+
+A draft can be built before it is published, to check that it builds. The
+build commits nothing and starts no studio; the kit's real image is still
+built when the merged version is raised. There is no draft studio.
+
+| Route (under `/app/admin/api/kits/<kit>/draft/`) | Does |
+|---|---|
+| `POST build` | JSON `{etag, manager?}`: builds the draft at that ETag on a Studio Manager that builds images (the first one, or `manager`) |
+| `GET build?since=<n>` | The latest build of this branch's draft: `{id, state, tag, digest, error, current, log, log_end, …}`, its log from offset `n`; poll with the last `log_end` |
+| `POST build/cancel` | Stops the running build |
+
+`state` is `running`, `succeeded`, `failed` or `unknown` (none since the Jam
+started). `current` says whether the draft is still the tree that was built.
+Builds and their logs (the last 1 MiB) are kept in memory only.
+
+- Each branch has its own builds. The image is tagged
+  `jam-kit-draft:<kit>-<tree[:12]>`, never a version's tag.
+- The same files (the draft's tree and its resolved parents) on another
+  branch reuse a running build, and a finished one whose image is still on
+  the manager. The same tree with other parents is a different image: while
+  one of those builds runs, the other is refused 409, so one tag never builds
+  twice at once.
+- The draft must have no problems (400), and the ETag must be current (412).
+  One build per kit runs at a time on a branch (409).
+- No Studio Manager can build: 503 `test builds need a connected Studio
+  Manager that builds images (runtime.studio-managers)`.

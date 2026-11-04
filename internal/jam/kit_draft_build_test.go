@@ -805,3 +805,114 @@ func TestEnsureRespectsRequestedManagers(t *testing.T) {
 		t.Fatalf("%d image checks with no image id reached a manager", n)
 	}
 }
+
+// branchDraft is a store with kit app (built on web vN) and an open draft
+// whose Dockerfile says line: one branch's workspace.
+func branchDraft(t *testing.T, webVersions int, line string) (Store, string) {
+	t.Helper()
+	st := NewMemStore()
+	for i := range webVersions {
+		if _, _, err := PushKitFiles(st, "web", kittreetest.Files("kit.yml", fmt.Sprintf("kind: studio\negress: [v%d.example.com]\n", i+1),
+			"Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pushApp(t, st, "kit.yml", "kind: studio\nbase: {kit: web}\n", "Dockerfile", "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\n")
+	d, err := OpenKitDraft(st, "app", 0, "local", draftNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := PutKitDraftFile(st, slog.New(slog.DiscardHandler), "app", "Dockerfile", 0,
+		[]byte("ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\nRUN "+line+"\n"), DraftETag(d.Tree), "local", draftNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st, s.ETag
+}
+
+// Each branch has its own builds of its own draft.
+func TestDraftBuildPerBranch(t *testing.T) {
+	fb := &fakeDraftBuilder{}
+	b := NewKitDraftBuilds(context.Background(), NewMemStore(), OneDraftManager("local", fb), slog.New(slog.DiscardHandler))
+	sa, ea := branchDraft(t, 1, "echo a")
+	sb, eb := branchDraft(t, 1, "echo b")
+	va, err := b.StartOn(DraftSource{Branch: "jam/a", Store: sa}, "app", ea, "op", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vb, err := b.StartOn(DraftSource{Branch: "jam/b", Store: sb}, "app", eb, "op", "")
+	if err != nil || vb.ID == va.ID || vb.Branch != "jam/b" {
+		t.Fatalf("b = %+v, %v (a %+v)", vb, err, va)
+	}
+	b.Wait(0)
+	sta, err := b.StatusOn(DraftSource{Branch: "jam/a", Store: sa}, "app", "", 0)
+	if err != nil || sta.ID != va.ID || !sta.Current {
+		t.Fatalf("a's status = %+v, %v", sta, err)
+	}
+	if st, err := b.Status("app", "", 0); err == nil && st.State != DraftBuildUnknown {
+		t.Fatalf("the live store has no build: %+v", st)
+	}
+	if st, _ := b.StatusOn(DraftSource{Branch: "jam/c", Store: sa}, "app", "", 0); st.State != DraftBuildUnknown {
+		t.Fatalf("another branch sees no build: %+v", st)
+	}
+}
+
+// The same files on two branches build once; a build with the same tree
+// but other parents is a different image, never reused.
+func TestDraftBuildSameInputsShareOneBuild(t *testing.T) {
+	fb := &fakeDraftBuilder{started: make(chan string, 4), release: make(chan struct{})}
+	b := NewKitDraftBuilds(context.Background(), NewMemStore(), OneDraftManager("local", fb), slog.New(slog.DiscardHandler))
+	sa, ea := branchDraft(t, 1, "echo same")
+	sb, eb := branchDraft(t, 1, "echo same")
+	va, err := b.StartOn(DraftSource{Branch: "jam/a", Store: sa}, "app", ea, "op", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-fb.started
+	vb, err := b.StartOn(DraftSource{Branch: "jam/b", Store: sb}, "app", eb, "op", "")
+	if err != nil || vb.ID != va.ID {
+		t.Fatalf("b = %+v, %v; want a's running build %s", vb, err, va.ID)
+	}
+	// Same tree, other parents (web v2): refused while the other runs.
+	sc, ec := branchDraft(t, 2, "echo same")
+	if _, err := b.StartOn(DraftSource{Branch: "jam/c", Store: sc}, "app", ec, "op", ""); WriteStatus(err, 500) != 409 {
+		t.Fatalf("c = %v, want 409", err)
+	}
+	close(fb.release)
+	b.Wait(5 * time.Second)
+	if fb.builds() != 1 {
+		t.Fatalf("%d builds", fb.builds())
+	}
+	if st, _ := b.StatusOn(DraftSource{Branch: "jam/b", Store: sb}, "app", "", 0); st.ID != va.ID || st.State != DraftBuildSucceeded {
+		t.Fatalf("b's status = %+v", st)
+	}
+}
+
+// Building an unchanged draft again reuses the image while it is present.
+func TestDraftBuildReusesSucceeded(t *testing.T) {
+	fb := &fakeDraftBuilder{}
+	b := NewKitDraftBuilds(context.Background(), NewMemStore(), OneDraftManager("local", fb), slog.New(slog.DiscardHandler))
+	sa, ea := branchDraft(t, 1, "echo a")
+	src := DraftSource{Branch: "jam/a", Store: sa}
+	v1, err := b.StartOn(src, "app", ea, "op", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for b.statusState(src) == DraftBuildRunning {
+		time.Sleep(time.Millisecond)
+	}
+	fb.setPresent("sha256:img", true)
+	v2, err := b.StartOn(src, "app", ea, "op", "")
+	if err != nil || v2.ID != v1.ID || v2.State != DraftBuildSucceeded || fb.builds() != 1 {
+		t.Fatalf("again = %+v, %v (%d builds)", v2, err, fb.builds())
+	}
+	fb.setPresent("sha256:img", false)
+	if v3, err := b.StartOn(src, "app", ea, "op", ""); err != nil || v3.ID == v1.ID {
+		t.Fatalf("image gone: %+v, %v", v3, err)
+	}
+}
+
+func (b *KitDraftBuilds) statusState(src DraftSource) string {
+	v, _ := b.StatusOn(src, "app", "", 0)
+	return v.State
+}

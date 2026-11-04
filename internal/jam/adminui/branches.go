@@ -72,6 +72,14 @@ type workspaceKey struct{}
 
 func onWorkspace(r *http.Request) bool { return r.Context().Value(workspaceKey{}) != nil }
 
+// branchOf is the branch whose workspace serves r; "" off a branch.
+func branchOf(r *http.Request) string {
+	if ws, ok := r.Context().Value(workspaceKey{}).(*jam.ConfigWorkspace); ok {
+		return ws.Branch
+	}
+	return ""
+}
+
 // readOnlyRouter is the console without the branch editor: on a Jam with
 // no config repo the config is read-only, so a write on a config path is
 // refused; the rest is live. A branch workspace's handler is one too, and

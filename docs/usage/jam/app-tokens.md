@@ -4,7 +4,7 @@ read_when: You are signing a client in to Jam with an app token, debugging a 400
 owns: the consent and PKCE flow and its two routes and parameters; the redirect prefixes and the 60 s single-use codes; app-token lifetimes (30 days, sliding or fixed, the 5-minute touch); operator standing taken at consent; bearer scope (accepted, refused, cookie+bearer 400); the per-user cap; revocation; app-token storage
 prereqs: ui.md for the browser login and the Principal
 tier: leaf
-updated: 2026-10-30
+updated: 2026-11-04
 ---
 
 # App tokens
@@ -19,7 +19,7 @@ The routes exist only when browser login is configured ([ui.md](ui.md#signing-in
 |---|---|
 | `GET /app/auth/app-token` | The consent page. Signs the user in first if needed, then asks Allow or Cancel. |
 | `POST /app/auth/app-token` | The page's form. Same-origin checked. Redirects (303) to the client with `state` and either `code` or `error=access_denied`. |
-| `POST /app/auth/app-token/exchange` | JSON `{code, code_verifier, redirect}`. Returns `{token, expires_at, user}`. |
+| `POST /app/auth/app-token/exchange` | JSON `{code, code_verifier, redirect}`. Returns `{token, expires_at, user, admin}`; `admin` says whether the token may use the admin API. |
 
 The consent page takes these query parameters, all required except `client`:
 
@@ -57,7 +57,13 @@ Expired tokens are deleted hourly.
 If the user is an operator at consent, the token records the operator id.
 Standing comes from the verified access-token cookie of the browser login, never from loopback trust or the dev identity.
 Such a token acts as that operator in the user area and on `/me/studios` (SSH and previews on any session), as the browser session does.
-It never reaches `/app/admin/`.
+It may also use the admin API, `/app/admin/api/`, as that operator: the VS Code extension edits kits through it ([vscode-kits.md](vscode-kits.md)).
+The consent page says so. It never reaches the console's pages under `/app/admin/`.
+
+A token minted before admin access existed keeps working everywhere else but gets `403` (`no_admin`) from the admin API: sign in again for a new one.
+
+The standing is never re-checked during the token's 30 days, unlike the browser session's, which ends soon after the IdP drops the operator's scope.
+When you remove an operator, revoke their app tokens too (see [Revocation](#revocation)).
 
 ## Bearer scope
 
@@ -67,7 +73,9 @@ Send `Authorization: Bearer <token>`.
 |---|---|
 | `/app/user/*`, `/me/studios/*` and `/me/vscode*` | Accepted. |
 | `POST`/`DELETE /app/user/push/subscriptions`, `GET /app/user/push/key` | `403`. Push belongs to a browser. |
-| Anything under `/app/admin/`, loopback included | `401`. |
+| `/app/admin/api/*`, with a token minted with operator standing | Accepted, as that operator. |
+| `/app/admin/api/*`, with a member token or one minted before admin access existed | `403`, code `no_admin`. |
+| The rest of `/app/admin/` (the console's pages), loopback included | `401`. |
 | A bearer together with a `jam_app_id` or `jam_app_at` cookie | `400`. |
 | An unknown, expired or removed-user token | `401`. |
 
@@ -90,6 +98,6 @@ SSH tunnels opened through `/me/studios` are not tracked: an open tunnel runs on
 
 ## Storage
 
-Jam stores only the hash of a token, with its id (`apt_…`), label, owner, operator id and times.
+Jam stores only the hash of a token, with its id (`apt_…`), label, owner, operator id, admin flag and times.
 Logs name a token by its id, never its value.
 App tokens are not in a [`jam export`](backup.md).

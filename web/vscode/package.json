@@ -11,7 +11,7 @@
   "categories": ["Other"],
   "icon": "media/icon.png",
   "main": "./dist/extension.js",
-  "activationEvents": ["onUri", "onWebviewPanel:jam.board", "onWebviewPanel:jam.conversationTab", "onStartupFinished"],
+  "activationEvents": ["onUri", "onWebviewPanel:jam.board", "onWebviewPanel:jam.conversationTab", "onFileSystem:jamkit", "onStartupFinished"],
   "extensionKind": ["ui"],
   "capabilities": { "untrustedWorkspaces": { "supported": true } },
   "contributes": {
@@ -22,7 +22,16 @@
       { "command": "jam.forgetHostKey", "title": "Forget Host Key", "category": "Jam" },
       { "command": "jam.openHub", "title": "Open Hub", "category": "Jam" },
       { "command": "jam.switchJam", "title": "Switch Jam…", "category": "Jam", "icon": "$(arrow-swap)" },
-      { "command": "jam.addJam", "title": "Add a Jam…", "category": "Jam" }
+      { "command": "jam.addJam", "title": "Add a Jam…", "category": "Jam" },
+      { "command": "jam.kits.open", "title": "Open Kit", "category": "Jam Kits" },
+      { "command": "jam.kits.build", "title": "Build Kit Draft", "category": "Jam Kits", "icon": "$(tools)" },
+      { "command": "jam.kits.publish", "title": "Publish Kit Draft", "category": "Jam Kits", "icon": "$(cloud-upload)" },
+      { "command": "jam.kits.discard", "title": "Discard Kit Draft", "category": "Jam Kits", "icon": "$(discard)" },
+      { "command": "jam.kits.toggleExec", "title": "Toggle Executable", "category": "Jam Kits" },
+      { "command": "jam.kits.switchBranch", "title": "Switch Config Branch…", "category": "Jam Kits", "icon": "$(git-branch)" },
+      { "command": "jam.kits.createBranch", "title": "Create Config Branch", "category": "Jam Kits" },
+      { "command": "jam.kits.openInConsole", "title": "Open in Console", "category": "Jam Kits", "icon": "$(link-external)" },
+      { "command": "jam.kits.refresh", "title": "Refresh", "category": "Jam Kits", "icon": "$(refresh)" }
     ],
     "viewsContainers": {
       "activitybar": [{ "id": "jam", "title": "Jam", "icon": "media/jam.svg" }],
@@ -33,13 +42,42 @@
         { "type": "webview", "id": "jam.rail", "name": "Conversations" },
         { "type": "webview", "id": "jam.status", "name": "Session Status", "when": "jam.window == session || jam.window == hub" },
         { "type": "webview", "id": "jam.artifacts", "name": "Artifacts", "visibility": "collapsed", "when": "jam.window == session || jam.window == hub" },
-        { "type": "webview", "id": "jam.previews", "name": "Previews", "visibility": "collapsed", "when": "jam.window == session || jam.window == hub" }
+        { "type": "webview", "id": "jam.previews", "name": "Previews", "visibility": "collapsed", "when": "jam.window == session || jam.window == hub" },
+        { "id": "jam.kits", "name": "Kits", "visibility": "collapsed", "when": "jam.window == hub" }
       ],
       "jamPanel": [{ "type": "webview", "id": "jam.thinking", "name": "Thinking", "when": "jam.window == session || jam.window == hub" }]
     },
     "menus": {
-      "commandPalette": [{ "command": "jam.switchJam", "when": "jam.multiJam" }],
-      "view/title": [{ "command": "jam.switchJam", "when": "view == jam.rail && jam.multiJam && jam.window == ''", "group": "navigation" }]
+      "commandPalette": [
+        { "command": "jam.switchJam", "when": "jam.multiJam" },
+        { "command": "jam.kits.open", "when": "false" },
+        { "command": "jam.kits.createBranch", "when": "false" },
+        { "command": "jam.kits.build", "when": "resourceScheme == jamkit" },
+        { "command": "jam.kits.publish", "when": "resourceScheme == jamkit" },
+        { "command": "jam.kits.discard", "when": "resourceScheme == jamkit" },
+        { "command": "jam.kits.toggleExec", "when": "resourceScheme == jamkit" },
+        { "command": "jam.kits.switchBranch", "when": "jam.window == hub" },
+        { "command": "jam.kits.openInConsole", "when": "jam.window == hub" },
+        { "command": "jam.kits.refresh", "when": "jam.window == hub" }
+      ],
+      "view/title": [
+        { "command": "jam.switchJam", "when": "view == jam.rail && jam.multiJam && jam.window == ''", "group": "navigation" },
+        { "command": "jam.kits.refresh", "when": "view == jam.kits", "group": "navigation" },
+        { "command": "jam.kits.switchBranch", "when": "view == jam.kits", "group": "navigation" },
+        { "command": "jam.kits.openInConsole", "when": "view == jam.kits" }
+      ],
+      "view/item/context": [
+        { "command": "jam.kits.build", "when": "view == jam.kits && viewItem == jamKitDraft", "group": "inline" },
+        { "command": "jam.kits.publish", "when": "view == jam.kits && viewItem == jamKitDraft", "group": "inline" },
+        { "command": "jam.kits.discard", "when": "view == jam.kits && viewItem == jamKitDraft" },
+        { "command": "jam.kits.openInConsole", "when": "view == jam.kits && viewItem =~ /^jamKit/" }
+      ],
+      "explorer/context": [
+        { "command": "jam.kits.toggleExec", "when": "resourceScheme == jamkit && !explorerResourceIsFolder", "group": "7_modification" },
+        { "command": "jam.kits.build", "when": "resourceScheme == jamkit && explorerResourceIsRoot", "group": "jam" },
+        { "command": "jam.kits.publish", "when": "resourceScheme == jamkit && explorerResourceIsRoot", "group": "jam" },
+        { "command": "jam.kits.discard", "when": "resourceScheme == jamkit && explorerResourceIsRoot", "group": "jam" }
+      ]
     },
     "configuration": {
       "title": "Jam",

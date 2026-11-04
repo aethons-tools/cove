@@ -42,6 +42,10 @@ type AppToken struct {
 	Label string
 	// OperatorID is the operator standing recorded at consent; "" = member.
 	OperatorID string
+	// Admin is set on a token minted with operator standing since tokens
+	// could use the admin API: it may call /app/admin/api/. Older tokens
+	// keep false, so their access never widens.
+	Admin      bool
 	CreatedAt  time.Time
 	LastUsedAt time.Time
 	ExpiresAt  time.Time
@@ -221,7 +225,7 @@ func NewAppToken(user ident.ID, label, operatorID string, now time.Time) (AppTok
 	now = now.UTC()
 	return AppToken{
 		ID: ident.New(ident.AppToken), UserID: user, Hash: HashToken(raw), Label: CleanAppTokenLabel(label),
-		OperatorID: operatorID, CreatedAt: now, LastUsedAt: now, ExpiresAt: now.Add(AppTokenTTL),
+		OperatorID: operatorID, Admin: operatorID != "", CreatedAt: now, LastUsedAt: now, ExpiresAt: now.Add(AppTokenTTL),
 	}, raw, nil
 }
 

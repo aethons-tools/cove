@@ -13,6 +13,11 @@ type Principal struct {
 	Admin    bool
 	Local    bool         // admin by loopback trust with no login
 	Operator jam.Operator // set when Admin
+	// Bearer: the request is authenticated by an app token, not a cookie.
+	Bearer bool
+	// AdminAPI: an app token that may use /app/admin/api/ (operator standing,
+	// minted with admin access).
+	AdminAPI bool
 }
 
 // DisplayName is what the principal menu shows.

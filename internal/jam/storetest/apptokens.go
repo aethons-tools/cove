@@ -50,7 +50,7 @@ func runAppTokenConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 	t.Run("app_token_put_lookup_by_hash", func(t *testing.T) {
 		s, a, _ := setup(t)
 		in := tok(a.ID, 1)
-		in.OperatorID = "op-1"
+		in.OperatorID, in.Admin = "op-1", true
 		in.Label = "VS Code on mac"
 		in.LastUsedAt = base.Add(90 * time.Minute).Add(1234 * time.Microsecond)
 		evicted, err := s.PutAppToken(in)
