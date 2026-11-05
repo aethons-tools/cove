@@ -25,9 +25,12 @@ func TestDashboardAPI(t *testing.T) {
 			{Name: "m2", Connected: true, Host: &jam.HostStats{At: time.Date(2026, 10, 28, 9, 31, 5, 0, time.UTC),
 				MemTotal: 8 << 30, MemUsed: 2 << 30, DiskTotal: 100 << 30, DiskUsed: 91 << 30,
 				Reclaimable: jam.Reclaimable{Images: 1 << 30, BuildCache: 1 << 29, Volumes: 0},
-				LastCleanup: &jam.CleanupRecord{At: time.Date(2026, 10, 28, 8, 0, 0, 0, time.UTC), Freed: 3 << 30, Reason: "disk above 85%"}}},
+				LastCleanup: &jam.CleanupRecord{At: time.Date(2026, 10, 28, 8, 0, 0, 0, time.UTC), Freed: 3 << 30, Reason: "critical"}}},
 			{Name: "m3", Connected: true, Host: &jam.HostStats{DiskTotal: 10, DiskUsed: 1,
 				LastCleanup: &jam.CleanupRecord{At: time.Date(2026, 10, 28, 8, 0, 0, 0, time.UTC), Err: "docker: daemon down"}}},
+			// Freed space despite a failing step: both show.
+			{Name: "m4", Connected: true, Host: &jam.HostStats{DiskTotal: 10, DiskUsed: 1,
+				LastCleanup: &jam.CleanupRecord{At: time.Date(2026, 10, 28, 8, 0, 0, 0, time.UTC), Freed: 2 << 30, Reason: "high", Err: "docker builder prune: exit 1"}}},
 		}
 	}
 	conds := condition.New(condition.Options{})
@@ -44,17 +47,20 @@ func TestDashboardAPI(t *testing.T) {
 	if len(d.Attention) != 1 || d.Attention[0].Path != "health" || d.Attention[0].Kind != "broken" || d.Attention[0].Why != "manager m1 is down" {
 		t.Errorf("attention = %+v", d.Attention)
 	}
-	if len(d.Managers) != 3 || d.Managers[0].Host != nil {
+	if len(d.Managers) != 4 || d.Managers[0].Host != nil {
 		t.Fatalf("managers = %+v", d.Managers)
 	}
 	want := adminui.ManagerHost{At: "09:31:05", Mem: "2.0GiB / 8.0GiB", MemPct: 25, Disk: "91.0GiB / 100.0GiB", DiskPct: 91,
 		Reclaimable: "1.5GiB", ReclaimableDetail: "images 1.0GiB · build cache 512.0MiB · volumes 0B",
-		LastCleanup: "Oct 28 08:00: freed 3.0GiB (disk above 85%)"}
+		LastCleanup: "Oct 28 08:00: freed 3.0GiB (critical)"}
 	if h := d.Managers[1].Host; h == nil || *h != want {
 		t.Errorf("m2 host = %+v, want %+v", h, want)
 	}
 	if h := d.Managers[2].Host; h == nil || h.LastCleanup != "Oct 28 08:00: failed: docker: daemon down" || h.Mem != "" || h.MemPct != 0 {
 		t.Errorf("m3 host = %+v", h)
+	}
+	if h := d.Managers[3].Host; h == nil || h.LastCleanup != "Oct 28 08:00: freed 2.0GiB (high); failed: docker builder prune: exit 1" {
+		t.Errorf("m4 host = %+v", h)
 	}
 	if !d.HasManagers || d.Managers[0].Connected || len(d.Managers[0].Strays) != 1 || d.Managers[0].Strays[0] != "ghost" || d.Managers[0].LastSeen == "" {
 		t.Errorf("managers = %+v", d.Managers)

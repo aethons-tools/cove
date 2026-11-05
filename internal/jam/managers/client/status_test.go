@@ -134,6 +134,56 @@ func TestRunReportsOnDemand(t *testing.T) {
 	}
 }
 
+// cachingHost also offers its latest stats without measuring.
+type cachingHost struct {
+	fakeHost
+	mu     sync.Mutex
+	cached *jam.HostStats
+}
+
+func (h *cachingHost) CachedHostStats() (jam.HostStats, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.cached == nil {
+		return jam.HostStats{}, false
+	}
+	return *h.cached, true
+}
+
+// An on-demand report takes a HostCache's latest stats (a cleanup's record,
+// say) without measuring; with none cached it keeps the last measurement.
+func TestRunOnDemandUsesHostCache(t *testing.T) {
+	h := &cachingHost{}
+	changed := make(chan struct{}, 1)
+	got := make(chan wire.StatusReport, 3)
+	fj := &fakeJam{fn: func(t *testing.T, s *session) {
+		for range 3 {
+			got <- statusOf(t, s.next(t))
+		}
+		<-s.srv.Context().Done()
+	}}
+	runAsync(t, start(t, fj), Config{
+		Name: "m", Launcher: &fakeLauncher{}, Host: h, StatusEvery: time.Hour, StatusChanged: changed,
+		statusMinGap: time.Millisecond,
+	})
+	<-got
+	changed <- struct{}{}
+	if r := <-got; r.Host == nil || r.Host.MemUsed != 1<<30 {
+		t.Fatalf("host = %+v, want the last measurement with nothing cached", r.Host)
+	}
+	h.mu.Lock()
+	h.cached = &jam.HostStats{DiskTotal: 100, DiskUsed: 60, LastCleanup: &jam.CleanupRecord{Reason: "high", Freed: 30}}
+	h.mu.Unlock()
+	changed <- struct{}{}
+	r := <-got
+	if r.Host == nil || r.Host.LastCleanup == nil || r.Host.LastCleanup.Freed != 30 || r.Host.DiskUsed != 60 {
+		t.Fatalf("host = %+v, want the cached stats", r.Host)
+	}
+	if n := h.n(); n != 1 {
+		t.Fatalf("%d measurements, want 1", n)
+	}
+}
+
 // On-demand reports are throttled: a burst of signals sends one report, no
 // sooner than StatusMinGap after the last.
 func TestRunThrottlesOnDemandReports(t *testing.T) {

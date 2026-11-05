@@ -50,6 +50,10 @@ func TestLoadRejects(t *testing.T) {
 		{"profile", minimal + "  profile: \"a b\"\n", `colima.profile "a b" is not a valid colima profile name`},
 		{"profile slash", minimal + "  profile: ../x\n", `colima.profile "../x"`},
 		{"docker-context", minimal + "  docker-context: colima-work\n", "colima.docker-context is replaced by colima.profile (the VM name; its docker context is colima-<profile>)"},
+		{"cleanup order", minimal + "cleanup:\n  low: 90\n", "cleanup: want 0 < low (90) < high (85) < critical (95) <= 100"},
+		{"cleanup critical", minimal + "cleanup:\n  critical: 101\n", "cleanup: want 0 < low (70) < high (85) < critical (101) <= 100"},
+		{"cleanup negative", minimal + "cleanup:\n  low: -1\n", "cleanup: want 0 < low (-1)"},
+		{"cleanup unknown", minimal + "cleanup:\n  enabled: true\n", "field enabled not found"},
 		{"log-level", minimal + "log-level: loud\n", `log-level "loud" must be`},
 		{"unknown key", minimal + "colour: red\n", "field colour not found"},
 		{"empty file", "", "name is required"},
@@ -62,6 +66,24 @@ func TestLoadRejects(t *testing.T) {
 				t.Fatalf("err = %v, want mention of %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadCleanup(t *testing.T) {
+	getenv := env(map[string]string{"HOME": "/h"})
+	c, err := Load(write(t, minimal), getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Cleanup; got.High != 85 || got.Low != 70 || got.Critical != 95 || !got.DailyPass() || got.Disabled {
+		t.Fatalf("cleanup defaults = %+v", got)
+	}
+	c, err = Load(write(t, minimal+"cleanup:\n  high: 80\n  low: 60\n  critical: 90\n  daily: false\n  disabled: true\n"), getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Cleanup; got.High != 80 || got.Low != 60 || got.Critical != 90 || got.DailyPass() || !got.Disabled {
+		t.Fatalf("cleanup = %+v", got)
 	}
 }
 

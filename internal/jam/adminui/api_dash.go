@@ -65,18 +65,26 @@ func managerHostOf(h *jam.HostStats) *ManagerHost {
 	out.Reclaimable = numfmt.Bytes(r.Images + r.BuildCache + r.Volumes)
 	out.ReclaimableDetail = "images " + numfmt.Bytes(r.Images) + " · build cache " + numfmt.Bytes(r.BuildCache) + " · volumes " + numfmt.Bytes(r.Volumes)
 	if c := h.LastCleanup; c != nil {
-		out.LastCleanup = c.At.Format("Jan 2 15:04") + ": "
-		switch {
-		case c.Err != "":
-			out.LastCleanup += "failed: " + c.Err
-		default:
-			out.LastCleanup += "freed " + numfmt.Bytes(c.Freed)
-			if c.Reason != "" {
-				out.LastCleanup += " (" + c.Reason + ")"
-			}
-		}
+		out.LastCleanup = cleanupLine(*c)
 	}
 	return out
+}
+
+// cleanupLine is a cleanup record for the dashboard: when, what it freed and
+// why; a failure alone when it freed nothing, else appended.
+func cleanupLine(c jam.CleanupRecord) string {
+	s := c.At.Format("Jan 2 15:04") + ": "
+	if c.Err != "" && c.Freed == 0 {
+		return s + "failed: " + c.Err
+	}
+	s += "freed " + numfmt.Bytes(c.Freed)
+	if c.Reason != "" {
+		s += " (" + c.Reason + ")"
+	}
+	if c.Err != "" {
+		s += "; failed: " + c.Err
+	}
+	return s
 }
 
 func healthRowsOf(rows []healthRow) []HealthRow {

@@ -357,3 +357,45 @@ func TestServeReportsHostStats(t *testing.T) {
 		return false
 	})
 }
+
+// cleaningBackend measures a 96% full disk until its build cache is pruned.
+type cleaningBackend struct {
+	*fakeBackend
+	mu     sync.Mutex
+	pruned bool
+}
+
+func (b *cleaningBackend) HostStats(context.Context) (jam.HostStats, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.pruned {
+		return jam.HostStats{DiskTotal: 100, DiskUsed: 50}, nil
+	}
+	return jam.HostStats{DiskTotal: 100, DiskUsed: 96}, nil
+}
+func (*cleaningBackend) PruneDanglingImages(context.Context) error         { return nil }
+func (*cleaningBackend) KitImages(context.Context) ([]jam.KitImage, error) { return nil, nil }
+func (*cleaningBackend) RemoveImage(context.Context, string) error         { return nil }
+func (*cleaningBackend) PruneVolumes(context.Context) error                { return nil }
+func (b *cleaningBackend) PruneBuildCache(context.Context) error {
+	b.mu.Lock()
+	b.pruned = true
+	b.mu.Unlock()
+	return nil
+}
+
+// A backend that is also a HostCleaner is cleaned when its disk is critical,
+// and the cleanup reaches Jam at once (not at the next periodic report).
+func TestServeCleansAndReportsIt(t *testing.T) {
+	e := newJamEnv(t, nil)
+	startServe(t, e, &cleaningBackend{fakeBackend: &fakeBackend{}}, serveOpts{})
+	eventually(t, "cleanup reported", func() bool {
+		for _, s := range e.hub.Statuses() {
+			if s.Name == "m1" && s.Host != nil && s.Host.LastCleanup != nil {
+				c := s.Host.LastCleanup
+				return c.Reason == "critical" && c.Freed == 46 && c.Err == ""
+			}
+		}
+		return false
+	})
+}

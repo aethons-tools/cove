@@ -1,7 +1,7 @@
 ---
-summary: The `jam-colima` binary — the Studio Manager for a Colima host, a bare-metal process that dials Jam over TLS and hosts studios in a Colima VM; its install, upgrade from jam-studio-manager, config file and `colima.profile`, token, TLS, reconnect backoff, capacity, the host memory/disk it reports, labels and image builds.
-read_when: You are setting up or running `jam-colima` on a host, upgrading a host from `jam-studio-manager`, editing its `config.yml` (which VM via `colima.profile`), or debugging why it will not connect, declines raises, rebuilds images, or reports odd memory/disk figures to Jam.
-owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, TLS trust, reconnect backoff, capacity gate, how host stats are measured, container/volume labels and per-host image builds
+summary: The `jam-colima` binary — the Studio Manager for a Colima host, a bare-metal process that dials Jam over TLS and hosts studios in a Colima VM; its install, upgrade from jam-studio-manager, config file and `colima.profile`, token, TLS, reconnect backoff, capacity, the host memory/disk it reports, automatic disk cleanup, labels and image builds.
+read_when: You are setting up or running `jam-colima` on a host, upgrading a host from `jam-studio-manager`, editing its `config.yml` (which VM via `colima.profile`, `cleanup` thresholds), or debugging why it will not connect, declines raises (capacity, disk full), removed or rebuilds images, or reports odd memory/disk figures to Jam.
+owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, TLS trust, reconnect backoff, capacity gate, how host stats are measured, the disk cleanup policy and disk-full gate, container/volume labels and per-host image builds
 prereqs: jam/studio-managers.md for registering the manager and what Jam does with it
 tier: leaf
 updated: 2026-11-05
@@ -57,6 +57,12 @@ colima:
   dns: []
   identity-file: ""                  # default <dir>/id_ed25519 (generated on first use)
   known-hosts-dir: ""                # default <dir>/known_hosts.d
+cleanup:              # percent of the VM's docker disk; 0 = the default
+  high: 85            # a sample at or over it starts a cleanup
+  low: 70             # a cleanup stops once under it
+  critical: 95        # at or over it raises are declined
+  daily: true         # the daily light pass
+  disabled: false     # no automatic cleanup (raises are still declined at critical)
 ```
 
 `identity-file` is the SSH key the manager uses to reach its studios (generated on first use); `known-hosts-dir` holds the studio host keys; both default to the manager's own `<dir>`.
@@ -91,6 +97,27 @@ They are measured inside the `colima.profile` VM:
 - `docker --context <ctx> system df --format '{{json .}}'`: the Reclaimable of Images, Build Cache and Local Volumes (docker's decimal sizes, `1.2GB` = 1.2×10⁹ bytes). Containers are not counted; they go with their studios.
 
 If either command fails, or the two take over 20s together (a hung `colima ssh`), the report carries no host (one Warn in the manager's log until it recovers, then debug); Jam keeps the previous figures' condition as it was.
+
+## Disk cleanup
+
+Each host stats sample also drives the disk policy; `cleanup` sets its thresholds, which must satisfy `0 < low < high < critical ≤ 100`.
+A sample at or over `high` starts a cleanup in the background (one at a time) that runs these steps in order, re-measuring after each and stopping as soon as the disk is under `low`:
+
+1. dangling images (`docker image prune -f`);
+2. unused kit images (`jam-kit`, `jam-kit-base`, `jam-kit-draft` tags only), oldest first, one at a time with `docker image rm <id>` (no `-f`), re-measuring after each. Skipped: images a container uses (running or stopped), images younger than 1h (just prepared, about to be raised), images another repository also names, and — for the whole step — any time a raise, kit prepare or draft build is in flight;
+3. unused anonymous volumes (`docker volume prune -f --filter label=com.docker.volume.anonymous`);
+4. the build cache (`docker builder prune -f`).
+
+A run that cannot get under `low` is not repeated for 5 minutes (a critical sample after a `high` run does not wait).
+With `daily`, a light pass (steps 1 and 3 only, whatever the disk) runs 10 minutes after start, then every 24 hours.
+`disabled: true` turns all automatic cleanup off.
+
+While the last sample is at or over `critical`, raises are declined with `disk full (<n>%)`, so Jam places them elsewhere ([placement](jam/coves.md#managers-and-placement)); a sample that fails to measure lifts this. Kit prepares are not declined.
+
+Each run is logged (Info; Warn when a step failed, the rest still running) and reported to Jam at once as the host's last cleanup: when, bytes freed (disk used before minus after) and its reason, `high`, `critical` or `daily`.
+
+Never removed: named volumes (studio state, on any daemon version: the label filter matches only volumes docker 23+ created anonymously), containers, images a container uses, and images under any other name.
+On a shared VM, dangling images, anonymous volumes and the build cache are VM-wide garbage, cleaned for everyone; removing an unused kit image may make another manager rebuild it (time, never data).
 
 ## Labels and sharing a daemon
 

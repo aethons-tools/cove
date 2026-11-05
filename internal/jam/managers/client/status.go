@@ -12,6 +12,13 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/managers/wire"
 )
 
+// HostCache is an optional extension of Config.Host: its latest stats,
+// without measuring; false when it has none (nothing measured yet, or the
+// last measurement failed).
+type HostCache interface {
+	CachedHostStats() (jam.HostStats, bool)
+}
+
 // HostStatsTimeout bounds one host measurement (a colima ssh and a docker
 // system df), under wire.StatusEvery: a hung one fails, reporting no host,
 // rather than stopping the reports.
@@ -21,8 +28,9 @@ const HostStatsTimeout = 20 * time.Second
 // host measurement, one per later measurement (every StatusEvery), and one
 // per StatusChanged signal, no sooner than statusMinGap after the last
 // report. Measuring runs on its own goroutine (counted in wg), so a signal
-// reuses the last host stats and never waits on a measurement; signals
-// before the first measurement are covered by its report.
+// reuses the last host stats — or a HostCache's latest, which may carry news
+// such as a finished disk cleanup — and never waits on a measurement;
+// signals before the first measurement are covered by its report.
 func (c *conn) reportStatus(ctx context.Context, wg *sync.WaitGroup) {
 	cfg := c.cfg
 	ctx, cancel := context.WithCancel(ctx)
@@ -57,6 +65,15 @@ func (c *conn) reportStatus(ctx context.Context, wg *sync.WaitGroup) {
 		first = true // no measurement delivered yet
 		last  time.Time
 	)
+	// cached takes a HostCache's latest stats, when it has any, for an
+	// on-demand report.
+	cached := func() {
+		if hc, ok := cfg.Host.(HostCache); ok {
+			if h, ok := hc.CachedHostStats(); ok {
+				host = &h
+			}
+		}
+	}
 	send := func() bool {
 		r := wire.StatusReport{Host: host}
 		if cfg.Activities != nil {
@@ -107,6 +124,7 @@ func (c *conn) reportStatus(ctx context.Context, wg *sync.WaitGroup) {
 			}
 			wait := cfg.statusMinGap - time.Since(last)
 			if wait <= 0 {
+				cached()
 				if !send() {
 					return
 				}
@@ -116,6 +134,7 @@ func (c *conn) reportStatus(ctx context.Context, wg *sync.WaitGroup) {
 			due = dueTimer.C
 		case <-due:
 			due = nil
+			cached()
 			if !send() {
 				return
 			}

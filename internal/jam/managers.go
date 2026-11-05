@@ -148,6 +148,39 @@ type HostReporter interface {
 	HostStats(ctx context.Context) (HostStats, error)
 }
 
+// HostCleaner is the optional manager-side means of freeing host disk; the
+// manager's disk policy (studiomanager) decides when and in what order to
+// call it. Every step removes only what nothing uses: never a named volume,
+// a container, or an image a container (running or stopped) uses.
+type HostCleaner interface {
+	// PruneDanglingImages removes untagged images no container uses.
+	PruneDanglingImages(ctx context.Context) error
+	// KitImages lists the images tagged only with Jam kit tags (jam-kit,
+	// jam-kit-base, jam-kit-draft), each marked InUse when a container uses it.
+	KitImages(ctx context.Context) ([]KitImage, error)
+	// RemoveImage removes an image by id, without force: the runtime refuses
+	// one a container uses or another repository still names.
+	RemoveImage(ctx context.Context, id string) error
+	// PruneVolumes removes unused anonymous volumes, never a named one.
+	PruneVolumes(ctx context.Context) error
+	// PruneBuildCache removes the image builder's unused cache.
+	PruneBuildCache(ctx context.Context) error
+}
+
+// KitImageRepos are the image repositories Jam's kit images are tagged in:
+// built kits (launcher tagFor), kit bases (launcher and colima base
+// resolution) and draft builds (DraftImageTag).
+var KitImageRepos = []string{"jam-kit", "jam-kit-base", "jam-kit-draft"}
+
+// KitImage is one Jam kit image on a manager host. Size is bytes.
+type KitImage struct {
+	ID      string
+	Tags    []string
+	Created time.Time
+	Size    uint64
+	InUse   bool
+}
+
 // ManagerToken is the one-time response to adding or rotating a manager.
 type ManagerToken struct {
 	Name  string `json:"name"`

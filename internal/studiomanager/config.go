@@ -23,14 +23,47 @@ import (
 
 // Config is the jam-colima config file (docs/usage/jam-colima.md).
 type Config struct {
-	Name       string       `yaml:"name"`        // required; jam.ValidManagerName, not "local"
-	JamAddr    string       `yaml:"jam-addr"`    // required host:port of Jam's cove-facing TLS listener
-	ServerName string       `yaml:"server-name"` // optional TLS name override; default the jam-addr host
-	CAFile     string       `yaml:"ca-file"`     // optional PEM added to the system roots
-	TokenFile  string       `yaml:"token-file"`  // default <dir>/token
-	Capacity   int          `yaml:"capacity"`    // max studios; 0 = unlimited
-	LogLevel   string       `yaml:"log-level"`   // debug|info|warn|error; default info
-	Colima     ColimaConfig `yaml:"colima"`
+	Name       string        `yaml:"name"`        // required; jam.ValidManagerName, not "local"
+	JamAddr    string        `yaml:"jam-addr"`    // required host:port of Jam's cove-facing TLS listener
+	ServerName string        `yaml:"server-name"` // optional TLS name override; default the jam-addr host
+	CAFile     string        `yaml:"ca-file"`     // optional PEM added to the system roots
+	TokenFile  string        `yaml:"token-file"`  // default <dir>/token
+	Capacity   int           `yaml:"capacity"`    // max studios; 0 = unlimited
+	LogLevel   string        `yaml:"log-level"`   // debug|info|warn|error; default info
+	Colima     ColimaConfig  `yaml:"colima"`
+	Cleanup    CleanupConfig `yaml:"cleanup"`
+}
+
+// CleanupConfig is the disk policy (cleanup.go), in percent of the disk
+// studios run on; 0 is the default.
+type CleanupConfig struct {
+	High     int   `yaml:"high"`     // a sample at or over it starts a cleanup; default 85
+	Low      int   `yaml:"low"`      // a cleanup stops once under it; default 70
+	Critical int   `yaml:"critical"` // at or over it raises are declined; default 95
+	Daily    *bool `yaml:"daily"`    // the daily light pass; default true
+	Disabled bool  `yaml:"disabled"` // no automatic cleanup (the critical gate stays)
+}
+
+// DailyPass reports whether the daily light pass runs.
+func (c CleanupConfig) DailyPass() bool { return c.Daily == nil || *c.Daily }
+
+func (c *CleanupConfig) defaults() {
+	if c.High == 0 {
+		c.High = 85
+	}
+	if c.Low == 0 {
+		c.Low = 70
+	}
+	if c.Critical == 0 {
+		c.Critical = 95
+	}
+}
+
+func (c CleanupConfig) validate() error {
+	if 0 < c.Low && c.Low < c.High && c.High < c.Critical && c.Critical <= 100 {
+		return nil
+	}
+	return fmt.Errorf("cleanup: want 0 < low (%d) < high (%d) < critical (%d) <= 100", c.Low, c.High, c.Critical)
 }
 
 // ColimaConfig configures the Colima runtime.
@@ -153,6 +186,7 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	if c.Colima.Profile == "" {
 		c.Colima.Profile = colimacfg.DefaultProfile
 	}
+	c.Cleanup.defaults()
 	if err := c.validate(); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
@@ -180,6 +214,9 @@ func (c Config) validate() error {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("log-level %q must be debug, info, warn or error", c.LogLevel)
+	}
+	if err := c.Cleanup.validate(); err != nil {
+		return err
 	}
 	if c.Colima.RuntimeAddr == "" {
 		return fmt.Errorf("colima.runtime-addr is required")
