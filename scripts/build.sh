@@ -40,8 +40,9 @@ BINARIES=(jam jam-colima)
 echo "Staging embedded jam-studio-agent (linux amd64+arm64)"
 VERSION="$VERSION" ./scripts/stage-studio-agent.sh
 
-# Snapshot the blessed jam-studio-base digests from the registry into the
-# embedded (gitignored) blessed/generated.txt, before jam is built (COV-44
+# Snapshot the blessed jam-studio-base digests (and their per-arch layers, for the
+# provenance gate) from the registry into the embedded (gitignored)
+# blessed/generated.txt and blessed/layers.json, before jam is built (COV-44
 # spec §4). With no GITHUB_TOKEN this is a no-op: the committed low-watermark is
 # embedded alone, so local/offline builds never need registry access. CI runs it
 # with a packages:read token to pick up every current base with no commit-back loop.

@@ -228,3 +228,65 @@ func TestResolveStopsAtFirstMatchingBlessedBase(t *testing.T) {
 		t.Fatalf("Layers asked %v, want %v", d.asked, want)
 	}
 }
+
+// embedded is a Spec.BlessedLayers lookup over a fixed ref → diff_ids table.
+func embedded(m map[string][]string) func(string) ([]string, bool) {
+	return func(ref string) ([]string, bool) {
+		l, ok := m[ref]
+		return l, ok
+	}
+}
+
+// A blessed ref whose layers were embedded at build time is compared without
+// docker: Layers is asked only for the resolved base, never the blessed ref.
+func TestResolveUsesEmbeddedBlessedLayers(t *testing.T) {
+	const tag = "ghcr.io/acme/img@sha256:child"
+	d := &fakeDocker{layers: map[string][]string{
+		tag: {"sha256:a", "sha256:b", "sha256:c"},
+	}}
+	s := Spec{Base: tag, BlessedLayers: embedded(map[string][]string{blessedRef: {"sha256:a", "sha256:b"}})}
+	if ref, err := Resolve(d, s, []string{blessedRef}, &bytes.Buffer{}); err != nil || ref != tag {
+		t.Fatalf("Resolve = %q, %v", ref, err)
+	}
+	if want := []string{tag}; !slices.Equal(d.asked, want) {
+		t.Fatalf("Layers asked %v, want %v (embedded blessed layers need no docker)", d.asked, want)
+	}
+}
+
+// A blessed ref with no embedded layers (watermark-only/offline build, the
+// local base) falls back to docker; an embedded one still never reaches it.
+func TestResolveFallsBackToDockerForUnembeddedBlessedRef(t *testing.T) {
+	const tag = "ghcr.io/acme/img@sha256:child"
+	const local = "jam-studio-base:dev-0123"
+	d := &fakeDocker{layers: map[string][]string{
+		local: {"sha256:l"},
+		tag:   {"sha256:a", "sha256:b", "sha256:c"},
+	}}
+	s := Spec{Base: tag, BlessedLayers: embedded(map[string][]string{blessedRef: {"sha256:a", "sha256:b"}})}
+	if ref, err := Resolve(d, s, []string{local, blessedRef}, &bytes.Buffer{}); err != nil || ref != tag {
+		t.Fatalf("Resolve = %q, %v", ref, err)
+	}
+	if want := []string{tag, local}; !slices.Equal(d.asked, want) {
+		t.Fatalf("Layers asked %v, want %v", d.asked, want)
+	}
+}
+
+// The reject diagnostic still explains itself with embedded layers, and says
+// where they came from.
+func TestResolveRejectionDiagnosesEmbedded(t *testing.T) {
+	const tag = "ubuntu@sha256:evil"
+	d := &fakeDocker{layers: map[string][]string{tag: {"sha256:a", "sha256:x"}}}
+	s := Spec{Base: tag, BlessedLayers: embedded(map[string][]string{blessedRef: {"sha256:a", "sha256:b"}})}
+	_, err := Resolve(d, s, []string{blessedRef}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected rejection")
+	}
+	for _, want := range []string{tag, blessedRef, "embedded", "2 layers", "descends from it: false"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("rejection must mention %q; got:\n%s", want, err.Error())
+		}
+	}
+	if want := []string{tag}; !slices.Equal(d.asked, want) {
+		t.Fatalf("Layers asked %v, want %v", d.asked, want)
+	}
+}

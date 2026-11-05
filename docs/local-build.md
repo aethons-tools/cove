@@ -36,7 +36,7 @@ With `local.txt` embedded ([`internal/basedigest`](../internal/basedigest)):
 
 - **The default base** (a kit that selects none) is the local base, for `jam` and `jam-colima` alike. Run both from this build: the launcher in Jam and the manager's backend each resolve it.
 - **Kit Dockerfiles** building `FROM ${JAM_STUDIO_BASE_IMAGE}` get the local base too: that build arg is the default base.
-- **The gate** trusts the local base first, then the published blessed bases, so a kit with `base: {image: jam-studio:dev-<id>}` (or a Dockerfile FROM it) passes, and kits on the ghcr images keep working.
+- **The gate** trusts the local base first, then the published blessed bases, so a kit with `base: {image: jam-studio:dev-<id>}` (or a Dockerfile FROM it) passes, and kits on the ghcr images keep working. The local base has no embedded layers, so the gate reads it via docker.
 - **`jam version`** notes `jam: local studio base <ref>` on stderr (its stdout stays the bare version); **`jam-colima version`** adds `(local studio base <ref>)`.
 
 The images must be in the manager's Docker: the gate inspects the local tag and can't pull it.

@@ -34,10 +34,11 @@ before:
     # output); release.yml attaches the same file to the release.
     - bash scripts/stage-vscode.sh
     # Snapshot the blessed jam-studio-base digests from the registry into the
-    # embedded (gitignored) blessed/generated.txt before jam is built (COV-44
-    # spec §4). A no-op without GITHUB_TOKEN (offline embeds the committed
+    # embedded (gitignored) blessed/generated.txt, and their per-arch layer
+    # diff_ids into blessed/layers.json (so the provenance gate never pulls a
+    # blessed image), before jam is built (COV-44 spec §4). A no-op without GITHUB_TOKEN (offline embeds the committed
     # low-watermark); release.yml grants packages:read so CI picks up every current
-    # base with no commit-back loop. Writing only the gitignored file keeps the
+    # base with no commit-back loop. Writing only gitignored files keeps the
     # tree clean for goreleaser's dirty-state check.
     - go run ./cmd/gen-blessed
 

@@ -1,6 +1,7 @@
 package basedigest
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
 	"testing"
@@ -148,5 +149,73 @@ func TestVersionNote(t *testing.T) {
 	withFiles(t, fstest.MapFS{"blessed/watermark.txt": {Data: []byte(testWatermark)}, "blessed/local.txt": {Data: []byte("jam-studio-base:dev-1")}})
 	if got := VersionNote(); got != "local studio base jam-studio-base:dev-1" {
 		t.Fatalf("local VersionNote() = %q", got)
+	}
+}
+
+// BlessedLayers reads the build-time per-arch diff_ids for a blessed Image@digest
+// ref; anything not embedded (another arch, an unknown digest, a non-Image ref
+// such as the local base, no layers.json at all) reports ok=false.
+func TestBlessedLayers(t *testing.T) {
+	withFiles(t, fstest.MapFS{
+		"blessed/watermark.txt": {Data: []byte(testWatermark + "\n")},
+		"blessed/layers.json":   {Data: []byte(`{"` + testWatermark + `": {"amd64": ["sha256:a", "sha256:b"], "arm64": ["sha256:c"]}}`)},
+	})
+	ref := Image + "@" + testWatermark
+	if got, ok := BlessedLayers(ref, "amd64"); !ok || strings.Join(got, ",") != "sha256:a,sha256:b" {
+		t.Fatalf("BlessedLayers(amd64) = %v, %v", got, ok)
+	}
+	if got, ok := BlessedLayers(ref, "arm64"); !ok || strings.Join(got, ",") != "sha256:c" {
+		t.Fatalf("BlessedLayers(arm64) = %v, %v", got, ok)
+	}
+	for _, c := range []struct{ ref, arch string }{
+		{ref, "riscv64"},
+		{Image + "@sha256:other", "amd64"},
+		{"jam-studio-base:dev-0123abcd4567", "amd64"},
+		{"ghcr.io/acme/other@" + testWatermark, "amd64"},
+	} {
+		if got, ok := BlessedLayers(c.ref, c.arch); ok {
+			t.Fatalf("BlessedLayers(%q, %q) = %v, want not embedded", c.ref, c.arch, got)
+		}
+	}
+}
+
+func TestBlessedLayersAbsentOrMalformed(t *testing.T) {
+	ref := Image + "@" + testWatermark
+	withFiles(t, fstest.MapFS{"blessed/watermark.txt": {Data: []byte(testWatermark)}})
+	if _, ok := BlessedLayers(ref, "amd64"); ok {
+		t.Fatal("no layers.json: nothing is embedded")
+	}
+	withFiles(t, fstest.MapFS{"blessed/layers.json": {Data: []byte("not json")}})
+	if _, ok := BlessedLayers(ref, "amd64"); ok {
+		t.Fatal("a malformed layers.json embeds nothing (the gate falls back to docker)")
+	}
+}
+
+// The embedded layers.json, when a build generated one, is well-formed: every
+// key a blessed digest's sha256, every list non-empty sha256 diff_ids.
+func TestEmbeddedLayersFileIsWellFormed(t *testing.T) {
+	b, err := files.ReadFile("blessed/layers.json")
+	if err != nil {
+		t.Skip("no blessed/layers.json in this build (offline / fresh checkout)")
+	}
+	var m map[string]map[string][]string
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("blessed/layers.json: %v", err)
+	}
+	re := regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	for d, arches := range m {
+		if !re.MatchString(d) {
+			t.Fatalf("layers.json key %q is not a sha256 digest", d)
+		}
+		for arch, ids := range arches {
+			if len(ids) == 0 {
+				t.Fatalf("layers.json %s/%s: no diff_ids", d, arch)
+			}
+			for _, id := range ids {
+				if !re.MatchString(id) {
+					t.Fatalf("layers.json %s/%s: diff_id %q is not a sha256 digest", d, arch, id)
+				}
+			}
+		}
 	}
 }
