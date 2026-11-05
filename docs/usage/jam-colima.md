@@ -95,8 +95,9 @@ They are measured inside the `colima.profile` VM:
 
 - `colima ssh --profile <p> -- sh -c 'df -kP /var/lib/docker; cat /proc/meminfo'`: memory used is `MemTotal − MemAvailable`; disk is the filesystem holding docker's data dir (df's one data row, whatever its mount point; often `/`), with total = used + available, so the percentage matches df's `Capacity` (root-reserved blocks excluded).
 - `docker --context <ctx> system df --format '{{json .}}'`: the Reclaimable of Images, Build Cache and Local Volumes (docker's decimal sizes, `1.2GB` = 1.2×10⁹ bytes). Containers are not counted; they go with their studios.
+  It walks every layer, so it runs at most every 10 minutes; if it fails (docker fails it while containers write, e.g. `failed to calculate image disk usage: lstat …: no such file or directory`) or is unreadable, the last figure is kept and it is retried on the next sample.
 
-If either command fails, or the two take over 20s together (a hung `colima ssh`), the report carries no host (one Warn in the manager's log until it recovers, then debug); Jam keeps the previous figures' condition as it was.
+If the VM measurement fails, or the measurement takes over 20s (a hung `colima ssh`), the report carries no host (one Warn in the manager's log until it recovers, then debug); Jam keeps the previous figures' condition as it was.
 
 ## Disk cleanup
 

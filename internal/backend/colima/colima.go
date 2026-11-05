@@ -29,6 +29,7 @@ type Colima struct {
 	context string // the pinned docker context ("" = dockerContext); see NewWithContext
 	profile string // the colima VM ("" = derived from context); see NewForProfile
 	now     func() time.Time
+	recl    *reclaimCache // HostStats' docker system df figure; nil measures every time
 	// quiet, when set, runs the cache-miss checks (HasKitImage, HasKitBase,
 	// the base's local inspect before a pull) in place of r: WithBuildLog's
 	// r copies output to the build log, and a miss's "No such image" does
@@ -49,14 +50,14 @@ func (c *Colima) quietRunner() runner.Runner {
 // a caller (e.g. jam-colima, from its colima.profile) can target a specific
 // colima instance. Empty keeps the default colima context.
 func NewWithContext(r runner.Runner, context string) *Colima {
-	return &Colima{r: r, context: context}
+	return &Colima{r: r, context: context, recl: &reclaimCache{}}
 }
 
 // NewForProfile returns a Colima backend for the colima VM profile: docker
 // calls are pinned to the profile's context (colimacfg.ProfileContext) and
 // HostStats measures that VM. "" is the default profile.
 func NewForProfile(r runner.Runner, profile string) *Colima {
-	return &Colima{r: r, context: colimacfg.ProfileContext(profile), profile: profile}
+	return &Colima{r: r, context: colimacfg.ProfileContext(profile), profile: profile, recl: &reclaimCache{}}
 }
 
 // profileName is the colima VM this backend runs in: its profile, else the
