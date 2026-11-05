@@ -296,7 +296,7 @@ drives a copy of this same `install.sh` **embedded** in the binary (so it needs 
 repo checkout and never re-fetches the script over the network), reusing its
 resolve → download → verify → replace flow — including the `checksums.txt`
 verification — untouched. It reads the same `JAM_VERSION`/`BINDIR`/`JAM_SYSTEM`/`JAM_REPO`
-knobs, no-ops when already current, and takes `--version TAG` (pin) and `--dry-run`.
+knobs, no-ops when already current (unless a half-finished [upgrade](usage/jam-colima.md) left the old manager binary beside `jam` without `jam-colima`: then it reinstalls the current release), and takes `--version TAG` (pin) and `--dry-run`.
 
 **`jam version`** (and `jam --version`) prints the bare release version — `<N>-<MMDD>`, or `dev` for an unstamped build — and nothing else on stdout,
 so it can go straight into an image tag: `…/jam:$(jam version)` (the tags in [container.md](usage/jam/container.md)).

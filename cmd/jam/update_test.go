@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/legacynames"
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
@@ -14,6 +17,15 @@ func withUpdateRunner(t *testing.T, f *runner.Fake) {
 	prev := updateRunner
 	updateRunner = f
 	t.Cleanup(func() { updateRunner = prev })
+}
+
+// withUpdateBinDir makes dir the directory `jam update` looks in for jam's
+// companion binaries.
+func withUpdateBinDir(t *testing.T, dir string) {
+	t.Helper()
+	prev := updateBinDir
+	updateBinDir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { updateBinDir = prev })
 }
 
 // TestUpdatePinnedRunsEmbeddedInstallScript: a pinned `jam update --version`
@@ -80,5 +92,46 @@ func TestUpdateRejectsPositionals(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := run([]string{"update", "extra"}, func(string) string { return "" }, &out, &errOut); code != 2 {
 		t.Fatalf("positional must be a usage error (2); got %d", code)
+	}
+}
+
+// TestUpdateInstallsMissingJamColima: `jam update` on the current release
+// still runs install.sh when the old manager binary is beside jam and
+// jam-colima is not (an update from a pre-jam-colima release that stopped
+// half-way); otherwise the current release is a no-op.
+func TestUpdateInstallsMissingJamColima(t *testing.T) {
+	f := &runner.Fake{}
+	withUpdateRunner(t, f)
+	dir := t.TempDir()
+	withUpdateBinDir(t, dir)
+	update := func() (int, string) {
+		t.Helper()
+		f.Calls = nil
+		var out, errOut bytes.Buffer
+		code := run([]string{"update", "--version", version}, func(string) string { return "" }, &out, &errOut)
+		return code, out.String()
+	}
+	put := func(name string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// jam alone (the Jam image): up to date.
+	if code, out := update(); code != 0 || len(f.Calls) != 0 || !strings.Contains(out, "already up to date") {
+		t.Fatalf("jam only: code=%d calls=%+v stdout=%q", code, f.Calls, out)
+	}
+
+	// The old manager binary left, jam-colima missing: reinstall.
+	put(legacynames.StudioManager)
+	if code, out := update(); code != 0 || len(f.Calls) != 1 || !strings.Contains(out, "jam-colima is missing") {
+		t.Fatalf("half-finished: code=%d calls=%+v stdout=%q", code, f.Calls, out)
+	}
+
+	// Both present: up to date.
+	put("jam-colima")
+	if code, out := update(); code != 0 || len(f.Calls) != 0 || !strings.Contains(out, "already up to date") {
+		t.Fatalf("complete: code=%d calls=%+v stdout=%q", code, f.Calls, out)
 	}
 }

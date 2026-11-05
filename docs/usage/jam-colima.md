@@ -30,7 +30,7 @@ The token file is reread at each connect, so after `jam manager rotate` ([verbs]
 
 The binary was `jam-studio-manager`; the Studio Manager concept, Jam's `manager` verbs, labels, container names and the stream are unchanged. On each host, after Jam is upgraded:
 
-1. **Install** with the one-command installer ([OVERVIEW](../OVERVIEW.md#installing-the-binaries)). An older `jam update` installs the new `jam`, then fails on the missing `jam-studio-manager`, and the new `jam update` then reports up to date — so run `install.sh` once. It (and every later `jam update`) notices a leftover `jam-studio-manager` in the install directory; delete it after step 3.
+1. **Install** with `jam update` or the one-command installer ([updating in place](../OVERVIEW.md#installing-the-binaries)). An older `jam update` installs the new `jam`, then fails on the missing `jam-studio-manager`; a second `jam update` (the new `jam`) completes it. `install.sh` (so `jam update` too) notices a leftover `jam-studio-manager` in the install directory; delete it after step 3.
 2. **Edit `config.yml`** (still in the old dir): replace `colima.docker-context` with `colima.profile` — a config that still has it is refused. `docker-context: colima` (or none) is the `default` profile; `docker-context: colima-jam-b` is `profile: jam-b`. Rewrite any `token-file`, `ca-file`, `identity-file` or `known-hosts-dir` that names the old dir.
 3. **Point the service at `jam-colima run`** (`--config` if you pass one) and restart it.
 
