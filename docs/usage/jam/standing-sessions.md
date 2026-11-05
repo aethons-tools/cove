@@ -4,7 +4,7 @@ read_when: You want a role to have a permanent, named agent running (a standing 
 owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the declaration ↔ session map (session ids), the `standing list|reset|upgrade` verbs and `/admin/roles/{project}/{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (the queue, prepare-first, idle wait, `--wait`), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 prereqs: roster.md for roles; standing-state.md for what a restart keeps; coves.md for what a raised studio does and resident mode; comms-addressing.md for `send(to=…)` targets and a role's addressing; discord.md for the Discord reply loop; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-05
 ---
 
 # Standing sessions
@@ -139,7 +139,9 @@ highlighted when stale). The request only records intent and answers at once:
 1. **Prepare** (`preparing`): it builds the image a raise would run now, off its lock, and
    waits until that image is ready, on the session's [pinned manager](coves.md#managers-and-placement)
    only (default when unpinned; unavailable keeps it `preparing`). Nothing is torn down
-   meanwhile; a slow or failed build is no raise failure.
+   meanwhile; a slow or failed build is no raise failure. While the build runs, the
+   state carries the manager's reported step (`preparing: building step 7/12`;
+   [activities](studio-managers.md#activities)).
 2. **Wait for idle** (`waiting-for-idle: <state>`): right before the teardown
    it re-checks that the session is between episodes — `idled`, or live and
    `waiting`, `blocked` or `done`. `running`, `raising`, an unreported activity,

@@ -47,14 +47,21 @@ func TestCardStateMapping(t *testing.T) {
 		{"running, status unknown", live(jam.ActivityRunning), sessionevents.Status{}, false, CardThinking, "thinking", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			card, ok := cardOf(c.inst, c.st, c.known, 0, sessionevents.Totals{})
+			card, ok := cardOf(c.inst, c.st, c.known, 0, sessionevents.Totals{}, nil)
 			if !ok || card.State != c.state || card.Pill != c.pill || card.Tool != c.tool {
 				t.Fatalf("card = %+v ok=%v, want %s/%q/%q", card, ok, c.state, c.pill, c.tool)
 			}
 		})
 	}
+	// A raise held up by its kit's build says so.
+	prep := &jam.ManagerActivity{Kind: jam.ActivityPrepareKit, Step: "building"}
+	for _, ph := range []jam.Phase{jam.PhaseRaising, jam.PhaseRecovering} {
+		if card, ok := cardOf(jam.Instance{Phase: ph}, sessionevents.Status{}, false, 0, sessionevents.Totals{}, prep); !ok || card.State != CardThinking || card.Pill != "preparing kit" {
+			t.Errorf("%s preparing: card = %+v", ph, card)
+		}
+	}
 	for _, ph := range []jam.Phase{jam.PhaseTerminating, jam.PhaseLost, jam.PhaseGone} {
-		if _, ok := cardOf(jam.Instance{Phase: ph}, sessionevents.Status{}, false, 0, sessionevents.Totals{}); ok {
+		if _, ok := cardOf(jam.Instance{Phase: ph}, sessionevents.Status{}, false, 0, sessionevents.Totals{}, nil); ok {
 			t.Errorf("%s session has a card", ph)
 		}
 	}
@@ -63,14 +70,14 @@ func TestCardStateMapping(t *testing.T) {
 func TestCardFields(t *testing.T) {
 	inst := jam.Instance{ActorID: "ses_1", Name: "builder", Phase: jam.PhaseLive, Activity: jam.ActivityRunning, Mission: "ship it", Focus: "reading auth",
 		OpenAsks: 2, Alarms: []jam.Alarm{{Name: "a"}, {Name: "b"}, {Name: "c"}}, Exposures: []jam.Exposure{{Name: "p"}}, KeptProcesses: 4}
-	card, ok := cardOf(inst, sessionevents.Status{}, false, 3, sessionevents.Totals{Context: 84_000, ContextWindow: 200_000})
+	card, ok := cardOf(inst, sessionevents.Status{}, false, 3, sessionevents.Totals{Context: 84_000, ContextWindow: 200_000}, nil)
 	want := SessionCard{Session: "ses_1", Name: "builder", State: CardThinking, Pill: "thinking", Mission: "ship it", Focus: "reading auth",
 		Counts: CardCounts{Asks: 2, Alarms: 3, Previews: 1, Processes: 4}, Context: CardContext{Used: 84_000, Window: 200_000}, Inits: 3}
 	if !ok || card != want {
 		t.Fatalf("card = %+v\nwant   %+v", card, want)
 	}
 	inst.Name = ""
-	if card, _ := cardOf(inst, sessionevents.Status{}, false, 0, sessionevents.Totals{}); card.Name != "ses_1" {
+	if card, _ := cardOf(inst, sessionevents.Status{}, false, 0, sessionevents.Totals{}, nil); card.Name != "ses_1" {
 		t.Fatalf("unnamed card Name = %q, want the actor id", card.Name)
 	}
 }

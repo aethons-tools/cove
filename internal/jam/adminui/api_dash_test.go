@@ -22,7 +22,11 @@ func TestDashboardAPI(t *testing.T) {
 	mgrs := func() []jam.ManagerStatus {
 		return []jam.ManagerStatus{{Name: "m1", Studios: 1, Capacity: 4, LastSeen: time.Date(2026, 10, 28, 9, 30, 0, 0, time.UTC),
 			Strays: []jam.ManagedStudio{{ActorID: "ghost"}}},
-			{Name: "m2", Connected: true, Host: &jam.HostStats{At: time.Date(2026, 10, 28, 9, 31, 5, 0, time.UTC),
+			{Name: "m2", Connected: true, Activities: []jam.ManagerActivity{
+				{Kind: jam.ActivityPrepareKit, Kit: jam.KitRef{ID: "web", Version: 2}, Step: "building", Detail: "step 7/12", Started: time.Now().Add(-125 * time.Second)},
+				{Kind: jam.ActivityCleanup, Step: "removing unused kit images", Started: time.Now().Add(-10 * time.Second)},
+				{Kind: jam.ActivityBuildKitDraft, Kit: jam.KitRef{ID: "app"}, Started: time.Now().Add(-61 * time.Minute)},
+			}, Host: &jam.HostStats{At: time.Date(2026, 10, 28, 9, 31, 5, 0, time.UTC),
 				MemTotal: 8 << 30, MemUsed: 2 << 30, DiskTotal: 100 << 30, DiskUsed: 91 << 30,
 				Reclaimable: jam.Reclaimable{Images: 1 << 30, BuildCache: 1 << 29, Volumes: 0},
 				LastCleanup: &jam.CleanupRecord{At: time.Date(2026, 10, 28, 8, 0, 0, 0, time.UTC), Freed: 3 << 30, Reason: "critical"}}},
@@ -55,6 +59,13 @@ func TestDashboardAPI(t *testing.T) {
 		LastCleanup: "Oct 28 08:00: freed 3.0GiB (critical)"}
 	if h := d.Managers[1].Host; h == nil || *h != want {
 		t.Errorf("m2 host = %+v, want %+v", h, want)
+	}
+	wantActs := []string{"preparing kit web@v2: building step 7/12 (2m)", "cleaning disk: removing unused kit images (10s)", "building kit draft app (1h1m)"}
+	if got := d.Managers[1].Activities; strings.Join(got, "|") != strings.Join(wantActs, "|") {
+		t.Errorf("m2 activities = %q, want %q", got, wantActs)
+	}
+	if got := d.Managers[0].Activities; got == nil || len(got) != 0 {
+		t.Errorf("m1 activities = %#v, want []", got)
 	}
 	if h := d.Managers[2].Host; h == nil || h.LastCleanup != "Oct 28 08:00: failed: docker: daemon down" || h.Mem != "" || h.MemPct != 0 {
 		t.Errorf("m3 host = %+v", h)

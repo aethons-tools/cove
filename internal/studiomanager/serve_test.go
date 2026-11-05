@@ -17,11 +17,13 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/fleet"
 	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/managers"
 	"github.com/aethons-tools/cove/internal/jam/managers/managerpb"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // recordingReconciler records each manager inventory Jam reconciles.
@@ -109,7 +111,13 @@ func (e *jamEnv) connected(name string) bool {
 // eventually polls cond for up to 3s.
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	eventuallyFor(t, 3*time.Second, what, cond)
+}
+
+// eventuallyFor polls cond for up to d.
+func eventuallyFor(t *testing.T, d time.Duration, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(d)
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
@@ -398,4 +406,42 @@ func TestServeCleansAndReportsIt(t *testing.T) {
 		}
 		return false
 	})
+}
+
+// buildingBackend has no kit image and holds each kit build until release
+// closes.
+type buildingBackend struct {
+	*fakeBackend
+	release chan struct{}
+}
+
+func (*buildingBackend) HasKitImage(string) (bool, error) { return false, nil }
+func (b *buildingBackend) BuildKitImage(dir, tag, base string, args map[string]string, noCache bool) (string, error) {
+	<-b.release
+	return b.fakeBackend.BuildKitImage(dir, tag, base, args, noCache)
+}
+
+// A kit prepare is a prepare-kit activity in the manager's status reports
+// while it builds, and is gone once it ends.
+func TestServeReportsKitPrepareActivity(t *testing.T) {
+	e := newJamEnv(t, nil)
+	b := &buildingBackend{fakeBackend: &fakeBackend{}, release: make(chan struct{})}
+	startServe(t, e, b, serveOpts{})
+	eventually(t, "connected", func() bool { return e.connected("m1") })
+	kit := jam.KitRef{ID: "web", Version: 2, Digest: "d1"}
+	done := make(chan error, 1)
+	go func() {
+		_, err := e.router.PrepareKitOn(context.Background(), "m1", jam.KitDefinition{Ref: kit, Kit: studio.StudioKit{Kind: studio.Kind}, Harness: harnessinstall.Default()})
+		done <- err
+	}()
+	// Reports on a change are throttled to one a second.
+	eventuallyFor(t, 10*time.Second, "building reported", func() bool {
+		a, ok := e.hub.KitActivity(kit, "m1")
+		return ok && a.Step == "building" && a.Kit == kit
+	})
+	close(b.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	eventuallyFor(t, 10*time.Second, "activity gone", func() bool { _, ok := e.hub.KitActivity(kit, ""); return !ok })
 }

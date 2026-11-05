@@ -26,7 +26,8 @@ type fakeDisk struct {
 	images     []jam.KitImage
 	block      chan struct{} // non-nil: PruneDanglingImages waits on it
 	entered    chan struct{}
-	onRemove   func(id string) // nil: none; runs inside RemoveImage
+	onRemove   func(id string)   // nil: none; runs inside RemoveImage
+	onStep     func(name string) // nil: none; called as each step starts
 }
 
 func (d *fakeDisk) HostStats(context.Context) (jam.HostStats, error) {
@@ -39,6 +40,9 @@ func (d *fakeDisk) HostStats(context.Context) (jam.HostStats, error) {
 }
 
 func (d *fakeDisk) step(name string) error {
+	if d.onStep != nil {
+		d.onStep(name)
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.calls = append(d.calls, name)
@@ -506,5 +510,31 @@ func TestGatedKitBusyDuringRaise(t *testing.T) {
 	<-done
 	if !idle() {
 		t.Fatal("busy after the raise")
+	}
+}
+
+// A cleanup is a "cleanup" activity while it runs, its step naming what it
+// removes; it ends with the run.
+func TestPolicyReportsCleanupActivity(t *testing.T) {
+	d := &fakeDisk{used: 90, images: []jam.KitImage{{ID: "a", Created: t0.Add(-2 * time.Hour)}}}
+	p, _ := newPolicy(t, d, defaultCleanup())
+	p.acts = newActivities(nil)
+	var seen []string
+	d.onStep = func(name string) {
+		snap := p.acts.Snapshot()
+		if len(snap) != 1 || snap[0].Kind != jam.ActivityCleanup {
+			t.Errorf("at %s: activities = %+v", name, snap)
+			return
+		}
+		seen = append(seen, name+": "+snap[0].Step)
+	}
+	sample(t, p)
+	want := []string{"dangling: removing dangling images", "kit images: removing unused kit images", "rm a: removing unused kit images",
+		"volumes: removing anonymous volumes", "build cache: pruning the build cache"}
+	if !reflect.DeepEqual(seen, want) {
+		t.Fatalf("steps = %q, want %q", seen, want)
+	}
+	if snap := p.acts.Snapshot(); len(snap) != 0 {
+		t.Fatalf("after the run: %+v", snap)
 	}
 }

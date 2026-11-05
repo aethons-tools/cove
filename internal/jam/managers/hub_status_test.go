@@ -175,3 +175,23 @@ func TestHubIgnoresBadStatus(t *testing.T) {
 		t.Fatal("bad status ended the stream")
 	}
 }
+
+// KitActivity finds a connected manager's reported prepare-kit activity, and
+// none once that manager disconnects.
+func TestHubKitActivity(t *testing.T) {
+	e := newHubEnv(t, nil, nil)
+	tok := e.add(t, "m1")
+	kit := jam.KitRef{ID: "web", Version: 2}
+	acts := []jam.ManagerActivity{{ID: "a1", Kind: jam.ActivityPrepareKit, Kit: kit, Step: "building", Detail: "step 3/9"}}
+	_, stop := runClient(t, e.cc, client.Config{Name: "m1", Token: tok, Host: &varHost{}, StatusEvery: 10 * time.Millisecond,
+		Activities: func() []jam.ManagerActivity { return acts }})
+	eventually(t, "activity reported", func() bool { _, ok := e.hub.KitActivity(kit, ""); return ok })
+	if a, ok := e.hub.KitActivity(kit, "m1"); !ok || a.ID != "a1" || a.Progress() != "building step 3/9" {
+		t.Fatalf("KitActivity = %+v, %v", a, ok)
+	}
+	if _, ok := e.hub.KitActivity(jam.KitRef{ID: "db"}, ""); ok {
+		t.Fatal("found an activity for another kit")
+	}
+	stop()
+	eventually(t, "dropped on disconnect", func() bool { _, ok := e.hub.KitActivity(kit, ""); return !ok })
+}

@@ -4,7 +4,7 @@ read_when: You are reading or changing a session's status card — its state and
 owns: the status card's contents, its state mapping, how its counts (subagents included) are derived, the client-built sparkline, and where the card shows
 prereqs: intercom-ui.md for the rail and the live refresh; session-events.md for the event stream Presence derives from; coves.md for session phases and activity
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-05
 ---
 
 # The session status card
@@ -40,7 +40,8 @@ Instance's lifecycle winning over the event stream (as for the status strip):
 | Session | State | Pill |
 |---|---|---|
 | paused | sleeping | paused (or needs you) |
-| starting | thinking | starting |
+| starting | thinking | starting (recovering when re-raised) |
+| starting or recovering while a manager builds its kit image ([activities](studio-managers.md#activities)) | thinking | preparing kit |
 | asked for a person | idle | needs you |
 | blocked | idle | blocked |
 | turn over, background tasks out — or kept processes or alarms | waiting | waiting |
@@ -64,7 +65,9 @@ A card-visible Instance change (`jam.InstanceChanges` wraps the store: phase,
 activity, mission, focus, open asks, alarms, previews, kept processes) and a
 Presence change (status, init, subagent count) push `presence` on the live
 stream ([intercom-ui.md](intercom-ui.md#unread-and-refresh)); the app refetches
-the rail and the header.
+the rail and the header. A manager's activity change pushes nothing: a
+`preparing kit` pill (and its step on the status strip) is as fresh as the
+last refetch.
 
 ## The sparkline
 

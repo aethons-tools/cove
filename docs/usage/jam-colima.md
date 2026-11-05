@@ -1,7 +1,7 @@
 ---
-summary: The `jam-colima` binary — the Studio Manager for a Colima host, a bare-metal process that dials Jam over TLS and hosts studios in a Colima VM; its install, upgrade from jam-studio-manager, config file and `colima.profile`, token, TLS, reconnect backoff, capacity, the host memory/disk it reports, automatic disk cleanup, labels and image builds.
+summary: The `jam-colima` binary — the Studio Manager for a Colima host, a bare-metal process that dials Jam over TLS and hosts studios in a Colima VM; its install, upgrade from jam-studio-manager, config file and `colima.profile`, token, TLS, reconnect backoff, capacity, the host memory/disk and work in progress it reports, automatic disk cleanup, labels and image builds.
 read_when: You are setting up or running `jam-colima` on a host, upgrading a host from `jam-studio-manager`, editing its `config.yml` (which VM via `colima.profile`, `cleanup` thresholds), or debugging why it will not connect, declines raises (capacity, disk full), removed or rebuilds images, or reports odd memory/disk figures to Jam.
-owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, TLS trust, reconnect backoff, capacity gate, how host stats are measured, the disk cleanup policy and disk-full gate, container/volume labels and per-host image builds
+owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, TLS trust, reconnect backoff, capacity gate, how host stats are measured, the activities it reports (kit-prepare progress), the disk cleanup policy and disk-full gate, container/volume labels and per-host image builds
 prereqs: jam/studio-managers.md for registering the manager and what Jam does with it
 tier: leaf
 updated: 2026-11-05
@@ -121,6 +121,16 @@ Each run is logged (Info; Warn when a step failed, the rest still running) and r
 
 Never removed: named volumes (studio state, on any daemon version: the label filter matches only volumes docker 23+ created anonymously), containers, images a container uses, and images under any other name.
 On a shared VM, dangling images, anonymous volumes and the build cache are VM-wide garbage, cleaned for everyone; removing an unused kit image may make another manager rebuild it (time, never data).
+
+## Work in progress
+
+The manager reports its long-running work to Jam as [activities](jam/studio-managers.md#activities), each a kind, an optional kit, and its current step and detail:
+
+- `prepare-kit` (a kit image build; a kit already built reports none): `assembling`; `resolving base`; for a kit chain, `building stage <i>/<n>` with the link (`web@v2`) as detail; then `building`, with detail `step <k>/<m>` read from the image build's `docker build --progress=plain` header lines (`#7 [3/12] RUN …`; the highest step of the stage building now). The build output still goes to the manager's own output unchanged; only a copy is read.
+- `build-kit-draft` (a draft's test build): the same steps, read from its build log.
+- `cleanup` ([disk cleanup](#disk-cleanup)): its step, `removing dangling images`, `removing unused kit images`, `removing anonymous volumes` or `pruning the build cache`.
+
+Each change asks for a status report (at most one a second); an activity ends when its work does.
 
 ## Labels and sharing a daemon
 

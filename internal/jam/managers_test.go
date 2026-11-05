@@ -54,3 +54,49 @@ func TestOneDraftManager(t *testing.T) {
 		t.Fatalf("classify other: %v", err)
 	}
 }
+
+func TestManagerActivityProgress(t *testing.T) {
+	for _, c := range []struct {
+		a    ManagerActivity
+		want string
+	}{
+		{ManagerActivity{}, ""},
+		{ManagerActivity{Step: "assembling"}, "assembling"},
+		{ManagerActivity{Step: "building", Detail: "step 7/12"}, "building step 7/12"},
+		{ManagerActivity{Detail: "web@v2"}, "web@v2"},
+	} {
+		if got := c.a.Progress(); got != c.want {
+			t.Errorf("%+v.Progress() = %q, want %q", c.a, got, c.want)
+		}
+	}
+}
+
+func TestFindKitActivity(t *testing.T) {
+	prep := func(id, kit string, v int) ManagerActivity {
+		return ManagerActivity{ID: id, Kind: ActivityPrepareKit, Kit: KitRef{ID: kit, Version: v}}
+	}
+	ms := []ManagerStatus{
+		{Name: "a", Activities: []ManagerActivity{prep("a1", "web", 2), {ID: "a2", Kind: ActivityCleanup}}},
+		{Name: "b", Activities: []ManagerActivity{prep("b1", "web", 3), {ID: "b2", Kind: ActivityBuildKitDraft, Kit: KitRef{ID: "app"}}}},
+	}
+	for _, c := range []struct {
+		name    string
+		kit     KitRef
+		manager string
+		want    string // activity id, "" = none
+	}{
+		{"exact on the preferred manager", KitRef{ID: "web", Version: 3}, "b", "b1"},
+		{"preferred manager, other version", KitRef{ID: "web", Version: 2}, "b", "b1"},
+		{"no manager: exact version wins", KitRef{ID: "web", Version: 3}, "", "b1"},
+		{"no manager: first by order", KitRef{ID: "web", Version: 9}, "", "a1"},
+		{"preferred manager idle: any other", KitRef{ID: "web", Version: 2}, "c", "a1"},
+		{"a draft build is not a prepare", KitRef{ID: "app"}, "", ""},
+		{"no kit", KitRef{}, "", ""},
+		{"other kit", KitRef{ID: "db", Version: 1}, "", ""},
+	} {
+		got, ok := FindKitActivity(ms, c.kit, c.manager)
+		if (c.want == "") == ok || got.ID != c.want {
+			t.Errorf("%s: got %q %v, want %q", c.name, got.ID, ok, c.want)
+		}
+	}
+}

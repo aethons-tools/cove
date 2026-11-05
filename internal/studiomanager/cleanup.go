@@ -54,6 +54,7 @@ type diskPolicy struct {
 
 	changed chan<- struct{}  // nil: none; a non-blocking send after each run
 	work    *kitWork         // nil: none tracked; images stay while it is busy
+	acts    *activities      // nil: none; each run is a cleanup activity, its step the current one
 	now     func() time.Time // time.Now
 
 	mu           sync.Mutex
@@ -164,6 +165,8 @@ var errStop = errors.New("stop")
 // run is one cleanup, from the sample before that started it.
 func (p *diskPolicy) run(reason string, before jam.HostStats) {
 	defer p.wg.Done()
+	act := p.acts.Start(jam.ActivityCleanup, jam.KitRef{})
+	defer act.Done()
 	ctx := p.ctx
 	rec := jam.CleanupRecord{At: p.now(), Reason: reason}
 	after := before
@@ -188,19 +191,20 @@ func (p *diskPolicy) run(reason string, before jam.HostStats) {
 		return nil
 	}
 	steps := []struct {
-		name  string
+		step  string // the activity's step
 		light bool
 		do    func() error
 	}{
-		{"dangling images", true, func() error { return p.pruneDangling(ctx) }},
-		{"kit images", false, func() error { return p.removeKitImages(ctx, check) }},
-		{"anonymous volumes", true, func() error { return p.clean.PruneVolumes(ctx) }},
-		{"build cache", false, func() error { return p.clean.PruneBuildCache(ctx) }},
+		{"removing dangling images", true, func() error { return p.pruneDangling(ctx) }},
+		{"removing unused kit images", false, func() error { return p.removeKitImages(ctx, check) }},
+		{"removing anonymous volumes", true, func() error { return p.clean.PruneVolumes(ctx) }},
+		{"pruning the build cache", false, func() error { return p.clean.PruneBuildCache(ctx) }},
 	}
 	for _, s := range steps {
 		if light && !s.light {
 			continue
 		}
+		act.Step(s.step, "")
 		err := s.do()
 		if errors.Is(err, errStop) {
 			break

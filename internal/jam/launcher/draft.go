@@ -46,9 +46,12 @@ func (l *Launcher) BuildKitDraft(ctx context.Context, def KitDefinition, tag str
 	if !strings.HasPrefix(tag, draftTagPrefix) {
 		return "", fmt.Errorf("draft build %s: %q is not a draft image tag", def.Ref.ID, tag)
 	}
+	prog := l.track(jam.ActivityBuildKitDraft, def.Ref)
+	defer prog.Done()
 	var ops backend.KitImageBuilder = l.cfg.Ops
 	if lb, ok := l.cfg.Ops.(backend.LoggedKitBuilder); ok {
-		ops = lb.WithBuildLog(ctx, log)
+		// The step parser reads the log's copy of the build output.
+		ops = lb.WithBuildLog(ctx, io.MultiWriter(log, newBuildSteps(prog)))
 	}
 	// One dir per tag: two builds of the same tree would share (and one
 	// would remove) it. Safe only because jam.KitDraftBuilds runs at most
@@ -56,17 +59,20 @@ func (l *Launcher) BuildKitDraft(ctx context.Context, def KitDefinition, tag str
 	buildDir := filepath.Join(l.cfg.BuildRoot, "draft", strings.TrimPrefix(tag, draftTagPrefix))
 	defer os.RemoveAll(buildDir)
 	fmt.Fprintf(log, "== kit draft %s: %s (harness %s %s)\n", def.Ref.ID, chainText(def.Chain), def.Harness.Type, def.Harness.Version)
+	prog.Step("assembling", "")
 	if err := l.cfg.assemble(def, buildDir); err != nil {
 		return "", fmt.Errorf("draft build %s: assemble: %w", def.Ref.ID, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	base, err := l.resolveStudioBase(ops, def, jam.KitDraftStageTag(tag))
+	prog.Step("resolving base", "")
+	base, err := l.resolveStudioBase(ops, def, jam.KitDraftStageTag(tag), prog)
 	if err != nil {
 		return "", fmt.Errorf("draft build %s: resolve base: %w", def.Ref.ID, err)
 	}
 	fmt.Fprintf(log, "== image %s FROM %s\n", tag, base)
+	prog.Step("building", "")
 	id, err := ops.BuildKitImage(buildDir, tag, base, def.Kit.BuildArgs, false)
 	if err != nil {
 		return "", fmt.Errorf("draft build %s: build: %w", def.Ref.ID, err)

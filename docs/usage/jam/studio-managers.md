@@ -1,7 +1,7 @@
 ---
 summary: Operator guide to remote Studio Managers — enabling them, the `jam manager add|list|rotate|revoke` verbs, how a manager connects to Jam, and what happens on disconnect, reconnect and revoke.
-read_when: You register, rotate or revoke a Studio Manager, upgrade from the old `runtime.launcher` (its error links here), or debug a manager connection (refused stream, version mismatch, a manager shown disconnected, strays, a revoke refused), or wonder where a manager's memory/disk figures come from.
-owns: the operator-facing Studio Manager story — `runtime.studio-managers`, the `manager` verbs and admin API, the Connect stream's auth and lifecycle, the managers' status reports (host stats) and how Jam keeps them, and disconnect/reconnect/revoke behaviour
+read_when: You register, rotate or revoke a Studio Manager, upgrade from the old `runtime.launcher` (its error links here), or debug a manager connection (refused stream, version mismatch, a manager shown disconnected, strays, a revoke refused), or wonder where a manager's memory/disk figures or its Activity column (kit-prepare progress) come from.
+owns: the operator-facing Studio Manager story — `runtime.studio-managers`, the `manager` verbs and admin API, the Connect stream's auth and lifecycle, the managers' status reports (host stats, activities) and how Jam keeps and shows them, and disconnect/reconnect/revoke behaviour
 prereqs: coves.md#managers-and-placement for how a raise picks a manager; serve.md for the serve config
 tier: leaf
 updated: 2026-11-05
@@ -18,7 +18,7 @@ How a raise chooses among managers is in [Managers and placement](coves.md#manag
 Set `runtime.studio-managers: true` in the [serve config](serve.md).
 Studios run on managers only; a serve config that still has `runtime.launcher` is refused ([retiring it](#retiring-the-in-process-launcher)).
 Without this setting Jam keeps a placeholder launcher that starts no studios.
-The admin UI dashboard then shows a read-only Managers panel (name, connected, version, studios/capacity, last seen, strays, and from [status reports](#status-reports) memory and disk with a bar, reclaimable and last cleanup) and the studios table gains a Manager column.
+The admin UI dashboard then shows a read-only Managers panel (name, connected, version, studios/capacity, last seen, strays, and from [status reports](#status-reports) memory and disk with a bar, reclaimable, last cleanup and [activity](#activities)) and the studios table gains a Manager column.
 
 **Warning:** turning `runtime.studio-managers` off while remote studios exist makes Jam treat them as dead, because their manager is no longer registered.
 Jam then treats their studios as dead: each is torn down (a no-op, since no manager is registered to call), its identity revoked and its record dropped; the containers stay on the host.
@@ -31,7 +31,7 @@ All are clients of the admin API (see [operators.md](operators.md) for the clien
 |------|------|
 | `jam manager add <name>` | Registers a manager and prints `manager <name> token (shown once): <token>`. |
 | `jam manager rotate <name>` | Mints a new token, same output line; the old token stops working. |
-| `jam manager list` | One line per manager: `<name>\tconnected=<bool>\tversion=<v>\tstudios=<n>\tcapacity=<c>\tlast-seen=<RFC3339\|->\tstrays=<n>\tmem=<used>/<total>\tdisk=<used>/<total>(<pct>%)`; sizes in binary units (`46.0GiB`), `mem=-`/`disk=-` when not reported. |
+| `jam manager list` | One line per manager: `<name>\tconnected=<bool>\tversion=<v>\tstudios=<n>\tcapacity=<c>\tlast-seen=<RFC3339\|->\tstrays=<n>\tmem=<used>/<total>\tdisk=<used>/<total>(<pct>%)\tactivities=<n>`; sizes in binary units (`46.0GiB`), `mem=-`/`disk=-` when not reported; `activities` counts its [work in progress](#activities). |
 | `jam manager revoke <name> [--force]` | Removes the manager; see Revoke. |
 
 Admin API: `GET`/`POST /admin/managers`, `POST /admin/managers/{name}/rotate`, `DELETE /admin/managers/{name}?force=true`.
@@ -61,6 +61,22 @@ Jam keeps the latest report per manager.
 Host stats are kept across a disconnect and a reconnect until the next report (the dashboard's tooltip says when they were measured); work in progress is dropped on disconnect.
 They feed the dashboard, `jam manager list`, the `jam_manager_*` metrics and the `manager.disk:<name>` condition ([monitoring.md](monitoring.md)).
 A malformed report is logged and ignored.
+
+## Activities
+
+A report's work in progress is a list of **activities**, each `{id, kind, kit, step, detail, started}`.
+Kinds: `prepare-kit` (a kit image build; `kit` names it), `build-kit-draft` (a draft's test build) and `cleanup` (a disk cleanup).
+What [jam-colima](../jam-colima.md#work-in-progress) reports for each is on its page.
+A kit prepare is a request Jam makes and waits on; its progress reaches Jam only through these reports, never in the request's answer.
+
+Jam shows them:
+
+- the dashboard's Managers panel, **Activity** column: one line each, e.g. `preparing kit web@v2: building step 7/12 (2m)` (what, step, for how long);
+- a session raising or recovering while a manager (its own first) prepares its kit: `is preparing its kit image — <step>` on the [status strip](intercom-ui.md#session-status) and a `preparing kit` [card](session-card.md) pill (matched on the kit's id, so a recovery building the role's newer version counts);
+- a standing upgrade's `preparing` state: `preparing: <step>` while its prepare runs ([upgrades](standing-sessions.md));
+- `jam manager list`'s `activities=<n>`.
+
+A fresh raise records no session until it is up, so a new session's line shows nothing while its kit builds (it appears once raised); only a recovering session's line shows the prepare.
 
 ## Disconnect
 

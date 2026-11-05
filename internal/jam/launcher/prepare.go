@@ -46,6 +46,11 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 		return KitStatus{State: KitReady}, nil
 	}
 
+	// The build is a prepare-kit job from here on (an already present kit,
+	// above, reports none): its steps reach Jam in the manager's status.
+	prog := l.track(jam.ActivityPrepareKit, ref)
+	defer prog.Done()
+	prog.Step("assembling", "")
 	buildDir := filepath.Join(l.cfg.BuildRoot, ref.Digest)
 	if err := l.cfg.assemble(def, buildDir); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: assemble: %w", ref, err)
@@ -54,14 +59,21 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 	// brokered coves). Three cases: a kit tree with a Dockerfile is streamed to
 	// `docker build -` and gated; else a declared Base.Image is resolved+gated;
 	// an empty ref resolves to the blessed default.
-	base, err := l.resolveStudioBase(l.cfg.Ops, def, "")
+	prog.Step("resolving base", "")
+	base, err := l.resolveStudioBase(l.cfg.Ops, def, "", prog)
 	if err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: resolve base: %w", ref, err)
 	}
 	// Build on the substrate backend (context-pinned + BASE arg + kit build-args),
 	// so the image lands in the same daemon Raise's RunEphemeral runs it from, and
 	// the Dockerfile's FROM ${BASE} resolves. See backend.KitImageBuilder / COV-217.
-	if _, err := l.cfg.Ops.BuildKitImage(buildDir, l.imageTag(ref), base, def.Kit.BuildArgs, false); err != nil {
+	// A backend.TeedKitBuilder also hands its output to the step parser.
+	prog.Step("building", "")
+	var ops backend.KitImageBuilder = l.cfg.Ops
+	if tb, ok := l.cfg.Ops.(backend.TeedKitBuilder); ok {
+		ops = tb.WithBuildOutput(newBuildSteps(prog))
+	}
+	if _, err := ops.BuildKitImage(buildDir, l.imageTag(ref), base, def.Kit.BuildArgs, false); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: build: %w", ref, err)
 	}
 	_, excluded := studioEgress(def.Kit, l.cfg.JamHost)
@@ -79,8 +91,9 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 // and hardening layers are applied exactly once, on top of the whole chain.
 // top, when set, is a kit draft build's own stage tag: the chain's last link
 // (an unchained kit's own base included) builds under it instead of its kit
-// version's stage tag (BuildKitDraft).
-func (l *Launcher) resolveStudioBase(ops backend.KitImageBuilder, def KitDefinition, top string) (string, error) {
+// version's stage tag (BuildKitDraft). A chain reports each link it resolves
+// to prog as "building stage i/n" (detail: the link's kit).
+func (l *Launcher) resolveStudioBase(ops backend.KitImageBuilder, def KitDefinition, top string, prog Progress) (string, error) {
 	if len(def.Chain) <= 1 {
 		// Guard on the chain's own link, not def.Kit.Base: Merge clears
 		// Base.Kit, so the merged kit cannot show a named parent.
@@ -90,13 +103,19 @@ func (l *Launcher) resolveStudioBase(ops backend.KitImageBuilder, def KitDefinit
 		}
 		return l.resolveOwnBase(ops, own, top)
 	}
+	n := len(def.Chain)
+	stageStep := func(i int, link jam.KitLink) {
+		prog.Step(fmt.Sprintf("building stage %d/%d", i, n), link.Ref.String())
+	}
 	root := def.Chain[0]
+	stageStep(1, root)
 	ref, err := l.resolveOwnBase(ops, root, "")
 	if err != nil {
 		return "", fmt.Errorf("kit %s: %w", root.Ref, err)
 	}
 	links := def.Chain[1:]
 	for i, link := range links {
+		stageStep(i+2, link)
 		stage := ""
 		if i == len(links)-1 {
 			stage = top

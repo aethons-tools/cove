@@ -13,7 +13,7 @@ import (
 // known), its init count, and its totals. Like sessionRow, the Instance's
 // lifecycle wins over the event stream. ok=false: the session is ending or
 // gone, and has no card.
-func cardOf(inst jam.Instance, st sessionevents.Status, known bool, inits int, t sessionevents.Totals) (SessionCard, bool) {
+func cardOf(inst jam.Instance, st sessionevents.Status, known bool, inits int, t sessionevents.Totals, prep *jam.ManagerActivity) (SessionCard, bool) {
 	c := SessionCard{Session: inst.ActorID, Name: inst.Name, Mission: inst.Mission, Focus: inst.Focus, Inits: inits,
 		Counts: CardCounts{Asks: inst.OpenAsks, Alarms: len(inst.Alarms), Previews: len(inst.Exposures), Processes: inst.KeptProcesses},
 		// Context is the main thread's, as the header's ctx figure.
@@ -24,6 +24,12 @@ func cardOf(inst jam.Instance, st sessionevents.Status, known bool, inits int, t
 	set := func(s CardState, pill string) (SessionCard, bool) {
 		c.State, c.Pill = s, pill
 		return c, true
+	}
+	switch inst.Phase {
+	case jam.PhaseRaising, jam.PhaseRecovering:
+		if prep != nil { // its kit image is building (preparingKit)
+			return set(CardThinking, "preparing kit")
+		}
 	}
 	switch inst.Phase {
 	case jam.PhaseRaising:
@@ -77,7 +83,8 @@ func (h *handler) card(inst jam.Instance) (SessionCard, bool) {
 	if h.d.Totals != nil {
 		t, _ = h.d.Totals.Of(inst.ActorID) // no totals yet: no context bar
 	}
-	c, ok := cardOf(inst, st, known, inits, t)
+	prep, _ := preparingKit(inst, h.d.KitActivity)
+	c, ok := cardOf(inst, st, known, inits, t, prep)
 	if ok {
 		c.Counts.Subagents = subagents
 		c.Color, _ = h.d.Store.SessionColor(inst.ActorID)

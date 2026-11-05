@@ -1069,3 +1069,39 @@ func TestUpgradeLegacyUnpinnedUsesLiveInstanceManager(t *testing.T) {
 		}
 	}
 }
+
+// While a prepare is in flight, the upgrade state carries its manager's
+// kit build step; once the prepare returns, the step is gone.
+func TestUpgrade_PreparingShowsKitActivity(t *testing.T) {
+	r, w, _, _ := upgradeKit(t)
+	ctx := context.Background()
+	var asked []string
+	building := true
+	r.SetKitActivity(func(kit jam.KitRef, manager string) (jam.ManagerActivity, bool) {
+		asked = append(asked, kit.ID+"/"+kit.Digest+" on "+manager)
+		return jam.ManagerActivity{Kind: jam.ActivityPrepareKit, Kit: kit, Step: "building", Detail: "step 7/12"}, building
+	})
+	var pending func()
+	r.spawn = func(f func()) { pending = f }
+	_ = r.QueueUpgrade("acme", "reviewer", "alice-bot", false)
+	r.Tick(ctx)
+	if pending == nil {
+		t.Fatal("no prepare started")
+	}
+	if got := r.state(); got != "preparing: building step 7/12" {
+		t.Fatalf("state = %q", got)
+	}
+	if !slices.Equal(asked, []string{"web/img:new on local"}) {
+		t.Fatalf("lookups = %q", asked)
+	}
+	building = false
+	if got := r.state(); got != "preparing" {
+		t.Fatalf("no activity: state = %q", got)
+	}
+	building = true
+	w.notReady = true
+	pending()
+	if got := r.state(); got != "preparing" {
+		t.Fatalf("prepare returned: state = %q, want no step", got)
+	}
+}

@@ -4,7 +4,7 @@ read_when: You want a project member to read/reply to their studios and channels
 owns: what the `/app/user` user area shows and does — the rail attention grouping, the conversation view, New message, New session, asks in a conversation, the composer (keys, saved reply, draft stack, attachments) and copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
 prereqs: web-app.md for how the app is built and served; session-events.md for the event stream the status strip derives from; ui.md for the `/app` login and who counts as a user; intercom.md for the squawk Log + wake-on; coves.md for the session phases and activity the "Needs you" treatment reflects; escalation.md for asking for a person
 tier: leaf
-updated: 2026-10-31
+updated: 2026-11-05
 ---
 
 # The user area (`/app/user`)
@@ -162,7 +162,8 @@ whose turn ended is **idle**: it needs you only once it asks.
 
 | Status | When |
 |--------|------|
-| starting | the session is raising |
+| starting / recovering | the session is raising / being re-raised after it was lost |
+| preparing its kit image — *\<step\>* | it is raising or recovering and a connected manager (its own first) reports building its kit's image ([kit-prepare progress](studio-managers.md#activities)), e.g. `building step 7/12`; it wins over starting and recovering |
 | paused | it is idled |
 | needs you | it is waiting (live or paused) and asked for a person since it was last woken; this wins over paused |
 | idle | it is waiting without having asked (its turn ended) |
@@ -178,8 +179,7 @@ session's phase and activity plus its [session events](session-events.md),
 summarized by an in-memory tracker every published event passes through
 (`sessionevents.Presence`, fed via `Hub.Observe`). The strip shows only the
 status and a **tool name**; event content is for members of the session's home
-channel, in its Thinking tab ([Sensitivity](session-events.md#sensitivity)).
-After a restart a running session reads "working" until its next event.
+channel, in its Thinking tab ([Sensitivity](session-events.md#sensitivity)). After a restart a running session reads "working" until its next event.
 
 ## Enabling it
 

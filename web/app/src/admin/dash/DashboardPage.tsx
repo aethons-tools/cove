@@ -75,6 +75,9 @@ export function DashboardPage() {
             { key: "disk", label: "Disk", render: (m) => usage(m, "disk", m.host?.disk, m.host?.diskPct) },
             { key: "r", label: "Reclaimable", render: (m) => dash(m.host?.reclaimable && <Text span size="sm" title={m.host.reclaimableDetail}>{m.host.reclaimable}</Text>) },
             { key: "lc", label: "Last cleanup", render: (m) => dash(m.host?.lastCleanup && <Text span size="sm">{m.host.lastCleanup}</Text>) },
+            { key: "a", label: "Activity", render: (m) => dash(m.activities.length > 0 && (
+              <Stack gap={2}>{m.activities.map((a, i) => <Text key={i} span size="sm">{a}</Text>)}</Stack>
+            )) },
           ]} />
         </Section>
       )}

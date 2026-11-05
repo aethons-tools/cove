@@ -123,6 +123,9 @@ type Reconciler struct {
 	kick chan struct{}
 	// spawn runs a prepare off the lock (go f(); tests run it inline).
 	spawn func(f func())
+	// kits finds a manager's build of a kit, for a preparing upgrade's
+	// state (nil: none shown). Set before Run.
+	kits jam.KitActivityFunc
 }
 
 // upgrade is one name's pending upgrade. project is the project's id, so a
@@ -130,10 +133,12 @@ type Reconciler struct {
 type upgrade struct {
 	project, role, name string
 	force               bool
-	state, detail       string // jam.Upgrade* state and why
-	readyKey            string // the image key PrepareImage last reported ready
-	preparing           bool   // a PrepareImage is in flight
-	prepErr             string // the last prepare's failure
+	state, detail       string     // jam.Upgrade* state and why
+	readyKey            string     // the image key PrepareImage last reported ready
+	preparing           bool       // a PrepareImage is in flight
+	prepErr             string     // the last prepare's failure
+	kit                 jam.KitRef // the kit the prepare in flight builds
+	manager             string     // and the manager it builds on ("" = the default)
 }
 
 func (u *upgrade) status() string {
@@ -158,6 +163,11 @@ func New(roster Roster, registry Registry, granter Granter, sup Supervisor, inte
 		upgrades: map[string]*upgrade{}, kick: make(chan struct{}, 1), spawn: func(f func()) { go f() },
 	}
 }
+
+// SetKitActivity lets a preparing upgrade's state show its kit build's
+// step ("preparing: building step 7/12"): managers.Hub.KitActivity. Call it
+// before Run.
+func (r *Reconciler) SetKitActivity(f jam.KitActivityFunc) { r.kits = f }
 
 // SetActors lets the reconciler clear a leftover identity for a declared name
 // that has no live cove (see Actors).
@@ -412,11 +422,20 @@ func (r *Reconciler) QueueUpgrade(project, role, name string, force bool) error 
 func (r *Reconciler) UpgradeState(project, role, name string) string {
 	id, _, _ := r.sessionID(project, role, name, false)
 	r.stMu.Lock()
-	defer r.stMu.Unlock()
-	if u, ok := r.upgrades[id]; ok && id != "" {
-		return u.status()
+	u, ok := r.upgrades[id]
+	if !ok || id == "" {
+		r.stMu.Unlock()
+		return ""
 	}
-	return ""
+	c := *u
+	r.stMu.Unlock()
+	// A prepare in flight shows its build's step, when a manager reports one.
+	if c.state == jam.UpgradePreparing && c.preparing && r.kits != nil {
+		if a, ok := r.kits(c.kit, c.manager); ok && a.Progress() != "" {
+			return c.state + ": " + a.Progress()
+		}
+	}
+	return c.status()
 }
 
 // kickNow asks Run for a pass now, without blocking.
@@ -497,7 +516,7 @@ func (r *Reconciler) advanceUpgrade(ctx context.Context, id string, u upgrade, i
 	}
 	if key := cur.Key(); cur.HasKit && u.readyKey != key {
 		if !u.preparing {
-			r.startPrepare(ctx, id, project, u.role, pin)
+			r.startPrepare(ctx, id, project, u.role, pin, cur.Kit)
 		}
 		r.stMu.Lock()
 		if p, ok := r.upgrades[id]; ok {
@@ -544,11 +563,12 @@ func (r *Reconciler) pinnedManager(projectID, role, name string) string {
 }
 
 // startPrepare runs PrepareImage for (project, role) on manager off the lock,
-// recording the outcome on id's upgrade and kicking a pass.
-func (r *Reconciler) startPrepare(ctx context.Context, id, project, role, manager string) {
+// recording the outcome on id's upgrade and kicking a pass. kit is the kit
+// it builds (UpgradeState looks up its progress).
+func (r *Reconciler) startPrepare(ctx context.Context, id, project, role, manager string, kit jam.KitRef) {
 	r.stMu.Lock()
 	if p, ok := r.upgrades[id]; ok {
-		p.preparing = true
+		p.preparing, p.kit, p.manager = true, kit, manager
 	}
 	r.stMu.Unlock()
 	r.spawn(func() {

@@ -26,7 +26,7 @@ func WithPresence(p Presence) Option {
 
 // sessionRows builds the strip for a conversation's session actors, in order.
 // A session with no Instance, or one that is ending or gone, is left out.
-func sessionRows(actors []string, instances []jam.Instance, pr Presence) []SessionRow {
+func sessionRows(actors []string, instances []jam.Instance, pr Presence, kits jam.KitActivityFunc) []SessionRow {
 	byActor := map[string]jam.Instance{}
 	for _, i := range instances {
 		byActor[i.ActorID] = i
@@ -42,7 +42,8 @@ func sessionRows(actors []string, instances []jam.Instance, pr Presence) []Sessi
 		if pr != nil {
 			st, known = pr.Status(a)
 		}
-		row, show := sessionRow(inst, st, known)
+		prep, _ := preparingKit(inst, kits)
+		row, show := sessionRow(inst, st, known, prep)
 		if show {
 			rows = append(rows, row)
 		}
@@ -50,10 +51,25 @@ func sessionRows(actors []string, instances []jam.Instance, pr Presence) []Sessi
 	return rows
 }
 
+// preparingKit is the prepare-kit activity holding up inst's raise: inst
+// is raising or recovering and a connected manager (its own first) is
+// building its kit (jam.FindKitActivity). Nil without a lookup.
+func preparingKit(inst jam.Instance, kits jam.KitActivityFunc) (*jam.ManagerActivity, bool) {
+	if kits == nil || inst.Kit.ID == "" || (inst.Phase != jam.PhaseRaising && inst.Phase != jam.PhaseRecovering) {
+		return nil, false
+	}
+	a, ok := kits(inst.Kit, inst.Manager)
+	if !ok {
+		return nil, false
+	}
+	return &a, true
+}
+
 // sessionRow derives one session's line. The Instance's lifecycle wins (a
 // session raising, paused, idle, asking for a person, or blocked says so whatever its last
-// event was); a running session shows its latest event-derived status.
-func sessionRow(inst jam.Instance, st sessionevents.Status, known bool) (SessionRow, bool) {
+// event was); a running session shows its latest event-derived status. prep,
+// when set, is the kit build holding up a raising or recovering session.
+func sessionRow(inst jam.Instance, st sessionevents.Status, known bool, prep *jam.ManagerActivity) (SessionRow, bool) {
 	label := inst.Name // as the New message picker labels sessions
 	if label == "" {
 		label = inst.ActorID
@@ -63,6 +79,13 @@ func sessionRow(inst jam.Instance, st sessionevents.Status, known bool) (Session
 	}
 	if jam.NeedsPerson(inst) && inst.Activity != jam.ActivityBlocked {
 		return row("needs you", "wait") // asked, even once paused
+	}
+	if prep != nil && (inst.Phase == jam.PhaseRaising || inst.Phase == jam.PhaseRecovering) {
+		text := "is preparing its kit image"
+		if p := prep.Progress(); p != "" {
+			text += " — " + p
+		}
+		return row(text, "busy")
 	}
 	switch inst.Phase {
 	case jam.PhaseRaising:

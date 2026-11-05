@@ -78,8 +78,8 @@ func cmdManager(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 				seen = m.LastSeen.UTC().Format(time.RFC3339)
 			}
 			mem, disk := hostColumns(m.Host)
-			fmt.Fprintf(stdout, "%s\tconnected=%t\tversion=%s\tstudios=%d\tcapacity=%d\tlast-seen=%s\tstrays=%d\tmem=%s\tdisk=%s\n",
-				m.Name, m.Connected, m.Version, m.Studios, m.Capacity, seen, len(m.Strays), mem, disk)
+			fmt.Fprintf(stdout, "%s\tconnected=%t\tversion=%s\tstudios=%d\tcapacity=%d\tlast-seen=%s\tstrays=%d\tmem=%s\tdisk=%s\tactivities=%d\n",
+				m.Name, m.Connected, m.Version, m.Studios, m.Capacity, seen, len(m.Strays), mem, disk, len(m.Activities))
 		}
 	case "revoke":
 		name, ok := oneName()

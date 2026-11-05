@@ -45,7 +45,7 @@ are unchanged.
 ## 3. Host health (generic)
 
 - New unsolicited manager→Jam frame `OpStatus` (frame id 0), JSON
-  `wire.StatusReport{Host *jam.HostStats, Activities []jam.Activity}`; no proto
+  `wire.StatusReport{Host *jam.HostStats, Activities []jam.ManagerActivity}`; no proto
   change. Sent after Welcome, every 30s, and (throttled to ≤1/s) whenever the
   activity list changes.
 - `jam.HostStats{At, MemTotal, MemUsed, DiskTotal, DiskUsed, Reclaimable
@@ -58,7 +58,7 @@ are unchanged.
   (`jam_manager_memory_bytes{manager,kind=used|total}`,
   `jam_manager_disk_bytes{…}`, `jam_manager_reclaimable_bytes{manager,kind}`).
 - Attention condition `manager.disk:<name>`, warning at ≥90% disk, critical at
-  ≥95%; cleared below 90% or when the manager is revoked.
+  ≥95%; cleared below 88% (hysteresis) or when the manager is revoked.
 - Colima: `colima ssh --profile <p> -- sh -c 'df -kP /var/lib/docker;
   cat /proc/meminfo'` (MemTotal − MemAvailable = used) plus
   `docker system df --format json` for reclaimable.
@@ -87,10 +87,11 @@ are unchanged.
 
 ## 5. Kit-prepare progress (generic)
 
-- `jam.Activity{ID, Kind ("prepare-kit"|"cleanup"), Kit KitRef, Step, Detail,
-  Started}`; a manager-side tracker the launcher reports into. PrepareKit
-  reports `assembling`, `resolving base`, `building stage i/n` for chains, and
-  `building n/m` parsed from `--progress=plain` output (`#N [k/m] …`).
+- `jam.ManagerActivity{ID, Kind ("prepare-kit"|"build-kit-draft"|"cleanup"),
+  Kit KitRef, Step, Detail, Started}` (`jam.Activity` was taken); a
+  manager-side tracker the launcher reports into. PrepareKit reports
+  `assembling`, `resolving base`, `building stage i/n` for chains, and
+  `building` / `step k/m` parsed from `--progress=plain` output (`#N [k/m] …`).
 - Jam stores activities per manager (from `OpStatus`). Shown:
   - session line: a raising/recovering session whose manager has a
     prepare-kit activity for its kit reads `is preparing its kit image —

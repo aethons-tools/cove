@@ -3,6 +3,7 @@ package adminui
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/numfmt"
@@ -29,10 +30,13 @@ func attnRowsOf(items []attnItem) []AttnRow {
 	return out
 }
 
-func managerRowsOf(ms []jam.ManagerStatus) []ManagerRow {
+func managerRowsOf(ms []jam.ManagerStatus, now time.Time) []ManagerRow {
 	out := []ManagerRow{}
 	for _, m := range ms {
-		row := ManagerRow{Name: m.Name, Connected: m.Connected, Version: m.Version, Studios: m.Studios, Capacity: m.Capacity, Strays: []string{}}
+		row := ManagerRow{Name: m.Name, Connected: m.Connected, Version: m.Version, Studios: m.Studios, Capacity: m.Capacity, Strays: []string{}, Activities: []string{}}
+		for _, a := range m.Activities {
+			row.Activities = append(row.Activities, activityLine(a, now))
+		}
 		if !m.LastSeen.IsZero() {
 			row.LastSeen = m.LastSeen.Format("15:04:05")
 		}
@@ -43,6 +47,37 @@ func managerRowsOf(ms []jam.ManagerStatus) []ManagerRow {
 		out = append(out, row)
 	}
 	return out
+}
+
+// activityLine is a manager activity for the dashboard: what, its step, and
+// for how long: "preparing kit web@v2: building step 7/12 (2m)".
+func activityLine(a jam.ManagerActivity, now time.Time) string {
+	var s string
+	switch a.Kind {
+	case jam.ActivityPrepareKit:
+		s = "preparing kit " + a.Kit.String()
+	case jam.ActivityBuildKitDraft:
+		s = "building kit draft " + a.Kit.ID
+	case jam.ActivityCleanup:
+		s = "cleaning disk"
+	default:
+		s = a.Kind
+	}
+	if p := a.Progress(); p != "" {
+		s += ": " + p
+	}
+	if !a.Started.IsZero() {
+		s += " (" + activityAge(now.Sub(a.Started)) + ")"
+	}
+	return s
+}
+
+// activityAge is d in whole seconds under a minute, else whole minutes.
+func activityAge(d time.Duration) string {
+	if d < time.Minute {
+		return fmtDur(max(d, 0).Truncate(time.Second))
+	}
+	return fmtDur(d.Truncate(time.Minute))
 }
 
 func managerHostOf(h *jam.HostStats) *ManagerHost {
@@ -123,7 +158,7 @@ func apiDash(api *http.ServeMux, src frameSource, msgs SquawkReader, da dashAPI,
 			HasManagers: da.managers != nil, Managers: []ManagerRow{}, Coves: coveRows(jam.CoveSummaries(store, da.sup), items),
 		}
 		if da.managers != nil {
-			d.Managers = managerRowsOf(da.managers())
+			d.Managers = managerRowsOf(da.managers(), time.Now())
 		}
 		writeJSON(w, http.StatusOK, d)
 	})

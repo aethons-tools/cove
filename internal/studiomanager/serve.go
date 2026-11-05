@@ -78,12 +78,13 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 	var (
 		host    jam.HostReporter // nil: no host stats
 		policy  *diskPolicy
-		changed = make(chan struct{}, 1) // a cleanup asks for a status report
+		changed = make(chan struct{}, 1) // a cleanup or an activity change asks for a status report
+		acts    = newActivities(changed) // kit prepares, draft builds and cleanups in progress
 	)
 	if hr, ok := ops.(jam.HostReporter); ok {
 		cl, _ := ops.(jam.HostCleaner)
 		policy = newDiskPolicy(ctx, hr, cl, cfg.Cleanup, log)
-		policy.changed = changed
+		policy.changed, policy.acts = changed, acts
 		host = policy
 	}
 	dial := deps.Dial
@@ -103,6 +104,7 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 		IdentityFile: cfg.Colima.IdentityFile, KnownHostsDir: cfg.Colima.KnownHostsDir,
 		DNS: cfg.Colima.DNS, Docker: cfg.Colima.Docker,
 		PublicKey: pub, Subscription: false, Log: log,
+		Track: func(kind string, kit jam.KitRef) launcher.Progress { return acts.Start(kind, kit) },
 	})
 	g := &gated{Launcher: l, capacity: cfg.Capacity}
 	if policy != nil {
@@ -124,7 +126,7 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 		return client.Run(ctx, cc, client.Config{
 			Name: cfg.Name, Token: token, Version: version, Capacity: cfg.Capacity,
 			Launcher: g, Images: images, Inventory: l.Studios, Log: log, Host: host,
-			StatusChanged: changed,
+			StatusChanged: changed, Activities: acts.Snapshot,
 			OnWelcome: func(w *managerpb.Welcome) {
 				l.SetSSHUserCA(w.GetSshUserCa())
 				log.Info("manager: connected to Jam", "jam", cfg.JamAddr, "name", cfg.Name)

@@ -49,6 +49,10 @@ type Deps struct {
 	// Personal starts the viewer's personal sessions (New session; nil: not
 	// offered).
 	Personal PersonalStarter
+	// KitActivity finds a manager's build of a kit, so a session whose raise
+	// waits on it reads "is preparing its kit image" (managers.Hub.KitActivity;
+	// nil: never shown).
+	KitActivity jam.KitActivityFunc
 }
 
 // PersonalStarter starts a personal session owned by owner:

@@ -129,3 +129,46 @@ func TestEventsStreamsPresenceSignal(t *testing.T) {
 	pr.ch <- struct{}{}
 	readUntil(t, sc, "event: presence") // throttled, not dropped
 }
+
+// A raising or recovering session whose kit a manager is building reads
+// "is preparing its kit image — <step>"; preferring its own manager.
+func TestPreparingKitRows(t *testing.T) {
+	web := jam.KitRef{ID: "web", Version: 2}
+	var asked []string
+	kits := func(kit jam.KitRef, manager string) (jam.ManagerActivity, bool) {
+		asked = append(asked, kit.String()+" on "+manager)
+		if kit.ID != "web" {
+			return jam.ManagerActivity{}, false
+		}
+		return jam.ManagerActivity{Kind: jam.ActivityPrepareKit, Kit: web, Step: "building", Detail: "step 7/12"}, true
+	}
+	rec := jam.Instance{ActorID: "rec", Phase: jam.PhaseRecovering, Kit: web, Manager: "m1"}
+	raising := jam.Instance{ActorID: "new", Phase: jam.PhaseRaising, Kit: web}
+	other := jam.Instance{ActorID: "db", Phase: jam.PhaseRecovering, Kit: jam.KitRef{ID: "db", Version: 1}}
+	live := jam.Instance{ActorID: "live", Phase: jam.PhaseLive, Kit: web}
+	nokit := jam.Instance{ActorID: "nokit", Phase: jam.PhaseRaising}
+	rows := sessionRows([]string{"rec", "new", "db", "live", "nokit"}, []jam.Instance{rec, raising, other, live, nokit}, nil, kits)
+	want := []SessionRow{
+		{"rec", "is preparing its kit image — building step 7/12", "", "busy"},
+		{"new", "is preparing its kit image — building step 7/12", "", "busy"},
+		{"db", "is recovering", "", "busy"},
+		{"live", "is working", "", "busy"},
+		{"nokit", "is starting", "", "busy"},
+	}
+	if !slices.Equal(rows, want) {
+		t.Fatalf("rows = %+v\nwant %+v", rows, want)
+	}
+	if !slices.Equal(asked, []string{"web@v2 on m1", "web@v2 on ", "db@v1 on "}) {
+		t.Fatalf("lookups = %q", asked)
+	}
+	// No step yet; and no lookup at all.
+	bare := func(jam.KitRef, string) (jam.ManagerActivity, bool) {
+		return jam.ManagerActivity{Kind: jam.ActivityPrepareKit}, true
+	}
+	if rows := sessionRows([]string{"rec"}, []jam.Instance{rec}, nil, bare); rows[0].Text != "is preparing its kit image" {
+		t.Fatalf("no step: %+v", rows)
+	}
+	if rows := sessionRows([]string{"rec"}, []jam.Instance{rec}, nil, nil); rows[0].Text != "is recovering" {
+		t.Fatalf("nil lookup: %+v", rows)
+	}
+}

@@ -52,6 +52,22 @@ func (h *Hub) report(name string, c *conn, data []byte) {
 	h.mu.Unlock()
 }
 
+// KitActivity is a connected manager's prepare-kit activity for kit,
+// preferring manager's (jam.FindKitActivity, in Router order): a raise's
+// kit build in progress. It is a jam.KitActivityFunc.
+func (h *Hub) KitActivity(kit jam.KitRef, manager string) (jam.ManagerActivity, bool) {
+	names := h.cfg.Router.Names()
+	h.mu.Lock()
+	ms := make([]jam.ManagerStatus, 0, len(names))
+	for _, name := range names {
+		if s := h.status[name]; s != nil && len(s.Activities) > 0 {
+			ms = append(ms, jam.ManagerStatus{Name: name, Activities: s.Activities})
+		}
+	}
+	h.mu.Unlock()
+	return jam.FindKitActivity(ms, kit, manager)
+}
+
 // diskCondition opens, updates or resolves name's disk condition from host,
 // with hysteresis: between DiskClearPercent and DiskWarnPercent an open
 // condition stays open (as a warning) and a closed one stays closed. With no

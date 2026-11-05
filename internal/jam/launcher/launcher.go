@@ -95,6 +95,9 @@ type Config struct {
 	BuildRoot string
 	PublicKey []byte
 	Inventory Inventory
+	// Track, when set, receives PrepareKit's and BuildKitDraft's progress:
+	// one job per build, its steps, and its end (Progress). nil = none.
+	Track TrackFunc
 
 	sleep func(time.Duration) // wait-for-sshd backoff; nil → time.Sleep
 	// assemble stages a KitDefinition's build context into buildDir. nil → the

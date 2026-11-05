@@ -2156,6 +2156,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	stdg.SetActors(st)            // clear a standing identity left over from an interrupted raise
 	sup.SetStandingResetter(stdg) // `standing reset` (API + UI) runs serialized with its passes
 	sup.SetStandingUpgrader(stdg) // `standing upgrade` queues into it; its passes carry it out
+	if managerHub != nil {
+		stdg.SetKitActivity(managerHub.KitActivity) // a preparing upgrade shows its kit build's step
+	}
 	go stdg.Run(context.Background())
 	log.Info("Jam standing reconciler: resident", "interval", standing.DefaultInterval)
 
@@ -2610,6 +2613,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sendH.SetAttachments(att)
 		userMux.Handle("/app/user/send", sendH)
 		userDeps := userui.Deps{Send: sendH, Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup, res: sup, cmd: rsrv, lines: sup, log: log}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}
+		if managerHub != nil {
+			userDeps.KitActivity = managerHub.KitActivity // a raise waiting on its kit build says so
+		}
 		if sup != nil {
 			userDeps.Personal = personalStarter{st: st, sup: sup, alloc: personalAllocator{alloc}, log: log}
 		}

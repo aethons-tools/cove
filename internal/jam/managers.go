@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -140,6 +141,61 @@ type ManagerActivity struct {
 	Step    string    `json:"step,omitempty"`
 	Detail  string    `json:"detail,omitempty"`
 	Started time.Time `json:"started"`
+}
+
+// ManagerActivity kinds.
+const (
+	// ActivityPrepareKit is a kit image build (PrepareKit); Kit names it.
+	ActivityPrepareKit = "prepare-kit"
+	// ActivityBuildKitDraft is a kit draft's test build; Kit names the draft.
+	ActivityBuildKitDraft = "build-kit-draft"
+	// ActivityCleanup is a disk cleanup; Kit is unset.
+	ActivityCleanup = "cleanup"
+)
+
+// Progress is the activity's step and detail as one phrase ("building step
+// 7/12"); "" when it reported neither.
+func (a ManagerActivity) Progress() string {
+	return strings.TrimSpace(a.Step + " " + a.Detail)
+}
+
+// KitActivityFunc finds a connected manager's prepare-kit activity for a kit
+// (FindKitActivity), preferring manager's.
+type KitActivityFunc func(kit KitRef, manager string) (ManagerActivity, bool)
+
+// FindKitActivity is the prepare-kit activity in ms for kit's id: on manager
+// first (when set), then on any manager in ms's order; within each, one for
+// kit's exact version before one for another version of the kit (a recovery
+// may prepare the role's newer version). False for a kit with no id.
+func FindKitActivity(ms []ManagerStatus, kit KitRef, manager string) (ManagerActivity, bool) {
+	if kit.ID == "" {
+		return ManagerActivity{}, false
+	}
+	find := func(only string, exact bool) (ManagerActivity, bool) {
+		for _, m := range ms {
+			if only != "" && m.Name != only {
+				continue
+			}
+			for _, a := range m.Activities {
+				if a.Kind == ActivityPrepareKit && a.Kit.ID == kit.ID && (!exact || a.Kit.Version == kit.Version) {
+					return a, true
+				}
+			}
+		}
+		return ManagerActivity{}, false
+	}
+	var scopes []string
+	if manager != "" {
+		scopes = append(scopes, manager)
+	}
+	for _, only := range append(scopes, "") {
+		for _, exact := range []bool{true, false} {
+			if a, ok := find(only, exact); ok {
+				return a, true
+			}
+		}
+	}
+	return ManagerActivity{}, false
 }
 
 // HostReporter is the optional manager-side source of host stats; a manager

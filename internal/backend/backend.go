@@ -167,3 +167,12 @@ type KitImageBuilder interface {
 type LoggedKitBuilder interface {
 	WithBuildLog(ctx context.Context, log io.Writer) KitImageBuilder
 }
+
+// TeedKitBuilder is optionally implemented by a KitImageBuilder that can copy
+// its builds' streamed output to a second writer, w, while still writing it
+// where it always goes: the Jam launcher's kit prepare reads the build's
+// steps from it (kit-prepare progress). The returned builder builds exactly
+// as the receiver does. w must be safe for concurrent writes.
+type TeedKitBuilder interface {
+	WithBuildOutput(w io.Writer) KitImageBuilder
+}

@@ -367,3 +367,30 @@ func tee(w, log io.Writer) io.Writer {
 	}
 	return io.MultiWriter(w, log)
 }
+
+// Tee is r with the output of Run and RunStdin — the commands that stream
+// to the process's stdout and stderr — also copied to w, still streamed as
+// before. Output, Probe, RunIO and the Env forms pass through unchanged. It
+// is how a kit prepare reads its docker build's progress without changing
+// what the build prints. r's nil streams must be the process's (runner.OS,
+// not Scoped). w must be safe for concurrent writes (a command's stdout and
+// stderr).
+func Tee(r Runner, w io.Writer) Runner { return teeTo(r, w, os.Stdout, os.Stderr) }
+
+func teeTo(r Runner, w, stdout, stderr io.Writer) Runner {
+	return teed{Runner: r, stdout: io.MultiWriter(stdout, w), stderr: io.MultiWriter(stderr, w)}
+}
+
+type teed struct {
+	Runner
+	stdout, stderr io.Writer
+}
+
+func (t teed) Run(name string, args ...string) error {
+	return t.Runner.RunIO(nil, t.stdout, t.stderr, name, args...)
+}
+
+// RunStdin with a nil stdin keeps the process's, as RunStdin does.
+func (t teed) RunStdin(stdin io.Reader, name string, args ...string) error {
+	return t.Runner.RunIO(stdin, t.stdout, t.stderr, name, args...)
+}

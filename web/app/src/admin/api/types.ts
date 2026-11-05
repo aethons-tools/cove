@@ -1271,6 +1271,11 @@ export interface ManagerRow {
   lastSeen: string; // "15:04:05"; "" = never
   strays: string[]; // its stray studios' actor ids
   host?: ManagerHost | null; // its last host report (kept while disconnected); null = none
+  /**
+   * Activities is its work in progress, one line each: "preparing kit
+   * web@v2: building step 7/12 (2m)"; [] = none (or disconnected).
+   */
+  activities: string[];
 }
 /**
  * ManagerHost is a manager's last host report, formatted. A text is "" when

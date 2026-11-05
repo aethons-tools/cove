@@ -303,6 +303,18 @@ func (c *Colima) WithBuildLog(ctx context.Context, log io.Writer) backend.KitIma
 
 var _ backend.LoggedKitBuilder = (*Colima)(nil)
 
+// WithBuildOutput is c with its streamed commands' output (the `docker
+// build --progress=plain` of BuildKitImage, a base pull) also copied to w
+// (runner.Tee), per backend.TeedKitBuilder: what c prints is unchanged.
+// Cache-miss checks and captured output are c's own.
+func (c *Colima) WithBuildOutput(w io.Writer) backend.KitImageBuilder {
+	cp := *c
+	cp.r, cp.quiet = runner.Tee(c.r, w), c.quietRunner()
+	return &cp
+}
+
+var _ backend.TeedKitBuilder = (*Colima)(nil)
+
 // runImage picks the image reference to `docker run`: the built-image digest when
 // install captured one (an immutable pin), else the mutable tag for a legacy
 // manifest that predates digest pinning (COV-78).
