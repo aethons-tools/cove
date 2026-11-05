@@ -3,6 +3,7 @@ package studiomanager
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -21,19 +22,28 @@ var (
 )
 
 // gated is what a manager serves: the Colima launcher (embedded concretely so
-// its optional interfaces stay visible to client.Run) gated by capacity.
+// its optional interfaces stay visible to client.Run) gated by capacity and
+// by a full disk.
 type gated struct {
 	*launcher.Launcher
-	capacity int // 0 = unlimited
+	capacity int                // 0 = unlimited
+	disk     func() (int, bool) // nil: never full; else the disk percent and whether raises are declined (diskPolicy.full)
 	mu       sync.Mutex
 	inflight map[string]int // actor id -> raises in flight
+	work     kitWork        // raises, kit prepares and draft builds in flight
 }
 
-// Raise declines, without touching the launcher, when the studios it holds
-// plus the raises in flight reach capacity; otherwise it raises. A raise past
-// RunEphemeral is already listed, so an in-flight actor that is among the
-// studios counts once.
+// Raise declines, without touching the launcher, when the disk is full or
+// the studios it holds plus the raises in flight reach capacity; otherwise
+// it raises. A raise past RunEphemeral is already listed, so an in-flight
+// actor that is among the studios counts once.
 func (g *gated) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchCreds) (string, error) {
+	if g.disk != nil {
+		if n, full := g.disk(); full {
+			return "", fmt.Errorf("disk full (%d%%)", n)
+		}
+	}
+	defer g.work.start()()
 	if g.capacity > 0 {
 		if err := g.admit(ctx, spec.ActorID); err != nil {
 			return "", err
@@ -41,6 +51,18 @@ func (g *gated) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.LaunchC
 		defer g.done(spec.ActorID)
 	}
 	return g.Launcher.Raise(ctx, spec, creds)
+}
+
+// PrepareKit prepares on the launcher, counted as kit work.
+func (g *gated) PrepareKit(ctx context.Context, def jam.KitDefinition) (jam.KitStatus, error) {
+	defer g.work.start()()
+	return g.Launcher.PrepareKit(ctx, def)
+}
+
+// BuildKitDraft builds on the launcher, counted as kit work.
+func (g *gated) BuildKitDraft(ctx context.Context, def jam.KitDefinition, tag string, log io.Writer) (string, error) {
+	defer g.work.start()()
+	return g.Launcher.BuildKitDraft(ctx, def, tag, log)
 }
 
 // admit counts one more raise in flight for actor, or says why not.

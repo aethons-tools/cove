@@ -1,5 +1,5 @@
 // Package update drives the embedded install.sh to update the on-PATH Jam
-// binaries (jam, jam-studio-manager) to a GitHub release (COV-128). `jam update`
+// binaries (jam, jam-colima) to a GitHub release (COV-128). `jam update`
 // calls Do. It deliberately *reuses* install.sh's
 // resolve → download → verify (checksums.txt) → replace flow rather than
 // reimplementing any of it in Go: the checksum verification the installer
@@ -109,6 +109,7 @@ type Options struct {
 	Pin     string    // the --version flag ("" = unpinned)
 	PinEnv  string    // the JAM_VERSION env knob ("" = unset)
 	DryRun  bool      // print the intent; resolve and replace nothing
+	Missing []string  // companion binaries absent next to Binary: the current release is not complete
 	Stdout  io.Writer // where progress lines go
 }
 
@@ -117,20 +118,26 @@ type Options struct {
 // reimplementing that flow in Go, and never fetching the script over the
 // network. The target is the pin, else JAM_VERSION, else the latest (resolved
 // via install.sh's own resolve_version). It no-ops when the running version
-// already matches the target. A dry run resolves nothing (no network) and
+// already matches the target and no companion (o.Missing) is absent. A dry run resolves nothing (no network) and
 // replaces nothing. install.sh's other knobs (BINDIR, JAM_SYSTEM, JAM_SYSTEM_BINDIR, JAM_REPO)
 // flow through the inherited process env untouched.
 func Do(r runner.Runner, script []byte, o Options) error {
 	target := Target(o.Pin, o.PinEnv)
+	missing := strings.Join(o.Missing, ", ")
 
 	// A pinned target we already run is a no-op we can decide without touching the
-	// network. (The unpinned "latest" no-op is decided after resolving, below.)
-	if UpToDate(o.Current, target) {
+	// network — unless a companion is missing, when the same release is reinstalled
+	// to complete it. (The unpinned "latest" case is decided after resolving, below.)
+	if UpToDate(o.Current, target) && missing == "" {
 		fmt.Fprintf(o.Stdout, "%s is already up to date (%s)\n", o.Binary, o.Current)
 		return nil
 	}
 
 	if o.DryRun {
+		if UpToDate(o.Current, target) {
+			fmt.Fprintf(o.Stdout, "would install the missing %s (%s) by running the embedded install.sh (fetch → verify checksums.txt → replace)\n", missing, target)
+			return nil
+		}
 		want := target
 		if want == "" {
 			want = "the latest release"
@@ -150,14 +157,18 @@ func Do(r runner.Runner, script []byte, o Options) error {
 		if err != nil {
 			return fmt.Errorf("resolve latest release: %w", err)
 		}
-		if UpToDate(o.Current, latest) {
+		if UpToDate(o.Current, latest) && missing == "" {
 			fmt.Fprintf(o.Stdout, "%s is already up to date (%s)\n", o.Binary, o.Current)
 			return nil
 		}
 		target = latest
 	}
 
-	fmt.Fprintf(o.Stdout, "updating %s from %s to %s\n", o.Binary, o.Current, target)
+	if UpToDate(o.Current, target) {
+		fmt.Fprintf(o.Stdout, "%s is at %s but %s is missing: installing %s\n", o.Binary, o.Current, missing, target)
+	} else {
+		fmt.Fprintf(o.Stdout, "updating %s from %s to %s\n", o.Binary, o.Current, target)
+	}
 	if err := Run(r, scriptPath, Env(target)); err != nil {
 		return fmt.Errorf("update: %w", err)
 	}

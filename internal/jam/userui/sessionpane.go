@@ -167,7 +167,7 @@ func (h *handler) paneStatus(inst jam.Instance, pane *SessionPane) {
 			pane.Status = append(pane.Status, StatusRow{name, value})
 		}
 	}
-	if rows := sessionRows([]string{inst.ActorID}, []jam.Instance{inst}, h.presence); len(rows) == 1 {
+	if rows := sessionRows([]string{inst.ActorID}, []jam.Instance{inst}, h.presence, h.kitPrep()); len(rows) == 1 {
 		add("State", strings.TrimSpace(rows[0].Text+" "+rows[0].Tool))
 	}
 	add("In this state", since(now, stateSince(inst)))

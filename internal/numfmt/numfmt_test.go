@@ -20,3 +20,11 @@ func TestUSD(t *testing.T) {
 		t.Errorf("Float = %q", got)
 	}
 }
+
+func TestBytes(t *testing.T) {
+	for n, want := range map[uint64]string{0: "0B", 1023: "1023B", 1024: "1.0KiB", 1536: "1.5KiB", 50 << 30: "50.0GiB", 3<<40 + 1<<39: "3.5TiB", 1 << 60: "1.0EiB"} {
+		if got := Bytes(n); got != want {
+			t.Errorf("Bytes(%d) = %q, want %q", n, got, want)
+		}
+	}
+}

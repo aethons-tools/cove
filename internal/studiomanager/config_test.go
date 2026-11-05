@@ -5,6 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/colimacfg"
+	"github.com/aethons-tools/cove/internal/legacynames"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 const minimal = "name: mac1\njam-addr: jam.example.com:8443\ncolima:\n  runtime-addr: 10.0.0.1:8443\n  jam-host: jam.example.com\n"
@@ -26,9 +30,9 @@ func TestLoadMinimal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := "/h/.config/jam-studio-manager"
+	d := "/h/.config/jam-colima"
 	if c.TokenFile != d+"/token" || c.Colima.IdentityFile != d+"/id_ed25519" ||
-		c.Colima.KnownHostsDir != d+"/known_hosts.d" || c.LogLevel != "info" {
+		c.Colima.KnownHostsDir != d+"/known_hosts.d" || c.LogLevel != "info" || c.Colima.Profile != "default" {
 		t.Fatalf("defaults wrong: %+v", c)
 	}
 }
@@ -43,7 +47,13 @@ func TestLoadRejects(t *testing.T) {
 		{"capacity", minimal + "capacity: -1\n", "capacity must not be negative"},
 		{"no runtime-addr", strings.Replace(minimal, "  runtime-addr: 10.0.0.1:8443\n", "", 1), "colima.runtime-addr is required"},
 		{"no jam-host", strings.Replace(minimal, "  jam-host: jam.example.com\n", "", 1), "colima.jam-host is required"},
-		{"docker-context", minimal + "  docker-context: \"a b\"\n", `colima.docker-context "a b"`},
+		{"profile", minimal + "  profile: \"a b\"\n", `colima.profile "a b" is not a valid colima profile name`},
+		{"profile slash", minimal + "  profile: ../x\n", `colima.profile "../x"`},
+		{"docker-context", minimal + "  docker-context: colima-work\n", "colima.docker-context is replaced by colima.profile (the VM name; its docker context is colima-<profile>)"},
+		{"cleanup order", minimal + "cleanup:\n  low: 90\n", "cleanup: want 0 < low (90) < high (85) < critical (95) <= 100"},
+		{"cleanup critical", minimal + "cleanup:\n  critical: 101\n", "cleanup: want 0 < low (70) < high (85) < critical (101) <= 100"},
+		{"cleanup negative", minimal + "cleanup:\n  low: -1\n", "cleanup: want 0 < low (-1)"},
+		{"cleanup unknown", minimal + "cleanup:\n  enabled: true\n", "field enabled not found"},
 		{"log-level", minimal + "log-level: loud\n", `log-level "loud" must be`},
 		{"unknown key", minimal + "colour: red\n", "field colour not found"},
 		{"empty file", "", "name is required"},
@@ -56,6 +66,24 @@ func TestLoadRejects(t *testing.T) {
 				t.Fatalf("err = %v, want mention of %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadCleanup(t *testing.T) {
+	getenv := env(map[string]string{"HOME": "/h"})
+	c, err := Load(write(t, minimal), getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Cleanup; got.High != 85 || got.Low != 70 || got.Critical != 95 || !got.DailyPass() || got.Disabled {
+		t.Fatalf("cleanup defaults = %+v", got)
+	}
+	c, err = Load(write(t, minimal+"cleanup:\n  high: 80\n  low: 60\n  critical: 90\n  daily: false\n  disabled: true\n"), getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Cleanup; got.High != 80 || got.Low != 60 || got.Critical != 90 || got.DailyPass() || !got.Disabled {
+		t.Fatalf("cleanup = %+v", got)
 	}
 }
 
@@ -80,10 +108,118 @@ func TestTokenTrimsAndRejectsEmpty(t *testing.T) {
 }
 
 func TestDefaultDir(t *testing.T) {
-	if got := DefaultDir(env(map[string]string{"XDG_CONFIG_HOME": "/x", "HOME": "/h"})); got != "/x/jam-studio-manager" {
+	if got := DefaultDir(env(map[string]string{"XDG_CONFIG_HOME": "/x", "HOME": "/h"})); got != "/x/jam-colima" {
 		t.Fatal(got)
 	}
-	if got := DefaultDir(env(map[string]string{"HOME": "/h"})); got != "/h/.config/jam-studio-manager" {
+	if got := DefaultDir(env(map[string]string{"HOME": "/h"})); got != "/h/.config/jam-colima" {
 		t.Fatal(got)
+	}
+}
+
+func TestDockerContextFollowsProfile(t *testing.T) {
+	for _, c := range []struct{ profile, want string }{{"", "colima"}, {"default", "colima"}, {"work", "colima-work"}, {"jam.b", "colima-jam.b"}} {
+		if got := (ColimaConfig{Profile: c.profile}).DockerContext(); got != c.want {
+			t.Errorf("profile %q: context %q, want %q", c.profile, got, c.want)
+		}
+	}
+	for in, want := range map[string]string{"work": "work", "colima-work": "work", "colima": "default"} {
+		c, err := Load(write(t, minimal+"  profile: "+in+"\n"), env(map[string]string{"HOME": "/h"}))
+		if err != nil || c.Colima.Profile != want || c.Colima.DockerContext() != colimacfg.ProfileContext(want) {
+			t.Fatalf("profile %s: %+v, %v; want %s", in, c.Colima, err, want)
+		}
+	}
+	if _, err := Load(write(t, minimal+"  profile: colima-\n"), env(map[string]string{"HOME": "/h"})); err == nil {
+		t.Fatal("profile colima- (empty after the prefix) accepted")
+	}
+}
+
+func TestMigrateDirMovesTheOldDir(t *testing.T) {
+	x := t.TempDir()
+	getenv := env(map[string]string{"XDG_CONFIG_HOME": x, "HOME": "/h"})
+	old := filepath.Join(x, legacynames.StudioManager)
+	if err := os.MkdirAll(old, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "id_ed25519"), []byte("key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	from, err := MigrateDir(getenv)
+	if err != nil || from != old {
+		t.Fatalf("MigrateDir = %q, %v; want %q", from, err, old)
+	}
+	if b, err := os.ReadFile(filepath.Join(x, "jam-colima", "id_ed25519")); err != nil || string(b) != "key" {
+		t.Fatalf("identity key not moved: %q, %v", b, err)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("old dir still there: %v", err)
+	}
+	if from, err := MigrateDir(getenv); err != nil || from != "" {
+		t.Fatalf("second MigrateDir = %q, %v; want a no-op", from, err)
+	}
+}
+
+func TestMigrateDirKeepsAnExistingNewDir(t *testing.T) {
+	x := t.TempDir()
+	getenv := env(map[string]string{"XDG_CONFIG_HOME": x})
+	for _, d := range []string{legacynames.StudioManager, "jam-colima"} {
+		if err := os.MkdirAll(filepath.Join(x, d), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if from, err := MigrateDir(getenv); err != nil || from != "" {
+		t.Fatalf("MigrateDir = %q, %v; want a no-op", from, err)
+	}
+	if _, err := os.Stat(filepath.Join(x, legacynames.StudioManager)); err != nil {
+		t.Fatalf("old dir must be left alone when the new one exists: %v", err)
+	}
+}
+
+func TestMigrateDirNothingToMove(t *testing.T) {
+	x := t.TempDir()
+	if from, err := MigrateDir(env(map[string]string{"XDG_CONFIG_HOME": x})); err != nil || from != "" {
+		t.Fatalf("MigrateDir = %q, %v", from, err)
+	}
+	if _, err := os.Stat(filepath.Join(x, "jam-colima")); !os.IsNotExist(err) {
+		t.Fatalf("MigrateDir must not create the new dir: %v", err)
+	}
+}
+
+func TestColimaBackendPinsTheProfileContext(t *testing.T) {
+	for profile, want := range map[string]string{"default": "--context colima ps", "work": "--context colima-work ps"} {
+		got := strings.Join(colimaBackend(&runner.Fake{}, Config{Colima: ColimaConfig{Profile: profile}}).DockerArgs("ps"), " ")
+		if got != want {
+			t.Errorf("profile %s: %q, want %q", profile, got, want)
+		}
+	}
+}
+
+func TestMovedPath(t *testing.T) {
+	x := t.TempDir()
+	getenv := env(map[string]string{"XDG_CONFIG_HOME": x})
+	old, dir := filepath.Join(x, legacynames.StudioManager), filepath.Join(x, "jam-colima")
+	in := filepath.Join(old, "sub", "config.yml")
+	// Neither dir: unchanged.
+	if got, moved := MovedPath(getenv, in); moved || got != in {
+		t.Fatalf("no dirs: %q %v", got, moved)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// The old dir is gone and the new one exists: under the new dir.
+	if got, moved := MovedPath(getenv, in); !moved || got != filepath.Join(dir, "sub", "config.yml") {
+		t.Fatalf("moved: %q %v", got, moved)
+	}
+	// Outside the old dir (or a sibling sharing its prefix): unchanged.
+	for _, p := range []string{"/etc/jam/config.yml", old + "-x/config.yml", filepath.Join(dir, "config.yml")} {
+		if got, moved := MovedPath(getenv, p); moved || got != p {
+			t.Errorf("%s: %q %v", p, got, moved)
+		}
+	}
+	// The old dir still exists (not moved): unchanged.
+	if err := os.MkdirAll(old, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got, moved := MovedPath(getenv, in); moved || got != in {
+		t.Fatalf("old dir present: %q %v", got, moved)
 	}
 }

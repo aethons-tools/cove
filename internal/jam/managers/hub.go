@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/condition"
 	"github.com/aethons-tools/cove/internal/jam/fleet"
 	"github.com/aethons-tools/cove/internal/jam/managers/managerpb"
 	"github.com/aethons-tools/cove/internal/jam/managers/wire"
@@ -48,6 +49,7 @@ type Config struct {
 	SSHUserCA  []byte // sent in Welcome: the OpenSSH user CA public key studios trust
 	Log        *slog.Logger
 	Now        func() time.Time
+	Conditions *condition.Tracker // manager.disk conditions; nil = none
 
 	HelloTimeout, HeartbeatEvery, DeadAfter time.Duration // 0: wire defaults
 }
@@ -129,6 +131,7 @@ func (h *Hub) Start() error {
 			return err
 		}
 	}
+	h.clearUnknownDiskConditions()
 	return nil
 }
 
@@ -222,6 +225,7 @@ func (h *Hub) Revoke(name string, force bool) error {
 	delete(h.live, name)
 	delete(h.remotes, name)
 	delete(h.status, name)
+	h.cfg.Conditions.Clear(DiskConditionKey(name)) // under h.mu: see report
 	h.mu.Unlock()
 	if c != nil {
 		c.close(errRevoked)
@@ -360,6 +364,7 @@ func (h *Hub) Connect(stream managerpb.StudioManager_ConnectServer) error {
 		return stream.Send(m)
 	}
 	c := newConn(send)
+	c.onStatus = func(data []byte) { h.report(name, c, data) }
 
 	remote, old, err := h.admit(name, hash, hello, c, send)
 	if err != nil {
@@ -384,6 +389,7 @@ func (h *Hub) Connect(stream managerpb.StudioManager_ConnectServer) error {
 		if st := h.status[name]; st != nil {
 			st.Connected = false
 			st.LastSeen = h.cfg.Now()
+			st.Activities = nil // stale at once; Host keeps its At
 		}
 	}
 	h.mu.Unlock()
@@ -428,9 +434,13 @@ func (h *Hub) admit(name, hash string, hello *managerpb.Hello, c *conn, send fun
 		return nil, nil, status.Error(codes.Internal, "register manager")
 	}
 	h.live[name] = c
+	var host *jam.HostStats // the last report's, until the manager reports again
+	if old := h.status[name]; old != nil {
+		host = old.Host
+	}
 	h.status[name] = &jam.ManagerStatus{
 		Name: name, Connected: true, Version: hello.GetVersion(), Capacity: int(hello.GetCapacity()),
-		ConnectedAt: now, LastSeen: now, Strays: rc.Strays,
+		ConnectedAt: now, LastSeen: now, Strays: rc.Strays, Host: host,
 	}
 	// Attach under h.mu so live[name] and the Remote's current conn always
 	// agree. Lock order: regMu, h.mu, then the Remote's and conns' own locks.

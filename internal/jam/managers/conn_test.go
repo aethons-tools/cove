@@ -64,3 +64,22 @@ func TestStudioManagerWireName(t *testing.T) {
 		t.Fatalf("method = %q", managerpb.StudioManager_Connect_FullMethodName)
 	}
 }
+
+// A status report (id 0, possibly chunked) reaches onStatus whole; one with
+// a request id is a protocol violation.
+func TestConnDeliversStatus(t *testing.T) {
+	s := newFakeStream()
+	var got []string
+	s.c.onStatus = func(data []byte) { got = append(got, string(data)) }
+	for _, f := range []*managerpb.Frame{{Op: wire.OpStatus, Data: []byte(`{"a"`), More: true}, {Op: wire.OpStatus, Data: []byte(`:1}`)}} {
+		if err := s.c.deliver(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(got) != 1 || got[0] != `{"a":1}` {
+		t.Fatalf("onStatus got %q", got)
+	}
+	if err := s.c.deliver(&managerpb.Frame{Id: 3, Op: wire.OpStatus, Data: []byte(`{}`)}); err == nil {
+		t.Fatal("status frame with a request id accepted")
+	}
+}

@@ -3,7 +3,7 @@
 #
 # No network, no Docker, no live release. Stub `gh` and `uname` executables on
 # PATH serve a locally-built fixture "release": a jam_<ver>_<os>_<arch>.tar.gz
-# holding a fake `jam` and `jam-studio-manager`, plus, as a control, an old-format cove_<ver>_* archive
+# holding a fake `jam` and `jam-colima`, plus, as a control, an old-format cove_<ver>_* archive
 # like the releases before the jam rename. Pure helpers are unit-tested by
 # sourcing install.sh in lib mode (JAM_INSTALL_LIB=1), which suppresses main.
 #
@@ -51,12 +51,12 @@ EOF
   chmod +x "$1/$2"
 }
 
-# build_jam_archive <os> <arch> — the new shape: exactly `jam` + `jam-studio-manager`.
+# build_jam_archive <os> <arch> — the new shape: exactly `jam` + `jam-colima`.
 build_jam_archive() {
   local stage="$WORK/stage-jam-$1-$2" b
   mkdir -p "$stage"
-  for b in jam jam-studio-manager; do fake_bin "$stage" "$b" "$FIXTURE_VERSION"; done
-  tar -C "$stage" -czf "$RELEASE_DIR/jam_${FIXTURE_VERSION}_$1_$2.tar.gz" jam jam-studio-manager
+  for b in jam jam-colima; do fake_bin "$stage" "$b" "$FIXTURE_VERSION"; done
+  tar -C "$stage" -czf "$RELEASE_DIR/jam_${FIXTURE_VERSION}_$1_$2.tar.gz" jam jam-colima
 }
 # build_old_archive <os> <arch> — the pre-rename shape the legacy installers expect.
 build_old_archive() {
@@ -127,18 +127,18 @@ if (cd "$vc" && verify_checksum jam_x.tar.gz checksums.txt); then ok "verify_che
 echo tampered >>"$vc/jam_x.tar.gz"
 if (cd "$vc" && verify_checksum jam_x.tar.gz checksums.txt 2>/dev/null); then bad "verify_checksum tamper"; else ok "verify_checksum tamper -> abort"; fi
 
-echo "== e2e: installs exactly jam and jam-studio-manager =="
+echo "== e2e: installs exactly jam and jam-colima =="
 BIN1="$WORK/bin1"
 out="$(JAM_VERSION="$FIXTURE_VERSION" BINDIR="$BIN1" run_install 2>&1)" && rc=0 || rc=$?
 assert_eq "install exit 0" 0 "$rc"
-for b in jam jam-studio-manager; do
+for b in jam jam-colima; do
   if [ -x "$BIN1/$b" ]; then ok "$b installed + executable"; else bad "$b installed + executable" "$out"; fi
 done
-for b in at-jam at-mint at-cove at-studio-manager; do
+for b in at-jam at-mint at-cove at-studio-manager jam-studio-manager; do
   if [ -e "$BIN1/$b" ]; then bad "$b NOT installed"; else ok "$b NOT installed"; fi
 done
 if grep -q "jam_${FIXTURE_VERSION}_linux_amd64.tar.gz" "$PATTERN_LOG"; then ok "requested the jam_ archive"; else bad "requested the jam_ archive" "$(cat "$PATTERN_LOG")"; fi
-case "$out" in *"pre-rename binaries"*) bad "no stale notice on a clean dir" "$out" ;; *) ok "no stale notice on a clean dir" ;; esac
+case "$out" in *"pre-rename binaries"*|*"jam-studio-manager"*) bad "no stale notice on a clean dir" "$out" ;; *) ok "no stale notice on a clean dir" ;; esac
 
 echo "== e2e: stale pre-rename binaries are noticed, never touched =="
 BIN2="$WORK/bin2"; mkdir -p "$BIN2"
@@ -149,6 +149,16 @@ case "$out" in *"pre-rename binaries still in $BIN2: at-jam at-mint at-studio-ma
 assert_eq "stale at-jam untouched" old-at-jam "$(cat "$BIN2/at-jam")"
 assert_eq "stale at-mint untouched" old-at-mint "$(cat "$BIN2/at-mint")"
 assert_eq "stale at-studio-manager untouched" old-sm "$(cat "$BIN2/at-studio-manager")"
+
+echo "== e2e: a leftover jam-studio-manager is noticed, never touched =="
+BIN8="$WORK/bin8"; mkdir -p "$BIN8"
+printf 'old-jsm\n' >"$BIN8/jam-studio-manager"
+out="$(JAM_VERSION="$FIXTURE_VERSION" BINDIR="$BIN8" run_install 2>&1)" && rc=0 || rc=$?
+assert_eq "install with jam-studio-manager left exit 0" 0 "$rc"
+case "$out" in *"jam-studio-manager is now jam-colima"*"$BIN8/jam-studio-manager"*"jam-colima.md#upgrading-from-jam-studio-manager"*) ok "jam-studio-manager notice names it and the upgrade section" ;; *) bad "jam-studio-manager notice" "$out" ;; esac
+case "$out" in *"pre-rename binaries"*) bad "jam-studio-manager is not an at-* binary" "$out" ;; *) ok "jam-studio-manager is not an at-* binary" ;; esac
+assert_eq "leftover jam-studio-manager untouched" old-jsm "$(cat "$BIN8/jam-studio-manager")"
+if [ -x "$BIN8/jam-colima" ]; then ok "jam-colima installed next to it"; else bad "jam-colima installed next to it"; fi
 
 echo "== e2e: arch mapping and latest resolution =="
 : >"$PATTERN_LOG"
@@ -181,17 +191,18 @@ ca_case() { # ca_case <name> <want: ok|reject> <jam mode> <bins...>
   local name="$1" want="$2" mode="$3" d="$WORK/ca-$1"
   shift 3
   mkdir -p "$d/stage" "$d/dist"
-  for b in jam jam-studio-manager at-cove README.md; do printf 'x\n' >"$d/stage/$b"; done
-  chmod "$mode" "$d/stage/jam" "$d/stage/jam-studio-manager"
+  for b in jam jam-colima jam-studio-manager at-cove README.md; do printf 'x\n' >"$d/stage/$b"; done
+  chmod "$mode" "$d/stage/jam" "$d/stage/jam-colima"
   tar -C "$d/stage" -czf "$d/dist/jam_1-0101_linux_amd64.tar.gz" "$@"
   if bash "$CHECK_SH" "$d/dist" >/dev/null 2>&1; then got=ok; else got=reject; fi
   assert_eq "check-archive $name -> $want" "$want" "$got"
 }
-ca_case good ok 0755 jam jam-studio-manager
-ca_case mode reject 0644 jam jam-studio-manager
+ca_case good ok 0755 jam jam-colima
+ca_case mode reject 0644 jam jam-colima
 ca_case only-jam reject 0755 jam
-ca_case tombstone reject 0755 jam jam-studio-manager at-cove
-ca_case extra reject 0755 jam jam-studio-manager README.md
+ca_case old-name reject 0755 jam jam-studio-manager
+ca_case tombstone reject 0755 jam jam-colima at-cove
+ca_case extra reject 0755 jam jam-colima README.md
 if bash "$CHECK_SH" "$WORK/no-such-dist" >/dev/null 2>&1; then bad "check-archive no archives -> reject"; else ok "check-archive no archives -> reject"; fi
 
 echo "== e2e: tampered checksum aborts, nothing installed =="

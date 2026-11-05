@@ -1,4 +1,6 @@
-// Package studiomanager holds the jam-studio-manager binary's logic.
+// Package studiomanager is the generic Studio Manager host runtime — config,
+// the connect loop, serving Jam's ops — that the jam-colima binary runs with
+// its Colima wiring.
 package studiomanager
 
 import (
@@ -6,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -15,37 +18,141 @@ import (
 
 	"github.com/aethons-tools/cove/internal/colimacfg"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/legacynames"
 )
 
-// Config is the jam-studio-manager config file.
+// Config is the jam-colima config file (docs/usage/jam-colima.md).
 type Config struct {
-	Name       string       `yaml:"name"`        // required; jam.ValidManagerName, not "local"
-	JamAddr    string       `yaml:"jam-addr"`    // required host:port of Jam's cove-facing TLS listener
-	ServerName string       `yaml:"server-name"` // optional TLS name override; default the jam-addr host
-	CAFile     string       `yaml:"ca-file"`     // optional PEM added to the system roots
-	TokenFile  string       `yaml:"token-file"`  // default <dir>/token
-	Capacity   int          `yaml:"capacity"`    // max studios; 0 = unlimited
-	LogLevel   string       `yaml:"log-level"`   // debug|info|warn|error; default info
-	Colima     ColimaConfig `yaml:"colima"`
+	Name       string        `yaml:"name"`        // required; jam.ValidManagerName, not "local"
+	JamAddr    string        `yaml:"jam-addr"`    // required host:port of Jam's cove-facing TLS listener
+	ServerName string        `yaml:"server-name"` // optional TLS name override; default the jam-addr host
+	CAFile     string        `yaml:"ca-file"`     // optional PEM added to the system roots
+	TokenFile  string        `yaml:"token-file"`  // default <dir>/token
+	Capacity   int           `yaml:"capacity"`    // max studios; 0 = unlimited
+	LogLevel   string        `yaml:"log-level"`   // debug|info|warn|error; default info
+	Colima     ColimaConfig  `yaml:"colima"`
+	Cleanup    CleanupConfig `yaml:"cleanup"`
+}
+
+// CleanupConfig is the disk policy (cleanup.go), in percent of the disk
+// studios run on; 0 is the default.
+type CleanupConfig struct {
+	High     int   `yaml:"high"`     // a sample at or over it starts a cleanup; default 85
+	Low      int   `yaml:"low"`      // a cleanup stops once under it; default 70
+	Critical int   `yaml:"critical"` // at or over it raises are declined; default 95
+	Daily    *bool `yaml:"daily"`    // the daily light pass; default true
+	Disabled bool  `yaml:"disabled"` // no automatic cleanup (the critical gate stays)
+}
+
+// DailyPass reports whether the daily light pass runs.
+func (c CleanupConfig) DailyPass() bool { return c.Daily == nil || *c.Daily }
+
+func (c *CleanupConfig) defaults() {
+	if c.High == 0 {
+		c.High = 85
+	}
+	if c.Low == 0 {
+		c.Low = 70
+	}
+	if c.Critical == 0 {
+		c.Critical = 95
+	}
+}
+
+func (c CleanupConfig) validate() error {
+	if 0 < c.Low && c.Low < c.High && c.High < c.Critical && c.Critical <= 100 {
+		return nil
+	}
+	return fmt.Errorf("cleanup: want 0 < low (%d) < high (%d) < critical (%d) <= 100", c.Low, c.High, c.Critical)
 }
 
 // ColimaConfig configures the Colima runtime.
 type ColimaConfig struct {
-	RuntimeAddr   string   `yaml:"runtime-addr"`   // required: the Jam address studios dial
-	JamHost       string   `yaml:"jam-host"`       // required: the Jam host name studios resolve
-	DockerContext string   `yaml:"docker-context"` // "" = colima
+	RuntimeAddr   string   `yaml:"runtime-addr"` // required: the Jam address studios dial
+	JamHost       string   `yaml:"jam-host"`     // required: the Jam host name studios resolve
+	Profile       string   `yaml:"profile"`      // the colima VM; default "default"
 	Docker        bool     `yaml:"docker"`
 	DNS           []string `yaml:"dns"`
 	IdentityFile  string   `yaml:"identity-file"`   // default <dir>/id_ed25519
 	KnownHostsDir string   `yaml:"known-hosts-dir"` // default <dir>/known_hosts.d
 }
 
-// DefaultDir is $XDG_CONFIG_HOME/jam-studio-manager, else $HOME/.config/jam-studio-manager.
+// DockerContext is the docker context of the profile's VM: colima for the
+// default profile, else colima-<profile>. Every docker call is pinned to it.
+func (c ColimaConfig) DockerContext() string { return colimacfg.ProfileContext(c.Profile) }
+
+// dirName is the config directory's name under $XDG_CONFIG_HOME.
+const dirName = "jam-colima"
+
+// DefaultDir is $XDG_CONFIG_HOME/jam-colima, else $HOME/.config/jam-colima.
 func DefaultDir(getenv func(string) string) string {
+	return filepath.Join(configHome(getenv), dirName)
+}
+
+func configHome(getenv func(string) string) string {
 	if x := getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "jam-studio-manager")
+		return x
 	}
-	return filepath.Join(getenv("HOME"), ".config", "jam-studio-manager")
+	return filepath.Join(getenv("HOME"), ".config")
+}
+
+// MigrateDir renames the config directory the binary used before jam-colima
+// (legacynames.StudioManager, same parent) to DefaultDir when only the old one
+// exists, so the config, token and identity key — and with it the image fingerprints — carry over. It
+// returns the old path when it moved it, "" when there was nothing to do.
+func MigrateDir(getenv func(string) string) (string, error) {
+	to := DefaultDir(getenv)
+	from := filepath.Join(configHome(getenv), legacynames.StudioManager)
+	if _, err := os.Lstat(to); err == nil || !errors.Is(err, fs.ErrNotExist) {
+		return "", nil // the new dir exists (or cannot be checked: Load reports it)
+	}
+	if info, err := os.Stat(from); err != nil || !info.IsDir() {
+		return "", nil
+	}
+	if err := os.Rename(from, to); err != nil {
+		return "", fmt.Errorf("move config dir %s to %s: %w", from, to, err)
+	}
+	return from, nil
+}
+
+// MovedPath is path re-rooted under DefaultDir when it lies inside the
+// config dir legacynames.StudioManager used and that dir has moved (it is gone and
+// DefaultDir exists), so an explicit --config into the old dir keeps
+// working; moved reports whether it changed.
+func MovedPath(getenv func(string) string, path string) (_ string, moved bool) {
+	from := filepath.Join(configHome(getenv), legacynames.StudioManager)
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path, false
+	}
+	rel, err := filepath.Rel(from, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path, false
+	}
+	if _, err := os.Lstat(from); !errors.Is(err, fs.ErrNotExist) {
+		return path, false
+	}
+	to := DefaultDir(getenv)
+	if info, err := os.Stat(to); err != nil || !info.IsDir() {
+		return path, false
+	}
+	return filepath.Join(to, rel), true
+}
+
+// errDockerContext refuses the key colima.profile replaced.
+var errDockerContext = errors.New("colima.docker-context is replaced by colima.profile (the VM name; its docker context is colima-<profile>)")
+
+// hasDockerContext reports whether raw still sets colima.docker-context. The
+// strict decode would only say "field not found", so it is probed first.
+func hasDockerContext(raw []byte) bool {
+	var probe struct {
+		Colima map[string]yaml.Node `yaml:"colima"`
+	}
+	if yaml.Unmarshal(raw, &probe) != nil {
+		return false // the strict decode reports it
+	}
+	_, ok := probe.Colima["docker-context"]
+	return ok
 }
 
 // Load reads path strictly, applies defaults, then validates.
@@ -54,6 +161,9 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return c, fmt.Errorf("read config: %w", err)
+	}
+	if hasDockerContext(raw) {
+		return Config{}, fmt.Errorf("%s: %w", path, errDockerContext)
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
@@ -73,9 +183,14 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	if c.LogLevel == "" {
 		c.LogLevel = "info"
 	}
+	if c.Colima.Profile == "" {
+		c.Colima.Profile = colimacfg.DefaultProfile
+	}
+	c.Cleanup.defaults()
 	if err := c.validate(); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
+	c.Colima.Profile = colimacfg.NormalizeProfile(c.Colima.Profile) // colima-jam-b is jam-b
 	return c, nil
 }
 
@@ -100,14 +215,17 @@ func (c Config) validate() error {
 	default:
 		return fmt.Errorf("log-level %q must be debug, info, warn or error", c.LogLevel)
 	}
+	if err := c.Cleanup.validate(); err != nil {
+		return err
+	}
 	if c.Colima.RuntimeAddr == "" {
 		return fmt.Errorf("colima.runtime-addr is required")
 	}
 	if c.Colima.JamHost == "" {
 		return fmt.Errorf("colima.jam-host is required")
 	}
-	if dc := c.Colima.DockerContext; dc != "" && !colimacfg.ValidDockerContext(dc) {
-		return fmt.Errorf("colima.docker-context %q is not a valid docker context name", dc)
+	if !colimacfg.ValidProfile(colimacfg.NormalizeProfile(c.Colima.Profile)) {
+		return fmt.Errorf("colima.profile %q is not a valid colima profile name (letters, digits, '-', '_', '.')", c.Colima.Profile)
 	}
 	return nil
 }

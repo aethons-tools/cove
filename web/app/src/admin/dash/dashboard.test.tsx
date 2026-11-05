@@ -52,10 +52,34 @@ describe("the dashboard", () => {
   });
 
   it("says when nothing needs attention, and shows managers only when configured", async () => {
-    mount(dash({ attention: [], hasManagers: true, managers: [{ name: "m1", connected: false, version: "1.2", studios: 1, capacity: 4, lastSeen: "", strays: ["ghost"] }] }));
+    mount(dash({ attention: [], hasManagers: true, managers: [{ name: "m1", connected: false, version: "1.2", studios: 1, capacity: 4, lastSeen: "", strays: ["ghost"], host: null, activities: [] }] }));
     expect(await screen.findByText("Nothing needs attention.")).toBeInTheDocument();
     expect(screen.getByText("disconnected")).toBeInTheDocument();
     expect(screen.getByTitle("ghost")).toHaveTextContent("1");
+  });
+
+  it("shows a manager's memory, disk, reclaimable and last cleanup", async () => {
+    mount(dash({ hasManagers: true, managers: [{
+      name: "m1", connected: true, version: "1.2", studios: 1, capacity: 4, lastSeen: "", strays: [],
+      host: { at: "09:31:05", mem: "2.0GiB / 8.0GiB", memPct: 25, disk: "91.0GiB / 100.0GiB", diskPct: 91, reclaimable: "1.5GiB", reclaimableDetail: "images 1.0GiB · build cache 512.0MiB · volumes 0B", lastCleanup: "Oct 28 08:00: freed 3.0GiB (disk above 85%)" },
+      activities: [],
+    }] }));
+    expect(await screen.findByText("2.0GiB / 8.0GiB")).toBeInTheDocument();
+    expect(screen.getByText("91.0GiB / 100.0GiB")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "m1 disk 91% used" })).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "m1 memory 25% used" })).toBeInTheDocument();
+    expect(screen.getByTitle("images 1.0GiB · build cache 512.0MiB · volumes 0B")).toHaveTextContent("1.5GiB");
+    expect(screen.getByText("Oct 28 08:00: freed 3.0GiB (disk above 85%)")).toBeInTheDocument();
+  });
+
+  it("shows a manager's activities, one per line", async () => {
+    mount(dash({ hasManagers: true, managers: [{
+      name: "m1", connected: true, version: "1.2", studios: 1, capacity: 4, lastSeen: "", strays: [], host: null,
+      activities: ["preparing kit web@v2: building step 7/12 (2m)", "cleaning disk: removing unused kit images (10s)"],
+    }] }));
+    expect(await screen.findByText("Activity")).toBeInTheDocument();
+    expect(screen.getByText("preparing kit web@v2: building step 7/12 (2m)")).toBeInTheDocument();
+    expect(screen.getByText("cleaning disk: removing unused kit images (10s)")).toBeInTheDocument();
   });
 
   it("hides Managers without a manager list", async () => {

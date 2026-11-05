@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"testing"
@@ -128,4 +129,77 @@ func TestEventsStreamsPresenceSignal(t *testing.T) {
 	readUntil(t, sc, "event: presence")
 	pr.ch <- struct{}{}
 	readUntil(t, sc, "event: presence") // throttled, not dropped
+}
+
+// imagesFunc is an ImageResolver.
+type imagesFunc func(project, role, manager string) (jam.CurrentImage, error)
+
+func (f imagesFunc) CurrentImage(project, role, manager string) (jam.CurrentImage, error) {
+	return f(project, role, manager)
+}
+
+// A raising or recovering session reads "is preparing its kit image —
+// <step>" while a manager (its own, when it has one) builds exactly the kit
+// its raise builds: the role's current kit, else the recorded one.
+func TestPreparingKitRows(t *testing.T) {
+	web2 := jam.KitRef{ID: "web", Version: 2, Digest: "d2"}
+	web3 := jam.KitRef{ID: "web", Version: 3, Digest: "d3"}
+	var asked []string
+	kits := func(kit jam.KitRef, manager string) (jam.ManagerActivity, bool) {
+		asked = append(asked, kit.String()+"/"+kit.Digest+" on "+manager)
+		if kit != web3 || (manager != "" && manager != "m1") {
+			return jam.ManagerActivity{}, false
+		}
+		return jam.ManagerActivity{Kind: jam.ActivityPrepareKit, Kit: web3, Step: "building", Detail: "step 7/12"}, true
+	}
+	images := imagesFunc(func(_, role, _ string) (jam.CurrentImage, error) {
+		switch role {
+		case "web":
+			return jam.CurrentImage{Kit: web3, HasKit: true}, nil
+		case "plain":
+			return jam.CurrentImage{}, nil // raises no kit: the recorded one stands
+		}
+		return jam.CurrentImage{}, errors.New("role gone")
+	})
+	kp := kitPrep{kits: kits, images: images}
+	// Recorded web2, but the re-raise builds the role's web3.
+	rec := jam.Instance{ActorID: "rec", Role: "web", Phase: jam.PhaseRecovering, Kit: web2, Manager: "m1"}
+	elsewhere := jam.Instance{ActorID: "far", Role: "web", Phase: jam.PhaseRecovering, Kit: web2, Manager: "m2"}
+	raising := jam.Instance{ActorID: "new", Role: "web", Phase: jam.PhaseRaising}
+	fallback := jam.Instance{ActorID: "gone", Role: "gone", Phase: jam.PhaseRecovering, Kit: web3}
+	stale := jam.Instance{ActorID: "stale", Role: "gone", Phase: jam.PhaseRecovering, Kit: web2}
+	live := jam.Instance{ActorID: "live", Role: "web", Phase: jam.PhaseLive, Kit: web3}
+	nokit := jam.Instance{ActorID: "nokit", Role: "plain", Phase: jam.PhaseRaising}
+	insts := []jam.Instance{rec, elsewhere, raising, fallback, stale, live, nokit}
+	ids := []string{"rec", "far", "new", "gone", "stale", "live", "nokit"}
+	rows := sessionRows(ids, insts, nil, kp)
+	busy := "is preparing its kit image — building step 7/12"
+	want := []SessionRow{
+		{"rec", busy, "", "busy"},
+		{"far", "is recovering", "", "busy"}, // m1's build is not m2's
+		{"new", busy, "", "busy"},
+		{"gone", busy, "", "busy"},
+		{"stale", "is recovering", "", "busy"},
+		{"live", "is working", "", "busy"},
+		{"nokit", "is starting", "", "busy"},
+	}
+	if !slices.Equal(rows, want) {
+		t.Fatalf("rows = %+v\nwant %+v", rows, want)
+	}
+	if !slices.Equal(asked, []string{"web@v3/d3 on m1", "web@v3/d3 on m2", "web@v3/d3 on ", "web@v3/d3 on ", "web@v2/d2 on "}) {
+		t.Fatalf("lookups = %q", asked)
+	}
+	// No resolver: the recorded kit. No step yet. No lookup at all.
+	if rows := sessionRows([]string{"rec"}, []jam.Instance{rec}, nil, kitPrep{kits: kits}); rows[0].Text != "is recovering" {
+		t.Fatalf("no resolver: %+v", rows)
+	}
+	bare := func(jam.KitRef, string) (jam.ManagerActivity, bool) {
+		return jam.ManagerActivity{Kind: jam.ActivityPrepareKit}, true
+	}
+	if rows := sessionRows([]string{"rec"}, []jam.Instance{rec}, nil, kitPrep{kits: bare}); rows[0].Text != "is preparing its kit image" {
+		t.Fatalf("no step: %+v", rows)
+	}
+	if rows := sessionRows([]string{"rec"}, []jam.Instance{rec}, nil, kitPrep{}); rows[0].Text != "is recovering" {
+		t.Fatalf("no lookup: %+v", rows)
+	}
 }

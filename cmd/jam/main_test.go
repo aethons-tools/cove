@@ -1290,11 +1290,11 @@ func TestStudioRaiseManagerFlagsOrdered(t *testing.T) {
 	}
 }
 
-// `jam colima` moved to jam-studio-manager with the in-process launcher: the
+// `jam colima` moved to jam-colima with the in-process launcher: the
 // verb is gone, and invoking it says where it went (exit 2, as for any unknown
 // command), globals or not.
 func TestColimaVerbMoved(t *testing.T) {
-	const want = `jam: colima moved to jam-studio-manager: run "jam-studio-manager colima setup-docker|check-docker"`
+	const want = `jam: colima moved to jam-colima: run "jam-colima colima setup-docker|check-docker"`
 	for _, argv := range [][]string{
 		{"colima"},
 		{"colima", "setup-docker"},
@@ -1305,13 +1305,13 @@ func TestColimaVerbMoved(t *testing.T) {
 		if code := run(argv, func(string) string { return "" }, &out, &errb); code != 2 {
 			t.Errorf("%v: exit %d, want 2", argv, code)
 		}
-		if !strings.Contains(errb.String(), "colima moved to jam-studio-manager") || strings.TrimSpace(errb.String()) != want {
+		if !strings.Contains(errb.String(), "colima moved to jam-colima") || strings.TrimSpace(errb.String()) != want {
 			t.Errorf("%v: stderr = %q, want %q", argv, errb.String(), want)
 		}
 	}
 	var out, errb bytes.Buffer
 	run([]string{"help"}, func(string) string { return "" }, &out, &errb)
-	if strings.Contains(out.String(), "colima") {
+	if regexp.MustCompile(`(?m)^\s+colima\s`).MatchString(out.String()) { // update's brief names jam-colima
 		t.Errorf("help still lists colima:\n%s", out.String())
 	}
 }

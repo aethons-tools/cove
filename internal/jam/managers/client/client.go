@@ -31,11 +31,20 @@ type Config struct {
 	DeadAfter            time.Duration                                          // 0: wire.DeadAfter
 	Log                  *slog.Logger                                           // nil: discard
 
+	// Status reports (wire.OpStatus). With neither Host nor Activities set,
+	// none are sent.
+	Host          jam.HostReporter             // nil: no host stats
+	Activities    func() []jam.ManagerActivity // nil: none; must be cheap, called per report
+	StatusChanged <-chan struct{}              // a receive sends a report now (throttled to wire.StatusMinGap); nil: periodic only
+	StatusEvery   time.Duration                // 0: wire.StatusEvery
+
 	// OnWelcome, if set, is called synchronously with Jam's Welcome, before
 	// any request is served.
 	OnWelcome func(w *managerpb.Welcome)
 
-	maxMessage int // test override for wire.MaxMessageBytes
+	maxMessage       int           // test override for wire.MaxMessageBytes
+	statusMinGap     time.Duration // test override for wire.StatusMinGap
+	hostStatsTimeout time.Duration // test override for HostStatsTimeout
 }
 
 // Run opens one Connect stream on cc, sends Hello and waits for Welcome, then
@@ -55,6 +64,15 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 	}
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	if cfg.StatusEvery <= 0 {
+		cfg.StatusEvery = wire.StatusEvery
+	}
+	if cfg.statusMinGap <= 0 {
+		cfg.statusMinGap = wire.StatusMinGap
+	}
+	if cfg.hostStatsTimeout <= 0 {
+		cfg.hostStatsTimeout = HostStatsTimeout
 	}
 
 	hello, err := buildHello(ctx, cfg)
@@ -147,6 +165,13 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 				cfg.OnWelcome(m.GetWelcome())
 			}
 			welcomed = true
+			if cfg.Host != nil || cfg.Activities != nil {
+				hb.Add(1)
+				go func() {
+					defer hb.Done()
+					c.reportStatus(sctx, &hb)
+				}()
+			}
 			continue
 		}
 		f := m.GetFrame()

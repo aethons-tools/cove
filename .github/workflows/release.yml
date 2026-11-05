@@ -346,7 +346,7 @@ jobs:
           VSCODE_SKIP_CHECK: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Every archive must hold exactly jam and jam-studio-manager — on the PR
+      # Every archive must hold exactly jam and jam-colima — on the PR
       # before merge and on main before the release is cut.
       - name: Check release archives
         run: bash scripts/release/check-archive.sh dist
@@ -418,7 +418,7 @@ jobs:
         run: |
           gh release create "$VERSION" \
             --title "$VERSION" \
-            --notes "Continuous release from ${GITHUB_SHA::7} (jam + jam-studio-manager; jam-studio-agent embedded)." \
+            --notes "Continuous release from ${GITHUB_SHA::7} (jam + jam-colima; jam-studio-agent embedded)." \
             --target "$GITHUB_SHA" \
             dist/jam_*.tar.gz dist/checksums.txt dist/jam-vscode_*.vsix
           echo "## Released \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"

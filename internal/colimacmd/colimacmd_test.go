@@ -3,6 +3,7 @@ package colimacmd
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,9 +18,14 @@ const freshColima = "cpu: 2\ndocker: {}\nprovision: []\n"
 // colimaHome writes cfg as the default profile's colima.yaml under a temp
 // COLIMA_HOME (mode 0600) and returns its getenv and the config path.
 func colimaHome(t *testing.T, cfg string) (func(string) string, string) {
+	return colimaProfileHome(t, "default", cfg)
+}
+
+// colimaProfileHome is colimaHome for profile's colima.yaml.
+func colimaProfileHome(t *testing.T, profile, cfg string) (func(string) string, string) {
 	t.Helper()
 	home := t.TempDir()
-	path := filepath.Join(home, "default", "colima.yaml")
+	path := filepath.Join(home, profile, "colima.yaml")
 	if cfg != "" {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -37,9 +43,23 @@ func colimaHome(t *testing.T, cfg string) (func(string) string, string) {
 }
 
 func runColima(getenv func(string) string, r runner.Runner, args ...string) (int, string, string) {
+	return runColimaWith(Config{}, getenv, r, args...)
+}
+
+func runColimaWith(cfg Config, getenv func(string) string, r runner.Runner, args ...string) (int, string, string) {
 	var out, errb bytes.Buffer
-	code := Command("jam-studio-manager", getenv, r)(args, cli.Globals{}, &out, &errb)
+	code := Command("jam-colima", getenv, r, cfg)(args, cli.Globals{}, &out, &errb)
 	return code, out.String(), errb.String()
+}
+
+// profileFrom is a Config whose manager config at path names profile.
+func profileFrom(t *testing.T, path, profile string) Config {
+	return Config{Profile: func(p string) (string, error) {
+		if p != path {
+			t.Errorf("read profile from %q, want %q", p, path)
+		}
+		return profile, nil
+	}}
 }
 
 func TestColimaConfigPath(t *testing.T) {
@@ -58,12 +78,15 @@ func TestColimaConfigPath(t *testing.T) {
 		{"XDG_CONFIG_HOME override", map[string]string{"HOME": "/h", "XDG_CONFIG_HOME": "/x"}, never, "/x/colima/default/colima.yaml"},
 	}
 	for _, c := range cases {
-		got, err := colimaConfigPath(env(c.env), c.exists)
+		got, err := colimaConfigPath(env(c.env), c.exists, "default")
 		if err != nil || got != c.want {
 			t.Errorf("%s: got %q, %v; want %q", c.name, got, err, c.want)
 		}
 	}
-	if _, err := colimaConfigPath(env(nil), always); err == nil {
+	if got, err := colimaConfigPath(env(map[string]string{"COLIMA_HOME": "/c"}), never, "work"); err != nil || got != "/c/work/colima.yaml" {
+		t.Errorf("profile work: got %q, %v", got, err)
+	}
+	if _, err := colimaConfigPath(env(nil), always, "default"); err == nil {
 		t.Fatal("no HOME/COLIMA_HOME must error")
 	}
 }
@@ -133,7 +156,7 @@ func TestColimaCheckDocker(t *testing.T) {
 		t.Fatalf("present: code=%d out=%q", code, out)
 	}
 	absent := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{}}`}}}
-	if code, _, errs := runColima(getenv, absent, "check-docker"); code != 1 || !strings.Contains(errs, "jam-studio-manager colima setup-docker") {
+	if code, _, errs := runColima(getenv, absent, "check-docker"); code != 1 || !strings.Contains(errs, "jam-colima colima setup-docker") {
 		t.Fatalf("absent: code=%d stderr=%q", code, errs)
 	}
 }
@@ -163,7 +186,7 @@ func TestColimaNoSubcommand(t *testing.T) {
 func TestColimaGlobalDryRunWritesNothing(t *testing.T) {
 	getenv, path := colimaHome(t, freshColima)
 	var out, errb bytes.Buffer
-	code := Command("jam", getenv, &runner.Fake{})([]string{"setup-docker"}, cli.Globals{DryRun: true}, &out, &errb)
+	code := Command("jam", getenv, &runner.Fake{}, Config{})([]string{"setup-docker"}, cli.Globals{DryRun: true}, &out, &errb)
 	if code != 0 || !strings.Contains(out.String(), "would change") {
 		t.Fatalf("code=%d out=%q err=%q", code, out.String(), errb.String())
 	}
@@ -224,8 +247,184 @@ func TestColimaSetupDockerKeepsSymlink(t *testing.T) {
 
 func TestCommandUsesProgName(t *testing.T) {
 	var out, errb bytes.Buffer
-	code := Command("jam-studio-manager", func(string) string { return "" }, &runner.Fake{})(nil, cli.Globals{}, &out, &errb)
-	if code != 2 || !strings.Contains(errb.String(), "jam-studio-manager colima: expected setup-docker|check-docker") {
+	code := Command("jam-colima", func(string) string { return "" }, &runner.Fake{}, Config{})(nil, cli.Globals{}, &out, &errb)
+	if code != 2 || !strings.Contains(errb.String(), "jam-colima colima: expected setup-docker|check-docker") {
 		t.Fatalf("code=%d stderr=%q", code, errb.String())
+	}
+}
+
+func TestColimaSetupDockerProfileFlag(t *testing.T) {
+	getenv, path := colimaProfileHome(t, "work", freshColima)
+	code, out, errs := runColima(getenv, &runner.Fake{}, "setup-docker", "--profile", "work")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errs)
+	}
+	if b, _ := os.ReadFile(path); !strings.Contains(string(b), "sysbox-runc:") {
+		t.Fatalf("work profile's config not updated:\n%s", b)
+	}
+	for _, want := range []string{"colima restart --profile work", "jam-colima colima check-docker --profile work", "colima ssh --profile work --"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestColimaSetupDockerDefaultProfileHints(t *testing.T) {
+	getenv, _ := colimaHome(t, freshColima)
+	_, out, _ := runColima(getenv, &runner.Fake{}, "setup-docker")
+	if strings.Contains(out, "--profile") || !strings.Contains(out, "colima restart ") {
+		t.Fatalf("default profile hints must not name a profile:\n%s", out)
+	}
+}
+
+func TestColimaSetupDockerReadsProfileFromConfig(t *testing.T) {
+	getenv, path := colimaProfileHome(t, "work", freshColima)
+	cfgPath := filepath.Join(t.TempDir(), "config.yml")
+	code, _, errs := runColimaWith(profileFrom(t, cfgPath, "work"), getenv, &runner.Fake{}, "setup-docker", "--config", cfgPath)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errs)
+	}
+	if b, _ := os.ReadFile(path); !strings.Contains(string(b), "sysbox-runc:") {
+		t.Fatalf("work profile's config not updated:\n%s", b)
+	}
+}
+
+func TestColimaProfileFlagOverridesConfig(t *testing.T) {
+	getenv, path := colimaProfileHome(t, "other", freshColima)
+	cfg := Config{Profile: func(string) (string, error) { t.Error("config read despite --profile"); return "work", nil }}
+	if code, _, errs := runColimaWith(cfg, getenv, &runner.Fake{}, "setup-docker", "--config", "/x/config.yml", "--profile", "other"); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errs)
+	}
+	if b, _ := os.ReadFile(path); !strings.Contains(string(b), "sysbox-runc:") {
+		t.Fatalf("--profile's config not updated:\n%s", b)
+	}
+}
+
+func TestColimaDefaultConfigPath(t *testing.T) {
+	getenv, path := colimaProfileHome(t, "work", freshColima)
+	def := filepath.Join(t.TempDir(), "config.yml")
+	cfg := profileFrom(t, def, "work")
+	cfg.DefaultPath = def
+	// Absent: the default profile, config unread.
+	if code, _, errs := runColimaWith(cfg, getenv, &runner.Fake{}, "setup-docker"); code != 1 || !strings.Contains(errs, filepath.Join("default", "colima.yaml")) {
+		t.Fatalf("absent default config: code=%d stderr=%q", code, errs)
+	}
+	if err := os.WriteFile(def, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := runColimaWith(cfg, getenv, &runner.Fake{}, "setup-docker"); code != 0 {
+		t.Fatalf("present default config: code=%d stderr=%q", code, errs)
+	}
+	if b, _ := os.ReadFile(path); !strings.Contains(string(b), "sysbox-runc:") {
+		t.Fatalf("work profile's config not updated:\n%s", b)
+	}
+}
+
+func TestColimaBadProfile(t *testing.T) {
+	getenv, _ := colimaHome(t, freshColima)
+	for _, sub := range []string{"setup-docker", "check-docker"} {
+		if code, _, errs := runColima(getenv, &runner.Fake{}, sub, "--profile", "../x"); code != 2 || !strings.Contains(errs, `profile "../x"`) {
+			t.Errorf("%s: code=%d stderr=%q", sub, code, errs)
+		}
+	}
+	bad := Config{Profile: func(string) (string, error) { return "", errors.New("parse boom") }}
+	if code, _, errs := runColimaWith(bad, getenv, &runner.Fake{}, "check-docker", "--config", "/c.yml"); code != 2 || !strings.Contains(errs, "parse boom") {
+		t.Errorf("config error: code=%d stderr=%q", code, errs)
+	}
+}
+
+func TestColimaCheckDockerProfile(t *testing.T) {
+	cfgPath := "/m/config.yml"
+	absent := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{}}`}}}
+	code, _, errs := runColimaWith(profileFrom(t, cfgPath, "work"), func(string) string { return "" }, absent, "check-docker", "--config", cfgPath)
+	if code != 1 || !strings.Contains(errs, "jam-colima colima setup-docker --profile work") || !strings.Contains(errs, "colima restart --profile work") {
+		t.Fatalf("code=%d stderr=%q", code, errs)
+	}
+	if len(absent.Calls) != 1 || !strings.Contains(strings.Join(absent.Calls[0].Args, " "), "--context colima-work") {
+		t.Fatalf("docker not pinned to colima-work: %+v", absent.Calls)
+	}
+	unreachable := &runner.Fake{Outputs: []runner.FakeResult{{Err: errors.New("cannot connect")}}}
+	if _, _, errs := runColima(func(string) string { return "" }, unreachable, "check-docker", "--profile", "work"); !strings.Contains(errs, "colima start --profile work") {
+		t.Fatalf("unreachable hint: %q", errs)
+	}
+}
+
+// --profile is normalised as colima does: a colima- prefix is stripped and
+// colima means the default VM.
+func TestColimaProfileNormalised(t *testing.T) {
+	getenv, path := colimaProfileHome(t, "work", freshColima)
+	code, out, errs := runColima(getenv, &runner.Fake{}, "setup-docker", "--profile", "colima-work")
+	if code != 0 || !strings.Contains(out, "colima restart --profile work") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	if b, _ := os.ReadFile(path); !strings.Contains(string(b), "sysbox-runc:") {
+		t.Fatalf("work profile's config not updated:\n%s", b)
+	}
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"sysbox-runc":{}}`}}}
+	if code, _, _ := runColima(func(string) string { return "" }, f, "check-docker", "--profile", "colima"); code != 0 ||
+		!strings.Contains(strings.Join(f.Calls[0].Args, " "), "--context colima ") {
+		t.Fatalf("profile colima must be the default VM: code=%d calls=%+v", code, f.Calls)
+	}
+}
+
+// Both verbs say which profile they act on, and where it came from.
+func TestColimaSaysWhichProfile(t *testing.T) {
+	ok := func() *runner.Fake { return &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"sysbox-runc":{}}`}}} }
+	none := func(string) string { return "" }
+	cfgPath := "/m/config.yml"
+	def := filepath.Join(t.TempDir(), "absent.yml")
+	cases := []struct {
+		name string
+		cfg  Config
+		args []string
+		want string
+	}{
+		{"flag", Config{}, []string{"--profile", "work"}, "colima profile work (--profile)"},
+		{"config", profileFrom(t, cfgPath, "work"), []string{"--config", cfgPath}, "colima profile work (colima.profile in " + cfgPath + ")"},
+		{"default", Config{DefaultPath: def}, nil, "colima profile default (no config at " + def + ")"},
+	}
+	for _, c := range cases {
+		_, out, errs := runColimaWith(c.cfg, none, ok(), append([]string{"check-docker"}, c.args...)...)
+		if !strings.Contains(out, c.want) {
+			t.Errorf("%s: stdout=%q stderr=%q; want %q", c.name, out, errs, c.want)
+		}
+	}
+}
+
+// Prepare runs before the config is looked for (it moves an old config dir)
+// and may redirect --config.
+func TestColimaPrepare(t *testing.T) {
+	getenv, path := colimaProfileHome(t, "work", freshColima)
+	def := filepath.Join(t.TempDir(), "config.yml")
+	var got []string
+	cfg := Config{
+		DefaultPath: def,
+		Prepare: func(p string, stderr io.Writer) (string, error) {
+			got = append(got, p)
+			if p == "" { // the move creates the default config
+				return p, os.WriteFile(def, []byte("x"), 0o600)
+			}
+			return "/new/config.yml", nil
+		},
+		Profile: func(p string) (string, error) {
+			if p != def && p != "/new/config.yml" {
+				t.Errorf("read %q", p)
+			}
+			return "work", nil
+		},
+	}
+	if code, _, errs := runColimaWith(cfg, getenv, &runner.Fake{}, "setup-docker"); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errs)
+	}
+	if b, _ := os.ReadFile(path); !strings.Contains(string(b), "sysbox-runc:") {
+		t.Fatalf("work profile's config not updated:\n%s", b)
+	}
+	_, out, _ := runColimaWith(cfg, getenv, &runner.Fake{}, "setup-docker", "--config", "/old/config.yml")
+	if strings.Join(got, ",") != ",/old/config.yml" || !strings.Contains(out, "colima.profile in /new/config.yml") {
+		t.Fatalf("Prepare calls %q stdout=%q", got, out)
+	}
+	cfg.Prepare = func(string, io.Writer) (string, error) { return "", errors.New("move boom") }
+	if code, _, errs := runColimaWith(cfg, getenv, &runner.Fake{}, "check-docker"); code != 1 || !strings.Contains(errs, "move boom") {
+		t.Fatalf("Prepare error: code=%d stderr=%q", code, errs)
 	}
 }

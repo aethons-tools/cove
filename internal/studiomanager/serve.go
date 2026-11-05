@@ -27,14 +27,21 @@ import (
 type Deps struct {
 	Runner runner.Runner                                      // nil: runner.OS{}
 	Dial   func(cfg Config) (grpc.ClientConnInterface, error) // nil: TLS grpc.NewClient
-	Ops    launcher.Backend                                   // nil: colima.NewWithContext(Runner, cfg.Colima.DockerContext)
+	Ops    launcher.Backend                                   // nil: colima.NewForProfile(Runner, cfg.Colima.Profile); reports host stats when a jam.HostReporter, and cleans disk when also a jam.HostCleaner
 	Images jam.ImageFactsReader                               // nil: imagefacts.New(Runner, the colima backend)
 	Sleep  func(ctx context.Context, d time.Duration)         // nil: Loop's default; tests shorten the backoff
 }
 
+// colimaBackend is the Colima backend for the profile's VM, pinned to its
+// docker context.
+func colimaBackend(r runner.Runner, cfg Config) *colima.Colima {
+	return colima.NewForProfile(r, cfg.Colima.Profile)
+}
+
 // Serve runs the manager named by cfg until ctx ends: it builds the Colima
-// launcher behind the capacity gate and keeps one session with Jam open,
-// reconnecting with backoff. It returns an error only for a setup failure;
+// launcher behind the capacity and disk gates, runs the disk policy
+// (cleanup.go), and keeps one session with Jam open, reconnecting with
+// backoff. It returns an error only for a setup failure;
 // once running, it returns nil after ctx ends.
 func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, deps Deps) error {
 	if log == nil {
@@ -58,13 +65,27 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 	}
 	ops, images := deps.Ops, deps.Images
 	if ops == nil || images == nil {
-		col := colima.NewWithContext(r, cfg.Colima.DockerContext)
+		col := colimaBackend(r, cfg)
 		if ops == nil {
 			ops = col
 		}
 		if images == nil {
 			images = imagefacts.New(r, col)
 		}
+	}
+	// The disk policy wraps the host stats: it cleans when the backend is a
+	// jam.HostCleaner and gates raises on a full disk.
+	var (
+		host    jam.HostReporter // nil: no host stats
+		policy  *diskPolicy
+		changed = make(chan struct{}, 1) // a cleanup or an activity change asks for a status report
+		acts    = newActivities(changed) // kit prepares, draft builds and cleanups in progress
+	)
+	if hr, ok := ops.(jam.HostReporter); ok {
+		cl, _ := ops.(jam.HostCleaner)
+		policy = newDiskPolicy(ctx, hr, cl, cfg.Cleanup, log)
+		policy.changed, policy.acts = changed, acts
+		host = policy
 	}
 	dial := deps.Dial
 	if dial == nil {
@@ -83,8 +104,12 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 		IdentityFile: cfg.Colima.IdentityFile, KnownHostsDir: cfg.Colima.KnownHostsDir,
 		DNS: cfg.Colima.DNS, Docker: cfg.Colima.Docker,
 		PublicKey: pub, Subscription: false, Log: log,
+		Track: func(kind string, kit jam.KitRef) launcher.Progress { return acts.Start(kind, kit) },
 	})
 	g := &gated{Launcher: l, capacity: cfg.Capacity}
+	if policy != nil {
+		g.disk, policy.work = policy.full, &g.work
+	}
 
 	loop := Loop{Sleep: deps.Sleep, Log: log, Run: func(ctx context.Context, welcomed func()) error {
 		token, err := cfg.Token()
@@ -100,7 +125,8 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 		}
 		return client.Run(ctx, cc, client.Config{
 			Name: cfg.Name, Token: token, Version: version, Capacity: cfg.Capacity,
-			Launcher: g, Images: images, Inventory: l.Studios, Log: log,
+			Launcher: g, Images: images, Inventory: l.Studios, Log: log, Host: host,
+			StatusChanged: changed, Activities: acts.Snapshot,
 			OnWelcome: func(w *managerpb.Welcome) {
 				l.SetSSHUserCA(w.GetSshUserCa())
 				log.Info("manager: connected to Jam", "jam", cfg.JamAddr, "name", cfg.Name)
@@ -108,7 +134,11 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 			},
 		})
 	}}
-	return loop.Serve(ctx)
+	err = loop.Serve(ctx)
+	if policy != nil {
+		policy.wait() // a cleanup's commands end with ctx
+	}
+	return err
 }
 
 // tlsConfig trusts the system roots plus cfg.CAFile, if any.

@@ -82,7 +82,7 @@ func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Insta
 	if inst.OwnerID != "" {
 		hd.Owner = h.d.Intercom.PartyOf(inst.OwnerID).Label
 	}
-	if rows := sessionRows([]string{inst.ActorID}, []jam.Instance{inst}, h.presence); len(rows) == 1 {
+	if rows := sessionRows([]string{inst.ActorID}, []jam.Instance{inst}, h.presence, h.kitPrep()); len(rows) == 1 {
 		hd.State = rows[0]
 	}
 	hd.Since = since(now, stateSince(inst))

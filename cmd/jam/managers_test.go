@@ -19,7 +19,9 @@ func managerServer(t *testing.T) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/managers", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode([]jam.ManagerStatus{
-			{Name: "mac", Connected: true, Version: "v1", Studios: 2, Capacity: 4, LastSeen: seen, Strays: []jam.ManagedStudio{{ActorID: "x"}}},
+			{Name: "mac", Connected: true, Version: "v1", Studios: 2, Capacity: 4, LastSeen: seen, Strays: []jam.ManagedStudio{{ActorID: "x"}},
+				Host:       &jam.HostStats{MemTotal: 8 << 30, MemUsed: 3 << 29, DiskTotal: 100 << 30, DiskUsed: 91 << 30},
+				Activities: []jam.ManagerActivity{{ID: "a1", Kind: jam.ActivityPrepareKit}}},
 			{Name: "box"},
 		})
 	})
@@ -66,8 +68,8 @@ func TestManagerAddRotate(t *testing.T) {
 
 func TestManagerList(t *testing.T) {
 	code, out, errs := runManager(t, managerServer(t), "list")
-	want := "mac\tconnected=true\tversion=v1\tstudios=2\tcapacity=4\tlast-seen=2026-10-26T12:00:00Z\tstrays=1\n" +
-		"box\tconnected=false\tversion=\tstudios=0\tcapacity=0\tlast-seen=-\tstrays=0\n"
+	want := "mac\tconnected=true\tversion=v1\tstudios=2\tcapacity=4\tlast-seen=2026-10-26T12:00:00Z\tstrays=1\tmem=1.5GiB/8.0GiB\tdisk=91.0GiB/100.0GiB(91%)\tactivities=1\n" +
+		"box\tconnected=false\tversion=\tstudios=0\tcapacity=0\tlast-seen=-\tstrays=0\tmem=-\tdisk=-\tactivities=0\n"
 	if code != 0 || out != want {
 		t.Fatalf("list: %d %q %q", code, out, errs)
 	}

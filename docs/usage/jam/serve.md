@@ -4,7 +4,7 @@ read_when: You are standing up or configuring a Jam service — writing its serv
 owns: the `jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/config/kits/blobs/previews), the layered `--config` overlay + the host-key table, the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 prereqs: INDEX.md for the service overview; operators.md for the `operator-auth.oidc` block referenced here
 tier: leaf
-updated: 2026-11-03
+updated: 2026-11-05
 ---
 
 # Running Jam (`jam serve`)
@@ -231,7 +231,7 @@ Personal sessions need the ledger, which `serve` always has.
 
 ### Running studios
 
-Jam runs no studios itself: [Studio Managers](studio-managers.md) next to Colima host them, set up per [studio-manager.md](../studio-manager.md).
+Jam runs no studios itself: [Studio Managers](studio-managers.md) next to Colima host them, set up per [jam-colima.md](../jam-colima.md).
 With `runtime.studio-managers` off (dev and tests), `jam studio raise` records a placeholder instance and starts nothing.
 
 ## Layering serve configs

@@ -32,11 +32,13 @@ var renamedGroups = []renamedGroup{
 		`atCoveConfigDir`, `atJamConfigDir`, `atJamStateDir`, `legacyConfigDir`}},
 	{"binaries and release", []string{`at-jam`, `at-mint`, `\bat-cove`, `at-harbor`, `cove-master`, `covemaster`,
 		`at-studio-manager`, `\batcove\b`, `cove-jam`, `cove_(\{\{|\$\{|\*)`, `\bCOVE_[A-Z]`, `\bAT_(JAM|COVE|HARBOR|MINT|LOG)_`, `atMint`}},
+	// jam-studio-manager became jam-colima (docs/superpowers/specs/2026-11-05-jam-colima-design.md §1).
+	{"studio manager binary", []string{`jam-studio-manager`, `\bstudio-manager\.md`}},
 }
 
 // renamedAllow is where an old name may survive: the design history, the
 // Harbor-rename table, the migrations' legacy names, the frozen legacy
-// installer, and the guards. only lists the token sources allowed there
+// installer, the upgrade notes, and the guards. only lists the token sources allowed there
 // (nil: every token).
 var renamedAllow = []struct {
 	prefix string
@@ -50,11 +52,13 @@ var renamedAllow = []struct {
 	{"internal/legacynames/", nil},
 	{"renamed_test.go", nil},
 	{"deleted_test.go", nil},
-	{"testdata/install-legacy", nil},                                                            // the frozen pre-rename installers
-	{"install.test.sh", nil},                                                                    // drives the frozen pre-rename installers
-	{"install.sh", []string{`at-jam`, `at-mint`, `\bat-cove`, `at-studio-manager`}},             // the stale-binary notice
-	{".gitignore", []string{`at-jam`, `at-mint`, `cove-master`, `covemaster`, `covemasterbin`}}, // keeps stale local builds out of git
-	{".github/workflows/release.yml", []string{`\bcove-base\b`}},                                // the one-time re-cut copies the blessed bases out of the pre-rename repo
+	{"testdata/install-legacy", nil}, // the frozen pre-rename installers
+	{"install.test.sh", nil},         // drives the frozen pre-rename installers
+	{"install.sh", []string{`at-jam`, `at-mint`, `\bat-cove`, `at-studio-manager`, `jam-studio-manager`}}, // the stale-binary notices
+	{"docs/usage/jam-colima.md", []string{`jam-studio-manager`}},                                          // its "Upgrading from jam-studio-manager" section
+	{"docs/usage/INDEX.md", []string{`jam-studio-manager`}},                                               // the routing row to that section
+	{".gitignore", []string{`at-jam`, `at-mint`, `cove-master`, `covemaster`, `covemasterbin`}},           // keeps stale local builds out of git
+	{".github/workflows/release.yml", []string{`\bcove-base\b`}},                                          // the one-time re-cut copies the blessed bases out of the pre-rename repo
 	// The VS Code extension's port of the CLI's legacy-block strip, and its test.
 	{"web/vscode/src/ssh/config.ts", []string{`[<>]{3} at-jam`, `at-jam`}},
 	{"web/vscode/test/sshconfig.test.ts", []string{`[<>]{3} at-jam`, `at-jam`}},

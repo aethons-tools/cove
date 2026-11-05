@@ -4,7 +4,7 @@ read_when: You need what this repo builds, the studio image's security model, th
 owns: the project overview: studio image assembly, security model, package map
 prereqs: none
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-05
 ---
 
 # cove — Project Overview
@@ -15,7 +15,7 @@ sealed hardening layer), raises it in Colima, brokers its credentials, and
 starts `jam-studio-agent`, the in-studio agent supervisor.
 
 - **Module:** `github.com/aethons-tools/cove`
-- **Binaries:** `jam` (the service and its CLI; `jam mint` is its host-side token minter), `jam-studio-manager` (remote Studio Manager host process), `jam-studio-agent` (embedded in every studio image); dev tools `adopt-base`, `gen-blessed`, `gen-icons`.
+- **Binaries:** `jam` (the service and its CLI; `jam mint` is its host-side token minter), `jam-colima` (remote Studio Manager host process), `jam-studio-agent` (embedded in every studio image); dev tools `adopt-base`, `gen-blessed`, `gen-icons`.
 - **Dependencies:** see `go.mod` — no CLI framework.
 
 ## Why it exists
@@ -211,7 +211,7 @@ How the running pieces connect:
 | Piece | Runs | Links |
 |-------|------|-------|
 | Jam (`jam serve`) | anywhere, including [a container](usage/jam/container.md) | [serve.md](usage/jam/serve.md) |
-| Studio Managers (`jam-studio-manager`) | bare-metal next to their substrate (Colima), dialing Jam | [studio-manager.md](usage/studio-manager.md), [studio-managers.md](usage/jam/studio-managers.md) |
+| Studio Managers (`jam-colima`) | bare-metal next to their substrate (Colima), dialing Jam | [jam-colima.md](usage/jam-colima.md), [studio-managers.md](usage/jam/studio-managers.md) |
 | Studios (`jam-studio-agent`) | on a manager's host, dialing Jam's Attach stream | [coves.md](usage/jam/coves.md#jam-studio-agent-the-in-cove-client) |
 
 A pure **plan** (what to do) is separated from **execution** (doing it),
@@ -223,7 +223,7 @@ a `Fake` records calls for tests.
 ```
 cmd/jam/                       jam: `serve` (broker + control plane + Requisitioner) and the admin-API client verbs
 internal/mintcmd/              `jam mint`: the host-side token minter (github / anthropic)
-cmd/jam-studio-manager/        remote Studio Manager: dials Jam, hosts studios on a Colima host (logic in internal/studiomanager/; colima verbs in internal/colimacmd/)
+cmd/jam-colima/                remote Studio Manager: dials Jam, hosts studios on a Colima host (logic in internal/studiomanager/; colima verbs in internal/colimacmd/)
 cmd/jam-studio-agent/          the in-studio agent supervisor (embedded in every studio image)
 cmd/{adopt-base,gen-blessed,gen-icons}/  dev tools: raise the blessed watermark, snapshot blessed bases, regenerate app icons
 internal/jam/                  broker + control plane (store, roster, intercom, admin API/UI); internal/jam/launcher is the code a Studio Manager raises studios with
@@ -257,7 +257,7 @@ the intercom — is documented under [usage/jam/](usage/jam/INDEX.md);
 
 The one-command installer ([`install.sh`](../install.sh) at the repo root) is the
 fastest way to get `jam` (minting is its `jam mint` subcommand) and
-`jam-studio-manager`: it pulls the prebuilt archive from the
+`jam-colima`: it pulls the prebuilt archive from the
 latest release the [release pipeline](DEVELOPMENT.md#ci-the-release-pipeline) cuts
 on every push to `main`, verifies its SHA-256 against the release `checksums.txt`,
 and installs both (the archive holds exactly those two binaries). `jam-studio-agent`
@@ -291,16 +291,16 @@ Optional knobs:
 | `BINDIR=<dir>` | Install into `<dir>` (wins over the other two). |
 | `JAM_SYSTEM=1` | Install into `/usr/local/bin` (uses `sudo` if the dir is not writable). Default is `~/.local/bin`. |
 
-**Updating in place.** Once installed, `jam update` upgrades `jam` and `jam-studio-manager` to the latest release without re-running the `curl | bash` line: it
+**Updating in place.** Once installed, `jam update` upgrades `jam` and `jam-colima` to the latest release without re-running the `curl | bash` line: it
 drives a copy of this same `install.sh` **embedded** in the binary (so it needs no
 repo checkout and never re-fetches the script over the network), reusing its
 resolve → download → verify → replace flow — including the `checksums.txt`
 verification — untouched. It reads the same `JAM_VERSION`/`BINDIR`/`JAM_SYSTEM`/`JAM_REPO`
-knobs, no-ops when already current, and takes `--version TAG` (pin) and `--dry-run`.
+knobs, no-ops when already current (unless a half-finished [upgrade](usage/jam-colima.md) left the old manager binary beside `jam` without `jam-colima`: then it reinstalls the current release), and takes `--version TAG` (pin) and `--dry-run`.
 
 **`jam version`** (and `jam --version`) prints the bare release version — `<N>-<MMDD>`, or `dev` for an unstamped build — and nothing else on stdout,
 so it can go straight into an image tag: `…/jam:$(jam version)` (the tags in [container.md](usage/jam/container.md)).
-A `just local` build adds its note on stderr ([local-build.md](local-build.md)). `jam-studio-manager version` and `jam mint version` still print `<name> <version>`.
+A `just local` build adds its note on stderr ([local-build.md](local-build.md)). `jam-colima version` and `jam mint version` still print `<name> <version>`.
 
 **Upgrading from a pre-rename release** (binaries `at-…`). Follow [the rename runbook](usage/jam/renamed-from-at.md); the old binary's `update` cannot fetch the new release.
 
@@ -311,7 +311,7 @@ Logic lives in `scripts/` so CI never needs `just` installed.
 Common tasks (`just` to list them all):
 
 ```
-just build           # build jam + jam-studio-manager into dist/<os>-<arch>/ (needs Node 22 + npm: the Jam app)
+just build           # build jam + jam-colima into dist/<os>-<arch>/ (needs Node 22 + npm: the Jam app)
 just build-all       # cross-compile every supported target
 just jam <args>      # run the last-built jam with <args>
 just install         # install the host binaries onto your PATH (no sudo by default)

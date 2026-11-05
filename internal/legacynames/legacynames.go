@@ -1,5 +1,5 @@
 // Package legacynames holds the pre-rename names (jam-only slice 3,
-// docs/usage/jam/renamed-from-at.md) that Jam's one-time migrations and its
+// docs/usage/jam/renamed-from-at.md; jam-studio-manager's, docs/usage/jam-colima.md) that Jam's one-time migrations and its
 // refusals must still recognise. Nothing else may spell an old name: the
 // renamed guard (renamed_test.go) allows them only here.
 package legacynames
@@ -24,6 +24,10 @@ const (
 	MintBinary = "at-mint"
 	// BaseImageRepo is the pre-rename base image repository.
 	BaseImageRepo = "ghcr.io/aethons-tools/cove-base-image"
+	// StudioManager is the Studio Manager binary's name before jam-colima,
+	// and its config directory's under $XDG_CONFIG_HOME (jam-colima moves
+	// that directory once, at run).
+	StudioManager = "jam-studio-manager"
 	// newBaseImageRepo is its new name (basedigest.Image after Task 4).
 	newBaseImageRepo = "ghcr.io/aethons-tools/jam-studio-base"
 )

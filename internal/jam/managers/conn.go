@@ -48,6 +48,10 @@ type conn struct {
 	closed  bool
 	cause   error
 	done    chan struct{}
+
+	// onStatus receives each assembled OpStatus payload; nil drops them.
+	// Set before the conn serves frames.
+	onStatus func(data []byte)
 }
 
 func newConn(send func(*managerpb.ManagerDown) error) *conn {
@@ -172,6 +176,21 @@ func (c *conn) deliver(f *managerpb.Frame) error {
 			return nil
 		}
 		_, _ = cl.log.Write(f.Data) // a failing log sink must not fail the call
+		return nil
+	case wire.OpStatus:
+		// Unsolicited, id 0 (never a call id): assembled like a result.
+		if f.Id != 0 {
+			return fmt.Errorf("status frame with id %d", f.Id)
+		}
+		c.mu.Lock()
+		data, done, err := c.asm.Add(f)
+		c.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		if done && c.onStatus != nil {
+			c.onStatus(data)
+		}
 		return nil
 	case wire.OpResult:
 		c.mu.Lock()

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidManagerName(t *testing.T) {
@@ -52,5 +53,65 @@ func TestOneDraftManager(t *testing.T) {
 	}
 	if err := m.DraftManagerErr("y"); !errors.Is(err, ErrUnknownManager) || !strings.Contains(err.Error(), "y") {
 		t.Fatalf("classify other: %v", err)
+	}
+}
+
+func TestManagerActivityProgress(t *testing.T) {
+	for _, c := range []struct {
+		a    ManagerActivity
+		want string
+	}{
+		{ManagerActivity{}, ""},
+		{ManagerActivity{Step: "assembling"}, "assembling"},
+		{ManagerActivity{Step: "building", Detail: "step 7/12"}, "building step 7/12"},
+		{ManagerActivity{Detail: "web@v2"}, "web@v2"},
+	} {
+		if got := c.a.Progress(); got != c.want {
+			t.Errorf("%+v.Progress() = %q, want %q", c.a, got, c.want)
+		}
+	}
+}
+
+func TestFindKitActivity(t *testing.T) {
+	web2 := KitRef{ID: "web", Version: 2, Digest: "d2"}
+	web3 := KitRef{ID: "web", Version: 3, Digest: "d3"}
+	prep := func(id string, kit KitRef) ManagerActivity {
+		return ManagerActivity{ID: id, Kind: ActivityPrepareKit, Kit: kit}
+	}
+	ms := []ManagerStatus{
+		{Name: "a", Activities: []ManagerActivity{prep("a1", web2), {ID: "a2", Kind: ActivityCleanup}}},
+		{Name: "b", Activities: []ManagerActivity{prep("b1", web3), {ID: "b2", Kind: ActivityBuildKitDraft, Kit: KitRef{ID: "app"}}}},
+	}
+	for _, c := range []struct {
+		name    string
+		kit     KitRef
+		manager string
+		want    string // activity id, "" = none
+	}{
+		{"exact on the manager", web3, "b", "b1"},
+		{"the manager builds another version", web2, "b", ""},
+		{"only the named manager", web3, "a", ""},
+		{"unknown manager", web2, "c", ""},
+		{"no manager: any", web3, "", "b1"},
+		{"no manager: first by order", web2, "", "a1"},
+		{"another harness (digest)", KitRef{ID: "web", Version: 2, Digest: "other"}, "", ""},
+		{"another version", KitRef{ID: "web", Version: 9, Digest: "d2"}, "", ""},
+		{"a draft build is not a prepare", KitRef{ID: "app"}, "", ""},
+		{"no kit", KitRef{}, "", ""},
+	} {
+		got, ok := FindKitActivity(ms, c.kit, c.manager)
+		if (c.want == "") == ok || got.ID != c.want {
+			t.Errorf("%s: got %q %v, want %q", c.name, got.ID, ok, c.want)
+		}
+	}
+}
+
+func TestManagerActivityAge(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	a := ManagerActivity{Started: t0}
+	for d, want := range map[time.Duration]string{-time.Second: "0s", 1500 * time.Millisecond: "1s", 125 * time.Second: "2m", 61 * time.Minute: "1h1m"} {
+		if got := a.Age(t0.Add(d)); got != want {
+			t.Errorf("Age(+%s) = %q, want %q", d, got, want)
+		}
 	}
 }

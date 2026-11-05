@@ -119,6 +119,6 @@ operator-auth:
     device-scope: openid harbor:admin      # ensures the minted token carries the permission
 
 runtime:
-  # Studios run on Studio Managers (jam-studio-manager next to Colima) that
-  # connect to this Jam: see docs/usage/studio-manager.md.
+  # Studios run on Studio Managers (jam-colima next to Colima) that
+  # connect to this Jam: see docs/usage/jam-colima.md.
   studio-managers: true

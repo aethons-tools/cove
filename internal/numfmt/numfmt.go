@@ -1,5 +1,5 @@
-// Package numfmt formats amounts for display with thousands separators:
-// 1,234,567 tokens, $12,345.67.
+// Package numfmt formats amounts for display: thousands separators (1,234,567
+// tokens, $12,345.67) and binary sizes (46.0GiB).
 package numfmt
 
 import (
@@ -43,6 +43,20 @@ func USD(v float64) string {
 		return "-$" + Float(-v, 2)
 	}
 	return "$" + Float(v, 2)
+}
+
+// Bytes is n bytes in binary units with one decimal: 512B, 1.5KiB, 46.0GiB.
+func Bytes(n uint64) string {
+	const units = "KMGTPE"
+	if n < 1024 {
+		return strconv.FormatUint(n, 10) + "B"
+	}
+	v, i := float64(n)/1024, 0
+	for v >= 1024 && i < len(units)-1 {
+		v /= 1024
+		i++
+	}
+	return strconv.FormatFloat(v, 'f', 1, 64) + string(units[i]) + "iB"
 }
 
 // group inserts a comma every three digits from the right of digits.

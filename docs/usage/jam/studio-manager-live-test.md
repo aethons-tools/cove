@@ -1,16 +1,16 @@
 ---
-summary: The manual live-test checklist for remote Studio Managers — a containerized Jam plus a bare-metal `jam-studio-manager` on a Mac, covering raise, teardown, pause, a kit build, a draft build, a Jam restart and a manager restart. It gated removing the in-process launcher (done in plan 6).
+summary: The manual live-test checklist for remote Studio Managers — a containerized Jam plus a bare-metal `jam-colima` on a Mac, covering raise, teardown, pause, a kit build, a draft build, a Jam restart and a manager restart. It gated removing the in-process launcher (done in plan 6).
 read_when: You are running the Studio Manager live test (a Jam container plus a manager on a Mac), validating a new manager build or host, or reproducing a manager problem end to end.
 owns: the Studio Manager live-test procedure, its expected results, and the gate it set for deleting the in-process launcher (done in plan 6)
-prereqs: container.md (running Jam in a container); ../studio-manager.md (the manager's config); studio-managers.md (Jam's side)
+prereqs: container.md (running Jam in a container); ../jam-colima.md (the manager's config); studio-managers.md (Jam's side)
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-05
 ---
 
 # Studio Manager live test
 
 This is the one manual run that proves remote Studio Managers work end to end.
-It uses a Jam in its container and a bare-metal `jam-studio-manager` on a Mac with Colima.
+It uses a Jam in its container and a bare-metal `jam-colima` on a Mac with Colima.
 Do the items in order. Each one gives the command and the result to expect.
 This run gated the removal of the in-process launcher (done in plan 6); the runbook stays for validating new managers.
 
@@ -18,7 +18,7 @@ This run gated the removal of the in-process launcher (done in plan 6); the runb
 
 - A Mac with Colima running, and the repo checked out.
 - A trusted cert for `jam.local.aethons.tools` in the secrets directory's `tls/`, and the OIDC tenant from the container config ([container.md](container.md#running-it-with-the-dev-compose)).
-- Jam and the manager on one version ([lockstep](container.md#version-lockstep)): `just build && just jam-image` from one checkout, or a release image with that release's `jam-studio-manager`.
+- Jam and the manager on one version ([lockstep](container.md#version-lockstep)): `just build && just jam-image` from one checkout, or a release image with that release's `jam-colima`.
 - The `anthropic` and `git` destinations need credentials in the container: uncomment the `anthropic-key` and `git-pat` placeholders in `dev/jam.container.yml` and the secrets directory's `credentials.yml`, fill in real values, and restart Jam (`just dev-jam-up`).
 - After step 2, a project and a role that grant the `anthropic` and `git` destinations ([roster.md](roster.md), [coves.md](coves.md#raising-a-real-managed-studio)), and a kit for the role ([kits.md](kits.md)), committed to the config repo the Jam follows (a local one: [dev/README.md](../../../dev/README.md#config-a-local-repo)).
 - `jam` on the Mac, signed in: `jam login --admin-url https://jam.local.aethons.tools:8081` ([admin access](container.md#admin-access)).
@@ -42,7 +42,7 @@ The examples use the manager name `mac-1`, the role `acme/guest` and the kit `ap
    Expect: `manager mac-1 token (shown once): <token>`. Save the token in the manager's `token-file`.
 
 4. **Run the manager.**
-   Write `~/.config/jam-studio-manager/config.yml` with `name: mac-1`, `jam-addr` and `colima.runtime-addr` set to `jam.local.aethons.tools:443`, and `colima.jam-host` set to `jam.local.aethons.tools` ([pointing managers at it](container.md#pointing-studio-managers-at-it)). Then run `jam-studio-manager run`.
+   Write `~/.config/jam-colima/config.yml` with `name: mac-1`, `jam-addr` and `colima.runtime-addr` set to `jam.local.aethons.tools:443`, and `colima.jam-host` set to `jam.local.aethons.tools` ([pointing managers at it](container.md#pointing-studio-managers-at-it)). Then run `jam-colima run`.
    Expect: it connects with no refusal. `jam manager list` shows `mac-1	connected=true	version=<Jam's>	studios=0	…	strays=0`.
 
 5. **Raise a studio on the manager.**
@@ -70,7 +70,7 @@ The examples use the manager name `mac-1`, the role `acme/guest` and the kit `ap
    Afterwards, `manager list` shows `mac-1 connected=true` with the same `studios=` count and `strays=0`, and `studio list` shows the same studios still `live`.
 
 10. **The manager restarts and leaves its studios running.**
-    Stop `jam-studio-manager run` (Ctrl-C).
+    Stop `jam-colima run` (Ctrl-C).
     Expect: `docker ps` still shows its studios, and `manager list` shows `connected=false` within 30s.
     Run it again.
     Expect: `connected=true`, the same `studios=` count, `strays=0`, and no studio marked lost ([reconnect](studio-managers.md#reconnect)).

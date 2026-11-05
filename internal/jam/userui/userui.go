@@ -49,6 +49,19 @@ type Deps struct {
 	// Personal starts the viewer's personal sessions (New session; nil: not
 	// offered).
 	Personal PersonalStarter
+	// KitActivity finds a manager's build of a kit, so a session whose raise
+	// waits on it reads "is preparing its kit image" (managers.Hub.KitActivity;
+	// nil: never shown).
+	KitActivity jam.KitActivityFunc
+	// Images resolves a role's current kit (*jam.Supervisor), for the New
+	// session dialog's kit-build progress (nil: none shown).
+	Images ImageResolver
+}
+
+// ImageResolver is the supervisor's resolution of the image a raise of a
+// role would run now: jam.Supervisor.CurrentImage.
+type ImageResolver interface {
+	CurrentImage(project, role, manager string) (jam.CurrentImage, error)
 }
 
 // PersonalStarter starts a personal session owned by owner:

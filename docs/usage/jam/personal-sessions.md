@@ -4,7 +4,7 @@ read_when: You want Jam to raise a session of a role for you personally (from th
 owns: the personal-session story — New session in the Inbox, owner resolution (project member ↔ login), admission (pool + per-owner caps, the ledger requirement), the conversation loop, the idle ladder (nags, replying `keep`/`release` to a nag, optional reclaim, `idle-after`/`nag-every`/`reclaim-after` semantics), the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
 prereqs: comms-addressing.md for a Project's members and a user's logins; discord.md for Discord delivery profiles, the user-id binding, and reply attribution; intercom.md for the intercom a session talks over; roster.md for roles and the `--max-personal*` caps; coves.md for what a raised studio does; serve.md for `store-postgres` and the allocation ledger
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-05
 ---
 
 # Personal sessions
@@ -112,7 +112,12 @@ login link needed, you are signed in), opens its session channel with you in it,
 posts your first message there, and takes you to that conversation. The button
 is hidden when Jam runs no supervisor. Discord is optional: to also talk to it
 over Discord, set the project's chat service to `discord` and give yourself a
-Discord inbox ([discord.md](discord.md)).
+Discord inbox ([discord.md](discord.md)). While Start waits on a manager's kit
+image build, the dialog (the VS Code rail's too) polls
+`GET /app/user/api/sessions/start-progress?project=&role=` every 2s (Start's
+membership check; the role's current kit as a raise resolves it; `{step, detail,
+since, age}` of any manager's [build](studio-managers.md#activities) of exactly it, else `{}`)
+and shows *Preparing the kit image — building step 7/12 (2m)*.
 
 ## Who owns it: link your login
 

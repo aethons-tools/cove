@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 )
@@ -12,6 +13,7 @@ import (
 func (h *handler) newSessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /app/user/api/session-roles", h.apiSessionRoles)
 	mux.HandleFunc("POST /app/user/api/sessions", h.apiStartSession)
+	mux.HandleFunc("GET /app/user/api/sessions/start-progress", h.apiStartProgress)
 }
 
 // sessionRoles are the roles the viewer may start a personal session of:
@@ -85,20 +87,11 @@ func (h *handler) apiStartSession(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusServiceUnavailable, "unavailable", "sessions can't be started here")
 		return
 	}
-	proj, ok := h.d.Store.GetProject(req.Project)
-	var owner jam.Member
-	if ok {
-		owner, ok = jam.MemberOf(h.d.Store, proj.ID, p.UserID)
-	}
+	proj, owner, ok := h.startable(w, p, req.Project, req.Role)
 	if !ok {
-		writeAPIError(w, http.StatusNotFound, "not_found", "no such project")
 		return
 	}
 	req.Message = strings.TrimSpace(req.Message)
-	if role, ok := h.d.Store.GetRole(proj.Name, req.Role); !ok || role.Allocation.MaxPersonal <= 0 {
-		writeAPIError(w, http.StatusNotFound, "not_found", "no such role to start")
-		return
-	}
 	res, err := h.d.Personal.StartPersonal(r.Context(), owner, string(p.UserID), jam.PersonalSessionBody{
 		Project: proj.Name, Role: req.Role, Prompt: startPrompt(owner.User.Name, req.Message != ""),
 	})
@@ -136,6 +129,54 @@ func (h *handler) apiStartSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusCreated, SessionStarted{ID: res.ID, Name: res.Name, Channel: string(ch.ID)})
+}
+
+// startable finds the project and role p may start a personal session of,
+// and p's membership; otherwise it answers 404 and is false.
+func (h *handler) startable(w http.ResponseWriter, p jam.Participant, project, role string) (jam.Project, jam.Member, bool) {
+	proj, ok := h.d.Store.GetProject(project)
+	var owner jam.Member
+	if ok {
+		owner, ok = jam.MemberOf(h.d.Store, proj.ID, p.UserID)
+	}
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, "not_found", "no such project")
+		return jam.Project{}, jam.Member{}, false
+	}
+	if r, ok := h.d.Store.GetRole(proj.Name, role); !ok || r.Allocation.MaxPersonal <= 0 {
+		writeAPIError(w, http.StatusNotFound, "not_found", "no such role to start")
+		return jam.Project{}, jam.Member{}, false
+	}
+	return proj, owner, true
+}
+
+// apiStartProgress is the kit image build a Start of the role would wait
+// on: the role's current kit (Images.CurrentImage, the resolution Raise
+// uses) and a connected manager's prepare-kit activity for it. A Start is
+// placed by the raise, so any manager's build counts. Empty without one.
+func (h *handler) apiStartProgress(w http.ResponseWriter, r *http.Request) {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok {
+		writeAPIError(w, http.StatusForbidden, "forbidden", "sign in as a project member")
+		return
+	}
+	q := r.URL.Query()
+	proj, _, ok := h.startable(w, p, q.Get("project"), q.Get("role"))
+	if !ok {
+		return
+	}
+	var out StartProgress
+	if h.d.Images != nil && h.d.KitActivity != nil {
+		cur, err := h.d.Images.CurrentImage(proj.Name, q.Get("role"), "")
+		if err != nil {
+			h.lg.Debug("userui api start progress: current image unresolved", "project", proj.Name, "role", q.Get("role"), "error", err.Error())
+		} else if cur.HasKit {
+			if a, ok := h.d.KitActivity(cur.Kit, ""); ok {
+				out = StartProgress{Step: a.Step, Detail: a.Detail, Since: a.Started, Age: a.Age(time.Now())}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // statusCode is the APIError code for a refusal's HTTP status.

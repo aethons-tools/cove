@@ -586,6 +586,18 @@ export interface SessionStarted {
   channel: string;
 }
 /**
+ * StartProgress is GET api/sessions/start-progress: the kit image build a
+ * Start of the role waits on (a manager's prepare-kit activity for the kit
+ * it would raise), polled while POST api/sessions is in flight. All empty
+ * ({}) when no manager reports one.
+ */
+export interface StartProgress {
+  step?: string; // "building"
+  detail?: string; // "step 7/12"
+  since?: string; // when the build started
+  age?: string; // how long it has run: "45s", "2m"
+}
+/**
  * AppTokenRow is one of the viewer's app tokens (Connected apps).
  */
 export interface AppTokenRow {

@@ -9,11 +9,11 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 default:
     @just --list
 
-# build for the current host into dist/<os>-<arch>/{jam,jam-studio-manager} (host-sensitive)
+# build for the current host into dist/<os>-<arch>/{jam,jam-colima} (host-sensitive)
 build:
     ./scripts/build.sh
 
-# cross-compile every supported target into dist/<os>-<arch>/{jam,jam-studio-manager}
+# cross-compile every supported target into dist/<os>-<arch>/{jam,jam-colima}
 build-all:
     ./scripts/build.sh all
 
@@ -22,10 +22,11 @@ build-all:
 jam *ARGS:
     "dist/$(go env GOOS)-$(go env GOARCH)/jam" {{ARGS}}
 
-studio-manager *ARGS:
-    "dist/$(go env GOOS)-$(go env GOARCH)/jam-studio-manager" {{ARGS}}
+# run the last `just build`'s jam-colima (Studio Manager), forwarding ARGS
+colima *ARGS:
+    "dist/$(go env GOOS)-$(go env GOARCH)/jam-colima" {{ARGS}}
 
-# install the host binaries (jam, jam-studio-manager) onto your PATH.
+# install the host binaries (jam, jam-colima) onto your PATH.
 # Default dir: $(go env GOBIN) or $(go env GOPATH)/bin (~/go/bin) — no sudo.
 # Override with BINDIR, e.g. `BINDIR=/usr/local/bin just install` (may need sudo)
 install: build
@@ -35,7 +36,7 @@ install: build
     [ -n "$bin" ] || bin="$(go env GOPATH)/bin"
     plat="$(go env GOOS)-$(go env GOARCH)"
     mkdir -p "$bin"
-    for b in jam jam-studio-manager; do
+    for b in jam jam-colima; do
       install -m 0755 "dist/$plat/$b" "$bin/$b"
       echo "installed dist/$plat/$b -> $bin/$b"
     done
@@ -167,7 +168,7 @@ test-local:
 test-jam-image:
     bash scripts/jam-image.test.sh
 
-# jam-studio-base and jam-studio images, then jam/jam-studio-manager (dist/)
+# jam-studio-base and jam-studio images, then jam/jam-colima (dist/)
 # embedding that base as their default, trusted studio base, then jam:dev from
 # them, all in one Docker (DOCKER_CONTEXT, default colima; scripts/local.sh).
 # build images, dist and jam:dev, all pointing at each other (local studio base)

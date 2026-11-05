@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for the studio image and its security model
 tier: section
-updated: 2026-11-03
+updated: 2026-11-05
 ---
 
 # `jam` — operating the central service
@@ -21,7 +21,7 @@ studios points at. It does three things for the studios it serves:
 - **Serves the kit registry** — named, versioned kit definitions a Role can bind.
 
 `jam` ships as one binary (minting is `jam mint`), released alongside
-[`jam-studio-manager`](../studio-manager.md) for remote manager hosts: install
+[`jam-colima`](../jam-colima.md) for remote manager hosts: install
 them with the one-command installer and keep them current with `jam update` (see
 [installing the binaries](../../OVERVIEW.md#installing-the-binaries)).
 
@@ -63,7 +63,7 @@ five pillars), see the design history:
 | [config-branches.md](config-branches.md) | You want to change a Jam's config (add a role, edit a kit, a user, a project) in the admin console, are merging a branch or opening a PR, wondering why a save, merge or live write was refused (stale branch, conflict, checked-out branch, read-only), or changing the branch editor (the router, workspaces, configrepo). |
 | [config-git-sources.md](config-git-sources.md) | You want a Jam to follow a config repo (on GitHub, GitLab, a local path or over SSH), or to know why it applied, or didn't apply, a commit; are confirming the first apply, running `config sync\|status\|diff --git`, are referencing a kit by its own git source (`kits/<name>.source.yml`), or a config sync or follow failed to fetch, refused a commit or a host key. |
 | [coves.md](coves.md) | You are raising/tearing down a managed studio, inspecting the runtime registry, need to know how a session whose studio died is recovered (re-raised with its state), tuning the supervisor's lease/reconcile timing, or running the cove-side Attach client (jam-studio-agent). |
-| [studio-managers.md](studio-managers.md) | You register, rotate or revoke a remote Studio Manager (`jam manager add\|list\|rotate\|revoke`, `runtime.studio-managers`), or debug a manager connection, its strays, or a refused revoke. |
+| [studio-managers.md](studio-managers.md) | You register, rotate or revoke a remote Studio Manager (`jam manager add\|list\|rotate\|revoke`, `runtime.studio-managers`), or debug a manager connection, its strays, a refused revoke, its reported memory/disk, or its activities (kit-prepare progress). |
 | [container.md](container.md) | You run Jam from its container image (`ghcr.io/aethons-tools/jam`, the dev compose `jam` service), reach its admin API, decide what must persist, or point managers at it. |
 | [studio-manager-live-test.md](studio-manager-live-test.md) | You run the Studio Manager live test (Jam container plus a manager on a Mac), a runbook for validating managers; it gated removing the in-process launcher. |
 | [inspect.md](inspect.md) | You want to see everything a studio (or a raise of a role now) is set up with — context files, egress, destinations, env, model-spec, kit/image, seed, MCP, policy — or why a studio differs from its role: `role inspect`, `studio inspect --diff`, or an agent or role page's Setup section. |
@@ -106,7 +106,7 @@ five pillars), see the design history:
 | [attachments.md](attachments.md) | You want people or agents to share files (screenshots, logs, PDFs) in a conversation, you're setting up the attachments bucket (Garage/S3/R2), or an upload or download is refused — upload → reference → access-checked download, `attach`/`fetch`. |
 | [asks.md](asks.md) | You want an agent to ask people a question with answers to pick from (approve, choose A/B/C) and get the answer through `read` — the `ask`/`amend`/`withdraw`/`asks` tools, who may answer, and how open asks count as asking for a person. |
 | [escalation.md](escalation.md) | You want a waiting session that asked for a person to actively reach people — configuring a Project's ordered, category-keyed escalation tiers (called into the session's channel) + per-tier timeouts, the `escalate(category)` tool, and operating the resident escalation engine. |
-| [../docker-in-sandbox.md](../docker-in-sandbox.md#prerequisite-install-sysbox-in-the-colima-vm-one-time) | You are preparing a Jam host's colima VM for `docker: true` kits — `jam-studio-manager colima setup-docker` / `check-docker`. |
+| [../docker-in-sandbox.md](../docker-in-sandbox.md#prerequisite-install-sysbox-in-the-colima-vm-one-time) | You are preparing a Jam host's colima VM for `docker: true` kits — `jam-colima colima setup-docker` / `check-docker`. |
 
 ## The shape of a working Jam
 

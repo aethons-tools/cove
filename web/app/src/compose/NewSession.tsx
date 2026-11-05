@@ -4,20 +4,28 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { apiGet, apiPost, type ApiError } from "../api/client";
-import type { SessionRolesResponse, SessionStarted, StartSessionRequest } from "../api/types";
+import type { SessionRolesResponse, SessionStarted, StartProgress, StartSessionRequest } from "../api/types";
 import { APP } from "../paths";
 
 // NewSession starts a personal session: pick one of the roles the viewer may
 // start (grouped by project; a full one is shown but can't be picked), add an
 // optional first message, and land in the new session's conversation
-// (onStarted: the caller's instead, as the VS Code rail does).
+// (onStarted: the caller's instead, as the VS Code rail does). While Start
+// runs — a raise may wait minutes on its kit image's build — it polls the
+// build's progress every 2s and shows it under the button.
 export function NewSession({ opened, onClose, onStarted }: { opened: boolean; onClose: () => void; onStarted?: (s: SessionStarted) => void }) {
   const [pick, setPick] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [starting, setStarting] = useState<{ project: string; role: string } | null>(null);
   const go = useNavigate();
   const client = useQueryClient();
   const { data, error } = useQuery<SessionRolesResponse, ApiError>({ queryKey: ["session-roles"], queryFn: () => apiGet("session-roles"), enabled: opened });
+  const progress = useQuery<StartProgress, ApiError>({
+    queryKey: ["start-progress", starting?.project, starting?.role],
+    queryFn: () => apiGet(`sessions/start-progress?${new URLSearchParams({ project: starting!.project, role: starting!.role }).toString()}`),
+    enabled: !!starting, refetchInterval: 2000, gcTime: 0,
+  }).data;
   const roles = data?.roles ?? [];
   const projects = [...new Set(roles.map((r) => r.project))];
   const key = (project: string, role: string) => `${project}/${role}`;
@@ -26,6 +34,7 @@ export function NewSession({ opened, onClose, onStarted }: { opened: boolean; on
   const start = async () => {
     if (!chosen) return;
     setBusy(true);
+    setStarting({ project: chosen.project, role: chosen.role });
     try {
       const req: StartSessionRequest = { project: chosen.project, role: chosen.role, message: message.trim() || undefined };
       const s = await apiPost<SessionStarted>("sessions", req);
@@ -38,6 +47,7 @@ export function NewSession({ opened, onClose, onStarted }: { opened: boolean; on
       notifications.show({ color: "red", message: (e as ApiError).message });
     } finally {
       setBusy(false);
+      setStarting(null);
     }
   };
   return (
@@ -62,6 +72,11 @@ export function NewSession({ opened, onClose, onStarted }: { opened: boolean; on
           <Textarea label="First message" description="Optional: what the session should start on." autosize minRows={2} maxRows={8}
             value={message} onChange={(e) => setMessage(e.currentTarget.value)} />
           <Group justify="flex-end"><Button type="submit" disabled={!chosen} loading={busy}>Start</Button></Group>
+          {starting && progress?.step && (
+            <Text size="sm" c="dimmed" ta="right">
+              Preparing the kit image — {[progress.step, progress.detail].filter(Boolean).join(" ")}{progress.age ? ` (${progress.age})` : ""}
+            </Text>
+          )}
         </Stack>
       </form>
     </Modal>

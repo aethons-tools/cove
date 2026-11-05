@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/modelspec"
@@ -39,5 +40,26 @@ func TestRaiseRequestRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(in, out) {
 		t.Fatalf("round trip differs:\n%+v\n%+v", in, out)
+	}
+}
+
+func TestStatusReportRoundTrip(t *testing.T) {
+	at := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
+	in := StatusReport{
+		Host: &jam.HostStats{At: at, MemTotal: 8 << 30, MemUsed: 3 << 30, DiskTotal: 100 << 30, DiskUsed: 91 << 30,
+			Reclaimable: jam.Reclaimable{Images: 1, BuildCache: 2, Volumes: 3},
+			LastCleanup: &jam.CleanupRecord{At: at, Freed: 5, Reason: "high mark", Err: ""}},
+		Activities: []jam.ManagerActivity{{ID: "a", Kind: "prepare-kit", Kit: jam.KitRef{ID: "k", Version: 2}, Step: "build", Started: at}},
+	}
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out StatusReport
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("round trip:\n got %+v\nwant %+v", out, in)
 	}
 }

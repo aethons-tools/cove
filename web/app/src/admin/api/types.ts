@@ -1270,6 +1270,26 @@ export interface ManagerRow {
   capacity: number /* int */; // 0 = unbounded
   lastSeen: string; // "15:04:05"; "" = never
   strays: string[]; // its stray studios' actor ids
+  host?: ManagerHost | null; // its last host report (kept while disconnected); null = none
+  /**
+   * Activities is its work in progress, one line each: "preparing kit
+   * web@v2: building step 7/12 (2m)"; [] = none (or disconnected).
+   */
+  activities: string[];
+}
+/**
+ * ManagerHost is a manager's last host report, formatted. A text is "" when
+ * its size is unknown.
+ */
+export interface ManagerHost {
+  at: string; // "15:04:05", when measured
+  mem: string; // "2.0GiB / 8.0GiB"
+  memPct: number /* int */; // used, 0-100
+  disk: string; // "91.0GiB / 100.0GiB"
+  diskPct: number /* int */; // used, 0-100
+  reclaimable: string; // total reclaimable, "1.5GiB"
+  reclaimableDetail: string; // "images 1.0GiB · build cache 512.0MiB · volumes 0B"
+  lastCleanup: string; // "Oct 28 08:00: freed 3.0GiB (reason)" or "…: failed: err"; "" = none
 }
 /**
  * DashStats is the dashboard's tiles: studios by status group (Attention:

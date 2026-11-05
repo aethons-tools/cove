@@ -37,7 +37,7 @@ at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md).
 ## Requirements
 
 - Go (to build) and [`just`](https://github.com/casey/just) (optional task runner — logic lives in `scripts/`).
-- A [Colima](https://github.com/abiosoft/colima) host running `jam-studio-manager`, which runs the studios (see [studio-manager.md](docs/usage/studio-manager.md)).
+- A [Colima](https://github.com/abiosoft/colima) host running `jam-colima`, which runs the studios (see [jam-colima.md](docs/usage/jam-colima.md)).
 - An `ssh` client.
 
 ## Documentation
@@ -54,7 +54,7 @@ at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md).
 just test          # hermetic unit tests — no docker/network/ssh
 just integration   # real-ssh integration tests (needs ssh/sshd/ssh-keygen)
 just lint          # go vet + gofmt check + shellcheck/hadolint
-just build         # build jam + jam-studio-manager into dist/<os>-<arch>/ (needs Node 22 + npm for the Jam app)
+just build         # build jam + jam-colima into dist/<os>-<arch>/ (needs Node 22 + npm for the Jam app)
 ```
 
 Tests are hermetic by default — they drive a fake process runner, so no Docker,

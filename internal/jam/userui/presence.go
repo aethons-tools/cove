@@ -26,7 +26,7 @@ func WithPresence(p Presence) Option {
 
 // sessionRows builds the strip for a conversation's session actors, in order.
 // A session with no Instance, or one that is ending or gone, is left out.
-func sessionRows(actors []string, instances []jam.Instance, pr Presence) []SessionRow {
+func sessionRows(actors []string, instances []jam.Instance, pr Presence, kp kitPrep) []SessionRow {
 	byActor := map[string]jam.Instance{}
 	for _, i := range instances {
 		byActor[i.ActorID] = i
@@ -42,7 +42,8 @@ func sessionRows(actors []string, instances []jam.Instance, pr Presence) []Sessi
 		if pr != nil {
 			st, known = pr.Status(a)
 		}
-		row, show := sessionRow(inst, st, known)
+		prep, _ := kp.of(inst)
+		row, show := sessionRow(inst, st, known, prep)
 		if show {
 			rows = append(rows, row)
 		}
@@ -50,10 +51,45 @@ func sessionRows(actors []string, instances []jam.Instance, pr Presence) []Sessi
 	return rows
 }
 
+// kitPrep finds the kit build holding up a session's raise: a manager's
+// prepare-kit activity (kits) for the kit the raise builds. Zero: none.
+type kitPrep struct {
+	kits   jam.KitActivityFunc
+	images ImageResolver // nil: match the instance's recorded kit
+}
+
+func (h *handler) kitPrep() kitPrep { return kitPrep{kits: h.d.KitActivity, images: h.d.Images} }
+
+// of is the activity holding up inst: inst is raising or recovering and a
+// manager — inst's own when it has one, else any — is building exactly the
+// kit its raise builds. That is the role's current kit (images, as Raise
+// resolves it; a re-raise builds that, not the kit inst ran), else the
+// recorded inst.Kit (no resolver, an unresolvable role, a draft studio).
+func (k kitPrep) of(inst jam.Instance) (*jam.ManagerActivity, bool) {
+	if k.kits == nil || (inst.Phase != jam.PhaseRaising && inst.Phase != jam.PhaseRecovering) {
+		return nil, false
+	}
+	kit := inst.Kit
+	if k.images != nil && inst.KitDraft == nil {
+		if cur, err := k.images.CurrentImage(inst.Project, inst.Role, inst.Manager); err == nil && cur.HasKit {
+			kit = cur.Kit
+		}
+	}
+	if kit.ID == "" {
+		return nil, false
+	}
+	a, ok := k.kits(kit, inst.Manager)
+	if !ok {
+		return nil, false
+	}
+	return &a, true
+}
+
 // sessionRow derives one session's line. The Instance's lifecycle wins (a
 // session raising, paused, idle, asking for a person, or blocked says so whatever its last
-// event was); a running session shows its latest event-derived status.
-func sessionRow(inst jam.Instance, st sessionevents.Status, known bool) (SessionRow, bool) {
+// event was); a running session shows its latest event-derived status. prep,
+// when set, is the kit build holding up a raising or recovering session.
+func sessionRow(inst jam.Instance, st sessionevents.Status, known bool, prep *jam.ManagerActivity) (SessionRow, bool) {
 	label := inst.Name // as the New message picker labels sessions
 	if label == "" {
 		label = inst.ActorID
@@ -63,6 +99,13 @@ func sessionRow(inst jam.Instance, st sessionevents.Status, known bool) (Session
 	}
 	if jam.NeedsPerson(inst) && inst.Activity != jam.ActivityBlocked {
 		return row("needs you", "wait") // asked, even once paused
+	}
+	if prep != nil && (inst.Phase == jam.PhaseRaising || inst.Phase == jam.PhaseRecovering) {
+		text := "is preparing its kit image"
+		if p := prep.Progress(); p != "" {
+			text += " — " + p
+		}
+		return row(text, "busy")
 	}
 	switch inst.Phase {
 	case jam.PhaseRaising:

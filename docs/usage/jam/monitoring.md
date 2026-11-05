@@ -4,7 +4,7 @@ read_when: You want to be alerted when Jam needs a human, are setting up `metric
 owns: the condition model (keys, severities, lifecycle), the v1 condition kinds, the `/metrics` exposition and its scrape token, the Health tab, `jam attention list`, and the deploy/monitoring bundle
 prereqs: serve.md for the serve config and credentials
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-05
 ---
 
 # Operator attention
@@ -35,6 +35,7 @@ Conditions survive a Jam restart and keep their original start time.
 | `cred.unavailable:<cred>` | critical | 3 consecutive failures resolving a brokered credential | the next successful resolve, or at startup if the credential is no longer configured |
 | `pool.account.refresh:<account>` | warning; critical while every account fails | 2 consecutive failed refresh passes | the next successful refresh, a fresh token (`pool add`), or removal of the account |
 | `push:relay` | warning | 5 consecutive transient [push](push-delivery.md#how-jam-sends) send failures (network error, 429 or 5xx from a push service) | the next send a push service answers with anything but 429 or 5xx |
+| `manager.disk:<name>` | warning at ≥90% disk used; critical at ≥95% (back to warning below 95%) | a [Studio Manager](studio-managers.md#status-reports)'s report shows its studio disk that full (detail: what is reclaimable). Fix: free disk in the manager's VM (jam-colima cleans up automatically above its high mark), or grow the VM disk (`colima stop; colima start --disk <GiB>`) | a report below 88% (between 88% and 90% an open condition stays open, a closed one stays closed, so it does not flap), or the manager is revoked (also at serve start for a manager no longer registered); left open while the manager is disconnected |
 | `kit.migrate:<kit>` | warning | the kit's current version could not be migrated to a tree at the upgrade, or at the import of a pre-tree backup ([kits-directory.md](kits-directory.md#stored-as-trees)) | its current version is not broken (a new push or a pin) or the kit is removed; checked at serve start, after the import and every minute (a pin back onto a broken version reopens it) |
 
 Each carries its fix (e.g. `gcloud auth application-default login` for a
@@ -50,7 +51,9 @@ tokens are refused. Series: `jam_up`, `jam_attention_condition{key,kind,severity
 (one per open condition), `jam_attention_open{severity}`, `jam_studios`, and —
 with `runtime.studio-managers` on — `jam_managers` ([Studio
 Managers](studio-managers.md) registered) and
-`jam_managers_connected`.
+`jam_managers_connected`, plus for each connected manager that reports host stats
+`jam_manager_memory_bytes{manager,kind="used"|"total"}`, `jam_manager_disk_bytes{manager,kind="used"|"total"}`
+and `jam_manager_reclaimable_bytes{manager,kind="images"|"build_cache"|"volumes"}`.
 Unset ⇒ no `/metrics`.
 
 - `token-cred` must be a plain credential: not `exchange: gcp`, not the pool's `cred-name` (serve refuses it).

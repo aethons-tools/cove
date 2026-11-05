@@ -7,11 +7,17 @@ import (
 	"strings"
 )
 
-// Gauge is an extra single-value gauge the exposition appends (e.g. jam_studios).
+// Gauge is an extra gauge series the exposition appends (e.g. jam_studios).
+// Series of one metric share Name and Help and must be adjacent: HELP and
+// TYPE are written once, before the first.
 type Gauge struct {
 	Name, Help string
+	Labels     []Label // in order; none for a single-value gauge
 	Value      float64
 }
+
+// Label is one name="value" pair on a Gauge series.
+type Label struct{ Name, Value string }
 
 var labelEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
 
@@ -44,8 +50,24 @@ func MetricsHandler(t *Tracker, token string, gauges func() []Gauge) http.Handle
 			fmt.Fprintf(&b, "jam_attention_open{severity=%q} %d\n", string(s), count[s])
 		}
 		if gauges != nil {
+			prev := ""
 			for _, g := range gauges() {
-				fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s gauge\n%s %g\n", g.Name, g.Help, g.Name, g.Name, g.Value)
+				if g.Name != prev {
+					fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s gauge\n", g.Name, g.Help, g.Name)
+					prev = g.Name
+				}
+				b.WriteString(g.Name)
+				for i, l := range g.Labels {
+					sep := ","
+					if i == 0 {
+						sep = "{"
+					}
+					fmt.Fprintf(&b, "%s%s=\"%s\"", sep, l.Name, labelEscaper.Replace(l.Value))
+				}
+				if len(g.Labels) > 0 {
+					b.WriteByte('}')
+				}
+				fmt.Fprintf(&b, " %g\n", g.Value)
 			}
 		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")

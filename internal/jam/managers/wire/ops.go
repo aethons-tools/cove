@@ -18,6 +18,10 @@ const (
 	HeartbeatEvery  = 10 * time.Second
 	DeadAfter       = 30 * time.Second
 	HelloTimeout    = 10 * time.Second
+	// StatusEvery is how often a manager sends an OpStatus report; it also
+	// sends one right after Welcome and, throttled to StatusMinGap, on demand.
+	StatusEvery  = 30 * time.Second
+	StatusMinGap = time.Second
 )
 
 // Request ops (Jam to manager).
@@ -42,7 +46,17 @@ const (
 	OpResult = "result" // manager to Jam; id is the request's
 	OpLog    = "log"    // manager to Jam; one raw draft-log chunk per frame, never assembled
 	OpCancel = "cancel" // Jam to manager; empty
+	// OpStatus is manager to Jam, unsolicited: id 0 (never a request id),
+	// a StatusReport. Jam keeps the latest per manager.
+	OpStatus = "status"
 )
+
+// StatusReport is OpStatus's payload: the manager's host stats (nil: it has
+// none, or measuring failed) and its work in progress.
+type StatusReport struct {
+	Host       *jam.HostStats
+	Activities []jam.ManagerActivity
+}
 
 // Payloads (JSON in Frame.data).
 

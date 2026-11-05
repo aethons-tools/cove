@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — one-command installer for the Jam host binaries: jam and jam-studio-manager.
+# install.sh — one-command installer for the Jam host binaries: jam and jam-colima.
 #
 # Advertised:
 #   Private phase (works today, uses your gh auth):
@@ -10,7 +10,7 @@
 #
 # It pulls a prebuilt release archive (jam_<version>_<os>_<arch>.tar.gz) that the
 # CI pipeline already cuts on every push to main, verifies its SHA-256 against the
-# release's checksums.txt, and drops `jam` + `jam-studio-manager` onto your PATH.
+# release's checksums.txt, and drops `jam` + `jam-colima` onto your PATH.
 #
 # Env knobs:
 #   JAM_VERSION=<N>-<MMDD>    pin a release (default: latest)
@@ -195,16 +195,19 @@ main() {
   tar -C "$tmp/extract" -xzf "$tmp/$archive"
 
   local b
-  for b in jam jam-studio-manager; do
+  for b in jam jam-colima; do
     place "$tmp/extract/$b" "$bindir"
   done
-  info "installed jam jam-studio-manager -> $bindir"
+  info "installed jam jam-colima -> $bindir"
 
   path_check "$bindir"
   local stale
   stale="$(stale_binaries "$bindir")"
   if [ -n "$stale" ]; then
     info "pre-rename binaries still in $bindir: $stale — point your service and scripts at jam, then delete them (docs/usage/jam/renamed-from-at.md)"
+  fi
+  if [ -e "$bindir/jam-studio-manager" ]; then
+    info "jam-studio-manager is now jam-colima: point its service at jam-colima run, then delete $bindir/jam-studio-manager (docs/usage/jam-colima.md#upgrading-from-jam-studio-manager)"
   fi
   if command -v "$bindir/jam" >/dev/null 2>&1; then
     # jam version prints the bare version (older releases: "jam <version>").

@@ -2,6 +2,8 @@ package colima
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -30,11 +32,17 @@ func (d dockerImg) Build(contextDir string) (string, error) {
 	//     manual `docker build`.
 	//   JAM_STUDIO_TARGET_ARCH — "amd64" | "arm64", the build target arch.
 	// Jam passes these two and nothing else.
-	// -q: emit only the built image ID (a bare `sha256:<hex>`).
+	// -q: emit only the built image ID (a bare `sha256:<hex>`). -t: a
+	// temporary tag (buildingTag), so the image is never dangling.
+	tmp, err := buildingTag()
+	if err != nil {
+		return "", err
+	}
 	out, err := d.c.r.Output("docker", d.c.dargs(
 		"build", "-q",
 		"--build-arg", "JAM_STUDIO_BASE_IMAGE="+d.baseArg,
 		"--build-arg", "JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH,
+		"-t", tmp,
 		contextDir,
 	)...)
 	if err != nil {
@@ -50,10 +58,30 @@ func (d dockerImg) Build(contextDir string) (string, error) {
 	// the just-built image under a stable, content-derived local tag and hand that
 	// back — `FROM <tag>` resolves it from the local daemon (never a registry fetch,
 	// since the tag exists locally), and `docker inspect` (the gate) accepts it too.
+	return d.c.retag(id, tmp)
+}
+
+// buildingTag is a fresh temporary tag for a base build. A `docker build -q`
+// without -t leaves its image dangling until it is tagged, and a
+// dangling-image prune (the disk policy's, this manager's or another's on a
+// shared VM) could remove it in between; built under this tag, it never is.
+func buildingTag() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("temporary build tag: %w", err)
+	}
+	return "jam-kit-base:building-" + hex.EncodeToString(b[:]), nil
+}
+
+// retag tags a built base id under its stable content-derived tag and then
+// removes the temporary tag tmp (an untag: the image keeps the stable one).
+// A failed untag only leaves an extra tag behind.
+func (c *Colima) retag(id, tmp string) (string, error) {
 	tag := "jam-kit-base:" + strings.TrimPrefix(id, "sha256:")
-	if err := d.c.r.Run("docker", d.c.dargs("tag", id, tag)...); err != nil {
+	if err := c.r.Run("docker", c.dargs("tag", id, tag)...); err != nil {
 		return "", err
 	}
+	_ = c.r.Run("docker", c.dargs("image", "rm", tmp)...)
 	return tag, nil
 }
 
@@ -102,16 +130,22 @@ type streamDockerImg struct {
 	ctx io.Reader
 }
 
-// Build streams the stored context tar to `docker build -q … -`, reading the
-// built image id from stdout, then tags it under a stable local tag so it is
+// Build streams the stored context tar to `docker build -q … -` under a
+// temporary tag (buildingTag), reading the built image id from stdout, then
+// tags it under a stable local tag so it is
 // usable in `FROM ${BASE}` and inspectable by the gate (see dockerImg.Build for
 // why the bare sha256 id cannot be used directly).
 func (d streamDockerImg) Build(_ string) (string, error) {
+	tmp, err := buildingTag()
+	if err != nil {
+		return "", err
+	}
 	var out, errBuf bytes.Buffer
 	if err := d.c.r.RunIO(d.ctx, &out, &errBuf, "docker", d.c.dargs(
 		"build", "-q",
 		"--build-arg", "JAM_STUDIO_BASE_IMAGE="+d.baseArg,
 		"--build-arg", "JAM_STUDIO_TARGET_ARCH="+runtime.GOARCH,
+		"-t", tmp,
 		"-",
 	)...); err != nil {
 		// Surface docker's own build diagnostic (the failing Dockerfile line, etc.);
@@ -128,11 +162,7 @@ func (d streamDockerImg) Build(_ string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("docker build - (streamed context): no image id on stdout")
 	}
-	tag := "jam-kit-base:" + strings.TrimPrefix(id, "sha256:")
-	if err := d.c.r.Run("docker", d.c.dargs("tag", id, tag)...); err != nil {
-		return "", err
-	}
-	return tag, nil
+	return d.c.retag(id, tmp)
 }
 
 // resolveBaseTar streams ctxTar to `docker build -`, tags the result, and runs

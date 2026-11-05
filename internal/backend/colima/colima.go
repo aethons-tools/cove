@@ -11,8 +11,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/colimacfg"
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
@@ -25,6 +27,8 @@ const dockerContext = "colima"
 type Colima struct {
 	r       runner.Runner
 	context string // the pinned docker context ("" = dockerContext); see NewWithContext
+	profile string // the colima VM ("" = derived from context); see NewForProfile
+	now     func() time.Time
 	// quiet, when set, runs the cache-miss checks (HasKitImage, HasKitBase,
 	// the base's local inspect before a pull) in place of r: WithBuildLog's
 	// r copies output to the build log, and a miss's "No such image" does
@@ -42,10 +46,29 @@ func (c *Colima) quietRunner() runner.Runner {
 
 // NewWithContext returns a Colima backend pinned to a docker context — typically
 // colima-<profile>, the context `colima start --profile <profile>` creates — so
-// a caller (e.g. jam-studio-manager's colima.docker-context) can target a specific
+// a caller (e.g. jam-colima, from its colima.profile) can target a specific
 // colima instance. Empty keeps the default colima context.
 func NewWithContext(r runner.Runner, context string) *Colima {
 	return &Colima{r: r, context: context}
+}
+
+// NewForProfile returns a Colima backend for the colima VM profile: docker
+// calls are pinned to the profile's context (colimacfg.ProfileContext) and
+// HostStats measures that VM. "" is the default profile.
+func NewForProfile(r runner.Runner, profile string) *Colima {
+	return &Colima{r: r, context: colimacfg.ProfileContext(profile), profile: profile}
+}
+
+// profileName is the colima VM this backend runs in: its profile, else the
+// one its context names (colima-<p> is p; anything else the default).
+func (c *Colima) profileName() string {
+	if c.profile != "" {
+		return c.profile
+	}
+	if p, ok := strings.CutPrefix(c.contextName(), "colima-"); ok && p != "" {
+		return p
+	}
+	return colimacfg.DefaultProfile
 }
 
 // contextName is the context every docker call is pinned to.
@@ -125,7 +148,7 @@ func initArgs(docker bool) []string {
 // registers the sysbox-runc runtime a docker:true instance needs (COV-117). It
 // parses `docker info -f '{{json .Runtimes}}'`, a map of runtime name → config.
 // An unreachable daemon or unparseable output is an error. Shared by the
-// the launcher's preflight and `jam-studio-manager colima check-docker`, so the two can't drift.
+// the launcher's preflight and `jam-colima colima check-docker`, so the two can't drift.
 func (c *Colima) HasSysboxRuntime() (bool, error) {
 	out, err := c.r.Output("docker", c.dargs("info", "-f", "{{json .Runtimes}}")...)
 	if err != nil {
@@ -149,7 +172,7 @@ func (c *Colima) requireSysboxRuntime() error {
 		return fmt.Errorf("docker:true preflight: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. Jam detects but does not install it — run `jam-studio-manager colima setup-docker` on the host (then `colima restart`), or install Sysbox CE in the colima Lima VM by hand and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/usage/docker-in-sandbox.md.")
+		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. Jam detects but does not install it — run `jam-colima colima setup-docker` on the host (then `colima restart`), or install Sysbox CE in the colima Lima VM by hand and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/usage/docker-in-sandbox.md.")
 	}
 	return nil
 }
@@ -279,6 +302,18 @@ func (c *Colima) WithBuildLog(ctx context.Context, log io.Writer) backend.KitIma
 }
 
 var _ backend.LoggedKitBuilder = (*Colima)(nil)
+
+// WithBuildOutput is c with its streamed commands' stderr also copied to w
+// (runner.Tee), per backend.TeedKitBuilder: for BuildKitImage, the
+// `docker build --progress=plain` progress lines. What c prints is
+// unchanged; cache-miss checks and captured output are c's own.
+func (c *Colima) WithBuildOutput(w io.Writer) backend.KitImageBuilder {
+	cp := *c
+	cp.r, cp.quiet = runner.Tee(c.r, w), c.quietRunner()
+	return &cp
+}
+
+var _ backend.TeedKitBuilder = (*Colima)(nil)
 
 // runImage picks the image reference to `docker run`: the built-image digest when
 // install captured one (an immutable pin), else the mutable tag for a legacy

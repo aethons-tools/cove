@@ -1153,13 +1153,30 @@ type AttnRow struct {
 
 // ManagerRow is one Studio Manager on the dashboard.
 type ManagerRow struct {
-	Name      string   `json:"name"`
-	Connected bool     `json:"connected"`
-	Version   string   `json:"version"`
-	Studios   int      `json:"studios"`
-	Capacity  int      `json:"capacity"` // 0 = unbounded
-	LastSeen  string   `json:"lastSeen"` // "15:04:05"; "" = never
-	Strays    []string `json:"strays"`   // its stray studios' actor ids
+	Name      string       `json:"name"`
+	Connected bool         `json:"connected"`
+	Version   string       `json:"version"`
+	Studios   int          `json:"studios"`
+	Capacity  int          `json:"capacity"`                         // 0 = unbounded
+	LastSeen  string       `json:"lastSeen"`                         // "15:04:05"; "" = never
+	Strays    []string     `json:"strays"`                           // its stray studios' actor ids
+	Host      *ManagerHost `json:"host" tstype:"ManagerHost | null"` // its last host report (kept while disconnected); null = none
+	// Activities is its work in progress, one line each: "preparing kit
+	// web@v2: building step 7/12 (2m)"; [] = none (or disconnected).
+	Activities []string `json:"activities"`
+}
+
+// ManagerHost is a manager's last host report, formatted. A text is "" when
+// its size is unknown.
+type ManagerHost struct {
+	At                string `json:"at"`                // "15:04:05", when measured
+	Mem               string `json:"mem"`               // "2.0GiB / 8.0GiB"
+	MemPct            int    `json:"memPct"`            // used, 0-100
+	Disk              string `json:"disk"`              // "91.0GiB / 100.0GiB"
+	DiskPct           int    `json:"diskPct"`           // used, 0-100
+	Reclaimable       string `json:"reclaimable"`       // total reclaimable, "1.5GiB"
+	ReclaimableDetail string `json:"reclaimableDetail"` // "images 1.0GiB · build cache 512.0MiB · volumes 0B"
+	LastCleanup       string `json:"lastCleanup"`       // "Oct 28 08:00: freed 3.0GiB (reason)" or "…: failed: err"; "" = none
 }
 
 // DashStats is the dashboard's tiles: studios by status group (Attention:

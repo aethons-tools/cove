@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/cli"
+	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/adminclient"
+	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
 // cmdManager manages Studio Managers via the admin API. add and rotate print
@@ -75,8 +77,9 @@ func cmdManager(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			if !m.LastSeen.IsZero() {
 				seen = m.LastSeen.UTC().Format(time.RFC3339)
 			}
-			fmt.Fprintf(stdout, "%s\tconnected=%t\tversion=%s\tstudios=%d\tcapacity=%d\tlast-seen=%s\tstrays=%d\n",
-				m.Name, m.Connected, m.Version, m.Studios, m.Capacity, seen, len(m.Strays))
+			mem, disk := hostColumns(m.Host)
+			fmt.Fprintf(stdout, "%s\tconnected=%t\tversion=%s\tstudios=%d\tcapacity=%d\tlast-seen=%s\tstrays=%d\tmem=%s\tdisk=%s\tactivities=%d\n",
+				m.Name, m.Connected, m.Version, m.Studios, m.Capacity, seen, len(m.Strays), mem, disk, len(m.Activities))
 		}
 	case "revoke":
 		name, ok := oneName()
@@ -92,4 +95,20 @@ func cmdManager(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		return 2
 	}
 	return 0
+}
+
+// hostColumns renders a manager's last host report for list: mem
+// used/total and disk used/total(pct%), each "-" when unknown.
+func hostColumns(h *jam.HostStats) (mem, disk string) {
+	mem, disk = "-", "-"
+	if h == nil {
+		return
+	}
+	if h.MemTotal > 0 {
+		mem = numfmt.Bytes(h.MemUsed) + "/" + numfmt.Bytes(h.MemTotal)
+	}
+	if pct, ok := h.DiskPercent(); ok {
+		disk = fmt.Sprintf("%s/%s(%d%%)", numfmt.Bytes(h.DiskUsed), numfmt.Bytes(h.DiskTotal), pct)
+	}
+	return
 }

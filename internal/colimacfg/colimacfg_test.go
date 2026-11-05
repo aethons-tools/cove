@@ -199,7 +199,7 @@ func TestApplyAdoptsLegacyHook(t *testing.T) {
 	}
 	var found bool
 	for _, c := range ch {
-		found = found || strings.Contains(c.What, "replaced an unmarked Sysbox provision hook (hand-written, or written before the jam rename) with the managed one (Sysbox "+MinSysboxVersion+")")
+		found = found || strings.Contains(c.What, "replaced an unmarked Sysbox provision hook (hand-written, or written under an older marker) with the managed one (Sysbox "+MinSysboxVersion+")")
 	}
 	if !found {
 		t.Fatalf("replacement not reported: %+v", ch)
@@ -269,13 +269,31 @@ func TestValidateVersion(t *testing.T) {
 	}
 }
 
-func TestValidDockerContext(t *testing.T) {
+func TestValidProfile(t *testing.T) {
 	for _, c := range []struct {
 		in   string
 		want bool
-	}{{"colima", true}, {"colima-work", true}, {"", false}, {"-x", false}, {"a b", false}} {
-		if got := ValidDockerContext(c.in); got != c.want {
-			t.Errorf("ValidDockerContext(%q) = %v, want %v", c.in, got, c.want)
+	}{{"default", true}, {"work", true}, {"jam-b", true}, {"jam_b.2", true}, {"", false}, {"-x", false}, {"a b", false}, {"a/b", false}, {"..", false}, {"a+b", false}} {
+		if got := ValidProfile(c.in); got != c.want {
+			t.Errorf("ValidProfile(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestProfileContext(t *testing.T) {
+	for in, want := range map[string]string{"": "colima", "default": "colima", "colima": "colima", "work": "colima-work", "colima-work": "colima-work"} {
+		if got := ProfileContext(in); got != want {
+			t.Errorf("ProfileContext(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// NormalizeProfile follows colima's config.ProfileFromName: "", colima and
+// default are the default VM; a colima- prefix is stripped.
+func TestNormalizeProfile(t *testing.T) {
+	for in, want := range map[string]string{"": "default", "colima": "default", "default": "default", "jam-b": "jam-b", "colima-jam-b": "jam-b", "colima-": ""} {
+		if got := NormalizeProfile(in); got != want {
+			t.Errorf("NormalizeProfile(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

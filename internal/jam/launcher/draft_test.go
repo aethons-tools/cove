@@ -114,6 +114,7 @@ func TestBuildKitDraftStageArgv(t *testing.T) {
 	outs := []runner.FakeResult{
 		{Stdout: "sha256:child\n", Stderr: "#3 [2/2] RUN make\n"}, // docker build -q … - (the draft's stage)
 		{}, // docker tag sha256:child jam-kit-base:child
+		{}, // docker image rm jam-kit-base:building-<hex>
 		{Stdout: `["sha256:a","sha256:b","sha256:c"]`}, // the stage's layers
 	}
 	outs = append(outs, gatePasses(t)...)
@@ -249,6 +250,7 @@ func TestBuildKitDraftUnchainedStageArgv(t *testing.T) {
 	outs := []runner.FakeResult{
 		{Stdout: "sha256:own\n"}, // docker build -q … - (the draft's stage)
 		{},                       // docker tag sha256:own jam-kit-base:own
+		{},                       // docker image rm jam-kit-base:building-<hex>
 		{Stdout: `["sha256:a","sha256:b","sha256:c"]`}, // the stage's layers
 	}
 	outs = append(outs, gatePasses(t)...)

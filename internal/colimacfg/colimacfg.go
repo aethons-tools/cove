@@ -2,7 +2,7 @@
 // docker:true sandboxes: a provision hook that installs Sysbox on every boot and
 // the sysbox-runc runtime registered through colima's docker: passthrough (colima
 // regenerates /etc/docker/daemon.json each start, so that is the durable seam).
-// It is pure bytes-in/bytes-out; the jam-studio-manager colima command owns the file I/O.
+// It is pure bytes-in/bytes-out; the jam-colima colima command owns the file I/O.
 package colimacfg
 
 import (
@@ -24,7 +24,7 @@ const SysboxRuntimePath = "/usr/bin/sysbox-runc"
 
 // Marker identifies the provision hook this package owns, so a re-run replaces
 // it rather than appending a duplicate, and leaves the operator's hooks alone.
-const Marker = "# managed by jam-studio-manager colima setup-docker — re-run it to change; edits here are overwritten"
+const Marker = "# managed by jam-colima colima setup-docker — re-run it to change; edits here are overwritten"
 
 // Options parameterizes Apply.
 type Options struct {
@@ -163,7 +163,7 @@ func ensureRuntime(root *yaml.Node) ([]Change, error) {
 // ensureHook adds or replaces the one managed provision entry, keeping the
 // operator's other hooks and their order. A managed entry is a marked one or a
 // unmarked one that installs Sysbox from the nestybox/sysbox release URL — a
-// hand-written hook, or one this command wrote before the jam rename changed
+// hand-written hook, or one this command wrote before a rename changed
 // Marker; the first is adopted in place and any further ones are dropped.
 func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 	prov := value(root, "provision")
@@ -192,7 +192,7 @@ func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 		switch {
 		case !marked:
 			*e = *hookNode(want)
-			changes = append(changes, Change{What: "replaced an unmarked Sysbox provision hook (hand-written, or written before the jam rename) with the managed one (Sysbox " + version + ")"})
+			changes = append(changes, Change{What: "replaced an unmarked Sysbox provision hook (hand-written, or written under an older marker) with the managed one (Sysbox " + version + ")"})
 		case value(e, "mode") == nil || value(e, "mode").Value != "system" || value(e, "script").Value != want:
 			*e = *hookNode(want)
 			changes = append(changes, Change{What: "updated the Sysbox provision hook (Sysbox " + version + ")"})
@@ -213,7 +213,7 @@ func ensureHook(root *yaml.Node, version string) ([]Change, error) {
 func isMarked(e *yaml.Node) bool { return scriptContains(e, Marker) }
 
 // isLegacy matches an unmarked hook that installs Sysbox (hand-written, or
-// managed under the pre-rename Marker): every recipe
+// managed under a pre-rename Marker): every recipe
 // downloads the release from github.com/nestybox/sysbox.
 func isLegacy(e *yaml.Node) bool { return scriptContains(e, "nestybox/sysbox") }
 
@@ -277,7 +277,32 @@ func setScalar(m *yaml.Node, key, v string) {
 	set(m, key, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v})
 }
 
-var dockerContextRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.+-]*$`)
+// DefaultProfile is the colima VM `colima start` makes without --profile.
+const DefaultProfile = "default"
 
-// ValidDockerContext reports whether name satisfies docker's own context-name rule.
-func ValidDockerContext(name string) bool { return dockerContextRe.MatchString(name) }
+var profileRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+
+// ValidProfile reports whether name is a colima profile (VM) name: letters,
+// digits, '-', '_' and '.', starting with a letter or digit — also a valid
+// docker context name and a single path element.
+func ValidProfile(name string) bool { return profileRe.MatchString(name) }
+
+// NormalizeProfile is profile as colima reads it (its config.ProfileFromName):
+// "", colima and default name the default VM; a colima- prefix is stripped,
+// so colima-jam-b is jam-b. The result names <colima home>/<profile>/.
+func NormalizeProfile(profile string) string {
+	switch profile {
+	case "", "colima", DefaultProfile:
+		return DefaultProfile
+	}
+	return strings.TrimPrefix(profile, "colima-")
+}
+
+// ProfileContext is the docker context colima creates for profile: colima
+// for the default VM, else colima-<profile> (profile normalised first).
+func ProfileContext(profile string) string {
+	if p := NormalizeProfile(profile); p != DefaultProfile {
+		return "colima-" + p
+	}
+	return "colima"
+}

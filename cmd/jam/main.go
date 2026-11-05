@@ -115,7 +115,7 @@ func commandName(argv []string) string {
 
 func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	if commandName(argv) == "colima" {
-		fmt.Fprintln(stderr, `jam: colima moved to jam-studio-manager: run "jam-studio-manager colima setup-docker|check-docker"`)
+		fmt.Fprintln(stderr, `jam: colima moved to jam-colima: run "jam-colima colima setup-docker|check-docker"`)
 		return 2
 	}
 	app := cli.App{
@@ -162,7 +162,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "mint", Brief: "mint a short-lived token (github | anthropic) — what Jam runs for a minter credential", Run: func(a []string, g cli.Globals, out, errw io.Writer) int {
 				return mintcmd.Run(a, version, os.LookupEnv, http.DefaultClient, out, errw)
 			}},
-			{Name: "update", Brief: "update the Jam installation (jam, jam-studio-manager) to the latest release", Run: cmdUpdate(getenv)},
+			{Name: "update", Brief: "update the Jam installation (jam, jam-colima) to the latest release", Run: cmdUpdate(getenv)},
 			{Name: "vscode", Brief: "install the Jam VS Code extension this Jam serves (install), with `code --install-extension`; it then offers its own updates", Run: cmdVSCode},
 		},
 	}
@@ -1953,7 +1953,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	var managerHub *managers.Hub
 	runSup := func() { go sup.Run(context.Background()) }
 	if cfg.Runtime.StudioManagers {
-		managerHub = managers.NewHub(managers.Config{Store: st, Router: built.router, Reconciler: sup, Version: version, SSHUserCA: sshUserCA, Log: log})
+		managerHub = managers.NewHub(managers.Config{Store: st, Router: built.router, Reconciler: sup, Version: version, SSHUserCA: sshUserCA, Log: log, Conditions: conds})
 		if err := startManagers(managerHub, runSup); err != nil {
 			fmt.Fprintln(stderr, "jam: studio managers:", err)
 			return 1
@@ -2156,6 +2156,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	stdg.SetActors(st)            // clear a standing identity left over from an interrupted raise
 	sup.SetStandingResetter(stdg) // `standing reset` (API + UI) runs serialized with its passes
 	sup.SetStandingUpgrader(stdg) // `standing upgrade` queues into it; its passes carry it out
+	if managerHub != nil {
+		stdg.SetKitActivity(managerHub.KitActivity) // a preparing upgrade shows its kit build's step
+	}
 	go stdg.Run(context.Background())
 	log.Info("Jam standing reconciler: resident", "interval", standing.DefaultInterval)
 
@@ -2182,16 +2185,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		httpHandler = withMetrics(httpHandler, condition.MetricsHandler(conds, tok[cfg.Metrics.TokenCred], func() []condition.Gauge {
 			gauges := []condition.Gauge{{Name: "jam_studios", Help: "Studios Jam knows of.", Value: float64(len(jam.CoveSummaries(st, sup)))}}
 			if managerHub != nil {
-				var registered, connected int
-				for _, m := range managerHub.Statuses() {
-					registered++
-					if m.Connected {
-						connected++
-					}
-				}
-				gauges = append(gauges,
-					condition.Gauge{Name: "jam_managers", Help: "Studio Managers registered.", Value: float64(registered)},
-					condition.Gauge{Name: "jam_managers_connected", Help: "Studio Managers connected.", Value: float64(connected)})
+				gauges = append(gauges, managerGauges(managerHub.Statuses())...)
 			}
 			return gauges
 		}))
@@ -2619,7 +2613,11 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sendH.SetAttachments(att)
 		userMux.Handle("/app/user/send", sendH)
 		userDeps := userui.Deps{Send: sendH, Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup, res: sup, cmd: rsrv, lines: sup, log: log}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}
+		if managerHub != nil {
+			userDeps.KitActivity = managerHub.KitActivity // a raise waiting on its kit build says so
+		}
 		if sup != nil {
+			userDeps.Images = sup // the New session dialog's kit-build progress
 			userDeps.Personal = personalStarter{st: st, sup: sup, alloc: personalAllocator{alloc}, log: log}
 		}
 		// Never a typed nil: a nil Frames hides Studio and View here, as it must

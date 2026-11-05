@@ -150,3 +150,43 @@ func TestDoNamesTheCallingBinary(t *testing.T) {
 		t.Fatalf("dry-run must name the calling binary; stdout=%q", out.String())
 	}
 }
+
+// TestDoInstallsAMissingCompanion: an up-to-date binary whose companion
+// (jam-colima next to jam) is missing is not "up to date" — Do installs the
+// current release, pinned or resolved, so a half-finished update completes.
+func TestDoInstallsAMissingCompanion(t *testing.T) {
+	var out strings.Builder
+	f := &runner.Fake{}
+	o := Options{Binary: "jam", Current: "2-0202", Pin: "2-0202", Missing: []string{"jam-colima"}, Stdout: &out}
+	if err := Do(f, []byte("#!/usr/bin/env bash\n"), o); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if strings.Contains(out.String(), "already up to date") || !strings.Contains(out.String(), "jam is at 2-0202 but jam-colima is missing: installing 2-0202") {
+		t.Fatalf("stdout=%q", out.String())
+	}
+	if len(f.Calls) != 1 || !containsSlice(f.Calls[0].Env, "JAM_VERSION=2-0202") {
+		t.Fatalf("must run install.sh pinned to the current release; calls=%+v", f.Calls)
+	}
+
+	// Unpinned: the resolved latest equals the running version.
+	out.Reset()
+	g := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: "2-0202\n"}}}
+	o.Pin = ""
+	if err := Do(g, []byte("#!/usr/bin/env bash\n"), o); err != nil {
+		t.Fatalf("Do (latest): %v", err)
+	}
+	if len(g.Calls) != 2 || g.Calls[1].Name != "bash" || !containsSlice(g.Calls[1].Env, "JAM_VERSION=2-0202") {
+		t.Fatalf("must resolve, then install the latest; calls=%+v", g.Calls)
+	}
+
+	// Dry run: says so, touches nothing.
+	out.Reset()
+	h := &runner.Fake{}
+	o.Pin, o.DryRun = "2-0202", true
+	if err := Do(h, nil, o); err != nil {
+		t.Fatalf("Do (dry-run): %v", err)
+	}
+	if len(h.Calls) != 0 || !strings.Contains(out.String(), "would install the missing jam-colima (2-0202)") {
+		t.Fatalf("dry-run: calls=%+v stdout=%q", h.Calls, out.String())
+	}
+}

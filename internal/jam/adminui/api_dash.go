@@ -3,8 +3,10 @@ package adminui
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
 // The JSON API of the admin's own pages: the dashboard and the Jam context
@@ -28,19 +30,88 @@ func attnRowsOf(items []attnItem) []AttnRow {
 	return out
 }
 
-func managerRowsOf(ms []jam.ManagerStatus) []ManagerRow {
+func managerRowsOf(ms []jam.ManagerStatus, now time.Time) []ManagerRow {
 	out := []ManagerRow{}
 	for _, m := range ms {
-		row := ManagerRow{Name: m.Name, Connected: m.Connected, Version: m.Version, Studios: m.Studios, Capacity: m.Capacity, Strays: []string{}}
+		row := ManagerRow{Name: m.Name, Connected: m.Connected, Version: m.Version, Studios: m.Studios, Capacity: m.Capacity, Strays: []string{}, Activities: []string{}}
+		for _, a := range m.Activities {
+			row.Activities = append(row.Activities, activityLine(a, now))
+		}
 		if !m.LastSeen.IsZero() {
 			row.LastSeen = m.LastSeen.Format("15:04:05")
 		}
 		for _, s := range m.Strays {
 			row.Strays = append(row.Strays, s.ActorID)
 		}
+		row.Host = managerHostOf(m.Host)
 		out = append(out, row)
 	}
 	return out
+}
+
+// activityLine is a manager activity for the dashboard: what, its step, and
+// for how long: "preparing kit web@v2: building step 7/12 (2m)".
+func activityLine(a jam.ManagerActivity, now time.Time) string {
+	var s string
+	switch a.Kind {
+	case jam.ActivityPrepareKit:
+		s = "preparing kit " + a.Kit.String()
+	case jam.ActivityBuildKitDraft:
+		s = "building kit draft " + a.Kit.ID
+	case jam.ActivityCleanup:
+		s = "cleaning disk"
+	default:
+		s = a.Kind
+	}
+	if p := a.Progress(); p != "" {
+		s += ": " + p
+	}
+	if !a.Started.IsZero() {
+		s += " (" + a.Age(now) + ")"
+	}
+	return s
+}
+
+func managerHostOf(h *jam.HostStats) *ManagerHost {
+	if h == nil {
+		return nil
+	}
+	out := &ManagerHost{}
+	if !h.At.IsZero() {
+		out.At = h.At.Format("15:04:05")
+	}
+	if h.MemTotal > 0 {
+		out.Mem = numfmt.Bytes(h.MemUsed) + " / " + numfmt.Bytes(h.MemTotal)
+		out.MemPct = int(min(h.MemUsed*100/h.MemTotal, 100))
+	}
+	if pct, ok := h.DiskPercent(); ok {
+		out.Disk = numfmt.Bytes(h.DiskUsed) + " / " + numfmt.Bytes(h.DiskTotal)
+		out.DiskPct = min(pct, 100)
+	}
+	r := h.Reclaimable
+	out.Reclaimable = numfmt.Bytes(r.Images + r.BuildCache + r.Volumes)
+	out.ReclaimableDetail = "images " + numfmt.Bytes(r.Images) + " · build cache " + numfmt.Bytes(r.BuildCache) + " · volumes " + numfmt.Bytes(r.Volumes)
+	if c := h.LastCleanup; c != nil {
+		out.LastCleanup = cleanupLine(*c)
+	}
+	return out
+}
+
+// cleanupLine is a cleanup record for the dashboard: when, what it freed and
+// why; a failure alone when it freed nothing, else appended.
+func cleanupLine(c jam.CleanupRecord) string {
+	s := c.At.Format("Jan 2 15:04") + ": "
+	if c.Err != "" && c.Freed == 0 {
+		return s + "failed: " + c.Err
+	}
+	s += "freed " + numfmt.Bytes(c.Freed)
+	if c.Reason != "" {
+		s += " (" + c.Reason + ")"
+	}
+	if c.Err != "" {
+		s += "; failed: " + c.Err
+	}
+	return s
 }
 
 func healthRowsOf(rows []healthRow) []HealthRow {
@@ -79,7 +150,7 @@ func apiDash(api *http.ServeMux, src frameSource, msgs SquawkReader, da dashAPI,
 			HasManagers: da.managers != nil, Managers: []ManagerRow{}, Coves: coveRows(jam.CoveSummaries(store, da.sup), items),
 		}
 		if da.managers != nil {
-			d.Managers = managerRowsOf(da.managers())
+			d.Managers = managerRowsOf(da.managers(), time.Now())
 		}
 		writeJSON(w, http.StatusOK, d)
 	})

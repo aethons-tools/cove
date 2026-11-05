@@ -17,10 +17,13 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
+	"github.com/aethons-tools/cove/internal/harnessinstall"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/fleet"
+	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/managers"
 	"github.com/aethons-tools/cove/internal/jam/managers/managerpb"
+	"github.com/aethons-tools/cove/internal/studio"
 )
 
 // recordingReconciler records each manager inventory Jam reconciles.
@@ -108,7 +111,13 @@ func (e *jamEnv) connected(name string) bool {
 // eventually polls cond for up to 3s.
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	eventuallyFor(t, 3*time.Second, what, cond)
+}
+
+// eventuallyFor polls cond for up to d.
+func eventuallyFor(t *testing.T, d time.Duration, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(d)
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
@@ -128,7 +137,7 @@ type serveOpts struct {
 // startServe adds m1 to the hub, writes its token and runs Serve for it
 // against e with ops; it returns the Config and m1's token once Serve has
 // been started.
-func startServe(t *testing.T, e *jamEnv, ops *fakeBackend, o serveOpts) (Config, string) {
+func startServe(t *testing.T, e *jamEnv, ops launcher.Backend, o serveOpts) (Config, string) {
 	t.Helper()
 	tok, err := e.hub.Add("m1")
 	if err != nil {
@@ -334,4 +343,105 @@ func TestTLSConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+// hostBackend is a backend that measures its host.
+type hostBackend struct{ *fakeBackend }
+
+func (hostBackend) HostStats(context.Context) (jam.HostStats, error) {
+	return jam.HostStats{DiskTotal: 100, DiskUsed: 7}, nil
+}
+
+// A backend that is a HostReporter reports its host to Jam after Welcome.
+func TestServeReportsHostStats(t *testing.T) {
+	e := newJamEnv(t, nil)
+	startServe(t, e, hostBackend{&fakeBackend{}}, serveOpts{})
+	eventually(t, "host reported", func() bool {
+		for _, s := range e.hub.Statuses() {
+			if s.Name == "m1" && s.Host != nil && s.Host.DiskUsed == 7 {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// cleaningBackend measures a 96% full disk until its build cache is pruned.
+type cleaningBackend struct {
+	*fakeBackend
+	mu     sync.Mutex
+	pruned bool
+}
+
+func (b *cleaningBackend) HostStats(context.Context) (jam.HostStats, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.pruned {
+		return jam.HostStats{DiskTotal: 100, DiskUsed: 50}, nil
+	}
+	return jam.HostStats{DiskTotal: 100, DiskUsed: 96}, nil
+}
+func (*cleaningBackend) PruneDanglingImages(context.Context) error         { return nil }
+func (*cleaningBackend) KitImages(context.Context) ([]jam.KitImage, error) { return nil, nil }
+func (*cleaningBackend) RemoveImage(context.Context, string) error         { return nil }
+func (*cleaningBackend) PruneVolumes(context.Context) error                { return nil }
+func (b *cleaningBackend) PruneBuildCache(context.Context) error {
+	b.mu.Lock()
+	b.pruned = true
+	b.mu.Unlock()
+	return nil
+}
+
+// A backend that is also a HostCleaner is cleaned when its disk is critical,
+// and the cleanup reaches Jam at once (not at the next periodic report).
+func TestServeCleansAndReportsIt(t *testing.T) {
+	e := newJamEnv(t, nil)
+	startServe(t, e, &cleaningBackend{fakeBackend: &fakeBackend{}}, serveOpts{})
+	eventually(t, "cleanup reported", func() bool {
+		for _, s := range e.hub.Statuses() {
+			if s.Name == "m1" && s.Host != nil && s.Host.LastCleanup != nil {
+				c := s.Host.LastCleanup
+				return c.Reason == "critical" && c.Freed == 46 && c.Err == ""
+			}
+		}
+		return false
+	})
+}
+
+// buildingBackend has no kit image and holds each kit build until release
+// closes.
+type buildingBackend struct {
+	*fakeBackend
+	release chan struct{}
+}
+
+func (*buildingBackend) HasKitImage(string) (bool, error) { return false, nil }
+func (b *buildingBackend) BuildKitImage(dir, tag, base string, args map[string]string, noCache bool) (string, error) {
+	<-b.release
+	return b.fakeBackend.BuildKitImage(dir, tag, base, args, noCache)
+}
+
+// A kit prepare is a prepare-kit activity in the manager's status reports
+// while it builds, and is gone once it ends.
+func TestServeReportsKitPrepareActivity(t *testing.T) {
+	e := newJamEnv(t, nil)
+	b := &buildingBackend{fakeBackend: &fakeBackend{}, release: make(chan struct{})}
+	startServe(t, e, b, serveOpts{})
+	eventually(t, "connected", func() bool { return e.connected("m1") })
+	kit := jam.KitRef{ID: "web", Version: 2, Digest: "d1"}
+	done := make(chan error, 1)
+	go func() {
+		_, err := e.router.PrepareKitOn(context.Background(), "m1", jam.KitDefinition{Ref: kit, Kit: studio.StudioKit{Kind: studio.Kind}, Harness: harnessinstall.Default()})
+		done <- err
+	}()
+	// Reports on a change are throttled to one a second.
+	eventuallyFor(t, 10*time.Second, "building reported", func() bool {
+		a, ok := e.hub.KitActivity(kit, "m1")
+		return ok && a.Step == "building" && a.Kit == kit
+	})
+	close(b.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	eventuallyFor(t, 10*time.Second, "activity gone", func() bool { _, ok := e.hub.KitActivity(kit, ""); return !ok })
 }
