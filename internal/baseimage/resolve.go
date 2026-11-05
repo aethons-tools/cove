@@ -58,13 +58,13 @@ func Resolve(d Docker, s Spec, blessedRefs []string, warn io.Writer) (string, er
 		return "", fmt.Errorf("read base image layers for %s: %w", ref, err)
 	}
 
-	// Build the blessed sets AND a human-readable diagnostic in one pass, so a
-	// rejection explains itself: which blessed refs could be read, how their layers
-	// compare to the resolved base, and — crucially — whether a ref yielded no
-	// layers at all (which reads identically to "not descended" without this note,
-	// e.g. inspecting a multi-arch index digest that has no .RootFS). This is what
-	// turns a silent reject into a one-line answer.
-	var blessed [][]string
+	// Read the blessed refs in order and stop at the first the base descends
+	// from: reading one may pull it, and one match is all the gate needs. On a
+	// reject every ref has been read, so the diagnostic explains itself: which
+	// blessed refs could be read, how their layers compare to the resolved base,
+	// and — crucially — whether a ref yielded no layers at all (which reads
+	// identically to "not descended" without this note, e.g. inspecting a
+	// multi-arch index digest that has no .RootFS).
 	var diag strings.Builder
 	fmt.Fprintf(&diag, "resolved base %s: %s\n", ref, summarizeLayers(child))
 	for _, br := range blessedRefs {
@@ -74,16 +74,14 @@ func Resolve(d Docker, s Spec, blessedRefs []string, warn io.Writer) (string, er
 		case len(layers) == 0:
 			fmt.Fprintf(&diag, "  blessed %s: inspect returned no layers — a multi-arch index digest? "+
 				"the gate needs a per-arch image's diff_ids\n", br)
+		case DescendsFrom(child, layers):
+			return ref, nil
 		default:
 			fmt.Fprintf(&diag, "  blessed %s: %s [base descends from it: %v]\n",
 				br, summarizeLayers(layers), DescendsFrom(child, layers))
-			blessed = append(blessed, layers)
 		}
 	}
 
-	if Verify(child, blessed) {
-		return ref, nil
-	}
 	if s.AllowUnverified {
 		fmt.Fprintf(warn, "%s\nWARNING: base %s does not descend from any blessed jam-studio-base.\n%s"+
 			"The sealed hardening layer cannot verify its prerequisites (egress stack, agent\n"+

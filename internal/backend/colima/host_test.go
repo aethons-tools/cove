@@ -133,13 +133,14 @@ func TestHostStatsSystemDFIsBestEffort(t *testing.T) {
 func TestParseDockerSize(t *testing.T) {
 	for in, want := range map[string]uint64{
 		"0B": 0, "512B": 512, "512kB": 512_000, "1.2GB (40%)": 1_200_000_000, "12.35MB": 12_350_000, "2TB": 2_000_000_000_000, "1.5PB": 1_500_000_000_000_000,
+		"1.162e+08B": 116_200_000, "-1.162e+08B": 0, "-5MB": 0, "1EB": 1e18,
 	} {
 		got, err := parseDockerSize(in)
 		if err != nil || got != want {
 			t.Errorf("parseDockerSize(%q) = %d, %v; want %d", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"", "GB", "1.2XB", "-1B"} {
+	for _, bad := range []string{"", "GB", "1.2XB", "1.2.3MB", "e5B"} {
 		if _, err := parseDockerSize(bad); err == nil {
 			t.Errorf("parseDockerSize(%q) accepted", bad)
 		}

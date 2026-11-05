@@ -104,7 +104,7 @@ If the VM measurement fails, or the measurement takes over 20s (a hung `colima s
 Each host stats sample also drives the disk policy; `cleanup` sets its thresholds, which must satisfy `0 < low < high < critical ≤ 100`.
 A sample at or over `high` starts a cleanup in the background (one at a time) that runs these steps in order, re-measuring after each and stopping as soon as the disk is under `low`:
 
-1. dangling images (`docker image prune -f`);
+1. unnamed images (dangling with repository `<none>`, each `docker image rm` without `-f`); not `docker image prune`, which would also remove the blessed `jam-studio-base` images, pulled by digest only, that every kit build uses;
 2. unused kit images (`jam-kit`, `jam-kit-base`, `jam-kit-draft` tags only), oldest first, one at a time with `docker image rm <id>` (no `-f`), re-measuring after each. Skipped: images a container uses (running or stopped), images younger than 1h (just prepared, about to be raised), and images another repository also names;
 3. unused anonymous volumes (`docker volume prune -f --filter label=com.docker.volume.anonymous`);
 4. the build cache (`docker builder prune -f`).
