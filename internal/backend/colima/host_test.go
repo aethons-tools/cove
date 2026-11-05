@@ -85,18 +85,48 @@ func TestHostStatsProfileFromContext(t *testing.T) {
 
 func TestHostStatsErrors(t *testing.T) {
 	for name, outs := range map[string][]runner.FakeResult{
-		"ssh fails":       {{Err: errors.New("exit 1")}},
-		"no df line":      {{Stdout: "MemTotal: 1 kB\nMemAvailable: 1 kB\n"}},
-		"df header only":  {{Stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\nMemTotal: 1 kB\nMemAvailable: 1 kB\n"}},
-		"bad df row":      {{Stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vdb1 10 x 5 50% /\nMemTotal: 1 kB\nMemAvailable: 1 kB\n"}},
-		"no meminfo":      {{Stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vdb1 10 5 5 50% /var/lib/docker\n"}},
-		"docker df fails": {{Stdout: vmOut}, {Err: errors.New("exit 1")}},
-		"bad size":        {{Stdout: vmOut}, {Stdout: `{"Type":"Images","Reclaimable":"lots"}` + "\n"}},
+		"ssh fails":      {{Err: errors.New("exit 1")}},
+		"no df line":     {{Stdout: "MemTotal: 1 kB\nMemAvailable: 1 kB\n"}},
+		"df header only": {{Stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\nMemTotal: 1 kB\nMemAvailable: 1 kB\n"}},
+		"bad df row":     {{Stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vdb1 10 x 5 50% /\nMemTotal: 1 kB\nMemAvailable: 1 kB\n"}},
+		"no meminfo":     {{Stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vdb1 10 5 5 50% /var/lib/docker\n"}},
 	} {
 		f := &runner.Fake{Outputs: outs}
 		if _, err := NewForProfile(f, "p").HostStats(context.Background()); err == nil {
 			t.Errorf("%s: no error", name)
 		}
+	}
+}
+
+// docker system df can fail while containers write (the daemon lstats a
+// snapshot file that just went away): the VM's memory and disk still report,
+// with the last reclaimable figure kept.
+func TestHostStatsSystemDFIsBestEffort(t *testing.T) {
+	now := time.Unix(1000, 0)
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: vmOut}, {Stdout: dfOut}, // first sample: both
+		{Stdout: vmOut},                              // inside reclaimEvery: no docker system df
+		{Stdout: vmOut}, {Err: errors.New("exit 1")}, // due again, fails: last figure kept
+		{Stdout: vmOut}, {Stdout: `{"Type":"Images","Reclaimable":"lots"}` + "\n"}, // retried next sample; unparsable: kept
+	}}
+	c := NewForProfile(f, "p")
+	c.now = func() time.Time { return now }
+	first, err := c.HostStats(context.Background())
+	if err != nil || first.Reclaimable.Images != 1_200_000_000 {
+		t.Fatalf("first = %+v, %v", first, err)
+	}
+	for i, step := range []time.Duration{time.Minute, reclaimEvery, time.Second} {
+		now = now.Add(step)
+		got, err := c.HostStats(context.Background())
+		if err != nil {
+			t.Fatalf("sample %d: %v", i, err)
+		}
+		if got.DiskUsed != first.DiskUsed || got.Reclaimable != first.Reclaimable {
+			t.Fatalf("sample %d = %+v, want disk and reclaimable of %+v", i, got, first)
+		}
+	}
+	if len(f.Calls) != 7 {
+		t.Fatalf("calls = %d, want 7: %+v", len(f.Calls), f.Calls)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -21,10 +22,28 @@ var _ jam.HostReporter = (*Colima)(nil)
 // volumes: the disk that fills.
 const dockerDataDir = "/var/lib/docker"
 
+// reclaimEvery is how often HostStats re-runs `docker system df`: it walks
+// every image and container layer, too slow to repeat on each sample.
+const reclaimEvery = 10 * time.Minute
+
+// reclaimCache is the last good `docker system df` figure and when the next
+// is due. A Colima and its WithBuildOutput copies share one.
+type reclaimCache struct {
+	mu   sync.Mutex
+	r    jam.Reclaimable
+	next time.Time
+}
+
 // HostStats measures the colima VM: memory from /proc/meminfo (used =
 // MemTotal - MemAvailable) and docker's disk from df on its data dir (total
 // = used + available, so the percentage matches df's Capacity), both over
 // one `colima ssh`; and what docker could reclaim from `docker system df`.
+//
+// The reclaimable figure is best effort: refreshed at most every
+// reclaimEvery, and a failed or unreadable `docker system df` keeps the last
+// figure (docker fails it while containers write: it lstats a snapshot file
+// that just went away) and is retried on the next sample. Only the VM
+// measurement can fail HostStats.
 func (c *Colima) HostStats(ctx context.Context) (jam.HostStats, error) {
 	var h jam.HostStats
 	vm, err := c.output(ctx, "colima", "ssh", "--profile", c.profileName(), "--",
@@ -35,18 +54,35 @@ func (c *Colima) HostStats(ctx context.Context) (jam.HostStats, error) {
 	if err := parseVM(vm, &h); err != nil {
 		return h, fmt.Errorf("measure colima VM %s: %w", c.profileName(), err)
 	}
-	df, err := c.output(ctx, "docker", c.dargs("system", "df", "--format", "{{json .}}")...)
-	if err != nil {
-		return h, fmt.Errorf("docker system df: %w", err)
-	}
-	if h.Reclaimable, err = parseSystemDF(df); err != nil {
-		return h, fmt.Errorf("docker system df: %w", err)
-	}
 	h.At = time.Now()
 	if c.now != nil {
 		h.At = c.now()
 	}
+	h.Reclaimable = c.reclaimable(ctx, h.At)
 	return h, nil
+}
+
+// reclaimable is the `docker system df` figure, measured when due.
+func (c *Colima) reclaimable(ctx context.Context, now time.Time) jam.Reclaimable {
+	rc := c.recl
+	if rc == nil {
+		rc = &reclaimCache{} // no shared cache: measure every time
+	}
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	if now.Before(rc.next) {
+		return rc.r
+	}
+	df, err := c.output(ctx, "docker", c.dargs("system", "df", "--format", "{{json .}}")...)
+	if err != nil {
+		return rc.r
+	}
+	r, err := parseSystemDF(df)
+	if err != nil {
+		return rc.r
+	}
+	rc.r, rc.next = r, now.Add(reclaimEvery)
+	return r
 }
 
 // output runs a command under ctx with an empty stdin (never the manager's
