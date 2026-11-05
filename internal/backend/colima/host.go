@@ -73,21 +73,30 @@ func lastLine(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// parseVM reads `df -kP <dir>` then /proc/meminfo into h.
+// parseVM reads `df -kP <dir>` then /proc/meminfo into h. df's data row is
+// the one right after its header: it names the filesystem holding dir, whose
+// mount point is often not dir itself (/ when docker's data is not a separate
+// disk).
 func parseVM(out string, h *jam.HostStats) error {
-	var gotDisk bool
+	var gotDisk, dfRow bool
 	meminfo := map[string]uint64{}
 	sc := bufio.NewScanner(strings.NewReader(out))
 	for sc.Scan() {
 		f := strings.Fields(sc.Text())
 		switch {
-		case len(f) == 6 && f[5] == dockerDataDir && !gotDisk:
+		case dfRow:
+			dfRow = false
+			if len(f) < 6 {
+				return fmt.Errorf("bad df line %q", sc.Text())
+			}
 			used, uerr := strconv.ParseUint(f[2], 10, 64)
 			avail, aerr := strconv.ParseUint(f[3], 10, 64)
 			if uerr != nil || aerr != nil {
 				return fmt.Errorf("bad df line %q", sc.Text())
 			}
 			h.DiskUsed, h.DiskTotal, gotDisk = used*1024, (used+avail)*1024, true
+		case len(f) > 0 && f[0] == "Filesystem" && !gotDisk:
+			dfRow = true
 		case len(f) >= 2 && strings.HasSuffix(f[0], ":"):
 			if n, err := strconv.ParseUint(f[1], 10, 64); err == nil {
 				meminfo[strings.TrimSuffix(f[0], ":")] = n * 1024 // kB

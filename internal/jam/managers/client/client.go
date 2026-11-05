@@ -42,8 +42,9 @@ type Config struct {
 	// any request is served.
 	OnWelcome func(w *managerpb.Welcome)
 
-	maxMessage   int           // test override for wire.MaxMessageBytes
-	statusMinGap time.Duration // test override for wire.StatusMinGap
+	maxMessage       int           // test override for wire.MaxMessageBytes
+	statusMinGap     time.Duration // test override for wire.StatusMinGap
+	hostStatsTimeout time.Duration // test override for HostStatsTimeout
 }
 
 // Run opens one Connect stream on cc, sends Hello and waits for Welcome, then
@@ -69,6 +70,9 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 	}
 	if cfg.statusMinGap <= 0 {
 		cfg.statusMinGap = wire.StatusMinGap
+	}
+	if cfg.hostStatsTimeout <= 0 {
+		cfg.hostStatsTimeout = HostStatsTimeout
 	}
 
 	hello, err := buildHello(ctx, cfg)
@@ -165,7 +169,7 @@ func Run(ctx context.Context, cc grpc.ClientConnInterface, cfg Config) error {
 				hb.Add(1)
 				go func() {
 					defer hb.Done()
-					c.reportStatus(sctx)
+					c.reportStatus(sctx, &hb)
 				}()
 			}
 			continue

@@ -81,8 +81,8 @@ func TestHubDiskCondition(t *testing.T) {
 	}
 	h.set(95)
 	eventually(t, "critical at 95%", func() bool { c, ok := diskCond(tr, "m1"); return ok && c.Severity == condition.Critical })
-	h.set(89)
-	eventually(t, "cleared below 90%", func() bool { _, ok := diskCond(tr, "m1"); return !ok })
+	h.set(87)
+	eventually(t, "cleared below 88%", func() bool { _, ok := diskCond(tr, "m1"); return !ok })
 
 	// Left open while the manager is disconnected; cleared on revoke.
 	h.set(97)
@@ -97,6 +97,39 @@ func TestHubDiskCondition(t *testing.T) {
 	}
 	if _, ok := diskCond(tr, "m1"); ok {
 		t.Fatal("condition still open after revoke")
+	}
+}
+
+// The disk condition has hysteresis: it opens at 90% (critical at 95%) but
+// resolves only below 88%, so a disk hovering around 90% does not flap.
+func TestDiskConditionHysteresis(t *testing.T) {
+	tr := condition.New(condition.Options{})
+	h := &Hub{cfg: Config{Conditions: tr}}
+	steps := []struct {
+		pct  uint64
+		want condition.Severity // "" = not open
+	}{
+		{50, ""},
+		{89, ""}, // between the marks, closed stays closed
+		{90, condition.Warning},
+		{89, condition.Warning}, // between the marks, open stays open
+		{88, condition.Warning},
+		{95, condition.Critical},
+		{94, condition.Warning}, // critical drops back to warning below 95
+		{96, condition.Critical},
+		{89, condition.Warning},
+		{87, ""}, // resolved below 88
+		{89, ""},
+	}
+	for i, s := range steps {
+		h.diskCondition("m1", &jam.HostStats{DiskTotal: 100, DiskUsed: s.pct})
+		c, open := diskCond(tr, "m1")
+		switch {
+		case s.want == "" && open:
+			t.Fatalf("step %d (%d%%): open %s, want closed", i, s.pct, c.Severity)
+		case s.want != "" && (!open || c.Severity != s.want):
+			t.Fatalf("step %d (%d%%): open=%v %s, want %s", i, s.pct, open, c.Severity, s.want)
+		}
 	}
 }
 

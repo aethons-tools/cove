@@ -19,16 +19,24 @@ type fakeHost struct {
 	mu    sync.Mutex
 	calls int
 	errs  []error // per call; nil or missing = success
+	// block, if set, runs before call n (1-based) answers; an error fails it.
+	block func(ctx context.Context, n int) error
 }
 
-func (h *fakeHost) HostStats(context.Context) (jam.HostStats, error) {
+func (h *fakeHost) HostStats(ctx context.Context) (jam.HostStats, error) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.calls++
-	if i := h.calls - 1; i < len(h.errs) && h.errs[i] != nil {
+	n := h.calls
+	h.mu.Unlock()
+	if h.block != nil {
+		if err := h.block(ctx, n); err != nil {
+			return jam.HostStats{}, err
+		}
+	}
+	if i := n - 1; i < len(h.errs) && h.errs[i] != nil {
 		return jam.HostStats{}, h.errs[i]
 	}
-	return jam.HostStats{MemTotal: 8 << 30, MemUsed: uint64(h.calls) << 30, DiskTotal: 100, DiskUsed: 50}, nil
+	return jam.HostStats{MemTotal: 8 << 30, MemUsed: uint64(n) << 30, DiskTotal: 100, DiskUsed: 50}, nil
 }
 
 func (h *fakeHost) n() int { h.mu.Lock(); defer h.mu.Unlock(); return h.calls }
@@ -162,6 +170,105 @@ func TestRunThrottlesOnDemandReports(t *testing.T) {
 	case <-frames:
 		t.Fatal("a burst sent more than one report")
 	case <-time.After(250 * time.Millisecond):
+	}
+}
+
+// A measurement that hangs is cut off by its timeout: the report goes out
+// with no host, the failure is warned about, and reports carry on.
+func TestRunTimesOutHungMeasurement(t *testing.T) {
+	h := &fakeHost{block: func(ctx context.Context, n int) error {
+		if n == 1 {
+			<-ctx.Done() // hung colima ssh: only the deadline ends it
+			return ctx.Err()
+		}
+		return nil
+	}}
+	got := make(chan wire.StatusReport, 2)
+	fj := &fakeJam{fn: func(t *testing.T, s *session) {
+		got <- statusOf(t, s.next(t))
+		got <- statusOf(t, s.next(t))
+		<-s.srv.Context().Done()
+	}}
+	var warns atomic.Int32
+	log := slog.New(levelCounter{level: slog.LevelWarn, n: &warns})
+	runAsync(t, start(t, fj), Config{Name: "m", Launcher: &fakeLauncher{}, Host: h, StatusEvery: 50 * time.Millisecond,
+		Log: log, hostStatsTimeout: 20 * time.Millisecond})
+	if r := <-got; r.Host != nil {
+		t.Fatalf("report after a hung measurement host = %+v, want nil", r.Host)
+	}
+	if r := <-got; r.Host == nil {
+		t.Fatal("no host after the measurement recovered")
+	}
+	if n := warns.Load(); n != 1 {
+		t.Fatalf("%d warnings, want 1 for the timeout", n)
+	}
+}
+
+// An on-demand report never waits on a measurement in progress.
+func TestRunOnDemandDoesNotWaitForMeasurement(t *testing.T) {
+	release := make(chan struct{})
+	measuring := make(chan struct{})
+	h := &fakeHost{block: func(ctx context.Context, n int) error {
+		if n == 2 {
+			close(measuring)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+		return nil
+	}}
+	defer close(release)
+	changed := make(chan struct{}, 1)
+	got := make(chan wire.StatusReport, 2)
+	fj := &fakeJam{fn: func(t *testing.T, s *session) {
+		got <- statusOf(t, s.next(t))
+		got <- statusOf(t, s.next(t))
+		<-s.srv.Context().Done()
+	}}
+	runAsync(t, start(t, fj), Config{Name: "m", Launcher: &fakeLauncher{}, Host: h, StatusEvery: 20 * time.Millisecond,
+		StatusChanged: changed, statusMinGap: time.Millisecond, Activities: func() []jam.ManagerActivity { return nil }})
+	<-got
+	<-measuring // the periodic measurement is now stuck
+	changed <- struct{}{}
+	select {
+	case r := <-got:
+		if r.Host == nil || r.Host.MemUsed != 1<<30 {
+			t.Fatalf("on-demand host = %+v, want the first stats", r.Host)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("on-demand report waited on the measurement")
+	}
+}
+
+// A closed StatusChanged ends on-demand reports; it does not spin sending.
+func TestRunClosedStatusChangedSendsNoMore(t *testing.T) {
+	changed := make(chan struct{})
+	frames := make(chan struct{}, 64)
+	fj := &fakeJam{fn: func(t *testing.T, s *session) {
+		for {
+			select {
+			case m, ok := <-s.up:
+				if !ok {
+					return
+				}
+				if f := m.GetFrame(); f != nil && f.Op == wire.OpStatus {
+					frames <- struct{}{}
+				}
+			case <-s.srv.Context().Done():
+				return
+			}
+		}
+	}}
+	runAsync(t, start(t, fj), Config{
+		Name: "m", Launcher: &fakeLauncher{}, StatusEvery: time.Hour, StatusChanged: changed,
+		Activities: func() []jam.ManagerActivity { return nil }, statusMinGap: time.Millisecond,
+	})
+	<-frames // the report after Welcome
+	close(changed)
+	time.Sleep(100 * time.Millisecond)
+	if n := len(frames); n > 1 {
+		t.Fatalf("%d reports after StatusChanged closed, want at most 1", n)
 	}
 }
 

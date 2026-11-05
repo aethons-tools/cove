@@ -53,7 +53,8 @@ The manager calls the gRPC method `jam.manager.v1.StudioManager/Connect` on the 
 ## Status reports
 
 A manager may send unsolicited **status reports** (op `status`, frame id 0): its host stats (memory and disk used/total, disk reclaimable as images, build cache and volumes, last cleanup) and its work in progress.
-It sends one right after Welcome, every 30s, and (throttled to one a second) when its work in progress changes; a manager with nothing to measure sends none.
+It sends one right after Welcome (once its first measurement is in), every 30s, and (throttled to one a second) when its work in progress changes; a manager with nothing to measure sends none.
+Measuring runs apart from sending, so a work-in-progress report never waits on a measurement (it reuses the last host stats); a measurement over 20s is cut off and reported as none.
 How [jam-colima](../jam-colima.md#host-stats) measures its VM is on its page.
 
 Jam keeps the latest report per manager.

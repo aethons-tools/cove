@@ -14,9 +14,12 @@ import (
 // up: manager.disk:<name>.
 const DiskConditionKind = "manager.disk"
 
-// Disk thresholds (percent used): warning at DiskWarnPercent, critical at
-// DiskCriticalPercent; resolved below DiskWarnPercent.
+// Disk thresholds (percent used): the condition opens as a warning at
+// DiskWarnPercent, is critical at DiskCriticalPercent, and resolves only
+// below DiskClearPercent, so a disk hovering around DiskWarnPercent does not
+// flap.
 const (
+	DiskClearPercent    = 88
 	DiskWarnPercent     = 90
 	DiskCriticalPercent = 95
 )
@@ -49,16 +52,21 @@ func (h *Hub) report(name string, c *conn, data []byte) {
 	h.mu.Unlock()
 }
 
-// diskCondition opens, updates or resolves name's disk condition from host;
-// with no measurement (nil, or no disk total) it leaves it as it is.
+// diskCondition opens, updates or resolves name's disk condition from host,
+// with hysteresis: between DiskClearPercent and DiskWarnPercent an open
+// condition stays open (as a warning) and a closed one stays closed. With no
+// measurement (nil, or no disk total) it leaves it as it is.
 func (h *Hub) diskCondition(name string, host *jam.HostStats) {
 	pct, ok := host.DiskPercent()
 	if !ok {
 		return
 	}
 	key := DiskConditionKey(name)
-	if pct < DiskWarnPercent {
+	if pct < DiskClearPercent {
 		h.cfg.Conditions.Clear(key)
+		return
+	}
+	if pct < DiskWarnPercent && !h.cfg.Conditions.IsOpen(key) {
 		return
 	}
 	sev := condition.Warning

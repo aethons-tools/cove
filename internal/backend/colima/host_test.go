@@ -55,6 +55,23 @@ func TestHostStats(t *testing.T) {
 }
 
 // Without a profile the VM is the context's: colima-<p> is p, colima default.
+// df -kP names the filesystem holding /var/lib/docker, whatever its mount
+// point: often / when docker's data is not a separate disk.
+func TestParseVMTakesDFRowWhateverTheMount(t *testing.T) {
+	for _, mount := range []string{"/", "/var/lib/docker", "/mnt/my data"} {
+		out := "Filesystem     1024-blocks     Used Available Capacity Mounted on\n" +
+			"/dev/vda1        100 60 40      60% " + mount + "\n" +
+			"MemTotal: 10 kB\nMemAvailable: 4 kB\n"
+		var h jam.HostStats
+		if err := parseVM(out, &h); err != nil {
+			t.Fatalf("mount %q: %v", mount, err)
+		}
+		if h.DiskUsed != 60*1024 || h.DiskTotal != 100*1024 || h.MemUsed != 6*1024 {
+			t.Errorf("mount %q: %+v", mount, h)
+		}
+	}
+}
+
 func TestHostStatsProfileFromContext(t *testing.T) {
 	for ctx, want := range map[string]string{"": "default", "colima": "default", "colima-jam-b": "jam-b"} {
 		if got := NewWithContext(&runner.Fake{}, ctx).profileName(); got != want {
@@ -70,6 +87,8 @@ func TestHostStatsErrors(t *testing.T) {
 	for name, outs := range map[string][]runner.FakeResult{
 		"ssh fails":       {{Err: errors.New("exit 1")}},
 		"no df line":      {{Stdout: "MemTotal: 1 kB\nMemAvailable: 1 kB\n"}},
+		"df header only":  {{Stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\nMemTotal: 1 kB\nMemAvailable: 1 kB\n"}},
+		"bad df row":      {{Stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vdb1 10 x 5 50% /\nMemTotal: 1 kB\nMemAvailable: 1 kB\n"}},
 		"no meminfo":      {{Stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vdb1 10 5 5 50% /var/lib/docker\n"}},
 		"docker df fails": {{Stdout: vmOut}, {Err: errors.New("exit 1")}},
 		"bad size":        {{Stdout: vmOut}, {Stdout: `{"Type":"Images","Reclaimable":"lots"}` + "\n"}},

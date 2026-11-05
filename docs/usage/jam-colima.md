@@ -87,10 +87,10 @@ At the limit a raise is declined with `at capacity (<n>/<cap> studios)` and Jam 
 Every 30s (and right after connecting) the manager reports its VM's memory and disk to Jam, which shows them and alerts on a full disk ([status reports](jam/studio-managers.md#status-reports)).
 They are measured inside the `colima.profile` VM:
 
-- `colima ssh --profile <p> -- sh -c 'df -kP /var/lib/docker; cat /proc/meminfo'`: memory used is `MemTotal − MemAvailable`; disk is docker's data dir, with total = used + available, so the percentage matches df's `Capacity` (root-reserved blocks excluded).
+- `colima ssh --profile <p> -- sh -c 'df -kP /var/lib/docker; cat /proc/meminfo'`: memory used is `MemTotal − MemAvailable`; disk is the filesystem holding docker's data dir (df's one data row, whatever its mount point; often `/`), with total = used + available, so the percentage matches df's `Capacity` (root-reserved blocks excluded).
 - `docker --context <ctx> system df --format '{{json .}}'`: the Reclaimable of Images, Build Cache and Local Volumes (docker's decimal sizes, `1.2GB` = 1.2×10⁹ bytes). Containers are not counted; they go with their studios.
 
-If either command fails the report carries no host (one Warn in the manager's log until it recovers, then debug); Jam keeps the previous figures' condition as it was.
+If either command fails, or the two take over 20s together (a hung `colima ssh`), the report carries no host (one Warn in the manager's log until it recovers, then debug); Jam keeps the previous figures' condition as it was.
 
 ## Labels and sharing a daemon
 

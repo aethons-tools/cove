@@ -3,44 +3,60 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/managers/wire"
 )
 
-// reportStatus sends OpStatus reports until ctx ends: one at once, one every
-// StatusEvery (each measuring the host afresh), and one per StatusChanged
-// signal, no sooner than statusMinGap after the last report; a signal
-// reuses the last host stats, so activity changes never wait on a
-// measurement.
-func (c *conn) reportStatus(ctx context.Context) {
+// HostStatsTimeout bounds one host measurement (a colima ssh and a docker
+// system df), under wire.StatusEvery: a hung one fails, reporting no host,
+// rather than stopping the reports.
+const HostStatsTimeout = 20 * time.Second
+
+// reportStatus sends OpStatus reports until ctx ends: one after the first
+// host measurement, one per later measurement (every StatusEvery), and one
+// per StatusChanged signal, no sooner than statusMinGap after the last
+// report. Measuring runs on its own goroutine (counted in wg), so a signal
+// reuses the last host stats and never waits on a measurement; signals
+// before the first measurement are covered by its report.
+func (c *conn) reportStatus(ctx context.Context, wg *sync.WaitGroup) {
 	cfg := c.cfg
-	var (
-		host    *jam.HostStats
-		failing bool
-		last    time.Time
-	)
-	measure := func() {
-		if cfg.Host == nil {
-			return
-		}
-		h, err := cfg.Host.HostStats(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel() // stops the measurer if a send fails first
+
+	// measured delivers each measurement's host (nil: none or failed).
+	measured := make(chan *jam.HostStats)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tick := time.NewTicker(cfg.StatusEvery)
+		defer tick.Stop()
+		failing := false
+		for {
+			var host *jam.HostStats
+			host, failing = c.measure(ctx, failing)
+			select {
+			case measured <- host:
+			case <-ctx.Done():
 				return
 			}
-			// Warn once per run of failures; the rest at debug.
-			if !failing {
-				cfg.Log.Warn("manager: host stats failed; reporting none", "err", err)
-			} else {
-				cfg.Log.Debug("manager: host stats failed", "err", err)
+			select {
+			case <-tick.C:
+			case <-ctx.Done():
+				return
 			}
-			failing, host = true, nil
-			return
 		}
-		failing, host = false, &h
-	}
+	}()
+
+	var (
+		host  *jam.HostStats
+		first = true // no measurement delivered yet
+		last  time.Time
+	)
 	send := func() bool {
 		r := wire.StatusReport{Host: host}
 		if cfg.Activities != nil {
@@ -59,12 +75,7 @@ func (c *conn) reportStatus(ctx context.Context) {
 		return true
 	}
 
-	measure()
-	if !send() {
-		return
-	}
-	tick := time.NewTicker(cfg.StatusEvery)
-	defer tick.Stop()
+	changed := cfg.StatusChanged
 	// due fires a throttled on-demand report; nil while none is pending.
 	var due <-chan time.Time
 	var dueTimer *time.Timer
@@ -77,18 +88,22 @@ func (c *conn) reportStatus(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-tick.C:
-			measure()
-			if ctx.Err() != nil {
-				return
+		case host = <-measured:
+			first = false
+			if dueTimer != nil {
+				dueTimer.Stop()
 			}
 			due = nil // this report covers any pending signal
 			if !send() {
 				return
 			}
-		case <-cfg.StatusChanged:
-			if due != nil {
-				continue // already pending
+		case _, ok := <-changed:
+			if !ok {
+				changed = nil // closed: no more signals, never spin on it
+				continue
+			}
+			if due != nil || first {
+				continue // already pending, or the first report will cover it
 			}
 			wait := cfg.statusMinGap - time.Since(last)
 			if wait <= 0 {
@@ -106,4 +121,34 @@ func (c *conn) reportStatus(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// measure takes one host measurement, bounded by hostStatsTimeout; with no
+// Host it reports none. failing says the previous one failed: a run of
+// failures warns once, the rest at debug. It returns the host (nil on
+// failure) and whether this one failed.
+func (c *conn) measure(ctx context.Context, failing bool) (*jam.HostStats, bool) {
+	cfg := c.cfg
+	if cfg.Host == nil {
+		return nil, false
+	}
+	mctx, cancel := context.WithTimeout(ctx, cfg.hostStatsTimeout)
+	h, err := cfg.Host.HostStats(mctx)
+	timedOut := errors.Is(mctx.Err(), context.DeadlineExceeded)
+	cancel()
+	if err == nil {
+		return &h, false
+	}
+	if ctx.Err() != nil {
+		return nil, failing
+	}
+	if timedOut {
+		err = fmt.Errorf("timed out after %s: %w", cfg.hostStatsTimeout, err)
+	}
+	if !failing {
+		cfg.Log.Warn("manager: host stats failed; reporting none", "err", err)
+	} else {
+		cfg.Log.Debug("manager: host stats failed", "err", err)
+	}
+	return nil, true
 }
