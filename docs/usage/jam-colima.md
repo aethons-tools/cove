@@ -104,11 +104,14 @@ Each host stats sample also drives the disk policy; `cleanup` sets its threshold
 A sample at or over `high` starts a cleanup in the background (one at a time) that runs these steps in order, re-measuring after each and stopping as soon as the disk is under `low`:
 
 1. dangling images (`docker image prune -f`);
-2. unused kit images (`jam-kit`, `jam-kit-base`, `jam-kit-draft` tags only), oldest first, one at a time with `docker image rm <id>` (no `-f`), re-measuring after each. Skipped: images a container uses (running or stopped), images younger than 1h (just prepared, about to be raised), images another repository also names, and — for the whole step — any time a raise, kit prepare or draft build is in flight;
+2. unused kit images (`jam-kit`, `jam-kit-base`, `jam-kit-draft` tags only), oldest first, one at a time with `docker image rm <id>` (no `-f`), re-measuring after each. Skipped: images a container uses (running or stopped), images younger than 1h (just prepared, about to be raised), and images another repository also names;
 3. unused anonymous volumes (`docker volume prune -f --filter label=com.docker.volume.anonymous`);
 4. the build cache (`docker builder prune -f`).
 
-A run that cannot get under `low` is not repeated for 5 minutes (a critical sample after a `high` run does not wait).
+Steps 1 and 2 are skipped while this manager has a raise, kit prepare or draft build in flight; while a prune or removal of these runs, a new one waits for it.
+Kit base builds are tagged from the start (a temporary `jam-kit-base:building-<hex>`, untagged once the stable tag is on), so no dangling-image prune, this manager's or another's, takes one mid-build.
+
+Every high or critical run starts a 5-minute cooldown. Within it no high run starts; a critical sample still runs at once, unless the run that started the cooldown was itself critical.
 With `daily`, a light pass (steps 1 and 3 only, whatever the disk) runs 10 minutes after start, then every 24 hours.
 `disabled: true` turns all automatic cleanup off.
 

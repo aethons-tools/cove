@@ -115,6 +115,20 @@ func TestKitImagesNoContainers(t *testing.T) {
 	}
 }
 
+// A container removed between the listing and the inspect (a --rm studio
+// exiting) is skipped; the rest still count.
+func TestKitImagesContainerVanishes(t *testing.T) {
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: imagesOut},
+		{Stdout: "c1\nc2\n"},
+		{Stdout: "sha256:ccc\n", Stderr: "Error: No such container: c2\n", Err: errors.New("exit 1")},
+	}}
+	got, err := NewForProfile(f, "p").KitImages(context.Background())
+	if err != nil || len(got) != 3 || !got[2].InUse {
+		t.Fatalf("KitImages = %+v, %v", got, err)
+	}
+}
+
 func TestKitImagesErrors(t *testing.T) {
 	for name, outs := range map[string][]runner.FakeResult{
 		"ls fails":      {{Err: errors.New("exit 1")}},
@@ -123,6 +137,7 @@ func TestKitImagesErrors(t *testing.T) {
 		"bad size":      {{Stdout: `{"ID":"x","Repository":"jam-kit","Tag":"t","CreatedAt":"2026-11-01 10:00:00 +0000 UTC","Size":"big"}` + "\n"}},
 		"ps fails":      {{Stdout: imagesOut}, {Err: errors.New("exit 1")}},
 		"inspect fails": {{Stdout: imagesOut}, {Stdout: "c1\n"}, {Err: errors.New("exit 1")}},
+		"inspect other": {{Stdout: imagesOut}, {Stdout: "c1\nc2\n"}, {Stdout: "sha256:ccc\n", Stderr: "Error: No such container: c2\nError: daemon busy\n", Err: errors.New("exit 1")}},
 	} {
 		f := &runner.Fake{Outputs: outs}
 		if _, err := NewForProfile(f, "p").KitImages(context.Background()); err == nil {

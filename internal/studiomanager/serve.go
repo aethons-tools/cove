@@ -106,7 +106,7 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 	})
 	g := &gated{Launcher: l, capacity: cfg.Capacity}
 	if policy != nil {
-		g.disk, policy.busy = policy.full, g.kitBusy
+		g.disk, policy.work = policy.full, &g.work
 	}
 
 	loop := Loop{Sleep: deps.Sleep, Log: log, Run: func(ctx context.Context, welcomed func()) error {

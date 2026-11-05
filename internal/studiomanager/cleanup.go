@@ -20,9 +20,9 @@ const (
 	// kitImageMinAge keeps kit images this young: one just prepared is
 	// about to be raised.
 	kitImageMinAge = time.Hour
-	// pressureCooldown is the least time between two high (or two critical)
-	// cleanups, so a disk no cleanup can bring under low is not pruned on
-	// every sample.
+	// pressureCooldown follows every high or critical cleanup: no high one
+	// runs within it, nor a critical one after a critical one, so a disk no
+	// cleanup can bring under low is not pruned on every sample.
 	pressureCooldown = 5 * time.Minute
 	// dailyFirst is when the first daily light pass runs after start;
 	// dailyEvery the time between passes.
@@ -53,7 +53,7 @@ type diskPolicy struct {
 	ctx   context.Context // cleanups run under it, not under a sample's ctx
 
 	changed chan<- struct{}  // nil: none; a non-blocking send after each run
-	busy    func() bool      // nil: never; true while kit images must stay (a build or raise in flight)
+	work    *kitWork         // nil: none tracked; images stay while it is busy
 	now     func() time.Time // time.Now
 
 	mu           sync.Mutex
@@ -62,7 +62,8 @@ type diskPolicy struct {
 	known        bool           // it measured the disk
 	running      bool
 	last         *jam.CleanupRecord
-	nextPressure time.Time // no high/critical run before it
+	nextPressure time.Time // pressureCooldown after the last high/critical run
+	lastPressure string    // that run's reason
 	nextDaily    time.Time
 	wg           sync.WaitGroup
 }
@@ -133,9 +134,10 @@ func (p *diskPolicy) due() string {
 		if p.disk >= p.cfg.Critical {
 			reason = reasonCritical
 		}
-		// Critical skips a high run's cooldown: the disk got worse since.
-		lastHigh := p.last != nil && p.last.Reason == reasonHigh
-		if !now.Before(p.nextPressure) || (reason == reasonCritical && lastHigh) {
+		// Every high or critical run holds the next high one for
+		// pressureCooldown; a critical one is held only by a critical run.
+		cooling := now.Before(p.nextPressure)
+		if reason == reasonHigh && !cooling || reason == reasonCritical && !(cooling && p.lastPressure == reasonCritical) {
 			return reason
 		}
 	}
@@ -190,7 +192,7 @@ func (p *diskPolicy) run(reason string, before jam.HostStats) {
 		light bool
 		do    func() error
 	}{
-		{"dangling images", true, func() error { return p.clean.PruneDanglingImages(ctx) }},
+		{"dangling images", true, func() error { return p.pruneDangling(ctx) }},
 		{"kit images", false, func() error { return p.removeKitImages(ctx, check) }},
 		{"anonymous volumes", true, func() error { return p.clean.PruneVolumes(ctx) }},
 		{"build cache", false, func() error { return p.clean.PruneBuildCache(ctx) }},
@@ -223,7 +225,7 @@ func (p *diskPolicy) run(reason string, before jam.HostStats) {
 	if light {
 		p.nextDaily = now.Add(dailyEvery)
 	} else {
-		p.nextPressure = now.Add(pressureCooldown)
+		p.nextPressure, p.lastPressure = now.Add(pressureCooldown), reason
 	}
 	p.mu.Unlock()
 
@@ -243,12 +245,65 @@ func (p *diskPolicy) run(reason string, before jam.HostStats) {
 	}
 }
 
+// kitWork counts the work in flight that needs images left alone — raises,
+// kit prepares, draft builds — and lets the disk policy remove images only
+// while there is none, atomically: work cannot start mid-removal.
+type kitWork struct {
+	mu sync.Mutex
+	n  int
+}
+
+// start counts one piece of work in (waiting out a removal in progress);
+// the returned func counts it out.
+func (w *kitWork) start() func() {
+	w.mu.Lock()
+	w.n++
+	w.mu.Unlock()
+	return func() {
+		w.mu.Lock()
+		w.n--
+		w.mu.Unlock()
+	}
+}
+
+// whileIdle runs f, holding off new work across it, when no work is in
+// flight; false (f not run) when some is.
+func (w *kitWork) whileIdle(f func()) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.n > 0 {
+		return false
+	}
+	f()
+	return true
+}
+
+// idle runs f via p.work.whileIdle, or at once when no work is tracked.
+func (p *diskPolicy) idle(f func()) bool {
+	if p.work == nil {
+		f()
+		return true
+	}
+	return p.work.whileIdle(f)
+}
+
+// pruneDangling prunes dangling images unless kit work is in flight (a
+// build's image may not be tagged yet).
+func (p *diskPolicy) pruneDangling(ctx context.Context) error {
+	var err error
+	if !p.idle(func() { err = p.clean.PruneDanglingImages(ctx) }) {
+		p.log.Debug("manager: disk cleanup skips dangling images: a kit build or raise is in flight")
+	}
+	return err
+}
+
 // removeKitImages removes unused kit images oldest first, one at a time,
 // calling check after each removal; it skips images in use or younger than
-// kitImageMinAge, and stops while p.busy. An image the runtime refuses to
-// remove is skipped (an image whose child is still there, say).
+// kitImageMinAge, and stops once kit work is in flight (each removal runs
+// with new work held off). An image the runtime refuses to remove is skipped
+// (an image whose child is still there, say).
 func (p *diskPolicy) removeKitImages(ctx context.Context, check func() error) error {
-	if p.busy != nil && p.busy() {
+	if !p.idle(func() {}) {
 		p.log.Debug("manager: disk cleanup skips kit images: a kit build or raise is in flight")
 		return nil
 	}
@@ -260,10 +315,12 @@ func (p *diskPolicy) removeKitImages(ctx context.Context, check func() error) er
 	imgs = slices.DeleteFunc(imgs, func(k jam.KitImage) bool { return k.InUse || k.Created.After(cutoff) })
 	slices.SortStableFunc(imgs, func(a, b jam.KitImage) int { return a.Created.Compare(b.Created) })
 	for _, img := range imgs {
-		if p.busy != nil && p.busy() {
+		var err error
+		if !p.idle(func() { err = p.clean.RemoveImage(ctx, img.ID) }) {
+			p.log.Debug("manager: disk cleanup stops removing kit images: a kit build or raise started")
 			return nil
 		}
-		if err := p.clean.RemoveImage(ctx, img.ID); err != nil {
+		if err != nil {
 			p.log.Debug("manager: disk cleanup kept a kit image", "image", img.ID, "tags", img.Tags, "err", err)
 			continue
 		}

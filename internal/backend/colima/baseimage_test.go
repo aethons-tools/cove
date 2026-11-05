@@ -125,6 +125,7 @@ func TestResolveBaseBuildsDockerfile(t *testing.T) {
 	if tag == nil || !contains(tag, builtID) || !contains(tag, wantRef) {
 		t.Fatalf("expected `docker tag %s %s`, calls: %+v", builtID, wantRef, f.Calls)
 	}
+	assertBuiltUnderTempTag(t, f.Calls)
 }
 
 // ResolveKitBaseTar streams the context tar to `docker build -q … -` (the tar on
@@ -166,6 +167,7 @@ func TestResolveKitBaseTarStreamsAndGates(t *testing.T) {
 	if tag == nil || !contains(tag, builtID) || !contains(tag, wantRef) {
 		t.Fatalf("expected `docker tag %s %s`, calls: %+v", builtID, wantRef, f.Calls)
 	}
+	assertBuiltUnderTempTag(t, f.Calls)
 	if !allPinned(f.Calls) {
 		t.Fatalf("every docker call must pin --context colima: %+v", f.Calls)
 	}
@@ -303,5 +305,42 @@ func assertJamBuildArgs(t *testing.T, build []string, base string) {
 	}
 	if strings.Contains(argv, "COVE_") || strings.Contains(argv, "AT_"+"JAM_") {
 		t.Fatalf("pre-rename build arg passed:\n%s", argv)
+	}
+}
+
+// assertBuiltUnderTempTag checks a base build is tagged from the start (a
+// temporary jam-kit-base:building-<hex>, so no dangling-image prune can take
+// it mid-resolve) and that only that temporary tag is removed afterwards.
+func assertBuiltUnderTempTag(t *testing.T, calls []runner.Call) {
+	t.Helper()
+	build := dockerCall(calls, "build")
+	var tmp string
+	for i, a := range build {
+		if a == "-t" && i+1 < len(build) {
+			tmp = build[i+1]
+		}
+	}
+	if !strings.HasPrefix(tmp, "jam-kit-base:building-") || len(tmp) <= len("jam-kit-base:building-") {
+		t.Fatalf("build must carry a temporary -t jam-kit-base:building-<hex>: %v", build)
+	}
+	rm := dockerCall(calls, "image")
+	if len(rm) != 3 || rm[1] != "rm" || rm[2] != tmp {
+		t.Fatalf("want `docker image rm %s` (the temporary tag only), got %v", tmp, rm)
+	}
+	var tagAt, rmAt int
+	for i, c := range calls {
+		a := c.Args
+		if len(a) > 2 && a[0] == "--context" {
+			a = a[2:]
+		}
+		switch {
+		case len(a) > 0 && a[0] == "tag" && tagAt == 0:
+			tagAt = i
+		case len(a) > 1 && a[0] == "image" && a[1] == "rm":
+			rmAt = i
+		}
+	}
+	if rmAt < tagAt {
+		t.Fatalf("the temporary tag must be removed after the stable tag is applied: %+v", calls)
 	}
 }

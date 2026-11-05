@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ type fakeDisk struct {
 	images     []jam.KitImage
 	block      chan struct{} // non-nil: PruneDanglingImages waits on it
 	entered    chan struct{}
+	onRemove   func(id string) // nil: none; runs inside RemoveImage
 }
 
 func (d *fakeDisk) HostStats(context.Context) (jam.HostStats, error) {
@@ -57,6 +59,9 @@ func (d *fakeDisk) PruneDanglingImages(context.Context) error {
 func (d *fakeDisk) PruneVolumes(context.Context) error    { return d.step("volumes") }
 func (d *fakeDisk) PruneBuildCache(context.Context) error { return d.step("build cache") }
 func (d *fakeDisk) RemoveImage(_ context.Context, id string) error {
+	if d.onRemove != nil {
+		d.onRemove(id)
+	}
 	return d.step("rm " + id)
 }
 func (d *fakeDisk) KitImages(context.Context) ([]jam.KitImage, error) {
@@ -209,13 +214,15 @@ func TestPolicyRecordsErrors(t *testing.T) {
 	}
 }
 
-// While a kit build or raise is in flight, kit images are left alone.
-func TestPolicySkipsKitImagesWhileBuilding(t *testing.T) {
+// While a kit build or raise is in flight, kit images and dangling images
+// (a build's not yet tagged) are left alone.
+func TestPolicySkipsImagesWhileBuilding(t *testing.T) {
 	d := &fakeDisk{used: 90, images: []jam.KitImage{{ID: "a", Created: t0.Add(-2 * time.Hour)}}}
 	p, _ := newPolicy(t, d, defaultCleanup())
-	p.busy = func() bool { return true }
+	p.work = &kitWork{}
+	defer p.work.start()()
 	sample(t, p)
-	want := []string{"dangling", "volumes", "build cache"}
+	want := []string{"volumes", "build cache"}
 	if c := d.takeCalls(); !reflect.DeepEqual(c, want) {
 		t.Fatalf("calls = %v, want %v", c, want)
 	}
@@ -312,6 +319,30 @@ func TestPolicyCooldown(t *testing.T) {
 	}
 }
 
+// A critical sample runs at once after a high run even when a daily pass came
+// in between: only a critical run's own cooldown holds it.
+func TestPolicyCriticalAfterHighThenDaily(t *testing.T) {
+	d := &fakeDisk{used: 90}
+	p, clk := newPolicy(t, d, defaultCleanup())
+	clk.add(dailyFirst - time.Minute)
+	sample(t, p) // high
+	if rec := lastCleanup(t, p); rec == nil || rec.Reason != "high" {
+		t.Fatalf("LastCleanup = %+v", rec)
+	}
+	d.set(20)
+	clk.add(time.Minute)
+	sample(t, p) // daily
+	if rec := lastCleanup(t, p); rec == nil || rec.Reason != "daily" {
+		t.Fatalf("LastCleanup = %+v", rec)
+	}
+	d.set(96)
+	clk.add(time.Minute)
+	sample(t, p)
+	if rec := lastCleanup(t, p); rec == nil || rec.Reason != "critical" {
+		t.Fatalf("critical held by a high run's cooldown: %+v", rec)
+	}
+}
+
 // The daily light pass prunes dangling images and anonymous volumes only,
 // whatever the disk, dailyFirst after start and then every dailyEvery.
 func TestPolicyDaily(t *testing.T) {
@@ -399,11 +430,63 @@ func TestGatedDeclinesWhenDiskFull(t *testing.T) {
 	})
 }
 
+// Kit work cannot start between the policy's busy check and its removal:
+// start waits for a removal in progress, and no removal runs once it has
+// returned.
+func TestPolicyRemovalExcludesKitWork(t *testing.T) {
+	d := &fakeDisk{used: 90, images: []jam.KitImage{
+		{ID: "a", Created: t0.Add(-4 * time.Hour)}, {ID: "b", Created: t0.Add(-3 * time.Hour)}, {ID: "c", Created: t0.Add(-2 * time.Hour)}}}
+	p, _ := newPolicy(t, d, defaultCleanup())
+	work := &kitWork{}
+	p.work = work
+	var inWork atomic.Bool
+	started := make(chan func(), 1)
+	d.onRemove = func(id string) {
+		if inWork.Load() {
+			t.Errorf("removed %s while kit work was in flight", id)
+		}
+		if id != "a" {
+			return
+		}
+		go func() {
+			done := work.start()
+			inWork.Store(true)
+			started <- done
+		}()
+		time.Sleep(20 * time.Millisecond) // start must wait out this removal
+		if inWork.Load() {
+			t.Error("kit work started during a removal")
+		}
+	}
+	sample(t, p)
+	(<-started)()
+	if c := d.takeCalls(); len(c) < 3 || c[2] != "rm a" {
+		t.Fatalf("calls = %v", c)
+	}
+}
+
+func TestKitWork(t *testing.T) {
+	var w kitWork
+	ran := false
+	if !w.whileIdle(func() { ran = true }) || !ran {
+		t.Fatal("idle work did not run")
+	}
+	done := w.start()
+	if w.whileIdle(func() { t.Fatal("ran while busy") }) {
+		t.Fatal("whileIdle true while busy")
+	}
+	done()
+	if !w.whileIdle(func() {}) {
+		t.Fatal("busy after done")
+	}
+}
+
 // A raise in flight is kit work: the disk policy keeps kit images meanwhile.
 func TestGatedKitBusyDuringRaise(t *testing.T) {
 	ops := &fakeBackend{entered: make(chan struct{}, 1), block: make(chan struct{})}
 	g := newGated(ops, 0)
-	if g.kitBusy() {
+	idle := func() bool { return g.work.whileIdle(func() {}) }
+	if !idle() {
 		t.Fatal("busy before any work")
 	}
 	done := make(chan struct{})
@@ -416,12 +499,12 @@ func TestGatedKitBusyDuringRaise(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("raise never reached RunEphemeral")
 	}
-	if !g.kitBusy() {
+	if idle() {
 		t.Fatal("not busy during a raise")
 	}
 	close(ops.block)
 	<-done
-	if g.kitBusy() {
+	if !idle() {
 		t.Fatal("busy after the raise")
 	}
 }

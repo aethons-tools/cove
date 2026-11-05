@@ -1,6 +1,7 @@
 package colima
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/runner"
 )
 
 var _ jam.HostCleaner = (*Colima)(nil)
@@ -113,12 +115,35 @@ func (c *Colima) containerImages(ctx context.Context) (map[string]bool, error) {
 	if len(ids) == 0 {
 		return used, nil
 	}
-	out, err = c.output(ctx, "docker", c.dargs(append([]string{"container", "inspect", "--format", "{{.Image}}"}, ids...)...)...)
-	if err != nil {
+	// A container gone since the listing (a --rm studio exiting) fails the
+	// inspect for that one only: docker still prints the others.
+	var stdout, stderr bytes.Buffer
+	err = runner.Scoped(ctx, c.r, nil).RunIO(strings.NewReader(""), &stdout, &stderr, "docker",
+		c.dargs(append([]string{"container", "inspect", "--format", "{{.Image}}"}, ids...)...)...)
+	if err != nil && !onlyNoSuchContainer(stderr.String()) {
+		if line := lastLine(stderr.String()); line != "" {
+			err = fmt.Errorf("%w: %s", err, line)
+		}
 		return nil, fmt.Errorf("docker container inspect: %w", err)
 	}
-	for _, id := range strings.Fields(out) {
+	for _, id := range strings.Fields(stdout.String()) {
 		used[id] = true
 	}
 	return used, nil
+}
+
+// onlyNoSuchContainer reports whether docker's stderr holds only "No such
+// container" errors (at least one).
+func onlyNoSuchContainer(stderr string) bool {
+	n := 0
+	for _, line := range strings.Split(stderr, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.Contains(line, "No such container") {
+			return false
+		}
+		n++
+	}
+	return n > 0
 }
