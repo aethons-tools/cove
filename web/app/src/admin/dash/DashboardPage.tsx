@@ -1,10 +1,10 @@
-import { Alert, Badge, Card, Loader, SimpleGrid, Stack, Text, Title } from "@mantine/core";
+import { Alert, Badge, Card, Loader, Progress, SimpleGrid, Stack, Text, Title } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
-import type { ContextPanel as Panel, Dashboard } from "../api/types";
+import type { ContextPanel as Panel, Dashboard, ManagerRow } from "../api/types";
 import { adminApi, nodeHref } from "../paths";
 import { AttentionList } from "../ui/AttentionList";
 import { ContextPanel } from "../ui/ContextPanel";
@@ -71,6 +71,10 @@ export function DashboardPage() {
             { key: "c", label: "Studios", render: (m) => m.capacity ? `${m.studios}/${m.capacity}` : m.studios },
             { key: "l", label: "Last seen", render: (m) => dash(m.lastSeen) },
             { key: "x", label: "Strays", render: (m) => m.strays.length ? <Text span size="sm" title={m.strays.join(", ")}>{m.strays.length}</Text> : <Text span c="dimmed" size="sm">0</Text> },
+            { key: "mem", label: "Memory", render: (m) => usage(m, "memory", m.host?.mem, m.host?.memPct) },
+            { key: "disk", label: "Disk", render: (m) => usage(m, "disk", m.host?.disk, m.host?.diskPct) },
+            { key: "r", label: "Reclaimable", render: (m) => dash(m.host?.reclaimable && <Text span size="sm" title={m.host.reclaimableDetail}>{m.host.reclaimable}</Text>) },
+            { key: "lc", label: "Last cleanup", render: (m) => dash(m.host?.lastCleanup && <Text span size="sm">{m.host.lastCleanup}</Text>) },
           ]} />
         </Section>
       )}
@@ -82,3 +86,17 @@ export function DashboardPage() {
 }
 
 const dash = (v: ReactNode) => v || <Text span c="dimmed">—</Text>;
+
+// usage is a manager's used/total text over a bar: yellow from 90%, red
+// from 95% (Jam's manager.disk thresholds). The title says when it was
+// measured, as the report is kept while the manager is disconnected.
+function usage(m: ManagerRow, what: string, text: string | undefined, pct = 0) {
+  if (!text) return dash(null);
+  const color = pct >= 95 ? "red" : pct >= 90 ? "yellow" : "blue";
+  return (
+    <Stack gap={2} title={m.host?.at ? `measured ${m.host.at}` : undefined}>
+      <Text span size="sm" ff="monospace">{text}</Text>
+      <Progress size="sm" w={120} value={pct} color={color} aria-label={`${m.name} ${what} ${pct}% used`} />
+    </Stack>
+  );
+}

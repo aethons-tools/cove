@@ -11,8 +11,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/backend"
+	"github.com/aethons-tools/cove/internal/colimacfg"
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
@@ -25,6 +27,8 @@ const dockerContext = "colima"
 type Colima struct {
 	r       runner.Runner
 	context string // the pinned docker context ("" = dockerContext); see NewWithContext
+	profile string // the colima VM ("" = derived from context); see NewForProfile
+	now     func() time.Time
 	// quiet, when set, runs the cache-miss checks (HasKitImage, HasKitBase,
 	// the base's local inspect before a pull) in place of r: WithBuildLog's
 	// r copies output to the build log, and a miss's "No such image" does
@@ -46,6 +50,25 @@ func (c *Colima) quietRunner() runner.Runner {
 // colima instance. Empty keeps the default colima context.
 func NewWithContext(r runner.Runner, context string) *Colima {
 	return &Colima{r: r, context: context}
+}
+
+// NewForProfile returns a Colima backend for the colima VM profile: docker
+// calls are pinned to the profile's context (colimacfg.ProfileContext) and
+// HostStats measures that VM. "" is the default profile.
+func NewForProfile(r runner.Runner, profile string) *Colima {
+	return &Colima{r: r, context: colimacfg.ProfileContext(profile), profile: profile}
+}
+
+// profileName is the colima VM this backend runs in: its profile, else the
+// one its context names (colima-<p> is p; anything else the default).
+func (c *Colima) profileName() string {
+	if c.profile != "" {
+		return c.profile
+	}
+	if p, ok := strings.CutPrefix(c.contextName(), "colima-"); ok && p != "" {
+		return p
+	}
+	return colimacfg.DefaultProfile
 }
 
 // contextName is the context every docker call is pinned to.

@@ -81,3 +81,22 @@ func TestMetricsEscapesLabelValues(t *testing.T) {
 		}
 	}
 }
+
+// Labelled series of one gauge share a single HELP/TYPE header.
+func TestMetricsLabelledGauges(t *testing.T) {
+	gauges := func() []Gauge {
+		return []Gauge{
+			{Name: "jam_manager_disk_bytes", Help: "Disk.", Labels: []Label{{"manager", "m1"}, {"kind", "used"}}, Value: 5e9},
+			{Name: "jam_manager_disk_bytes", Help: "Disk.", Labels: []Label{{"manager", `m"1`}, {"kind", "total"}}, Value: 1e10},
+			{Name: "jam_studios", Help: "Studios.", Value: 2},
+		}
+	}
+	body := scrape(MetricsHandler(New(Options{}), "t", gauges), "Bearer t").Body.String()
+	want := "# HELP jam_manager_disk_bytes Disk.\n# TYPE jam_manager_disk_bytes gauge\n" +
+		"jam_manager_disk_bytes{manager=\"m1\",kind=\"used\"} 5e+09\n" +
+		"jam_manager_disk_bytes{manager=\"m\\\"1\",kind=\"total\"} 1e+10\n" +
+		"# HELP jam_studios Studios.\n# TYPE jam_studios gauge\njam_studios 2\n"
+	if !strings.Contains(body, want) {
+		t.Fatalf("want\n%s\nin:\n%s", want, body)
+	}
+}

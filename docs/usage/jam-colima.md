@@ -1,7 +1,7 @@
 ---
-summary: The `jam-colima` binary — the Studio Manager for a Colima host, a bare-metal process that dials Jam over TLS and hosts studios in a Colima VM; its install, upgrade from jam-studio-manager, config file and `colima.profile`, token, TLS, reconnect backoff, capacity, labels and image builds.
-read_when: You are setting up or running `jam-colima` on a host, upgrading a host from `jam-studio-manager`, editing its `config.yml` (which VM via `colima.profile`), or debugging why it will not connect, declines raises, or rebuilds images.
-owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, TLS trust, reconnect backoff, capacity gate, container/volume labels and per-host image builds
+summary: The `jam-colima` binary — the Studio Manager for a Colima host, a bare-metal process that dials Jam over TLS and hosts studios in a Colima VM; its install, upgrade from jam-studio-manager, config file and `colima.profile`, token, TLS, reconnect backoff, capacity, the host memory/disk it reports, labels and image builds.
+read_when: You are setting up or running `jam-colima` on a host, upgrading a host from `jam-studio-manager`, editing its `config.yml` (which VM via `colima.profile`), or debugging why it will not connect, declines raises, rebuilds images, or reports odd memory/disk figures to Jam.
+owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, TLS trust, reconnect backoff, capacity gate, how host stats are measured, container/volume labels and per-host image builds
 prereqs: jam/studio-managers.md for registering the manager and what Jam does with it
 tier: leaf
 updated: 2026-11-05
@@ -81,6 +81,16 @@ After a refusal the backoff stays at 30s until a connect succeeds.
 
 `capacity` bounds the studios this host holds, counting raises in flight.
 At the limit a raise is declined with `at capacity (<n>/<cap> studios)` and Jam tries the next manager ([placement](jam/coves.md#managers-and-placement)).
+
+## Host stats
+
+Every 30s (and right after connecting) the manager reports its VM's memory and disk to Jam, which shows them and alerts on a full disk ([status reports](jam/studio-managers.md#status-reports)).
+They are measured inside the `colima.profile` VM:
+
+- `colima ssh --profile <p> -- sh -c 'df -kP /var/lib/docker; cat /proc/meminfo'`: memory used is `MemTotal − MemAvailable`; disk is docker's data dir, with total = used + available, so the percentage matches df's `Capacity` (root-reserved blocks excluded).
+- `docker --context <ctx> system df --format '{{json .}}'`: the Reclaimable of Images, Build Cache and Local Volumes (docker's decimal sizes, `1.2GB` = 1.2×10⁹ bytes). Containers are not counted; they go with their studios.
+
+If either command fails the report carries no host (one Warn in the manager's log until it recovers, then debug); Jam keeps the previous figures' condition as it was.
 
 ## Labels and sharing a daemon
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
 // The JSON API of the admin's own pages: the dashboard and the Jam context
@@ -38,7 +39,42 @@ func managerRowsOf(ms []jam.ManagerStatus) []ManagerRow {
 		for _, s := range m.Strays {
 			row.Strays = append(row.Strays, s.ActorID)
 		}
+		row.Host = managerHostOf(m.Host)
 		out = append(out, row)
+	}
+	return out
+}
+
+func managerHostOf(h *jam.HostStats) *ManagerHost {
+	if h == nil {
+		return nil
+	}
+	out := &ManagerHost{}
+	if !h.At.IsZero() {
+		out.At = h.At.Format("15:04:05")
+	}
+	if h.MemTotal > 0 {
+		out.Mem = numfmt.Bytes(h.MemUsed) + " / " + numfmt.Bytes(h.MemTotal)
+		out.MemPct = int(min(h.MemUsed*100/h.MemTotal, 100))
+	}
+	if pct, ok := h.DiskPercent(); ok {
+		out.Disk = numfmt.Bytes(h.DiskUsed) + " / " + numfmt.Bytes(h.DiskTotal)
+		out.DiskPct = min(pct, 100)
+	}
+	r := h.Reclaimable
+	out.Reclaimable = numfmt.Bytes(r.Images + r.BuildCache + r.Volumes)
+	out.ReclaimableDetail = "images " + numfmt.Bytes(r.Images) + " · build cache " + numfmt.Bytes(r.BuildCache) + " · volumes " + numfmt.Bytes(r.Volumes)
+	if c := h.LastCleanup; c != nil {
+		out.LastCleanup = c.At.Format("Jan 2 15:04") + ": "
+		switch {
+		case c.Err != "":
+			out.LastCleanup += "failed: " + c.Err
+		default:
+			out.LastCleanup += "freed " + numfmt.Bytes(c.Freed)
+			if c.Reason != "" {
+				out.LastCleanup += " (" + c.Reason + ")"
+			}
+		}
 	}
 	return out
 }

@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -84,6 +85,67 @@ type ManagerStatus struct {
 	ConnectedAt time.Time       `json:"connected_at,omitzero"`
 	LastSeen    time.Time       `json:"last_seen,omitzero"`
 	Strays      []ManagedStudio `json:"strays,omitempty"`
+	// Host is the manager's last host report. It is kept across a
+	// disconnect (its At says how old it is) and replaced by the next
+	// report; nil = never reported, or the last report had none.
+	Host *HostStats `json:"host,omitempty"`
+	// Activities is the manager's last reported work in progress; dropped
+	// when the manager disconnects.
+	Activities []ManagerActivity `json:"activities,omitempty"`
+}
+
+// HostStats is a manager host's memory and disk, measured where its studios
+// run (for jam-colima, inside the Colima VM). All sizes are bytes.
+type HostStats struct {
+	At          time.Time      `json:"at"`
+	MemTotal    uint64         `json:"mem_total"`
+	MemUsed     uint64         `json:"mem_used"`
+	DiskTotal   uint64         `json:"disk_total"`
+	DiskUsed    uint64         `json:"disk_used"`
+	Reclaimable Reclaimable    `json:"reclaimable"`
+	LastCleanup *CleanupRecord `json:"last_cleanup,omitempty"`
+}
+
+// DiskPercent is DiskUsed as a whole percentage of DiskTotal (rounded down),
+// and false when the total is unknown.
+func (h *HostStats) DiskPercent() (int, bool) {
+	if h == nil || h.DiskTotal == 0 {
+		return 0, false
+	}
+	return int(h.DiskUsed * 100 / h.DiskTotal), true
+}
+
+// Reclaimable is disk the container runtime could free: unused images, build
+// cache and unused volumes.
+type Reclaimable struct {
+	Images     uint64 `json:"images"`
+	BuildCache uint64 `json:"build_cache"`
+	Volumes    uint64 `json:"volumes"`
+}
+
+// CleanupRecord is the manager's last disk cleanup.
+type CleanupRecord struct {
+	At     time.Time `json:"at"`
+	Freed  uint64    `json:"freed"`
+	Reason string    `json:"reason,omitempty"`
+	Err    string    `json:"err,omitempty"`
+}
+
+// ManagerActivity is one piece of long-running work a manager reports in progress
+// (e.g. a kit prepare).
+type ManagerActivity struct {
+	ID      string    `json:"id"`
+	Kind    string    `json:"kind"`
+	Kit     KitRef    `json:"kit,omitzero"`
+	Step    string    `json:"step,omitempty"`
+	Detail  string    `json:"detail,omitempty"`
+	Started time.Time `json:"started"`
+}
+
+// HostReporter is the optional manager-side source of host stats; a manager
+// without one reports no host.
+type HostReporter interface {
+	HostStats(ctx context.Context) (HostStats, error)
 }
 
 // ManagerToken is the one-time response to adding or rotating a manager.

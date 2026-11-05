@@ -1953,7 +1953,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	var managerHub *managers.Hub
 	runSup := func() { go sup.Run(context.Background()) }
 	if cfg.Runtime.StudioManagers {
-		managerHub = managers.NewHub(managers.Config{Store: st, Router: built.router, Reconciler: sup, Version: version, SSHUserCA: sshUserCA, Log: log})
+		managerHub = managers.NewHub(managers.Config{Store: st, Router: built.router, Reconciler: sup, Version: version, SSHUserCA: sshUserCA, Log: log, Conditions: conds})
 		if err := startManagers(managerHub, runSup); err != nil {
 			fmt.Fprintln(stderr, "jam: studio managers:", err)
 			return 1
@@ -2182,16 +2182,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		httpHandler = withMetrics(httpHandler, condition.MetricsHandler(conds, tok[cfg.Metrics.TokenCred], func() []condition.Gauge {
 			gauges := []condition.Gauge{{Name: "jam_studios", Help: "Studios Jam knows of.", Value: float64(len(jam.CoveSummaries(st, sup)))}}
 			if managerHub != nil {
-				var registered, connected int
-				for _, m := range managerHub.Statuses() {
-					registered++
-					if m.Connected {
-						connected++
-					}
-				}
-				gauges = append(gauges,
-					condition.Gauge{Name: "jam_managers", Help: "Studio Managers registered.", Value: float64(registered)},
-					condition.Gauge{Name: "jam_managers_connected", Help: "Studio Managers connected.", Value: float64(connected)})
+				gauges = append(gauges, managerGauges(managerHub.Statuses())...)
 			}
 			return gauges
 		}))

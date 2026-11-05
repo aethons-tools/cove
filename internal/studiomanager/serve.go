@@ -27,14 +27,15 @@ import (
 type Deps struct {
 	Runner runner.Runner                                      // nil: runner.OS{}
 	Dial   func(cfg Config) (grpc.ClientConnInterface, error) // nil: TLS grpc.NewClient
-	Ops    launcher.Backend                                   // nil: colima.NewWithContext(Runner, cfg.Colima.DockerContext())
+	Ops    launcher.Backend                                   // nil: colima.NewForProfile(Runner, cfg.Colima.Profile); reports host stats when a jam.HostReporter
 	Images jam.ImageFactsReader                               // nil: imagefacts.New(Runner, the colima backend)
 	Sleep  func(ctx context.Context, d time.Duration)         // nil: Loop's default; tests shorten the backoff
 }
 
-// colimaBackend is the Colima backend pinned to the profile's docker context.
+// colimaBackend is the Colima backend for the profile's VM, pinned to its
+// docker context.
 func colimaBackend(r runner.Runner, cfg Config) *colima.Colima {
-	return colima.NewWithContext(r, cfg.Colima.DockerContext())
+	return colima.NewForProfile(r, cfg.Colima.Profile)
 }
 
 // Serve runs the manager named by cfg until ctx ends: it builds the Colima
@@ -71,6 +72,7 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 			images = imagefacts.New(r, col)
 		}
 	}
+	host, _ := ops.(jam.HostReporter) // nil: no host stats
 	dial := deps.Dial
 	if dial == nil {
 		tc, err := tlsConfig(cfg)
@@ -105,7 +107,7 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 		}
 		return client.Run(ctx, cc, client.Config{
 			Name: cfg.Name, Token: token, Version: version, Capacity: cfg.Capacity,
-			Launcher: g, Images: images, Inventory: l.Studios, Log: log,
+			Launcher: g, Images: images, Inventory: l.Studios, Log: log, Host: host,
 			OnWelcome: func(w *managerpb.Welcome) {
 				l.SetSSHUserCA(w.GetSshUserCa())
 				log.Info("manager: connected to Jam", "jam", cfg.JamAddr, "name", cfg.Name)

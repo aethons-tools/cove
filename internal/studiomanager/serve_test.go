@@ -19,6 +19,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/fleet"
+	"github.com/aethons-tools/cove/internal/jam/launcher"
 	"github.com/aethons-tools/cove/internal/jam/managers"
 	"github.com/aethons-tools/cove/internal/jam/managers/managerpb"
 )
@@ -128,7 +129,7 @@ type serveOpts struct {
 // startServe adds m1 to the hub, writes its token and runs Serve for it
 // against e with ops; it returns the Config and m1's token once Serve has
 // been started.
-func startServe(t *testing.T, e *jamEnv, ops *fakeBackend, o serveOpts) (Config, string) {
+func startServe(t *testing.T, e *jamEnv, ops launcher.Backend, o serveOpts) (Config, string) {
 	t.Helper()
 	tok, err := e.hub.Add("m1")
 	if err != nil {
@@ -334,4 +335,25 @@ func TestTLSConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+// hostBackend is a backend that measures its host.
+type hostBackend struct{ *fakeBackend }
+
+func (hostBackend) HostStats(context.Context) (jam.HostStats, error) {
+	return jam.HostStats{DiskTotal: 100, DiskUsed: 7}, nil
+}
+
+// A backend that is a HostReporter reports its host to Jam after Welcome.
+func TestServeReportsHostStats(t *testing.T) {
+	e := newJamEnv(t, nil)
+	startServe(t, e, hostBackend{&fakeBackend{}}, serveOpts{})
+	eventually(t, "host reported", func() bool {
+		for _, s := range e.hub.Statuses() {
+			if s.Name == "m1" && s.Host != nil && s.Host.DiskUsed == 7 {
+				return true
+			}
+		}
+		return false
+	})
 }

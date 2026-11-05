@@ -1,7 +1,7 @@
 ---
 summary: Operator guide to remote Studio Managers — enabling them, the `jam manager add|list|rotate|revoke` verbs, how a manager connects to Jam, and what happens on disconnect, reconnect and revoke.
-read_when: You register, rotate or revoke a Studio Manager, upgrade from the old `runtime.launcher` (its error links here), or debug a manager connection (refused stream, version mismatch, a manager shown disconnected, strays, a revoke refused).
-owns: the operator-facing Studio Manager story — `runtime.studio-managers`, the `manager` verbs and admin API, the Connect stream's auth and lifecycle, and disconnect/reconnect/revoke behaviour
+read_when: You register, rotate or revoke a Studio Manager, upgrade from the old `runtime.launcher` (its error links here), or debug a manager connection (refused stream, version mismatch, a manager shown disconnected, strays, a revoke refused), or wonder where a manager's memory/disk figures come from.
+owns: the operator-facing Studio Manager story — `runtime.studio-managers`, the `manager` verbs and admin API, the Connect stream's auth and lifecycle, the managers' status reports (host stats) and how Jam keeps them, and disconnect/reconnect/revoke behaviour
 prereqs: coves.md#managers-and-placement for how a raise picks a manager; serve.md for the serve config
 tier: leaf
 updated: 2026-11-05
@@ -18,7 +18,7 @@ How a raise chooses among managers is in [Managers and placement](coves.md#manag
 Set `runtime.studio-managers: true` in the [serve config](serve.md).
 Studios run on managers only; a serve config that still has `runtime.launcher` is refused ([retiring it](#retiring-the-in-process-launcher)).
 Without this setting Jam keeps a placeholder launcher that starts no studios.
-The admin UI dashboard then shows a read-only Managers panel (name, connected, version, studios/capacity, last seen, strays) and the studios table gains a Manager column.
+The admin UI dashboard then shows a read-only Managers panel (name, connected, version, studios/capacity, last seen, strays, and from [status reports](#status-reports) memory and disk with a bar, reclaimable and last cleanup) and the studios table gains a Manager column.
 
 **Warning:** turning `runtime.studio-managers` off while remote studios exist makes Jam treat them as dead, because their manager is no longer registered.
 Jam then treats their studios as dead: each is torn down (a no-op, since no manager is registered to call), its identity revoked and its record dropped; the containers stay on the host.
@@ -31,7 +31,7 @@ All are clients of the admin API (see [operators.md](operators.md) for the clien
 |------|------|
 | `jam manager add <name>` | Registers a manager and prints `manager <name> token (shown once): <token>`. |
 | `jam manager rotate <name>` | Mints a new token, same output line; the old token stops working. |
-| `jam manager list` | One line per manager: `<name>\tconnected=<bool>\tversion=<v>\tstudios=<n>\tcapacity=<c>\tlast-seen=<RFC3339\|->\tstrays=<n>`. |
+| `jam manager list` | One line per manager: `<name>\tconnected=<bool>\tversion=<v>\tstudios=<n>\tcapacity=<c>\tlast-seen=<RFC3339\|->\tstrays=<n>\tmem=<used>/<total>\tdisk=<used>/<total>(<pct>%)`; sizes in binary units (`46.0GiB`), `mem=-`/`disk=-` when not reported. |
 | `jam manager revoke <name> [--force]` | Removes the manager; see Revoke. |
 
 Admin API: `GET`/`POST /admin/managers`, `POST /admin/managers/{name}/rotate`, `DELETE /admin/managers/{name}?force=true`.
@@ -49,6 +49,17 @@ The manager calls the gRPC method `jam.manager.v1.StudioManager/Connect` on the 
 - The `Hello` version must equal Jam's exactly, otherwise it is refused with `version mismatch: jam <J>, manager <M>`.
 - One stream per name: a new connection replaces the old one.
 - Heartbeats every 10s; a manager silent for 30s is dead and shown disconnected.
+
+## Status reports
+
+A manager may send unsolicited **status reports** (op `status`, frame id 0): its host stats (memory and disk used/total, disk reclaimable as images, build cache and volumes, last cleanup) and its work in progress.
+It sends one right after Welcome, every 30s, and (throttled to one a second) when its work in progress changes; a manager with nothing to measure sends none.
+How [jam-colima](../jam-colima.md#host-stats) measures its VM is on its page.
+
+Jam keeps the latest report per manager.
+Host stats are kept across a disconnect and a reconnect until the next report (the dashboard's tooltip says when they were measured); work in progress is dropped on disconnect.
+They feed the dashboard, `jam manager list`, the `jam_manager_*` metrics and the `manager.disk:<name>` condition ([monitoring.md](monitoring.md)).
+A malformed report is logged and ignored.
 
 ## Disconnect
 
