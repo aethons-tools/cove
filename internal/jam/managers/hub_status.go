@@ -52,9 +52,9 @@ func (h *Hub) report(name string, c *conn, data []byte) {
 	h.mu.Unlock()
 }
 
-// KitActivity is a connected manager's prepare-kit activity for kit,
-// preferring manager's (jam.FindKitActivity, in Router order): a raise's
-// kit build in progress. It is a jam.KitActivityFunc.
+// KitActivity is a connected manager's prepare-kit activity building
+// exactly kit: on manager only, or on any ("", in Router order;
+// jam.FindKitActivity): a raise's kit build in progress. It is a jam.KitActivityFunc.
 func (h *Hub) KitActivity(kit jam.KitRef, manager string) (jam.ManagerActivity, bool) {
 	names := h.cfg.Router.Names()
 	h.mu.Lock()

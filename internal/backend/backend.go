@@ -169,10 +169,11 @@ type LoggedKitBuilder interface {
 }
 
 // TeedKitBuilder is optionally implemented by a KitImageBuilder that can copy
-// its builds' streamed output to a second writer, w, while still writing it
-// where it always goes: the Jam launcher's kit prepare reads the build's
-// steps from it (kit-prepare progress). The returned builder builds exactly
-// as the receiver does. w must be safe for concurrent writes.
+// its builds' streamed stderr (where `docker build --progress=plain` writes
+// its progress) to a second writer, w, while still writing it where it
+// always goes: the Jam launcher's kit prepare reads the build's steps from
+// it (kit-prepare progress). The returned builder builds exactly as the
+// receiver does.
 type TeedKitBuilder interface {
 	WithBuildOutput(w io.Writer) KitImageBuilder
 }

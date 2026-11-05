@@ -4,7 +4,7 @@ read_when: You are changing the Jam app in web/app, adding a /app/user/api or /a
 owns: the web/app source layout, the admin area's mount, API and Config tree plumbing, the shared /app/assets/ path, `just app` / `app-dev` / `app-check`, scripts/app.sh and the size budget, the webapp serving package (bootstrap, CSP, not-built page), the tygo type generation, and the app's test layers
 prereqs: usage/jam/intercom-ui.md for what the user area does; superpowers/specs/2026-10-26-jam-spa-design.md for why
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-05
 ---
 
 # The Jam app (`web/app`)

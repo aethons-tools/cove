@@ -138,7 +138,7 @@ type upgrade struct {
 	preparing           bool       // a PrepareImage is in flight
 	prepErr             string     // the last prepare's failure
 	kit                 jam.KitRef // the kit the prepare in flight builds
-	manager             string     // and the manager it builds on ("" = the default)
+	manager             string     // and the manager it builds on ("": the default, any manager's build counts)
 }
 
 func (u *upgrade) status() string {
@@ -568,7 +568,13 @@ func (r *Reconciler) pinnedManager(projectID, role, name string) string {
 func (r *Reconciler) startPrepare(ctx context.Context, id, project, role, manager string, kit jam.KitRef) {
 	r.stMu.Lock()
 	if p, ok := r.upgrades[id]; ok {
-		p.preparing, p.kit, p.manager = true, kit, manager
+		// The build's manager, for the progress lookup: the legacy local
+		// pin names none (PrepareImage builds on the default manager).
+		lookup := manager
+		if lookup == jam.LocalManager {
+			lookup = ""
+		}
+		p.preparing, p.kit, p.manager = true, kit, lookup
 	}
 	r.stMu.Unlock()
 	r.spawn(func() {

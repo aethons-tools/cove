@@ -126,7 +126,7 @@ On a shared VM, dangling images, anonymous volumes and the build cache are VM-wi
 
 The manager reports its long-running work to Jam as [activities](jam/studio-managers.md#activities), each a kind, an optional kit, and its current step and detail:
 
-- `prepare-kit` (a kit image build; a kit already built reports none): `assembling`; `resolving base`; for a kit chain, `building stage <i>/<n>` with the link (`web@v2`) as detail; then `building`, with detail `step <k>/<m>` read from the image build's `docker build --progress=plain` header lines (`#7 [3/12] RUN …`; the highest step of the stage building now). The build output still goes to the manager's own output unchanged; only a copy is read.
+- `prepare-kit` (a kit image build; a kit already built reports none): `assembling`; `resolving base`; for a kit chain, `building stage <i>/<n>` with the link (`web@v2`) as detail; then `building`, with detail `step <k>/<m>` read from the image build's `docker build --progress=plain` header lines (`#7 [3/12] RUN …`; the highest step of the stage building now). The build output still goes to the manager's own output unchanged; only a copy of its stderr (where the progress lines are) is read.
 - `build-kit-draft` (a draft's test build): the same steps, read from its build log.
 - `cleanup` ([disk cleanup](#disk-cleanup)): its step, `removing dangling images`, `removing unused kit images`, `removing anonymous volumes` or `pruning the build cache`.
 

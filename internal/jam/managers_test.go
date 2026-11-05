@@ -73,12 +73,14 @@ func TestManagerActivityProgress(t *testing.T) {
 }
 
 func TestFindKitActivity(t *testing.T) {
-	prep := func(id, kit string, v int) ManagerActivity {
-		return ManagerActivity{ID: id, Kind: ActivityPrepareKit, Kit: KitRef{ID: kit, Version: v}}
+	web2 := KitRef{ID: "web", Version: 2, Digest: "d2"}
+	web3 := KitRef{ID: "web", Version: 3, Digest: "d3"}
+	prep := func(id string, kit KitRef) ManagerActivity {
+		return ManagerActivity{ID: id, Kind: ActivityPrepareKit, Kit: kit}
 	}
 	ms := []ManagerStatus{
-		{Name: "a", Activities: []ManagerActivity{prep("a1", "web", 2), {ID: "a2", Kind: ActivityCleanup}}},
-		{Name: "b", Activities: []ManagerActivity{prep("b1", "web", 3), {ID: "b2", Kind: ActivityBuildKitDraft, Kit: KitRef{ID: "app"}}}},
+		{Name: "a", Activities: []ManagerActivity{prep("a1", web2), {ID: "a2", Kind: ActivityCleanup}}},
+		{Name: "b", Activities: []ManagerActivity{prep("b1", web3), {ID: "b2", Kind: ActivityBuildKitDraft, Kit: KitRef{ID: "app"}}}},
 	}
 	for _, c := range []struct {
 		name    string
@@ -86,14 +88,16 @@ func TestFindKitActivity(t *testing.T) {
 		manager string
 		want    string // activity id, "" = none
 	}{
-		{"exact on the preferred manager", KitRef{ID: "web", Version: 3}, "b", "b1"},
-		{"preferred manager, other version", KitRef{ID: "web", Version: 2}, "b", "b1"},
-		{"no manager: exact version wins", KitRef{ID: "web", Version: 3}, "", "b1"},
-		{"no manager: first by order", KitRef{ID: "web", Version: 9}, "", "a1"},
-		{"preferred manager idle: any other", KitRef{ID: "web", Version: 2}, "c", "a1"},
+		{"exact on the manager", web3, "b", "b1"},
+		{"the manager builds another version", web2, "b", ""},
+		{"only the named manager", web3, "a", ""},
+		{"unknown manager", web2, "c", ""},
+		{"no manager: any", web3, "", "b1"},
+		{"no manager: first by order", web2, "", "a1"},
+		{"another harness (digest)", KitRef{ID: "web", Version: 2, Digest: "other"}, "", ""},
+		{"another version", KitRef{ID: "web", Version: 9, Digest: "d2"}, "", ""},
 		{"a draft build is not a prepare", KitRef{ID: "app"}, "", ""},
 		{"no kit", KitRef{}, "", ""},
-		{"other kit", KitRef{ID: "db", Version: 1}, "", ""},
 	} {
 		got, ok := FindKitActivity(ms, c.kit, c.manager)
 		if (c.want == "") == ok || got.ID != c.want {

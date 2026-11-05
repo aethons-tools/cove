@@ -50,7 +50,8 @@ func (l *Launcher) BuildKitDraft(ctx context.Context, def KitDefinition, tag str
 	defer prog.Done()
 	var ops backend.KitImageBuilder = l.cfg.Ops
 	if lb, ok := l.cfg.Ops.(backend.LoggedKitBuilder); ok {
-		// The step parser reads the log's copy of the build output.
+		// The step parser reads the log's copy of the build output: a
+		// plain-progress build prints only to stderr, so its lines arrive whole.
 		ops = lb.WithBuildLog(ctx, io.MultiWriter(log, newBuildSteps(prog)))
 	}
 	// One dir per tag: two builds of the same tree would share (and one

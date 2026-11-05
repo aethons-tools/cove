@@ -73,7 +73,7 @@ func (h *handler) apiConversation(w http.ResponseWriter, r *http.Request) {
 		limit = pageMax
 	}
 	conv.Messages, conv.Earlier = pageOf(conv.Messages, before, int(limit))
-	conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence, h.d.KitActivity)
+	conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence, h.kitPrep())
 	if inst, ok := h.headSession(p, conv.ChannelID); ok {
 		conv.Session = inst.ActorID
 		conv.Color, _ = h.d.Store.SessionColor(inst.ActorID)
@@ -87,7 +87,7 @@ func (h *handler) apiPresence(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows := sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence, h.d.KitActivity)
+	rows := sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence, h.kitPrep())
 	if rows == nil {
 		rows = []SessionRow{}
 	}

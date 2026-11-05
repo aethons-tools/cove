@@ -1091,7 +1091,7 @@ func TestUpgrade_PreparingShowsKitActivity(t *testing.T) {
 	if got := r.state(); got != "preparing: building step 7/12" {
 		t.Fatalf("state = %q", got)
 	}
-	if !slices.Equal(asked, []string{"web/img:new on local"}) {
+	if !slices.Equal(asked, []string{"web/img:new on "}) {
 		t.Fatalf("lookups = %q", asked)
 	}
 	building = false

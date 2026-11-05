@@ -116,7 +116,7 @@ Discord inbox ([discord.md](discord.md)). While Start waits on a manager's kit
 image build, the dialog (the VS Code rail's too) polls
 `GET /app/user/api/sessions/start-progress?project=&role=` every 2s (Start's
 membership check; the role's current kit as a raise resolves it; `{step, detail,
-since, age}` of any manager's [build](studio-managers.md#activities), else `{}`)
+since, age}` of any manager's [build](studio-managers.md#activities) of exactly it, else `{}`)
 and shows *Preparing the kit image — building step 7/12 (2m)*.
 
 ## Who owns it: link your login

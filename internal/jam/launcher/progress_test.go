@@ -186,10 +186,11 @@ func TestPrepareKitProgressEdges(t *testing.T) {
 }
 
 // On the colima backend, PrepareKit's step parser reads the docker build's
-// --progress=plain output, and a draft build's reads its log's copy.
+// --progress=plain output (its stderr), and a draft build's reads its log's
+// copy.
 func TestColimaBuildsReportDockerSteps(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{
-		{Stdout: "#5 [1/3] FROM base\n", Stderr: "#7 [3/3] RUN install\n#7 DONE\n"}, // docker build --progress=plain …
+		{Stdout: "#5 [2/3] stdout is not read\n", Stderr: "#5 [1/3] FROM base\n#7 [3/3] RUN install\n#7 DONE\n"}, // docker build --progress=plain …
 		{Stdout: fakeImageID + "\n"}, // docker inspect --format {{.Id}} <tag>
 	}}
 	l := colimaDraftLauncher(t, f)

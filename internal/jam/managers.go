@@ -170,37 +170,23 @@ func (a ManagerActivity) Age(now time.Time) string {
 }
 
 // KitActivityFunc finds a connected manager's prepare-kit activity for a kit
-// (FindKitActivity), preferring manager's.
+// (FindKitActivity): on manager only, or on any manager for "".
 type KitActivityFunc func(kit KitRef, manager string) (ManagerActivity, bool)
 
-// FindKitActivity is the prepare-kit activity in ms for kit's id: on manager
-// first (when set), then on any manager in ms's order; within each, one for
-// kit's exact version before one for another version of the kit (a recovery
-// may prepare the role's newer version). False for a kit with no id.
+// FindKitActivity is the prepare-kit activity in ms building exactly kit
+// (id, version and digest: the digest is the image's identity, harness
+// included). With a manager it looks only at that manager; with "" at
+// every manager, in ms's order. False for a kit with no id.
 func FindKitActivity(ms []ManagerStatus, kit KitRef, manager string) (ManagerActivity, bool) {
 	if kit.ID == "" {
 		return ManagerActivity{}, false
 	}
-	find := func(only string, exact bool) (ManagerActivity, bool) {
-		for _, m := range ms {
-			if only != "" && m.Name != only {
-				continue
-			}
-			for _, a := range m.Activities {
-				if a.Kind == ActivityPrepareKit && a.Kit.ID == kit.ID && (!exact || a.Kit.Version == kit.Version) {
-					return a, true
-				}
-			}
+	for _, m := range ms {
+		if manager != "" && m.Name != manager {
+			continue
 		}
-		return ManagerActivity{}, false
-	}
-	var scopes []string
-	if manager != "" {
-		scopes = append(scopes, manager)
-	}
-	for _, only := range append(scopes, "") {
-		for _, exact := range []bool{true, false} {
-			if a, ok := find(only, exact); ok {
+		for _, a := range m.Activities {
+			if a.Kind == ActivityPrepareKit && a.Kit == kit {
 				return a, true
 			}
 		}

@@ -463,12 +463,12 @@ func TestOSRunIOContextKeepsASuccessTheCancelMissed(t *testing.T) {
 	}
 }
 
-// Tee copies Run's and RunStdin's streamed output to w while still writing it
-// to the process's streams; every other method passes through untouched.
+// Tee copies Run's and RunStdin's stderr to w while still writing both
+// streams to the process's; every other method passes through untouched.
 func TestTeeCopiesStreamedOutput(t *testing.T) {
 	f := &Fake{Outputs: []FakeResult{
 		{Stdout: "#5 [1/2] RUN a\n", Stderr: "#6 [2/2] RUN b\n"},
-		{Stdout: "piped\n"},
+		{Stdout: "piped\n", Stderr: "#7 [1/1] RUN c\n"},
 		{Stdout: "sha256:id\n"},
 	}}
 	var w, stdout, stderr bytes.Buffer
@@ -485,10 +485,10 @@ func TestTeeCopiesStreamedOutput(t *testing.T) {
 	if err := r.Probe("docker", "info"); err != nil {
 		t.Fatal(err)
 	}
-	if w.String() != "#5 [1/2] RUN a\n#6 [2/2] RUN b\npiped\n" {
+	if w.String() != "#6 [2/2] RUN b\n#7 [1/1] RUN c\n" {
 		t.Fatalf("w = %q", w.String())
 	}
-	if stdout.String() != "#5 [1/2] RUN a\npiped\n" || stderr.String() != "#6 [2/2] RUN b\n" {
+	if stdout.String() != "#5 [1/2] RUN a\npiped\n" || stderr.String() != "#6 [2/2] RUN b\n#7 [1/1] RUN c\n" {
 		t.Fatalf("stdout %q stderr %q", stdout.String(), stderr.String())
 	}
 	if len(f.Calls) != 4 || f.Calls[1].Stdin != "TAR" || f.Calls[3].Args[0] != "info" {

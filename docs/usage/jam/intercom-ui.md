@@ -163,7 +163,7 @@ whose turn ended is **idle**: it needs you only once it asks.
 | Status | When |
 |--------|------|
 | starting / recovering | the session is raising / being re-raised after it was lost |
-| preparing its kit image — *\<step\>* | it is raising or recovering and a connected manager (its own first) reports building its kit's image ([kit-prepare progress](studio-managers.md#activities)), e.g. `building step 7/12`; it wins over starting and recovering |
+| preparing its kit image — *\<step\>* | it is raising or recovering and its manager reports building exactly the kit image its raise builds ([kit-prepare progress](studio-managers.md#activities)), e.g. `building step 7/12`; it wins over starting and recovering |
 | paused | it is idled |
 | needs you | it is waiting (live or paused) and asked for a person since it was last woken; this wins over paused |
 | idle | it is waiting without having asked (its turn ended) |

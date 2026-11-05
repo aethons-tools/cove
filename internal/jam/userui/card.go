@@ -27,7 +27,7 @@ func cardOf(inst jam.Instance, st sessionevents.Status, known bool, inits int, t
 	}
 	switch inst.Phase {
 	case jam.PhaseRaising, jam.PhaseRecovering:
-		if prep != nil { // its kit image is building (preparingKit)
+		if prep != nil { // its kit image is building (kitPrep)
 			return set(CardThinking, "preparing kit")
 		}
 	}
@@ -83,7 +83,7 @@ func (h *handler) card(inst jam.Instance) (SessionCard, bool) {
 	if h.d.Totals != nil {
 		t, _ = h.d.Totals.Of(inst.ActorID) // no totals yet: no context bar
 	}
-	prep, _ := preparingKit(inst, h.d.KitActivity)
+	prep, _ := h.kitPrep().of(inst)
 	c, ok := cardOf(inst, st, known, inits, t, prep)
 	if ok {
 		c.Counts.Subagents = subagents
