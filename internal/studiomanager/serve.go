@@ -27,9 +27,14 @@ import (
 type Deps struct {
 	Runner runner.Runner                                      // nil: runner.OS{}
 	Dial   func(cfg Config) (grpc.ClientConnInterface, error) // nil: TLS grpc.NewClient
-	Ops    launcher.Backend                                   // nil: colima.NewWithContext(Runner, cfg.Colima.DockerContext)
+	Ops    launcher.Backend                                   // nil: colima.NewWithContext(Runner, cfg.Colima.DockerContext())
 	Images jam.ImageFactsReader                               // nil: imagefacts.New(Runner, the colima backend)
 	Sleep  func(ctx context.Context, d time.Duration)         // nil: Loop's default; tests shorten the backoff
+}
+
+// colimaBackend is the Colima backend pinned to the profile's docker context.
+func colimaBackend(r runner.Runner, cfg Config) *colima.Colima {
+	return colima.NewWithContext(r, cfg.Colima.DockerContext())
 }
 
 // Serve runs the manager named by cfg until ctx ends: it builds the Colima
@@ -58,7 +63,7 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 	}
 	ops, images := deps.Ops, deps.Images
 	if ops == nil || images == nil {
-		col := colima.NewWithContext(r, cfg.Colima.DockerContext)
+		col := colimaBackend(r, cfg)
 		if ops == nil {
 			ops = col
 		}

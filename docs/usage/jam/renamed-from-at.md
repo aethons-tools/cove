@@ -4,13 +4,13 @@ read_when: You are upgrading a Jam host or a workstation from a release whose bi
 owns: the at-/cove → jam old→new name table, the jam-rename upgrade runbook, what the jam-rename migrations do, and how to remove what the old release left
 prereqs: serve.md for running serve
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-05
 ---
 
 # Renamed from `at-*` and `cove-*` to `jam`
 
 Everything this repo ships is now named for **Jam**: `jam`, and
-`jam-studio-manager` on remote Studio Manager hosts. There are **no aliases** — an old name is simply not read. Jam carries over its own
+`jam-colima` on remote Studio Manager hosts ([once `jam-studio-manager`](../jam-colima.md#upgrading-from-jam-studio-manager)). There are **no aliases** — an old name is simply not read. Jam carries over its own
 config and state directories and rewrites stored kits, but **studios are not
 migrated**: every studio is redefined and re-raised under the new names, and a
 standing session starts fresh. You install the binaries, point your services
@@ -25,7 +25,7 @@ studio assembly changed).
    cannot fetch the new release (it asks for a `cove_*` archive that no longer
    exists, fails, and changes nothing):
    `gh api -H "Accept: application/vnd.github.raw" /repos/aethons-tools/cove/contents/install.sh | bash`
-   It installs `jam` and `jam-studio-manager`, and notices any `at-jam`,
+   It installs `jam` and `jam-colima`, and notices any `at-jam`,
    `at-mint`, `at-cove` or `at-studio-manager` left in the install directory;
    delete them after step 3.
 3. **Point the service and your PATH at `jam`**: the unit's `ExecStart`
@@ -99,11 +99,11 @@ On each host, after Jam is upgraded:
    `at-jam update` there fails the same way). Delete `at-studio-manager` (and
    any `at-jam`, `at-mint`) from the install directory.
 3. **Move its config directory**: `mv ~/.config/at-studio-manager
-   ~/.config/jam-studio-manager` (under `$XDG_CONFIG_HOME` when set), and
+   ~/.config/jam-colima` (under `$XDG_CONFIG_HOME` when set), and
    rewrite any `token-file`, `ca-file`, `identity-file` or `known-hosts-dir`
    in `config.yml` that names the old directory. The token stays valid.
-4. **Point the service at `jam-studio-manager run`** (`--config` if you pass
-   one) and start it.
+4. **Point the service at `jam-colima run`** (`--config` if you pass
+   one) and start it (`colima.docker-context` is now [`colima.profile`](../jam-colima.md#config)).
 5. **Re-raise its studios.** The new manager does not see its pre-rename
    containers (old labels), so on reconnect Jam marks them lost and tears each
    down, which removes the old container. Standing sessions pinned to it start
@@ -131,8 +131,7 @@ the first start.
 
 Nothing reads these any more. On each Colima host (a manager host, or a Jam
 host that ran the old `runtime.launcher`), once its studios are re-raised;
-`<docker-context>` is the manager's `colima.docker-context` (or the old
-launcher's `docker-context`), default `colima`:
+`<docker-context>` is the manager's (`colima`, or `colima-<profile>`) or the old launcher's `docker-context`:
 
 - **Containers** — the old launcher's `atcove-cove-<id>` and a manager's
   `atcove.<manager>.cove-<id>`, all labelled `harbor.cove`:
@@ -156,7 +155,7 @@ launcher's `docker-context`), default `colima`:
 |---|---|
 | `at-jam` | `jam` |
 | Jam image `ghcr.io/aethons-tools/jam` with `at-jam` and `at-mint`; local tag `cove-jam:dev` | the same image with `jam` only (`jam mint`); `jam:dev` |
-| `at-studio-manager` (remote manager hosts), `~/.config/at-studio-manager` | `jam-studio-manager`, `~/.config/jam-studio-manager` |
+| `at-studio-manager` (remote manager hosts), `~/.config/at-studio-manager` | `jam-studio-manager`, `~/.config/jam-studio-manager` (now `jam-colima`, `~/.config/jam-colima`) |
 | `at-mint github\|anthropic` | `jam mint github\|anthropic` |
 | `cove-master` (in studios) | `jam-studio-agent` |
 | `ghcr.io/aethons-tools/cove-base-image`, `…/cove-image` | `ghcr.io/aethons-tools/jam-studio-base`, `…/jam-studio` (the blessed bases were copied, digests unchanged) |
@@ -168,7 +167,7 @@ launcher's `docker-context`), default `colima`:
 | `/usr/local/lib/cove/`, `cove-egress.service` (and its `cove-egress.conf` drop-ins), `/etc/ssh/sshd_config.d/cove.conf`, `cove-git-credential.sh`, `/etc/cove/mcp-servers.json`, `/dev/shm/cove-*`, `/agent-data/cove-master.log` | `/usr/local/lib/jam/`, `jam-egress.service` (`jam-egress.conf`), `/etc/ssh/sshd_config.d/00-jam.conf`, `jam-git-credential.sh`, `/etc/jam/mcp-servers.json`, `/dev/shm/jam-*` (except `/dev/shm/cove-master-env` → `/dev/shm/jam-studio-agent-env`), `/agent-data/jam-studio-agent.log` |
 | `~/.config/at-jam`, `~/.local/state/at-jam` | `~/.config/jam`, `~/.local/state/jam` |
 | `~/.ssh/config` `# >>> at-jam <studio> >>>` | `# >>> jam <studio> >>>` |
-| release `cove_<ver>_<os>_<arch>.tar.gz` (at-cove, at-mint, at-jam, at-studio-manager) | `jam_<ver>_<os>_<arch>.tar.gz` (`jam`, `jam-studio-manager`) |
+| release `cove_<ver>_<os>_<arch>.tar.gz` (at-cove, at-mint, at-jam, at-studio-manager) | `jam_<ver>_<os>_<arch>.tar.gz` (`jam`, `jam-studio-manager`; now `jam-colima`) |
 | attach gRPC `harbor.attach.v1.Runtime`, `x-harbor-launch-secret`; manager gRPC `cove.manager.v1.StudioManager` | `jam.attach.v1.Runtime`, `x-jam-launch-secret`; `jam.manager.v1.StudioManager` |
 | repo dirs `cmd/at-jam`, `cmd/at-mint`, `cmd/at-studio-manager`, `cmd/cove-master`, `images/cove-base-image`, `images/cove-image`; `docs/usage/at-mint.md` | `cmd/jam`, `internal/mintcmd`, `cmd/jam-studio-manager`, `cmd/jam-studio-agent`, `images/jam-studio-base`, `images/jam-studio`; `docs/usage/jam-mint.md` |
 | Go `internal/covemaster`, `internal/covemasterbin`, `scripts/stage-covemaster.sh` (staged `covemaster/cove-master-linux-<arch>`) | `internal/studioagent`, `internal/studioagentbin`, `scripts/stage-studio-agent.sh` (`studioagent/jam-studio-agent-linux-<arch>`) |

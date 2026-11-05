@@ -5,7 +5,7 @@
 # Go's built-in cross-compilation just works — no toolchain or framework
 # needed. Every binary lands in a directory keyed by its OS/arch:
 #
-#   dist/<os>-<arch>/<binary>   # e.g. dist/linux-amd64/{jam,jam-studio-manager}
+#   dist/<os>-<arch>/<binary>   # e.g. dist/linux-amd64/{jam,jam-colima}
 #
 # The DEFAULT build targets the current host (go env GOOS/GOARCH). That keeps a
 # mac and a linux box (e.g. the cove VM) that share the same output folder from
@@ -28,7 +28,7 @@ VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 LDFLAGS="-s -w -X main.version=${VERSION}"
 
 ALL_TARGETS=(darwin/amd64 darwin/arm64 linux/amd64 linux/arm64)
-BINARIES=(jam jam-studio-manager)
+BINARIES=(jam jam-colima)
 
 # Build the Jam app bundle jam embeds. Required: it is the whole user area
 # (/app/user/), so a build without npm fails rather than ship a Jam no member

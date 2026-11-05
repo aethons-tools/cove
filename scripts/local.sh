@@ -4,9 +4,9 @@
 #   1. jam-studio-base:dev-<id>, then jam-studio:dev-<id> FROM it, built in the
 #      Docker your Studio Manager builds studios in;
 #   2. internal/basedigest/blessed/local.txt naming that base (git-ignored), so
-#      the jam and jam-studio-manager built next use it as their default studio
+#      the jam and jam-colima built next use it as their default studio
 #      base and trust it (and anything built FROM it) in the provenance gate;
-#   3. dist/<host>/{jam,jam-studio-manager} and dist/linux-<arch>/ with that
+#   3. dist/<host>/{jam,jam-colima} and dist/linux-<arch>/ with that
 #      embedded, the VS Code extension included;
 #   4. jam:dev, the Jam container image, from those binaries, in the same Docker.
 #
@@ -81,11 +81,11 @@ cat <<EOF
 local: done. These point at each other:
   studio base   $base  (jam's default; trusted by the gate)
   studio image  ${studio:-?}  (FROM the base)
-  binaries      dist/${host/\//-}/{jam,jam-studio-manager}$( [ "$host" = "linux/$arch" ] || echo ", dist/linux-$arch/" )
+  binaries      dist/${host/\//-}/{jam,jam-colima}$( [ "$host" = "linux/$arch" ] || echo ", dist/linux-$arch/" )
   Jam image     jam:dev  (just dev-jam-up)
   all in Docker context $DOCKER_CONTEXT
 
-Run this build's jam-studio-manager too: it builds studios FROM the local base.
+Run this build's jam-colima too: it builds studios FROM the local base.
 For a kit on the local jam-studio, set in its kit.yml:  base: {image: ${studio:-jam-studio:dev-<id>}}
 Back to a normal build: just local-clean
 EOF

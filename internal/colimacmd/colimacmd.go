@@ -1,4 +1,4 @@
-// Package colimacmd serves the jam-studio-manager binary's
+// Package colimacmd serves the jam-colima binary's
 // `colima setup-docker|check-docker` verbs.
 package colimacmd
 
@@ -15,11 +15,20 @@ import (
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
+// Config finds the colima profile (VM) a manager config names, so the verbs
+// prepare the VM the manager runs in. The binary supplies it; this package
+// does not parse manager configs itself.
+type Config struct {
+	DefaultPath string                            // read when --config is absent and this file exists; "" = none
+	Profile     func(path string) (string, error) // colima.profile of the config at path; nil = never read
+}
+
 // Command returns the `<prog> colima` group: host-side setup of the colima VM
 // docker:true kits need (docs/usage/docker-in-sandbox.md). getenv resolves the
-// config path (COLIMA_HOME, HOME, XDG_CONFIG_HOME) and r runs the check's docker
-// probe, both injected so the command stays hermetic in tests.
-func Command(prog string, getenv func(string) string, r runner.Runner) func([]string, cli.Globals, io.Writer, io.Writer) int {
+// colima.yaml path (COLIMA_HOME, HOME, XDG_CONFIG_HOME) and r runs the check's
+// docker probe, both injected so the command stays hermetic in tests; cfg
+// resolves --config to a profile.
+func Command(prog string, getenv func(string) string, r runner.Runner, cfg Config) func([]string, cli.Globals, io.Writer, io.Writer) int {
 	return func(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 		if len(args) == 0 {
 			fmt.Fprintln(stderr, prog+" colima: expected setup-docker|check-docker")
@@ -27,9 +36,9 @@ func Command(prog string, getenv func(string) string, r runner.Runner) func([]st
 		}
 		switch sub, rest := args[0], args[1:]; sub {
 		case "setup-docker":
-			return colimaSetupDocker(prog, rest, g, getenv, stdout, stderr)
+			return colimaSetupDocker(prog, rest, g, getenv, cfg, stdout, stderr)
 		case "check-docker":
-			return colimaCheckDocker(prog, rest, r, stdout, stderr)
+			return colimaCheckDocker(prog, rest, r, cfg, stdout, stderr)
 		default:
 			fmt.Fprintf(stderr, "%s colima: unknown subcommand %q (expected setup-docker|check-docker)\n", prog, sub)
 			return 2
@@ -37,28 +46,73 @@ func Command(prog string, getenv func(string) string, r runner.Runner) func([]st
 	}
 }
 
-// colimaConfigPath is the default profile's colima.yaml — the only profile a cove
-// uses, since the colima backend pins docker to the `colima` context. It mirrors
-// colima's own lookup: $COLIMA_HOME; else ~/.colima when that dir exists; else
-// $XDG_CONFIG_HOME/colima (XDG_CONFIG_HOME defaulting to ~/.config). dirExists is
-// injected so the lookup is hermetic in tests.
-func colimaConfigPath(getenv func(string) string, dirExists func(string) bool) (string, error) {
+// profileFlags registers --config and --profile on fs; resolve turns them
+// into the profile: --profile wins, else colima.profile of --config (or of
+// cfg.DefaultPath when that file exists), else the default profile.
+func profileFlags(fs *flag.FlagSet, cfg Config) (resolve func() (string, error)) {
+	path := fs.String("config", "", "the manager config whose colima.profile names the VM (default: the default config, when it exists)")
+	profile := fs.String("profile", "", "the colima profile (VM) to prepare; overrides --config (default: "+colimacfg.DefaultProfile+")")
+	return func() (string, error) {
+		p := *profile
+		if p == "" {
+			from := *path
+			if from == "" && cfg.DefaultPath != "" {
+				if _, err := os.Stat(cfg.DefaultPath); err == nil {
+					from = cfg.DefaultPath
+				}
+			}
+			if from != "" && cfg.Profile != nil {
+				var err error
+				if p, err = cfg.Profile(from); err != nil {
+					return "", err
+				}
+			}
+		}
+		if p == "" {
+			p = colimacfg.DefaultProfile
+		}
+		if !colimacfg.ValidProfile(p) {
+			return "", fmt.Errorf("profile %q is not a valid colima profile name (letters, digits, '-', '_', '.')", p)
+		}
+		return p, nil
+	}
+}
+
+// colimaVerb is the colima command line for verb against profile:
+// `colima <verb>`, plus --profile for any but the default profile.
+func colimaVerb(verb, profile string) string {
+	return "colima " + verb + profileArg(profile)
+}
+
+// profileArg is " --profile <p>" for any but the default profile.
+func profileArg(profile string) string {
+	if profile == colimacfg.DefaultProfile {
+		return ""
+	}
+	return " --profile " + profile
+}
+
+// colimaConfigPath is profile's colima.yaml. It mirrors colima's own lookup:
+// $COLIMA_HOME; else ~/.colima when that dir exists; else
+// $XDG_CONFIG_HOME/colima (XDG_CONFIG_HOME defaulting to ~/.config), then
+// <profile>/colima.yaml. dirExists is injected so the lookup is hermetic in tests.
+func colimaConfigPath(getenv func(string) string, dirExists func(string) bool, profile string) (string, error) {
 	const file = "colima.yaml"
 	if h := getenv("COLIMA_HOME"); h != "" {
-		return filepath.Join(h, "default", file), nil
+		return filepath.Join(h, profile, file), nil
 	}
 	home := getenv("HOME")
 	if home == "" {
 		return "", fmt.Errorf("cannot locate the colima config: neither COLIMA_HOME nor HOME is set")
 	}
 	if legacy := filepath.Join(home, ".colima"); dirExists(legacy) {
-		return filepath.Join(legacy, "default", file), nil
+		return filepath.Join(legacy, profile, file), nil
 	}
 	xdg := getenv("XDG_CONFIG_HOME")
 	if xdg == "" {
 		xdg = filepath.Join(home, ".config")
 	}
-	return filepath.Join(xdg, "colima", "default", file), nil
+	return filepath.Join(xdg, "colima", profile, file), nil
 }
 
 func isDir(p string) bool {
@@ -66,8 +120,9 @@ func isDir(p string) bool {
 	return err == nil && info.IsDir()
 }
 
-func colimaSetupDocker(prog string, args []string, g cli.Globals, getenv func(string) string, stdout, stderr io.Writer) int {
+func colimaSetupDocker(prog string, args []string, g cli.Globals, getenv func(string) string, cfg Config, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("colima setup-docker", flag.ContinueOnError)
+	resolve := profileFlags(fs, cfg)
 	version := fs.String("sysbox-version", colimacfg.MinSysboxVersion, "Sysbox CE release the provision hook installs (≥ "+colimacfg.MinSysboxVersion+")")
 	dry := fs.Bool("dry-run", false, "print the change as a diff and write nothing")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
@@ -82,7 +137,12 @@ func colimaSetupDocker(prog string, args []string, g cli.Globals, getenv func(st
 		fmt.Fprintln(stderr, prog+" colima setup-docker:", err)
 		return 2
 	}
-	path, err := colimaConfigPath(getenv, isDir)
+	profile, err := resolve()
+	if err != nil {
+		fmt.Fprintln(stderr, prog+" colima setup-docker:", err)
+		return 2
+	}
+	path, err := colimaConfigPath(getenv, isDir, profile)
 	if err != nil {
 		fmt.Fprintln(stderr, prog+" colima setup-docker:", err)
 		return 1
@@ -92,7 +152,7 @@ func colimaSetupDocker(prog string, args []string, g cli.Globals, getenv func(st
 	}
 	in, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		fmt.Fprintf(stderr, "%s colima setup-docker: colima config not found at %s — run 'colima start' once to create it\n", prog, path)
+		fmt.Fprintf(stderr, "%s colima setup-docker: colima config not found at %s — run '%s' once to create it\n", prog, path, colimaVerb("start", profile))
 		return 1
 	} else if err != nil {
 		fmt.Fprintln(stderr, prog+" colima setup-docker:", err)
@@ -105,7 +165,7 @@ func colimaSetupDocker(prog string, args []string, g cli.Globals, getenv func(st
 	}
 	if len(changes) == 0 {
 		fmt.Fprintf(stdout, "colima config already set up for docker:true (%s)\n", path)
-		fmt.Fprintln(stdout, "verify the running VM with: "+prog+" colima check-docker")
+		fmt.Fprintln(stdout, "verify the running VM with: "+prog+" colima check-docker"+profileArg(profile))
 		return 0
 	}
 	if *dry || g.DryRun {
@@ -123,14 +183,14 @@ func colimaSetupDocker(prog string, args []string, g cli.Globals, getenv func(st
 	printChanges(stdout, changes)
 	fmt.Fprintf(stdout, `
 next:
-  colima restart                  # runs the hook; restarts every cove in the VM
-  %[2]s colima check-docker      # confirm sysbox-runc is registered
+  %[3]s    # runs the hook; restarts every cove in the VM
+  %[2]s colima check-docker%[4]s    # confirm sysbox-runc is registered
 
 note: the hook skips the install when sysbox-runc is already present, so it
 won't upgrade an older Sysbox in an existing VM — upgrade that once by hand
 (stop running coves first — the install restarts docker in the VM):
-  colima ssh -- sudo sh -c 'curl -fsSL -o /tmp/sysbox.deb https://github.com/nestybox/sysbox/releases/download/v%[1]s/sysbox-ce_%[1]s.linux_$(dpkg --print-architecture).deb && apt-get install -y /tmp/sysbox.deb'
-`, *version, prog)
+  %[5]s -- sudo sh -c 'curl -fsSL -o /tmp/sysbox.deb https://github.com/nestybox/sysbox/releases/download/v%[1]s/sysbox-ce_%[1]s.linux_$(dpkg --print-architecture).deb && apt-get install -y /tmp/sysbox.deb'
+`, *version, prog, colimaVerb("restart", profile), profileArg(profile), colimaVerb("ssh", profile))
 	return 0
 }
 
@@ -169,8 +229,9 @@ func writeColimaConfig(path string, orig, next []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-func colimaCheckDocker(prog string, args []string, r runner.Runner, stdout, stderr io.Writer) int {
+func colimaCheckDocker(prog string, args []string, r runner.Runner, cfg Config, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("colima check-docker", flag.ContinueOnError)
+	resolve := profileFlags(fs, cfg)
 	pos, code, parsed := cli.ParseFlags(fs, args, stdout, stderr)
 	if !parsed {
 		return code
@@ -179,13 +240,19 @@ func colimaCheckDocker(prog string, args []string, r runner.Runner, stdout, stde
 		fmt.Fprintf(stderr, "%s colima check-docker: unexpected argument %q\n", prog, pos[0])
 		return 2
 	}
-	ok, err := colima.NewWithContext(r, "").HasSysboxRuntime() // the default profile's context
+	profile, err := resolve()
 	if err != nil {
-		fmt.Fprintf(stderr, "%s colima check-docker: %v — is colima running? (colima start)\n", prog, err)
+		fmt.Fprintln(stderr, prog+" colima check-docker:", err)
+		return 2
+	}
+	ok, err := colima.NewWithContext(r, colimacfg.ProfileContext(profile)).HasSysboxRuntime()
+	if err != nil {
+		fmt.Fprintf(stderr, "%s colima check-docker: %v — is colima running? (%s)\n", prog, err, colimaVerb("start", profile))
 		return 1
 	}
 	if !ok {
-		fmt.Fprintf(stderr, "%s colima check-docker: sysbox-runc is not registered in the colima VM's docker — run `%s colima setup-docker`, then `colima restart`\n", prog, prog)
+		fmt.Fprintf(stderr, "%s colima check-docker: sysbox-runc is not registered in the docker of colima profile %s — run `%s colima setup-docker%s`, then `%s`\n",
+			prog, profile, prog, profileArg(profile), colimaVerb("restart", profile))
 		return 1
 	}
 	fmt.Fprintln(stdout, "ok: sysbox-runc is registered — docker:true kits can run")

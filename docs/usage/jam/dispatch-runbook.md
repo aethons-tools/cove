@@ -4,7 +4,7 @@ read_when: You are bringing up a real Jam dispatch loop for the first time (or r
 owns: the ordered end-to-end dispatch stand-up procedure and its field gotchas; it links to the reference docs it stitches together and never restates their schemas
 prereqs: serve.md, roster.md, requisitioner.md, coves.md — this runbook orders them, it does not replace them
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-05
 ---
 
 # Runbook: Jam dispatch, end to end
@@ -16,7 +16,7 @@ doc that owns the detail; this runbook only owns the **order** and the
 
 ## Prerequisites
 
-- Colima running with an `jam-studio-manager` connected (it builds each studio kit's image on its first raise — [kits.md](kits.md)).
+- Colima running with a `jam-colima` connected (it builds each studio kit's image on its first raise — [kits.md](kits.md)).
 - A Linear workspace + team; a Linear API token (Jam's own).
 - Anthropic + git credentials Jam will broker.
 - A DNS name for Jam with a TLS cert (see the cert gotcha below).
@@ -68,7 +68,7 @@ doc that owns the detail; this runbook only owns the **order** and the
   allow-list, every brokered call (and the Attach stream) dies and the studio does
   nothing. Widen egress in the kit/image.
 - **The dialed name must match the TLS cert.** The manager's `colima.jam-host` /
-  `colima.runtime-addr` ([config](../studio-manager.md#config)) must be a name the broker cert's SAN covers — the studio validates
+  `colima.runtime-addr` ([config](../jam-colima.md#config)) must be a name the broker cert's SAN covers — the studio validates
   Jam's cert against its system trust store (the manager injects no CA). A
   cert for `local.aethons.tools` will not satisfy a studio told to dial
   `jam.local.aethons.tools`. Match them, or reissue the cert (wildcard/SAN).

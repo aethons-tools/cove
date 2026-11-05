@@ -1,34 +1,44 @@
 ---
-summary: The `jam-studio-manager` binary — a bare-metal process next to Colima that dials Jam over TLS and hosts studios; its install, config file, token, TLS, reconnect backoff, capacity, labels and image builds.
-read_when: You are setting up or running `jam-studio-manager` on a host, editing its `config.yml`, or debugging why it will not connect, declines raises, or rebuilds images.
-owns: the `jam-studio-manager` binary's config file, `run` verb, TLS trust, reconnect backoff, capacity gate, container/volume labels and per-host image builds
+summary: The `jam-colima` binary — the Studio Manager for a Colima host, a bare-metal process that dials Jam over TLS and hosts studios in a Colima VM; its install, upgrade from jam-studio-manager, config file and `colima.profile`, token, TLS, reconnect backoff, capacity, labels and image builds.
+read_when: You are setting up or running `jam-colima` on a host, upgrading a host from `jam-studio-manager`, editing its `config.yml` (which VM via `colima.profile`), or debugging why it will not connect, declines raises, or rebuilds images.
+owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, TLS trust, reconnect backoff, capacity gate, container/volume labels and per-host image builds
 prereqs: jam/studio-managers.md for registering the manager and what Jam does with it
 tier: leaf
-updated: 2026-10-27
+updated: 2026-11-05
 ---
 
-# jam-studio-manager
+# jam-colima
 
-`jam-studio-manager` runs on a host with Colima, dials *into* Jam over TLS and raises studios there on Jam's behalf.
+`jam-colima` is the Studio Manager for a Colima host: it runs next to Colima, dials *into* Jam over TLS and raises studios in a Colima VM on Jam's behalf.
 Registration, the token's auth, and disconnect/reconnect/revoke behaviour on Jam's side are in [Studio Managers](jam/studio-managers.md); this doc is the manager host's side.
 
 ## Install and run
 
-`install.sh` and `jam update` install it next to `jam`. Upgrading a host from a pre-rename release: follow [the rename runbook](jam/renamed-from-at.md#remote-studio-managers).
+`install.sh` and `jam update` install it next to `jam`. Upgrading a host from a pre-rename release: follow [the rename runbook](jam/renamed-from-at.md#remote-studio-managers); from `jam-studio-manager`: [below](#upgrading-from-jam-studio-manager).
 Its version must equal Jam's exactly, otherwise Jam refuses the stream.
-An update replaces the binary, not the running process: restart `jam-studio-manager run` after `jam update` or `install.sh`, or Jam keeps refusing the old process.
+An update replaces the binary, not the running process: restart `jam-colima run` after `jam update` or `install.sh`, or Jam keeps refusing the old process.
 
 1. On Jam, `jam manager add <name>`, and save the printed token in `token-file` (whitespace is trimmed; the token is never logged).
 2. Write the config below.
-3. `jam-studio-manager run [--config <path>]` serves until SIGINT or SIGTERM.
+3. `jam-colima run [--config <path>]` serves until SIGINT or SIGTERM.
 
 The token file is reread at each connect, so after `jam manager rotate` ([verbs](jam/studio-managers.md)) writing the new token to `token-file` is enough; the manager reconnects with it, no restart.
 
-`jam-studio-manager colima setup-docker|check-docker` prepare the Colima VM for `colima.docker: true`; they are owned by [docker-in-sandbox.md](docker-in-sandbox.md).
+`jam-colima colima setup-docker|check-docker [--config <path>] [--profile <name>]` prepare the manager's Colima VM for `colima.docker: true`; they are owned by [docker-in-sandbox.md](docker-in-sandbox.md).
+
+## Upgrading from jam-studio-manager
+
+The binary was `jam-studio-manager`; the Studio Manager concept, Jam's `manager` verbs, labels, container names and the stream are unchanged. On each host, after Jam is upgraded:
+
+1. **Install** with the one-command installer ([OVERVIEW](../OVERVIEW.md#installing-the-binaries)). An older `jam update` installs the new `jam`, then fails on the missing `jam-studio-manager`, and the new `jam update` then reports up to date — so run `install.sh` once. It (and every later `jam update`) notices a leftover `jam-studio-manager` in the install directory; delete it after step 3.
+2. **Edit `config.yml`** (still in the old dir): replace `colima.docker-context` with `colima.profile` — a config that still has it is refused. `docker-context: colima` (or none) is the `default` profile; `docker-context: colima-jam-b` is `profile: jam-b`. Rewrite any `token-file`, `ca-file`, `identity-file` or `known-hosts-dir` that names the old dir.
+3. **Point the service at `jam-colima run`** (`--config` if you pass one) and restart it.
+
+The config dir moves by itself: at `run`, if `<parent>/jam-colima` is missing and `<parent>/jam-studio-manager` exists, it is renamed (one stderr line). The identity key moves with it, so kit images and state are kept.
 
 ## Config
 
-Default path `<dir>/config.yml`, where `<dir>` is `$XDG_CONFIG_HOME/jam-studio-manager`, else `~/.config/jam-studio-manager`.
+Default path `<dir>/config.yml`, where `<dir>` is `$XDG_CONFIG_HOME/jam-colima`, else `~/.config/jam-colima`.
 The file is strict: unknown keys are rejected.
 
 ```yaml
@@ -42,7 +52,7 @@ log-level: info               # debug|info|warn|error
 colima:
   runtime-addr: jam.example.com:443  # required; the Jam address studios dial
   jam-host: jam.example.com          # required; the Jam host name studios resolve
-  docker-context: ""                 # default colima
+  profile: default                   # the Colima VM (colima --profile); letters, digits, - _ .
   docker: false                      # Sysbox docker-in-sandbox
   dns: []
   identity-file: ""                  # default <dir>/id_ed25519 (generated on first use)
@@ -51,8 +61,8 @@ colima:
 
 `identity-file` is the SSH key the manager uses to reach its studios (generated on first use); `known-hosts-dir` holds the studio host keys; both default to the manager's own `<dir>`.
 `runtime-addr` is what a studio dials (`JAM_RUNTIME_ADDR`); `jam-host` is added to the studio's `/etc/hosts` so that name resolves to the host gateway.
-`docker-context` picks which Colima instance studios run in: every docker call is pinned to it.
-It defaults to `colima`; `colima start --profile jam-b` creates `colima-jam-b`, so `docker-context: colima-jam-b` places this manager's studios, kit images and volumes in that VM.
+`profile` names the Colima VM studios run in; every docker call is pinned to its docker context, `colima` for `default`, else `colima-<profile>`.
+So `colima start --profile jam-b` and `profile: jam-b` place this manager's studios, kit images and volumes in that VM.
 For a Jam in a container, `jam-addr` is the host's published 443 ([pointing managers at it](jam/container.md#pointing-studio-managers-at-it)).
 
 ## TLS

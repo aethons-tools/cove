@@ -4,7 +4,7 @@ read_when: You are running or administering a Jam service — standing it up, si
 owns: the map of the jam operator/usage docs and how they relate
 prereqs: ../../OVERVIEW.md for the studio image and its security model
 tier: section
-updated: 2026-11-03
+updated: 2026-11-05
 ---
 
 # `jam` — operating the central service
@@ -21,7 +21,7 @@ studios points at. It does three things for the studios it serves:
 - **Serves the kit registry** — named, versioned kit definitions a Role can bind.
 
 `jam` ships as one binary (minting is `jam mint`), released alongside
-[`jam-studio-manager`](../studio-manager.md) for remote manager hosts: install
+[`jam-colima`](../jam-colima.md) for remote manager hosts: install
 them with the one-command installer and keep them current with `jam update` (see
 [installing the binaries](../../OVERVIEW.md#installing-the-binaries)).
 
@@ -106,7 +106,7 @@ five pillars), see the design history:
 | [attachments.md](attachments.md) | You want people or agents to share files (screenshots, logs, PDFs) in a conversation, you're setting up the attachments bucket (Garage/S3/R2), or an upload or download is refused — upload → reference → access-checked download, `attach`/`fetch`. |
 | [asks.md](asks.md) | You want an agent to ask people a question with answers to pick from (approve, choose A/B/C) and get the answer through `read` — the `ask`/`amend`/`withdraw`/`asks` tools, who may answer, and how open asks count as asking for a person. |
 | [escalation.md](escalation.md) | You want a waiting session that asked for a person to actively reach people — configuring a Project's ordered, category-keyed escalation tiers (called into the session's channel) + per-tier timeouts, the `escalate(category)` tool, and operating the resident escalation engine. |
-| [../docker-in-sandbox.md](../docker-in-sandbox.md#prerequisite-install-sysbox-in-the-colima-vm-one-time) | You are preparing a Jam host's colima VM for `docker: true` kits — `jam-studio-manager colima setup-docker` / `check-docker`. |
+| [../docker-in-sandbox.md](../docker-in-sandbox.md#prerequisite-install-sysbox-in-the-colima-vm-one-time) | You are preparing a Jam host's colima VM for `docker: true` kits — `jam-colima colima setup-docker` / `check-docker`. |
 
 ## The shape of a working Jam
 

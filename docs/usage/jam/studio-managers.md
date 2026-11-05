@@ -4,13 +4,13 @@ read_when: You register, rotate or revoke a Studio Manager, upgrade from the old
 owns: the operator-facing Studio Manager story — `runtime.studio-managers`, the `manager` verbs and admin API, the Connect stream's auth and lifecycle, and disconnect/reconnect/revoke behaviour
 prereqs: coves.md#managers-and-placement for how a raise picks a manager; serve.md for the serve config
 tier: leaf
-updated: 2026-10-27
+updated: 2026-11-05
 ---
 
 # Studio Managers
 
 A **Studio Manager** is a remote process that hosts studios on another machine and dials *into* Jam; Jam registers it under a name.
-The manager binary is [jam-studio-manager](../studio-manager.md); this doc covers Jam's side.
+The manager binary is [jam-colima](../jam-colima.md); this doc covers Jam's side.
 How a raise chooses among managers is in [Managers and placement](coves.md#managers-and-placement).
 
 ## Enable it
@@ -81,8 +81,8 @@ Manager metrics are in [monitoring.md](monitoring.md#metrics).
 
 Jam used to run studios itself under `runtime.launcher` as the `local` manager; that block, the `local` manager and the `colima` verbs of the Jam CLI are gone.
 A serve config that still has `runtime.launcher` is refused at startup with a message pointing here.
-Remove the block, run [jam-studio-manager](../studio-manager.md) next to Colima, set `runtime.studio-managers: true`, and register the manager (`jam manager add`).
-`colima setup-docker|check-docker` are now `jam-studio-manager colima ...` ([docker-in-sandbox.md](../docker-in-sandbox.md)).
+Remove the block, run [jam-colima](../jam-colima.md) next to Colima, set `runtime.studio-managers: true`, and register the manager (`jam manager add`).
+`colima setup-docker|check-docker` are now `jam-colima colima ...` ([docker-in-sandbox.md](../docker-in-sandbox.md)).
 
 What Jam does at the cutover:
 

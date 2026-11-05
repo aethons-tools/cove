@@ -4,7 +4,7 @@ read_when: You want to run Jam from its container image (the dev compose `jam` s
 owns: the Jam container image (name, tags, platforms, contents, build), the container serve config's shape, the compose `jam` service and its `just` recipes, the container's ports/admin access/volumes, and what a launcher-free serve needs at runtime
 prereqs: serve.md for the serve config; studio-managers.md for how managers connect
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-05
 ---
 
 # Jam in a container
@@ -107,7 +107,7 @@ Use `value:`, `mint:`, or a command over a mounted file, such as `["cat", "/run/
 ## Pointing Studio Managers at it
 
 A manager on the same host reaches the container at the host's published 443.
-In dev, both its `jam-addr` and `colima.runtime-addr` are `jam.local.aethons.tools:443`, and `colima.jam-host` is `jam.local.aethons.tools` ([manager config](../studio-manager.md#config)).
+In dev, both its `jam-addr` and `colima.runtime-addr` are `jam.local.aethons.tools:443`, and `colima.jam-host` is `jam.local.aethons.tools` ([manager config](../jam-colima.md#config)).
 Studios still reach the same address through the `--add-host <jam-host>:host-gateway` mapping.
 Register each manager with `manager add` ([studio-managers.md](studio-managers.md)).
 

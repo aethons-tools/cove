@@ -1,6 +1,6 @@
-// Command jam-studio-manager runs a Studio Manager: the per-host daemon that
-// raises and tends studios on behalf of a Jam. `run` serves until signalled;
-// `colima` prepares the Docker backend on macOS.
+// Command jam-colima runs a Studio Manager on a Colima host: the per-host
+// daemon that raises and tends studios on behalf of a Jam. `run` serves until
+// signalled; `colima` prepares the colima VM's Docker for docker:true kits.
 package main
 
 import (
@@ -23,13 +23,15 @@ import (
 
 var version = "dev"
 
+const prog = "jam-colima"
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
 }
 
 func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	app := cli.App{
-		Name:        "jam-studio-manager",
+		Name:        prog,
 		Version:     version,
 		VersionNote: basedigest.VersionNote(),
 		Commands: []cli.Command{
@@ -38,25 +40,49 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 					return cmdRun(args, getenv, stderr)
 				}},
 			{Name: "colima", Brief: "prepare the Docker backend (setup-docker|check-docker)",
-				Run: colimacmd.Command("jam-studio-manager", getenv, runner.OS{})},
+				Run: colimacmd.Command(prog, getenv, runner.OS{}, colimaConfig(getenv))},
 		},
 	}
 	return app.Run(argv, stdout, stderr)
 }
 
+// defaultConfig is the config file run reads without --config.
+func defaultConfig(getenv func(string) string) string {
+	return filepath.Join(studiomanager.DefaultDir(getenv), "config.yml")
+}
+
+// colimaConfig lets `colima setup-docker|check-docker` read colima.profile
+// from the manager config (strictly, as run does).
+func colimaConfig(getenv func(string) string) colimacmd.Config {
+	return colimacmd.Config{
+		DefaultPath: defaultConfig(getenv),
+		Profile: func(path string) (string, error) {
+			c, err := studiomanager.Load(path, getenv)
+			return c.Colima.Profile, err
+		},
+	}
+}
+
 func cmdRun(args []string, getenv func(string) string, stderr io.Writer) int {
-	fs := flag.NewFlagSet("jam-studio-manager run", flag.ContinueOnError)
+	fs := flag.NewFlagSet(prog+" run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "config file (default: <config dir>/config.yml)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	// Before the config path resolves: the default config lives in the moved dir.
+	if from, err := studiomanager.MigrateDir(getenv); err != nil {
+		fmt.Fprintf(stderr, "%s run: %v\n", prog, err)
+		return 1
+	} else if from != "" {
+		fmt.Fprintf(stderr, "%s run: moved config dir %s to %s (renamed binary)\n", prog, from, studiomanager.DefaultDir(getenv))
+	}
 	if *cfgPath == "" {
-		*cfgPath = filepath.Join(studiomanager.DefaultDir(getenv), "config.yml")
+		*cfgPath = defaultConfig(getenv)
 	}
 	cfg, err := studiomanager.Load(*cfgPath, getenv)
 	if err != nil {
-		fmt.Fprintf(stderr, "jam-studio-manager run: %v\n", err)
+		fmt.Fprintf(stderr, "%s run: %v\n", prog, err)
 		return 2
 	}
 	var lvl slog.Level
@@ -68,7 +94,7 @@ func cmdRun(args []string, getenv func(string) string, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := studiomanager.Serve(ctx, cfg, version, log, studiomanager.Deps{}); err != nil {
-		fmt.Fprintf(stderr, "jam-studio-manager run: %v\n", err)
+		fmt.Fprintf(stderr, "%s run: %v\n", prog, err)
 		return 1
 	}
 	return 0

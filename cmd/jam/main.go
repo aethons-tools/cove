@@ -115,7 +115,7 @@ func commandName(argv []string) string {
 
 func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	if commandName(argv) == "colima" {
-		fmt.Fprintln(stderr, `jam: colima moved to jam-studio-manager: run "jam-studio-manager colima setup-docker|check-docker"`)
+		fmt.Fprintln(stderr, `jam: colima moved to jam-colima: run "jam-colima colima setup-docker|check-docker"`)
 		return 2
 	}
 	app := cli.App{
@@ -162,7 +162,7 @@ func run(argv []string, getenv func(string) string, stdout, stderr io.Writer) in
 			{Name: "mint", Brief: "mint a short-lived token (github | anthropic) — what Jam runs for a minter credential", Run: func(a []string, g cli.Globals, out, errw io.Writer) int {
 				return mintcmd.Run(a, version, os.LookupEnv, http.DefaultClient, out, errw)
 			}},
-			{Name: "update", Brief: "update the Jam installation (jam, jam-studio-manager) to the latest release", Run: cmdUpdate(getenv)},
+			{Name: "update", Brief: "update the Jam installation (jam, jam-colima) to the latest release", Run: cmdUpdate(getenv)},
 			{Name: "vscode", Brief: "install the Jam VS Code extension this Jam serves (install), with `code --install-extension`; it then offers its own updates", Run: cmdVSCode},
 		},
 	}

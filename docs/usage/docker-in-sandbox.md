@@ -1,10 +1,10 @@
 ---
 summary: The operator guide to docker-in-sandbox — turning on `docker: true`, the one-time Sysbox VM prerequisite, registry allow-list recipes, how nested-container egress behaves, and the feature's limitations.
-read_when: You are enabling Docker inside studios (workloads that run `docker build` / `docker compose up` / testcontainers) — setting `colima.docker` on a Studio Manager, installing Sysbox in the colima VM (`jam-studio-manager colima setup-docker`), allow-listing a registry, or debugging a nested container that can't reach the network.
-owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations, and the `jam-studio-manager colima setup-docker`/`check-docker` commands that automate it
-prereqs: ../OVERVIEW.md for the image + egress model; studio-manager.md#config for the manager's `colima.docker` setting
+read_when: You are enabling Docker inside studios (workloads that run `docker build` / `docker compose up` / testcontainers) — setting `colima.docker` on a Studio Manager, installing Sysbox in the colima VM (`jam-colima colima setup-docker`), allow-listing a registry, or debugging a nested container that can't reach the network.
+owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations, and the `jam-colima colima setup-docker`/`check-docker` commands that automate it
+prereqs: ../OVERVIEW.md for the image + egress model; jam-colima.md#config for the manager's `colima.docker` setting
 tier: leaf
-updated: 2026-10-26
+updated: 2026-11-05
 ---
 
 # Docker inside the sandbox
@@ -21,7 +21,7 @@ threat model, see the [Sysbox docker-in-sandbox design](../superpowers/specs/202
 ## Enabling it
 
 The switch is the `colima.docker` setting in the manager's config
-([studio-manager.md](studio-manager.md#config)):
+([jam-colima.md](jam-colima.md#config)):
 
 ```yaml
 colima:
@@ -50,21 +50,21 @@ separately, because **colima owns `/etc/docker/daemon.json` and regenerates it o
 every start** — a runtime entry written by the Sysbox `.deb` postinstall (or by
 hand) is wiped on the next boot, so register it through colima's own config.
 
-**The quick way — `jam-studio-manager colima setup-docker`.** On the colima host (the [manager host](studio-manager.md)), run:
+**The quick way — `jam-colima colima setup-docker`.** On the colima host (the [manager host](jam-colima.md)), run:
 
 ```console
-$ jam-studio-manager colima setup-docker --dry-run   # show the change as a diff, write nothing
-$ jam-studio-manager colima setup-docker             # write it (backs up colima.yaml.bak first)
-$ colima restart                         # runs the hook — restarts every cove in the VM
-$ jam-studio-manager colima check-docker             # ok: sysbox-runc is registered
+$ jam-colima colima setup-docker --dry-run   # show the change as a diff, write nothing
+$ jam-colima colima setup-docker             # write it (backs up colima.yaml.bak first)
+$ colima restart                             # runs the hook — restarts every cove in the VM
+$ jam-colima colima check-docker             # ok: sysbox-runc is registered
 ```
 
-It edits the default profile's config (behind the `colima` docker context the manager
-uses), found as colima finds it: `$COLIMA_HOME`, else `~/.colima`, else
+Both act on the manager's VM, its [`colima.profile`](jam-colima.md#config) (read from `--config <path>`, else the default config when it exists, else `default`; `--profile <name>` overrides): they edit `<colima home>/<profile>/colima.yaml`, probe that profile's docker context, and hint `colima restart --profile <name>` for a non-default one.
+The colima home is found as colima finds it: `$COLIMA_HOME`, else `~/.colima`, else
 `$XDG_CONFIG_HOME/colima`. It writes exactly the two pieces below: one provision
-hook it owns (marked `# managed by jam-studio-manager colima setup-docker`; a hook under an older marker is still recognized by its Sysbox download and adopted; re-running replaces
+hook it owns (marked `# managed by jam-colima colima setup-docker`; a hook under an older marker is still recognized by its Sysbox download and adopted; re-running replaces
 it, your other hooks are kept, and a hand-written Sysbox hook from the manual steps
-below, or one it wrote before the jam rename changed that marker, is replaced by it) and the `sysbox-runc` runtime entry. With nothing to
+below, or one it wrote under an older marker, is replaced by it) and the `sysbox-runc` runtime entry. With nothing to
 change the file is untouched. `--sysbox-version` (default and minimum
 `0.7.1`) picks the release. A changing run keeps comments but normalizes
 formatting, and edits a symlinked config's target. It never restarts colima.
