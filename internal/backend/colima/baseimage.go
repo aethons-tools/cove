@@ -101,6 +101,16 @@ func (d dockerImg) Layers(ref string) ([]string, error) {
 	return baseimage.ParseLayers(out)
 }
 
+// embeddedBlessedLayers is the gate's build-time layer lookup for a blessed ref
+// (baseimage.Spec.BlessedLayers): the diff_ids embedded for the arch this
+// backend builds studio images for — runtime.GOARCH, the JAM_STUDIO_TARGET_ARCH
+// passed to every base build (colima's VM arch is the host's). A ref without
+// embedded layers falls back to dockerImg.Layers. A var so tests stay hermetic
+// whether or not this build embedded layers.
+var embeddedBlessedLayers = func(ref string) ([]string, bool) {
+	return basedigest.BlessedLayers(ref, runtime.GOARCH)
+}
+
 // resolveBase selects and verifies the base ref for a build, returning the value
 // to pass as the hardening build's BASE arg. The gate runs only for a kit-chosen
 // base; the default is a blessed jam-studio-base by construction.
@@ -109,6 +119,7 @@ func (c *Colima) resolveBase(spec backend.BaseSpec) (string, error) {
 		Base:            spec.Base,
 		DefaultRef:      basedigest.DefaultRef(),
 		AllowUnverified: spec.AllowUnverified,
+		BlessedLayers:   embeddedBlessedLayers,
 	}
 	if spec.KitDir != "" {
 		imageDir := filepath.Join(spec.KitDir, "image")
@@ -173,7 +184,7 @@ func (c *Colima) resolveBaseTar(ctxTar io.Reader) (string, error) {
 	d := streamDockerImg{dockerImg: dockerImg{c: c, baseArg: base}, ctx: ctxTar}
 	// DockerfileDir non-empty selects the build+gate path in baseimage.Resolve; the
 	// value is ignored by streamDockerImg.Build (the context comes from stdin).
-	return baseimage.Resolve(d, baseimage.Spec{DockerfileDir: "-", DefaultRef: base}, basedigest.BlessedRefs(), os.Stderr)
+	return baseimage.Resolve(d, baseimage.Spec{DockerfileDir: "-", DefaultRef: base, BlessedLayers: embeddedBlessedLayers}, basedigest.BlessedRefs(), os.Stderr)
 }
 
 // resolveBaseTarOn builds a kit-chain stage: ctxTar streams to `docker build -`
@@ -186,7 +197,7 @@ func (c *Colima) resolveBaseTarOn(ctxTar io.Reader, parentRef, stageTag string) 
 		return "", fmt.Errorf("kit stage build: parent ref and stage tag are required")
 	}
 	d := streamDockerImg{dockerImg: dockerImg{c: c, baseArg: parentRef}, ctx: ctxTar}
-	ref, err := baseimage.Resolve(d, baseimage.Spec{DockerfileDir: "-", DefaultRef: parentRef}, basedigest.BlessedRefs(), os.Stderr)
+	ref, err := baseimage.Resolve(d, baseimage.Spec{DockerfileDir: "-", DefaultRef: parentRef, BlessedLayers: embeddedBlessedLayers}, basedigest.BlessedRefs(), os.Stderr)
 	if err != nil {
 		return "", err
 	}

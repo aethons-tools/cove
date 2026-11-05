@@ -12,6 +12,40 @@ import (
 	"github.com/aethons-tools/cove/internal/runner"
 )
 
+// The gate tests below script docker's answers for the blessed refs, so they
+// run as if this build embedded no blessed layers (an offline build) — whether
+// or not gen-blessed wrote blessed/layers.json into this checkout.
+func TestMain(m *testing.M) {
+	embeddedBlessedLayers = func(string) ([]string, bool) { return nil, false }
+	os.Exit(m.Run())
+}
+
+// With the blessed layers embedded at build time, the gate reads only the
+// kit-chosen base via docker: no inspect (or pull) of a blessed image.
+func TestResolveBaseTagUsesEmbeddedBlessedLayers(t *testing.T) {
+	old := embeddedBlessedLayers
+	t.Cleanup(func() { embeddedBlessedLayers = old })
+	var asked []string
+	embeddedBlessedLayers = func(ref string) ([]string, bool) {
+		asked = append(asked, ref)
+		return []string{"sha256:a", "sha256:b"}, true
+	}
+	f := &runner.Fake{Outputs: []runner.FakeResult{
+		{Stdout: `["sha256:a","sha256:b","sha256:c"]`}, // the base tag's layers
+	}}
+	c := &Colima{r: f}
+	const tag = "ghcr.io/acme/jam-studio@sha256:child"
+	if ref, err := c.resolveBase(backend.BaseSpec{Base: tag}); err != nil || ref != tag {
+		t.Fatalf("resolveBase = %q, %v", ref, err)
+	}
+	if len(f.Calls) != 1 || !contains(f.Calls[0].Args, tag) {
+		t.Fatalf("docker must read only the base tag: %+v", f.Calls)
+	}
+	if len(asked) == 0 || asked[0] != basedigest.BlessedRefs()[0] {
+		t.Fatalf("embedded lookup asked %v, want the blessed refs", asked)
+	}
+}
+
 // The default path (no image.base, no image/Dockerfile) needs no gate: the ref
 // is a blessed jam-studio-base by construction, so no docker inspect runs.
 func TestResolveBaseDefaultSkipsGate(t *testing.T) {

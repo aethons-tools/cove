@@ -114,7 +114,11 @@ resolved image's OCI rootfs `diff_ids` and asserts some blessed
 *are* that image, byte-for-byte). The blessed digests are embedded
 (`internal/basedigest`, a rolling set); the default base (the head) is blessed by
 construction, so it skips the gate. The blessed refs are read newest first and the
-gate stops at the first match (reading one may pull it). A base that descends from no blessed image is
+gate stops at the first match. Each blessed image's per-arch layers are embedded at
+build time too (`blessed/layers.json`, below), so the gate reads them for the
+manager's arch without docker; docker (`inspect`, pulling if missing) is consulted
+only for a ref without embedded layers — an offline/watermark-only build, or the
+`just local` base. A base that descends from no blessed image is
 **rejected**, — there is no override. This lets hardening *trust* its prerequisites (the egress stack, the
 `agent` user, the expected layout) rather than probe for them. The gate lives in
 `internal/baseimage` (pure prefix logic) with the docker execution behind the
@@ -127,7 +131,11 @@ the **low-watermark**, the oldest `jam-studio-base` still trusted. Before `go
 build`, `cmd/gen-blessed` lists the published `jam-studio-base` digests from the
 registry and walks newest→oldest **through** the watermark, writing that list to
 the sibling `generated.txt` (gitignored) for `go:embed` (`internal/blessgen` holds
-the pure walk; the GHCR query sits behind a seam). `basedigest.Blessed` prefers
+the pure walk; the GHCR query sits behind a seam). It then reads each blessed
+digest's linux/amd64 and linux/arm64 image config from the registry (ghcr.io's v2
+API, digest-verified) and writes their rootfs `diff_ids` to the sibling
+`layers.json` (gitignored; `{digest: {arch: [diff_ids]}}`, read by
+`basedigest.BlessedLayers`). `basedigest.Blessed` prefers
 `generated.txt` and falls back to the committed watermark, so a routine base
 republish is trusted automatically with no commit-back loop, a breaking base
 change is a one-line watermark bump that drops everything older, and a fresh clone

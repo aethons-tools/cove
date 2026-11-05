@@ -30,6 +30,24 @@ type Spec struct {
 	Base            string // config.yml image.base; used if DockerfileDir == ""
 	DefaultRef      string // jam-studio-base@<blessed[0]>; used if both empty
 	AllowUnverified bool   // --allow-unverified-base: downgrade a failed gate to a warning
+
+	// BlessedLayers, when set, returns a blessed ref's diff_ids embedded at build
+	// time (basedigest.BlessedLayers for the build arch); ok=false means none are
+	// embedded. The gate compares embedded layers without docker and calls
+	// Docker.Layers (inspect, pulling if needed) only for a ref without them.
+	BlessedLayers func(ref string) (layers []string, ok bool)
+}
+
+// blessedLayers reads a blessed ref's diff_ids — embedded when available, else
+// via docker — and names the source for the reject diagnostic.
+func (s Spec) blessedLayers(d Docker, ref string) ([]string, string, error) {
+	if s.BlessedLayers != nil {
+		if l, ok := s.BlessedLayers(ref); ok && len(l) > 0 {
+			return l, "embedded", nil
+		}
+	}
+	l, err := d.Layers(ref)
+	return l, "docker", err
 }
 
 // Resolve selects the base image the sealed hardening layer is applied FROM, runs
@@ -59,7 +77,8 @@ func Resolve(d Docker, s Spec, blessedRefs []string, warn io.Writer) (string, er
 	}
 
 	// Read the blessed refs in order and stop at the first the base descends
-	// from: reading one may pull it, and one match is all the gate needs. On a
+	// from: layers embedded at build time are free, but a ref without them is
+	// read via docker (which may pull it), and one match is all the gate needs. On a
 	// reject every ref has been read, so the diagnostic explains itself: which
 	// blessed refs could be read, how their layers compare to the resolved base,
 	// and — crucially — whether a ref yielded no layers at all (which reads
@@ -68,7 +87,7 @@ func Resolve(d Docker, s Spec, blessedRefs []string, warn io.Writer) (string, er
 	var diag strings.Builder
 	fmt.Fprintf(&diag, "resolved base %s: %s\n", ref, summarizeLayers(child))
 	for _, br := range blessedRefs {
-		switch layers, err := d.Layers(br); {
+		switch layers, src, err := s.blessedLayers(d, br); {
 		case err != nil:
 			fmt.Fprintf(&diag, "  blessed %s: could NOT read layers: %v\n", br, err)
 		case len(layers) == 0:
@@ -77,8 +96,8 @@ func Resolve(d Docker, s Spec, blessedRefs []string, warn io.Writer) (string, er
 		case DescendsFrom(child, layers):
 			return ref, nil
 		default:
-			fmt.Fprintf(&diag, "  blessed %s: %s [base descends from it: %v]\n",
-				br, summarizeLayers(layers), DescendsFrom(child, layers))
+			fmt.Fprintf(&diag, "  blessed %s: %s, %s [base descends from it: %v]\n",
+				br, summarizeLayers(layers), src, DescendsFrom(child, layers))
 		}
 	}
 

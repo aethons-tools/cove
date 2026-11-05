@@ -1,15 +1,21 @@
 // Package basedigest holds the blessed jam-studio-base manifest digests that a
 // kit's resolved base must descend from — COV-34's provenance gate compares the
 // base's OCI layer diff_ids against the blessed image's. The digests are embedded
-// into jam (go:embed), so the gate runs fully offline at build time.
+// into jam (go:embed), and so — when the build had registry access — are each
+// blessed digest's per-arch layer diff_ids, so the gate needs no docker
+// inspect/pull of a blessed image (see BlessedLayers).
 //
 // The set is generated at build time from the registry, bounded by a committed
 // low-watermark — see internal/blessgen and cmd/gen-blessed (COV-44). The embed
-// covers a directory of up to three files:
+// covers a directory of up to four files:
 //
 //   - blessed/watermark.txt — committed: the single low-watermark digest.
 //   - blessed/generated.txt — gitignored: the registry snapshot cmd/gen-blessed
 //     writes before `go build`. Absent in a fresh checkout and offline builds.
+//   - blessed/layers.json — gitignored: written by cmd/gen-blessed alongside
+//     generated.txt, {digest: {arch: [diff_ids]}} for linux/amd64 and
+//     linux/arm64, read from each blessed image's config blob in the registry.
+//     Absent offline; the gate then reads blessed layers via docker.
 //   - blessed/local.txt — gitignored: a locally built base's ref, written by
 //     `just local` (scripts/local.sh); a release never has one (the goreleaser
 //     before-hook refuses it). See LocalRef.
@@ -24,6 +30,7 @@ package basedigest
 import (
 	"bufio"
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"strings"
 )
@@ -90,6 +97,29 @@ func BlessedRefs() []string {
 		refs = append(refs, Image+"@"+d)
 	}
 	return refs
+}
+
+// BlessedLayers returns the rootfs diff_ids embedded at build time
+// (blessed/layers.json) for a blessed ref — Image@<digest>, as BlessedRefs
+// yields — on arch ("amd64" | "arm64", the studio image arch). ok is false when
+// none are embedded: an offline/watermark-only build, a ref outside Image (the
+// local base), or an arch the image was not published for. The provenance
+// gate then falls back to reading the ref via docker.
+func BlessedLayers(ref, arch string) ([]string, bool) {
+	digest, found := strings.CutPrefix(ref, Image+"@")
+	if !found {
+		return nil, false
+	}
+	b, err := files.ReadFile("blessed/layers.json")
+	if err != nil {
+		return nil, false
+	}
+	var m map[string]map[string][]string
+	if json.Unmarshal(b, &m) != nil {
+		return nil, false
+	}
+	l := m[digest][arch]
+	return l, len(l) > 0
 }
 
 func parse(s string) []string {
