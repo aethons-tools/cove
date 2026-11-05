@@ -74,9 +74,10 @@ Jam shows them:
 - the dashboard's Managers panel, **Activity** column: one line each, e.g. `preparing kit web@v2: building step 7/12 (2m)` (what, step, for how long);
 - a session raising or recovering while a manager (its own first) prepares its kit: `is preparing its kit image — <step>` on the [status strip](intercom-ui.md#session-status) and a `preparing kit` [card](session-card.md) pill (matched on the kit's id, so a recovery building the role's newer version counts);
 - a standing upgrade's `preparing` state: `preparing: <step>` while its prepare runs ([upgrades](standing-sessions.md));
-- `jam manager list`'s `activities=<n>`.
+- `jam manager list`'s `activities=<n>`;
+- the New session dialog, while its Start waits: `Preparing the kit image — <step> (<age>)` ([personal sessions](personal-sessions.md#starting-one-from-the-inbox)).
 
-A fresh raise records no session until it is up, so a new session's line shows nothing while its kit builds (it appears once raised); only a recovering session's line shows the prepare.
+A fresh raise records no session until it is up, so a starting session has no status-strip line during the build; the New session dialog shows it instead.
 
 ## Disconnect
 

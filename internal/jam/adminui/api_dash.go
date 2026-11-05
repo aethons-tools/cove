@@ -67,17 +67,9 @@ func activityLine(a jam.ManagerActivity, now time.Time) string {
 		s += ": " + p
 	}
 	if !a.Started.IsZero() {
-		s += " (" + activityAge(now.Sub(a.Started)) + ")"
+		s += " (" + a.Age(now) + ")"
 	}
 	return s
-}
-
-// activityAge is d in whole seconds under a minute, else whole minutes.
-func activityAge(d time.Duration) string {
-	if d < time.Minute {
-		return fmtDur(max(d, 0).Truncate(time.Second))
-	}
-	return fmtDur(d.Truncate(time.Minute))
 }
 
 func managerHostOf(h *jam.HostStats) *ManagerHost {

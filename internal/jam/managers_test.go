@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidManagerName(t *testing.T) {
@@ -97,6 +98,16 @@ func TestFindKitActivity(t *testing.T) {
 		got, ok := FindKitActivity(ms, c.kit, c.manager)
 		if (c.want == "") == ok || got.ID != c.want {
 			t.Errorf("%s: got %q %v, want %q", c.name, got.ID, ok, c.want)
+		}
+	}
+}
+
+func TestManagerActivityAge(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	a := ManagerActivity{Started: t0}
+	for d, want := range map[time.Duration]string{-time.Second: "0s", 1500 * time.Millisecond: "1s", 125 * time.Second: "2m", 61 * time.Minute: "1h1m"} {
+		if got := a.Age(t0.Add(d)); got != want {
+			t.Errorf("Age(+%s) = %q, want %q", d, got, want)
 		}
 	}
 }

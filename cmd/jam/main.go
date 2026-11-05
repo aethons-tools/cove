@@ -2617,6 +2617,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			userDeps.KitActivity = managerHub.KitActivity // a raise waiting on its kit build says so
 		}
 		if sup != nil {
+			userDeps.Images = sup // the New session dialog's kit-build progress
 			userDeps.Personal = personalStarter{st: st, sup: sup, alloc: personalAllocator{alloc}, log: log}
 		}
 		// Never a typed nil: a nil Frames hides Studio and View here, as it must

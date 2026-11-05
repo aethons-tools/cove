@@ -159,6 +159,16 @@ func (a ManagerActivity) Progress() string {
 	return strings.TrimSpace(a.Step + " " + a.Detail)
 }
 
+// Age is how long the activity has run at now, in whole seconds under a
+// minute, else whole minutes: "45s", "2m", "1h5m".
+func (a ManagerActivity) Age(now time.Time) string {
+	d := max(now.Sub(a.Started), 0)
+	if d < time.Minute {
+		return FormatDuration(d.Truncate(time.Second))
+	}
+	return FormatDuration(d.Truncate(time.Minute))
+}
+
 // KitActivityFunc finds a connected manager's prepare-kit activity for a kit
 // (FindKitActivity), preferring manager's.
 type KitActivityFunc func(kit KitRef, manager string) (ManagerActivity, bool)

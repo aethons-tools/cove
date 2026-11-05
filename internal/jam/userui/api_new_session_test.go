@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -140,5 +141,63 @@ func TestAPINewSessionHidesRuntimeErrors(t *testing.T) {
 	rec := apiPost(t, Handler(e.Deps, nil), p, "/app/user/api/sessions", `{"project":"proj","role":"pair"}`)
 	if rec.Code != 502 || strings.Contains(rec.Body.String(), "10.0.0.7") {
 		t.Errorf("failed start = %d %s, want 502 without the runtime's detail", rec.Code, rec.Body)
+	}
+}
+
+// fakeImages resolves every role's current kit to web@v2.
+type fakeImages struct{ asked []string }
+
+func (f *fakeImages) CurrentImage(project, role, manager string) (jam.CurrentImage, error) {
+	f.asked = append(f.asked, project+"/"+role+" on "+manager)
+	return jam.CurrentImage{Kit: jam.KitRef{ID: "web", Version: 2}, HasKit: true}, nil
+}
+
+// start-progress is the prepare-kit activity for the kit a Start of the
+// role would raise, for a viewer who may start it; empty when none.
+func TestAPIStartProgress(t *testing.T) {
+	e, p, _ := newSessionEnv(t)
+	imgs := &fakeImages{}
+	e.Images = imgs
+	started := time.Now().Add(-125 * time.Second)
+	building := true
+	e.KitActivity = func(kit jam.KitRef, manager string) (jam.ManagerActivity, bool) {
+		if kit != (jam.KitRef{ID: "web", Version: 2}) || manager != "" {
+			t.Errorf("lookup %s on %q", kit, manager)
+		}
+		return jam.ManagerActivity{Kind: jam.ActivityPrepareKit, Kit: kit, Step: "building", Detail: "step 7/12", Started: started}, building
+	}
+	h := Handler(e.Deps, nil)
+	get := func(q string) (int, StartProgress) {
+		t.Helper()
+		rec := apiGet(t, h, &p, "/app/user/api/sessions/start-progress?"+q)
+		var sp StartProgress
+		if rec.Code == 200 {
+			if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return rec.Code, sp
+	}
+	code, sp := get("project=proj&role=pair")
+	if code != 200 || sp.Step != "building" || sp.Detail != "step 7/12" || sp.Age != "2m" || !sp.Since.Equal(started) {
+		t.Fatalf("progress = %d %+v", code, sp)
+	}
+	if len(imgs.asked) != 1 || imgs.asked[0] != "proj/pair on " {
+		t.Fatalf("resolved %q", imgs.asked)
+	}
+	building = false
+	if code, sp := get("project=proj&role=pair"); code != 200 || sp != (StartProgress{}) {
+		t.Fatalf("no activity: %d %+v", code, sp)
+	}
+	// Only a role the viewer may start.
+	for _, q := range []string{"project=proj&role=ops", "project=nope&role=pair", "project=proj&role=gone"} {
+		if code, _ := get(q); code != 404 {
+			t.Errorf("%s: %d, want 404", q, code)
+		}
+	}
+	// Without a resolver or a lookup: always empty.
+	e.Images = nil
+	if rec := apiGet(t, Handler(e.Deps, nil), &p, "/app/user/api/sessions/start-progress?project=proj&role=pair"); rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != "{}" {
+		t.Fatalf("no resolver: %d %s", rec.Code, rec.Body)
 	}
 }
