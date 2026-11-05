@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -107,14 +108,7 @@ func (r *Registry) DiffIDs(ctx context.Context, digest string) (map[string][]str
 	return out, nil
 }
 
-func wantArch(a string) bool {
-	for _, w := range Arches {
-		if a == w {
-			return true
-		}
-	}
-	return false
-}
+func wantArch(a string) bool { return slices.Contains(Arches, a) }
 
 func (r *Registry) manifest(ctx context.Context, digest string) (manifest, error) {
 	var m manifest
