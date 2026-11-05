@@ -113,7 +113,8 @@ resolved image's OCI rootfs `diff_ids` and asserts some blessed
 *FROM* a blessed base, unforgeably (matching the prefix means those bottom layers
 *are* that image, byte-for-byte). The blessed digests are embedded
 (`internal/basedigest`, a rolling set); the default base (the head) is blessed by
-construction, so it skips the gate. A base that descends from no blessed image is
+construction, so it skips the gate. The blessed refs are read newest first and the
+gate stops at the first match (reading one may pull it). A base that descends from no blessed image is
 **rejected**, — there is no override. This lets hardening *trust* its prerequisites (the egress stack, the
 `agent` user, the expected layout) rather than probe for them. The gate lives in
 `internal/baseimage` (pure prefix logic) with the docker execution behind the

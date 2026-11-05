@@ -190,7 +190,13 @@ var dockerUnits = map[string]float64{"B": 1, "kB": 1e3, "MB": 1e6, "GB": 1e9, "T
 // bytes.
 func parseDockerSize(s string) (uint64, error) {
 	s, _, _ = strings.Cut(strings.TrimSpace(s), " ")
-	i := strings.IndexFunc(s, func(r rune) bool { return (r < '0' || r > '9') && r != '.' })
+	// The unit is the trailing letters; the rest is the number, which docker
+	// may print with an exponent (1.162e+08B) and, buggily, negative (counted
+	// as 0).
+	i := len(s)
+	for i > 0 && (s[i-1] >= 'a' && s[i-1] <= 'z' || s[i-1] >= 'A' && s[i-1] <= 'Z') {
+		i--
+	}
 	if i <= 0 {
 		return 0, fmt.Errorf("bad size %q", s)
 	}
@@ -198,6 +204,9 @@ func parseDockerSize(s string) (uint64, error) {
 	v, err := strconv.ParseFloat(s[:i], 64)
 	if !ok || err != nil {
 		return 0, fmt.Errorf("bad size %q", s)
+	}
+	if v <= 0 {
+		return 0, nil
 	}
 	return uint64(v*mult + 0.5), nil
 }

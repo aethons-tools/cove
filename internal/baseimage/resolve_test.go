@@ -2,6 +2,7 @@ package baseimage
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,6 +16,7 @@ type fakeDocker struct {
 	layers    map[string][]string // ref → diff_ids
 	buildErr  error
 	layersErr map[string]error
+	asked     []string // refs passed to Layers, in order
 }
 
 func (f *fakeDocker) Build(contextDir string) (string, error) {
@@ -26,6 +28,7 @@ func (f *fakeDocker) Build(contextDir string) (string, error) {
 }
 
 func (f *fakeDocker) Layers(ref string) ([]string, error) {
+	f.asked = append(f.asked, ref)
 	if f.layersErr != nil {
 		if err := f.layersErr[ref]; err != nil {
 			return nil, err
@@ -205,5 +208,23 @@ func TestResolveRefusesThePreRenameRepoEvenUnverified(t *testing.T) {
 	var warn bytes.Buffer
 	if _, err := Resolve(d, Spec{Base: old, AllowUnverified: true}, []string{blessedRef}, &warn); err == nil {
 		t.Fatal("--allow-unverified-base downgrades provenance failures only, not the rename refusal")
+	}
+}
+
+// The gate stops at the first blessed base the image descends from: reading a
+// blessed ref may pull it, so the rest are not read (nor pulled).
+func TestResolveStopsAtFirstMatchingBlessedBase(t *testing.T) {
+	const tag = "ghcr.io/acme/img@sha256:child"
+	const older = "ghcr.io/aethons-tools/jam-studio-base@sha256:older"
+	d := &fakeDocker{layers: map[string][]string{
+		blessedRef: {"sha256:a", "sha256:b"},
+		older:      {"sha256:o"},
+		tag:        {"sha256:a", "sha256:b", "sha256:c"},
+	}}
+	if ref, err := Resolve(d, Spec{Base: tag}, []string{blessedRef, older}, &bytes.Buffer{}); err != nil || ref != tag {
+		t.Fatalf("Resolve = %q, %v", ref, err)
+	}
+	if want := []string{tag, blessedRef}; !slices.Equal(d.asked, want) {
+		t.Fatalf("Layers asked %v, want %v", d.asked, want)
 	}
 }

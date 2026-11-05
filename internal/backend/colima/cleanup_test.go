@@ -21,7 +21,6 @@ func TestPrunes(t *testing.T) {
 		call func(*Colima) error
 		want string
 	}{
-		"dangling":    {(*Colima).pruneDangling, "docker --context colima-p image prune -f"},
 		"volumes":     {(*Colima).pruneVolumes, "docker --context colima-p volume prune -f --filter label=com.docker.volume.anonymous"},
 		"build cache": {(*Colima).pruneBuildCache, "docker --context colima-p builder prune -f"},
 		"remove":      {func(c *Colima) error { return c.RemoveImage(context.Background(), "sha256:abc") }, "docker --context colima-p image rm sha256:abc"},
@@ -36,6 +35,33 @@ func TestPrunes(t *testing.T) {
 		if strings.Contains(argv(f.Calls[0]), "--all") || strings.Contains(argv(f.Calls[0]), " -a") {
 			t.Errorf("%s: prunes all: %q", name, argv(f.Calls[0]))
 		}
+	}
+}
+
+// Only unnamed images go: one pulled by digest (a blessed jam-studio-base:
+// repository set, tag <none>) is dangling to docker but kept, and a refused
+// rm (in use) is not an error.
+func TestPruneDanglingKeepsDigestPulledImages(t *testing.T) {
+	ls := `{"ID":"sha256:111","Repository":"<none>","Tag":"<none>"}
+{"ID":"sha256:222","Repository":"ghcr.io/aethons-tools/jam-studio-base","Tag":"<none>"}
+{"ID":"sha256:333","Repository":"<none>","Tag":"<none>"}
+{"ID":"sha256:111","Repository":"<none>","Tag":"<none>"}
+`
+	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: ls}, {Err: errors.New("conflict: image is being used")}, {}}}
+	if err := NewForProfile(f, "p").PruneDanglingImages(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range f.Calls {
+		got = append(got, argv(c))
+	}
+	want := []string{
+		"docker --context colima-p image ls --filter dangling=true --no-trunc --format {{json .}}",
+		"docker --context colima-p image rm sha256:111",
+		"docker --context colima-p image rm sha256:333",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("calls =\n %q\nwant\n %q", got, want)
 	}
 }
 

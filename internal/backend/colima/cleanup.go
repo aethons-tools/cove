@@ -21,10 +21,44 @@ var _ jam.HostCleaner = (*Colima)(nil)
 // volume carried the label.
 const anonymousVolumeLabel = "com.docker.volume.anonymous"
 
-// PruneDanglingImages runs `docker image prune -f`: untagged images only (no
-// -a), VM-wide.
+// PruneDanglingImages removes the VM's unnamed images: dangling ones whose
+// repository is <none>, each with `docker image rm` (no -f, so docker keeps
+// one a container or a child image uses; that refusal is not an error). It
+// is not `docker image prune`: that also removes images pulled by digest
+// only (repository set, no tag) — the blessed jam-studio-base images the
+// provenance gate and every kit build use — which then re-pull on each build.
 func (c *Colima) PruneDanglingImages(ctx context.Context) error {
-	return c.docker(ctx, "image", "prune", "-f")
+	out, err := c.output(ctx, "docker", c.dargs("image", "ls", "--filter", "dangling=true", "--no-trunc", "--format", "{{json .}}")...)
+	if err != nil {
+		return fmt.Errorf("docker image ls: %w", err)
+	}
+	ids, err := unnamedImages(out)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		_, _ = c.output(ctx, "docker", c.dargs("image", "rm", id)...)
+	}
+	return nil
+}
+
+// unnamedImages reads `docker image ls --format '{{json .}}'` and returns the
+// IDs, once each, of the images whose repository is <none>.
+func unnamedImages(out string) ([]string, error) {
+	var ids []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		var row struct{ ID, Repository string }
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			return nil, fmt.Errorf("docker image ls: %w", err)
+		}
+		if row.Repository == "<none>" && row.ID != "" && !slices.Contains(ids, row.ID) {
+			ids = append(ids, row.ID)
+		}
+	}
+	return ids, nil
 }
 
 // PruneVolumes removes unused anonymous volumes, VM-wide; never --all.
