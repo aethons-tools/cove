@@ -21,6 +21,10 @@ import (
 type Config struct {
 	DefaultPath string                            // read when --config is absent and this file exists; "" = none
 	Profile     func(path string) (string, error) // colima.profile of the config at path; nil = never read
+	// Prepare runs first, with --config ("" when absent): it may move an old
+	// config dir (noting it on stderr) and returns the path to read instead.
+	// nil = none.
+	Prepare func(path string, stderr io.Writer) (string, error)
 }
 
 // Command returns the `<prog> colima` group: host-side setup of the colima VM
@@ -47,34 +51,47 @@ func Command(prog string, getenv func(string) string, r runner.Runner, cfg Confi
 }
 
 // profileFlags registers --config and --profile on fs; resolve turns them
-// into the profile: --profile wins, else colima.profile of --config (or of
-// cfg.DefaultPath when that file exists), else the default profile.
-func profileFlags(fs *flag.FlagSet, cfg Config) (resolve func() (string, error)) {
+// into the (normalised) profile: --profile wins, else colima.profile of
+// --config (or of cfg.DefaultPath when that file exists), else the default
+// profile. It prints which profile it chose and why, and returns the exit
+// code for an error (1: Prepare failed, 2: a bad profile or config).
+func profileFlags(fs *flag.FlagSet, cfg Config) (resolve func(stdout, stderr io.Writer) (string, int, error)) {
 	path := fs.String("config", "", "the manager config whose colima.profile names the VM (default: the default config, when it exists)")
 	profile := fs.String("profile", "", "the colima profile (VM) to prepare; overrides --config (default: "+colimacfg.DefaultProfile+")")
-	return func() (string, error) {
-		p := *profile
-		if p == "" {
-			from := *path
+	return func(stdout, stderr io.Writer) (string, int, error) {
+		from := *path
+		if cfg.Prepare != nil {
+			var err error
+			if from, err = cfg.Prepare(from, stderr); err != nil {
+				return "", 1, err
+			}
+		}
+		raw, source := *profile, "--profile"
+		if raw == "" {
 			if from == "" && cfg.DefaultPath != "" {
 				if _, err := os.Stat(cfg.DefaultPath); err == nil {
 					from = cfg.DefaultPath
 				}
 			}
-			if from != "" && cfg.Profile != nil {
+			switch {
+			case from != "" && cfg.Profile != nil:
 				var err error
-				if p, err = cfg.Profile(from); err != nil {
-					return "", err
+				if raw, err = cfg.Profile(from); err != nil {
+					return "", 2, err
 				}
+				source = "colima.profile in " + from
+			case cfg.DefaultPath != "":
+				source = "no config at " + cfg.DefaultPath
+			default:
+				source = "default"
 			}
 		}
-		if p == "" {
-			p = colimacfg.DefaultProfile
-		}
+		p := colimacfg.NormalizeProfile(raw)
 		if !colimacfg.ValidProfile(p) {
-			return "", fmt.Errorf("profile %q is not a valid colima profile name (letters, digits, '-', '_', '.')", p)
+			return "", 2, fmt.Errorf("profile %q is not a valid colima profile name (letters, digits, '-', '_', '.')", raw)
 		}
-		return p, nil
+		fmt.Fprintf(stdout, "colima profile %s (%s)\n", p, source)
+		return p, 0, nil
 	}
 }
 
@@ -137,10 +154,10 @@ func colimaSetupDocker(prog string, args []string, g cli.Globals, getenv func(st
 		fmt.Fprintln(stderr, prog+" colima setup-docker:", err)
 		return 2
 	}
-	profile, err := resolve()
+	profile, code, err := resolve(stdout, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, prog+" colima setup-docker:", err)
-		return 2
+		return code
 	}
 	path, err := colimaConfigPath(getenv, isDir, profile)
 	if err != nil {
@@ -240,10 +257,10 @@ func colimaCheckDocker(prog string, args []string, r runner.Runner, cfg Config, 
 		fmt.Fprintf(stderr, "%s colima check-docker: unexpected argument %q\n", prog, pos[0])
 		return 2
 	}
-	profile, err := resolve()
+	profile, code, err := resolve(stdout, stderr)
 	if err != nil {
 		fmt.Fprintln(stderr, prog+" colima check-docker:", err)
-		return 2
+		return code
 	}
 	ok, err := colima.NewWithContext(r, colimacfg.ProfileContext(profile)).HasSysboxRuntime()
 	if err != nil {

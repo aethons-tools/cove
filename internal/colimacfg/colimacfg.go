@@ -287,11 +287,22 @@ var profileRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 // docker context name and a single path element.
 func ValidProfile(name string) bool { return profileRe.MatchString(name) }
 
-// ProfileContext is the docker context colima creates for profile: colima
-// for the default profile (or ""), else colima-<profile>.
-func ProfileContext(profile string) string {
-	if profile == "" || profile == DefaultProfile {
-		return "colima"
+// NormalizeProfile is profile as colima reads it (its config.ProfileFromName):
+// "", colima and default name the default VM; a colima- prefix is stripped,
+// so colima-jam-b is jam-b. The result names <colima home>/<profile>/.
+func NormalizeProfile(profile string) string {
+	switch profile {
+	case "", "colima", DefaultProfile:
+		return DefaultProfile
 	}
-	return "colima-" + profile
+	return strings.TrimPrefix(profile, "colima-")
+}
+
+// ProfileContext is the docker context colima creates for profile: colima
+// for the default VM, else colima-<profile> (profile normalised first).
+func ProfileContext(profile string) string {
+	if p := NormalizeProfile(profile); p != DefaultProfile {
+		return "colima-" + p
+	}
+	return "colima"
 }

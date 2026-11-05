@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aethons-tools/cove/internal/colimacfg"
 	"github.com/aethons-tools/cove/internal/legacynames"
 	"github.com/aethons-tools/cove/internal/runner"
 )
@@ -99,9 +100,14 @@ func TestDockerContextFollowsProfile(t *testing.T) {
 			t.Errorf("profile %q: context %q, want %q", c.profile, got, c.want)
 		}
 	}
-	c, err := Load(write(t, minimal+"  profile: work\n"), env(map[string]string{"HOME": "/h"}))
-	if err != nil || c.Colima.Profile != "work" || c.Colima.DockerContext() != "colima-work" {
-		t.Fatalf("profile work: %+v, %v", c.Colima, err)
+	for in, want := range map[string]string{"work": "work", "colima-work": "work", "colima": "default"} {
+		c, err := Load(write(t, minimal+"  profile: "+in+"\n"), env(map[string]string{"HOME": "/h"}))
+		if err != nil || c.Colima.Profile != want || c.Colima.DockerContext() != colimacfg.ProfileContext(want) {
+			t.Fatalf("profile %s: %+v, %v; want %s", in, c.Colima, err, want)
+		}
+	}
+	if _, err := Load(write(t, minimal+"  profile: colima-\n"), env(map[string]string{"HOME": "/h"})); err == nil {
+		t.Fatal("profile colima- (empty after the prefix) accepted")
 	}
 }
 
@@ -162,5 +168,36 @@ func TestColimaBackendPinsTheProfileContext(t *testing.T) {
 		if got != want {
 			t.Errorf("profile %s: %q, want %q", profile, got, want)
 		}
+	}
+}
+
+func TestMovedPath(t *testing.T) {
+	x := t.TempDir()
+	getenv := env(map[string]string{"XDG_CONFIG_HOME": x})
+	old, dir := filepath.Join(x, legacynames.StudioManager), filepath.Join(x, "jam-colima")
+	in := filepath.Join(old, "sub", "config.yml")
+	// Neither dir: unchanged.
+	if got, moved := MovedPath(getenv, in); moved || got != in {
+		t.Fatalf("no dirs: %q %v", got, moved)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// The old dir is gone and the new one exists: under the new dir.
+	if got, moved := MovedPath(getenv, in); !moved || got != filepath.Join(dir, "sub", "config.yml") {
+		t.Fatalf("moved: %q %v", got, moved)
+	}
+	// Outside the old dir (or a sibling sharing its prefix): unchanged.
+	for _, p := range []string{"/etc/jam/config.yml", old + "-x/config.yml", filepath.Join(dir, "config.yml")} {
+		if got, moved := MovedPath(getenv, p); moved || got != p {
+			t.Errorf("%s: %q %v", p, got, moved)
+		}
+	}
+	// The old dir still exists (not moved): unchanged.
+	if err := os.MkdirAll(old, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got, moved := MovedPath(getenv, in); moved || got != in {
+		t.Fatalf("old dir present: %q %v", got, moved)
 	}
 }

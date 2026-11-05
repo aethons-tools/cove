@@ -281,9 +281,19 @@ func TestValidProfile(t *testing.T) {
 }
 
 func TestProfileContext(t *testing.T) {
-	for in, want := range map[string]string{"": "colima", "default": "colima", "work": "colima-work"} {
+	for in, want := range map[string]string{"": "colima", "default": "colima", "colima": "colima", "work": "colima-work", "colima-work": "colima-work"} {
 		if got := ProfileContext(in); got != want {
 			t.Errorf("ProfileContext(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// NormalizeProfile follows colima's config.ProfileFromName: "", colima and
+// default are the default VM; a colima- prefix is stripped.
+func TestNormalizeProfile(t *testing.T) {
+	for in, want := range map[string]string{"": "default", "colima": "default", "default": "default", "jam-b": "jam-b", "colima-jam-b": "jam-b", "colima-": ""} {
+		if got := NormalizeProfile(in); got != want {
+			t.Errorf("NormalizeProfile(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

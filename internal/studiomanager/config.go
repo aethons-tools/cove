@@ -82,6 +82,30 @@ func MigrateDir(getenv func(string) string) (string, error) {
 	return from, nil
 }
 
+// MovedPath is path re-rooted under DefaultDir when it lies inside the
+// config dir legacynames.StudioManager used and that dir has moved (it is gone and
+// DefaultDir exists), so an explicit --config into the old dir keeps
+// working; moved reports whether it changed.
+func MovedPath(getenv func(string) string, path string) (_ string, moved bool) {
+	from := filepath.Join(configHome(getenv), legacynames.StudioManager)
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path, false
+	}
+	rel, err := filepath.Rel(from, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path, false
+	}
+	if _, err := os.Lstat(from); !errors.Is(err, fs.ErrNotExist) {
+		return path, false
+	}
+	to := DefaultDir(getenv)
+	if info, err := os.Stat(to); err != nil || !info.IsDir() {
+		return path, false
+	}
+	return filepath.Join(to, rel), true
+}
+
 // errDockerContext refuses the key colima.profile replaced.
 var errDockerContext = errors.New("colima.docker-context is replaced by colima.profile (the VM name; its docker context is colima-<profile>)")
 
@@ -132,6 +156,7 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	if err := c.validate(); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
+	c.Colima.Profile = colimacfg.NormalizeProfile(c.Colima.Profile) // colima-jam-b is jam-b
 	return c, nil
 }
 
@@ -162,8 +187,8 @@ func (c Config) validate() error {
 	if c.Colima.JamHost == "" {
 		return fmt.Errorf("colima.jam-host is required")
 	}
-	if p := c.Colima.Profile; !colimacfg.ValidProfile(p) {
-		return fmt.Errorf("colima.profile %q is not a valid colima profile name (letters, digits, '-', '_', '.')", p)
+	if !colimacfg.ValidProfile(colimacfg.NormalizeProfile(c.Colima.Profile)) {
+		return fmt.Errorf("colima.profile %q is not a valid colima profile name (letters, digits, '-', '_', '.')", c.Colima.Profile)
 	}
 	return nil
 }

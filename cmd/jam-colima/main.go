@@ -56,11 +56,35 @@ func defaultConfig(getenv func(string) string) string {
 func colimaConfig(getenv func(string) string) colimacmd.Config {
 	return colimacmd.Config{
 		DefaultPath: defaultConfig(getenv),
+		Prepare: func(path string, stderr io.Writer) (string, error) {
+			return migrate(getenv, stderr, "colima", path)
+		},
 		Profile: func(path string) (string, error) {
 			c, err := studiomanager.Load(path, getenv)
 			return c.Colima.Profile, err
 		},
 	}
+}
+
+// migrate moves the old (legacynames.StudioManager) config dir to jam-colima's (once), and
+// re-roots an explicit config path inside it; each step leaves one stderr
+// line, prefixed "<prog> <verb>:". It returns the path to read.
+func migrate(getenv func(string) string, stderr io.Writer, verb, cfgPath string) (string, error) {
+	from, err := studiomanager.MigrateDir(getenv)
+	if err != nil {
+		return "", err
+	}
+	if from != "" {
+		fmt.Fprintf(stderr, "%s %s: moved config dir %s to %s (renamed binary)\n", prog, verb, from, studiomanager.DefaultDir(getenv))
+	}
+	if cfgPath == "" {
+		return "", nil
+	}
+	if to, moved := studiomanager.MovedPath(getenv, cfgPath); moved {
+		fmt.Fprintf(stderr, "%s %s: --config %s is now %s (its dir moved); update the service's --config\n", prog, verb, cfgPath, to)
+		return to, nil
+	}
+	return cfgPath, nil
 }
 
 func cmdRun(args []string, getenv func(string) string, stderr io.Writer) int {
@@ -71,11 +95,10 @@ func cmdRun(args []string, getenv func(string) string, stderr io.Writer) int {
 		return 2
 	}
 	// Before the config path resolves: the default config lives in the moved dir.
-	if from, err := studiomanager.MigrateDir(getenv); err != nil {
+	var err error
+	if *cfgPath, err = migrate(getenv, stderr, "run", *cfgPath); err != nil {
 		fmt.Fprintf(stderr, "%s run: %v\n", prog, err)
 		return 1
-	} else if from != "" {
-		fmt.Fprintf(stderr, "%s run: moved config dir %s to %s (renamed binary)\n", prog, from, studiomanager.DefaultDir(getenv))
 	}
 	if *cfgPath == "" {
 		*cfgPath = defaultConfig(getenv)

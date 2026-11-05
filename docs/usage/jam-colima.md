@@ -32,9 +32,9 @@ The binary was `jam-studio-manager`; the Studio Manager concept, Jam's `manager`
 
 1. **Install** with `jam update` or the one-command installer ([updating in place](../OVERVIEW.md#installing-the-binaries)). An older `jam update` installs the new `jam`, then fails on the missing `jam-studio-manager`; a second `jam update` (the new `jam`) completes it. `install.sh` (so `jam update` too) notices a leftover `jam-studio-manager` in the install directory; delete it after step 3.
 2. **Edit `config.yml`** (still in the old dir): replace `colima.docker-context` with `colima.profile` — a config that still has it is refused. `docker-context: colima` (or none) is the `default` profile; `docker-context: colima-jam-b` is `profile: jam-b`. Rewrite any `token-file`, `ca-file`, `identity-file` or `known-hosts-dir` that names the old dir.
-3. **Point the service at `jam-colima run`** (`--config` if you pass one) and restart it.
+3. **Point the service at `jam-colima run`** and restart it. A `--config` into the old dir must become the same path under `<parent>/jam-colima/`: until it does, `run` reads the moved file and says so on each start.
 
-The config dir moves by itself: at `run`, if `<parent>/jam-colima` is missing and `<parent>/jam-studio-manager` exists, it is renamed (one stderr line). The identity key moves with it, so kit images and state are kept.
+The config dir moves by itself: at `run` or `colima setup-docker|check-docker`, if `<parent>/jam-colima` is missing and `<parent>/jam-studio-manager` exists, it is renamed (one stderr line). The identity key moves with it, so kit images and state are kept.
 
 ## Config
 
@@ -61,7 +61,8 @@ colima:
 
 `identity-file` is the SSH key the manager uses to reach its studios (generated on first use); `known-hosts-dir` holds the studio host keys; both default to the manager's own `<dir>`.
 `runtime-addr` is what a studio dials (`JAM_RUNTIME_ADDR`); `jam-host` is added to the studio's `/etc/hosts` so that name resolves to the host gateway.
-`profile` names the Colima VM studios run in; every docker call is pinned to its docker context, `colima` for `default`, else `colima-<profile>`.
+`profile` names the Colima VM studios run in, read as colima reads `--profile`: `default` and `colima` are the default VM, and a `colima-` prefix is dropped (`colima-jam-b` is `jam-b`).
+Every docker call is pinned to its docker context, `colima` for `default`, else `colima-<profile>`.
 So `colima start --profile jam-b` and `profile: jam-b` place this manager's studios, kit images and volumes in that VM.
 For a Jam in a container, `jam-addr` is the host's published 443 ([pointing managers at it](jam/container.md#pointing-studio-managers-at-it)).
 

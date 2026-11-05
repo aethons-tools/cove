@@ -59,7 +59,7 @@ $ colima restart                             # runs the hook — restarts every 
 $ jam-colima colima check-docker             # ok: sysbox-runc is registered
 ```
 
-Both act on the manager's VM, its [`colima.profile`](jam-colima.md#config) (read from `--config <path>`, else the default config when it exists, else `default`; `--profile <name>` overrides): they edit `<colima home>/<profile>/colima.yaml`, probe that profile's docker context, and hint `colima restart --profile <name>` for a non-default one.
+Both act on the manager's VM, its [`colima.profile`](jam-colima.md#config) (read from `--config <path>`, else the default config when it exists, else `default`; `--profile <name>` overrides), and first print which profile and why: they edit `<colima home>/<profile>/colima.yaml`, probe that profile's docker context, and hint `colima restart --profile <name>` for a non-default one.
 The colima home is found as colima finds it: `$COLIMA_HOME`, else `~/.colima`, else
 `$XDG_CONFIG_HOME/colima`. It writes exactly the two pieces below: one provision
 hook it owns (marked `# managed by jam-colima colima setup-docker`; a hook under an older marker is still recognized by its Sysbox download and adopted; re-running replaces
