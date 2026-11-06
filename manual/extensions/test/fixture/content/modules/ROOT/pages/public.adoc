@@ -1,0 +1,28 @@
+= Public page
+
+Everyone reads this.
+
+image::shared.png[Shared]
+
+[.internal]
+SECRET-BLOCK lives in an internal paragraph.
+
+A sentence with [.internal]#SECRET-INLINE# in it.
+
+ifdef::internal[]
+SECRET-IFDEF lives in an ifdef block.
+endif::[]
+
+// The leak test sets `leak`: a customer page then links to an internal page.
+ifdef::leak[]
+See xref:internal-page.adoc[].
+endif::[]
+
+[.internal]
+== An internal section
+
+SECRET-SECTION lives in an internal section.
+
+== A public section
+
+KEPT-SECTION lives in a public section after it.

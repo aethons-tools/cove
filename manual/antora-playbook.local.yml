@@ -13,10 +13,20 @@ content:
       release: released
       main: next
       goal: goal
+antora:
+  extensions:
+  # Drops internal pages, modules, phrases and their files when `internal` is
+  # unset; badges internal pages in the nav when it is set. List whole internal
+  # modules under `modules:`. See docs/manual.md ("Marking content internal").
+  - require: ./extensions/internal.js
+    modules: []
 asciidoc:
   attributes:
-    # The team manual: show `ifdef::internal[]` notes. Unset it for a user build.
+    # The team manual: keep (and mark) internal content. The customer build omits it.
     internal: ''
+  extensions:
+  # Drops `[.internal]` blocks and sections when `internal` is unset.
+  - ./extensions/internal-blocks.js
 ui:
   bundle:
     url: ./ui

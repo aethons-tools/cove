@@ -148,6 +148,10 @@ manual:
 manual-site:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.yml
 
+# test the manual's Antora extensions (internal content: manual/extensions/test/)
+manual-check:
+    cd manual && ../scripts/npm-ci.sh && npm test
+
 # build the Jam VS Code extension's .vsix into web/vscode/dist/jam.vsix (needs Node/npm)
 vscode:
     ./scripts/vscode.sh

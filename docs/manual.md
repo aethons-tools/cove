@@ -1,7 +1,7 @@
 ---
-summary: The Jam manual in manual/ — the user-facing manual in AsciiDoc built with Antora, its released, next and goal versions (from the release, main and goal branches), the page shape and conventions attributes, the in-repo UI, and `just manual` / `manual-site`.
-read_when: You are changing anything a Jam user can see (its manual page changes in the same PR), writing or editing a manual page, proposing a change on the goal branch, or building the manual.
-owns: the manual/ tree, its build (antora playbooks, manual/ui, just manual and manual-site), the branch-to-version model, and the page attributes (page-area, page-id, page-conventions)
+summary: The Jam manual in manual/ — the user-facing manual in AsciiDoc built with Antora, its released, next and goal versions (from the release, main and goal branches), the page shape and conventions attributes, the in-repo UI, marking content internal (team-only pages, areas and passages the customer build drops), and `just manual` / `manual-site` / `manual-check`.
+read_when: You are changing anything a Jam user can see (its manual page changes in the same PR), writing or editing a manual page, marking content team-only, proposing a change on the goal branch, or building the manual.
+owns: the manual/ tree, its build (antora playbooks, manual/ui, just manual and manual-site), the branch-to-version model, the page attributes (page-area, page-id, page-conventions), and marking content internal (manual/extensions, just manual-check)
 prereqs: superpowers/specs/2026-11-05-manual-first-operating-model-design.md for why the manual leads the work
 tier: leaf
 updated: 2026-11-06
@@ -54,9 +54,38 @@ Pages live in `manual/modules/<area>/pages/`, images in
 `page-conventions` names the anchors in the Conventions area
 (`modules/conventions/pages/index.adoc`) the page follows.
 Write one clause per line (semantic line breaks) so diffs read clause by clause.
-Notes for the team only go in `ifdef::internal[]` blocks: the team playbooks set
-`internal` (the team manual); a build for users leaves it unset.
+Content for the team only is marked internal (below).
 On `main`, images are real screenshots; on `goal`, mockups.
+
+## Marking content internal
+
+One site attribute, `internal`, decides: the team playbooks set it (the team
+manual shows internal content, marked); the customer build leaves it unset and
+drops internal content. Any granularity:
+
+| What | How | Customer build |
+|---|---|---|
+| A block or section | `[.internal]` on it | removed |
+| A phrase | `[.internal]#phrase#` | removed |
+| A passage | `ifdef::internal[]` … `endif::[]` | removed |
+| A sentence or phrase | single-line `ifdef::internal[text]` | removed |
+| A whole page | `:page-internal:` in the page header | page, its nav entry and aliases dropped |
+| A whole area | the module under `modules:` of `internal.js` in the playbook | every page in the module dropped |
+| An image or attachment | used only from internal content | not published (unreferenced files are dropped) |
+
+- **Prefer `[.internal]`**: the team build marks it (a dashed "Team" box, a
+  dotted underline inline). `ifdef::internal[]` content shows unmarked.
+  Internal pages and modules get a "Team only" badge in the nav.
+- **Leaks fail the customer build**: a kept page that links to a dropped page
+  is an error naming both pages.
+- **How**: `manual/extensions/internal.js` (Antora extension: pages, modules,
+  phrases, nav, files, the leak check) and `manual/extensions/internal-blocks.js`
+  (Asciidoctor tree processor: `[.internal]` blocks). A playbook registers both:
+  `antora.extensions: [{require: ./extensions/internal.js, modules: [<module>…]}]`
+  and `asciidoc.extensions: [./extensions/internal-blocks.js]`; `internal.js`
+  fails the build if the second is missing.
+- **Tests**: `just manual-check` builds a fixture
+  (`manual/extensions/test/fixture/`) as customer and as team.
 
 ## Building
 

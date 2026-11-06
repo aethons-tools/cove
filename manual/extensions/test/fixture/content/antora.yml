@@ -1,0 +1,7 @@
+# The fixture component the internal-content tests build (extensions/test/internal.test.js).
+name: fixture
+version: ~
+title: Fixture
+nav:
+- modules/ROOT/nav.adoc
+- modules/team/nav.adoc
