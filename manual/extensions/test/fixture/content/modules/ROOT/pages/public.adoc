@@ -28,7 +28,19 @@ ifdef::leak[]
 See xref:internal-page.adoc[].
 endif::[]
 
-[.internal]
+// The fragment-leak test sets `fragleak`: in-page links to an internal section
+// and an internal titled block, whose titles the link text would otherwise carry.
+ifdef::fragleak[]
+See <<secret-section>> and <<secret-block>>.
+endif::[]
+
+[#secret-block.internal]
+.SECRET-BLOCKTITLE is an internal block's title
+====
+SECRET-EXAMPLE lives in an internal example block.
+====
+
+[#secret-section.internal]
 == An internal section
 
 SECRET-SECTION lives in an internal section.
@@ -36,3 +48,8 @@ SECRET-SECTION lives in an internal section.
 == A public section
 
 KEPT-SECTION lives in a public section after it.
+
+See <<public-anchor>>, a link within the page.footnote:[A public footnote.]
+
+[#public-anchor]
+A public paragraph with an id.

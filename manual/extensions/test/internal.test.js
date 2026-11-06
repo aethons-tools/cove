@@ -18,6 +18,8 @@ const secrets = [
   'SECRET-INLINE', // [.internal]#…#
   'SECRET-IDSPAN', // [#id.internal]#…#
   'SECRET-STRONG', // [.internal]*…*
+  'SECRET-BLOCKTITLE', // .title of an [.internal] block
+  'SECRET-EXAMPLE',
   'SECRET-CELL', // [.internal] paragraph in an a| table cell
   'SECRET-TITLE', // [.internal]#…# in a doctitle
   'SECRET-IFDEF', // ifdef::internal[]
@@ -81,6 +83,14 @@ test('customer build fails on a leak', async () => {
     build('customer', '--attribute', 'leak'),
     /leaks into the customer build:\nfixture:ROOT:public\.adoc links to internal page fixture:ROOT:internal-page\.adoc/
   )
+})
+
+test('customer build fails on a link to an internal fragment', async () => {
+  await assert.rejects(build('customer', '--attribute', 'fragleak'), (err) => {
+    assert.match(err.message, /fixture:ROOT:public\.adoc links to #secret-section, which is internal or missing/)
+    assert.match(err.message, /fixture:ROOT:public\.adoc links to #secret-block, which is internal or missing/)
+    return true
+  })
 })
 
 test('customer build fails when internal markup survives', async () => {

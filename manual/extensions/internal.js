@@ -11,7 +11,8 @@
 //   - drops inline elements with the role `internal` (`[.internal]#…#`,
 //     `[.internal]*…*`, …), titles included; internal-blocks.js drops blocks;
 //   - drops every image and attachment no published page references;
-//   - fails when a kept page links to a dropped page (a leak), when the site or
+//   - fails when a kept page links to a dropped page (a leak) or to a fragment
+//     of its own that no element has (a dropped section or block), when the site or
 //     a component start page is internal, and, as a backstop, when any
 //     published page still has an element with the class `internal`.
 // In the team build it drops nothing; nav entries of internal pages and the
@@ -72,6 +73,10 @@ function register ({ config }) {
       const { asciidoc } = page
       for (const key of ['doctitle', 'xreftext', 'navtitle']) {
         if (asciidoc?.[key]) asciidoc[key] = dropInternal(asciidoc[key]).trim()
+      }
+      // An in-page link to a dropped section or block keeps its title as the link text.
+      for (const frag of danglingFragments(page.contents.toString())) {
+        errors.push([page, `${pageName(page)} links to #${frag}, which is internal or missing`])
       }
       for (const url of linkedUrls(page)) {
         if (!internalUrls.has(url)) continue
@@ -183,6 +188,18 @@ function linkedUrls (page) {
     urls.push(ref.startsWith('/') ? path.normalize(ref) : path.resolve(base, ref))
   }
   return urls
+}
+
+// danglingFragments returns the fragments html links to in itself
+// (href="#frag") that no element in html has as its id.
+function danglingFragments (html) {
+  const ids = new Set()
+  for (const [, , id] of html.matchAll(/\sid=(["'])(.*?)\1/g)) ids.add(id)
+  const dangling = new Set()
+  for (const [, , frag] of html.matchAll(/\shref=(["'])#(.+?)\1/g)) {
+    if (!ids.has(frag)) dangling.add(frag)
+  }
+  return [...dangling]
 }
 
 function pageName (page) {
