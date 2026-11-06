@@ -253,7 +253,8 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
   embeds; the filters file is the full list) → re-cut the host binaries (blessed list
   recomputed from the registry head). So a manual edit re-cuts the binaries. On `main`
   and PRs a `docs/`-only change builds nothing; **a merge into `release` always re-cuts the
-  binaries and cuts a GitHub release** (`scripts/release/legs.sh`'s `RELEASE`), because
+  binaries, publishes the Jam image and cuts a GitHub release** (`scripts/release/legs.sh`'s
+  `RELEASE`), because
   every approved release is one and `jam update` / `install.sh` need its archives. The
   images still rebuild only when their paths change.
 - **DAG order (no cycle):** base → publish → digest **D** → [blessed-list

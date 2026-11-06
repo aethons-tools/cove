@@ -2,8 +2,8 @@
 # legs.sh — fan the raw path filters into the DAG's legs (spec §3). Shared by
 # release.yml (what to build) and release-pr.yml (what the PR says it rebuilds),
 # so the two cannot drift. Reads BASE, STUDIO, GO (the paths-filter outputs,
-# "true" or anything else) and RELEASE ("true" for a release cut) and prints base=…, studio_image=…, binaries=… lines
-# for $GITHUB_OUTPUT.
+# "true" or anything else) and RELEASE ("true" for a release cut), and prints
+# base=…, studio_image=…, binaries=… lines for $GITHUB_OUTPUT.
 #   base change     => base AND studio_image (downstream) AND binaries
 #                      (new digest => new DefaultRef + blessed-list head).
 #   jam-studio only => studio_image only (FROM the current published base).
