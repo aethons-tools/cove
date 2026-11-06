@@ -1,7 +1,7 @@
 name: gate
 
-# The merge gate for main: every PR must pass this before it can be merged, and
-# the post-merge commit on main is verified too. Branch protection (configured
+# The merge gate for main and release: every PR must pass this before it can be
+# merged, and the post-merge commit on either branch is verified too. Branch protection (configured
 # in repo settings, not here) is what makes it blocking; this workflow only
 # reports.
 #
@@ -10,9 +10,9 @@ name: gate
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, release]
   push:
-    branches: [main]
+    branches: [main, release]
 
 # Supersede in-flight runs for the same PR, but never skip a commit on main:
 # each one must be verified on its own.
@@ -105,6 +105,7 @@ jobs:
           cache-dependency-path: |
             web/app/package-lock.json
             web/vscode/package-lock.json
+            manual/package-lock.json
       # The Jam app (web/app): API types current, typecheck, lint and unit
       # tests. scripts/npm-ci.sh installs web/app once for this and the
       # extension's webview build below.
@@ -113,6 +114,9 @@ jobs:
       # The VS Code extension (web/vscode): checks, bundle and the .vsix.
       - name: vscode extension
         run: ./scripts/vscode.sh
+      # The user manual's Antora extensions (manual/extensions) tests.
+      - name: manual extension tests
+        run: cd manual && ../scripts/npm-ci.sh && npm test
       - uses: actions/upload-artifact@v7
         with:
           name: jam-vscode

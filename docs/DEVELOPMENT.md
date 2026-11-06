@@ -129,12 +129,12 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
 ## CI: the merge gate
 
 [`.github/workflows/gate.yml`](../.github/workflows/gate.yml) runs on every PR
-to `main`, and on `main` itself. Two legs run in parallel and the `gate` job joins them:
+to `main` or `release`, and on those branches themselves. Two legs run in parallel and the `gate` job joins them:
 
 - **`go`:** the app bundle (so the tests serve the real app), `go test ./...`, the installer and image-script tests, and
   [`scripts/lint.sh`](../scripts/lint.sh). These are the same scripts that `just test` and `just lint` run, so CI and the local
   loop cannot drift.
-- **`web`:** the Jam app's checks (`just app-check`) and the VS Code extension's (`scripts/vscode.sh`, which uploads the `jam-vscode` artifact).
+- **`web`:** the Jam app's checks (`just app-check`) and the VS Code extension's (`scripts/vscode.sh`, which uploads the `jam-vscode` artifact), plus the user manual's extension tests (`just manual-check`).
   [`scripts/npm-ci.sh`](../scripts/npm-ci.sh) installs `web/app` once per job, though three steps use it: it skips `npm ci` when
   `node_modules` was installed from the same lockfile by the same Node.
 
@@ -235,11 +235,16 @@ publish. Published (private) to `ghcr.io/aethons-tools/jam-studio-base` and
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) is **one
 monolithic continuous-delivery pipeline** (COV-44, design:
 [monolithic-release-pipeline](superpowers/specs/2026-07-17-monolithic-release-pipeline-design.md)).
-It runs on every push to `main` and on every PR, and **decides from the repo diff
+It runs on every push to `main` or `release` and on every PR, and **decides from the repo diff
 which artifacts to (re)build** — there is no version-tag trigger and no manual
 "cut a release" step.
 
-- **Change-detection** (path-based) selects the legs: `images/jam-studio-base/**`
+- **Branches:** `main` is where work lands (agents merge their own PRs once `gate` is green
+  and the review passed); `release` is what ships. Only the user merges `main` into `release`,
+  and that merge *is* the release. Nobody pushes to `release` directly. Pushes to `main`
+  build and smoke-test like a PR and publish nothing.
+- **Change-detection** (path-based, filters in
+  [`.github/release-filters.yml`](../.github/release-filters.yml)) selects the legs: `images/jam-studio-base/**`
   → rebuild the base **and** jam-studio (downstream) **and** re-cut the host binaries (its
   new digest becomes the default base + blessed-list head);
   `images/jam-studio/**` → rebuild just jam-studio (FROM the current published
@@ -249,8 +254,8 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
   snapshot, [COV-47](../internal/blessgen)] → the host binaries (embed jam-studio-agent + list); jam-studio = `FROM jam-studio-base:ci`. The base
   publishes **before** the binaries leg so `gen-blessed` sees **D** as the
   registry head.
-- **PRs build + smoke the touched legs but never publish** (spec §5); only a push
-  to `main` pushes to GHCR / cuts the release. Images publish as multi-arch
+- **PRs and `main` build + smoke the touched legs but never publish** (spec §5); only a push
+  to `release` (a merge into it) pushes to GHCR / cuts the release. Images publish as multi-arch
   manifests tagged `<N>-<MMDD>` (immutable) + `latest`; the binaries are built by
   `goreleaser --snapshot` (`jam` and `jam-colima` for darwin/linux ×
   amd64/arm64, one `jam_<ver>_<os>_<arch>.tar.gz` per target holding exactly
@@ -308,5 +313,10 @@ and in a Jam studio git authenticates through Jam's broker
 
 `main` is protected: changes land through a PR whose **`gate`** check passes.
 Direct pushes to `main` are rejected, including for admins.
+`release` is protected the same way (PR with a passing `gate`, no direct pushes);
+only the user merges into it.
+
+Repo settings the release flow relies on: "Allow merge commits" is on (a `main` into `release`
+merge keeps history, so `<N>` stays monotonic), and "Allow GitHub Actions to create pull requests" is on.
 Inside a *sandbox* the story is different —
 the hardening rewrites GitHub remotes to HTTPS and git authenticates through Jam's broker ([connector.md](usage/jam/connector.md)).
