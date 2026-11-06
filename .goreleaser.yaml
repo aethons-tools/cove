@@ -30,6 +30,8 @@ before:
     # Build the Jam app bundle jam embeds (git-ignored output). Required
     # here: a release ships the app.
     - bash scripts/app.sh
+    # Build the customer manual jam embeds and serves at /app/manual/.
+    - bash scripts/manual.sh
     # Build the VS Code extension's .vsix jam embeds and serves (git-ignored
     # output); release.yml attaches the same file to the release.
     - bash scripts/stage-vscode.sh

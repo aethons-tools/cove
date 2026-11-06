@@ -101,8 +101,14 @@ drops internal content. The customer build hard-unsets it, so a component's
   together, with a *Released* / *Next* / *Goal* switcher, opening on Released:
   your local branch of each name if you have one (the checked-out one from the
   working tree), else origin's. Fetch first.
-- The **customer manual** (Released only, without `internal`, embedded in
-  `jam`) is a later step; see the release-branch design spec.
+- The **customer manual** (Released only, without `internal`) is built by
+  `scripts/manual.sh` from `manual/antora-playbook.jam.yml` into
+  `internal/jam/uiassets/manual/` (git-ignored), which `jam` embeds and serves
+  at `/app/manual/` ([web-app.md](web-app.md)). The playbook sets no `internal`
+  attribute, so the extensions drop internal content and fail the build on a
+  leak, and warnings fail it too (`failure_level: warn`). `just build` and the
+  release run it; it reads your working tree's `HEAD` but names the version
+  `released`.
 
 Both need Node/npm (Antora is pinned in `manual/package.json`). The site's look
 is `manual/ui/` — layouts, one helper and a stylesheet — not Antora's default

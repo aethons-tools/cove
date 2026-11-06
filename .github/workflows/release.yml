@@ -66,6 +66,8 @@ jobs:
               - '.goreleaser.yaml'
               - 'scripts/stage-studio-agent.sh'
               - 'scripts/app.sh'
+              - 'manual/**'
+              - 'scripts/manual.sh'
               - 'web/vscode/**' # the VS Code extension .vsix jam embeds (and the release attaches)
               - 'scripts/vscode.sh'
               - 'scripts/stage-vscode.sh' # ... staged into jam, which embeds it

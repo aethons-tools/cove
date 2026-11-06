@@ -35,6 +35,10 @@ BINARIES=(jam jam-colima)
 # can use.
 ./scripts/app.sh
 
+# Build the customer manual jam embeds (served at /app/manual/); like the app
+# bundle it needs npm.
+./scripts/manual.sh
+
 # Stage the linux jam-studio-agent binaries jam embeds, before jam is built —
 # shared with the goreleaser before-hook, see scripts/stage-studio-agent.sh.
 echo "Staging embedded jam-studio-agent (linux amd64+arm64)"
