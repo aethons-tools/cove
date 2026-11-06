@@ -266,6 +266,20 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
   re-cuts it (the [`.goreleaser.yaml`](../.goreleaser.yaml) before-hook runs
   `scripts/stage-studio-agent.sh`).
 
+### The release PR
+
+[`.github/workflows/release-pr.yml`](../.github/workflows/release-pr.yml) keeps one PR from
+`main` into `release` open, titled `Release <N>` (`<N>` = the commit count after the merge
+commit). On each push to `main` or `release` it applies the same change-detection filters
+(paths-filter `base: release`, `ref: main`, with the legs fan-out copied from `release.yml`)
+and has [`scripts/release/pr-body.sh`](../scripts/release/pr-body.sh) write the description:
+what changes for users (the manual pages that differ, linked to the Next version of the team
+manual at `https://aethons-tools-jam.pages.dev/jam/next/…`), which legs the merge rebuilds, and
+the merged PRs. When `main` has nothing beyond `release` the PR is closed. Its required `gate`
+check is the run from `main`'s push: the PR head is `main`'s tip, the same SHA. It needs the
+repo setting "Allow GitHub Actions to create and approve pull requests" (see
+[Git / pushing](#git--pushing)). Tests: `just test-release-pr-body`.
+
 ### Versioning
 
 `<N>-<MMDD>` — `<N>` = `git rev-list --count HEAD` is the version (globally
@@ -317,6 +331,6 @@ Direct pushes to `main` are rejected, including for admins.
 only the user merges into it.
 
 Repo settings the release flow relies on: "Allow merge commits" is on (a `main` into `release`
-merge keeps history, so `<N>` stays monotonic), and "Allow GitHub Actions to create pull requests" is on.
+merge keeps history, so `<N>` stays monotonic), and "Allow GitHub Actions to create and approve pull requests" is on.
 Inside a *sandbox* the story is different —
 the hardening rewrites GitHub remotes to HTTPS and git authenticates through Jam's broker ([connector.md](usage/jam/connector.md)).

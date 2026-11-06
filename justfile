@@ -174,6 +174,10 @@ test-browser:
 test-install:
     bash install.test.sh
 
+# hermetic test for scripts/release/pr-body.sh (the release PR description; temp git repo)
+test-release-pr-body:
+    bash scripts/release/pr-body.test.sh
+
 # hermetic test for scripts/local.sh (`just local`; fake docker, stub build scripts)
 test-local:
     bash scripts/local.test.sh

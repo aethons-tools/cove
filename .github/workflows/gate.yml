@@ -77,6 +77,11 @@ jobs:
       - name: jam image script test
         run: bash scripts/jam-image.test.sh
 
+      # Mirrors `just test-release-pr-body` — hermetic (temp git repo) test for
+      # the release PR description script.
+      - name: release PR body test
+        run: bash scripts/release/pr-body.test.sh
+
       # Mirrors `just test-local` — hermetic (fake docker) test for scripts/local.sh.
       - name: local build script test
         run: bash scripts/local.test.sh

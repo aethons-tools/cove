@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# pr-body.test.sh — hermetic tests for scripts/release/pr-body.sh (a temp git repo).
+# Run: bash scripts/release/pr-body.test.sh
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT="$HERE/pr-body.sh"
+SITE=https://aethons-tools-jam.pages.dev
+
+pass=0
+fail=0
+ok() { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
+bad() {
+  fail=$((fail + 1))
+  printf 'FAIL - %s\n' "$1"
+  shift || true
+  for line in "$@"; do printf '  %s\n' "$line"; done
+}
+assert_eq() {
+  if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "expected: $2" "actual:   $3"; fi
+}
+assert_contains() { # name haystack needle
+  case "$2" in *"$3"*) ok "$1" ;; *) bad "$1" "missing: $3" "in: $2" ;; esac
+}
+assert_lacks() { # name haystack needle
+  case "$2" in *"$3"*) bad "$1" "unexpected: $3" "in: $2" ;; *) ok "$1" ;; esac
+}
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+cd "$WORK"
+git init -q -b main .
+git config user.email t@example.com
+git config user.name t
+mkdir -p manual/modules/projects/pages manual/modules/ROOT/pages internal
+echo a >manual/modules/projects/pages/agent-context.adoc
+echo a >manual/modules/ROOT/pages/old.adoc
+echo a >internal/foo.go
+git add -A && git commit -q -m "init"
+# The remote-tracking refs the workflow uses.
+git update-ref refs/remotes/origin/release HEAD
+LEGS='{"base":"false","studio_image":"false","binaries":"true"}'
+
+# main == release: nothing to release.
+out="$(bash "$SCRIPT" origin/release HEAD "$LEGS")"
+assert_eq "no commits => empty output" "" "$out"
+
+# Go-only change: no manual edits.
+echo b >>internal/foo.go
+git commit -q -am "fix: go only (#11)"
+out="$(bash "$SCRIPT" origin/release HEAD "$LEGS")"
+assert_contains "no manual changes => users section says so" "$out" "No user-visible changes."
+assert_contains "merged section lists PR" "$out" "#11"
+
+# Manual edit, new ROOT page, deleted ROOT page.
+echo b >>manual/modules/projects/pages/agent-context.adoc
+echo n >manual/modules/ROOT/pages/new.adoc
+git rm -q manual/modules/ROOT/pages/old.adoc
+git add -A && git commit -q -m "feat: x (#12)"
+out="$(bash "$SCRIPT" origin/release HEAD "$LEGS")"
+assert_contains "users heading" "$out" "## What changes for users"
+assert_contains "module page link" "$out" "$SITE/jam/next/projects/agent-context.html"
+assert_contains "ROOT page link" "$out" "$SITE/jam/next/new.html"
+assert_contains "deleted page named" "$out" "old"
+assert_lacks "deleted page not linked" "$out" "$SITE/jam/next/old.html"
+assert_lacks "users section not empty" "$out" "No user-visible changes."
+assert_contains "rebuilds heading + binaries" "$(printf '%s\n' "$out" | sed -n '/## What it rebuilds/,/## Merged/p')" "binaries"
+assert_lacks "unselected leg absent" "$(printf '%s\n' "$out" | sed -n '/## What it rebuilds/,/## Merged/p')" "studio_image"
+assert_contains "merged heading" "$out" "## Merged"
+assert_contains "merged lists #12" "$out" "#12"
+
+out="$(bash "$SCRIPT" origin/release HEAD '{"base":"false","studio_image":"false","binaries":"false"}')"
+assert_contains "no legs => nothing rebuilt" "$out" "Nothing is rebuilt"
+
+printf '\n%d passed, %d failed\n' "$pass" "$fail"
+[ "$fail" -eq 0 ]

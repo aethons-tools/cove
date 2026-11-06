@@ -1,0 +1,79 @@
+name: release-pr
+
+# Keeps ONE open PR from main into release, whose merge is the release (release.yml).
+# The description says what changes for users (manual-page diff, linked to the Next
+# manual), what the merge rebuilds, and which PRs are in it. When main has nothing
+# beyond release, any open release PR is closed. Its required `gate` check is the
+# one main's push already ran: the PR head IS main's tip, so the same SHA is green.
+# Repo prerequisite: "Allow GitHub Actions to create and approve pull requests".
+
+on:
+  push:
+    branches: [main, release]
+  workflow_dispatch:
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # Always work from main's tip, whichever branch pushed: a push to release
+      # (the release itself) must refresh the PR against the new release tip.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      # paths-filter diffs against a local branch name; a checkout of main has
+      # only origin/release.
+      - name: Local release branch
+        run: git branch -f release origin/release
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          # Per its README an explicit `ref` is honoured on push events, and `base`
+          # on another branch is diffed from the merge-base: exactly the changes
+          # main holds beyond release.
+          base: release
+          ref: main
+          filters: .github/release-filters.yml
+      - id: legs
+        # Same fan-out as the `legs` step in release.yml (keep them in step).
+        env:
+          F_BASE: ${{ steps.filter.outputs.base }}
+          F_STUDIO: ${{ steps.filter.outputs.studio_image }}
+          F_GO: ${{ steps.filter.outputs.go }}
+        run: |
+          base=false; studio=false; binaries=false
+          if [ "$F_BASE" = 'true' ]; then base=true; fi
+          if [ "$F_BASE" = 'true' ] || [ "$F_STUDIO" = 'true' ]; then studio=true; fi
+          if [ "$F_BASE" = 'true' ] || [ "$F_GO" = 'true' ]; then binaries=true; fi
+          echo "json={\"base\":\"$base\",\"studio_image\":\"$studio\",\"binaries\":\"$binaries\"}" >>"$GITHUB_OUTPUT"
+      - name: Create, update or close the release PR
+        env:
+          LEGS: ${{ steps.legs.outputs.json }}
+        run: |
+          bash scripts/release/pr-body.sh origin/release origin/main "$LEGS" >"$RUNNER_TEMP/body.md"
+          open="$(gh pr list --base release --head main --state open --json number --jq '.[0].number // empty')"
+          if [ ! -s "$RUNNER_TEMP/body.md" ]; then
+            if [ -n "$open" ]; then
+              gh pr close "$open" --comment "main has nothing beyond release; closing."
+            fi
+            exit 0
+          fi
+          # N is the commit count after the merge commit lands.
+          n=$(( $(git rev-list --count origin/release) + $(git rev-list --count origin/release..origin/main) + 1 ))
+          if [ -n "$open" ]; then
+            gh pr edit "$open" --title "Release $n" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --base release --head main --title "Release $n" --body-file "$RUNNER_TEMP/body.md"
+          fi
