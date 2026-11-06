@@ -54,8 +54,9 @@ On `main`, images are real screenshots; on `goal`, mockups.
 
 - `just manual` builds your working tree (uncommitted edits included) into
   `manual/build/site/` — one version, the one checked out.
-- `just manual-site` builds `origin/main` and `origin/goal` together, with an
-  *As is* / *Goal* switcher. Run `git fetch` first.
+- `just manual-site` builds `main` and `goal` together, with an *As is* /
+  *Goal* switcher: your local branch of each name if you have one (the
+  checked-out one from the working tree), else origin's. Fetch first.
 
 Both need Node/npm (Antora is pinned in `manual/package.json`). The site's look
 is `manual/ui/` — layouts, one helper and a stylesheet — not Antora's default

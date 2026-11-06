@@ -143,8 +143,8 @@ app-dev:
 manual:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.local.yml
 
-# build the as-is (origin/main) and goal (origin/goal) manuals as one site
-# into manual/build/site/; run `git fetch` first
+# build the as-is (main) and goal (goal) manuals as one site into
+# manual/build/site/; local branches win over origin's (see docs/manual.md)
 manual-site:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.yml
 
