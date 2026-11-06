@@ -5,6 +5,7 @@ body{margin:0;font-family:-apple-system,"IBM Plex Sans",Inter,"Segoe UI",sans-se
 .brand{font-weight:700;color:inherit;text-decoration:none}
 .versions{display:flex;gap:6px;margin-left:auto}
 .versions a{border:1px solid #ccc;border-radius:6px;padding:3px 10px;font-size:13px;color:#333;text-decoration:none}
+.versions a{text-transform:capitalize}
 .versions a.on{border-color:var(--acc);color:var(--acc);font-weight:600}
 .versions a.missing{opacity:.5}
 .layout{display:flex}

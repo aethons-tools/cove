@@ -1,10 +1,9 @@
 # The Jam manual: what the product does, for the people using it.
-# On main this is the as-is manual; the long-lived goal branch carries the
-# goal manual with `version: goal`. See docs/manual.md.
+# No `version` here: the playbook maps the branch to a version (release is
+# Released, main is Next, goal is Goal), so these files are identical on every
+# branch. See docs/manual.md.
 name: jam
 title: Jam manual
-version: as-is
-display_version: As is
 nav:
 - modules/ROOT/nav.adoc
 - modules/projects/nav.adoc

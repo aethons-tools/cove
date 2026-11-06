@@ -1,5 +1,6 @@
 # Builds the manual from your working tree (`just manual`): only the version
-# you have checked out, uncommitted edits included. See docs/manual.md.
+# you have checked out, uncommitted edits included. The version is named from
+# the branch (any other branch builds as its own name). See docs/manual.md.
 site:
   title: Jam manual
   start_page: jam:ROOT:index.adoc
@@ -8,6 +9,10 @@ content:
   - url: ..
     start_path: manual
     branches: [HEAD]
+    version:
+      release: released
+      main: next
+      goal: goal
 asciidoc:
   attributes:
     # The team manual: show `ifdef::internal[]` notes. Unset it for a user build.
