@@ -5,3 +5,7 @@ title: Fixture
 nav:
 - modules/ROOT/nav.adoc
 - modules/team/nav.adoc
+ext:
+  internal:
+    # Whole modules that are internal (internal.js).
+    modules: [team]

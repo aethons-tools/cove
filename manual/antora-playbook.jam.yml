@@ -14,8 +14,8 @@ content:
     version: released
 antora:
   extensions:
+  # Internal modules are listed in antora.yml (ext.internal.modules).
   - require: ./extensions/internal.js
-    modules: []
 asciidoc:
   extensions:
   - ./extensions/internal-blocks.js

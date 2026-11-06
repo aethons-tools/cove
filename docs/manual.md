@@ -72,7 +72,7 @@ drops internal content. The customer build hard-unsets it, so a component's
 | A passage | `ifdef::internal[]` … `endif::[]` | removed |
 | A sentence or phrase | single-line `ifdef::internal[text]` | removed |
 | A whole page | `:page-internal:` in the page header | page, its nav entry and aliases dropped |
-| A whole area | the module under `modules:` of `internal.js` in the playbook | every page in the module, and its nav menu, dropped |
+| A whole area | the module under `ext.internal.modules` in `manual/antora.yml` (the one list; every playbook reads it) | every page in the module, and its nav menu, dropped |
 | An image or attachment | used only from internal content | not published (unreferenced files are dropped) |
 
 - **Prefer `[.internal]`**, because it is marked: the team build shows it in a
@@ -90,9 +90,9 @@ drops internal content. The customer build hard-unsets it, so a component's
 - **How**: `manual/extensions/internal.js` (Antora extension: pages, modules,
   phrases, nav, files, the leak check) and `manual/extensions/internal-blocks.js`
   (Asciidoctor tree processor: `[.internal]` blocks). A playbook registers both:
-  `antora.extensions: [{require: ./extensions/internal.js, modules: [<module>…]}]`
-  and `asciidoc.extensions: [./extensions/internal-blocks.js]`; `internal.js`
-  fails the build if the second is missing.
+  `antora.extensions: [{require: ./extensions/internal.js}]` and
+  `asciidoc.extensions: [./extensions/internal-blocks.js]`; `internal.js` fails
+  the build if the second is missing, or if the playbook lists `modules:` itself.
 - **Tests**: `just manual-check` builds a fixture
   (`manual/extensions/test/fixture/`) as customer and as team.
 

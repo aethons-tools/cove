@@ -115,6 +115,18 @@ test('customer build fails when the site start page is internal', async () => {
   )
 })
 
+test('a playbook that lists internal modules fails', async (t) => {
+  // Next to the fixture's playbooks, so their relative paths hold.
+  const playbook = path.join(fixture, 'antora-playbook.modules.tmp.yml')
+  const source = fs.readFileSync(path.join(fixture, 'antora-playbook.customer.yml'), 'utf8')
+  fs.writeFileSync(playbook, source.replace(/(- require: .*internal\.js)\n/, '$1\n    modules: [team]\n'))
+  t.after(() => fs.rmSync(playbook, { force: true }))
+  await assert.rejects(
+    build('modules.tmp'),
+    /internal\.js no longer takes `modules`: list internal modules under ext\.internal\.modules in the component's antora\.yml/
+  )
+})
+
 test('team build keeps everything', async () => {
   const files = site(await build('team'))
   const all = Object.values(files).join('\n')

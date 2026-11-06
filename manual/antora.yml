@@ -8,3 +8,8 @@ nav:
 - modules/ROOT/nav.adoc
 - modules/projects/nav.adoc
 - modules/conventions/nav.adoc
+ext:
+  internal:
+    # Whole modules that are internal: the customer build drops them, the team
+    # build badges them (manual/extensions/internal.js). See docs/manual.md.
+    modules: []

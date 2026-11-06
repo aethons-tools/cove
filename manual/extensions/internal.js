@@ -5,9 +5,9 @@
 // unset, the customer build. In the customer build this
 //   - hard-unsets `internal`, so no component descriptor or page header can
 //     set it (that would keep `[.internal]` blocks and `ifdef::internal[]`);
-//   - drops every page with `:page-internal:` and every page in a module listed
-//     in this extension's `modules` config, with its nav entries and aliases,
-//     and the internal modules' nav menus whole;
+//   - drops every page with `:page-internal:` and every page in a module its
+//     component's antora.yml lists under `ext.internal.modules`, with its nav
+//     entries and aliases, and the internal modules' nav menus whole;
 //   - drops inline elements with the role `internal` (`[.internal]#…#`,
 //     `[.internal]*…*`, …), titles included; internal-blocks.js drops blocks;
 //   - drops every image and attachment no published page references;
@@ -23,10 +23,13 @@
 //   antora:
 //     extensions:
 //     - require: ./extensions/internal.js
-//       modules: [<module>, …]   # optional: whole modules that are internal
 //   asciidoc:
 //     extensions:
 //     - ./extensions/internal-blocks.js
+// Component descriptor (antora.yml), optional:
+//   ext:
+//     internal:
+//       modules: [<module>, …]   # whole modules that are internal
 'use strict'
 
 const path = require('node:path').posix
@@ -40,7 +43,11 @@ const VOID_ELEMENTS = new Set(['area', 'br', 'col', 'embed', 'hr', 'img', 'input
 
 function register ({ config }) {
   const logger = this.getLogger('internal')
-  const internalModules = new Set(config.modules || [])
+  if (config.modules) {
+    throw new Error(
+      "internal.js no longer takes `modules`: list internal modules under ext.internal.modules in the component's antora.yml"
+    )
+  }
   let team = false
   // pub.url of every internal page: dropped in the customer build, badged in the team build.
   const internalUrls = new Set()
@@ -61,8 +68,9 @@ function register ({ config }) {
 
   this.once('documentsConverted', ({ contentCatalog }) => {
     const pages = contentCatalog.getPages((page) => page.out)
+    const isInternalModule = internalModules(contentCatalog)
     const internal = pages.filter(
-      (page) => page.asciidoc?.attributes?.['page-internal'] != null || internalModules.has(page.src.module)
+      (page) => page.asciidoc?.attributes?.['page-internal'] != null || isInternalModule(page.src)
     )
     for (const page of internal) internalUrls.add(page.pub.url)
     if (team) return
@@ -97,6 +105,7 @@ function register ({ config }) {
   })
 
   this.once('navigationBuilt', ({ contentCatalog, navigationCatalog }) => {
+    const isInternalModule = internalModules(contentCatalog)
     for (const component of contentCatalog.getComponents()) {
       for (const { version } of component.versions) {
         const trees = navigationCatalog.getNavigation(component.name, version)
@@ -105,7 +114,7 @@ function register ({ config }) {
         const internalNav = new Set(
           contentCatalog
             .findBy({ component: component.name, version, family: 'nav' })
-            .filter((nav) => internalModules.has(nav.src.module) && nav.nav)
+            .filter((nav) => isInternalModule(nav.src) && nav.nav)
             .map((nav) => nav.nav.index)
         )
         const isInternalTree = (tree) => internalNav.has(Math.floor(tree.order))
@@ -148,6 +157,26 @@ function register ({ config }) {
       }
     }
   })
+}
+
+// internalModules returns whether a file's src is in a module its component
+// version's antora.yml lists under ext.internal.modules.
+function internalModules (contentCatalog) {
+  const modules = new Map()
+  for (const component of contentCatalog.getComponents()) {
+    for (const cv of component.versions) {
+      const set = new Set()
+      for (const origin of cv.origins || []) {
+        const list = origin.descriptor?.ext?.internal?.modules ?? []
+        if (!Array.isArray(list) || !list.every((name) => typeof name === 'string')) {
+          throw new Error(`ext.internal.modules in the antora.yml of ${component.name} must be a list of module names`)
+        }
+        for (const name of list) set.add(name)
+      }
+      modules.set(`${cv.version}@${component.name}`, set)
+    }
+  }
+  return (src) => !!modules.get(`${src.version}@${src.component}`)?.has(src.module)
 }
 
 // fail logs each [page, message] in errors and throws one error listing them.
