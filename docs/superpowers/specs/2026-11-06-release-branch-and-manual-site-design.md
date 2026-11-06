@@ -1,6 +1,6 @@
 # Release branch and the published manual — design
 
-**Status:** draft for the user's review, 2026-11-06. Decisions the user made are marked *(user)*; the rest are proposals.
+**Status:** agreed and merged 2026-11-06 (#623); hosting revised the same day (§4). Decisions the user made are marked *(user)*; the rest are proposals.
 **Context:** today every push to `main` publishes a release (`.github/workflows/release.yml`, [the release pipeline](../../DEVELOPMENT.md#ci-the-release-pipeline)), and the user's approval of each merge was a habit, not a rule (`main`'s ruleset requires the `gate` check and no approvals). Under the manual-first model ([design](2026-11-05-manual-first-operating-model-design.md)), the user wants to approve **releases**, not merges, and to publish the manual, all of its versions, as a site.
 
 ## Intent
@@ -8,8 +8,9 @@
 - The user approves what ships, once per release, by looking at what changes for users. *(user)*
 - Agents merge to `main` on their own once checks and review pass. *(user)*
 - A merge from `main` into a `release` branch starts the release. *(user)*
-- The manual is published with all three versions, opening on the released one. *(user)*
-- Any manual content can be marked internal, and the published site leaves it out. *(user)*
+- **The full manual** (Released, Next and Goal, internal content included) is hosted on **Cloudflare**, for the team. *(user)*
+- **The customer-facing manual** (Released only, internal content left out) is **served by Jam itself**. *(user)*
+- Any manual content can be marked internal; the customer-facing build leaves it out. *(user)*
 
 ## Non-goals
 
@@ -62,6 +63,13 @@ The user approves by merging it. Nothing else releases.
 
 ## 4. The published manual
 
+Two builds, two hosts *(user)*:
+
+| Build | Versions | `internal` | Host | Who sees it |
+|---|---|---|---|---|
+| **Team manual** | Released, Next, Goal | set: shown, marked | **Cloudflare** behind Cloudflare Access | the team |
+| **Customer manual** | Released only | unset: left out | **Jam**, at `/app/manual/` | anyone signed in to that Jam |
+
 **Versions come from the branch, not the files.** Each branch's `manual/antora.yml` stops hard-coding `version:`. The playbook maps branch to version on the content source, so manual files are identical on every branch and merges never touch version names. The `goal` branch's `version: goal` commit is reverted.
 
 | Branch | Version | Shown as | Banner |
@@ -70,16 +78,28 @@ The user approves by merging it. Nothing else releases.
 | `main` | `next` | **Next** | "Merged, not released yet." |
 | `goal` | `goal` | **Goal** | "How the product should work, not necessarily how it works today." |
 
-- The site opens on **Released**; the version switcher shows all three.
-- `manual-site.yml` builds all three on any push to `release`, `main` or `goal`, from one checkout with full history, and deploys to **GitHub Pages**. Deploys are serialized (one concurrency group, newest wins).
-- The public build leaves `internal` unset (§5). `just manual` / `manual-site` keep building the **team manual** (internal shown) for previews.
-- Diffs the site can show later: `goal` vs `release` is all the work left; `main` vs `release` is what the next release ships.
+### Team manual on Cloudflare
+
+- `manual-site.yml` builds all three versions on any push to `release`, `main` or `goal`, from one checkout with full history, and uploads the static site to Cloudflare (Cloudflare Pages) with `wrangler`. Deploys are serialized (one concurrency group, newest wins).
+- It opens on **Released**; the switcher shows all three.
+- **Cloudflare Access** in front: only the team gets in. The site contains internal content and the goal manual, so it is never public.
+- **Where:** Cloudflare account `aethons-tools`, Pages project **`aethons-tools-jam`**, served at **`https://aethons-tools-jam.pages.dev`**; Access allows members of the user's Cloudflare account *(user)*. The job deploys with `wrangler pages deploy --project-name aethons-tools-jam --branch main` (the project's production branch, whatever git branch triggered it).
+- **Needs, from an admin:** repo secret `CLOUDFLARE_API_TOKEN` (a token scoped to *Pages: Edit* on that account) and repo variable `CLOUDFLARE_ACCOUNT_ID`.
+- **Check before the first deploy:** the Pages project's built-in Access toggle protects *preview* deployments (`*.aethons-tools-jam.pages.dev`) only. The Access application must also cover the production host `aethons-tools-jam.pages.dev`, or the team manual is public.
+- Diffs it can show later: `goal` vs `release` is all the work left; `main` vs `release` is what the next release ships.
+
+### Customer manual in Jam
+
+- Built from the commit being built, without `internal`, as one version, into `internal/jam/uiassets/manual/` (git-ignored, like the app bundle) and **embedded in `jam`**. Each Jam carries exactly the manual for its own release: no host to keep in step, nothing to go stale.
+- Served at **`/app/manual/`** to any signed-in user, alongside the user area and admin console. The app can link to a page by its `page-id` (a Help link per page is a later step).
+- The build runs where `scripts/app.sh` builds the app (`just build` and the release's binaries leg); `release.yml`'s `go` path filter gains `manual/**`, so a manual-only change rebuilds the binaries on the next release.
+- Off a `release` build (a PR, `main`, a local `just build`), the embedded manual is that commit's manual. Only a release build ships to customers.
 
 ## 5. Marking content internal *(user: "any content, anywhere")*
 
-One attribute, `internal`, set only in team builds. Every granularity uses it:
+One attribute, `internal`, set only in team builds (Cloudflare, `just manual`, previews). Every granularity uses it:
 
-| What | How | Public build |
+| What | How | Customer build |
 |---|---|---|
 | A passage | `ifdef::internal[]` … `endif::[]` | removed |
 | A sentence or phrase | single-line `ifdef::internal[text]` | removed |
@@ -88,13 +108,14 @@ One attribute, `internal`, set only in team builds. Every granularity uses it:
 | An image or attachment | used only from internal content | not published (unreferenced files are dropped) |
 
 - **In the team build, internal content is visibly marked**: passages render in a labelled "Team" box; internal pages and areas carry a "Team only" badge in the nav. You always know what readers won't see.
-- **A small Antora extension** in the repo (`manual/extensions/internal.js`) drops internal pages, modules and nav entries, and the files only they reference, when `internal` is unset.
-- **Leaks fail the public build:** a public page that links to internal content is an error there (the extension checks xrefs, and the public build runs with `--log-failure-level=warn`).
+- **A small Antora extension** in the repo (`manual/extensions/internal.js`) drops internal pages, modules and nav entries, and the files only they reference, when `internal` is unset (the customer build).
+- **Leaks fail the customer build:** a customer page that links to internal content is an error there (the extension checks xrefs, and that build runs with `--log-failure-level=warn`).
 
 ## Docs to update in the implementation
 
 - `docs/DEVELOPMENT.md` (owns the release pipeline): the branch table, the release PR, the repo settings.
-- `docs/manual.md`: versions by branch, the site and Pages, marking content internal.
+- `docs/manual.md`: versions by branch, the two builds and their hosts, marking content internal.
+- `docs/web-app.md` (owns `/app/*` serving and `scripts/app.sh`): the embedded manual at `/app/manual/`.
 - `AGENTS.md`: agents merge to `main` when it's green and reviewed; only the user merges into `release`.
 - `docs/OVERVIEW.md`'s "cuts on every push to `main`" → "on every merge into `release`".
 
@@ -106,4 +127,4 @@ One attribute, `internal`, set only in team builds. Every granularity uses it:
 
 ## Open
 
-- Which GitHub account the Pages site is served under, and whether it needs a custom domain.
+None.
