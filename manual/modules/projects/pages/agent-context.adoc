@@ -1,61 +1,91 @@
 = Telling a project's agents what they need to know
 :page-area: projects
 :page-id: projects/agent-context
-:page-conventions: sentence-case
+:page-conventions: sentence-case, quiet-grid, collapsible-rows, add-at-bottom, thermometers, view-then-edit, field-errors, rendered-markdown
 
 Every agent raised in a project starts with the project's *agent context*:
-a short core it always sees,
-leaves it opens only when relevant,
+core instructions it always sees,
+progressive instructions it opens only when relevant,
 and a list of the project's resources.
-You edit it on the project page,
+You see and edit it on the project page,
 in the *Agent context* card,
 under *Config › Projects › _your project_*.
 
-image::project-page.png[The project page with an empty Agent context card,600]
+image::agent-context-goal-view.png[The Agent context card, viewing,800]
+
+TIP: Try it: link:{attachmentsdir}/agent-context-prototype.html[open the clickable prototype^].
+Nothing in it is saved.
 
 Changes reach each agent the next time it is raised.
 Never put a credential in agent context;
 every agent can read it.
 
-== What the card shows
+== Viewing and editing
 
-A badge shows the core's size against its 1,200-byte budget.
-Below it, the card shows the core text,
-the leaves by name and when each is read,
-and the resources in a table.
-With nothing set, it reads _None — agents get no project section._
+The card always has the same layout.
+Normally it is read-only:
+markdown shows formatted,
+you can expand progressive instructions to read them,
+and every thermometer shows where you stand.
+Click *Edit* to make the whole card editable;
+*Cancel* drops your changes,
+*Save context* keeps them.
 
-== Editing
+image::agent-context-goal-edit.png[The Agent context card, editing,800]
 
-Open *Edit agent context* to edit everything as one block of YAML,
-in the `jam context` file format with bodies inline:
+== Core instructions
 
-[source,yaml]
-----
-core: |
-  Ship the release by Friday.
-leaves:
-  - name: release.md
-    read-when: you are cutting a release
-    body: |
-      # Cutting a release
-      …
-resources:
-  - {name: cove, kind: repo, ref: aethons-tools/cove, note: main repo}
-----
+*Core instructions* hold what every agent must always know:
+the project's goal and its standing rules.
+The thermometer below shows how much of the 1,200-byte budget you have used.
+When the project has resources,
+the budget includes the one line that points agents at them.
 
-*Save context* checks the whole block and refuses it,
-changing nothing,
-if anything breaks a rule:
-a core over budget,
-a bad or duplicate leaf name,
-a missing or over-long read-when (160 bytes),
-more than 20 leaves or 64 KiB of leaf bodies,
-or more than 50 resources.
+== Progressive instructions
 
-*Clear* removes the project's agent context entirely.
+A *progressive instruction* is detail an agent reads only when its *Read when* matches the task at hand,
+such as how to cut a release.
 
-The same card, without resources,
-is on each role's page and,
-for the context every agent on the Jam gets,
-on the dashboard.
+* Each instruction is a row showing its name, *Read when* and size.
+Click *▸* to expand it and *▾* to collapse it.
+* To add one, click *+ new instruction…* at the bottom of the list;
+it opens expanded.
+* An instruction has a name ending in `.md`,
+a *Read when*,
+and a markdown body.
+The thermometer under *Read when* shows its 160-byte limit.
+* The thermometer below the list shows all progressive instructions together against their 64 KiB.
+A project can have up to 20.
+
+== Resources
+
+Resources are the repos, docs, trackers and links the project's agents should know about.
+The grid looks like a plain table:
+click a cell to edit it,
+press Tab or Enter to move on,
+and Esc to leave the cell.
+To add one, click *+ new resource…* at the bottom of the grid.
+Each resource needs a unique name, a kind (repo, doc, tracker or url) and a ref;
+the note is optional.
+A project can list up to 50.
+
+== Saving
+
+A problem shows on the field that has it,
+the footer counts them,
+and *Save context* stays off until there are none.
+Saving replaces the project's whole agent context at once.
+
+*View as YAML* shows the same context in the `jam context` file format,
+for copying into a config repo.
+*Clear context* removes it entirely.
+
+ifdef::internal[]
+== Notes for the team
+
+* The card is shared (`web/app/src/admin/ui/ContextPanel.tsx`):
+each role's page uses it without Resources (1,200-byte budget),
+and the dashboard uses it for the Jam-wide context without Resources (800 bytes).
+* The renames are on screen only; the `jam context` YAML and admin API keep `core` and `leaves`.
+* Managed (config-in-git) contexts keep the drift warning on save.
+endif::[]
