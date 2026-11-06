@@ -1,0 +1,61 @@
+= Telling a project's agents what they need to know
+:page-area: projects
+:page-id: projects/agent-context
+:page-conventions: sentence-case
+
+Every agent raised in a project starts with the project's *agent context*:
+a short core it always sees,
+leaves it opens only when relevant,
+and a list of the project's resources.
+You edit it on the project page,
+in the *Agent context* card,
+under *Config › Projects › _your project_*.
+
+image::project-page.png[The project page with an empty Agent context card,600]
+
+Changes reach each agent the next time it is raised.
+Never put a credential in agent context;
+every agent can read it.
+
+== What the card shows
+
+A badge shows the core's size against its 1,200-byte budget.
+Below it, the card shows the core text,
+the leaves by name and when each is read,
+and the resources in a table.
+With nothing set, it reads _None — agents get no project section._
+
+== Editing
+
+Open *Edit agent context* to edit everything as one block of YAML,
+in the `jam context` file format with bodies inline:
+
+[source,yaml]
+----
+core: |
+  Ship the release by Friday.
+leaves:
+  - name: release.md
+    read-when: you are cutting a release
+    body: |
+      # Cutting a release
+      …
+resources:
+  - {name: cove, kind: repo, ref: aethons-tools/cove, note: main repo}
+----
+
+*Save context* checks the whole block and refuses it,
+changing nothing,
+if anything breaks a rule:
+a core over budget,
+a bad or duplicate leaf name,
+a missing or over-long read-when (160 bytes),
+more than 20 leaves or 64 KiB of leaf bodies,
+or more than 50 resources.
+
+*Clear* removes the project's agent context entirely.
+
+The same card, without resources,
+is on each role's page and,
+for the context every agent on the Jam gets,
+on the dashboard.

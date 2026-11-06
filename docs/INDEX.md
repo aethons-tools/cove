@@ -18,6 +18,7 @@ open only that doc, and stop when you have enough.
 | [DEVELOPMENT.md](DEVELOPMENT.md) | You are building or testing this repo inside the egress-locked dev sandbox and `go` or `just` won't fetch or build. |
 | [local-build.md](local-build.md) | You want a local Jam whose studios run on images you just built (`just local`), or see "local studio base" in `jam version`, or a release build refused a `local.txt`. |
 | [web-app.md](web-app.md) | You are changing the Jam app (`web/app`: the user area at `/app/user/`, the admin console at `/app/admin/`), adding an `/app/user/api` or `/app/admin/api` route it reads, or building/testing it. |
+| [manual.md](manual.md) | You are changing anything a Jam user can see (its manual page changes in the same PR), writing a manual page, proposing a change on the goal branch, or building the manual. |
 | [usage/INDEX.md](usage/INDEX.md) | You are running one of the binaries (`jam`, `jam-colima`) and need its flags, config, or I/O contract. |
 | [superpowers/](superpowers/) | You need the design history — dated specs (`specs/`) and implementation plans (`plans/`) — behind a structural decision. |
 | [TODO.md](TODO.md) | You want the loose backlog of known follow-ups not yet filed as tickets. |

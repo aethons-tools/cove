@@ -32,6 +32,8 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
   Route the update to the doc that owns the subject
   (start from [`docs/OVERVIEW.md`](docs/OVERVIEW.md)),
   and keep `docs/` in sync — never leave docs describing the old behavior.
+  A change a Jam user can see also updates its page in the user manual, `manual/`
+  ([`docs/manual.md`](docs/manual.md)).
   Note this covers *this repo's* docs; a change to the template tree above
   updates the sandbox's docs, which is a separate concern.
 

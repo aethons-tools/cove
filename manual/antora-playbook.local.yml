@@ -1,0 +1,18 @@
+# Builds the manual from your working tree (`just manual`): only the version
+# you have checked out, uncommitted edits included. See docs/manual.md.
+site:
+  title: Jam manual
+  start_page: jam:ROOT:index.adoc
+content:
+  sources:
+  - url: ..
+    start_path: manual
+    branches: [HEAD]
+ui:
+  bundle:
+    url: ./ui
+    snapshot: true
+output:
+  dir: ./build/site
+runtime:
+  fetch: false

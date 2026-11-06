@@ -1,0 +1,11 @@
+# The Jam manual: what the product does, for the people using it.
+# On main this is the as-is manual; the long-lived goal branch carries the
+# goal manual with `version: goal`. See docs/manual.md.
+name: jam
+title: Jam manual
+version: as-is
+display_version: As is
+nav:
+- modules/ROOT/nav.adoc
+- modules/projects/nav.adoc
+- modules/conventions/nav.adoc

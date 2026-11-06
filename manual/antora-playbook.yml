@@ -1,0 +1,19 @@
+# Builds both versions of the manual side by side (`just manual-site`) from
+# origin's branches: main is "As is", goal is "Goal". Fetch first. See
+# docs/manual.md.
+site:
+  title: Jam manual
+  start_page: jam:ROOT:index.adoc
+content:
+  sources:
+  - url: ..
+    start_path: manual
+    branches: [remotes/origin/main, remotes/origin/goal]
+ui:
+  bundle:
+    url: ./ui
+    snapshot: true
+output:
+  dir: ./build/site
+runtime:
+  fetch: false
