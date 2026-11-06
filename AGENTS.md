@@ -37,6 +37,9 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
   Note this covers *this repo's* docs; a change to the template tree above
   updates the sandbox's docs, which is a separate concern.
 
+- **Merging:** agents merge their own PRs into `main` when `gate` is green and the review
+  passed; only the user merges into `release` (that merge is the release). Never push to `release` directly.
+
 - **Build/test via `just`** (run `just` to list recipes):
   `just test` (hermetic unit tests), `just build`, `just jam <args>`, `just lint`, `just integration` (real-ssh, needs ssh/sshd).
 - **Tests are hermetic by default** —

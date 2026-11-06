@@ -39,6 +39,29 @@ func AppBuilt() bool {
 	return err == nil
 }
 
+// manualFiles is the customer manual (manual/, Released version only), built
+// into manual/ by scripts/manual.sh; only a placeholder is committed.
+//
+//go:embed all:manual
+var manualFiles embed.FS
+
+var manual = func() fs.FS {
+	sub, err := fs.Sub(manualFiles, "manual")
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}()
+
+// ManualFS is the customer manual's root (index.html, jam/released/...).
+func ManualFS() fs.FS { return manual }
+
+// ManualBuilt reports whether this binary carries the customer manual.
+func ManualBuilt() bool {
+	_, err := fs.Stat(manual, "index.html")
+	return err == nil
+}
+
 var static = func() fs.FS {
 	sub, err := fs.Sub(files, "static")
 	if err != nil {

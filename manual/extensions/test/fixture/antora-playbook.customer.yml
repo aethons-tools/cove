@@ -1,0 +1,23 @@
+# The customer build of the fixture: `internal` unset, so internal content is dropped.
+site:
+  title: Fixture
+  start_page: fixture::public.adoc
+content:
+  sources:
+  - url: ./../../../..
+    start_paths:
+    - manual/extensions/test/fixture/content
+    - manual/extensions/test/fixture/override
+    branches: [HEAD]
+antora:
+  extensions:
+  - require: ./../../internal.js
+asciidoc:
+  extensions:
+  - ./../../internal-blocks.js
+ui:
+  bundle:
+    url: ./../../../ui
+    snapshot: true
+runtime:
+  fetch: false

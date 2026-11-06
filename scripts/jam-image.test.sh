@@ -125,29 +125,29 @@ else
   ok "Dockerfile: no docker/openssh/git in apk add"
 fi
 
-# 6. release.yml wiring: the binaries job builds (PR) / publishes (main) the image.
+# 6. release.yml wiring: the binaries job builds (PR) / publishes (release) the image.
 rel="$REPO/.github/workflows/release.yml"
 step_block() { # name-prefix: the step's lines, up to the next step
   awk -v p="$1" 'index($0, "- name: " p) {on=1; print; next} on && /^      - / {exit} on {print}' "$rel"
 }
 pr_step="$(step_block 'Build Jam image (PR')"
-main_step="$(step_block 'Publish Jam image (main')"
+release_step="$(step_block 'Publish Jam image (release')"
 smoke_step="$(step_block 'Smoke-test Jam image')"
-assert_contains "release.yml: PR step guarded" "$pr_step" "github.event_name == 'pull_request'"
+assert_contains "release.yml: PR step guarded" "$pr_step" "github.ref != 'refs/heads/release'"
 assert_contains "release.yml: PR step builds amd64 only" "$pr_step" "scripts/jam-image.sh --platforms linux/amd64 --tag jam:ci"
 case "$pr_step" in *--push*) bad "release.yml: PR step has no --push" ;; *) ok "release.yml: PR step has no --push" ;; esac
-assert_contains "release.yml: smoke guarded" "$smoke_step" "github.event_name == 'pull_request'"
+assert_contains "release.yml: smoke guarded" "$smoke_step" "github.ref != 'refs/heads/release'"
 assert_contains "release.yml: smoke run" "$smoke_step" "docker run --rm jam:ci version"
-assert_contains "release.yml: main step guarded" "$main_step" "github.event_name == 'push'"
-assert_contains "release.yml: main step pushes" "$main_step" "scripts/jam-image.sh --platforms linux/amd64,linux/arm64"
-assert_contains "release.yml: main step --push" "$main_step" "--push"
+assert_contains "release.yml: release step guarded" "$release_step" "github.ref == 'refs/heads/release'"
+assert_contains "release.yml: release step pushes" "$release_step" "scripts/jam-image.sh --platforms linux/amd64,linux/arm64"
+assert_contains "release.yml: release step --push" "$release_step" "--push"
 arm_step="$(step_block 'Smoke-test Jam image (arm64')"
-assert_contains "release.yml: arm64 smoke guarded" "$arm_step" "github.event_name == 'push'"
+assert_contains "release.yml: arm64 smoke guarded" "$arm_step" "github.ref == 'refs/heads/release'"
 # shellcheck disable=SC2016 # literal ${...} is the expected workflow text
 assert_contains "release.yml: arm64 smoke run" "$arm_step" 'docker run --rm --platform linux/arm64 "${JAM_IMAGE}:${VERSION}" version'
 # shellcheck disable=SC2016 # literal ${...} is the expected workflow text
 assert_contains "release.yml: arm64 smoke checks version" "$arm_step" 'test "$out" = "$VERSION"'
-filter_block="$(awk '/^            go:/ {on=1; next} on && /^      - id:/ {exit} on {print}' "$rel")"
+filter_block="$(awk '/^go:/ {on=1; next} on {print}' "$REPO/.github/release-filters.yml")"
 assert_contains "release.yml: go filter has images/jam/**" "$filter_block" "- 'images/jam/**'"
 assert_contains "release.yml: go filter has jam-image.sh" "$filter_block" "- 'scripts/jam-image.sh'"
 assert_contains "release.yml: go filter is the binaries input" "$filter_block" "- 'cmd/**'"

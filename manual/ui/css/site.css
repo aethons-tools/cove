@@ -5,6 +5,7 @@ body{margin:0;font-family:-apple-system,"IBM Plex Sans",Inter,"Segoe UI",sans-se
 .brand{font-weight:700;color:inherit;text-decoration:none}
 .versions{display:flex;gap:6px;margin-left:auto}
 .versions a{border:1px solid #ccc;border-radius:6px;padding:3px 10px;font-size:13px;color:#333;text-decoration:none}
+.versions a{text-transform:capitalize}
 .versions a.on{border-color:var(--acc);color:var(--acc);font-weight:600}
 .versions a.missing{opacity:.5}
 .layout{display:flex}
@@ -21,3 +22,8 @@ body{margin:0;font-family:-apple-system,"IBM Plex Sans",Inter,"Segoe UI",sans-se
 .doc code{font-family:ui-monospace,"IBM Plex Mono",Menlo,monospace;font-size:.9em}
 .doc a{color:var(--acc)}
 .doc .menuseq,.doc b{font-weight:600}
+/* Internal content (team build only; the customer build drops it): see docs/manual.md. */
+.doc div.internal{position:relative;border:1px dashed var(--acc);border-radius:6px;padding:18px 12px 4px;margin:12px 0}
+.doc div.internal::before{content:"Team";position:absolute;top:-9px;left:10px;background:#fff;padding:0 6px;color:var(--acc);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.doc span.internal{text-decoration:underline dotted var(--acc);text-underline-offset:3px}
+.team-only{border:1px solid var(--acc);border-radius:4px;padding:0 4px;color:var(--acc);font-size:10px;font-weight:600;white-space:nowrap}

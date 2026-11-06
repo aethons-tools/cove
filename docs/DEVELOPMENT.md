@@ -4,7 +4,7 @@ read_when: You are building or testing this repo inside the egress-locked dev sa
 owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH) and build/test workarounds
 prereqs: OVERVIEW.md
 tier: leaf
-updated: 2026-11-05
+updated: 2026-11-06
 ---
 
 # Development notes
@@ -129,12 +129,12 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
 ## CI: the merge gate
 
 [`.github/workflows/gate.yml`](../.github/workflows/gate.yml) runs on every PR
-to `main`, and on `main` itself. Two legs run in parallel and the `gate` job joins them:
+to `main` or `release`, and on those branches themselves. Two legs run in parallel and the `gate` job joins them:
 
 - **`go`:** the app bundle (so the tests serve the real app), `go test ./...`, the installer and image-script tests, and
   [`scripts/lint.sh`](../scripts/lint.sh). These are the same scripts that `just test` and `just lint` run, so CI and the local
   loop cannot drift.
-- **`web`:** the Jam app's checks (`just app-check`) and the VS Code extension's (`scripts/vscode.sh`, which uploads the `jam-vscode` artifact).
+- **`web`:** the Jam app's checks (`just app-check`) and the VS Code extension's (`scripts/vscode.sh`, which uploads the `jam-vscode` artifact), plus the user manual's extension tests (`just manual-check`).
   [`scripts/npm-ci.sh`](../scripts/npm-ci.sh) installs `web/app` once per job, though three steps use it: it skips `npm ci` when
   `node_modules` was installed from the same lockfile by the same Node.
 
@@ -235,22 +235,30 @@ publish. Published (private) to `ghcr.io/aethons-tools/jam-studio-base` and
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) is **one
 monolithic continuous-delivery pipeline** (COV-44, design:
 [monolithic-release-pipeline](superpowers/specs/2026-07-17-monolithic-release-pipeline-design.md)).
-It runs on every push to `main` and on every PR, and **decides from the repo diff
+It runs on every push to `main` or `release` and on every PR, and **decides from the repo diff
 which artifacts to (re)build** — there is no version-tag trigger and no manual
 "cut a release" step.
 
-- **Change-detection** (path-based) selects the legs: `images/jam-studio-base/**`
+- **Branches:** `main` is where work lands (agents merge their own PRs once `gate` is green
+  and the review passed); `release` is what ships. Only the user merges `main` into `release`,
+  and that merge *is* the release. Nobody pushes to `release` directly. Pushes to `main`
+  build and smoke-test like a PR and publish nothing.
+- **Change-detection** (path-based, filters in
+  [`.github/release-filters.yml`](../.github/release-filters.yml)) selects the legs: `images/jam-studio-base/**`
   → rebuild the base **and** jam-studio (downstream) **and** re-cut the host binaries (its
   new digest becomes the default base + blessed-list head);
   `images/jam-studio/**` → rebuild just jam-studio (FROM the current published
-  base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` · `install.sh` → re-cut the host binaries
-  (blessed list recomputed from the registry head). Docs-only → nothing publishes.
+  base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` · `install.sh` · `manual/**` ·
+  `scripts/manual.sh` (the customer manual jam embeds) · `web/**` (and the other parts jam
+  embeds; the filters file is the full list) → re-cut the host binaries (blessed list
+  recomputed from the registry head). So a manual edit re-cuts the binaries; `docs/`-only →
+  nothing publishes.
 - **DAG order (no cycle):** base → publish → digest **D** → [blessed-list
   snapshot, [COV-47](../internal/blessgen)] → the host binaries (embed jam-studio-agent + list); jam-studio = `FROM jam-studio-base:ci`. The base
   publishes **before** the binaries leg so `gen-blessed` sees **D** as the
   registry head.
-- **PRs build + smoke the touched legs but never publish** (spec §5); only a push
-  to `main` pushes to GHCR / cuts the release. Images publish as multi-arch
+- **PRs and `main` build + smoke the touched legs but never publish** (spec §5); only a push
+  to `release` (a merge into it) pushes to GHCR / cuts the release. Images publish as multi-arch
   manifests tagged `<N>-<MMDD>` (immutable) + `latest`; the binaries are built by
   `goreleaser --snapshot` (`jam` and `jam-colima` for darwin/linux ×
   amd64/arm64, one `jam_<ver>_<os>_<arch>.tar.gz` per target holding exactly
@@ -260,6 +268,20 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
 - **jam-studio-agent is embedded**, not shipped standalone — re-cutting the binaries
   re-cuts it (the [`.goreleaser.yaml`](../.goreleaser.yaml) before-hook runs
   `scripts/stage-studio-agent.sh`).
+
+### The release PR
+
+[`.github/workflows/release-pr.yml`](../.github/workflows/release-pr.yml) keeps one PR from
+`main` into `release` open, titled `Release <N>` (`<N>` = the commit count after the merge
+commit). On each push to `main` or `release` it applies the same change-detection filters
+(paths-filter `base: release`, `ref: main`, with the legs fan-out shared with `release.yml` via [`scripts/release/legs.sh`](../scripts/release/legs.sh))
+and has [`scripts/release/pr-body.sh`](../scripts/release/pr-body.sh) write the description:
+what changes for users (the manual pages that differ, linked to the Next version of the team
+manual at `https://aethons-tools-jam.pages.dev/jam/next/…`), which legs the merge rebuilds, and
+the merged PRs. When `main` has nothing beyond `release` the PR is closed. Its required `gate`
+check is the run from `main`'s push: the PR head is `main`'s tip, the same SHA. It needs the
+repo setting "Allow GitHub Actions to create and approve pull requests" (see
+[Git / pushing](#git--pushing)). Tests: `just test-release-pr-body`, `just test-release-legs`.
 
 ### Versioning
 
@@ -308,5 +330,32 @@ and in a Jam studio git authenticates through Jam's broker
 
 `main` is protected: changes land through a PR whose **`gate`** check passes.
 Direct pushes to `main` are rejected, including for admins.
+`release` has its own ruleset; only the user merges into it:
+
+- a pull request is required, and the only allowed merge method is **merge** (a merge
+  commit; no squash, no rebase);
+- no deletion, no force-push;
+- required status check `gate`, with "Require branches to be up to date before merging"
+  **off**: `main` never contains `release`'s merge commits, so the release PR's head
+  (`main`) is never "up to date" with `release` and the setting would block every release.
+
+Repo settings the release flow relies on: "Allow merge commits" is on (a `main` into `release`
+merge keeps history, so `<N>` stays monotonic), and "Allow GitHub Actions to create and approve pull requests" is on.
 Inside a *sandbox* the story is different —
 the hardening rewrites GitHub remotes to HTTPS and git authenticates through Jam's broker ([connector.md](usage/jam/connector.md)).
+
+### First-time setup
+
+Once, in this order:
+
+1. Create `release` from `main` with a plain push (`git push origin main:refs/heads/release`)
+   before its ruleset exists. It publishes nothing: on a new branch paths-filter diffs against
+   the merge-base with `main`, which is empty. Until then `release-pr.yml` succeeds with a
+   notice and does nothing.
+2. Apply the `release` ruleset above, and the two repo settings.
+3. Create the Cloudflare Pages project `aethons-tools-jam`, production branch `main`.
+4. Add a Cloudflare Access application covering the production host
+   `aethons-tools-jam.pages.dev` (not only preview deployments): the team manual carries
+   internal content ([manual.md](manual.md)).
+5. Add the repository secret `CLOUDFLARE_API_TOKEN` and the repository variable
+   `CLOUDFLARE_ACCOUNT_ID` (`manual-site.yml` deploys with them).

@@ -143,10 +143,14 @@ app-dev:
 manual:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.local.yml
 
-# build the as-is (main) and goal (goal) manuals as one site into
+# build the Released (release), Next (main) and Goal (goal) manuals as one site into
 # manual/build/site/; local branches win over origin's (see docs/manual.md)
 manual-site:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.yml
+
+# test the manual's Antora extensions (internal content: manual/extensions/test/)
+manual-check:
+    cd manual && ../scripts/npm-ci.sh && npm test
 
 # build the Jam VS Code extension's .vsix into web/vscode/dist/jam.vsix (needs Node/npm)
 vscode:
@@ -169,6 +173,14 @@ test-browser:
 # hermetic test for the root install.sh installer (stubs gh/uname; no network)
 test-install:
     bash install.test.sh
+
+# hermetic test for scripts/release/pr-body.sh (the release PR description; temp git repo)
+test-release-pr-body:
+    bash scripts/release/pr-body.test.sh
+
+# hermetic test for scripts/release/legs.sh (the legs fan-out release.yml and release-pr.yml share)
+test-release-legs:
+    bash scripts/release/legs.test.sh
 
 # hermetic test for scripts/local.sh (`just local`; fake docker, stub build scripts)
 test-local:

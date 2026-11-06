@@ -1,0 +1,8 @@
+= Internal page
+:page-internal:
+
+SECRET-PAGE lives on an internal page.
+
+image::internal-only.png[Internal only]
+
+xref:attachment$internal-only.txt[An internal attachment].

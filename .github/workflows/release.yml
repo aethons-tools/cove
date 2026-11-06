@@ -1,7 +1,7 @@
 name: release
 
 # Monolithic continuous-delivery pipeline (COV-44, spec §3/§5/§6). ONE workflow
-# on every push to main decides — from the repo diff — which artifacts to
+# on every push to main or release decides — from the repo diff — which artifacts to
 # (re)build and publish, in DAG order (spec §3, no cycle):
 #
 #   jam-studio-base ──publish──► digest D ──► (registry) ──► blessed-list snapshot
@@ -12,19 +12,20 @@ name: release
 #                                                                ▼
 #                                                         jam image (alpine + that binary)
 #
-# Pull requests build + smoke the touched legs but NEVER publish (spec §5).
+# Only a merge into the `release` branch publishes (spec §5); pull requests and
+# pushes to main build + smoke the touched legs but NEVER publish.
 # Versioning is <N>-<MMDD>, N = git rev-list --count HEAD (spec §5). Supersedes
 # build-images.yml + the goreleaser-on-tags release + release-validate.yml.
 
 on:
   push:
-    branches: [main]
+    branches: [main, release]
   pull_request:
 
 concurrency:
-  # Serialize main (each push may publish); let a PR's own reruns cancel.
+  # Serialize release (each push publishes); let a PR's own reruns cancel.
   group: release-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/release' }}
 
 permissions:
   contents: write # gh cuts the release + its <N>-<MMDD> tag
@@ -53,27 +54,11 @@ jobs:
       - uses: dorny/paths-filter@v4
         id: filter
         with:
-          filters: |
-            base:
-              - 'images/jam-studio-base/**'
-            studio_image:
-              - 'images/jam-studio/**'
-            go:
-              - 'cmd/**'
-              - 'internal/**'
-              - 'go.mod'
-              - 'go.sum'
-              - '.goreleaser.yaml'
-              - 'scripts/stage-studio-agent.sh'
-              - 'scripts/app.sh'
-              - 'web/vscode/**' # the VS Code extension .vsix jam embeds (and the release attaches)
-              - 'scripts/vscode.sh'
-              - 'scripts/stage-vscode.sh' # ... staged into jam, which embeds it
-              - 'web/app/**' # the Jam app bundle jam embeds
-              - 'install.sh' # embedded in jam (`update`)
-              - 'scripts/release/**' # the archive check
-              - 'images/jam/**' # the Jam container image built in the binaries leg
-              - 'scripts/jam-image.sh' # ... and the script that builds it
+          # Push events diff against the same branch's previous tip. Without this
+          # the default is the merge-base with main, which is empty right after a
+          # main -> release merge, so nothing would publish.
+          base: ${{ github.ref_name }}
+          filters: .github/release-filters.yml
       - id: legs
         # Fan the raw path filters into the DAG's legs (spec §3):
         #   base change     => rebuild base AND jam-studio (downstream) AND the binaries
@@ -84,23 +69,14 @@ jobs:
           BASE: ${{ steps.filter.outputs.base }}
           STUDIO: ${{ steps.filter.outputs.studio_image }}
           GO: ${{ steps.filter.outputs.go }}
-        run: |
-          base=false; studio=false; binaries=false
-          if [ "$BASE" = 'true' ]; then base=true; fi
-          if [ "$BASE" = 'true' ] || [ "$STUDIO" = 'true' ]; then studio=true; fi
-          if [ "$BASE" = 'true' ] || [ "$GO" = 'true' ]; then binaries=true; fi
-          {
-            echo "base=$base"
-            echo "studio_image=$studio"
-            echo "binaries=$binaries"
-          } >>"$GITHUB_OUTPUT"
+        run: bash scripts/release/legs.sh >>"$GITHUB_OUTPUT"
       - id: version
         # <N>-<MMDD>: N (git rev-list --count HEAD) is the monotonic version; the
         # month-day is advisory; '-' (not '.') so it is never mistaken for SemVer.
         run: echo "version=$(git rev-list --count HEAD)-$(date -u +%m%d)" >>"$GITHUB_OUTPUT"
 
   # Build the image tree for the touched legs, smoke-test natively per arch, and —
-  # on main — push per-arch tags the publish job merges. Runs whenever jam-studio
+  # on release — push per-arch tags the publish job merges. Runs whenever jam-studio
   # is (re)built, which subsumes a base rebuild (base => jam-studio downstream).
   images:
     needs: changes
@@ -117,7 +93,7 @@ jobs:
       - uses: actions/checkout@v7
 
       # Login on PRs too: a jam-studio-only change pulls the (private) published
-      # base below. The actual push of built images stays main-only (guarded).
+      # base below. The actual push of built images stays release-only (guarded).
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -176,10 +152,10 @@ jobs:
             test "$(stat -c %U "$seed/CLAUDE.md")" = agent
           '
 
-      # main only: push this arch's smoke-tested image(s) under an intermediate
+      # release only: push this arch's smoke-tested image(s) under an intermediate
       # per-arch tag; the publish job merges them into the multi-arch manifests.
       - name: Push per-arch images
-        if: github.event_name == 'push'
+        if: github.ref == 'refs/heads/release'
         run: |
           sha="${GITHUB_SHA::7}"
           if [ "${{ needs.changes.outputs.base }}" = 'true' ]; then
@@ -189,13 +165,13 @@ jobs:
           docker tag  jam-studio:ci "${STUDIO_IMAGE}:sha-${sha}-${{ matrix.arch }}"
           docker push               "${STUDIO_IMAGE}:sha-${sha}-${{ matrix.arch }}"
 
-  # main only: assemble the per-arch tags into one multi-arch manifest per built
+  # release only: assemble the per-arch tags into one multi-arch manifest per built
   # image, tagged <N>-<MMDD> (immutable) + latest (moving). Publishes the base
   # FIRST so its new digest D is in the registry before the binaries leg's
   # blessed-list snapshot runs.
   publish-images:
     needs: [changes, images]
-    if: github.event_name == 'push' && needs.changes.outputs.studio_image == 'true'
+    if: github.ref == 'refs/heads/release' && needs.changes.outputs.studio_image == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -229,64 +205,11 @@ jobs:
   # Re-cut the host binary (jam-studio-agent embedded + the blessed-list snapshot). Ordered
   # AFTER publish-images so a freshly-published base digest is already the registry
   # head when gen-blessed (a goreleaser before-hook) snapshots the blessed list.
-  # PRs build + validate only; main builds a snapshot and cuts the GH release.
-  # One-time re-cut of the blessed bases under the jam name (jam-only slice 3):
-  # copy every released cove-base-image from the blessed watermark onward into
-  # jam-studio-base with digests preserved, so the provenance gate and the
-  # blessed-list snapshot resolve under the new repo. Idempotent: skipped once
-  # the watermark digest resolves in jam-studio-base. It copies only images
-  # already published (never a PR's build), so it runs on PRs too — the PR's
-  # binaries leg needs it. Removable once the re-cut has run on main.
-  recut-bases:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Copy the blessed bases into jam-studio-base
-        env:
-          OLD: ghcr.io/aethons-tools/cove-base-image
-          NEW: ghcr.io/aethons-tools/jam-studio-base
-        run: |
-          set -euo pipefail
-          go install github.com/google/go-containerregistry/cmd/crane@v0.20.2
-          crane=$(go env GOPATH)/bin/crane
-          wm=$(grep -v '^#' internal/basedigest/blessed/watermark.txt | grep sha256 | head -1)
-          if $crane manifest "$NEW@$wm" >/dev/null 2>&1; then
-            echo "watermark $wm already in $NEW: nothing to copy"; exit 0
-          fi
-          wmtag=""
-          for t in $($crane ls "$OLD"); do
-            case "$t" in *[!0-9-]*|*-*-*) continue;; esac
-            [ "$($crane digest "$OLD:$t")" = "$wm" ] && { wmtag=$t; break; }
-          done
-          [ -n "$wmtag" ] || { echo "no release tag of $OLD carries the watermark $wm"; exit 1; }
-          floor=${wmtag%%-*}
-          echo "watermark tag $wmtag (N=$floor)"
-          copied=0
-          for t in $($crane ls "$OLD" | sort -t- -k1,1n); do
-            case "$t" in latest) ;; *[!0-9-]*|*-*-*) continue;; *) [ "${t%%-*}" -ge "$floor" ] || continue;; esac
-            d=$($crane digest "$OLD:$t")
-            $crane copy "$OLD@$d" "$NEW:$t"
-            got=$($crane digest "$NEW:$t")
-            [ "$got" = "$d" ] || { echo "digest changed for $t: $got != $d"; exit 1; }
-            echo "copied $t -> $d"; copied=$((copied+1))
-          done
-          $crane manifest "$NEW@$wm" >/dev/null
-          echo "copied $copied tag(s); watermark present in $NEW"
-
+  # PRs and main build + validate only; release builds a snapshot and cuts the GH release.
   binaries:
-    needs: [changes, images, publish-images, recut-bases]
+    needs: [changes, images, publish-images]
     # Run when the binaries leg is selected and nothing upstream failed. On PRs and
-    # go-only main pushes the image jobs are skipped (not failed), so still run.
+    # go-only pushes to main the image jobs are skipped (not failed), so still run.
     if: ${{ !cancelled() && !failure() && needs.changes.outputs.binaries == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -305,6 +228,7 @@ jobs:
           cache-dependency-path: |
             web/app/package-lock.json
             web/vscode/package-lock.json
+            manual/package-lock.json
 
       # Config sanity (absorbs the old release-validate workflow).
       - name: Validate goreleaser config
@@ -318,7 +242,7 @@ jobs:
       # never publish (snapshot mode skips goreleaser's publishing; --skip=publish
       # makes that explicit). The next step checks the archives.
       - name: Build binaries (PR — no publish)
-        if: github.event_name == 'pull_request'
+        if: github.ref != 'refs/heads/release'
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
@@ -330,11 +254,11 @@ jobs:
           VSCODE_SKIP_CHECK: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # main: snapshot build → archives + checksums stamped <N>-<MMDD> (snapshot
+      # release: snapshot build → archives + checksums stamped <N>-<MMDD> (snapshot
       # mode skips goreleaser's own publishing, sidestepping its SemVer tag
       # assumption); the next step cuts the release.
-      - name: Build binaries (main)
-        if: github.event_name == 'push'
+      - name: Build binaries (release)
+        if: github.ref == 'refs/heads/release'
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
@@ -363,18 +287,18 @@ jobs:
       # The Jam container image is built FROM the binaries goreleaser just put in
       # dist/ (scripts/jam-image.sh), so it carries exactly the released jam and
       # its tag is the release version.
-      # QEMU only for main's arm64 half; a PR builds amd64 natively.
+      # QEMU only for release's arm64 half; a PR builds amd64 natively.
       - uses: docker/setup-qemu-action@v4
-        if: github.event_name == 'push'
+        if: github.ref == 'refs/heads/release'
       - uses: docker/setup-buildx-action@v4
 
       # PR: build the amd64 image into the local daemon and smoke it; never publish.
       - name: Build Jam image (PR — load, no push)
-        if: github.event_name == 'pull_request'
+        if: github.ref != 'refs/heads/release'
         run: bash scripts/jam-image.sh --platforms linux/amd64 --tag jam:ci
 
       - name: Smoke-test Jam image (PR)
-        if: github.event_name == 'pull_request'
+        if: github.ref != 'refs/heads/release'
         env:
           VERSION: ${{ needs.changes.outputs.version }}
         run: |
@@ -382,17 +306,17 @@ jobs:
           echo "$out"
           test "$out" = "$VERSION"
 
-      # main: publish the multi-arch image as <N>-<MMDD> + latest.
+      # release: publish the multi-arch image as <N>-<MMDD> + latest.
       - name: Log in to GHCR
-        if: github.event_name == 'push'
+        if: github.ref == 'refs/heads/release'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish Jam image (main)
-        if: github.event_name == 'push'
+      - name: Publish Jam image (release)
+        if: github.ref == 'refs/heads/release'
         env:
           VERSION: ${{ needs.changes.outputs.version }}
         run: |
@@ -401,8 +325,8 @@ jobs:
           echo "Image: ${JAM_IMAGE}:${VERSION}" >> "$GITHUB_STEP_SUMMARY"
 
       # The arm64 half of the manifest was only cross-built; run it under QEMU.
-      - name: Smoke-test Jam image (arm64, main)
-        if: github.event_name == 'push'
+      - name: Smoke-test Jam image (arm64, release)
+        if: github.ref == 'refs/heads/release'
         env:
           VERSION: ${{ needs.changes.outputs.version }}
         run: |
@@ -411,7 +335,7 @@ jobs:
           test "$out" = "$VERSION"
 
       - name: Publish release
-        if: github.event_name == 'push'
+        if: github.ref == 'refs/heads/release'
         env:
           VERSION: ${{ needs.changes.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

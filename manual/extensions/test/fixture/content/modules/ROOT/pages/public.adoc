@@ -1,0 +1,62 @@
+= Public page
+
+Everyone reads this.
+
+image::shared.png[Shared]
+
+[.internal]
+SECRET-BLOCK lives in an internal paragraph.
+
+A sentence with [.internal]#SECRET-INLINE# in it.
+
+A phrase with an id, [#pid.internal]#SECRET-IDSPAN#, and a strong one, [.internal]*SECRET-STRONG*.
+
+|===
+a|
+A table cell.
+
+[.internal]
+SECRET-CELL lives in an internal paragraph in a cell.
+|===
+
+ifdef::internal[]
+SECRET-IFDEF lives in an ifdef block.
+endif::[]
+
+// The leak test sets `leak`: a customer page then links to an internal page.
+ifdef::leak[]
+See xref:internal-page.adoc[].
+endif::[]
+
+// The fragment-leak test sets `fragleak`: in-page links to an internal section
+// and an internal titled block, whose titles the link text would otherwise carry.
+ifdef::fragleak[]
+See <<secret-section>> and <<secret-block>>.
+endif::[]
+
+[#secret-block.internal]
+.SECRET-BLOCKTITLE is an internal block's title
+====
+SECRET-EXAMPLE lives in an internal example block.
+====
+
+[#secret-section.internal]
+== An internal section
+
+SECRET-SECTION lives in an internal section.
+
+[#public-section]
+== A public section [.internal]#SECRET-SECTITLE#
+
+// The slug-leak test sets `slugleak`: a section title with an internal phrase
+// and no explicit id, whose generated id would carry the phrase.
+ifdef::slugleak[]
+== A section with [.internal]#SECRET-SLUG# in its title
+endif::[]
+
+KEPT-SECTION lives in a public section after it.
+
+See <<public-anchor>>, a link within the page.footnote:[A public footnote.]
+
+[#public-anchor]
+A public paragraph with an id.

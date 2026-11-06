@@ -1,0 +1,31 @@
+# The customer manual jam embeds (scripts/manual.sh): the Released version
+# only, with internal content removed (no `internal` attribute, so the
+# extensions drop it and fail the build on a leak). Built from the working
+# tree's HEAD. No site.url: the leak check assumes relative links.
+# See docs/manual.md.
+site:
+  title: Jam manual
+  start_page: jam:ROOT:index.adoc
+content:
+  sources:
+  - url: ..
+    start_path: manual
+    branches: [HEAD]
+    version: released
+antora:
+  extensions:
+  # Internal modules are listed in antora.yml (ext.internal.modules).
+  - require: ./extensions/internal.js
+asciidoc:
+  extensions:
+  - ./extensions/internal-blocks.js
+ui:
+  bundle:
+    url: ./ui
+    snapshot: true
+output:
+  dir: ../internal/jam/uiassets/manual.tmp
+runtime:
+  fetch: false
+  log:
+    failure_level: warn

@@ -1,0 +1,3 @@
+= A title with [.internal]#SECRET-TITLE# in it
+
+A public page whose title has an internal phrase.

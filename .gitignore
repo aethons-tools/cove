@@ -39,6 +39,11 @@
 /internal/jam/uiassets/app.tmp/
 /internal/jam/uiassets/app.old/
 !/internal/jam/uiassets/app/.keep
+# The customer manual, built by scripts/manual.sh and embedded by jam.
+/internal/jam/uiassets/manual/*
+/internal/jam/uiassets/manual.tmp/
+/internal/jam/uiassets/manual.old/
+!/internal/jam/uiassets/manual/.keep
 /internal/jam/vscodeext/vsix/*
 !/internal/jam/vscodeext/vsix/.keep
 /web/app/node_modules/

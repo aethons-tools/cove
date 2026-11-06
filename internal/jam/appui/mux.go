@@ -21,6 +21,7 @@ type Deps struct {
 	TrustedOrigins []string
 	Shell          Shell // title-bar context for the pages
 	App            fs.FS // the Jam app bundle (its assets/ at /app/assets/); nil = uiassets.AppFS()
+	Manual         fs.FS // the customer manual site (/app/manual/); nil = uiassets.ManualFS()
 	// Bearer authenticates /app/user requests carrying an app token; nil =
 	// bearers go through the cookie gate like any request.
 	Bearer BearerFunc
@@ -52,6 +53,11 @@ func Handler(d Deps) *http.ServeMux {
 	// and bundle assets is ungated.
 	mux.Handle("GET /app/manifest.webmanifest", manifestHandler(d.Shell.Brand))
 	mux.Handle("GET /app/sw.js", serviceWorker())
+	manual := d.Manual
+	if manual == nil {
+		manual = uiassets.ManualFS()
+	}
+	mux.Handle("GET /app/manual/", d.Gate.Wrap(RequireSignedIn(manualHandler(manual))))
 	if d.AuthRoutes != nil {
 		mux.Handle("/app/auth/", d.AuthRoutes)
 	}

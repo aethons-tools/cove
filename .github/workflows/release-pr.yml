@@ -1,0 +1,92 @@
+name: release-pr
+
+# Keeps ONE open PR from main into release, whose merge is the release (release.yml).
+# The description says what changes for users (manual-page diff, linked to the Next
+# manual), what the merge rebuilds, and which PRs are in it. When main has nothing
+# beyond release, any open release PR is closed. Its required `gate` check is the
+# one main's push already ran: the PR head IS main's tip, so the same SHA is green.
+# Repo prerequisite: "Allow GitHub Actions to create and approve pull requests".
+
+on:
+  push:
+    branches: [main, release]
+  workflow_dispatch:
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # Always work from main's tip, whichever branch pushed: a push to release
+      # (the release itself) must refresh the PR against the new release tip.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      # Until the first-time setup creates release (docs/DEVELOPMENT.md), there is
+      # nothing to propose: succeed with a notice, and skip the rest.
+      - name: Release branch
+        id: release
+        run: |
+          out="$(bash scripts/release/release-exists.sh)"
+          echo "$out" >>"$GITHUB_OUTPUT"
+          if [ "$out" != exists=true ]; then
+            echo "::notice::No release branch yet (origin/release): no release PR. Create it from main (docs/DEVELOPMENT.md, First-time setup)."
+          fi
+      # `base: release` below names a branch; a checkout of main has only the
+      # remote-tracking origin/release. Unverified whether paths-filter resolves
+      # origin/release itself, so create the local branch rather than depend on it.
+      - name: Local release branch
+        if: steps.release.outputs.exists == 'true'
+        run: git branch -f release origin/release
+      - uses: dorny/paths-filter@v4
+        if: steps.release.outputs.exists == 'true'
+        id: filter
+        with:
+          # Per its README an explicit `ref` is honoured on push events, and `base`
+          # on another branch is diffed from the merge-base: exactly the changes
+          # main holds beyond release.
+          base: release
+          ref: main
+          filters: .github/release-filters.yml
+      - id: legs
+        if: steps.release.outputs.exists == 'true'
+        # The one shared fan-out (release.yml uses it too), as a JSON object.
+        env:
+          BASE: ${{ steps.filter.outputs.base }}
+          STUDIO: ${{ steps.filter.outputs.studio_image }}
+          GO: ${{ steps.filter.outputs.go }}
+        run: |
+          bash scripts/release/legs.sh | jq -R 'split("=") | {(.[0]): .[1]}' | jq -sc add | sed 's/^/json=/' >>"$GITHUB_OUTPUT"
+      - name: Create, update or close the release PR
+        if: steps.release.outputs.exists == 'true'
+        env:
+          LEGS: ${{ steps.legs.outputs.json }}
+        run: |
+          bash scripts/release/pr-body.sh origin/release origin/main "$LEGS" >"$RUNNER_TEMP/body.md"
+          # Only this repo's main: --head main also matches a fork's branch named main.
+          open="$(gh pr list --base release --head main --state open --json number,isCrossRepository \
+            --jq '[.[] | select(.isCrossRepository | not)][0].number // empty')"
+          if [ ! -s "$RUNNER_TEMP/body.md" ]; then
+            if [ -n "$open" ]; then
+              gh pr close "$open" --comment "main has nothing beyond release; closing."
+            fi
+            exit 0
+          fi
+          # N is the commit count after the merge commit lands.
+          n=$(( $(git rev-list --count origin/release) + $(git rev-list --count origin/release..origin/main) + 1 ))
+          if [ -n "$open" ]; then
+            gh pr edit "$open" --title "Release $n" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --base release --head main --title "Release $n" --body-file "$RUNNER_TEMP/body.md"
+          fi

@@ -1,7 +1,7 @@
 name: gate
 
-# The merge gate for main: every PR must pass this before it can be merged, and
-# the post-merge commit on main is verified too. Branch protection (configured
+# The merge gate for main and release: every PR must pass this before it can be
+# merged, and the post-merge commit on either branch is verified too. Branch protection (configured
 # in repo settings, not here) is what makes it blocking; this workflow only
 # reports.
 #
@@ -10,11 +10,11 @@ name: gate
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, release]
   push:
-    branches: [main]
+    branches: [main, release]
 
-# Supersede in-flight runs for the same PR, but never skip a commit on main:
+# Supersede in-flight runs for the same PR, but never skip a commit on main or release:
 # each one must be verified on its own.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -77,6 +77,16 @@ jobs:
       - name: jam image script test
         run: bash scripts/jam-image.test.sh
 
+      # Mirrors `just test-release-pr-body` — hermetic (temp git repo) test for
+      # the release PR description script.
+      - name: release PR body test
+        run: bash scripts/release/pr-body.test.sh
+
+      # Mirrors `just test-release-legs` — the legs fan-out release.yml and
+      # release-pr.yml share.
+      - name: release legs test
+        run: bash scripts/release/legs.test.sh
+
       # Mirrors `just test-local` — hermetic (fake docker) test for scripts/local.sh.
       - name: local build script test
         run: bash scripts/local.test.sh
@@ -105,6 +115,7 @@ jobs:
           cache-dependency-path: |
             web/app/package-lock.json
             web/vscode/package-lock.json
+            manual/package-lock.json
       # The Jam app (web/app): API types current, typecheck, lint and unit
       # tests. scripts/npm-ci.sh installs web/app once for this and the
       # extension's webview build below.
@@ -113,6 +124,13 @@ jobs:
       # The VS Code extension (web/vscode): checks, bundle and the .vsix.
       - name: vscode extension
         run: ./scripts/vscode.sh
+      # The user manual's Antora extensions (manual/extensions) tests.
+      - name: manual extension tests
+        run: cd manual && ../scripts/npm-ci.sh && npm test
+      # The customer manual jam embeds: a leak of internal content, or any
+      # warning, fails it. Built outside the tree (not into internal/jam/uiassets).
+      - name: customer manual
+        run: cd manual && npx antora antora-playbook.jam.yml --to-dir "$RUNNER_TEMP/manual"
       - uses: actions/upload-artifact@v7
         with:
           name: jam-vscode

@@ -20,7 +20,8 @@
 <div class="layout">
   <nav class="side">{{> nav-tree items=page.navigation}}</nav>
   <main class="doc">
-    {{#unless (eq page.version 'as-is')}}<p class="banner">You are reading the <b>{{page.displayVersion}}</b> manual: how the product should work, not necessarily how it works today.</p>{{/unless}}
+    {{#if (eq page.version 'next')}}<p class="banner">Merged, not released yet.</p>{{/if}}
+    {{#if (eq page.version 'goal')}}<p class="banner">How the product should work, not necessarily how it works today.</p>{{/if}}
     <h1>{{{page.title}}}</h1>
     {{{page.contents}}}
   </main>
