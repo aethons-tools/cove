@@ -109,8 +109,10 @@ drops internal content. The customer build hard-unsets it, so a component's
   <https://aethons-tools-jam.pages.dev> (behind Cloudflare Access) by
   `.github/workflows/manual-site.yml` on every push to `release`, `main` or
   `goal`. It needs the secret `CLOUDFLARE_API_TOKEN` and the repository
-  variable `CLOUDFLARE_ACCOUNT_ID`; the deploy uses the pinned `wrangler` in
-  `manual/package.json`. A branch that does not exist yet is skipped.
+  variable `CLOUDFLARE_ACCOUNT_ID`; the deploy runs `wrangler`, pinned in the
+  workflow (not in `manual/package.json`, so manual builds never install it).
+  The build always uses `main`'s playbook, UI and extensions, whichever branch
+  pushed. A branch that does not exist yet is skipped.
   **The deployed site includes internal content and is safe only because
   Cloudflare Access gates it.** Never remove the Access policy (it must cover
   the production host `aethons-tools-jam.pages.dev`, not just preview

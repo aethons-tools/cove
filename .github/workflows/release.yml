@@ -228,6 +228,7 @@ jobs:
           cache-dependency-path: |
             web/app/package-lock.json
             web/vscode/package-lock.json
+            manual/package-lock.json
 
       # Config sanity (absorbs the old release-validate workflow).
       - name: Validate goreleaser config
