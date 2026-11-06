@@ -9,6 +9,10 @@ content:
   - url: ..
     start_path: manual
     branches: [remotes/origin/main, remotes/origin/goal]
+asciidoc:
+  attributes:
+    # The team manual: show `ifdef::internal[]` notes. Unset it for a user build.
+    internal: ''
 ui:
   bundle:
     url: ./ui

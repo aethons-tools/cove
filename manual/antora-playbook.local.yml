@@ -8,6 +8,10 @@ content:
   - url: ..
     start_path: manual
     branches: [HEAD]
+asciidoc:
+  attributes:
+    # The team manual: show `ifdef::internal[]` notes. Unset it for a user build.
+    internal: ''
 ui:
   bundle:
     url: ./ui

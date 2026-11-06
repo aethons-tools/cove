@@ -20,8 +20,9 @@ It is AsciiDoc, built into a static site with [Antora](https://antora.org).
   A page that no longer matches the app is a bug.
 - **Goal** — `manual/` on the long-lived **`goal`** branch, with
   `version: goal` in `manual/antora.yml`. It describes the product we are
-  steering toward. A feature is proposed as a PR **into `goal`**; merging it
-  means "agreed".
+  steering toward. A feature is proposed as a PR **into `goal`**, from a
+  branch named `manual/goal-<topic>` (git can't nest branches under `goal/`);
+  merging it means "agreed".
 - **The work to do** is `git diff origin/main origin/goal -- manual/`.
   When a feature ships, its as-is page catches up and drops out of the diff.
 - After merges to `main`, `main` is merged into `goal` so the diff only shows
@@ -45,6 +46,8 @@ Pages live in `manual/modules/<area>/pages/`, images in
 `page-conventions` names the anchors in the Conventions area
 (`modules/conventions/pages/index.adoc`) the page follows.
 Write one clause per line (semantic line breaks) so diffs read clause by clause.
+Notes for the team only go in `ifdef::internal[]` blocks: both playbooks set
+`internal` (the team manual); a build for users leaves it unset.
 On `main`, images are real screenshots; on `goal`, mockups.
 
 ## Building
