@@ -57,11 +57,22 @@ echo b >>manual/modules/projects/pages/agent-context.adoc
 echo n >manual/modules/ROOT/pages/new.adoc
 git rm -q manual/modules/ROOT/pages/old.adoc
 git add -A && git commit -q -m "feat: x (#12)"
+# A nested page path, and a merge commit on main (--first-parent keeps the PR line).
+mkdir -p manual/modules/projects/pages/sub
+echo n >manual/modules/projects/pages/sub/p.adoc
+git add -A && git commit -q -m "docs: nested page (#13)"
+git checkout -q -b side
+echo s >side.txt && git add -A && git commit -q -m "side-branch commit"
+git checkout -q main
+git merge -q --no-ff side -m "Merge side (#14)"
 out="$(bash "$SCRIPT" origin/release HEAD "$LEGS")"
+assert_contains "nested page link" "$out" "$SITE/jam/next/projects/sub/p.html"
+assert_contains "merge commit listed" "$out" "Merge side (#14)"
+assert_lacks "merged side commit hidden by first-parent" "$out" "side-branch commit"
 assert_contains "users heading" "$out" "## What changes for users"
 assert_contains "module page link" "$out" "$SITE/jam/next/projects/agent-context.html"
 assert_contains "ROOT page link" "$out" "$SITE/jam/next/new.html"
-assert_contains "deleted page named" "$out" "old"
+assert_contains "deleted page named" "$out" "- removed: ROOT/old"
 assert_lacks "deleted page not linked" "$out" "$SITE/jam/next/old.html"
 assert_lacks "users section not empty" "$out" "No user-visible changes."
 assert_contains "rebuilds heading + binaries" "$(printf '%s\n' "$out" | sed -n '/## What it rebuilds/,/## Merged/p')" "binaries"

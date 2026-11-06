@@ -271,14 +271,14 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
 [`.github/workflows/release-pr.yml`](../.github/workflows/release-pr.yml) keeps one PR from
 `main` into `release` open, titled `Release <N>` (`<N>` = the commit count after the merge
 commit). On each push to `main` or `release` it applies the same change-detection filters
-(paths-filter `base: release`, `ref: main`, with the legs fan-out copied from `release.yml`)
+(paths-filter `base: release`, `ref: main`, with the legs fan-out shared with `release.yml` via [`scripts/release/legs.sh`](../scripts/release/legs.sh))
 and has [`scripts/release/pr-body.sh`](../scripts/release/pr-body.sh) write the description:
 what changes for users (the manual pages that differ, linked to the Next version of the team
 manual at `https://aethons-tools-jam.pages.dev/jam/next/…`), which legs the merge rebuilds, and
 the merged PRs. When `main` has nothing beyond `release` the PR is closed. Its required `gate`
 check is the run from `main`'s push: the PR head is `main`'s tip, the same SHA. It needs the
 repo setting "Allow GitHub Actions to create and approve pull requests" (see
-[Git / pushing](#git--pushing)). Tests: `just test-release-pr-body`.
+[Git / pushing](#git--pushing)). Tests: `just test-release-pr-body`, `just test-release-legs`.
 
 ### Versioning
 

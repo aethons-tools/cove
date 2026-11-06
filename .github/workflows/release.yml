@@ -69,16 +69,7 @@ jobs:
           BASE: ${{ steps.filter.outputs.base }}
           STUDIO: ${{ steps.filter.outputs.studio_image }}
           GO: ${{ steps.filter.outputs.go }}
-        run: |
-          base=false; studio=false; binaries=false
-          if [ "$BASE" = 'true' ]; then base=true; fi
-          if [ "$BASE" = 'true' ] || [ "$STUDIO" = 'true' ]; then studio=true; fi
-          if [ "$BASE" = 'true' ] || [ "$GO" = 'true' ]; then binaries=true; fi
-          {
-            echo "base=$base"
-            echo "studio_image=$studio"
-            echo "binaries=$binaries"
-          } >>"$GITHUB_OUTPUT"
+        run: bash scripts/release/legs.sh >>"$GITHUB_OUTPUT"
       - id: version
         # <N>-<MMDD>: N (git rev-list --count HEAD) is the monotonic version; the
         # month-day is advisory; '-' (not '.') so it is never mistaken for SemVer.

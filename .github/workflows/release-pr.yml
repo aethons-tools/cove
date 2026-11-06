@@ -33,8 +33,9 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      # paths-filter diffs against a local branch name; a checkout of main has
-      # only origin/release.
+      # `base: release` below names a branch; a checkout of main has only the
+      # remote-tracking origin/release. Unverified whether paths-filter resolves
+      # origin/release itself, so create the local branch rather than depend on it.
       - name: Local release branch
         run: git branch -f release origin/release
       - uses: dorny/paths-filter@v4
@@ -47,17 +48,13 @@ jobs:
           ref: main
           filters: .github/release-filters.yml
       - id: legs
-        # Same fan-out as the `legs` step in release.yml (keep them in step).
+        # The one shared fan-out (release.yml uses it too), as a JSON object.
         env:
-          F_BASE: ${{ steps.filter.outputs.base }}
-          F_STUDIO: ${{ steps.filter.outputs.studio_image }}
-          F_GO: ${{ steps.filter.outputs.go }}
+          BASE: ${{ steps.filter.outputs.base }}
+          STUDIO: ${{ steps.filter.outputs.studio_image }}
+          GO: ${{ steps.filter.outputs.go }}
         run: |
-          base=false; studio=false; binaries=false
-          if [ "$F_BASE" = 'true' ]; then base=true; fi
-          if [ "$F_BASE" = 'true' ] || [ "$F_STUDIO" = 'true' ]; then studio=true; fi
-          if [ "$F_BASE" = 'true' ] || [ "$F_GO" = 'true' ]; then binaries=true; fi
-          echo "json={\"base\":\"$base\",\"studio_image\":\"$studio\",\"binaries\":\"$binaries\"}" >>"$GITHUB_OUTPUT"
+          bash scripts/release/legs.sh | jq -R 'split("=") | {(.[0]): .[1]}' | jq -sc add | sed 's/^/json=/' >>"$GITHUB_OUTPUT"
       - name: Create, update or close the release PR
         env:
           LEGS: ${{ steps.legs.outputs.json }}

@@ -82,6 +82,11 @@ jobs:
       - name: release PR body test
         run: bash scripts/release/pr-body.test.sh
 
+      # Mirrors `just test-release-legs` — the legs fan-out release.yml and
+      # release-pr.yml share.
+      - name: release legs test
+        run: bash scripts/release/legs.test.sh
+
       # Mirrors `just test-local` — hermetic (fake docker) test for scripts/local.sh.
       - name: local build script test
         run: bash scripts/local.test.sh

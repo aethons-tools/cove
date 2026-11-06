@@ -178,6 +178,10 @@ test-install:
 test-release-pr-body:
     bash scripts/release/pr-body.test.sh
 
+# hermetic test for scripts/release/legs.sh (the legs fan-out release.yml and release-pr.yml share)
+test-release-legs:
+    bash scripts/release/legs.test.sh
+
 # hermetic test for scripts/local.sh (`just local`; fake docker, stub build scripts)
 test-local:
     bash scripts/local.test.sh
