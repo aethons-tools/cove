@@ -1,8 +1,11 @@
 name: manual-site
 
 # Builds the team manual (release as Released, main as Next, goal as Goal, with
-# internal content shown) and deploys it to Cloudflare Pages, which sits behind
-# Cloudflare Access. See docs/manual.md. Secret CLOUDFLARE_API_TOKEN and
+# internal content shown) and deploys it to Cloudflare Pages. The deployed site
+# INCLUDES INTERNAL CONTENT and is safe only because Cloudflare Access gates it:
+# never remove the Access policy (it must cover the production host
+# aethons-tools-jam.pages.dev, not just preview deployments), and never deploy
+# the customer playbook here. See docs/manual.md. Secret CLOUDFLARE_API_TOKEN and
 # repository variable CLOUDFLARE_ACCOUNT_ID are required.
 
 on:
@@ -19,6 +22,8 @@ permissions:
 
 jobs:
   manual-site:
+    # A manual dispatch from any other branch must not publish.
+    if: contains(fromJSON('["release","main","goal"]'), github.ref_name)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -52,4 +57,5 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: false
         run: npx wrangler pages deploy build/site --project-name aethons-tools-jam --branch main

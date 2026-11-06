@@ -107,6 +107,10 @@ drops internal content. The customer build hard-unsets it, so a component's
   `goal`. It needs the secret `CLOUDFLARE_API_TOKEN` and the repository
   variable `CLOUDFLARE_ACCOUNT_ID`; the deploy uses the pinned `wrangler` in
   `manual/package.json`. A branch that does not exist yet is skipped.
+  **The deployed site includes internal content and is safe only because
+  Cloudflare Access gates it.** Never remove the Access policy (it must cover
+  the production host `aethons-tools-jam.pages.dev`, not just preview
+  deployments), and never deploy the customer playbook there.
 - The **customer manual** (Released only, without `internal`) is built by
   `scripts/manual.sh` from `manual/antora-playbook.jam.yml` into
   `internal/jam/uiassets/manual/` (git-ignored), which `jam` embeds and serves
