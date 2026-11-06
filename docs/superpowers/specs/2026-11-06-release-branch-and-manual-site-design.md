@@ -80,10 +80,12 @@ Two builds, two hosts *(user)*:
 
 ### Team manual on Cloudflare
 
-- `manual-site.yml` builds all three versions on any push to `release`, `main` or `goal`, from one checkout with full history, and uploads the static site to Cloudflare (Workers static assets or Pages; the builder's call) with `wrangler`. Deploys are serialized (one concurrency group, newest wins).
+- `manual-site.yml` builds all three versions on any push to `release`, `main` or `goal`, from one checkout with full history, and uploads the static site to Cloudflare (Cloudflare Pages) with `wrangler`. Deploys are serialized (one concurrency group, newest wins).
 - It opens on **Released**; the switcher shows all three.
 - **Cloudflare Access** in front: only the team gets in. The site contains internal content and the goal manual, so it is never public.
-- Needs, from an admin: a Cloudflare account and project, an API token and account id as repo secrets, and the Access policy (who may sign in).
+- **Where:** Cloudflare account `aethons-tools`, Pages project **`aethons-tools-jam`**, served at **`https://aethons-tools-jam.pages.dev`**; Access allows members of the user's Cloudflare account *(user)*. The job deploys with `wrangler pages deploy --project-name aethons-tools-jam --branch main` (the project's production branch, whatever git branch triggered it).
+- **Needs, from an admin:** repo secret `CLOUDFLARE_API_TOKEN` (a token scoped to *Pages: Edit* on that account) and repo variable `CLOUDFLARE_ACCOUNT_ID`.
+- **Check before the first deploy:** the Pages project's built-in Access toggle protects *preview* deployments (`*.aethons-tools-jam.pages.dev`) only. The Access application must also cover the production host `aethons-tools-jam.pages.dev`, or the team manual is public.
 - Diffs it can show later: `goal` vs `release` is all the work left; `main` vs `release` is what the next release ships.
 
 ### Customer manual in Jam
@@ -125,4 +127,3 @@ One attribute, `internal`, set only in team builds (Cloudflare, `just manual`, p
 
 ## Open
 
-- The Cloudflare account, the site's hostname, and the Access policy (which identities may sign in).
