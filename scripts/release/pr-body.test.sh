@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# pr-body.test.sh — hermetic tests for scripts/release/pr-body.sh (a temp git repo).
+# pr-body.test.sh — hermetic tests for scripts/release/pr-body.sh and
+# release-exists.sh (the release PR's scripts), in a temp git repo.
 # Run: bash scripts/release/pr-body.test.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$HERE/pr-body.sh"
+EXISTS="$HERE/release-exists.sh"
 SITE=https://aethons-tools-jam.pages.dev
 
 pass=0
@@ -37,8 +39,11 @@ echo a >manual/modules/projects/pages/agent-context.adoc
 echo a >manual/modules/ROOT/pages/old.adoc
 echo a >internal/foo.go
 git add -A && git commit -q -m "init"
+# Before the release branch exists, the release PR workflow does nothing.
+assert_eq "no origin/release => exists=false" "exists=false" "$(bash "$EXISTS")"
 # The remote-tracking refs the workflow uses.
 git update-ref refs/remotes/origin/release HEAD
+assert_eq "origin/release => exists=true" "exists=true" "$(bash "$EXISTS")"
 LEGS='{"base":"false","studio_image":"false","binaries":"true"}'
 
 # main == release: nothing to release.
