@@ -48,3 +48,5 @@
 /web/vscode/dist/
 # a vitest run rooted in a subdirectory caches there
 /web/app/src/node_modules/
+/manual/build/
+/manual/node_modules/

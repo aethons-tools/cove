@@ -1,0 +1,17 @@
+= About this manual
+:page-area: about
+:page-id: about
+
+This manual describes the Jam app the way you use it:
+what each page is for,
+what you can do there,
+and what happens when you do.
+
+It comes in two versions.
+*As is* describes the product as it works today.
+*Goal* describes the product we are steering toward.
+Where the two differ, that difference is the work still to do.
+
+Pages are grouped by area.
+The *Conventions* area describes choices that hold across the whole app,
+such as how labels are written.

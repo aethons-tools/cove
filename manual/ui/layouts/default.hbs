@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{{page.title}}} · {{{page.component.title}}}</title>
+<link rel="stylesheet" href="{{{uiRootPath}}}/css/site.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="{{{relativize site.homeUrl}}}">{{{page.component.title}}}</a>
+  {{#if page.versions}}
+  <nav class="versions" aria-label="Manual version">
+    {{#each page.versions}}
+    <a class="{{#if (eq ./version @root.page.version)}}on{{/if}}{{#if ./missing}} missing{{/if}}" href="{{{relativize ./url}}}">{{./displayVersion}}</a>
+    {{/each}}
+  </nav>
+  {{/if}}
+</header>
+<div class="layout">
+  <nav class="side">{{> nav-tree items=page.navigation}}</nav>
+  <main class="doc">
+    {{#unless (eq page.version 'as-is')}}<p class="banner">You are reading the <b>{{page.displayVersion}}</b> manual: how the product should work, not necessarily how it works today.</p>{{/unless}}
+    <h1>{{{page.title}}}</h1>
+    {{{page.contents}}}
+  </main>
+</div>
+</body>
+</html>

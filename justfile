@@ -138,6 +138,16 @@ app:
 app-dev:
     cd web/app && ../../scripts/npm-ci.sh && npx vite
 
+# build the Jam manual (manual/, AsciiDoc + Antora) from your working tree into
+# manual/build/site/ (needs Node/npm; see docs/manual.md)
+manual:
+    cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.local.yml
+
+# build the as-is (main) and goal (goal) manuals as one site into
+# manual/build/site/; local branches win over origin's (see docs/manual.md)
+manual-site:
+    cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.yml
+
 # build the Jam VS Code extension's .vsix into web/vscode/dist/jam.vsix (needs Node/npm)
 vscode:
     ./scripts/vscode.sh

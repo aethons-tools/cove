@@ -1,0 +1,8 @@
+{
+  "name": "jam-manual",
+  "private": true,
+  "description": "Builds the Jam manual with Antora; see docs/manual.md.",
+  "devDependencies": {
+    "antora": "3.2.2"
+  }
+}

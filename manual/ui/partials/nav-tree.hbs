@@ -1,0 +1,4 @@
+{{#each items}}
+{{#if ./content}}<p class="nav-head">{{{./content}}}</p>{{/if}}
+{{#if ./items}}<ul>{{#each ./items}}<li>{{#if ./url}}<a class="{{#if (eq ./url @root.page.url)}}on{{/if}}" href="{{{relativize ./url}}}">{{{./content}}}</a>{{else}}{{{./content}}}{{/if}}{{#if ./items}}{{> nav-tree items=./items}}{{/if}}</li>{{/each}}</ul>{{/if}}
+{{/each}}

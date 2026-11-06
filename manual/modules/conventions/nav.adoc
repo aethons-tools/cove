@@ -1,0 +1,2 @@
+.Conventions
+* xref:index.adoc[How the Jam app behaves]
