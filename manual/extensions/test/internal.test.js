@@ -20,6 +20,7 @@ const secrets = [
   'SECRET-STRONG', // [.internal]*…*
   'SECRET-BLOCKTITLE', // .title of an [.internal] block
   'SECRET-EXAMPLE',
+  'SECRET-SECTITLE', // [.internal]#…# in a section title with an explicit id
   'SECRET-CELL', // [.internal] paragraph in an a| table cell
   'SECRET-TITLE', // [.internal]#…# in a doctitle
   'SECRET-IFDEF', // ifdef::internal[]
@@ -91,6 +92,13 @@ test('customer build fails on a link to an internal fragment', async () => {
     assert.match(err.message, /fixture:ROOT:public\.adoc links to #secret-block, which is internal or missing/)
     return true
   })
+})
+
+test('customer build fails on an internal phrase in a section title without an explicit id', async () => {
+  await assert.rejects(
+    build('customer', '--attribute', 'slugleak'),
+    /public\.adoc: the section "A section with in its title" has an internal phrase in its title and no explicit id, so its generated id _a_section_with_secret_slug_in_its_title carries the phrase: give the section an explicit id/
+  )
 })
 
 test('customer build fails when internal markup survives', async () => {

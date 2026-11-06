@@ -45,7 +45,14 @@ SECRET-EXAMPLE lives in an internal example block.
 
 SECRET-SECTION lives in an internal section.
 
-== A public section
+[#public-section]
+== A public section [.internal]#SECRET-SECTITLE#
+
+// The slug-leak test sets `slugleak`: a section title with an internal phrase
+// and no explicit id, whose generated id would carry the phrase.
+ifdef::slugleak[]
+== A section with [.internal]#SECRET-SLUG# in its title
+endif::[]
 
 KEPT-SECTION lives in a public section after it.
 

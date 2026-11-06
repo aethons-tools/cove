@@ -80,9 +80,13 @@ drops internal content. The customer build hard-unsets it, so a component's
   content shows unmarked. Internal pages, modules and nav entries get a
   "Team only" badge in the nav.
 - **Leaks fail the customer build**, each an error naming the page: a kept page
-  that links to a dropped page, an internal site or component start page, and,
-  as a backstop, any published page still carrying the class `internal` (for
-  example `[.internal]#…#` inside a nav entry's text: mark the whole entry).
+  that links to a dropped page, or to an id on itself that no element has (an
+  `<<id>>` to a dropped section or block, whose title the link text would
+  carry); an internal site or component start page; a kept section with
+  `[.internal]#…#` in its title and no explicit id (its generated id is a slug
+  of the whole title: give it one, `[#some-id]`); and, as a backstop, any
+  published page still carrying the class `internal` (for example
+  `[.internal]#…#` inside a nav entry's text: mark the whole entry).
 - **How**: `manual/extensions/internal.js` (Antora extension: pages, modules,
   phrases, nav, files, the leak check) and `manual/extensions/internal-blocks.js`
   (Asciidoctor tree processor: `[.internal]` blocks). A playbook registers both:
