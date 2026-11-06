@@ -268,7 +268,7 @@ The one-command installer ([`install.sh`](../install.sh) at the repo root) is th
 fastest way to get `jam` (minting is its `jam mint` subcommand) and
 `jam-colima`: it pulls the prebuilt archive from the
 latest release the [release pipeline](DEVELOPMENT.md#ci-the-release-pipeline) cuts
-on every push to `main`, verifies its SHA-256 against the release `checksums.txt`,
+on every merge into `release`, verifies its SHA-256 against the release `checksums.txt`,
 and installs both (the archive holds exactly those two binaries). `jam-studio-agent`
 ships **embedded** in `jam`.
 
@@ -341,7 +341,7 @@ The sandbox images are built from a shared, pinned, multi-arch **image tree**
 (`jam-studio-base` → `jam-studio`) published to GHCR and consumed by both CI and
 the sandboxes — see [DEVELOPMENT.md](DEVELOPMENT.md#the-image-tree). The images,
 the blessed-base snapshot, and the host binaries are all built by **one
-monolithic continuous-delivery pipeline** on every push to `main`, which decides
+monolithic continuous-delivery pipeline** on every merge into `release`, which decides
 from the repo diff what to rebuild and tags everything `<N>-<MMDD>` — see
 [the release pipeline](DEVELOPMENT.md#ci-the-release-pipeline).
 

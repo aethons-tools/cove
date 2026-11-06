@@ -126,3 +126,14 @@ func RequireAdmin(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// RequireSignedIn admits any signed-in principal: a roster member or an admin.
+func RequireSignedIn(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if p, ok := PrincipalFrom(r); !ok || (p.User == nil && !p.Admin) {
+			forbidNeither(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

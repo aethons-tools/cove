@@ -1,0 +1,7 @@
+# A fixture component that sets `internal` itself: the customer build must still drop internal content.
+name: override
+version: ~
+title: Override
+asciidoc:
+  attributes:
+    internal: ''

@@ -1,0 +1,11 @@
+= Page header override
+:internal:
+
+This page sets `internal` in its header.
+
+[.internal]
+SECRET-HEADER-BLOCK lives in an internal paragraph.
+
+ifdef::internal[]
+SECRET-HEADER-IFDEF lives in an ifdef block.
+endif::[]

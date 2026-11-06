@@ -1,5 +1,6 @@
 # Builds the manual from your working tree (`just manual`): only the version
-# you have checked out, uncommitted edits included. See docs/manual.md.
+# you have checked out, uncommitted edits included. The version is named from
+# the branch (any other branch builds as its own name). See docs/manual.md.
 site:
   title: Jam manual
   start_page: jam:ROOT:index.adoc
@@ -8,10 +9,23 @@ content:
   - url: ..
     start_path: manual
     branches: [HEAD]
+    version:
+      release: released
+      main: next
+      goal: goal
+antora:
+  extensions:
+  # Drops internal pages, modules, phrases and their files when `internal` is
+  # unset; badges internal pages in the nav when it is set. Whole internal
+  # modules are listed in antora.yml. See docs/manual.md ("Marking content internal").
+  - require: ./extensions/internal.js
 asciidoc:
   attributes:
-    # The team manual: show `ifdef::internal[]` notes. Unset it for a user build.
+    # The team manual: keep (and mark) internal content. The customer build omits it.
     internal: ''
+  extensions:
+  # Drops `[.internal]` blocks and sections when `internal` is unset.
+  - ./extensions/internal-blocks.js
 ui:
   bundle:
     url: ./ui

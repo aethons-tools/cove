@@ -1,0 +1,10 @@
+= Component override
+
+This component sets `internal` in its descriptor.
+
+[.internal]
+SECRET-COMPONENT-BLOCK lives in an internal paragraph.
+
+ifdef::internal[]
+SECRET-COMPONENT-IFDEF lives in an ifdef block.
+endif::[]

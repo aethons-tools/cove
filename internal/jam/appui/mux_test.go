@@ -24,6 +24,7 @@ func testMux(t *testing.T) *http.ServeMux {
 		User:           echo("user"),
 		Admin:          echo("admin"),
 		TrustedOrigins: []string{"https://jam.example"},
+		Manual:         fstest.MapFS{"index.html": {Data: []byte("manual page")}, "jam/released/index.html": {Data: []byte("manual page")}},
 	})
 }
 
@@ -136,6 +137,9 @@ func TestAreasGated(t *testing.T) {
 		{"user send, trusted origin", "POST", "/app/user/send", "alice", "", "https://jam.example", 200, "user /app/user/send"},
 		{"auth routes ungated", "GET", "/app/auth/login", "", "", "", 200, "auth /app/auth/login"},
 		{"user area, signed out", "GET", "/app/user/", "", "", "", 302, "return_to=%2Fapp%2Fuser%2F"},
+		{"manual, member", "GET", "/app/manual/jam/released/index.html", "alice", "", "", 200, "manual page"},
+		{"manual, admin only", "GET", "/app/manual/jam/released/index.html", "stranger", "ok", "", 200, "manual page"},
+		{"manual, signed out", "GET", "/app/manual/", "", "", "", 302, "return_to=%2Fapp%2Fmanual%2F"},
 	}
 	m := testMux(t)
 	for _, tc := range cases {
