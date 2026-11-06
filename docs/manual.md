@@ -101,6 +101,12 @@ drops internal content. The customer build hard-unsets it, so a component's
   together, with a *Released* / *Next* / *Goal* switcher, opening on Released:
   your local branch of each name if you have one (the checked-out one from the
   working tree), else origin's. Fetch first.
+- The **team site** is the same build, deployed to Cloudflare Pages at
+  <https://aethons-tools-jam.pages.dev> (behind Cloudflare Access) by
+  `.github/workflows/manual-site.yml` on every push to `release`, `main` or
+  `goal`. It needs the secret `CLOUDFLARE_API_TOKEN` and the repository
+  variable `CLOUDFLARE_ACCOUNT_ID`; the deploy uses the pinned `wrangler` in
+  `manual/package.json`. A branch that does not exist yet is skipped.
 - The **customer manual** (Released only, without `internal`) is built by
   `scripts/manual.sh` from `manual/antora-playbook.jam.yml` into
   `internal/jam/uiassets/manual/` (git-ignored), which `jam` embeds and serves

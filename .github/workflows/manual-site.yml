@@ -1,0 +1,55 @@
+name: manual-site
+
+# Builds the team manual (release as Released, main as Next, goal as Goal, with
+# internal content shown) and deploys it to Cloudflare Pages, which sits behind
+# Cloudflare Access. See docs/manual.md. Secret CLOUDFLARE_API_TOKEN and
+# repository variable CLOUDFLARE_ACCOUNT_ID are required.
+
+on:
+  push:
+    branches: [release, main, goal]
+  workflow_dispatch:
+
+concurrency:
+  group: manual-site
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  manual-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Antora reads the local branch of each name, else origin's. Make sure
+      # origin's are all present; a branch that does not exist yet (release,
+      # goal) is skipped by Antora, so the first runs still build.
+      - name: Fetch the manual branches
+        run: |
+          for b in release main goal; do
+            git fetch origin "+refs/heads/$b:refs/remotes/origin/$b" || echo "no origin/$b yet; skipped"
+          done
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: manual/package-lock.json
+
+      - name: Build the team manual
+        working-directory: manual
+        run: |
+          ../scripts/npm-ci.sh
+          npx antora antora-playbook.yml
+
+      - name: Deploy to Cloudflare Pages
+        working-directory: manual
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages deploy build/site --project-name aethons-tools-jam --branch main
