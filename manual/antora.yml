@@ -3,8 +3,8 @@
 # goal manual with `version: goal`. See docs/manual.md.
 name: jam
 title: Jam manual
-version: as-is
-display_version: As is
+version: goal
+display_version: Goal
 nav:
 - modules/ROOT/nav.adoc
 - modules/projects/nav.adoc
