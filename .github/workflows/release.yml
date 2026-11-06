@@ -54,6 +54,10 @@ jobs:
       - uses: dorny/paths-filter@v4
         id: filter
         with:
+          # Push events diff against the same branch's previous tip. Without this
+          # the default is the merge-base with main, which is empty right after a
+          # main -> release merge, so nothing would publish.
+          base: ${{ github.ref_name }}
           filters: .github/release-filters.yml
       - id: legs
         # Fan the raw path filters into the DAG's legs (spec §3):
@@ -81,7 +85,7 @@ jobs:
         run: echo "version=$(git rev-list --count HEAD)-$(date -u +%m%d)" >>"$GITHUB_OUTPUT"
 
   # Build the image tree for the touched legs, smoke-test natively per arch, and —
-  # on main — push per-arch tags the publish job merges. Runs whenever jam-studio
+  # on release — push per-arch tags the publish job merges. Runs whenever jam-studio
   # is (re)built, which subsumes a base rebuild (base => jam-studio downstream).
   images:
     needs: changes
@@ -214,7 +218,7 @@ jobs:
   binaries:
     needs: [changes, images, publish-images]
     # Run when the binaries leg is selected and nothing upstream failed. On PRs and
-    # go-only main pushes the image jobs are skipped (not failed), so still run.
+    # go-only pushes to main the image jobs are skipped (not failed), so still run.
     if: ${{ !cancelled() && !failure() && needs.changes.outputs.binaries == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -258,10 +262,10 @@ jobs:
           VSCODE_SKIP_CHECK: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # main: snapshot build → archives + checksums stamped <N>-<MMDD> (snapshot
+      # release: snapshot build → archives + checksums stamped <N>-<MMDD> (snapshot
       # mode skips goreleaser's own publishing, sidestepping its SemVer tag
       # assumption); the next step cuts the release.
-      - name: Build binaries (main)
+      - name: Build binaries (release)
         if: github.ref == 'refs/heads/release'
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -291,7 +295,7 @@ jobs:
       # The Jam container image is built FROM the binaries goreleaser just put in
       # dist/ (scripts/jam-image.sh), so it carries exactly the released jam and
       # its tag is the release version.
-      # QEMU only for main's arm64 half; a PR builds amd64 natively.
+      # QEMU only for release's arm64 half; a PR builds amd64 natively.
       - uses: docker/setup-qemu-action@v4
         if: github.ref == 'refs/heads/release'
       - uses: docker/setup-buildx-action@v4
@@ -310,7 +314,7 @@ jobs:
           echo "$out"
           test "$out" = "$VERSION"
 
-      # main: publish the multi-arch image as <N>-<MMDD> + latest.
+      # release: publish the multi-arch image as <N>-<MMDD> + latest.
       - name: Log in to GHCR
         if: github.ref == 'refs/heads/release'
         uses: docker/login-action@v4
@@ -319,7 +323,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish Jam image (main)
+      - name: Publish Jam image (release)
         if: github.ref == 'refs/heads/release'
         env:
           VERSION: ${{ needs.changes.outputs.version }}
@@ -329,7 +333,7 @@ jobs:
           echo "Image: ${JAM_IMAGE}:${VERSION}" >> "$GITHUB_STEP_SUMMARY"
 
       # The arm64 half of the manifest was only cross-built; run it under QEMU.
-      - name: Smoke-test Jam image (arm64, main)
+      - name: Smoke-test Jam image (arm64, release)
         if: github.ref == 'refs/heads/release'
         env:
           VERSION: ${{ needs.changes.outputs.version }}

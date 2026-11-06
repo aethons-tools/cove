@@ -14,7 +14,7 @@ on:
   push:
     branches: [main, release]
 
-# Supersede in-flight runs for the same PR, but never skip a commit on main:
+# Supersede in-flight runs for the same PR, but never skip a commit on main or release:
 # each one must be verified on its own.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
