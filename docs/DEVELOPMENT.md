@@ -4,7 +4,7 @@ read_when: You are building or testing this repo inside the egress-locked dev sa
 owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH) and build/test workarounds
 prereqs: OVERVIEW.md
 tier: leaf
-updated: 2026-11-05
+updated: 2026-11-06
 ---
 
 # Development notes
@@ -248,8 +248,11 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
   → rebuild the base **and** jam-studio (downstream) **and** re-cut the host binaries (its
   new digest becomes the default base + blessed-list head);
   `images/jam-studio/**` → rebuild just jam-studio (FROM the current published
-  base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` · `install.sh` → re-cut the host binaries
-  (blessed list recomputed from the registry head). Docs-only → nothing publishes.
+  base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` · `install.sh` · `manual/**` ·
+  `scripts/manual.sh` (the customer manual jam embeds) · `web/**` (and the other parts jam
+  embeds; the filters file is the full list) → re-cut the host binaries (blessed list
+  recomputed from the registry head). So a manual edit re-cuts the binaries; `docs/`-only →
+  nothing publishes.
 - **DAG order (no cycle):** base → publish → digest **D** → [blessed-list
   snapshot, [COV-47](../internal/blessgen)] → the host binaries (embed jam-studio-agent + list); jam-studio = `FROM jam-studio-base:ci`. The base
   publishes **before** the binaries leg so `gen-blessed` sees **D** as the
@@ -327,10 +330,32 @@ and in a Jam studio git authenticates through Jam's broker
 
 `main` is protected: changes land through a PR whose **`gate`** check passes.
 Direct pushes to `main` are rejected, including for admins.
-`release` is protected the same way (PR with a passing `gate`, no direct pushes);
-only the user merges into it.
+`release` has its own ruleset; only the user merges into it:
+
+- a pull request is required, and the only allowed merge method is **merge** (a merge
+  commit; no squash, no rebase);
+- no deletion, no force-push;
+- required status check `gate`, with "Require branches to be up to date before merging"
+  **off**: `main` never contains `release`'s merge commits, so the release PR's head
+  (`main`) is never "up to date" with `release` and the setting would block every release.
 
 Repo settings the release flow relies on: "Allow merge commits" is on (a `main` into `release`
 merge keeps history, so `<N>` stays monotonic), and "Allow GitHub Actions to create and approve pull requests" is on.
 Inside a *sandbox* the story is different —
 the hardening rewrites GitHub remotes to HTTPS and git authenticates through Jam's broker ([connector.md](usage/jam/connector.md)).
+
+### First-time setup
+
+Once, in this order:
+
+1. Create `release` from `main` with a plain push (`git push origin main:refs/heads/release`)
+   before its ruleset exists. It publishes nothing: on a new branch paths-filter diffs against
+   the merge-base with `main`, which is empty. Until then `release-pr.yml` succeeds with a
+   notice and does nothing.
+2. Apply the `release` ruleset above, and the two repo settings.
+3. Create the Cloudflare Pages project `aethons-tools-jam`, production branch `main`.
+4. Add a Cloudflare Access application covering the production host
+   `aethons-tools-jam.pages.dev` (not only preview deployments): the team manual carries
+   internal content ([manual.md](manual.md)).
+5. Add the repository secret `CLOUDFLARE_API_TOKEN` and the repository variable
+   `CLOUDFLARE_ACCOUNT_ID` (`manual-site.yml` deploys with them).
