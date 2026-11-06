@@ -66,6 +66,7 @@ jobs:
           BASE: ${{ steps.filter.outputs.base }}
           STUDIO: ${{ steps.filter.outputs.studio_image }}
           GO: ${{ steps.filter.outputs.go }}
+          RELEASE: 'true' # what the release will rebuild: binaries always
         run: |
           bash scripts/release/legs.sh | jq -R 'split("=") | {(.[0]): .[1]}' | jq -sc add | sed 's/^/json=/' >>"$GITHUB_OUTPUT"
       - name: Create, update or close the release PR
