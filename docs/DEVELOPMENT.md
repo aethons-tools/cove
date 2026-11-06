@@ -251,8 +251,12 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
   base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` · `install.sh` · `manual/**` ·
   `scripts/manual.sh` (the customer manual jam embeds) · `web/**` (and the other parts jam
   embeds; the filters file is the full list) → re-cut the host binaries (blessed list
-  recomputed from the registry head). So a manual edit re-cuts the binaries; `docs/`-only →
-  nothing publishes.
+  recomputed from the registry head). So a manual edit re-cuts the binaries. On `main`
+  and PRs a `docs/`-only change builds nothing; **a merge into `release` always re-cuts the
+  binaries, publishes the Jam image and cuts a GitHub release** (`scripts/release/legs.sh`'s
+  `RELEASE`), because
+  every approved release is one and `jam update` / `install.sh` need its archives. The
+  images still rebuild only when their paths change.
 - **DAG order (no cycle):** base → publish → digest **D** → [blessed-list
   snapshot, [COV-47](../internal/blessgen)] → the host binaries (embed jam-studio-agent + list); jam-studio = `FROM jam-studio-base:ci`. The base
   publishes **before** the binaries leg so `gen-blessed` sees **D** as the
@@ -264,7 +268,8 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
   amd64/arm64, one `jam_<ver>_<os>_<arch>.tar.gz` per target holding exactly
   those two — checked by
   `scripts/release/check-archive.sh` — plus checksums, stamped `<N>-<MMDD>`) and the
-  release cut with `gh` (private). See [Versioning](#versioning).
+  release cut with `gh`, its notes the approved release PR's description (a generic line
+  if none is found). See [Versioning](#versioning).
 - **jam-studio-agent is embedded**, not shipped standalone — re-cutting the binaries
   re-cuts it (the [`.goreleaser.yaml`](../.goreleaser.yaml) before-hook runs
   `scripts/stage-studio-agent.sh`).
