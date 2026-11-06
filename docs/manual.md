@@ -61,23 +61,28 @@ On `main`, images are real screenshots; on `goal`, mockups.
 
 One site attribute, `internal`, decides: the team playbooks set it (the team
 manual shows internal content, marked); the customer build leaves it unset and
-drops internal content. Any granularity:
+drops internal content. The customer build hard-unsets it, so a component's
+`antora.yml` or a page header setting `internal` changes nothing. Any granularity:
 
 | What | How | Customer build |
 |---|---|---|
 | A block or section | `[.internal]` on it | removed |
-| A phrase | `[.internal]#phrase#` | removed |
+| A phrase | `[.internal]#phrase#` (or `*…*`, `_…_`, with an id too), titles included | removed |
+| A nav entry | `* [.internal]#entry#` as the whole entry in a `nav.adoc` | removed |
 | A passage | `ifdef::internal[]` … `endif::[]` | removed |
 | A sentence or phrase | single-line `ifdef::internal[text]` | removed |
 | A whole page | `:page-internal:` in the page header | page, its nav entry and aliases dropped |
-| A whole area | the module under `modules:` of `internal.js` in the playbook | every page in the module dropped |
+| A whole area | the module under `modules:` of `internal.js` in the playbook | every page in the module, and its nav menu, dropped |
 | An image or attachment | used only from internal content | not published (unreferenced files are dropped) |
 
-- **Prefer `[.internal]`**: the team build marks it (a dashed "Team" box, a
-  dotted underline inline). `ifdef::internal[]` content shows unmarked.
-  Internal pages and modules get a "Team only" badge in the nav.
-- **Leaks fail the customer build**: a kept page that links to a dropped page
-  is an error naming both pages.
+- **Prefer `[.internal]`**, because it is marked: the team build shows it in a
+  dashed "Team" box, or with a dotted underline inline. `ifdef::internal[]`
+  content shows unmarked. Internal pages, modules and nav entries get a
+  "Team only" badge in the nav.
+- **Leaks fail the customer build**, each an error naming the page: a kept page
+  that links to a dropped page, an internal site or component start page, and,
+  as a backstop, any published page still carrying the class `internal` (for
+  example `[.internal]#…#` inside a nav entry's text: mark the whole entry).
 - **How**: `manual/extensions/internal.js` (Antora extension: pages, modules,
   phrases, nav, files, the leak check) and `manual/extensions/internal-blocks.js`
   (Asciidoctor tree processor: `[.internal]` blocks). A playbook registers both:

@@ -1,2 +1,9 @@
 * xref:public.adoc[]
+* xref:titled.adoc[]
+* xref:header-override.adoc[]
 * xref:internal-page.adoc[]
+* [.internal]#SECRET-NAVROLE is an internal nav entry#
+// The backstop test sets `navleak`: an internal phrase inside a nav entry isn't dropped, so the backstop fails the build.
+ifdef::navleak[]
+* A nav entry with [.internal]#SECRET-NAVSPAN# in it
+endif::[]

@@ -12,7 +12,24 @@ const { test } = require('node:test')
 const generateSite = require('@antora/site-generator')
 
 const fixture = path.join(__dirname, 'fixture')
-const secrets = ['SECRET-BLOCK', 'SECRET-SECTION', 'SECRET-INLINE', 'SECRET-IFDEF', 'SECRET-PAGE', 'SECRET-MODULE']
+const secrets = [
+  'SECRET-BLOCK', // [.internal] paragraph
+  'SECRET-SECTION', // [.internal] section
+  'SECRET-INLINE', // [.internal]#…#
+  'SECRET-IDSPAN', // [#id.internal]#…#
+  'SECRET-STRONG', // [.internal]*…*
+  'SECRET-CELL', // [.internal] paragraph in an a| table cell
+  'SECRET-TITLE', // [.internal]#…# in a doctitle
+  'SECRET-IFDEF', // ifdef::internal[]
+  'SECRET-PAGE', // :page-internal:
+  'SECRET-MODULE', // a page in an internal module
+  'SECRET-NAVTEXT', // a text-only nav entry in an internal module
+  'SECRET-NAVROLE', // * [.internal]#…# as a whole nav entry
+  'SECRET-COMPONENT-BLOCK', // the component descriptor sets `internal`
+  'SECRET-COMPONENT-IFDEF',
+  'SECRET-HEADER-BLOCK', // the page header sets `internal`
+  'SECRET-HEADER-IFDEF',
+]
 
 // build runs the fixture playbook named `which` into a fresh temp dir and
 // returns that dir; extra args go to Antora as on its command line.
@@ -53,13 +70,31 @@ test('customer build drops internal content', async () => {
     'an attachment only internal pages use is dropped'
   )
   const all = Object.values(files).join('\n')
-  for (const secret of [...secrets, 'SECRET-ATTACHMENT']) assert.ok(!all.includes(secret), `${secret} is dropped`)
+  const leaked = [...secrets, 'SECRET-ATTACHMENT'].filter((secret) => all.includes(secret))
+  assert.deepEqual(leaked, [], 'no secret is published')
   assert.ok(!files['fixture/public.html'].includes('internal-page.html'), 'no nav link to internal-page.html')
   assert.ok(!files['fixture/public.html'].includes('Team area'), 'the internal module has no nav entry')
 })
 
 test('customer build fails on a leak', async () => {
-  await assert.rejects(build('customer', '--attribute', 'leak'), /internal-page/)
+  await assert.rejects(
+    build('customer', '--attribute', 'leak'),
+    /leaks into the customer build:\nfixture:ROOT:public\.adoc links to internal page fixture:ROOT:internal-page\.adoc/
+  )
+})
+
+test('customer build fails when internal markup survives', async () => {
+  await assert.rejects(
+    build('customer', '--attribute', 'navleak'),
+    /internal markup survives into the customer build on fixture:ROOT:public\.adoc/
+  )
+})
+
+test('customer build fails when the site start page is internal', async () => {
+  await assert.rejects(
+    build('customer', '--start-page', 'fixture::internal-page.adoc'),
+    /start page fixture:ROOT:internal-page\.adoc is internal/
+  )
 })
 
 test('team build keeps everything', async () => {
@@ -68,5 +103,26 @@ test('team build keeps everything', async () => {
   for (const secret of secrets) assert.ok(all.includes(secret), `${secret} is kept`)
   assert.ok(files['fixture/internal-page.html'], 'internal-page.html is published')
   assert.ok(files['fixture/_images/internal-only.png'], 'internal-only.png is published')
-  assert.match(files['fixture/internal-page.html'], /class="team-only"/, 'internal pages carry the nav badge')
+  assert.match(
+    files['fixture/public.html'],
+    /href="internal-page\.html">Internal page<\/a> <span class="team-only">Team only<\/span>/,
+    'an internal page carries the nav badge'
+  )
+  assert.match(
+    files['fixture/public.html'],
+    /href="team\/secret\.html">Team area page<\/a> <span class="team-only">Team only<\/span>/,
+    'a page in an internal module carries the nav badge'
+  )
+  assert.match(
+    files['fixture/public.html'],
+    /<p class="nav-head">Team area <span class="team-only">Team only<\/span><\/p>/,
+    'an internal module\'s nav menu carries the badge'
+  )
+  assert.match(
+    files['fixture/public.html'],
+    /SECRET-NAVROLE is an internal nav entry <span class="team-only">Team only<\/span>/,
+    'an internal nav entry carries the nav badge'
+  )
+  assert.match(files['fixture/public.html'], /<div class="paragraph internal">/, 'internal blocks are marked')
+  assert.match(files['fixture/public.html'], /<span class="internal">SECRET-INLINE<\/span>/, 'internal phrases are marked')
 })

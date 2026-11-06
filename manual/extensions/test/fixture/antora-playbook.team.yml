@@ -5,7 +5,9 @@ site:
 content:
   sources:
   - url: ./../../../..
-    start_path: manual/extensions/test/fixture/content
+    start_paths:
+    - manual/extensions/test/fixture/content
+    - manual/extensions/test/fixture/override
     branches: [HEAD]
 antora:
   extensions:

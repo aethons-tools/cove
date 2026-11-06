@@ -1,2 +1,3 @@
 .Team area
 * xref:secret.adoc[]
+* SECRET-NAVTEXT is a text-only entry in the internal module's nav.

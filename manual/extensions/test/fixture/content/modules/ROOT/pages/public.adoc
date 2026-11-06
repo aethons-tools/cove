@@ -9,6 +9,16 @@ SECRET-BLOCK lives in an internal paragraph.
 
 A sentence with [.internal]#SECRET-INLINE# in it.
 
+A phrase with an id, [#pid.internal]#SECRET-IDSPAN#, and a strong one, [.internal]*SECRET-STRONG*.
+
+|===
+a|
+A table cell.
+
+[.internal]
+SECRET-CELL lives in an internal paragraph in a cell.
+|===
+
 ifdef::internal[]
 SECRET-IFDEF lives in an ifdef block.
 endif::[]
