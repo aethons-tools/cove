@@ -217,11 +217,14 @@ manifest digest, each apt package `pkg=version`, the toolchain args
 `CC_SKILLS_GOLANG_VERSION` release tag. Versions are
 identical across amd64/arm64, so one pin serves both. A pin that ages out of the
 archive fails the build loudly. [`renovate.json`](../renovate.json) keeps them
-current instead of letting them silently float — mostly a bump PR per newer
-version, except the base `ubuntu:24.04` digest and its apt pins, which Renovate
+current instead of letting them silently float — non-major bumps in one weekly PR,
+except the base `ubuntu:24.04` digest and its apt pins, which Renovate
 **couples into one grouped PR** (a digest bump alone would fail the rebuild the
 moment a pin ages out). (The one input not yet pinned is chromium, which rides
-whatever `playwright` resolves.)
+whatever `playwright` resolves.) Renovate is batched to keep CI load down: it runs weekly
+(Monday before 6am Pacific), rebases a PR only on a conflict, and folds every
+minor/patch/digest bump into one `all non-major dependencies` PR (majors stay separate);
+the `ubuntu noble base` group runs monthly, since it rebuilds the studio images.
 
 **Build & publish** — the images are built and published by the monolithic
 pipeline (below); consumers **pin by `@sha256` digest**, never a moving tag
