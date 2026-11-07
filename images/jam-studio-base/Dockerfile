@@ -21,7 +21,7 @@ LABEL org.opencontainers.image.description="jam studio base image: OS + git/gh/s
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       openssh-server=1:9.6p1-3ubuntu13.20 \
-      ca-certificates=20260816ubuntu0.24.04.1 \
+      ca-certificates=20260816ubuntu0.24.04.2 \
       curl=8.5.0-2ubuntu10.16 \
       git=1:2.43.0-1ubuntu7.4 \
       gh=2.45.0-1ubuntu0.3 \
