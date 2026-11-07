@@ -11,7 +11,7 @@ You edit it on the project page,
 in the *Agent context* card,
 under *Config › Projects › _your project_*.
 
-image::project-page.png[The project page with an empty Agent context card,600]
+image::project-page.png[The project page with a filled-in Agent context card,600]
 
 Changes reach each agent the next time it is raised.
 Never put a credential in agent context;

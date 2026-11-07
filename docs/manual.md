@@ -1,10 +1,10 @@
 ---
-summary: The Jam manual in manual/ — the user-facing manual in AsciiDoc built with Antora, its released, next and goal versions (from the release, main and goal branches), the page shape and conventions attributes, the in-repo UI, marking content internal (team-only pages, areas and passages the customer build drops), and `just manual` / `manual-site` / `manual-check`.
-read_when: You are changing anything a Jam user can see (its manual page changes in the same PR), writing or editing a manual page, marking content team-only, proposing a change on the goal branch, or building the manual.
-owns: the manual/ tree, its build (antora playbooks, manual/ui, just manual and manual-site), the branch-to-version model, the page attributes (page-area, page-id, page-conventions), and marking content internal (manual/extensions, just manual-check)
+summary: The Jam manual in manual/ — the user-facing manual in AsciiDoc built with Antora, taking its screenshots (`just manual-shot`), its released, next and goal versions (from the release, main and goal branches), the page shape and conventions attributes, the in-repo UI, marking content internal (team-only pages, areas and passages the customer build drops), and `just manual` / `manual-site` / `manual-check`.
+read_when: You are changing anything a Jam user can see (its manual page changes in the same PR), writing or editing a manual page, taking or refreshing a screenshot, marking content team-only, proposing a change on the goal branch, or building the manual.
+owns: the manual/ tree, its screenshots (just manual-shot, web/app/src/shots), its build (antora playbooks, manual/ui, just manual and manual-site), the branch-to-version model, the page attributes (page-area, page-id, page-conventions), and marking content internal (manual/extensions, just manual-check)
 prereqs: superpowers/specs/2026-11-05-manual-first-operating-model-design.md for why the manual leads the work
 tier: leaf
-updated: 2026-11-06
+updated: 2026-11-07
 ---
 
 # The Jam manual (`manual/`)
@@ -56,6 +56,36 @@ Pages live in `manual/modules/<area>/pages/`, images in
 Write one clause per line (semantic line breaks) so diffs read clause by clause.
 Content for the team only is marked internal (below).
 On `main`, images are real screenshots; on `goal`, mockups.
+
+## Screenshots
+
+A PR that changes a page refreshes its screenshots with `just manual-shot`
+(`scripts/manual-shot.sh` → `web/app/scripts/shot.mjs`):
+
+```sh
+just manual-shot 'admin/config/projects/acme?branch=jam/docs' \
+  --selector 'main > .mantine-Stack-root' --width 1000 \
+  --out manual/modules/projects/images/project-page.png
+```
+
+- It serves the app with Vite on mock data (`web/app/vite.shot.config.ts`):
+  the API answers from `web/app/src/shots/mocks.ts`, a map of
+  `"METHOD /path"` (query optional) to JSON built from the tests'
+  `fixtures.ts`. A request with no entry answers 404 and is logged as
+  `mock-api: no mock for …`: add the entry. `?branch=<name>` in the route
+  opens a config branch, so edit controls show.
+- It shoots with the kit's headless Chrome
+  (`/opt/chrome-headless-shell/chrome-headless-shell`; `JAM_BROWSER`
+  overrides), which resolves no host but loopback.
+- Flags: `--out` (from the repo root), `--selector` (crop to the first match,
+  plus `--pad`, default 8 CSS px; without it, the whole page), `--width`
+  (default 1280) and `--height` (800; grown to the page), `--scale` (device
+  pixels per CSS pixel, default 2).
+- Output is deterministic: light scheme, no animations or caret, fonts
+  (the bundled IBM Plex) loaded, the network quiet. Rerunning on unchanged
+  code and mocks, with the same Chrome, gives the same bytes.
+- To refresh, rerun the command that made the image; record a new image's
+  command in the PR.
 
 ## Marking content internal
 

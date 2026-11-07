@@ -148,6 +148,13 @@ manual:
 manual-site:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.yml
 
+# screenshot a view of the Jam app on mock data into the manual, e.g.
+# `just manual-shot admin/config/projects/acme --selector main --out manual/modules/projects/images/x.png`
+# (web/app/src/shots/mocks.ts; flags and refreshing: docs/manual.md)
+[positional-arguments]
+manual-shot *ARGS:
+    ./scripts/manual-shot.sh "$@"
+
 # test the manual's Antora extensions (internal content: manual/extensions/test/)
 manual-check:
     cd manual && ../scripts/npm-ci.sh && npm test
