@@ -1,6 +1,7 @@
 import type { ContextPanel, ProjectDetail } from "../api/types";
 
-export const emptyContext: ContextPanel = { scope: "project", core: "", coreBytes: 0, budget: 4096, over: false, empty: true, showResources: true, leaves: [], resources: [], yaml: "" };
+export const emptyContext: ContextPanel = { scope: "project", core: "", coreBytes: 0, budget: 4096, over: false, empty: true, showResources: true, leaves: [], resources: [], yaml: "",
+  limits: { coreBudget: 4096, maxReadWhen: 160, maxLeaves: 20, maxLeafBytes: 65536, maxResources: 50 }, leafBytes: 0, deliveredBytes: 0 };
 
 export const project = (p: Partial<ProjectDetail> = {}): ProjectDetail => ({
   name: "acme", inUseBy: "", renamable: true, chatService: "", chatServices: ["", "disc"],
@@ -16,12 +17,13 @@ export const filledContext: ContextPanel = {
   scope: "project", core: "Ship the release by Friday.\nEvery change lands as one PR against main; the gate must be green.\n", coreBytes: 95, budget: 1200,
   over: false, empty: false, showResources: true,
   leaves: [
-    { name: "release.md", readWhen: "you are cutting a release" },
-    { name: "style.md", readWhen: "you are writing user-facing text" },
+    { name: "release.md", readWhen: "you are cutting a release", body: "# Cutting a release\n", bytes: 20 },
+    { name: "style.md", readWhen: "you are writing user-facing text", body: "# Style\n", bytes: 8 },
   ],
   resources: [
     { name: "cove", kind: "repo", ref: "aethons-tools/cove", note: "main repo" },
     { name: "board", kind: "tracker", ref: "linear:COV", note: "tickets" },
   ],
+  limits: { coreBudget: 1200, maxReadWhen: 160, maxLeaves: 20, maxLeafBytes: 65536, maxResources: 50 }, leafBytes: 28, deliveredBytes: 297,
   yaml: "core: |\n  Ship the release by Friday.\n  Every change lands as one PR against main; the gate must be green.\nleaves:\n  - name: release.md\n    read-when: you are cutting a release\n    body: |\n      # Cutting a release\n  - name: style.md\n    read-when: you are writing user-facing text\n    body: |\n      # Style\nresources:\n  - {name: cove, kind: repo, ref: aethons-tools/cove, note: main repo}\n  - {name: board, kind: tracker, ref: \"linear:COV\", note: tickets}\n",
 };

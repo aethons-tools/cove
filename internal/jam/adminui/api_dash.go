@@ -178,15 +178,13 @@ func apiDash(api *http.ServeMux, src frameSource, msgs SquawkReader, da dashAPI,
 		writeJSON(w, http.StatusOK, searchResultOf(search(store, msgs, r.URL.Query().Get("q"))))
 	})
 	api.HandleFunc("POST "+apiPrefix+"jam/context", func(w http.ResponseWriter, r *http.Request) {
-		var f struct {
-			YAML string `json:"yaml"`
-		}
+		var f ContextSave
 		if !decodeJSON(w, r, &f) {
 			return
 		}
-		b, err := jam.ParseContextYAML([]byte(f.YAML), nil)
+		b, err := contextBody(f)
 		if err != nil {
-			writeAPIError(w, http.StatusBadRequest, "bad_request", err.Error())
+			apiFail(w, err, http.StatusBadRequest)
 			return
 		}
 		if err := setJamContext(store, log, r, "set", b); err != nil {

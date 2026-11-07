@@ -9,6 +9,20 @@
 export interface APIError {
   error: string; // for people
   code: string; // for code: forbidden, not_found, bad_request, internal
+  /**
+   * Errors is every problem with a refused write's fields (an agent
+   * context save), each at its field path; absent otherwise.
+   */
+  errors?: FieldError[];
+}
+/**
+ * FieldError is one problem with a written field: Field is its path in the
+ * request's wire names, e.g. core, leaves[2].readWhen, resources[0].kind, or a
+ * list (leaves, resources) for a list-wide problem.
+ */
+export interface FieldError {
+  field: string;
+  message: string;
 }
 /**
  * Bootstrap is what the admin app needs before its first render: injected
@@ -258,6 +272,8 @@ export interface ProjectsResponse {
 export interface ContextLeaf {
   name: string;
   readWhen: string;
+  body: string;
+  bytes: number /* int */; // len(Body), counted against MaxLeafBytes
 }
 /**
  * ContextResource is one resource of a project's agent context.
@@ -269,13 +285,24 @@ export interface ContextResource {
   note: string;
 }
 /**
+ * ContextLimits are a scope's authored-context limits (sessionctx), in bytes
+ * or counts. MaxResources is 0 where resources do not apply.
+ */
+export interface ContextLimits {
+  coreBudget: number /* int */;
+  maxReadWhen: number /* int */;
+  maxLeaves: number /* int */;
+  maxLeafBytes: number /* int */; // all leaf bodies together
+  maxResources: number /* int */;
+}
+/**
  * ContextPanel is an agent-context card (Jam, a project or a role): what
  * every agent there is told when raised, and its YAML for the editor.
  */
 export interface ContextPanel {
   scope: string; // "Jam-wide", "project", "role"
   core: string;
-  coreBytes: number /* int */; // as delivered
+  coreBytes: number /* int */; // counted against the budget: the core plus a project's resources pointer
   budget: number /* int */;
   over: boolean;
   empty: boolean;
@@ -283,6 +310,33 @@ export interface ContextPanel {
   leaves: ContextLeaf[];
   resources: ContextResource[];
   yaml: string;
+  limits: ContextLimits;
+  leafBytes: number /* int */; // all leaf bodies, against Limits.MaxLeafBytes
+  /**
+   * DeliveredBytes is what the layer adds to a session's always-on core:
+   * CoreBytes plus a pointer line per leaf (and the resources leaf), before
+   * any truncation.
+   */
+  deliveredBytes: number /* int */;
+}
+/**
+ * ContextLeafInput is one leaf of a structured ContextSave.
+ */
+export interface ContextLeafInput {
+  name: string;
+  readWhen: string;
+  body: string;
+}
+/**
+ * ContextSave is the body of a POST to a context endpoint (jam/context, a
+ * project's or a role's context): either YAML (the `jam context` format) or
+ * the fields, not both. Resources apply to a project only.
+ */
+export interface ContextSave {
+  yaml?: string;
+  core?: string;
+  leaves?: ContextLeafInput[];
+  resources?: ContextResource[];
 }
 /**
  * DeliveryRow is where a member gets DMs: service:address.

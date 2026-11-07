@@ -4,7 +4,7 @@ read_when: You want sessions of a role or project (or every session on the Jam) 
 owns: where each authored layer lives in the config repo and its format, the `jam context show` command, authored-layer limits, and the role/project/jam context admin routes
 prereqs: session-context.md for how layers are compiled and delivered
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-07
 ---
 
 # Authoring session context
@@ -73,6 +73,18 @@ YAML, with a byte counter against the budget; on a branch it edits it.
 admin API route is `GET /admin/roles/{project}/{role}/context`
 (`/admin/projects/{project}/context`, `/admin/jam/context`), answering
 `{core, leaves: [{name, read_when, body}], resources}`.
+
+The admin console's own API (`/app/admin/api/` `jam/context`,
+`projects/{p}/context`, `projects/{p}/roles/{r}/context`) answers a card
+with each leaf's `body` and `bytes`, the scope's `limits` (`coreBudget`,
+`maxReadWhen`, `maxLeaves`, `maxLeafBytes`, `maxResources`), `leafBytes`, and
+`deliveredBytes` — what the layer adds to the always-on core, its leaf pointer
+lines included. A `POST` saves either `{yaml}` (the `show` format) or the
+fields `{core, leaves: [{name, readWhen, body}], resources: [{name, kind, ref, note}]}`,
+not both. A refusal by the rules below is a 400 listing every problem in
+`errors: [{field, message}]`, each at a path such as `core`,
+`leaves[2].readWhen` or `resources[0].kind` (a list-wide problem names the
+list); a malformed body has only `error`.
 
 ## Limits and rules
 

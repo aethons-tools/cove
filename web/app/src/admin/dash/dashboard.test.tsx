@@ -11,7 +11,8 @@ import type { ContextPanel, Dashboard } from "../api/types";
 import { setBranch } from "../branch/branch";
 
 const panel = (p: Partial<ContextPanel> = {}): ContextPanel => ({
-  scope: "Jam-wide", core: "", coreBytes: 0, budget: 4096, over: false, empty: true, showResources: false, leaves: [], resources: [], yaml: "", ...p,
+  scope: "Jam-wide", core: "", coreBytes: 0, budget: 4096, over: false, empty: true, showResources: false, leaves: [], resources: [], yaml: "",
+  limits: { coreBudget: 4096, maxReadWhen: 160, maxLeaves: 20, maxLeafBytes: 65536, maxResources: 0 }, leafBytes: 0, deliveredBytes: 0, ...p,
 });
 const dash = (d: Partial<Dashboard> = {}): Dashboard => ({
   stats: { studios: 3, running: 2, waiting: 1, settingUp: 0, idled: 0, attention: 0, projects: 4, agents: 5, users: 6, specs: 7 },

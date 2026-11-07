@@ -153,10 +153,16 @@ func apiCode(status int) string {
 }
 
 // apiFail answers a write's error: its status from a jam.WriteError or a
-// registry error, else fallback.
+// registry error, else fallback; a WriteError's field errors as Errors.
 func apiFail(w http.ResponseWriter, err error, fallback int) {
 	status := jam.WriteStatus(registryErr(err), fallback)
-	writeAPIError(w, status, apiCode(status), err.Error())
+	out := APIError{Error: err.Error(), Code: apiCode(status)}
+	if we, ok := errors.AsType[*jam.WriteError](err); ok {
+		for _, f := range we.Fields {
+			out.Errors = append(out.Errors, FieldError{Field: f.Field, Message: f.Message})
+		}
+	}
+	writeJSON(w, status, out)
 }
 
 // writeJSON writes v as an API response (never cached, never sniffed).

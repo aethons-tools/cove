@@ -2,6 +2,7 @@ package jam
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -65,5 +66,44 @@ func TestCheckedWriters(t *testing.T) {
 	}
 	if err := SetJamContextChecked(store, ContextBody{}); err != nil || !store.GetJamContext().Empty() {
 		t.Fatalf("clear jam: %v", err)
+	}
+}
+
+func TestCheckedWritersReportEveryFieldError(t *testing.T) {
+	store := NewMemStore()
+	b := ContextBody{
+		Core:      strings.Repeat("x", sessionctx.BudgetProject+1),
+		Leaves:    []sessionctx.Leaf{{Name: "a.md", ReadWhen: "w"}, {Name: sessionctx.ResourcesLeaf}},
+		Resources: []sessionctx.Resource{{Name: "r", Kind: "wiki", Ref: "x"}},
+	}
+	err := SetProjectContextChecked(store, "default", b)
+	we, ok := errors.AsType[*WriteError](err)
+	if !ok || we.Status != http.StatusBadRequest {
+		t.Fatalf("err = %v, want a 400 WriteError", err)
+	}
+	var fields []string
+	for _, f := range we.Fields {
+		fields = append(fields, f.Field)
+	}
+	if want := "[core leaves[1].readWhen resources[0].kind leaves[1].name]"; fmt.Sprint(fields) != want {
+		t.Fatalf("fields = %v, want %s", fields, want)
+	}
+	if !strings.Contains(we.Msg, "project context: core is") || !strings.Contains(we.Msg, "project resources: resource \"r\": kind") {
+		t.Fatalf("msg = %q", we.Msg)
+	}
+
+	err = SetRoleContextChecked(store, "default", "dev", ContextBody{Leaves: []sessionctx.Leaf{{Name: "Bad", ReadWhen: "w"}}, Resources: b.Resources})
+	if we, ok := errors.AsType[*WriteError](err); !ok || len(we.Fields) != 2 || we.Fields[0].Field != "resources" || we.Fields[1].Field != "leaves[0].name" {
+		t.Fatalf("role err = %#v", err)
+	}
+}
+
+func TestNewContextBody(t *testing.T) {
+	if _, err := NewContextBody(" ", nil, nil); err == nil || !strings.Contains(err.Error(), "sets nothing") {
+		t.Fatalf("empty: err = %v", err)
+	}
+	b, err := NewContextBody("C", []sessionctx.Leaf{{Name: "a.md", ReadWhen: "w", Body: "B"}}, nil)
+	if err != nil || b.Core != "C" || len(b.Leaves) != 1 {
+		t.Fatalf("b = %+v, err = %v", b, err)
 	}
 }

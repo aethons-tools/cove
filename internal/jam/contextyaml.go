@@ -37,7 +37,7 @@ func ParseContextYAML(data []byte, readFile func(name string) ([]byte, error)) (
 		return ContextBody{}, err
 	}
 	if strings.TrimSpace(f.Core) == "" && len(f.Leaves) == 0 && len(f.Resources) == 0 {
-		return ContextBody{}, errors.New("the context sets nothing; to remove a layer, clear it")
+		return ContextBody{}, errSetsNothing
 	}
 	b := ContextBody{Core: f.Core, Resources: f.Resources}
 	for _, lf := range f.Leaves {
@@ -59,24 +59,37 @@ func ParseContextYAML(data []byte, readFile func(name string) ([]byte, error)) (
 	return b, nil
 }
 
+var errSetsNothing = errors.New("the context sets nothing; to remove a layer, clear it")
+
+// NewContextBody is a context save sent as fields (the admin UI's structured
+// editor) rather than YAML; like ParseContextYAML, it refuses one that sets
+// nothing. Validation is the Set*ContextChecked call's.
+func NewContextBody(core string, leaves []sessionctx.Leaf, resources []sessionctx.Resource) (ContextBody, error) {
+	if strings.TrimSpace(core) == "" && len(leaves) == 0 && len(resources) == 0 {
+		return ContextBody{}, errSetsNothing
+	}
+	return ContextBody{Core: core, Leaves: leaves, Resources: resources}, nil
+}
+
 // MarshalContextYAML renders b in the ParseContextYAML format (bodies inline).
 func MarshalContextYAML(b ContextBody) ([]byte, error) { return yaml.Marshal(b) }
 
 // SetRoleContextChecked validates and stores a role's authored context (400 on
-// bad input, 404 for a missing role).
+// bad input, carrying every problem's field; 404 for a missing role).
 func SetRoleContextChecked(store Store, project, role string, b ContextBody) error {
-	if len(b.Resources) > 0 {
-		return writeErr(http.StatusBadRequest, "resources apply to projects only")
+	if fe := append(resourcesRefused(b), sessionctx.CheckLayer(b.layer(), sessionctx.BudgetRole)...); len(fe) > 0 {
+		return contextFieldsErr("role", fe)
 	}
 	return SetRoleContext(store, project, role, b.layer())
 }
 
 // SetProjectContextChecked validates and stores a project's authored context
 // and resources; the delivered core (with the resources pointer) must fit the
-// budget, and resources.md is reserved. An empty body clears.
+// budget, and resources.md is reserved. An empty body clears. A refusal is a
+// 400 carrying every problem's field.
 func SetProjectContextChecked(store Store, project string, b ContextBody) error {
-	if err := validateProjectContext(b.layer(), b.Resources); err != nil {
-		return writeErr(http.StatusBadRequest, "%s", err.Error())
+	if err := contextFieldsErr("project", checkProjectContext(b.layer(), b.Resources)); err != nil {
+		return err
 	}
 	if err := store.SetProjectContext(project, b.layer(), b.Resources); err != nil {
 		return writeErr(projectErrStatus(err, http.StatusInternalServerError), "%s", err.Error())
@@ -85,34 +98,49 @@ func SetProjectContextChecked(store Store, project string, b ContextBody) error 
 }
 
 // SetJamContextChecked validates and stores the Jam-wide authored context; an
-// empty body clears it.
+// empty body clears it. A refusal is a 400 carrying every problem's field.
 func SetJamContextChecked(store Store, b ContextBody) error {
-	if len(b.Resources) > 0 {
-		return writeErr(http.StatusBadRequest, "resources apply to projects only")
-	}
-	if err := sessionctx.ValidateLayer(b.layer(), sessionctx.BudgetJam); err != nil {
-		return writeErr(http.StatusBadRequest, "jam context: %s", err.Error())
+	if err := contextFieldsErr("jam", append(resourcesRefused(b), sessionctx.CheckLayer(b.layer(), sessionctx.BudgetJam)...)); err != nil {
+		return err
 	}
 	return store.SetJamContext(b.layer())
 }
 
-// validateProjectContext is the project-layer rule set, shared by the admin
-// API and config import: budgets (counting the generated resources pointer),
-// leaf rules, resources, and the reserved resources.md name.
+// resourcesRefused is the problem with resources on a layer other than a
+// project's.
+func resourcesRefused(b ContextBody) sessionctx.FieldErrors {
+	if len(b.Resources) == 0 {
+		return nil
+	}
+	return sessionctx.FieldErrors{{Field: "resources", Message: "resources apply to projects only"}}
+}
+
+// validateProjectContext is checkProjectContext as one error, for config
+// import.
 func validateProjectContext(l sessionctx.Layer, rs []sessionctx.Resource) error {
-	if err := sessionctx.ValidateLayer(l, sessionctx.BudgetProject); err != nil {
-		return fmt.Errorf("project context: %w", err)
-	}
-	if err := sessionctx.ValidateResources(rs); err != nil {
-		return fmt.Errorf("project resources: %w", err)
-	}
-	for _, lf := range l.Leaves {
-		if lf.Name == sessionctx.ResourcesLeaf {
-			return fmt.Errorf("project context: leaf name %s is reserved for the generated resource list", sessionctx.ResourcesLeaf)
-		}
-	}
-	if n := len(sessionctx.ProjectLayer(l, rs).Core); n > sessionctx.BudgetProject {
-		return fmt.Errorf("project context: core plus the resources pointer is %d bytes; the budget is %d", n, sessionctx.BudgetProject)
+	if fe := checkProjectContext(l, rs); len(fe) > 0 {
+		return errors.New(contextMessage("project", fe))
 	}
 	return nil
+}
+
+// checkProjectContext is the project-layer rule set, shared by the admin API
+// and config import: budgets (counting the generated resources pointer), leaf
+// rules, resources, and the reserved resources.md name. It returns every
+// problem found.
+func checkProjectContext(l sessionctx.Layer, rs []sessionctx.Resource) sessionctx.FieldErrors {
+	fe := sessionctx.CheckLayer(l, sessionctx.BudgetProject)
+	fe = append(fe, sessionctx.CheckResources(rs)...)
+	for i, lf := range l.Leaves {
+		if lf.Name == sessionctx.ResourcesLeaf {
+			fe = append(fe, sessionctx.FieldError{Field: fmt.Sprintf("leaves[%d].name", i),
+				Message: fmt.Sprintf("leaf name %s is reserved for the generated resource list", sessionctx.ResourcesLeaf)})
+		}
+	}
+	// The pointer's own bytes only matter once the authored core fits.
+	if n := len(sessionctx.ProjectLayer(l, rs).Core); n > sessionctx.BudgetProject && len(strings.TrimSpace(l.Core)) <= sessionctx.BudgetProject {
+		fe = append(fe, sessionctx.FieldError{Field: "core",
+			Message: fmt.Sprintf("core plus the resources pointer is %d bytes; the budget is %d", n, sessionctx.BudgetProject)})
+	}
+	return fe
 }

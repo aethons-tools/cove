@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // The projects JSON API: the project list and a project's pages with their
@@ -16,9 +17,14 @@ import (
 
 func contextPanelOf(p contextPanel) ContextPanel {
 	out := ContextPanel{Scope: p.Scope, Core: p.Core, CoreBytes: p.CoreBytes, Budget: p.Budget, Over: p.Over, Empty: p.Empty,
-		ShowResources: p.ShowResources, Leaves: []ContextLeaf{}, Resources: []ContextResource{}, YAML: p.YAML}
+		ShowResources: p.ShowResources, Leaves: []ContextLeaf{}, Resources: []ContextResource{}, YAML: p.YAML,
+		Limits:    ContextLimits{CoreBudget: p.Budget, MaxReadWhen: sessionctx.MaxReadWhen, MaxLeaves: sessionctx.MaxLeaves, MaxLeafBytes: sessionctx.MaxLeafBytes},
+		LeafBytes: p.LeafBytes, DeliveredBytes: p.DeliveredBytes}
+	if p.ShowResources {
+		out.Limits.MaxResources = sessionctx.MaxResources
+	}
 	for _, l := range p.Leaves {
-		out.Leaves = append(out.Leaves, ContextLeaf{Name: l.Name, ReadWhen: l.ReadWhen})
+		out.Leaves = append(out.Leaves, ContextLeaf{Name: l.Name, ReadWhen: l.ReadWhen, Body: l.Body, Bytes: len(l.Body)})
 	}
 	for _, r := range p.Resources {
 		out.Resources = append(out.Resources, ContextResource{Name: r.Name, Kind: string(r.Kind), Ref: r.Ref, Note: r.Note})
@@ -153,8 +159,9 @@ func apiProjects(api *http.ServeMux, src frameSource, msgs SquawkReader, log *sl
 	// edit runs one section write on {project} (a POST's JSON body decoded
 	// into fields) and answers with the project, as registerProjectEdits does.
 	type fields struct {
-		YAML, Service, User, Delivery, Name, Connection, Ref, Category, Tiers string
-		Add                                                                   bool
+		ContextSave                                                     // the context write's
+		Service, User, Delivery, Name, Connection, Ref, Category, Tiers string
+		Add                                                             bool
 	}
 	edit := func(what string, apply func(r *http.Request, project string, f fields) error) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -181,9 +188,9 @@ func apiProjects(api *http.ServeMux, src frameSource, msgs SquawkReader, log *sl
 		}
 	}
 	api.HandleFunc("POST "+apiPrefix+"projects/{project}/context", edit("context set", func(_ *http.Request, project string, f fields) error {
-		b, err := jam.ParseContextYAML([]byte(f.YAML), nil)
+		b, err := contextBody(f.ContextSave)
 		if err != nil {
-			return badRequest(err.Error())
+			return err
 		}
 		return jam.SetProjectContextChecked(store, project, b)
 	}))
