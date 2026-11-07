@@ -124,9 +124,11 @@ async function shoot(base, ws) {
     const { targetId } = await c.send("Target.createTarget", { url: "about:blank" });
     const { sessionId: s } = await c.send("Target.attachToTarget", { targetId, flatten: true });
     const send = (m, p) => c.send(m, p, s);
-    let inflight = 0, quietSince = Date.now();
-    c.on("Network.requestWillBeSent", () => { inflight++; });
-    const done = () => { inflight = Math.max(0, inflight - 1); quietSince = Date.now(); };
+    // Requests in flight, by id (a redirect reuses its request's id).
+    const inflight = new Set();
+    let quietSince = Date.now();
+    c.on("Network.requestWillBeSent", (p) => { inflight.add(p.requestId); });
+    const done = (p) => { inflight.delete(p.requestId); quietSince = Date.now(); };
     c.on("Network.loadingFinished", done);
     c.on("Network.loadingFailed", done);
     await send("Network.enable");
@@ -148,7 +150,7 @@ async function shoot(base, ws) {
     for (;;) {
       if (Date.now() > deadline) throw new Error(`timed out waiting for ${sel} on ${route}`);
       const found = await evaluate(`document.readyState === "complete" && !!document.querySelector(${sel})`);
-      if (found && inflight === 0 && Date.now() - quietSince > 500) break;
+      if (found && inflight.size === 0 && Date.now() - quietSince > 500) break;
       await sleep(100);
     }
     await evaluate("document.fonts.ready.then(() => true)");
