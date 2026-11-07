@@ -95,6 +95,15 @@ func TestCheckedWritersReportEveryFieldError(t *testing.T) {
 	err = SetRoleContextChecked(store, "default", "dev", ContextBody{Leaves: []sessionctx.Leaf{{Name: "Bad", ReadWhen: "w"}}, Resources: b.Resources})
 	if we, ok := errors.AsType[*WriteError](err); !ok || len(we.Fields) != 2 || we.Fields[0].Field != "resources" || we.Fields[1].Field != "leaves[0].name" {
 		t.Fatalf("role err = %#v", err)
+	} else if !strings.HasPrefix(we.Msg, "role context: resources apply to projects only") {
+		t.Errorf("role msg = %q", we.Msg)
+	}
+
+	// The core fits alone; the resources pointer tips it over.
+	b = ContextBody{Core: strings.Repeat("x", sessionctx.BudgetProject-10), Resources: []sessionctx.Resource{{Name: "r", Kind: "url", Ref: "x"}}}
+	err = SetProjectContextChecked(store, "default", b)
+	if we, ok := errors.AsType[*WriteError](err); !ok || len(we.Fields) != 1 || we.Fields[0].Field != "core" || !strings.Contains(we.Msg, "resources pointer") {
+		t.Fatalf("pointer overflow err = %#v", err)
 	}
 }
 

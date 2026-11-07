@@ -43,12 +43,12 @@ func contextFieldsErr(scope string, fe sessionctx.FieldErrors) error {
 }
 
 // contextMessage is fe as one line, each problem prefixed "<scope> context: "
-// (or "<scope> resources: " for a resources field).
+// (or "project resources: " for a project's resources field).
 func contextMessage(scope string, fe sessionctx.FieldErrors) string {
 	msgs := make([]string, len(fe))
 	for i, e := range fe {
 		what := " context: "
-		if strings.HasPrefix(e.Field, "resources") {
+		if scope == "project" && strings.HasPrefix(e.Field, "resources") {
 			what = " resources: "
 		}
 		msgs[i] = scope + what + e.Message

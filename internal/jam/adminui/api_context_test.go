@@ -121,3 +121,19 @@ func TestContextAPIFieldErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestContextAPIYAMLFieldErrors(t *testing.T) {
+	h := editOn(t, editSetup{}).H
+	rec := apiDo(t, h, "POST", "/app/admin/api/jam/context", map[string]string{"yaml": "core: hi\nleaves:\n  - {name: Bad.md}\n"}, nil)
+	var e adminui.APIError
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil || rec.Code != 400 {
+		t.Fatalf("= %d %s", rec.Code, rec.Body)
+	}
+	var got []string
+	for _, f := range e.Errors {
+		got = append(got, f.Field)
+	}
+	if want := "[leaves[0].name leaves[0].readWhen]"; fmt.Sprint(got) != want {
+		t.Errorf("fields = %v, want %s", got, want)
+	}
+}
