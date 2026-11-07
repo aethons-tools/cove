@@ -277,8 +277,8 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
 ### The release PR
 
 [`.github/workflows/release-pr.yml`](../.github/workflows/release-pr.yml) keeps one PR from
-`main` into `release` open, titled `Release <N>` (`<N>` = the commit count after the merge
-commit). On each push to `main` or `release` it applies the same change-detection filters
+`main` into `release` open, titled `Next release` (no number: `<N>` is counted when the merge
+lands, and a later merge to `main` would make a number in the title stale). On each push to `main` or `release` it applies the same change-detection filters
 (paths-filter `base: release`, `ref: main`, with the legs fan-out shared with `release.yml` via [`scripts/release/legs.sh`](../scripts/release/legs.sh))
 and has [`scripts/release/pr-body.sh`](../scripts/release/pr-body.sh) write the description:
 what changes for users (the manual pages that differ, linked to the Next version of the team
