@@ -182,13 +182,13 @@ func apiRoles(api *http.ServeMux, src frameSource, ra roleAPI, log *slog.Logger)
 		writeJSON(w, http.StatusOK, Requested{ID: res.ID, Name: res.Name, Message: "Requested agent " + res.Name + " (" + res.ID + "); it will squawk you on the intercom."})
 	})
 
-	// edit runs one section write on {project}/{role} (a POST's JSON body as
-	// a string map) and answers with the role and the write's message, as
-	// registerRoleEdits does.
-	edit := func(what string, apply func(r *http.Request, project, name string, body map[string]string) (string, error)) http.HandlerFunc {
+	// editAs runs one section write on {project}/{role} (a POST's JSON body
+	// decoded into newBody's pointer) and answers with the role and the
+	// write's message, as registerRoleEdits does.
+	editAs := func(what string, apply func(r *http.Request, project, name string, body any) (string, error), newBody func() any) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			body := map[string]string{}
-			if r.Method == http.MethodPost && r.ContentLength != 0 && !decodeJSON(w, r, &body) {
+			body := newBody()
+			if r.Method == http.MethodPost && r.ContentLength != 0 && !decodeJSON(w, r, body) {
 				return
 			}
 			project, name := r.PathValue("project"), r.PathValue("role")
@@ -206,6 +206,12 @@ func apiRoles(api *http.ServeMux, src frameSource, ra roleAPI, log *slog.Logger)
 			writeJSON(w, http.StatusOK, RoleResult{Role: d, Message: msg})
 		}
 	}
+	// edit is editAs with the body as a string map.
+	edit := func(what string, apply func(r *http.Request, project, name string, body map[string]string) (string, error)) http.HandlerFunc {
+		return editAs(what, func(r *http.Request, project, name string, body any) (string, error) {
+			return apply(r, project, name, *body.(*map[string]string))
+		}, func() any { return &map[string]string{} })
+	}
 	quiet := func(apply func(r *http.Request, project, name string, body map[string]string) error) func(*http.Request, string, string, map[string]string) (string, error) {
 		return func(r *http.Request, project, name string, body map[string]string) (string, error) {
 			return "", apply(r, project, name, body)
@@ -218,13 +224,13 @@ func apiRoles(api *http.ServeMux, src frameSource, ra roleAPI, log *slog.Logger)
 	api.HandleFunc("POST "+base+"allocation", edit("allocation set", quiet(func(_ *http.Request, project, name string, b map[string]string) error {
 		return setRoleAllocation(store, project, name, formOf(b, allocFields))
 	})))
-	api.HandleFunc("POST "+base+"context", edit("context set", quiet(func(_ *http.Request, project, name string, b map[string]string) error {
-		cb, err := jam.ParseContextYAML([]byte(b["yaml"]), nil)
+	api.HandleFunc("POST "+base+"context", editAs("context set", func(_ *http.Request, project, name string, body any) (string, error) {
+		cb, err := contextBody(*body.(*ContextSave))
 		if err != nil {
-			return badRequest(err.Error())
+			return "", err
 		}
-		return jam.SetRoleContextChecked(store, project, name, cb)
-	})))
+		return "", jam.SetRoleContextChecked(store, project, name, cb)
+	}, func() any { return &ContextSave{} }))
 	api.HandleFunc("DELETE "+base+"context", edit("context cleared", quiet(func(_ *http.Request, project, name string, _ map[string]string) error {
 		return jam.ClearRoleContext(store, project, name)
 	})))

@@ -70,7 +70,7 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 	project = orDefaultProject(project)
 	d := roleDetail{Title: name, Project: project, Name: name, Role: role, EgressManaged: role.Scope.Egress != nil, Form: newRoleForm(role),
 		WriteBase: roleWriteBase(project, name), RolesHref: projectSectionURL(project, sectionAgents)}
-	d.Context = newContextPanel("role", role.Context, nil, sessionctx.BudgetRole, false)
+	d.Context = newContextPanel("role", sessionctx.LayerRole, role.Context, nil, sessionctx.BudgetRole, false)
 
 	dests := map[string]jam.Destination{}
 	for _, x := range store.ListDestinations() {

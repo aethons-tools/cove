@@ -161,10 +161,10 @@ func RemoveStanding(store Store, project, name, session string) error {
 }
 
 // SetRoleContext replaces the role's authored context layer. An invalid layer
-// is a 400 WriteError; a missing role 404.
+// is a 400 WriteError carrying every problem's field; a missing role 404.
 func SetRoleContext(store Store, project, name string, l sessionctx.Layer) error {
-	if err := sessionctx.ValidateLayer(l, sessionctx.BudgetRole); err != nil {
-		return writeErr(http.StatusBadRequest, "role context: %s", err.Error())
+	if err := contextFieldsErr("role", sessionctx.CheckLayer(l, sessionctx.BudgetRole)); err != nil {
+		return err
 	}
 	return UpdateRole(store, project, name, func(r *Role) error {
 		r.Context = sessionctx.Layer{Core: l.Core, Leaves: slices.Clone(l.Leaves)}

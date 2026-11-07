@@ -99,7 +99,7 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 		return projectDetail{}, false
 	}
 	d := projectDetail{Title: name, Section: section, Project: p, InUseBy: projectRef(store, name)}
-	d.Context = newContextPanel("project", p.Context, p.Resources, sessionctx.BudgetProject, true)
+	d.Context = newContextPanel("project", sessionctx.LayerProject, p.Context, p.Resources, sessionctx.BudgetProject, true)
 	for _, r := range roleRows(store) {
 		if r.Project == name {
 			d.Roles = append(d.Roles, r)

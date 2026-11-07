@@ -175,7 +175,7 @@ func Compile(in Inputs) Bundle {
 			}
 			p := s.name + "/" + lf.Name
 			when := oneLine(lf.ReadWhen)
-			fmt.Fprintf(&core, "- %s — read when %s\n", p, when)
+			core.WriteString(leafPointer(s.name, lf))
 			body := fmt.Sprintf("---\nsummary: %s layer — %s\nread_when: %s\ntier: leaf\n---\n\n%s\n", s.name, lf.Name, when, strings.TrimSpace(lf.Body))
 			b.Files[p] = body
 			index = append(index, row{p, when})
