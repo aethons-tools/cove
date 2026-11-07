@@ -1,5 +1,5 @@
 import { ActionIcon, NativeSelect, TextInput } from "@mantine/core";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import "./quietgrid.css";
 
 export type GridColumn<R> = {
@@ -12,7 +12,8 @@ export type GridColumn<R> = {
   width?: number | string;
 };
 
-// GridErrors are per row (by index), per column: the message under the cell.
+// GridErrors are per row (by index, like rows: recompute them when rows
+// change), per column: the message under the cell.
 export type GridErrors<R> = (Partial<Record<keyof R & string, string>> | undefined)[];
 
 type At = { row: number; col: number };
@@ -27,6 +28,7 @@ export function QuietGrid<R extends Record<string, string>>({ columns, rows, onC
   noun: string; max?: number; errors?: GridErrors<R>; readOnly?: boolean;
 }) {
   const [editing, setEditing] = useState<At | null>(null);
+  const uid = useId();
   const table = useRef<HTMLTableElement>(null);
   const refocus = useRef<string | null>(null);
   useEffect(() => {
@@ -39,9 +41,16 @@ export function QuietGrid<R extends Record<string, string>>({ columns, rows, onC
     onChange(rows.map((r, i) => (i === row ? { ...r, [key]: v } : r)));
   const canAdd = !readOnly && (max === undefined || rows.length < max);
   const add = () => { setEditing({ row: rows.length, col: 0 }); onChange([...rows, blank()]); };
-  const remove = (row: number) => { setEditing(null); onChange(rows.filter((_, i) => i !== row)); };
+  // Focus stays on a remove button (the next row's, or the new last row's),
+  // or the add row once the list is empty.
+  const remove = (row: number) => {
+    refocus.current = rows.length > 1 ? `[data-remove="${Math.min(row, rows.length - 2)}"]` : "[data-add]";
+    setEditing(null);
+    onChange(rows.filter((_, i) => i !== row));
+  };
 
   const keys = (at: At) => (e: KeyboardEvent) => {
+    if (e.nativeEvent.isComposing) return; // an IME's Enter confirms its text
     if (e.key === "Escape") {
       e.preventDefault();
       leave(cellSel(at));
@@ -73,34 +82,38 @@ export function QuietGrid<R extends Record<string, string>>({ columns, rows, onC
               const at = { row, col };
               const err = errors?.[row]?.[c.key];
               const label = `${c.label}, row ${row + 1}`;
+              const errId = err ? `${uid}-err-${row}-${col}` : undefined;
               const on = editing?.row === row && editing.col === col;
               const field = {
-                "aria-label": label, autoFocus: true, size: "xs" as const, error: !!err, "aria-invalid": !!err,
+                // Mantine shows (and describes the field by) the error while edited.
+                "aria-label": label, autoFocus: true, size: "xs" as const, error: err,
+                // Esc leaves the cell, not an enclosing Modal or Drawer.
+                "data-mantine-stop-propagation": true,
                 onKeyDown: keys(at),
                 onBlur: () => setEditing((e) => (e?.row === row && e.col === col ? null : e)),
-                ff: c.mono ? "monospace" : undefined,
+                styles: c.mono ? { input: { fontFamily: "var(--mantine-font-family-monospace)" } } : undefined,
               };
               return (
                 <td key={c.key} data-error={err ? "true" : undefined}>
                   {on && c.choices ? (
-                    <NativeSelect {...field} data={[...c.choices]} value={r[c.key]} onChange={(e) => set(row, c.key, e.currentTarget.value)} />
+                    <NativeSelect {...field} data={c.choices.includes(r[c.key]!) ? [...c.choices] : [{ value: "", label: "Choose…", disabled: true }, ...c.choices]} value={r[c.key]} onChange={(e) => set(row, c.key, e.currentTarget.value)} />
                   ) : on ? (
                     <TextInput {...field} placeholder={c.placeholder} value={r[c.key]} onChange={(e) => set(row, c.key, e.currentTarget.value)} />
                   ) : readOnly ? (
                     <div className={`cell${c.mono ? " mono" : ""}`}>{r[c.key]}</div>
                   ) : (
-                    <button type="button" data-cell={`${row}:${col}`} aria-label={label} className={`cell${c.mono ? " mono" : ""}${c.choices ? " choice" : ""}`} onClick={() => setEditing(at)}>
+                    <button type="button" data-cell={`${row}:${col}`} aria-label={`${label}: ${r[c.key] || "empty"}`} aria-describedby={errId} className={`cell${c.mono ? " mono" : ""}${c.choices ? " choice" : ""}`} onClick={() => setEditing(at)}>
                       {r[c.key] ? <span>{r[c.key]}</span> : <span className="empty">{c.placeholder}</span>}
                       {c.choices && <span className="caret" aria-hidden="true">▾</span>}
                     </button>
                   )}
-                  {err && <div className="err">{err}</div>}
+                  {err && !on && <div className="err" id={errId}>{err}</div>}
                 </td>
               );
             })}
             {!readOnly && (
               <td>
-                <ActionIcon variant="subtle" color="gray" mt={5} aria-label={`Remove row ${row + 1}`} onClick={() => remove(row)}>✕</ActionIcon>
+                <ActionIcon variant="subtle" color="gray" mt={5} data-remove={row} aria-label={`Remove row ${row + 1}`} onClick={() => remove(row)}>✕</ActionIcon>
               </td>
             )}
           </tr>

@@ -21,6 +21,8 @@ function Grid({ initial = two, max, errors }: { initial?: Res[]; max?: number; e
   const [rows, setRows] = useState(initial);
   return <QuietGrid columns={columns} rows={rows} onChange={(r) => { setRows(r); changed(r); }} blank={() => ({ name: "", kind: "repo", ref: "" })} noun="resource" max={max} errors={errors} />;
 }
+// cell is a cell's button out of editing: named by its column, row and value.
+const cell = (name: string) => screen.getByRole("button", { name: new RegExp(`^${name}: `) });
 const show = (ui: React.ReactElement) => render(<MantineProvider theme={theme} env="test">{ui}</MantineProvider>);
 
 describe("QuietGrid", () => {
@@ -28,8 +30,8 @@ describe("QuietGrid", () => {
     const user = userEvent.setup();
     show(<Grid />);
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.getByRole("button", { name: "Name, row 1" })).toHaveTextContent("cove");
-    await user.click(screen.getByRole("button", { name: "Name, row 1" }));
+    expect(cell("Name, row 1")).toHaveAccessibleName("Name, row 1: cove");
+    await user.click(cell("Name, row 1"));
     const box = screen.getByRole("textbox", { name: "Name, row 1" });
     expect(box).toHaveFocus();
     await user.clear(box);
@@ -40,7 +42,7 @@ describe("QuietGrid", () => {
   it("moves on with Tab and Enter, and Esc leaves the cell", async () => {
     const user = userEvent.setup();
     show(<Grid />);
-    await user.click(screen.getByRole("button", { name: "Name, row 1" }));
+    await user.click(cell("Name, row 1"));
     await user.tab();
     const kind = screen.getByRole("combobox", { name: "Kind, row 1" });
     expect(kind).toHaveFocus();
@@ -57,7 +59,7 @@ describe("QuietGrid", () => {
     expect(screen.getByRole("textbox", { name: "Ref, row 2" })).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.getByRole("button", { name: "Ref, row 2" })).toHaveFocus();
+    expect(cell("Ref, row 2")).toHaveFocus();
   });
 
   it("adds from the bottom row, editing the new item, until max", async () => {
@@ -72,10 +74,20 @@ describe("QuietGrid", () => {
     expect(screen.queryByRole("button", { name: "+ new resource…" })).toBeNull();
   });
 
+  it("asks for a choice when the new row has none", async () => {
+    const user = userEvent.setup();
+    show(<QuietGrid columns={columns} rows={[{ name: "x", kind: "", ref: "" }]} onChange={changed} blank={() => two[0]!} noun="resource" />);
+    await user.click(cell("Kind, row 1"));
+    const kind = screen.getByRole("combobox", { name: "Kind, row 1" });
+    expect(kind).toHaveValue("");
+    await user.selectOptions(kind, "repo");
+    expect(last()[0]!.kind).toBe("repo");
+  });
+
   it("leaves the last cell for the add row on Tab", async () => {
     const user = userEvent.setup();
     show(<Grid />);
-    await user.click(screen.getByRole("button", { name: "Ref, row 2" }));
+    await user.click(cell("Ref, row 2"));
     await user.tab();
     expect(screen.getByRole("button", { name: "+ new resource…" })).toHaveFocus();
   });
@@ -85,25 +97,30 @@ describe("QuietGrid", () => {
     show(<Grid />);
     await user.click(screen.getByRole("button", { name: "Remove row 1" }));
     expect(last()).toEqual([two[1]]);
-    expect(screen.getByRole("button", { name: "Name, row 1" })).toHaveTextContent("board");
+    expect(cell("Name, row 1")).toHaveAccessibleName("Name, row 1: board");
+    expect(screen.getByRole("button", { name: "Remove row 1" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Remove row 1" }));
+    expect(last()).toEqual([]);
+    expect(screen.getByRole("button", { name: "+ new resource…" })).toHaveFocus();
   });
 
   it("shows a cell's error at the cell", async () => {
     const user = userEvent.setup();
     show(<Grid errors={[undefined, { ref: "Not a repo or URL" }]} />);
-    expect(screen.getByText("Not a repo or URL")).toBeInTheDocument();
-    const cell = screen.getByRole("button", { name: "Ref, row 2" }).closest("td")!;
-    expect(cell).toHaveAttribute("data-error", "true");
-    expect(screen.getByRole("button", { name: "Ref, row 1" }).closest("td")).not.toHaveAttribute("data-error");
-    await user.click(screen.getByRole("button", { name: "Ref, row 2" }));
-    expect(screen.getByRole("textbox", { name: "Ref, row 2" })).toHaveAttribute("aria-invalid", "true");
+    expect(cell("Ref, row 2")).toHaveAccessibleDescription("Not a repo or URL");
+    expect(cell("Ref, row 2").closest("td")).toHaveAttribute("data-error", "true");
+    expect(cell("Ref, row 1").closest("td")).not.toHaveAttribute("data-error");
+    await user.click(cell("Ref, row 2"));
+    const box = screen.getByRole("textbox", { name: "Ref, row 2" });
+    expect(box).toHaveAttribute("aria-invalid", "true");
+    expect(box).toHaveAccessibleDescription("Not a repo or URL");
   });
 
   it("shows a fixed-choice column's ▾, and an empty cell's placeholder", () => {
     show(<Grid initial={[{ name: "x", kind: "doc", ref: "" }]} />);
-    expect(screen.getByRole("button", { name: "Kind, row 1" }).querySelector(".caret")).toHaveTextContent("▾");
-    expect(screen.getByRole("button", { name: "Name, row 1" }).querySelector(".caret")).toBeNull();
-    expect(screen.getByRole("button", { name: "Ref, row 1" })).toHaveTextContent("owner/repo, URL, …");
+    expect(cell("Kind, row 1").querySelector(".caret")).toHaveTextContent("▾");
+    expect(cell("Name, row 1").querySelector(".caret")).toBeNull();
+    expect(cell("Ref, row 1")).toHaveTextContent("owner/repo, URL, …");
   });
 
   it("has no editing, add or remove when read-only", () => {
