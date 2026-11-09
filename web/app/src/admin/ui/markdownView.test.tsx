@@ -53,4 +53,11 @@ describe("MarkdownView", () => {
     expect(a).toHaveAttribute("target", "_blank");
     expect(a).toHaveAttribute("rel", "noopener noreferrer");
   });
+
+  it("labels a linked image's link by its alt text, without nesting links", () => {
+    const { container } = render(<MarkdownView>{"[![build](https://example.com/b.svg)](https://ci.example.com)"}</MarkdownView>);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("a a")).toBeNull();
+    expect(screen.getByRole("link", { name: "build" })).toHaveAttribute("href", "https://ci.example.com");
+  });
 });
