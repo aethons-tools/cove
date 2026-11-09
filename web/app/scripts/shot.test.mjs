@@ -16,7 +16,7 @@ describe.skipIf(!existsSync(browser))("a manual screenshot", () => {
     try {
       const run = await new Promise((ok) => {
         // No project zeta in src/shots/mocks.ts.
-        execFile("node", ["scripts/shot.mjs", "admin/config/projects/zeta", "--out", out], (err, stdout, stderr) => ok({ code: err?.code ?? 0, stderr }));
+        execFile("node", ["scripts/shot.mjs", "admin/config/projects/zeta", "--out", out], { cwd: join(import.meta.dirname, "..") }, (err, stdout, stderr) => ok({ code: err?.code ?? 0, stderr }));
       });
       expect(run.code).not.toBe(0);
       expect(run.stderr).toContain("no mock for GET /app/admin/api/projects/zeta");
