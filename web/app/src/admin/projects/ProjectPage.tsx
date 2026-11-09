@@ -102,7 +102,7 @@ function Overview({ d }: { d: ProjectDetail }) {
             : <Text size="sm">{d.chatService || "none — tracker @-mentions only"}</Text>}
         </Section>
       </SimpleGrid>
-      <ContextPanel key={d.context.yaml} panel={d.context} onSave={(yaml) => write.mutateAsync({ path: "context", body: { yaml } })}
+      <ContextPanel key={d.context.yaml} panel={d.context} onSave={(body) => write.mutateAsync({ path: "context", body })}
         onClear={() => write.mutateAsync({ path: "context", del: true })} />
     </Stack>
   );

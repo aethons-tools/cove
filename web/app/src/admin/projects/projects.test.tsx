@@ -33,7 +33,7 @@ describe("outside a branch", () => {
     expect(screen.queryByRole("button", { name: "Rename" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
-    expect(screen.queryByText("Edit agent context")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.getAllByText(/disc/).length).toBeGreaterThan(0);
   });
 });
@@ -135,13 +135,31 @@ describe("a project's overview", () => {
     const user = userEvent.setup();
     renderAdmin(adminBoot, at);
     expect(await screen.findByText("Be kind.")).toBeInTheDocument();
-    await user.click(screen.getByText("Edit agent context"));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Save context" }));
-    await waitFor(() => expect(sent).toEqual({ yaml: "core: Be kind.\n" }));
-    await user.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(sent).toEqual({ core: "Be kind.", leaves: [], resources: [] }));
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Clear context" }));
     expect(await screen.findByText("Remove this project agent context?")).toBeInTheDocument();
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Clear" }));
-    expect(await screen.findByText("None — agents get no project section.")).toBeInTheDocument();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Clear context" }));
+    expect(await screen.findByText("No core instructions.")).toBeInTheDocument();
+  });
+
+  it("shows a refused context save's field errors at the fields", async () => {
+    tree();
+    const withCtx = project({ context: { ...project().context, empty: false, core: "Be kind.", coreBytes: 8, yaml: "core: Be kind.\n" } });
+    server.use(
+      http.get("/app/admin/api/projects/acme", () => HttpResponse.json(withCtx)),
+      http.post("/app/admin/api/projects/acme/context", () => HttpResponse.json({ error: "project context: core is too long", code: "bad_request",
+        errors: [{ field: "core", message: "core is too long" }] }, { status: 400 })),
+    );
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at);
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    await user.click(screen.getByRole("button", { name: "Save context" }));
+    expect(await screen.findByText("Core is too long")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Core instructions" })).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("button", { name: "Save context" })).toBeDisabled();
   });
 
   it("labels its counts singular for one and plural otherwise", async () => {

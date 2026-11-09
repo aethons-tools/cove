@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
-import type { ContextPanel as Panel, Dashboard, ManagerRow } from "../api/types";
+import type { ContextPanel as Panel, ContextSave, Dashboard, ManagerRow } from "../api/types";
 import { adminApi, nodeHref } from "../paths";
 import { AttentionList } from "../ui/AttentionList";
 import { ContextPanel } from "../ui/ContextPanel";
@@ -35,7 +35,7 @@ export function DashboardPage() {
   const setPanel = (p: Panel) => client.setQueryData<Dashboard>(dashKey, (d) => d && { ...d, jamContext: p });
   // A write refetches the dashboard too, cancelling a poll already in flight
   // (which could answer with the old context).
-  const save = useAdminMutation((yaml: string) => adminApi.post<Panel>("jam/context", { yaml }), { invalidate: [dashKey], onSuccess: setPanel });
+  const save = useAdminMutation((body: ContextSave) => adminApi.post<Panel>("jam/context", body), { invalidate: [dashKey], onSuccess: setPanel });
   const clear = useAdminMutation(() => adminApi.del<Panel>("jam/context"), { invalidate: [dashKey], onSuccess: setPanel });
   if (isPending) return <Loader size="sm" />;
   // A failed refresh keeps the page (and the editor's unsaved text).
@@ -61,7 +61,7 @@ export function DashboardPage() {
       </SimpleGrid>
       <AttentionList items={data.attention} />
       <OperatorNotes notes={data.jamNotes} where="jam.yml" />
-      <ContextPanel key={data.jamContext.yaml} panel={data.jamContext} onSave={(yaml) => save.mutateAsync(yaml)} onClear={() => clear.mutateAsync(undefined)} />
+      <ContextPanel key={data.jamContext.yaml} panel={data.jamContext} onSave={(body) => save.mutateAsync(body)} onClear={() => clear.mutateAsync(undefined)} />
       {data.hasManagers && (
         <Section title="Managers">
           <DataTable rows={data.managers} rowKey={(m) => m.name} empty="No managers." columns={[

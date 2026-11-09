@@ -4,7 +4,7 @@ read_when: You want sessions of a role or project (or every session on the Jam) 
 owns: where each authored layer lives in the config repo and its format, the `jam context show` command, authored-layer limits, and the role/project/jam context admin routes
 prereqs: session-context.md for how layers are compiled and delivered
 tier: leaf
-updated: 2026-11-07
+updated: 2026-11-09
 ---
 
 # Authoring session context
@@ -68,7 +68,8 @@ jam context show --role acme/reviewer      # or --project acme, or --jam: the la
 
 The **Agent context** card on the role page, the project page, or (for the
 Jam-wide layer) the dashboard in the [admin UI](ui-pages.md) shows the same
-YAML, with a byte counter against the budget; on a branch it edits it.
+layer, with its limits as thermometers; on a branch it edits it through the
+structured save below (and shows the YAML under *View as YAML*).
 `show` takes the usual admin-client flags ([operators.md](operators.md)). The
 admin API route is `GET /admin/roles/{project}/{role}/context`
 (`/admin/projects/{project}/context`, `/admin/jam/context`), answering
