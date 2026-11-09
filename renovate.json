@@ -3,9 +3,9 @@
   "extends": ["config:recommended"],
   "dependencyDashboard": true,
   "labels": ["dependencies"],
-  "description": "Batched to keep CI load down: Renovate runs weekly (Monday before 6am Pacific), rebases a PR only on a conflict, and folds every minor/patch/pin/digest update into one PR (majors and the named groups below stay separate). The ubuntu noble base group is monthly: it rebuilds the studio images on both arches. Security fixes ignore the schedule (Renovate's default).",
+  "description": "Batched to keep CI load down: Renovate runs weekly (any time on Monday, Pacific), rebases a PR only on a conflict, and folds every minor/patch/pin/digest update into one PR (majors and the named groups below stay separate). The ubuntu noble base group is monthly: it rebuilds the studio images on both arches. Security fixes ignore the schedule (Renovate's default).",
   "timezone": "America/Los_Angeles",
-  "schedule": ["before 6am on monday"],
+  "schedule": ["on monday"],
   "rebaseWhen": "conflicted",
   "packageRules": [
     {
