@@ -4,6 +4,7 @@ import type { ContextPanel as Panel } from "../api/types";
 import { useConfigEditable } from "../branch/branch";
 import { ConfirmAction } from "./ConfirmAction";
 import { EditForm } from "./EditForm";
+import { noun } from "./noun";
 import { Section } from "./Section";
 
 // ContextPanel is an agent-context card (Jam, a project or a role): the
@@ -16,8 +17,8 @@ export function ContextPanel({ panel, onSave, onClear }: { panel: Panel; onSave:
       <Stack gap="xs">
         <Group gap="xs">
           <Badge variant="light" color={panel.over ? "red" : "gray"}>{panel.coreBytes.toLocaleString()} / {panel.budget.toLocaleString()} bytes</Badge>
-          {panel.leaves.length > 0 && <Badge variant="light" color="gray">{panel.leaves.length} leaves</Badge>}
-          {panel.resources.length > 0 && <Badge variant="light" color="gray">{panel.resources.length} resources</Badge>}
+          {panel.leaves.length > 0 && <Badge variant="light" color="gray">{panel.leaves.length} {noun(panel.leaves.length, "leaf", "leaves")}</Badge>}
+          {panel.resources.length > 0 && <Badge variant="light" color="gray">{panel.resources.length} {noun(panel.resources.length, "resource")}</Badge>}
         </Group>
         {panel.empty ? <Text size="sm" c="dimmed">None — agents get no {panel.scope} section.</Text> : (
           <>
