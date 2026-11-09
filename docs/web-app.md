@@ -4,7 +4,7 @@ read_when: You are changing the Jam app in web/app, adding a /app/user/api or /a
 owns: the web/app source layout, the admin area's mount, API and Config tree plumbing, the shared /app/assets/ path, `just app` / `app-dev` / `app-check`, scripts/app.sh and the size budget, the webapp serving package (bootstrap, CSP, not-built page), the tygo type generation, and the app's test layers
 prereqs: usage/jam/intercom-ui.md for what the user area does; superpowers/specs/2026-10-26-jam-spa-design.md for why
 tier: leaf
-updated: 2026-11-05
+updated: 2026-11-09
 ---
 
 # The Jam app (`web/app`)
@@ -19,7 +19,7 @@ Inbox at the cutover. Old links keep working: `src/routes/Home.tsx` redirects th
 ## Layout
 
 - `web/app/`: Vite + React 19 + TypeScript 6 + Mantine 9, React Router, TanStack Query.
-  - `src/api/client.ts` is the `/app/user/api/` client. Every failure is an `ApiError`, and a non-JSON refusal means `signed_out`. Its `setTransport` seam lets the VS Code pane route requests through the extension.
+  - `src/api/client.ts` is the `/app/user/api/` client. Every failure is an `ApiError` (a refused admin write's `errors[]` as its `fields`), and a non-JSON refusal means `signed_out`. Its `setTransport` seam lets the VS Code pane route requests through the extension.
   - `src/api/types.ts` is **generated**; don't edit it (see Types).
   - `src/theme.ts` is the Mantine theme (jam.css's accent and fonts). The colour scheme is light, dark or auto.
   - `src/App.tsx` holds the client routes under `/app/user/` (`src/paths.ts`' `APP`; `vite.config.ts`' `base`). `src/start.tsx` boots the app (bootstrap, then the router) and shows why when the bootstrap can't load.
