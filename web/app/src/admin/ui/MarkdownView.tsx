@@ -1,9 +1,21 @@
 import Markdown, { type Components } from "react-markdown";
 import "../../conversation/body.css";
 
-// Links leave the app: a new tab, without an opener.
+// Links leave the app: a new tab, without an opener. In-page #fragment links
+// stay in the tab, and a link whose href urlTransform dropped (javascript:, …)
+// is plain text. Images are not loaded (a remote one is a tracking pixel):
+// each is a link to it, labelled by its alt text.
+const external = { target: "_blank", rel: "noopener noreferrer" };
 const components: Components = {
-  a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+  a: ({ href, children }) => {
+    if (!href) return <>{children}</>;
+    return <a href={href} {...(href.startsWith("#") ? {} : external)}>{children}</a>;
+  },
+  img: ({ src, alt }) => {
+    const label = alt || (typeof src === "string" ? src : "") || "image";
+    if (typeof src !== "string" || !src) return <>{label}</>;
+    return <a href={src} {...external}>{label}</a>;
+  },
 };
 
 // MarkdownView shows markdown formatted, for reading (it is edited as source).

@@ -14,6 +14,11 @@ describe("thermometerState", () => {
     expect(thermometerState(1201, 1200)).toBe("over");
     expect(thermometerState(50, 100, 0.5)).toBe("warning");
   });
+
+  it("is ok with a zero limit while nothing is used, over once something is", () => {
+    expect(thermometerState(0, 0)).toBe("ok");
+    expect(thermometerState(1, 0)).toBe("over");
+  });
 });
 
 describe("Thermometer", () => {
@@ -31,5 +36,11 @@ describe("Thermometer", () => {
     expect(container.querySelector("[data-state]")).toHaveAttribute("data-state", "over");
     expect(screen.getByText("1,300 / 1,200 KiB")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+  });
+
+  it("shows an empty bar for nothing used against a zero limit", () => {
+    const { container } = show(<Thermometer used={0} limit={0} />);
+    expect(container.querySelector("[data-state]")).toHaveAttribute("data-state", "ok");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
   });
 });
