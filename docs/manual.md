@@ -71,8 +71,9 @@ just manual-shot 'admin/config/projects/acme?branch=jam/docs' \
 - It serves the app with Vite on mock data (`web/app/vite.shot.config.ts`):
   the API answers from `web/app/src/shots/mocks.ts`, a map of
   `"METHOD /path"` (query optional) to JSON built from the tests'
-  `fixtures.ts`. A request with no entry answers 404 and is logged as
-  `mock-api: no mock for …`: add the entry. `?branch=<name>` in the route
+  `fixtures.ts`. A request with no entry answers 404, is logged as
+  `mock-api: no mock for …` and fails the shot (non-zero exit, no PNG
+  written): add the entry. `?branch=<name>` in the route
   opens a config branch, so edit controls show.
 - It shoots with the kit's headless Chrome
   (`/opt/chrome-headless-shell/chrome-headless-shell`; `JAM_BROWSER`

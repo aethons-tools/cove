@@ -12,6 +12,7 @@ import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
 import { projectsKey, useProject, useProjectWrite } from "./useProject";
 import { OperatorNotes } from "../ui/OperatorNotes";
+import { noun } from "../ui/noun";
 
 const enc = encodeURIComponent;
 
@@ -89,10 +90,10 @@ function Overview({ d }: { d: ProjectDetail }) {
       </Group>
       <OperatorNotes notes={d.notes} path={`projects/${enc(p)}/operator-notes`} invalidate={[["admin", "project", p]]} />
       <SimpleGrid cols={{ base: 2, sm: 4 }}>
-        {tile("members", d.members.length, "members")}
-        {tile("agents", <>{d.liveAgents}</>, `agents live of ${d.agents} · ${d.roles} roles`)}
-        {tile("intercom", d.rooms.length, "rooms")}
-        {tile("escalation", d.escalation.length, "escalation chains")}
+        {tile("members", d.members.length, noun(d.members.length, "member"))}
+        {tile("agents", <>{d.liveAgents}</>, `${noun(d.liveAgents, "agent")} live of ${d.agents} · ${d.roles} ${noun(d.roles, "role")}`)}
+        {tile("intercom", d.rooms.length, noun(d.rooms.length, "room"))}
+        {tile("escalation", d.escalation.length, noun(d.escalation.length, "escalation chain"))}
       </SimpleGrid>
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Section title="Chat service" sub="what backs human DMs">

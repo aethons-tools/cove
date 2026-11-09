@@ -19,8 +19,9 @@ every agent can read it.
 
 == What the card shows
 
-A badge shows the core's size against its 1,200-byte budget.
-Below it, the card shows the core text,
+Badges show the core's size against its 1,200-byte budget,
+and how many leaves and resources it has.
+Below them, the card shows the core text,
 the leaves by name and when each is read,
 and the resources in a table.
 With nothing set, it reads _None — agents get no project section._
