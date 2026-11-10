@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MantineProvider } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
@@ -92,6 +92,20 @@ describe("ContextPanel", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.getByText("user-visible")).toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("drops unsaved edits when the config branch closes mid-edit", async () => {
+    const user = show();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const core = screen.getByRole("textbox", { name: "Core instructions" });
+    await user.clear(core);
+    await user.type(core, "Be kind.");
+    act(() => setBranch(""));
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByText("Be kind.")).toBeNull();
+    expect(screen.getByText("user-visible")).toBeInTheDocument();
+    act(() => setBranch("jam/test"));
+    expect(screen.queryByText("Editing")).toBeNull();
   });
 
   it("adds an instruction and a resource, and saves the whole context in one request", async () => {

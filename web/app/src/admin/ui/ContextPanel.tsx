@@ -49,6 +49,9 @@ export function ContextPanel({ panel, onSave, onClear }: { panel: Panel; onSave:
   const [focusLeaf, setFocusLeaf] = useState<number | null>(null);
   const running = useRef(false);
   const editing = before !== null && editable;
+  // The config branch closed mid-edit: drop the unsaved draft, so view mode
+  // never shows edits as if they were saved.
+  if (before !== null && !editable) { setDraft(before); setBefore(null); setServer({}); setFailure(""); }
   const lim = panel.limits;
   const res = panel.showResources;
 

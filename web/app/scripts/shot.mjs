@@ -171,7 +171,12 @@ async function shoot(base, ws, mock) {
         throw new Error(`--click ${click}: no such element on ${route}`);
       }
       await evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))");
-      while (inflight.size > 0 || Date.now() - quietSince < 300) await sleep(50);
+      const settle = Date.now() + 30_000;
+      while (inflight.size > 0 || Date.now() - quietSince < 300) {
+        unmocked();
+        if (Date.now() > settle) throw new Error(`--click ${click}: timed out waiting for the page to settle on ${route}`);
+        await sleep(50);
+      }
     }
     await evaluate("document.fonts.ready.then(() => true)");
     // Grow the viewport to the whole page, so nothing scrolls or overlaps.

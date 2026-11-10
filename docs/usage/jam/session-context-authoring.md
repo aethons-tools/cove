@@ -57,7 +57,7 @@ resources:
   - {name: cove, kind: repo, ref: aethons-tools/cove, note: main repo}
 ```
 
-`kind` is `repo`, `doc`, `tracker` or `url`. Resources become a
+Each `name` is unique; `kind` is `repo`, `doc`, `tracker` or `url`. Resources become a
 `project/resources.md` leaf with a pointer line in the project core.
 
 ## Reading them back
