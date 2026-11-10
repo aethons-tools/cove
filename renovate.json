@@ -7,6 +7,7 @@
   "timezone": "America/Los_Angeles",
   "schedule": ["on monday"],
   "rebaseWhen": "conflicted",
+  "postUpdateOptions": ["gomodTidy"],
   "packageRules": [
     {
       "description": "One PR for every minor, patch, pin and digest update. First in the list so the named groups below (ubuntu noble base, docker engine) override its groupName and stay separate; majors keep their own PRs.",

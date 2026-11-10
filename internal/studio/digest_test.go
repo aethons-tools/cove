@@ -127,8 +127,11 @@ func TestBuildDigestHarness(t *testing.T) {
 }
 
 // Golden values computed on main before kit inheritance: unchained kits must
-// keep their image tags across the digest refactor.
+// keep their image tags across the digest refactor. Keyed under a fixed
+// install, not Default(), so a DefaultClaudeVersion bump (Renovate) leaves
+// them alone.
 func TestBuildDigestGolden(t *testing.T) {
+	fixed := harnessinstall.Install{Type: "claude", Version: "2.1.319", Plugins: []string{"superpowers@claude-plugins-official"}}
 	for name, tc := range map[string]struct {
 		sk   StudioKit
 		want string
@@ -137,7 +140,7 @@ func TestBuildDigestGolden(t *testing.T) {
 		"default":           {StudioKit{Kind: Kind}, "1d5426d2252df61d01761d07edce3f99689f86080a5619f3f32c2446bfd8bbbc"},
 		"mcp server":        {StudioKit{Kind: Kind, MCPServers: map[string]kit.MCPServer{"m": {Command: "x"}}}, "afbcf76fff69d2a55c836679bd49e94bff5c6892ee08f85559eb41e7fef99a23"},
 	} {
-		if got := BuildDigest(tc.sk, dh); got != tc.want {
+		if got := BuildDigest(tc.sk, fixed); got != tc.want {
 			t.Errorf("%s: digest %s, want %s", name, got, tc.want)
 		}
 	}
