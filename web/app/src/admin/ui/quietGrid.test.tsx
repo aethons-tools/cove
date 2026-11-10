@@ -92,6 +92,15 @@ describe("QuietGrid", () => {
     expect(screen.getByRole("button", { name: "+ new resource…" })).toHaveFocus();
   });
 
+  it("leaves the grid backwards on one Shift+Tab from the first cell", async () => {
+    const user = userEvent.setup();
+    show(<><button type="button">before</button><Grid /></>);
+    await user.click(cell("Name, row 1"));
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "before" })).toHaveFocus();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
   it("removes a row", async () => {
     const user = userEvent.setup();
     show(<Grid />);

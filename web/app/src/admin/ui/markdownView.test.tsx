@@ -31,4 +31,33 @@ describe("MarkdownView", () => {
     render(<MarkdownView>{"[x](javascript:alert(1))"}</MarkdownView>);
     expect(screen.getByText("x").getAttribute("href") ?? "").not.toContain("javascript");
   });
+
+  it("renders a link whose href was dropped as plain text", () => {
+    const { container } = render(<MarkdownView>{"Click [here](javascript:alert(1)) now."}</MarkdownView>);
+    expect(container.querySelector("a")).toBeNull();
+    expect(container).toHaveTextContent("Click here now.");
+  });
+
+  it("keeps an in-page #fragment link in the tab", () => {
+    render(<MarkdownView>{"See [below](#setup)."}</MarkdownView>);
+    const a = screen.getByRole("link", { name: "below" });
+    expect(a).toHaveAttribute("href", "#setup");
+    expect(a).not.toHaveAttribute("target");
+  });
+
+  it("links to an image instead of loading it", () => {
+    const { container } = render(<MarkdownView>{"![the diagram](https://example.com/d.png)"}</MarkdownView>);
+    expect(container.querySelector("img")).toBeNull();
+    const a = screen.getByRole("link", { name: "the diagram" });
+    expect(a).toHaveAttribute("href", "https://example.com/d.png");
+    expect(a).toHaveAttribute("target", "_blank");
+    expect(a).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("labels a linked image's link by its alt text, without nesting links", () => {
+    const { container } = render(<MarkdownView>{"[![build](https://example.com/b.svg)](https://ci.example.com)"}</MarkdownView>);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("a a")).toBeNull();
+    expect(screen.getByRole("link", { name: "build" })).toHaveAttribute("href", "https://ci.example.com");
+  });
 });
