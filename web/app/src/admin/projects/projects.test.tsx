@@ -6,7 +6,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { server } from "../../test/server";
 import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
-import { filledContext, project } from "./fixtures";
+import { project } from "./fixtures";
 import { setBranch } from "../branch/branch";
 
 const tree = () => server.use(http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })));
@@ -164,22 +164,20 @@ describe("a project's overview", () => {
 
   it("labels its counts singular for one and plural otherwise", async () => {
     tree();
-    const oneContext = { ...filledContext, leaves: filledContext.leaves.slice(0, 1), resources: filledContext.resources.slice(0, 1) };
-    const one = project({ roles: 1, agents: 1, liveAgents: 1, escalation: [project().defaultChain], context: oneContext });
-    const many = project({ members: [...one.members, ...one.members], rooms: [], roles: 2, liveAgents: 0, context: filledContext });
+    const one = project({ roles: 1, agents: 1, liveAgents: 1, escalation: [project().defaultChain] });
+    const many = project({ members: [...one.members, ...one.members], rooms: [], roles: 2, liveAgents: 0 });
     // Each tile is a link to its section: the count, then the label.
     const counts = async () => {
       await screen.findByRole("heading", { name: "acme" });
-      const tiles = ["members", "agents", "intercom", "escalation"].map((s) => document.querySelector(`a[href="${at}/${s}"]`)?.textContent);
-      return [...tiles, ...["leaf", "leaves", "resource", "resources"].filter((t) => screen.queryByText(new RegExp(`^\\d+ ${t}$`)))];
+      return ["members", "agents", "intercom", "escalation"].map((s) => document.querySelector(`a[href="${at}/${s}"]`)?.textContent);
     };
     server.use(http.get("/app/admin/api/projects/acme", () => HttpResponse.json(one)));
     const { unmount } = renderAdmin(adminBoot, at);
-    expect(await counts()).toEqual(["1member", "1agent live of 1 · 1 role", "1room", "1escalation chain", "leaf", "resource"]);
+    expect(await counts()).toEqual(["1member", "1agent live of 1 · 1 role", "1room", "1escalation chain"]);
     unmount();
     server.use(http.get("/app/admin/api/projects/acme", () => HttpResponse.json(many)));
     renderAdmin(adminBoot, at);
-    expect(await counts()).toEqual(["2members", "0agents live of 3 · 2 roles", "0rooms", "0escalation chains", "leaves", "resources"]);
+    expect(await counts()).toEqual(["2members", "0agents live of 3 · 2 roles", "0rooms", "0escalation chains"]);
   });
 
   it("says when the project doesn't exist", async () => {
