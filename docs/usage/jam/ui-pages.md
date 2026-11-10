@@ -4,7 +4,7 @@ read_when: You are viewing or editing a user, agent, destination, model-spec or 
 owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 prereqs: ui-console.md for the Config tree and URLs; ui-editing.md for the gate/CSRF/audit rules; projects.md for the project lifecycle; roster.md for roles; connector.md for destination env/git; kits.md for the StudioKit schema and versioning
 tier: leaf
-updated: 2026-11-01
+updated: 2026-11-09
 ---
 
 # Admin UI entity pages
@@ -101,11 +101,16 @@ activity as separate fields.
 
 The [role page, the project overview](ui-projects.md) and the dashboard each carry an **Agent context**
 card for that layer (role, project, Jam-wide; the concept is [session
-context](session-context.md)): the core, its size as an agent receives it
-against the budget (a project's includes the resources pointer), the leaves and,
-for projects, the resources. **Edit agent context** is one YAML box in
-the [`jam context` format](session-context-authoring.md) with bodies inline;
-saving runs the same checks as the API, and **Clear** removes the layer.
+context](session-context.md)). On screen the core is *Core instructions* and
+the leaves *Progressive instructions*. The card is read-only until **Edit**
+(on a branch); then the whole card is editable — the core as markdown source,
+the leaves as collapsible rows, a project's resources as a `QuietGrid` — and
+**Save context** sends the structured save (core, leaves and, for a project,
+resources together). The card checks the limits as the server does and shows
+the server's `errors[]` at their fields; **View as YAML** shows the saved
+layer in the [`jam context` format](session-context-authoring.md) and
+**Clear context** removes it. The user-facing description is the manual's
+`projects/agent-context` page.
 
 ## Destination pages
 

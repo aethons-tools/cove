@@ -3,8 +3,13 @@
 // (the gate's HTML 403 or a login redirect) means the sign-in has expired.
 import type { Method } from "../bridge/protocol";
 
+// FieldProblem is one problem with a refused write's field (the admin API's
+// errors[]): its path in the request's names (core, leaves[2].readWhen).
+export type FieldProblem = { field: string; message: string };
+
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string) {
+  // fields is every field problem a refused write named ([] = none).
+  constructor(public status: number, public code: string, message: string, public fields: FieldProblem[] = []) {
     super(message);
     this.name = "ApiError";
   }
@@ -37,8 +42,8 @@ export function interpret<T>(raw: Raw): T {
     throw new ApiError(raw.status, "unavailable", `Jam answered ${raw.status}. Try again shortly.`);
   }
   if (raw.status < 200 || raw.status >= 300) {
-    const e = (raw.json ?? {}) as { error?: string; code?: string };
-    throw new ApiError(raw.status, e.code ?? "error", e.error ?? raw.statusText ?? "");
+    const e = (raw.json ?? {}) as { error?: string; code?: string; errors?: FieldProblem[] };
+    throw new ApiError(raw.status, e.code ?? "error", e.error ?? raw.statusText ?? "", e.errors ?? []);
   }
   return raw.json as T;
 }

@@ -100,7 +100,7 @@ function Role({ d }: { d: RoleDetail }) {
           </Stack>
         </Section>
       </SimpleGrid>
-      <ContextPanel key={d.context.yaml} panel={d.context} onSave={(yaml) => post("context", { yaml })} onClear={() => del("context")} />
+      <ContextPanel key={d.context.yaml} panel={d.context} onSave={(body) => post("context", body)} onClear={() => del("context")} />
       <Section title="Standing agents" sub="kept running, one per name">
         <Stack gap="xs">
           <DataTable rows={d.standing} rowKey={(s) => s.name} empty="No standing agents." columns={[

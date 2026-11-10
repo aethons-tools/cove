@@ -1,11 +1,15 @@
 // shot.mjs — screenshot one view of the Jam app on mock data, for the manual
 // (`just manual-shot`; docs/manual.md). It serves the app with Vite on
 // vite.shot.config.ts (the API answered from src/shots/mocks.ts), drives the
-// kit's headless Chrome over the DevTools protocol, and writes a PNG.
+// kit's headless Chrome over the DevTools protocol, and writes a PNG. If the
+// page asks the mock API for a route it has no mock for, it writes nothing
+// and fails (scripts/shot.test.mjs).
 //
 //   node scripts/shot.mjs <route> --out <file.png> [--selector <css>]
-//     [--pad 8] [--width 1280] [--height 800] [--scale 2]
+//     [--click <css>]... [--pad 8] [--width 1280] [--height 800] [--scale 2]
 //
+// --click clicks the first element matching css once the view is ready (say,
+// a card's Edit button), in order when repeated, before the shot.
 // route is an app path ("/app/admin/config/projects/acme", or without the
 // leading /app/). The browser is $JAM_BROWSER, else
 // /opt/chrome-headless-shell/chrome-headless-shell, else the first of the
@@ -24,6 +28,7 @@ const { values: opt, positionals } = parseArgs({
   options: {
     out: { type: "string" },
     selector: { type: "string" },
+    click: { type: "string", multiple: true, default: [] },
     pad: { type: "string", default: "8" },
     width: { type: "string", default: "1280" },
     height: { type: "string", default: "800" },
@@ -31,7 +36,7 @@ const { values: opt, positionals } = parseArgs({
   },
 });
 if (positionals.length !== 1 || !opt.out) {
-  console.error("usage: shot.mjs <route> --out <file.png> [--selector <css>] [--pad 8] [--width 1280] [--height 800] [--scale 2]");
+  console.error("usage: shot.mjs <route> --out <file.png> [--selector <css>] [--click <css>]... [--pad 8] [--width 1280] [--height 800] [--scale 2]");
   process.exit(2);
 }
 const route = positionals[0].startsWith("/") ? positionals[0] : "/app/" + positionals[0];
@@ -118,7 +123,9 @@ const still = `document.addEventListener("DOMContentLoaded", () => {
   document.head.append(s);
 });`;
 
-async function shoot(base, ws) {
+// shoot loads the route and writes its PNG to out; it fails, writing
+// nothing, if the page asked the mock API for a route it has no mock for.
+async function shoot(base, ws, mock) {
   const c = await cdp(ws);
   try {
     const { targetId } = await c.send("Target.createTarget", { url: "about:blank" });
@@ -147,11 +154,29 @@ async function shoot(base, ws) {
     // Ready: the element is there, the network has been quiet for 500 ms
     // (the mock API answered), and the fonts are loaded.
     const deadline = Date.now() + 30_000;
+    const unmocked = () => {
+      if (mock.misses.length) throw new Error(`no mock for ${mock.misses.join(", ")}: add it to src/shots/mocks.ts (wrote no ${opt.out})`);
+    };
     for (;;) {
+      unmocked();
       if (Date.now() > deadline) throw new Error(`timed out waiting for ${sel} on ${route}`);
       const found = await evaluate(`document.readyState === "complete" && !!document.querySelector(${sel})`);
       if (found && inflight.size === 0 && Date.now() - quietSince > 500) break;
       await sleep(100);
+    }
+    // Each --click in turn, then the page settles again.
+    for (const click of opt.click) {
+      const c = JSON.stringify(click);
+      if (!await evaluate(`(() => { const e = document.querySelector(${c}); if (!e) return false; e.click(); return true; })()`)) {
+        throw new Error(`--click ${click}: no such element on ${route}`);
+      }
+      await evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))");
+      const settle = Date.now() + 30_000;
+      while (inflight.size > 0 || Date.now() - quietSince < 300) {
+        unmocked();
+        if (Date.now() > settle) throw new Error(`--click ${click}: timed out waiting for the page to settle on ${route}`);
+        await sleep(50);
+      }
     }
     await evaluate("document.fonts.ready.then(() => true)");
     // Grow the viewport to the whole page, so nothing scrolls or overlaps.
@@ -169,6 +194,7 @@ async function shoot(base, ws) {
           return { x, y, width: right - x, height: bottom - y, scale: 1 };
         })()`
       : `({ x: 0, y: 0, width: ${width}, height: document.documentElement.scrollHeight, scale: 1 })`);
+    unmocked();
     const { data } = await send("Page.captureScreenshot", { format: "png", clip, captureBeyondViewport: true });
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, Buffer.from(data, "base64"));
@@ -181,12 +207,14 @@ async function shoot(base, ws) {
 const port = await freePort();
 const server = await createServer({ configFile: "vite.shot.config.ts", logLevel: "warn", server: { host: "127.0.0.1", port, strictPort: true } });
 await server.listen();
+const mock = server.config.plugins.find((p) => p.name === "jam-mock-api")?.api;
+if (!mock) throw new Error("vite.shot.config.ts has no mock API (build/mockApi.ts)");
 const profile = mkdtempSync(join(tmpdir(), "jam-shot-"));
 let chrome;
 try {
   const b = await launch(profile);
   chrome = b.chrome;
-  await shoot(`http://127.0.0.1:${port}`, b.ws);
+  await shoot(`http://127.0.0.1:${port}`, b.ws, mock);
 } finally {
   chrome?.kill();
   await server.close();

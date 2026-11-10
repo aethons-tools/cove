@@ -2,7 +2,7 @@
 // (vite.shot.config.ts, build/mockApi.ts; docs/manual.md): each key is
 // "METHOD /path" (with its query, or without to match any), each value the
 // JSON answer, built from the tests' fixtures. A request with no entry
-// answers 404 and is logged, so a new screenshot shows what it still needs.
+// answers 404, is logged and fails the shot, naming what it still needs.
 import type { ConfigBranches, TreeNode, TreeResponse } from "../admin/api/types";
 import { adminBoot } from "../admin/fixtures";
 import { filledContext, project } from "../admin/projects/fixtures";
