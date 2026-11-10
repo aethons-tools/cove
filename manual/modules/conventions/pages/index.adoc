@@ -11,3 +11,62 @@ so a change to a convention shows which pages it touches.
 
 Headings, labels and buttons capitalize only their first word and proper nouns:
 _Agent context_, _Save context_, _Chat service_, _Jam_, _Linear_.
+
+[#quiet-grid]
+== Short lists are quiet grids
+
+A short list you edit,
+such as a project's resources,
+looks like a plain table.
+A cell becomes a field only while you edit it:
+click it,
+press Tab or Enter to move on,
+Esc to leave.
+A choice from a fixed set shows its ▾ when you point at it.
+
+[#collapsible-rows]
+== Long items are collapsible rows
+
+An item with long text,
+such as a progressive instruction,
+is a row that shows a summary.
+▸ expands it in place to its fields;
+▾ collapses it.
+Never a dialog or a tray.
+
+[#add-at-bottom]
+== Add from the bottom of the list
+
+You add an item from the *+ new …* row at the bottom of its list.
+There is no add button at the top.
+The row disappears when the list is full.
+
+[#thermometers]
+== Limits show as thermometers
+
+Every field with a length limit has a thermometer below it,
+with the count against the limit.
+It turns amber near the limit and red over it.
+A limit shared by a whole list has one thermometer below the list.
+
+[#view-then-edit]
+== One layout for viewing and editing
+
+A card looks the same whether you are reading or editing it.
+It is read-only until you click *Edit*;
+then the whole card is editable,
+and *Cancel* or *Save* returns it to read-only.
+A card has one *Save*.
+
+[#field-errors]
+== Errors show at the field
+
+A problem shows on the field that has it,
+the footer counts problems,
+and *Save* stays off until there are none.
+
+[#rendered-markdown]
+== Markdown shows formatted
+
+Markdown is shown formatted while you read
+and as source while you edit.

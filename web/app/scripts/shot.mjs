@@ -6,8 +6,10 @@
 // and fails (scripts/shot.test.mjs).
 //
 //   node scripts/shot.mjs <route> --out <file.png> [--selector <css>]
-//     [--pad 8] [--width 1280] [--height 800] [--scale 2]
+//     [--click <css>]... [--pad 8] [--width 1280] [--height 800] [--scale 2]
 //
+// --click clicks the first element matching css once the view is ready (say,
+// a card's Edit button), in order when repeated, before the shot.
 // route is an app path ("/app/admin/config/projects/acme", or without the
 // leading /app/). The browser is $JAM_BROWSER, else
 // /opt/chrome-headless-shell/chrome-headless-shell, else the first of the
@@ -26,6 +28,7 @@ const { values: opt, positionals } = parseArgs({
   options: {
     out: { type: "string" },
     selector: { type: "string" },
+    click: { type: "string", multiple: true, default: [] },
     pad: { type: "string", default: "8" },
     width: { type: "string", default: "1280" },
     height: { type: "string", default: "800" },
@@ -33,7 +36,7 @@ const { values: opt, positionals } = parseArgs({
   },
 });
 if (positionals.length !== 1 || !opt.out) {
-  console.error("usage: shot.mjs <route> --out <file.png> [--selector <css>] [--pad 8] [--width 1280] [--height 800] [--scale 2]");
+  console.error("usage: shot.mjs <route> --out <file.png> [--selector <css>] [--click <css>]... [--pad 8] [--width 1280] [--height 800] [--scale 2]");
   process.exit(2);
 }
 const route = positionals[0].startsWith("/") ? positionals[0] : "/app/" + positionals[0];
@@ -160,6 +163,20 @@ async function shoot(base, ws, mock) {
       const found = await evaluate(`document.readyState === "complete" && !!document.querySelector(${sel})`);
       if (found && inflight.size === 0 && Date.now() - quietSince > 500) break;
       await sleep(100);
+    }
+    // Each --click in turn, then the page settles again.
+    for (const click of opt.click) {
+      const c = JSON.stringify(click);
+      if (!await evaluate(`(() => { const e = document.querySelector(${c}); if (!e) return false; e.click(); return true; })()`)) {
+        throw new Error(`--click ${click}: no such element on ${route}`);
+      }
+      await evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))");
+      const settle = Date.now() + 30_000;
+      while (inflight.size > 0 || Date.now() - quietSince < 300) {
+        unmocked();
+        if (Date.now() > settle) throw new Error(`--click ${click}: timed out waiting for the page to settle on ${route}`);
+        await sleep(50);
+      }
     }
     await evaluate("document.fonts.ready.then(() => true)");
     // Grow the viewport to the whole page, so nothing scrolls or overlaps.

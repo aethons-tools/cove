@@ -4,7 +4,7 @@ read_when: You are changing anything a Jam user can see (its manual page changes
 owns: the manual/ tree, its screenshots (just manual-shot, web/app/src/shots), its build (antora playbooks, manual/ui, just manual and manual-site), the branch-to-version model, the page attributes (page-area, page-id, page-conventions), and marking content internal (manual/extensions, just manual-check)
 prereqs: superpowers/specs/2026-11-05-manual-first-operating-model-design.md for why the manual leads the work
 tier: leaf
-updated: 2026-11-07
+updated: 2026-11-09
 ---
 
 # The Jam manual (`manual/`)
@@ -66,6 +66,10 @@ A PR that changes a page refreshes its screenshots with `just manual-shot`
 just manual-shot 'admin/config/projects/acme?branch=jam/docs' \
   --selector 'main > .mantine-Stack-root' --width 1000 \
   --out manual/modules/projects/images/project-page.png
+just manual-shot 'admin/config/projects/acme?branch=jam/docs' \
+  --selector '.mantine-Card-root:has(.jam-ctx-rows)' --width 1200 \
+  --click '[data-action="edit"]' --click '[data-leaf="manual.md"] .toggle' \
+  --out manual/modules/projects/images/agent-context-edit.png
 ```
 
 - It serves the app with Vite on mock data (`web/app/vite.shot.config.ts`):
@@ -81,7 +85,9 @@ just manual-shot 'admin/config/projects/acme?branch=jam/docs' \
 - Flags: `--out` (from the repo root), `--selector` (crop to the first match,
   plus `--pad`, default 8 CSS px; without it, the whole page), `--width`
   (default 1280) and `--height` (800; grown to the page), `--scale` (device
-  pixels per CSS pixel, default 2).
+  pixels per CSS pixel, default 2), `--click <css>` (click the first match
+  once the view is ready, before the shot; repeat it to click in order — a
+  card's Edit button, a row's toggle).
 - Output is deterministic: light scheme, no animations or caret, fonts
   (the bundled IBM Plex) loaded, the network quiet. Rerunning on unchanged
   code and mocks, with the same Chrome, gives the same bytes.

@@ -111,12 +111,16 @@ func CheckResources(rs []Resource) FieldErrors {
 	if len(rs) > MaxResources {
 		fe.add("resources", "%d resources; at most %d", len(rs), MaxResources)
 	}
+	seen := map[string]bool{}
 	for i, r := range rs {
 		at, label := fmt.Sprintf("resources[%d].", i), fmt.Sprintf("resource %q", r.Name)
 		if strings.TrimSpace(r.Name) == "" {
 			fe.add(at+"name", "resource %d: name is required", i+1)
 			label = fmt.Sprintf("resource %d", i+1)
+		} else if seen[r.Name] {
+			fe.add(at+"name", "%s: name already used", label)
 		}
+		seen[r.Name] = true
 		if !resourceKinds[r.Kind] {
 			fe.add(at+"kind", "%s: kind %q; want repo, doc, tracker or url", label, r.Kind)
 		}

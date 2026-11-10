@@ -129,6 +129,13 @@ func TestCheckResourcesFieldPaths(t *testing.T) {
 	}
 }
 
+func TestCheckResourcesRefusesDuplicateNames(t *testing.T) {
+	errs := CheckResources([]Resource{{Name: "docs", Kind: "doc", Ref: "a"}, {Name: "docs", Kind: "url", Ref: "b"}})
+	if len(errs) != 1 || errs[0].Field != "resources[1].name" || !strings.Contains(errs[0].Message, "already used") {
+		t.Fatalf("errs = %+v, want one duplicate-name error on resources[1].name", errs)
+	}
+}
+
 func TestDeliveredCoreBytesCountsPointerLines(t *testing.T) {
 	l := Layer{Core: "Ship it.", Leaves: []Leaf{{Name: "a.md", ReadWhen: "you  ship", Body: "b"}}}
 	b := Compile(Inputs{Role: l})
