@@ -11,7 +11,8 @@ import type { ContextPanel, Dashboard } from "../api/types";
 import { setBranch } from "../branch/branch";
 
 const panel = (p: Partial<ContextPanel> = {}): ContextPanel => ({
-  scope: "Jam-wide", core: "", coreBytes: 0, budget: 4096, over: false, empty: true, showResources: false, leaves: [], resources: [], yaml: "", ...p,
+  scope: "Jam-wide", core: "", coreBytes: 0, budget: 4096, over: false, empty: true, showResources: false, leaves: [], resources: [], yaml: "",
+  limits: { coreBudget: 4096, maxReadWhen: 160, maxLeaves: 20, maxLeafBytes: 65536, maxResources: 0 }, leafBytes: 0, deliveredBytes: 0, ...p,
 });
 const dash = (d: Partial<Dashboard> = {}): Dashboard => ({
   stats: { studios: 3, running: 2, waiting: 1, settingUp: 0, idled: 0, attention: 0, projects: 4, agents: 5, users: 6, specs: 7 },
@@ -97,31 +98,37 @@ describe("the dashboard", () => {
       http.post("/app/admin/api/jam/context", async ({ request }) => { saved = await request.json(); now = panel({ yaml: "core: new\n", core: "new", empty: false }); return HttpResponse.json(now); }),
       http.delete("/app/admin/api/jam/context", () => { now = panel(); return HttpResponse.json(now); }),
     );
-    const box = await screen.findByRole("textbox");
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    const box = screen.getByRole("textbox", { name: "Core instructions" });
     await userEvent.clear(box);
-    await userEvent.type(box, "core: new");
+    await userEvent.type(box, "new");
     await userEvent.click(screen.getByRole("button", { name: "Save context" }));
-    await waitFor(() => expect(saved).toEqual({ yaml: "core: new" }));
-    await userEvent.type(await screen.findByRole("textbox"), " unsaved");
-    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
-    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Clear" }));
-    await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue(""));
+    await waitFor(() => expect(saved).toEqual({ core: "new", leaves: [] }));
+    expect(await screen.findByText("new")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Core instructions" }), " unsaved");
+    await userEvent.click(screen.getByRole("button", { name: "Clear context" }));
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Clear context" }));
+    expect(await screen.findByText("No core instructions.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
   it("keeps the page, and unsaved context edits, when a refresh fails", async () => {
     mount(dash({ jamContext: panel({ yaml: "core: old\n", core: "old", empty: false }) }));
-    await userEvent.type(await screen.findByRole("textbox"), " unsaved");
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Core instructions" }), " unsaved");
     server.use(http.get("/app/admin/api/dashboard", () => new HttpResponse(null, { status: 502 })));
     await act(() => qc.refetchQueries({ queryKey: ["admin", "dashboard"] }));
     expect(await screen.findByText(/Refresh failed/)).toBeInTheDocument();
-    expect(screen.getByRole("textbox")).toHaveValue("core: old\n unsaved");
+    expect(screen.getByRole("textbox", { name: "Core instructions" })).toHaveValue("old unsaved");
   });
 
   it("invalidates the dashboard after a context write (cancelling a poll in flight that could undo it)", async () => {
     mount(dash());
     server.use(http.post("/app/admin/api/jam/context", () => HttpResponse.json(panel({ yaml: "core: new\n", core: "new", empty: false }))));
     const inval = vi.spyOn(qc, "invalidateQueries");
-    await userEvent.type(await screen.findByRole("textbox"), "core: new");
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Core instructions" }), "new");
     await userEvent.click(screen.getByRole("button", { name: "Save context" }));
     await waitFor(() => expect(inval).toHaveBeenCalledWith({ queryKey: ["admin", "dashboard"] }));
   });

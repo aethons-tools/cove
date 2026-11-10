@@ -65,10 +65,12 @@ jobs:
         #                      (new digest => new DefaultRef + blessed-list head).
         #   jam-studio only => jam-studio only (FROM the current published base).
         #   go change       => the binaries only (blessed list recomputed from the head).
+        #   a release push  => the binaries always, so every release cuts a GitHub release.
         env:
           BASE: ${{ steps.filter.outputs.base }}
           STUDIO: ${{ steps.filter.outputs.studio_image }}
           GO: ${{ steps.filter.outputs.go }}
+          RELEASE: ${{ github.ref == 'refs/heads/release' }}
         run: bash scripts/release/legs.sh >>"$GITHUB_OUTPUT"
       - id: version
         # <N>-<MMDD>: N (git rev-list --count HEAD) is the monotonic version; the
@@ -340,9 +342,15 @@ jobs:
           VERSION: ${{ needs.changes.outputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Notes: the approved release PR's description (what changes for
+          # users, what it rebuilt, merged PRs); a generic line if none is found.
+          notes="$RUNNER_TEMP/notes.md"
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            --jq '[.[] | select(.base.ref == "release")][0].body // "" | select(length > 0)' >"$notes" || true
+          [ -s "$notes" ] || echo "Release from ${GITHUB_SHA::7} (jam + jam-colima; jam-studio-agent embedded)." >"$notes"
           gh release create "$VERSION" \
             --title "$VERSION" \
-            --notes "Continuous release from ${GITHUB_SHA::7} (jam + jam-colima; jam-studio-agent embedded)." \
+            --notes-file "$notes" \
             --target "$GITHUB_SHA" \
             dist/jam_*.tar.gz dist/checksums.txt dist/jam-vscode_*.vsix
           echo "## Released \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"

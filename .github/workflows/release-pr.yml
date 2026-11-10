@@ -66,6 +66,7 @@ jobs:
           BASE: ${{ steps.filter.outputs.base }}
           STUDIO: ${{ steps.filter.outputs.studio_image }}
           GO: ${{ steps.filter.outputs.go }}
+          RELEASE: 'true' # what the release will rebuild: binaries always
         run: |
           bash scripts/release/legs.sh | jq -R 'split("=") | {(.[0]): .[1]}' | jq -sc add | sed 's/^/json=/' >>"$GITHUB_OUTPUT"
       - name: Create, update or close the release PR
@@ -83,10 +84,10 @@ jobs:
             fi
             exit 0
           fi
-          # N is the commit count after the merge commit lands.
-          n=$(( $(git rev-list --count origin/release) + $(git rev-list --count origin/release..origin/main) + 1 ))
+          # No version in the title: <N> is counted when the merge lands, and a
+          # commit merged to main after the last refresh would make it stale.
           if [ -n "$open" ]; then
-            gh pr edit "$open" --title "Release $n" --body-file "$RUNNER_TEMP/body.md"
+            gh pr edit "$open" --title "Next release" --body-file "$RUNNER_TEMP/body.md"
           else
-            gh pr create --base release --head main --title "Release $n" --body-file "$RUNNER_TEMP/body.md"
+            gh pr create --base release --head main --title "Next release" --body-file "$RUNNER_TEMP/body.md"
           fi

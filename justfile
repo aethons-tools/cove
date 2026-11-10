@@ -97,7 +97,7 @@ dev-up:
 
 # stop the local dev Postgres and Garage. Pass ARGS=-v to also wipe their data volumes.
 dev-down *ARGS:
-    docker compose -f dev/docker-compose.yml --profile jam down {{ARGS}}
+    docker --context desktop-linux compose -f dev/docker-compose.yml --profile jam down {{ARGS}}
 
 # start Jam in its container (profile "jam") beside Postgres and Garage; see dev/docker-compose.yml
 dev-jam-up:
@@ -108,15 +108,15 @@ dev-jam-up:
     for f in dev/jam.container.yml; do
       [ -f "$f" ] || { echo "missing $f: see the setup in dev/docker-compose.yml (templates in dev/examples/)" >&2; exit 1; }
     done
-    docker compose -f dev/docker-compose.yml --profile jam up -d
+    docker --context desktop-linux compose -f dev/docker-compose.yml --profile jam up -d
 
 # follow the Jam container's logs
 dev-jam-logs:
-    docker compose -f dev/docker-compose.yml logs -f jam
+    docker --context desktop-linux compose -f dev/docker-compose.yml logs -f jam
 
 # run a jam verb inside the Jam container (loopback-trusted admin), e.g. `just dev-jam destination list`
 dev-jam *ARGS:
-    docker compose -f dev/docker-compose.yml exec jam jam {{ARGS}}
+    docker --context desktop-linux compose -f dev/docker-compose.yml exec jam jam {{ARGS}}
 
 # Run jam serve against the local dev config (uses the last `just build`
 # output — run `just build` + `just dev-cert` + `just dev-up` first). macOS binds a
@@ -148,6 +148,13 @@ manual:
 manual-site:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.yml
 
+# screenshot a view of the Jam app on mock data into the manual, e.g.
+# `just manual-shot admin/config/projects/acme --selector main --out manual/modules/projects/images/x.png`
+# (web/app/src/shots/mocks.ts; flags and refreshing: docs/manual.md)
+[positional-arguments]
+manual-shot *ARGS:
+    ./scripts/manual-shot.sh "$@"
+
 # test the manual's Antora extensions (internal content: manual/extensions/test/)
 manual-check:
     cd manual && ../scripts/npm-ci.sh && npm test
@@ -159,6 +166,10 @@ vscode:
 # the Jam VS Code extension's checks: typecheck, unit tests
 vscode-check:
     cd web/vscode && ../../scripts/npm-ci.sh && npm run check
+
+# Install the local VSIX to VSCodium
+install-codium:
+    codium --install-extension web/vscode/dist/jam.vsix --force
 
 # the Jam app's checks: API types current, typecheck, lint, unit tests
 app-check:
@@ -241,3 +252,13 @@ monitoring-up jam_host:
 
 monitoring-down:
     JAM_HOST=unused docker compose -f deploy/monitoring/compose.yml down
+
+pull-and-run:
+    git pull
+    just build
+    just vscode
+    just jam-image
+    just dev-down
+    just dev-jam-up
+    just install-codium
+    echo "Don't forget to reload Codium and restart the manager"

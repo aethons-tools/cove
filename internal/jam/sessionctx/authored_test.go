@@ -93,3 +93,57 @@ func TestValidateLayerBoundsLeafList(t *testing.T) {
 		t.Errorf("long read-when: %v", err)
 	}
 }
+
+func TestCheckLayerCollectsEveryFieldError(t *testing.T) {
+	l := Layer{Core: strings.Repeat("x", 11), Leaves: []Leaf{
+		{Name: "a.md", ReadWhen: "w"},
+		{Name: "a.md", ReadWhen: "w"},
+		{Name: "Bad", ReadWhen: ""},
+		{Name: "c.md", ReadWhen: strings.Repeat("w", MaxReadWhen+1)},
+	}}
+	errs := CheckLayer(l, 10)
+	var got []string
+	for _, e := range errs {
+		got = append(got, e.Field)
+	}
+	want := []string{"core", "leaves[1].name", "leaves[2].name", "leaves[2].readWhen", "leaves[3].readWhen"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("fields = %v, want %v (%v)", got, want, errs)
+	}
+	if err := ValidateLayer(l, 10); err == nil || !strings.Contains(err.Error(), "11 bytes") || !strings.Contains(err.Error(), "twice") {
+		t.Fatalf("ValidateLayer = %v, want every problem", err)
+	}
+	if CheckLayer(Layer{Core: "c"}, 10) != nil {
+		t.Fatal("a valid layer has no field errors")
+	}
+}
+
+func TestCheckResourcesFieldPaths(t *testing.T) {
+	errs := CheckResources([]Resource{{Name: "ok", Kind: "repo", Ref: "r"}, {Kind: "wiki"}})
+	var got []string
+	for _, e := range errs {
+		got = append(got, e.Field)
+	}
+	if want := "[resources[1].name resources[1].kind resources[1].ref]"; fmt.Sprint(got) != want {
+		t.Fatalf("fields = %v, want %s", got, want)
+	}
+}
+
+func TestCheckResourcesRefusesDuplicateNames(t *testing.T) {
+	errs := CheckResources([]Resource{{Name: "docs", Kind: "doc", Ref: "a"}, {Name: "docs", Kind: "url", Ref: "b"}})
+	if len(errs) != 1 || errs[0].Field != "resources[1].name" || !strings.Contains(errs[0].Message, "already used") {
+		t.Fatalf("errs = %+v, want one duplicate-name error on resources[1].name", errs)
+	}
+}
+
+func TestDeliveredCoreBytesCountsPointerLines(t *testing.T) {
+	l := Layer{Core: "Ship it.", Leaves: []Leaf{{Name: "a.md", ReadWhen: "you  ship", Body: "b"}}}
+	b := Compile(Inputs{Role: l})
+	section := b.Core[strings.Index(b.Core, "## Role\n")+len("## Role\n"):]
+	if got, want := DeliveredCoreBytes(LayerRole, l), len(section); got != want {
+		t.Fatalf("DeliveredCoreBytes = %d, want %d (%q)", got, want, section)
+	}
+	if DeliveredCoreBytes(LayerRole, Layer{}) != 0 {
+		t.Fatal("an empty layer delivers nothing")
+	}
+}

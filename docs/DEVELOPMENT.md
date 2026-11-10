@@ -217,11 +217,14 @@ manifest digest, each apt package `pkg=version`, the toolchain args
 `CC_SKILLS_GOLANG_VERSION` release tag. Versions are
 identical across amd64/arm64, so one pin serves both. A pin that ages out of the
 archive fails the build loudly. [`renovate.json`](../renovate.json) keeps them
-current instead of letting them silently float — mostly a bump PR per newer
-version, except the base `ubuntu:24.04` digest and its apt pins, which Renovate
+current instead of letting them silently float — non-major bumps in one weekly PR,
+except the base `ubuntu:24.04` digest and its apt pins, which Renovate
 **couples into one grouped PR** (a digest bump alone would fail the rebuild the
 moment a pin ages out). (The one input not yet pinned is chromium, which rides
-whatever `playwright` resolves.)
+whatever `playwright` resolves.) Renovate is batched to keep CI load down: it runs weekly
+(any time on Monday, Pacific — a whole day so the hosted app reliably gets a run in), rebases a PR only on a conflict, and folds every
+minor/patch/digest bump into one `all non-major dependencies` PR (majors stay separate);
+the `ubuntu noble base` group runs monthly, since it rebuilds the studio images.
 
 **Build & publish** — the images are built and published by the monolithic
 pipeline (below); consumers **pin by `@sha256` digest**, never a moving tag
@@ -251,8 +254,12 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
   base); `cmd/**` · `internal/**` · `go.*` · `.goreleaser.yaml` · `install.sh` · `manual/**` ·
   `scripts/manual.sh` (the customer manual jam embeds) · `web/**` (and the other parts jam
   embeds; the filters file is the full list) → re-cut the host binaries (blessed list
-  recomputed from the registry head). So a manual edit re-cuts the binaries; `docs/`-only →
-  nothing publishes.
+  recomputed from the registry head). So a manual edit re-cuts the binaries. On `main`
+  and PRs a `docs/`-only change builds nothing; **a merge into `release` always re-cuts the
+  binaries, publishes the Jam image and cuts a GitHub release** (`scripts/release/legs.sh`'s
+  `RELEASE`), because
+  every approved release is one and `jam update` / `install.sh` need its archives. The
+  images still rebuild only when their paths change.
 - **DAG order (no cycle):** base → publish → digest **D** → [blessed-list
   snapshot, [COV-47](../internal/blessgen)] → the host binaries (embed jam-studio-agent + list); jam-studio = `FROM jam-studio-base:ci`. The base
   publishes **before** the binaries leg so `gen-blessed` sees **D** as the
@@ -264,7 +271,8 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
   amd64/arm64, one `jam_<ver>_<os>_<arch>.tar.gz` per target holding exactly
   those two — checked by
   `scripts/release/check-archive.sh` — plus checksums, stamped `<N>-<MMDD>`) and the
-  release cut with `gh` (private). See [Versioning](#versioning).
+  release cut with `gh`, its notes the approved release PR's description (a generic line
+  if none is found). See [Versioning](#versioning).
 - **jam-studio-agent is embedded**, not shipped standalone — re-cutting the binaries
   re-cuts it (the [`.goreleaser.yaml`](../.goreleaser.yaml) before-hook runs
   `scripts/stage-studio-agent.sh`).
@@ -272,8 +280,8 @@ which artifacts to (re)build** — there is no version-tag trigger and no manual
 ### The release PR
 
 [`.github/workflows/release-pr.yml`](../.github/workflows/release-pr.yml) keeps one PR from
-`main` into `release` open, titled `Release <N>` (`<N>` = the commit count after the merge
-commit). On each push to `main` or `release` it applies the same change-detection filters
+`main` into `release` open, titled `Next release` (no number: `<N>` is counted when the merge
+lands, and a later merge to `main` would make a number in the title stale). On each push to `main` or `release` it applies the same change-detection filters
 (paths-filter `base: release`, `ref: main`, with the legs fan-out shared with `release.yml` via [`scripts/release/legs.sh`](../scripts/release/legs.sh))
 and has [`scripts/release/pr-body.sh`](../scripts/release/pr-body.sh) write the description:
 what changes for users (the manual pages that differ, linked to the Next version of the team

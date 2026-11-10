@@ -20,15 +20,23 @@ type contextPanel struct {
 	Leaves            []sessionctx.Leaf
 	Resources         []sessionctx.Resource
 	YAML              string
+	LeafBytes         int
+	DeliveredBytes    int
 }
 
-func newContextPanel(scope string, l sessionctx.Layer, rs []sessionctx.Resource, budget int, showResources bool) contextPanel {
+// newContextPanel is the card for layer (sessionctx.LayerJam, LayerProject,
+// LayerRole), shown as scope.
+func newContextPanel(scope, layer string, l sessionctx.Layer, rs []sessionctx.Resource, budget int, showResources bool) contextPanel {
 	delivered := sessionctx.ProjectLayer(l, rs) // a no-op without resources
 	p := contextPanel{
 		Scope: scope, Core: strings.TrimSpace(l.Core),
 		CoreBytes: len(strings.TrimSpace(delivered.Core)), Budget: budget,
 		Leaves: l.Leaves, Resources: rs, ShowResources: showResources,
-		Empty: l.Empty() && len(rs) == 0,
+		Empty:          l.Empty() && len(rs) == 0,
+		DeliveredBytes: sessionctx.DeliveredCoreBytes(layer, delivered),
+	}
+	for _, lf := range l.Leaves {
+		p.LeafBytes += len(lf.Body)
 	}
 	p.Over = p.CoreBytes > budget
 	if !p.Empty {
@@ -39,9 +47,37 @@ func newContextPanel(scope string, l sessionctx.Layer, rs []sessionctx.Resource,
 	return p
 }
 
+// contextBody is a context save's body: its YAML, else its fields.
+func contextBody(s ContextSave) (jam.ContextBody, error) {
+	structured := s.Core != "" || len(s.Leaves) > 0 || len(s.Resources) > 0
+	if s.YAML != "" || !structured {
+		if structured {
+			return jam.ContextBody{}, badRequest("send yaml or the fields (core, leaves, resources), not both")
+		}
+		b, err := jam.ParseContextYAML([]byte(s.YAML), nil)
+		if err != nil {
+			return jam.ContextBody{}, badRequest(err.Error())
+		}
+		return b, nil
+	}
+	var leaves []sessionctx.Leaf
+	for _, l := range s.Leaves {
+		leaves = append(leaves, sessionctx.Leaf{Name: l.Name, ReadWhen: l.ReadWhen, Body: l.Body})
+	}
+	var rs []sessionctx.Resource
+	for _, r := range s.Resources {
+		rs = append(rs, sessionctx.Resource{Name: r.Name, Kind: r.Kind, Ref: r.Ref, Note: r.Note})
+	}
+	b, err := jam.NewContextBody(s.Core, leaves, rs)
+	if err != nil {
+		return jam.ContextBody{}, badRequest(err.Error())
+	}
+	return b, nil
+}
+
 // jamPanel is the dashboard's Jam-wide session-context card; it swaps itself.
 func jamPanel(store jam.Store) contextPanel {
-	return newContextPanel("Jam-wide", store.GetJamContext(), nil, sessionctx.BudgetJam, false)
+	return newContextPanel("Jam-wide", sessionctx.LayerJam, store.GetJamContext(), nil, sessionctx.BudgetJam, false)
 }
 
 // setJamContext stores the Jam-wide context layer (b empty: clears it) and

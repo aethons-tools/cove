@@ -11,10 +11,7 @@ You see and edit it on the project page,
 in the *Agent context* card,
 under *Config › Projects › _your project_*.
 
-image::agent-context-goal-view.png[The Agent context card, viewing,800]
-
-TIP: Try it: link:{attachmentsdir}/agent-context-prototype.html[open the clickable prototype^].
-Nothing in it is saved.
+image::agent-context-view.png[The Agent context card, viewing,800]
 
 Changes reach each agent the next time it is raised.
 Never put a credential in agent context;
@@ -31,7 +28,7 @@ Click *Edit* to make the whole card editable;
 *Cancel* drops your changes,
 *Save context* keeps them.
 
-image::agent-context-goal-edit.png[The Agent context card, editing,800]
+image::agent-context-edit.png[The Agent context card, editing,800]
 
 == Core instructions
 
