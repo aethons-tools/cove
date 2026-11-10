@@ -59,10 +59,10 @@ export function QuietGrid<R extends Record<string, string>>({ columns, rows, onC
       if (at.row + 1 < rows.length) setEditing({ row: at.row + 1, col: at.col });
       else leave(cellSel(at));
     } else if (e.key === "Tab") {
-      e.preventDefault();
       const n = at.row * columns.length + at.col + (e.shiftKey ? -1 : 1);
-      if (n < 0) leave(cellSel(at));
-      else if (n >= rows.length * columns.length) leave(canAdd ? "[data-add]" : cellSel(at));
+      if (n < 0) return; // out of the grid backwards: the browser moves focus, the blur leaves the cell
+      e.preventDefault();
+      if (n >= rows.length * columns.length) leave(canAdd ? "[data-add]" : cellSel(at));
       else setEditing({ row: Math.floor(n / columns.length), col: n % columns.length });
     }
   };

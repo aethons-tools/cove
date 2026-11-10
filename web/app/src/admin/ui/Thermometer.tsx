@@ -4,9 +4,10 @@ import type { ReactNode } from "react";
 export type ThermometerState = "ok" | "warning" | "over";
 
 // thermometerState is ok below warnAt of the limit, warning from there to the
-// limit, over past it.
+// limit, over past it. A zero limit is ok while nothing is used.
 export function thermometerState(used: number, limit: number, warnAt = 0.85): ThermometerState {
   if (used > limit) return "over";
+  if (limit <= 0) return "ok";
   return used >= limit * warnAt ? "warning" : "ok";
 }
 
@@ -22,7 +23,7 @@ export function Thermometer({ used, limit, unit = "bytes", label, warnAt }: {
   const count = `${used.toLocaleString("en-US")} / ${limit.toLocaleString("en-US")} ${unit}`;
   return (
     <Stack gap={3} mt={6} data-state={state}>
-      <Progress value={limit > 0 ? Math.min(100, (used / limit) * 100) : 100} color={COLOR[state]} size={6} aria-label={count} />
+      <Progress value={limit > 0 ? Math.min(100, (used / limit) * 100) : used > 0 ? 100 : 0} color={COLOR[state]} size={6} aria-label={count} />
       <Group justify="space-between" gap="xs" wrap="nowrap">
         <Text size="xs" c={state === "over" ? "red" : "dimmed"} component="div">{label}</Text>
         <Text size="xs" c={state === "over" ? "red" : "dimmed"} fw={state === "over" ? 600 : undefined} style={{ whiteSpace: "nowrap" }}>{count}</Text>
