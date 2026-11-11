@@ -1,5 +1,5 @@
 -- 0001_conditions.sql — operator-attention condition occurrences (one row per
--- (key, since)); open rows have resolved_at NULL. See docs/usage/jam/monitoring.md.
+-- (key, since)); open rows have resolved_at NULL. See docs/modules/ROOT/pages/usage/jam/monitoring.adoc.
 CREATE TABLE IF NOT EXISTS attention_conditions (
     key         text        NOT NULL,
     since       timestamptz NOT NULL,

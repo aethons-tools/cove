@@ -1,7 +1,7 @@
 // Package sessionevents is Jam's store and live fan-out for managed-cove
 // session events — each line of a cove agent's claude stream-json stdout,
 // delivered over the Attach stream. It is grpc-free and never imports
-// internal/jam. See docs/usage/jam/session-events.md.
+// internal/jam. See docs/modules/ROOT/pages/usage/jam/session-events.adoc.
 package sessionevents
 
 import (

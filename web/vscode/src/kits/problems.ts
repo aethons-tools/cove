@@ -1,4 +1,4 @@
-// A kit draft's problems (docs/usage/jam/kits-drafts.md#the-draft) in the
+// A kit draft's problems (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#the-draft) in the
 // Problems view: each on the file it starts by naming (`<path>: …`), else on
 // kit.yml.
 import * as vscode from "vscode";

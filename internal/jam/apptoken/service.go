@@ -1,4 +1,4 @@
-// Package apptoken serves app tokens (docs/usage/jam/app-tokens.md): the
+// Package apptoken serves app tokens (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc): the
 // consent page and PKCE code exchange that mint them, bearer resolution on
 // /app/user, and the registry that ends a revoked token's open requests.
 package apptoken

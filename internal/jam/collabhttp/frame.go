@@ -24,7 +24,7 @@ type frameTicket struct {
 }
 
 // FrameTickets mints and redeems one-time frame tickets
-// (docs/usage/jam/previews.md#framing). Only the sha256 of a ticket is kept.
+// (docs/modules/ROOT/pages/usage/jam/previews.adoc#framing-the-jam-pane). Only the sha256 of a ticket is kept.
 type FrameTickets struct {
 	mu  sync.Mutex
 	m   map[[sha256.Size]byte]frameTicket

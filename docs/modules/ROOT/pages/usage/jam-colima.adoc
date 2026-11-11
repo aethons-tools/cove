@@ -2,16 +2,16 @@
 :summary: The `jam-colima` binary — the Studio Manager for a Colima host, a bare-metal process that dials Jam over TLS and hosts studios in a Colima VM; its install, upgrade from jam-studio-manager, config file and `colima.profile`, token, TLS, reconnect backoff, capacity, the host memory/disk and work in progress it reports, automatic disk cleanup, labels and image builds.
 :read_when: You are setting up or running `jam-colima` on a host, upgrading a host from `jam-studio-manager`, editing its `config.yml` (which VM via `colima.profile`, `cleanup` thresholds), or debugging why it will not connect, declines raises (capacity, disk full), removed or rebuilds images, or reports odd memory/disk figures to Jam.
 :owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, TLS trust, reconnect backoff, capacity gate, how host stats are measured, the activities it reports (kit-prepare progress), the disk cleanup policy and disk-full gate, container/volume labels and per-host image builds
-:prereqs: jam/studio-managers.md for registering the manager and what Jam does with it
+:prereqs: jam/studio-managers.adoc for registering the manager and what Jam does with it
 :tier: leaf
 :updated: 2026-11-11
 
 `jam-colima` is the Studio Manager for a Colima host: it runs next to Colima, dials _into_ Jam over TLS and raises studios in a Colima VM on Jam's behalf.
-Registration, the token's auth, and disconnect/reconnect/revoke behaviour on Jam's side are in https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/studio-managers.md[Studio Managers]; this doc is the manager host's side.
+Registration, the token's auth, and disconnect/reconnect/revoke behaviour on Jam's side are in xref:usage/jam/studio-managers.adoc[Studio Managers]; this doc is the manager host's side.
 
 == Install and run
 
-`install.sh` and `jam update` install it next to `jam`. Upgrading a host from a pre-rename release: follow https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/renamed-from-at.md#remote-studio-managers[the rename runbook]; from ``jam-studio-manager``: <<upgrading-from-jam-studio-manager,below>>.
+`install.sh` and `jam update` install it next to `jam`. Upgrading a host from a pre-rename release: follow xref:usage/jam/renamed-from-at.adoc#remote-studio-managers[the rename runbook]; from ``jam-studio-manager``: <<upgrading-from-jam-studio-manager,below>>.
 Its version must equal Jam's exactly, otherwise Jam refuses the stream.
 An update replaces the binary, not the running process: restart `jam-colima run` after `jam update` or `install.sh`, or Jam keeps refusing the old process.
 
@@ -19,7 +19,7 @@ An update replaces the binary, not the running process: restart `jam-colima run`
 . Write the config below.
 . `+jam-colima run [--config <path>]+` serves until SIGINT or SIGTERM.
 
-The token file is reread at each connect, so after `jam manager rotate` (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/studio-managers.md[verbs]) writing the new token to `token-file` is enough; the manager reconnects with it, no restart.
+The token file is reread at each connect, so after `jam manager rotate` (xref:usage/jam/studio-managers.adoc[verbs]) writing the new token to `token-file` is enough; the manager reconnects with it, no restart.
 
 `+jam-colima colima setup-docker|check-docker [--config <path>] [--profile <name>]+` prepare the manager's Colima VM for ``+colima.docker: true+``; they are owned by xref:usage/docker-in-sandbox.adoc[].
 
@@ -70,7 +70,7 @@ cleanup:              # percent of the VM's docker disk; 0 = the default
 `profile` names the Colima VM studios run in, read as colima reads ``+--profile+``: `default` and `colima` are the default VM, and a `colima-` prefix is dropped (`colima-jam-b` is `jam-b`).
 Every docker call is pinned to its docker context, `colima` for `default`, else `colima-<profile>`.
 So `+colima start --profile jam-b+` and `+profile: jam-b+` place this manager's studios, kit images and volumes in that VM.
-For a Jam in a container, `jam-addr` is the host's published 443 (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/container.md#pointing-studio-managers-at-it[pointing managers at it]).
+For a Jam in a container, `jam-addr` is the host's published 443 (xref:usage/jam/container.adoc#pointing-studio-managers-at-it[pointing managers at it]).
 
 == TLS
 
@@ -86,12 +86,12 @@ After a refusal the backoff stays at 30s until a connect succeeds.
 == Capacity
 
 `capacity` bounds the studios this host holds, counting raises in flight.
-At the limit a raise is declined with `at capacity (<n>/<cap> studios)` and Jam tries the next manager (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#managers-and-placement[placement]).
+At the limit a raise is declined with `at capacity (<n>/<cap> studios)` and Jam tries the next manager (xref:usage/jam/coves.adoc#managers-and-placement[placement]).
 
 [#host-stats]
 == Host stats
 
-Every 30s (and right after connecting) the manager reports its VM's memory and disk to Jam, which shows them and alerts on a full disk (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/studio-managers.md#status-reports[status reports]).
+Every 30s (and right after connecting) the manager reports its VM's memory and disk to Jam, which shows them and alerts on a full disk (xref:usage/jam/studio-managers.adoc#status-reports[status reports]).
 They are measured inside the `colima.profile` VM:
 
 * ``+colima ssh --profile <p> -- sh -c 'df -kP /var/lib/docker; cat /proc/meminfo'+``: memory used is ``+MemTotal − MemAvailable+``; disk is the filesystem holding docker's data dir (df's one data row, whatever its mount point; often `/`), with total = used + available, so the percentage matches df's `Capacity` (root-reserved blocks excluded).
@@ -118,7 +118,7 @@ Every high or critical run starts a 5-minute cooldown. Within it no high run sta
 With `daily`, a light pass (steps 1 and 3 only, whatever the disk) runs 10 minutes after start, then every 24 hours.
 `+disabled: true+` turns all automatic cleanup off.
 
-While the last sample is at or over `critical`, raises are declined with `disk full (<n>%)`, so Jam places them elsewhere (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#managers-and-placement[placement]); a sample that fails to measure lifts this. Kit prepares are not declined.
+While the last sample is at or over `critical`, raises are declined with `disk full (<n>%)`, so Jam places them elsewhere (xref:usage/jam/coves.adoc#managers-and-placement[placement]); a sample that fails to measure lifts this. Kit prepares are not declined.
 
 Each run is logged (Info; Warn when a step failed, the rest still running) and reported to Jam at once as the host's last cleanup: when, bytes freed (disk used before minus after) and its reason, `high`, `critical` or `daily`.
 
@@ -128,7 +128,7 @@ On a shared VM, dangling images, anonymous volumes and the build cache are VM-wi
 [#work-in-progress]
 == Work in progress
 
-The manager reports its long-running work to Jam as https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/studio-managers.md#activities[activities], each a kind, an optional kit, and its current step and detail:
+The manager reports its long-running work to Jam as xref:usage/jam/studio-managers.adoc#activities[activities], each a kind, an optional kit, and its current step and detail:
 
 * `prepare-kit` (a kit image build; a kit already built reports none): ``assembling``; ``resolving base``; for a kit chain, `building stage <i>/<n>` with the link (`web@v2`) as detail; then `building`, with detail `step <k>/<m>` read from the image build's `+docker build --progress=plain+` header lines (``+#7 [3/12] RUN …+``; the highest step of the stage building now). The build output still goes to the manager's own output unchanged; only a copy of its stderr (where the progress lines are) is read.
 * `build-kit-draft` (a draft's test build): the same steps, read from its build log.

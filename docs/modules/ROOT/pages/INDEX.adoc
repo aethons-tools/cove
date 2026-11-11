@@ -21,7 +21,7 @@ open only that doc, and stop when you have enough.
 |xref:manual-books.adoc[] |You are adding a book to the team site (Jam books) or changing how this one is published, building it with or without the process book from jam-config, setting up its deploy key, or touching search or the book switcher.
 |xref:docs-asciidoc.adoc[] |You are converting a doc in docs/ to AsciiDoc, adding or moving a page of this book (the architecture book), auditing a docs tree that mixes .md and .adoc, or changing the converter or the checker's AsciiDoc handling.
 |xref:usage/INDEX.adoc[] |You are running one of the binaries (`jam`, `jam-colima`) and need its flags, config, or I/O contract.
-|https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/INDEX.md[usage/jam/] (Markdown, not converted yet) |You are running or administering a Jam (`jam serve`, operators, the roster, kits, studios, the intercom).
+|xref:usage/jam/INDEX.adoc[usage/jam/] |You are running or administering a Jam (`jam serve`, operators, the roster, kits, studios, the intercom).
 |https://github.com/aethons-tools/cove/blob/main/docs/superpowers[superpowers/] |You need the design history — dated specs (`specs/`) and implementation plans (`plans/`) — behind a structural decision.
 |xref:TODO.adoc[] |You want the loose backlog of known follow-ups not yet filed as tickets.
 |===

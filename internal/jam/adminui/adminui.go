@@ -75,7 +75,7 @@ type options struct {
 }
 
 // WithKitDraftBuilds turns on kit draft test builds
-// (docs/usage/jam/kits-drafts.md#test-build): a branch's handlers build its
+// (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#test-build): a branch's handlers build its
 // own drafts through b.
 func WithKitDraftBuilds(b *jam.KitDraftBuilds) Option {
 	return func(o *options) { o.draftBuilds = b }

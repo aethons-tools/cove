@@ -32,7 +32,7 @@ func checkDraftImageID(id string) error {
 }
 
 // BuildKitDraft is jam.KitDraftBuilder: a kit draft's test build
-// (docs/usage/jam/kits-drafts.md#test-build). It builds def exactly as
+// (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#test-build). It builds def exactly as
 // PrepareKit does: the same assemble (harness, hardening, egress, MCP
 // servers, key), the chain's parent stages cached and reused, and the same
 // gate and build args. Only the tags differ: the draft's own stage is

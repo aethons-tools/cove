@@ -34,7 +34,7 @@ normal *rootful ``dockerd``* run inside an _unprivileged_ container;
 `+docker …+` with *no `+DOCKER_HOST+` to set* (it is in the `docker` group);
 * a *bounded cache volume* (`<container>-docker`) is mounted at the inner
 `/var/lib/docker`, so pulled layers and build cache last the studio's life;
-teardown removes it (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/standing-state.md[standing-state.md]).
+teardown removes it (xref:usage/jam/standing-state.adoc[]).
 
 A manager without the setting is *byte-for-byte unchanged* — no Sysbox runtime, no
 cache volume, no systemd.
@@ -137,7 +137,7 @@ ____
 == Allow-listing registries
 
 Image pulls ride the sandbox's *squid proxy*, so each registry's domains must be
-in the studio kit's `+egress:+` list (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/kits.md[kits.md])
+in the studio kit's `+egress:+` list (xref:usage/jam/kits.adoc[kits])
 — the same additive allow-list every other egress uses
 (xref:OVERVIEW.adoc#egress-four-additive-allow-lists-and-a-ceiling[four additive allow-lists]).
 Both the daemon _and_ BuildKit route through squid, so this covers `docker build`

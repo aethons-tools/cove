@@ -161,7 +161,7 @@ type KitImageBuilder interface {
 
 // LoggedKitBuilder is optionally implemented by a KitImageBuilder that can
 // run its builds under a context, their output copied to a log: the Jam
-// launcher's kit draft test build (docs/usage/jam/kits-drafts.md#test-build).
+// launcher's kit draft test build (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#test-build).
 // The returned builder builds exactly as the receiver does — same argv,
 // same gate — only logged and cancellable.
 type LoggedKitBuilder interface {

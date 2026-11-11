@@ -14,7 +14,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/boardrender"
 )
 
-// Whiteboards (docs/usage/jam/whiteboards.md): a board lives in a channel and
+// Whiteboards (docs/modules/ROOT/pages/usage/jam/whiteboards.adoc): a board lives in a channel and
 // takes its access from it — readable by whoever may read the channel (a
 // person who can see it, a session in it), writable by whoever may post
 // there; an archived channel's boards are read-only. Merges go to the

@@ -2,13 +2,13 @@
 :summary: The `jam mint` usage doc — the host-side token minter (a `jam` subcommand), its two subcommands (github, anthropic), their flags/env, and the flags=non-secret/env=secret/one-token-to-stdout/fail-closed contract.
 :read_when: You are configuring a machine-side secret supply that mints a token — a GitHub App installation token or an Anthropic WIF bearer.
 :owns: the jam mint CLI usage — the github and anthropic subcommands, their flags/env, and the minting contract
-:prereqs: jam/credentials.md — how a credential is supplied by a mint: profile or a command: that invokes jam mint
+:prereqs: jam/credentials.adoc — how a credential is supplied by a mint: profile or a command: that invokes jam mint
 :tier: leaf
 :updated: 2026-11-11
 
 `jam mint` is a *host-side token minter*: a `jam` subcommand that mints a short-lived
 credential and prints it to stdout, for use as a credential's `+command:+`
-source (see https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/credentials.md#sources[jam/credentials.md]). It never runs
+source (see xref:usage/jam/credentials.adoc#sources[jam/credentials]). It never runs
 inside a studio — it runs on the host, invoked by `jam` when resolving a
 demand.
 
@@ -58,7 +58,7 @@ jam mint github --app-id <id> --install-id <id> [--app-key-file <path>]
 The key comes from `+--app-key-file+` if set, else from
 ``+JAM_MINT_GITHUB_APP_KEY+``; if neither is set, it fails closed. `+--repo+`
 is required (Jam's `+mint:+` expander supplies none, so pass it in a
-`+command:+` — https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/credentials.md#minters[jam/credentials.md]) — its
+`+command:+` — xref:usage/jam/credentials.adoc#minters[jam/credentials]) — its
 repo _name_ (the part after the `/`) is what the installation-token request
 scopes to; the requested permissions are fixed in `jam mint` itself, not derived
 from any input. Every secret reaches `jam mint` via env only; every non-secret
@@ -112,7 +112,7 @@ also *fails closed if `+expires_in+` is shorter than that timeout*.
 == Using it as a credential supply
 
 Normally you don't invoke `jam mint` yourself: Jam's
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/credentials.md#minters[credentials file] names a `+minters:+` profile once and
+xref:usage/jam/credentials.adoc#minters[credentials file] names a `+minters:+` profile once and
 a `+{ mint: <profile> }+` credential runs `jam mint` from it on every resolve, or a
 `+command:+` spells the invocation out. `+JAM_MINT_GITHUB_APP_KEY+` /
 `+JAM_MINT_AUTH0_CLIENT_SECRET+` come from the resolving process's own environment

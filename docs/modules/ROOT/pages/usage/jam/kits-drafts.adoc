@@ -1,0 +1,121 @@
+= Kit drafts
+:summary: A kit's draft on a branch of the config repo — one mutable tree per kit, opened from a version, with its problems listed; the ETag rule; publishing it, which commits the kit's files to the branch. The admin console's Draft section is in kits-drafts-ui.md.
+:read_when: You want to change a kit's files (Dockerfile, scripts, notes, kit.yml) in the admin console, or a draft save or publish was refused (problems, no changes, a stale draft).
+:owns: kit drafts — opening one, the draft's status and problems, the ETag rule, publishing a draft (a commit of the kit's files), where a draft lives
+:prereqs: config-branches.adoc (branches and saves), kits.adoc, kits-directory.adoc
+:tier: leaf
+:updated: 2026-11-01
+
+A kit's files change only by a commit to the config repo. In the admin
+console that is a *draft* on a branch (xref:usage/jam/config-branches.adoc[config-branches]):
+you edit the kit's files in the draft, then *publish* it, which commits them
+to the branch as `+kits/<name>/…+`. Merge the branch and the Jam builds the new
+version. By hand, edit `kits/<name>/` in a checkout and commit
+(xref:usage/jam/config-git.adoc#layout[config-git]). The console's Draft section:
+xref:usage/jam/kits-drafts-ui.adoc[kits-drafts-ui].
+
+[#the-draft]
+== The draft
+
+A kit has at most one draft on a branch: a mutable copy of one version's files
+(its tree, see xref:usage/jam/kits-directory.adoc#stored-as-trees[kits-directory]),
+opened from _current_ or a version you choose (its *base*). You change
+files in the draft, then publish it, or discard it.
+
+* Every save is checked like a kit in the repo: the paths, modes and sizes in
+xref:usage/jam/kits-directory.adoc#limits[limits]. The draft's own
+xref:usage/jam/kits-directory.adoc#dockerignore[`.dockerignore`] applies too: a file it
+excludes is refused (`+draft <kit>: <path>: excluded by .dockerignore+`), and
+saving a `.dockerignore` drops the files it now excludes.
+* `kit.yml` may be missing or invalid while you edit. The draft lists its
+*problems*: `+kit <name>: kit.yml missing at the root+`, a parse or
+validation error, a missing parent, a `+base.context…+` field. A draft with
+problems cannot be published.
+* A draft is working state in the branch's workspace, not in the repo: a draft
+save makes no commit. When the workspace reloads (the branch moved, a
+refused save), the draft carries over if its kit is unchanged on the branch;
+if the kit changed meanwhile (a push, or a publish from another Jam), the draft is
+dropped (logged `kit draft not carried over`) rather than published over
+that change; so is a draft whose kit had a newer version than its base
+(it no longer matches). A branch deleted and created again starts with no
+drafts. `kit <name> already has a draft` (409) refuses a second one.
+* Another version may land while a draft is open: the draft then shows
+`+base: 1, current: 2+`. Publishing still makes the draft's tree the kit's
+files, without the other version's changes (no merge).
+
+[#concurrency]
+== Concurrency
+
+The draft's *ETag* is its tree hash. Every write sends back the ETag it
+read: a stale one is refused 412 `draft <kit> changed since you loaded it (reload)`. Nothing is merged: reload the draft and make the edit again.
+
+[#file-api]
+== File API
+
+For editors that work on files (the VS Code extension,
+xref:usage/jam/vscode-kits.adoc[vscode-kits.adoc]), the draft's files are also plain
+bytes, under `/app/admin/api/kits/<kit>/draft/`, on a branch like every
+draft write. Each write is conditional on *the file it touches*: its
+sha256, not the draft's ETag, so a change to another file never refuses it.
+
+[%header]
+|===
+|Route |Does
+
+|`GET files` |`+{etag, base, current, problems, maxFile, files: [{path, exec, size, sha256}]}+`
+|`GET files/<path>` |The file's bytes; `ETag` is its sha256
+|`PUT files/<path>` |Writes the body. `+If-Match: "<sha256>"+` replaces that content, `+If-None-Match: *+` creates; `?exec=1` or `?exec=0` sets the mode (else kept; a new file is not executable). Answers like `GET files`
+|`DELETE files/<path>` |Removes it, with `If-Match`
+|`POST files-rename` |JSON ``+{from, to, sha256}+``: `from` must still have ``sha256``; `to` taken is 409
+|===
+
+A failed condition is 412 code `changed`, a write with neither header 428
+`+precondition_required+`, and a kit with no draft 404 `+no_draft+`. The draft's
+other rules (limits, `.dockerignore`, problems) hold as for any save.
+
+[#publish]
+== Publish
+
+Publish checks the draft as a kit in the repo is checked, makes its tree the
+kit's next version on the branch, commits the kit's files, and closes the
+draft.
+
+* No change from _current_: 409 `draft <kit> has no changes` (draft kept);
+problems: 400 `+draft <kit> has problems: …+`.
+* Kits that follow this one build on the new version once the branch is
+merged. Followers are never pinned: the repo names a parent without a
+version (xref:usage/jam/config-git.adoc#layout[config-git]), so a publish asking to pin
+them is refused 400 `+Pin followers can't be committed: the config repo names a kit's parent without a version (versions are per-Jam); publish without it+`.
+* The commit is the branch save's (xref:usage/jam/config-branches.adoc#saving[config-branches]):
+one commit, authored by the operator.
+
+[#test-build]
+== Test build
+
+A draft can be built before it is published, to check that it builds. The
+build commits nothing and starts no studio; the kit's real image is still
+built when the merged version is raised. There is no draft studio.
+
+[%header]
+|===
+|Route (under `/app/admin/api/kits/<kit>/draft/`) |Does
+
+|`POST build` |JSON ``+{etag, manager?}+``: builds the draft at that ETag on a Studio Manager that builds images (the first one, or `manager`)
+|`GET build?since=<n>` |The latest build of this branch's draft: `+{id, state, tag, digest, error, current, log, log_end, …}+`, its log from offset ``n``; poll with the last `+log_end+`
+|`POST build/cancel` |Stops the running build
+|===
+
+`state` is `running`, `succeeded`, `failed` or `unknown` (none since the Jam
+started). `current` says whether the draft is still the tree that was built.
+Builds and their logs (the last 1 MiB) are kept in memory only.
+
+* Each branch has its own builds. The image is tagged
+`+jam-kit-draft:<kit>-<tree[:12]>+`, never a version's tag.
+* The same files (the draft's tree and its resolved parents) on another
+branch reuse a running build, and a finished one whose image is still on
+the manager. The same tree with other parents is a different image: while
+one of those builds runs, the other is refused 409, so one tag never builds
+twice at once.
+* The draft must have no problems (400), and the ETag must be current (412).
+One build per kit runs at a time on a branch (409).
+* No Studio Manager can build: 503 `test builds need a connected Studio Manager that builds images (runtime.studio-managers)`.

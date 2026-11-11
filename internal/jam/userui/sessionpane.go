@@ -15,7 +15,7 @@ import (
 	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
-// The session pane (docs/usage/jam/intercom-ui.md#the-session-view): the
+// The session pane (docs/modules/ROOT/pages/usage/jam/intercom-ui.adoc#the-session-view): the
 // tabbed pane beside a session's messages (GET api/sessions/{id}/pane/{tab}).
 
 // paneTabs are the tabs a session's pane has.
@@ -159,7 +159,7 @@ func linkLabel(u string) string {
 }
 
 // paneStatus is the session's aggregates: its state and runtime, never the
-// content of its events (docs/usage/jam/session-events.md).
+// content of its events (docs/modules/ROOT/pages/usage/jam/session-events.adoc).
 func (h *handler) paneStatus(inst jam.Instance, pane *SessionPane) {
 	now := time.Now()
 	add := func(name, value string) {

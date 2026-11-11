@@ -31,7 +31,7 @@ var ErrAppTokenInvalid = errors.New("invalid or expired app token")
 // least recently used.
 const MaxAppTokensPerUser = 20
 
-// AppToken is one app token (docs/usage/jam/app-tokens.md): an opaque bearer
+// AppToken is one app token (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc): an opaque bearer
 // credential a user granted to a client. Only the hash of the raw token is
 // kept.
 type AppToken struct {

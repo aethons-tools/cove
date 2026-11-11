@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// The agent vocabulary for whiteboards (docs/usage/jam/whiteboards.md): a
+// The agent vocabulary for whiteboards (docs/modules/ROOT/pages/usage/jam/whiteboards.adoc): a
 // compact view of a board (CompactBoard) and a small set of ops
 // (ApplyBoardOps) that Jam turns into full Excalidraw elements — bound
 // labels, arrow bindings, seeds, versions — so agents never handle them.

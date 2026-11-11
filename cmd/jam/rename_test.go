@@ -17,7 +17,7 @@ import (
 )
 
 // Harbor → Jam deprecation aliases for the jam binary itself. See
-// docs/usage/jam/renamed-from-harbor.md.
+// docs/modules/ROOT/pages/usage/jam/renamed-from-harbor.adoc.
 
 func TestInvokedAsJamDoesNotWarn(t *testing.T) {
 	logging.ResetDeprecations()

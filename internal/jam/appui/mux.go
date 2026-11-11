@@ -78,7 +78,7 @@ func Handler(d Deps) *http.ServeMux {
 		cookie := d.Gate.Wrap(RequireAdmin(admin))
 		mux.Handle("/app/admin/", RefuseBearer(cookie))
 		// The admin API also takes an app token with admin access
-		// (docs/usage/jam/app-tokens.md#bearer-scope).
+		// (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc#bearer-scope).
 		mux.Handle("/app/admin/api/", withBearer(d.Bearer, d.SessionCookies, requireAdminAPI(admin), cookie))
 	}
 	mux.Handle("GET /app/{$}", d.Gate.Wrap(WithShell(http.HandlerFunc(landing), d.Shell)))

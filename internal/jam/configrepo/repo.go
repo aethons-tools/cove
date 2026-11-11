@@ -1,5 +1,5 @@
 // Package configrepo writes to a Jam's followed config repo
-// (docs/usage/jam/config-git-sources.md) with go-git alone: its branches,
+// (docs/modules/ROOT/pages/usage/jam/config-git-sources.adoc) with go-git alone: its branches,
 // a branch's files, new branches, commits to them, merges into the followed
 // branch (refused on a per-file conflict), and GitHub pull requests or
 // GitLab merge requests. It

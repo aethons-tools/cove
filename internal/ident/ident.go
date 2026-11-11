@@ -24,7 +24,7 @@ const (
 	Channel    Kind = "chn"
 	Blob       Kind = "blb" // an attachment (intercom attachments)
 	Board      Kind = "brd" // a whiteboard (intercom whiteboards)
-	AppToken   Kind = "apt" // an app token (docs/usage/jam/app-tokens.md)
+	AppToken   Kind = "apt" // an app token (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc)
 )
 
 var kinds = map[Kind]bool{Project: true, User: true, Connection: true, Account: true, Session: true, Channel: true, Blob: true, Board: true, AppToken: true}

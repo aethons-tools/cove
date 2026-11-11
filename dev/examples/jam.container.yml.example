@@ -64,7 +64,7 @@ credentials:
   jam-db: {}
   blobs-key: {}
   blobs-secret: {}
-  # The Studio Manager live test (docs/usage/jam/studio-manager-live-test.md)
+  # The Studio Manager live test (docs/modules/ROOT/pages/usage/jam/studio-manager-live-test.adoc)
   # needs these destinations' secrets too; uncomment, fill in the matching
   # entries in the credentials file, and restart Jam.
   # anthropic-key: {}
@@ -84,4 +84,4 @@ runtime:
   studio-managers: true
 
 # Optional subscription-OAuth pool: see dev/jam.dev.yml.example and
-# docs/usage/jam/pool.md (pool.store must be a path inside /var/lib/jam).
+# docs/modules/ROOT/pages/usage/jam/pool.adoc (pool.store must be a path inside /var/lib/jam).

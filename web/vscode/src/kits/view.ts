@@ -1,4 +1,4 @@
-// The Kits view (docs/usage/jam/vscode-kits.md): in the hub, an
+// The Kits view (docs/modules/ROOT/pages/usage/jam/vscode-kits.adoc): in the hub, an
 // operator's config branch and its kits. A kit opens as a jamkit: folder of
 // its draft; Publish commits the draft to the branch, Discard drops it.
 import * as vscode from "vscode";

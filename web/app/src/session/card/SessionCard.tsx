@@ -23,7 +23,7 @@ export function SessionCard({ card, compact = false }: { card: Card; compact?: b
   const { used, window } = card.context;
   const pct = window > 0 ? Math.min(100, Math.round((used * 100) / window)) : 0;
   return (
-    // The session's color is the card's left border (docs/usage/jam/session-colors.md).
+    // The session's color is the card's left border (docs/modules/ROOT/pages/usage/jam/session-colors.adoc).
     <div className="sc" data-compact={compact || undefined} style={card.color ? { borderLeftColor: card.color } : undefined}>
       <div className="sc-top">
         {/* A robot silhouette until real agent icons. */}

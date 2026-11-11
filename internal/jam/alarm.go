@@ -33,7 +33,7 @@ var alarmName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 // Alarm is one of a session's named wake conditions (the alarm_* tools): a
 // one-shot RFC 3339 time or a cron schedule in the role's time zone. See
-// docs/usage/jam/turn-end.md#alarms.
+// docs/modules/ROOT/pages/usage/jam/turn-end.adoc#alarms.
 type Alarm struct {
 	Name     string    `json:"name"`
 	Schedule string    `json:"schedule"`

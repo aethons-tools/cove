@@ -7,7 +7,7 @@ import (
 )
 
 // BearerFunc authenticates an /app/user request by its bearer token raw (an
-// app token, docs/usage/jam/app-tokens.md): rr carries the Principal, and
+// app token, docs/modules/ROOT/pages/usage/jam/app-tokens.adoc): rr carries the Principal, and
 // done is called when the request ends. An error answers 401.
 type BearerFunc func(r *http.Request, raw string) (rr *http.Request, done func(), err error)
 

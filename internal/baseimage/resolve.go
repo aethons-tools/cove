@@ -61,7 +61,7 @@ func Resolve(d Docker, s Spec, blessedRefs []string, warn io.Writer) (string, er
 		return "", err
 	}
 	if userChosen && isPreRenameRepo(ref) {
-		return "", fmt.Errorf("base image %s was renamed %s; update the kit (docs/usage/jam/renamed-from-at.md)",
+		return "", fmt.Errorf("base image %s was renamed %s; update the kit (docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc)",
 			legacynames.BaseImageRepo, basedigest.Image)
 	}
 	// The default ref IS a blessed jam-studio-base (we pin it), so it is trusted by

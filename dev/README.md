@@ -35,7 +35,7 @@ just integration-jam
 ## Attachments: Garage
 
 The compose file also runs [Garage](https://garagehq.deuxfleurs.fr/), an
-S3-compatible store, as the [attachments](../docs/usage/jam/attachments.md)
+S3-compatible store, as the [attachments](../docs/modules/ROOT/pages/usage/jam/attachments.adoc)
 bucket: one node, S3 API on host port **13900**, data in the `garagemeta` and
 `garagedata` volumes. On first start it lays itself out and creates the dev
 access key and the `jam-attachments` bucket (`--single-node --default-bucket`,
@@ -86,7 +86,7 @@ privileged port needs root — run the built binary under `sudo` directly for th
 `/app` act as that user, with no IdP and no callbacks. The user needs a login
 and a project membership, both in the config repo (`users/<name>.yml`'s
 `logins:`, a `project.yml`'s `members:`), and an OIDC identity
-(`jam user oidc`). See `dev-identity` in [serve.md](../docs/usage/jam/serve.md). To
+(`jam user oidc`). See `dev-identity` in [serve.adoc](../docs/modules/ROOT/pages/usage/jam/serve.adoc). To
 work on the Jam app with hot reload, run `just app-dev` beside `just dev-serve`
 ([web-app](../docs/modules/ROOT/pages/web-app.adoc#dev-loop)).
 
@@ -94,7 +94,7 @@ work on the Jam app with hot reload, run `just app-dev` beside `just dev-serve`
 
 A Jam's config changes only by a commit to the repo it follows. A dev Jam has
 no GitHub or GitLab repo, so it follows a local one with `config.git`
-([config-git-sources.md](../docs/usage/jam/config-git-sources.md#a-local-or-ssh-repo-configgit)).
+([config-git-sources](../docs/modules/ROOT/pages/usage/jam/config-git-sources.adoc#a-local-or-ssh-repo-configgit)).
 Make it **bare**: Jam never moves a branch that is checked out in the repo, so
 a bare repo lets the console's Merge land on `main`. Edit by hand in a clone.
 
@@ -128,9 +128,9 @@ Restart `just dev-serve` and confirm the first apply: `just jam config sync`
 ## Jam in a container
 
 The compose file also has an opt-in `jam` service that runs Jam from its image (`just jam-image`, `just dev-jam-up`).
-Steps, ports, admin access and volumes are in [container.md](../docs/usage/jam/container.md).
+Steps, ports, admin access and volumes are in [container](../docs/modules/ROOT/pages/usage/jam/container.adoc).
 
 These settings (plaintext admin, inline password, self-signed cert) are for
 local dev only. The production shape — TLS, OIDC operator auth, and
 resolver-based credentials — is documented in
-[`../docs/usage/jam/serve.md`](../docs/usage/jam/serve.md).
+[`../docs/modules/ROOT/pages/usage/jam/serve.adoc`](../docs/modules/ROOT/pages/usage/jam/serve.adoc).

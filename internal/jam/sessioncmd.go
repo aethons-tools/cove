@@ -1,7 +1,7 @@
 package jam
 
 // SessionCommand is a session-control press from the session header
-// (docs/usage/jam/session-view.md): sent to the session over its Attach
+// (docs/modules/ROOT/pages/usage/jam/session-view.adoc): sent to the session over its Attach
 // stream, never through ControlSink.
 type SessionCommand string
 

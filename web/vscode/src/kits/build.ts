@@ -1,4 +1,4 @@
-// A kit draft's test build (docs/usage/jam/kits-drafts.md#test-build), run
+// A kit draft's test build (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#test-build), run
 // from VS Code: start it, stream its log into an output channel, and end
 // with its outcome. Cancelling stops the build on the Jam.
 import type { AdminApi, KitDraftBuild } from "../admin/api";

@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-// Session colors (docs/usage/jam/session-colors.md): each session gets one
+// Session colors (docs/modules/ROOT/pages/usage/jam/session-colors.adoc): each session gets one
 // of SessionPalette when raised, the one farthest (OKLab ΔE) from the colors
 // of the sessions live now.
 

@@ -145,7 +145,7 @@ BIN2="$WORK/bin2"; mkdir -p "$BIN2"
 printf 'old-at-jam\n' >"$BIN2/at-jam"; printf 'old-at-mint\n' >"$BIN2/at-mint"; printf 'old-sm\n' >"$BIN2/at-studio-manager"
 out="$(JAM_VERSION="$FIXTURE_VERSION" BINDIR="$BIN2" run_install 2>&1)" && rc=0 || rc=$?
 assert_eq "install with stale binaries exit 0" 0 "$rc"
-case "$out" in *"pre-rename binaries still in $BIN2: at-jam at-mint at-studio-manager"*"renamed-from-at.md"*) ok "stale notice names them and the runbook" ;; *) bad "stale notice" "$out" ;; esac
+case "$out" in *"pre-rename binaries still in $BIN2: at-jam at-mint at-studio-manager"*"renamed-from-at.adoc"*) ok "stale notice names them and the runbook" ;; *) bad "stale notice" "$out" ;; esac
 assert_eq "stale at-jam untouched" old-at-jam "$(cat "$BIN2/at-jam")"
 assert_eq "stale at-mint untouched" old-at-mint "$(cat "$BIN2/at-mint")"
 assert_eq "stale at-studio-manager untouched" old-sm "$(cat "$BIN2/at-studio-manager")"

@@ -33,7 +33,7 @@ kit's list, which a Jam role's policy may replace within the kit's ceiling (see
 so a kit can _widen_ egress without ever weakening the sealed base. A user's own kit files can never weaken this.
 . *Secrets never touch disk or the host process table* —
 Jam's broker holds the real credentials and a studio holds only a scoped identity
-token (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/connector.md[connector]); what a raise stages into the studio
+token (xref:usage/jam/connector.adoc[connector]); what a raise stages into the studio
 (jam-studio-agent's env and prompt) goes over SSH stdin into tmpfs, never argv or disk.
 . *The hardening is foolproof* —
 the security-critical files (egress rules, sshd config, entrypoint) ship embedded in the binary
@@ -62,9 +62,9 @@ then seeds the spec's `claude.plugins` (below), merges the baseline Claude
 preferences under the first-boot user `settings.json`, and last installs
 Claude Code's managed settings `/etc/claude-code/managed-settings.json` —
 sandbox-wide policy only, Claude-specific so not a hardening file; see
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/model-spec-harness.md#managed-settings-vs-preferences-cov-245[model-spec-harness.md]. It is *model-spec-mediated, not
+xref:usage/jam/model-spec-harness.adoc#managed-settings-vs-preferences-cov-245[Managed settings vs. preferences (COV-245)]. It is *model-spec-mediated, not
 a hardening concern*: a studio gets its raising role's spec's version and plugins
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/model-spec-harness.md[model-spec-harness.md]), or with none the
+(xref:usage/jam/model-spec-harness.adoc[]), or with none the
 default install — the pinned `modelspec.DefaultClaudeVersion` (bumped by Renovate) and its plugins.
 Sitting after the kit base, a CLI bump rebuilds only from this stage on (Docker
 layer cache). It needs no secret — the install is unauthenticated.
@@ -103,7 +103,7 @@ The assembled `Dockerfile` starts `+FROM ${BASE}+` (the harness stage; hardening
 resolves when it builds the image (`+ResolveKitBase*+`, which the manager calls before every kit build):
 
 . a `Dockerfile` next to the studio kit's `kit.yml` (the manager builds it; the built image is the base),
-. else the kit's `+base:+` — `+kit:+` a parent kit's image or `+image:+` a prebuilt ref (not with a ``Dockerfile``; https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/kits.md[kits.md]),
+. else the kit's `+base:+` — `+kit:+` a parent kit's image or `+image:+` a prebuilt ref (not with a ``Dockerfile``; xref:usage/jam/kits.adoc[kits]),
 . else the default: the newest *blessed* `jam-studio-base`, pinned by digest.
 
 A *kit-chosen* base (1 or 2) must pass a *provenance gate*: the manager reads the
@@ -187,7 +187,7 @@ dangles.
 
 *A Jam role's egress replaces the policy list, within the ceiling, at raise.*
 When Jam raises a cove for a role with an egress policy
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/roster.md#role-egress[`scope.egress`] in its file in the config repo), the manager runs the
+(xref:usage/jam/roster.adoc#role-egress[`scope.egress`] in its file in the config repo), the manager runs the
 sealed, root-only `apply-role-egress.sh` via host `docker exec -u root` after sshd
 answers and *before jam-studio-agent (and so the agent) starts*. It reads the role's
 domains on stdin, refuses — changing nothing — any domain the ceiling doesn't cover
@@ -195,11 +195,11 @@ domains on stdin, refuses — changing nothing — any domain the ceiling doesn'
 only itself), then overwrites `+allowed_domains.kit.txt+`, clears the session file, and
 runs `squid -k reconfigure`. The base and infra lists stay on. A role with no policy
 keeps the kit default; a failed apply fails the raise
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#raising-a-real-managed-studio[coves]). When the role's policy
+(xref:usage/jam/coves.adoc#raising-a-real-managed-studio[coves]). When the role's policy
 later changes, Jam re-applies it to the role's running coves the same way
 (`+apply-role-egress.sh --kit-default+` restores the ceiling's list when the policy is
 cleared; that mode takes no domains) —
-see https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#egress-drift[egress drift].
+see xref:usage/jam/coves.adoc#egress-drift[egress drift].
 
 *Nested-container egress is contained too.* The `nftables` `output` chain locks the
 agent's _direct_ egress (only the `proxy` user reaches the network); a `forward` chain
@@ -224,9 +224,9 @@ How the running pieces connect:
 |===
 |Piece |Runs |Links
 
-|Jam (`jam serve`) |anywhere, including https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/container.md[a container] |https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/serve.md[serve.md]
-|Studio Managers (`jam-colima`) |bare-metal next to their substrate (Colima), dialing Jam |xref:usage/jam-colima.adoc[], https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/studio-managers.md[studio-managers.md]
-|Studios (`jam-studio-agent`) |on a manager's host, dialing Jam's Attach stream |https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#jam-studio-agent-the-in-cove-client[coves.md]
+|Jam (`jam serve`) |anywhere, including xref:usage/jam/container.adoc[a container] |xref:usage/jam/serve.adoc[]
+|Studio Managers (`jam-colima`) |bare-metal next to their substrate (Colima), dialing Jam |xref:usage/jam-colima.adoc[], xref:usage/jam/studio-managers.adoc[]
+|Studios (`jam-studio-agent`) |on a manager's host, dialing Jam's Attach stream |xref:usage/jam/coves.adoc#jam-studio-agent-the-in-cove-client[coves]
 |===
 
 A pure *plan* (what to do) is separated from *execution* (doing it),
@@ -263,8 +263,8 @@ internal/runner/               Runner interface (OS impl + Fake)
 ----
 
 Jam itself — `serve`, the broker, the roster, kits, studios, the Requisitioner,
-the intercom — is documented under https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/INDEX.md[usage/jam/];
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/renamed-from-harbor.md[renamed-from-harbor.md] lists its Harbor-era names.
+the intercom — is documented under xref:usage/jam/INDEX.adoc[usage/jam/];
+xref:usage/jam/renamed-from-harbor.adoc[] lists its Harbor-era names.
 
 == Building, testing, running
 
@@ -320,10 +320,10 @@ verification — untouched. It reads the same `+JAM_VERSION+`/`BINDIR`/`+JAM_SYS
 knobs, no-ops when already current (unless a half-finished xref:usage/jam-colima.adoc[upgrade] left the old manager binary beside `jam` without ``jam-colima``: then it reinstalls the current release), and takes `+--version TAG+` (pin) and `+--dry-run+`.
 
 *``jam version``* (and `+jam --version+`) prints the bare release version — `<N>-<MMDD>`, or `dev` for an unstamped build — and nothing else on stdout,
-so it can go straight into an image tag: `+…/jam:$(jam version)+` (the tags in https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/container.md[container.md]).
+so it can go straight into an image tag: `+…/jam:$(jam version)+` (the tags in xref:usage/jam/container.adoc[container]).
 A `just local` build adds its note on stderr (xref:local-build.adoc[]). `jam-colima version` and `jam mint version` still print `<name> <version>`.
 
-*Upgrading from a pre-rename release* (binaries `+at-…+`). Follow https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/renamed-from-at.md[the rename runbook]; the old binary's `update` cannot fetch the new release.
+*Upgrading from a pre-rename release* (binaries `+at-…+`). Follow xref:usage/jam/renamed-from-at.adoc[the rename runbook]; the old binary's `update` cannot fetch the new release.
 
 To *build from source instead* (the contributor path), use `just install` below,
 which compiles the binaries and installs them onto your PATH.

@@ -136,7 +136,7 @@ export interface OperatorNotes {
   html: string;
 }
 /**
- * AppTokenRow is one of a user's app tokens (docs/usage/jam/app-tokens.md).
+ * AppTokenRow is one of a user's app tokens (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc).
  */
 export interface AppTokenRow {
   id: string;
