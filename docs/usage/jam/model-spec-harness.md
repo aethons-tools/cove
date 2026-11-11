@@ -15,7 +15,7 @@ per-episode settings: they decide the image's harness layer.
 ## The harness layer
 
 The image's harness layer, between the kit base and the sealed hardening
-([OVERVIEW](../../OVERVIEW.md#how-the-build-context-is-assembled)), installs the
+([OVERVIEW](../../modules/ROOT/pages/OVERVIEW.adoc#how-the-build-context-is-assembled)), installs the
 CLI with the native installer at exactly `version` and pre-seeds the plugins
 (marketplace added, plugins installed at build, folded into `/agent-data`). The
 raise resolves the role's spec **before** the kit image, whose build-digest

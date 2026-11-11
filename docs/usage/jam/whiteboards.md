@@ -71,7 +71,7 @@ thumbnails and `board_snapshot`.
 A conversation you can post in has **New whiteboard** in its header (it asks a
 title, then opens the board). A board's card shows its title, a live thumbnail
 and **Open**, which goes to the app's `/app/user/boards/<id>`: the Excalidraw
-editor (a lazily loaded chunk of the [Jam app](../../web-app.md)) under
+editor (a lazily loaded chunk of the [Jam app](../../modules/ROOT/pages/web-app.adoc)) under
 **← Back to chat**. Edits save as you draw — the changed elements, ~300 ms after
 the last change and at least every second during a long drag; a failed save
 retries, and leaving with unsaved edits saves them first (closing the tab

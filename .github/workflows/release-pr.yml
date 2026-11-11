@@ -33,7 +33,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      # Until the first-time setup creates release (docs/DEVELOPMENT.md), there is
+      # Until the first-time setup creates release (docs/modules/ROOT/pages/DEVELOPMENT.adoc), there is
       # nothing to propose: succeed with a notice, and skip the rest.
       - name: Release branch
         id: release
@@ -41,7 +41,7 @@ jobs:
           out="$(bash scripts/release/release-exists.sh)"
           echo "$out" >>"$GITHUB_OUTPUT"
           if [ "$out" != exists=true ]; then
-            echo "::notice::No release branch yet (origin/release): no release PR. Create it from main (docs/DEVELOPMENT.md, First-time setup)."
+            echo "::notice::No release branch yet (origin/release): no release PR. Create it from main (docs/modules/ROOT/pages/DEVELOPMENT.adoc, First-time setup)."
           fi
       # `base: release` below names a branch; a checkout of main has only the
       # remote-tracking origin/release. Unverified whether paths-filter resolves

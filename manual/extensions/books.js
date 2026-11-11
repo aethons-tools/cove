@@ -1,4 +1,4 @@
-// Antora extension: books from local clones of other repos (docs/manual-books.md).
+// Antora extension: books from local clones of other repos (docs/modules/ROOT/pages/manual-books.adoc).
 // A playbook can't read the environment and fails on a
 // content source whose url is missing, so a book that lives in a repo not
 // everyone has (the process book, in the private aethons-tools/jam-config) is

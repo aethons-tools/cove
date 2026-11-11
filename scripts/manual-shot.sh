@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # manual-shot.sh — screenshot one view of the Jam app on mock data into the
-# manual (docs/manual.md): serves web/app with Vite on its mock API
+# manual (docs/modules/ROOT/pages/manual.adoc): serves web/app with Vite on its mock API
 # (web/app/src/shots/mocks.ts) and shoots it with the kit's headless Chrome
 # (JAM_BROWSER overrides). Paths are relative to the repo root.
 #

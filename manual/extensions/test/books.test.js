@@ -103,5 +103,5 @@ test('prerelease versions of the book are flagged, nothing else', () => {
 
 test('the customer playbook never adds books', () => {
   const playbook = fs.readFileSync(path.join(__dirname, '../../antora-playbook.jam.yml'), 'utf8')
-  assert.doesNotMatch(playbook, /books\.js|jam-config|start_path: process/)
+  assert.doesNotMatch(playbook, /books\.js|jam-config|start_path: (process|docs)/)
 })

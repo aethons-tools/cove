@@ -1,7 +1,7 @@
 {
   "name": "jam-manual",
   "private": true,
-  "description": "Builds the Jam manual with Antora; see docs/manual.md.",
+  "description": "Builds the Jam manual with Antora; see docs/modules/ROOT/pages/manual.adoc.",
   "devDependencies": {
     "@antora/lunr-extension": "1.0.0-alpha.13",
     "@asciidoctor/core": "2.2.9",

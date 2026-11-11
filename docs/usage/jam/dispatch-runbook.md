@@ -68,7 +68,7 @@ doc that owns the detail; this runbook only owns the **order** and the
   allow-list, every brokered call (and the Attach stream) dies and the studio does
   nothing. Widen egress in the kit/image.
 - **The dialed name must match the TLS cert.** The manager's `colima.jam-host` /
-  `colima.runtime-addr` ([config](../jam-colima.md#config)) must be a name the broker cert's SAN covers — the studio validates
+  `colima.runtime-addr` ([config](../../modules/ROOT/pages/usage/jam-colima.adoc#config)) must be a name the broker cert's SAN covers — the studio validates
   Jam's cert against its system trust store (the manager injects no CA). A
   cert for `local.aethons.tools` will not satisfy a studio told to dial
   `jam.local.aethons.tools`. Match them, or reissue the cert (wildcard/SAN).

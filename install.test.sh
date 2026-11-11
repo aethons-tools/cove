@@ -155,7 +155,7 @@ BIN8="$WORK/bin8"; mkdir -p "$BIN8"
 printf 'old-jsm\n' >"$BIN8/jam-studio-manager"
 out="$(JAM_VERSION="$FIXTURE_VERSION" BINDIR="$BIN8" run_install 2>&1)" && rc=0 || rc=$?
 assert_eq "install with jam-studio-manager left exit 0" 0 "$rc"
-case "$out" in *"jam-studio-manager is now jam-colima"*"$BIN8/jam-studio-manager"*"jam-colima.md#upgrading-from-jam-studio-manager"*) ok "jam-studio-manager notice names it and the upgrade section" ;; *) bad "jam-studio-manager notice" "$out" ;; esac
+case "$out" in *"jam-studio-manager is now jam-colima"*"$BIN8/jam-studio-manager"*"jam-colima.adoc#upgrading-from-jam-studio-manager"*) ok "jam-studio-manager notice names it and the upgrade section" ;; *) bad "jam-studio-manager notice" "$out" ;; esac
 case "$out" in *"pre-rename binaries"*) bad "jam-studio-manager is not an at-* binary" "$out" ;; *) ok "jam-studio-manager is not an at-* binary" ;; esac
 assert_eq "leftover jam-studio-manager untouched" old-jsm "$(cat "$BIN8/jam-studio-manager")"
 if [ -x "$BIN8/jam-colima" ]; then ok "jam-colima installed next to it"; else bad "jam-colima installed next to it"; fi

@@ -231,7 +231,7 @@ Personal sessions need the ledger, which `serve` always has.
 
 ### Running studios
 
-Jam runs no studios itself: [Studio Managers](studio-managers.md) next to Colima host them, set up per [jam-colima.md](../jam-colima.md).
+Jam runs no studios itself: [Studio Managers](studio-managers.md) next to Colima host them, set up per [jam-colima](../../modules/ROOT/pages/usage/jam-colima.adoc).
 With `runtime.studio-managers` off (dev and tests), `jam studio raise` records a placeholder instance and starts nothing.
 
 ## Layering serve configs

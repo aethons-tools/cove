@@ -31,20 +31,20 @@ curl -fsSL https://raw.githubusercontent.com/aethons-tools/cove/main/install.sh 
 
 `jam update` moves to the latest release. Prefer to build from source? Use
 `just install`. Version pinning and the `BINDIR` / `JAM_SYSTEM` overrides are in
-[the overview](docs/OVERVIEW.md#installing-the-binaries). To stand a Jam up, start
+[the overview](docs/modules/ROOT/pages/OVERVIEW.adoc#installing-the-binaries). To stand a Jam up, start
 at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md).
 
 ## Requirements
 
 - Go (to build) and [`just`](https://github.com/casey/just) (optional task runner — logic lives in `scripts/`).
-- A [Colima](https://github.com/abiosoft/colima) host running `jam-colima`, which runs the studios (see [jam-colima.md](docs/usage/jam-colima.md)).
+- A [Colima](https://github.com/abiosoft/colima) host running `jam-colima`, which runs the studios (see [jam-colima](docs/modules/ROOT/pages/usage/jam-colima.adoc)).
 - An `ssh` client.
 
 ## Documentation
 
-- **[`docs/INDEX.md`](docs/INDEX.md)** — the docs map; start here.
-- **[`docs/OVERVIEW.md`](docs/OVERVIEW.md)** — what this repo builds, the security model, the package map, build/test/run.
-- **[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)** — building and testing, including the egress-locked-sandbox toolchain workarounds.
+- **[`docs/modules/ROOT/pages/INDEX.adoc`](docs/modules/ROOT/pages/INDEX.adoc)** — the docs map; start here.
+- **[`docs/modules/ROOT/pages/OVERVIEW.adoc`](docs/modules/ROOT/pages/OVERVIEW.adoc)** — what this repo builds, the security model, the package map, build/test/run.
+- **[`docs/modules/ROOT/pages/DEVELOPMENT.adoc`](docs/modules/ROOT/pages/DEVELOPMENT.adoc)** — building and testing, including the egress-locked-sandbox toolchain workarounds.
 - **[`AGENTS.md`](AGENTS.md)** — orientation and working conventions for coding agents in this repo (the root `CLAUDE.md` just imports this).
 - **[`docs/superpowers/`](docs/superpowers/)** — the design history: dated specs and implementation plans.
 

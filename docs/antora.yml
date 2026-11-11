@@ -1,0 +1,12 @@
+# The architecture book: this repo's developer docs, on the team site only
+# (never the customer manual). No `version` here: the team playbook maps the
+# branch to a version (release is Released, main is Next, goal is Goal), like
+# the Jam manual. One ROOT module whose pages keep their docs/ paths
+# (modules/ROOT/pages/usage/jam-colima.adoc was docs/usage/jam-colima.md), so
+# xrefs carry no module. docs/superpowers/ and the docs still in Markdown sit
+# outside modules/ and are not part of it. See docs/modules/ROOT/pages/docs-asciidoc.adoc.
+name: architecture
+title: Architecture
+start_page: INDEX.adoc
+nav:
+- modules/ROOT/nav.adoc

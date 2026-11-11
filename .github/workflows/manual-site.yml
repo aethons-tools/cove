@@ -1,16 +1,16 @@
 name: manual-site
 
-# Builds the team site, "Jam books" (the manual: release as Released, main as
-# Next, goal as Goal; the process book from aethons-tools/jam-config: main as
+# Builds the team site, "Jam books" (the manual and the architecture book,
+# docs/: release as Released, main as Next, goal as Goal; the process book from aethons-tools/jam-config: main as
 # current, goal as goal; internal content shown) and deploys it to Cloudflare
 # Pages. The deployed site INCLUDES INTERNAL CONTENT and is safe only because Cloudflare Access gates it:
 # never remove the Access policy (it must cover the production host
 # aethons-tools-jam.pages.dev, not just preview deployments), and never deploy
-# the customer playbook here. See docs/manual.md. Secret CLOUDFLARE_API_TOKEN and
+# the customer playbook here. See docs/modules/ROOT/pages/manual.adoc. Secret CLOUDFLARE_API_TOKEN and
 # repository variable CLOUDFLARE_ACCOUNT_ID are required. Secret
 # JAM_CONFIG_DEPLOY_KEY (a read-only deploy key of aethons-tools/jam-config)
-# adds the process book (docs/manual-books.md); without it the site is the
-# manual alone, with a warning.
+# adds the process book (docs/modules/ROOT/pages/manual-books.adoc); without it the site has
+# no process book, with a warning.
 
 on:
   push:

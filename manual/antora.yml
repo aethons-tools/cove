@@ -1,7 +1,7 @@
 # The Jam manual: what the product does, for the people using it.
 # No `version` here: the playbook maps the branch to a version (release is
 # Released, main is Next, goal is Goal), so these files are identical on every
-# branch. See docs/manual.md.
+# branch. See docs/modules/ROOT/pages/manual.adoc.
 name: jam
 title: Jam manual
 nav:
@@ -11,5 +11,5 @@ nav:
 ext:
   internal:
     # Whole modules that are internal: the customer build drops them, the team
-    # build badges them (manual/extensions/internal.js). See docs/manual.md.
+    # build badges them (manual/extensions/internal.js). See docs/modules/ROOT/pages/manual.adoc.
     modules: []

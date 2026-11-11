@@ -1,5 +1,5 @@
 // The mock API that `just manual-shot` serves the app on
-// (vite.shot.config.ts, build/mockApi.ts; docs/manual.md): each key is
+// (vite.shot.config.ts, build/mockApi.ts; docs/modules/ROOT/pages/manual.adoc): each key is
 // "METHOD /path" (with its query, or without to match any), each value the
 // JSON answer, built from the tests' fixtures. A request with no entry
 // answers 404, is logged and fails the shot, naming what it still needs.

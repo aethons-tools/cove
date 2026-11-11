@@ -10,7 +10,7 @@ updated: 2026-11-05
 # Studio Managers
 
 A **Studio Manager** is a remote process that hosts studios on another machine and dials *into* Jam; Jam registers it under a name.
-The manager binary is [jam-colima](../jam-colima.md); this doc covers Jam's side.
+The manager binary is [jam-colima](../../modules/ROOT/pages/usage/jam-colima.adoc); this doc covers Jam's side.
 How a raise chooses among managers is in [Managers and placement](coves.md#managers-and-placement).
 
 ## Enable it
@@ -53,9 +53,9 @@ The manager calls the gRPC method `jam.manager.v1.StudioManager/Connect` on the 
 ## Status reports
 
 A manager may send unsolicited **status reports** (op `status`, frame id 0): its host stats (memory and disk used/total, disk reclaimable as images, build cache and volumes, last cleanup) and its work in progress.
-It sends one right after Welcome (once its first measurement is in), every 30s, and (throttled to one a second) when its work in progress changes or it finishes a disk cleanup ([jam-colima's](../jam-colima.md#disk-cleanup)); a manager with nothing to measure sends none.
+It sends one right after Welcome (once its first measurement is in), every 30s, and (throttled to one a second) when its work in progress changes or it finishes a disk cleanup ([jam-colima's](../../modules/ROOT/pages/usage/jam-colima.adoc#disk-cleanup)); a manager with nothing to measure sends none.
 Measuring runs apart from sending, so an on-demand report never waits on a measurement (it reuses the last host stats, or the manager's newer cached ones, such as a cleanup's); a measurement over 20s is cut off and reported as none.
-How [jam-colima](../jam-colima.md#host-stats) measures its VM is on its page.
+How [jam-colima](../../modules/ROOT/pages/usage/jam-colima.adoc#host-stats) measures its VM is on its page.
 
 Jam keeps the latest report per manager.
 Host stats are kept across a disconnect and a reconnect until the next report (the dashboard's tooltip says when they were measured); work in progress is dropped on disconnect.
@@ -66,7 +66,7 @@ A malformed report is logged and ignored.
 
 A report's work in progress is a list of **activities**, each `{id, kind, kit, step, detail, started}`.
 Kinds: `prepare-kit` (a kit image build; `kit` names it), `build-kit-draft` (a draft's test build) and `cleanup` (a disk cleanup).
-What [jam-colima](../jam-colima.md#work-in-progress) reports for each is on its page.
+What [jam-colima](../../modules/ROOT/pages/usage/jam-colima.adoc#work-in-progress) reports for each is on its page.
 A kit prepare is a request Jam makes and waits on; its progress reaches Jam only through these reports, never in the request's answer.
 
 Jam shows them:
@@ -110,8 +110,8 @@ Manager metrics are in [monitoring.md](monitoring.md#metrics).
 
 Jam used to run studios itself under `runtime.launcher` as the `local` manager; that block, the `local` manager and the `colima` verbs of the Jam CLI are gone.
 A serve config that still has `runtime.launcher` is refused at startup with a message pointing here.
-Remove the block, run [jam-colima](../jam-colima.md) next to Colima, set `runtime.studio-managers: true`, and register the manager (`jam manager add`).
-`colima setup-docker|check-docker` are now `jam-colima colima ...` ([docker-in-sandbox.md](../docker-in-sandbox.md)).
+Remove the block, run [jam-colima](../../modules/ROOT/pages/usage/jam-colima.adoc) next to Colima, set `runtime.studio-managers: true`, and register the manager (`jam manager add`).
+`colima setup-docker|check-docker` are now `jam-colima colima ...` ([docker-in-sandbox](../../modules/ROOT/pages/usage/docker-in-sandbox.adoc)).
 
 What Jam does at the cutover:
 
