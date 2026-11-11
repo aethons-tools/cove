@@ -3,6 +3,7 @@
   "private": true,
   "description": "Builds the Jam manual with Antora; see docs/manual.md.",
   "devDependencies": {
+    "@antora/lunr-extension": "1.0.0-alpha.13",
     "antora": "3.2.2"
   },
   "scripts": {

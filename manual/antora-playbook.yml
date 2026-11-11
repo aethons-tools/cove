@@ -3,7 +3,7 @@
 # branch of that name, else origin's; the branch you have checked out is read
 # from the working tree. See docs/manual.md.
 site:
-  title: Jam manual
+  title: Jam books
   start_page: released@jam:ROOT:index.adoc
 content:
   sources:
@@ -20,6 +20,9 @@ antora:
   # unset; badges internal pages in the nav when it is set. Whole internal
   # modules are listed in antora.yml. See docs/manual.md ("Marking content internal").
   - require: ./extensions/internal.js
+  # Full-text search (team builds only: the customer build is embedded in Jam,
+  # whose CSP allows no scripts). Index includes internal content, like the site.
+  - require: '@antora/lunr-extension'
 asciidoc:
   attributes:
     # The team manual: keep (and mark) internal content. The customer build omits it.
