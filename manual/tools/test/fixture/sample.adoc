@@ -1,0 +1,70 @@
+= Sample doc (`docs-to-adoc`)
+:summary: A sample doc: every construct the converter handles, with `code` and a \{placeholder}.
+:read_when: You are testing docs-to-adoc and need one doc that uses every Markdown construct our docs do.
+:owns: the converter's sample
+:prereqs: other.md
+:tier: leaf
+:updated: 2026-11-11
+
+A paragraph with *bold*, _italic_, _also italic_, and `inline code`.
+It keeps its semantic line breaks,
+links to xref:other.adoc[the other doc], to xref:other.adoc#the-section[a section of it],
+to <<lists-and-code,this one's>> own section, to xref:usage:u.adoc#usage-heading[a usage doc],
+to https://github.com/aethons-tools/cove/blob/main/docs/superpowers/s.md[a design record], to https://github.com/aethons-tools/cove/blob/main/internal/foo.go[the code],
+and to https://go.dev[Go]. A bare https://example.com autolink too.
+Some text says `+{Targets, Timeout}+`, `+a*b*c+`, `+x_y_z+`, `+--flag+`, `+a -> b+` and ``jam``'s.
+Intra**word** bold and `code`-adjacent text, and a placeholder \{name} in prose.
+A hard break ends this line +
+and an escaped &#42;star&#42; stays literal.
+
+[#lists-and-code]
+== Lists and code
+
+* one
+* two, with a nested list:
+[arabic]
+.. first
+.. second
+continued lazily
+* three, with a code block:
++
+[source,go]
+----
+func main() {}
+----
+* [ ] a task
+
+[source,bash]
+----
+just test
+----
+
+----
+plain listing
+----
+
+[#tables]
+== Tables
+
+[%header,cols="<,^"]
+|===
+|Doc |Read when
+
+|xref:other.adoc[other.md] |You need `a\|b` or *this*.
+|u |right
+|===
+
+== Quotes and callouts
+
+NOTE: a callout
+on two lines.
+
+WARNING: GitHub's form.
+
+____
+A plain quote.
+____
+
+'''
+
+image::images/pic.png[A picture]
