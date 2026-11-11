@@ -67,7 +67,7 @@ A `command:` runs on the Jam host — only supply commands you trust.
 
 ## Minters
 
-A `minters:` profile is a structured identity for [`jam mint`](../jam-mint.md),
+A `minters:` profile is a structured identity for [`jam mint`](../../modules/ROOT/pages/usage/jam-mint.adoc),
 exactly one of:
 
 - `github:` — `app-id`, `install-id`, `app-key` (a `value:` is a **path** to the

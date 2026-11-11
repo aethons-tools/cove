@@ -100,7 +100,7 @@ A [standing session](standing-sessions.md#state-across-restarts) is **pinned** t
 the manager holding its state and is only ever raised there. A
 [reset](standing-sessions.md#reset) clears the pin, so the next raise places it
 afresh; so does a pin to a manager that is no longer configured (container names:
-[jam-colima.md](../jam-colima.md#names-and-moving-between-managers)).
+[jam-colima](../../modules/ROOT/pages/usage/jam-colima.adoc#names-and-moving-between-managers)).
 Standing raises come from the reconciler, which names no managers today; when a caller does supply
 a `managers` list that excludes the pinned manager, the raise is refused with
 "standing session is pinned to a manager the request excludes".

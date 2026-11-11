@@ -72,7 +72,7 @@ just dev-serve         # runs the built jam serve --config dev/jam.dev.yml
 ```
 
 To run studios on images built from this checkout (a changed `images/`), use `just local` instead of `just build`:
-it builds the images, the binaries pointed at them, and `jam:dev` ([local-build.md](../docs/local-build.md)).
+it builds the images, the binaries pointed at them, and `jam:dev` ([local-build](../docs/modules/ROOT/pages/local-build.adoc)).
 
 `just dev-serve` runs the **last-built** `dist/<os>-<arch>/jam` (run `just
 build` first — it does not rebuild), forwarding extra args (e.g. `just dev-serve
@@ -88,7 +88,7 @@ and a project membership, both in the config repo (`users/<name>.yml`'s
 `logins:`, a `project.yml`'s `members:`), and an OIDC identity
 (`jam user oidc`). See `dev-identity` in [serve.md](../docs/usage/jam/serve.md). To
 work on the Jam app with hot reload, run `just app-dev` beside `just dev-serve`
-([web-app.md](../docs/web-app.md#dev-loop)).
+([web-app](../docs/modules/ROOT/pages/web-app.adoc#dev-loop)).
 
 ## Config: a local repo
 

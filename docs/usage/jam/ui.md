@@ -20,7 +20,7 @@ http://127.0.0.1:8081/app/
 | Path | Holds |
 |---|---|
 | `/app/user/*` | the Inbox — the Jam app ([intercom-ui.md](intercom-ui.md)) and its API — and [`POST /app/user/send`](#sending-post-appusersend) |
-| `/app/admin/*` | the admin console, the Jam app's admin area ([ui-console.md](ui-console.md)); its JSON API is `/app/admin/api/` ([web-app.md](../../web-app.md#admin-area)) |
+| `/app/admin/*` | the admin console, the Jam app's admin area ([ui-console.md](ui-console.md)); its JSON API is `/app/admin/api/` ([web-app](../../modules/ROOT/pages/web-app.adoc#admin-area)) |
 | `/app/auth/{login,callback,logout}` | the one browser login (ungated) |
 | `/app/auth/app-token`, `/app/auth/app-token/exchange` | sign-in for a client such as VS Code ([app-tokens.md](app-tokens.md)) |
 | `/app/static/*` | `jam.css` (for the 403 page), the brand mark and app icons (ungated) |
@@ -73,7 +73,7 @@ page's own tab is highlighted. In the console the bar also holds the
 [search box](ui-console.md#search).
 
 **One look.** Both areas are the Jam app (React and Mantine, built from
-`web/app` — [web-app.md](../../web-app.md)), with a theme carrying the
+`web/app` — [web-app](../../modules/ROOT/pages/web-app.adoc)), with a theme carrying the
 accent and fonts of `jam.css` (`internal/jam/uiassets`), which now styles
 only the server-rendered 403 page.
 

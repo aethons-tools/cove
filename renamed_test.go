@@ -55,8 +55,8 @@ var renamedAllow = []struct {
 	{"testdata/install-legacy", nil}, // the frozen pre-rename installers
 	{"install.test.sh", nil},         // drives the frozen pre-rename installers
 	{"install.sh", []string{`at-jam`, `at-mint`, `\bat-cove`, `at-studio-manager`, `jam-studio-manager`}}, // the stale-binary notices
-	{"docs/usage/jam-colima.md", []string{`jam-studio-manager`}},                                          // its "Upgrading from jam-studio-manager" section
-	{"docs/usage/INDEX.md", []string{`jam-studio-manager`}},                                               // the routing row to that section
+	{"docs/modules/ROOT/pages/usage/jam-colima.adoc", []string{`jam-studio-manager`}},                     // its "Upgrading from jam-studio-manager" section
+	{"docs/modules/ROOT/pages/usage/INDEX.adoc", []string{`jam-studio-manager`}},                          // the routing row to that section
 	{".gitignore", []string{`at-jam`, `at-mint`, `cove-master`, `covemaster`, `covemasterbin`}},           // keeps stale local builds out of git
 	{".github/workflows/release.yml", []string{`\bcove-base\b`}},                                          // the one-time re-cut copies the blessed bases out of the pre-rename repo
 	// The VS Code extension's port of the CLI's legacy-block strip, and its test.

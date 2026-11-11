@@ -2,7 +2,7 @@
 // embedded via uiassets): hashed files at /app/assets/ (Assets) as
 // immutable, and every other path under an area as index.html with a per-request bootstrap and a strict CSP, so
 // the app's client-side routes deep-link. It knows nothing about who may see
-// what: mount it behind the area's gate. See docs/web-app.md.
+// what: mount it behind the area's gate. See docs/modules/ROOT/pages/web-app.adoc.
 package webapp
 
 import (

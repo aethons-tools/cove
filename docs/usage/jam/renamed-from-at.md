@@ -10,7 +10,7 @@ updated: 2026-11-05
 # Renamed from `at-*` and `cove-*` to `jam`
 
 Everything this repo ships is now named for **Jam**: `jam`, and
-`jam-colima` on remote Studio Manager hosts ([once `jam-studio-manager`](../jam-colima.md#upgrading-from-jam-studio-manager)). There are **no aliases** — an old name is simply not read. Jam carries over its own
+`jam-colima` on remote Studio Manager hosts ([once `jam-studio-manager`](../../modules/ROOT/pages/usage/jam-colima.adoc#upgrading-from-jam-studio-manager)). There are **no aliases** — an old name is simply not read. Jam carries over its own
 config and state directories and rewrites stored kits, but **studios are not
 migrated**: every studio is redefined and re-raised under the new names, and a
 standing session starts fresh. You install the binaries, point your services
@@ -35,7 +35,7 @@ studio assembly changed).
    `at-jam mint …`) becomes `["jam", "mint", …]`, and its environment
    `AT_MINT_GITHUB_APP_KEY` / `AT_MINT_AUTH0_CLIENT_SECRET` becomes
    `JAM_MINT_GITHUB_APP_KEY` / `JAM_MINT_AUTH0_CLIENT_SECRET`
-   ([jam-mint.md](../jam-mint.md)). Serve start warns about any credential
+   ([jam-mint](../../modules/ROOT/pages/usage/jam-mint.adoc)). Serve start warns about any credential
    command still running `at-mint` or `at-jam`, naming the credentials only:
    `jam rename: credential commands still call at-mint or at-jam, which the
    rename removed; …`. Drop any `runtime.launcher` block: serve refuses it
@@ -103,7 +103,7 @@ On each host, after Jam is upgraded:
    rewrite any `token-file`, `ca-file`, `identity-file` or `known-hosts-dir`
    in `config.yml` that names the old directory. The token stays valid.
 4. **Point the service at `jam-colima run`** (`--config` if you pass
-   one) and start it (`colima.docker-context` is now [`colima.profile`](../jam-colima.md#config)).
+   one) and start it (`colima.docker-context` is now [`colima.profile`](../../modules/ROOT/pages/usage/jam-colima.adoc#config)).
 5. **Re-raise its studios.** The new manager does not see its pre-rename
    containers (old labels), so on reconnect Jam marks them lost and tears each
    down, which removes the old container. Standing sessions pinned to it start
@@ -169,7 +169,7 @@ host that ran the old `runtime.launcher`), once its studios are re-raised;
 | `~/.ssh/config` `# >>> at-jam <studio> >>>` | `# >>> jam <studio> >>>` |
 | release `cove_<ver>_<os>_<arch>.tar.gz` (at-cove, at-mint, at-jam, at-studio-manager) | `jam_<ver>_<os>_<arch>.tar.gz` (`jam`, `jam-studio-manager`; now `jam-colima`) |
 | attach gRPC `harbor.attach.v1.Runtime`, `x-harbor-launch-secret`; manager gRPC `cove.manager.v1.StudioManager` | `jam.attach.v1.Runtime`, `x-jam-launch-secret`; `jam.manager.v1.StudioManager` |
-| repo dirs `cmd/at-jam`, `cmd/at-mint`, `cmd/at-studio-manager`, `cmd/cove-master`, `images/cove-base-image`, `images/cove-image`; `docs/usage/at-mint.md` | `cmd/jam`, `internal/mintcmd`, `cmd/jam-studio-manager`, `cmd/jam-studio-agent`, `images/jam-studio-base`, `images/jam-studio`; `docs/usage/jam-mint.md` |
+| repo dirs `cmd/at-jam`, `cmd/at-mint`, `cmd/at-studio-manager`, `cmd/cove-master`, `images/cove-base-image`, `images/cove-image`; `docs/usage/at-mint.md` | `cmd/jam`, `internal/mintcmd`, `cmd/jam-studio-manager`, `cmd/jam-studio-agent`, `images/jam-studio-base`, `images/jam-studio`; `docs/modules/ROOT/pages/usage/jam-mint.adoc` |
 | Go `internal/covemaster`, `internal/covemasterbin`, `scripts/stage-covemaster.sh` (staged `covemaster/cove-master-linux-<arch>`) | `internal/studioagent`, `internal/studioagentbin`, `scripts/stage-studio-agent.sh` (`studioagent/jam-studio-agent-linux-<arch>`) |
 | Go `AtCoveIdentity`, `LaunchCoveMaster`, `CoveMasterOptions`, `CoveMasterLogVMPath`, `naming.CoveContainer` | `AssemblyIdentity`, `LaunchStudioAgent`, `StudioAgentOptions`, `StudioAgentLogVMPath`, `naming.StudioContainer` |
 

@@ -1,5 +1,5 @@
 // docs-to-adoc: the Markdown → AsciiDoc conversion of the repo's docs
-// (docs/docs-asciidoc.md). Hermetic: converts the
+// (docs/modules/ROOT/pages/docs-asciidoc.adoc). Hermetic: converts the
 // sample tree under fixture/docs and renders the result with Asciidoctor.
 'use strict'
 

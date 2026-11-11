@@ -2,7 +2,7 @@
 # app.sh — build the Jam app bundle (web/app) that jam embeds, into
 # internal/jam/uiassets/app/ (git-ignored). Needs Node and npm with access to
 # the npm registry; the lockfile pins every package. Without the bundle jam
-# still builds: /app/user/ answers "not built". See docs/web-app.md.
+# still builds: /app/user/ answers "not built". See docs/modules/ROOT/pages/web-app.adoc.
 #
 #   scripts/app.sh                  # build (npm ci + vite build + size budget)
 #   APP_OPTIONAL=1 scripts/app.sh   # skip, with a warning, when npm is missing

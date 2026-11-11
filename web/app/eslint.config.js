@@ -12,7 +12,7 @@ export default tseslint.config(
       // site carries an eslint-disable comment saying so.
       "no-restricted-syntax": ["error", {
         selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
-        message: "Only the squawkrender message body may set inner HTML (docs/web-app.md).",
+        message: "Only the squawkrender message body may set inner HTML (docs/modules/ROOT/pages/web-app.adoc).",
       }],
     },
   },
