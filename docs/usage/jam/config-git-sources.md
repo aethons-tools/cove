@@ -12,7 +12,7 @@ updated: 2026-11-01
 A Jam's configuration changes only by a commit to its config repo: by hand,
 or on a branch in the admin console ([config-branches.md](config-branches.md)).
 A Jam follows **one** config repo, named in its serve config
-([serve.md](serve.md#the-serve-config)). With none, it runs its stored config, read-only.
+([serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#the-serve-config)). With none, it runs its stored config, read-only.
 
 ```yaml
 config:
@@ -69,7 +69,7 @@ The **follower** checks the branch now and every minute (`ls-remote`) and:
 | `failed` | The check or the apply failed: a fetch or auth error, a refused plan. | Keeps the last good config. `config.follow` (warning) carries the error; the next check retries, even at the same head. |
 
 **Confirming the first apply.** Review the plan and apply it once:
-`config sync` (or **Diff**, then **Apply this plan**, on Config › Tracking, [ui-config.md](ui-config.md)).
+`config sync` (or **Diff**, then **Apply this plan**, on Config › Tracking, [ui-config.adoc](../../modules/ROOT/pages/usage/jam/ui-config.adoc)).
 That apply records the repo, commit and time; from then on the follower applies
 on its own. The record is not part of `jam export`: a restored Jam asks again.
 
@@ -156,7 +156,7 @@ Statuses: refused (including the 16-source cap), stale or no config repo 409; ba
 auth, limit or timeout (`config fetch timed out`) failure 502; a serve with
 no fetcher 503.
 
-The admin console's Tracking page (Config › Tracking) shows the follower, and diffs and applies the followed repo too: [ui-config.md](ui-config.md).
+The admin console's Tracking page (Config › Tracking) shows the follower, and diffs and applies the followed repo too: [ui-config.adoc](../../modules/ROOT/pages/usage/jam/ui-config.adoc).
 
 ## Locks
 

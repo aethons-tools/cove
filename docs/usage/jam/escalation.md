@@ -62,7 +62,7 @@ denial or a `401`, without the studio calling `escalate`) is not implemented yet
 
 Every turn ends in Waiting, so an escalation opens only when the waiting session
 **asked for a person**: a ticket session's **`needs-input`**
-[report](turn-end.md#reporting-a-ticket), **any** session's open
+[report](../../modules/ROOT/pages/usage/jam/turn-end.adoc#reporting-a-ticket), **any** session's open
 [ask](asks.md) (until its last one closes), or **any** session's `escalate` call
 since it was last woken (a resume after background work, Holding, doesn't count as
 a wake). A session that asked to `end`, or that is ending or gone, is never
@@ -134,7 +134,7 @@ for a Project that has an escalation policy set.
 
 A project's chains are in its `project.yml` in the config repo, changed by a
 commit (or on the admin console's project Escalation page, on a branch:
-[ui-projects.md](ui-projects.md#sections)):
+[ui-projects.adoc](../../modules/ROOT/pages/usage/jam/ui-projects.adoc#sections)):
 
 ```yaml
 # projects/acme/project.yml
@@ -152,7 +152,7 @@ escalation-by-category:           # a chain per category (see Categories above)
   `default`), then each configured category's chain (labeled by category
   name), each tier's index, targets, and timeout. It takes the same
   admin-client flags (`--app`/`--admin-url`/`--token`) as every other `jam`
-  verb — see [operators.md](operators.md).
+  verb — see [operators.adoc](../../modules/ROOT/pages/usage/jam/operators.adoc).
 
 ## Not yet (deferred)
 

@@ -2,7 +2,7 @@
 summary: How a destination says where a studio's identity token arrives (`identity_in`) and how Jam sets the real credential upstream (`apply`) — the presets (bearer, basic-password, x-api-key, raw) and custom header specs.
 read_when: You are adding a destination whose upstream wants the credential in a header the presets don't cover (or bare in Authorization, like Linear), choosing between presets, or debugging a 401 / wrong upstream auth header.
 owns: the `identity_in`/`apply` presets, the custom header-spec schema (`identity_in_spec`/`apply_spec`), its validation and storage compatibility
-prereqs: serve.md#destinations for the destination verb
+prereqs: serve.adoc#destinations for the destination verb
 tier: leaf
 updated: 2026-11-01
 ---
@@ -37,7 +37,7 @@ the UI select and every pre-existing destination use):
 ## Custom specs
 
 Set the field to `custom` and give the spec in `identity_in_spec` /
-`apply_spec`, in the destination's file in the config repo ([serve.md](serve.md#destinations)):
+`apply_spec`, in the destination's file in the config repo ([serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#destinations)):
 
 ```yaml
 # destinations/gitlab.yml

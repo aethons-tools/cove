@@ -2,7 +2,7 @@
 summary: App tokens — the opaque bearer credential a user grants to a client such as the VS Code extension; the consent and PKCE sign-in, lifetimes, operator standing, where a bearer is accepted or refused, the per-user cap, and revocation.
 read_when: You are signing a client in to Jam with an app token, debugging a 400/401/403 on a bearer request, deciding what an app token may reach, or revoking one (a user's Connected apps, an operator on the user page).
 owns: the consent and PKCE flow and its two routes and parameters; the redirect prefixes and the 60 s single-use codes; app-token lifetimes (30 days, sliding or fixed, the 5-minute touch); operator standing taken at consent; bearer scope (accepted, refused, cookie+bearer 400); the per-user cap; revocation; app-token storage
-prereqs: ui.md for the browser login and the Principal
+prereqs: ui.adoc for the browser login and the Principal
 tier: leaf
 updated: 2026-11-04
 ---
@@ -11,7 +11,7 @@ updated: 2026-11-04
 
 An app token is an opaque bearer credential a user hands to a client, so the client acts as that user without a browser cookie.
 Jam mints one only after the user signs in in a browser and allows it on a consent page.
-The routes exist only when browser login is configured ([ui.md](ui.md#signing-in-one-login-one-principal)).
+The routes exist only when browser login is configured ([ui.adoc](../../modules/ROOT/pages/usage/jam/ui.adoc#signing-in-one-login-one-principal)).
 
 ## Sign-in: consent and PKCE
 
@@ -57,7 +57,7 @@ Expired tokens are deleted hourly.
 If the user is an operator at consent, the token records the operator id.
 Standing comes from the verified access-token cookie of the browser login, never from loopback trust or the dev identity.
 Such a token acts as that operator in the user area and on `/me/studios` (SSH and previews on any session), as the browser session does.
-It may also use the admin API, `/app/admin/api/`, as that operator: the VS Code extension edits kits through it ([vscode-kits.md](vscode-kits.md)).
+It may also use the admin API, `/app/admin/api/`, as that operator: the VS Code extension edits kits through it ([vscode-kits.adoc](../../modules/ROOT/pages/usage/jam/vscode-kits.adoc)).
 The consent page says so. It never reaches the console's pages under `/app/admin/`.
 
 A token minted before admin access existed keeps working everywhere else but gets `403` (`no_admin`) from the admin API: sign in again for a new one.
@@ -80,7 +80,7 @@ Send `Authorization: Bearer <token>`.
 | An unknown, expired or removed-user token | `401`. |
 
 A bearer request skips the same-origin check, since it has no cookie to forge, and never gains loopback admin.
-`/me/studios` and `/me/vscode` (the extension's download and update check, [vscode.md](vscode.md#updates)) also take a `login --participant` ID token ([collaboration.md](collaboration.md)).
+`/me/studios` and `/me/vscode` (the extension's download and update check, [vscode.adoc](../../modules/ROOT/pages/usage/jam/vscode.adoc#updates)) also take a `login --participant` ID token ([collaboration.md](collaboration.md)).
 
 ## Per-user cap
 
@@ -90,7 +90,7 @@ Adding a 21st evicts the least recently used one and ends its open requests.
 ## Revocation
 
 - **The user:** Connected apps in the account menu of the app.
-- **An operator:** the App tokens list on the user's admin page ([ui-pages.md](ui-pages.md#user-pages)).
+- **An operator:** the App tokens list on the user's admin page ([ui-pages.adoc](../../modules/ROOT/pages/usage/jam/ui-pages.adoc#user-pages)).
 
 Revoking ends the token's open `/app/user` requests, event streams included.
 A token whose user is removed stops working at once, and its open requests end within 5 s.

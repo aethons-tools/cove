@@ -25,7 +25,7 @@ func TestWarnPreRenameCredentialCommands(t *testing.T) {
 	}, log)
 	out := buf.String()
 	if strings.Count(out, "level=WARN") != 1 ||
-		!strings.Contains(out, `msg="jam rename: credential commands still call `+legacynames.MintBinary+" or "+legacynames.JamBinary+`, which the rename removed; use [\"jam\",\"mint\",...] with JAM_MINT_* env (docs/usage/jam/renamed-from-at.md)"`) ||
+		!strings.Contains(out, `msg="jam rename: credential commands still call `+legacynames.MintBinary+" or "+legacynames.JamBinary+`, which the rename removed; use [\"jam\",\"mint\",...] with JAM_MINT_* env (docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc)"`) ||
 		!strings.Contains(out, "credentials=\"[gh old]\"") {
 		t.Fatalf("log = %s", out)
 	}

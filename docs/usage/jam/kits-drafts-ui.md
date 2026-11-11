@@ -2,20 +2,20 @@
 summary: The Draft section of a kit's page in the admin console, on a branch — opening and discarding a draft, the file tree, the text editor and its limits, upload, rename and delete, the diff against the base, publishing (a commit) and the unsaved-edit guard.
 read_when: You are using or changing the Draft section of a kit's page in the admin console (`/app/admin/config/kits/<name>`), or a Draft form refused a save or a publish.
 owns: the admin console's kit Draft section (on /app/admin/config/kits/<name>, `?dfile=`/`&ddiff=1`), its editor rules, its Published card, its ui kit draft log lines
-prereqs: kits-drafts.md, config-branches.md (the Draft section shows only on a branch), ui-editing.md for the admin console's write rules
+prereqs: kits-drafts.md, config-branches.md (the Draft section shows only on a branch), ui-editing.adoc for the admin console's write rules
 tier: leaf
 updated: 2026-11-01
 ---
 
 # The kit Draft section
 
-A kit's page (`/app/admin/config/kits/<name>`, [ui-pages.md](ui-pages.md#kit-pages))
+A kit's page (`/app/admin/config/kits/<name>`, [ui-pages.adoc](../../modules/ROOT/pages/usage/jam/ui-pages.adoc#kit-pages))
 ends with its **Draft** section, on a branch only ([config-branches.md](config-branches.md)). With no draft open it offers **Open draft**
 from any version (current preselected). The opened file is `?dfile=<path>`
 in the page's URL (its diff against the base `&ddiff=1`). The Kits table and
 the page head flag a kit whose draft is open (`draft · base v<N>`, which
 jumps to the section). Every write follows the console's
-[write rules](ui-editing.md) and sends the draft's ETag back, so the
+[write rules](../../modules/ROOT/pages/usage/jam/ui-editing.adoc) and sends the draft's ETag back, so the
 [concurrency](kits-drafts.md#concurrency) rule holds in the browser too.
 
 - **Draft** card: base and current versions, the last save's operator and

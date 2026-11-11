@@ -2,7 +2,7 @@
 summary: End-to-end runbook for standing up Jam's Linear-driven dispatch on a single Colima host — the ordered procedure (serve → destinations → role → dispatch-label gate) plus the field gotchas that bite a first real run (egress, cert-name, flat-vs-grouped labels).
 read_when: You are bringing up a real Jam dispatch loop for the first time (or reproducing one) and want the ordered steps and the traps, not the per-field reference.
 owns: the ordered end-to-end dispatch stand-up procedure and its field gotchas; it links to the reference docs it stitches together and never restates their schemas
-prereqs: serve.md, roster.md, requisitioner.md, coves.md — this runbook orders them, it does not replace them
+prereqs: serve.adoc, roster.adoc, requisitioner.adoc, coves.md — this runbook orders them, it does not replace them
 tier: leaf
 updated: 2026-11-05
 ---
@@ -12,7 +12,7 @@ updated: 2026-11-05
 The shortest correct path to a working **Linear ticket → raised studio** loop on a
 single host with Colima, and the traps that actually bite. Each step links to the
 doc that owns the detail; this runbook only owns the **order** and the
-**gotchas**. Read [requisitioner.md](requisitioner.md) for the model.
+**gotchas**. Read [requisitioner.adoc](../../modules/ROOT/pages/usage/jam/requisitioner.adoc) for the model.
 
 ## Prerequisites
 
@@ -25,13 +25,13 @@ doc that owns the detail; this runbook only owns the **order** and the
 
 1. **Postgres (required)** — `just dev-up` raises the dev
    Postgres; the `store-postgres` block holds the control plane *and* the
-   intercom log (the durable squawk Log). See [serve.md](serve.md#postgres-store-store-postgres)
+   intercom log (the durable squawk Log). See [serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#postgres-store-store-postgres)
    and [`dev/`](../../../dev/README.md).
 2. **`jam serve`** — write the serve config: cove-facing `listen: :443` +
    `tls`, loopback `admin-listen` (no OIDC needed on loopback), `store-postgres`,
    `credentials` (anthropic + git + the DB password), and `runtime.studio-managers: true`
-   with a connected [Studio Manager](studio-managers.md) that builds studios from the role's studio kit. Start it (`:443` needs privilege). Full schema:
-   [serve.md](serve.md).
+   with a connected [Studio Manager](../../modules/ROOT/pages/usage/jam/studio-managers.adoc) that builds studios from the role's studio kit. Start it (`:443` needs privilege). Full schema:
+   [serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc).
 3. **Config repo** — point the serve config's `config:` block at the Jam's
    config repo and confirm the first apply ([config-git-sources.md](config-git-sources.md)).
    Steps 4–6's objects are files there, added by a commit (by hand, or on a
@@ -39,26 +39,26 @@ doc that owns the detail; this runbook only owns the **order** and the
 4. **Destinations** — `destinations/anthropic.yml` and `destinations/git.yml`.
    Each `cred_name` must resolve to a `credentials:` entry, **validated by the
    plan** — so add the credential to the serve config and restart before
-   committing the destination. [serve.md](serve.md#destinations).
+   committing the destination. [serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#destinations).
 5. **Project and role** — `projects/acme/project.yml` and
    `projects/acme/roles/worker.yml` with
    `scope: {destinations: [anthropic, git], ttl: 24h}`. The git credential's own scope bounds which repos it reaches. A role with **no `ttl` mints non-expiring
-   tokens** — always set one for ephemeral studios. [roster.md](roster.md#roles).
+   tokens** — always set one for ephemeral studios. [roster.adoc](../../modules/ROOT/pages/usage/jam/roster.adoc#roles).
 6. **Requisitioner** — commit a linear connection (`connections/linear.yml`:
    `service: linear`, `cred: <credential>`), then add `runtime.requisitioner` (`role`, `max-concurrent`,
    `project: acme`, `connection: linear`, `linear.team` + `states`). Restart serve. It polls the
    `ready` state and raises one studio per **dispatch-labeled** ticket, bounded by
-   the cap. [requisitioner.md](requisitioner.md).
+   the cap. [requisitioner.adoc](../../modules/ROOT/pages/usage/jam/requisitioner.adoc).
 7. **Trigger** — label a ticket `dispatch:go`, move it to your `ready` state, and
    watch `jam studio list`. The kit registry ([kits.md](kits.md)) is **not**
-   required — the Studio Manager builds from the role's studio kit ([studio-managers.md](studio-managers.md)).
+   required — the Studio Manager builds from the role's studio kit ([studio-managers.adoc](../../modules/ROOT/pages/usage/jam/studio-managers.adoc)).
 
 ## Gotchas (each one cost a real debugging loop)
 
 - **Dispatch is opt-in per ticket.** Only issues carrying a label matching
   `dispatch-label-prefix` (default `dispatch:`) are raised. Point `states.ready`
   at a *dedicated* column or a shared "Todo" will sweep the whole backlog into
-  studios. See [requisitioner.md](requisitioner.md).
+  studios. See [requisitioner.adoc](../../modules/ROOT/pages/usage/jam/requisitioner.adoc).
 - **Use a FLAT `dispatch:*` label, not a Linear label _group_.** A grouped label's
   API `name` is just the child (e.g. `spider`), *without* the `dispatch:` prefix,
   so the gate never matches and nothing raises. Create a flat label named literally

@@ -12,7 +12,7 @@ import (
 )
 
 // Ticket report states (the `report` tool). See
-// docs/usage/jam/turn-end.md#reporting-a-ticket.
+// docs/modules/ROOT/pages/usage/jam/turn-end.adoc#reporting-a-ticket.
 const (
 	ReportInProgress = "in-progress"
 	ReportInReview   = "in-review"

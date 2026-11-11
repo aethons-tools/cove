@@ -16,7 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Whiteboards (docs/usage/jam/whiteboards.md): an agent creates and lists
+// Whiteboards (docs/modules/ROOT/pages/usage/jam/whiteboards.adoc): an agent creates and lists
 // boards, reads one compactly, applies ops, and renders it to PNG to look
 // at. Edits never post to chat or wake anyone.
 

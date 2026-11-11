@@ -2,7 +2,7 @@
 summary: Back up and restore a Jam's control-plane CONFIG (actors, roles, kits, destinations, model-specs, projects, Jam-wide session context) with `jam export` / `jam import` — a single file, excluding studio and intercom state.
 read_when: You are snapshotting a Jam's config for backup, or restoring it onto a fresh/rebuilt Jam.
 owns: the `jam export` / `jam import` command surface and the backup file's scope + semantics
-prereqs: operators.md for signing in (`--app`/`--token`); roster.md and kits.md for what the aggregates are
+prereqs: operators.adoc for signing in (`--app`/`--token`); roster.adoc and kits.md for what the aggregates are
 tier: leaf
 updated: 2026-11-01
 ---
@@ -18,7 +18,7 @@ control-plane aggregates:
 - **roles** (scope incl. egress, allocation incl. standing sessions, session context)
 - **kits** (every version: its files, as content-addressed trees and blobs, with the current pin and provenance)
 - **destinations**
-- **model-specs** ([model-specs.md](model-specs.md); omitted from the file when there are none)
+- **model-specs** ([model-specs.adoc](../../modules/ROOT/pages/usage/jam/model-specs.adoc); omitted from the file when there are none)
 - **projects** (escalation policy, chat service, session context and resources)
 - the **identity registry** — users (removed ones too: their ids back history),
   connections, accounts, project memberships and the legacy human aliases — with
@@ -94,7 +94,7 @@ jam import backup.json
 
 A backup taken before projects were first-class may have roles or grants that
 name a project it has no record for. Import adds an empty record for each one
-(see [projects.md](projects.md#upgrading-an-existing-jam)).
+(see [projects.adoc](../../modules/ROOT/pages/usage/jam/projects.adoc#upgrading-an-existing-jam)).
 
 Because existing tokens keep working after a restore, there is nothing to
 re-hand-out: point the studios at the restored Jam and they authenticate as
@@ -112,8 +112,8 @@ re-mint every token). The wire is JSON; YAML exists only at the file boundary.
 Jam is Postgres-only. For a Jam that ran on the old file store, export/import is
 the **only** upgrade path: run `jam export` with the old version, then
 `jam import` into a Jam running on `store-postgres`
-([serve.md](serve.md#postgres-store-store-postgres)). Squawk history and session
+([serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#postgres-store-store-postgres)). Squawk history and session
 events in the old files are not migrated. The relay cursor/marker/receipt files
 must also be moved into `state-dir`; see
-[serve.md](serve.md#upgrading-relay-state) for where they were and what is lost
+[serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#upgrading-relay-state) for where they were and what is lost
 if you skip it.

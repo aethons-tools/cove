@@ -412,7 +412,7 @@ func (s *Supervisor) tailSeq() int64 {
 	return seq
 }
 
-// assignColor gives actorID a session color (docs/usage/jam/session-colors.md)
+// assignColor gives actorID a session color (docs/modules/ROOT/pages/usage/jam/session-colors.adoc)
 // unless it has one: the palette color farthest from the live sessions'.
 // Best effort: a store error leaves the session without one.
 func (s *Supervisor) assignColor(actorID string) {

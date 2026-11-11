@@ -12,7 +12,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/collab"
 )
 
-// The pane's framed views (docs/usage/jam/previews.md#framing): a preview's
+// The pane's framed views (docs/modules/ROOT/pages/usage/jam/previews.adoc#framing-the-jam-pane): a preview's
 // View here. The page asks for a frame URL by the
 // session and preview name only, never a host or URL.
 

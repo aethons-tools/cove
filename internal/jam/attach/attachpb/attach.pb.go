@@ -7,7 +7,7 @@
 // The service is jam.attach.v1.Runtime (/jam.attach.v1.Runtime/Attach), the
 // gRPC wire name a studio's agent dials. Studios built before the jam rename
 // speak the pre-rename name and cannot attach; they are retired at serve start
-// (docs/usage/jam/renamed-from-at.md).
+// (docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc).
 
 package attachpb
 

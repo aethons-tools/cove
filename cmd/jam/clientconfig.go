@@ -74,7 +74,7 @@ type dirMove struct {
 }
 
 // renamedDirs are the jam rename's directory moves
-// (docs/usage/jam/renamed-from-at.md): the CLI config and the state dir.
+// (docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc): the CLI config and the state dir.
 func renamedDirs() []dirMove {
 	cfg := xdgConfigHome()
 	moves := []dirMove{

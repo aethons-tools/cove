@@ -2,7 +2,7 @@
 summary: The protected Jam credentials file (`~/.config/jam/credentials.yml`) that supplies the real secrets a Jam brokers/uses, and the demand/supply split between it and the serve config's name-only `credentials:` list.
 read_when: You are supplying the real secrets a Jam brokers or uses — writing ~/.config/jam/credentials.yml, choosing value/command/global/mint per credential, wiring `credentials-file`, or migrating an inline `credentials:`/`bot-token`/`tracker-token` strategy out of a serve config.
 owns: the jam credentials-file format and location, the value/command/global/mint source vocabulary and the minters: library, the `exchange: gcp` demand setting, the demand/supply split (serve config demands by name, the file supplies), which references must name a demanded credential, and fail-closed on an unsupplied demand
-prereqs: serve.md for the serve config that demands credentials
+prereqs: serve.adoc for the serve config that demands credentials
 tier: leaf
 updated: 2026-11-01
 ---
@@ -16,7 +16,7 @@ them, each from one of four [sources](#sources) — optionally through a
 
 ## Location
 
-Set `credentials-file: <path>` in the [serve config](serve.md#the-serve-config).
+Set `credentials-file: <path>` in the [serve config](../../modules/ROOT/pages/usage/jam/serve.adoc#the-serve-config).
 When omitted it defaults to `${XDG_CONFIG_HOME:-~/.config}/jam/credentials.yml`.
 Keep it mode `0600` and **never commit it**. A missing file is an empty store, so
 every demand then fails closed (below).
@@ -100,14 +100,14 @@ credential:
 
 | Reference | Where |
 |---|---|
-| `store-postgres.password-cred` | the DB password ([serve.md](serve.md#postgres-store-store-postgres)) |
-| a connection's credential (`cred:` in `connections/<name>.yml` in the config repo), checked when serve starts the connection — the Discord bot token, the tracker token | [serve.md](serve.md) (`runtime.discord.connection`, `runtime.requisitioner.connection`; the deprecated `bot-token-cred` / `tracker-token-cred` name one directly) |
-| a destination's `cred_name` | validated by the config plan ([serve.md](serve.md#destinations)) |
-| `pool.cred-name` | the pool's anthropic credential ([pool.md](pool.md)) |
-| `ssh.ca-cred` | the studio-collaboration SSH CA key ([serve.md](serve.md), [collaboration.md](collaboration.md)) |
-| `metrics.token-cred` | the `/metrics` scrape token ([monitoring.md](monitoring.md#metrics)) |
+| `store-postgres.password-cred` | the DB password ([serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#postgres-store-store-postgres)) |
+| a connection's credential (`cred:` in `connections/<name>.yml` in the config repo), checked when serve starts the connection — the Discord bot token, the tracker token | [serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc) (`runtime.discord.connection`, `runtime.requisitioner.connection`; the deprecated `bot-token-cred` / `tracker-token-cred` name one directly) |
+| a destination's `cred_name` | validated by the config plan ([serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#destinations)) |
+| `pool.cred-name` | the pool's anthropic credential ([pool.adoc](../../modules/ROOT/pages/usage/jam/pool.adoc)) |
+| `ssh.ca-cred` | the studio-collaboration SSH CA key ([serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc), [collaboration.md](collaboration.md)) |
+| `metrics.token-cred` | the `/metrics` scrape token ([monitoring.adoc](../../modules/ROOT/pages/usage/jam/monitoring.adoc#metrics)) |
 | `config.github.cred`, `config.gitlab.cred`, `config.git.cred` | the followed config repo's token, for exactly its URL (for `config.git`, an SSH private key); any source but gcp-exchange or the pool's ([config-git-sources.md](config-git-sources.md)) |
-| `kits.git[].cred` | a git token for kit sources, by repo-URL prefix; plain static only. The prefix must be https (or loopback http), end in `/`, and have a dotted host or loopback; refs containing `/` need a portless host ([serve.md](serve.md), [kits-git.md](kits-git.md)) |
+| `kits.git[].cred` | a git token for kit sources, by repo-URL prefix; plain static only. The prefix must be https (or loopback http), end in `/`, and have a dotted host or loopback; refs containing `/` need a portless host ([serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc), [kits-git.md](kits-git.md)) |
 
 A demand may carry one non-secret setting, **`exchange: gcp`**:
 `vertex-gcp: { exchange: gcp }`. The supplied value is then a Google credentials
@@ -117,7 +117,7 @@ JSON (`service_account`, `authorized_user`, `external_account` or
 before it expires. If a refresh fails, the broker re-reads the supply (at most
 every 10 seconds), so a re-login or a rotated key needs no restart. A destination naming the credential injects the current token,
 and the JSON never leaves the host. `serve` refuses an unknown `exchange`, a JSON
-of another type, or the pool's credential. See [vertex.md](vertex.md) for its use.
+of another type, or the pool's credential. See [vertex.adoc](../../modules/ROOT/pages/usage/jam/vertex.adoc) for its use.
 
 At `serve` startup Jam loads the file, resolves each demanded name on the host in
 memory, and **fails closed**: a demanded name with no entry in the file aborts
@@ -128,11 +128,11 @@ only credentials.
 ## Migrating an inline strategy
 
 An inline strategy is a **hard parse error**, not a silent alias (unlike the
-[Harbor renames](renamed-from-harbor.md)): a `command:`/`value:` under
+[Harbor renames](../../modules/ROOT/pages/usage/jam/renamed-from-harbor.adoc)): a `command:`/`value:` under
 `credentials:`, or an inline `runtime.discord.bot-token` /
 `runtime.requisitioner.tracker-token`. The error names the field and points at
 this file. To migrate, move each strategy into `credentials.yml` under the same
 name, leave only the bare name under `credentials:`, and replace the inline
 token with a connection whose credential names it (the deprecated
 `bot-token-cred` / `tracker-token-cred` bind only an existing such connection:
-[serve.md](serve.md#the-serve-config)).
+[serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#the-serve-config)).

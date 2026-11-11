@@ -98,7 +98,7 @@ type previewEntry struct {
 	right     collab.Right      // a frame session's ticket right, for audit only (rights are re-checked live)
 }
 
-// PreviewAuth logs browsers in to studio previews (docs/usage/jam/previews.md).
+// PreviewAuth logs browsers in to studio previews (docs/modules/ROOT/pages/usage/jam/previews.adoc).
 // A preview host has no login of its own: a browser without a session is sent
 // to the login host (LoginRedirect), which runs the OIDC login and then
 // bounces back with a single-use code bound to the preview host (Complete);
