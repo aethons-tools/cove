@@ -34,6 +34,8 @@ updated: 2026-11-11
   the read-only deploy key in secret `JAM_CONFIG_DEPLOY_KEY` (not kept for later
   steps) and sets `JAM_CONFIG_DIR`; without the secret it warns and deploys the
   manual alone. Tests: `manual/extensions/test/books.test.js`.
+- **The architecture book** is this repo's `docs/`, being converted to
+  AsciiDoc; the tools for that are in [docs-asciidoc.md](docs-asciidoc.md).
 - **Search** is `@antora/lunr-extension` (pinned in `manual/package.json`),
   enabled in the team and local playbooks only: the customer manual is
   embedded in Jam, whose CSP allows no scripts, and `scripts/manual.sh` fails

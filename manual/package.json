@@ -4,9 +4,10 @@
   "description": "Builds the Jam manual with Antora; see docs/manual.md.",
   "devDependencies": {
     "@antora/lunr-extension": "1.0.0-alpha.13",
+    "@asciidoctor/core": "2.2.9",
     "antora": "3.2.2"
   },
   "scripts": {
-    "test": "node --test extensions/test/*.test.js"
+    "test": "node --test extensions/test/*.test.js tools/test/*.test.js"
   }
 }

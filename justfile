@@ -193,6 +193,15 @@ test-release-pr-body:
 test-release-legs:
     bash scripts/release/legs.test.sh
 
+# hermetic test for the docs-audit skill's checker (studio-image payload; temp docs trees)
+test-docs-audit:
+    python3 images/jam-studio-base/docs_audit_test.py
+
+# convert Markdown docs to AsciiDoc for the architecture book, forwarding ARGS
+# (docs/docs-asciidoc.md). e.g. `just docs-to-adoc --module usage=usage --out-dir docs docs/OVERVIEW.md`
+docs-to-adoc *ARGS:
+    node manual/tools/docs-to-adoc.js {{ARGS}}
+
 # hermetic test for scripts/local.sh (`just local`; fake docker, stub build scripts)
 test-local:
     bash scripts/local.test.sh
