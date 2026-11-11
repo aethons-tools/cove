@@ -143,8 +143,8 @@ app-dev:
 manual:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.local.yml
 
-# build the Released (release), Next (main) and Goal (goal) manuals as one site into
-# manual/build/site/; local branches win over origin's (see docs/manual.md)
+# the process book comes from a jam-config clone ($JAM_CONFIG_DIR, else ../jam-config) if any
+# build the team site (Released, Next and Goal manuals + process book) into manual/build/site/; local branches win (docs/manual.md)
 manual-site:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.yml
 
