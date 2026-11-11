@@ -11,7 +11,7 @@ import (
 )
 
 // ShareGrant is ad-hoc, time-boxed access to one session for one user (studio
-// collaboration, docs/usage/jam/collaboration.md). It is keyed by session id
+// collaboration, docs/modules/ROOT/pages/usage/jam/collaboration.adoc). It is keyed by session id
 // and user; granting again replaces it. Validation (rights, lifetime) is the
 // caller's: see collab.ValidateGrant.
 type ShareGrant struct {

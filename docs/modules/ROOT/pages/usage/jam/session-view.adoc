@@ -2,12 +2,12 @@
 :summary: The session view in the `/app/user` Jam app — a session's home channel adds a header (identity, state, cost, context use, uptime, quick actions) and a tabbed pane (Thinking, Previews, Artifacts, Status) that can sit right of or below the messages, with its layout remembered per session.
 :read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Interrupt, Compact, Clear, Release, Restart, End, Upgrade), the side pane and its tabs, viewing a preview in the pane, the pane's layout memory and `?tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
 :owns: the session header (`GET /app/user/api/sessions/\{id}`) and its actions (`POST /app/user/api/sessions/\{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/api/sessions/\{id}/pane/\{tab}`) and its tabs, a preview's View here (`POST /app/user/api/sessions/\{id}/frame`), the Thinking tab (`GET /app/user/session/\{id}/thinking/events`, `GET /app/user/api/sessions/\{id}/thinking[/raw]`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
-:prereqs: intercom-ui.md for the user area this extends; session-events.adoc for the events the aggregates come from; previews.adoc for exposed ports; collaboration.md for who may SSH or open a preview; previews.adoc#framing-the-jam-pane for the frame tickets and cookie
+:prereqs: intercom-ui.adoc for the user area this extends; session-events.adoc for the events the aggregates come from; previews.adoc for exposed ports; collaboration.adoc for who may SSH or open a preview; previews.adoc#framing-the-jam-pane for the frame tickets and cookie
 :tier: leaf
 :updated: 2026-10-31
 
 When the open conversation is a live session's *home channel* (its session channel, or the
-ticket channel of the ticket it works), the https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom-ui.md[Jam app] adds a header above
+ticket channel of the ticket it works), the xref:usage/jam/intercom-ui.adoc[Jam app] adds a header above
 it and a pane beside it (`web/app/src/session/`), from the API in `internal/jam/userui`
 (`+api_sessions.go+`, `session.go`, `sessionpane.go`). Anyone who can see the home channel
 sees both. Anyone else gets 404 from every route below.
@@ -18,8 +18,8 @@ sees both. Anyone else gets 404 from every route below.
 One line, refreshed on push and every 30s (`+GET /app/user/api/sessions/{id}+`):
 
 * *Identity:* the name (or actor id), kind (standing, personal, ticket, session), ticket,
-role, project, and owner. Under them, the session's https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#what-the-tools-do[mission] (one truncated line), when it has one.
-* *State:* the same status as the https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom-ui.md#session-status[status strip], how
+role, project, and owner. Under them, the session's xref:usage/jam/intercom.adoc#what-the-tools-do[mission] (one truncated line), when it has one.
+* *State:* the same status as the xref:usage/jam/intercom-ui.adoc#session-status[status strip], how
 long it has been in that state, and open asks.
 * *Cost:* the total and the latest turn's cost. The tooltip shows input and output tokens.
 * *Context:* how full the agent's context is, e.g. ``+ctx 84k / 200k · 42%+``; the tooltip
@@ -29,7 +29,7 @@ latest result's `modelUsage`. After a compaction, or a Clear or Compact press ja
 carried out, it shows `+ctx —+` until the next model call.
 * *Uptime:* time since the session was raised.
 * *Tabs:* Studio (only with SSH and framing on), Thinking, Previews, Artifacts, Status. These open the pane.
-* *Copy SSH:* copies `jam ssh <id>`. It appears only if https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/collaboration.md[collab] would allow you to SSH.
+* *Copy SSH:* copies `jam ssh <id>`. It appears only if xref:usage/jam/collaboration.adoc[collab] would allow you to SSH.
 * *Open in VS Code* and *Open in VSCodium:* shown when Copy SSH is. Links to `+vscode://aethons.jam/session/<id>+` and `+vscodium://…+`, which the xref:usage/jam/vscode.adoc[Jam extension] handles. The session head also carries the session's `channel`, so the extension can link back to its page.
 * *Interrupt:* a visible button beside Copy SSH, enabled while the session is running. See <<session-controls,Session controls>>.
 * *⋯ menu:* Compact and Clear (see <<session-controls,Session controls>>; only Clear asks for confirmation), then the release, restart, end and upgrade actions, each of which asks for confirmation, then `+POST /app/user/api/sessions/{id}/<action>+`.
@@ -40,7 +40,7 @@ The server re-checks permission (403 otherwise). Once a session ends, its header
 |Action |Offered to |Does
 
 |Release |a personal session's owner, or an operator |tears it down
-|Restart |operators, every kind |restarts its studio, keeping the session: a standing one is raised again by its reconciler, any other is https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#recovery[recovered] at once (re-raised with its state and conversation)
+|Restart |operators, every kind |restarts its studio, keeping the session: a standing one is raised again by its reconciler, any other is xref:usage/jam/coves.adoc#recovery[recovered] at once (re-raised with its state and conversation)
 |End |operators, for non-personal sessions (a personal one ends by Release) |tears it down for good (its unfinished ticket is marked blocked)
 |Upgrade |operators, standing sessions |queues an upgrade to the current image; the pending state shows beside it
 |===
@@ -49,7 +49,7 @@ The server re-checks permission (403 otherwise). Once a session ends, its header
 === Session controls
 
 Interrupt, Compact and Clear act on the session's agent; jam-studio-agent's handling is in
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#session-controls-interrupt-compact-clear[coves.md]. Anyone who can see the
+xref:usage/jam/coves.adoc#session-controls-interrupt-compact-clear[coves]. Anyone who can see the
 session may press them, on any session kind. Clear asks for confirmation.
 
 [%header]
@@ -103,7 +103,7 @@ Forward reloads a framed view.
 
 The pane used to have a *Studio* tab: a built-in web IDE (code-server) framed in the pane.
 It was removed, with code-server, in favour of the VS Code extension
-(xref:usage/jam/vscode-checklist.adoc[]), which connects over https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/collaboration.md[SSH]. A
+(xref:usage/jam/vscode-checklist.adoc[]), which connects over xref:usage/jam/collaboration.adoc[SSH]. A
 kit that wants a web IDE can still run one and `expose` it; it is then an ordinary
 xref:usage/jam/previews.adoc[preview], named as the kit chooses (`ide` included).
 

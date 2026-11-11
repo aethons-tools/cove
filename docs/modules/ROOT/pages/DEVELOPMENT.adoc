@@ -334,7 +334,7 @@ Design: https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2
 SSH git is impossible here — the egress lock drops port 22 —
 so the hardening layer rewrites GitHub remotes to HTTPS,
 and in a Jam studio git authenticates through Jam's broker
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/connector.md[connector.md]).
+(xref:usage/jam/connector.adoc[connector]).
 
 `main` is protected: changes land through a PR whose *``gate``* check passes.
 Direct pushes to `main` are rejected, including for admins.
@@ -350,7 +350,7 @@ commit; no squash, no rebase);
 Repo settings the release flow relies on: "Allow merge commits" is on (a `main` into `release`
 merge keeps history, so `<N>` stays monotonic), and "Allow GitHub Actions to create and approve pull requests" is on.
 Inside a _sandbox_ the story is different —
-the hardening rewrites GitHub remotes to HTTPS and git authenticates through Jam's broker (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/connector.md[connector.md]).
+the hardening rewrites GitHub remotes to HTTPS and git authenticates through Jam's broker (xref:usage/jam/connector.adoc[connector]).
 
 === First-time setup
 

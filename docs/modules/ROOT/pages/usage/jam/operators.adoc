@@ -2,7 +2,7 @@
 :summary: Operator sign-in and the admin client — gating the admin API with `operator-auth.oidc`, the `login`/`logout`/`whoami` device flow, the `--token`/env fallback, and `settings.yml` app profiles (`--app`).
 :read_when: You are gating Jam's admin API behind Auth0/OIDC, signing an operator in, passing an operator token from CI, or managing several Jams from one machine with `--app` profiles.
 :owns: the operator-auth.oidc server block, the login/logout/whoami device flow, the admin-token resolution (flag → env → cached login), and the settings.yml app-profile model
-:prereqs: serve.adoc for where operator-auth.oidc sits in the serve config; INDEX.md for the admin-verb client story
+:prereqs: serve.adoc for where operator-auth.oidc sits in the serve config; INDEX.adoc for the admin-verb client story
 :tier: leaf
 :updated: 2026-10-23
 
@@ -67,7 +67,7 @@ user code to approve in a browser), and caches the resulting operator token at
 login-config endpoint returns 404 → "not OIDC-gated; no login required").
 
 `+login --participant+` signs a collaborator in as a participant instead, for
-studio SSH and sharing — see https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/collaboration.md[collaboration.md].
+studio SSH and sharing — see xref:usage/jam/collaboration.adoc[collaboration].
 
 == How the admin token is resolved
 
@@ -106,6 +106,6 @@ to `login` *persists* it to the profile.
 
 So `+jam --app dev-app actors+` lists the dev Jam's actors using the dev
 profile's endpoint + cached token. The admin verbs themselves are documented in
-xref:usage/jam/roster.adoc[] (RBAC + enrollment) and https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/kits.md[kits.md] (registry);
+xref:usage/jam/roster.adoc[] (RBAC + enrollment) and xref:usage/jam/kits.adoc[kits] (registry);
 `destination` is in xref:usage/jam/serve.adoc[]; the managed-cove verbs are in
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md[coves.md].
+xref:usage/jam/coves.adoc[coves].

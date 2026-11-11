@@ -70,7 +70,7 @@ cleanup:              # percent of the VM's docker disk; 0 = the default
 `profile` names the Colima VM studios run in, read as colima reads ``+--profile+``: `default` and `colima` are the default VM, and a `colima-` prefix is dropped (`colima-jam-b` is `jam-b`).
 Every docker call is pinned to its docker context, `colima` for `default`, else `colima-<profile>`.
 So `+colima start --profile jam-b+` and `+profile: jam-b+` place this manager's studios, kit images and volumes in that VM.
-For a Jam in a container, `jam-addr` is the host's published 443 (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/container.md#pointing-studio-managers-at-it[pointing managers at it]).
+For a Jam in a container, `jam-addr` is the host's published 443 (xref:usage/jam/container.adoc#pointing-studio-managers-at-it[pointing managers at it]).
 
 == TLS
 
@@ -86,7 +86,7 @@ After a refusal the backoff stays at 30s until a connect succeeds.
 == Capacity
 
 `capacity` bounds the studios this host holds, counting raises in flight.
-At the limit a raise is declined with `at capacity (<n>/<cap> studios)` and Jam tries the next manager (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#managers-and-placement[placement]).
+At the limit a raise is declined with `at capacity (<n>/<cap> studios)` and Jam tries the next manager (xref:usage/jam/coves.adoc#managers-and-placement[placement]).
 
 [#host-stats]
 == Host stats
@@ -118,7 +118,7 @@ Every high or critical run starts a 5-minute cooldown. Within it no high run sta
 With `daily`, a light pass (steps 1 and 3 only, whatever the disk) runs 10 minutes after start, then every 24 hours.
 `+disabled: true+` turns all automatic cleanup off.
 
-While the last sample is at or over `critical`, raises are declined with `disk full (<n>%)`, so Jam places them elsewhere (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#managers-and-placement[placement]); a sample that fails to measure lifts this. Kit prepares are not declined.
+While the last sample is at or over `critical`, raises are declined with `disk full (<n>%)`, so Jam places them elsewhere (xref:usage/jam/coves.adoc#managers-and-placement[placement]); a sample that fails to measure lifts this. Kit prepares are not declined.
 
 Each run is logged (Info; Warn when a step failed, the rest still running) and reported to Jam at once as the host's last cleanup: when, bytes freed (disk used before minus after) and its reason, `high`, `critical` or `daily`.
 

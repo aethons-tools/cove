@@ -2,13 +2,13 @@
 :summary: What the Jam admin console can change — live, enroll/revoke agents and grants, raising and tearing down agents and requesting a personal agent; on a branch of the config repo, roles, kits, destinations and model-specs — with the type-ahead fields, how a write's outcome and refusals show, and the gate/CSRF/audit rules every write obeys.
 :read_when: You want to change something from the Jam admin UI — enroll or revoke an agent, add a grant, raise or tear down an agent, request a personal agent, or (on a branch) create a role or edit a kit/destination/model-spec — or a UI write was refused and you want to know why.
 :owns: the admin console's write surface — enroll/revoke/grant/role create-delete, the type-ahead reference fields, create panels, confirmations and how refusals show, the CSRF origin check and audit logging, runtime raise/teardown and Request, and the config-plane editing pointers
-:prereqs: ui.adoc for reaching the UI and its sections; roster.adoc for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive
+:prereqs: ui.adoc for reaching the UI and its sections; roster.adoc for the RBAC model these edits act on; coves.adoc for the managed-cove lifecycle the runtime actions drive
 :tier: leaf
 :updated: 2026-11-01
 
 Beyond viewing, the xref:usage/jam/ui.adoc[admin UI] can do the roster day-job and raise and tear
 down studios, live, and edit the configuration *on a branch* of the config repo,
-where each save is a commit (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/config-branches.md[config-branches.md]). Off a branch,
+where each save is a commit (xref:usage/jam/config-branches.adoc[config-branches]). Off a branch,
 or on a Jam with no config repo, config pages are read-only: their forms and buttons
 are hidden. Every write obeys the same gate as
 the views, is audit-logged against the operator, and is refused unless it comes
@@ -67,7 +67,7 @@ supervisor is configured — see <<runtime-studios,Runtime (studios)>> below.
 === Runtime (studios)
 
 When Jam is configured with a runtime supervisor (`+runtime:+` in the serve
-config — see https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md[coves.md]), the Agents tab can also:
+config — see xref:usage/jam/coves.adoc[coves]), the Agents tab can also:
 
 * *Raise a managed studio* (*Raise agent*) — a label, role, optional project/unit and a workload
 prompt. Jam handles the studio's identity token and launch secret internally;
@@ -91,12 +91,12 @@ obey the same gate, CSRF, and audit-logging as the roster edits above.
 [#config-plane-kits-destinations-model-specs]
 === Config plane (kits, destinations, model-specs)
 
-On a branch only; each save is a commit to it (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/config-branches.md[config-branches.md]).
+On a branch only; each save is a commit to it (xref:usage/jam/config-branches.adoc[config-branches]).
 
 * *Kits* — create a kit (name + studio-kit YAML, validated like a kit in the config repo)
 and delete an unused one; each kit's page shows its versions, diffs them,
 pins one, and pushes new versions — see xref:usage/jam/ui-pages.adoc#kit-pages[Kit pages]; its
-Draft section edits a draft (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/kits-drafts-ui.md[kits-drafts-ui.md]).
+Draft section edits a draft (xref:usage/jam/kits-drafts-ui.adoc[kits-drafts-ui]).
 * *Destinations* — create one (every field, including client env, git
 routing and the session note) and remove one; each destination's page shows and
 edits it — see xref:usage/jam/ui-pages.adoc#destination-pages[Destination pages].

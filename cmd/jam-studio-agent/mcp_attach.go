@@ -17,7 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Attachments (docs/usage/jam/attachments.md): send's `attach` uploads files
+// Attachments (docs/modules/ROOT/pages/usage/jam/attachments.adoc): send's `attach` uploads files
 // from the studio through Jam (POST /squawks/uploads) and sends their refs;
 // fetch downloads one the session can see (GET /squawks/blobs/{ref}). Bytes
 // leave and enter the studio only through Jam.

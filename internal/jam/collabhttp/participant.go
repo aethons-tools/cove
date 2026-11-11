@@ -39,7 +39,7 @@ func ParticipantBearer(verify func(ctx context.Context, raw string) (issuer, sub
 }
 
 // AppTokenBearer is the /me plane's Deps.Principal for an app token
-// (docs/usage/jam/app-tokens.md): the caller is the token's user, with the
+// (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc): the caller is the token's user, with the
 // operator standing recorded at consent. A missing or non-Bearer
 // Authorization header is ErrNoCredentials; an unknown or expired token, or
 // one whose user was removed, is ErrInvalidToken. These requests are not

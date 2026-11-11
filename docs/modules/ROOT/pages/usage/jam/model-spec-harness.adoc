@@ -12,11 +12,11 @@ per-episode settings: they decide the image's harness layer.
 == The harness layer
 
 The image's harness layer, between the kit base and the sealed hardening
-(https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/OVERVIEW.adoc#how-the-build-context-is-assembled[OVERVIEW]), installs the
+(xref:OVERVIEW.adoc#how-the-build-context-is-assembled[OVERVIEW]), installs the
 CLI with the native installer at exactly `version` and pre-seeds the plugins
 (marketplace added, plugins installed at build, folded into `/agent-data`). The
 raise resolves the role's spec *before* the kit image, whose build-digest
-includes them (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/kits.md[kits.md]) — so changing `version` or `plugins` builds a
+includes them (xref:usage/jam/kits.adoc[kits]) — so changing `version` or `plugins` builds a
 new image at each role's next raise, and a running cove keeps its image. No
 spec delivered = claude-default's install. *Enablement follows the spec, too:*
 the seed enables exactly the installed plugins in the first-boot user settings
@@ -77,7 +77,7 @@ the network-bound seed.
 
 A one-time store migration, recorded by a schema marker
 (`+jam_settings+` key `+model_spec_schema+`, now `2`), runs at the first
-`jam serve` startup after an upgrade — and on https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/backup.md[import] of a
+`jam serve` startup after an upgrade — and on xref:usage/jam/backup.adoc[import] of a
 backup taken before it — applying each step the marker has not recorded, so no
 step ever re-runs (an operator's later edits are never undone).
 
@@ -108,7 +108,7 @@ lacks; a value the operator already set (say `+theme: light+`) is kept.
 === The legacy oauth_beta scan
 
 Not a marker step: at *every* `jam serve` startup (and on every
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/backup.md[import]) Jam scans the destinations for the removed `+oauth_beta+`
+xref:usage/jam/backup.adoc[import]) Jam scans the destinations for the removed `+oauth_beta+`
 flag (COV-241) — stored rows and backups keep loading it, and an older binary
 may still write it during a rolling deploy. Each flag is cleared (the serve log
 names the destinations). A pool-backed destination needs nothing more: the

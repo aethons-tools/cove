@@ -2,13 +2,13 @@
 :summary: What happens when a managed session's turn ends — it waits for wake conditions or ends — covering `end(reason)`, a ticket session's `report`, alarms (`alarm_set`/`alarm_clear`/`alarm_list`, one-shot or cron in the role's time zone, optionally gated by a shell command run in the cove), the role's idle timeout and the agent's `idle_timeout` override, the `holding` activity, and the reasons a Wake carries into the agent's resume prompt.
 :read_when: You want a ticket session to report its ticket's state or a session to end itself, to be woken at a time or on a schedule (optionally gated by a check), or to be woken (or torn down) after sitting idle; or you need to know why a studio shows `holding`, what a woken agent is told about why it woke, or how Jam decides a session whose turn ended may be woken, paused, or torn down.
 :owns: the turn-end model, the `end`, `idle_timeout`, `report` and `alarm_*` tools and their `/end`, `/idle`, `/report`, `/alarms` endpoints, how a ticket session finishes (blocked when ended without a final report), the alarm limits, firing rules and gates (`RunGate`/`GateResult`), the role's turn-end policy (`--idle-timeout`/`--on-idle`/`--time-zone` semantics), the `holding` activity (its wake/pause/teardown semantics and the WaitSeq rule), and wake reasons (kinds, rendering, the legacy fallback). Does NOT own reply detection, wait-max, or warm-timeout pausing — see intercom.md.
-:prereqs: coves.md for Phase vs Activity; intercom.md for the wake-on engine and how a reply is detected
+:prereqs: coves.adoc for Phase vs Activity; intercom.adoc for the wake-on engine and how a reply is detected
 :tier: leaf
 :updated: 2026-11-01
 
 When a managed session's turn ends, it either *ends* (it called `end`) or
 *waits* for something worth another turn — an inbound squawk
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#waiting-for-a-reply-wake-on[intercom.md]), one of its
+(xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[intercom]), one of its
 *alarms*, or its *idle timeout* — and every Wake tells the agent *why* it
 was woken. A ticket session also reports its ticket's state. The design is in
 the https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-05-turn-end-lifecycle-design.md[turn-end spec].
@@ -37,7 +37,7 @@ ticket through merge: it works on a branch, pushes, opens the PR itself, keeps
 the ticket current with `report`, and calls `end` only once its work has landed.
 When it can't land the work it doesn't exit: it reports `needs-input` or
 `blocked`, says why in its own session channel, ``+call_in+``s who can help, and
-waits — https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/escalation.md[escalation] brings people to it. No result file is
+waits — xref:usage/jam/escalation.adoc[escalation] brings people to it. No result file is
 read.
 
 * *``report(state, summary, pr?)``* (`POST /report`): `state` is `in-progress`,
@@ -55,7 +55,7 @@ last report is not `done` or `blocked`, Jam first moves the ticket to
 The teardown goes ahead even if that tracker call fails (it is bounded at 15s);
 once marked, the session's report is `blocked`, so a retried teardown doesn't
 mark it again.
-* *Escalation* (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/escalation.md[escalation.md]) pings people only while a
+* *Escalation* (xref:usage/jam/escalation.adoc[escalation]) pings people only while a
 ticket session's last report is `needs-input` — every turn ends in `waiting`,
 so waiting alone no longer means it needs someone.
 * *A typical ticket:* work → `+report(in-review, pr=…)+` → `+alarm_set+` a PR-watch

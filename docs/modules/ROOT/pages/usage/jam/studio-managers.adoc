@@ -2,13 +2,13 @@
 :summary: Operator guide to remote Studio Managers — enabling them, the `jam manager add|list|rotate|revoke` verbs, how a manager connects to Jam, and what happens on disconnect, reconnect and revoke.
 :read_when: You register, rotate or revoke a Studio Manager, upgrade from the old `runtime.launcher` (its error links here), or debug a manager connection (refused stream, version mismatch, a manager shown disconnected, strays, a revoke refused), or wonder where a manager's memory/disk figures or its Activity column (kit-prepare progress) come from.
 :owns: the operator-facing Studio Manager story — `runtime.studio-managers`, the `manager` verbs and admin API, the Connect stream's auth and lifecycle, the managers' status reports (host stats, activities) and how Jam keeps and shows them, and disconnect/reconnect/revoke behaviour
-:prereqs: coves.md#managers-and-placement for how a raise picks a manager; serve.adoc for the serve config
+:prereqs: coves.adoc#managers-and-placement for how a raise picks a manager; serve.adoc for the serve config
 :tier: leaf
 :updated: 2026-11-05
 
 A *Studio Manager* is a remote process that hosts studios on another machine and dials _into_ Jam; Jam registers it under a name.
-The manager binary is https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/usage/jam-colima.adoc[jam-colima]; this doc covers Jam's side.
-How a raise chooses among managers is in https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#managers-and-placement[Managers and placement].
+The manager binary is xref:usage/jam-colima.adoc[jam-colima]; this doc covers Jam's side.
+How a raise chooses among managers is in xref:usage/jam/coves.adoc#managers-and-placement[Managers and placement].
 
 == Enable it
 
@@ -37,7 +37,7 @@ All are clients of the admin API (see xref:usage/jam/operators.adoc[] for the cl
 Admin API: `GET`/`POST /admin/managers`, `+POST /admin/managers/{name}/rotate+`, `+DELETE /admin/managers/{name}?force=true+`.
 Names match ``+^[a-z0-9][a-z0-9-]{0,62}$+``; `local` is reserved (the retired launcher's name).
 Jam stores only a hash of the token, so a lost token means `rotate`.
-Managers are not part of config export/import (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/backup.md[backup.md]); a restored Jam re-registers them with `manager add`.
+Managers are not part of config export/import (xref:usage/jam/backup.adoc[backup]); a restored Jam re-registers them with `manager add`.
 
 [#how-a-manager-connects]
 == How a manager connects
@@ -55,9 +55,9 @@ Managers must use the TLS :443 endpoint, because the dev listener carries the be
 == Status reports
 
 A manager may send unsolicited *status reports* (op `status`, frame id 0): its host stats (memory and disk used/total, disk reclaimable as images, build cache and volumes, last cleanup) and its work in progress.
-It sends one right after Welcome (once its first measurement is in), every 30s, and (throttled to one a second) when its work in progress changes or it finishes a disk cleanup (https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/usage/jam-colima.adoc#disk-cleanup[jam-colima's]); a manager with nothing to measure sends none.
+It sends one right after Welcome (once its first measurement is in), every 30s, and (throttled to one a second) when its work in progress changes or it finishes a disk cleanup (xref:usage/jam-colima.adoc#disk-cleanup[jam-colima's]); a manager with nothing to measure sends none.
 Measuring runs apart from sending, so an on-demand report never waits on a measurement (it reuses the last host stats, or the manager's newer cached ones, such as a cleanup's); a measurement over 20s is cut off and reported as none.
-How https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/usage/jam-colima.adoc#host-stats[jam-colima] measures its VM is on its page.
+How xref:usage/jam-colima.adoc#host-stats[jam-colima] measures its VM is on its page.
 
 Jam keeps the latest report per manager.
 Host stats are kept across a disconnect and a reconnect until the next report (the dashboard's tooltip says when they were measured); work in progress is dropped on disconnect.
@@ -69,13 +69,13 @@ A malformed report is logged and ignored.
 
 A report's work in progress is a list of *activities*, each `+{id, kind, kit, step, detail, started}+`.
 Kinds: `prepare-kit` (a kit image build; `kit` names it), `build-kit-draft` (a draft's test build) and `cleanup` (a disk cleanup).
-What https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/usage/jam-colima.adoc#work-in-progress[jam-colima] reports for each is on its page.
+What xref:usage/jam-colima.adoc#work-in-progress[jam-colima] reports for each is on its page.
 A kit prepare is a request Jam makes and waits on; its progress reaches Jam only through these reports, never in the request's answer.
 
 Jam shows them:
 
 * the dashboard's Managers panel, *Activity* column: one line each, e.g. `+preparing kit web@v2: building step 7/12 (2m)+` (what, step, for how long);
-* a session raising or recovering while its manager (any manager, for one not yet placed) prepares exactly the kit its raise builds — the role's current kit (id, version and digest), else the kit it ran: `+is preparing its kit image — <step>+` on the https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom-ui.md#session-status[status strip] and a `preparing kit` xref:usage/jam/session-card.adoc[card] pill;
+* a session raising or recovering while its manager (any manager, for one not yet placed) prepares exactly the kit its raise builds — the role's current kit (id, version and digest), else the kit it ran: `+is preparing its kit image — <step>+` on the xref:usage/jam/intercom-ui.adoc#session-status[status strip] and a `preparing kit` xref:usage/jam/session-card.adoc[card] pill;
 * a standing upgrade's `preparing` state: `+preparing: <step>+` while its prepare runs (xref:usage/jam/standing-sessions.adoc[upgrades]);
 * ``jam manager list``'s ``activities=<n>``;
 * the New session dialog, while its Start waits: `+Preparing the kit image — <step> (<age>)+` (xref:usage/jam/personal-sessions.adoc#starting-one-from-the-inbox[personal sessions]).
@@ -116,8 +116,8 @@ Manager metrics are in xref:usage/jam/monitoring.adoc#metrics[`/metrics`].
 
 Jam used to run studios itself under `runtime.launcher` as the `local` manager; that block, the `local` manager and the `colima` verbs of the Jam CLI are gone.
 A serve config that still has `runtime.launcher` is refused at startup with a message pointing here.
-Remove the block, run https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/usage/jam-colima.adoc[jam-colima] next to Colima, set `+runtime.studio-managers: true+`, and register the manager (`jam manager add`).
-`colima setup-docker|check-docker` are now `+jam-colima colima ...+` (https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/usage/docker-in-sandbox.adoc[docker-in-sandbox]).
+Remove the block, run xref:usage/jam-colima.adoc[jam-colima] next to Colima, set `+runtime.studio-managers: true+`, and register the manager (`jam manager add`).
+`colima setup-docker|check-docker` are now `+jam-colima colima ...+` (xref:usage/docker-in-sandbox.adoc[docker-in-sandbox]).
 
 What Jam does at the cutover:
 

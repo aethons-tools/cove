@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-// The config branch the admin console edits (docs/usage/jam/config-branches.md):
+// The config branch the admin console edits (docs/modules/ROOT/pages/usage/jam/config-branches.adoc):
 // "" = the followed branch, read-only. Per tab (sessionStorage: it survives
 // a reload, and another tab's switch never changes where this one saves),
 // and sent on every admin API request (the server serves only config paths

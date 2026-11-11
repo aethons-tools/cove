@@ -2,7 +2,7 @@
 :summary: The admin console's attention badges — what counts as needing attention (broken or out-of-date studios, config that names something missing, open Health conditions), where each item is counted, how the title-bar tabs, Config tree nodes and rows show it, and the Dashboard's Needs attention card.
 :read_when: You see a red or amber badge in the admin console's title bar or on a Config tree node, or a ⚠ on a row, and want to know what it counts and where to fix it, or you want to know why a project or Jam is (or isn't) flagged.
 :owns: the attention model (kinds, severity, where each item is counted), the title-bar/tree/row badges and the Needs attention card
-:prereqs: ui-console.adoc for the tabs and the Config tree; coves.md for studio phases, image and connector status
+:prereqs: ui-console.adoc for the tabs and the Config tree; coves.adoc for studio phases, image and connector status
 :tier: leaf
 :updated: 2026-10-28
 
@@ -19,7 +19,7 @@ live; the title-bar badges refresh with each page load.
 |Kind |Severity |Raised when |Counted at
 
 |broken |red |a studio is `lost` or `terminating`, or its egress re-apply is failing |Agents
-|out of date |amber |a studio runs a stale image or connector (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#the-studio-verbs[coves.md]) |Agents
+|out of date |amber |a studio runs a stale image or connector (xref:usage/jam/coves.adoc#the-studio-verbs[coves]) |Agents
 |config |amber |an escalation target names nobody on the project |the project's Escalation node
 |config |amber |a role's kit or model-spec no longer exists |the role's node
 |config |amber |a destination is in a connector conflict (xref:usage/jam/ui-pages.adoc#destination-pages[Destination pages]) |the destination's node

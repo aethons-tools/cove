@@ -46,7 +46,7 @@ claude:                     # the body matching `type` (required)
 [#validation]
 == Validation
 
-Every write (a config plan, a branch save, a snapshot https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/backup.md[import]) is checked; a refusal
+Every write (a config plan, a branch save, a snapshot xref:usage/jam/backup.adoc[import]) is checked; a refusal
 names the field, and nothing is stored.
 
 [%header]
@@ -70,7 +70,7 @@ names the field, and nothing is stored.
 |===
 
 *No secrets in a model-spec.* Credentials appear by name only (`principal`);
-the real values stay in the https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/credentials.md[credentials file]. Refusals never
+the real values stay in the xref:usage/jam/credentials.adoc[credentials file]. Refusals never
 echo an env value, and audit logs carry only the operator, name and type.
 
 [#version-constraints]
@@ -128,9 +128,9 @@ xref:usage/jam/model-spec-harness.adoc[].
 [#what-a-cove-applies]
 == What a cove applies
 
-The resolved spec rides in the role's https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/connector.md[connector] (`+model_spec+`,
+The resolved spec rides in the role's xref:usage/jam/connector.adoc[connector] (`+model_spec+`,
 `GET /connector`), which jam-studio-agent re-fetches before every episode
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#jam-studio-agent-the-in-cove-client[coves.md]) — so an edit or a re-binding
+(xref:usage/jam/coves.adoc#jam-studio-agent-the-in-cove-client[coves]) — so an edit or a re-binding
 takes effect at each cove's *next episode*, and the cove's `connector` status
 shows `stale` until then. The spec carries names only, never a secret value.
 An actor whose roles resolve to different specs, or a binding to a missing spec,
@@ -170,7 +170,7 @@ jam model-spec list                 # name, type, version, principal, provider
 ----
 
 A spec is added, changed or deleted by a commit to the config repo:
-`model-specs/<name>.yml` (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/config-git.md#layout[config-git.md]) carries the
+`model-specs/<name>.yml` (xref:usage/jam/config-git.adoc#layout[config-git]) carries the
 schema above with `+kind: model-spec+` and `+version: 1+` on top, the harness
 version as `harness-version` (`version` is the file's), and no `+name:+` (the
 file name is it). Spec files are decoded strictly: an unknown key (e.g. a
@@ -193,4 +193,4 @@ xref:usage/jam/ui-pages.adoc#model-spec-pages[Model-spec pages].
 |===
 
 Model-specs persist in the Postgres `+model_specs+` table (one jsonb doc per name)
-and are included in https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/backup.md[config backups].
+and are included in xref:usage/jam/backup.adoc[config backups].

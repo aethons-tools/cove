@@ -16,7 +16,7 @@ func WithAppTokenRevoke(revoke func(ident.ID)) Option {
 }
 
 // appTokenRoutes serves the viewer's app tokens (Connected apps):
-// docs/usage/jam/app-tokens.md.
+// docs/modules/ROOT/pages/usage/jam/app-tokens.adoc.
 func (h *handler) appTokenRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /app/user/api/app-tokens", h.apiAppTokens)
 	mux.HandleFunc("DELETE /app/user/api/app-tokens/{id}", h.apiAppTokenDelete)

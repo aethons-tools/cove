@@ -75,12 +75,12 @@ type RaiseSpec struct {
 	// and identity are rolled back.
 	recovering bool
 	// DraftImage, set by Supervisor.Raise for a draft studio
-	// (docs/usage/jam/kits-drafts.md#draft-studio), is the test build's image
+	// (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#draft-studio), is the test build's image
 	// the launcher runs (by id) instead of the kit inventory's. nil for every
 	// other raise.
 	DraftImage *KitDraftImage
 	// KitDraft names a kit whose draft the studio runs instead of the role's
-	// kit: an admin manual raise only (docs/usage/jam/kits-drafts.md#draft-studio).
+	// kit: an admin manual raise only (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#draft-studio).
 	// No other caller sets it.
 	KitDraft string
 	// draft is the draft tree a draft studio runs (Raise and a context

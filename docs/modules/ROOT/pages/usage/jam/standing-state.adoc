@@ -9,7 +9,7 @@
 Every session's conversation and workspace live in named Docker volumes that
 outlive the container, so a restart (a standing session's re-raise or
 xref:usage/jam/standing-sessions.adoc#upgrading-a-standing-session[upgrade], or any session's
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#recovery[recovery] after its studio died) resumes where it left off.
+xref:usage/jam/coves.adoc#recovery[recovery] after its studio died) resumes where it left off.
 Only the standing reconciler's sweep deletes them, once the session is gone.
 
 A studio mounts two named Docker volumes, named after its container

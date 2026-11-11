@@ -1798,7 +1798,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	clearStaleCredConditions(conds, cfg.credNames())
 	clearRemovedConditions(conds)
-	// Kits as trees (docs/usage/jam/kits-directory.md#stored-as-trees): every
+	// Kits as trees (docs/modules/ROOT/pages/usage/jam/kits-directory.adoc#stored-as-trees): every
 	// pre-tree version becomes a tree, once; then unreferenced kit objects go.
 	// A failed migration fails closed: a half-read registry would raise kits
 	// from text the build no longer reads.
@@ -2282,7 +2282,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		// The relays render only the channel log: a mark still in the legacy
-		// log moves to the cutover (see intercom.md, the cutover). Push is
+		// log moves to the cutover (see intercom.adoc, the cutover). Push is
 		// not settled: it is seeded at the channel log's tail when first
 		// enabled (below), so it never held a legacy mark or legacy pending ids.
 		for _, service := range []string{"linear", "discord"} {
@@ -2664,7 +2664,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Writes in the user area must come from the page itself (the mux
 		// applies RequireSameOrigin): the session cookie alone (SameSite=Lax)
 		// lets a sibling subdomain post as the user.
-		// App tokens (docs/usage/jam/app-tokens.md): minted only from a
+		// App tokens (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc): minted only from a
 		// verified browser session, so only with browser login.
 		// They act as their user on /app/user and /me/studios, never on
 		// /app/admin; revoking one ends its open /app/user requests (live).
@@ -2676,7 +2676,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			appTokenRoutes, appTokenBearer = appTokens.Routes(), appTokens.Bearer()
 			go appTokens.Run(context.Background())
 		}
-		// The config branch editor (docs/usage/jam/config-branches.md): config
+		// The config branch editor (docs/modules/ROOT/pages/usage/jam/config-branches.adoc): config
 		// pages edit a branch of the followed repo, from a bare clone in the
 		// state dir. Branch handlers are the same admin UI over a branch's
 		// scratch store, with no supervisor (a branch raises nothing).
@@ -3125,7 +3125,7 @@ var (
 
 // mountParticipantStudios mounts the participant plane's collaboration routes
 // at /me/studios/ on mux and reports whether it did. They take a bearer
-// credential — an app token (docs/usage/jam/app-tokens.md) or an ID token
+// credential — an app token (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc) or an ID token
 // from `jam login --participant` — not the /app session cookie, so they sit
 // outside the /app gate and RequireSameOrigin. They mount whenever the SSH CA
 // is set; ID tokens are added only with device login (lc) and an OIDC

@@ -31,7 +31,7 @@ kit's page); *Destinations* and *Model Specs* → each one
 
 Pages have no tabs inside them: a page is a stack of sections, and a role's or
 an agent's *Setup* is a section read only when opened
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/inspect.md#in-the-admin-ui[inspect.md]). The URLs, under ``/app/admin/``:
+(xref:usage/jam/inspect.adoc#in-the-admin-ui[inspect]). The URLs, under ``/app/admin/``:
 
 [%header]
 |===
@@ -69,7 +69,7 @@ agents. It refreshes every 3 seconds.
 * *Agents* (`/app/admin/agents`) — each enrolled identity and each studio, one row
 per id, with its *kind* (`standing`, `personal`, `ticket` — a session with
 a unit, `manual`, or `enrolled` — no studio), project, role, xref:usage/jam/ui-pages.adoc#agent-status[status],
-connector and image status (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#the-studio-verbs[coves.md]); it
+connector and image status (xref:usage/jam/coves.adoc#the-studio-verbs[coves]); it
 *auto-refreshes every 3 seconds*. Status filters
 (`?status=running|waiting|setting-up|idled|attention`) match the dashboard
 tiles. Enroll, raise and teardown: xref:usage/jam/ui-editing.adoc[]. Each id
@@ -103,7 +103,7 @@ across a poll or an edit, and the JSON admin API and CLI lists match it.
 == Channel log
 
 The Channel log page (`/app/admin/health/intercom`, linked from *Health*) is
-a read-only view of Jam's https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#enabling-it[channel log] (always
+a read-only view of Jam's xref:usage/jam/intercom.adoc#enabling-it[channel log] (always
 available; it lives in Postgres — see
 xref:usage/jam/serve.adoc#postgres-store-store-postgres[Postgres store (`store-postgres`)]). It shows a filterable,
 newest-first table of squawks, each with its sender and channel

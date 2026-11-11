@@ -2,7 +2,7 @@
 :summary: Operator notes — the `operator-notes:` markdown field every config object carries (the Jam in jam.yml, destinations, model specs, users, connections, kits, projects, roles), seen only by operators and never by agents; where each kind keeps it and where the console shows and edits it.
 :read_when: You want to record why a config object exists or how to handle it, for other operators only; are wondering whether agents see an object's notes; or a notes edit, its plan op or its console section behaves unexpectedly.
 :owns: the operator-notes field (per-kind location, the no-agent guarantee, the Jam's notes object, the console's Operator notes section and its writes)
-:prereqs: config-git.md (file kinds, the plan); config-branches.md (editing on a branch)
+:prereqs: config-git.adoc (file kinds, the plan); config-branches.adoc (editing on a branch)
 :tier: leaf
 :updated: 2026-11-03
 
@@ -43,7 +43,7 @@ The planner treats ``jam.yml``'s `operator-notes` as the Jam's own config object
 (`jam-notes jam` in a plan). They never count as a serve setting, so editing
 them never makes jam.yml "differ" or need a restart. `jam config write` writes
 them back into jam.yml, and a branch never writes jam.yml
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/config-branches.md[config-branches.md]). A non-string value is refused:
+(xref:usage/jam/config-branches.adoc[config-branches]). A non-string value is refused:
 `+jam.yml: operator-notes must be a string+`.
 
 A kit's notes belong to that kit's own kit.yml. A kit that builds on another

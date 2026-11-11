@@ -2,7 +2,7 @@
 :summary: `just local` — build the studio images, `jam`/`jam-colima` and the `jam:dev` container image so they point at each other: the local jam-studio-base becomes the binaries' default, trusted studio base.
 :read_when: You want a local Jam whose studios run on images you just built from `images/` (a changed base or jam-studio), or you see "local studio base" in `jam version`, or a release build refused a `local.txt`.
 :owns: `just local`/`local-clean` (scripts/local.sh), the local studio base (internal/basedigest/blessed/local.txt) and its release guard
-:prereqs: DEVELOPMENT.adoc for the image tree and the release pipeline; usage/jam/kits.md for the provenance gate
+:prereqs: DEVELOPMENT.adoc for the image tree and the release pipeline; usage/jam/kits.adoc for the provenance gate
 :tier: leaf
 :updated: 2026-11-11
 

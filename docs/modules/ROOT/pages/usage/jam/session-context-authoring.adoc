@@ -25,8 +25,8 @@ A layer is a short *core* (always in the session's system prompt) and optional
 == The files
 
 Each layer changes only by a commit to the config repo
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/config-git.md#layout[config-git.md]), by hand or on a branch in the admin
-console (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/config-branches.md[config-branches.md]). A `context.md` (Jam and
+(xref:usage/jam/config-git.adoc#layout[config-git]), by hand or on a branch in the admin
+console (xref:usage/jam/config-branches.adoc[config-branches]). A `context.md` (Jam and
 project) is optional YAML front matter holding `+leaves:+`, then the core as
 the markdown body:
 
@@ -99,4 +99,4 @@ refused by the plan and nothing changes.
 * Raise warns in Jam's log when an authored core restates an egress host or a
 message target — the Studio layer already lists those.
 * Context is plain text in every session's prompt: *never put a credential in it.*
-* Role, project and Jam context are part of `jam export` (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/backup.md[backup.md]).
+* Role, project and Jam context are part of `jam export` (xref:usage/jam/backup.adoc[backup]).

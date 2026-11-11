@@ -9,7 +9,7 @@ For anything else, route from the docs map, [`docs/modules/ROOT/pages/INDEX.adoc
 ## Quick orientation
 
 - **Module:** `github.com/aethons-tools/cove` · **Binaries:** `jam` (minting is `jam mint`), `jam-colima` (remote Studio Manager host process), `jam-studio-agent` (embedded in studio images); dev tools `adopt-base`, `gen-blessed`, `gen-icons`
-- **Entry points:** `cmd/jam/main.go` (the Jam service and its CLI — start at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md)), `cmd/jam-studio-agent/main.go` (the in-studio agent supervisor), `internal/mintcmd` (`jam mint`, the token minter).
+- **Entry points:** `cmd/jam/main.go` (the Jam service and its CLI — start at [`docs/modules/ROOT/pages/usage/jam/INDEX.adoc`](docs/modules/ROOT/pages/usage/jam/INDEX.adoc)), `cmd/jam-studio-agent/main.go` (the in-studio agent supervisor), `internal/mintcmd` (`jam mint`, the token minter).
 - **Packages:** see the package map in [the overview](docs/modules/ROOT/pages/OVERVIEW.adoc#architecture).
 
 ## Working in this repo

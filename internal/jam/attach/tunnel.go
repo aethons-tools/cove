@@ -1,5 +1,5 @@
 // Package attach — tunnel.go: the Jam side of studio tunnels (studio
-// collaboration, docs/usage/jam/collaboration.md). A human connection asks
+// collaboration, docs/modules/ROOT/pages/usage/jam/collaboration.adoc). A human connection asks
 // Open for a studio port; the broker pushes OpenTunnel down the studio's
 // Attach stream and waits (DialBack) for the studio to dial a Tunnel stream
 // back and claim the id, then splices the two. Ids are single-use and bound
