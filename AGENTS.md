@@ -4,7 +4,12 @@
 
 **Start here:** [`docs/modules/ROOT/pages/OVERVIEW.adoc`](docs/modules/ROOT/pages/OVERVIEW.adoc) —
 what this repo builds, the studio image's security model, the package map, and how to build/test/run.
-For anything else, route from the docs map, [`docs/modules/ROOT/pages/INDEX.adoc`](docs/modules/ROOT/pages/INDEX.adoc).
+For anything else, route from the docs map, [`docs/modules/ROOT/pages/INDEX.adoc`](docs/modules/ROOT/pages/INDEX.adoc)
+(`docs/` is an Antora book in AsciiDoc: `xref:x.adoc[]` is the file `docs/modules/ROOT/pages/x.adoc`).
+The human view of the same docs is the architecture book on the team site, with search
+([`manual-books.adoc`](docs/modules/ROOT/pages/manual-books.adoc)); agents read the files.
+Run the docs-audit checker with this repo's flags (`--exclude 'superpowers/*' --repo-url …`),
+as [`docs-asciidoc.adoc`](docs/modules/ROOT/pages/docs-asciidoc.adoc) ("Auditing a mixed tree") gives them.
 
 ## Quick orientation
 
