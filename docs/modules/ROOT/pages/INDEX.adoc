@@ -14,7 +14,7 @@ open only that doc, and stop when you have enough.
 |Doc |Read when
 
 |xref:OVERVIEW.adoc[] |You need what this repo builds (the studio image, its hardening and egress tiers), the package map, or how to build/test/run.
-|xref:DEVELOPMENT.adoc[] |You are building or testing this repo inside the egress-locked dev sandbox and `go` or `just` won't fetch or build.
+|xref:DEVELOPMENT.adoc[] |You are building or testing this repo inside the egress-locked dev sandbox and `go` or `just` won't fetch or build, or you need how CI works (the merge gate, the release pipeline).
 |xref:local-build.adoc[] |You want a local Jam whose studios run on images you just built (`just local`), or see "local studio base" in `jam version`, or a release build refused a `local.txt`.
 |xref:web-app.adoc[] |You are changing the Jam app (``web/app``: the user area at `/app/user/`, the admin console at `/app/admin/`), adding an `/app/user/api` or `/app/admin/api` route it reads, or building/testing it.
 |xref:manual.adoc[] |You are changing anything a Jam user can see (its manual page changes in the same PR), writing a manual page, taking or refreshing its screenshots, marking content team-only, proposing a change on the goal branch, or building the manual.
