@@ -1,7 +1,7 @@
 = Development notes
 :summary: Operational notes for building and testing this repo inside the egress-locked dev sandbox.
-:read_when: You are building or testing this repo inside the egress-locked dev sandbox and `go` or `just` won't fetch or build.
-:owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH) and build/test workarounds
+:read_when: You are building or testing this repo inside the egress-locked dev sandbox and `go` or `just` won't fetch or build, or you need how CI works: the merge gate, the store integration job, or the release pipeline.
+:owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH), build/test workarounds, and CI (the merge gate, the store integration job, the release pipeline)
 :prereqs: OVERVIEW.adoc
 :tier: leaf
 :updated: 2026-11-11
