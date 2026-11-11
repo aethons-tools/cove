@@ -1,10 +1,10 @@
 ---
-summary: The Jam manual in manual/ — the user-facing manual in AsciiDoc built with Antora, its released, next and goal versions (from the release, main and goal branches), the page shape and conventions attributes, the in-repo UI, marking content internal (team-only pages, areas and passages the customer build drops), and `just manual` / `manual-site` / `manual-check`.
-read_when: You are changing anything a Jam user can see (its manual page changes in the same PR), writing or editing a manual page, marking content team-only, proposing a change on the goal branch, or building the manual.
-owns: the manual/ tree, its build (antora playbooks, manual/ui, just manual and manual-site), the branch-to-version model, the page attributes (page-area, page-id, page-conventions), and marking content internal (manual/extensions, just manual-check)
+summary: The Jam manual in manual/ — the user-facing manual in AsciiDoc built with Antora, taking its screenshots (`just manual-shot`), its released, next and goal versions (from the release, main and goal branches), the page shape and conventions attributes, the in-repo UI, marking content internal (team-only pages, areas and passages the customer build drops), and `just manual` / `manual-site` / `manual-check`.
+read_when: You are changing anything a Jam user can see (its manual page changes in the same PR), writing or editing a manual page, taking or refreshing a screenshot, marking content team-only, proposing a change on the goal branch, or building the manual.
+owns: the manual/ tree, its screenshots (just manual-shot, web/app/src/shots), its build (antora playbooks, manual/ui, just manual and manual-site), the branch-to-version model, the page attributes (page-area, page-id, page-conventions), and marking content internal (manual/extensions, just manual-check)
 prereqs: superpowers/specs/2026-11-05-manual-first-operating-model-design.md for why the manual leads the work
 tier: leaf
-updated: 2026-11-06
+updated: 2026-11-11
 ---
 
 # The Jam manual (`manual/`)
@@ -34,7 +34,9 @@ branch, so merges never touch version names.
   `git diff origin/release origin/main -- manual/` is what the next release
   ships. When a feature ships, its page catches up and drops out of the diff.
 - After merges to `main`, `main` is merged into `goal` so the diff only shows
-  real gaps.
+  real gaps. When that merge conflicts on a page that has shipped, `goal`
+  takes `main`'s page and deletes the page's goal-only files (its mockups
+  and prototype attachment), so nothing of it is left in the diff.
 
 ## Pages
 
@@ -56,6 +58,43 @@ Pages live in `manual/modules/<area>/pages/`, images in
 Write one clause per line (semantic line breaks) so diffs read clause by clause.
 Content for the team only is marked internal (below).
 On `main`, images are real screenshots; on `goal`, mockups.
+
+## Screenshots
+
+A PR that changes a page refreshes its screenshots with `just manual-shot`
+(`scripts/manual-shot.sh` → `web/app/scripts/shot.mjs`):
+
+```sh
+just manual-shot 'admin/config/projects/acme?branch=jam/docs' \
+  --selector 'main > .mantine-Stack-root' --width 1000 \
+  --out manual/modules/projects/images/project-page.png
+just manual-shot 'admin/config/projects/acme?branch=jam/docs' \
+  --selector '.mantine-Card-root:has(.jam-ctx-rows)' --width 1200 \
+  --click '[data-action="edit"]' --click '[data-leaf="manual.md"] .toggle' \
+  --out manual/modules/projects/images/agent-context-edit.png
+```
+
+- It serves the app with Vite on mock data (`web/app/vite.shot.config.ts`):
+  the API answers from `web/app/src/shots/mocks.ts`, a map of
+  `"METHOD /path"` (query optional) to JSON built from the tests'
+  `fixtures.ts`. A request with no entry answers 404, is logged as
+  `mock-api: no mock for …` and fails the shot (non-zero exit, no PNG
+  written): add the entry. `?branch=<name>` in the route
+  opens a config branch, so edit controls show.
+- It shoots with the kit's headless Chrome
+  (`/opt/chrome-headless-shell/chrome-headless-shell`; `JAM_BROWSER`
+  overrides), which resolves no host but loopback.
+- Flags: `--out` (from the repo root), `--selector` (crop to the first match,
+  plus `--pad`, default 8 CSS px; without it, the whole page), `--width`
+  (default 1280) and `--height` (800; grown to the page), `--scale` (device
+  pixels per CSS pixel, default 2), `--click <css>` (click the first match
+  once the view is ready, before the shot; repeat it to click in order — a
+  card's Edit button, a row's toggle).
+- Output is deterministic: light scheme, no animations or caret, fonts
+  (the bundled IBM Plex) loaded, the network quiet. Rerunning on unchanged
+  code and mocks, with the same Chrome, gives the same bytes.
+- To refresh, rerun the command that made the image; record a new image's
+  command in the PR.
 
 ## Marking content internal
 
@@ -101,15 +140,18 @@ drops internal content. The customer build hard-unsets it, so a component's
 - `just manual` builds your working tree (uncommitted edits included) into
   `manual/build/site/` — one version, the one checked out (named from the
   branch, so `main` builds as *Next*).
-- `just manual-site` builds the **team manual**: `release`, `main` and `goal`
+- `just manual-site` builds the **team site**: `release`, `main` and `goal`
   together, with a *Released* / *Next* / *Goal* switcher, opening on Released:
   your local branch of each name if you have one (the checked-out one from the
-  working tree), else origin's. Fetch first.
+  working tree), else origin's. Fetch first. It adds the process book when you
+  have a clone of jam-config ([manual-books.md](manual-books.md)), else warns and builds
+  without it.
 - The **team site** is the same build, deployed to Cloudflare Pages at
   <https://aethons-tools-jam.pages.dev> (behind Cloudflare Access) by
   `.github/workflows/manual-site.yml` on every push to `release`, `main` or
-  `goal`. It needs the secret `CLOUDFLARE_API_TOKEN` and the repository
-  variable `CLOUDFLARE_ACCOUNT_ID`; the deploy runs `wrangler`, pinned in the
+  `goal` (of cove; a push to jam-config redeploys nothing until the next one,
+  or a manual run). It needs the secret `CLOUDFLARE_API_TOKEN` and the repository
+  variable `CLOUDFLARE_ACCOUNT_ID`, and `JAM_CONFIG_DEPLOY_KEY` for the process book; the deploy runs `wrangler`, pinned in the
   workflow (not in `manual/package.json`, so manual builds never install it).
   The build always uses `main`'s playbook, UI and extensions, whichever branch
   pushed. A branch that does not exist yet is skipped.
@@ -127,5 +169,7 @@ drops internal content. The customer build hard-unsets it, so a component's
   `released`.
 
 Both need Node/npm (Antora is pinned in `manual/package.json`). The site's look
-is `manual/ui/` — layouts, one helper and a stylesheet — not Antora's default
+is `manual/ui/` — layouts, two helpers and a stylesheet — not Antora's default
 UI, which would be downloaded from gitlab.com at build time.
+
+The team site's books (the process book included) and search: [manual-books.md](manual-books.md).

@@ -1,0 +1,25 @@
+/* ContextPanel: the Agent context card's collapsible instruction rows. */
+.jam-ctx-rows { font-size: var(--mantine-font-size-sm); }
+.jam-ctx-rows .cols { display: grid; grid-template-columns: 28px minmax(120px, 190px) 1fr 80px 30px; align-items: center; }
+.jam-ctx-rows .hdr { font-size: var(--mantine-font-size-xs); color: var(--mantine-color-dimmed); font-weight: 600; padding: 6px 0; border-bottom: 1px solid var(--mantine-color-default-border); }
+.jam-ctx-rows .row { border-bottom: 1px solid var(--mantine-color-default-hover); }
+.jam-ctx-rows .row.open { background: light-dark(var(--mantine-color-jam-0), var(--mantine-color-dark-6)); }
+.jam-ctx-rows .head { padding: 0; }
+.jam-ctx-rows .toggle { grid-column: 1 / 5; display: grid; grid-template-columns: subgrid; align-items: center; min-height: 36px; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.jam-ctx-rows .toggle:hover { background: var(--mantine-color-default-hover); }
+.jam-ctx-rows .chev { color: var(--mantine-color-dimmed); text-align: center; font-size: 0.8em; }
+.jam-ctx-rows .name { font-family: var(--mantine-font-family-monospace); font-size: 0.93em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jam-ctx-rows .name .unnamed { font-family: inherit; color: var(--mantine-color-placeholder); font-style: italic; }
+.jam-ctx-rows .dot { color: var(--mantine-color-error); margin-left: 6px; font-size: 0.8em; }
+.jam-ctx-rows .when { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
+.jam-ctx-rows .body { padding: 4px 14px 14px 28px; }
+.jam-ctx-rows .fields { display: grid; grid-template-columns: minmax(140px, 200px) 1fr; gap: 12px; margin-bottom: 10px; }
+.jam-ctx-rows .add { width: 100%; min-height: 34px; padding: 6px 28px; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; color: var(--mantine-color-placeholder); font-style: italic; }
+.jam-ctx-rows .add:hover { background: var(--mantine-color-default-hover); }
+.jam-ctx-rows .none, .jam-ctx-none { color: var(--mantine-color-dimmed); padding: 8px 10px; }
+.jam-ctx-md { border: 1px solid var(--mantine-color-default-border); border-radius: var(--mantine-radius-sm); padding: 10px 14px; background: var(--mantine-color-body); font-size: var(--mantine-font-size-sm); }
+/* Headings inside an instruction read as part of the card, not the page. */
+.jam-ctx-md h1 { font-size: 1.3em; margin: 0.2em 0 0.4em; }
+.jam-ctx-md h2 { font-size: 1.15em; margin: 0.2em 0 0.4em; }
+.jam-ctx-md h3, .jam-ctx-md h4, .jam-ctx-md h5, .jam-ctx-md h6 { font-size: 1em; margin: 0.2em 0 0.4em; }
+.jam-ctx-md ul, .jam-ctx-md ol { margin: 0.4em 0; padding-left: 1.4em; }

@@ -1,0 +1,14 @@
+/* QuietGrid: a plain table whose cells become fields only while edited. */
+.jam-qgrid { width: 100%; border-collapse: collapse; font-size: var(--mantine-font-size-sm); }
+.jam-qgrid th { text-align: left; font-size: var(--mantine-font-size-xs); color: var(--mantine-color-dimmed); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--mantine-color-default-border); }
+.jam-qgrid td { border-bottom: 1px solid var(--mantine-color-default-hover); padding: 2px; vertical-align: top; }
+.jam-qgrid .cell { display: flex; align-items: center; width: 100%; min-height: 34px; box-sizing: border-box; padding: 6px 9px; border: 1px solid transparent; border-radius: var(--mantine-radius-xs); background: transparent; color: inherit; font: inherit; text-align: left; cursor: text; }
+.jam-qgrid tr:hover .cell { background: var(--mantine-color-default-hover); }
+.jam-qgrid .cell.mono { font-family: var(--mantine-font-family-monospace); font-size: 0.93em; }
+.jam-qgrid .cell .empty, .jam-qgrid .add { color: var(--mantine-color-placeholder); font-style: italic; }
+.jam-qgrid .cell .caret { margin-left: auto; padding-left: 6px; color: var(--mantine-color-dimmed); visibility: hidden; }
+.jam-qgrid tr:hover .cell .caret { visibility: visible; }
+.jam-qgrid .cell.choice { cursor: pointer; }
+.jam-qgrid [data-error="true"] .cell, .jam-qgrid [data-error="true"] input, .jam-qgrid [data-error="true"] select { border-color: var(--mantine-color-error); }
+.jam-qgrid .err { color: var(--mantine-color-error); font-size: var(--mantine-font-size-xs); padding: 0 9px 4px; }
+.jam-qgrid .add { width: 100%; min-height: 34px; padding: 6px 9px; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }

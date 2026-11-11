@@ -12,6 +12,17 @@ import "time"
 type APIError struct {
 	Error string `json:"error"` // for people
 	Code  string `json:"code"`  // for code: forbidden, not_found, bad_request, internal
+	// Errors is every problem with a refused write's fields (an agent
+	// context save), each at its field path; absent otherwise.
+	Errors []FieldError `json:"errors,omitempty"`
+}
+
+// FieldError is one problem with a written field: Field is its path in the
+// request's wire names, e.g. core, leaves[2].readWhen, resources[0].kind, or a
+// list (leaves, resources) for a list-wide problem.
+type FieldError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
 }
 
 // Bootstrap is what the admin app needs before its first render: injected
@@ -235,6 +246,8 @@ type ProjectsResponse struct {
 type ContextLeaf struct {
 	Name     string `json:"name"`
 	ReadWhen string `json:"readWhen"`
+	Body     string `json:"body"`
+	Bytes    int    `json:"bytes"` // len(Body), counted against MaxLeafBytes
 }
 
 // ContextResource is one resource of a project's agent context.
@@ -245,12 +258,22 @@ type ContextResource struct {
 	Note string `json:"note"`
 }
 
+// ContextLimits are a scope's authored-context limits (sessionctx), in bytes
+// or counts. MaxResources is 0 where resources do not apply.
+type ContextLimits struct {
+	CoreBudget   int `json:"coreBudget"`
+	MaxReadWhen  int `json:"maxReadWhen"`
+	MaxLeaves    int `json:"maxLeaves"`
+	MaxLeafBytes int `json:"maxLeafBytes"` // all leaf bodies together
+	MaxResources int `json:"maxResources"`
+}
+
 // ContextPanel is an agent-context card (Jam, a project or a role): what
 // every agent there is told when raised, and its YAML for the editor.
 type ContextPanel struct {
 	Scope         string            `json:"scope"` // "Jam-wide", "project", "role"
 	Core          string            `json:"core"`
-	CoreBytes     int               `json:"coreBytes"` // as delivered
+	CoreBytes     int               `json:"coreBytes"` // counted against the budget: the core plus a project's resources pointer
 	Budget        int               `json:"budget"`
 	Over          bool              `json:"over"`
 	Empty         bool              `json:"empty"`
@@ -258,6 +281,29 @@ type ContextPanel struct {
 	Leaves        []ContextLeaf     `json:"leaves"`
 	Resources     []ContextResource `json:"resources"`
 	YAML          string            `json:"yaml"`
+	Limits        ContextLimits     `json:"limits"`
+	LeafBytes     int               `json:"leafBytes"` // all leaf bodies, against Limits.MaxLeafBytes
+	// DeliveredBytes is what the layer adds to a session's always-on core:
+	// CoreBytes plus a pointer line per leaf (and the resources leaf), before
+	// any truncation.
+	DeliveredBytes int `json:"deliveredBytes"`
+}
+
+// ContextLeafInput is one leaf of a structured ContextSave.
+type ContextLeafInput struct {
+	Name     string `json:"name"`
+	ReadWhen string `json:"readWhen"`
+	Body     string `json:"body"`
+}
+
+// ContextSave is the body of a POST to a context endpoint (jam/context, a
+// project's or a role's context): either YAML (the `jam context` format) or
+// the fields, not both. Resources apply to a project only.
+type ContextSave struct {
+	YAML      string             `json:"yaml,omitempty"`
+	Core      string             `json:"core,omitempty"`
+	Leaves    []ContextLeafInput `json:"leaves,omitempty"`
+	Resources []ContextResource  `json:"resources,omitempty"`
 }
 
 // DeliveryRow is where a member gets DMs: service:address.

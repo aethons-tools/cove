@@ -143,10 +143,17 @@ app-dev:
 manual:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.local.yml
 
-# build the Released (release), Next (main) and Goal (goal) manuals as one site into
-# manual/build/site/; local branches win over origin's (see docs/manual.md)
+# the process book comes from a jam-config clone ($JAM_CONFIG_DIR, else ../jam-config) if any
+# build the team site (Released, Next and Goal manuals + process book) into manual/build/site/; local branches win (docs/manual.md)
 manual-site:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.yml
+
+# screenshot a view of the Jam app on mock data into the manual, e.g.
+# `just manual-shot admin/config/projects/acme --selector main --out manual/modules/projects/images/x.png`
+# (web/app/src/shots/mocks.ts; flags and refreshing: docs/manual.md)
+[positional-arguments]
+manual-shot *ARGS:
+    ./scripts/manual-shot.sh "$@"
 
 # test the manual's Antora extensions (internal content: manual/extensions/test/)
 manual-check:
@@ -185,6 +192,15 @@ test-release-pr-body:
 # hermetic test for scripts/release/legs.sh (the legs fan-out release.yml and release-pr.yml share)
 test-release-legs:
     bash scripts/release/legs.test.sh
+
+# hermetic test for the docs-audit skill's checker (studio-image payload; temp docs trees)
+test-docs-audit:
+    python3 images/jam-studio-base/docs_audit_test.py
+
+# convert Markdown docs to AsciiDoc for the architecture book, forwarding ARGS
+# (docs/docs-asciidoc.md). e.g. `just docs-to-adoc --module usage=usage --out-dir docs docs/OVERVIEW.md`
+docs-to-adoc *ARGS:
+    node manual/tools/docs-to-adoc.js {{ARGS}}
 
 # hermetic test for scripts/local.sh (`just local`; fake docker, stub build scripts)
 test-local:

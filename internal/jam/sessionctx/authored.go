@@ -30,55 +30,128 @@ type Resource struct {
 	Note string `json:"note,omitempty" yaml:"note,omitempty"`
 }
 
-// ValidateLayer checks an authored layer: core within budget; leaves safely
-// named, unique, each with a read-when; leaf bodies within MaxLeafBytes.
-func ValidateLayer(l Layer, budget int) error {
+// FieldError is one problem with an authored layer or resource list, at a
+// field path in the admin API's wire names: core, leaves[2].readWhen,
+// resources[0].kind; a list-wide problem names the list (leaves, resources).
+type FieldError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+// FieldErrors is every problem found; as an error, the messages joined.
+type FieldErrors []FieldError
+
+func (fe FieldErrors) Error() string {
+	msgs := make([]string, len(fe))
+	for i, e := range fe {
+		msgs[i] = e.Message
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// Err is fe as an error, nil when there are none.
+func (fe FieldErrors) Err() error {
+	if len(fe) == 0 {
+		return nil
+	}
+	return fe
+}
+
+func (fe *FieldErrors) add(field, format string, a ...any) {
+	*fe = append(*fe, FieldError{Field: field, Message: fmt.Sprintf(format, a...)})
+}
+
+// ValidateLayer checks an authored layer (CheckLayer), reporting every
+// problem in one error.
+func ValidateLayer(l Layer, budget int) error { return CheckLayer(l, budget).Err() }
+
+// CheckLayer checks an authored layer: core within budget; leaves safely
+// named, unique, each with a read-when; leaf bodies within MaxLeafBytes. It
+// returns every problem found (nil: valid).
+func CheckLayer(l Layer, budget int) FieldErrors {
+	var fe FieldErrors
 	if n := len(strings.TrimSpace(l.Core)); n > budget {
-		return fmt.Errorf("core is %d bytes; the budget is %d — move detail into leaves", n, budget)
+		fe.add("core", "core is %d bytes; the budget is %d — move detail into leaves", n, budget)
 	}
 	if len(l.Leaves) > MaxLeaves {
-		return fmt.Errorf("%d leaves; at most %d", len(l.Leaves), MaxLeaves)
+		fe.add("leaves", "%d leaves; at most %d", len(l.Leaves), MaxLeaves)
 	}
 	seen := map[string]bool{}
 	total := 0
-	for _, lf := range l.Leaves {
-		if !ValidLeafName(lf.Name) {
-			return fmt.Errorf("leaf name %q: want lowercase [a-z0-9._-] ending .md (not CORE.md or INDEX.md)", lf.Name)
-		}
-		if seen[lf.Name] {
-			return fmt.Errorf("leaf %q appears twice", lf.Name)
+	for i, lf := range l.Leaves {
+		at := fmt.Sprintf("leaves[%d].", i)
+		switch {
+		case !ValidLeafName(lf.Name):
+			fe.add(at+"name", "leaf name %q: want lowercase [a-z0-9._-] ending .md (not CORE.md or INDEX.md)", lf.Name)
+		case seen[lf.Name]:
+			fe.add(at+"name", "leaf %q appears twice", lf.Name)
 		}
 		seen[lf.Name] = true
 		if strings.TrimSpace(lf.ReadWhen) == "" {
-			return fmt.Errorf("leaf %q needs a read-when", lf.Name)
-		}
-		if len(lf.ReadWhen) > MaxReadWhen {
-			return fmt.Errorf("leaf %q: read-when is %d bytes; at most %d", lf.Name, len(lf.ReadWhen), MaxReadWhen)
+			fe.add(at+"readWhen", "leaf %q needs a read-when", lf.Name)
+		} else if len(lf.ReadWhen) > MaxReadWhen {
+			fe.add(at+"readWhen", "leaf %q: read-when is %d bytes; at most %d", lf.Name, len(lf.ReadWhen), MaxReadWhen)
 		}
 		total += len(lf.Body)
 	}
 	if total > MaxLeafBytes {
-		return fmt.Errorf("leaf bodies total %d bytes; at most %d", total, MaxLeafBytes)
+		fe.add("leaves", "leaf bodies total %d bytes; at most %d", total, MaxLeafBytes)
 	}
-	return nil
+	return fe
 }
 
-// ValidateResources checks a project's resource list.
-func ValidateResources(rs []Resource) error {
+// ValidateResources checks a project's resource list (CheckResources),
+// reporting every problem in one error.
+func ValidateResources(rs []Resource) error { return CheckResources(rs).Err() }
+
+// CheckResources checks a project's resource list, returning every problem
+// found (nil: valid).
+func CheckResources(rs []Resource) FieldErrors {
+	var fe FieldErrors
 	if len(rs) > MaxResources {
-		return fmt.Errorf("%d resources; at most %d", len(rs), MaxResources)
+		fe.add("resources", "%d resources; at most %d", len(rs), MaxResources)
 	}
+	seen := map[string]bool{}
 	for i, r := range rs {
-		switch {
-		case strings.TrimSpace(r.Name) == "":
-			return fmt.Errorf("resource %d: name is required", i+1)
-		case !resourceKinds[r.Kind]:
-			return fmt.Errorf("resource %q: kind %q; want repo, doc, tracker or url", r.Name, r.Kind)
-		case strings.TrimSpace(r.Ref) == "":
-			return fmt.Errorf("resource %q: ref is required", r.Name)
+		at, label := fmt.Sprintf("resources[%d].", i), fmt.Sprintf("resource %q", r.Name)
+		if strings.TrimSpace(r.Name) == "" {
+			fe.add(at+"name", "resource %d: name is required", i+1)
+			label = fmt.Sprintf("resource %d", i+1)
+		} else if seen[r.Name] {
+			fe.add(at+"name", "%s: name already used", label)
+		}
+		seen[r.Name] = true
+		if !resourceKinds[r.Kind] {
+			fe.add(at+"kind", "%s: kind %q; want repo, doc, tracker or url", label, r.Kind)
+		}
+		if strings.TrimSpace(r.Ref) == "" {
+			fe.add(at+"ref", "%s: ref is required", label)
 		}
 	}
-	return nil
+	return fe
+}
+
+// DeliveredCoreBytes is how many bytes layer l (named as in Layer*, e.g.
+// LayerRole; a project's with its resources rendered by ProjectLayer) adds to
+// a session's always-on core below its heading: the authored core plus one
+// pointer line per leaf, before any truncation. 0 for an empty layer.
+func DeliveredCoreBytes(layer string, l Layer) int {
+	if l.Empty() {
+		return 0
+	}
+	n := 0
+	if c := strings.TrimSpace(l.Core); c != "" {
+		n = len(c) + 1
+	}
+	for _, lf := range l.Leaves {
+		n += len(leafPointer(layer, lf))
+	}
+	return n
+}
+
+// leafPointer is a leaf's line in the core.
+func leafPointer(layer string, lf Leaf) string {
+	return fmt.Sprintf("- %s/%s — read when %s\n", layer, lf.Name, oneLine(lf.ReadWhen))
 }
 
 // ProjectLayer is the project's authored layer plus its resources, rendered

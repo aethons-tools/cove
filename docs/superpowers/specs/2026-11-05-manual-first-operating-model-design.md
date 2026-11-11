@@ -155,6 +155,21 @@ Then stand up Intake and Editor as roles, then the v1 view.
   8. **Markdown shows rendered** when viewing and as source when editing (core instructions and bodies).
 - **Mockups** are clickable HTML prototypes, served as a studio preview while discussed and kept with the goal page as an Antora attachment.
 
+### Pilot retro *(2026-11-10)*
+
+Shipped: COV-282 (COV-283..288; PRs #641–#643, #646–#648). The goal page agreed on 11-06; planned 11-07; three autonomous tickets merged within 30 minutes; the attended card rebuild previewed and shipped 11-10; after the `main`→`goal` sync the manual diff was empty. The user: a successful demonstration, slow only because the glue was manual; their attention was scattered across the process, which is what this model is meant to fix. The gap between the agreed goal page and a live preview was right.
+
+Worked: the goal page and prototype were a complete contract (an agent built the card from them alone); acceptance was the preview against the page; independent reviews found real bugs before the user saw them.
+
+Friction, and the actions, in the user's order:
+
+1. **Review isn't enforced** — two of three sessions merged with no recorded review. → A required `review` check on `main`, set only by a separate reviewer.
+2. **Stuck work is invisible** — a green PR sat unmerged for 18 hours. → A watcher for idle green PRs and stalled tickets.
+3. **The glue was by hand** — planning, `goal` sync, preview hosting, status. → Stand up the Editor role, then Intake.
+4. **Sandbox gaps** — CI logs unreadable, the Linear GraphQL route refused, workflows can't be re-run. → Requests to the operator.
+
+Conventions learned: planning reads the code as well as the page diff (three of five tickets were prerequisites the page doesn't show); when a page ships, the `goal` sync takes `main`'s page and drops its mockups and prototype.
+
 ## Left to the builder
 
 - How mockups are produced (hand HTML vs. generated) and the screenshot tooling (Chrome is in the kit).
@@ -163,4 +178,4 @@ Then stand up Intake and Editor as roles, then the v1 view.
 
 ## Open
 
-- Whether merges to `main` also need the user, or only goal-page merges.
+- ~~Whether merges to `main` also need the user~~ — decided 2026-11-06: agents merge to `main` when `gate` is green and review passed; the user approves releases (`docs/DEVELOPMENT.md`).

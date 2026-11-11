@@ -8,7 +8,24 @@
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="{{{relativize site.homeUrl}}}">{{{page.component.title}}}</a>
+  <a class="brand" href="{{{relativize site.homeUrl}}}">{{{site.title}}}</a>
+  {{!-- One book per Antora component (site.components); none with a lone book (the site title says it). --}}
+  {{#if (many site.components)}}
+  <nav class="books" aria-label="Book">
+    {{#each site.components}}
+    <a class="{{#if (eq ./name @root.page.component.name)}}on{{/if}}" href="{{{relativize ./url}}}">{{{./title}}}</a>
+    {{/each}}
+  </nav>
+  {{/if}}
+  {{!-- Search: only when @antora/lunr-extension is on (team playbooks; the customer build has none). --}}
+  {{#if env.SITE_SEARCH_PROVIDER}}
+  <div id="search-field" class="search{{#if (many site.components)}} has-filter{{/if}}">
+    <input id="search-input" type="text" placeholder="Search the books" aria-label="Search"{{#if page.home}} autofocus{{/if}}>
+    {{#if (many site.components)}}
+    <label class="filter"><input type="checkbox" data-facet-filter="component:{{page.component.name}}"> In this book</label>
+    {{/if}}
+  </div>
+  {{/if}}
   {{#if page.versions}}
   <nav class="versions" aria-label="Manual version">
     {{#each page.versions}}
@@ -19,12 +36,18 @@
 </header>
 <div class="layout">
   <nav class="side">{{> nav-tree items=page.navigation}}</nav>
-  <main class="doc">
+  <main class="main">
     {{#if (eq page.version 'next')}}<p class="banner">Merged, not released yet.</p>{{/if}}
-    {{#if (eq page.version 'goal')}}<p class="banner">How the product should work, not necessarily how it works today.</p>{{/if}}
-    <h1>{{{page.title}}}</h1>
+    {{#if (eq page.version 'goal')}}<p class="banner">How it should work, not necessarily how it works today.</p>{{/if}}
+    {{!-- article.doc and h1.page: what the search indexer reads (only this, not header, nav or banners). --}}
+    <article class="doc">
+    <h1 class="page">{{{page.title}}}</h1>
     {{{page.contents}}}
+    </article>
   </main>
 </div>
+{{#if env.SITE_SEARCH_PROVIDER}}
+{{> search-scripts}}
+{{/if}}
 </body>
 </html>

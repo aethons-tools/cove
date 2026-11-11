@@ -1,8 +1,9 @@
 import { Card, Group, Text, Title } from "@mantine/core";
 import type { ReactNode } from "react";
 
-// Section is one titled card of an admin page.
-export function Section({ title, sub, actions, children }: { title: string; sub?: ReactNode; actions?: ReactNode; children?: ReactNode }) {
+// Section is one titled card of an admin page; footer, when set, is a bar
+// along its bottom (a card's Save, say).
+export function Section({ title, sub, actions, footer, children }: { title: string; sub?: ReactNode; actions?: ReactNode; footer?: ReactNode; children?: ReactNode }) {
   return (
     <Card withBorder padding="md" radius="md">
       <Card.Section withBorder inheritPadding py="xs">
@@ -15,6 +16,7 @@ export function Section({ title, sub, actions, children }: { title: string; sub?
         </Group>
       </Card.Section>
       {children !== undefined && <Card.Section inheritPadding py="sm">{children}</Card.Section>}
+      {footer !== undefined && <Card.Section withBorder inheritPadding py="sm" bg="var(--mantine-color-default-hover)">{footer}</Card.Section>}
     </Card>
   );
 }

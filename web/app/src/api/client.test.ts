@@ -74,7 +74,12 @@ describe("interpret", () => {
   });
   it("throws the envelope", () => {
     expect(() => interpret(raw({ status: 404, contentType: "application/json", json: { error: "no such", code: "not_found" } })))
-      .toThrow(expect.objectContaining({ status: 404, code: "not_found", message: "no such" }));
+      .toThrow(expect.objectContaining({ status: 404, code: "not_found", message: "no such", fields: [] }));
+  });
+  it("carries a refused write's field errors", () => {
+    const errors = [{ field: "leaves[0].readWhen", message: "needs a read-when" }];
+    expect(() => interpret(raw({ status: 400, contentType: "application/json", json: { error: "bad", code: "bad_request", errors } })))
+      .toThrow(expect.objectContaining({ code: "bad_request", fields: errors }));
   });
   it("an envelope without error gives the status text, else empty", () => {
     expect(() => interpret(raw({ status: 404, statusText: "Not Found", contentType: "application/json", json: { code: "x" } })))
