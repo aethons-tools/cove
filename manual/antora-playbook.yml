@@ -1,6 +1,8 @@
-# Builds the three versions of the manual side by side (`just manual-site`):
-# release is Released, main is Next, goal is Goal. Antora takes your local
-# branch of that name, else origin's; the branch you have checked out is read
+# Builds the team site, "Jam books" (`just manual-site`): this manual's three
+# versions side by side (release is Released, main is Next, goal is Goal), and
+# the process book from a clone of aethons-tools/jam-config when there is one
+# (main is Current, goal is Goal; extensions/books.js). Antora takes your local
+# branch of each name, else origin's; the branch you have checked out is read
 # from the working tree. See docs/manual.md.
 site:
   title: Jam books
@@ -16,6 +18,23 @@ content:
       goal: goal
 antora:
   extensions:
+  # The process book, from a local clone of the private aethons-tools/jam-config:
+  # $JAM_CONFIG_DIR (must exist when set; CI sets it), else ../jam-config next to
+  # this checkout, else skipped with a warning. Not a content source because a
+  # playbook can't read the environment and a missing url fails the build.
+  # See docs/manual-books.md.
+  - require: ./extensions/books.js
+    books:
+    - name: process
+      dir_env: JAM_CONFIG_DIR
+      dir: ../../jam-config
+      start_path: process
+      branches: [main, goal]
+      version:
+        main: current
+        goal: goal
+      # Opens on current, not goal (Antora would pick goal: reverse alphabetical).
+      prerelease: [goal]
   # Drops internal pages, modules, phrases and their files when `internal` is
   # unset; badges internal pages in the nav when it is set. Whole internal
   # modules are listed in antora.yml. See docs/manual.md ("Marking content internal").

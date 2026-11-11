@@ -1,7 +1,7 @@
 ---
-summary: The Jam manual in manual/ — the user-facing manual in AsciiDoc built with Antora, taking its screenshots (`just manual-shot`), its released, next and goal versions (from the release, main and goal branches), the page shape and conventions attributes, the in-repo UI, the team site's books (Antora components) and search, marking content internal (team-only pages, areas and passages the customer build drops), and `just manual` / `manual-site` / `manual-check`.
-read_when: You are changing anything a Jam user can see (its manual page changes in the same PR), writing or editing a manual page, taking or refreshing a screenshot, marking content team-only, proposing a change on the goal branch, adding a book or touching search on the team site, or building the manual.
-owns: the manual/ tree, its screenshots (just manual-shot, web/app/src/shots), its build (antora playbooks, manual/ui, just manual and manual-site), the team site's books and search (@antora/lunr-extension), the branch-to-version model, the page attributes (page-area, page-id, page-conventions), and marking content internal (manual/extensions, just manual-check)
+summary: The Jam manual in manual/ — the user-facing manual in AsciiDoc built with Antora, taking its screenshots (`just manual-shot`), its released, next and goal versions (from the release, main and goal branches), the page shape and conventions attributes, the in-repo UI, marking content internal (team-only pages, areas and passages the customer build drops), and `just manual` / `manual-site` / `manual-check`.
+read_when: You are changing anything a Jam user can see (its manual page changes in the same PR), writing or editing a manual page, taking or refreshing a screenshot, marking content team-only, proposing a change on the goal branch, or building the manual.
+owns: the manual/ tree, its screenshots (just manual-shot, web/app/src/shots), its build (antora playbooks, manual/ui, just manual and manual-site), the branch-to-version model, the page attributes (page-area, page-id, page-conventions), and marking content internal (manual/extensions, just manual-check)
 prereqs: superpowers/specs/2026-11-05-manual-first-operating-model-design.md for why the manual leads the work
 tier: leaf
 updated: 2026-11-11
@@ -140,15 +140,18 @@ drops internal content. The customer build hard-unsets it, so a component's
 - `just manual` builds your working tree (uncommitted edits included) into
   `manual/build/site/` — one version, the one checked out (named from the
   branch, so `main` builds as *Next*).
-- `just manual-site` builds the **team manual**: `release`, `main` and `goal`
+- `just manual-site` builds the **team site**: `release`, `main` and `goal`
   together, with a *Released* / *Next* / *Goal* switcher, opening on Released:
   your local branch of each name if you have one (the checked-out one from the
-  working tree), else origin's. Fetch first.
+  working tree), else origin's. Fetch first. It adds the process book when you
+  have a clone of jam-config ([manual-books.md](manual-books.md)), else warns and builds
+  without it.
 - The **team site** is the same build, deployed to Cloudflare Pages at
   <https://aethons-tools-jam.pages.dev> (behind Cloudflare Access) by
   `.github/workflows/manual-site.yml` on every push to `release`, `main` or
-  `goal`. It needs the secret `CLOUDFLARE_API_TOKEN` and the repository
-  variable `CLOUDFLARE_ACCOUNT_ID`; the deploy runs `wrangler`, pinned in the
+  `goal` (of cove; a push to jam-config redeploys nothing until the next one,
+  or a manual run). It needs the secret `CLOUDFLARE_API_TOKEN` and the repository
+  variable `CLOUDFLARE_ACCOUNT_ID`, and `JAM_CONFIG_DEPLOY_KEY` for the process book; the deploy runs `wrangler`, pinned in the
   workflow (not in `manual/package.json`, so manual builds never install it).
   The build always uses `main`'s playbook, UI and extensions, whichever branch
   pushed. A branch that does not exist yet is skipped.
@@ -169,29 +172,4 @@ Both need Node/npm (Antora is pinned in `manual/package.json`). The site's look
 is `manual/ui/` — layouts, two helpers and a stylesheet — not Antora's default
 UI, which would be downloaded from gitlab.com at build time.
 
-## Books and search (team site)
-
-- **Books.** The team site, titled *Jam books* (`site.title`; the customer
-  manual stays *Jam manual*), hosts several books, each an Antora component:
-  this manual is `jam`. The header lists every component (`site.components`),
-  the current one highlighted, beside the version switcher; with one book it
-  is a muted label. To add a book, add a content source to
-  `antora-playbook.yml` (and `antora-playbook.local.yml` if it should build
-  locally): a repo `url` (a private repo needs credentials in
-  `manual-site.yml`, or a checkout there and a local path), `start_path` to the dir holding its `antora.yml`
-  (its own `name`, `title`, `nav`), and `branches`. Its pages use our UI and
-  extensions; `internal` applies to it as to `jam`.
-- **Search** is `@antora/lunr-extension` (pinned in `manual/package.json`),
-  enabled in the team and local playbooks only: the customer manual is
-  embedded in Jam, whose CSP allows no scripts, and `scripts/manual.sh` fails
-  if a search index ends up in it. It writes `search-index.js` at the site
-  root (all books and versions, internal content included — the site is
-  Access-gated; about 50 KB today). The UI's side of the contract, in
-  `ui/layouts/default.hbs`, all under `{{#if env.SITE_SEARCH_PROVIDER}}`:
-  `<input id="search-input" type="text">` inside `#search-field` (the results
-  dropdown attaches to it), an "In this book" checkbox
-  (`data-facet-filter="component:<name>"`) when there are several books, and
-  `{{> search-scripts}}` before `</body>` (the extension supplies that partial,
-  `lunr.js`, `search-ui.js` and `search.css`; the UI must not ship them). The
-  indexer reads only `article.doc` and takes the title from its `h1.page`, so
-  keep page content in them.
+The team site's books (the process book included) and search: [manual-books.md](manual-books.md).

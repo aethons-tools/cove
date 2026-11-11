@@ -1,12 +1,16 @@
 name: manual-site
 
-# Builds the team manual (release as Released, main as Next, goal as Goal, with
-# internal content shown) and deploys it to Cloudflare Pages. The deployed site
-# INCLUDES INTERNAL CONTENT and is safe only because Cloudflare Access gates it:
+# Builds the team site, "Jam books" (the manual: release as Released, main as
+# Next, goal as Goal; the process book from aethons-tools/jam-config: main as
+# current, goal as goal; internal content shown) and deploys it to Cloudflare
+# Pages. The deployed site INCLUDES INTERNAL CONTENT and is safe only because Cloudflare Access gates it:
 # never remove the Access policy (it must cover the production host
 # aethons-tools-jam.pages.dev, not just preview deployments), and never deploy
 # the customer playbook here. See docs/manual.md. Secret CLOUDFLARE_API_TOKEN and
-# repository variable CLOUDFLARE_ACCOUNT_ID are required.
+# repository variable CLOUDFLARE_ACCOUNT_ID are required. Secret
+# JAM_CONFIG_DEPLOY_KEY (a read-only deploy key of aethons-tools/jam-config)
+# adds the process book (docs/manual-books.md); without it the site is the
+# manual alone, with a warning.
 
 on:
   push:
@@ -26,6 +30,9 @@ jobs:
     if: contains(fromJSON('["release","main","goal"]'), github.ref_name)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Whether the process book can be pulled in (steps below).
+      HAS_JAM_CONFIG: ${{ secrets.JAM_CONFIG_DEPLOY_KEY != '' }}
     steps:
       # main's playbook, UI and extensions build the site whichever branch
       # pushed; each version's content still comes from its own branch.
@@ -42,6 +49,34 @@ jobs:
           for b in release main goal; do
             git fetch origin "+refs/heads/$b:refs/remotes/origin/$b" || echo "no origin/$b yet; skipped"
           done
+
+      # The process book lives in the private aethons-tools/jam-config. Antora's
+      # git can't do SSH, so it reads a clone inside the workspace
+      # (manual/extensions/books.js, via JAM_CONFIG_DIR): the local branch of
+      # each name, else origin's. fetch-depth 0 fetches every branch to
+      # origin/*, so origin's main and goal are there (main also checked out);
+      # a branch that doesn't exist yet (goal) is skipped. The key isn't kept
+      # (persist-credentials: false): npm ci runs third-party code next.
+      - name: No process book
+        if: env.HAS_JAM_CONFIG != 'true'
+        run: echo "::warning::JAM_CONFIG_DEPLOY_KEY is not set; deploying without the process book"
+
+      - uses: actions/checkout@v7
+        if: env.HAS_JAM_CONFIG == 'true'
+        with:
+          repository: aethons-tools/jam-config
+          ref: main
+          ssh-key: ${{ secrets.JAM_CONFIG_DEPLOY_KEY }}
+          path: jam-config
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Point the build at jam-config
+        if: env.HAS_JAM_CONFIG == 'true'
+        working-directory: jam-config
+        run: |
+          git for-each-ref --format='%(refname:short)' refs/heads/main refs/remotes/origin/main refs/remotes/origin/goal
+          echo "JAM_CONFIG_DIR=$PWD" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v7
         with:
