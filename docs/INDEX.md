@@ -4,7 +4,7 @@ read_when: You need information from the docs. Always start here; open only the 
 owns: routing for all docs
 prereqs: none
 tier: index
-updated: 2026-11-05
+updated: 2026-11-11
 ---
 
 # Documentation index
@@ -20,6 +20,7 @@ open only that doc, and stop when you have enough.
 | [web-app.md](web-app.md) | You are changing the Jam app (`web/app`: the user area at `/app/user/`, the admin console at `/app/admin/`), adding an `/app/user/api` or `/app/admin/api` route it reads, or building/testing it. |
 | [manual.md](manual.md) | You are changing anything a Jam user can see (its manual page changes in the same PR), writing a manual page, taking or refreshing its screenshots, marking content team-only, proposing a change on the goal branch, or building the manual. |
 | [manual-books.md](manual-books.md) | You are adding a book to the team site (Jam books), building it with or without the process book from jam-config, setting up its deploy key, or touching search or the book switcher. |
+| [docs-asciidoc.md](docs-asciidoc.md) | You are converting a doc in docs/ to AsciiDoc, auditing a docs tree that mixes .md and .adoc, or changing the converter or the checker's AsciiDoc handling. |
 | [usage/INDEX.md](usage/INDEX.md) | You are running one of the binaries (`jam`, `jam-colima`) and need its flags, config, or I/O contract. |
 | [superpowers/](superpowers/) | You need the design history — dated specs (`specs/`) and implementation plans (`plans/`) — behind a structural decision. |
 | [TODO.md](TODO.md) | You want the loose backlog of known follow-ups not yet filed as tickets. |

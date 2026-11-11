@@ -26,19 +26,32 @@ Useful flags:
 - `--strict` — treat warnings as failures (good for CI gating).
 - `--budget-leaf N` / `--budget-section N` / `--budget-index N` — override the
   default size budgets if this repo tuned them.
-- `--index NAME` — if the root map isn't `INDEX.md`.
+- `--index PATH` — if the root map isn't found by default (the first of
+  `INDEX.md`, `INDEX.adoc`, or, in an Antora component, its `start_page`,
+  `modules/ROOT/pages/INDEX.adoc` or `index.adoc`).
+- `--exclude GLOB` — files under the docs dir that aren't docs (e.g.
+  `'superpowers/*'`); repeatable.
+- `--repo-url URL` — the URL prefix of the repo's files (e.g.
+  `https://github.com/o/r/blob/main`), so a link to a doc by its URL counts as
+  a link (`--repo-root` if the docs dir isn't in a git checkout); repeatable.
+
+Docs may be Markdown (`.md`, YAML frontmatter) or AsciiDoc (`.adoc`, the same
+fields as header attributes after the title, e.g. `:read_when: …`), and a tree
+may mix both. AsciiDoc links are `xref:`, `<<…>>` and `link:` targets; when the
+docs dir holds an `antora.yml`, its docs are the pages under
+`modules/*/pages/` and xrefs resolve as Antora resolves them.
 
 Exit code is non-zero when there are errors (or, with `--strict`, warnings), so it
 drops straight into a pre-commit hook or CI step.
 
 ## What it reports, and how to fix each
 
-**ERROR — missing/incomplete frontmatter.** Add the field. Every doc needs
-`summary`, `read_when`, `owns`, `prereqs`, `tier`, `updated`. Use the templates in
+**ERROR — missing/incomplete frontmatter (or header attributes).** Add the
+field. Every doc needs `summary`, `read_when`, `owns`, `prereqs`, `tier`, `updated`. Use the templates in
 the **docs-author** skill.
 
-**ERROR — orphan (unreachable from INDEX.md).** Add a row linking to it in
-`INDEX.md` (or the relevant section index). A doc no one can route to may as well
+**ERROR — orphan (unreachable from the index).** Add a row linking to it in
+the index (or the relevant section index). A doc no one can route to may as well
 not exist.
 
 **ERROR — dangling link / missing anchor.** The target file or heading moved or was

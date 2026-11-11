@@ -91,6 +91,11 @@ jobs:
       - name: local build script test
         run: bash scripts/local.test.sh
 
+      # Mirrors `just test-docs-audit` — the docs-audit skill's checker
+      # (studio-image payload) on temp docs trees, Markdown and AsciiDoc.
+      - name: docs-audit checker test
+        run: python3 images/jam-studio-base/docs_audit_test.py
+
       # Mirrors `just lint` — both call scripts/lint.sh, so CI and the local
       # loop cannot drift.
       - name: lint
@@ -124,7 +129,8 @@ jobs:
       # The VS Code extension (web/vscode): checks, bundle and the .vsix.
       - name: vscode extension
         run: ./scripts/vscode.sh
-      # The user manual's Antora extensions (manual/extensions) tests.
+      # The user manual's Antora extensions (manual/extensions) and the docs
+      # converter (manual/tools/docs-to-adoc.js) tests.
       - name: manual extension tests
         run: cd manual && ../scripts/npm-ci.sh && npm test
       # The customer manual jam embeds: a leak of internal content, or any
