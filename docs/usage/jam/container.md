@@ -107,7 +107,7 @@ Use `value:`, `mint:`, or a command over a mounted file, such as `["cat", "/run/
 ## Pointing Studio Managers at it
 
 A manager on the same host reaches the container at the host's published 443.
-In dev, both its `jam-addr` and `colima.runtime-addr` are `jam.local.aethons.tools:443`, and `colima.jam-host` is `jam.local.aethons.tools` ([manager config](../jam-colima.md#config)).
+In dev, both its `jam-addr` and `colima.runtime-addr` are `jam.local.aethons.tools:443`, and `colima.jam-host` is `jam.local.aethons.tools` ([manager config](../../modules/ROOT/pages/usage/jam-colima.adoc#config)).
 Studios still reach the same address through the `--add-host <jam-host>:host-gateway` mapping.
 Register each manager with `manager add` ([studio-managers.md](studio-managers.md)).
 

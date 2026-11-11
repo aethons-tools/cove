@@ -21,7 +21,7 @@ import (
 	"github.com/aethons-tools/cove/internal/legacynames"
 )
 
-// Config is the jam-colima config file (docs/usage/jam-colima.md).
+// Config is the jam-colima config file (docs/modules/ROOT/pages/usage/jam-colima.adoc).
 type Config struct {
 	Name       string        `yaml:"name"`        // required; jam.ValidManagerName, not "local"
 	JamAddr    string        `yaml:"jam-addr"`    // required host:port of Jam's cove-facing TLS listener

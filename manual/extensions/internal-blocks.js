@@ -4,7 +4,7 @@
 // them. Inline `[.internal]#…#` is dropped by internal.js, which also hard-unsets
 // `internal` in the customer build so no component or page can set it.
 // The customer build also fails on a kept section whose generated id would
-// carry an internal phrase of its title. See docs/manual.md.
+// carry an internal phrase of its title. See docs/modules/ROOT/pages/manual.adoc.
 'use strict'
 
 const asciidoctor = require('@asciidoctor/core') // the instance Antora loads

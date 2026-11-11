@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // docs-to-adoc: convert one of the repo's Markdown docs to AsciiDoc, for the
-// architecture book (docs/docs-asciidoc.md).
+// architecture book (docs/modules/ROOT/pages/docs-asciidoc.adoc).
 //
 // Line-based on purpose, not a Markdown AST: prose keeps its line breaks
 // (semantic line breaks survive), and only the GFM subset our docs use is

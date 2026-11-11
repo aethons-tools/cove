@@ -173,7 +173,7 @@ func (c *Colima) requireSysboxRuntime() error {
 		return fmt.Errorf("docker:true preflight: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. Jam detects but does not install it — run `jam-colima colima setup-docker` on the host (then `colima restart`), or install Sysbox CE in the colima Lima VM by hand and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/usage/docker-in-sandbox.md.")
+		return fmt.Errorf("docker:true needs the Sysbox runtime (sysbox-runc) in the colima VM, but `docker info` does not list it. Jam detects but does not install it — run `jam-colima colima setup-docker` on the host (then `colima restart`), or install Sysbox CE in the colima Lima VM by hand and make it persist across `colima stop/start` via a colima provision hook, then retry. See docs/modules/ROOT/pages/usage/docker-in-sandbox.adoc.")
 	}
 	return nil
 }

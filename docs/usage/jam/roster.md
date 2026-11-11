@@ -147,7 +147,7 @@ jam egress show --project acme --role fenced   # "kit default", "none", or the l
 - `role list` shows the state as `egress=kit`, `egress=none` or
   `egress=<a.com,.b.org>`.
 
-How it is applied in the box: [the egress model](../../OVERVIEW.md#egress-four-additive-allow-lists-and-a-ceiling);
+How it is applied in the box: [the egress model](../../modules/ROOT/pages/OVERVIEW.adoc#egress-four-additive-allow-lists-and-a-ceiling);
 when in the raise: [coves.md](coves.md#raising-a-real-managed-studio); on a running
 studio: [coves.md](coves.md#egress-drift).
 

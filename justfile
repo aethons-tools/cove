@@ -129,7 +129,7 @@ test:
     go test ./...
 
 # build the Jam app bundle jam embeds at /app/user/ (needs Node/npm; see
-# scripts/app.sh and docs/web-app.md). `just build` runs it when npm is available.
+# scripts/app.sh and docs/modules/ROOT/pages/web-app.adoc). `just build` runs it when npm is available.
 app:
     ./scripts/app.sh
 
@@ -139,18 +139,18 @@ app-dev:
     cd web/app && ../../scripts/npm-ci.sh && npx vite
 
 # build the Jam manual (manual/, AsciiDoc + Antora) from your working tree into
-# manual/build/site/ (needs Node/npm; see docs/manual.md)
+# manual/build/site/ (needs Node/npm; see docs/modules/ROOT/pages/manual.adoc)
 manual:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.local.yml
 
 # the process book comes from a jam-config clone ($JAM_CONFIG_DIR, else ../jam-config) if any
-# build the team site (Released, Next and Goal manuals + process book) into manual/build/site/; local branches win (docs/manual.md)
+# build the team site (Released, Next and Goal manuals + architecture and process books) into manual/build/site/; local branches win (docs/modules/ROOT/pages/manual.adoc)
 manual-site:
     cd manual && ../scripts/npm-ci.sh && npx antora antora-playbook.yml
 
 # screenshot a view of the Jam app on mock data into the manual, e.g.
 # `just manual-shot admin/config/projects/acme --selector main --out manual/modules/projects/images/x.png`
-# (web/app/src/shots/mocks.ts; flags and refreshing: docs/manual.md)
+# (web/app/src/shots/mocks.ts; flags and refreshing: docs/modules/ROOT/pages/manual.adoc)
 [positional-arguments]
 manual-shot *ARGS:
     ./scripts/manual-shot.sh "$@"
@@ -198,7 +198,7 @@ test-docs-audit:
     python3 images/jam-studio-base/docs_audit_test.py
 
 # convert Markdown docs to AsciiDoc for the architecture book, forwarding ARGS
-# (docs/docs-asciidoc.md). e.g. `just docs-to-adoc --module usage=usage --out-dir docs docs/OVERVIEW.md`
+# (docs/modules/ROOT/pages/docs-asciidoc.adoc). e.g. `just docs-to-adoc --keep-md 'superpowers/**' --out-dir docs docs/usage/jam/serve.md`
 docs-to-adoc *ARGS:
     node manual/tools/docs-to-adoc.js {{ARGS}}
 

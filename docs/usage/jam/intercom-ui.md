@@ -15,7 +15,7 @@ Discord/tracker relays. It is the human analog of a studio agent's `/squawks`
 tools: the same durable squawk Log, seen from the human's side. It sits behind
 the `/app` gate, which admits a roster member — see
 [ui.md](ui.md#signing-in-one-login-one-principal). How it's built, served and
-tested: [web-app.md](../../web-app.md).
+tested: [web-app](../../modules/ROOT/pages/web-app.adoc).
 
 ## URLs
 
@@ -187,7 +187,7 @@ The user area is always mounted; reaching it takes a login that names a roster
 member (or a loopback [`dev-identity`](serve.md) — see
 [ui.md](ui.md#signing-in-one-login-one-principal)). Its conversations come from
 the channel log, which is always available. A Jam built without the app bundle
-answers "not built" ([web-app.md](../../web-app.md)). Phone and desktop
+answers "not built" ([web-app](../../modules/ROOT/pages/web-app.adoc)). Phone and desktop
 notifications, and the app badge: [push.md](push.md).
 
 ## Not yet

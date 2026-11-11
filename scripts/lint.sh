@@ -44,7 +44,7 @@ go vet ./...
 # gofmt recurses into any directory it is given, so handing it package *dirs*
 # descends into whatever else lives under them. Once the module root is itself a
 # package (a root-level .go file exists), that dir is `.`, and gofmt walks the
-# sandbox's in-workspace .gopath/ GOPATH (see docs/DEVELOPMENT.md), whose vendored
+# sandbox's in-workspace .gopath/ GOPATH (see docs/modules/ROOT/pages/DEVELOPMENT.adoc), whose vendored
 # third-party sources are not ours to format. So ask the toolchain for the exact
 # .go files of the module's packages and check only those — no directory argument
 # means no recursion can ever reach .gopath/.

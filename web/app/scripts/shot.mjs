@@ -1,5 +1,5 @@
 // shot.mjs — screenshot one view of the Jam app on mock data, for the manual
-// (`just manual-shot`; docs/manual.md). It serves the app with Vite on
+// (`just manual-shot`; docs/modules/ROOT/pages/manual.adoc). It serves the app with Vite on
 // vite.shot.config.ts (the API answered from src/shots/mocks.ts), drives the
 // kit's headless Chrome over the DevTools protocol, and writes a PNG. If the
 // page asks the mock API for a route it has no mock for, it writes nothing

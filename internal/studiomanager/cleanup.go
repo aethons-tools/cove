@@ -15,7 +15,7 @@ import (
 
 var _ client.HostCache = (*diskPolicy)(nil)
 
-// The disk policy's timings (docs/usage/jam-colima.md#disk-cleanup).
+// The disk policy's timings (docs/modules/ROOT/pages/usage/jam-colima.adoc#disk-cleanup).
 const (
 	// kitImageMinAge keeps kit images this young: one just prepared is
 	// about to be raised.
