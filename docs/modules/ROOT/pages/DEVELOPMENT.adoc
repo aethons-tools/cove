@@ -269,7 +269,7 @@ manifests tagged `<N>-<MMDD>` (immutable) + ``latest``; the binaries are built b
 amd64/arm64, one `+jam_<ver>_<os>_<arch>.tar.gz+` per target holding exactly
 those two — checked by
 `scripts/release/check-archive.sh` — plus checksums, stamped `<N>-<MMDD>`) and the
-release cut with `gh`, its notes the approved release PR's description (a generic line
+release cut with `gh`, its notes the approved release PR's description with its manual links turned from Next to Released (a generic line
 if none is found). See <<versioning,Versioning>>.
 * *jam-studio-agent is embedded*, not shipped standalone — re-cutting the binaries
 re-cuts it (the https://github.com/aethons-tools/cove/blob/main/.goreleaser.yaml[`.goreleaser.yaml`] before-hook runs
