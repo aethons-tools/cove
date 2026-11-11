@@ -6,7 +6,6 @@ body{margin:0;font-family:-apple-system,"IBM Plex Sans",Inter,"Segoe UI",sans-se
 .books{display:flex;gap:6px}
 .books a{border-radius:6px;padding:3px 10px;font-size:14px;color:#333;text-decoration:none}
 .books a.on{background:#f6e6ee;color:var(--acc);font-weight:600}
-.books.single a{background:none;color:var(--muted);font-weight:400;padding:0}
 .versions{display:flex;gap:6px;margin-left:auto}
 /* Search (@antora/lunr-extension): its search.css styles the results dropdown, placed under #search-field. */
 .search{position:relative;margin-left:auto;display:flex;align-items:center;gap:8px}

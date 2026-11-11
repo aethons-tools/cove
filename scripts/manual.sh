@@ -30,6 +30,11 @@ if [ -e "$out.tmp/search-index.js" ]; then
   echo "manual: the customer manual must not have search (antora-playbook.jam.yml enables @antora/lunr-extension?)" >&2
   exit 1
 fi
+# The customer manual is the product book only: never the team-only process book.
+if [ -e "$out.tmp/process" ]; then
+  echo "manual: the customer manual must not have the process book (antora-playbook.jam.yml registers extensions/books.js?)" >&2
+  exit 1
+fi
 cp "$out/.keep" "$out.tmp/.keep"
 mv "$out" "$out.old"
 mv "$out.tmp" "$out"
