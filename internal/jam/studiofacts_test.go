@@ -61,7 +61,7 @@ func TestStudioFactsEgressSources(t *testing.T) {
 }
 
 // Targets are addressed by name; handles stay out (as GET /squawks/targets
-// omits them — see comms-addressing.md).
+// omits them — see comms-addressing.adoc).
 func TestStudioFactsOmitHandles(t *testing.T) {
 	_, store, _ := supTestKit(t, &fakeLauncher{})
 	if err := AddPerson(store, "default", Human{Name: "bob", Handle: "bob-gh"}); err != nil {

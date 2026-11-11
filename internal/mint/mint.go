@@ -39,7 +39,7 @@ func jamBinary() string {
 // profile's command/global-sourced secret fields), the store's global library,
 // and the target repo (owner/name) a github minter scopes its token to, passed
 // to `jam mint github` as the non-secret --repo flag. Jam passes "" (a github
-// profile can't mint through mint:; docs/usage/jam/credentials.md#minters).
+// profile can't mint through mint:; docs/modules/ROOT/pages/usage/jam/credentials.adoc#minters).
 func Expander(r runner.Runner, globals map[string]usersecret.Source, repo string) usersecret.MintExpander {
 	return func(profileName string, m usersecret.Minter, demandName string) (secret.Spec, error) {
 		switch {

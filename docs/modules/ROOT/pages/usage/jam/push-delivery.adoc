@@ -13,7 +13,7 @@ xref:usage/jam/push.adoc[].
 == How Jam sends
 
 A resident *push relay* (egress only, beside the Linear and Discord relays —
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#enabling-it[intercom.md]) picks each new message's recipients
+xref:usage/jam/intercom.adoc#enabling-it[intercom]) picks each new message's recipients
 by the xref:usage/jam/push.adoc#what-notifies[notify rule] and sends one push per
 subscribed device, retrying each device on its own:
 
@@ -47,7 +47,7 @@ sends nothing to _any_ endpoint on that host for *30 s* — those devices
 count as failed and are retried after — while devices on other push
 services go out as normal. The first answer from the host after that
 clears it.
-* *The notify relay* is a second egress-only relay service, `notify`, over the same rule. It publishes to the recipient's open `/app/user/events` streams (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom-ui.md#unread-and-refresh[the signal stream]), drops after 10 minutes, skips users with no open stream, has no retries (nothing is queued) and no `runtime.push` gate. It keeps its marker in memory, seeded at the log tail on every start (no state dir, nothing written). It works without Web Push keys.
+* *The notify relay* is a second egress-only relay service, `notify`, over the same rule. It publishes to the recipient's open `/app/user/events` streams (xref:usage/jam/intercom-ui.adoc#unread-and-refresh[the signal stream]), drops after 10 minutes, skips users with no open stream, has no retries (nothing is queued) and no `runtime.push` gate. It keeps its marker in memory, seeded at the log tail on every start (no state dir, nothing written). It works without Web Push keys.
 * *Health.* Sends that keep failing raise the `+push:relay+`
 xref:usage/jam/monitoring.adoc#v1-conditions[condition] — usually the Jam host's egress to
 the push services (xref:usage/jam/push.adoc#enabling-push-on-a-jam[step 4]).
@@ -67,7 +67,7 @@ All under the `/app/user` gate (members only; writes must be same-origin), and
 |`POST /app/user/push/focus` |Body `+{"channel": "<id>"}+` or ``+{"channel": null}+``: the conversation the caller has open and focused, held in memory briefly (xref:usage/jam/push.adoc#what-notifies[how focus suppresses]), or none. The channel must be one the caller can see, else 400; 204.
 |===
 
-The key and subscription routes refuse an https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/app-tokens.md#bearer-scope[app token] (403): a subscription belongs to a browser.
+The key and subscription routes refuse an xref:usage/jam/app-tokens.adoc#bearer-scope[app token] (403): a subscription belongs to a browser.
 
 [#endpoint-allowlist]
 === Endpoint allowlist

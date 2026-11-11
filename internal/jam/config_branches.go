@@ -18,7 +18,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/configrepo"
 )
 
-// The config branch editor (docs/usage/jam/config-branches.md): the admin
+// The config branch editor (docs/modules/ROOT/pages/usage/jam/config-branches.adoc): the admin
 // console edits a branch of the followed config repo. A branch's workspace
 // is a scratch MemStore holding its config tree, so the console's existing
 // forms edit it; Save writes the scratch store back as one commit.

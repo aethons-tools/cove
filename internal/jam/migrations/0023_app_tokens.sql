@@ -1,4 +1,4 @@
--- App tokens (docs/usage/jam/app-tokens.md): opaque bearer credentials a user
+-- App tokens (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc): opaque bearer credentials a user
 -- granted to a client (VS Code) through the consent page. Only the token's
 -- hash is stored. Capped per user in the store (least recently used evicted);
 -- deleted on revoke, expiry and user removal.

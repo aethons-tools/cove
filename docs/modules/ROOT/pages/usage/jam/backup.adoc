@@ -1,0 +1,117 @@
+= Backing up and restoring Jam config
+:summary: Back up and restore a Jam's control-plane CONFIG (actors, roles, kits, destinations, model-specs, projects, Jam-wide session context) with `jam export` / `jam import` — a single file, excluding studio and intercom state.
+:read_when: You are snapshotting a Jam's config for backup, or restoring it onto a fresh/rebuilt Jam.
+:owns: the `jam export` / `jam import` command surface and the backup file's scope + semantics
+:prereqs: operators.adoc for signing in (`--app`/`--token`); roster.adoc and kits.adoc for what the aggregates are
+:tier: leaf
+:updated: 2026-11-01
+
+For a reviewable, mergeable source of the same config in git, see xref:usage/jam/config-git.adoc[config-git].
+
+`jam export` and `jam import` snapshot and restore the Jam *config* — the
+control-plane aggregates:
+
+* *actors* (identities, their *token hashes*, and grants)
+* *roles* (scope incl. egress, allocation incl. standing sessions, session context)
+* *kits* (every version: its files, as content-addressed trees and blobs, with the current pin and provenance)
+* *destinations*
+* *model-specs* (xref:usage/jam/model-specs.adoc[model-specs.adoc]; omitted from the file when there are none)
+* *projects* (escalation policy, chat service, session context and resources)
+* the *identity registry* — users (removed ones too: their ids back history),
+connections, accounts, project memberships and the legacy human aliases — with
+their ids, so a restore keeps every reference valid
+* the *channel registry*: rooms (a project's channels, archived ones too)
+with their bindings and ids. Channel membership and session channels are
+runtime state and are not exported.
+* the *Jam-wide session context*
+
+xref:usage/jam/app-tokens.adoc#storage[App tokens] are not exported.
+
+The format is `+version: 5+`, which carries kit trees and blobs and names projects by id in roles and grants; an
+older Jam can't read it. Older backups still import: their project names become
+ids, a `+version: 1+` backup's per-project humans are merged into users the way an
+upgrade does (xref:usage/jam/comms-addressing.adoc#project-members-and-rooms[comms-addressing]),
+and a `+version: 1+` or `2` backup's project channels become rooms.
+A backup from before kit trees (version ≤ 4) still imports. Its kits are
+migrated to trees right after (xref:usage/jam/kits-directory.adoc#stored-as-trees[kits-directory]).
+
+Import requires an empty target, registry included — except connections, which
+a starting serve creates: a backup's connection of the same name takes over —
+and checks the registry is consistent (unique live names and identities,
+references that resolve). It
+applies the admin API's authoring rules to session context (layer budgets,
+leaf names, resources), destination notes and
+xref:usage/jam/header-specs.adoc[header specs], and model-spec structure (credential
+names are not checked — they are serve-config, not backup, state); a snapshot
+that breaks them is refused with 400 and nothing is written. Older Jams didn't
+check `+identity_in+`/`apply`, so a backup may hold a value this Jam doesn't
+know: the error names the destination and field — fix it in the file
+(a preset, or `custom` plus a spec) and re-import.
+
+They deliberately *exclude* runtime/studio state (raised instances), the
+intercom's log, read cursors and channel memberships, and allocator events. A backup restores
+_who can reach what_, not _what is currently running_.
+
+== Export
+
+----
+jam export [--format json|yaml] [FILE|-]
+----
+
+Writes the snapshot to `FILE` (or stdout when `FILE` is omitted or `-`). Default
+format is *JSON*; `+--format yaml+` emits YAML.
+
+----
+jam export backup.json
+jam export --format yaml - > backup.yaml
+----
+
+____
+*The backup contains token hashes* — it is authentication material. A restored
+Jam accepts every actor's existing token unchanged, which is the point, but it
+also means the file must be protected like a credential store. `export` writes
+files with `0600` permissions; keep them that way.
+____
+
+== Import
+
+----
+jam import [--format json|yaml] <FILE|->
+----
+
+Restores a snapshot into a *fresh* Jam. Import is *fail-closed*: if the target
+already holds any config, it refuses and writes nothing (so it can never
+half-merge or clobber a running server). On a Jam that follows a config repo
+it is refused too (409 `+config is in git: edit it on a branch in the admin console, or in the repo+`): the repo is the config, so restore by following it
+(xref:usage/jam/config-git.adoc#replicating-a-jam[config-git]). Format is sniffed from the content when
+`+--format+` is omitted.
+
+----
+jam import backup.json
+----
+
+A backup taken before projects were first-class may have roles or grants that
+name a project it has no record for. Import adds an empty record for each one
+(see xref:usage/jam/projects.adoc#upgrading-an-existing-jam[projects.adoc]).
+
+Because existing tokens keep working after a restore, there is nothing to
+re-hand-out: point the studios at the restored Jam and they authenticate as
+before.
+
+== Why server-side
+
+Only the Jam server can read and write the stored token hashes, so export/import
+are bulk admin endpoints (`GET`/`POST /admin/config`) that the CLI streams to and
+from — not a client-side replay over the per-aggregate endpoints (which would
+re-mint every token). The wire is JSON; YAML exists only at the file boundary.
+
+== Upgrading a file-store Jam
+
+Jam is Postgres-only. For a Jam that ran on the old file store, export/import is
+the *only* upgrade path: run `jam export` with the old version, then
+`jam import` into a Jam running on `store-postgres`
+(xref:usage/jam/serve.adoc#postgres-store-store-postgres[serve.adoc]). Squawk history and session
+events in the old files are not migrated. The relay cursor/marker/receipt files
+must also be moved into ``state-dir``; see
+xref:usage/jam/serve.adoc#upgrading-relay-state[serve.adoc] for where they were and what is lost
+if you skip it.

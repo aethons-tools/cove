@@ -2,7 +2,7 @@
 :summary: The structured turn end — a woken session finds its pending messages in its prompt, its final text (and what it says before a tool call, as it goes) is posted for it and what it was shown is committed for it; the optional `turn_end` tool changes those defaults (deny, recipient, quiet, compact, end, mute, wake time, idle timeout), and `keep_*` keeps processes running across turns. Covers the turn-protocol switch, `PUT /mute`, the auto-post marker and the agent socket.
 :read_when: You want to know what a woken agent is shown, why a session's reply was (or wasn't) posted or its messages committed, how an agent keeps a preview server running between turns, or you are changing the turn-end defaults, `turn_end`/`keep_*`, or how a studio and Jam agree on the turn protocol.
 :owns: the structured turn end — inbox batches in the wake prompt (caps, rendering, fallback), auto-posting the final text and auto-commit, posting mid-turn text, the `turn_end` tool and its directives, `PUT /mute`, `PUT /kept`, the auto-post marker part and wake-on's skip of it, the duplicate-reply skip, the turn-protocol switch (`GET /context?turn-protocol=2`, `Bundle.turn_protocol`), the agent socket, kept processes (`keep_start`/`keep_stop`/`keep_list`) and the `process-exited` wake. Does NOT own wake-on's other rules (intercom.md), alarms/idle/`end` (turn-end.md) or the context compile (session-context.md).
-:prereqs: intercom.md for the inbox, commit cursor and wake-on; turn-end.adoc for what a turn end is and the wake reasons
+:prereqs: intercom.adoc for the inbox, commit cursor and wake-on; turn-end.adoc for what a turn end is and the wake reasons
 :tier: leaf
 :updated: 2026-10-30
 
@@ -25,7 +25,7 @@ It is on per studio, and only when both sides speak it:
 == Delivery: messages in the wake
 
 * *Every wake carries a batch.* Whatever woke the session (a squawk, an alarm, the idle timeout, a kept process), its prompt carries its pending inbox entries:
-** the entries are past the commit cursor (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#the-inbox-as-a-durable-queue[intercom.md]), oldest first;
+** the entries are past the commit cursor (xref:usage/jam/intercom.adoc#the-inbox-as-a-durable-queue[intercom]), oldest first;
 ** the batch is capped at *20 entries or 32 KiB* of rendered text.
 * *What an entry looks like.* Each entry is a header line, `+From <author> in <channel> (<kind>) at <time> — id <id>+`, followed by its body. Each attachment adds an `+[attachment <name> ref <ref>]+` line.
 * *Oversized entries.* An entry alone over the cap is cut, with a marker telling the agent to `read` that id for the rest. A cut entry isn't committed for the agent: it commits it itself once handled, and until then auto-commit doesn't pass it.
@@ -57,7 +57,7 @@ claude's `result` carries only the turn's last reply. Anything the model writes 
 * *What it skips.* Subagent messages (`+parent_tool_use_id+` set) are skipped. So is a `/compact` turn, a turn under the legacy turn end, and text not yet posted when a turn is interrupted or errors.
 * *Commits nothing.* A failed post is logged and the turn goes on.
 
-*Auto-posts don't wake sessions.* An auto-post carries the part `pass:c[application/vnd.jam.turn-end+json]`. Wake-on skips it when its author is a session (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#waiting-for-a-reply-wake-on[intercom.md]), and it never counts toward the loop breaker. People are notified as usual. A session that wants another session to act uses `send`.
+*Auto-posts don't wake sessions.* An auto-post carries the part `pass:c[application/vnd.jam.turn-end+json]`. Wake-on skips it when its author is a session (xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[intercom]), and it never counts toward the loop breaker. People are notified as usual. A session that wants another session to act uses `send`.
 
 *Duplicate replies.* Jam skips an auto-post whose trimmed body equals a `send` by the same session in the same channel since its previous auto-post, within 10 minutes. It answers `+{"skipped": true}+`, which covers an agent that also ``send``s its reply. The same short answer at two turn ends is two replies, and both are posted.
 

@@ -24,7 +24,7 @@ place in the book is its place in the tree. The map is `INDEX.adoc`
 `.md` is removed in the same change, and every link into it is fixed:
 from the remaining Markdown docs (a relative link to the `.adoc` file),
 `AGENTS.md`, `README.md`, code comments and messages that cite its path
-(grep for it), and the manual. Docs not converted yet (in `usage/jam/`, its `INDEX.md` and `a`–`l`) are
+(grep for it), and the manual. Markdown outside the book (`superpowers/`) is
 reached from the pages by GitHub links. To convert one:
 
 [source,bash]

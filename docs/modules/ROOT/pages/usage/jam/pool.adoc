@@ -2,7 +2,7 @@
 :summary: The subscription-OAuth account pool — running cove `claude` as a pooled subscription principal instead of a federated service-account token, how the broker binds identity→account and injects the real bearer plus the `oauth-2025-04-20` beta (which replaced the removed destination `oauth_beta` / `--oauth-beta`), the `jam pool` verb, broker-owned token refresh, and the egress/rollout notes.
 :read_when: You are enabling or operating the subscription account pool — seeding accounts, flipping the anthropic destination to bearer, sizing the pool, or reasoning about token refresh and the egress it needs; or `--oauth-beta` / `oauth_beta` was refused, or a pool cove's `anthropic-beta` is in question.
 :owns: the subscription account pool — the `pool:` behavior, the identity→account binding + bearer injection, the broker's oauth beta for pool credentials (and the oauth_beta flag's removal), the `jam pool` verb, the broker-owned refresher (endpoint + egress), and the pool rollout
-:prereqs: serve.adoc for the `pool:` config block + the broker model and `destination` verb; coves.md for how a raised cove is credentialed
+:prereqs: serve.adoc for the `pool:` config block + the broker model and `destination` verb; coves.adoc for how a raised cove is credentialed
 :tier: leaf
 :updated: 2026-11-01
 
@@ -40,7 +40,7 @@ Because a subscription carries its own rate limits, *size the pool to your cove
 concurrency* — one account can back several coves but will throttle.
 
 The launcher chooses the mode; the cove is unaware. See
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#raising-a-real-managed-studio[coves.md] for where credentialing lands
+xref:usage/jam/coves.adoc#raising-a-real-managed-studio[coves] for where credentialing lands
 in the raise sequence.
 
 == Seeding accounts (`jam pool`)
@@ -107,8 +107,8 @@ subdomains), so a cove reaches Anthropic *only* through the jam host; the
 interactive `claude auth login` path keeps the full allow-list on the
 interactive kit. It's defense-in-depth — the cove holds no real Anthropic
 credential (only the fake identity). The ceiling and `kit show` output are in
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/kits.md#the-egress-ceiling-cov-208[kits.md]; the raise-side build protocol is
-in https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#the-studiokit-and-its-kit-prepare-protocol[coves.md].
+xref:usage/jam/kits.adoc#the-egress-ceiling-cov-208[kits]; the raise-side build protocol is
+in xref:usage/jam/coves.adoc#the-studiokit-and-its-kit-prepare-protocol[coves].
 ____
 
 == Broker-owned refresh

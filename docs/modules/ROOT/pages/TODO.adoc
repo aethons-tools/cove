@@ -41,11 +41,11 @@ SSH CA at raise (`HostCertificate`), and have `jam ssh-config`/`ssh` trust it vi
 `@cert-authority` known_hosts entry, so no studio's key is ever prompted for or pinned:
 a rebuilt or upgraded studio stops failing with "REMOTE HOST IDENTIFICATION HAS CHANGED".
 Today `StrictHostKeyChecking accept-new` only removes the first-connect prompt
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/collaboration.md[collaboration.md]).
+(xref:usage/jam/collaboration.adoc[collaboration]).
 * Kit git creds: honour a `+user:token+` value on github.com and `gitlab` hosts too.
 `basicAuth` (`internal/jam/gitsource/creds.go`) sends the whole value as the password
 there (user `x-access-token`/`oauth2`), so `+user:token+` gets a 401, contradicting
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/kits-git.md[kits-git.md]. Keep the host defaults for a bare token.
+xref:usage/jam/kits-git.adoc[kits-git]. Keep the host defaults for a bare token.
 * Kit git creds: trim surrounding whitespace from a resolved `kits.git` value (kit-git
 path only — not `secret.Resolve`, whose other consumers are byte-exact). A literal is
 not trimmed at all and a command loses only one trailing `+\n+`, so a `+\r\n+` token file

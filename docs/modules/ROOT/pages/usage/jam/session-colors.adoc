@@ -2,7 +2,7 @@
 :summary: Session colors — each session's color from a fixed 24-color palette, assigned by Jam when it is raised and kept for good; how it is picked, where it is stored, and where it shows (the VS Code studio window's title bar, the session's chat bubbles and the composer, its status card's left border).
 :read_when: You want to know why a session or a studio window has the color it has, why two sessions share one, or you are changing the palette, the assignment, the `session_colors` table or a place the color shows.
 :owns: the session palette, the assignment rule, the session_colors table, the color fields of the user API, and where the color shows
-:prereqs: coves.md for raising and session phases; session-card.adoc for the status card; vscode.adoc for studio windows
+:prereqs: coves.adoc for raising and session phases; session-card.adoc for the status card; vscode.adoc for studio windows
 :tier: leaf
 :updated: 2026-11-01
 

@@ -1,6 +1,6 @@
 // The jamkit: file system: a kit's draft on a config branch as a folder
 // (docs/modules/ROOT/pages/usage/jam/vscode-kits.adoc). Reads and writes go to the
-// draft's file API (docs/usage/jam/kits-drafts.md#file-api); each write is
+// draft's file API (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#file-api); each write is
 // conditional on the content this file system last read for that file, so a
 // change made elsewhere (the console, another window) is never overwritten:
 // the save fails and VS Code's own compare resolves it.

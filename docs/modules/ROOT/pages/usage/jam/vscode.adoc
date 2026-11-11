@@ -2,7 +2,7 @@
 :summary: The Jam VS Code extension (`aethons.jam`), in VS Code or VSCodium — installing it with `jam vscode install` and its update offers, signing in with an app token, opening a session's studio window over Remote-SSH, the hub, the rail, conversation and board tabs and the four session views, notifications and the needs-you badge, what it writes to your machine, and fixing its errors.
 :read_when: You want to open an agent's session or studio in VS Code or VSCodium from the Jam app or a link, are installing, updating or signing in the Jam extension (`jam vscode install`, the update offer), are using or changing a Jam view (Thinking, Previews, Status, Artifacts), a conversation tab or a board tab, or want VS Code or OS notifications and the Jam badge (or none show on macOS), or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
 :owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session's studio window and the connected mark; conversation tabs, the four views, board tabs, its empty states and link rules; VS Code and OS notifications; and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; VSCodium and Open Remote - SSH; its troubleshooting
-:prereqs: collaboration.md for who may SSH and the ssh_config block the CLI writes; app-tokens.md for the sign-in token
+:prereqs: collaboration.adoc for who may SSH and the ssh_config block the CLI writes; app-tokens.adoc for the sign-in token
 :tier: leaf
 :updated: 2026-11-04
 
@@ -74,7 +74,7 @@ Opening a session rewrites that file from the stored sign-in if it is missing or
 _Jam: Sign Out_ clears both.
 Each Jam has its own sign-in: _Jam: Sign In_ and _Sign Out_ act on the window's Jam (xref:usage/jam/vscode-hub.adoc#several-jams[Several Jams]);
 a Jam other than `jam.url` keeps its token under its own secret and in `vscode-<host>-app-token.json` (`<host>` with `+:+` as `-`).
-Revoke it from the web app's *Connected apps* (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/app-tokens.md[app-tokens.md]);
+Revoke it from the web app's *Connected apps* (xref:usage/jam/app-tokens.adoc[app-tokens]);
 the next open then reports you signed out and offers Sign In.
 
 [#opening-a-session]
@@ -153,7 +153,7 @@ What notifies is the phone's rule (xref:usage/jam/push.adoc#what-notifies[What n
 
 * *``+~/.ssh/config+``:* a `Host jam-<studio>` block between `+# >>> jam <studio> >>>+` and `+# <<< jam <studio> <<<+`,
 with the marker line `+# managed by the Jam VS Code extension (aethons.jam)+` right after the begin marker.
-The block is the one `jam ssh-config` writes (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/collaboration.md#the-ssh-commands[collaboration.md]), plus the marker; a rerun replaces it.
+The block is the one `jam ssh-config` writes (xref:usage/jam/collaboration.adoc#the-ssh-commands[collaboration]), plus the marker; a rerun replaces it.
 A block `jam ssh-config` wrote (no marker), or a hand-written `Host jam-<studio>`, is *left alone*.
 * *``+~/.config/jam/ssh/id_ed25519+``* (the CLI's key, shared) and *``<studio>-cert.pub``* (an 8 h cert, renewed on open;
 the CLI's `ssh-proxy` renews it when a connection starts).
@@ -161,7 +161,7 @@ the CLI's `ssh-proxy` renews it when a connection starts).
 * *``<globalStorage>/studios/jam-<studio>.code-workspace``:* a studio window's workspace file (its remote folder named for the session, the window title, and the title-bar colors), rewritten on each open (xref:usage/jam/session-colors.adoc[]).
 
 The ProxyCommand pins `+--participant+` (and, for a Jam other than `jam.url`, `+--app vscode-<host>+`, its token profile); `jam` uses the token file when it names the same Jam
-(see https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/collaboration.md[collaboration.md]).
+(see xref:usage/jam/collaboration.adoc[collaboration]).
 
 == `remote.SSH.localServerDownload`
 
@@ -194,7 +194,7 @@ A block written by an older `jam ssh-config` lacks the line: rerun `+jam ssh-con
 |Remote-SSH: host identification changed (after a studio upgrade) |Run _Jam: Forget Host Key_ (in the window, or pick the studio), then open the session again.
 |"your participant sign-in is missing" from `ssh-proxy` |The `jam` CLI predates the extension. Install `jam` from the same release or newer.
 |"The jam CLI was not found" |Install `jam` or set `jam.cliPath` to its absolute path.
-|"You can't SSH into …" |The session isn't shared with you; ask an operator (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/collaboration.md#who-may-connect[collaboration.md]). The button opens the web app.
+|"You can't SSH into …" |The session isn't shared with you; ask an operator (xref:usage/jam/collaboration.adoc#who-may-connect[collaboration]). The button opens the web app.
 |⌘C or _Copy_ in a pane focuses the composer and copies nothing |A VS Code 1.143 bug (https://github.com/microsoft/vscode/issues/343489[microsoft/vscode#343489]), fixed in 1.144; VSCodium 1.143 has it. The message list works around it; elsewhere, update.
 |No OS banners on macOS |System Settings → Notifications → _terminal-notifier_ must allow them. If the Jam output channel says the notifier was blocked (Gatekeeper, on a quarantined copy), run `xattr -dr com.apple.quarantine` on the extension's `dist/vendor`, or rely on the `osascript` fallback.
 |``jam vscode install``: "this Jam doesn't serve the VS Code extension" or "built without" |The Jam predates serving it, or is a dev build. Install the release asset with _Extensions: Install from VSIX…_.

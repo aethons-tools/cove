@@ -2,7 +2,7 @@
 :summary: The session status card — one compact summary of a session (state, mission, focus, counts, context, a state sparkline) that is a session channel's row in the Jam app's rail and heads the VS Code extension's Session Status pane; what each part shows and where its data comes from.
 :read_when: You are reading or changing a session's status card — its state and pill, count icons, context bar, mission/focus lines or sparkline — or its data (`SessionCard` on `GET /app/user/api/rail` and `GET /app/user/api/sessions/\{id}`) and the live `presence` push that refreshes it.
 :owns: the status card's contents, its state mapping, how its counts (subagents included) are derived, the client-built sparkline, and where the card shows
-:prereqs: intercom-ui.md for the rail and the live refresh; session-events.adoc for the event stream Presence derives from; coves.md for session phases and activity
+:prereqs: intercom-ui.adoc for the rail and the live refresh; session-events.adoc for the event stream Presence derives from; coves.adoc for session phases and activity
 :tier: leaf
 :updated: 2026-11-05
 
@@ -24,7 +24,7 @@ yellow to red, pulsing from 85%. No bar until the window is reported.
 previews, kept processes, running subagents.
 * *Mission* (the end goal or standing order) and *focus* (what the
 session is on now, in green) — both set by the agent
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#what-the-tools-do[intercom.md]).
+(xref:usage/jam/intercom.adoc#what-the-tools-do[intercom]).
 * *Sparkline* of the last 10 minutes of states, high to low: thinking,
 working, waiting, idle, sleeping; a dashed mark at each `system/init`.
 
@@ -65,7 +65,7 @@ after a Jam restart they start from 0.
 A card-visible Instance change (`jam.InstanceChanges` wraps the store: phase,
 activity, mission, focus, open asks, alarms, previews, kept processes) and a
 Presence change (status, init, subagent count) push `presence` on the live
-stream (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom-ui.md#unread-and-refresh[intercom-ui.md]); the app refetches
+stream (xref:usage/jam/intercom-ui.adoc#unread-and-refresh[intercom-ui]); the app refetches
 the rail and the header. A manager's activity change pushes nothing: a
 `preparing kit` pill (and its step on the status strip) is as fresh as the
 last refetch.

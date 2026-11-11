@@ -2,13 +2,13 @@
 :summary: The Requisitioner — Jam's always-on poll loop that turns ready tracker tickets (Linear or GitHub Issues) into managed-cove raises, bounded by a concurrency cap. Covers the flow, the `runtime.requisitioner` serve-config block, and the elastic-raise-under-a-cap model.
 :read_when: You are enabling or operating Jam's automatic intake — having it poll a tracker (Linear or GitHub Issues) and raise a managed studio per ready ticket — or tuning its concurrency cap and poll interval.
 :owns: the operator-facing Requisitioner story — the poll→claim→raise flow, the `runtime.requisitioner` serve-config block, and the concurrency-cap model
-:prereqs: coves.md for what a raised managed studio does (the supervisor + Launcher own its lifecycle); studio-managers.adoc for the Studio Manager a raised studio needs; roster.adoc for the role tickets are raised for
+:prereqs: coves.adoc for what a raised managed studio does (the supervisor + Launcher own its lifecycle); studio-managers.adoc for the Studio Manager a raised studio needs; roster.adoc for the role tickets are raised for
 :tier: leaf
 :updated: 2026-11-01
 
 The *Requisitioner* is an always-on loop inside `jam serve` that
 turns ready tracker tickets into managed-cove raises — the automatic counterpart
-to `jam studio raise` (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md[coves.md]). Enable it with a
+to `jam studio raise` (xref:usage/jam/coves.adoc[coves]). Enable it with a
 `runtime.requisitioner` block; the supervisor + Launcher own everything after the
 raise (run → report → teardown).
 
@@ -35,7 +35,7 @@ Jam restart.
 . *Claim* — transition the issue READY → IN PROGRESS _before_ raising, so a
 crash between claim and raise leaves the ticket claimed (recoverable), never
 double-raised. The transition also drops it from the next `ListReady`.
-. *Raise* — set the session's starting https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#what-the-tools-do[mission] to the issue's title, then build the prompt (the issue brief + the turn-end protocol: own the
+. *Raise* — set the session's starting xref:usage/jam/intercom.adoc#what-the-tools-do[mission] to the issue's title, then build the prompt (the issue brief + the turn-end protocol: own the
 branch and PR through merge, keep the ticket current with `report`, `end` only
 once the work has landed, and wait for people rather than exit when stuck —
 see xref:usage/jam/turn-end.adoc#reporting-a-ticket[Reporting a ticket]) and call the supervisor's raise
@@ -67,7 +67,7 @@ runtime:
     project: acme             # optional
     max-concurrent: 5         # required, > 0 — the backpressure cap (fallback: the role's roster max-ephemeral wins when set)
     poll-interval: 30s        # optional; defaults to 30s
-    connection: linear-acme   # a connection of the tracker's kind, `linear` or `github` (`connections/linear-acme.yml` in the config repo: `service: linear`, `cred: linear-bot`); its credential is demanded in credentials.md, never inline here
+    connection: linear-acme   # a connection of the tracker's kind, `linear` or `github` (`connections/linear-acme.yml` in the config repo: `service: linear`, `cred: linear-bot`); its credential is demanded in credentials.adoc, never inline here
     linear:                   # the Linear team + lifecycle-state map
       team: AET
       class-label-prefix: "class:"
@@ -83,8 +83,8 @@ not read).
 The block also accepts `wake-poll-interval`, `wait-max` (deprecated and ignored),
 and `warm-timeout` (the wake-on engine) and `escalation-poll-interval` (the escalation engine). These are now a
 *fallback*: the matching `runtime.wake` field, or `runtime.escalation-poll-interval`,
-wins when set — see https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#waiting-for-a-reply-wake-on[intercom.md] and
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/escalation.md[escalation.md]. The Requisitioner also brings the tracker relay (Linear or GitHub comments), which
+wins when set — see xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[intercom] and
+xref:usage/jam/escalation.adoc[escalation]. The Requisitioner also brings the tracker relay (Linear or GitHub comments), which
 needs its tracker; the intercom itself (`/squawks`, wake-on, escalation, the Discord
 relay) runs without a Requisitioner.
 
@@ -114,7 +114,7 @@ home is its own channel), and a delivery there is skipped. The token needs
 Issues read/write and Metadata read on the repo (a fine-grained PAT).
 `tracker-token-cred` is Linear-only.
 * *The relay.* The tracker relay carries the issue's comments both ways; what it
-drops and how it waits out rate limits is in https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#enabling-it[intercom.md].
+drops and how it waits out rate limits is in xref:usage/jam/intercom.adoc#enabling-it[intercom].
 
 The role must grant the `anthropic` and `git` destinations so the raised studio's
 agent can reach them (xref:usage/jam/roster.adoc[]).

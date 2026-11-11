@@ -1,5 +1,5 @@
 // Package collab decides who may reach a running studio (studio
-// collaboration, docs/usage/jam/collaboration.md). Rights are independent;
+// collaboration, docs/modules/ROOT/pages/usage/jam/collaboration.adoc). Rights are independent;
 // the first matching rule wins and every check is live.
 package collab
 

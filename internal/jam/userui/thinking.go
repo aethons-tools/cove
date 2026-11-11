@@ -10,7 +10,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sessionview"
 )
 
-// The Thinking tab (docs/usage/jam/intercom-ui.md#the-session-view): a
+// The Thinking tab (docs/modules/ROOT/pages/usage/jam/intercom-ui.adoc#the-session-view): a
 // member's live view of what a session is doing — its newest stream's events
 // over SSE, older pages on demand, and one event's raw JSON. Every route
 // re-checks that the viewer may see the session's home channel.

@@ -270,7 +270,7 @@ type draftBuildJob struct {
 }
 
 // KitDraftBuilds runs kit draft test builds and draft studios' images
-// (docs/usage/jam/kits-drafts.md#test-build) on named managers. At most one
+// (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#test-build) on named managers. At most one
 // build runs per (kit, manager) at a time, each in a goroutine under a
 // context derived from the serve's (cancelled on shutdown). Only the latest
 // build per (kit, manager) is kept, in memory: its state, image and log are
@@ -308,7 +308,7 @@ type draftKey struct{ branch, kit, manager string }
 func draftJobKey(kit, manager string) draftKey { return draftKey{kit: kit, manager: manager} }
 
 // DraftSource is where a build's draft lives: a branch's workspace store
-// (docs/usage/jam/kits-drafts.md#test-build), or the live store (Branch "").
+// (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#test-build), or the live store (Branch "").
 type DraftSource struct {
 	Branch string
 	Store  Store
@@ -703,7 +703,7 @@ func DraftKitDefinition(store Store, name string, h harnessinstall.Install) (Kit
 // Ensure is a draft studio's image: def (DraftKitDefinition: kit ref.Kit's
 // draft tree ref.Tree under the raising role's harness), built through the
 // same jobs as a test build, for by
-// (docs/usage/jam/kits-drafts.md#draft-studio), and the manager holding it,
+// (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#draft-studio), and the manager holding it,
 // which the studio must run on. The candidates are managers (the raise's
 // placement; empty = any) that can build drafts now, in managers' order
 // (else the builder's). It also returns the tree and its blobs, which the

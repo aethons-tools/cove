@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/aethons-tools/cove/main/install.sh 
 `jam update` moves to the latest release. Prefer to build from source? Use
 `just install`. Version pinning and the `BINDIR` / `JAM_SYSTEM` overrides are in
 [the overview](docs/modules/ROOT/pages/OVERVIEW.adoc#installing-the-binaries). To stand a Jam up, start
-at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md).
+at [`docs/modules/ROOT/pages/usage/jam/INDEX.adoc`](docs/modules/ROOT/pages/usage/jam/INDEX.adoc).
 
 ## Requirements
 

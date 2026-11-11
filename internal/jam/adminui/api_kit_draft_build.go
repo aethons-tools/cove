@@ -11,7 +11,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam"
 )
 
-// The kit draft test build API (docs/usage/jam/kits-drafts.md#test-build):
+// The kit draft test build API (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#test-build):
 // start, follow and cancel a build of the draft in this handler's store (a
 // branch's workspace). A build commits nothing.
 

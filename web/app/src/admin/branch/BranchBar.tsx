@@ -11,7 +11,7 @@ import { setBranch, useBranch, useHead } from "./branch";
 
 const listKey = ["admin", "config", "branches"];
 
-// BranchBar heads every Config page (docs/usage/jam/config-branches.md):
+// BranchBar heads every Config page (docs/modules/ROOT/pages/usage/jam/config-branches.adoc):
 // the followed branch, read-only, with Create and Open branch; or the open
 // branch, with its links, Merge, PR and Back. Without a config repo (404)
 // the config is read-only, and it says so; another failure is shown.

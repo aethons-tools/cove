@@ -2,13 +2,13 @@
 :summary: Running cove `claude` on Google Vertex AI through Jam's broker — the GCP credential stays on the Jam host as an `exchange: gcp` credential, each region is one path-guarded destination, and the cove holds only its Jam identity.
 :read_when: You want a role's coves to run Claude on Vertex AI under Jam, are adding or changing a Vertex region or GCP project, or a Vertex cove gets 403 "path not allowed" / 502 "credential unavailable".
 :owns: the Vertex brokering recipe — the per-region vertex destination (route, upstream, client env, allow-paths), the model-spec it pairs with, and why the cove needs no GCP credential or Google egress
-:prereqs: serve.adoc#destinations for the destination verb; credentials.md for `exchange: gcp`; model-specs.adoc for `claude.provider`
+:prereqs: serve.adoc#destinations for the destination verb; credentials.adoc for `exchange: gcp`; model-specs.adoc for `claude.provider`
 :tier: leaf
 :updated: 2026-11-01
 
 A cove on a `+provider: vertex+` model-spec reaches Vertex *only through the
 broker*. The Google credentials JSON stays on the Jam host as an
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/credentials.md#demand-and-supply[`+exchange: gcp+`] credential. The broker
+xref:usage/jam/credentials.adoc#demand-and-supply[`+exchange: gcp+`] credential. The broker
 injects a short-lived access token that it refreshes itself, so the cove holds
 nothing but its Jam identity. This is the same model as the
 xref:usage/jam/serve.adoc#destinations[anthropic destination].
@@ -85,7 +85,7 @@ reaches Google.
 * Add a second region as a second destination, with its own route, upstream and
 patterns. Grant a role *one* vertex destination: two would both set
 `+ANTHROPIC_VERTEX_BASE_URL+` to different values, which is a
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/connector.md#assembly-and-conflicts[connector conflict] (fail closed).
+xref:usage/jam/connector.adoc#assembly-and-conflicts[connector conflict] (fail closed).
 
 == 3. The model-spec and role
 

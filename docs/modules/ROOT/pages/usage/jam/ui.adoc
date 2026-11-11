@@ -2,7 +2,7 @@
 :summary: The Jam app — the one browser UI `jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects (old `/ui`·`/me` URLs and the old admin pages' paths), the title bar and shared look, installing the app, the login and Principal (user / admin / both), and the `POST /app/user/send` path; the console's pages are in ui-console.md and what it can change in ui-editing.md.
 :read_when: You want to expose Jam in a browser, understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), read the title bar, install the app, or follow an old /ui, /me or old admin-page link. For what the console pages show (agents, search, Channel log, session timeline) read ui-console.md; to change something from the UI, read ui-editing.md.
 :owns: the `/app` route table, the legacy `/ui`·`/me` 308 redirects and the old admin pages' 302 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; installing the app (manifest, service worker, icons); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
-:prereqs: serve.adoc for the admin listener + the off-loopback fail-closed rule; roster.adoc for the RBAC model these edits act on; coves.md for the managed-cove lifecycle the runtime actions drive; comms-addressing.md for the squawk targets/wake-on model the send path writes into; INDEX.md for the service overview
+:prereqs: serve.adoc for the admin listener + the off-loopback fail-closed rule; roster.adoc for the RBAC model these edits act on; coves.adoc for the managed-cove lifecycle the runtime actions drive; comms-addressing.adoc for the squawk targets/wake-on model the send path writes into; INDEX.adoc for the service overview
 :tier: leaf
 :updated: 2026-11-01
 
@@ -18,15 +18,15 @@ http://127.0.0.1:8081/app/
 |===
 |Path |Holds
 
-|`+/app/user/*+` |the Inbox — the Jam app (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom-ui.md[intercom-ui.md]) and its API — and <<sending-post-appusersend,`POST /app/user/send`>>
-|`+/app/admin/*+` |the admin console, the Jam app's admin area (xref:usage/jam/ui-console.adoc[]); its JSON API is `/app/admin/api/` (https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/web-app.adoc#admin-area[web-app])
+|`+/app/user/*+` |the Inbox — the Jam app (xref:usage/jam/intercom-ui.adoc[intercom-ui]) and its API — and <<sending-post-appusersend,`POST /app/user/send`>>
+|`+/app/admin/*+` |the admin console, the Jam app's admin area (xref:usage/jam/ui-console.adoc[]); its JSON API is `/app/admin/api/` (xref:web-app.adoc#admin-area[web-app])
 |`+/app/auth/{login,callback,logout}+` |the one browser login (ungated)
-|`/app/auth/app-token`, `/app/auth/app-token/exchange` |sign-in for a client such as VS Code (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/app-tokens.md[app-tokens.md])
+|`/app/auth/app-token`, `/app/auth/app-token/exchange` |sign-in for a client such as VS Code (xref:usage/jam/app-tokens.adoc[app-tokens])
 |`+/app/static/*+` |`jam.css` (for the 403 page), the brand mark and app icons (ungated)
 |`/app/manifest.webmanifest`, `/app/sw.js` |the <<installing-the-app,installable app>>'s manifest and service worker (ungated)
 |===
 
-`+/me/studios/*+` (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/collaboration.md[collaboration.md]) and `+/admin/*+` are APIs
+`+/me/studios/*+` (xref:usage/jam/collaboration.adoc[collaboration]) and `+/admin/*+` are APIs
 and stay where they are. *Old URLs:* a `GET`/`HEAD` on a former `+/ui/*+` or
 `+/me/*+` page (login and static included) answers `308` to its `+/app/...+`
 equivalent with the query kept — `/ui/agents?status=running` →
@@ -78,7 +78,7 @@ page's own tab is highlighted. In the console the bar also holds the
 xref:usage/jam/ui-console.adoc#search[search box].
 
 *One look.* Both areas are the Jam app (React and Mantine, built from
-`web/app` — https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/web-app.adoc[web-app]), with a theme carrying the
+`web/app` — xref:web-app.adoc[web-app]), with a theme carrying the
 accent and fonts of `jam.css` (`internal/jam/uiassets`), which now styles
 only the server-rendered 403 page.
 
@@ -115,7 +115,7 @@ request to a *Principal* — a *user*, an *admin*, or both:
 
 * *User* — the login's ID token `(issuer, subject)` is bound to a Jam user
 (``+jam user oidc <user> <issuer>:<subject>+``; see
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/comms-addressing.md[comms-addressing.md]) who is a member of at least one
+xref:usage/jam/comms-addressing.adoc[comms-addressing]) who is a member of at least one
 project. Users are Jam-wide, so the Inbox spans all their projects.
 * *Admin* — the login's access token verifies with `require-scope`, exactly
 as for the admin API (xref:usage/jam/operators.adoc[]), or the request is
@@ -184,7 +184,7 @@ now answers 404.
 `send` tool. Like every write under `/app/user/`, it must come from the page's
 own origin (or a `ui-origins` entry). It takes a JSON body `+{"to": "<recipient>", "body": "<text>"}+`, plus
 an optional `+"content_type"+` (`text/markdown` by default, or ``text/plain``; see
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#content-type-markdown-or-plain-text[content type]), and returns
+xref:usage/jam/intercom.adoc#content-type-markdown-or-plain-text[content type]), and returns
 *204* on success. It writes to the *same* durable squawk Log the
 agent `send` tool and the relay ingress write (never a parallel path); the UI is
 an in-process Log writer, not an egress engine.
@@ -194,7 +194,7 @@ principal's user id.
 * *``to`` is a channel or a new conversation* — an open conversation's channel id
 (`+chn_…+`), or `+user:<id|name>+` / `+session:<id>+` to start (or reuse) a chat with
 a member of one of the person's projects or a live session in one. The
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/intercom.md#enabling-it[intercom] decides whether they may post there (a
+xref:usage/jam/intercom.adoc#enabling-it[intercom] decides whether they may post there (a
 chat they're in; a ticket or room of a project they belong to — they join it)
 and records who hears it; a waiting session among them *wakes* exactly as on
 a relayed reply.

@@ -8,8 +8,8 @@
 
 A *Project* is a first-class record on a Jam: you create it before anything
 can live in it, and you can remove it only once nothing references it. It is
-the top of the config tree: it owns its https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/comms-addressing.md[roster],
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/escalation.md[escalation policy] and https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/discord.md[chat service], and every
+the top of the config tree: it owns its xref:usage/jam/comms-addressing.adoc[roster],
+xref:usage/jam/escalation.adoc[escalation policy] and xref:usage/jam/discord.adoc[chat service], and every
 xref:usage/jam/roster.adoc[Role and Grant] is keyed by it. Each project has an id (`+prj_…+`):
 roles, grants, sessions and the allocation ledger refer to it by that id, so
 you name it by name everywhere you type it (the config repo, CLI, admin API,
@@ -19,10 +19,10 @@ UI), and those show names back.
 
 A project is a directory in the config repo, `projects/<name>/` with its
 `project.yml` (members, rooms, escalation, chat service), its `context.md` and
-its `roles/` (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/config-git.md#layout[config-git.md]). It changes only by a
+its `roles/` (xref:usage/jam/config-git.adoc#layout[config-git]). It changes only by a
 commit: by hand, or on a branch in the admin console (Config › Projects,
 *New project*, and each project's pages: xref:usage/jam/ui-projects.adoc[];
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/config-branches.md[config-branches.md]). A project's goals and resources for
+xref:usage/jam/config-branches.adoc[config-branches]). A project's goals and resources for
 its sessions are its `context.md` (xref:usage/jam/session-context-authoring.adoc[]).
 
 ----
@@ -46,7 +46,7 @@ zero-config, single-project Jam keeps working without adding it to the repo.
 *Removal.* Removing a managed project's directory deletes it; the plan
 refuses (`+cannot delete project acme: …+`) while something still uses it:
 live instances, grants into it, standing sessions, roles the repo doesn't
-manage (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/config-git.md#the-plan[config-git.md] has the full guard). End those
+manage (xref:usage/jam/config-git.adoc#the-plan[config-git] has the full guard). End those
 first (`ungrant`/`revoke` for grants).
 The project's escalation and chat service go with it, and its rooms and other
 channels are archived (their history stays readable). A removed project is a
@@ -81,4 +81,4 @@ upgrade every such name gets an empty project record, so nothing dangles:
 `roles.project` to `projects.name`. Grants live inside the actor document, so
 the store enforces their project reference itself.
 * *``jam import``*: an older backup whose roles or grants name projects it
-has no record for gets the same empty records (see https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/backup.md[backup.md]).
+has no record for gets the same empty records (see xref:usage/jam/backup.adoc[backup]).

@@ -33,7 +33,7 @@ ui-hosts:
 
 # The config repo this Jam follows: config changes only by a commit to it.
 # A local bare repo is simplest for dev (dev/README.md#config-a-local-repo;
-# all the forms: docs/usage/jam/config-git-sources.md).
+# all the forms: docs/modules/ROOT/pages/usage/jam/config-git-sources.adoc).
 # config:
 #   git:
 #     url: /home/you/jam-config.git   # an absolute path

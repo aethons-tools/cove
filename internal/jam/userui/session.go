@@ -16,7 +16,7 @@ import (
 	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
-// The session view (docs/usage/jam/intercom-ui.md#the-session-view): a
+// The session view (docs/modules/ROOT/pages/usage/jam/intercom-ui.adoc#the-session-view): a
 // session's home channel gains a header — who it is, what it's doing, what
 // it costs, quick actions — and tabs for the pane beside the messages.
 

@@ -7,7 +7,7 @@
 :updated: 2026-11-05
 
 Everything this repo ships is now named for *Jam*: `jam`, and
-`jam-colima` on remote Studio Manager hosts (https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/usage/jam-colima.adoc#upgrading-from-jam-studio-manager[once `jam-studio-manager`]). There are *no aliases* — an old name is simply not read. Jam carries over its own
+`jam-colima` on remote Studio Manager hosts (xref:usage/jam-colima.adoc#upgrading-from-jam-studio-manager[once `jam-studio-manager`]). There are *no aliases* — an old name is simply not read. Jam carries over its own
 config and state directories and rewrites stored kits, but *studios are not
 migrated*: every studio is redefined and re-raised under the new names, and a
 standing session starts fresh. You install the binaries, point your services
@@ -28,11 +28,11 @@ delete them after step 3.
 . *Point the service and your PATH at ``jam``*: the unit's `ExecStart`
 becomes ``+jam serve --config …+``; scripts call ``+jam …+``; `+AT_JAM_ADMIN_TOKEN+`
 becomes `+JAM_ADMIN_TOKEN+` (tables below). In the
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/credentials.md[credentials file], a `+command:+` that runs `+at-mint …+` (or
+xref:usage/jam/credentials.adoc[credentials file], a `+command:+` that runs `+at-mint …+` (or
 `+at-jam mint …+`) becomes `+["jam", "mint", …]+`, and its environment
 `+AT_MINT_GITHUB_APP_KEY+` / `+AT_MINT_AUTH0_CLIENT_SECRET+` becomes
 `+JAM_MINT_GITHUB_APP_KEY+` / `+JAM_MINT_AUTH0_CLIENT_SECRET+`
-(https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/usage/jam-mint.adoc[jam-mint]). Serve start warns about any credential
+(xref:usage/jam-mint.adoc[jam-mint]). Serve start warns about any credential
 command still running `at-mint` or `at-jam`, naming the credentials only:
 `+jam rename: credential commands still call at-mint or at-jam, which the rename removed; …+`. Drop any `runtime.launcher` block: serve refuses it
 (xref:usage/jam/studio-managers.adoc#retiring-the-in-process-launcher[retiring it]).
@@ -98,7 +98,7 @@ any `at-jam`, `at-mint`) from the install directory.
 rewrite any `token-file`, `ca-file`, `identity-file` or `known-hosts-dir`
 in `config.yml` that names the old directory. The token stays valid.
 . *Point the service at ``jam-colima run``* (`+--config+` if you pass
-one) and start it (`colima.docker-context` is now https://github.com/aethons-tools/cove/blob/main/docs/modules/ROOT/pages/usage/jam-colima.adoc#config[`colima.profile`]).
+one) and start it (`colima.docker-context` is now xref:usage/jam-colima.adoc#config[`colima.profile`]).
 . *Re-raise its studios.* The new manager does not see its pre-rename
 containers (old labels), so on reconnect Jam marks them lost and tears each
 down, which removes the old container. Standing sessions pinned to it start
@@ -111,7 +111,7 @@ stream, labels) are in the tables below.
 
 == Jam in a container
 
-The https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/container.md[image] keeps its name, ``ghcr.io/aethons-tools/jam``; only
+The xref:usage/jam/container.adoc[image] keeps its name, ``ghcr.io/aethons-tools/jam``; only
 its binary changed. Pull the new tag and recreate the container; keep its
 `/var/lib/jam` volume. It now holds `/usr/local/bin/jam` only (`+ENTRYPOINT ["jam"]+`): a `+docker exec … at-jam <verb>+` becomes `+… jam <verb>+`, and a
 `+command:+` credential running `at-mint` becomes `+["jam", "mint", …]+`. The

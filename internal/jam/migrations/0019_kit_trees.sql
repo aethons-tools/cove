@@ -1,4 +1,4 @@
--- Kit trees (docs/usage/jam/kits-directory.md): every kit version is
+-- Kit trees (docs/modules/ROOT/pages/usage/jam/kits-directory.adoc): every kit version is
 -- a content-addressed tree of blobs, shared by every kit and version. Config:
 -- exported with the kits (ConfigSnapshot kit_trees / kit_blobs).
 CREATE TABLE kit_blobs (
