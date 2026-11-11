@@ -222,7 +222,7 @@ except the base `ubuntu:24.04` digest and its apt pins, which Renovate
 **couples into one grouped PR** (a digest bump alone would fail the rebuild the
 moment a pin ages out). (The one input not yet pinned is chromium, which rides
 whatever `playwright` resolves.) Renovate is batched to keep CI load down: it runs weekly
-(any time on Monday, Pacific — a whole day so the hosted app reliably gets a run in), rebases a PR only on a conflict, and folds every
+(any time on Monday, Pacific — a whole day so the hosted app reliably gets a run in), rebases a PR only on a conflict, runs `go mod tidy` after Go updates (so `go.sum` stays complete), and folds every
 minor/patch/digest bump into one `all non-major dependencies` PR (majors stay separate);
 the `ubuntu noble base` group runs monthly, since it rebuilds the studio images.
 
