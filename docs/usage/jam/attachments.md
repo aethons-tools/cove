@@ -2,7 +2,7 @@
 summary: Attachments — people and sessions attach files (screenshots, logs, PDFs; up to `blobs.max-size`, 25 MB by default) to messages. Files are uploaded first, then referenced by a send; Jam stores them in an S3-compatible bucket and serves them access-checked against the message's channel. Kept forever, like messages.
 read_when: You want people or agents to share files in a conversation, you're setting up the attachments bucket (Garage, S3, R2), or an upload is refused (413/503) or a download 404s.
 owns: the attachment flow (upload → reference → download), who may read a file, the upload/blob routes, the agent `attach`/`fetch` tools, the 24h sweep of unsent uploads, download safety headers, and setting up the bucket (Garage). Does NOT own the `blobs:` config keys — see serve.md; nor the `/app/user` composer and rendering — see intercom-ui.md.
-prereqs: intercom.md for channels and read; serve.md for the `blobs:` block and credentials
+prereqs: intercom.md for channels and read; serve.adoc for the `blobs:` block and credentials
 tier: leaf
 updated: 2026-10-24
 ---
@@ -12,7 +12,7 @@ updated: 2026-10-24
 A file is **uploaded first**, then a message **references** it. Jam streams
 the bytes into an S3-compatible bucket and serves them back only to someone who
 may read the message. Attachments are off unless serve has a
-[`blobs:`](serve.md) block.
+[`blobs:`](../../modules/ROOT/pages/usage/jam/serve.adoc) block.
 
 ## The flow
 
@@ -65,7 +65,7 @@ dev with its key and bucket created on first start — see
    and `data_dir`, a real `rpc_secret`), and create a key and a bucket
    (`--single-node --default-bucket` with the `GARAGE_DEFAULT_*` variables, or
    `garage key create` / `garage bucket create` / `garage bucket allow`).
-2. Point serve's [`blobs:`](serve.md) at it: `endpoint`, `bucket`, `region`
+2. Point serve's [`blobs:`](../../modules/ROOT/pages/usage/jam/serve.adoc) at it: `endpoint`, `bucket`, `region`
    (Garage's `s3_region`, e.g. `garage`), `path-style: true`, and the key's id
    and secret as demanded credentials.
 

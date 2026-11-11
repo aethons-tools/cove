@@ -254,7 +254,7 @@ setup:
 # (put scrape-token, jam-ca.pem and discord-webhook in deploy/monitoring/.local/ first)
 monitoring-up jam_host:
     mkdir -p deploy/monitoring/.local
-    for f in scrape-token jam-ca.pem discord-webhook; do test -s deploy/monitoring/.local/$f || { echo "missing deploy/monitoring/.local/$f (see docs/usage/jam/monitoring.md)"; exit 1; }; done
+    for f in scrape-token jam-ca.pem discord-webhook; do test -s deploy/monitoring/.local/$f || { echo "missing deploy/monitoring/.local/$f (see docs/modules/ROOT/pages/usage/jam/monitoring.adoc)"; exit 1; }; done
     chmod 644 deploy/monitoring/.local/scrape-token deploy/monitoring/.local/jam-ca.pem deploy/monitoring/.local/discord-webhook
     sed 's/@JAM_HOST@/{{jam_host}}/g' deploy/monitoring/prometheus.yml > deploy/monitoring/.local/prometheus.yml
     JAM_HOST={{jam_host}} docker compose -f deploy/monitoring/compose.yml up -d

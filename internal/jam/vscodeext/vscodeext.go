@@ -1,7 +1,7 @@
 // Package vscodeext holds the Jam VS Code extension (.vsix) this jam was
 // released with, and serves it to signed-in users: `jam vscode install`
 // downloads it, and the extension checks it for updates
-// (docs/usage/jam/vscode.md).
+// (docs/modules/ROOT/pages/usage/jam/vscode.adoc).
 package vscodeext
 
 import (

@@ -242,7 +242,7 @@ func TestRuntimeListenParsed(t *testing.T) {
 // that still has the block (or any of its keys, harbor-host included) fails to
 // load rather than being silently ignored.
 func TestServeConfigRejectsRuntimeLauncher(t *testing.T) {
-	const want = "runtime.launcher was removed: Jam no longer runs studios itself. Run jam-colima next to Colima (docs/modules/ROOT/pages/usage/jam-colima.adoc) and set runtime.studio-managers: true. Studios the old launcher raised are dropped on startup and their standing sessions start fresh (docs/usage/jam/studio-managers.md#retiring-the-in-process-launcher)"
+	const want = "runtime.launcher was removed: Jam no longer runs studios itself. Run jam-colima next to Colima (docs/modules/ROOT/pages/usage/jam-colima.adoc) and set runtime.studio-managers: true. Studios the old launcher raised are dropped on startup and their standing sessions start fresh (docs/modules/ROOT/pages/usage/jam/studio-managers.adoc#retiring-the-in-process-launcher)"
 	for name, yml := range map[string]string{
 		"block":       "listen: \":443\"\nstate-dir: /tmp/s\nruntime: {launcher: {runtime-addr: x:443, jam-host: x}}\n",
 		"harbor-host": "runtime:\n  launcher:\n    harbor-host: h.example\n",

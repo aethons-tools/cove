@@ -24,7 +24,7 @@ func viewOf(l sessionctx.Layer, rs []sessionctx.Resource) ContextBody {
 }
 
 // registerContext mounts the authored session-context endpoints for roles,
-// projects and the Jam (see docs/usage/jam/session-context.md).
+// projects and the Jam (see docs/modules/ROOT/pages/usage/jam/session-context.adoc).
 func registerContext(mux *http.ServeMux, store Store, log *slog.Logger) {
 	// Roles.
 	mux.HandleFunc("GET /admin/roles/{project}/{role}/context", func(w http.ResponseWriter, r *http.Request) {

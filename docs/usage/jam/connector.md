@@ -2,7 +2,7 @@
 summary: The studio connector contract — what a studio sets (env vars, git routing) to use the destinations in its scope; destinations declare it with `env`/`git` in their file in the config repo, and Jam assembles each identity's connector. Includes the `gh` (GitHub API) destinations.
 read_when: You are adding a destination a studio needs client-side setup for (env vars like GH_HOST, or git routing), wondering why a studio has (or lacks) some ANTHROPIC_*/GH_* variable, or wiring `gh` through Jam.
 owns: destination `env`/`git`, the template placeholders, the legacy defaults, connector assembly + conflicts, and the GitHub-API (`gh`) destination recipe
-prereqs: serve.md#destinations for destinations; roster.md for which destinations a role's scope allows
+prereqs: serve.adoc#destinations for destinations; roster.adoc for which destinations a role's scope allows
 tier: leaf
 updated: 2026-11-01
 ---
@@ -15,7 +15,7 @@ an identity's **connector** from the destinations its grants allow.
 
 ## Declaring it on a destination
 
-In the destination's file in the config repo ([serve.md](serve.md#destinations)):
+In the destination's file in the config repo ([serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#destinations)):
 
 ```yaml
 # destinations/github-api.yml
@@ -47,7 +47,7 @@ env: {GH_HOST: "{host}", GH_ENTERPRISE_TOKEN: "{token}"}
 **Legacy defaults** (a destination with no `env`): the `/anthropic/` route sets
 `ANTHROPIC_BASE_URL={url}` plus `ANTHROPIC_API_KEY={token}` (identity-in
 `x-api-key`) or `ANTHROPIC_AUTH_TOKEN={token}` (identity-in `bearer` — the
-[pool](pool.md) configuration; other identity-in presets and
+[pool](../../modules/ROOT/pages/usage/jam/pool.adoc) configuration; other identity-in presets and
 [custom specs](header-specs.md) set no token variable); the `/git/` route implies `git: true`. Existing
 Jams therefore keep exactly their previous studio env. Giving the `/git/`
 destination an `env` drops its implied git routing — add `git: true` to keep it.
@@ -55,7 +55,7 @@ destination an `env` drops its implied git routing — add `git: true` to keep i
 ## Assembly and conflicts
 
 An identity's connector is the union over every destination in its grants'
-effective scopes ([roster.md](roster.md)). Two destinations setting one
+effective scopes ([roster.adoc](../../modules/ROOT/pages/usage/jam/roster.adoc)). Two destinations setting one
 variable to **different** values, or two different git routes, is an error —
 fail closed, never a silent pick.
 
@@ -76,7 +76,7 @@ fail closed, never a silent pick.
   identity → 401; a conflict → 409. Against a Jam without the endpoint (404),
   clients fall back to the legacy Anthropic + git contract. The response also
   carries `model_spec`, the identity's roles' resolved
-  [model-spec](model-specs.md#what-a-cove-applies) (names only; host clients ignore it).
+  [model-spec](../../modules/ROOT/pages/usage/jam/model-specs.adoc#what-a-cove-applies) (names only; host clients ignore it).
 
 `jam studio inspect <studio> --section env` shows the connector a studio was last served (redacted) — see [inspect.md](inspect.md).
 
@@ -84,7 +84,7 @@ fail closed, never a silent pick.
 
 A destination's optional `note` (≤ 300 bytes; `note:` in its file, or
 the UI's edit form on a branch) is shown to every session granted it, in the Studio layer of
-its [session context](session-context.md), next to the env keys it sets. Write how
+its [session context](../../modules/ROOT/pages/usage/jam/session-context.adoc), next to the env keys it sets. Write how
 to use the route — e.g. "`gh` goes via Jam: pass `-R $GH_HOST/<owner>/<repo>`".
 It is not a secret store: never put a credential in it.
 

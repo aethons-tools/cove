@@ -34,7 +34,7 @@ normal *rootful ``dockerd``* run inside an _unprivileged_ container;
 `+docker …+` with *no `+DOCKER_HOST+` to set* (it is in the `docker` group);
 * a *bounded cache volume* (`<container>-docker`) is mounted at the inner
 `/var/lib/docker`, so pulled layers and build cache last the studio's life;
-teardown removes it (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/standing-state.md[standing-state.md]).
+teardown removes it (xref:usage/jam/standing-state.adoc[]).
 
 A manager without the setting is *byte-for-byte unchanged* — no Sysbox runtime, no
 cache volume, no systemd.

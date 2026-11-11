@@ -41,7 +41,7 @@ var claudeMessaging = struct {
 }{"jam-studio-agent", []string{"mcp"}}
 
 // Claude is the Claude Code harness: claude -p with stream-json in and out
-// (see docs/usage/jam/session-events.md). The zero value uses the production
+// (see docs/modules/ROOT/pages/usage/jam/session-events.adoc). The zero value uses the production
 // paths.
 type Claude struct {
 	// MCPConfigPath is the generated --mcp-config file; empty = claudeMCPConfigPath.
@@ -282,7 +282,7 @@ func (c Claude) Command(ep Episode) (string, []string, map[string]string) {
 	if ep.Continued {
 		args = append(args, "--continue")
 	}
-	// stream-json stdout is the session event source (see docs/usage/jam/session-events.md).
+	// stream-json stdout is the session event source (see docs/modules/ROOT/pages/usage/jam/session-events.adoc).
 	args = append(args, "--input-format", "stream-json", "--output-format", "stream-json", "--verbose")
 	args = append(args, claudePolicy(ep.Spec)...)
 	args = append(args, "--mcp-config", c.mcpConfig(), "--strict-mcp-config")

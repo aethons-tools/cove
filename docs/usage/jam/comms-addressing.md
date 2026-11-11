@@ -2,7 +2,7 @@
 summary: The comms target space and access-graph — kind-prefixed user:/chat:/channel:/ticket: targets (human: alias), each naming a channel of the channel log; a Project's members and rooms, Scope.Addressing authz, and send(to=…) delivery/reply semantics.
 read_when: You want a studio's agent to send to someone other than its own ticket (a named human or a channel), or you're granting/scoping who a studio may address, or managing a Project's members and rooms.
 owns: the target space (user:<name|usr_id>/chat:/channel:<name>/ticket:<key> + globs; the human: alias) and which channel each names, a Project's members and rooms (incl. a user's `logins` and OIDC identity bindings; Discord delivery profiles and reply attribution are owned by discord.md), the comms access-graph (Scope.Addressing/Override authz, 403 vs 404), send(to=…) delivery/reply semantics, GET /squawks/targets + list_targets, and where members, rooms and a role's addressing are set
-prereqs: intercom.md for the /squawks endpoint and jam-studio-agent mcp delivery this extends; roster.md for the Role/Grant/Scope model Addressing plugs into
+prereqs: intercom.md for the /squawks endpoint and jam-studio-agent mcp delivery this extends; roster.adoc for the Role/Grant/Scope model Addressing plugs into
 tier: leaf
 updated: 2026-11-01
 ---
@@ -44,10 +44,10 @@ For a GitHub ticket key, `*` also crosses its `/`: `ticket:*` and `*` reach ever
 
 ## Project members and rooms
 
-A **Project** (the same namespace a `Role` lives in — see [roster.md](roster.md))
+A **Project** (the same namespace a `Role` lives in — see [roster.adoc](../../modules/ROOT/pages/usage/jam/roster.adoc))
 has two kinds of addressable things:
 
-- **Members** — users in the Jam-wide [identity registry](roster.md) with a
+- **Members** — users in the Jam-wide [identity registry](../../modules/ROOT/pages/usage/jam/roster.adoc) with a
   membership in the project. A member is addressed by their user name or id
   (`user:<name|usr_id>`). Their tracker `@`-handle is the **account** linked to
   them on the connection of the tracker's kind (`linear`, or their login on
@@ -56,7 +56,7 @@ has two kinds of addressable things:
   per-project **delivery** addresses (e.g. a Discord inbox) live on the membership. A user's **logins** link them to
   their admin login (OIDC `sub`, or `local` on loopback), so Jam knows who is
   behind an admin request, e.g. to own a
-  [personal session](personal-sessions.md). Their **OIDC identity bindings**
+  [personal session](../../modules/ROOT/pages/usage/jam/personal-sessions.adoc). Their **OIDC identity bindings**
   `{Issuer, Subject}` are for a browser login, e.g. [`/app/user`](intercom-ui.md);
   they are opaque, never secrets, and both parts are non-empty.
 - **Rooms** — the project's named channels (`channel:<name>`) in Jam's channel
@@ -98,7 +98,7 @@ members: [{user: alice, delivery: [{service: discord, address: "<inbox-channel>"
 rooms: [{key: ops, bindings: [{connection: acme, ref: ACME-1}]}]
 ```
 
-Live, through `jam` ([operators.md](operators.md) for its flags):
+Live, through `jam` ([operators.adoc](../../modules/ROOT/pages/usage/jam/operators.adoc) for its flags):
 ```
 jam user list | show <user>
 jam user oidc  <user> [<issuer>:<subject>...]   # replaces the set; none clears it
@@ -136,7 +136,7 @@ A `Role`'s `Scope` gains `Addressing []string` — an allow-list of target globs
 alongside `Destinations`. A `Grant`'s `Override.Addressing`, when set,
 **replaces** the role's addressing (no merge — same semantics as `Override.Destinations`).
 Set it in the role's file as `scope.addressing`, a list of globs beside
-`scope.destinations` ([roster.md](roster.md#roles)):
+`scope.destinations` ([roster.adoc](../../modules/ROOT/pages/usage/jam/roster.adoc#roles)):
 
 ```yaml
 # projects/acme/roles/impl.yml
@@ -191,7 +191,7 @@ shared) its addressing allows. Handles are deliberately omitted — the agent ad
 `user:<name>`, not by handle. The `jam-studio-agent mcp` server exposes this as the `list_targets` tool,
 alongside `send`'s now-optional `to` argument; see
 [intercom.md](intercom.md#what-the-tools-do) for the tool surface. The same list,
-taken at raise, appears in the session's [session context](session-context.md).
+taken at raise, appears in the session's [session context](../../modules/ROOT/pages/usage/jam/session-context.adoc).
 
 Design rationale lives in
 [`../../superpowers/specs/2026-09-14-harbor-comms-addressing.md`](../../superpowers/specs/2026-09-14-harbor-comms-addressing.md)

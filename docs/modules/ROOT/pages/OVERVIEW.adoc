@@ -62,9 +62,9 @@ then seeds the spec's `claude.plugins` (below), merges the baseline Claude
 preferences under the first-boot user `settings.json`, and last installs
 Claude Code's managed settings `/etc/claude-code/managed-settings.json` —
 sandbox-wide policy only, Claude-specific so not a hardening file; see
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/model-spec-harness.md#managed-settings-vs-preferences-cov-245[model-spec-harness.md]. It is *model-spec-mediated, not
+xref:usage/jam/model-spec-harness.adoc#managed-settings-vs-preferences-cov-245[Managed settings vs. preferences (COV-245)]. It is *model-spec-mediated, not
 a hardening concern*: a studio gets its raising role's spec's version and plugins
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/model-spec-harness.md[model-spec-harness.md]), or with none the
+(xref:usage/jam/model-spec-harness.adoc[]), or with none the
 default install — the pinned `modelspec.DefaultClaudeVersion` (bumped by Renovate) and its plugins.
 Sitting after the kit base, a CLI bump rebuilds only from this stage on (Docker
 layer cache). It needs no secret — the install is unauthenticated.
@@ -187,7 +187,7 @@ dangles.
 
 *A Jam role's egress replaces the policy list, within the ceiling, at raise.*
 When Jam raises a cove for a role with an egress policy
-(https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/roster.md#role-egress[`scope.egress`] in its file in the config repo), the manager runs the
+(xref:usage/jam/roster.adoc#role-egress[`scope.egress`] in its file in the config repo), the manager runs the
 sealed, root-only `apply-role-egress.sh` via host `docker exec -u root` after sshd
 answers and *before jam-studio-agent (and so the agent) starts*. It reads the role's
 domains on stdin, refuses — changing nothing — any domain the ceiling doesn't cover
@@ -224,8 +224,8 @@ How the running pieces connect:
 |===
 |Piece |Runs |Links
 
-|Jam (`jam serve`) |anywhere, including https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/container.md[a container] |https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/serve.md[serve.md]
-|Studio Managers (`jam-colima`) |bare-metal next to their substrate (Colima), dialing Jam |xref:usage/jam-colima.adoc[], https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/studio-managers.md[studio-managers.md]
+|Jam (`jam serve`) |anywhere, including https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/container.md[a container] |xref:usage/jam/serve.adoc[]
+|Studio Managers (`jam-colima`) |bare-metal next to their substrate (Colima), dialing Jam |xref:usage/jam-colima.adoc[], xref:usage/jam/studio-managers.adoc[]
 |Studios (`jam-studio-agent`) |on a manager's host, dialing Jam's Attach stream |https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/coves.md#jam-studio-agent-the-in-cove-client[coves.md]
 |===
 
@@ -264,7 +264,7 @@ internal/runner/               Runner interface (OS impl + Fake)
 
 Jam itself — `serve`, the broker, the roster, kits, studios, the Requisitioner,
 the intercom — is documented under https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/INDEX.md[usage/jam/];
-https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/renamed-from-harbor.md[renamed-from-harbor.md] lists its Harbor-era names.
+xref:usage/jam/renamed-from-harbor.adoc[] lists its Harbor-era names.
 
 == Building, testing, running
 
@@ -323,7 +323,7 @@ knobs, no-ops when already current (unless a half-finished xref:usage/jam-colima
 so it can go straight into an image tag: `+…/jam:$(jam version)+` (the tags in https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/container.md[container.md]).
 A `just local` build adds its note on stderr (xref:local-build.adoc[]). `jam-colima version` and `jam mint version` still print `<name> <version>`.
 
-*Upgrading from a pre-rename release* (binaries `+at-…+`). Follow https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/renamed-from-at.md[the rename runbook]; the old binary's `update` cannot fetch the new release.
+*Upgrading from a pre-rename release* (binaries `+at-…+`). Follow xref:usage/jam/renamed-from-at.adoc[the rename runbook]; the old binary's `update` cannot fetch the new release.
 
 To *build from source instead* (the contributor path), use `just install` below,
 which compiles the binaries and installs them onto your PATH.

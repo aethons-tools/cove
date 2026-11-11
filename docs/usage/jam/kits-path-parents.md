@@ -131,7 +131,7 @@ it right.
   `(unchanged)` per ancestor). The Source card notes `Part of a set with
   web-dev — imported from the same repo.` It lists the chain parents, of the
   viewed version, whose resolved version came from the same repo at another
-  dir ([ui-pages.md](ui-pages.md#kit-pages)).
+  dir ([ui-pages.adoc](../../modules/ROOT/pages/usage/jam/ui-pages.adoc#kit-pages)).
 
 The design is in
 [`../../superpowers/specs/2026-10-20-kit-git-sources-and-inheritance-design.md`](../../superpowers/specs/2026-10-20-kit-git-sources-and-inheritance-design.md)

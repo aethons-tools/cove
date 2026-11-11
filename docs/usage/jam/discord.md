@@ -2,7 +2,7 @@
 summary: Discord delivery for a Project — a member's delivery profile (inbox channel) and Discord account, the per-project chat service, how chats and rooms are posted to Discord, the reply loop, and who a Discord reply is attributed to.
 read_when: You are setting up a human's Discord inbox or binding them to their Discord user id (a member's `delivery` in the config repo, `account add --connection discord --uid`), setting a project's chat service, or a Discord reply was routed or attributed (to a member vs a display name) differently than you expected.
 owns: membership delivery profiles (a member's `delivery: [{service, address}]`), the Discord user-id binding and its Jam-wide uniqueness, Project.ChatService (`chat-service:` in project.yml) and the `project chat-service show` verbs, the Discord egress + reply loop (receipts), and the Discord reply attribution rules (bound id / unbound member's inbox / account)
-prereqs: comms-addressing.md for a Project's members and rooms and `send(to=…)` targets this delivers; intercom.md for the Discord relay engine; serve.md for `runtime.discord`
+prereqs: comms-addressing.md for a Project's members and rooms and `send(to=…)` targets this delivers; intercom.md for the Discord relay engine; serve.adoc for `runtime.discord`
 tier: leaf
 updated: 2026-11-01
 ---
@@ -22,7 +22,7 @@ per non-tracker service the member can be reached on. For `Service:
 "discord"`, `Address` is the id of the **inbox channel** Jam posts that
 member's DMs into. Their Discord user id is not a delivery field: it is their
 **account** on the `discord` connection, which **binds** them to it (an id,
-never a bot token or other secret — see [operators.md](operators.md) for where
+never a bot token or other secret — see [operators.adoc](../../modules/ROOT/pages/usage/jam/operators.adoc) for where
 credentials actually live).
 
 A **Project** carries `ChatService string` — the service backing
@@ -45,7 +45,7 @@ The service and address must be non-empty (a Discord user id is an account,
 not a delivery). A Discord user id is a snowflake (all
 digits). A Discord
 user id binds **one person Jam-wide** (their Discord account in the
-[identity registry](roster.md)) — binding it to anyone else, in any project, is
+[identity registry](../../modules/ROOT/pages/usage/jam/roster.adoc)) — binding it to anyone else, in any project, is
 **400**, like a duplicate login.
 `account list --connection discord` shows a binding as `uid=<id>`. To find your id: Discord
 → Settings → Advanced → **Developer Mode** on, then right-click yourself →
@@ -70,7 +70,7 @@ Every post is prefixed `"<sender>: "` (a session's name, a person's name), and
 nothing goes back to the inbox or channel it came from — so in a group chat,
 alice's reply from her inbox reaches bob's. Delivery is exactly-once per
 surface (the relay's own `EgressMark`, seeded to the log's tail on first
-enable) — see [serve.md](serve.md) for the `runtime.discord.connection` config.
+enable) — see [serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc) for the `runtime.discord.connection` config.
 
 **The reply loop:** when a person **replies** (Discord's own reply-to-message
 feature) to one of Jam's posts, Jam puts the reply in that post's conversation

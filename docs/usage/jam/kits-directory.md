@@ -78,7 +78,7 @@ mark moves with it, so the next plan shows it unchanged.
 A version whose context cannot be read (not base64, not a tar.gz, a link or
 unsafe path, over the limits) is kept **broken**: raising it fails with the
 reason, and the attention condition `kit.migrate:<name>` is open while it is
-current ([when it clears](monitoring.md)). Push the kit as a directory, or pin a version that migrated. A stored
+current ([when it clears](../../modules/ROOT/pages/usage/jam/monitoring.adoc)). Push the kit as a directory, or pin a version that migrated. A stored
 definition that no longer parses keeps its text, minus the context fields, as
 `kit.yml`.
 

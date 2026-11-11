@@ -2,14 +2,14 @@
 summary: Running `jam serve` in a container — the `ghcr.io/aethons-tools/jam` image and its tags, what is and isn't inside it, the opt-in dev compose service, its ports, admin access, volumes, where `command:` resolvers run, pointing Studio Managers at it, and version lockstep.
 read_when: You want to run Jam from its container image (the dev compose `jam` service or your own), build or pull the image, reach a containerized Jam's admin API, decide what must persist, or point Studio Managers and studios at it.
 owns: the Jam container image (name, tags, platforms, contents, build), the container serve config's shape, the compose `jam` service and its `just` recipes, the container's ports/admin access/volumes, and what a launcher-free serve needs at runtime
-prereqs: serve.md for the serve config; studio-managers.md for how managers connect
+prereqs: serve.adoc for the serve config; studio-managers.adoc for how managers connect
 tier: leaf
 updated: 2026-11-05
 ---
 
 # Jam in a container
 
-Jam can run as a container because Jam drives no Docker itself: remote [Studio Managers](studio-managers.md) next to Colima dial in and host the studios.
+Jam can run as a container because Jam drives no Docker itself: remote [Studio Managers](../../modules/ROOT/pages/usage/jam/studio-managers.adoc) next to Colima dial in and host the studios.
 The image is `ghcr.io/aethons-tools/jam`. It runs only `jam serve`, as a non-root user, with no docker, ssh or git binary.
 
 ## The image
@@ -77,10 +77,10 @@ The same applies to a `0600` `credentials.yml`.
 
 ## Admin access
 
-`admin-listen: ":8081"` is not a loopback bind, so serve refuses to start without `admin-tls`/`tls` plus `operator-auth.oidc` ([the exposure rule](serve.md#exposing-the-admin-api-fail-closed)).
+`admin-listen: ":8081"` is not a loopback bind, so serve refuses to start without `admin-tls`/`tls` plus `operator-auth.oidc` ([the exposure rule](../../modules/ROOT/pages/usage/jam/serve.adoc#exposing-the-admin-api-fail-closed)).
 Serve discovers the OIDC issuer at startup, so the issuer must be reachable from the container.
 
-- **From the host:** use OIDC, as for any remote admin ([operators.md](operators.md)), e.g. `jam login --admin-url https://jam.local.aethons.tools:8081`.
+- **From the host:** use OIDC, as for any remote admin ([operators.adoc](../../modules/ROOT/pages/usage/jam/operators.adoc)), e.g. `jam login --admin-url https://jam.local.aethons.tools:8081`.
   A docker port-forward reaches Jam from the bridge gateway, not from loopback, so loopback trust never applies to the published port.
 - **Loopback CLI:** `just dev-jam <verb>` runs `docker compose exec jam jam <verb>`, for example `just dev-jam manager list`.
   That runs in the container and reaches `http://127.0.0.1:8081` there.
@@ -93,7 +93,7 @@ Keep `dev-identity` and loopback trust out of the container config: the publishe
 | Mount | Holds | Persist? |
 |-------|-------|----------|
 | the Postgres volume (`pgdata` in dev) | the control plane: roster, kits, studios, managers, the message log | yes, this is Jam's state ([backup.md](backup.md)) |
-| `jamstate:/var/lib/jam` | `$HOME`, so the default [`state-dir`](serve.md#upgrading-relay-state) (relay cursors, markers, receipts), plus the [pool](pool.md) store if one is used | yes |
+| `jamstate:/var/lib/jam` | `$HOME`, so the default [`state-dir`](../../modules/ROOT/pages/usage/jam/serve.adoc#upgrading-relay-state) (relay cursors, markers, receipts), plus the [pool](../../modules/ROOT/pages/usage/jam/pool.adoc) store if one is used | yes |
 | `./jam.container.yml:/etc/jam/jam.yml:ro` | the serve config | your source of truth; keep it |
 | `${JAM_SECRETS_DIR:-./local/secrets}:/etc/jam/secrets:ro` | `credentials.yml`, `tls/cert.pem`, `tls/key.pem` | your source of truth; keep it |
 
@@ -109,12 +109,12 @@ Use `value:`, `mint:`, or a command over a mounted file, such as `["cat", "/run/
 A manager on the same host reaches the container at the host's published 443.
 In dev, both its `jam-addr` and `colima.runtime-addr` are `jam.local.aethons.tools:443`, and `colima.jam-host` is `jam.local.aethons.tools` ([manager config](../../modules/ROOT/pages/usage/jam-colima.adoc#config)).
 Studios still reach the same address through the `--add-host <jam-host>:host-gateway` mapping.
-Register each manager with `manager add` ([studio-managers.md](studio-managers.md)).
+Register each manager with `manager add` ([studio-managers.adoc](../../modules/ROOT/pages/usage/jam/studio-managers.adoc)).
 
 ## Version lockstep
 
-Jam refuses a manager whose version differs from its own ([How a manager connects](studio-managers.md#how-a-manager-connects)).
+Jam refuses a manager whose version differs from its own ([How a manager connects](../../modules/ROOT/pages/usage/jam/studio-managers.adoc#how-a-manager-connects)).
 The image tag is the release version, so run `ghcr.io/aethons-tools/jam:<N>-<MMDD>` with managers on that same release.
 Locally, `just jam-image` and `just build` stamp the same `git describe` version when run from the same checkout.
 
-A live run of this setup, end to end, is [studio-manager-live-test.md](studio-manager-live-test.md).
+A live run of this setup, end to end, is [studio-manager-live-test.adoc](../../modules/ROOT/pages/usage/jam/studio-manager-live-test.adoc).

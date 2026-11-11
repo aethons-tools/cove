@@ -2,7 +2,7 @@
 summary: The managed-cove supervisor operator guide — Jam's runtime registry of raised studios (Phase/Activity, leases), the `jam studio raise|list|status|teardown` verbs, the `runtime:` serve-config block, and the Attach stream + its in-cove `jam-studio-agent` client.
 read_when: You are raising or tearing down a managed studio through Jam, inspecting the runtime registry, tuning the supervisor's lease/reconcile timing, or configuring/running the in-cove `jam-studio-agent` client.
 owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), the `studio` verbs (formerly `cove`), the `runtime:` serve-config block, the Attach stream (incl. its `OpenTunnel` push and the `Tunnel` RPC), and the `jam-studio-agent` client that dials it
-prereqs: INDEX.md for the service overview; operators.md for the admin-client flags; roster.md for the role a studio is raised for
+prereqs: INDEX.md for the service overview; operators.adoc for the admin-client flags; roster.adoc for the role a studio is raised for
 tier: leaf
 updated: 2026-11-05
 ---
@@ -14,14 +14,14 @@ Worker or standing Manager — and drives their lifecycle: raise → record → 
 status → tear down, self-healing across Jam restarts. This is the spine the
 Requisitioner and standing teammates build on.
 
-> `studio raise` starts a **real** studio on a [Studio Manager](studio-managers.md) (see [Raising a real
+> `studio raise` starts a **real** studio on a [Studio Manager](../../modules/ROOT/pages/usage/jam/studio-managers.adoc) (see [Raising a real
 > managed studio](#raising-a-real-managed-studio)). With `runtime.studio-managers` off,
 > `jam serve` uses a **placeholder launcher** that records a live registry entry but
 > starts no studio — useful for exercising the registry/supervisor in dev and tests.
 
 ## The model
 
-A managed studio has a durable **identity** (a roster [Actor](roster.md) — token,
+A managed studio has a durable **identity** (a roster [Actor](../../modules/ROOT/pages/usage/jam/roster.adoc) — token,
 grants) and a runtime **Instance** keyed by that actor's id. The Instance carries
 two status fields with different owners:
 
@@ -31,13 +31,13 @@ two status fields with different owners:
   recovery existed, or lost with its manager, goes `→ lost → terminating`. A `live` studio
   waiting for a reply can also go `→ idled` — paused (`docker pause`), with
   lease-reaping suspended — and back `→ live` on reply, or torn down by the
-  role's [idle timeout](turn-end.md#idle-timeout) (never for waiting alone); see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) for
+  role's [idle timeout](../../modules/ROOT/pages/usage/jam/turn-end.adoc#idle-timeout) (never for waiting alone); see [intercom.md](intercom.md#waiting-for-a-reply-wake-on) for
   the wake-on/pause mechanics.
 - **Activity** (the studio reports it, only while `live`): `running | holding |
   waiting | blocked | done`. Reporting `done` after `end` (or during a teardown)
   ends the session; without it the session [recovers](#recovery).
   `holding` means the turn ended but background tasks are still running — see
-  [turn-end.md](turn-end.md#holding).
+  [turn-end.adoc](../../modules/ROOT/pages/usage/jam/turn-end.adoc#holding).
 
 Each Instance is **leased** to the Jam process supervising it. A lease has a
 TTL; the owner renews it, and if it expires another process may take over
@@ -51,25 +51,25 @@ probe dead), or its agent exits without calling `end` (it reports `done`) — is
 not ended. It goes **`recovering`**: its studio is torn down and its identity
 revoked, but its Instance stays, so the Requisitioner still sees its ticket as
 worked and its allocator slot stays held; its channels and ticket are left as
-they are, and its [state volumes](standing-state.md) are kept. A dying studio's
+they are, and its [state volumes](../../modules/ROOT/pages/usage/jam/standing-state.adoc) are kept. A dying studio's
 late reports are refused.
 
 The supervisor's reconcile loop re-raises it **under the same id**, on the
 manager it ran on while that is still configured, with the prompt it was first
 raised with; the new studio finds its conversation marker and
-[resumes](standing-state.md) instead. Its inbox cursor, focus, ticket report,
+[resumes](../../modules/ROOT/pages/usage/jam/standing-state.adoc) instead. Its inbox cursor, focus, ticket report,
 alarms and escalation category carry over. The first attempt is 30s after the
 studio died; a failed attempt backs off (doubling, capped at 30m). Waiting on
 infrastructure — the kit's image still building, no manager available — is
 retried every 30s and uses up no attempt. After 5 failed attempts, or 2h, or
 once its manager is gone, Jam **gives up**: a final teardown, the ticket marked
-blocked if unfinished ([turn-end.md](turn-end.md#reporting-a-ticket)), the slot
+blocked if unfinished ([turn-end.adoc](../../modules/ROOT/pages/usage/jam/turn-end.adoc#reporting-a-ticket)), the slot
 released. An End (or a standing dismissal or reset) that lands while a re-raise
 is in flight wins: the new studio and identity are rolled back. The state sweep
 spares a session's volumes while it has an instance or an identity (a raise in
 flight).
 
-An operator's **Restart** ([session-view.md](session-view.md)) uses the same
+An operator's **Restart** ([session-view.adoc](../../modules/ROOT/pages/usage/jam/session-view.adoc)) uses the same
 path at once: it is refused for a session being ended or that asked to `end`.
 
 Not recovered (ended as before): a session that asked to `end`, one lost
@@ -79,11 +79,11 @@ and one raised before recovery existed. The rail shows a recovering session as
 
 ### Managers and placement
 
-Jam raises studios on named **managers**: remote Studio Managers (see [studio-managers.md](studio-managers.md), enabled by `runtime.studio-managers`).
+Jam raises studios on named **managers**: remote Studio Managers (see [studio-managers.adoc](../../modules/ROOT/pages/usage/jam/studio-managers.adoc), enabled by `runtime.studio-managers`).
 A raise may name where it may run, and how long to wait for a place:
 
 - `--manager <name>` (repeatable; the order is the preference) on `studio raise`
-  and [`session request`](personal-sessions.md#the-verbs), or `managers` in the
+  and [`session request`](../../modules/ROOT/pages/usage/jam/personal-sessions.adoc#the-verbs), or `managers` in the
   `POST /admin/coves` and `POST /admin/sessions/personal` bodies. Jam tries the
   named managers in that order and raises on the first that is available.
 - With none named, Jam tries every manager in registration order.
@@ -96,9 +96,9 @@ A raise may name where it may run, and how long to wait for a place:
 The manager a studio runs on is shown as `manager=<name>` in `studio list` and as
 `manager` in the cove summary.
 
-A [standing session](standing-sessions.md#state-across-restarts) is **pinned** to
+A [standing session](../../modules/ROOT/pages/usage/jam/standing-sessions.adoc#state-across-restarts) is **pinned** to
 the manager holding its state and is only ever raised there. A
-[reset](standing-sessions.md#reset) clears the pin, so the next raise places it
+[reset](../../modules/ROOT/pages/usage/jam/standing-sessions.adoc#reset) clears the pin, so the next raise places it
 afresh; so does a pin to a manager that is no longer configured (container names:
 [jam-colima](../../modules/ROOT/pages/usage/jam-colima.adoc#names-and-moving-between-managers)).
 Standing raises come from the reconciler, which names no managers today; when a caller does supply
@@ -121,21 +121,21 @@ jam studio teardown --id spider-42
   otherwise), it addresses the session in `status`/`teardown` (as does its id),
   and is free again once the session ends — a later raise under it is a new
   session that inherits nothing. The role supplies scope, exactly as with
-  [enroll](roster.md). `--prompt-file` supplies the workload prompt (read
+  [enroll](../../modules/ROOT/pages/usage/jam/roster.adoc). `--prompt-file` supplies the workload prompt (read
   host-side, never on argv) — required by the real launcher; see below.
 - `studio status` reports the studio's activity; `--activity done` triggers teardown.
 - `studio teardown` tears the studio down and revokes its identity (idempotent).
 - `connector` (in `studio list` and the admin UI Agents list) is `ok` when the studio's latest agent episode (agent process) started with its role's current connector, `stale` when a destination or grant changed since (it refreshes at the next episode — a wake delivered into a live episode does not refresh it), `unknown` when it never reported (an image built before the per-spawn refresh — re-raise it), `error` when Jam cannot compute the current connector to compare against (the studio's actor is no longer on the roster, or its role's destinations conflict). Because the git route is part of the fingerprint, a studio whose git-config rewrite failed reports the route actually in effect, so it shows `stale` until the rewrite lands on a later episode.
-- `image` (in `studio list`, [`standing list`](standing-sessions.md#declaring-one), the admin UI Agents list and the role page's standing rows) is `ok` when the studio runs the image a raise for its role would run now, and `stale` when that image has changed since the raise. The comparison is against the current tag on the studio's own manager (a legacy record with no manager means `local`). The image changes when the role's kit changes a build-affecting field, its [model-spec](model-specs.md) harness changes (CLI version, plugins), the manager's build inputs change (a new jam-colima binary, Jam host or the manager's identity key — its assembly fingerprint), or the role stops raising a kit at all. Each Instance records the tag it was raised on (`image_tag`) and its kit ref (`kit`); the current tag is resolved by the same code a raise uses, cached per kit version and harness. Without both tags (a studio raised before tags were recorded, or a launcher that cannot name images) Jam compares the recorded kit: a different kit or build digest is `stale`, the same one `unknown`. It is also `unknown` when the role's current kit or model-spec does not resolve; the listing never fails on it, and the reason is logged at debug level (once per role per minute). Terminating, lost and gone studios show `-`. A stale studio keeps its old image until it is torn down and raised again; a standing one is moved to the current image with [`standing upgrade`](standing-sessions.md#upgrading-a-standing-session). `GET /admin/coves?project=&role=` lists one role's studios. `jam role images <project>/<role>` (admin `GET /admin/roles/{project}/{role}/images` → `{"images":[{manager,kit,has_kit,tag}]}`) shows the role's current image on every connected manager, one `<manager>\t<kit>\t<tag|->` line each; 404 for a missing role, 422 for an unresolvable setup, 503 without a supervisor.
+- `image` (in `studio list`, [`standing list`](../../modules/ROOT/pages/usage/jam/standing-sessions.adoc#declaring-one), the admin UI Agents list and the role page's standing rows) is `ok` when the studio runs the image a raise for its role would run now, and `stale` when that image has changed since the raise. The comparison is against the current tag on the studio's own manager (a legacy record with no manager means `local`). The image changes when the role's kit changes a build-affecting field, its [model-spec](../../modules/ROOT/pages/usage/jam/model-specs.adoc) harness changes (CLI version, plugins), the manager's build inputs change (a new jam-colima binary, Jam host or the manager's identity key — its assembly fingerprint), or the role stops raising a kit at all. Each Instance records the tag it was raised on (`image_tag`) and its kit ref (`kit`); the current tag is resolved by the same code a raise uses, cached per kit version and harness. Without both tags (a studio raised before tags were recorded, or a launcher that cannot name images) Jam compares the recorded kit: a different kit or build digest is `stale`, the same one `unknown`. It is also `unknown` when the role's current kit or model-spec does not resolve; the listing never fails on it, and the reason is logged at debug level (once per role per minute). Terminating, lost and gone studios show `-`. A stale studio keeps its old image until it is torn down and raised again; a standing one is moved to the current image with [`standing upgrade`](../../modules/ROOT/pages/usage/jam/standing-sessions.adoc#upgrading-a-standing-session). `GET /admin/coves?project=&role=` lists one role's studios. `jam role images <project>/<role>` (admin `GET /admin/roles/{project}/{role}/images` → `{"images":[{manager,kit,has_kit,tag}]}`) shows the role's current image on every connected manager, one `<manager>\t<kit>\t<tag|->` line each; 404 for a missing role, 422 for an unresolvable setup, 503 without a supervisor.
 
 ### Raising a real managed studio
 
 `studio raise --prompt-file <f>` on a Studio Manager runs the whole lifecycle end to end: Jam starts a
 Colima studio from the configured image, injects the agent connector — the client env
-and git routing declared by the role's destinations ([connector.md](connector.md)) — plus the jam-studio-agent env, your prompt and the compiled [session context](session-context.md) over SSH, and starts
+and git routing declared by the role's destinations ([connector.md](connector.md)) — plus the jam-studio-agent env, your prompt and the compiled [session context](../../modules/ROOT/pages/usage/jam/session-context.adoc) over SSH, and starts
 `jam-studio-agent`, which runs `claude -p` on the prompt. The studio reports
 `running` → `waiting` over the [Attach stream](#the-attach-stream) after each turn,
-and the supervisor tears it down when Jam ends the session ([turn-end.md](turn-end.md)). The **role must grant the `anthropic` and `git`
+and the supervisor tears it down when Jam ends the session ([turn-end.adoc](../../modules/ROOT/pages/usage/jam/turn-end.adoc)). The **role must grant the `anthropic` and `git`
 destinations** for the agent to reach them. This validates the managed-cove
 lifecycle; automated result-handling (commit/push/PR after the agent) comes with the
 Requisitioner. With `runtime.studio-managers` off, `raise` records a placeholder Instance only
@@ -143,13 +143,13 @@ Requisitioner. With `runtime.studio-managers` off, `raise` records a placeholder
 
 > **Anthropic credentialing.** How the agent's `claude` authenticates follows the
 > anthropic destination: identity-in `x-api-key` gives `ANTHROPIC_API_KEY`, and the
-> [`pool:`](pool.md) configuration (identity-in `bearer`) gives `ANTHROPIC_AUTH_TOKEN`
+> [`pool:`](../../modules/ROOT/pages/usage/jam/pool.adoc) configuration (identity-in `bearer`) gives `ANTHROPIC_AUTH_TOKEN`
 > (a static bearer, no credentials file) and the broker swaps in a pooled
 > subscription token. The connector carries the mode; the cove is unaware.
 
 The raise sequence is: enroll the identity → assemble its connector (a conflict among the role's destinations fails the raise and revokes the identity) → start the container → wait for sshd →
 **apply the role's egress policy** → start jam-studio-agent (and so the agent). The egress
-step runs only for a role with a [policy](roster.md#role-egress) and lands before the
+step runs only for a role with a [policy](../../modules/ROOT/pages/usage/jam/roster.adoc#role-egress) and lands before the
 agent exists. It runs the sealed in-box helper as root, which enforces the kit's
 ceiling. It **fails closed**: if the backend can't apply a policy, or the box refuses
 a domain outside the ceiling, the raise fails (the error names the domain), the
@@ -172,34 +172,34 @@ so a prompt-only edit reuses the cached image while a manager upgrade rebuilds i
 — the raise defers to the next reconcile tick. The build context is **data** (the
 kit plus resources compiled into the manager's binary and its key), with
 **no source kit directory**, so the build can move to a remote substrate. The
-[session context](session-context.md) is compiled at raise, outside the image. A kit's own stage is built
+[session context](../../modules/ROOT/pages/usage/jam/session-context.adoc) is compiled at raise, outside the image. A kit's own stage is built
 from its directory ([kits-directory.md](kits-directory.md)).
 
 ### Egress drift
 
-Each Instance records the [role egress policy](roster.md#role-egress) it runs under
+Each Instance records the [role egress policy](../../modules/ROOT/pages/usage/jam/roster.adoc#role-egress) it runs under
 (`egress`). Each reconcile pass re-applies the role's current policy to a `live`
 studio whose lease it holds when the two differ (`--kit-default` for a cleared one);
 `idled` studios are skipped and get it on **resume**, before they are `live` again.
 Failures count in `egress_failures`; the teardown rule is in
-[roster.md](roster.md#role-egress). Logs carry domain counts, never lists.
+[roster.adoc](../../modules/ROOT/pages/usage/jam/roster.adoc#role-egress). Logs carry domain counts, never lists.
 
 Managed studios are also raised **automatically** by the [resident
-Requisitioner](requisitioner.md) — an always-on loop that polls a tracker and raises one
+Requisitioner](../../modules/ROOT/pages/usage/jam/requisitioner.adoc) — an always-on loop that polls a tracker and raises one
 per ready ticket — not only by this manual `studio raise` verb.
 
 A raised studio's agent also gets a brokered [intercom MCP](intercom.md) — `read`/`send`
 on its own ticket — so it can converse (ask, leave a status) on the ticket it's working.
 A studio is not one-shot: after each turn it **waits** (Activity `waiting`) and Jam
 **wakes** it to resume (`claude --continue`) when a reply lands, an alarm fires, or its
-idle timeout passes — see [turn-end.md](turn-end.md).
+idle timeout passes — see [turn-end.adoc](../../modules/ROOT/pages/usage/jam/turn-end.adoc).
 
 All `studio` verbs take the admin-client flags (`--app`/`--admin-url`/`--token`);
-see [operators.md](operators.md).
+see [operators.adoc](../../modules/ROOT/pages/usage/jam/operators.adoc).
 
 ## Tuning the supervisor (`runtime:`)
 
-Optional serve-config block (see [serve.md](serve.md) for the whole config):
+Optional serve-config block (see [serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc) for the whole config):
 
 ```yaml
 runtime:
@@ -225,16 +225,16 @@ latest agent turn applied (see [jam-studio-agent](#jam-studio-agent-the-in-cove-
 **control** down — teardown or wake. Jam serves the Attach gRPC on its
 cove-facing **:443 TLS** endpoint, multiplexed with the broker by `content-type`
 (`application/grpc`) — so the stream fits within a hardened studio's 443-only
-egress, no separate port required (see [serve.md](serve.md)).
+egress, no separate port required (see [serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc)).
 The stream also carries the agent's session events up and their acks down; see
-[session-events.md](session-events.md).
+[session-events.adoc](../../modules/ROOT/pages/usage/jam/session-events.adoc).
 
 For [studio collaboration](collaboration.md#how-it-works) Jam also pushes
 `OpenTunnel{id, port}` down the stream; jam-studio-agent answers by dialing a separate
 **`Tunnel`** RPC on the same `Runtime` service and connection (authenticated the
 same way), claiming the id, and piping it to `127.0.0.1:<port>` — only ports on
 its allow-list (`2222`, the studio's sshd, plus the studio's exposed
-[previews](previews.md), which Jam pushes as `SetTunnelPorts{ports}`
+[previews](../../modules/ROOT/pages/usage/jam/previews.adoc), which Jam pushes as `SetTunnelPorts{ports}`
 first on every Attach stream and after each change; each push replaces the last).
 An older jam-studio-agent ignores the push, so Jam's open times out (504).
 
@@ -267,7 +267,7 @@ JAM_BASE_URL           https://<jam host>; when set, the agent's connector is re
 JAM_CONNECTOR          the raise-time connector (JSON, no token): fallback + owned env keys
 ```
 
-There is no fallback to a pre-rename name — see [renamed-from-at.md](renamed-from-at.md).
+There is no fallback to a pre-rename name — see [renamed-from-at.adoc](../../modules/ROOT/pages/usage/jam/renamed-from-at.adoc).
 
 jam-studio-agent runs the agent headless in **episodes** (`internal/agentrun`).
 Everything specific to the agent CLI — argv, stdin encoding, parsing stdout
@@ -275,10 +275,10 @@ into turn/background events, the pre-flight check — sits behind agentrun's
 `Harness` interface; the only implementation, and the default, is Claude. An
 episode is one `claude -p --input-format stream-json --output-format stream-json
 --verbose --dangerously-skip-permissions` process in `JAM_WORKDIR` (the
-permission flags come from the role's [model-spec policy](model-spec-policy.md);
+permission flags come from the role's [model-spec policy](../../modules/ROOT/pages/usage/jam/model-spec-policy.adoc);
 this is `claude-default`'s; plus
 `--append-system-prompt-file /agent-data/context/CORE.md --system-prompt-snapshot off`
-when a [session context](session-context.md) is in effect); the prompt
+when a [session context](../../modules/ROOT/pages/usage/jam/session-context.adoc) is in effect); the prompt
 is its first stdin message. jam-studio-agent reports `running` and watches the
 stream-json output: it closes stdin only when the agent's turn has ended **and**
 no background task (`run_in_background` Bash, background subagents, Monitors) is
@@ -293,10 +293,10 @@ have deleted them (a missing `--settings` file fails every later `claude` at sta
 it **fails loud** if it can't (the baked kit file is missing — a stale image —
 or invalid, or the config can't be written) rather than launch a silently
 toolless agent (COV-190). The same pre-flight checks `claude --version` against
-the role's [model-spec](model-specs.md#what-a-cove-applies) (`claude-default` adds
+the role's [model-spec](../../modules/ROOT/pages/usage/jam/model-specs.adoc#what-a-cove-applies) (`claude-default` adds
 no flags, so its coves launch with exactly the argv above). With the config written it proceeds:
 
-Every episode then ends the same way, for every session kind: the client reports `waiting` and blocks on a **wake**, which resumes the agent with `claude --continue` and a prompt naming [why it woke](turn-end.md#wake-reasons). A turn that **exited non-zero** (a crashed or auth/model-failed `claude`) is logged at **WARN** and still waits — the cause is in the agent's own `jam-studio-agent.log` (stderr) or `agent-stream.jsonl` (stdout). The session ends only when Jam tears it down: [`end`](turn-end.md#ending-a-session), the role's [idle timeout](turn-end.md#idle-timeout), an operator, or a resident session's release/removal.
+Every episode then ends the same way, for every session kind: the client reports `waiting` and blocks on a **wake**, which resumes the agent with `claude --continue` and a prompt naming [why it woke](../../modules/ROOT/pages/usage/jam/turn-end.adoc#wake-reasons). A turn that **exited non-zero** (a crashed or auth/model-failed `claude`) is logged at **WARN** and still waits — the cause is in the agent's own `jam-studio-agent.log` (stderr) or `agent-stream.jsonl` (stdout). The session ends only when Jam tears it down: [`end`](../../modules/ROOT/pages/usage/jam/turn-end.adoc#ending-a-session), the role's [idle timeout](../../modules/ROOT/pages/usage/jam/turn-end.adoc#idle-timeout), an operator, or a resident session's release/removal.
 
 A Jam **teardown** cancels the run, which sends the agent `SIGTERM` and then
 `SIGKILL` after a grace period. A `wake` that arrives while an episode is live goes **into** it: between turns it
@@ -308,7 +308,7 @@ kept, so the next wait resumes at once.
 
 ### Session controls (Interrupt, Compact, Clear)
 
-The header buttons ([session-view.md](session-view.md#session-controls)) reach jam-studio-agent as
+The header buttons ([session-view.adoc](../../modules/ROOT/pages/usage/jam/session-view.adoc#session-controls)) reach jam-studio-agent as
 Attach-stream commands (not `ControlSink`); every press is recorded once as a `cove`/`command`
 event line (`command`, `by`), plus `ignored: <reason>` when it was dropped.
 
@@ -335,7 +335,7 @@ edit reaches a running studio at its next episode (never within one: a wake deli
 keeps the last connector it applied and logs a warning; a failed git-route rewrite is likewise logged and retried every episode until it lands. It reports the applied
 connector's fingerprint up the Attach stream; Jam compares it to the role's current
 connector for the `connector` column ([verbs](#the-studio-verbs)).
-The connector also carries the role's resolved [model-spec](model-specs.md#what-a-cove-applies):
+The connector also carries the role's resolved [model-spec](../../modules/ROOT/pages/usage/jam/model-specs.adoc#what-a-cove-applies):
 an episode whose spec changed is re-checked by the harness first (CLI version; a
 mismatch fails the run loud), then launched with the spec's model, effort,
 provider env and settings — a spec edit reaches a studio at its next episode too.
@@ -343,7 +343,7 @@ provider env and settings — a spec edit reaches a studio at its next episode t
 **Context refresh.** Beside the connector, jam-studio-agent re-fetches the session
 context (`GET /context`) before every later episode *and* before each wake it writes
 into a live episode, swapping `/agent-data/context` and telling the agent which
-layers changed — see [session-context.md](session-context.md#refresh).
+layers changed — see [session-context.adoc](../../modules/ROOT/pages/usage/jam/session-context.adoc#refresh).
 
 **Post-mortem on teardown.** Just before the container is removed (only a
 standing session's state volumes outlive it), the launcher grabs the **tail of `jam-studio-agent`'s log**
@@ -360,15 +360,15 @@ no-op success), so the idle ladder never fails a reconcile on a cove it already
 paused.
 
 **Resident mode (personal and standing sessions).** `JAM_RESIDENT=1` — which the launcher
-sets only for a [personal](personal-sessions.md) or [standing](standing-sessions.md) session — now only picks the
+sets only for a [personal](../../modules/ROOT/pages/usage/jam/personal-sessions.adoc) or [standing](../../modules/ROOT/pages/usage/jam/standing-sessions.adoc) session — now only picks the
 resume prompt (every session waits after every episode, above). While an episode is still live (its turn over but a
-background task outstanding — [`holding`](turn-end.md#holding)), a wake is written into
+background task outstanding — [`holding`](../../modules/ROOT/pages/usage/jam/turn-end.adoc#holding)), a wake is written into
 it instead — see the wake paragraph above. A resident session ends only when a teardown cancels the
 run: the owner's release for a personal session, or the name's removal for a
 standing one. Jam's wake-on engine never tears any session down for
-waiting; only the role's idle timeout and a personal session's optional [idle-ladder reclaim](personal-sessions.md#the-idle-ladder) does.
+waiting; only the role's idle timeout and a personal session's optional [idle-ladder reclaim](../../modules/ROOT/pages/usage/jam/personal-sessions.adoc#the-idle-ladder) does.
 A restarted or [recovered](#recovery) session resumes its conversation, whatever its kind
-([standing-state.md](standing-state.md)).
+([standing-state.adoc](../../modules/ROOT/pages/usage/jam/standing-state.adoc)).
 
 > **Still deferred:** jam-studio-agent becoming the image entrypoint under its own non-root account
 > (collapsing the SSH/systemd boot).

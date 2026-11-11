@@ -77,7 +77,7 @@ child whose parent is now missing or invalid fails; it does not report
 
 A parent whose prompt grows after a child was stored doesn't block the child's
 raise. The session context truncates the merged prompt with its usual warning
-([session-context.md](session-context.md)).
+([session-context.adoc](../../modules/ROOT/pages/usage/jam/session-context.adoc)).
 
 **Build args** reach the final image build (the harness and hardening layers)
 and the session's `kit/tools.md`, as for an unchained kit. They are **not**
@@ -115,14 +115,14 @@ A chained kit's build digest covers every link's build-affecting fields
 When a parent that a kit follows changes one of those, directly or further up
 the chain, its running studios show
 [`image=stale`](coves.md#the-studio-verbs);
-[`standing upgrade`](standing-sessions.md#upgrading-a-standing-session) moves a
+[`standing upgrade`](../../modules/ROOT/pages/usage/jam/standing-sessions.adoc#upgrading-a-standing-session) moves a
 standing one to the new image. A pinned parent's later versions don't make a
 child stale. A pin fixes only its own link, though: if the pinned version
 itself follows *its* parent, changes further up still reach the child. A
 prompt-only or notes-only change upstream never makes a child stale.
 
 A studio records the chain it was raised from (each link's id and version). Its
-[refreshed session context](session-context.md#refresh) reports the running
+[refreshed session context](../../modules/ROOT/pages/usage/jam/session-context.adoc#refresh) reports the running
 image's tools and egress, read from that recorded chain, while its prompt and
 notes come from the current chain.
 
@@ -147,7 +147,7 @@ notes come from the current chain.
   YAML.
 - **`kit list`** adds `parent=<name>[@vN]` to a chained kit's row.
 - **The kit page** shows *Built on*, *Effective* and child kits under *Used by*
-  ([ui-pages.md](ui-pages.md#kit-pages)).
+  ([ui-pages.adoc](../../modules/ROOT/pages/usage/jam/ui-pages.adoc#kit-pages)).
 
 ## Kits from git
 

@@ -2,7 +2,7 @@
 summary: The config branch editor — the only way to change config in the admin console; its pages work on a branch of the followed config repo; each save is a commit to it; Create/Open branch, Merge (planned first, refused on a per-file conflict, applied at once) and PR (a GitHub pull request or GitLab merge request); the X-Jam-Config-Branch header, branch workspaces, no live edits, and what stays live.
 read_when: You want to change a Jam's config (add a role, edit a kit, a user, a project) in the admin console, are merging a branch or opening a PR, wondering why a save, merge or live write was refused (stale branch, conflict, checked-out branch, read-only), or changing the branch editor (the router, workspaces, configrepo).
 owns: the branch context and its header, branch workspaces (scratch stores) and saves as commits, Create/Open/Merge/PR and their API, the per-file merge rule, the refusal of live config writes, what config paths a branch serves and what stays live, the bare clone in the state dir
-prereqs: config-git-sources.md (following config.github, config.gitlab or config.git); ui-config.md (the Tracking page); config-git.md (the repo layout)
+prereqs: config-git-sources.md (following config.github, config.gitlab or config.git); ui-config.adoc (the Tracking page); config-git.md (the repo layout)
 tier: leaf
 updated: 2026-11-02
 ---

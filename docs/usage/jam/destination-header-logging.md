@@ -2,7 +2,7 @@
 summary: Per-destination troubleshooting header logs in the broker — `log_headers_in` (none|examined|all) and `log_headers_out` (none|changed|all) — what each level logs, how credential-bearing values are redacted (Basic username in clear, secrets as length + sha256 prefix), the rate limit, and how to set them.
 read_when: A brokered request fails auth (401/403 from Jam or the upstream) and you need to see which identity header the studio sent or which credential and username Jam forwarded, or you are turning a destination's header logging on or off.
 owns: the destination header-logging levels, their log lines and redaction rules, and their rate limit
-prereqs: serve.md#destinations for destinations; header-specs.md for identity_in/apply
+prereqs: serve.adoc#destinations for destinations; header-specs.md for identity_in/apply
 tier: leaf
 updated: 2026-11-01
 ---
@@ -22,7 +22,7 @@ Both settings default to `none`. Leave them off except while debugging.
 | | `examined` | `broker headers in`: only the header the identity is read from (the destination's `identity_in` spec), or `missing` |
 | | `all` | `broker headers in`: every request header, plus `<identity header>: missing` when it is absent |
 | `log_headers_out` | `none` | nothing |
-| | `changed` | `broker headers out`: the headers the broker set or changed (the applied credential, [principal header rules](model-spec-headers.md), the pool beta), and those it removed (`<removed>`, e.g. the studio's identity) |
+| | `changed` | `broker headers out`: the headers the broker set or changed (the applied credential, [principal header rules](../../modules/ROOT/pages/usage/jam/model-spec-headers.adoc), the pool beta), and those it removed (`<removed>`, e.g. the studio's identity) |
 | | `all` | `broker headers out`: every header sent upstream |
 
 `broker headers in` is logged before the identity is checked, so a missing or
@@ -51,7 +51,7 @@ At most 60 lines per destination and direction per minute; the rest are dropped.
 
 ## Setting it
 
-- **Config repo:** `log_headers_in: examined`, `log_headers_out: changed` in `destinations/<name>.yml`, committed by hand ([serve.md](serve.md#destinations)).
+- **Config repo:** `log_headers_in: examined`, `log_headers_out: changed` in `destinations/<name>.yml`, committed by hand ([serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#destinations)).
 - **UI, on a branch:** the destination's *Edit* form, *Log incoming headers* / *Log outgoing headers*; the save is a commit ([config-branches.md](config-branches.md)). The page's Broker section shows *Header logging* as on (with both levels) or off, so a destination left logging is easy to spot.
 
 Any other value is refused.

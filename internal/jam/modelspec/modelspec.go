@@ -231,7 +231,7 @@ func DefaultClaudePlugins() []string { return slices.Clone(defaultClaudePlugins)
 // defaultClaudeSettings are claude-default's claude.settings: the Claude Code
 // PREFERENCES the sealed managed settings used to force on every image
 // (COV-245), with the same values, so a cove bound to claude-default behaves
-// as before. Classification (docs/usage/jam/model-spec-harness.md owns it):
+// as before. Classification (docs/modules/ROOT/pages/usage/jam/model-spec-harness.adoc owns it):
 //
 //   - preferences (here): display and notification choices, plus
 //     disableAgentView — it only hides Claude Code's agent-view UI, and grants

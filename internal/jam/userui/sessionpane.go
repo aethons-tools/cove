@@ -159,7 +159,7 @@ func linkLabel(u string) string {
 }
 
 // paneStatus is the session's aggregates: its state and runtime, never the
-// content of its events (docs/usage/jam/session-events.md).
+// content of its events (docs/modules/ROOT/pages/usage/jam/session-events.adoc).
 func (h *handler) paneStatus(inst jam.Instance, pane *SessionPane) {
 	now := time.Now()
 	add := func(name, value string) {

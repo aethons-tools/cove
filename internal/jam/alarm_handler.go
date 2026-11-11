@@ -18,7 +18,7 @@ type alarmSetter interface {
 // AlarmHandler is Jam's brokered alarm endpoint, self-scoped to the caller's
 // OWN instance like /end: GET /alarms lists its alarms, PUT /alarms/{name}
 // sets (or replaces) one, DELETE /alarms/{name} removes one. See
-// docs/usage/jam/turn-end.md#alarms. Implements http.Handler.
+// docs/modules/ROOT/pages/usage/jam/turn-end.adoc#alarms. Implements http.Handler.
 type AlarmHandler struct {
 	store  escalateStore
 	setter alarmSetter

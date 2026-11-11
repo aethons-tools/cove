@@ -2,7 +2,7 @@
 summary: A Jam's configuration as a git repo — the file layout and file kinds, `config write|diff --dir`, the plan (the repo always wins), its refusals, managed marks, the objects Jam keeps unmanaged, and replicating a Jam from its repo.
 read_when: You are writing a Jam's config into a repo for the first time, editing the repo's files by hand, standing up a replica, or a config diff, sync or merge refused, updated or listed something unmanaged.
 owns: the config repo layout and file kinds, the `jam config write|diff --dir` verbs, the plan actions and refusals, managed marks, unmanaged objects and Jam's own ensures, the `/admin/config/diff|export-tree` routes
-prereqs: serve.md (layered serve configs, host keys); backup.md (how this differs from export/import)
+prereqs: serve.adoc (layered serve configs, host keys); backup.md (how this differs from export/import)
 tier: leaf
 updated: 2026-11-03
 ---
@@ -37,7 +37,7 @@ Every non-kit file starts `kind:` (`destination`, `model-spec`, `user`,
 (`users/bob.yml: unknown field "oidc"`); a `name:` must equal the file name.
 Output of `config write` is deterministic (2-space yaml, sorted maps, members
 and rooms). Every kind (and jam.yml) may carry `operator-notes:`, markdown for
-operators only: [operator-notes.md](operator-notes.md).
+operators only: [operator-notes.adoc](../../modules/ROOT/pages/usage/jam/operator-notes.adoc).
 
 ```yaml
 # users/bob.yml
@@ -170,7 +170,7 @@ that project too; once the repo holds it again, the next apply adopts it.
 
 Serve the replica with `--config jam.yml --config jam.local.yml` (portable
 settings from the repo, host keys in the local file; see
-[serve.md](serve.md#layering-serve-configs) for the overlay, host keys and the
+[serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc#layering-serve-configs) for the overlay, host keys and the
 `same | differs | absent | unknown` comparison `config diff` reports), supply
 the credentials the destinations and connections name, point its `config:`
 block at the same repo ([config-git-sources.md](config-git-sources.md)), and

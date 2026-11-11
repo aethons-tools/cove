@@ -86,7 +86,7 @@ privileged port needs root — run the built binary under `sudo` directly for th
 `/app` act as that user, with no IdP and no callbacks. The user needs a login
 and a project membership, both in the config repo (`users/<name>.yml`'s
 `logins:`, a `project.yml`'s `members:`), and an OIDC identity
-(`jam user oidc`). See `dev-identity` in [serve.md](../docs/usage/jam/serve.md). To
+(`jam user oidc`). See `dev-identity` in [serve.adoc](../docs/modules/ROOT/pages/usage/jam/serve.adoc). To
 work on the Jam app with hot reload, run `just app-dev` beside `just dev-serve`
 ([web-app](../docs/modules/ROOT/pages/web-app.adoc#dev-loop)).
 
@@ -133,4 +133,4 @@ Steps, ports, admin access and volumes are in [container.md](../docs/usage/jam/c
 These settings (plaintext admin, inline password, self-signed cert) are for
 local dev only. The production shape — TLS, OIDC operator auth, and
 resolver-based credentials — is documented in
-[`../docs/usage/jam/serve.md`](../docs/usage/jam/serve.md).
+[`../docs/modules/ROOT/pages/usage/jam/serve.adoc`](../docs/modules/ROOT/pages/usage/jam/serve.adoc).

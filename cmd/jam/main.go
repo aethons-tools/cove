@@ -1004,7 +1004,7 @@ func readConfig(path string) ([]byte, error) {
 }
 
 // cmdCove is the deprecated `jam cove …` verb: it warns once and runs
-// `jam studio …` (docs/usage/jam/renamed-from-harbor.md).
+// `jam studio …` (docs/modules/ROOT/pages/usage/jam/renamed-from-harbor.adoc).
 func cmdCove(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	logging.Deprecated(stderr, "jam cove", "jam studio")
 	return cmdStudio(args, g, stdout, stderr)
@@ -1601,7 +1601,7 @@ func (placeholderLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.K
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	var cfgPaths configPaths
-	fs.Var(&cfgPaths, "config", "serve config YAML (repeatable: later files override; only the first may omit host keys — see serve.md)")
+	fs.Var(&cfgPaths, "config", "serve config YAML (repeatable: later files override; only the first may omit host keys — see serve.adoc)")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
@@ -1785,7 +1785,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("default model-spec seeded", "name", jam.DefaultModelSpec)
 	}
 
-	// Operator-attention conditions (docs/usage/jam/monitoring.md): persisted
+	// Operator-attention conditions (docs/modules/ROOT/pages/usage/jam/monitoring.adoc): persisted
 	// alongside the store; a load failure starts empty rather than failing serve.
 	condStore, err := conditionpg.New(context.Background(), pgPool, log)
 	if err != nil {
@@ -1808,7 +1808,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	} else if len(mig.Broken) > 0 {
 		log.Warn("kit versions kept broken (their packed context could not be read)", "versions", mig.Broken)
 	}
-	// The jam rename's kit migration (docs/usage/jam/renamed-from-at.md):
+	// The jam rename's kit migration (docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc):
 	// kits still on pre-rename build-arg/ENV names or base repository get a
 	// migration version. A store write error fails closed, like
 	// MigrateKitTrees. Destinations whose stored env uses the now-reserved
@@ -2058,7 +2058,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	}()
 
-	// Session events (docs/usage/jam/session-events.md): stored in the shared
+	// Session events (docs/modules/ROOT/pages/usage/jam/session-events.adoc): stored in the shared
 	// control-plane Postgres.
 	sessStore, err := sessionpg.New(context.Background(), pgPool, log)
 	if err != nil {
@@ -2602,7 +2602,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		userMux := http.NewServeMux()
 		// The open app-token requests, so a revoke ends them.
 		appTokenLive := apptoken.NewLive()
-		// The Jam pane's one-time frame tickets (docs/usage/jam/previews.md
+		// The Jam pane's one-time frame tickets (docs/modules/ROOT/pages/usage/jam/previews.adoc
 		// "Framing"): the previews' login trades them for frame sessions and
 		// prunes them.
 		var frames *collabhttp.FrameTickets
@@ -2839,7 +2839,7 @@ func main() {
 
 // runAs is the process entry: invokedAs is the basename the binary was run
 // under. Before any command runs it copies the pre-rename directories across
-// once (migrateDirs). See docs/usage/jam/renamed-from-at.md.
+// once (migrateDirs). See docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc.
 func runAs(invokedAs string, argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	migrateDirs(stderr)
 	return run(argv, getenv, stdout, stderr)

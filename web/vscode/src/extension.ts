@@ -578,7 +578,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     ctx.subscriptions.push(vscode.window.registerWebviewViewProvider(p.viewType, p));
   }
 
-  // --- Kits (docs/usage/jam/vscode-kits.md): kit drafts as jamkit:
+  // --- Kits (docs/modules/ROOT/pages/usage/jam/vscode-kits.adoc): kit drafts as jamkit:
   // folders, and the hub's Kits view. ---
   const branchState = new BranchState(ctx.globalState);
   const adminFor = async (url: string, branch: () => string): Promise<AdminApi | undefined> => {

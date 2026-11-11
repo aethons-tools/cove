@@ -155,7 +155,7 @@ export default function BoardEditor({ id, readOnly }: { id: string; readOnly: bo
       {/* Keep Excalidraw's built-in embeddable allowlist (no validateEmbeddable
           override): this editor runs on the Jam UI origin, and a board element
           that could embed a preview host would pass the frame exchange's
-          same-site Referer check (docs/usage/jam/previews.md, Framing). */}
+          same-site Referer check (docs/modules/ROOT/pages/usage/jam/previews.adoc, Framing). */}
       <Excalidraw
         excalidrawAPI={setApi}
         initialData={initial}

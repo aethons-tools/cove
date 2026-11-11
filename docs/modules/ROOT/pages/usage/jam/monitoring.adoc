@@ -1,0 +1,80 @@
+= Operator attention
+:summary: Operator attention — the conditions Jam raises about itself (lapsed credentials, failing pool refreshes, …), where they show (admin UI Health tab + title-bar badge, `jam attention list`, `/metrics`), and the shipped Prometheus + Alertmanager bundle that pushes them to Discord.
+:read_when: You want to be alerted when Jam needs a human, are setting up `metrics:` or the deploy/monitoring bundle, see a condition on the Health tab and want to know what it means, or a Discord alert from Jam arrived.
+:owns: the condition model (keys, severities, lifecycle), the v1 condition kinds, the `/metrics` exposition and its scrape token, the Health tab, `jam attention list`, and the deploy/monitoring bundle
+:prereqs: serve.adoc for the serve config and credentials
+:tier: leaf
+:updated: 2026-11-05
+
+Jam turns problems it detects in itself into *conditions* — a key, a
+severity, a one-line summary and a *fix* — and shows them in three places:
+the admin UI (Health and Dashboard tab badges, "Needs attention", *Health* tab), `jam attention list`, and `/metrics` for Prometheus. Delivery (Discord, reminders, ack) is
+Alertmanager's job, via the bundle in `deploy/monitoring/`.
+
+== Severities and lifecycle
+
+[%header]
+|===
+|Severity |Meaning |Pushed
+
+|`critical` |agents are failing now |yes, re-sent hourly
+|`warning` |degraded, or will fail |yes, re-sent every 12h
+|`info` |shown on Health only |never
+|===
+
+A condition is *open* until its producer sees success, then *resolved* (kept
+7 days on Health). The same problem recurring later opens a new occurrence.
+Conditions survive a Jam restart and keep their original start time.
+*Ack* = an Alertmanager silence (its UI, or the Health tab's "Silences" link).
+
+[#v1-conditions]
+== v1 conditions
+
+[%header]
+|===
+|Key |Severity |Raised when |Cleared when
+
+|`+cred.unavailable:<cred>+` |critical |3 consecutive failures resolving a brokered credential |the next successful resolve, or at startup if the credential is no longer configured
+|`+pool.account.refresh:<account>+` |warning; critical while every account fails |2 consecutive failed refresh passes |the next successful refresh, a fresh token (`pool add`), or removal of the account
+|`+push:relay+` |warning |5 consecutive transient xref:usage/jam/push-delivery.adoc#how-jam-sends[push] send failures (network error, 429 or 5xx from a push service) |the next send a push service answers with anything but 429 or 5xx
+|`+manager.disk:<name>+` |warning at ≥90% disk used; critical at ≥95% (back to warning below 95%) |a xref:usage/jam/studio-managers.adoc#status-reports[Studio Manager]'s report shows its studio disk that full (detail: what is reclaimable). Fix: free disk in the manager's VM (jam-colima cleans up automatically above its high mark), or grow the VM disk (`+colima stop; colima start --disk <GiB>+`) |a report below 88% (between 88% and 90% an open condition stays open, a closed one stays closed, so it does not flap), or the manager is revoked (also at serve start for a manager no longer registered); left open while the manager is disconnected
+|`+kit.migrate:<kit>+` |warning |the kit's current version could not be migrated to a tree at the upgrade, or at the import of a pre-tree backup (https://github.com/aethons-tools/cove/blob/main/docs/usage/jam/kits-directory.md#stored-as-trees[kits-directory.md]) |its current version is not broken (a new push or a pin) or the kit is removed; checked at serve start, after the import and every minute (a pin back onto a broken version reopens it)
+|===
+
+Each carries its fix (e.g. `gcloud auth application-default login` for a
+gcp-exchange ADC). Conditions name things only — never secret values.
+
+[#metrics]
+== `/metrics`
+
+Enable with the serve config `+metrics: { token-cred: <name> }+` (the name must be
+under ``+credentials:+``; its value — the scrape token — comes from the credentials
+file). Jam then serves `/metrics` on the *broker listener* (the TLS port
+studios use), requiring ``+Authorization: Bearer <scrape token>+``; studio identity
+tokens are refused. Series: `+jam_up+`, `+jam_attention_condition{key,kind,severity,summary,fix}+`
+(one per open condition), `+jam_attention_open{severity}+`, `+jam_studios+`, and —
+with `runtime.studio-managers` on — `+jam_managers+` (xref:usage/jam/studio-managers.adoc[Studio
+Managers] registered) and
+`+jam_managers_connected+`, plus for each connected manager that reports host stats
+`+jam_manager_memory_bytes{manager,kind="used"|"total"}+`, `+jam_manager_disk_bytes{manager,kind="used"|"total"}+`
+and `+jam_manager_reclaimable_bytes{manager,kind="images"|"build_cache"|"volumes"}+`.
+Unset ⇒ no `/metrics`.
+
+* `token-cred` must be a plain credential: not `+exchange: gcp+`, not the pool's `cred-name` (serve refuses it).
+* The scrape token is read once at startup; after rotating it, restart
+`jam serve` (and update `scrape-token` for the bundle).
+
+== The local bundle
+
+. Put three files in `deploy/monitoring/.local/` (gitignored): `scrape-token`
+(the token's value), `jam-ca.pem` (the CA that signed Jam's `+tls:+` cert) and
+`discord-webhook` (a Discord channel webhook URL).
+. `just monitoring-up <jam-host>` — starts Prometheus (`+127.0.0.1:9090+`) and
+Alertmanager (`+127.0.0.1:9093+`), reaching Jam the way studios do
+(`<jam-host>` → `host-gateway`). The recipe ``chmod 644``s the three files, because
+the containers run as `nobody` and could not read 0600 files; the directory is local and gitignored.
+. Set `+metrics.alertmanager-url: http://localhost:9093+` to link silences from Health.
+
+The bundle also alerts `JamDown` (critical) when Prometheus cannot scrape Jam
+for 2 minutes. `just monitoring-down` stops it. In other environments, point
+your own Prometheus at the same endpoint and load `deploy/monitoring/jam-rules.yml`.

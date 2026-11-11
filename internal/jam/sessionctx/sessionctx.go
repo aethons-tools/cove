@@ -2,7 +2,7 @@
 // Kit (and, in later slices, Studio, Project, Role, Jam) — into a Bundle: a
 // short always-on core, delivered as an appended system prompt every turn, plus
 // leaf files the agent opens on demand under Dir. Pure: no I/O. See
-// docs/usage/jam/session-context.md.
+// docs/modules/ROOT/pages/usage/jam/session-context.adoc.
 package sessionctx
 
 import (

@@ -2,7 +2,7 @@
 summary: Studio collaboration — reaching an agent's running studio through Jam: SSH and IDEs (VS Code Remote-SSH, JetBrains Gateway) via `jam ssh`, who may connect to a studio (operators, the session's requester, role `collaborate` policy, share grants — for SSH and previews alike), and how it works (Jam-issued short-lived certs over a studio-dialed tunnel). Previews themselves are in previews.md.
 read_when: You want to SSH or point an IDE at an agent's studio, let a teammate in (`studio share`), set a role's `collaborate` policy, enable the `ssh:` serve config, or a `jam ssh` connection was refused or timed out.
 owns: the studio-collaboration user and operator guide — jam ssh-config/ssh-proxy/ssh and login --participant, the access rules and share grants (studio share/unshare/access, revocation) for every right, the ssh: serve-config block's setup steps, and the tunnel/cert mechanism at the level an operator needs
-prereqs: serve.md (serve config, credentials), roster.md (roles, users), operators.md (login)
+prereqs: serve.adoc (serve config, credentials), roster.adoc (roles, users), operators.adoc (login)
 tier: leaf
 updated: 2026-11-01
 ---
@@ -11,7 +11,7 @@ updated: 2026-11-01
 
 A person can work *in* an agent's running studio — a shell, VS Code
 Remote-SSH, JetBrains Gateway — or open a web app the agent serves there
-([previews.md](previews.md)), through Jam alone: no host drive, no new port in the
+([previews.adoc](../../modules/ROOT/pages/usage/jam/previews.adoc)), through Jam alone: no host drive, no new port in the
 studio. Jam decides who may connect, issues them a short-lived SSH
 certificate (or signs their browser in), and splices their connection to the
 studio's port over a tunnel the studio dials back.
@@ -25,15 +25,15 @@ studio's port over a tunnel the studio dials back.
    ([credentials.md](credentials.md)), e.g.
    `jam-ssh-ca: { command: ["cat", "/path/to/jam-ssh-ca"] }`.
 3. Add `ssh: { ca-cred: jam-ssh-ca }` to the serve config
-   ([serve.md](serve.md)) and restart `jam serve`.
+   ([serve.adoc](../../modules/ROOT/pages/usage/jam/serve.adoc)) and restart `jam serve`.
 4. Let members in where wanted: `collaborate: {ssh: members}` in the role's
-   file in the config repo ([roster.md](roster.md#roles)).
+   file in the config repo ([roster.adoc](../../modules/ROOT/pages/usage/jam/roster.adoc#roles)).
 
 Studios raised after the restart trust the CA; one already running does not
 until its next raise. The same holds for rotating the CA key: a studio picks
 up the new key at its next raise, not before.
 
-**Collaborator:** in VS Code, use the Jam extension ([vscode.md](vscode.md)) instead of `login --participant` + `ssh-config`.
+**Collaborator:** in VS Code, use the Jam extension ([vscode.adoc](../../modules/ROOT/pages/usage/jam/vscode.adoc)) instead of `login --participant` + `ssh-config`.
 
 ```
 jam login --participant          # once; again when it expires (below)
@@ -47,12 +47,12 @@ their operator login instead (`--operator`).
 
 ## Signing in as a participant (`login --participant`)
 
-`login --participant` runs the operator device flow ([operators.md](operators.md))
+`login --participant` runs the operator device flow ([operators.adoc](../../modules/ROOT/pages/usage/jam/operators.adoc))
 but signs you in as a **participant** — a Jam user, not an operator. It caches
 only the OIDC **ID token** (audience = `device-client-id`, so `device-scope`
 must include `openid`) in `~/.config/jam/{app}-participant-token.json`,
 never touching the operator token. Your IdP login must be linked to a Jam user
-([roster.md](roster.md)). `logout --participant` clears it.
+([roster.adoc](../../modules/ROOT/pages/usage/jam/roster.adoc)). `logout --participant` clears it.
 
 ID tokens are short-lived — their lifetime is set by your IdP, typically
 about 1 h — and the device flow gives no refresh, so when one expires (a 401), run `jam login --participant` again.
@@ -66,14 +66,14 @@ when `ssh:` is set; `operator-auth.oidc.device-client-id` only adds ID tokens. O
 
 | Command | What it does |
 |---------|--------------|
-| `jam ssh-config [--write] <studio>` | Prints a `Host jam-<studio>` block (`User agent`, `ProxyCommand <this jam's absolute path> ssh-proxy …` — so it works when `jam` isn't on ssh's PATH, e.g. a `dist/` build; rerun `ssh-config --write` after moving the binary —, `IdentityFile`/`CertificateFile` under `~/.config/jam/ssh/`, `StrictHostKeyChecking accept-new`, `PreferredAuthentications publickey,gssapi-with-mic` for VSCodium ([vscode.md](vscode.md#vscodium))) and fetches the studio's cert. `--write` installs it in `~/.ssh/config` between `# >>> jam <studio>` markers — at the top, since OpenSSH takes the first value it finds and an earlier `Host *` would win — ending in `Match all` so options below it still apply to every host; a rerun replaces the block in place. |
+| `jam ssh-config [--write] <studio>` | Prints a `Host jam-<studio>` block (`User agent`, `ProxyCommand <this jam's absolute path> ssh-proxy …` — so it works when `jam` isn't on ssh's PATH, e.g. a `dist/` build; rerun `ssh-config --write` after moving the binary —, `IdentityFile`/`CertificateFile` under `~/.config/jam/ssh/`, `StrictHostKeyChecking accept-new`, `PreferredAuthentications publickey,gssapi-with-mic` for VSCodium ([vscode.adoc](../../modules/ROOT/pages/usage/jam/vscode.adoc#vscodium))) and fetches the studio's cert. `--write` installs it in `~/.ssh/config` between `# >>> jam <studio>` markers — at the top, since OpenSSH takes the first value it finds and an earlier `Host *` would win — ending in `Match all` so options below it still apply to every host; a rerun replaces the block in place. |
 | `jam ssh-config --prune [--dry-run]` | Removes the `~/.ssh/config` blocks of studios their Jam no longer has, with each one's cert and its pinned host key (`ssh-keygen -R jam-<studio>`). Each block is checked against the Jam, app and plane its ProxyCommand pins (`GET …/studios/<studio>/access`); only a definite "no such studio" (404) removes it — a refusal, an unreachable Jam or one with `ssh:` off keeps it, with a note on stderr. `--dry-run` only reports. |
 | `jam ssh-proxy <studio>` | The ProxyCommand: renews the cert when under 1 h remains, then tunnels ssh's stdio through Jam (`GET …/studios/<studio>/ssh`, `Upgrade: jam-tunnel`). |
 | `jam ssh <studio> [ssh args…]` | Renews the cert if needed, then execs `ssh jam-<studio>` with the same options and your extra args — no `~/.ssh/config` edit needed. |
 
 All three take `--app`, `--admin-url`, and `--participant` / `--operator` to
 pick the plane; the default is the VS Code app token file when it names the same Jam
-([vscode.md](vscode.md); not with `--operator`), else the participant login when one is
+([vscode.adoc](../../modules/ROOT/pages/usage/jam/vscode.adoc); not with `--operator`), else the participant login when one is
 cached and unexpired, else the operator token, and `ssh-config` pins the choice in the
 ProxyCommand. The key (`id_ed25519`, 0600) is generated once; certs
 (`<studio>-cert.pub`, under `<app>/` for a non-default `--app`) last 8 h.
@@ -94,10 +94,10 @@ does not honour `HTTPS_PROXY`/`HTTP_PROXY`.
 Jam checks each cert request and each connection against four rules, in order:
 
 1. **Operators** — always.
-2. **The requester** of a personal session ([personal-sessions.md](personal-sessions.md)).
+2. **The requester** of a personal session ([personal-sessions.adoc](../../modules/ROOT/pages/usage/jam/personal-sessions.adoc)).
 3. **Project members**, as the role's collaboration policy says:
    `--collaborate-ssh members|none` (default `none`), `--collaborate-preview`
-   (default `members`; see [previews.md](previews.md)) — see [roster.md](roster.md).
+   (default `members`; see [previews.adoc](../../modules/ROOT/pages/usage/jam/previews.adoc)) — see [roster.adoc](../../modules/ROOT/pages/usage/jam/roster.adoc).
 4. **A share grant** for the user on this session, unexpired, holding the right.
 
 A removed user matches none of them. A studio that is terminating or gone
@@ -129,7 +129,7 @@ policy or the user's membership changed, the grant expired — logging
 `ssh tunnel revoked` / `preview connection revoked` (user, session, right,
 reason). The
 agent page's **Access** card shows the same, with an Unshare button
-([ui-pages.md](ui-pages.md#agent-pages)).
+([ui-pages.adoc](../../modules/ROOT/pages/usage/jam/ui-pages.adoc#agent-pages)).
 
 ## Idle studios
 
@@ -153,7 +153,7 @@ or stopping takes no new tunnels (409, retry).
 3. The studio's jam-studio-agent dials the `Tunnel` RPC back to Jam on 443 (the
    same egress as Attach), claims the id, and connects it to its loopback sshd
    (`127.0.0.1:2222`). It dials only loopback, and only sshd's port and the
-   ports the session exposes as [previews](previews.md)
+   ports the session exposes as [previews](../../modules/ROOT/pages/usage/jam/previews.adoc)
    ([allow-list](coves.md#the-attach-stream)).
 4. Jam answers `101` and splices the two; every allowed request is audited
    (user, session, reason, port — never a key, token or cert) and the session
@@ -165,14 +165,14 @@ loopback (`source-address 127.0.0.1/32,::1/128`) — so only through the
 tunnel, never a host-published sshd port. The studio's sshd trusts the CA
 through the hardening layer ([OVERVIEW](../../modules/ROOT/pages/OVERVIEW.adoc)). Nothing new
 listens in the studio and its egress is unchanged. Limits: 16 tunnels per
-studio (previews may hold at most 12 of them, [previews.md](previews.md#limits)), 30 min idle, 10 s for an SSH dial-back (a preview's waits as long as its request: 15 s); a teardown or a pause closes a
+studio (previews may hold at most 12 of them, [previews.adoc](../../modules/ROOT/pages/usage/jam/previews.adoc#limits)), 30 min idle, 10 s for an SSH dial-back (a preview's waits as long as its request: 15 s); a teardown or a pause closes a
 studio's tunnels and it takes none until it is resumed or raised again.
 
 ## Previews
 
 An agent can also expose a web app it serves in its studio as an HTTPS
 preview, which people open in a browser or call with a bearer token. That is
-covered in [previews.md](previews.md).
+covered in [previews.adoc](../../modules/ROOT/pages/usage/jam/previews.adoc).
 
 ## Troubleshooting
 
@@ -188,5 +188,5 @@ covered in [previews.md](previews.md).
 | 504 "resumed but did not reconnect" | The paused studio was resumed but its stream took over 10 s to return; retry. |
 | 504 dial-back timeout | The studio's image predates collaboration — re-raise it (`jam standing upgrade` for a standing session). |
 | `Permission denied (publickey)` on connect | Once, after a long gap: the cert on disk had expired (OpenSSH read it before `ssh-proxy` renewed it); reconnect — `jam ssh` renews first. Every time: the studio's sshd does not trust Jam's CA — look in serve's log for `SSH user CA install failed` for that session, then re-raise the studio — `jam standing upgrade --force` for a standing session (its image is current, so `--force`), else end it and raise a new one; reconnecting won't help. |
-| `REMOTE HOST IDENTIFICATION HAS CHANGED` | The studio was rebuilt or upgraded and its sshd has a new host key. Drop the old one — `ssh-keygen -R jam-<studio>` (it is pinned in `~/.ssh/known_hosts` under that alias) — and reconnect; from VS Code, run *Jam: Forget Host Key* ([vscode.md](vscode.md)). |
+| `REMOTE HOST IDENTIFICATION HAS CHANGED` | The studio was rebuilt or upgraded and its sshd has a new host key. Drop the old one — `ssh-keygen -R jam-<studio>` (it is pinned in `~/.ssh/known_hosts` under that alias) — and reconnect; from VS Code, run *Jam: Forget Host Key* ([vscode.adoc](../../modules/ROOT/pages/usage/jam/vscode.adoc)). |
 | Behind a corporate proxy, `ssh-proxy` can't reach Jam | It does not use `HTTPS_PROXY`; Jam's admin URL must be directly reachable. |

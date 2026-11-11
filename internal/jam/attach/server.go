@@ -203,7 +203,7 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 				ObservedAt: time.UnixMilli(ev.GetObservedUnixMs()), Raw: ev.GetRaw(), TruncatedBytes: ev.GetTruncatedBytes(),
 			})
 			if err != nil {
-				// Never log raw content — it is agent output (see session-events.md).
+				// Never log raw content — it is agent output (see session-events.adoc).
 				s.log.Warn("session event not stored", "actor", actorID, "seq", ev.GetSeq(), "err", err.Error())
 				if errors.Is(err, sessionevents.ErrBadStreamID) || errors.Is(err, sessionevents.ErrBadSeq) {
 					continue // validation: this event can never be stored; drop it

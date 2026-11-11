@@ -2,7 +2,7 @@
 summary: Kits from git — importing a studio kit from a repository (`kit import`), tracking it and pulling new commits by hand (`kit track|sync|untrack`), the `<repo>[//<dir>]@<ref>` source syntax, version provenance, `kits.git` credentials, the fetch limits, and what each fetch error means.
 read_when: You want a kit's definition to live in its own git repo instead of the config repo, are writing a `--git` source, giving Jam a token for a private kit repo, wondering why a sync said `unchanged`, or an import/track/sync failed (auth, ref or kit.yml not found, escape refused, limit exceeded).
 owns: the git kit-source story — the source syntax and its refusals, the in-repo kit.yml layout, import vs track/sync semantics and the unchanged rules, version provenance in `versions`/`show`, kits.git credential matching + username rules + anonymous fetch, the fetch limits, the kit-source admin API status codes, and kit-source troubleshooting
-prereqs: kits.md for the StudioKit schema, versions and the `kit` verbs; serve.md for where the `kits` block sits in the serve config
+prereqs: kits.md for the StudioKit schema, versions and the `kit` verbs; serve.adoc for where the `kits` block sits in the serve config
 tier: leaf
 updated: 2026-11-01
 ---
@@ -24,7 +24,7 @@ jam kit untrack web                                                       # stop
 ```
 
 The admin UI does the same from the Kits list (**Import from git**) and each
-kit's **Source** card ([ui-pages.md](ui-pages.md#kit-pages)).
+kit's **Source** card ([ui-pages.adoc](../../modules/ROOT/pages/usage/jam/ui-pages.adoc#kit-pages)).
 
 ## The source: `<repo>[//<dir>]@<ref>`
 
@@ -123,7 +123,7 @@ v2       *        2026-10-02T10:00:00Z  https://github.com/acme/kits//web@main  
 ## Credentials (`kits.git`)
 
 Public repos need nothing: a repo no entry matches is fetched **anonymously**.
-For a private repo, the [serve config](serve.md)'s `kits.git` maps repo-URL
+For a private repo, the [serve config](../../modules/ROOT/pages/usage/jam/serve.adoc)'s `kits.git` maps repo-URL
 **prefixes** to a demanded static credential (supplied by the
 [credentials file](credentials.md)):
 

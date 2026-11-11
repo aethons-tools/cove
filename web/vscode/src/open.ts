@@ -39,7 +39,7 @@ export interface Ui {
 export const remoteUri = (studio: string): string => `vscode-remote://ssh-remote+jam-${studio}/home/agent/workspace`;
 
 // A studio window opens from a local workspace file on its remote folder, so
-// its title bar can take the session's color (docs/usage/jam/session-colors.md)
+// its title bar can take the session's color (docs/modules/ROOT/pages/usage/jam/session-colors.adoc)
 // without writing settings into the studio's own workspace.
 export const studioFileName = (studio: string): string => `jam-${studio}.code-workspace`;
 

@@ -150,7 +150,7 @@ func TestMigrateKitRenameFlagsAChildPinnedToAnUnmigratedParentVersion(t *testing
 	}
 	c, ok := tr.Get(condition.Key(KitMigrateKind, "child"))
 	want := "kit child v1 pins base@v1, which still uses the pre-rename name " + legacynames.KitRenames[2].Old
-	if !ok || c.Summary != want || !strings.Contains(c.Fix, "renamed-from-at.md") {
+	if !ok || c.Summary != want || !strings.Contains(c.Fix, "renamed-from-at.adoc") {
 		t.Fatalf("condition = %+v, %v; want summary %q", c, ok, want)
 	}
 }
@@ -168,7 +168,7 @@ func TestMigrateKitRenameKeepsAnUnrewritableKit(t *testing.T) {
 		t.Fatalf("current v%d, report %+v", k.Current, rep)
 	}
 	c, ok := tr.Get(condition.Key(KitMigrateKind, "orphan"))
-	if !ok || !strings.Contains(c.Summary, "pre-rename name") || !strings.Contains(c.Fix, "renamed-from-at.md") {
+	if !ok || !strings.Contains(c.Summary, "pre-rename name") || !strings.Contains(c.Fix, "renamed-from-at.adoc") {
 		t.Fatalf("condition = %+v, %v", c, ok)
 	}
 }
@@ -223,7 +223,7 @@ func TestConfigPlanRefusesPreRenameKitNames(t *testing.T) {
 	st := NewMemStore()
 	tr := treeOf(t, map[string]string{"kits/web/kit.yml": parentYML, "kits/web/Dockerfile": oldDockerfile})
 	p := gitPlanOn(t, st, tr, cfgSrc, "c1")
-	want := "kit web: Dockerfile uses " + legacynames.KitRenames[2].Old + ", renamed JAM_STUDIO_BASE_IMAGE (docs/usage/jam/renamed-from-at.md)"
+	want := "kit web: Dockerfile uses " + legacynames.KitRenames[2].Old + ", renamed JAM_STUDIO_BASE_IMAGE (docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc)"
 	if !slices.ContainsFunc(p.Refusals, func(r string) bool { return strings.Contains(r, want) }) {
 		t.Fatalf("refusals = %v, want one containing %q", p.Refusals, want)
 	}

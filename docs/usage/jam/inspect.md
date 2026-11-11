@@ -2,7 +2,7 @@
 summary: Seeing everything a studio's agent is set up with from outside the container — `jam role inspect` / `studio inspect [--diff]`, their admin routes and the admin console's Setup section, the sections and sources, snapshots, image facts, and redaction with its known limits.
 read_when: You want to know what a studio (or a raise of a role now) gets — its session-context files, egress, destinations, env, model-spec, kit and image, /agent-data seed, MCP servers or policy — or why a studio differs from its role — in the CLI, the admin API or the Setup section of an agent or role page.
 owns: setup inspection (role/studio inspect, GET …/setup routes), setup snapshots, the image-facts reader, setup redaction rules and their known limits, the admin console's Setup section on agent and role pages
-prereqs: coves.md, session-context.md, connector.md
+prereqs: coves.md, session-context.adoc, connector.md
 tier: leaf
 updated: 2026-11-01
 ---
@@ -54,7 +54,7 @@ In this order:
 | Section | Shows |
 |---|---|
 | `identity` | project, role, session kind, studio id, phase, raised at (a role render is a would-be ephemeral session: no unit, no owner) |
-| `context` | every [session-context](session-context.md) file at its real path under `/agent-data/context/`, sizes, each layer's core budget used, compile warnings |
+| `context` | every [session-context](../../modules/ROOT/pages/usage/jam/session-context.adoc) file at its real path under `/agent-data/context/`, sizes, each layer's core budget used, compile warnings |
 | `egress` | the effective allow-list — the role's list (marked when outside the kit ceiling) or the kit default — then the sealed base rows |
 | `destinations` | per destination in scope: route, upstream, identity-in/apply, credential **name**, git routing, allow-paths, env keys |
 | `env` | the [connector](connector.md) env an agent spawn gets (redacted), then the image `ENV` and its `JAM_SSHENV` transfer set |

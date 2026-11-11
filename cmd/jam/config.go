@@ -80,7 +80,7 @@ type serveConfig struct {
 	TLS         tlsFiles           `yaml:"tls"`
 	AdminTLS    tlsFiles           `yaml:"admin-tls"`
 	// Store, IntercomLog and SessionEventsDir are REMOVED file backends
-	// (Postgres-only Jam, docs/usage/jam/serve.md). They are kept only so
+	// (Postgres-only Jam, docs/modules/ROOT/pages/usage/jam/serve.adoc). They are kept only so
 	// validateStorage can reject a config that still sets them.
 	Store            string `yaml:"store"`
 	IntercomLog      string `yaml:"intercom-log"`
@@ -109,19 +109,19 @@ type serveConfig struct {
 
 	// Metrics, when set, serves the operator-attention exposition at /metrics
 	// on the broker listener, gated on a scrape token (a demanded credential).
-	// See docs/usage/jam/monitoring.md.
+	// See docs/modules/ROOT/pages/usage/jam/monitoring.adoc.
 	Metrics *metricsConfig `yaml:"metrics"`
 	// SSH, when set, enables studio SSH collaboration: Jam's SSH user CA (an
 	// ed25519 private key, a demanded credential) issues short-lived certs
 	// that every raised studio's sshd trusts. Absent ⇒ SSH collaboration off.
-	// See docs/usage/jam/serve.md.
+	// See docs/modules/ROOT/pages/usage/jam/serve.adoc.
 	SSH *sshConfig `yaml:"ssh"`
 	// Kits configures git access for kit sources: credentials by URL prefix.
 	// Absent ⇒ only anonymous public repos can be imported. See
-	// docs/usage/jam/serve.md.
+	// docs/modules/ROOT/pages/usage/jam/serve.adoc.
 	Kits *kitsConfig `yaml:"kits"`
 	// Config names the config repo the Jam follows (config.github): git is
-	// the only source of its configuration. See docs/usage/jam/serve.md and
+	// the only source of its configuration. See docs/modules/ROOT/pages/usage/jam/serve.adoc and
 	// config-git-sources.md.
 	Config *configRepoConfig `yaml:"config"`
 	// Blobs enables attachments: an S3-compatible bucket (docs/usage/jam/attachments.md).
@@ -129,7 +129,7 @@ type serveConfig struct {
 	// Previews, when set, serves studio previews at <name>--<label>.<domain>
 	// (and the login host jam.<domain>) on the admin listener, with its own
 	// wildcard cert picked by SNI. Absent ⇒ previews off. See
-	// docs/usage/jam/previews.md.
+	// docs/modules/ROOT/pages/usage/jam/previews.adoc.
 	Previews     *previewsConfig `yaml:"previews"`
 	OperatorAuth struct {
 		OIDC *struct {
@@ -165,7 +165,7 @@ type serveConfig struct {
 
 	// deprecated lists the {old, new} key pairs parseServeConfig folded from a
 	// deprecated alias (Harbor → Jam rename); serve warns once for each. See
-	// docs/usage/jam/renamed-from-harbor.md.
+	// docs/modules/ROOT/pages/usage/jam/renamed-from-harbor.adoc.
 	deprecated [][2]string
 }
 
@@ -821,7 +821,7 @@ func (c serveConfig) validateStorage() error {
 		}
 	}
 	if c.StorePostgres == nil {
-		return fmt.Errorf("store-postgres is required (Jam is Postgres-only; see docs/usage/jam/serve.md)")
+		return fmt.Errorf("store-postgres is required (Jam is Postgres-only; see docs/modules/ROOT/pages/usage/jam/serve.adoc)")
 	}
 	return nil
 }
@@ -1147,7 +1147,7 @@ func (c serveConfig) runtimeDurations() (ttl, reconcile time.Duration, err error
 
 // errRuntimeLauncherRemoved refuses a config that still has runtime.launcher:
 // Studio Managers run studios now, so the block has no meaning left.
-var errRuntimeLauncherRemoved = errors.New("runtime.launcher was removed: Jam no longer runs studios itself. Run jam-colima next to Colima (docs/modules/ROOT/pages/usage/jam-colima.adoc) and set runtime.studio-managers: true. Studios the old launcher raised are dropped on startup and their standing sessions start fresh (docs/usage/jam/studio-managers.md#retiring-the-in-process-launcher)")
+var errRuntimeLauncherRemoved = errors.New("runtime.launcher was removed: Jam no longer runs studios itself. Run jam-colima next to Colima (docs/modules/ROOT/pages/usage/jam-colima.adoc) and set runtime.studio-managers: true. Studios the old launcher raised are dropped on startup and their standing sessions start fresh (docs/modules/ROOT/pages/usage/jam/studio-managers.adoc#retiring-the-in-process-launcher)")
 
 // parseServeConfig parses the serve config YAML, folding deprecated key
 // aliases into their new names (recorded in c.deprecated for serve to warn
