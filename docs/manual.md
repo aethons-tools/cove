@@ -4,7 +4,7 @@ read_when: You are changing anything a Jam user can see (its manual page changes
 owns: the manual/ tree, its screenshots (just manual-shot, web/app/src/shots), its build (antora playbooks, manual/ui, just manual and manual-site), the branch-to-version model, the page attributes (page-area, page-id, page-conventions), and marking content internal (manual/extensions, just manual-check)
 prereqs: superpowers/specs/2026-11-05-manual-first-operating-model-design.md for why the manual leads the work
 tier: leaf
-updated: 2026-11-09
+updated: 2026-11-11
 ---
 
 # The Jam manual (`manual/`)
@@ -34,7 +34,9 @@ branch, so merges never touch version names.
   `git diff origin/release origin/main -- manual/` is what the next release
   ships. When a feature ships, its page catches up and drops out of the diff.
 - After merges to `main`, `main` is merged into `goal` so the diff only shows
-  real gaps.
+  real gaps. When that merge conflicts on a page that has shipped, `goal`
+  takes `main`'s page and deletes the page's goal-only files (its mockups
+  and prototype attachment), so nothing of it is left in the diff.
 
 ## Pages
 
