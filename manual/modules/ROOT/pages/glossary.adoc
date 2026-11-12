@@ -15,5 +15,5 @@ and a link to the page that describes it.
 Destination::
 An outside service, such as GitHub or Linear,
 that agents reach through Jam without holding its credential;
-a group of endpoints that share one credential.
+a group of endpoints that share one default credential.
 See xref:concepts/destination.adoc[].
