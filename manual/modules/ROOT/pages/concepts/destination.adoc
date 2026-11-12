@@ -1,0 +1,99 @@
+= Destinations
+:page-area: ROOT
+:page-id: ROOT/concepts/destination
+:page-conventions: sentence-case
+
+A *destination* is an outside service,
+such as GitHub or Linear,
+that agents reach through Jam
+without ever holding its credential.
+Jam keeps the credential,
+checks each agent's own identity,
+and adds the real credential on the way out.
+
+To set one up,
+see xref:configuration/destination.adoc[].
+
+== Endpoints
+
+One service often needs several addresses.
+GitHub has git, its REST API and GraphQL;
+Linear has its API and its MCP server.
+A destination holds all of them as *endpoints*
+that share one default credential and one agent connector,
+so you set those up once.
+
+Each endpoint has a name,
+unique in its destination,
+an address on Jam,
+and the service's address that requests go on to.
+
+== Addresses
+
+An endpoint is reached at `<subdomain>.<jam host><route>`.
+The subdomain and the route are each optional,
+but an endpoint has at least one of them.
+No two endpoints in the whole Jam have the same subdomain and route.
+
+A request goes to the most specific endpoint that matches it.
+The route is taken off before the request goes on;
+an endpoint with no route takes every path on its host,
+and the path goes on unchanged.
+For example, with the Jam at `jam.example.com`:
+
+* `git.jam.example.com/aethons-tools/cove.git` goes to `https://github.com/aethons-tools/cove.git`.
+* `gh.jam.example.com/api/v3/repos/x` goes to `https://api.github.com/repos/x`.
+* `gh.jam.example.com/other` matches no endpoint and is refused.
+* An endpoint with subdomain `linear` and no route sends `linear.jam.example.com/graphql` to `https://api.linear.app/graphql`.
+
+A subdomain lets a client that only takes a host,
+such as `gh`,
+reach a service without a path of its own.
+Two GitHub destinations on two subdomains do not get in each other's way.
+Subdomains work once the Jam has a domain for them,
+as it has for previews.
+
+== Identity and credential
+
+An agent presents its own Jam identity,
+never the service's credential.
+For each endpoint,
+*Identity in* says where Jam finds that identity in the request,
+and *Apply as* says how Jam sends the real credential upstream.
+Common services fit a preset;
+any other can be described by an expression.
+
+== The agent connector
+
+A destination tells agents how to use it:
+the environment variables they set,
+such as `GH_HOST` for `gh`,
+and whether their git goes through it.
+Every agent that may use the destination gets these at its next start.
+
+== Roles
+
+A role lists the destinations its agents may use,
+and gets every endpoint of each one.
+Each destination has a default credential;
+a role can use another credential for it instead,
+and that credential then applies to all of the destination's endpoints.
+When a role should reach only part of a service,
+that part is a destination of its own.
+
+Destinations defined before endpoints existed keep working unchanged:
+each is a destination with one endpoint on its route.
+
+ifdef::internal[]
+== Notes for the team
+
+* Ideas these pages answer: COV-296 (subdomain-based destinations) and COV-297 (destinations that share credentials or env vars).
+* `<jam host>` is the broker's host; the subdomains hang off a configured domain, like `previews:`,
+whose wildcard DNS and TLS the operator provides.
+Studio egress must admit it.
+The broker routes by `Host` before path.
+An endpoint without a subdomain may not claim a path Jam itself uses.
+* Older clients keep working for destinations without subdomains;
+the connector's git routing grows to carry a host as well as a path, additively.
+* An existing destination's one endpoint is named after the destination.
+endif::[]

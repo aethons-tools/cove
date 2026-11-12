@@ -1,0 +1,127 @@
+= Configuring a destination
+:page-area: ROOT
+:page-id: ROOT/configuration/destination
+:page-conventions: sentence-case, quiet-grid, collapsible-rows, add-at-bottom, thermometers, view-then-edit, field-errors
+
+You see and edit a xref:concepts/destination.adoc[destination] on its page,
+under *Config › Destinations › _name_*.
+You edit it on a branch of the config repo;
+saving is a commit to that branch.
+
+image::destination-view.png[The github destination, viewing,800]
+
+== Viewing and editing
+
+The *Destination* card always has the same layout.
+Normally it is read-only.
+Click *Edit* to make the whole card editable;
+*Cancel* drops your changes,
+*Save destination* keeps them.
+
+image::destination-edit.png[The github destination, editing,800]
+
+The card shows the destination's *Default credential*,
+the secret Jam applies upstream unless a role maps the destination to another,
+and an optional *Note*.
+
+== Endpoints
+
+Each endpoint is a row in the *Endpoints* grid:
+
+Name::
+Unique in this destination.
+The agent connector uses it to point at the endpoint.
+Subdomain::
+The endpoint is reached at `<subdomain>.<jam host>`.
+Leave it empty to stay on the Jam host itself.
+Route::
+The path the endpoint answers on, such as `/api/v3/`.
+Leave it empty to take every path on the endpoint's host.
+Upstream::
+The service's address that requests go on to.
+Identity in::
+Where the agent presents its Jam identity.
+Apply as::
+How Jam sends the real credential upstream.
+Allowed paths::
+Optional; only these upstream paths are let through.
+Route git::
+Whether agents' git for the upstream's host goes through this endpoint.
+
+The grid looks like a plain table:
+click a cell to edit it,
+press Tab or Enter to move on,
+and Esc to leave the cell.
+To add an endpoint, click *+ new endpoint…* at the bottom of the grid.
+A destination can have up to 10;
+the thermometer below the grid shows how many it has.
+
+== Identity in and apply as
+
+*Identity in* and *Apply as* each offer four presets
+(`bearer`, `basic-password`, `x-api-key`, `raw`)
+and *expression*.
+
+Click *▸* on a row to expand it and *▾* to collapse it.
+Expanded, the row shows what its choices mean.
+For a preset these fields are read-only.
+For *expression* you edit them:
+
+* *Identity in*: the header the identity arrives in,
+the prefixes to cut from it,
+and its encoding (`raw` or `basic`).
+* *Apply as*: the header to set,
+a template with `+{cred}+` exactly once,
+its encoding,
+and, for `basic`, the user to send.
+
+== Header logging
+
+Also in the expanded row,
+*Log incoming headers* (`none`, `examined`, `all`)
+and *Log outgoing headers* (`none`, `changed`, `all`)
+turn on header logs for that endpoint alone,
+for debugging.
+Credentials are never logged in clear.
+An endpoint that logs shows a *logging* tag in its row,
+so one left on is easy to spot.
+
+== Agent connector
+
+The *Agent connector* lists the environment variables agents set to use the destination.
+It is set once for the whole destination.
+A value can use these placeholders:
+
+* `+{host:<endpoint>}+`: the endpoint's host, such as `gh.jam.example.com`.
+* `+{url:<endpoint>}+`: the endpoint's host and route, such as `https://gh.jam.example.com/api/v3`.
+* `+{token}+`: the agent's Jam identity.
+
+For example, `gh` needs `GH_HOST` set to `+{host:rest}+`;
+it adds `/api/v3/` and `/api/graphql` itself.
+
+== Saving
+
+A problem shows on the field that has it:
+a missing or repeated name,
+an endpoint with neither subdomain nor route,
+a subdomain and route another endpoint has,
+a subdomain on a Jam with no domain for them,
+or a template without `+{cred}+`.
+The footer counts problems,
+and *Save destination* stays off until there are none.
+
+ifdef::internal[]
+== Notes for the team
+
+* Clickable prototype: xref:attachment$destination-prototype.html[destination-prototype.html].
+* The connector's placeholders keep today's `+{url}+`, `+{base}+` and `+{host}+` for one-endpoint destinations.
+* The editor's calls, for review:
+endpoints named after the destination when a file gives no name;
+subdomain-and-route unique across the whole Jam;
+an empty route takes every path, and the most specific endpoint wins;
+header logging per endpoint;
+at most 10 endpoints;
+subdomains under a configured domain, refused without one;
+paths Jam uses reserved;
+the connector change additive.
+endif::[]

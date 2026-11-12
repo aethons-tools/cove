@@ -1,2 +1,8 @@
 * xref:index.adoc[About this manual]
 * xref:glossary.adoc[Glossary]
+
+.Concepts
+* xref:concepts/destination.adoc[Destinations]
+
+.Configuration
+* xref:configuration/destination.adoc[Configuring a destination]
