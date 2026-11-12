@@ -30,9 +30,10 @@ type Destination struct {
 	// refuses a write that sets it.
 	LegacyOAuthBeta bool `json:"oauth_beta,omitempty" yaml:"oauth_beta,omitempty"`
 	// Env is the client env a studio sets to use this destination: values are
-	// templates over {url} (broker base + the first endpoint's route), {base},
-	// {host} and {token} — see snippet.Connector. nil = the legacy default
-	// (ClientEnv).
+	// templates over {host:<endpoint>} and {url:<endpoint>} (an endpoint's
+	// host, and its host and route), {url} (the first endpoint's), {base},
+	// {host} and {token} — see ClientEnv and snippet.Connector. nil = the
+	// legacy default (ClientEnv).
 	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	// Note is an optional human-written usage hint shown to sessions granted
 	// this destination (the Studio layer of their session context), e.g. how a
@@ -106,13 +107,30 @@ func (d *Destination) normalize() {
 	}
 }
 
-// ClientEnv is the env a studio sets for this destination, with {url} resolved
-// to {base}<route> of its first endpoint. A destination without Env keeps the pre-env contract: the
-// /anthropic/ route sets ANTHROPIC_BASE_URL plus the identity on
-// ANTHROPIC_API_KEY (identity-in x-api-key) or ANTHROPIC_AUTH_TOKEN (bearer —
-// the subscription pool's configuration). Other presets and custom specs imply
-// no token env.
+// ClientEnv is the env a studio sets for this destination, its endpoint
+// placeholders resolved (clientEnv) on this Jam's destinations domain. A
+// destination without Env keeps the pre-env contract: the /anthropic/ route
+// sets ANTHROPIC_BASE_URL plus the identity on ANTHROPIC_API_KEY (identity-in
+// x-api-key) or ANTHROPIC_AUTH_TOKEN (bearer — the subscription pool's
+// configuration). Other presets and custom specs imply no token env. A
+// placeholder clientEnv cannot resolve is left as written.
 func (d Destination) ClientEnv() map[string]string {
+	out, _ := d.clientEnv(DestinationsDomain())
+	return out
+}
+
+// endpointPlaceholder matches {host:<endpoint>} and {url:<endpoint>} in a
+// client-env template.
+var endpointPlaceholder = regexp.MustCompile(`\{(host|url):([^}]*)\}`)
+
+// clientEnv is ClientEnv on the destinations domain domain ("" = none):
+// {url} is {url:<first endpoint>}; {host:<e>} is e's host and {url:<e>} is
+// https://<that host><e's route> without a trailing "/". For an endpoint on
+// the Jam host they stay client-side placeholders ({host}, {base}<route>), as
+// {url} always resolved; for one on a subdomain the host is <sub>.<domain>.
+// An unknown endpoint, or a subdomain without a domain, is an error (that
+// placeholder is left as written).
+func (d Destination) clientEnv(domain string) (map[string]string, error) {
 	env, p := d.Env, d.Primary()
 	if env == nil && p.Route == "/anthropic/" {
 		env = map[string]string{"ANTHROPIC_BASE_URL": "{url}"}
@@ -123,12 +141,51 @@ func (d Destination) ClientEnv() map[string]string {
 			env["ANTHROPIC_AUTH_TOKEN"] = "{token}"
 		}
 	}
-	url := "{base}" + strings.TrimSuffix(p.Route, "/")
+	var err error
+	resolve := func(kind string, e Endpoint, as string) string {
+		host, herr := e.hostOn(domain)
+		switch {
+		case herr != nil:
+			err = herr
+			return as
+		case host == "" && kind == "host":
+			return "{host}"
+		case host == "":
+			return "{base}" + strings.TrimSuffix(e.Route, "/")
+		case kind == "host":
+			return host
+		}
+		return "https://" + host + strings.TrimSuffix(e.Route, "/")
+	}
 	out := make(map[string]string, len(env))
 	for k, v := range env {
-		out[k] = strings.ReplaceAll(v, "{url}", url)
+		v = endpointPlaceholder.ReplaceAllStringFunc(v, func(ph string) string {
+			m := endpointPlaceholder.FindStringSubmatch(ph)
+			e, ok := d.Endpoint(m[2])
+			if !ok {
+				err = fmt.Errorf("env %s: %s names no endpoint of destination %q", k, ph, d.Name)
+				return ph
+			}
+			return resolve(m[1], e, ph)
+		})
+		if strings.Contains(v, "{url}") {
+			v = strings.ReplaceAll(v, "{url}", resolve("url", p, "{url}"))
+		}
+		out[k] = v
 	}
-	return out
+	return out, err
+}
+
+// hostOn is e's host on the destinations domain domain: "" for the Jam host
+// (no subdomain), else <sub>.<domain> — an error when domain is "".
+func (e Endpoint) hostOn(domain string) (string, error) {
+	switch {
+	case e.Subdomain == "":
+		return "", nil
+	case domain == "":
+		return "", fmt.Errorf("endpoint %q is on subdomain %q, but this Jam has no destinations domain", e.Name, e.Subdomain)
+	}
+	return e.Subdomain + "." + domain, nil
 }
 
 // RoutesGit reports whether studios route git for e's upstream host
@@ -158,8 +215,8 @@ func (d Destination) GitRouted() bool { return len(d.GitEndpoints()) > 0 }
 var envPlaceholder = regexp.MustCompile(`\{[^}]*\}`)
 
 // ValidateEnv checks Env at write time: keys are env-var names outside the
-// reserved JAM_ namespace, and templates use only the known
-// placeholders.
+// reserved JAM_ namespace, and templates use only the known placeholders,
+// {host:<endpoint>} and {url:<endpoint>} naming an endpoint of d.
 func (d Destination) ValidateEnv() error {
 	for k, v := range d.Env {
 		if !modelspec.ValidEnvKey(k) {
@@ -172,7 +229,13 @@ func (d Destination) ValidateEnv() error {
 			switch ph {
 			case "{url}", "{base}", "{host}", "{token}":
 			default:
-				return fmt.Errorf("env %s: unknown placeholder %s (want {url}, {base}, {host} or {token})", k, ph)
+				m := endpointPlaceholder.FindStringSubmatch(ph)
+				if m == nil {
+					return fmt.Errorf("env %s: unknown placeholder %s (want {host:<endpoint>}, {url:<endpoint>}, {url}, {base}, {host} or {token})", k, ph)
+				}
+				if _, ok := d.Endpoint(m[2]); !ok {
+					return fmt.Errorf("env %s: %s names no endpoint of destination %q", k, ph, d.Name)
+				}
 			}
 		}
 	}

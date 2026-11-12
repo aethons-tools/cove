@@ -112,5 +112,7 @@ so whatever an older Jam stored still imports
 Some views still show one endpoint: the admin UI's destination form and list
 (they show and edit the first endpoint and keep the others),
 the connector's `+{url}+` and the `/anthropic/` legacy env default
-(the first endpoint's route).
+(the first endpoint's address).
+The connector names any other endpoint with `+{host:<endpoint>}+` and `+{url:<endpoint>}+`
+(xref:usage/jam/connector.adoc[connector]).
 `jam destination list` prints a line per endpoint, as `destination/endpoint` when there are several.

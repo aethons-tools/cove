@@ -147,12 +147,12 @@ func buildDestDetail(store jam.Store, name string) (destDetail, bool) {
 	return out, true
 }
 
-// gitClash reports whether d and o both route git on different routes, which
+// gitClash reports whether d and o both route git on different addresses, which
 // jam.ConnectorFor refuses in one scope.
 func gitClash(d, o jam.Destination) bool {
 	for _, e := range d.GitEndpoints() {
 		for _, f := range o.GitEndpoints() {
-			if e.Route != f.Route {
+			if e.Subdomain != f.Subdomain || e.Route != f.Route {
 				return true
 			}
 		}
