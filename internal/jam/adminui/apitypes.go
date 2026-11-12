@@ -572,18 +572,17 @@ type SetupResponse struct {
 	Manager      string         `json:"manager"`  // the chosen one
 }
 
-// DestListRow is one destination in the list.
+// DestListRow is one destination in the list, its endpoints summarised.
 type DestListRow struct {
-	Name       string    `json:"name"`
-	Route      string    `json:"route"`
-	Upstream   string    `json:"upstream"`
-	IdentityIn string    `json:"identityIn"`
-	Apply      string    `json:"apply"`
-	CredName   string    `json:"credName"`
-	EnvKeys    []string  `json:"envKeys"`
-	GitRouted  bool      `json:"gitRouted"`
-	UsedBy     int       `json:"usedBy"` // roles whose scope lists it
-	Attn       *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
+	Name      string    `json:"name"`
+	Endpoints int       `json:"endpoints"` // how many
+	Addresses []string  `json:"addresses"` // each endpoint's subdomain and/or route, in order
+	Upstreams []string  `json:"upstreams"` // the distinct upstreams, in endpoint order
+	CredName  string    `json:"credName"`
+	EnvKeys   []string  `json:"envKeys"`
+	GitRouted bool      `json:"gitRouted"`
+	UsedBy    int       `json:"usedBy"` // roles whose scope lists it
+	Attn      *AttnFlag `json:"attn" tstype:"AttnFlag | null"`
 }
 
 // DestinationsResponse is GET /app/admin/api/destinations.
@@ -614,37 +613,67 @@ type DestConflict struct {
 	What    string `json:"what"`
 }
 
-// DestFields are a destination's form values ("none" = header logging off).
+// DestInboundSpec is an endpoint's identity-in expression (a custom header
+// spec): the header the identity arrives in, the prefixes cut from it, and
+// its encoding.
+type DestInboundSpec struct {
+	Header   string   `json:"header"`
+	Prefixes []string `json:"prefixes"` // [] = the bare value
+	Encoding string   `json:"encoding"` // raw or basic (basic takes no prefixes)
+}
+
+// DestOutboundSpec is an endpoint's apply expression (a custom header spec):
+// the header set upstream, its template ({cred} exactly once), its encoding
+// and, for basic, the user sent.
+type DestOutboundSpec struct {
+	Header    string `json:"header"`
+	Template  string `json:"template"`
+	Encoding  string `json:"encoding"`  // raw or basic
+	BasicUser string `json:"basicUser"` // basic only; {user} takes it from a user:token credential
+}
+
+// DestEndpoint is one endpoint of a destination, as read and written.
+type DestEndpoint struct {
+	Name           string            `json:"name"`
+	Subdomain      string            `json:"subdomain"` // only on a Jam with a destinations domain
+	Route          string            `json:"route"`
+	Upstream       string            `json:"upstream"`
+	IdentityIn     string            `json:"identityIn"`                                     // a preset, custom (identityInSpec), or "" (none)
+	IdentityInSpec *DestInboundSpec  `json:"identityInSpec" tstype:"DestInboundSpec | null"` // set exactly when identityIn is custom
+	Apply          string            `json:"apply"`
+	ApplySpec      *DestOutboundSpec `json:"applySpec" tstype:"DestOutboundSpec | null"` // set exactly when apply is custom
+	AllowPaths     []string          `json:"allowPaths"`                                 // path.Match patterns after the route; [] = any path
+	Git            bool              `json:"git"`
+	LogHeadersIn   string            `json:"logHeadersIn"`  // none, examined or all
+	LogHeadersOut  string            `json:"logHeadersOut"` // none, changed or all
+}
+
+// DestFields are a destination's editable fields: its page's, and the body
+// of a create (with name) or an update (every field replaced; the name is
+// the path, the operator notes have their own write). A refused write's
+// errors[] name fields by these names: credName, env[1].key,
+// endpoints[0].route, endpoints[2].applySpec.template.
 type DestFields struct {
-	Route         string `json:"route"`
-	Upstream      string `json:"upstream"`
-	IdentityIn    string `json:"identityIn"`
-	Apply         string `json:"apply"`
-	CredName      string `json:"credName"`
-	Env           string `json:"env"`        // KEY=TEMPLATE lines, the declared env only
-	AllowPaths    string `json:"allowPaths"` // one pattern per line
-	Note          string `json:"note"`
-	LogHeadersIn  string `json:"logHeadersIn"`
-	LogHeadersOut string `json:"logHeadersOut"`
-	Git           bool   `json:"git"`
+	Name      string         `json:"name,omitempty"` // create only
+	CredName  string         `json:"credName"`
+	Note      string         `json:"note"`
+	Env       []EnvRow       `json:"env"` // the declared env, by key; [] = none (the route's legacy default applies)
+	Endpoints []DestEndpoint `json:"endpoints"`
 }
 
 // DestDetail is a destination's page.
 type DestDetail struct {
-	Name           string         `json:"name"`
-	Fields         DestFields     `json:"fields"`
-	Methods        []string       `json:"methods"`
-	IdentityInSpec string         `json:"identityInSpec"` // a custom spec as the Broker section shows it; "" = none
-	ApplySpec      string         `json:"applySpec"`
-	AllowPaths     []string       `json:"allowPaths"`
-	Env            []EnvRow       `json:"env"`
-	EnvImplied     bool           `json:"envImplied"` // no env declared: the route's legacy default applies
-	GitRouted      bool           `json:"gitRouted"`
-	GitImplied     bool           `json:"gitImplied"` // routed only by the legacy /git/ rule
-	Uses           []DestUse      `json:"uses"`
-	Conflicts      []DestConflict `json:"conflicts"`
-	ConflictRoles  []string       `json:"conflictRoles"`
-	Notes          OperatorNotes  `json:"notes"` // operators only
+	Name          string         `json:"name"`
+	Fields        DestFields     `json:"fields"`
+	Methods       []string       `json:"methods"`    // the identity-in / apply presets (custom is the expression)
+	Env           []EnvRow       `json:"env"`        // the effective client env, {url} resolved
+	EnvImplied    bool           `json:"envImplied"` // no env declared: the route's legacy default applies
+	GitRouted     bool           `json:"gitRouted"`
+	GitImplied    bool           `json:"gitImplied"` // routed only by the legacy /git/ rule
+	Uses          []DestUse      `json:"uses"`
+	Conflicts     []DestConflict `json:"conflicts"`
+	ConflictRoles []string       `json:"conflictRoles"`
+	Notes         OperatorNotes  `json:"notes"` // operators only
 }
 
 // SpecListRow is one model-spec in the list.

@@ -11,6 +11,9 @@ Jam keeps the credential,
 checks each agent's own identity,
 and adds the real credential on the way out.
 
+To set one up,
+see xref:configuration/destination.adoc[].
+
 == Endpoints
 
 One service often needs several addresses.
@@ -26,9 +29,11 @@ an address on Jam,
 and the service's address that requests go on to.
 A destination has up to 10 endpoints.
 
-For now you list a destination's endpoints in its file in the config repo.
-The destination's page shows and edits its first endpoint
-and keeps the others as they are.
+You list a destination's endpoints in its file in the config repo.
+Its page lists every endpoint,
+edits the first one,
+and keeps the others as they are
+(xref:configuration/destination.adoc[]).
 
 == Addresses
 
@@ -71,7 +76,7 @@ For each endpoint,
 *Identity in* says where Jam finds that identity in the request,
 and *Apply as* says how Jam sends the real credential upstream.
 Common services fit a preset;
-any other can be described by a custom header spec.
+any other can be described by an expression.
 Each endpoint can also limit the paths it lets through,
 and log its headers for debugging.
 
@@ -118,13 +123,14 @@ each is a destination with one endpoint on its route.
 ifdef::internal[]
 == Notes for the team
 
-* Shipped by COV-310: the endpoint model, path routing and its validation.
+* Shipped by COV-310: the endpoint model, path routing and its validation;
+by COV-314: the admin API reads and writes every endpoint, refusing per field.
 Shipped by COV-311: subdomains under a destinations domain (serve config `destinations:`,
 whose wildcard DNS and TLS the operator provides), routed by `Host` before path.
 Shipped by COV-313: the connector's `+{host:<endpoint>}+` and `+{url:<endpoint>}+` placeholders
 (`+{url}+`, `+{base}+` and `+{host}+` kept for one-endpoint destinations)
 and git routing by host (`+git_host+` on `/connector`, additive).
 Still to come (COV-309): the rest of subdomain support (COV-312)
-and the endpoints grid on the destination page (COV-314, COV-315).
+and the endpoints grid on the destination page (COV-315).
 * An existing destination's one endpoint is named after the destination.
 endif::[]

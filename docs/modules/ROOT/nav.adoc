@@ -26,6 +26,7 @@
 *** xref:usage/jam/coves.adoc[]
 *** xref:usage/jam/credentials.adoc[]
 *** xref:usage/jam/destination-endpoints.adoc[]
+*** xref:usage/jam/destination-api.adoc[]
 *** xref:usage/jam/destination-header-logging.adoc[]
 *** xref:usage/jam/discord.adoc[]
 *** xref:usage/jam/dispatch-runbook.adoc[]

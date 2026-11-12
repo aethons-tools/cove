@@ -339,9 +339,6 @@ func (p *planner) planDestinations() {
 		o := newConfigObject(f)
 		p.upsert(o.Key, o, func(bool) error {
 			d := copyDestination(f.Destination)
-			if err := ValidateDestination(d, p.credExists, p.in.Env.SubdomainsConfigured); err != nil {
-				return err
-			}
 			// Every destination as the plan leaves it: the tree's, and the
 			// unmanaged ones of the store's the tree doesn't name (a managed
 			// one is deleted: planDeletes).
@@ -357,7 +354,7 @@ func (p *planner) planDestinations() {
 					}
 				}
 			}
-			if err := checkEndpointClashes(d, all); err != nil {
+			if err := checkDestination(d, p.credExists, p.in.Env.SubdomainsConfigured, all); err != nil {
 				return err
 			}
 			p.m.applyPutDestination(d)

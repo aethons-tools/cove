@@ -2,3 +2,6 @@
 
 .Concepts
 * xref:concepts/destination.adoc[Destinations]
+
+.Configuration
+* xref:configuration/destination.adoc[Destinations]

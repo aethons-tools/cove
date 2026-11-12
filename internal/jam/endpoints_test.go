@@ -169,19 +169,6 @@ func TestPlanDestinationSubdomain(t *testing.T) {
 	}
 }
 
-// The admin form edits only the first endpoint: the others, and the first's
-// name, are kept.
-func TestUpdateDestinationKeepSpecsKeepsOtherEndpoints(t *testing.T) {
-	st := NewMemStore()
-	must(t, CreateDestination(st, listDest(), credIs("gh"), false))
-	form := Destination{Name: "github", CredName: "gh", Endpoints: []Endpoint{{Name: "github", Route: "/api/v4/", Upstream: "https://api.github.com"}}}
-	must(t, UpdateDestinationKeepSpecs(st, form, credIs("gh"), false))
-	got, _ := findDestination(st, "github")
-	if len(got.Endpoints) != 2 || got.Endpoints[0].Name != "rest" || got.Endpoints[0].Route != "/api/v4/" || !reflect.DeepEqual(got.Endpoints[1], listDest().Endpoints[1]) {
-		t.Fatalf("stored %+v", got.Endpoints)
-	}
-}
-
 // Each endpoint brings its own identity-in, apply, allow_paths and header
 // logging; the credential is the destination's.
 func TestBrokerPerEndpointSpecsAndLogging(t *testing.T) {
