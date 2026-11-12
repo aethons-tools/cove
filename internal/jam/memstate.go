@@ -307,8 +307,8 @@ func (m *memState) ListModelSpecs() []ModelSpec {
 	return out
 }
 
-func (m *memState) Match(reqPath string) (Destination, Endpoint, bool) {
-	return Config{Destinations: m.ListDestinations()}.Match(reqPath)
+func (m *memState) Match(sub, reqPath string) (Destination, Endpoint, bool) {
+	return Config{Destinations: m.ListDestinations()}.Match(sub, reqPath)
 }
 
 // GetProject finds a project by reference: its id, or its name ("" is

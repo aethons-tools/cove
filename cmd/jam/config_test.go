@@ -26,9 +26,9 @@ func TestUnknownServeKeys(t *testing.T) {
 	if got := unknownServeKeys([]byte("listen: \":8443\"\nadmin-listen: \"127.0.0.1:8081\"\nstore-postgres: {}\n")); len(got) != 0 {
 		t.Fatalf("clean config unknowns = %v", got)
 	}
-	// a stray destinations block + a hyphen/underscore typo → both reported, sorted
-	got := unknownServeKeys([]byte("listen: \":8443\"\ndestinations: [a]\nadmin_listen: x\n"))
-	if want := []string{"admin_listen", "destinations"}; !reflect.DeepEqual(got, want) {
+	// hyphen/underscore typos → reported, sorted
+	got := unknownServeKeys([]byte("listen: \":8443\"\nruntime: {wak: {}}\nadmin_listen: x\n"))
+	if want := []string{"admin_listen", "runtime.wak"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("unknowns = %v, want %v", got, want)
 	}
 	// every known key is accepted (guards the reflect-derived set against drift)

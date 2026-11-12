@@ -48,7 +48,7 @@ func adoptJam(t *testing.T) (*MemStore, KitFetcher) {
 		{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: ApplyXAPIKey, Apply: ApplyXAPIKey}}, CredName: "anthropic"},
 	}
 	for _, d := range dests {
-		must(t, CreateDestination(st, d, creds))
+		must(t, CreateDestination(st, d, creds, false))
 	}
 	if _, err := EnsureDefaultModelSpec(st, false); err != nil {
 		t.Fatal(err)
@@ -388,7 +388,7 @@ func TestConfigPlanUpdatesUnmanagedKitFromOtherSource(t *testing.T) {
 // carries both canonical forms so the diff shows the change.
 func TestConfigPlanUnmanagedUpdateShowsBothSides(t *testing.T) {
 	st := NewMemStore()
-	must(t, CreateDestination(st, Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "gh", Note: "jam"}, func(string) bool { return true }))
+	must(t, CreateDestination(st, Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "gh", Note: "jam"}, func(string) bool { return true }, false))
 	dir := t.TempDir()
 	exp, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
 	if err != nil {

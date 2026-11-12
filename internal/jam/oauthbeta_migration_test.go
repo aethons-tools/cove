@@ -275,7 +275,7 @@ func TestValidateDestinationRefusesOAuthBeta(t *testing.T) {
 	d := anthropicDest()
 	d.Endpoints[0].Upstream = "https://api.anthropic.com"
 	d.LegacyOAuthBeta = true
-	err := ValidateDestination(d, func(string) bool { return true })
+	err := ValidateDestination(d, func(string) bool { return true }, false)
 	if err == nil || !strings.Contains(err.Error(), "oauth_beta") || !strings.Contains(err.Error(), "pool.adoc") {
 		t.Fatalf("err = %v", err)
 	}

@@ -48,8 +48,9 @@ type Destination struct {
 // and credential travel. Name is unique in the destination.
 type Endpoint struct {
 	Name string `json:"name" yaml:"name"`
-	// Subdomain is the endpoint's host under the destinations domain. No Jam
-	// has one yet, so validation refuses it (COV-311 enables it).
+	// Subdomain is the endpoint's host, one label under the destinations
+	// domain (serve config destinations.domain); validation refuses it on a
+	// Jam without one.
 	Subdomain  string      `json:"subdomain,omitempty" yaml:"subdomain,omitempty"`
 	Route      string      `json:"route,omitempty"       yaml:"route,omitempty"`
 	Upstream   string      `json:"upstream"              yaml:"upstream"`
@@ -222,20 +223,32 @@ type Config struct {
 	Destinations []Destination `yaml:"destinations"`
 }
 
-// Match returns the endpoint whose Route prefixes reqPath (the longest wins,
-// across every destination) and its destination. An endpoint without a route,
-// or on a subdomain, is reached by host (not yet: COV-311), never by path alone.
-func (c Config) Match(reqPath string) (Destination, Endpoint, bool) {
+// Match returns the endpoint that serves reqPath on the host sub names (""
+// for the Jam host, else a subdomain of the destinations domain), and its
+// destination. On the Jam host, the endpoint without a subdomain whose Route
+// is the longest prefix of reqPath wins, across every destination. On a
+// subdomain, only its endpoints match: the one whose Route is the longest
+// prefix, else the one without a route, which takes every path.
+func (c Config) Match(sub, reqPath string) (Destination, Endpoint, bool) {
 	best := -1
 	var bestDest Destination
 	var bestEp Endpoint
 	for _, d := range c.Destinations {
 		for _, e := range d.Endpoints {
-			if e.Route == "" || e.Subdomain != "" {
+			if e.Subdomain != sub {
 				continue
 			}
-			if strings.HasPrefix(reqPath, e.Route) && len(e.Route) > best {
-				best = len(e.Route)
+			score := -1
+			switch {
+			case e.Route == "":
+				if sub != "" {
+					score = 0
+				}
+			case strings.HasPrefix(reqPath, e.Route):
+				score = len(e.Route)
+			}
+			if score > best {
+				best = score
 				bestDest, bestEp = d, e
 			}
 		}

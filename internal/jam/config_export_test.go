@@ -21,9 +21,9 @@ func populatedJam(t *testing.T) (*MemStore, jamFixtureIDs) {
 	st := NewMemStore()
 	creds := credIs("gh-pat", "anthropic", "acme-bot")
 	must(t, CreateDestination(st, Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", AllowPaths: []string{"/repos/*"}}}, CredName: "gh-pat",
-		Env: map[string]string{"GH_HOST": "{host}"}}, creds))
+		Env: map[string]string{"GH_HOST": "{host}"}}, creds, false))
 
-	must(t, CreateDestination(st, Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}}, CredName: "anthropic"}, creds))
+	must(t, CreateDestination(st, Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}}, CredName: "anthropic"}, creds, false))
 
 	fast := validSpec()
 	fast.Name = "fast"

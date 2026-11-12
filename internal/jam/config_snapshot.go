@@ -332,7 +332,7 @@ func validateSnapshotContext(s ConfigSnapshot) error {
 		if len(d.Note) > MaxDestinationNote {
 			return bad("destination "+d.Name, fmt.Errorf("note is %d bytes; at most %d", len(d.Note), MaxDestinationNote))
 		}
-		if err := d.validateEndpoints(false); err != nil {
+		if err := d.validateEndpoints(false, false); err != nil {
 			return bad("destination "+d.Name, err)
 		}
 	}

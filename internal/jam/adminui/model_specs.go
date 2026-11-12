@@ -52,6 +52,7 @@ type specUI struct {
 	credExists func(string) bool
 	credNames  []string
 	pool       bool
+	subdomains bool // the serve has a destinations domain (ConfigEnv.SubdomainsConfigured)
 }
 
 // choices builds the select options; current (the stored principal) is kept
