@@ -129,7 +129,7 @@ func TestDestinationAllowPaths(t *testing.T) {
 	if !(Endpoint{}).PathAllowed("/anything/../at/all") {
 		t.Error("no allow_paths must allow any path")
 	}
-	err := ValidateDestination(Destination{Name: "v", Endpoints: []Endpoint{{Name: "v", Route: "/v/", Upstream: "https://x", AllowPaths: []string{"nope"}}}}, func(string) bool { return true })
+	err := ValidateDestination(Destination{Name: "v", Endpoints: []Endpoint{{Name: "v", Route: "/v/", Upstream: "https://x", AllowPaths: []string{"nope"}}}}, func(string) bool { return true }, false)
 	if WriteStatus(err, 0) != http.StatusBadRequest {
 		t.Errorf("ValidateDestination: err = %v, want 400", err)
 	}

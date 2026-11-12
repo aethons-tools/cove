@@ -1111,7 +1111,7 @@ func TestDestinationListEnvAndGit(t *testing.T) {
 // A custom apply method without its spec is refused by ValidateDestination
 // (the check destinations changed in git still pass).
 func TestDestinationCustomSpecValidation(t *testing.T) {
-	err := jam.ValidateDestination(jam.Destination{Name: "bad", Endpoints: []jam.Endpoint{{Name: "bad", Route: "/bad/", Upstream: "https://x", Apply: "custom"}}}, func(string) bool { return true })
+	err := jam.ValidateDestination(jam.Destination{Name: "bad", Endpoints: []jam.Endpoint{{Name: "bad", Route: "/bad/", Upstream: "https://x", Apply: "custom"}}}, func(string) bool { return true }, false)
 	if err == nil || !strings.Contains(err.Error(), "apply_spec") {
 		t.Fatalf("custom without spec: %v", err)
 	}

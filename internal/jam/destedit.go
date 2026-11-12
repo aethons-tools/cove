@@ -19,9 +19,11 @@ const MaxDestinationNote = 300
 // ValidateDestination checks a destination at write time — the rules shared by
 // the JSON admin API, the UI and the config plan: a name, a default
 // credential that is configured, env passing ValidateEnv, and endpoints
-// passing validateEndpoints. Rules across destinations are
-// checkEndpointClashes'. Refusals are 400 WriteErrors.
-func ValidateDestination(d Destination, credExists func(string) bool) error {
+// passing validateEndpoints. subdomains is whether this Jam has a
+// destinations domain (serve config destinations:); without one, no endpoint
+// may have a subdomain. Rules across destinations are checkEndpointClashes'.
+// Refusals are 400 WriteErrors.
+func ValidateDestination(d Destination, credExists func(string) bool, subdomains bool) error {
 	d.normalize()
 	if d.Name == "" || len(d.Endpoints) == 0 {
 		return writeErr(http.StatusBadRequest, "name, route and upstream are required")
@@ -38,21 +40,24 @@ func ValidateDestination(d Destination, credExists func(string) bool) error {
 	if err := d.ValidateEnv(); err != nil {
 		return writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
-	if err := d.validateEndpoints(true); err != nil {
+	if err := d.validateEndpoints(true, subdomains); err != nil {
 		return writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	return nil
 }
 
 // validateEndpoints checks d's endpoints: at most MaxEndpoints, each named
-// (uniquely in d) with an upstream and a subdomain or route; no subdomain
-// (this Jam has no destinations domain); no route claiming a path Jam serves
-// on the cove listener (ReservedRoute); and each endpoint's header specs,
-// allow_paths and header logging. An error names the endpoint when d has
-// more than one. Without addresses, the route and upstream rules are skipped:
-// a backup is checked so (validateSnapshotContext), as it was before
-// endpoints, so whatever a Jam stored imports.
-func (d Destination) validateEndpoints(addresses bool) error {
+// (uniquely in d) with an upstream and a subdomain or route; a subdomain one
+// valid DNS label (ValidSubdomain), and only when subdomains (this Jam has a
+// destinations domain); no route on the Jam host claiming a path Jam serves
+// on the cove listener (ReservedRoute: a subdomain never reaches those); and
+// each endpoint's header specs, allow_paths and header logging. An error
+// names the endpoint when d has more than one. Without addresses, the
+// subdomain's domain, route and upstream rules are skipped: a backup is
+// checked so (validateSnapshotContext), as it was before endpoints, so
+// whatever a Jam stored imports (the domain is serve config, like
+// credentials).
+func (d Destination) validateEndpoints(addresses, subdomains bool) error {
 	if len(d.Endpoints) > MaxEndpoints {
 		return fmt.Errorf("%d endpoints; at most %d", len(d.Endpoints), MaxEndpoints)
 	}
@@ -67,14 +72,16 @@ func (d Destination) validateEndpoints(addresses bool) error {
 			return errors.New("every endpoint needs a name")
 		case seen[e.Name]:
 			return fmt.Errorf("endpoint name %q is used twice", e.Name)
-		case e.Subdomain != "":
-			return fmt.Errorf("%ssubdomain %q: this Jam has no destinations domain", where, e.Subdomain)
+		case e.Subdomain != "" && ValidSubdomain(e.Subdomain) != nil:
+			return fmt.Errorf("%s%w", where, ValidSubdomain(e.Subdomain))
 		case !addresses:
-		case e.Route == "":
+		case e.Subdomain != "" && !subdomains:
+			return fmt.Errorf("%ssubdomain %q: this Jam has no destinations domain", where, e.Subdomain)
+		case e.Subdomain == "" && e.Route == "":
 			return fmt.Errorf("%sa subdomain or a route is required", where)
 		case e.Upstream == "":
 			return fmt.Errorf("%supstream is required", where)
-		case ReservedRoute(e.Route) != "":
+		case e.Subdomain == "" && ReservedRoute(e.Route) != "":
 			return fmt.Errorf("%sroute %s claims %s, which Jam serves", where, e.Route, ReservedRoute(e.Route))
 		}
 		seen[e.Name] = true
@@ -137,10 +144,10 @@ func destinationExists(store Store, name string) bool {
 	return ok
 }
 
-// CreateDestination validates and stores a new destination; an existing name
-// is a 409 WriteError.
-func CreateDestination(store Store, d Destination, credExists func(string) bool) error {
-	if err := ValidateDestination(d, credExists); err != nil {
+// CreateDestination validates (subdomains as ValidateDestination) and stores a
+// new destination; an existing name is a 409 WriteError.
+func CreateDestination(store Store, d Destination, credExists func(string) bool, subdomains bool) error {
+	if err := ValidateDestination(d, credExists, subdomains); err != nil {
 		return err
 	}
 	destMu.Lock()
@@ -155,9 +162,10 @@ func CreateDestination(store Store, d Destination, credExists func(string) bool)
 }
 
 // UpdateDestination validates and replaces an existing destination (every
-// field; the name is the key); a missing one is a 404 WriteError.
-func UpdateDestination(store Store, d Destination, credExists func(string) bool) error {
-	return updateDestination(store, d, credExists, false)
+// field; the name is the key); a missing one is a 404 WriteError. subdomains
+// is as ValidateDestination's.
+func UpdateDestination(store Store, d Destination, credExists func(string) bool, subdomains bool) error {
+	return updateDestination(store, d, credExists, subdomains, false)
 }
 
 // UpdateDestinationKeepSpecs is UpdateDestination for an editor that can't
@@ -168,16 +176,16 @@ func UpdateDestination(store Store, d Destination, credExists func(string) bool)
 // stored spec is kept; the stored operator notes always are. The lookup and
 // the write are one step under destMu, so a concurrent change can't be
 // reverted.
-func UpdateDestinationKeepSpecs(store Store, d Destination, credExists func(string) bool) error {
-	return updateDestination(store, d, credExists, true)
+func UpdateDestinationKeepSpecs(store Store, d Destination, credExists func(string) bool, subdomains bool) error {
+	return updateDestination(store, d, credExists, subdomains, true)
 }
 
-func updateDestination(store Store, d Destination, credExists func(string) bool, keepSpecs bool) error {
+func updateDestination(store Store, d Destination, credExists func(string) bool, subdomains, keepSpecs bool) error {
 	destMu.Lock()
 	defer destMu.Unlock()
 	cur, ok := findDestination(store, d.Name)
 	if !ok {
-		if err := ValidateDestination(d, credExists); err != nil {
+		if err := ValidateDestination(d, credExists, subdomains); err != nil {
 			return err
 		}
 		return writeErr(http.StatusNotFound, "destination %q does not exist", d.Name)
@@ -202,7 +210,7 @@ func updateDestination(store Store, d Destination, credExists func(string) bool,
 		}
 		d.OperatorNotes = cur.OperatorNotes
 	}
-	if err := ValidateDestination(d, credExists); err != nil {
+	if err := ValidateDestination(d, credExists, subdomains); err != nil {
 		return err
 	}
 	if err := checkEndpointClashes(d, store.ListDestinations()); err != nil {

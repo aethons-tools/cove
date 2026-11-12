@@ -28,7 +28,7 @@ func TestMemStoreDestinationsAndMatch(t *testing.T) {
 	if err := s.AddActor(Actor{ID: "spider-18", TokenHash: HashToken("tok"), Grants: []Grant{{Project: "ACME", Role: "guest"}}}); err != nil {
 		t.Fatalf("AddActor: %v", err)
 	}
-	if got, _, ok := s.Match("/git/acme/api.git/info/refs"); !ok || got.Name != "git" {
+	if got, _, ok := s.Match("", "/git/acme/api.git/info/refs"); !ok || got.Name != "git" {
 		t.Fatalf("Match = %+v, %v", got, ok)
 	}
 	if len(s.ListDestinations()) != 1 || len(s.ListActors()) != 1 {
@@ -37,7 +37,7 @@ func TestMemStoreDestinationsAndMatch(t *testing.T) {
 	if err := s.RemoveDestination("git"); err != nil {
 		t.Fatalf("RemoveDestination: %v", err)
 	}
-	if _, _, ok := s.Match("/git/acme/api.git/info/refs"); ok {
+	if _, _, ok := s.Match("", "/git/acme/api.git/info/refs"); ok {
 		t.Fatal("destination still matched after removal")
 	}
 }

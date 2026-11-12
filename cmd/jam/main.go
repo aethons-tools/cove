@@ -1631,11 +1631,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	if unknown := unknownServeKeys(data); len(unknown) > 0 {
 		fmt.Fprintf(stderr, "jam: warning: ignoring unknown jam.yml key(s): %s\n", strings.Join(unknown, ", "))
-		for _, k := range unknown {
-			if k == "destinations" {
-				fmt.Fprintln(stderr, "jam: note: destinations are managed in the config repo (see `jam config`)")
-			}
-		}
+	}
+	if cfg.staleDestinations {
+		fmt.Fprintln(stderr, "jam: warning: ignoring the destinations: list in jam.yml")
+		fmt.Fprintln(stderr, "jam: note: destinations are managed in the config repo (see `jam config`); destinations: here takes only the destinations domain ({domain, tls})")
 	}
 	if err := cfg.validateAdminExposure(); err != nil {
 		fmt.Fprintln(stderr, "jam:", err)
@@ -1713,6 +1712,22 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		adminTLSCfg = adminTLSConfig(adminCert, previewCert, p.Domain)
 		previewURL = previewURLFunc(p.Domain, cfg.AdminListen)
+	}
+	if err := cfg.validateDestinations(); err != nil {
+		fmt.Fprintln(stderr, "jam:", err)
+		return 1
+	}
+	// Endpoints with a subdomain ride the cove-facing listener with their own
+	// wildcard cert (picked by SNI); it loads now so a wrong one fails serve.
+	var destCert *tls.Certificate
+	destDomain := "" // the destinations domain; "" = none
+	if d := cfg.Destinations; d != nil {
+		c, err := loadDestinationsCert(d.TLS.Cert, d.TLS.Key, d.Domain)
+		if err != nil {
+			fmt.Fprintln(stderr, "jam:", err)
+			return 1
+		}
+		destCert, destDomain = &c, d.Domain
 	}
 	if err := cfg.validateSessionEvents(); err != nil {
 		fmt.Fprintln(stderr, "jam:", err)
@@ -1870,6 +1885,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	creds = jam.NewWatchedResolver(creds, conds, cfg.credFixHint)
 	broker := jam.NewBroker(st, creds, log)
+	broker.SetDestinationsDomain(destDomain)
 
 	// Jam's SSH user CA (studio collaboration): every raised studio's sshd
 	// trusts its public key; the private key stays in this process's memory.
@@ -2527,7 +2543,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		credExists := cfg.credConfigured
 		// One planner view of the serve for the config admin API and the UI's
 		// Config page.
-		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds,
+		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, SubdomainsConfigured: destDomain != "", Serve: portable, Conditions: conds,
 			Followed: cfg.followedSource()}
 		if src := cfgEnv.Followed; src.Repo != "" {
 			// Named as configured: a config.git url (a local path or ssh)
@@ -2822,9 +2838,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
 	}
-	tlsCfg := &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2", "http/1.1"}}
+	tlsCfg := coveTLSConfig(cert, destCert, destDomain)
+	coveH := grpcMux(gs, httpHandler)
+	if destDomain != "" {
+		// Ahead of the gRPC demux and the cove mux: a subdomain host reaches
+		// the broker alone.
+		coveH = destHostRouter(destDomain, broker, coveH)
+		log.Info("Jam destinations domain", "domain", destDomain)
+	}
 	log.Info("Jam broker+Attach listening (mux)", "addr", cfg.Listen)
-	if err := serveMux(rawLis, tlsCfg, gs, httpHandler); err != nil {
+	if err := serveMux(rawLis, tlsCfg, coveH); err != nil {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
 	}

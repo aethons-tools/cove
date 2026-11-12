@@ -158,7 +158,7 @@ func TestServeMuxRoutesGRPCAndHTTP(t *testing.T) {
 	})
 
 	tlsCfg := &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2", "http/1.1"}}
-	go func() { _ = serveMux(lis, tlsCfg, gs, httpHandler) }()
+	go func() { _ = serveMux(lis, tlsCfg, grpcMux(gs, httpHandler)) }()
 	t.Cleanup(func() { _ = lis.Close(); gs.Stop() })
 
 	// give the mux a moment to start serving
