@@ -61,6 +61,8 @@ An endpoint's address is a `subdomain`, a `route`, or both.
 A subdomain is one label under the destinations domain
 (xref:usage/jam/serve.adoc#destinations-domain[serve]):
 the endpoint is reached at `+<subdomain>.<domain><route>+`.
+How a studio reaches and resolves that host, and why a new one needs a restart of the session,
+is in xref:usage/jam/serve.adoc#studio-reach[serve].
 
 The broker matches by host, then path:
 
