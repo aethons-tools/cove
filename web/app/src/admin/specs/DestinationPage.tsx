@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import type { ApiError } from "../../api/client";
 import { Problem } from "../../Problem";
-import type { DestDetail } from "../api/types";
+import type { DestDetail, DestInboundSpec, DestOutboundSpec } from "../api/types";
 import { useConfigEditable } from "../branch/branch";
 import { adminApi, nodeHref } from "../paths";
 import { ConfirmAction } from "../ui/ConfirmAction";
@@ -13,13 +13,18 @@ import { EditForm } from "../ui/EditForm";
 import { Facts } from "../ui/Facts";
 import { Section } from "../ui/Section";
 import { useAdminMutation } from "../ui/useAdminMutation";
-import { DestFields, destBody, type DestValues } from "./DestFields";
+import { DestFields, destBody, destValues, type DestValues } from "./DestFields";
 import { deleteDestConfirm, destsKey } from "./DestinationsPage";
 import { OperatorNotes } from "../ui/OperatorNotes";
 
 const enc = encodeURIComponent;
 const roleHref = (p: string, r: string) => nodeHref(`config/projects/${enc(p)}/agents/${enc(r)}`);
 const mono = (s: string) => <Text span ff="monospace">{s}</Text>;
+
+// inText / outText are an endpoint's expression as the Broker section shows it.
+const encText = (e: string) => e && e !== "raw" ? ` · encoding ${e}` : "";
+const inText = (s: DestInboundSpec) => `header ${s.header}${encText(s.encoding)}${s.prefixes.map((p) => ` · prefix “${p}”`).join("")}`;
+const outText = (s: DestOutboundSpec) => `header ${s.header} · template “${s.template}”${encText(s.encoding)}${s.basicUser ? ` · user ${s.basicUser}` : ""}`;
 
 // DestinationPage is one destination: how Jam brokers it, what an agent
 // sets to use it, the roles that list it, and its editor.
@@ -40,9 +45,11 @@ export function DestinationPage() {
 function Destination({ d, dataKey }: { d: DestDetail; dataKey: unknown[] }) {
   const client = useQueryClient();
   const navigate = useNavigate();
-  const f = d.fields;
+  const f = destValues(d.fields);
+  const first = d.fields.endpoints[0];
+  const others = d.fields.endpoints.slice(1);
   const editable = useConfigEditable();
-  const save = useAdminMutation((v: DestValues) => adminApi.post<DestDetail>(`destinations/${enc(d.name)}`, destBody(v)), {
+  const save = useAdminMutation((v: DestValues) => adminApi.post<DestDetail>(`destinations/${enc(d.name)}`, destBody(v, d.fields)), {
     invalidate: [destsKey], onSuccess: (x) => client.setQueryData(dataKey, x),
   });
   const remove = useAdminMutation(() => adminApi.del(`destinations/${enc(d.name)}`), { invalidate: [destsKey], onSuccess: () => void navigate(nodeHref("config/destinations")) });
@@ -52,7 +59,7 @@ function Destination({ d, dataKey }: { d: DestDetail; dataKey: unknown[] }) {
       <Group justify="space-between" wrap="wrap">
         <Group gap="sm" align="baseline">
           <Title order={2}>{d.name}</Title>
-          <Text size="sm" c="dimmed" ff="monospace">{f.route} → {f.upstream}</Text>
+          <Text size="sm" c="dimmed" ff="monospace">{[f.subdomain, f.route].filter(Boolean).join(" ")} → {f.upstream}</Text>
         </Group>
         <ConfirmAction label="Delete" confirm={deleteDestConfirm(d.name, d.uses.length)} onConfirm={() => remove.mutateAsync(undefined)} />
       </Group>
@@ -68,15 +75,18 @@ function Destination({ d, dataKey }: { d: DestDetail; dataKey: unknown[] }) {
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Section title="Broker" sub="how Jam proxies and authenticates the request">
           <Facts rows={[
-            ["Route", mono(f.route)],
+            ...(f.subdomain ? [["Subdomain", mono(f.subdomain)] as [string, React.ReactNode]] : []),
+            ["Route", f.route ? mono(f.route) : null, "every path"],
             ["Upstream", mono(f.upstream)],
             ["Identity in", f.identityIn ? mono(f.identityIn) : null],
-            ...(d.identityInSpec ? [["Identity-in spec", mono(d.identityInSpec)] as [string, React.ReactNode]] : []),
+            ...(first?.identityInSpec ? [["Identity-in expression", mono(inText(first.identityInSpec))] as [string, React.ReactNode]] : []),
             ["Apply as", f.apply ? mono(f.apply) : null],
-            ...(d.applySpec ? [["Apply spec", mono(d.applySpec)] as [string, React.ReactNode]] : []),
+            ...(first?.applySpec ? [["Apply expression", mono(outText(first.applySpec))] as [string, React.ReactNode]] : []),
             ["Default credential", f.credName ? mono(f.credName) : null, "none"],
-            ["Allowed paths", d.allowPaths.length ? <>{d.allowPaths.map((p) => <div key={p}>{mono(p)}</div>)}</> : null, "any"],
+            ["Allowed paths", first?.allowPaths.length ? <>{first.allowPaths.map((p) => <div key={p}>{mono(p)}</div>)}</> : null, "any"],
             ["Note", f.note || null, "none"],
+            ...(others.length ? [["Other endpoints", <>{others.map((e) => <div key={e.name}>{mono(`${e.name}: ${[e.subdomain, e.route].filter(Boolean).join(" ")} → ${e.upstream}`)}</div>)}
+              <Text size="xs" c="dimmed">kept as they are by the form below</Text></>] as [string, React.ReactNode]] : []),
             ["Header logging", logging ? <Group gap={4}><Badge size="sm">on</Badge>{mono(`in ${f.logHeadersIn} · out ${f.logHeadersOut}`)}<Text span size="xs" c="dimmed">(secrets redacted; turn off when done)</Text></Group> : null, "off"],
           ]} />
         </Section>
@@ -100,7 +110,7 @@ function Destination({ d, dataKey }: { d: DestDetail; dataKey: unknown[] }) {
           ]} />
           {editable && <details>
             <summary style={{ cursor: "pointer" }}>Edit destination</summary>
-            <Card withBorder mt="xs"><EditDest key={JSON.stringify(f)} d={d} onSave={(v) => save.mutateAsync(v)} /></Card>
+            <Card withBorder mt="xs"><EditDest key={JSON.stringify(d.fields)} d={d} onSave={(v) => save.mutateAsync(v)} /></Card>
           </details>}
         </Stack>
       </Section>
@@ -109,10 +119,10 @@ function Destination({ d, dataKey }: { d: DestDetail; dataKey: unknown[] }) {
 }
 
 function EditDest({ d, onSave }: { d: DestDetail; onSave: (v: DestValues) => Promise<unknown> }) {
-  const [v, setV] = useState<DestValues>({ ...d.fields });
+  const [v, setV] = useState<DestValues>(destValues(d.fields));
   return (
     <EditForm submit="Save destination" onSubmit={() => onSave(v)}>
-      <DestFields value={v} onChange={setV} methods={d.methods} stored={d.fields} />
+      <DestFields value={v} onChange={setV} methods={d.methods} stored={destValues(d.fields)} />
     </EditForm>
   );
 }

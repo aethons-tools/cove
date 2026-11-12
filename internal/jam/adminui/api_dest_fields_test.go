@@ -1,6 +1,9 @@
 package adminui_test
 
 import (
+	"encoding/json"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -53,7 +56,8 @@ func TestDestinationsAPIViews(t *testing.T) {
 	if strings.Join(names, ",") != "anthropic,gh-alt,git,github-api" {
 		t.Errorf("list order = %v", names)
 	}
-	if r := rows["github-api"]; r.UsedBy != 2 || r.CredName != "gh-pat" || r.IdentityIn != "bearer" || r.Apply != "bearer" || strings.Join(r.EnvKeys, ",") != "GH_ENTERPRISE_TOKEN,GH_HOST" {
+	if r := rows["github-api"]; r.UsedBy != 2 || r.CredName != "gh-pat" || r.Endpoints != 1 || strings.Join(r.Addresses, ",") != "/api/v3/" ||
+		strings.Join(r.Upstreams, ",") != "https://api.github.com" || strings.Join(r.EnvKeys, ",") != "GH_ENTERPRISE_TOKEN,GH_HOST" {
 		t.Errorf("github-api row = %+v", r)
 	}
 	if r := rows["anthropic"]; r.UsedBy != 1 || !strings.Contains(strings.Join(r.EnvKeys, ","), "ANTHROPIC_BASE_URL") {
@@ -65,7 +69,10 @@ func TestDestinationsAPIViews(t *testing.T) {
 
 	var d adminui.DestDetail
 	apiDo(t, h, "GET", "/app/admin/api/destinations/github-api", nil, &d)
-	if d.Fields.Env != "GH_ENTERPRISE_TOKEN={token}\nGH_HOST={host}" || d.Fields.Upstream != "https://api.github.com" || d.Fields.CredName != "gh-pat" || d.EnvImplied {
+	want := adminui.DestFields{CredName: "gh-pat", Env: []adminui.EnvRow{{Key: "GH_ENTERPRISE_TOKEN", Template: "{token}"}, {Key: "GH_HOST", Template: "{host}"}},
+		Endpoints: []adminui.DestEndpoint{{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: "bearer", Apply: "bearer",
+			AllowPaths: []string{}, LogHeadersIn: "none", LogHeadersOut: "none"}}}
+	if !reflect.DeepEqual(d.Fields, want) || d.EnvImplied {
 		t.Errorf("fields = %+v", d.Fields)
 	}
 	if len(d.Uses) != 2 || d.Uses[0] != (adminui.DestUse{Project: "acme", Role: "dev", Cred: "gh-pat-acme", CredIsRole: true}) || d.Uses[1] != (adminui.DestUse{Project: "acme", Role: "ops"}) {
@@ -79,88 +86,158 @@ func TestDestinationsAPIViews(t *testing.T) {
 	for _, e := range d.Env {
 		env[e.Key] = e.Template
 	}
-	if !d.EnvImplied || env["ANTHROPIC_BASE_URL"] != "{base}/anthropic" || d.Fields.Env != "" {
+	if !d.EnvImplied || env["ANTHROPIC_BASE_URL"] != "{base}/anthropic" || len(d.Fields.Env) != 0 {
 		t.Errorf("anthropic implied env = %+v %v", d, env)
 	}
 	apiDo(t, h, "GET", "/app/admin/api/destinations/git", nil, &d)
-	if !d.GitRouted || !d.GitImplied || d.Fields.Git {
+	if !d.GitRouted || !d.GitImplied || d.Fields.Endpoints[0].Git {
 		t.Errorf("git implied routing = %+v", d)
 	}
 	wantErr(t, apiDo(t, h, "GET", "/app/admin/api/destinations/nope", nil, nil), 404, "not_found")
 }
 
-// Every field is read from the body: env one KEY=TEMPLATE per line (blank
-// lines skipped), allow-paths one per line, header logging "none" stored as
-// unset; a bad env line, a duplicate key, a bad pattern, a bad logging value
-// or an unknown credential is refused and nothing is stored.
-func TestDestinationsAPIFields(t *testing.T) {
+// A destination with several endpoints lists each address and its distinct
+// upstreams, and reads back every endpoint field: a custom spec as its
+// expression ("raw" for the default encoding).
+func TestDestinationsAPIEndpointsRead(t *testing.T) {
+	e := editOn(t, editSetup{cred: credOK})
+	e.Edit(func(st jam.Store) {
+		if err := st.AddDestination(jam.Destination{Name: "gh", CredName: "known-cred", Endpoints: []jam.Endpoint{
+			{Name: "rest", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyCustom,
+				ApplySpec: &jam.OutboundSpec{Header: "Authorization", Template: "token {cred}"}, AllowPaths: []string{"/repos/*"}, LogHeadersIn: jam.HeaderLogAll},
+			{Name: "graphql", Route: "/api/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyCustom,
+				IdentityInSpec: &jam.InboundSpec{Header: "X-Agent", Prefixes: []string{"Agent "}}, Apply: jam.ApplyBearer},
+			{Name: "git", Route: "/git/", Upstream: "https://github.com", Git: true},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var list adminui.DestinationsResponse
+	apiDo(t, e.H, "GET", "/app/admin/api/destinations", nil, &list)
+	if r := list.Destinations[0]; r.Endpoints != 3 || strings.Join(r.Addresses, ",") != "/api/v3/,/api/,/git/" || strings.Join(r.Upstreams, ",") != "https://api.github.com,https://github.com" || !r.GitRouted {
+		t.Errorf("row = %+v", r)
+	}
+	var d adminui.DestDetail
+	apiDo(t, e.H, "GET", "/app/admin/api/destinations/gh", nil, &d)
+	eps := d.Fields.Endpoints
+	if len(eps) != 3 || eps[0].Name != "rest" || eps[0].IdentityInSpec != nil || eps[0].LogHeadersIn != "all" || eps[0].LogHeadersOut != "none" ||
+		!reflect.DeepEqual(eps[0].AllowPaths, []string{"/repos/*"}) || *eps[0].ApplySpec != (adminui.DestOutboundSpec{Header: "Authorization", Template: "token {cred}", Encoding: "raw"}) {
+		t.Fatalf("rest = %+v", eps[0])
+	}
+	if s := eps[1].IdentityInSpec; eps[1].IdentityIn != "custom" || s == nil || s.Header != "X-Agent" || s.Encoding != "raw" || !reflect.DeepEqual(s.Prefixes, []string{"Agent "}) || eps[1].ApplySpec != nil {
+		t.Fatalf("graphql = %+v", eps[1])
+	}
+	if !eps[2].Git || eps[2].Subdomain != "" {
+		t.Fatalf("git = %+v", eps[2])
+	}
+}
+
+// Every field is read from the body: endpoints in order with every field
+// (text trimmed, blank allow paths dropped, "none" logging and the "raw"
+// encoding stored unset), the env by key. An edit replaces every field:
+// endpoints added and removed, expressions edited.
+func TestDestinationsAPIWrite(t *testing.T) {
 	e := editOn(t, editSetup{cred: credOK})
 	h := e.H
-	const pats = "/v1/projects/p1/models/*:rawPredict\r\n\r\n  /v1/projects/p1/models/*:streamRawPredict  \n"
-	if rec := apiDo(t, h, "POST", "/app/admin/api/destinations", map[string]string{
-		"name": " gh ", "route": " /api/v3/ ", "upstream": "https://api.github.com", "identityIn": "bearer", "credName": "known-cred", "apply": "bearer",
-		"env": "GH_HOST = {host}\r\n\r\nGH_ENTERPRISE_TOKEN={token}\n", "allowPaths": pats, "git": "on", "note": " use git over https ",
-		"logHeadersIn": "examined", "logHeadersOut": "none",
-	}, nil); rec.Code != 201 {
+	body := adminui.DestFields{Name: " gh ", CredName: "known-cred", Note: " use git over https ",
+		Env: []adminui.EnvRow{{Key: " GH_HOST ", Template: " {host} "}, {Key: "GH_ENTERPRISE_TOKEN", Template: "{token}"}},
+		Endpoints: []adminui.DestEndpoint{
+			{Name: "rest", Route: " /api/v3/ ", Upstream: "https://api.github.com", IdentityIn: "bearer", Apply: "bearer",
+				AllowPaths: []string{" /repos/* ", ""}, LogHeadersIn: "examined", LogHeadersOut: "none"},
+			{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: "basic-password", Apply: "custom", Git: true,
+				ApplySpec: &adminui.DestOutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: "basic", BasicUser: "x-access-token"}},
+		}}
+	if rec := apiDo(t, h, "POST", "/app/admin/api/destinations", body, nil); rec.Code != 201 {
 		t.Fatalf("create = %d %s", rec.Code, rec.Body)
 	}
 	d := destNamed(t, e.Store(), "gh")
-	if d.Endpoints[0].Route != "/api/v3/" || d.Env["GH_HOST"] != "{host}" || d.Env["GH_ENTERPRISE_TOKEN"] != "{token}" || len(d.Env) != 2 || !d.Endpoints[0].Git || d.Note != "use git over https" ||
-		d.CredName != "known-cred" || d.Endpoints[0].IdentityIn != jam.ApplyBearer || d.Endpoints[0].LogHeadersIn != jam.HeaderLogExamined || d.Endpoints[0].LogHeadersOut != "" {
-		t.Fatalf("stored = %+v", d)
-	}
-	if len(d.Endpoints[0].AllowPaths) != 2 || d.Endpoints[0].AllowPaths[0] != "/v1/projects/p1/models/*:rawPredict" || d.Endpoints[0].AllowPaths[1] != "/v1/projects/p1/models/*:streamRawPredict" {
-		t.Fatalf("allow paths = %q", d.Endpoints[0].AllowPaths)
-	}
-	var dd adminui.DestDetail
-	apiDo(t, h, "GET", "/app/admin/api/destinations/gh", nil, &dd)
-	if dd.Fields.AllowPaths != strings.Join(d.Endpoints[0].AllowPaths, "\n") || dd.Fields.LogHeadersIn != "examined" || dd.Fields.LogHeadersOut != "none" || len(dd.AllowPaths) != 2 {
-		t.Errorf("detail fields = %+v", dd.Fields)
+	want := jam.Destination{Name: "gh", CredName: "known-cred", Note: "use git over https", Env: map[string]string{"GH_HOST": "{host}", "GH_ENTERPRISE_TOKEN": "{token}"},
+		Endpoints: []jam.Endpoint{
+			{Name: "rest", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer, AllowPaths: []string{"/repos/*"}, LogHeadersIn: jam.HeaderLogExamined},
+			{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, Apply: jam.ApplyCustom, Git: true,
+				ApplySpec: &jam.OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: jam.EncodingBasic, BasicUser: "x-access-token"}},
+		}}
+	if !reflect.DeepEqual(d, want) {
+		t.Fatalf("stored\n%+v\nwant\n%+v", d, want)
 	}
 
-	for what, over := range map[string]map[string]string{
-		"no equals":       {"env": "GH_HOST"},
-		"empty key":       {"env": "=x"},
-		"reserved":        {"env": "JAM_X=1"},
-		"bad placeholder": {"env": "A={nope}"},
-		"duplicate":       {"env": "A=1\nA=2"},
-		"relative path":   {"allowPaths": "relative/path"},
-		"bad logging":     {"logHeadersOut": "changed-raw"},
-		"unknown cred":    {"credName": "ghost"},
-	} {
-		b := map[string]string{"name": "n", "route": "/n/", "upstream": "https://n"}
-		for k, v := range over {
-			b[k] = v
-		}
-		rec := apiDo(t, h, "POST", "/app/admin/api/destinations", b, nil)
-		if rec.Code != 400 {
-			t.Errorf("%s = %d %s, want 400", what, rec.Code, rec.Body)
-		}
-	}
-	rec := apiDo(t, h, "POST", "/app/admin/api/destinations", map[string]string{"name": "n", "route": "/n/", "upstream": "https://n", "env": "A=1\nA=2"}, nil)
-	if !strings.Contains(rec.Body.String(), "env key A is set twice") {
-		t.Errorf("duplicate = %s", rec.Body)
-	}
-	rec = apiDo(t, h, "POST", "/app/admin/api/destinations", map[string]string{"name": "n", "route": "/n/", "upstream": "https://n", "env": "GH_HOST"}, nil)
-	if !strings.Contains(rec.Body.String(), `env line \"GH_HOST\" is not KEY=TEMPLATE`) {
-		t.Errorf("no equals = %s", rec.Body)
-	}
-	if len(e.Store().ListDestinations()) != 1 {
-		t.Errorf("a refused create stored: %+v", e.Store().ListDestinations())
-	}
-
-	// An edit replaces every field; a bad field is refused on edit too.
+	// Edit: drop rest, edit git's expression, add graphql with an identity-in expression.
 	var out adminui.DestDetail
-	if rec := apiDo(t, h, "POST", "/app/admin/api/destinations/gh", map[string]string{
-		"route": "/api/v3/", "upstream": "https://ghe.example/api/v3", "identityIn": "bearer", "apply": "bearer", "env": "GH_HOST={host}",
-	}, &out); rec.Code != 200 {
+	edit := adminui.DestFields{Env: []adminui.EnvRow{}, Endpoints: []adminui.DestEndpoint{
+		{Name: "git", Route: "/git/", Upstream: "https://github.com", Apply: "custom",
+			ApplySpec: &adminui.DestOutboundSpec{Header: "Private-Token", Template: "{cred}", Encoding: "raw"}},
+		{Name: "graphql", Route: "/api/", Upstream: "https://api.github.com", IdentityIn: "custom", Apply: "bearer",
+			IdentityInSpec: &adminui.DestInboundSpec{Header: "X-Agent", Prefixes: []string{"Agent "}, Encoding: "raw"}},
+	}}
+	if rec := apiDo(t, h, "POST", "/app/admin/api/destinations/gh", edit, &out); rec.Code != 200 {
 		t.Fatalf("edit = %d %s", rec.Code, rec.Body)
 	}
-	if d := destNamed(t, e.Store(), "gh"); d.Endpoints[0].Upstream != "https://ghe.example/api/v3" || d.CredName != "" || len(d.Env) != 1 || d.Endpoints[0].Git || len(d.Endpoints[0].AllowPaths) != 0 || d.Endpoints[0].LogHeadersIn != "" || d.Note != "" {
-		t.Errorf("after edit = %+v", d)
+	d = destNamed(t, e.Store(), "gh")
+	if len(d.Endpoints) != 2 || d.Env != nil || d.CredName != "" || d.Note != "" ||
+		*d.Endpoints[0].ApplySpec != (jam.OutboundSpec{Header: "Private-Token", Template: "{cred}"}) ||
+		!reflect.DeepEqual(*d.Endpoints[1].IdentityInSpec, jam.InboundSpec{Header: "X-Agent", Prefixes: []string{"Agent "}}) {
+		t.Fatalf("after edit = %+v", d)
 	}
-	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/destinations/gh", map[string]string{"route": "/api/v3/", "upstream": "https://x", "env": "nope"}, nil), 400, "bad_request")
-	if rec := apiDo(t, h, "POST", "/app/admin/api/destinations/ghost", map[string]string{"route": "/g/", "upstream": "https://g"}, nil); rec.Code != 404 {
+	if len(out.Fields.Endpoints) != 2 || out.Fields.Endpoints[1].IdentityInSpec.Header != "X-Agent" {
+		t.Errorf("edit answer = %+v", out.Fields)
+	}
+	if rec := apiDo(t, h, "POST", "/app/admin/api/destinations/ghost", destBody(nil), nil); rec.Code != 404 {
 		t.Errorf("edit of a missing destination = %d %s", rec.Code, rec.Body)
+	}
+}
+
+// A refused write names every problem at its field — the destination's,
+// an env row's, an endpoint's, an expression's — and stores nothing.
+func TestDestinationsAPIFieldErrors(t *testing.T) {
+	e := editOn(t, editSetup{cred: credOK})
+	h := e.H
+	if rec := apiDo(t, h, "POST", "/app/admin/api/destinations", destBody(nil), nil); rec.Code != 201 {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	}
+	fields := func(rec *httptest.ResponseRecorder) map[string]string {
+		t.Helper()
+		var body adminui.APIError
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || rec.Code != 400 || body.Code != "bad_request" {
+			t.Fatalf("= %d %s, want 400", rec.Code, rec.Body)
+		}
+		out := map[string]string{}
+		for _, f := range body.Errors {
+			out[f.Field] = f.Message
+		}
+		return out
+	}
+	bad := adminui.DestFields{Name: "x", CredName: "ghost", Env: []adminui.EnvRow{{Key: "A", Template: "1"}, {Key: "A", Template: "2"}, {Key: " "}}}
+	got := fields(apiDo(t, h, "POST", "/app/admin/api/destinations", bad, nil))
+	if len(got) != 2 || got["env[1].key"] != "env key A is set twice" || got["env[2].key"] != "env key is required" {
+		t.Errorf("env rows = %v", got)
+	}
+	bad.Env = []adminui.EnvRow{{Key: "JAM_X", Template: "1"}}
+	bad.Endpoints = []adminui.DestEndpoint{
+		{Name: "a", Route: "/gh/", Upstream: "https://x", LogHeadersIn: "loud"},
+		{Name: "a", Subdomain: "gh", Upstream: "https://x", AllowPaths: []string{"rel"}},
+		{Name: "c", Route: "/squawks/", Apply: "custom", ApplySpec: &adminui.DestOutboundSpec{Header: "X-Token", Template: "no cred", Encoding: "raw"},
+			IdentityIn: "custom", IdentityInSpec: &adminui.DestInboundSpec{Header: "Bad Header", Encoding: "raw"}},
+	}
+	got = fields(apiDo(t, h, "POST", "/app/admin/api/destinations", bad, nil))
+	for _, f := range []string{"credName", "env", "endpoints[0].route", "endpoints[0].logHeadersIn", "endpoints[1].name", "endpoints[1].subdomain",
+		"endpoints[1].allowPaths", "endpoints[2].route", "endpoints[2].upstream", "endpoints[2].identityInSpec.header", "endpoints[2].applySpec.template"} {
+		if got[f] == "" {
+			t.Errorf("no error at %s: %v", f, got)
+		}
+	}
+	if !strings.Contains(got["endpoints[0].route"], `destination "gh"'s endpoint "gh"`) {
+		t.Errorf("clash = %q", got["endpoints[0].route"])
+	}
+	bad = destBody(func(b *adminui.DestFields) { b.Name, b.Endpoints = "", nil })
+	if got := fields(apiDo(t, h, "POST", "/app/admin/api/destinations", bad, nil)); got["name"] == "" || got["endpoints"] == "" {
+		t.Errorf("empty = %v", got)
+	}
+	// On an edit too.
+	got = fields(apiDo(t, h, "POST", "/app/admin/api/destinations/gh", destBody(func(b *adminui.DestFields) { b.Endpoints[0].Apply = "custom" }), nil))
+	if got["endpoints[0].apply"] != "apply custom requires apply_spec" {
+		t.Errorf("edit = %v", got)
+	}
+	if ds := e.Store().ListDestinations(); len(ds) != 1 || ds[0].Endpoints[0].Apply != jam.ApplyBearer {
+		t.Errorf("a refused write stored: %+v", ds)
 	}
 }

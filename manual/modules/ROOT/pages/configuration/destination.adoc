@@ -1,0 +1,89 @@
+= Configuring a destination
+:page-area: ROOT
+:page-id: ROOT/configuration/destination
+:page-conventions: sentence-case
+
+You see and edit a xref:concepts/destination.adoc[destination] on its page,
+under *Config › Destinations › _name_*.
+You edit it on a branch of the config repo;
+saving is a commit to that branch.
+
+The *Destinations* list shows each destination's endpoints by their routes,
+the services they go on to,
+its default credential,
+what agents set to use it,
+and how many roles list it.
+
+== What the page shows
+
+*Broker* shows the destination's first endpoint:
+its route (or subdomain),
+the service's address that requests go on to,
+*Identity in*,
+*Apply as*,
+the paths it lets through,
+and whether it logs headers.
+It also shows the destination's *Default credential*,
+the secret Jam applies upstream unless a role maps the destination to another,
+and its optional *Note*.
+A destination's other endpoints are listed below,
+one line each,
+with its subdomain and route.
+
+*Agent connector* lists the environment variables agents set to use the destination,
+and whether their git goes through it.
+
+*Used by* lists the roles that may use the destination,
+and the credential each one gets.
+
+== Identity in and apply as
+
+*Identity in* says where Jam finds the agent's Jam identity in the request.
+*Apply as* says how Jam sends the real credential upstream.
+Each offers four presets
+(`bearer`, `basic-password`, `x-api-key`, `raw`).
+An endpoint can instead use an *expression*,
+which the page shows:
+
+* *Identity in*: the header the identity arrives in,
+the prefixes to cut from it,
+and its encoding (`raw` or `basic`).
+* *Apply as*: the header to set,
+a template with `+{cred}+` exactly once,
+its encoding,
+and, for `basic`, the user to send.
+
+For now you write an expression in the destination's file in the config repo.
+
+== Editing
+
+Open *Edit destination* to change the destination.
+The form edits the destination's credential, note and agent connector,
+and its first endpoint.
+The other endpoints are kept as they are.
+An endpoint that uses an expression keeps it
+while you leave *custom* selected.
+
+== Saving
+
+Jam checks the whole destination when you save.
+If something is wrong,
+nothing is saved,
+and the form lists every problem:
+a missing or repeated name,
+an endpoint without a route or an upstream,
+a route another endpoint has,
+a route Jam uses itself,
+a subdomain on a Jam with no domain for them,
+or a template without `+{cred}+`.
+
+ifdef::internal[]
+== Notes for the team
+
+* The goal page (`configuration/destination` on `goal`) has the *Destination* card with the endpoints grid,
+view-then-edit, and errors at each field: COV-315.
+The admin API already returns each problem at its field (COV-314);
+today's form shows them as one list.
+* Subdomains (COV-311) work in files; the form shows but does not edit them.
+The connector's `+{host:<endpoint>}+` and `+{url:<endpoint>}+` placeholders (COV-313) work in the agent connector's env.
+endif::[]

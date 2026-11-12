@@ -4,7 +4,7 @@
 :owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
 :prereqs: ui-console.adoc for the Config tree and URLs; ui-editing.adoc for the gate/CSRF/audit rules; projects.adoc for the project lifecycle; roster.adoc for roles; connector.adoc for destination env/git; kits.adoc for the StudioKit schema and versioning
 :tier: leaf
-:updated: 2026-11-09
+:updated: 2026-11-12
 
 Entity names across the xref:usage/jam/ui-console.adoc[admin console] link to a page that shows the whole
 object and edits it in place. The list pages' forms only *create* (an
@@ -120,14 +120,15 @@ layer in the xref:usage/jam/session-context-authoring.adoc[`jam context` format]
 == Destination pages
 
 Each destination name in the Destinations table (`/app/admin/config/destinations`) links to
-`/app/admin/config/destinations/<name>`. The table itself shows route, upstream, auth
-(`+identity-in → apply+`), the default credential, the studio-connector summary
-(env keys, `git`) and how many roles list it.
+`/app/admin/config/destinations/<name>`. The table summarises its
+xref:usage/jam/destination-endpoints.adoc[endpoints] (each one's address, the distinct upstreams),
+the default credential, the studio-connector summary (env keys, `git`) and how many roles list it.
 
 The page shows:
 
-* *Broker* — route, upstream, identity-in, apply (any custom xref:usage/jam/header-specs.adoc[header spec]
-read-only) and default credential.
+* *Broker* — the first endpoint's route, upstream, identity-in and apply (a custom
+xref:usage/jam/header-specs.adoc[header spec] shown as its expression), allowed paths and header logging;
+the default credential and note; and any other endpoints, one line each (name, address, upstream).
 * *Agent connector* — the client env an agent's studio sets (`+{url}+` already resolved
 to `+{base}<route>+`) and git routing. A destination with no declared env shows
 its route's legacy default, labeled as implied (see
@@ -141,14 +142,18 @@ holding that role can't assemble a connector (Jam fails closed with 409)
 until one side changes. The check is over each role's own scope; a grant
 override can still differ.
 
-*Edit destination* is one pre-filled form for every field but the name:
+*Edit destination* is one pre-filled form for every field but the name.
+It edits the destination's fields and its *first* endpoint; the other endpoints
+(and the first's name) are sent back as they are (the endpoints grid, COV-315, edits them all):
 client env is one `KEY=TEMPLATE` per line (empty = the route's legacy default),
 identity-in/apply select a preset (incl. ``raw``; a `custom` one stays custom,
-spec kept), git routing is a checkbox, and the note is the usage hint
-sessions see (xref:usage/jam/connector.adoc#notes-for-sessions[connector]). Validation matches the admin API
-(required fields, a configured default credential, env keys and placeholders).
+its expression sent back unchanged), git routing is a checkbox, and the note is the usage hint
+sessions see (xref:usage/jam/connector.adoc#notes-for-sessions[connector]).
 Changing env on the `/git/` route drops its implied git routing unless *Route
 git* is ticked; the form says so. *Delete* is on the page header.
+
+The page reads and writes the destination through the structured
+xref:usage/jam/destination-api.adoc[destinations API].
 
 [#model-spec-pages]
 == Model-spec pages
