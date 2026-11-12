@@ -132,6 +132,7 @@ type serveOpts struct {
 	version string
 	logs    *syncBuffer
 	sleep   func(ctx context.Context, d time.Duration)
+	domain  string // colima.destinations-domain
 }
 
 // startServe adds m1 to the hub, writes its token and runs Serve for it
@@ -149,8 +150,9 @@ func startServe(t *testing.T, e *jamEnv, ops launcher.Backend, o serveOpts) (Con
 		TokenFile: filepath.Join(dir, "token"),
 		Colima: ColimaConfig{
 			RuntimeAddr: "jam.example.com:443", JamHost: "jam.example.com",
-			IdentityFile:  filepath.Join(dir, "keys", "id_ed25519"),
-			KnownHostsDir: filepath.Join(dir, "known_hosts.d"),
+			IdentityFile:       filepath.Join(dir, "keys", "id_ed25519"),
+			KnownHostsDir:      filepath.Join(dir, "known_hosts.d"),
+			DestinationsDomain: o.domain,
 		},
 	}
 	if err := os.WriteFile(cfg.TokenFile, []byte(tok.Token+"\n"), 0o600); err != nil {
@@ -276,6 +278,28 @@ func TestServeSetsSSHUserCAFromWelcome(t *testing.T) {
 	ops.snapshot(func(f *fakeBackend) {
 		if got := string(f.caFor[placed.Location]); got != "ca-line" {
 			t.Fatalf("CA installed in %q = %q, want ca-line (all: %v)", placed.Location, got, f.caFor)
+		}
+	})
+}
+
+// The destinations domain reaches the launcher: a raise over the wire maps
+// the spec's subdomain hosts under it to the gateway beside the Jam host.
+func TestServeMapsDestinationHosts(t *testing.T) {
+	e := newJamEnv(t, nil)
+	ops := &fakeBackend{}
+	startServe(t, e, ops, serveOpts{domain: "dest.example.com"})
+	eventually(t, "m1 connected", func() bool { return e.connected("m1") })
+
+	_, err := e.router.RaiseOn(context.Background(), jam.RaiseSpec{
+		ActorID: "w8", Kit: testKit, DestinationHosts: []string{"gh.dest.example.com", "evil.example"},
+		Placement: jam.Placement{Managers: []string{"m1"}, Timeout: 2 * time.Second},
+	}, jam.LaunchCreds{IdentityToken: "t", LaunchSecret: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops.snapshot(func(f *fakeBackend) {
+		if want := []string{"jam.example.com", "gh.dest.example.com"}; !slices.Equal(f.addHosts, want) {
+			t.Fatalf("addHosts = %v, want %v", f.addHosts, want)
 		}
 	})
 }

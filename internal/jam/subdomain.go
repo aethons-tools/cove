@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"slices"
 	"strings"
 	"sync/atomic"
 )
@@ -29,6 +30,14 @@ func DestinationsDomain() string {
 
 // subdomainRE is one lowercase DNS label (LDH, no leading/trailing '-').
 var subdomainRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// ValidDomain reports whether d is a lowercase DNS name of at least two
+// labels, each one subdomainRE label: the shape of a destinations or
+// previews domain.
+func ValidDomain(d string) bool {
+	labels := strings.Split(d, ".")
+	return len(labels) >= 2 && len(d) <= 253 && !slices.ContainsFunc(labels, func(l string) bool { return !subdomainRE.MatchString(l) })
+}
 
 // ValidSubdomain checks an endpoint's subdomain: one lowercase DNS label with
 // no "--" (the "xn--" punycode prefix, as preview.ValidName refuses it).

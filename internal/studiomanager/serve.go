@@ -102,7 +102,8 @@ func Serve(ctx context.Context, cfg Config, version string, log *slog.Logger, de
 		Ops: ops, Runner: r, Manager: cfg.Name,
 		JamHost: cfg.Colima.JamHost, RuntimeAddr: cfg.Colima.RuntimeAddr,
 		IdentityFile: cfg.Colima.IdentityFile, KnownHostsDir: cfg.Colima.KnownHostsDir,
-		DNS: cfg.Colima.DNS, Docker: cfg.Colima.Docker,
+		DestinationsDomain: cfg.Colima.DestinationsDomain,
+		DNS:                cfg.Colima.DNS, Docker: cfg.Colima.Docker,
 		PublicKey: pub, Subscription: false, Log: log,
 		Track: func(kind string, kit jam.KitRef) launcher.Progress { return acts.Start(kind, kit) },
 	})
