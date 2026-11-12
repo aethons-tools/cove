@@ -82,7 +82,7 @@ func cmdVSCodeInstall(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if !available {
-		fmt.Fprintln(stderr, "jam vscode install: this Jam was built without the VS Code extension; install jam-vscode_<version>.vsix from its release instead (docs/usage/jam/vscode.md)")
+		fmt.Fprintln(stderr, "jam vscode install: this Jam was built without the VS Code extension; install jam-vscode_<version>.vsix from its release instead (docs/modules/ROOT/pages/usage/jam/vscode.adoc)")
 		return 1
 	}
 	data, err := c.DownloadVSCodeExtension(t.prefix())
@@ -158,7 +158,7 @@ func vscodeErrMessage(err error, t sshTarget) string {
 	case se.Code == http.StatusUnauthorized:
 		return sshErrMessage(err, t)
 	case se.Code == http.StatusNotFound:
-		return "this Jam doesn't serve the VS Code extension (it predates it); install jam-vscode_<version>.vsix from a release instead (docs/usage/jam/vscode.md)"
+		return "this Jam doesn't serve the VS Code extension (it predates it); install jam-vscode_<version>.vsix from a release instead (docs/modules/ROOT/pages/usage/jam/vscode.adoc)"
 	}
 	return fmt.Sprintf("Jam refused (%d): %s", se.Code, se.Body)
 }

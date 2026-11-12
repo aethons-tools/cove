@@ -1,6 +1,6 @@
-// The Jam admin API client (docs/usage/jam/app-tokens.md#bearer-scope): an
+// The Jam admin API client (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc#bearer-scope): an
 // operator app token with admin access, on one config branch. Kit drafts'
-// files (docs/usage/jam/kits-drafts.md#file-api), their builds and the
+// files (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#file-api), their builds and the
 // branch list.
 import type {
   ConfigBranches,

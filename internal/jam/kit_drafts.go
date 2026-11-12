@@ -7,7 +7,7 @@ import (
 	"github.com/aethons-tools/cove/internal/kittree"
 )
 
-// KitDraft is a kit's one open draft (docs/usage/jam/kits-drafts.md): a
+// KitDraft is a kit's one open draft (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc): a
 // mutable tree opened from version Base. Its tree and blobs live with the
 // versions' (kit_trees, kit_blobs) and count as referenced for GC. A draft
 // is working state: never in a config snapshot, an export or a config plan.

@@ -15,7 +15,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/configrepo"
 )
 
-// The config branch editor (docs/usage/jam/config-branches.md): a config
+// The config branch editor (docs/modules/ROOT/pages/usage/jam/config-branches.adoc): a config
 // API request carrying BranchHeader is served by a handler over that
 // branch's workspace (a scratch store), and a write that succeeds is saved
 // as a commit to the branch before it is answered.

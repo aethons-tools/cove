@@ -20,7 +20,7 @@ const (
 	MarkInvalid       = "invalid"
 )
 
-// Known limits (documented in inspect.md): a secret under a key that does not
+// Known limits (documented in inspect.adoc): a secret under a key that does not
 // look secret ("lookalike" keys such as "cfg") and credentials without a URL
 // scheme or an auth-scheme word (user:pw@host, a bare password) are not
 // detected, nor is a password containing an unencoded space; only the key rule and the value patterns below apply.

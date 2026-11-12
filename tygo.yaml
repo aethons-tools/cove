@@ -1,4 +1,4 @@
-# Generates the Jam app's API types from Go (docs/web-app.md), one file per
+# Generates the Jam app's API types from Go (docs/modules/ROOT/pages/web-app.adoc), one file per
 # area (user, admin). Only each package's apitypes.go is read; jam's string
 # kinds map to string.
 packages:

@@ -204,10 +204,10 @@ main() {
   local stale
   stale="$(stale_binaries "$bindir")"
   if [ -n "$stale" ]; then
-    info "pre-rename binaries still in $bindir: $stale — point your service and scripts at jam, then delete them (docs/usage/jam/renamed-from-at.md)"
+    info "pre-rename binaries still in $bindir: $stale — point your service and scripts at jam, then delete them (docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc)"
   fi
   if [ -e "$bindir/jam-studio-manager" ]; then
-    info "jam-studio-manager is now jam-colima: point its service at jam-colima run, then delete $bindir/jam-studio-manager (docs/usage/jam-colima.md#upgrading-from-jam-studio-manager)"
+    info "jam-studio-manager is now jam-colima: point its service at jam-colima run, then delete $bindir/jam-studio-manager (docs/modules/ROOT/pages/usage/jam-colima.adoc#upgrading-from-jam-studio-manager)"
   fi
   if command -v "$bindir/jam" >/dev/null 2>&1; then
     # jam version prints the bare version (older releases: "jam <version>").

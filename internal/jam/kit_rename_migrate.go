@@ -17,7 +17,7 @@ const KitOriginMigration = "migration"
 
 // renamedFromAtDoc is the runbook every jam-rename refusal and condition
 // points at.
-const renamedFromAtDoc = "docs/usage/jam/renamed-from-at.md"
+const renamedFromAtDoc = "docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc"
 
 // kitKeptReason is the fixed reason the kit-kept warning gives: the error
 // itself (parse or validation text quoting the kit) is not logged; the kit's

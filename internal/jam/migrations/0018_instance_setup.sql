@@ -1,4 +1,4 @@
--- Setup snapshots (docs/usage/jam/inspect.md): the masked form of what Jam
+-- Setup snapshots (docs/modules/ROOT/pages/usage/jam/inspect.adoc): the masked form of what Jam
 -- last delivered to a studio, one row per (instance, part). Runtime state:
 -- never exported; dropped with the instance.
 CREATE TABLE instance_setup (

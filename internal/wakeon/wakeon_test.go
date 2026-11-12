@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -69,7 +70,16 @@ func TestParticipantSendWakesWaitingStudio(t *testing.T) {
 
 type fakeReg struct{ insts []jam.Instance }
 
-func (f *fakeReg) ListInstances() []jam.Instance { return f.insts }
+// ListInstances returns a snapshot, as the registry does: a change made during
+// a tick (StartGate) is not seen in the instances that tick already holds.
+func (f *fakeReg) ListInstances() []jam.Instance {
+	out := make([]jam.Instance, len(f.insts))
+	for i, inst := range f.insts {
+		inst.Alarms = slices.Clone(inst.Alarms)
+		out[i] = inst
+	}
+	return out
+}
 
 type fakeWaker struct {
 	woke    []string
@@ -1606,6 +1616,22 @@ func TestTick_NoPauseWhileGateRuns(t *testing.T) {
 	e.tick(context.Background())
 	if len(idler.idled) != 0 {
 		t.Fatalf("paused a cove mid-gate: %v", idler.idled)
+	}
+}
+
+// A cove past warm-timeout whose gate is started this tick is not paused in
+// the same tick: the tick's snapshot shows no gate in flight yet (COV-307).
+func TestTick_NoPauseInTickThatStartsGate(t *testing.T) {
+	inst := gatedInst(jam.PhaseLive, jam.ActivityWaiting)
+	inst.WaitingSince = time.Unix(10000-90000, 0) // well past any warm-timeout
+	e, _, idler, g := gateEngine(inst)
+	e.cfg.WarmTimeout = time.Second
+	e.tick(context.Background())
+	if len(g.ran) != 1 {
+		t.Fatalf("ran=%v; want the due gate run", g.ran)
+	}
+	if len(idler.idled) != 0 {
+		t.Fatalf("paused a cove in the tick that started its gate: %v", idler.idled)
 	}
 }
 

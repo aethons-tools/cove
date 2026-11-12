@@ -1,4 +1,4 @@
-// Antora extension: internal content in the manual (docs/manual.md, "Marking
+// Antora extension: internal content in the manual (docs/modules/ROOT/pages/manual.adoc, "Marking
 // content internal").
 //
 // The site attribute `internal` says which build this is: set, the team build;

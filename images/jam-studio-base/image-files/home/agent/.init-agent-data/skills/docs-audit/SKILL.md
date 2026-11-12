@@ -1,6 +1,6 @@
 ---
 name: docs-audit
-description: Check that a repository's documentation is still aggressively progressively disclosed — no orphan docs, no broken links, no oversized docs, no duplicated content, valid frontmatter. Use this skill before merging any change that touches docs, when docs feel bloated or hard to navigate, or on a schedule to catch drift. It runs a deterministic checker and explains how to fix what it finds, rather than relying on eyeballing.
+description: Check that a repository's documentation is still aggressively progressively disclosed — no orphan docs, no broken links, no oversized docs, no duplicated content, valid metadata (Markdown frontmatter or AsciiDoc header attributes). Use this skill before merging any change that touches docs, when docs feel bloated or hard to navigate, or on a schedule to catch drift. It runs a deterministic checker and explains how to fix what it finds, rather than relying on eyeballing.
 ---
 
 # docs-audit
@@ -71,5 +71,5 @@ duplication is what makes docs rot.
 
 ## After fixing
 
-Re-run until clean. If you changed structure, also re-check that `INDEX.md` still
+Re-run until clean. If you changed structure, also re-check that the map still
 reads as a pure map (no prose creeping in) and stays under its budget.

@@ -23,7 +23,7 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-// Attachments (docs/usage/jam/attachments.md): a file is uploaded first —
+// Attachments (docs/modules/ROOT/pages/usage/jam/attachments.adoc): a file is uploaded first —
 // streamed into the blob store, its metadata a pending intercom Blob — and a
 // send references it; the channel log attaches it atomically. A download is
 // access-checked against the blob's one channel. A nil *Attachments is off.

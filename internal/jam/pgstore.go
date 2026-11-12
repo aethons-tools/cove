@@ -42,7 +42,7 @@ type PostgresStore struct {
 // The value spells "harbor" (Jam's former name) and deliberately survived the
 // Harbor → Jam rename: changing it would let an old and a new binary migrate
 // the same database concurrently during a rollout, since each would take a
-// different lock. Do not change it. See docs/usage/jam/renamed-from-harbor.md.
+// different lock. Do not change it. See docs/modules/ROOT/pages/usage/jam/renamed-from-harbor.adoc.
 const migrateAdvisoryLock = 0x686172626f72 // "harbor" — kept across the rename; see above
 
 // NewPostgresStore connects, applies embedded migrations, loads all rows into

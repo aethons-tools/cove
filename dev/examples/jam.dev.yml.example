@@ -7,7 +7,7 @@
 #
 # This is a DEV shape: plaintext admin on loopback, inline credential values, a
 # self-signed broker cert. Never use these settings in production — see
-# docs/usage/jam/serve.md for the real (TLS + OIDC + resolver-cred) shape.
+# docs/modules/ROOT/pages/usage/jam/serve.adoc for the real (TLS + OIDC + resolver-cred) shape.
 
 # Cove-facing broker + Attach listener (always TLS; `just dev-cert` writes a
 # self-signed pair). Bind ALL interfaces (":443"), NOT the hostname — a Colima
@@ -33,7 +33,7 @@ ui-hosts:
 
 # The config repo this Jam follows: config changes only by a commit to it.
 # A local bare repo is simplest for dev (dev/README.md#config-a-local-repo;
-# all the forms: docs/usage/jam/config-git-sources.md).
+# all the forms: docs/modules/ROOT/pages/usage/jam/config-git-sources.adoc).
 # config:
 #   git:
 #     url: /home/you/jam-config.git   # an absolute path
@@ -82,7 +82,7 @@ credentials:
 
 # Subscription-OAuth account pool (dev). Runs coves as a pooled subscription
 # principal instead of the federated `anthropic-key` above. See
-# docs/usage/jam/pool.md. With this block present, `serve` seeds raised coves in
+# docs/modules/ROOT/pages/usage/jam/pool.adoc. With this block present, `serve` seeds raised coves in
 # subscription mode and starts the background token refresher.
 #
 # Two one-time setup steps AFTER `serve` picks this up:
@@ -120,5 +120,5 @@ operator-auth:
 
 runtime:
   # Studios run on Studio Managers (jam-colima next to Colima) that
-  # connect to this Jam: see docs/usage/jam-colima.md.
+  # connect to this Jam: see docs/modules/ROOT/pages/usage/jam-colima.adoc.
   studio-managers: true

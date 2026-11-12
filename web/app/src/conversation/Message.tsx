@@ -35,7 +35,7 @@ export function Message({ m, channel, onDiscuss }: { m: MessageRow; channel: str
     notifications.show({ message: ok ? `Copied the message as ${as}` : "Couldn't copy the message", color: ok ? undefined : "red" }));
   return (
     <Paper className="jam-msg" data-seq={m.seq} p="xs" my={4} maw="80%" ml={m.mine ? "auto" : 0} bg={m.mine ? "var(--mantine-primary-color-light)" : "var(--mantine-color-default-hover)"}
-      // A session's bubble carries its color (docs/usage/jam/session-colors.md).
+      // A session's bubble carries its color (docs/modules/ROOT/pages/usage/jam/session-colors.adoc).
       style={m.color ? { borderLeft: `3px solid ${m.color}` } : undefined}>
       <Group justify="space-between" gap="xs" wrap="nowrap">
         <Text size="xs" fw={600}>{m.mine ? "you" : m.from}</Text>

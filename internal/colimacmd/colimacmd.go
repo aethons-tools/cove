@@ -28,7 +28,7 @@ type Config struct {
 }
 
 // Command returns the `<prog> colima` group: host-side setup of the colima VM
-// docker:true kits need (docs/usage/docker-in-sandbox.md). getenv resolves the
+// docker:true kits need (docs/modules/ROOT/pages/usage/docker-in-sandbox.adoc). getenv resolves the
 // colima.yaml path (COLIMA_HOME, HOME, XDG_CONFIG_HOME) and r runs the check's
 // docker probe, both injected so the command stays hermetic in tests; cfg
 // resolves --config to a profile.

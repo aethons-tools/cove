@@ -46,7 +46,7 @@ func TestHasSysboxRuntime(t *testing.T) {
 func TestRequireSysboxRuntimeNamesSetupCommand(t *testing.T) {
 	f := &runner.Fake{Outputs: []runner.FakeResult{{Stdout: `{"runc":{"path":"runc"}}`}}}
 	err := (&Colima{r: f}).requireSysboxRuntime()
-	if err == nil || !strings.Contains(err.Error(), "jam-colima colima setup-docker") || !strings.Contains(err.Error(), "docs/usage/docker-in-sandbox.md") {
+	if err == nil || !strings.Contains(err.Error(), "jam-colima colima setup-docker") || !strings.Contains(err.Error(), "docs/modules/ROOT/pages/usage/docker-in-sandbox.adoc") {
 		t.Fatalf("err = %v", err)
 	}
 }

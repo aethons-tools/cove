@@ -2,7 +2,7 @@
 # only, with internal content removed (no `internal` attribute, so the
 # extensions drop it and fail the build on a leak). Built from the working
 # tree's HEAD. No site.url: the leak check assumes relative links.
-# See docs/manual.md.
+# See docs/modules/ROOT/pages/manual.adoc.
 site:
   title: Jam manual
   start_page: jam:ROOT:index.adoc

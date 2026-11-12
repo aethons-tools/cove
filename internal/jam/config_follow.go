@@ -10,7 +10,7 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/condition"
 )
 
-// Following the config repo (docs/usage/jam/config-git-sources.md): the Jam
+// Following the config repo (docs/modules/ROOT/pages/usage/jam/config-git-sources.adoc): the Jam
 // checks its followed branch (ConfigEnv.Followed, config.github in the serve
 // config) every ConfigFollowEvery and applies a new commit, the repo winning
 // over any drift. Until the first apply is confirmed (ConfigFollowConfirmed)

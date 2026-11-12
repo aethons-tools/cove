@@ -13,7 +13,7 @@ const (
 
 // TurnEndPolicy is a role's turn-end policy: how long a session may sit after
 // a turn ends with nothing waking it, and what happens then. See
-// docs/usage/jam/turn-end.md.
+// docs/modules/ROOT/pages/usage/jam/turn-end.adoc.
 type TurnEndPolicy struct {
 	IdleTimeout time.Duration `json:"idle_timeout,omitempty"` // 0 = no idle timeout
 	OnIdle      string        `json:"on_idle,omitempty"`      // OnIdleWake | OnIdleTeardown; "" = wake

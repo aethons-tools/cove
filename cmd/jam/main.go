@@ -1004,7 +1004,7 @@ func readConfig(path string) ([]byte, error) {
 }
 
 // cmdCove is the deprecated `jam cove …` verb: it warns once and runs
-// `jam studio …` (docs/usage/jam/renamed-from-harbor.md).
+// `jam studio …` (docs/modules/ROOT/pages/usage/jam/renamed-from-harbor.adoc).
 func cmdCove(args []string, g cli.Globals, stdout, stderr io.Writer) int {
 	logging.Deprecated(stderr, "jam cove", "jam studio")
 	return cmdStudio(args, g, stdout, stderr)
@@ -1601,7 +1601,7 @@ func (placeholderLauncher) PrepareKit(context.Context, jam.KitDefinition) (jam.K
 func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	var cfgPaths configPaths
-	fs.Var(&cfgPaths, "config", "serve config YAML (repeatable: later files override; only the first may omit host keys — see serve.md)")
+	fs.Var(&cfgPaths, "config", "serve config YAML (repeatable: later files override; only the first may omit host keys — see serve.adoc)")
 	pos, code, ok := cli.ParseFlags(fs, args, stdout, stderr)
 	if !ok {
 		return code
@@ -1785,7 +1785,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		log.Info("default model-spec seeded", "name", jam.DefaultModelSpec)
 	}
 
-	// Operator-attention conditions (docs/usage/jam/monitoring.md): persisted
+	// Operator-attention conditions (docs/modules/ROOT/pages/usage/jam/monitoring.adoc): persisted
 	// alongside the store; a load failure starts empty rather than failing serve.
 	condStore, err := conditionpg.New(context.Background(), pgPool, log)
 	if err != nil {
@@ -1798,7 +1798,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	clearStaleCredConditions(conds, cfg.credNames())
 	clearRemovedConditions(conds)
-	// Kits as trees (docs/usage/jam/kits-directory.md#stored-as-trees): every
+	// Kits as trees (docs/modules/ROOT/pages/usage/jam/kits-directory.adoc#stored-as-trees): every
 	// pre-tree version becomes a tree, once; then unreferenced kit objects go.
 	// A failed migration fails closed: a half-read registry would raise kits
 	// from text the build no longer reads.
@@ -1808,7 +1808,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	} else if len(mig.Broken) > 0 {
 		log.Warn("kit versions kept broken (their packed context could not be read)", "versions", mig.Broken)
 	}
-	// The jam rename's kit migration (docs/usage/jam/renamed-from-at.md):
+	// The jam rename's kit migration (docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc):
 	// kits still on pre-rename build-arg/ENV names or base repository get a
 	// migration version. A store write error fails closed, like
 	// MigrateKitTrees. Destinations whose stored env uses the now-reserved
@@ -2058,7 +2058,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 	}()
 
-	// Session events (docs/usage/jam/session-events.md): stored in the shared
+	// Session events (docs/modules/ROOT/pages/usage/jam/session-events.adoc): stored in the shared
 	// control-plane Postgres.
 	sessStore, err := sessionpg.New(context.Background(), pgPool, log)
 	if err != nil {
@@ -2282,7 +2282,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		// The relays render only the channel log: a mark still in the legacy
-		// log moves to the cutover (see intercom.md, the cutover). Push is
+		// log moves to the cutover (see intercom.adoc, the cutover). Push is
 		// not settled: it is seeded at the channel log's tail when first
 		// enabled (below), so it never held a legacy mark or legacy pending ids.
 		for _, service := range []string{"linear", "discord"} {
@@ -2602,7 +2602,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		userMux := http.NewServeMux()
 		// The open app-token requests, so a revoke ends them.
 		appTokenLive := apptoken.NewLive()
-		// The Jam pane's one-time frame tickets (docs/usage/jam/previews.md
+		// The Jam pane's one-time frame tickets (docs/modules/ROOT/pages/usage/jam/previews.adoc
 		// "Framing"): the previews' login trades them for frame sessions and
 		// prunes them.
 		var frames *collabhttp.FrameTickets
@@ -2664,7 +2664,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		// Writes in the user area must come from the page itself (the mux
 		// applies RequireSameOrigin): the session cookie alone (SameSite=Lax)
 		// lets a sibling subdomain post as the user.
-		// App tokens (docs/usage/jam/app-tokens.md): minted only from a
+		// App tokens (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc): minted only from a
 		// verified browser session, so only with browser login.
 		// They act as their user on /app/user and /me/studios, never on
 		// /app/admin; revoking one ends its open /app/user requests (live).
@@ -2676,7 +2676,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			appTokenRoutes, appTokenBearer = appTokens.Routes(), appTokens.Bearer()
 			go appTokens.Run(context.Background())
 		}
-		// The config branch editor (docs/usage/jam/config-branches.md): config
+		// The config branch editor (docs/modules/ROOT/pages/usage/jam/config-branches.adoc): config
 		// pages edit a branch of the followed repo, from a bare clone in the
 		// state dir. Branch handlers are the same admin UI over a branch's
 		// scratch store, with no supervisor (a branch raises nothing).
@@ -2839,7 +2839,7 @@ func main() {
 
 // runAs is the process entry: invokedAs is the basename the binary was run
 // under. Before any command runs it copies the pre-rename directories across
-// once (migrateDirs). See docs/usage/jam/renamed-from-at.md.
+// once (migrateDirs). See docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc.
 func runAs(invokedAs string, argv []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	migrateDirs(stderr)
 	return run(argv, getenv, stdout, stderr)
@@ -3125,7 +3125,7 @@ var (
 
 // mountParticipantStudios mounts the participant plane's collaboration routes
 // at /me/studios/ on mux and reports whether it did. They take a bearer
-// credential — an app token (docs/usage/jam/app-tokens.md) or an ID token
+// credential — an app token (docs/modules/ROOT/pages/usage/jam/app-tokens.adoc) or an ID token
 // from `jam login --participant` — not the /app session cookie, so they sit
 // outside the /app gate and RequireSameOrigin. They mount whenever the SSH CA
 // is set; ID tokens are added only with device login (lc) and an OIDC

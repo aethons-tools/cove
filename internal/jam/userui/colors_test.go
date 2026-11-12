@@ -7,7 +7,7 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-// A session's color (docs/usage/jam/session-colors.md) reaches its head, its
+// A session's color (docs/modules/ROOT/pages/usage/jam/session-colors.adoc) reaches its head, its
 // rail card, its home conversation and its messages; a person's messages and
 // an uncolored session carry "".
 func TestAPISessionColors(t *testing.T) {

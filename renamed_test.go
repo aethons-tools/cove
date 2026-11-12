@@ -45,18 +45,18 @@ var renamedAllow = []struct {
 	only   []string
 }{
 	{"docs/superpowers/", nil},
-	{"docs/usage/jam/renamed-from-harbor.md", nil},
-	{"docs/usage/jam/renamed-from-at.md", nil},
-	{"docs/usage/jam/INDEX.md", []string{`at-jam`, `at-mint`, `at-studio-manager`, `harbor\.cove`}}, // the routing row to renamed-from-at.md names what it renames
-	{"docs/usage/jam/coves.md", []string{`cove-master`}},                                            // its link to the 2026-09-13-cove-master-client.md design spec (history keeps its name)
+	{"docs/modules/ROOT/pages/usage/jam/renamed-from-harbor.adoc", nil},
+	{"docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc", nil},
+	{"docs/modules/ROOT/pages/usage/jam/INDEX.adoc", []string{`at-jam`, `at-mint`, `at-studio-manager`, `harbor\.cove`}}, // the routing row to renamed-from-at.adoc names what it renames
+	{"docs/modules/ROOT/pages/usage/jam/coves.adoc", []string{`cove-master`}},                                            // its link to the 2026-09-13-cove-master-client.md design spec (history keeps its name)
 	{"internal/legacynames/", nil},
 	{"renamed_test.go", nil},
 	{"deleted_test.go", nil},
 	{"testdata/install-legacy", nil}, // the frozen pre-rename installers
 	{"install.test.sh", nil},         // drives the frozen pre-rename installers
 	{"install.sh", []string{`at-jam`, `at-mint`, `\bat-cove`, `at-studio-manager`, `jam-studio-manager`}}, // the stale-binary notices
-	{"docs/usage/jam-colima.md", []string{`jam-studio-manager`}},                                          // its "Upgrading from jam-studio-manager" section
-	{"docs/usage/INDEX.md", []string{`jam-studio-manager`}},                                               // the routing row to that section
+	{"docs/modules/ROOT/pages/usage/jam-colima.adoc", []string{`jam-studio-manager`}},                     // its "Upgrading from jam-studio-manager" section
+	{"docs/modules/ROOT/pages/usage/INDEX.adoc", []string{`jam-studio-manager`}},                          // the routing row to that section
 	{".gitignore", []string{`at-jam`, `at-mint`, `cove-master`, `covemaster`, `covemasterbin`}},           // keeps stale local builds out of git
 	{".github/workflows/release.yml", []string{`\bcove-base\b`}},                                          // the one-time re-cut copies the blessed bases out of the pre-rename repo
 	// The VS Code extension's port of the CLI's legacy-block strip, and its test.

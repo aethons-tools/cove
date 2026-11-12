@@ -60,7 +60,7 @@ type Config struct {
 const defaultPollInterval = 30 * time.Second
 
 // turnEndProtocol tells a ticket studio how it finishes (see
-// docs/usage/jam/turn-end.md#reporting-a-ticket): it owns its branch and PR
+// docs/modules/ROOT/pages/usage/jam/turn-end.adoc#reporting-a-ticket): it owns its branch and PR
 // through merge, reports the ticket's state with `report`, and ends with
 // `end` only once its work has landed; when stuck it waits for people rather
 // than exiting. The cove's agent wrapper reads no result file.

@@ -1,6 +1,7 @@
 # Builds the manual from your working tree (`just manual`): only the version
 # you have checked out, uncommitted edits included. The version is named from
-# the branch (any other branch builds as its own name). See docs/manual.md.
+# the branch (any other branch builds as its own name), with the architecture
+# book (docs/) of the same tree. See docs/modules/ROOT/pages/manual.adoc.
 site:
   title: Jam books
   start_page: jam:ROOT:index.adoc
@@ -13,11 +14,18 @@ content:
       release: released
       main: next
       goal: goal
+  - url: ..
+    start_path: docs
+    branches: [HEAD]
+    version:
+      release: released
+      main: next
+      goal: goal
 antora:
   extensions:
   # Drops internal pages, modules, phrases and their files when `internal` is
   # unset; badges internal pages in the nav when it is set. Whole internal
-  # modules are listed in antora.yml. See docs/manual.md ("Marking content internal").
+  # modules are listed in antora.yml. See docs/modules/ROOT/pages/manual.adoc ("Marking content internal").
   - require: ./extensions/internal.js
   # Full-text search (team builds only: the customer build is embedded in Jam,
   # whose CSP allows no scripts). Index includes internal content, like the site.

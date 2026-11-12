@@ -28,5 +28,5 @@ func warnPreRenameCredentialCommands(specs map[string]secret.Spec, log *slog.Log
 	}
 	slices.Sort(names)
 	log.Warn("jam rename: credential commands still call "+legacynames.MintBinary+" or "+legacynames.JamBinary+
-		`, which the rename removed; use ["jam","mint",...] with JAM_MINT_* env (docs/usage/jam/renamed-from-at.md)`, "credentials", names)
+		`, which the rename removed; use ["jam","mint",...] with JAM_MINT_* env (docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc)`, "credentials", names)
 }

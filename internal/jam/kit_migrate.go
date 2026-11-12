@@ -24,7 +24,7 @@ type KitTreeMigration struct {
 }
 
 // MigrateKitTrees is the one-time kit migration
-// (docs/usage/jam/kits-directory.md#stored-as-trees). It runs at every serve
+// (docs/modules/ROOT/pages/usage/jam/kits-directory.adoc#stored-as-trees). It runs at every serve
 // start and after a config import. Every kit still holding pre-tree config
 // text (Kit.Versions) gets each version as a tree (legacyKitTree), or, for
 // one whose context cannot be read, a Broken reason; the text moves to

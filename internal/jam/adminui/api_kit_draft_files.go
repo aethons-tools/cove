@@ -16,7 +16,7 @@ import (
 	"github.com/aethons-tools/cove/internal/kittree"
 )
 
-// The kit draft file API (docs/usage/jam/kits-drafts.md#file-api): a draft's
+// The kit draft file API (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#file-api): a draft's
 // files as plain bytes, for clients that edit them as files (the VS Code
 // extension). Each write is conditional on the file it touches (its
 // sha256), not on the whole draft, so a change to another file never

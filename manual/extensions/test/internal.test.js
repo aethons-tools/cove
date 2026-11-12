@@ -1,7 +1,7 @@
 // Builds the fixture (fixture/content) with Antora, once as the customer and
 // once as the team, and checks what internal content each one publishes.
 // Hermetic: the content is read from this repo's working tree and the UI from
-// manual/ui; nothing is fetched. See docs/manual.md ("Marking content internal").
+// manual/ui; nothing is fetched. See docs/modules/ROOT/pages/manual.adoc ("Marking content internal").
 'use strict'
 
 const assert = require('node:assert/strict')

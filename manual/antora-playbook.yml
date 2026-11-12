@@ -1,9 +1,10 @@
 # Builds the team site, "Jam books" (`just manual-site`): this manual's three
 # versions side by side (release is Released, main is Next, goal is Goal), and
 # the process book from a clone of aethons-tools/jam-config when there is one
-# (main is Current, goal is Goal; extensions/books.js). Antora takes your local
+# (main is Current, goal is Goal; extensions/books.js), and the architecture
+# book from docs/ (versions as the manual's). Antora takes your local
 # branch of each name, else origin's; the branch you have checked out is read
-# from the working tree. See docs/manual.md.
+# from the working tree. See docs/modules/ROOT/pages/manual.adoc.
 site:
   title: Jam books
   start_page: released@jam:ROOT:index.adoc
@@ -22,7 +23,7 @@ antora:
   # $JAM_CONFIG_DIR (must exist when set; CI sets it), else ../jam-config next to
   # this checkout, else skipped with a warning. Not a content source because a
   # playbook can't read the environment and a missing url fails the build.
-  # See docs/manual-books.md.
+  # See docs/modules/ROOT/pages/manual-books.adoc.
   - require: ./extensions/books.js
     books:
     - name: process
@@ -35,9 +36,21 @@ antora:
         goal: goal
       # Opens on current, not goal (Antora would pick goal: reverse alphabetical).
       prerelease: [goal]
+    # The architecture book, docs/ of this repo. Here rather than a content
+    # source because a branch without docs/antora.yml (release, until it is
+    # released; goal, until main is merged in) would fail the build: books.js
+    # skips it with a warning.
+    - name: architecture
+      dir: ..
+      start_path: docs
+      branches: [release, main, goal]
+      version:
+        release: released
+        main: next
+        goal: goal
   # Drops internal pages, modules, phrases and their files when `internal` is
   # unset; badges internal pages in the nav when it is set. Whole internal
-  # modules are listed in antora.yml. See docs/manual.md ("Marking content internal").
+  # modules are listed in antora.yml. See docs/modules/ROOT/pages/manual.adoc ("Marking content internal").
   - require: ./extensions/internal.js
   # Full-text search (team builds only: the customer build is embedded in Jam,
   # whose CSP allows no scripts). Index includes internal content, like the site.

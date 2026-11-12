@@ -3,7 +3,7 @@
 // refresh, …). It owns the model, the in-memory Tracker with async
 // write-through persistence, the Prometheus exposition and the admin JSON
 // view. It is a leaf package: producers in internal/jam call into it.
-// See docs/usage/jam/monitoring.md.
+// See docs/modules/ROOT/pages/usage/jam/monitoring.adoc.
 package condition
 
 import (

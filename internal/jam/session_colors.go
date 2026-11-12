@@ -1,7 +1,7 @@
 package jam
 
 // SessionColorStore is the Store's session_colors table: a session id's
-// color (docs/usage/jam/session-colors.md), kept after the session ends.
+// color (docs/modules/ROOT/pages/usage/jam/session-colors.adoc), kept after the session ends.
 // Rows are never deleted.
 type SessionColorStore interface {
 	SessionColor(actorID string) (string, bool)

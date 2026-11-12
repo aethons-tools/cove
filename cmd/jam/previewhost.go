@@ -23,7 +23,7 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// Studio previews (docs/usage/jam/previews.md) ride the admin
+// Studio previews (docs/modules/ROOT/pages/usage/jam/previews.adoc) ride the admin
 // listener: its TLS config carries the previews' wildcard cert beside the
 // admin cert (picked by SNI), and hostRouter sends preview and login hosts to
 // the preview handler, everything else to the admin API.

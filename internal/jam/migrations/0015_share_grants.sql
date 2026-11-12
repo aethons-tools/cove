@@ -1,4 +1,4 @@
--- Studio collaboration share grants (docs/usage/jam/collaboration.md): ad-hoc
+-- Studio collaboration share grants (docs/modules/ROOT/pages/usage/jam/collaboration.adoc): ad-hoc
 -- access to one session for one user, time-boxed. Keyed by session id; removed
 -- when the session ends.
 CREATE TABLE share_grants (

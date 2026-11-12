@@ -145,7 +145,7 @@ BIN2="$WORK/bin2"; mkdir -p "$BIN2"
 printf 'old-at-jam\n' >"$BIN2/at-jam"; printf 'old-at-mint\n' >"$BIN2/at-mint"; printf 'old-sm\n' >"$BIN2/at-studio-manager"
 out="$(JAM_VERSION="$FIXTURE_VERSION" BINDIR="$BIN2" run_install 2>&1)" && rc=0 || rc=$?
 assert_eq "install with stale binaries exit 0" 0 "$rc"
-case "$out" in *"pre-rename binaries still in $BIN2: at-jam at-mint at-studio-manager"*"renamed-from-at.md"*) ok "stale notice names them and the runbook" ;; *) bad "stale notice" "$out" ;; esac
+case "$out" in *"pre-rename binaries still in $BIN2: at-jam at-mint at-studio-manager"*"renamed-from-at.adoc"*) ok "stale notice names them and the runbook" ;; *) bad "stale notice" "$out" ;; esac
 assert_eq "stale at-jam untouched" old-at-jam "$(cat "$BIN2/at-jam")"
 assert_eq "stale at-mint untouched" old-at-mint "$(cat "$BIN2/at-mint")"
 assert_eq "stale at-studio-manager untouched" old-sm "$(cat "$BIN2/at-studio-manager")"
@@ -155,7 +155,7 @@ BIN8="$WORK/bin8"; mkdir -p "$BIN8"
 printf 'old-jsm\n' >"$BIN8/jam-studio-manager"
 out="$(JAM_VERSION="$FIXTURE_VERSION" BINDIR="$BIN8" run_install 2>&1)" && rc=0 || rc=$?
 assert_eq "install with jam-studio-manager left exit 0" 0 "$rc"
-case "$out" in *"jam-studio-manager is now jam-colima"*"$BIN8/jam-studio-manager"*"jam-colima.md#upgrading-from-jam-studio-manager"*) ok "jam-studio-manager notice names it and the upgrade section" ;; *) bad "jam-studio-manager notice" "$out" ;; esac
+case "$out" in *"jam-studio-manager is now jam-colima"*"$BIN8/jam-studio-manager"*"jam-colima.adoc#upgrading-from-jam-studio-manager"*) ok "jam-studio-manager notice names it and the upgrade section" ;; *) bad "jam-studio-manager notice" "$out" ;; esac
 case "$out" in *"pre-rename binaries"*) bad "jam-studio-manager is not an at-* binary" "$out" ;; *) ok "jam-studio-manager is not an at-* binary" ;; esac
 assert_eq "leftover jam-studio-manager untouched" old-jsm "$(cat "$BIN8/jam-studio-manager")"
 if [ -x "$BIN8/jam-colima" ]; then ok "jam-colima installed next to it"; else bad "jam-colima installed next to it"; fi

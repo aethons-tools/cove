@@ -2,8 +2,8 @@
 # manual.sh — build the customer manual (manual/, Released version only,
 # internal content removed) that jam embeds, into internal/jam/uiassets/manual/
 # (git-ignored). Needs Node and npm with access to the npm registry. Without
-# it jam still builds: /app/manual/ answers "not built". See docs/web-app.md
-# and docs/manual.md.
+# it jam still builds: /app/manual/ answers "not built". See docs/modules/ROOT/pages/web-app.adoc
+# and docs/modules/ROOT/pages/manual.adoc.
 #
 #   scripts/manual.sh                  # build (npm ci + antora)
 #   APP_OPTIONAL=1 scripts/manual.sh   # skip, with a warning, when npm is missing
@@ -33,6 +33,11 @@ fi
 # The customer manual is the product book only: never the team-only process book.
 if [ -e "$out.tmp/process" ]; then
   echo "manual: the customer manual must not have the process book (antora-playbook.jam.yml registers extensions/books.js?)" >&2
+  exit 1
+fi
+# Nor the team-only architecture book (docs/).
+if [ -e "$out.tmp/architecture" ]; then
+  echo "manual: the customer manual must not have the architecture book (antora-playbook.jam.yml adds docs/ or registers extensions/books.js?)" >&2
   exit 1
 fi
 cp "$out/.keep" "$out.tmp/.keep"

@@ -106,7 +106,7 @@ type KitSummary struct {
 	// Parent is the current version's base kit as written ("web-dev" or
 	// "web-dev@v3"); empty when it has none.
 	Parent string `json:"parent,omitempty"`
-	Draft  bool   `json:"draft,omitempty"` // an open draft (kits-drafts.md)
+	Draft  bool   `json:"draft,omitempty"` // an open draft (kits-drafts.adoc)
 }
 
 // KitFileInfo is one file of a kit version, as GET /admin/kits/{name} lists it.
@@ -409,7 +409,7 @@ func validateOverride(store Store, project, role string, o *Override, credExists
 }
 
 // importConfigMigrated imports snap and migrates its pre-tree kits to trees
-// (kits-directory.md#stored-as-trees; a snapshot of trees is a no-op),
+// (kits-directory.adoc#stored-as-trees; a snapshot of trees is a no-op),
 // raising kit.migrate on t. It holds configMu across both (configMu → kitMu,
 // as an apply), so no apply, drift check or release sees imported kits
 // before they are trees. A migration failure is a plain (500) error.

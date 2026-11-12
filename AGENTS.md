@@ -2,15 +2,20 @@
 
 `cove` — the Jam service (`jam`) and the hardened Claude Code studios it builds and runs.
 
-**Start here:** [`docs/OVERVIEW.md`](docs/OVERVIEW.md) —
+**Start here:** [`docs/modules/ROOT/pages/OVERVIEW.adoc`](docs/modules/ROOT/pages/OVERVIEW.adoc) —
 what this repo builds, the studio image's security model, the package map, and how to build/test/run.
-For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
+For anything else, route from the docs map, [`docs/modules/ROOT/pages/INDEX.adoc`](docs/modules/ROOT/pages/INDEX.adoc)
+(`docs/` is an Antora book in AsciiDoc: `xref:x.adoc[]` is the file `docs/modules/ROOT/pages/x.adoc`).
+The human view of the same docs is the architecture book on the team site, with search
+([`manual-books.adoc`](docs/modules/ROOT/pages/manual-books.adoc)); agents read the files.
+Run the docs-audit checker with this repo's flags (`--exclude 'superpowers/*' --repo-url …`),
+as [`docs-asciidoc.adoc`](docs/modules/ROOT/pages/docs-asciidoc.adoc) ("Auditing a mixed tree") gives them.
 
 ## Quick orientation
 
 - **Module:** `github.com/aethons-tools/cove` · **Binaries:** `jam` (minting is `jam mint`), `jam-colima` (remote Studio Manager host process), `jam-studio-agent` (embedded in studio images); dev tools `adopt-base`, `gen-blessed`, `gen-icons`
-- **Entry points:** `cmd/jam/main.go` (the Jam service and its CLI — start at [`docs/usage/jam/INDEX.md`](docs/usage/jam/INDEX.md)), `cmd/jam-studio-agent/main.go` (the in-studio agent supervisor), `internal/mintcmd` (`jam mint`, the token minter).
-- **Packages:** see the package map in [the overview](docs/OVERVIEW.md#architecture).
+- **Entry points:** `cmd/jam/main.go` (the Jam service and its CLI — start at [`docs/modules/ROOT/pages/usage/jam/INDEX.adoc`](docs/modules/ROOT/pages/usage/jam/INDEX.adoc)), `cmd/jam-studio-agent/main.go` (the in-studio agent supervisor), `internal/mintcmd` (`jam mint`, the token minter).
+- **Packages:** see the package map in [the overview](docs/modules/ROOT/pages/OVERVIEW.adoc#architecture).
 
 ## Working in this repo
 
@@ -30,10 +35,10 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
   Do not consider work done, and do not open a commit or PR,
   until the documentation describing what you changed is updated in the *same* change.
   Route the update to the doc that owns the subject
-  (start from [`docs/OVERVIEW.md`](docs/OVERVIEW.md)),
+  (start from [`docs/modules/ROOT/pages/OVERVIEW.adoc`](docs/modules/ROOT/pages/OVERVIEW.adoc)),
   and keep `docs/` in sync — never leave docs describing the old behavior.
   A change a Jam user can see also updates its page in the user manual, `manual/`
-  ([`docs/manual.md`](docs/manual.md)).
+  ([`docs/modules/ROOT/pages/manual.adoc`](docs/modules/ROOT/pages/manual.adoc)).
   Note this covers *this repo's* docs; a change to the template tree above
   updates the sandbox's docs, which is a separate concern.
 
@@ -64,7 +69,7 @@ For anything else, route from the docs map, [`docs/INDEX.md`](docs/INDEX.md).
 
 - **Toolchain quirks** —
   this repo is developed in an egress-locked sandbox;
-  see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for the `GOPROXY`/`GOPATH` settings that make `go` work here.
+  see [`docs/modules/ROOT/pages/DEVELOPMENT.adoc`](docs/modules/ROOT/pages/DEVELOPMENT.adoc) for the `GOPROXY`/`GOPATH` settings that make `go` work here.
 
 ## Design history
 
