@@ -246,7 +246,7 @@ a `Fake` records calls for tests.
 ----
 cmd/jam/                       jam: `serve` (broker + control plane + Requisitioner) and the admin-API client verbs
 internal/mintcmd/              `jam mint`: the host-side token minter (github / anthropic)
-cmd/jam-colima/                remote Studio Manager: dials Jam, hosts studios on a Colima host (logic in internal/studiomanager/; colima verbs in internal/colimacmd/)
+cmd/jam-colima/                remote Studio Manager: dials Jam, hosts studios on a Colima host
 cmd/jam-studio-agent/          the in-studio agent supervisor (embedded in every studio image)
 cmd/{adopt-base,gen-blessed,gen-icons}/  dev tools: raise the blessed watermark, snapshot blessed bases, regenerate app icons
 internal/jam/                  broker + control plane (store, roster, intercom, admin API/UI); internal/jam/launcher is the code a Studio Manager raises studios with
@@ -267,6 +267,30 @@ internal/keys/                 a Studio Manager's SSH keypair (generated on firs
 internal/naming/               studio container and volume names
 internal/{usersecret,mint,secret}/  Jam's credentials file, mint: expansion, host-side resolution
 internal/sshargs/              pure argv builders for the ssh client
+internal/studiomanager/        the generic Studio Manager host runtime (config, connect loop, Jam's ops) jam-colima runs
+internal/colimacmd/            jam-colima's `colima setup-docker|check-docker` verbs
+internal/colimacfg/            pure colima.yaml edit: Sysbox provision hook + sysbox-runc runtime
+internal/studioagent/          jam-studio-agent's Attach-stream client: activity up, control down
+internal/agentrun/             jam-studio-agent's agent wrapper: runs the agent headless as episodes
+internal/tracker/              the one tracker contract (Tracker) the trackers implement
+internal/ticketkey/            validated, canonical GitHub ticket keys (owner/repo#n)
+internal/allocator/            Jam's capacity authority: admits sessions per (project, role) against a budget
+internal/standing/             standing-session reconciler: one live cove per declared standing session
+internal/wakeon/               wake-on engine: wakes Waiting coves on replies, tears down past max-wait
+internal/escalate/             escalation engine: calls tiers of people into a waiting session's channel
+internal/intercom/             the durable, append-only squawk Log
+internal/relay/                squawk Log adapter engine: bridges the Log to an external Service
+internal/blobstore/            attachment bytes in an S3-compatible bucket (or memory)
+internal/kittree/              a kit version's files as a content-addressed tree
+internal/ident/                Jam's surrogate ids: opaque, kind-prefixed, time-sortable
+internal/legacynames/          the pre-rename names Jam's migrations and refusals still recognise
+internal/update/               `jam update`: drives the embedded install.sh to update the binaries
+internal/adoptbase/            pure file transform behind cmd/adopt-base (raise the blessed watermark)
+internal/blessgen/             generates the blessed jam-studio-base list at build time
+internal/cli/                  zero-dependency command registry shared by the binaries
+internal/logging/              slog-based logging: attended and unattended modes
+internal/textesc/              makes untrusted text inert for a terminal, a plan or a page
+internal/numfmt/               display formatting: thousands separators, binary sizes
 internal/runner/               Runner interface (OS impl + Fake)
 ----
 
