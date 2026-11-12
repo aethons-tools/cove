@@ -76,7 +76,7 @@ func (l *Launcher) PrepareKit(ctx context.Context, def KitDefinition) (KitStatus
 	if _, err := ops.BuildKitImage(buildDir, l.imageTag(ref), base, def.Kit.BuildArgs, false); err != nil {
 		return KitStatus{State: KitPreparing, Err: err.Error()}, fmt.Errorf("prepare kit %s: build: %w", ref, err)
 	}
-	_, excluded := studioEgress(def.Kit, l.cfg.JamHost)
+	_, excluded := studioEgress(def.Kit, l.cfg.JamHost, l.cfg.DestinationsDomain)
 	l.cfg.Log.Info("prepared studio kit", "ref", ref.String(), "tag", l.imageTag(ref), "asm", shortAsm(l.asm), "ceiling_excludes", excluded,
 		"harness", string(def.Harness.Type), "harness_version", def.Harness.Version, "plugins", len(def.Harness.Plugins))
 	return KitStatus{State: KitReady}, nil
@@ -275,6 +275,6 @@ func (l *Launcher) lockKey(key string) func() {
 // data-only transfer that a remote substrate could run too. Wired unless a test
 // injects a seam.
 func (l *Launcher) defaultAssemble(def KitDefinition, buildDir string) error {
-	eg, _ := studioEgress(def.Kit, l.cfg.JamHost)
+	eg, _ := studioEgress(def.Kit, l.cfg.JamHost, l.cfg.DestinationsDomain)
 	return assemble.AssembleContext(buildDir, l.cfg.PublicKey, eg, "", def.Kit.MCPServers, def.Harness)
 }

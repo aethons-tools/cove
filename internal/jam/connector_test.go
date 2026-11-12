@@ -274,3 +274,26 @@ func TestConnectorForExistingDestinationsUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// A studio resolves only the subdomain hosts of the destinations its role
+// grants: <sub>.<domain> for each subdomain endpoint, sorted and unique;
+// route-only endpoints and ungranted destinations add none.
+func TestDestinationHostsForGrantedOnly(t *testing.T) {
+	withDestinationsDomain(t, "jam.example.com")
+	linear := Destination{Name: "linear", Endpoints: []Endpoint{{Name: "linear", Subdomain: "linear", Upstream: "https://api.linear.app"}}}
+	st := connectorStore(t, []Destination{githubEndpoints, linear, legacyAnthropic},
+		map[string]Scope{"w": {Destinations: []string{"github", "anthropic", "missing"}}})
+	got := DestinationHostsFor(st, actorWith("w"))
+	if want := []string{"gh.jam.example.com", "git.jam.example.com"}; !slices.Equal(got, want) {
+		t.Fatalf("hosts = %v, want %v", got, want)
+	}
+}
+
+// Without a destinations domain no endpoint has a host of its own.
+func TestDestinationHostsForNoDomain(t *testing.T) {
+	withDestinationsDomain(t, "")
+	st := connectorStore(t, []Destination{githubEndpoints}, map[string]Scope{"w": {Destinations: []string{"github"}}})
+	if got := DestinationHostsFor(st, actorWith("w")); got != nil {
+		t.Fatalf("hosts = %v, want none", got)
+	}
+}
