@@ -374,7 +374,8 @@ func (e *Engine) tick(ctx context.Context) {
 		// No session is torn down for waiting, whatever its kind: one waiting
 		// for help keeps its studio and its work. The role's idle timeout and
 		// on-idle action (fireIdle), end, and operators end sessions.
-		if e.runGates(ctx, inst) {
+		resumed, started := e.runGates(ctx, inst)
+		if resumed {
 			continue // resumed to run a gate; it runs on a later tick
 		}
 		// One Wake carries every reason: a pending reply and each fired alarm.
@@ -415,7 +416,9 @@ func (e *Engine) tick(ctx context.Context) {
 			continue // reclaimed
 		}
 		// Kept processes (keep_start) keep running while it waits: never frozen.
-		if inst.Phase != jam.PhaseIdled && e.now().Sub(inst.WaitingSince) > e.cfg.WarmTimeout && !gateInFlight(inst) && !e.tunnelsInUse(inst) && inst.KeptProcesses == 0 {
+		// Nor is a gate: inst predates runGates, so a gate started this tick is
+		// not yet in gateInFlight(inst).
+		if inst.Phase != jam.PhaseIdled && e.now().Sub(inst.WaitingSince) > e.cfg.WarmTimeout && !started && !gateInFlight(inst) && !e.tunnelsInUse(inst) && inst.KeptProcesses == 0 {
 			// ErrStudioInUse: a tunnel opened since the check above; not a failure.
 			if err := e.idler.Idle(ctx, inst.ActorID); err != nil && !errors.Is(err, jam.ErrStudioInUse) {
 				e.log.Warn("wakeon: idle (pause) failed", "actor", inst.ActorID, "error", err.Error())
@@ -459,10 +462,12 @@ func (e *Engine) wakeRunning(inst jam.Instance, extra []jam.WakeReason) bool {
 
 // runGates starts the gates of inst's due gated alarms, and fails any run
 // that got no result within GateTimeout+GateGrace. A paused cove is resumed
-// first, and its gates run on a later tick: it reports whether it resumed.
-func (e *Engine) runGates(ctx context.Context, inst jam.Instance) bool {
+// first, and its gates run on a later tick. It reports whether it resumed the
+// cove and whether it started a gate: the caller must not pause a cove it just
+// asked to run one.
+func (e *Engine) runGates(ctx context.Context, inst jam.Instance) (resumed, started bool) {
 	if e.gates == nil || e.gateRunner == nil {
-		return false
+		return false, false
 	}
 	now := e.now()
 	for _, a := range inst.Alarms {
@@ -482,7 +487,7 @@ func (e *Engine) runGates(ctx context.Context, inst jam.Instance) bool {
 			if err := e.idler.Resume(ctx, inst.ActorID); err != nil {
 				e.log.Warn("wakeon: resume for gate failed", "actor", inst.ActorID, "error", err.Error())
 			}
-			return true
+			return true, false
 		}
 		if !e.gateRunner.Connected(inst.ActorID) {
 			continue // the stream is (re)connecting: run it on a later tick
@@ -493,9 +498,10 @@ func (e *Engine) runGates(ctx context.Context, inst jam.Instance) bool {
 		} else if ok {
 			e.log.Info("wakeon: running gate", "actor", inst.ActorID, "alarm", a.Name, "run", runID)
 			e.gateRunner.RunGate(inst.ActorID, runID, a.Name, a.Gate, jam.GateTimeout)
+			started = true
 		}
 	}
-	return false
+	return false, started
 }
 
 // gateInFlight reports whether any of inst's alarms has a gate running: the
