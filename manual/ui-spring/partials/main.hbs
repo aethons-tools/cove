@@ -1,0 +1,18 @@
+{{!-- Jam (adapted from antora-ui-spring's main.hbs, MPL-2.0). --}}
+<main class="article">
+{{> toolbar}}
+{{!-- Jam: breadcrumbs and the Next/Goal banners sit outside article.doc, the only part the search index reads. --}}
+<div class="jam-above-doc">
+{{> breadcrumbs}}
+{{#if (eq page.version 'next')}}<p class="jam-banner">Merged, not released yet.</p>{{/if}}
+{{#if (eq page.version 'goal')}}<p class="jam-banner">How it should work, not necessarily how it works today.</p>{{/if}}
+</div>
+  <div class="content">
+{{#if (eq page.layout '404')}}
+{{> article-404}}
+{{else}}
+{{> toc}}
+{{> article}}
+{{/if}}
+  </div>
+</main>

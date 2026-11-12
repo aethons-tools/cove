@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -283,39 +282,6 @@ func TestImportConfigRefusesUnknownMethodNamingIt(t *testing.T) {
 	err := NewMemStore().ImportConfig(snap)
 	if err == nil || !strings.Contains(err.Error(), "legacy") || !strings.Contains(err.Error(), "apply") {
 		t.Fatalf("err = %v, want naming destination legacy and field apply", err)
-	}
-}
-
-// UpdateDestinationKeepSpecs (the UI's edit) keeps stored custom specs when
-// the incoming method is custom with no spec, under the write lock.
-func TestUpdateDestinationKeepSpecs(t *testing.T) {
-	store := NewMemStore()
-	spec := &OutboundSpec{Header: "Private-Token", Template: "{cred}"}
-	base := Destination{Name: "gl", Endpoints: []Endpoint{{Name: "gl", Route: "/gl/", Upstream: "https://gl", IdentityIn: ApplyRaw, Apply: ApplyCustom, ApplySpec: spec}}}
-	if err := store.AddDestination(base); err != nil {
-		t.Fatal(err)
-	}
-	credOK := func(string) bool { return true }
-	edit := base
-	edit.Endpoints = slices.Clone(base.Endpoints)
-	edit.Endpoints[0].ApplySpec, edit.Endpoints[0].Upstream = nil, "https://gl2"
-	if err := UpdateDestinationKeepSpecs(store, edit, credOK, false); err != nil {
-		t.Fatal(err)
-	}
-	if d := store.ListDestinations()[0]; d.Endpoints[0].Upstream != "https://gl2" || d.Endpoints[0].ApplySpec == nil || *d.Endpoints[0].ApplySpec != *spec {
-		t.Fatalf("stored = %+v", d)
-	}
-	// Switching to a preset drops the spec; plain UpdateDestination never fills one in.
-	edit.Endpoints[0].Apply = ApplyBearer
-	if err := UpdateDestinationKeepSpecs(store, edit, credOK, false); err != nil || store.ListDestinations()[0].Endpoints[0].ApplySpec != nil {
-		t.Fatalf("preset edit: %v %+v", err, store.ListDestinations()[0])
-	}
-	edit.Endpoints[0].Apply = ApplyCustom
-	if err := UpdateDestination(store, edit, credOK, false); err == nil {
-		t.Fatal("UpdateDestination filled in a spec")
-	}
-	if err := UpdateDestinationKeepSpecs(store, Destination{Name: "ghost", Endpoints: []Endpoint{{Name: "ghost", Route: "/g/", Upstream: "https://g"}}}, credOK, false); WriteStatus(err, 0) != http.StatusNotFound {
-		t.Fatalf("missing = %v", err)
 	}
 }
 

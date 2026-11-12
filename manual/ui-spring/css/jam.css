@@ -1,0 +1,19 @@
+/* Jam books on antora-ui-spring: our header, banners and team-only marking.
+   A new file of ours, layered on the bundle as a supplemental file
+   (docs/modules/ROOT/pages/manual-books.adoc). */
+:root{--jam-acc:#a8285a;--jam-bg:var(--body-background,#fff)}
+html.dark-theme{--jam-acc:#e07aa5}
+.jam-brand{font-weight:700;font-size:1.1rem}
+.jam-search{position:relative;display:flex;align-items:center;gap:8px;margin-left:auto;margin-right:16px}
+#search-input{width:260px;font:inherit;font-size:14px;padding:4px 10px;border:1px solid #888;border-radius:6px;background:transparent;color:inherit}
+.jam-filter{font-size:12px;white-space:nowrap}
+.jam-above-doc{margin:12px 0 0 36px;max-width:740px}
+.jam-above-doc .breadcrumbs-container{margin:0}
+.jam-banner{border:1px solid var(--jam-acc);border-radius:6px;padding:8px 12px;font-size:14px;margin:8px 0 0}
+.doc div.internal{position:relative;border:1px dashed var(--jam-acc);border-radius:6px;padding:18px 12px 4px;margin:12px 0}
+.doc div.internal::before{content:"Team";position:absolute;top:-9px;left:10px;background:var(--jam-bg);padding:0 6px;color:var(--jam-acc);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.doc span.internal{text-decoration:underline dotted var(--jam-acc);text-underline-offset:3px}
+.team-only{border:1px solid var(--jam-acc);border-radius:4px;padding:0 4px;color:var(--jam-acc);font-size:10px;font-weight:600;white-space:nowrap}
+.footer .jam-ui-notice a{color:inherit}
+/* Version names are lower case (released, next, goal); show them capitalized, as manual/ui does. */
+.nav-versions .version a,.nav-menu .context .version{text-transform:capitalize}

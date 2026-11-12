@@ -1,18 +1,20 @@
 package adminui
 
 import (
+	"fmt"
 	"maps"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
-// methods are the ApplyMethod choices for identity-in / apply selects: the
-// presets. "custom" is offered (selected) only on a destination that already
-// uses it — custom specs are set via the admin API / `destination import` and
-// shown read-only here.
+// methods are the ApplyMethod presets an endpoint's identity-in / apply
+// offers; "custom" (an expression: the endpoint's header spec) is the other
+// choice.
 var methods = jam.Presets
 
 // destListRow is one destinations-table row.
@@ -40,12 +42,6 @@ type destConflict struct {
 	Project, Role, Other, What string
 }
 
-// destForm is the destination in the edit form's input syntax.
-type destForm struct {
-	Env        string // KEY=TEMPLATE lines, the declared env only
-	AllowPaths string // one pattern per line
-}
-
 // destDetail is the destination page payload.
 type destDetail struct {
 	Title       string
@@ -56,7 +52,6 @@ type destDetail struct {
 	GitImplied  bool // routed only by the legacy /git/ rule
 	Uses        []destUse
 	Conflicts   []destConflict
-	Form        destForm
 	Methods     []jam.ApplyMethod
 	NotFound    bool
 	NotFoundFor string
@@ -117,13 +112,6 @@ func buildDestDetail(store jam.Store, name string) (destDetail, bool) {
 	for _, k := range slices.Sorted(maps.Keys(env)) {
 		out.Env = append(out.Env, envRow{Key: k, Template: env[k]})
 	}
-	var lines []string
-	for _, k := range slices.Sorted(maps.Keys(d.Env)) {
-		lines = append(lines, k+"="+d.Env[k])
-	}
-	out.Form.Env = strings.Join(lines, "\n")
-	out.Form.AllowPaths = strings.Join(d.Primary().AllowPaths, "\n")
-
 	// Flag (never block) roles whose connector assembly this destination breaks,
 	// mirroring jam.ConnectorFor over the role's own scope.
 	for _, u := range out.Uses {
@@ -147,12 +135,12 @@ func buildDestDetail(store jam.Store, name string) (destDetail, bool) {
 	return out, true
 }
 
-// gitClash reports whether d and o both route git on different routes, which
+// gitClash reports whether d and o both route git on different addresses, which
 // jam.ConnectorFor refuses in one scope.
 func gitClash(d, o jam.Destination) bool {
 	for _, e := range d.GitEndpoints() {
 		for _, f := range o.GitEndpoints() {
-			if e.Route != f.Route {
+			if e.Subdomain != f.Subdomain || e.Route != f.Route {
 				return true
 			}
 		}
@@ -174,76 +162,102 @@ func (d destDetail) ConflictRoles() []string {
 // destURL is the detail page path for a destination.
 func destURL(name string) string { return "/app/admin/destinations/" + url.PathEscape(name) }
 
-// parseEnv reads the env textarea: one KEY=TEMPLATE per line, blank lines
-// skipped. Empty means no declared env (the route's legacy default applies).
-func parseEnv(s string) (map[string]string, error) {
-	var env map[string]string
-	for line := range strings.Lines(s) {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		k, v, ok := strings.Cut(line, "=")
-		k = strings.TrimSpace(k)
-		if !ok || k == "" {
-			return nil, badRequest("env line " + `"` + line + `"` + " is not KEY=TEMPLATE")
-		}
-		if _, dup := env[k]; dup {
-			return nil, badRequest("env key " + k + " is set twice")
-		}
-		if env == nil {
-			env = map[string]string{}
-		}
-		env[k] = strings.TrimSpace(v)
+// destFieldsOf is d's editable fields as the API reads them: the declared
+// env by key, each endpoint's every field ("none" for header logging off,
+// "raw" for the raw encoding).
+func destFieldsOf(d jam.Destination) DestFields {
+	out := DestFields{CredName: d.CredName, Note: d.Note, Env: []EnvRow{}, Endpoints: []DestEndpoint{}}
+	for _, k := range slices.Sorted(maps.Keys(d.Env)) {
+		out.Env = append(out.Env, EnvRow{Key: k, Template: d.Env[k]})
 	}
-	return env, nil
-}
-
-// parseAllowPaths reads the allow-paths textarea: one pattern per line, blank
-// lines skipped. Empty means any path.
-func parseAllowPaths(s string) []string {
-	var out []string
-	for line := range strings.Lines(s) {
-		if line = strings.TrimSpace(line); line != "" {
-			out = append(out, line)
+	for _, e := range d.Endpoints {
+		x := DestEndpoint{Name: e.Name, Subdomain: e.Subdomain, Route: e.Route, Upstream: e.Upstream,
+			IdentityIn: string(e.IdentityIn), Apply: string(e.Apply), AllowPaths: append([]string{}, e.AllowPaths...), Git: e.Git,
+			LogHeadersIn: headerLogText(e.LogHeadersIn), LogHeadersOut: headerLogText(e.LogHeadersOut)}
+		if s := e.IdentityInSpec; s != nil {
+			x.IdentityInSpec = &DestInboundSpec{Header: s.Header, Prefixes: append([]string{}, s.Prefixes...), Encoding: encodingText(s.Encoding)}
 		}
+		if s := e.ApplySpec; s != nil {
+			x.ApplySpec = &DestOutboundSpec{Header: s.Header, Template: s.Template, Encoding: encodingText(s.Encoding), BasicUser: s.BasicUser}
+		}
+		out.Endpoints = append(out.Endpoints, x)
 	}
 	return out
 }
 
-// destFromFields reads every destination field but the name from its form
-// fields (get reads one by its form name).
-func destFromFields(get func(string) string, name string) (jam.Destination, error) {
-	env, err := parseEnv(get("env"))
-	if err != nil {
-		return jam.Destination{}, err
+// headerLogText is a header-logging level as the API reads it: "none" when off.
+func headerLogText(h jam.HeaderLog) string {
+	if h == "" {
+		return string(jam.HeaderLogNone)
 	}
-	return jam.Destination{
-		Name: name,
-		// The form edits one endpoint: a new destination's only one, or an
-		// existing one's first (jam.UpdateDestinationKeepSpecs).
-		Endpoints: []jam.Endpoint{{
-			Name:       name,
-			Route:      strings.TrimSpace(get("route")),
-			Upstream:   strings.TrimSpace(get("upstream")),
-			IdentityIn: jam.ApplyMethod(strings.TrimSpace(get("identity-in"))),
-			Apply:      jam.ApplyMethod(strings.TrimSpace(get("apply"))),
-			AllowPaths: parseAllowPaths(get("allow-paths")),
-			Git:        get("git") != "",
-			// "none" is the default; store it as unset.
-			LogHeadersIn:  headerLogField(get("log-headers-in")),
-			LogHeadersOut: headerLogField(get("log-headers-out")),
-		}},
-		CredName: strings.TrimSpace(get("cred-name")),
-		Env:      env,
-		Note:     strings.TrimSpace(get("note")),
-	}, nil
+	return string(h)
 }
 
-// headerLogField reads a header-logging select: "none" (or empty) is unset.
-func headerLogField(v string) jam.HeaderLog {
+// encodingText is a header spec's encoding as the API reads it: "raw" for the
+// default.
+func encodingText(e jam.HeaderEncoding) string {
+	if e == jam.EncodingRaw {
+		return "raw"
+	}
+	return string(e)
+}
+
+// destOf is the destination f writes, named name; text fields are trimmed,
+// "none" header logging and the "raw" encoding are stored unset, an empty
+// env is none (the legacy default). A blank or repeated env key is refused
+// at its row (env[i].key); every other rule is jam.ValidateDestination's.
+func destOf(f DestFields, name string) (jam.Destination, error) {
+	d := jam.Destination{Name: name, CredName: strings.TrimSpace(f.CredName), Note: strings.TrimSpace(f.Note)}
+	var fe sessionctx.FieldErrors
+	for i, r := range f.Env {
+		k := strings.TrimSpace(r.Key)
+		switch _, dup := d.Env[k]; {
+		case k == "":
+			fe = append(fe, sessionctx.FieldError{Field: fmt.Sprintf("env[%d].key", i), Message: "env key is required"})
+		case dup:
+			fe = append(fe, sessionctx.FieldError{Field: fmt.Sprintf("env[%d].key", i), Message: "env key " + k + " is set twice"})
+		default:
+			if d.Env == nil {
+				d.Env = map[string]string{}
+			}
+			d.Env[k] = strings.TrimSpace(r.Template)
+		}
+	}
+	if len(fe) > 0 {
+		return jam.Destination{}, &jam.WriteError{Status: http.StatusBadRequest, Msg: fe.Error(), Fields: fe}
+	}
+	for _, x := range f.Endpoints {
+		e := jam.Endpoint{Name: strings.TrimSpace(x.Name), Subdomain: strings.TrimSpace(x.Subdomain), Route: strings.TrimSpace(x.Route),
+			Upstream: strings.TrimSpace(x.Upstream), IdentityIn: jam.ApplyMethod(strings.TrimSpace(x.IdentityIn)), Apply: jam.ApplyMethod(strings.TrimSpace(x.Apply)),
+			Git: x.Git, LogHeadersIn: headerLogOf(x.LogHeadersIn), LogHeadersOut: headerLogOf(x.LogHeadersOut)}
+		for _, p := range x.AllowPaths {
+			if p = strings.TrimSpace(p); p != "" {
+				e.AllowPaths = append(e.AllowPaths, p)
+			}
+		}
+		if s := x.IdentityInSpec; s != nil {
+			e.IdentityInSpec = &jam.InboundSpec{Header: strings.TrimSpace(s.Header), Prefixes: slices.Clone(s.Prefixes), Encoding: encodingOf(s.Encoding)}
+		}
+		if s := x.ApplySpec; s != nil {
+			e.ApplySpec = &jam.OutboundSpec{Header: strings.TrimSpace(s.Header), Template: s.Template, Encoding: encodingOf(s.Encoding), BasicUser: strings.TrimSpace(s.BasicUser)}
+		}
+		d.Endpoints = append(d.Endpoints, e)
+	}
+	return d, nil
+}
+
+// headerLogOf reads a header-logging level: "none" (or empty) is unset.
+func headerLogOf(v string) jam.HeaderLog {
 	if v = strings.TrimSpace(v); v == string(jam.HeaderLogNone) {
 		return ""
 	}
 	return jam.HeaderLog(v)
+}
+
+// encodingOf reads a header spec's encoding: "raw" (or empty) is unset.
+func encodingOf(v string) jam.HeaderEncoding {
+	if v = strings.TrimSpace(v); v == "raw" {
+		return jam.EncodingRaw
+	}
+	return jam.HeaderEncoding(v)
 }

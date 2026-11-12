@@ -97,6 +97,10 @@ or lies under one's first segment (`/squawks/x/`);
 * two endpoints, in this destination or any other, have the same subdomain and route;
 * an endpoint's header specs, `+allow_paths+` or header-logging levels are invalid.
 
+A refusal names every problem at once, an endpoint's prefixed with its name when there are several;
+the admin API also returns each at its field
+(xref:usage/jam/destination-api.adoc[destination-api]).
+
 The reserved paths are one table, `internal/jam/covepaths.go`.
 The cove listener's mux (`cmd/jam/mux.go`) dispatches by it,
 so a new Jam endpoint added there is reserved at once.
@@ -109,8 +113,10 @@ so whatever an older Jam stored still imports
 
 == Where the first endpoint stands in
 
-Some views still show one endpoint: the admin UI's destination form and list
-(they show and edit the first endpoint and keep the others),
+Some views still show one endpoint: the admin UI's destination form
+(it edits the first endpoint and sends the others back unchanged; the admin API itself reads and writes every endpoint),
 the connector's `+{url}+` and the `/anthropic/` legacy env default
-(the first endpoint's route).
+(the first endpoint's address).
+The connector names any other endpoint with `+{host:<endpoint>}+` and `+{url:<endpoint>}+`
+(xref:usage/jam/connector.adoc[connector]).
 `jam destination list` prints a line per endpoint, as `destination/endpoint` when there are several.

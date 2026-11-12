@@ -35,17 +35,26 @@ const (
 
 // ValidateHeaderLogging checks the endpoint's header-logging levels.
 func (e Endpoint) ValidateHeaderLogging() error {
+	if p := e.headerLoggingProblems(); len(p) > 0 {
+		return p[0]
+	}
+	return nil
+}
+
+// headerLoggingProblems is each bad level, at its admin API wire name.
+func (e Endpoint) headerLoggingProblems() []fieldErr {
+	var out []fieldErr
 	switch e.LogHeadersIn {
 	case "", HeaderLogNone, HeaderLogExamined, HeaderLogAll:
 	default:
-		return fmt.Errorf("log_headers_in must be none, examined or all")
+		out = append(out, fieldErr{field: "logHeadersIn", msg: "log_headers_in must be none, examined or all"})
 	}
 	switch e.LogHeadersOut {
 	case "", HeaderLogNone, HeaderLogChanged, HeaderLogAll:
 	default:
-		return fmt.Errorf("log_headers_out must be none, changed or all")
+		out = append(out, fieldErr{field: "logHeadersOut", msg: "log_headers_out must be none, changed or all"})
 	}
-	return nil
+	return out
 }
 
 // sensitiveHeaders always carry credentials or sessions (canonical keys).

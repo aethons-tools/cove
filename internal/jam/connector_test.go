@@ -1,8 +1,10 @@
 package jam
 
 import (
+	"encoding/json"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -134,5 +136,141 @@ func TestConnectorForGitTargetFromUpstream(t *testing.T) {
 	}
 	if c, err := ConnectorFor(st, actorWith("gh")); err != nil || c.GitRoute != "/git/" || c.GitTarget != "" {
 		t.Fatalf("github connector = %+v, %v", c, err)
+	}
+}
+
+// withDestinationsDomain sets the destinations domain for one test.
+func withDestinationsDomain(t *testing.T, domain string) {
+	t.Helper()
+	prev := DestinationsDomain()
+	SetDestinationsDomain(domain)
+	t.Cleanup(func() { SetDestinationsDomain(prev) })
+}
+
+// githubEndpoints is one service on several endpoints: REST on a subdomain
+// route, GraphQL route-only on the Jam host, git on a subdomain of its own.
+var githubEndpoints = Destination{Name: "github", Endpoints: []Endpoint{
+	{Name: "rest", Subdomain: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: ApplyBearer, Apply: ApplyBearer},
+	{Name: "graphql", Route: "/api/graphql/", Upstream: "https://api.github.com/graphql", IdentityIn: ApplyBearer, Apply: ApplyBearer},
+	{Name: "git", Subdomain: "git", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword, Git: true},
+}, Env: map[string]string{
+	"GH_HOST": "{host:rest}", "GH_API": "{url:rest}", "GH_GQL": "{url:graphql}", "GQL_HOST": "{host:graphql}",
+	"GIT_BASE": "{url:git}", "GH_ENTERPRISE_TOKEN": "{token}",
+}}
+
+func TestConnectorForEndpointPlaceholders(t *testing.T) {
+	withDestinationsDomain(t, "jam.example.com")
+	st := connectorStore(t, []Destination{githubEndpoints}, map[string]Scope{"w": {Destinations: []string{"github"}}})
+	c, err := ConnectorFor(st, actorWith("w"))
+	want := map[string]string{
+		"GH_HOST": "gh.jam.example.com", "GH_API": "https://gh.jam.example.com/api/v3",
+		// Route-only endpoints stay client-side placeholders, as {url} does.
+		"GH_GQL": "{base}/api/graphql", "GQL_HOST": "{host}",
+		"GIT_BASE": "https://git.jam.example.com", "GH_ENTERPRISE_TOKEN": "{token}",
+	}
+	if err != nil || !maps.Equal(c.Env, want) {
+		t.Fatalf("connector = %+v, %v\nwant env %v", c, err, want)
+	}
+	if c.GitRoute != "/" || c.GitHost != "git.jam.example.com" || c.GitTarget != "" {
+		t.Fatalf("git = %q on %q → %q, want / on git.jam.example.com", c.GitRoute, c.GitHost, c.GitTarget)
+	}
+}
+
+// {url} reads the first endpoint, so a destination whose one endpoint is on a
+// subdomain gets that subdomain's URL.
+func TestConnectorForURLOnSubdomain(t *testing.T) {
+	withDestinationsDomain(t, "jam.example.com")
+	d := Destination{Name: "linear", Endpoints: []Endpoint{{Name: "linear", Subdomain: "linear", Upstream: "https://api.linear.app"}},
+		Env: map[string]string{"LINEAR_URL": "{url}", "LINEAR_HOST": "{host:linear}"}}
+	st := connectorStore(t, []Destination{d}, map[string]Scope{"w": {Destinations: []string{"linear"}}})
+	c, err := ConnectorFor(st, actorWith("w"))
+	if err != nil || c.Env["LINEAR_URL"] != "https://linear.jam.example.com" || c.Env["LINEAR_HOST"] != "linear.jam.example.com" {
+		t.Fatalf("connector = %+v, %v", c, err)
+	}
+}
+
+// An endpoint on a subdomain stored on a Jam without a destinations domain
+// (e.g. imported from a backup) cannot be named: the connector fails closed.
+func TestConnectorForSubdomainWithoutDomainFails(t *testing.T) {
+	withDestinationsDomain(t, "")
+	for _, d := range []Destination{
+		{Name: "env", Endpoints: []Endpoint{{Name: "env", Subdomain: "gh", Upstream: "https://x"}}, Env: map[string]string{"H": "{host:env}"}},
+		{Name: "git", Endpoints: []Endpoint{{Name: "git", Subdomain: "git", Upstream: "https://github.com", Git: true}}},
+	} {
+		st := connectorStore(t, []Destination{d}, map[string]Scope{"w": {Destinations: []string{d.Name}}})
+		if c, err := ConnectorFor(st, actorWith("w")); err == nil {
+			t.Errorf("%s: connector = %+v, want an error", d.Name, c)
+		}
+	}
+}
+
+func TestDestinationValidateEnvEndpointPlaceholders(t *testing.T) {
+	if err := githubEndpoints.ValidateEnv(); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"{host:nope}", "{url:nope}", "{url:}", "{port:rest}"} {
+		d := githubEndpoints
+		d.Env = map[string]string{"X": v}
+		if err := d.ValidateEnv(); err == nil {
+			t.Errorf("%s: want error", v)
+		}
+	}
+	// The admin/config write path refuses an unknown endpoint name too.
+	d := githubEndpoints
+	d.Env = map[string]string{"X": "{host:nope}"}
+	if err := ValidateDestination(d, func(string) bool { return true }, true); err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("ValidateDestination = %v, want the unknown endpoint named", err)
+	}
+}
+
+// Conflicts stay fail-closed with endpoints: one variable set differently
+// (an endpoint placeholder resolving to another host), or two git routes —
+// for one upstream host — on different addresses.
+func TestConnectorForEndpointConflicts(t *testing.T) {
+	withDestinationsDomain(t, "jam.example.com")
+	other := Destination{Name: "ghe", Endpoints: []Endpoint{{Name: "rest", Subdomain: "ghe", Upstream: "https://ghe.example.com"}},
+		Env: map[string]string{"GH_HOST": "{host:rest}"}}
+	same := Destination{Name: "same", Endpoints: []Endpoint{{Name: "rest", Subdomain: "gh", Route: "/x/", Upstream: "https://x"}},
+		Env: map[string]string{"GH_HOST": "{host:rest}"}}
+	git2 := Destination{Name: "git2", Endpoints: []Endpoint{{Name: "git2", Subdomain: "git2", Upstream: "https://github.com", Git: true}}}
+	st := connectorStore(t, []Destination{githubEndpoints, other, same, git2, legacyGit}, map[string]Scope{
+		"ok": {Destinations: []string{"github", "same"}}, "env": {Destinations: []string{"github", "ghe"}},
+		"git": {Destinations: []string{"github", "git2"}}, "gitlegacy": {Destinations: []string{"github", "git"}},
+	})
+	if _, err := ConnectorFor(st, actorWith("ok")); err != nil {
+		t.Fatalf("one host from two destinations must not conflict: %v", err)
+	}
+	for _, role := range []string{"env", "git", "gitlegacy"} {
+		if c, err := ConnectorFor(st, actorWith(role)); err == nil {
+			t.Errorf("%s: connector = %+v, want a conflict", role, c)
+		}
+	}
+}
+
+// Today's destinations — route-only, with or without env — deliver exactly
+// the connector they did before endpoints could be named, byte for byte (the
+// fingerprint a running cove reported stays ok), whatever the domain.
+func TestConnectorForExistingDestinationsUnchanged(t *testing.T) {
+	gitlab := Destination{Name: "gitlab-git", Endpoints: []Endpoint{{Name: "gitlab-git", Route: "/gitlab-git/", Upstream: "https://gitlab.example.com", Git: true}}}
+	vertex := Destination{Name: "vertex", Endpoints: []Endpoint{{Name: "vertex", Route: "/vertex/", Upstream: "https://x"}},
+		Env: map[string]string{"ANTHROPIC_VERTEX_BASE_URL": "{url}/v1", "CLAUDE_CODE_USE_VERTEX": "1"}}
+	for _, tc := range []struct {
+		scope []string
+		json  string
+	}{
+		{[]string{"anthropic", "git"}, `{"env":{"ANTHROPIC_API_KEY":"{token}","ANTHROPIC_BASE_URL":"{base}/anthropic"},"git_route":"/git/"}`},
+		{[]string{"github-api"}, `{"env":{"GH_ENTERPRISE_TOKEN":"{token}","GH_HOST":"{host}"}}`},
+		{[]string{"gitlab-git"}, `{"git_route":"/gitlab-git/","git_target":"https://gitlab.example.com/"}`},
+		{[]string{"vertex"}, `{"env":{"ANTHROPIC_VERTEX_BASE_URL":"{base}/vertex/v1","CLAUDE_CODE_USE_VERTEX":"1"}}`},
+	} {
+		for _, domain := range []string{"", "jam.example.com"} {
+			withDestinationsDomain(t, domain)
+			st := connectorStore(t, []Destination{legacyAnthropic, legacyGit, ghAPI, gitlab, vertex}, map[string]Scope{"w": {Destinations: tc.scope}})
+			c, err := ConnectorFor(st, actorWith("w"))
+			b, _ := json.Marshal(c)
+			if err != nil || string(b) != tc.json {
+				t.Errorf("%v (domain %q): connector = %s, %v\nwant %s", tc.scope, domain, b, err, tc.json)
+			}
+		}
 	}
 }

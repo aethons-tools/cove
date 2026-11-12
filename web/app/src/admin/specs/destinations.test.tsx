@@ -5,7 +5,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/server";
 import { adminBoot, renderAdmin } from "../test/render";
 import { ADMIN } from "../paths";
-import { dest, destFields } from "./fixtures";
+import { dest, destFields, endpoint } from "./fixtures";
 import { setBranch } from "../branch/branch";
 
 const base = () => server.use(
@@ -13,7 +13,9 @@ const base = () => server.use(
   http.get("/app/admin/suggest", () => HttpResponse.json([])),
 );
 const at = ADMIN + "config/destinations/gh";
-const row = { name: "gh", route: "/gh/", upstream: "https://api.github.com", identityIn: "bearer", apply: "bearer", credName: "gh-pat", envKeys: ["GH_HOST"], gitRouted: true, usedBy: 2, attn: null };
+const row = { name: "gh", endpoints: 2, addresses: ["/gh/", "/gh-git/"], upstreams: ["https://api.github.com"], credName: "gh-pat", envKeys: ["GH_HOST"], gitRouted: true, usedBy: 2, attn: null };
+
+const custom = endpoint({ identityIn: "custom", identityInSpec: { header: "X-Agent-Token", prefixes: ["Agent "], encoding: "raw" } });
 
 // The config edits show on a branch.
 beforeEach(() => setBranch("jam/test"));
@@ -31,14 +33,15 @@ describe("destinations", () => {
     const user = userEvent.setup();
     const { router } = renderAdmin(adminBoot, ADMIN + "config/destinations");
     expect(await screen.findByRole("link", { name: "gh" })).toHaveAttribute("href", at);
-    expect(screen.getByText("bearer → bearer")).toBeInTheDocument();
+    expect(screen.getByText("/gh-git/")).toBeInTheDocument();
     await user.click(screen.getByText("New destination", { selector: "summary" }));
     await user.type(screen.getByLabelText(/^Name/), "ant");
     await user.type(screen.getByLabelText(/^Route \*/), "/anthropic/");
     await user.type(screen.getByLabelText(/^Upstream URL/), "https://api.anthropic.com");
     await user.click(screen.getByRole("button", { name: "Create destination" }));
     await waitFor(() => expect(router.state.location.pathname).toBe(ADMIN + "config/destinations/ant"));
-    expect(sent).toMatchObject({ name: "ant", route: "/anthropic/", identityIn: "bearer", apply: "bearer", logHeadersIn: "none", git: "" });
+    expect(sent).toEqual({ name: "ant", credName: "", note: "", env: [], endpoints: [{ name: "", subdomain: "", route: "/anthropic/", upstream: "https://api.anthropic.com",
+      identityIn: "bearer", identityInSpec: null, apply: "bearer", applySpec: null, allowPaths: [], git: false, logHeadersIn: "none", logHeadersOut: "none" }] });
   });
 
   it("shows a refused create inline", async () => {
@@ -59,7 +62,7 @@ describe("destinations", () => {
 
   it("keeps custom offered after switching away from it", async () => {
     base();
-    server.use(http.get("/app/admin/api/destinations/gh", () => HttpResponse.json(dest({ fields: destFields({ identityIn: "custom" }), identityInSpec: "header X" }))));
+    server.use(http.get("/app/admin/api/destinations/gh", () => HttpResponse.json(dest({ fields: destFields({ endpoints: [custom] }) }))));
     const user = userEvent.setup();
     renderAdmin(adminBoot, at);
     await user.click(await screen.findByText("Edit destination", { selector: "summary" }));
@@ -106,16 +109,45 @@ describe("destinations", () => {
     await user.click(await screen.findByText("Edit destination", { selector: "summary" }));
     await user.type(screen.getByLabelText(/^Note/), "hi");
     await user.click(screen.getByRole("button", { name: "Save destination" }));
-    await waitFor(() => expect(sent).toEqual({ route: "/gh/", upstream: "https://api.github.com", identityIn: "bearer", apply: "bearer", credName: "gh-pat",
-      env: "GH_HOST={host}", allowPaths: "", note: "hi", logHeadersIn: "none", logHeadersOut: "none", git: "" }));
+    await waitFor(() => expect(sent).toEqual(destFields({ note: "hi" })));
+  });
+
+  it("edits the first endpoint and keeps the others and its expression", async () => {
+    base();
+    let sent: Record<string, unknown> = {};
+    const git = endpoint({ name: "git", route: "/gh-git/", upstream: "https://github.com", git: true });
+    server.use(
+      http.get("/app/admin/api/destinations/gh", () => HttpResponse.json(dest({ fields: destFields({ endpoints: [custom, git] }) }))),
+      http.post("/app/admin/api/destinations/gh", async ({ request }) => { sent = await request.json() as Record<string, unknown>; return HttpResponse.json(dest()); }),
+    );
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByText("git: /gh-git/ → https://github.com")).toBeInTheDocument();
+    await user.click(screen.getByText("Edit destination", { selector: "summary" }));
+    await user.clear(screen.getByLabelText(/^Upstream URL/));
+    await user.type(screen.getByLabelText(/^Upstream URL/), "https://ghe.example");
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+    await waitFor(() => expect(sent).toEqual(destFields({ endpoints: [{ ...custom, upstream: "https://ghe.example" }, git] })));
+  });
+
+  it("refuses an env line without =", async () => {
+    base();
+    server.use(http.get("/app/admin/api/destinations/gh", () => HttpResponse.json(dest())));
+    const user = userEvent.setup();
+    renderAdmin(adminBoot, at);
+    await user.click(await screen.findByText("Edit destination", { selector: "summary" }));
+    await user.clear(screen.getByLabelText(/^Client env/));
+    await user.type(screen.getByLabelText(/^Client env/), "GH_HOST");
+    await user.click(screen.getByRole("button", { name: "Save destination" }));
+    expect(await screen.findByText('env line "GH_HOST" is not KEY=TEMPLATE')).toBeInTheDocument();
   });
 
   it("offers custom only to a destination that uses it", async () => {
     base();
-    server.use(http.get("/app/admin/api/destinations/gh", () => HttpResponse.json(dest({ fields: destFields({ identityIn: "custom" }), identityInSpec: "header X-Agent-Token" }))));
+    server.use(http.get("/app/admin/api/destinations/gh", () => HttpResponse.json(dest({ fields: destFields({ endpoints: [custom] }) }))));
     const user = userEvent.setup();
     renderAdmin(adminBoot, at);
-    expect(await screen.findByText("header X-Agent-Token")).toBeInTheDocument();
+    expect(await screen.findByText("header X-Agent-Token · prefix “Agent ”")).toBeInTheDocument();
     await user.click(screen.getByText("Edit destination", { selector: "summary" }));
     const identity = screen.getByLabelText(/^Identity in/) as HTMLSelectElement;
     expect(identity.value).toBe("custom");

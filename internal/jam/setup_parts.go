@@ -180,7 +180,11 @@ func connectorBody(c snippet.Connector) string {
 		fmt.Fprintf(&sb, "%s=%s\n", SafeText(k), flat(RedactEnv(k, env[k])))
 	}
 	if c.GitRoute != "" {
-		fmt.Fprintf(&sb, "git: %s → {base}%s\n", flat(c.RewriteTarget()), flat(c.GitRoute))
+		base := "{base}"
+		if c.GitHost != "" {
+			base = "https://" + c.GitHost
+		}
+		fmt.Fprintf(&sb, "git: %s → %s%s\n", flat(c.RewriteTarget()), flat(base), flat(c.GitRoute))
 	} else {
 		sb.WriteString("git: not routed\n")
 	}
