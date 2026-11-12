@@ -5,7 +5,27 @@ import (
 	"net"
 	"regexp"
 	"strings"
+	"sync/atomic"
 )
+
+// destinationsDomain is this Jam's destinations domain (serve config
+// destinations.domain; "" = none), which the client connector's endpoint
+// placeholders and git routing resolve on. It is process configuration, set
+// once at serve start (SetDestinationsDomain) like the broker's, so every
+// path assembling a connector — delivery, status, setup views — agrees on
+// one without threading it through each.
+var destinationsDomain atomic.Pointer[string]
+
+// SetDestinationsDomain sets the destinations domain connectors resolve on.
+func SetDestinationsDomain(domain string) { destinationsDomain.Store(&domain) }
+
+// DestinationsDomain is the domain SetDestinationsDomain set ("" = none).
+func DestinationsDomain() string {
+	if d := destinationsDomain.Load(); d != nil {
+		return *d
+	}
+	return ""
+}
 
 // subdomainRE is one lowercase DNS label (LDH, no leading/trailing '-').
 var subdomainRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)

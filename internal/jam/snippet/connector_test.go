@@ -2,6 +2,7 @@ package snippet
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"maps"
 	"net/http"
@@ -191,5 +192,45 @@ func TestConnectorGitConfigQuotesTarget(t *testing.T) {
 	g := Connector{GitRoute: "/g/", GitTarget: "https://x/'$(touch pwned)`id`/"}.GitConfig("https://j")
 	if !strings.Contains(g, `.insteadOf 'https://x/'\''$(touch pwned)`+"`id`"+`/'`+"\n") {
 		t.Fatalf("target not single-quoted:\n%s", g)
+	}
+}
+
+// A git endpoint on a subdomain: the rewrite and the credential helper are on
+// https://<GitHost>, not the Jam's base; a route-less endpoint routes "/".
+func TestConnectorGitConfigUsesHost(t *testing.T) {
+	want := "git config --global url.\"https://git.j/\".insteadOf '" + GitRewriteTarget + "'\n" +
+		"git config --global credential.\"https://git.j\".helper '" + GitHelper() + "'\n"
+	c := Connector{GitRoute: "/", GitHost: "git.j"}
+	if got := c.GitConfig("https://j/"); got != want {
+		t.Fatalf("GitConfig =\n%s\nwant\n%s", got, want)
+	}
+	if got := c.GitBase("https://j/"); got != "https://git.j" {
+		t.Fatalf("GitBase = %q", got)
+	}
+	if got := (Connector{GitRoute: "/git/"}).GitBase("https://j/"); got != "https://j" {
+		t.Fatalf("GitBase without a host = %q", got)
+	}
+	// The host comes from Jam over the wire and is double-quoted in the snippet.
+	if got := (Connector{GitRoute: "/", GitHost: "x$(touch pwned)"}).GitConfig("https://j"); got != "" {
+		t.Fatalf("a host that is not a host name rendered:\n%s", got)
+	}
+}
+
+// The git host is additive: a connector without one marshals exactly as it did
+// before git_host existed (so fingerprints and older clients are unchanged),
+// and an older client decoding one with a host still reads route and target.
+func TestConnectorGitHostIsAdditive(t *testing.T) {
+	b, _ := json.Marshal(Connector{GitRoute: "/git/", GitTarget: "https://gitlab.example.com/"})
+	if want := `{"git_route":"/git/","git_target":"https://gitlab.example.com/"}`; string(b) != want {
+		t.Fatalf("JSON = %s, want %s", b, want)
+	}
+	b, _ = json.Marshal(Connector{GitRoute: "/", GitHost: "git.j"})
+	var old struct {
+		Env       map[string]string `json:"env,omitempty"`
+		GitRoute  string            `json:"git_route,omitempty"`
+		GitTarget string            `json:"git_target,omitempty"`
+	}
+	if err := json.Unmarshal(b, &old); err != nil || old.GitRoute != "/" {
+		t.Fatalf("an older client decoded %s as %+v, %v", b, old, err)
 	}
 }

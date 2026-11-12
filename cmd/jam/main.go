@@ -1886,6 +1886,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	creds = jam.NewWatchedResolver(creds, conds, cfg.credFixHint)
 	broker := jam.NewBroker(st, creds, log)
 	broker.SetDestinationsDomain(destDomain)
+	jam.SetDestinationsDomain(destDomain) // the connector's endpoint placeholders and git host
 
 	// Jam's SSH user CA (studio collaboration): every raised studio's sshd
 	// trusts its public key; the private key stays in this process's memory.

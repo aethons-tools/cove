@@ -2,10 +2,14 @@ package agentrun
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -21,12 +25,12 @@ type fakeSource struct {
 func (f *fakeSource) Fetch(context.Context) (snippet.Connector, error) { return f.c, f.err }
 
 type fakeGit struct {
-	calls [][4]string
+	calls [][5]string
 	err   error // returned by every Route call while set
 }
 
-func (g *fakeGit) Route(base, oldR, newR, newTarget string) error {
-	g.calls = append(g.calls, [4]string{base, oldR, newR, newTarget})
+func (g *fakeGit) Route(oldBase, oldR, newBase, newR, newTarget string) error {
+	g.calls = append(g.calls, [5]string{oldBase, oldR, newBase, newR, newTarget})
 	return g.err
 }
 
@@ -121,7 +125,7 @@ func TestConnectorGitOnlyOnRouteChange(t *testing.T) {
 	}
 	src.c = snippet.Connector{GitRoute: "/git2/"}
 	r.prepare(context.Background())
-	if len(git.calls) != 1 || git.calls[0] != [4]string{"https://jam.example", "/git/", "/git2/", snippet.GitRewriteTarget} {
+	if len(git.calls) != 1 || git.calls[0] != [5]string{"https://jam.example", "/git/", "https://jam.example", "/git2/", snippet.GitRewriteTarget} {
 		t.Fatalf("git calls = %v", git.calls)
 	}
 }
@@ -145,7 +149,7 @@ func TestConnectorGitFailureReportsRouteInEffect(t *testing.T) {
 	}
 	git.err = nil
 	_, fp, changed = r.prepare(context.Background())
-	if len(git.calls) != 2 || git.calls[1] != [4]string{"https://jam.example", "/git/", "/git2/", snippet.GitRewriteTarget} {
+	if len(git.calls) != 2 || git.calls[1] != [5]string{"https://jam.example", "/git/", "https://jam.example", "/git2/", snippet.GitRewriteTarget} {
 		t.Fatalf("route not retried: %v", git.calls)
 	}
 	if fp != snippet.Fingerprint(want) || !changed {
@@ -163,7 +167,7 @@ func TestConnectorFetchFailureRetriesPendingRoute(t *testing.T) {
 	r.prepare(context.Background())
 	src.err, git.err = errors.New("jam down"), nil
 	_, fp, changed := r.prepare(context.Background())
-	if len(git.calls) != 2 || git.calls[1] != [4]string{"https://jam.example", "/git/", "/git2/", snippet.GitRewriteTarget} {
+	if len(git.calls) != 2 || git.calls[1] != [5]string{"https://jam.example", "/git/", "https://jam.example", "/git2/", snippet.GitRewriteTarget} {
 		t.Fatalf("pending route not retried on fetch failure: %v", git.calls)
 	}
 	if fp != snippet.Fingerprint(want) || !changed {
@@ -215,7 +219,7 @@ func TestConnectorReroutesOnTargetChange(t *testing.T) {
 	git := &fakeGit{}
 	r := newRefresher(src, git, initial, nil)
 	_, fp, _ := r.prepare(context.Background())
-	want := [4]string{"https://jam.example", "/git/", "/git/", "https://gitlab.example.com/"}
+	want := [5]string{"https://jam.example", "/git/", "https://jam.example", "/git/", "https://gitlab.example.com/"}
 	if len(git.calls) != 1 || git.calls[0] != want {
 		t.Fatalf("git calls = %v, want [%v]", git.calls, want)
 	}
@@ -225,5 +229,75 @@ func TestConnectorReroutesOnTargetChange(t *testing.T) {
 	r.prepare(context.Background())
 	if len(git.calls) != 1 {
 		t.Fatalf("unchanged route+target rewrote git again: %v", git.calls)
+	}
+}
+
+// A git endpoint on a subdomain routes the upstream host through
+// https://<GitHost><route>: the rewrite and the credential helper move from the
+// Jam host to the endpoint's host, and the fingerprint reports the host.
+func TestConnectorRoutesGitOnSubdomain(t *testing.T) {
+	src := &fakeSource{c: snippet.Connector{GitRoute: "/", GitHost: "git.jam.example"}}
+	git := &fakeGit{}
+	r := newRefresher(src, git, snippet.Connector{GitRoute: "/git/"}, nil)
+	_, fp, _ := r.prepare(context.Background())
+	want := [5]string{"https://jam.example", "/git/", "https://git.jam.example", "/", snippet.GitRewriteTarget}
+	if len(git.calls) != 1 || git.calls[0] != want {
+		t.Fatalf("git calls = %v, want [%v]", git.calls, want)
+	}
+	if fp != snippet.Fingerprint(src.c) {
+		t.Fatal("fingerprint does not report the applied host")
+	}
+	r.prepare(context.Background())
+	if len(git.calls) != 1 {
+		t.Fatalf("unchanged route+host rewrote git again: %v", git.calls)
+	}
+	// Back to the Jam host on the same route: the host alone changed.
+	src.c = snippet.Connector{GitRoute: "/"}
+	r.prepare(context.Background())
+	if len(git.calls) != 2 || git.calls[1] != [5]string{"https://git.jam.example", "/", "https://jam.example", "/", snippet.GitRewriteTarget} {
+		t.Fatalf("host change not applied: %v", git.calls)
+	}
+}
+
+// End to end: a Jam serving a connector whose git endpoint is on a subdomain,
+// fetched over HTTP and applied with the real git (a throwaway global config):
+// github.com rewrites to the subdomain, the credential helper is scoped to it,
+// and nothing is left on the Jam host's base.
+func TestConnectorGitOnSubdomainEndToEnd(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	conn := snippet.Connector{GitRoute: "/git/"}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/connector" || r.Header.Get("Authorization") != "Bearer tok-XYZ" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(conn)
+	}))
+	defer srv.Close()
+	r := newConnectorRefresher(ConnectorConfig{Source: HTTPConnectorSource(srv.URL, "tok-XYZ"), BaseURL: "https://jam.example",
+		Token: "tok-XYZ", Environ: func() []string { return nil }}, nil)
+	gitGet := func(key string) string {
+		out, _ := exec.Command("git", "config", "--global", "--get", key).Output()
+		return strings.TrimSpace(string(out))
+	}
+	r.prepare(context.Background())
+	if got := gitGet("url.https://jam.example/git/.insteadOf"); got != snippet.GitRewriteTarget {
+		t.Fatalf("Jam-host route: insteadOf = %q", got)
+	}
+	conn = snippet.Connector{GitRoute: "/", GitHost: "git.jam.example", GitTarget: "https://gitlab.example.com/"}
+	r.prepare(context.Background())
+	if got := gitGet("url.https://git.jam.example/.insteadOf"); got != "https://gitlab.example.com/" {
+		t.Fatalf("subdomain route: insteadOf = %q", got)
+	}
+	if gitGet("credential.https://git.jam.example.helper") != snippet.GitHelper() {
+		t.Fatal("credential helper not scoped to the subdomain")
+	}
+	if gitGet("url.https://jam.example/git/.insteadOf") != "" || gitGet("credential.https://jam.example.helper") != "" {
+		b, _ := os.ReadFile(cfg)
+		t.Fatalf("Jam-host routing left behind:\n%s", b)
 	}
 }

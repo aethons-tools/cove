@@ -81,7 +81,26 @@ A destination tells agents how to use it:
 the environment variables they set,
 such as `GH_HOST` for `gh`,
 and whether their git goes through it.
+They are set once for the whole destination.
 Every agent that may use the destination gets these at its next start.
+
+A value can use these placeholders:
+
+* `+{host:<endpoint>}+`: the endpoint's host, such as `gh.jam.example.com`,
+or the Jam host when the endpoint has no subdomain.
+* `+{url:<endpoint>}+`: the endpoint's host and route, such as `https://gh.jam.example.com/api/v3`.
+* `+{token}+`: the agent's Jam identity.
+
+A placeholder must name an endpoint of the destination.
+For example, `gh` needs `GH_HOST` set to the host of an endpoint on its own subdomain;
+it adds `/api/v3/` and `/api/graphql` itself.
+
+An endpoint that routes git sends the agents' git for its service's host
+through the endpoint's address,
+on its subdomain when it has one.
+Two destinations an agent may use must not set one variable differently,
+or route git through two addresses;
+when they do, Jam reports a conflict instead of picking one.
 
 == Roles
 
@@ -102,8 +121,10 @@ ifdef::internal[]
 * Shipped by COV-310: the endpoint model, path routing and its validation.
 Shipped by COV-311: subdomains under a destinations domain (serve config `destinations:`,
 whose wildcard DNS and TLS the operator provides), routed by `Host` before path.
-Still to come (COV-309): the rest of subdomain support (COV-312),
-the connector's `+{host:<endpoint>}+` and `+{url:<endpoint>}+` placeholders (COV-313),
+Shipped by COV-313: the connector's `+{host:<endpoint>}+` and `+{url:<endpoint>}+` placeholders
+(`+{url}+`, `+{base}+` and `+{host}+` kept for one-endpoint destinations)
+and git routing by host (`+git_host+` on `/connector`, additive).
+Still to come (COV-309): the rest of subdomain support (COV-312)
 and the endpoints grid on the destination page (COV-314, COV-315).
 * An existing destination's one endpoint is named after the destination.
 endif::[]

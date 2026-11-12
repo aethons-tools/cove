@@ -393,8 +393,9 @@ as before.
 * serve refuses a `listen` host under the domain (its requests would all go to the
 broker). The domain itself may be the Jam host.
 * A studio reaches a subdomain only if its egress admits the host (`+.<domain>+`
-in the role's egress); the agent connector does not yet give subdomain endpoints'
-hosts to studios.
+in the role's egress). The agent connector names subdomain endpoints' hosts
+(`+{host:<endpoint>}+`, `+{url:<endpoint>}+`) and routes git through them
+(xref:usage/jam/connector.adoc[connector]).
 
 == The subscription account pool (`+pool:+`)
 
