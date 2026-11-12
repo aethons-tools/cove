@@ -126,12 +126,23 @@ the default credential, the studio-connector summary (env keys, `git`) and how m
 
 The page shows:
 
-* *Broker* — the first endpoint's route, upstream, identity-in and apply (a custom
-xref:usage/jam/header-specs.adoc[header spec] shown as its expression), allowed paths and header logging;
-the default credential and note; and any other endpoints, one line each (name, address, upstream).
-* *Agent connector* — the client env an agent's studio sets (`+{url}+` already resolved
-to `+{base}<route>+`) and git routing. A destination with no declared env shows
-its route's legacy default, labeled as implied (see
+* *Destination* — one card, read-only until *Edit* (on a branch); then the whole
+card is editable and *Save destination* sends every field in one update
+(`specs/DestinationPage.tsx`, its model `specs/destDraft.ts`, ``ContextPanel``'s pattern).
+It holds the default credential and the note (the usage hint sessions see,
+xref:usage/jam/connector.adoc#notes-for-sessions[connector], with its 300-byte thermometer);
+the *Endpoints* `QuietGrid` — name, subdomain, route, upstream, identity in, apply as,
+allowed paths (space-separated), route git — with *+ new endpoint…* at the bottom and a
+thermometer for the 10-endpoint limit; and the *Agent connector* env grid
+(variable, value with its placeholders). A row's ▸ expands it to what its identity-in
+and apply mean — a preset's xref:usage/jam/header-specs.adoc[header spec] read-only,
+an `expression` (the API's `custom`) editable, seeded from the preset it replaces —
+and its two header-logging selects; a row that logs shows a *logging* tag.
+The card checks what it can as the server does (names, addresses, a template's
+`+{cred}+`, env keys and placeholders) and shows the server's `+errors[]+` at their
+fields (opening a row whose detail has one); the footer counts problems and
+*Save destination* stays off until there are none. A destination with no declared
+env shows its route's legacy default, labeled as implied (see
 xref:usage/jam/connector.adoc[connector]).
 * *Used by* — every role whose scope lists it, with the credential each
 injects there (the role's mapping or this default), linked to the role page.
@@ -142,15 +153,12 @@ holding that role can't assemble a connector (Jam fails closed with 409)
 until one side changes. The check is over each role's own scope; a grant
 override can still differ.
 
-*Edit destination* is one pre-filled form for every field but the name.
-It edits the destination's fields and its *first* endpoint; the other endpoints
-(and the first's name) are sent back as they are (the endpoints grid, COV-315, edits them all):
-client env is one `KEY=TEMPLATE` per line (empty = the route's legacy default),
-identity-in/apply select a preset (incl. ``raw``; a `custom` one stays custom,
-its expression sent back unchanged), git routing is a checkbox, and the note is the usage hint
-sessions see (xref:usage/jam/connector.adoc#notes-for-sessions[connector]).
-Changing env on the `/git/` route drops its implied git routing unless *Route
-git* is ticked; the form says so. *Delete* is on the page header.
+*New destination* on the list is a form for a destination with one endpoint
+(client env one `KEY=TEMPLATE` per line, empty = the route's legacy default);
+subdomains, more endpoints and expressions are set on its page.
+*Delete* is on the page header.
+
+The user-facing description is the manual's `ROOT/configuration/destination` page.
 
 The page reads and writes the destination through the structured
 xref:usage/jam/destination-api.adoc[destinations API].

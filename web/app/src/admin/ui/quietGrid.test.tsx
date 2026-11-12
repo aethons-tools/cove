@@ -104,11 +104,11 @@ describe("QuietGrid", () => {
   it("removes a row", async () => {
     const user = userEvent.setup();
     show(<Grid />);
-    await user.click(screen.getByRole("button", { name: "Remove row 1" }));
+    await user.click(screen.getByRole("button", { name: "Remove resource 1" }));
     expect(last()).toEqual([two[1]]);
     expect(cell("Name, row 1")).toHaveAccessibleName("Name, row 1: board");
-    expect(screen.getByRole("button", { name: "Remove row 1" })).toHaveFocus();
-    await user.click(screen.getByRole("button", { name: "Remove row 1" }));
+    expect(screen.getByRole("button", { name: "Remove resource 1" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Remove resource 1" }));
     expect(last()).toEqual([]);
     expect(screen.getByRole("button", { name: "+ new resource…" })).toHaveFocus();
   });

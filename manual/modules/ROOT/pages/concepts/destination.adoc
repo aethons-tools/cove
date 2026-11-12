@@ -27,31 +27,51 @@ Each endpoint has a name,
 unique in its destination,
 an address on Jam,
 and the service's address that requests go on to.
+A destination has up to 10 endpoints.
+
+You add, change and remove a destination's endpoints on its page
+(xref:configuration/destination.adoc[]),
+or in its file in the config repo.
 
 == Addresses
 
-An endpoint is reached at `<subdomain>.<jam host><route>`.
+An endpoint is reached at `<jam host><route>`,
+or, when the Jam has a domain for subdomains,
+at `<subdomain>.<domain><route>`.
 The subdomain and the route are each optional,
 but an endpoint has at least one of them.
-No two endpoints in the whole Jam have the same subdomain and route.
+No two endpoints in the whole Jam have the same subdomain and route,
+and no route on the Jam host may take a path Jam itself uses,
+such as `/connector` or `/squawks`.
 
 A request goes to the most specific endpoint that matches it.
 The route is taken off before the request goes on;
-an endpoint with no route takes every path on its host,
+an endpoint with no route takes every path on its subdomain,
 and the path goes on unchanged.
-For example, with the Jam at `jam.example.com`:
+For example, with the Jam at `jam.example.com`,
+its subdomains under `jam.example.com` too,
+and a GitHub destination with endpoints on `/api/v3/` and `/api/`:
 
-* `git.jam.example.com/aethons-tools/cove.git` goes to `https://github.com/aethons-tools/cove.git`.
-* `gh.jam.example.com/api/v3/repos/x` goes to `https://api.github.com/repos/x`.
-* `gh.jam.example.com/other` matches no endpoint and is refused.
+* `jam.example.com/api/v3/repos/x` goes to the `/api/v3/` endpoint, as `/repos/x`.
+* `jam.example.com/api/graphql` goes to the `/api/` endpoint, as `/graphql`.
+* `jam.example.com/other` matches no endpoint and is refused.
 * An endpoint with subdomain `linear` and no route sends `linear.jam.example.com/graphql` to `https://api.linear.app/graphql`.
+* `other.jam.example.com/graphql` matches no endpoint and is refused.
 
-A subdomain lets a client that only takes a host,
-such as `gh`,
+A subdomain lets a client that only takes a host
 reach a service without a path of its own.
-Two GitHub destinations on two subdomains do not get in each other's way.
+On a subdomain, only that subdomain's endpoints answer;
+Jam's own paths are not there.
 Subdomains work once the Jam has a domain for them,
-as it has for previews.
+as it has for previews;
+without one, an endpoint with a subdomain is refused.
+
+Agents reach the subdomains of the destinations their role may use
+once the Jam's Studio Managers know that domain too.
+A session learns these subdomains when it starts.
+After you add an endpoint on a new subdomain,
+or let a role use another destination,
+restart the role's running sessions so that they can reach it.
 
 == Identity and credential
 
@@ -62,6 +82,8 @@ For each endpoint,
 and *Apply as* says how Jam sends the real credential upstream.
 Common services fit a preset;
 any other can be described by an expression.
+Each endpoint can also limit the paths it lets through,
+and log its headers for debugging.
 
 == The agent connector
 
@@ -69,7 +91,26 @@ A destination tells agents how to use it:
 the environment variables they set,
 such as `GH_HOST` for `gh`,
 and whether their git goes through it.
+They are set once for the whole destination.
 Every agent that may use the destination gets these at its next start.
+
+A value can use these placeholders:
+
+* `+{host:<endpoint>}+`: the endpoint's host, such as `gh.jam.example.com`,
+or the Jam host when the endpoint has no subdomain.
+* `+{url:<endpoint>}+`: the endpoint's host and route, such as `https://gh.jam.example.com/api/v3`.
+* `+{token}+`: the agent's Jam identity.
+
+A placeholder must name an endpoint of the destination.
+For example, `gh` needs `GH_HOST` set to the host of an endpoint on its own subdomain;
+it adds `/api/v3/` and `/api/graphql` itself.
+
+An endpoint that routes git sends the agents' git for its service's host
+through the endpoint's address,
+on its subdomain when it has one.
+Two destinations an agent may use must not set one variable differently,
+or route git through two addresses;
+when they do, Jam reports a conflict instead of picking one.
 
 == Roles
 
@@ -87,13 +128,16 @@ each is a destination with one endpoint on its route.
 ifdef::internal[]
 == Notes for the team
 
-* Ideas these pages answer: COV-296 (subdomain-based destinations) and COV-297 (destinations that share credentials or env vars).
-* `<jam host>` is the broker's host; the subdomains hang off a configured domain, like `previews:`,
-whose wildcard DNS and TLS the operator provides.
-Studio egress must admit it.
-The broker routes by `Host` before path.
-An endpoint without a subdomain may not claim a path Jam itself uses.
-* Older clients keep working for destinations without subdomains;
-the connector's git routing grows to carry a host as well as a path, additively.
+* Shipped by COV-310: the endpoint model, path routing and its validation;
+by COV-314: the admin API reads and writes every endpoint, refusing per field.
+Shipped by COV-311: subdomains under a destinations domain (serve config `destinations:`,
+whose wildcard DNS and TLS the operator provides), routed by `Host` before path.
+Shipped by COV-313: the connector's `+{host:<endpoint>}+` and `+{url:<endpoint>}+` placeholders
+(`+{url}+`, `+{base}+` and `+{host}+` kept for one-endpoint destinations)
+and git routing by host (`+git_host+` on `/connector`, additive).
+Shipped by COV-312: studios reach subdomain endpoints. The manager's `colima.destinations-domain`
+admits `.<domain>` in the studio's egress, and a raise maps the hosts of the role's granted
+destinations to the host gateway, so a new one needs a restart of the session.
+Shipped by COV-315: the endpoints grid on the destination page.
 * An existing destination's one endpoint is named after the destination.
 endif::[]
