@@ -6,6 +6,7 @@
 import type { ConfigBranches, TreeNode, TreeResponse } from "../admin/api/types";
 import { adminBoot } from "../admin/fixtures";
 import { filledContext, project } from "../admin/projects/fixtures";
+import { dest, destFields, endpoint } from "../admin/specs/fixtures";
 
 const leaf = (path: string, label: string): TreeNode => ({ path, label, group: false, badge: 0, badgeRed: false, badgeTitle: "", children: [] });
 const group = (path: string, label: string, ...children: TreeNode[]): TreeNode => ({ ...leaf(path, label), group: true, children });
@@ -22,7 +23,7 @@ const tree: TreeResponse = {
     )),
     group("config/users", "Users", leaf("config/users/usr_1", "alice")),
     group("config/kits", "Kits"),
-    group("config/destinations", "Destinations"),
+    group("config/destinations", "Destinations", leaf("config/destinations/github", "github")),
     group("config/model-specs", "Model Specs"),
   ],
 };
@@ -35,9 +36,29 @@ const branches: ConfigBranches = {
   followed: "main", defaultName: "jam/local-admin", canPR: false, repoLink: "", treeLink: "", prNoun: "pull request",
 };
 
+// github is the manual's destination (ROOT/configuration/destination): git,
+// the REST API and GraphQL, the last with an expression and header logging.
+const github = dest({
+  name: "github",
+  methods: ["bearer", "basic-password", "x-api-key", "raw"],
+  fields: destFields({
+    credName: "github-pat", note: "GitHub for the acme org: git, the REST API and GraphQL.",
+    env: [{ key: "GH_HOST", template: "{host:rest}" }, { key: "GH_ENTERPRISE_TOKEN", template: "{token}" }],
+    endpoints: [
+      endpoint({ name: "git", subdomain: "git", route: "", upstream: "https://github.com", identityIn: "basic-password", apply: "basic-password", git: true }),
+      endpoint({ name: "rest", subdomain: "gh", route: "/api/v3/", upstream: "https://api.github.com" }),
+      endpoint({ name: "graphql", subdomain: "gh", route: "/api/graphql", upstream: "https://api.github.com/graphql", apply: "custom",
+        applySpec: { header: "Authorization", template: "token {cred}", encoding: "raw", basicUser: "" }, logHeadersOut: "changed" }),
+    ],
+  }),
+  env: [{ key: "GH_HOST", template: "gh.jam.example.com" }, { key: "GH_ENTERPRISE_TOKEN", template: "{token}" }], gitRouted: true,
+  uses: [{ project: "acme", role: "coder", cred: "", credIsRole: false }, { project: "acme", role: "reviewer", cred: "github-review", credIsRole: true }],
+});
+
 export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/bootstrap": adminBoot,
   "GET /app/admin/api/tree": tree,
   "GET /app/admin/api/config/branches": branches,
   "GET /app/admin/api/projects/acme": project({ chatService: "disc", context: filledContext }),
+  "GET /app/admin/api/destinations/github": github,
 };
