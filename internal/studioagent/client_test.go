@@ -214,8 +214,18 @@ func TestClientHeartbeatRenewsLease(t *testing.T) {
 	c := New(Config{Addr: "bufnet", Token: tok, LaunchSecret: secret, Heartbeat: 20 * time.Millisecond,
 		DialOptions: []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), dial}}, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go c.Run(ctx, &blockWorkload{first: Running, controls: make(chan Control, 4)})
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx, &blockWorkload{first: Running, controls: make(chan Control, 4)}) }()
+	// Stop the heartbeat loop and wait for Run to return before the harness
+	// cleanups (gs.Stop) run, so no goroutine outlives the test.
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("Run did not return after ctx cancel")
+		}
+	})
 	var first time.Time
 	eventually(func() bool {
 		inst, ok := store.GetInstance("w1")
