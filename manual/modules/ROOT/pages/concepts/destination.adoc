@@ -29,11 +29,9 @@ an address on Jam,
 and the service's address that requests go on to.
 A destination has up to 10 endpoints.
 
-You list a destination's endpoints in its file in the config repo.
-Its page lists every endpoint,
-edits the first one,
-and keeps the others as they are
-(xref:configuration/destination.adoc[]).
+You add, change and remove a destination's endpoints on its page
+(xref:configuration/destination.adoc[]),
+or in its file in the config repo.
 
 == Addresses
 
@@ -140,6 +138,6 @@ and git routing by host (`+git_host+` on `/connector`, additive).
 Shipped by COV-312: studios reach subdomain endpoints. The manager's `colima.destinations-domain`
 admits `.<domain>` in the studio's egress, and a raise maps the hosts of the role's granted
 destinations to the host gateway, so a new one needs a restart of the session.
-Still to come (COV-309): the endpoints grid on the destination page (COV-315).
+Shipped by COV-315: the endpoints grid on the destination page.
 * An existing destination's one endpoint is named after the destination.
 endif::[]

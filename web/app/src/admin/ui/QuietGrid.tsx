@@ -1,20 +1,33 @@
 import { ActionIcon, NativeSelect, TextInput } from "@mantine/core";
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import "./quietgrid.css";
 
+// TextKey is a key of R whose value is a string: what a column edits.
+export type TextKey<R> = { [K in keyof R]: R[K] extends string ? K : never }[keyof R] & string;
+
 export type GridColumn<R> = {
-  key: keyof R & string;
+  key: TextKey<R>;
   label: string;
   // choices makes the column a fixed set: a select while edited, its ▾ on hover.
   choices?: readonly string[];
   placeholder?: string;
   mono?: boolean;
   width?: number | string;
+  // show is the cell's text while not edited (default: its value, or the placeholder when empty).
+  show?: (r: R) => ReactNode;
+};
+
+// GridExpand makes each row collapsible: ▸ opens a full-width detail under
+// it, ▾ closes it. open and toggle read and flip the row's own open state.
+export type GridExpand<R> = {
+  open: (r: R) => boolean;
+  toggle: (r: R) => R;
+  detail: (r: R, row: number) => ReactNode;
 };
 
 // GridErrors are per row (by index, like rows: recompute them when rows
 // change), per column: the message under the cell.
-export type GridErrors<R> = (Partial<Record<keyof R & string, string>> | undefined)[];
+export type GridErrors<R> = (Partial<Record<TextKey<R>, string>> | undefined)[];
 
 type At = { row: number; col: number };
 
@@ -22,10 +35,11 @@ type At = { row: number; col: number };
 // becomes a field only while edited (click it; Tab, Shift+Tab or Enter moves
 // on; Esc leaves it). The "+ new …" row at the bottom adds an item (blank())
 // until max; each row has a remove. Controlled: rows in, onChange out.
-// readOnly shows the same table without editing.
-export function QuietGrid<R extends Record<string, string>>({ columns, rows, onChange, blank, noun, max, errors, readOnly = false }: {
+// readOnly shows the same table without editing; expand (GridExpand) works
+// in both.
+export function QuietGrid<R extends object>({ columns, rows, onChange, blank, noun, max, errors, readOnly = false, expand }: {
   columns: GridColumn<R>[]; rows: R[]; onChange: (rows: R[]) => void; blank: () => R;
-  noun: string; max?: number; errors?: GridErrors<R>; readOnly?: boolean;
+  noun: string; max?: number; errors?: GridErrors<R>; readOnly?: boolean; expand?: GridExpand<R>;
 }) {
   const [editing, setEditing] = useState<At | null>(null);
   const uid = useId();
@@ -37,7 +51,8 @@ export function QuietGrid<R extends Record<string, string>>({ columns, rows, onC
   });
   const cellSel = (at: At) => `[data-cell="${at.row}:${at.col}"]`;
   const leave = (focus: string | null) => { refocus.current = focus; setEditing(null); };
-  const set = (row: number, key: keyof R & string, v: string) =>
+  const val = (r: R, key: TextKey<R>) => r[key] as string;
+  const set = (row: number, key: TextKey<R>, v: string) =>
     onChange(rows.map((r, i) => (i === row ? { ...r, [key]: v } : r)));
   const canAdd = !readOnly && (max === undefined || rows.length < max);
   const add = () => { setEditing({ row: rows.length, col: 0 }); onChange([...rows, blank()]); };
@@ -71,13 +86,21 @@ export function QuietGrid<R extends Record<string, string>>({ columns, rows, onC
     <table className="jam-qgrid" ref={table}>
       <thead>
         <tr>
+          {expand && <th style={{ width: 28 }} />}
           {columns.map((c) => <th key={c.key} style={{ width: c.width }}>{c.label}</th>)}
           {!readOnly && <th style={{ width: 30 }} />}
         </tr>
       </thead>
       <tbody>
         {rows.map((r, row) => (
-          <tr key={row}>
+          <Fragment key={row}>
+          <tr className={expand?.open(r) ? "open" : undefined}>
+            {expand && (
+              <td className="tog">
+                <button type="button" data-toggle={row} aria-expanded={expand.open(r)} aria-label={`Details, row ${row + 1}`}
+                  onClick={() => onChange(rows.map((x, i) => (i === row ? expand.toggle(x) : x)))}>{expand.open(r) ? "▾" : "▸"}</button>
+              </td>
+            )}
             {columns.map((c, col) => {
               const at = { row, col };
               const err = errors?.[row]?.[c.key];
@@ -96,14 +119,14 @@ export function QuietGrid<R extends Record<string, string>>({ columns, rows, onC
               return (
                 <td key={c.key} data-error={err ? "true" : undefined}>
                   {on && c.choices ? (
-                    <NativeSelect {...field} data={c.choices.includes(r[c.key]!) ? [...c.choices] : [{ value: "", label: "Choose…", disabled: true }, ...c.choices]} value={r[c.key]} onChange={(e) => set(row, c.key, e.currentTarget.value)} />
+                    <NativeSelect {...field} data={c.choices.includes(val(r, c.key)) ? [...c.choices] : [{ value: "", label: "Choose…", disabled: true }, ...c.choices]} value={val(r, c.key)} onChange={(e) => set(row, c.key, e.currentTarget.value)} />
                   ) : on ? (
-                    <TextInput {...field} placeholder={c.placeholder} value={r[c.key]} onChange={(e) => set(row, c.key, e.currentTarget.value)} />
+                    <TextInput {...field} placeholder={c.placeholder} value={val(r, c.key)} onChange={(e) => set(row, c.key, e.currentTarget.value)} />
                   ) : readOnly ? (
-                    <div className={`cell${c.mono ? " mono" : ""}`}>{r[c.key]}</div>
+                    <div className={`cell${c.mono ? " mono" : ""}`}>{c.show ? c.show(r) : val(r, c.key)}</div>
                   ) : (
-                    <button type="button" data-cell={`${row}:${col}`} aria-label={`${label}: ${r[c.key] || "empty"}`} aria-describedby={errId} className={`cell${c.mono ? " mono" : ""}${c.choices ? " choice" : ""}`} onClick={() => setEditing(at)}>
-                      {r[c.key] ? <span>{r[c.key]}</span> : <span className="empty">{c.placeholder}</span>}
+                    <button type="button" data-cell={`${row}:${col}`} aria-label={`${label}: ${val(r, c.key) || "empty"}`} aria-describedby={errId} className={`cell${c.mono ? " mono" : ""}${c.choices ? " choice" : ""}`} onClick={() => setEditing(at)}>
+                      {c.show ? <span>{c.show(r)}</span> : val(r, c.key) ? <span>{val(r, c.key)}</span> : <span className="empty">{c.placeholder}</span>}
                       {c.choices && <span className="caret" aria-hidden="true">▾</span>}
                     </button>
                   )}
@@ -113,13 +136,20 @@ export function QuietGrid<R extends Record<string, string>>({ columns, rows, onC
             })}
             {!readOnly && (
               <td>
-                <ActionIcon variant="subtle" color="gray" mt={5} data-remove={row} aria-label={`Remove row ${row + 1}`} onClick={() => remove(row)}>✕</ActionIcon>
+                <ActionIcon variant="subtle" color="gray" mt={5} data-remove={row} aria-label={`Remove ${noun} ${row + 1}`} onClick={() => remove(row)}>✕</ActionIcon>
               </td>
             )}
           </tr>
+          {expand?.open(r) && (
+            <tr className="detail">
+              <td colSpan={columns.length + (readOnly ? 1 : 2)}>{expand.detail(r, row)}</td>
+            </tr>
+          )}
+          </Fragment>
         ))}
         {canAdd && (
           <tr>
+            {expand && <td />}
             <td colSpan={columns.length + 1}>
               <button type="button" className="add" data-add onClick={add}>+ new {noun}…</button>
             </td>

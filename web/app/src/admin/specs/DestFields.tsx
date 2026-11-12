@@ -2,35 +2,23 @@ import { Checkbox, NativeSelect, SimpleGrid, TextInput, Textarea } from "@mantin
 import type { DestEndpoint, DestFields as Fields } from "../api/types";
 import { TypeAhead } from "../ui/TypeAhead";
 
-// DestValues is the destination form's state: the destination's fields and
-// its first endpoint's, flat (env and allow paths one per line), plus a name
-// when creating. The endpoints grid replaces it (COV-315); until then the
-// form edits the first endpoint and destBody keeps the others.
+// DestValues is the New destination form's state: the destination's fields
+// and its one endpoint's, flat (env and allow paths one per line). A
+// destination's page edits it whole (DestinationPage, destDraft.ts).
 export type DestValues = {
-  name?: string; subdomain?: string; route: string; upstream: string; identityIn: string; apply: string; credName: string; env: string; allowPaths: string;
+  name: string; route: string; upstream: string; identityIn: string; apply: string; credName: string; env: string; allowPaths: string;
   note: string; logHeadersIn: string; logHeadersOut: string; git: boolean;
 };
 
 const lines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
 
-// destValues is a destination's fields as the form shows them.
-export function destValues(f: Fields): DestValues {
-  const e = f.endpoints[0];
-  return { subdomain: e?.subdomain ?? "", route: e?.route ?? "", upstream: e?.upstream ?? "", identityIn: e?.identityIn ?? "", apply: e?.apply ?? "", credName: f.credName,
-    env: f.env.map((r) => `${r.key}=${r.template}`).join("\n"), allowPaths: (e?.allowPaths ?? []).join("\n"), note: f.note,
-    logHeadersIn: e?.logHeadersIn ?? "none", logHeadersOut: e?.logHeadersOut ?? "none", git: e?.git ?? false };
-}
-
-// destBody is what the API takes for v: v's first endpoint over stored's
-// (its name, subdomain and, while still custom, expression kept), stored's
-// other endpoints unchanged; a client-env line without = throws. A new destination's one endpoint is named after
-// it (the API names a lone unnamed endpoint so).
-export function destBody(v: DestValues, stored?: Fields): Fields {
-  const first: DestEndpoint | undefined = stored?.endpoints[0];
+// destBody is the create body for v: its one endpoint, unnamed (the API
+// names a lone unnamed endpoint after the destination); a client-env line
+// without = throws.
+export function destBody(v: DestValues): Fields {
   const e: DestEndpoint = {
-    name: first?.name ?? "", subdomain: first?.subdomain ?? "", route: v.route, upstream: v.upstream,
-    identityIn: v.identityIn, identityInSpec: v.identityIn === "custom" ? first?.identityInSpec ?? null : null,
-    apply: v.apply, applySpec: v.apply === "custom" ? first?.applySpec ?? null : null,
+    name: "", subdomain: "", route: v.route, upstream: v.upstream,
+    identityIn: v.identityIn, identityInSpec: null, apply: v.apply, applySpec: null,
     allowPaths: lines(v.allowPaths), git: v.git, logHeadersIn: v.logHeadersIn, logHeadersOut: v.logHeadersOut,
   };
   const env = lines(v.env).map((l) => {
@@ -38,25 +26,21 @@ export function destBody(v: DestValues, stored?: Fields): Fields {
     if (i < 0) throw new Error(`env line "${l}" is not KEY=TEMPLATE`);
     return { key: l.slice(0, i).trim(), template: l.slice(i + 1).trim() };
   });
-  return { ...(v.name !== undefined ? { name: v.name } : {}), credName: v.credName, note: v.note, env, endpoints: [e, ...(stored?.endpoints.slice(1) ?? [])] };
+  return { name: v.name, credName: v.credName, note: v.note, env, endpoints: [e] };
 }
 
-// DestFields is the destination form body shared by create (with a Name)
-// and edit (the name is the key). custom is offered only when the
-// destination already uses it: its specs are set via import or the API.
-export function DestFields({ value, onChange, methods, stored }: { value: DestValues; onChange: (v: DestValues) => void; methods: string[]; stored?: { identityIn: string; apply: string } }) {
+// DestFields is the New destination form's body. An expression (custom) is
+// set on the destination's page once it exists.
+export function DestFields({ value, onChange, methods }: { value: DestValues; onChange: (v: DestValues) => void; methods: string[] }) {
   const set = <K extends keyof DestValues>(k: K) => (x: DestValues[K]) => onChange({ ...value, [k]: x });
   const text = (k: keyof DestValues) => (e: { currentTarget: { value: string } }) => set(k)(e.currentTarget.value as never);
-  // custom stays offered while the stored value is custom (the form can go back to it).
-  const opts = (current: string, kept?: string) => [...methods, ...(current === "custom" || kept === "custom" ? ["custom"] : [])]
-    .map((m) => ({ value: m, label: m === "custom" ? "custom (expression shown in Broker section; edit via import/API)" : m }));
   return (
     <SimpleGrid cols={{ base: 1, sm: 2 }}>
-      {value.name !== undefined && <TextInput label="Name" required autoComplete="off" value={value.name} onChange={(e) => set("name")(e.currentTarget.value)} />}
-      <TextInput label="Route" required={!value.subdomain} description={value.subdomain ? `on subdomain ${value.subdomain} (edited in the destination's file)` : undefined} placeholder="/anthropic/" value={value.route} onChange={text("route")} />
+      <TextInput label="Name" required autoComplete="off" value={value.name} onChange={text("name")} />
+      <TextInput label="Route" required description="add a subdomain and more endpoints on the destination's page" placeholder="/anthropic/" value={value.route} onChange={text("route")} />
       <TextInput label="Upstream URL" required placeholder="https://api.example.com" value={value.upstream} onChange={text("upstream")} />
-      <NativeSelect label="Identity in" description="how an agent presents its identity token" value={value.identityIn} onChange={text("identityIn")} data={opts(value.identityIn, stored?.identityIn)} />
-      <NativeSelect label="Apply as" description="how the credential is sent upstream" value={value.apply} onChange={text("apply")} data={opts(value.apply, stored?.apply)} />
+      <NativeSelect label="Identity in" description="how an agent presents its identity token" value={value.identityIn} onChange={text("identityIn")} data={methods} />
+      <NativeSelect label="Apply as" description="how the credential is sent upstream" value={value.apply} onChange={text("apply")} data={methods} />
       <TypeAhead label="Default credential" description="cred-name; a role can map its own" kind="credentials" value={value.credName} onChange={set("credName")} />
       <Textarea label="Client env" autosize minRows={2} spellCheck={false} placeholder="GH_HOST={host}" value={value.env} onChange={text("env")}
         description={<>one KEY=TEMPLATE per line; placeholders {"{url} {base} {host} {token} {host:<endpoint>} {url:<endpoint>}"}. Leave empty for the route's legacy default (/anthropic/, /git/).{value.route === "/git/" && !value.env && " Adding env here drops /git/'s implied git routing — tick “Route git” to keep it."}</>} />

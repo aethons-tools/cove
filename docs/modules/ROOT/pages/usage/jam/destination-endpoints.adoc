@@ -115,8 +115,8 @@ so whatever an older Jam stored still imports
 
 == Where the first endpoint stands in
 
-Some views still show one endpoint: the admin UI's destination form
-(it edits the first endpoint and sends the others back unchanged; the admin API itself reads and writes every endpoint),
+Some views still show one endpoint: the admin UI's *New destination* form
+(a destination's page edits every endpoint, xref:usage/jam/ui-pages.adoc#destination-pages[ui-pages]),
 the connector's `+{url}+` and the `/anthropic/` legacy env default
 (the first endpoint's address).
 The connector names any other endpoint with `+{host:<endpoint>}+` and `+{url:<endpoint>}+`
