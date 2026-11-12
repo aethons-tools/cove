@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Destination: github (goal prototype)</title>
+<style>
+  :root { --ink:#1d2329; --mute:#68727d; --line:#dfe3e8; --soft:#f5f7f9; --blue:#1c6fd1; --amber:#c98a00; --red:#c92a2a; }
+  * { box-sizing:border-box; }
+  body { font:14px/1.45 "IBM Plex Sans", system-ui, sans-serif; color:var(--ink); margin:0; background:#fff; }
+  .crumbs { padding:14px 28px; color:var(--mute); border-bottom:1px solid var(--line); }
+  main { padding:20px 28px 60px; max-width:1180px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--mute); margin:0 0 18px; }
+  .card { border:1px solid var(--line); border-radius:8px; padding:16px 18px; margin-bottom:18px; }
+  .card-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .card-head h2 { font-size:16px; margin:0; }
+  .hint { color:var(--mute); font-size:13px; margin:0 0 10px; }
+  button { font:inherit; border:1px solid var(--line); background:#fff; border-radius:6px; padding:5px 12px; cursor:pointer; }
+  button.primary { background:var(--blue); color:#fff; border-color:var(--blue); }
+  button[disabled] { opacity:.45; cursor:default; }
+  table { border-collapse:collapse; width:100%; }
+  th { text-align:left; font-weight:500; color:var(--mute); font-size:12px; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  td { padding:0; border-bottom:1px solid var(--line); vertical-align:top; }
+  td .cell { padding:7px 8px; min-height:34px; white-space:nowrap; }
+  td code, .mono { font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:13px; }
+  .editing td .cell { cursor:text; }
+  .editing td .cell:hover { background:var(--soft); }
+  td .cell.active { outline:2px solid var(--blue); outline-offset:-2px; background:#fff; }
+  td input, td select { font:inherit; font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:13px; border:0; outline:0; width:100%; background:transparent; padding:0; }
+  .choice::after { content:" ▾"; color:var(--mute); visibility:hidden; }
+  .editing .choice:hover::after { visibility:visible; }
+  .expr { color:var(--blue); }
+  .host { color:var(--mute); }
+  .tog { width:28px; text-align:center; color:var(--mute); cursor:pointer; user-select:none; }
+  tr.detail td { background:var(--soft); }
+  .spec { display:grid; grid-template-columns:1fr 1fr; gap:14px 28px; padding:12px 14px 14px 36px; }
+  .spec h4 { margin:0 0 6px; font-size:13px; }
+  .field { margin-bottom:8px; }
+  .field label { display:block; font-size:12px; color:var(--mute); margin-bottom:2px; }
+  .field input, .field select { width:100%; font:13px "IBM Plex Mono", ui-monospace, monospace; padding:5px 7px; border:1px solid var(--line); border-radius:5px; background:#fff; }
+  .field input[readonly], .field select[disabled] { background:transparent; border-color:transparent; padding-left:0; color:var(--ink); opacity:1; }
+  .err { color:var(--red); font-size:12px; margin-top:2px; }
+  .newrow td { color:var(--mute); cursor:pointer; }
+  .newrow td .cell:hover { color:var(--blue); }
+  .footer { display:flex; justify-content:space-between; align-items:center; margin-top:14px; }
+  .count { color:var(--mute); font-size:13px; }
+  .thermo { height:4px; background:var(--line); border-radius:2px; margin-top:8px; overflow:hidden; }
+  .thermo i { display:block; height:100%; background:#3aa36b; }
+  .thermo-label { font-size:12px; color:var(--mute); margin-top:3px; }
+  .two { display:grid; grid-template-columns:200px 1fr; gap:6px 14px; }
+  .two dt { color:var(--mute); }
+  .two dd { margin:0; }
+  .note { border-left:3px solid var(--amber); background:#fff8e6; padding:8px 12px; font-size:13px; margin:0 0 18px; }
+  .tick { color:#2b8a3e; }
+  .logging { font-size:11px; color:#8a5a00; background:#fff3cc; border-radius:4px; padding:1px 5px; }
+</style>
+</head>
+<body>
+<div class="crumbs">Config › Destinations › <b>github</b></div>
+<main>
+  <h1>github</h1>
+  <p class="sub">One credential, three endpoints. Used by 4 roles.</p>
+
+  <div class="card" id="card">
+    <div class="card-head">
+      <h2>Destination</h2>
+      <div id="viewBtns"><button id="edit">Edit</button></div>
+      <div id="editBtns" style="display:none"><button id="cancel">Cancel</button> <button class="primary" id="save">Save destination</button></div>
+    </div>
+
+    <dl class="two">
+      <dt>Credential</dt><dd class="mono">github-pat</dd>
+      <dt>Note</dt><dd>GitHub for the aethons-tools org: git, the REST API and GraphQL.</dd>
+    </dl>
+
+    <h3 style="font-size:14px;margin:20px 0 4px">Endpoints</h3>
+    <p class="hint">Each endpoint has a name, unique in this destination, and is reached at <span class="mono">&lt;subdomain&gt;.jam.example.com&lt;route&gt;</span>. All endpoints use this destination's credential and connector.</p>
+    <table id="grid">
+      <thead><tr>
+        <th></th><th>Name</th><th>Subdomain</th><th>Route</th><th>Upstream</th><th>Identity in</th><th>Apply as</th><th>Allowed paths</th><th>Route git</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="thermo"><i id="thermoBar" style="width:30%"></i></div>
+    <div class="thermo-label" id="thermoLabel">3 of 10 endpoints</div>
+
+    <h3 style="font-size:14px;margin:22px 0 4px">Agent connector</h3>
+    <p class="hint">Set once for the whole destination. <span class="mono">{host:rest}</span> becomes <span class="mono">gh.jam.example.com</span>, the host of endpoint <span class="mono">rest</span>; <span class="mono">{url:rest}</span> becomes <span class="mono">https://gh.jam.example.com/api/v3</span>.</p>
+    <table>
+      <thead><tr><th>Variable</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td><div class="cell mono">GH_HOST</div></td><td><div class="cell mono">{host:rest}</div></td></tr>
+        <tr><td><div class="cell mono">GH_ENTERPRISE_TOKEN</div></td><td><div class="cell mono">{token}</div></td></tr>
+      </tbody>
+    </table>
+
+    <div class="footer"><span class="count" id="problems"></span></div>
+  </div>
+</main>
+
+<script>
+const PRESETS_IN = ["bearer","basic-password","x-api-key","raw"];
+const PRESETS_OUT = ["bearer","basic-password","x-api-key","raw"];
+let rows = [
+  {name:"git", sub:"git", route:"/", up:"https://github.com", idIn:"basic-password", apply:"basic-password", paths:"", git:true},
+  {name:"rest", sub:"gh", route:"/api/v3/", up:"https://api.github.com", idIn:"bearer", apply:"bearer", paths:"", git:false},
+  {name:"graphql", sub:"gh", route:"/api/graphql", up:"https://api.github.com/graphql", idIn:"bearer", apply:"expression", paths:"",git:false, logOut:"changed",
+   outSpec:{header:"Authorization", template:"token {cred}", encoding:"raw", user:""}},
+];
+let saved = JSON.parse(JSON.stringify(rows));
+let editing = false, open = new Set([2]);
+
+function specIn(r){ return r.inSpec || {header:"Authorization", prefixes:"Bearer , token ", encoding:"raw"}; }
+function specOut(r){ return r.outSpec || {header:"Authorization", template:"Bearer {cred}", encoding:"raw", user:""}; }
+function sel(lab,opts,v,i,k){ return `<div class="field"><label>${lab}</label><select data-log="${k}" data-i="${i}" ${editing?"":"disabled"}>${opts.map(o=>`<option ${o===v?"selected":""}>${o}</option>`).join("")}</select></div>`; }
+function label(v){ return v==="expression" ? '<span class="expr">expression</span>' : v; }
+
+function render(){
+  document.getElementById("card").classList.toggle("editing", editing);
+  document.getElementById("viewBtns").style.display = editing?"none":"";
+  document.getElementById("editBtns").style.display = editing?"":"none";
+  const tb = document.getElementById("rows"); tb.innerHTML = "";
+  let problems = 0;
+  const seen = {}, names = {};
+  rows.forEach((r,i)=>{
+    const key = r.sub+r.route; const dup = seen[key]; seen[key]=1; if(dup) problems++; const none = !r.sub && !r.route; if(none) problems++; const dupN = r.name && names[r.name]; names[r.name]=1; if(dupN||!r.name) problems++;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="tog" data-t="${i}">${open.has(i)?"▾":"▸"}</td>
+      <td><div class="cell mono" data-f="name" data-i="${i}">${r.name}${dupN?'<div class="err">Name already used</div>':""}</div></td>
+      <td><div class="cell mono" data-f="sub" data-i="${i}">${r.sub?r.sub+'<span class="host">.jam…</span>':'<span class="host">Jam host</span>'}${dup?'<div class="err">Another endpoint has this subdomain and route</div>':""}${none?'<div class="err">Give a subdomain, a route or both</div>':""}</div></td>
+      <td><div class="cell mono" data-f="route" data-i="${i}">${r.route||'<span class="host">all</span>'}</div></td>
+      <td><div class="cell mono" data-f="up" data-i="${i}">${r.up}</div></td>
+      <td><div class="cell mono choice" data-f="idIn" data-i="${i}">${label(r.idIn)}</div></td>
+      <td><div class="cell mono choice" data-f="apply" data-i="${i}">${label(r.apply)}</div></td>
+      <td><div class="cell mono" data-f="paths" data-i="${i}">${r.paths||'<span class="host">any</span>'}</div></td>
+      <td><div class="cell" data-f="git" data-i="${i}">${r.git?'<span class="tick">✓</span>':'<span class="host">–</span>'}${(r.logIn&&r.logIn!=="none")||(r.logOut&&r.logOut!=="none")?' <span class="logging">logging</span>':""}</div></td>`;
+    tb.appendChild(tr);
+    if(open.has(i)){
+      const d = document.createElement("tr"); d.className="detail";
+      const si = specIn(r), so = specOut(r);
+      const roIn = !editing || r.idIn!=="expression", roOut = !editing || r.apply!=="expression";
+      const f = (lab,val,ro,k)=>`<div class="field"><label>${lab}</label><input class="mono" data-spec="${k}" data-i="${i}" value="${val}" ${ro?"readonly":""}></div>`;
+      d.innerHTML = `<td colspan="9"><div class="spec">
+        <div><h4>Identity in ${r.idIn==="expression"?"":'<span class="host">(preset '+r.idIn+')</span>'}</h4>
+          ${f("Header",si.header,roIn,"in.header")}${f("Prefixes, comma-separated",si.prefixes,roIn,"in.prefixes")}${f("Encoding (raw or basic)",si.encoding,roIn,"in.encoding")}</div>
+        <div><h4>Apply as ${r.apply==="expression"?"":'<span class="host">(preset '+r.apply+')</span>'}</h4>
+          ${f("Header",so.header,roOut,"out.header")}${f("Template, with {cred} once",so.template,roOut,"out.template")}
+          ${!so.template.includes("{cred}")?'<div class="err">The template needs {cred} exactly once</div>':""}
+          ${f("Encoding (raw or basic)",so.encoding,roOut,"out.encoding")}${f("Basic user",so.user,roOut,"out.user")}</div>
+        <div><h4>Header logging</h4>${sel("Log incoming headers",["none","examined","all"],r.logIn||"none",i,"logIn")}</div>
+        <div><h4>&nbsp;</h4>${sel("Log outgoing headers",["none","changed","all"],r.logOut||"none",i,"logOut")}</div>
+      </div></td>`;
+      if(!so.template.includes("{cred}")) problems++;
+      tb.appendChild(d);
+    }
+  });
+  if(editing && rows.length<10){
+    const n = document.createElement("tr"); n.className="newrow";
+    n.innerHTML = `<td></td><td colspan="8"><div class="cell" id="add">+ new endpoint…</div></td>`;
+    tb.appendChild(n);
+  }
+  document.getElementById("thermoBar").style.width = (rows.length*10)+"%";
+  document.getElementById("thermoLabel").textContent = rows.length+" of 10 endpoints";
+  document.getElementById("problems").textContent = editing ? (problems? problems+" problem"+(problems>1?"s":"") : "No problems") : "";
+  document.getElementById("save").disabled = problems>0;
+}
+
+document.addEventListener("click", e=>{
+  const t = e.target.closest("[data-t]");
+  if(t){ const i=+t.dataset.t; open.has(i)?open.delete(i):open.add(i); render(); return; }
+  if(e.target.id==="edit"){ editing=true; render(); return; }
+  if(e.target.id==="cancel"){ rows=JSON.parse(JSON.stringify(saved)); editing=false; render(); return; }
+  if(e.target.id==="save"){ saved=JSON.parse(JSON.stringify(rows)); editing=false; render(); return; }
+  if(e.target.id==="add"){ rows.push({name:"", sub:"",route:"/",up:"https://",idIn:"bearer",apply:"bearer",paths:"",git:false}); render(); return; }
+  const c = e.target.closest(".cell[data-f]");
+  if(c && editing && !c.querySelector("input,select")) startEdit(c);
+});
+
+function startEdit(c){
+  const i=+c.dataset.i, f=c.dataset.f, r=rows[i];
+  c.classList.add("active");
+  let el;
+  if(f==="idIn"||f==="apply"){
+    el=document.createElement("select");
+    [...(f==="idIn"?PRESETS_IN:PRESETS_OUT),"expression"].forEach(o=>{const op=new Option(o,o); op.selected=r[f]===o; el.add(op);});
+    el.onchange=()=>{ r[f]=el.value; if(el.value==="expression"){ open.add(i); if(f==="idIn") r.inSpec={...specIn(r)}; else r.outSpec={...specOut(r)}; } render(); };
+  } else if(f==="git"){
+    el=document.createElement("select"); ["yes","no"].forEach(o=>{const op=new Option(o,o); op.selected=(o==="yes")===r.git; el.add(op);});
+    el.onchange=()=>{ r.git=el.value==="yes"; render(); };
+  } else {
+    el=document.createElement("input"); el.value=r[f];
+    el.placeholder = f==="paths" ? "e.g. /v1/projects/*" : "";
+    el.oninput=()=>{ r[f]=el.value; };
+  }
+  el.onkeydown=ev=>{ if(ev.key==="Escape"||ev.key==="Enter"||ev.key==="Tab"){ ev.preventDefault(); render(); } };
+  el.onblur=()=>setTimeout(render,100);
+  c.innerHTML=""; c.appendChild(el); el.focus();
+}
+
+document.addEventListener("input", e=>{
+  const s=e.target.dataset.spec; if(!s) return;
+  const r=rows[+e.target.dataset.i], [side,k]=s.split(".");
+  if(side==="in"){ r.inSpec={...specIn(r)}; r.inSpec[k]=e.target.value; }
+  else { r.outSpec={...specOut(r)}; r.outSpec[k]=e.target.value; }
+});
+document.addEventListener("change", e=>{ if(e.target.dataset.log){ rows[+e.target.dataset.i][e.target.dataset.log]=e.target.value; render(); return; } if(e.target.dataset.spec) render(); });
+if(location.hash==="#edit") editing=true;
+render();
+</script>
+</body>
+</html>
