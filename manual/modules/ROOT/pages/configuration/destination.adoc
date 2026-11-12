@@ -1,28 +1,14 @@
-= Reaching outside services through destinations
-:page-area: projects
-:page-id: projects/destinations
+= Configuring a destination
+:page-area: ROOT
+:page-id: ROOT/configuration/destination
 :page-conventions: sentence-case, quiet-grid, collapsible-rows, add-at-bottom, thermometers, view-then-edit, field-errors
 
-A *destination* is an outside service,
-such as GitHub or Linear,
-that agents reach through Jam
-without ever holding its credential.
-Jam keeps the credential,
-checks each agent's own identity,
-and adds the real credential on the way out.
+You see and edit a xref:concepts/destination.adoc[destination] on its page,
+under *Config › Destinations › _name_*.
+You edit it on a branch of the config repo;
+saving is a commit to that branch.
 
-One service often needs several addresses.
-GitHub has git, its REST API and GraphQL;
-Linear has its API and its MCP server.
-A destination holds all of them as *endpoints*
-that share one credential and one agent connector,
-so you set those up once.
-
-You see and edit a destination on its page,
-under *Config › Destinations › _name_*,
-on a branch of the config repo.
-
-image::destinations-view.png[The github destination, viewing,800]
+image::destination-view.png[The github destination, viewing,800]
 
 == Viewing and editing
 
@@ -32,7 +18,7 @@ Click *Edit* to make the whole card editable;
 *Cancel* drops your changes,
 *Save destination* keeps them.
 
-image::destinations-edit.png[The github destination, editing,800]
+image::destination-edit.png[The github destination, editing,800]
 
 The card shows the destination's *Credential*,
 the name of the secret Jam applies upstream,
@@ -70,32 +56,7 @@ To add an endpoint, click *+ new endpoint…* at the bottom of the grid.
 A destination can have up to 10;
 the thermometer below the grid shows how many it has.
 
-=== Addresses
-
-An endpoint needs a subdomain, a route or both.
-No two endpoints in the whole Jam may have the same subdomain and route.
-
-A request matches the most specific endpoint.
-The route is taken off before the request goes upstream;
-with no route, the path goes on unchanged.
-For example, with the Jam at `jam.example.com`:
-
-* `git.jam.example.com/aethons-tools/cove.git` goes to `https://github.com/aethons-tools/cove.git`.
-* `gh.jam.example.com/api/v3/repos/x` goes to `https://api.github.com/repos/x`.
-* `gh.jam.example.com/other` matches no endpoint and is refused.
-* An endpoint with subdomain `linear` and no route sends `linear.jam.example.com/graphql` to `https://api.linear.app/graphql`.
-
-A subdomain lets a client that only takes a host,
-such as `gh`,
-reach a service without needing a path of its own.
-Two GitHub destinations on two subdomains do not get in each other's way.
-
-Subdomains work once the Jam has a domain for them,
-as it has for previews.
-Until then,
-a subdomain shows an error at its cell.
-
-=== Identity and credential
+== Identity in and apply as
 
 *Identity in* and *Apply as* each offer four presets
 (`bearer`, `basic-password`, `x-api-key`, `raw`)
@@ -114,7 +75,7 @@ a template with `+{cred}+` exactly once,
 its encoding,
 and, for `basic`, the user to send.
 
-=== Header logging
+== Header logging
 
 Also in the expanded row,
 *Log incoming headers* (`none`, `examined`, `all`)
@@ -138,42 +99,21 @@ A value can use these placeholders:
 For example, `gh` needs `GH_HOST` set to `+{host:rest}+`;
 it adds `/api/v3/` and `/api/graphql` itself.
 
-== Roles
-
-A role lists the destinations it may use.
-It gets every endpoint of each one.
-When a role should reach only part of a service,
-make that part a destination of its own.
-
 == Saving
 
 A problem shows on the field that has it:
 a missing or repeated name,
 an endpoint with neither subdomain nor route,
 a subdomain and route another endpoint has,
+a subdomain on a Jam with no domain for them,
 or a template without `+{cred}+`.
 The footer counts problems,
 and *Save destination* stays off until there are none.
-Saving is a commit to the config branch.
-
-Destinations defined before endpoints existed keep working unchanged.
-Each is a destination with one endpoint,
-named after the destination,
-on its route.
 
 ifdef::internal[]
 == Notes for the team
 
-* Clickable prototype: xref:attachment$destinations-prototype.html[destinations-prototype.html].
-* Ideas this page answers: COV-296 (subdomain-based destinations) and COV-297 (destinations that share credentials or env vars).
-* Subdomains need the Jam's TLS certificate and DNS to cover `*.<jam host>`,
-and the broker to route by `Host` before path.
-* `<jam host>` is the broker's host; the subdomains hang off a configured domain, like `previews:`,
-whose wildcard DNS and TLS the operator provides.
-Studio egress must admit it.
-An endpoint without a subdomain may not claim a path Jam itself uses.
-* Older clients keep working for destinations without subdomains;
-the connector's git routing grows to carry a host as well as a path, additively.
+* Clickable prototype: xref:attachment$destination-prototype.html[destination-prototype.html].
 * The connector's placeholders keep today's `+{url}+`, `+{base}+` and `+{host}+` for one-endpoint destinations.
 * The editor's calls, for review:
 endpoints named after the destination when a file gives no name;

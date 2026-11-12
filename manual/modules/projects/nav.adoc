@@ -1,3 +1,2 @@
 .Projects
 * xref:agent-context.adoc[Telling a project's agents what they need to know]
-* xref:destinations.adoc[Reaching outside services through destinations]

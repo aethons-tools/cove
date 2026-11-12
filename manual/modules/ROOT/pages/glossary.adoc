@@ -3,7 +3,7 @@
 :page-id: ROOT/glossary
 :page-conventions: sentence-case
 
-// Stub: the goal for this page is not written yet.
+// Being filled in a term at a time.
 // Idea waiting on it (Linear, label page:ROOT/glossary):
 // COV-305, each manual should include a glossary.
 
@@ -11,4 +11,9 @@ The words this manual uses for Jam's parts,
 each with a one-line meaning
 and a link to the page that describes it.
 
-This page is a stub.
+[glossary]
+Destination::
+An outside service, such as GitHub or Linear,
+that agents reach through Jam without holding its credential;
+a group of endpoints that share one credential.
+See xref:concepts/destination.adoc[].
