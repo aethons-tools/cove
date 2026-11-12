@@ -4,7 +4,7 @@
 :owns: destination `env`/`git`, the template placeholders, the legacy defaults, connector assembly + conflicts, and the GitHub-API (`gh`) destination recipe
 :prereqs: serve.adoc#destinations for destinations; roster.adoc for which destinations a role's scope allows
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-12
 
 A studio reaches Jam's destinations by setting *client env* (and, for git, a
 token-free git config). Each destination declares what it needs; Jam assembles
@@ -28,11 +28,11 @@ env: {GH_HOST: "{host}", GH_ENTERPRISE_TOKEN: "{token}"}
 ----
 
 * `+env: {KEY: TEMPLATE}+`.
-Placeholders: `+{url}+` = broker base + this route (no trailing `/`), `+{base}+` =
+Placeholders: `+{url}+` = broker base + this route (the first endpoint's; no trailing `/`), `+{base}+` =
 `+https://<jam host>+`, `+{host}+` = the Jam host, `+{token}+` = the studio's
 identity token. Keys must be env-var names; `+JAM_*+` is
 reserved. Validated by the plan.
-* `+git: true+` routes the studio's git for the destination's *upstream host*
+* `+git: true+` (on an xref:usage/jam/destination-endpoints.adoc[endpoint]) routes the studio's git for the endpoint's *upstream host*
 through its route (insteadOf + a credential helper that reads the token from
 env — no secret in gitconfig): upstream `+https://github.com+` rewrites
 `+https://github.com/+`, upstream `+https://gitlab.example.com+` rewrites
@@ -55,7 +55,7 @@ destination an `env` drops its implied git routing — add `+git: true+` to keep
 
 An identity's connector is the union over every destination in its grants'
 effective scopes (xref:usage/jam/roster.adoc[roster.adoc]). Two destinations setting one
-variable to *different* values, or two different git routes, is an error —
+variable to *different* values, or two different git routes (from any of their endpoints), is an error —
 fail closed, never a silent pick.
 
 == Delivery

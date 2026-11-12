@@ -9,8 +9,9 @@ import (
 	"time"
 )
 
-// Broker is the credential-injecting reverse proxy: authenticate the identity,
-// run the three-question decision, check the path against the destination's
+// Broker is the credential-injecting reverse proxy: match the request's
+// endpoint, authenticate the identity, run the three-question decision (by
+// the endpoint's destination), check the path against the endpoint's
 // allow_paths, resolve Jam's real credential, rewrite the
 // request with it, and proxy to the upstream. Implements http.Handler.
 type Broker struct {
@@ -19,7 +20,7 @@ type Broker struct {
 	now    func() time.Time
 	log    *slog.Logger
 	warns  *warnDedupe       // rate-limits the principal header-rule warnings
-	hdrLog *headerLogLimiter // rate-limits the per-destination header logs
+	hdrLog *headerLogLimiter // rate-limits the per-endpoint header logs
 }
 
 // NewBroker constructs a Broker that matches destinations from the live store.
@@ -28,13 +29,13 @@ func NewBroker(store Store, creds CredResolver, log *slog.Logger) *Broker {
 }
 
 func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	dest, ok := b.store.Match(r.URL.Path)
+	dest, ep, ok := b.store.Match(r.URL.Path)
 	if !ok {
 		http.Error(w, "no such destination", http.StatusNotFound)
 		return
 	}
-	in, hasIn := dest.InboundSpec()
-	b.logHeadersIn(dest, r, in, hasIn)
+	in, hasIn := ep.InboundSpec()
+	b.logHeadersIn(dest, ep, r, in, hasIn)
 	tok, ok := "", false
 	if hasIn {
 		tok, ok = presentedToken(r, in)
@@ -59,7 +60,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	trimmed := strings.TrimSuffix(dest.Route, "/") // "/anthropic/" -> "/anthropic"
+	trimmed := strings.TrimSuffix(ep.Route, "/") // "/anthropic/" -> "/anthropic"
 	upPath := strings.TrimPrefix(r.URL.Path, trimmed)
 	// The upstream gets the path as the client escaped it (a GitLab project id
 	// "g%2Fr" is not "g/r"). The route must be literal in it, and it must decode
@@ -69,8 +70,8 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request path", http.StatusBadRequest)
 		return
 	}
-	if !dest.PathAllowed(upPath) {
-		b.log.Warn("broker denied", "actor", actor.ID, "destination", dest.Name, "reason", "path not in allow_paths", "path", r.URL.Path)
+	if !ep.PathAllowed(upPath) {
+		b.log.Warn("broker denied", "actor", actor.ID, "destination", dest.Name, "endpoint", ep.Name, "reason", "path not in allow_paths", "path", r.URL.Path)
 		http.Error(w, "path not allowed on this destination", http.StatusForbidden)
 		return
 	}
@@ -94,12 +95,12 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	up, err := url.Parse(dest.Upstream)
+	up, err := url.Parse(ep.Upstream)
 	if err != nil {
 		http.Error(w, "bad upstream", http.StatusInternalServerError)
 		return
 	}
-	rules := b.principalHeaderRules(actor, dest, in) // resolved and filtered once, outside the Director
+	rules := b.principalHeaderRules(actor, dest, ep, in) // resolved and filtered once, outside the Director
 	rp := &httputil.ReverseProxy{Director: func(out *http.Request) {
 		out.URL.Scheme = up.Scheme
 		out.URL.Host = up.Host
@@ -109,8 +110,8 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out.Header.Del("Authorization") // never forward a caller's Authorization upstream
 		out.Header.Del(in.Header)       // the identity is Jam's, never the upstream's, whatever header it arrived in
 		if dec.NeedCred {
-			// The decision is the one source for how the credential is applied.
-			if spec, ok := outboundSpec(dec.Apply, dec.Dest.ApplySpec); ok {
+			// The endpoint is the one source for how the credential is applied.
+			if spec, ok := ep.OutboundSpec(); ok {
 				spec.apply(out.Header, cred) // never logged
 			}
 		}
@@ -121,12 +122,12 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ensureListItem(out.Header, "anthropic-beta", subscriptionOAuthBeta)
 		}
 		outHeader := ""
-		if spec, ok := outboundSpec(dec.Apply, dec.Dest.ApplySpec); ok {
+		if spec, ok := ep.OutboundSpec(); ok {
 			outHeader = spec.Header
 		}
-		b.logHeadersOut(dest, actor.ID, out, r.Header, in.Header, outHeader)
+		b.logHeadersOut(dest, ep, actor.ID, out, r.Header, in.Header, outHeader)
 	}}
-	b.log.Info("broker proxy", "actor", actor.ID, "destination", dest.Name, "path", r.URL.Path)
+	b.log.Info("broker proxy", "actor", actor.ID, "destination", dest.Name, "endpoint", ep.Name, "path", r.URL.Path)
 	rp.ServeHTTP(w, r)
 }
 

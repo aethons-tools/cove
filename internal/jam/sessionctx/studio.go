@@ -1,6 +1,7 @@
 package sessionctx
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
@@ -10,9 +11,10 @@ import (
 // StudioDestination is one granted destination as a session should see it:
 // what it reaches and how to use it. Never credentials or env values.
 type StudioDestination struct {
-	Name, Upstream string
+	Name, Upstream string   // Upstream: its endpoints' upstreams, ", "-joined
 	EnvKeys        []string // sorted env var names the connector sets
 	Git            bool     // git for its upstream host (e.g. https://github.com/) is routed through it
+	GitUpstream    string   // the upstream git is routed for, when not Upstream
 	Note           string   // Destination.Note
 }
 
@@ -102,7 +104,7 @@ func studioDestinations(f StudioFacts) string {
 			fmt.Fprintf(&b, "; env %s", strings.Join(d.EnvKeys, ", "))
 		}
 		if d.Git {
-			fmt.Fprintf(&b, "; %s is routed through Jam", oneLine(snippet.RewriteTargetFor(d.Upstream)))
+			fmt.Fprintf(&b, "; %s is routed through Jam", oneLine(snippet.RewriteTargetFor(cmp.Or(d.GitUpstream, d.Upstream))))
 		}
 		if n := oneLine(d.Note); n != "" {
 			b.WriteString(" — " + n)

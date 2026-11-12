@@ -46,7 +46,7 @@ func treeStore(t *testing.T) (jam.Store, jam.User) {
 	if err := st.PutRole("acme", jam.Role{Name: "coder"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AddDestination(jam.Destination{Name: "gh", Route: "/gh", Upstream: "https://api.github.com"}); err != nil {
+	if err := st.AddDestination(jam.Destination{Name: "gh", Endpoints: []jam.Endpoint{{Name: "gh", Route: "/gh", Upstream: "https://api.github.com"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.PutModelSpec(jam.ModelSpec{Name: "m1"}); err != nil {

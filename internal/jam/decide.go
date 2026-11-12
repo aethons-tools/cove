@@ -13,13 +13,11 @@ import (
 )
 
 // Decision is the outcome of the three-question pipeline for one request.
+// How the credential is applied is the matched endpoint's (Endpoint.Apply).
 type Decision struct {
 	Dest     Destination
 	NeedCred bool
 	CredName string
-	// Apply is how the broker applies the credential (with Dest.ApplySpec
-	// when custom); the proxy reads it from here.
-	Apply ApplyMethod
 }
 
 // EffectiveScope layers a grant's overrides over its role's scope. Each field is
@@ -74,7 +72,7 @@ func Decide(a Actor, scopes []Scope, dest Destination, now time.Time) (Decision,
 	if !found {
 		return Decision{}, fmt.Errorf("actor %q not authorized for destination %q", a.ID, dest.Name)
 	}
-	return Decision{Dest: dest, NeedCred: cred != "", CredName: cred, Apply: dest.Apply}, nil
+	return Decision{Dest: dest, NeedCred: cred != "", CredName: cred}, nil
 }
 
 // ErrSendDenied means no grant's addressing authorizes the target's form (403);

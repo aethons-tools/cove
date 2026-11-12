@@ -10,7 +10,7 @@ import (
 func TestCoveSummariesConnectorStatus(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	gh := Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Env: map[string]string{"GH_HOST": "{host}"}}
+	gh := Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com"}}, Env: map[string]string{"GH_HOST": "{host}"}}
 	if err := store.AddDestination(gh); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestCoveSummariesConnectorStatus(t *testing.T) {
 	}
 
 	// A second destination setting GH_HOST differently → conflict → error.
-	if err := store.AddDestination(Destination{Name: "gh2", Route: "/x/", Upstream: "https://x.example", Env: map[string]string{"GH_HOST": "other"}}); err != nil {
+	if err := store.AddDestination(Destination{Name: "gh2", Endpoints: []Endpoint{{Name: "gh2", Route: "/x/", Upstream: "https://x.example"}}, Env: map[string]string{"GH_HOST": "other"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.PutRole("acme", Role{Name: "w", Scope: Scope{Destinations: []string{"gh", "gh2"}, TTL: time.Hour}}); err != nil {

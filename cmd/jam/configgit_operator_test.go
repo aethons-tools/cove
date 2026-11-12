@@ -52,9 +52,8 @@ func TestConfigWriteAllAdoptsOperatorJam(t *testing.T) {
 	url, st := configServer(t)
 	// The operator's destinations, seeded straight into the store (the
 	// `destination add|import` verbs that created them are gone).
-	if err := st.AddDestination(jam.Destination{Name: "nea-atlassian", Route: "/nea-atlassian/", Upstream: "https://nexteraanalytics.atlassian.net",
-		IdentityIn: jam.ApplyBasicPassword, CredName: "atlassian-agent-apikey", Apply: jam.ApplyBasicPassword,
-		Env: map[string]string{"JIRA_API_TOKEN": "{token}"}, LogHeadersIn: jam.HeaderLogAll, LogHeadersOut: jam.HeaderLogAll}); err != nil {
+	if err := st.AddDestination(jam.Destination{Name: "nea-atlassian", Endpoints: []jam.Endpoint{{Name: "nea-atlassian", Route: "/nea-atlassian/", Upstream: "https://nexteraanalytics.atlassian.net", IdentityIn: jam.ApplyBasicPassword, Apply: jam.ApplyBasicPassword, LogHeadersIn: jam.HeaderLogAll, LogHeadersOut: jam.HeaderLogAll}}, CredName: "atlassian-agent-apikey",
+		Env: map[string]string{"JIRA_API_TOKEN": "{token}"}}); err != nil {
 		t.Fatal(err)
 	}
 	var imported jam.Config

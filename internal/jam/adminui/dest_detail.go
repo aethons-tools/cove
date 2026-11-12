@@ -111,7 +111,7 @@ func buildDestDetail(store jam.Store, name string) (destDetail, bool) {
 	out := destDetail{
 		Title: "Destinations", Dest: d, Methods: methods,
 		EnvImplied: d.Env == nil && len(env) > 0,
-		GitRouted:  d.GitRouted(), GitImplied: d.GitRouted() && !d.Git,
+		GitRouted:  d.GitRouted(), GitImplied: d.GitRouted() && !slices.ContainsFunc(d.Endpoints, func(e jam.Endpoint) bool { return e.Git }),
 		Uses: destUses(store, name),
 	}
 	for _, k := range slices.Sorted(maps.Keys(env)) {
@@ -122,7 +122,7 @@ func buildDestDetail(store jam.Store, name string) (destDetail, bool) {
 		lines = append(lines, k+"="+d.Env[k])
 	}
 	out.Form.Env = strings.Join(lines, "\n")
-	out.Form.AllowPaths = strings.Join(d.AllowPaths, "\n")
+	out.Form.AllowPaths = strings.Join(d.Primary().AllowPaths, "\n")
 
 	// Flag (never block) roles whose connector assembly this destination breaks,
 	// mirroring jam.ConnectorFor over the role's own scope.
@@ -139,12 +139,25 @@ func buildDestDetail(store jam.Store, name string) (destDetail, bool) {
 					out.Conflicts = append(out.Conflicts, destConflict{Project: u.Project, Role: u.Role, Other: on, What: "both set " + k + " (to different values)"})
 				}
 			}
-			if d.GitRouted() && o.GitRouted() && d.Route != o.Route {
+			if gitClash(d, o) {
 				out.Conflicts = append(out.Conflicts, destConflict{Project: u.Project, Role: u.Role, Other: on, What: "both route git"})
 			}
 		}
 	}
 	return out, true
+}
+
+// gitClash reports whether d and o both route git on different routes, which
+// jam.ConnectorFor refuses in one scope.
+func gitClash(d, o jam.Destination) bool {
+	for _, e := range d.GitEndpoints() {
+		for _, f := range o.GitEndpoints() {
+			if e.Route != f.Route {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ConflictRoles is the distinct roles among the conflicts, for marking each once.
@@ -206,19 +219,24 @@ func destFromFields(get func(string) string, name string) (jam.Destination, erro
 		return jam.Destination{}, err
 	}
 	return jam.Destination{
-		Name:       name,
-		Route:      strings.TrimSpace(get("route")),
-		Upstream:   strings.TrimSpace(get("upstream")),
-		IdentityIn: jam.ApplyMethod(strings.TrimSpace(get("identity-in"))),
-		CredName:   strings.TrimSpace(get("cred-name")),
-		Apply:      jam.ApplyMethod(strings.TrimSpace(get("apply"))),
-		Env:        env,
-		AllowPaths: parseAllowPaths(get("allow-paths")),
-		Git:        get("git") != "",
-		Note:       strings.TrimSpace(get("note")),
-		// "none" is the default; store it as unset.
-		LogHeadersIn:  headerLogField(get("log-headers-in")),
-		LogHeadersOut: headerLogField(get("log-headers-out")),
+		Name: name,
+		// The form edits one endpoint: a new destination's only one, or an
+		// existing one's first (jam.UpdateDestinationKeepSpecs).
+		Endpoints: []jam.Endpoint{{
+			Name:       name,
+			Route:      strings.TrimSpace(get("route")),
+			Upstream:   strings.TrimSpace(get("upstream")),
+			IdentityIn: jam.ApplyMethod(strings.TrimSpace(get("identity-in"))),
+			Apply:      jam.ApplyMethod(strings.TrimSpace(get("apply"))),
+			AllowPaths: parseAllowPaths(get("allow-paths")),
+			Git:        get("git") != "",
+			// "none" is the default; store it as unset.
+			LogHeadersIn:  headerLogField(get("log-headers-in")),
+			LogHeadersOut: headerLogField(get("log-headers-out")),
+		}},
+		CredName: strings.TrimSpace(get("cred-name")),
+		Env:      env,
+		Note:     strings.TrimSpace(get("note")),
 	}, nil
 }
 

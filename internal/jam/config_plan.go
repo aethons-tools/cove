@@ -338,6 +338,24 @@ func (p *planner) planDestinations() {
 			if err := ValidateDestination(d, p.credExists); err != nil {
 				return err
 			}
+			// Every destination as the plan leaves it: the tree's, and the
+			// unmanaged ones of the store's the tree doesn't name (a managed
+			// one is deleted: planDeletes).
+			var all []Destination
+			for _, o := range p.in.Tree.Destinations {
+				all = append(all, o.Destination)
+			}
+			for _, o := range p.in.Snapshot.Destinations {
+				k := ConfigKey{ConfigKindDestination, o.Name}
+				if _, inTree := p.in.Tree.Destinations[o.Name]; !inTree {
+					if _, managed := p.marks[k]; !managed {
+						all = append(all, o)
+					}
+				}
+			}
+			if err := checkEndpointClashes(d, all); err != nil {
+				return err
+			}
 			p.m.applyPutDestination(d)
 			p.w.Destinations = append(p.w.Destinations, d)
 			return nil
