@@ -4,7 +4,7 @@
 :owns: the manual/ tree, its screenshots (just manual-shot, web/app/src/shots), its build (antora playbooks, manual/ui, just manual and manual-site), the branch-to-version model, the page attributes (page-area, page-id, page-conventions), and marking content internal (manual/extensions, just manual-check)
 :prereqs: superpowers/specs/2026-11-05-manual-first-operating-model-design.md for why the manual leads the work
 :tier: leaf
-:updated: 2026-11-11
+:updated: 2026-11-12
 
 `manual/` is the *user-facing* manual: what each part of the Jam app does,
 for the person using it. `docs/` stays the developer documentation.
@@ -173,8 +173,10 @@ leak, and warnings fail it too (`+failure_level: warn+`). `just build` and the
 release run it; it reads your working tree's `HEAD` but names the version
 `released`.
 
-Both need Node/npm (Antora is pinned in `manual/package.json`). The site's look
-is `manual/ui/` — layouts, two helpers and a stylesheet — not Antora's default
-UI, which would be downloaded from gitlab.com at build time.
+Both need Node/npm (Antora is pinned in `manual/package.json`). The customer
+manual's look is `manual/ui/` — layouts, two helpers and a stylesheet, no
+scripts — not Antora's default UI, which would be downloaded from gitlab.com
+at build time. The team site and `just manual` use a pinned, verified
+third-party UI instead (xref:manual-books.adoc[]).
 
 The team site's books (the architecture and process books included) and search: xref:manual-books.adoc[].

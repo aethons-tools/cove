@@ -1,16 +1,16 @@
 = Books and search on the team site
-:summary: The team site's books (Antora components on "Jam books" — the Jam manual, the architecture book from docs/, and the process book from the private aethons-tools/jam-config, pulled in by manual/extensions/books.js from a local clone or CI checkout with the JAM_CONFIG_DEPLOY_KEY secret) and its full-text search (@antora/lunr-extension) with the UI contract it needs.
-:read_when: You are adding a book to the team site, building the team site with or without the process book, setting up its jam-config deploy key, or touching search or the book switcher.
-:owns: the team site's books (the content sources and manual/extensions/books.js), the architecture book's and the process book's branch-to-version mappings and how it is pulled in (JAM_CONFIG_DIR, JAM_CONFIG_DEPLOY_KEY), and search (@antora/lunr-extension and its side of manual/ui)
+:summary: The team site's books (Antora components on "Jam books" — the Jam manual, the architecture book from docs/, and the process book from the private aethons-tools/jam-config, pulled in by manual/extensions/books.js from a local clone or CI checkout with the JAM_CONFIG_DEPLOY_KEY secret) its full-text search (@antora/lunr-extension) with the UI contract it needs, and its UI (spring-io/antora-ui-spring, pinned and sha256-verified, plus our supplemental files).
+:read_when: You are adding a book to the team site, building the team site with or without the process book, setting up its jam-config deploy key, touching search or the book switcher, or changing or bumping the team site's UI bundle.
+:owns: the team site's books (the content sources and manual/extensions/books.js), the architecture book's and the process book's branch-to-version mappings and how it is pulled in (JAM_CONFIG_DIR, JAM_CONFIG_DEPLOY_KEY), search (@antora/lunr-extension and the UI's side of it), and the team site's UI (antora-ui-spring, scripts/manual-ui.sh, manual/ui-spring)
 :prereqs: manual.adoc for the manual, its versions and its builds
 :tier: leaf
-:updated: 2026-11-11
+:updated: 2026-11-12
 
 * *Books.* The team site, titled _Jam books_ (``site.title``; the customer
 manual stays _Jam manual_), hosts several books, each an Antora component:
-this manual is `jam`. The header lists every component (`site.components`),
-the current one highlighted, beside the version switcher; with one book the
-header has no book list (the site title names it). To add a book, add a content source to
+this manual is `jam`. The "…" button beside the book's name in the nav opens
+the book and version panel: every component (`site.components`) and each of
+its versions. To add a book, add a content source to
 `antora-playbook.yml` (and `antora-playbook.local.yml` if it should build
 locally): a repo `url`, `+start_path+` to the dir holding its `antora.yml`
 (its own `name`, `title`, `nav`), and `branches` — or, for a repo not
@@ -49,11 +49,36 @@ embedded in Jam, whose CSP allows no scripts, and `scripts/manual.sh` fails
 if a search index ends up in it. It writes `search-index.js` at the site
 root (all books and versions, internal content included — the site is
 Access-gated; about 50 KB today). The UI's side of the contract, in
-`ui/layouts/default.hbs`, all under ``+{{#if env.SITE_SEARCH_PROVIDER}}+``:
+`ui-spring/partials/header-content.hbs` and `search.hbs`, all under ``+{{#if env.SITE_SEARCH_PROVIDER}}+``:
 `<input id="search-input" type="text">` inside `+#search-field+` (the results
 dropdown attaches to it), an "In this book" checkbox
-(`+data-facet-filter="component:<name>"+`) when there are several books, and
+(`+data-facet-filter="component:<name>"+`), and
 `+{{> search-scripts}}+` before `</body>` (the extension supplies that partial,
 `lunr.js`, `search-ui.js` and ``search.css``; the UI must not ship them). The
 indexer reads only `article.doc` and takes the title from its `h1.page`, so
 keep page content in them.
+* *The team site's UI* (team and local playbooks) is
+https://github.com/spring-io/antora-ui-spring[spring-io/antora-ui-spring]
+v0.4.26 (MPL-2.0); the customer manual keeps `manual/ui` (no scripts: Jam's
+CSP), and must never use it. Antora's own `ui.bundle.url` fetch can't check
+a checksum, so `scripts/manual-ui.sh` (run by `just manual`, `just
+manual-site` and `manual-site.yml`) downloads the release's `ui-bundle.zip`
+to `manual/build/ui-spring.zip` (git-ignored), checks its pinned sha256
+(it fails, keeping nothing, on a mismatch) and the playbooks read that path;
+`runtime.fetch` stays false. *To bump it*, set `version` and `sha256` in
+the script (the checksum of the new release asset, `+sha256sum+` of a copy you
+have looked at), rebuild, and check our partials against the new theme's
+(below). TODO: a Renovate custom regex manager on the script's `version`.
+* *Our additions*, `manual/ui-spring/` (`ui.supplemental_files`), replace
+theme partials by name: `header-content` (site title, search box and "In
+this book" filter, the theme's dark-mode toggle), `main` and `article`
+(breadcrumbs and the Next/Goal banners outside `article.doc`, so search
+doesn't index them; no "newer version" notice), `toc` (no edit or GitHub
+links), `nav-tree` (the "Team only" badge), `search` (lunr's scripts, not
+Algolia), `head-scripts` (our `css/jam.css`, not analytics),
+`related-projects` (empty) and `footer-content` (the licence notice).
+Licence: MPL-2.0 is per file. The bundle's own files ship unmodified, notices
+kept; our overrides are separate files, not edits to the bundle. Those adapted
+from a theme partial (`header-content`, `main`, `article`, `toc`, `nav-tree`;
+each says so) are MPL-2.0 like the original; the rest (`css/jam.css`
+included) are ours. Never edit the zip itself.
