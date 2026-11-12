@@ -160,7 +160,7 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 		}
 		d, err := destFromFields(formOf(body, destFields), strings.TrimSpace(body["name"]))
 		if err == nil {
-			err = jam.CreateDestination(store, d, credExists)
+			err = jam.CreateDestination(store, d, credExists, u.subdomains)
 		}
 		if err != nil {
 			apiFail(w, createConflict(err), http.StatusInternalServerError)
@@ -184,7 +184,7 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 		}
 		d, err := destFromFields(formOf(body, destFields), r.PathValue("name"))
 		if err == nil {
-			err = jam.UpdateDestinationKeepSpecs(store, d, credExists) // the form can't edit custom specs: keep them
+			err = jam.UpdateDestinationKeepSpecs(store, d, credExists, u.subdomains) // the form can't edit custom specs: keep them
 		}
 		if err != nil {
 			apiFail(w, err, http.StatusInternalServerError)

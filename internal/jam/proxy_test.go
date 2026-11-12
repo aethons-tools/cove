@@ -376,3 +376,67 @@ func TestBrokerBasicPasswordSendsCredentialUser(t *testing.T) {
 		t.Fatalf("status %d, upstream basic %q:%q", rec.Code, gotUser, gotPass)
 	}
 }
+
+// On a subdomain of the destinations domain the broker serves that
+// subdomain's endpoints only: its most specific endpoint, with the path
+// unchanged on one without a route; an unknown subdomain, a deeper name or an
+// unmatched path is a 404 that never reaches an upstream.
+func TestBrokerRoutesBySubdomain(t *testing.T) {
+	var hits []string
+	ups := map[string]string{} // endpoint name -> its upstream's URL
+	for _, name := range []string{"rest", "jamhost", "linear"} {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits = append(hits, name+" "+r.URL.Path)
+			io.WriteString(w, "{}")
+		}))
+		defer up.Close()
+		ups[name] = up.URL
+	}
+	store := NewMemStore()
+	tok, _ := MintToken()
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", Role{Name: "dev", Scope: Scope{Destinations: []string{"github", "linear"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(Actor{ID: "s", TokenHash: HashToken(tok), Grants: []Grant{{Project: "acme", Role: "dev"}}}); err != nil {
+		t.Fatal(err)
+	}
+	bearer := func(name, sub, route string) Endpoint {
+		return Endpoint{Name: name, Subdomain: sub, Route: route, Upstream: ups[name], IdentityIn: ApplyBearer, Apply: ApplyBearer}
+	}
+	for _, d := range []Destination{
+		{Name: "github", CredName: "c", Endpoints: []Endpoint{bearer("rest", "gh", "/api/v3/"), bearer("jamhost", "", "/api/")}},
+		{Name: "linear", CredName: "c", Endpoints: []Endpoint{bearer("linear", "linear", "")}},
+	} {
+		if err := store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := NewBroker(store, fakeCreds{"c": "REAL"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b.SetDestinationsDomain("d.example")
+	do := func(host, path string) int {
+		req := httptest.NewRequest("GET", "https://"+host+path, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		rec := httptest.NewRecorder()
+		b.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for _, tc := range []struct{ host, path, want string }{
+		{"gh.d.example", "/api/v3/repos/x", "rest /repos/x"},
+		{"linear.d.example:443", "/graphql", "linear /graphql"},
+		{"jam.example", "/api/graphql", "jamhost /graphql"},
+	} {
+		hits = nil
+		if code := do(tc.host, tc.path); code != 200 || len(hits) != 1 || hits[0] != tc.want {
+			t.Errorf("%s%s: status %d, upstream %v; want %s", tc.host, tc.path, code, hits, tc.want)
+		}
+	}
+	for _, tc := range []struct{ host, path string }{
+		{"gh.d.example", "/api/graphql"}, {"nope.d.example", "/api/v3/x"}, {"a.gh.d.example", "/api/v3/x"}, {"jam.example", "/graphql"},
+	} {
+		hits = nil
+		if code := do(tc.host, tc.path); code != http.StatusNotFound || len(hits) != 0 {
+			t.Errorf("%s%s: status %d, upstream %v; want 404 and no upstream", tc.host, tc.path, code, hits)
+		}
+	}
+}

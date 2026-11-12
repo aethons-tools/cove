@@ -21,6 +21,9 @@ type Broker struct {
 	log    *slog.Logger
 	warns  *warnDedupe       // rate-limits the principal header-rule warnings
 	hdrLog *headerLogLimiter // rate-limits the per-endpoint header logs
+	// domain is the destinations domain ("" = none): a request whose Host is
+	// one label under it is served on that subdomain's endpoints.
+	domain string
 }
 
 // NewBroker constructs a Broker that matches destinations from the live store.
@@ -28,8 +31,18 @@ func NewBroker(store Store, creds CredResolver, log *slog.Logger) *Broker {
 	return &Broker{store: store, creds: creds, now: time.Now, log: log, warns: newWarnDedupe(time.Now), hdrLog: newHeaderLogLimiter(time.Now)}
 }
 
+// SetDestinationsDomain sets the destinations domain (serve config
+// destinations.domain) the broker reads a request's subdomain from. Call it
+// before serving.
+func (b *Broker) SetDestinationsDomain(domain string) { b.domain = domain }
+
 func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	dest, ep, ok := b.store.Match(r.URL.Path)
+	sub, under := SubdomainOf(r.Host, b.domain)
+	if under && sub == "" {
+		http.Error(w, "no such destination", http.StatusNotFound)
+		return
+	}
+	dest, ep, ok := b.store.Match(sub, r.URL.Path)
 	if !ok {
 		http.Error(w, "no such destination", http.StatusNotFound)
 		return

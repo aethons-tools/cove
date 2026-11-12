@@ -1,7 +1,7 @@
 = Running Jam (`jam serve`)
 :summary: Running the Jam service — `jam serve`, the serve-config YAML (listen, admin-listen, tls/admin-tls, store-postgres, state-dir, credentials, the subscription account pool), the credential-broker model, managing destinations, and the off-loopback fail-closed rule.
 :read_when: You are standing up or configuring a Jam service — writing its serve config, wiring the real credentials it brokers, enabling the subscription-OAuth account pool, adding the destinations studios reach, or exposing the admin API beyond loopback.
-:owns: the `jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/config/kits/blobs/previews), the layered `--config` overlay + the host-key table, the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
+:owns: the `jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/config/kits/blobs/previews/destinations), the layered `--config` overlay + the host-key table, the broker model and its host routing (the destinations domain), the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 :prereqs: INDEX.adoc for the service overview; operators.adoc for the `operator-auth.oidc` block referenced here
 :tier: leaf
 :updated: 2026-11-12
@@ -105,6 +105,7 @@ reach the Attach stream at all. `runtime.listen` is now only an *optional plaint
 |`kits` |no |Git credentials for xref:usage/jam/kits-git.adoc[kit git sources]: `kits.git` is a list of `+{url, cred}+`. `url` is a repo-URL *prefix* — `https` (plain `http` only for a loopback host), ending in `/`, with no userinfo, and a *dotted host or loopback* (a single-label host is refused); each url may appear once. `cred` names a demanded, plain static credential (not `+exchange: gcp+`, not the pool's), supplied by the xref:usage/jam/credentials.adoc[credentials file]: the token, or `+user:token+`. Unset ⇒ repos are fetched anonymously (public only). Prefix matching, the username Jam sends and the fetch limits are in xref:usage/jam/kits-git.adoc#credentials-kitsgit[kits-git].
 |`blobs` |no |The attachments bucket, S3-compatible (Garage, AWS S3, R2, GCS interop, MinIO): `endpoint` (`+http(s)://host[:port]+`, no userinfo), `bucket`, `region`, `path-style` (true for Garage and MinIO), `max-size` (per file, e.g. `25MB`, the default; at most `1GB`), and `access-key-cred` / `secret-key-cred` — demanded, plain static credentials resolved in memory and never logged. At startup Jam checks the bucket and *refuses to start* if it is unreachable or missing. Unset ⇒ attachments off. See xref:usage/jam/attachments.adoc[attachments].
 |`previews` |no |Enables xref:usage/jam/previews.adoc[studio previews], served on the admin listener at `+<name>--<label>.<domain>+`, with login at `jam.<domain>`. `domain` (required) is a lowercase DNS name of at least two labels, e.g. ``jam-previews.example``: use a registrable domain apart from the admin host's, against cookie tossing (framing works either way; serve warns when they share one; xref:usage/jam/previews.adoc#setting-up-previews-operator[Setting up previews (operator)]). `tls.cert` / `tls.key` (required) is a wildcard certificate covering `+*.<domain>+`, served by SNI next to the admin cert. serve fails at startup if it does not cover the domain. Point DNS `+*.<domain>+` at the Jam host. Requires the admin listener on TLS (`admin-listen` plus `admin-tls`, or off-loopback with `+tls:+`) and `operator-auth.oidc.browser-client-id`. Every request for `<domain>` or a name under it goes to the preview handler (404 unless it is a preview or the login host), so reach the admin API and UI at a name outside ``<domain>``: not `jam.<domain>`. serve refuses an `admin-listen` host or `ui-hosts` entry under it. Register `+https://jam.<domain>/__jam/auth/callback+` as a redirect URI with the IdP. Unset ⇒ previews off.
+|`destinations` |no |The destinations domain: endpoints with a `subdomain` are reached at `+<subdomain>.<domain>+` on the broker listener. `domain` (required) is a lowercase DNS name of at least two labels; `tls.cert` / `tls.key` (required) is a wildcard certificate covering `+*.<domain>+`. Neither is, holds nor lies under `previews.domain`. See xref:#destinations-domain[The destinations domain]. Unset ⇒ no endpoint may have a subdomain. A `destinations:` *list* (destination definitions, as serve configs once held them) is ignored with a warning: those live in the config repo.
 |`operator-auth.oidc` |to gate the admin API |OIDC operator identity — see xref:usage/jam/operators.adoc[]. Omitted ⇒ the admin API trusts loopback only.
 |`runtime.lease-ttl` / `runtime.reconcile-interval` |no |Managed-cove supervisor timing (defaults 60s / 30s; reconcile must be < ttl). See xref:usage/jam/coves.adoc[coves].
 |`runtime.listen` |no |Optional *plaintext* Attach gRPC dev listener (no TLS), for local testing. Omit in production — the Attach gRPC is served on the `+:443+` mux alongside the broker.
@@ -256,7 +257,7 @@ refuses to start (and `config diff` refuses) with
 |`listen`, `admin-listen` |bind addresses
 |`ui-hosts`, `ui-origins` |host names the UI is reached by
 |`dev-identity` |local-only sign-in
-|`tls`, `admin-tls`, `previews.tls` |certificate files on this host
+|`tls`, `admin-tls`, `previews.tls`, `destinations.tls` |certificate files on this host
 |`store-postgres` |this host's database
 |`state-dir`, `credentials-file`, `pool.store` |paths on this host
 |`config` |the repo it names can't also carry it
@@ -362,6 +363,38 @@ credentials before upgrading. Stored `+repo_scoped+`/`repos` keys are ignored.
 
 These admin verbs take the standard client flags (`+--app+`/`+--admin-url+`/`+--token+`);
 see xref:usage/jam/operators.adoc[].
+
+[#destinations-domain]
+=== The destinations domain
+
+With a `destinations:` block, an endpoint can be reached by *subdomain*
+(xref:usage/jam/destination-endpoints.adoc#matching[destination-endpoints]),
+so a client that only takes a host, such as `gh`, needs no path of its own:
+
+[source,yaml]
+----
+destinations:
+  domain: jam.example.com          # may be the Jam host itself
+  tls: { cert: /etc/jam/dest.crt, key: /etc/jam/dest.key }
+----
+
+* *DNS and certificate are the operator's,* as for previews: point `+*.<domain>+`
+at the broker listener, and supply a wildcard certificate for `+*.<domain>+`.
+serve fails at startup if the certificate does not cover it.
+* *SNI picks the certificate.* The broker listener presents the wildcard certificate
+to a client naming a host under the domain, and the `tls` certificate to every other
+client (no SNI, the domain itself, any other name).
+* *Host routes before path.* A request whose `Host` is under the domain goes straight
+to the broker, ahead of the Attach gRPC and Jam's own cove paths (`/connector`,
+`/squawks`, `/metrics`, …), which are never reached there. The broker serves the
+subdomain's endpoints; an unknown subdomain, a name deeper than one label, or an
+unmatched path is *404* without contacting an upstream. Every other host is served
+as before.
+* serve refuses a `listen` host under the domain (its requests would all go to the
+broker). The domain itself may be the Jam host.
+* A studio reaches a subdomain only if its egress admits the host (`+.<domain>+`
+in the role's egress); the agent connector does not yet give subdomain endpoints'
+hosts to studios.
 
 == The subscription account pool (`+pool:+`)
 

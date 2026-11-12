@@ -62,7 +62,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 		// Mutating a returned value does not reach the store.
 		got[0].Endpoints[0].IdentityInSpec.Prefixes[0], got[0].Endpoints[0].ApplySpec.Template, got[0].Env["A"] = "mutated", "mutated", "mutated"
-		m, _, ok := s.Match("/gl/x")
+		m, _, ok := s.Match("", "/gl/x")
 		if !ok || m.Endpoints[0].IdentityInSpec.Prefixes[0] != "Jam " || m.Endpoints[0].ApplySpec.Template != "{cred}" || m.Env["A"] != "{url}" {
 			t.Fatalf("ListDestinations must return copies, got %+v", m)
 		}
@@ -373,7 +373,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 			t.Fatalf("stored = %+v, want %+v", got, gh)
 		}
 		for path, want := range map[string]string{"/api/v3/repos/x": "rest", "/api/graphql": "graphql", "/git/a/b.git": "git"} {
-			if d, e, ok := s.Match(path); !ok || d.Name != "github" || e.Name != want {
+			if d, e, ok := s.Match("", path); !ok || d.Name != "github" || e.Name != want {
 				t.Fatalf("Match(%s) = %s/%s, %v; want github/%s", path, d.Name, e.Name, ok, want)
 			}
 		}
@@ -391,14 +391,14 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 			t.Fatalf("ListDestinations = %d, want 2", len(all))
 		}
 		// longest-prefix wins.
-		d, _, ok := s.Match("/anthropic/v1/messages")
+		d, _, ok := s.Match("", "/anthropic/v1/messages")
 		if !ok || d.Name != "anthropic-msgs" {
 			t.Fatalf("Match = %+v, %v (want anthropic-msgs)", d, ok)
 		}
-		if d, _, ok := s.Match("/anthropic/other"); !ok || d.Name != "anthropic" {
+		if d, _, ok := s.Match("", "/anthropic/other"); !ok || d.Name != "anthropic" {
 			t.Fatalf("Match = %+v, %v (want anthropic)", d, ok)
 		}
-		if _, _, ok := s.Match("/nope"); ok {
+		if _, _, ok := s.Match("", "/nope"); ok {
 			t.Fatal("Match of an unrouted path must be false")
 		}
 		if err := s.RemoveDestination("anthropic"); err != nil {

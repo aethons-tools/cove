@@ -130,7 +130,12 @@ type serveConfig struct {
 	// (and the login host jam.<domain>) on the admin listener, with its own
 	// wildcard cert picked by SNI. Absent ⇒ previews off. See
 	// docs/modules/ROOT/pages/usage/jam/previews.adoc.
-	Previews     *previewsConfig `yaml:"previews"`
+	Previews *previewsConfig `yaml:"previews"`
+	// Destinations, when set, serves destination endpoints that have a
+	// subdomain at <subdomain>.<domain> on the cove-facing listener, with
+	// their own wildcard cert picked by SNI. Absent ⇒ no endpoint may have a
+	// subdomain. See docs/modules/ROOT/pages/usage/jam/serve.adoc.
+	Destinations *destinationsConfig `yaml:"destinations"`
 	OperatorAuth struct {
 		OIDC *struct {
 			Issuer          string `yaml:"issuer"`
@@ -167,6 +172,9 @@ type serveConfig struct {
 	// deprecated alias (Harbor → Jam rename); serve warns once for each. See
 	// docs/modules/ROOT/pages/usage/jam/renamed-from-harbor.adoc.
 	deprecated [][2]string
+	// staleDestinations is set when destinations: was a list of destination
+	// definitions (destinationsConfig.list): ignored, and serve warns.
+	staleDestinations bool
 }
 
 // wakeConfig configures the resident wake-on engine (internal/wakeon), which
@@ -669,6 +677,12 @@ type previewsConfig struct {
 // dnsLabelRE is one lowercase DNS label (LDH, no leading/trailing '-').
 var dnsLabelRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
+// validDomain reports whether d is a lowercase DNS name of at least two labels.
+func validDomain(d string) bool {
+	labels := strings.Split(d, ".")
+	return len(labels) >= 2 && len(d) <= 253 && !slices.ContainsFunc(labels, func(l string) bool { return !dnsLabelRE.MatchString(l) })
+}
+
 // validatePreviews checks a set previews block: domain is a lowercase DNS name
 // of at least two labels; tls.cert/tls.key are set; the admin listener serves
 // TLS (previews ride it); and browser login is configured (viewers sign in).
@@ -677,8 +691,7 @@ func (c serveConfig) validatePreviews() error {
 	if p == nil {
 		return nil
 	}
-	labels := strings.Split(p.Domain, ".")
-	if len(labels) < 2 || len(p.Domain) > 253 || slices.ContainsFunc(labels, func(l string) bool { return !dnsLabelRE.MatchString(l) }) {
+	if !validDomain(p.Domain) {
 		return fmt.Errorf("previews.domain %q must be a lowercase DNS name of at least two labels (e.g. preview.jam.example)", p.Domain)
 	}
 	if p.TLS == nil || p.TLS.Cert == "" || p.TLS.Key == "" {
@@ -1096,8 +1109,8 @@ func yamlKeys(t reflect.Type) map[string]bool {
 
 // unknownServeKeys returns the top-level keys in the jam.yml that serveConfig
 // does not recognize, sorted. The bootstrap config is parsed leniently (unknown
-// keys are silently dropped), so a stray `destinations:` block — natural to write
-// but now managed via the admin API — would otherwise vanish without a word.
+// keys are silently dropped), so a typo'd key would otherwise vanish without a
+// word. (A stray `destinations:` list is serveConfig.staleDestinations.)
 func unknownServeKeys(data []byte) []string {
 	var m map[string]any
 	if yaml.Unmarshal(data, &m) != nil {
@@ -1159,6 +1172,9 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 	}
 	if !c.Runtime.Launcher.IsZero() {
 		return serveConfig{}, errRuntimeLauncherRemoved
+	}
+	if c.Destinations != nil && c.Destinations.list {
+		c.Destinations, c.staleDestinations = nil, true
 	}
 	if c.Runtime.DeprecatedDispatcher != nil {
 		if c.Runtime.Requisitioner != nil {

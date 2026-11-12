@@ -139,7 +139,7 @@ func TestValidateHeaderSpecs(t *testing.T) {
 		ok(Endpoint{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "X-Tok", Prefixes: []string{"T "}}, Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "u"}}),
 	}
 	for i, d := range good {
-		if err := ValidateDestination(d, func(string) bool { return true }); err != nil {
+		if err := ValidateDestination(d, func(string) bool { return true }, false); err != nil {
 			t.Errorf("good[%d]: %v", i, err)
 		}
 	}
@@ -161,12 +161,12 @@ func TestValidateHeaderSpecs(t *testing.T) {
 		"inbound newline prefix":  ok(Endpoint{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "A", Prefixes: []string{"a\n"}}}),
 	}
 	for name, d := range bad {
-		if err := ValidateDestination(d, func(string) bool { return true }); err == nil {
+		if err := ValidateDestination(d, func(string) bool { return true }, false); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 	// The error never echoes the template (it may sit next to a credential shape).
-	err := ValidateDestination(ok(Endpoint{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "SECRETISH"}}), func(string) bool { return true })
+	err := ValidateDestination(ok(Endpoint{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "SECRETISH"}}), func(string) bool { return true }, false)
 	if err == nil || strings.Contains(err.Error(), "SECRETISH") {
 		t.Errorf("template error = %v", err)
 	}
@@ -299,7 +299,7 @@ func TestUpdateDestinationKeepSpecs(t *testing.T) {
 	edit := base
 	edit.Endpoints = slices.Clone(base.Endpoints)
 	edit.Endpoints[0].ApplySpec, edit.Endpoints[0].Upstream = nil, "https://gl2"
-	if err := UpdateDestinationKeepSpecs(store, edit, credOK); err != nil {
+	if err := UpdateDestinationKeepSpecs(store, edit, credOK, false); err != nil {
 		t.Fatal(err)
 	}
 	if d := store.ListDestinations()[0]; d.Endpoints[0].Upstream != "https://gl2" || d.Endpoints[0].ApplySpec == nil || *d.Endpoints[0].ApplySpec != *spec {
@@ -307,14 +307,14 @@ func TestUpdateDestinationKeepSpecs(t *testing.T) {
 	}
 	// Switching to a preset drops the spec; plain UpdateDestination never fills one in.
 	edit.Endpoints[0].Apply = ApplyBearer
-	if err := UpdateDestinationKeepSpecs(store, edit, credOK); err != nil || store.ListDestinations()[0].Endpoints[0].ApplySpec != nil {
+	if err := UpdateDestinationKeepSpecs(store, edit, credOK, false); err != nil || store.ListDestinations()[0].Endpoints[0].ApplySpec != nil {
 		t.Fatalf("preset edit: %v %+v", err, store.ListDestinations()[0])
 	}
 	edit.Endpoints[0].Apply = ApplyCustom
-	if err := UpdateDestination(store, edit, credOK); err == nil {
+	if err := UpdateDestination(store, edit, credOK, false); err == nil {
 		t.Fatal("UpdateDestination filled in a spec")
 	}
-	if err := UpdateDestinationKeepSpecs(store, Destination{Name: "ghost", Endpoints: []Endpoint{{Name: "ghost", Route: "/g/", Upstream: "https://g"}}}, credOK); WriteStatus(err, 0) != http.StatusNotFound {
+	if err := UpdateDestinationKeepSpecs(store, Destination{Name: "ghost", Endpoints: []Endpoint{{Name: "ghost", Route: "/g/", Upstream: "https://g"}}}, credOK, false); WriteStatus(err, 0) != http.StatusNotFound {
 		t.Fatalf("missing = %v", err)
 	}
 }

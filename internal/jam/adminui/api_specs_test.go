@@ -54,7 +54,7 @@ func TestDestinationsAPI(t *testing.T) {
 	e.Edit(func(st jam.Store) {
 		dest := destNamed(t, st, "gh")
 		dest.Endpoints[0].IdentityIn, dest.Endpoints[0].IdentityInSpec = jam.ApplyCustom, &jam.InboundSpec{Header: "X-Agent-Token"}
-		if err := jam.UpdateDestination(st, dest, anyCred); err != nil {
+		if err := jam.UpdateDestination(st, dest, anyCred, false); err != nil {
 			t.Fatal(err)
 		}
 	})

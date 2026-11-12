@@ -32,19 +32,36 @@ and keeps the others as they are.
 
 == Addresses
 
-An endpoint is reached at `<jam host><route>`.
-No two endpoints in the whole Jam have the same route,
-and no route may take a path Jam itself uses,
+An endpoint is reached at `<jam host><route>`,
+or, when the Jam has a domain for subdomains,
+at `<subdomain>.<domain><route>`.
+The subdomain and the route are each optional,
+but an endpoint has at least one of them.
+No two endpoints in the whole Jam have the same subdomain and route,
+and no route on the Jam host may take a path Jam itself uses,
 such as `/connector` or `/squawks`.
 
 A request goes to the most specific endpoint that matches it.
-The route is taken off before the request goes on.
-For example, with the Jam at `jam.example.com`
+The route is taken off before the request goes on;
+an endpoint with no route takes every path on its subdomain,
+and the path goes on unchanged.
+For example, with the Jam at `jam.example.com`,
+its subdomains under `jam.example.com` too,
 and a GitHub destination with endpoints on `/api/v3/` and `/api/`:
 
 * `jam.example.com/api/v3/repos/x` goes to the `/api/v3/` endpoint, as `/repos/x`.
 * `jam.example.com/api/graphql` goes to the `/api/` endpoint, as `/graphql`.
 * `jam.example.com/other` matches no endpoint and is refused.
+* An endpoint with subdomain `linear` and no route sends `linear.jam.example.com/graphql` to `https://api.linear.app/graphql`.
+* `other.jam.example.com/graphql` matches no endpoint and is refused.
+
+A subdomain lets a client that only takes a host
+reach a service without a path of its own.
+On a subdomain, only that subdomain's endpoints answer;
+Jam's own paths are not there.
+Subdomains work once the Jam has a domain for them,
+as it has for previews;
+without one, an endpoint with a subdomain is refused.
 
 == Identity and credential
 
@@ -83,7 +100,9 @@ ifdef::internal[]
 == Notes for the team
 
 * Shipped by COV-310: the endpoint model, path routing and its validation.
-Still to come (COV-309): subdomains under a destinations domain (COV-311, COV-312),
+Shipped by COV-311: subdomains under a destinations domain (serve config `destinations:`,
+whose wildcard DNS and TLS the operator provides), routed by `Host` before path.
+Still to come (COV-309): the rest of subdomain support (COV-312),
 the connector's `+{host:<endpoint>}+` and `+{url:<endpoint>}+` placeholders (COV-313),
 and the endpoints grid on the destination page (COV-314, COV-315).
 * An existing destination's one endpoint is named after the destination.

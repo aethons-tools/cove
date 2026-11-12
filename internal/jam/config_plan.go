@@ -86,8 +86,12 @@ func (o ConfigPlan) Counts() map[string]int {
 type ConfigEnv struct {
 	CredExists     func(string) bool
 	PoolConfigured bool
-	Serve          map[string]any     // the running serve's portable config; nil = unknown
-	Conditions     *condition.Tracker // the import raises kit.migrate on it; nil = none
+	// SubdomainsConfigured is whether the serve has a destinations domain
+	// (destinations: in the serve config): only then may an endpoint have a
+	// subdomain (ValidateDestination).
+	SubdomainsConfigured bool
+	Serve                map[string]any     // the running serve's portable config; nil = unknown
+	Conditions           *condition.Tracker // the import raises kit.migrate on it; nil = none
 	// Followed is the config repo the Jam follows (config.github in the serve
 	// config); zero = none. Syncs apply it, and its applies are recorded.
 	Followed gitsource.Source
@@ -335,7 +339,7 @@ func (p *planner) planDestinations() {
 		o := newConfigObject(f)
 		p.upsert(o.Key, o, func(bool) error {
 			d := copyDestination(f.Destination)
-			if err := ValidateDestination(d, p.credExists); err != nil {
+			if err := ValidateDestination(d, p.credExists, p.in.Env.SubdomainsConfigured); err != nil {
 				return err
 			}
 			// Every destination as the plan leaves it: the tree's, and the

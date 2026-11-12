@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/aethons-tools/cove/internal/jam/gitsource"
 )
 
 // ep is an endpoint with a route and an upstream.
@@ -17,14 +19,14 @@ func ep(name, route string) Endpoint {
 
 func TestValidateDestinationEndpoints(t *testing.T) {
 	ok := Destination{Name: "gh", Endpoints: []Endpoint{ep("rest", "/api/v3/"), ep("graphql", "/api/"), ep("git", "/git/")}}
-	if err := ValidateDestination(ok, credIs()); err != nil {
+	if err := ValidateDestination(ok, credIs(), false); err != nil {
 		t.Fatalf("valid destination refused: %v", err)
 	}
 	many := Destination{Name: "many"}
 	for i := range MaxEndpoints + 1 {
 		many.Endpoints = append(many.Endpoints, ep(string(rune('a'+i)), "/"+string(rune('a'+i))+"/"))
 	}
-	if err := ValidateDestination(Destination{Name: "ten", Endpoints: many.Endpoints[:MaxEndpoints]}, credIs()); err != nil {
+	if err := ValidateDestination(Destination{Name: "ten", Endpoints: many.Endpoints[:MaxEndpoints]}, credIs(), false); err != nil {
 		t.Fatalf("%d endpoints refused: %v", MaxEndpoints, err)
 	}
 	for name, tc := range map[string]struct {
@@ -42,9 +44,33 @@ func TestValidateDestinationEndpoints(t *testing.T) {
 		"bad allow_paths":         {[]Endpoint{{Name: "a", Route: "/a/", Upstream: "https://x", AllowPaths: []string{"x"}}}, "allow_paths"},
 		"bad logging":             {[]Endpoint{{Name: "a", Route: "/a/", Upstream: "https://x", LogHeadersIn: "raw"}}, "log_headers_in"},
 	} {
-		err := ValidateDestination(Destination{Name: "d", Endpoints: tc.eps}, credIs())
+		err := ValidateDestination(Destination{Name: "d", Endpoints: tc.eps}, credIs(), false)
 		if WriteStatus(err, 0) != http.StatusBadRequest || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err = %v, want 400 mentioning %q", name, err, tc.want)
+		}
+	}
+}
+
+// A subdomain is accepted only on a Jam with a destinations domain, and must
+// be one DNS label; it needs no route, and its routes may take paths Jam
+// serves on its own host (a subdomain never reaches them).
+func TestValidateDestinationSubdomains(t *testing.T) {
+	sub := func(s, route string) Destination {
+		return Destination{Name: "d", Endpoints: []Endpoint{{Name: "d", Subdomain: s, Route: route, Upstream: "https://x"}}}
+	}
+	for _, d := range []Destination{sub("gh", ""), sub("a1-b", "/api/"), sub("gh", "/connector"), sub("gh", "/")} {
+		if err := ValidateDestination(d, credIs(), true); err != nil {
+			t.Errorf("%+v refused with a domain: %v", d.Endpoints[0], err)
+		}
+		if err := ValidateDestination(d, credIs(), false); err == nil || !strings.Contains(err.Error(), "no destinations domain") {
+			t.Errorf("%+v without a domain: err = %v", d.Endpoints[0], err)
+		}
+	}
+	for _, s := range []string{"GH", "a.b", "-gh", "gh-", "xn--gh", "a_b", strings.Repeat("a", 64)} {
+		for _, domain := range []bool{true, false} {
+			if err := ValidateDestination(sub(s, ""), credIs(), domain); err == nil || !strings.Contains(err.Error(), "DNS label") {
+				t.Errorf("subdomain %q (domain %v): err = %v, want a DNS label refusal", s, domain, err)
+			}
 		}
 	}
 }
@@ -53,13 +79,13 @@ func TestValidateDestinationEndpoints(t *testing.T) {
 // themselves, a route above them, or one under their first segment.
 func TestValidateDestinationReservedRoutes(t *testing.T) {
 	for _, route := range []string{"/", "/connector", "/context", "/squawks/", "/squawks/x/", "/sq", "/alarms/", "/exposures/a/", "/end", "/metrics/", "/report"} {
-		err := ValidateDestination(Destination{Name: "d", Endpoints: []Endpoint{ep("d", route)}}, credIs())
+		err := ValidateDestination(Destination{Name: "d", Endpoints: []Endpoint{ep("d", route)}}, credIs(), false)
 		if err == nil || !strings.Contains(err.Error(), "which Jam serves") {
 			t.Errorf("route %s: err = %v", route, err)
 		}
 	}
 	for _, route := range []string{"/anthropic/", "/git/", "/endpoints/", "/squawksmith/", "/api/v3/"} {
-		if err := ValidateDestination(Destination{Name: "d", Endpoints: []Endpoint{ep("d", route)}}, credIs()); err != nil {
+		if err := ValidateDestination(Destination{Name: "d", Endpoints: []Endpoint{ep("d", route)}}, credIs(), false); err != nil {
 			t.Errorf("route %s refused: %v", route, err)
 		}
 	}
@@ -82,19 +108,19 @@ func TestCoveHandlerFor(t *testing.T) {
 // on update, and within one destination.
 func TestEndpointAddressesUniqueAcrossDestinations(t *testing.T) {
 	st := NewMemStore()
-	must(t, CreateDestination(st, Destination{Name: "gh", Endpoints: []Endpoint{ep("rest", "/api/v3/"), ep("graphql", "/api/")}}, credIs()))
-	err := CreateDestination(st, Destination{Name: "other", Endpoints: []Endpoint{ep("o", "/api/v3/")}}, credIs())
+	must(t, CreateDestination(st, Destination{Name: "gh", Endpoints: []Endpoint{ep("rest", "/api/v3/"), ep("graphql", "/api/")}}, credIs(), false))
+	err := CreateDestination(st, Destination{Name: "other", Endpoints: []Endpoint{ep("o", "/api/v3/")}}, credIs(), false)
 	if WriteStatus(err, 0) != http.StatusBadRequest || !strings.Contains(err.Error(), `destination "gh"'s endpoint "rest"`) {
 		t.Fatalf("clashing create = %v", err)
 	}
-	must(t, CreateDestination(st, Destination{Name: "other", Endpoints: []Endpoint{ep("o", "/o/")}}, credIs()))
-	if err := UpdateDestination(st, Destination{Name: "other", Endpoints: []Endpoint{ep("o", "/api/")}}, credIs()); err == nil {
+	must(t, CreateDestination(st, Destination{Name: "other", Endpoints: []Endpoint{ep("o", "/o/")}}, credIs(), false))
+	if err := UpdateDestination(st, Destination{Name: "other", Endpoints: []Endpoint{ep("o", "/api/")}}, credIs(), false); err == nil {
 		t.Fatal("clashing update accepted")
 	}
-	if err := UpdateDestination(st, Destination{Name: "gh", Endpoints: []Endpoint{ep("rest", "/api/v3/"), ep("graphql", "/graphql/")}}, credIs()); err != nil {
+	if err := UpdateDestination(st, Destination{Name: "gh", Endpoints: []Endpoint{ep("rest", "/api/v3/"), ep("graphql", "/graphql/")}}, credIs(), false); err != nil {
 		t.Fatalf("a destination's own addresses clash with themselves: %v", err)
 	}
-	if err := CreateDestination(st, Destination{Name: "twice", Endpoints: []Endpoint{ep("a", "/t/"), ep("b", "/t/")}}, credIs()); err == nil {
+	if err := CreateDestination(st, Destination{Name: "twice", Endpoints: []Endpoint{ep("a", "/t/"), ep("b", "/t/")}}, credIs(), false); err == nil {
 		t.Fatal("two endpoints of one destination on one address accepted")
 	}
 }
@@ -128,13 +154,28 @@ func TestPlanDestinationEndpoints(t *testing.T) {
 	}
 }
 
+// The config plan takes a subdomain endpoint only when the serve has a
+// destinations domain.
+func TestPlanDestinationSubdomain(t *testing.T) {
+	st := NewMemStore()
+	tr := treeOf(t, map[string]string{"destinations/linear.yml": "kind: destination\nversion: 1\nsubdomain: linear\nupstream: https://api.linear.app\n"})
+	in := ConfigPlanInput{Tree: tr, Snapshot: st.ExportConfig(), Env: allCreds, Source: gitsource.Source{Repo: ConfigDirRepo}, Commit: ConfigDirCommit, Now: planNow}
+	if p := PlanConfig(in); !strings.Contains(strings.Join(p.Refusals, "\n"), "no destinations domain") {
+		t.Fatalf("without a domain: refusals %v", p.Refusals)
+	}
+	in.Env.SubdomainsConfigured = true
+	if p := PlanConfig(in); len(p.Refusals) > 0 {
+		t.Fatalf("with a domain: refusals %v", p.Refusals)
+	}
+}
+
 // The admin form edits only the first endpoint: the others, and the first's
 // name, are kept.
 func TestUpdateDestinationKeepSpecsKeepsOtherEndpoints(t *testing.T) {
 	st := NewMemStore()
-	must(t, CreateDestination(st, listDest(), credIs("gh")))
+	must(t, CreateDestination(st, listDest(), credIs("gh"), false))
 	form := Destination{Name: "github", CredName: "gh", Endpoints: []Endpoint{{Name: "github", Route: "/api/v4/", Upstream: "https://api.github.com"}}}
-	must(t, UpdateDestinationKeepSpecs(st, form, credIs("gh")))
+	must(t, UpdateDestinationKeepSpecs(st, form, credIs("gh"), false))
 	got, _ := findDestination(st, "github")
 	if len(got.Endpoints) != 2 || got.Endpoints[0].Name != "rest" || got.Endpoints[0].Route != "/api/v4/" || !reflect.DeepEqual(got.Endpoints[1], listDest().Endpoints[1]) {
 		t.Fatalf("stored %+v", got.Endpoints)
@@ -224,5 +265,19 @@ func TestConfigSnapshotEndpointsRoundTrip(t *testing.T) {
 	must(t, dst.ImportConfig(snap))
 	if !reflect.DeepEqual(dst.ListDestinations(), src.ListDestinations()) {
 		t.Fatalf("round trip:\n got %+v\nwant %+v", dst.ListDestinations(), src.ListDestinations())
+	}
+}
+
+// A backup checks a subdomain is a DNS label but not that this Jam has a
+// destinations domain: the domain is serve config, like credentials.
+func TestSnapshotSubdomains(t *testing.T) {
+	snap := func(sub string) ConfigSnapshot {
+		return ConfigSnapshot{Destinations: []Destination{{Name: "d", Endpoints: []Endpoint{{Name: "d", Subdomain: sub, Upstream: "https://x"}}}}}
+	}
+	if err := validateSnapshotContext(snap("gh")); err != nil {
+		t.Fatalf("subdomain gh refused: %v", err)
+	}
+	if err := validateSnapshotContext(snap("a.b")); err == nil || !strings.Contains(err.Error(), "DNS label") {
+		t.Fatalf("subdomain a.b: err = %v", err)
 	}
 }
