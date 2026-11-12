@@ -73,12 +73,12 @@ func destDetailOf(store jam.Store, name string) (DestDetail, bool) {
 	if !ok {
 		return DestDetail{}, false
 	}
-	x := d.Dest
+	x, e := d.Dest, d.Dest.Primary() // the flat shape shows the first endpoint (COV-314 shows them all)
 	out := DestDetail{Name: x.Name, Methods: methodNames(),
-		Fields: DestFields{Route: x.Route, Upstream: x.Upstream, IdentityIn: string(x.IdentityIn), Apply: string(x.Apply), CredName: x.CredName,
-			Env: d.Form.Env, AllowPaths: d.Form.AllowPaths, Note: x.Note, LogHeadersIn: headerLogText(x.LogHeadersIn), LogHeadersOut: headerLogText(x.LogHeadersOut), Git: x.Git},
-		IdentityInSpec: inboundSpecText(x.IdentityInSpec), ApplySpec: outboundSpecText(x.ApplySpec),
-		AllowPaths: append([]string{}, x.AllowPaths...), Env: []EnvRow{}, EnvImplied: d.EnvImplied, GitRouted: d.GitRouted, GitImplied: d.GitImplied,
+		Fields: DestFields{Route: e.Route, Upstream: e.Upstream, IdentityIn: string(e.IdentityIn), Apply: string(e.Apply), CredName: x.CredName,
+			Env: d.Form.Env, AllowPaths: d.Form.AllowPaths, Note: x.Note, LogHeadersIn: headerLogText(e.LogHeadersIn), LogHeadersOut: headerLogText(e.LogHeadersOut), Git: e.Git},
+		IdentityInSpec: inboundSpecText(e.IdentityInSpec), ApplySpec: outboundSpecText(e.ApplySpec),
+		AllowPaths: append([]string{}, e.AllowPaths...), Env: []EnvRow{}, EnvImplied: d.EnvImplied, GitRouted: d.GitRouted, GitImplied: d.GitImplied,
 		Uses: []DestUse{}, Conflicts: []DestConflict{}, ConflictRoles: []string{}, Notes: operatorNotesOf(x.OperatorNotes)}
 	for _, e := range d.Env {
 		out.Env = append(out.Env, EnvRow{Key: e.Key, Template: e.Template})
@@ -145,8 +145,9 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 		items := src.items()
 		out := DestinationsResponse{Destinations: []DestListRow{}, Methods: methodNames()}
 		for _, d := range destListRows(store) {
-			out.Destinations = append(out.Destinations, DestListRow{Name: d.Name, Route: d.Route, Upstream: d.Upstream, IdentityIn: string(d.IdentityIn),
-				Apply: string(d.Apply), CredName: d.CredName, EnvKeys: append([]string{}, d.EnvKeys...), GitRouted: d.GitRouted, UsedBy: d.UsedBy,
+			e := d.Primary()
+			out.Destinations = append(out.Destinations, DestListRow{Name: d.Name, Route: e.Route, Upstream: e.Upstream, IdentityIn: string(e.IdentityIn),
+				Apply: string(e.Apply), CredName: d.CredName, EnvKeys: append([]string{}, d.EnvKeys...), GitRouted: d.GitRouted, UsedBy: d.UsedBy,
 				Attn: attnFlag(items, "specs", "dest:"+d.Name)})
 		}
 		slices.SortFunc(out.Destinations, func(a, b DestListRow) int { return cmp.Compare(a.Name, b.Name) })
@@ -165,7 +166,7 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 			apiFail(w, createConflict(err), http.StatusInternalServerError)
 			return
 		}
-		log.Info("ui destination added", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
+		log.Info("ui destination added", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Primary().Route, "upstream", d.Primary().Upstream)
 		writeJSON(w, http.StatusCreated, Created{ID: d.Name, Path: "config/destinations/" + url.PathEscape(d.Name)})
 	})
 	api.HandleFunc("GET "+apiPrefix+"destinations/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +190,7 @@ func apiSpecs(api *http.ServeMux, src frameSource, u specUI, credExists func(str
 			apiFail(w, err, http.StatusInternalServerError)
 			return
 		}
-		log.Info("ui destination updated", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Route, "upstream", d.Upstream)
+		log.Info("ui destination updated", "operator", jam.OperatorID(r), "name", d.Name, "route", d.Primary().Route, "upstream", d.Primary().Upstream)
 		out, ok := destDetailOf(store, d.Name)
 		if !ok {
 			writeAPIError(w, http.StatusNotFound, "not_found", "destination no longer exists")

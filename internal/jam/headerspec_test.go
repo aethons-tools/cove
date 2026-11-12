@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,7 +33,7 @@ func TestPresetExpansion(t *testing.T) {
 			OutboundSpec{Header: "Authorization", Template: "{cred}"}},
 	}
 	for _, c := range cases {
-		d := Destination{IdentityIn: c.preset, Apply: c.preset}
+		d := Endpoint{IdentityIn: c.preset, Apply: c.preset}
 		in, ok := d.InboundSpec()
 		if !ok || !reflect.DeepEqual(in, c.in) {
 			t.Errorf("%s inbound = %+v, %v; want %+v", c.preset, in, ok, c.in)
@@ -42,10 +43,10 @@ func TestPresetExpansion(t *testing.T) {
 			t.Errorf("%s outbound = %+v, %v; want %+v", c.preset, out, ok, c.out)
 		}
 	}
-	if _, ok := (Destination{IdentityIn: "nope"}).InboundSpec(); ok {
+	if _, ok := (Endpoint{IdentityIn: "nope"}).InboundSpec(); ok {
 		t.Error("unknown preset expanded")
 	}
-	if _, ok := (Destination{}).OutboundSpec(); ok {
+	if _, ok := (Endpoint{}).OutboundSpec(); ok {
 		t.Error("empty preset expanded")
 	}
 }
@@ -53,14 +54,14 @@ func TestPresetExpansion(t *testing.T) {
 func TestCustomSpecUsedOnlyWhenCustom(t *testing.T) {
 	in := &InboundSpec{Header: "X-Jam-Token"}
 	out := &OutboundSpec{Header: "Private-Token", Template: "{cred}"}
-	d := Destination{IdentityIn: ApplyCustom, IdentityInSpec: in, Apply: ApplyCustom, ApplySpec: out}
+	d := Endpoint{IdentityIn: ApplyCustom, IdentityInSpec: in, Apply: ApplyCustom, ApplySpec: out}
 	if got, ok := d.InboundSpec(); !ok || got.Header != "X-Jam-Token" {
 		t.Errorf("custom inbound = %+v, %v", got, ok)
 	}
 	if got, ok := d.OutboundSpec(); !ok || got.Header != "Private-Token" {
 		t.Errorf("custom outbound = %+v, %v", got, ok)
 	}
-	if _, ok := (Destination{IdentityIn: ApplyCustom}).InboundSpec(); ok {
+	if _, ok := (Endpoint{IdentityIn: ApplyCustom}).InboundSpec(); ok {
 		t.Error("custom without a spec expanded")
 	}
 }
@@ -103,7 +104,7 @@ func TestInboundExtractionPerPreset(t *testing.T) {
 	for _, c := range cases {
 		r := httptest.NewRequest("GET", "/", nil)
 		r.Header.Set(c.header, c.value)
-		in, _ := Destination{IdentityIn: c.preset}.InboundSpec()
+		in, _ := Endpoint{IdentityIn: c.preset}.InboundSpec()
 		got, ok := presentedToken(r, in)
 		if got != c.want || ok != c.ok {
 			t.Errorf("%s %s=%q: got %q %v, want %q %v", c.preset, c.header, c.value, got, ok, c.want, c.ok)
@@ -119,7 +120,7 @@ func TestOutboundApplyPerPreset(t *testing.T) {
 	}
 	for p, want := range cases {
 		h := http.Header{}
-		out, _ := Destination{Apply: p}.OutboundSpec()
+		out, _ := Endpoint{Apply: p}.OutboundSpec()
 		out.apply(h, "CRED")
 		if got := h.Get(want[0]); got != want[1] {
 			t.Errorf("%s: %s = %q, want %q", p, want[0], got, want[1])
@@ -128,15 +129,14 @@ func TestOutboundApplyPerPreset(t *testing.T) {
 }
 
 func TestValidateHeaderSpecs(t *testing.T) {
-	ok := func(d Destination) Destination {
-		d.Name, d.Route, d.Upstream = "x", "/x/", "https://x"
-		return d
+	ok := func(e Endpoint) Destination {
+		e.Route, e.Upstream = "/x/", "https://x"
+		return Destination{Name: "x", Endpoints: []Endpoint{e}}
 	}
 	good := []Destination{
-		ok(Destination{}), // unset: legacy, allowed
-		ok(Destination{IdentityIn: ApplyRaw, Apply: ApplyRaw}),
-		ok(Destination{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "X-Tok", Prefixes: []string{"T "}},
-			Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "u"}}),
+		ok(Endpoint{}), // unset: legacy, allowed
+		ok(Endpoint{IdentityIn: ApplyRaw, Apply: ApplyRaw}),
+		ok(Endpoint{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "X-Tok", Prefixes: []string{"T "}}, Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "u"}}),
 	}
 	for i, d := range good {
 		if err := ValidateDestination(d, func(string) bool { return true }); err != nil {
@@ -144,21 +144,21 @@ func TestValidateHeaderSpecs(t *testing.T) {
 		}
 	}
 	bad := map[string]Destination{
-		"unknown preset":          ok(Destination{Apply: "bogus"}),
-		"custom without spec":     ok(Destination{Apply: ApplyCustom}),
-		"spec without custom":     ok(Destination{Apply: ApplyBearer, ApplySpec: &OutboundSpec{Header: "A", Template: "{cred}"}}),
-		"bad header name":         ok(Destination{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Bad Header", Template: "{cred}"}}),
-		"no cred placeholder":     ok(Destination{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "Bearer"}}),
-		"cred twice":              ok(Destination{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "{cred}{cred}"}}),
-		"newline in template":     ok(Destination{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "x\r\n{cred}"}}),
-		"basic not Authorization": ok(Destination{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "X-A", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "u"}}),
-		"basic without user":      ok(Destination{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic}}),
-		"user without basic":      ok(Destination{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "{cred}", BasicUser: "u"}}),
-		"unknown encoding":        ok(Destination{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "{cred}", Encoding: "hex"}}),
-		"inbound basic not Auth":  ok(Destination{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "X-A", Encoding: EncodingBasic}}),
-		"inbound basic prefixes":  ok(Destination{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "Authorization", Encoding: EncodingBasic, Prefixes: []string{"x"}}}),
-		"inbound bad header":      ok(Destination{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: ""}}),
-		"inbound newline prefix":  ok(Destination{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "A", Prefixes: []string{"a\n"}}}),
+		"unknown preset":          ok(Endpoint{Apply: "bogus"}),
+		"custom without spec":     ok(Endpoint{Apply: ApplyCustom}),
+		"spec without custom":     ok(Endpoint{Apply: ApplyBearer, ApplySpec: &OutboundSpec{Header: "A", Template: "{cred}"}}),
+		"bad header name":         ok(Endpoint{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Bad Header", Template: "{cred}"}}),
+		"no cred placeholder":     ok(Endpoint{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "Bearer"}}),
+		"cred twice":              ok(Endpoint{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "{cred}{cred}"}}),
+		"newline in template":     ok(Endpoint{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "x\r\n{cred}"}}),
+		"basic not Authorization": ok(Endpoint{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "X-A", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "u"}}),
+		"basic without user":      ok(Endpoint{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic}}),
+		"user without basic":      ok(Endpoint{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "{cred}", BasicUser: "u"}}),
+		"unknown encoding":        ok(Endpoint{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "{cred}", Encoding: "hex"}}),
+		"inbound basic not Auth":  ok(Endpoint{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "X-A", Encoding: EncodingBasic}}),
+		"inbound basic prefixes":  ok(Endpoint{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "Authorization", Encoding: EncodingBasic, Prefixes: []string{"x"}}}),
+		"inbound bad header":      ok(Endpoint{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: ""}}),
+		"inbound newline prefix":  ok(Endpoint{IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "A", Prefixes: []string{"a\n"}}}),
 	}
 	for name, d := range bad {
 		if err := ValidateDestination(d, func(string) bool { return true }); err == nil {
@@ -166,7 +166,7 @@ func TestValidateHeaderSpecs(t *testing.T) {
 		}
 	}
 	// The error never echoes the template (it may sit next to a credential shape).
-	err := ValidateDestination(ok(Destination{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "SECRETISH"}}), func(string) bool { return true })
+	err := ValidateDestination(ok(Endpoint{Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "A", Template: "SECRETISH"}}), func(string) bool { return true })
 	if err == nil || strings.Contains(err.Error(), "SECRETISH") {
 		t.Errorf("template error = %v", err)
 	}
@@ -179,7 +179,7 @@ func TestDestinationPersistenceOldAndNewShapes(t *testing.T) {
 	if err := json.Unmarshal([]byte(old), &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.IdentityIn != ApplyBasicPassword || d.Apply != ApplyBasicPassword || d.IdentityInSpec != nil || d.ApplySpec != nil {
+	if d.Endpoints[0].IdentityIn != ApplyBasicPassword || d.Endpoints[0].Apply != ApplyBasicPassword || d.Endpoints[0].IdentityInSpec != nil || d.Endpoints[0].ApplySpec != nil {
 		t.Fatalf("old shape = %+v", d)
 	}
 	b, _ := json.Marshal(d)
@@ -188,9 +188,7 @@ func TestDestinationPersistenceOldAndNewShapes(t *testing.T) {
 	}
 
 	// The new shape: custom + specs, through JSON (stores, backups) and YAML (import).
-	nd := Destination{Name: "linear", Route: "/linear/", Upstream: "https://api.linear.app",
-		IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "X-Jam", Prefixes: []string{"Jam "}},
-		Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "u"}}
+	nd := Destination{Name: "linear", Endpoints: []Endpoint{{Name: "linear", Route: "/linear/", Upstream: "https://api.linear.app", IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "X-Jam", Prefixes: []string{"Jam "}}, Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "u"}}}}
 	b, _ = json.Marshal(nd)
 	var back Destination
 	if err := json.Unmarshal(b, &back); err != nil || !reflect.DeepEqual(back, nd) {
@@ -213,7 +211,7 @@ destinations:
 }
 
 func TestClientEnvCustomHasNoDefault(t *testing.T) {
-	d := Destination{Route: "/anthropic/", IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "X-Api-Key"}}
+	d := Destination{Endpoints: []Endpoint{{Route: "/anthropic/", IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "X-Api-Key"}}}}
 	env := d.ClientEnv()
 	if _, set := env["ANTHROPIC_API_KEY"]; set {
 		t.Errorf("custom identity got a default token env: %v", env)
@@ -232,7 +230,7 @@ func TestBrokerRawSendsBareAuthorization(t *testing.T) {
 	}))
 	defer up.Close()
 	b, logbuf, tok := newTestBroker(t, "http://unused", "http://unused")
-	b.store.(*MemStore).AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyRaw, CredName: "anthropic-bearer", Apply: ApplyRaw})
+	b.store.(*MemStore).AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyRaw, Apply: ApplyRaw}}, CredName: "anthropic-bearer"})
 	req := httptest.NewRequest("POST", "/anthropic/graphql", strings.NewReader("{}"))
 	req.Header.Set("Authorization", tok)
 	rec := httptest.NewRecorder()
@@ -254,9 +252,8 @@ func TestBrokerCustomSpecs(t *testing.T) {
 	}))
 	defer up.Close()
 	b, _, tok := newTestBroker(t, "http://unused", "http://unused")
-	b.store.(*MemStore).AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL,
-		IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "X-Jam-Token", Prefixes: []string{"Jam "}},
-		CredName: "anthropic-bearer", Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Private-Token", Template: "pt-{cred}"}})
+	b.store.(*MemStore).AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "X-Jam-Token", Prefixes: []string{"Jam "}}, Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Private-Token", Template: "pt-{cred}"}}},
+		CredName: "anthropic-bearer"})
 	req := httptest.NewRequest("GET", "/anthropic/x", nil)
 	req.Header.Set("X-Jam-Token", "Jam "+tok)
 	rec := httptest.NewRecorder()
@@ -282,7 +279,7 @@ func TestValidateRejectsUnhonorableHeaders(t *testing.T) {
 // A backup holding a method value this Jam doesn't know refuses the whole
 // import, naming the destination and the field.
 func TestImportConfigRefusesUnknownMethodNamingIt(t *testing.T) {
-	snap := ConfigSnapshot{Version: ConfigSnapshotVersion, Destinations: []Destination{{Name: "legacy", Route: "/l/", Upstream: "https://l", IdentityIn: ApplyBearer, Apply: "bogus"}}}
+	snap := ConfigSnapshot{Version: ConfigSnapshotVersion, Destinations: []Destination{{Name: "legacy", Endpoints: []Endpoint{{Name: "legacy", Route: "/l/", Upstream: "https://l", IdentityIn: ApplyBearer, Apply: "bogus"}}}}}
 	err := NewMemStore().ImportConfig(snap)
 	if err == nil || !strings.Contains(err.Error(), "legacy") || !strings.Contains(err.Error(), "apply") {
 		t.Fatalf("err = %v, want naming destination legacy and field apply", err)
@@ -294,29 +291,30 @@ func TestImportConfigRefusesUnknownMethodNamingIt(t *testing.T) {
 func TestUpdateDestinationKeepSpecs(t *testing.T) {
 	store := NewMemStore()
 	spec := &OutboundSpec{Header: "Private-Token", Template: "{cred}"}
-	base := Destination{Name: "gl", Route: "/gl/", Upstream: "https://gl", IdentityIn: ApplyRaw, Apply: ApplyCustom, ApplySpec: spec}
+	base := Destination{Name: "gl", Endpoints: []Endpoint{{Name: "gl", Route: "/gl/", Upstream: "https://gl", IdentityIn: ApplyRaw, Apply: ApplyCustom, ApplySpec: spec}}}
 	if err := store.AddDestination(base); err != nil {
 		t.Fatal(err)
 	}
 	credOK := func(string) bool { return true }
 	edit := base
-	edit.ApplySpec, edit.Upstream = nil, "https://gl2"
+	edit.Endpoints = slices.Clone(base.Endpoints)
+	edit.Endpoints[0].ApplySpec, edit.Endpoints[0].Upstream = nil, "https://gl2"
 	if err := UpdateDestinationKeepSpecs(store, edit, credOK); err != nil {
 		t.Fatal(err)
 	}
-	if d := store.ListDestinations()[0]; d.Upstream != "https://gl2" || d.ApplySpec == nil || *d.ApplySpec != *spec {
+	if d := store.ListDestinations()[0]; d.Endpoints[0].Upstream != "https://gl2" || d.Endpoints[0].ApplySpec == nil || *d.Endpoints[0].ApplySpec != *spec {
 		t.Fatalf("stored = %+v", d)
 	}
 	// Switching to a preset drops the spec; plain UpdateDestination never fills one in.
-	edit.Apply = ApplyBearer
-	if err := UpdateDestinationKeepSpecs(store, edit, credOK); err != nil || store.ListDestinations()[0].ApplySpec != nil {
+	edit.Endpoints[0].Apply = ApplyBearer
+	if err := UpdateDestinationKeepSpecs(store, edit, credOK); err != nil || store.ListDestinations()[0].Endpoints[0].ApplySpec != nil {
 		t.Fatalf("preset edit: %v %+v", err, store.ListDestinations()[0])
 	}
-	edit.Apply = ApplyCustom
+	edit.Endpoints[0].Apply = ApplyCustom
 	if err := UpdateDestination(store, edit, credOK); err == nil {
 		t.Fatal("UpdateDestination filled in a spec")
 	}
-	if err := UpdateDestinationKeepSpecs(store, Destination{Name: "ghost", Route: "/g/", Upstream: "https://g"}, credOK); WriteStatus(err, 0) != http.StatusNotFound {
+	if err := UpdateDestinationKeepSpecs(store, Destination{Name: "ghost", Endpoints: []Endpoint{{Name: "ghost", Route: "/g/", Upstream: "https://g"}}}, credOK); WriteStatus(err, 0) != http.StatusNotFound {
 		t.Fatalf("missing = %v", err)
 	}
 }
@@ -325,7 +323,7 @@ func TestUpdateDestinationKeepSpecs(t *testing.T) {
 // "user:token" credential — Atlassian needs email:api_token — and keeps
 // x-access-token for a bare token; a literal basic_user never splits.
 func TestOutboundBasicUserFromCred(t *testing.T) {
-	preset, _ := Destination{Apply: ApplyBasicPassword}.OutboundSpec()
+	preset, _ := Endpoint{Apply: ApplyBasicPassword}.OutboundSpec()
 	custom := OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: BasicUserFromCred}
 	literal := OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "svc"}
 	for _, c := range []struct {

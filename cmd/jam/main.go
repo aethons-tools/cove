@@ -432,23 +432,29 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			return 1
 		}
 		for _, dd := range ds {
-			ob := ""
-			if len(dd.Env) > 0 {
-				ob += ", env=" + strings.Join(slices.Sorted(maps.Keys(dd.Env)), ",")
+			for _, e := range dd.Endpoints { // a line per endpoint; dest/endpoint when it has several
+				name := dd.Name
+				if len(dd.Endpoints) > 1 {
+					name += "/" + e.Name
+				}
+				ob := ""
+				if len(dd.Env) > 0 {
+					ob += ", env=" + strings.Join(slices.Sorted(maps.Keys(dd.Env)), ",")
+				}
+				if len(e.AllowPaths) > 0 {
+					ob += fmt.Sprintf(", %d allow-paths", len(e.AllowPaths))
+				}
+				if e.Git {
+					ob += ", git"
+				}
+				if dd.Note != "" {
+					ob += ", note"
+				}
+				if e.LogHeadersIn != "" && e.LogHeadersIn != jam.HeaderLogNone || e.LogHeadersOut != "" && e.LogHeadersOut != jam.HeaderLogNone {
+					ob += fmt.Sprintf(", log-headers=%s/%s", cmp.Or(e.LogHeadersIn, jam.HeaderLogNone), cmp.Or(e.LogHeadersOut, jam.HeaderLogNone))
+				}
+				fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s%s)\n", name, e.Route, e.Upstream, dd.CredName, e.Apply, ob)
 			}
-			if len(dd.AllowPaths) > 0 {
-				ob += fmt.Sprintf(", %d allow-paths", len(dd.AllowPaths))
-			}
-			if dd.Git {
-				ob += ", git"
-			}
-			if dd.Note != "" {
-				ob += ", note"
-			}
-			if dd.LogHeadersIn != "" && dd.LogHeadersIn != jam.HeaderLogNone || dd.LogHeadersOut != "" && dd.LogHeadersOut != jam.HeaderLogNone {
-				ob += fmt.Sprintf(", log-headers=%s/%s", cmp.Or(dd.LogHeadersIn, jam.HeaderLogNone), cmp.Or(dd.LogHeadersOut, jam.HeaderLogNone))
-			}
-			fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s%s)\n", dd.Name, dd.Route, dd.Upstream, dd.CredName, dd.Apply, ob)
 		}
 	default:
 		fmt.Fprintf(stderr, "jam destination: unknown subcommand %q (want list)\n", sub)

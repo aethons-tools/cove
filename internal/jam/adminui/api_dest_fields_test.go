@@ -16,11 +16,11 @@ func seedDestinations(t *testing.T) jam.Store {
 	store := newStore(t)
 	mustCreateProject(t, store, "acme")
 	for _, d := range []jam.Destination{
-		{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: jam.ApplyBearer, CredName: "anth-key", Apply: jam.ApplyBearer},
-		{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword},
-		{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, CredName: "gh-pat", Apply: jam.ApplyBearer,
+		{Name: "anthropic", Endpoints: []jam.Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer}}, CredName: "anth-key"},
+		{Name: "git", Endpoints: []jam.Endpoint{{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, Apply: jam.ApplyBasicPassword}}, CredName: "git-pat"},
+		{Name: "github-api", Endpoints: []jam.Endpoint{{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer}}, CredName: "gh-pat",
 			Env: map[string]string{"GH_HOST": "{host}", "GH_ENTERPRISE_TOKEN": "{token}"}},
-		{Name: "gh-alt", Route: "/alt/", Upstream: "https://alt.example", Env: map[string]string{"GH_HOST": "{base}"}},
+		{Name: "gh-alt", Endpoints: []jam.Endpoint{{Name: "gh-alt", Route: "/alt/", Upstream: "https://alt.example"}}, Env: map[string]string{"GH_HOST": "{base}"}},
 	} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)
@@ -105,16 +105,16 @@ func TestDestinationsAPIFields(t *testing.T) {
 		t.Fatalf("create = %d %s", rec.Code, rec.Body)
 	}
 	d := destNamed(t, e.Store(), "gh")
-	if d.Route != "/api/v3/" || d.Env["GH_HOST"] != "{host}" || d.Env["GH_ENTERPRISE_TOKEN"] != "{token}" || len(d.Env) != 2 || !d.Git || d.Note != "use git over https" ||
-		d.CredName != "known-cred" || d.IdentityIn != jam.ApplyBearer || d.LogHeadersIn != jam.HeaderLogExamined || d.LogHeadersOut != "" {
+	if d.Endpoints[0].Route != "/api/v3/" || d.Env["GH_HOST"] != "{host}" || d.Env["GH_ENTERPRISE_TOKEN"] != "{token}" || len(d.Env) != 2 || !d.Endpoints[0].Git || d.Note != "use git over https" ||
+		d.CredName != "known-cred" || d.Endpoints[0].IdentityIn != jam.ApplyBearer || d.Endpoints[0].LogHeadersIn != jam.HeaderLogExamined || d.Endpoints[0].LogHeadersOut != "" {
 		t.Fatalf("stored = %+v", d)
 	}
-	if len(d.AllowPaths) != 2 || d.AllowPaths[0] != "/v1/projects/p1/models/*:rawPredict" || d.AllowPaths[1] != "/v1/projects/p1/models/*:streamRawPredict" {
-		t.Fatalf("allow paths = %q", d.AllowPaths)
+	if len(d.Endpoints[0].AllowPaths) != 2 || d.Endpoints[0].AllowPaths[0] != "/v1/projects/p1/models/*:rawPredict" || d.Endpoints[0].AllowPaths[1] != "/v1/projects/p1/models/*:streamRawPredict" {
+		t.Fatalf("allow paths = %q", d.Endpoints[0].AllowPaths)
 	}
 	var dd adminui.DestDetail
 	apiDo(t, h, "GET", "/app/admin/api/destinations/gh", nil, &dd)
-	if dd.Fields.AllowPaths != strings.Join(d.AllowPaths, "\n") || dd.Fields.LogHeadersIn != "examined" || dd.Fields.LogHeadersOut != "none" || len(dd.AllowPaths) != 2 {
+	if dd.Fields.AllowPaths != strings.Join(d.Endpoints[0].AllowPaths, "\n") || dd.Fields.LogHeadersIn != "examined" || dd.Fields.LogHeadersOut != "none" || len(dd.AllowPaths) != 2 {
 		t.Errorf("detail fields = %+v", dd.Fields)
 	}
 
@@ -156,7 +156,7 @@ func TestDestinationsAPIFields(t *testing.T) {
 	}, &out); rec.Code != 200 {
 		t.Fatalf("edit = %d %s", rec.Code, rec.Body)
 	}
-	if d := destNamed(t, e.Store(), "gh"); d.Upstream != "https://ghe.example/api/v3" || d.CredName != "" || len(d.Env) != 1 || d.Git || len(d.AllowPaths) != 0 || d.LogHeadersIn != "" || d.Note != "" {
+	if d := destNamed(t, e.Store(), "gh"); d.Endpoints[0].Upstream != "https://ghe.example/api/v3" || d.CredName != "" || len(d.Env) != 1 || d.Endpoints[0].Git || len(d.Endpoints[0].AllowPaths) != 0 || d.Endpoints[0].LogHeadersIn != "" || d.Note != "" {
 		t.Errorf("after edit = %+v", d)
 	}
 	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/destinations/gh", map[string]string{"route": "/api/v3/", "upstream": "https://x", "env": "nope"}, nil), 400, "bad_request")

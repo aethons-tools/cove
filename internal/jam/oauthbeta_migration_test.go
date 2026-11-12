@@ -77,7 +77,7 @@ func newPoolBroker(t *testing.T, spec *ModelSpec, roleSpec string, dests ...Dest
 	}
 	var names []string
 	for _, d := range dests {
-		d.Upstream = up.URL
+		d.Endpoints[0].Upstream = up.URL
 		if err := pb.store.AddDestination(d); err != nil {
 			t.Fatal(err)
 		}
@@ -110,7 +110,7 @@ func (pb *poolBroker) send(path, betaIn string) []string {
 }
 
 func poolDest(name, route string) Destination {
-	return Destination{Name: name, Route: route, IdentityIn: ApplyBearer, CredName: "anthropic-sub", Apply: ApplyBearer}
+	return Destination{Name: name, Endpoints: []Endpoint{{Name: name, Route: route, IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "anthropic-sub"}
 }
 
 // The broker ensures the subscription-OAuth beta whenever the credential comes
@@ -273,7 +273,7 @@ func TestDefaultModelSpecForHasNoHeaderRules(t *testing.T) {
 // refused with a hint naming its replacement.
 func TestValidateDestinationRefusesOAuthBeta(t *testing.T) {
 	d := anthropicDest()
-	d.Upstream = "https://api.anthropic.com"
+	d.Endpoints[0].Upstream = "https://api.anthropic.com"
 	d.LegacyOAuthBeta = true
 	err := ValidateDestination(d, func(string) bool { return true })
 	if err == nil || !strings.Contains(err.Error(), "oauth_beta") || !strings.Contains(err.Error(), "pool.adoc") {

@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// HeaderLog is a destination's troubleshooting header-logging level for one
+// HeaderLog is an endpoint's troubleshooting header-logging level for one
 // direction. Values are never logged raw where they could carry a secret: a
 // credential-bearing header (sensitiveHeader) is shown by redactHeaderValue —
 // its scheme, a Basic username, and the secret's length and a short sha256
@@ -26,21 +26,21 @@ const (
 	HeaderLogAll      HeaderLog = "all"      // every header (sensitive ones redacted)
 )
 
-// Rate limit: at most headerLogBurst lines per destination and direction per
+// Rate limit: at most headerLogBurst lines per endpoint and direction per
 // headerLogWindow, so a left-on setting cannot flood the log.
 const (
 	headerLogBurst  = 60
 	headerLogWindow = time.Minute
 )
 
-// ValidateHeaderLogging checks the destination's header-logging levels.
-func (d Destination) ValidateHeaderLogging() error {
-	switch d.LogHeadersIn {
+// ValidateHeaderLogging checks the endpoint's header-logging levels.
+func (e Endpoint) ValidateHeaderLogging() error {
+	switch e.LogHeadersIn {
 	case "", HeaderLogNone, HeaderLogExamined, HeaderLogAll:
 	default:
 		return fmt.Errorf("log_headers_in must be none, examined or all")
 	}
-	switch d.LogHeadersOut {
+	switch e.LogHeadersOut {
 	case "", HeaderLogNone, HeaderLogChanged, HeaderLogAll:
 	default:
 		return fmt.Errorf("log_headers_out must be none, changed or all")
@@ -131,18 +131,19 @@ func changedHeaders(in, out http.Header, inHeader, outHeader string) string {
 	return strings.Join(slices.DeleteFunc(append([]string{line}, removed...), func(s string) bool { return s == "" }), "; ")
 }
 
-// logHeadersIn logs the request's headers per d.LogHeadersIn, before the
-// identity is checked (so a missing or malformed one shows too).
-func (b *Broker) logHeadersIn(d Destination, r *http.Request, in InboundSpec, hasIn bool) {
-	if d.LogHeadersIn == "" || d.LogHeadersIn == HeaderLogNone || !b.hdrLog.allow(d.Name, "in") {
+// logHeadersIn logs the request's headers per e.LogHeadersIn (e an endpoint
+// of d), before the identity is checked (so a missing or malformed one shows
+// too).
+func (b *Broker) logHeadersIn(d Destination, e Endpoint, r *http.Request, in InboundSpec, hasIn bool) {
+	if e.LogHeadersIn == "" || e.LogHeadersIn == HeaderLogNone || !b.hdrLog.allow(d.Name, e.Name, "in") {
 		return
 	}
 	outHeader := ""
-	if o, ok := d.OutboundSpec(); ok {
+	if o, ok := e.OutboundSpec(); ok {
 		outHeader = o.Header
 	}
 	var line string
-	switch d.LogHeadersIn {
+	switch e.LogHeadersIn {
 	case HeaderLogExamined:
 		switch v := r.Header.Get(in.Header); {
 		case !hasIn:
@@ -158,26 +159,27 @@ func (b *Broker) logHeadersIn(d Destination, r *http.Request, in InboundSpec, ha
 			line = strings.TrimPrefix(line+"; "+http.CanonicalHeaderKey(in.Header)+": missing", "; ")
 		}
 	}
-	b.log.Info("broker headers in", "destination", d.Name, "method", r.Method, "path", r.URL.Path, "headers", line)
+	b.log.Info("broker headers in", "destination", d.Name, "endpoint", e.Name, "method", r.Method, "path", r.URL.Path, "headers", line)
 }
 
-// logHeadersOut logs what goes upstream per d.LogHeadersOut: orig is the
-// client's headers, out the broker's rewrite of them.
-func (b *Broker) logHeadersOut(d Destination, actor string, out *http.Request, orig http.Header, inHeader, outHeader string) {
-	if d.LogHeadersOut == "" || d.LogHeadersOut == HeaderLogNone || !b.hdrLog.allow(d.Name, "out") {
+// logHeadersOut logs what goes upstream per e.LogHeadersOut (e an endpoint
+// of d): orig is the client's headers, out the broker's rewrite of them.
+func (b *Broker) logHeadersOut(d Destination, e Endpoint, actor string, out *http.Request, orig http.Header, inHeader, outHeader string) {
+	if e.LogHeadersOut == "" || e.LogHeadersOut == HeaderLogNone || !b.hdrLog.allow(d.Name, e.Name, "out") {
 		return
 	}
 	var line string
-	switch d.LogHeadersOut {
+	switch e.LogHeadersOut {
 	case HeaderLogChanged:
 		line = changedHeaders(orig, out.Header, inHeader, outHeader)
 	case HeaderLogAll:
 		line = headerLine(out.Header, inHeader, outHeader)
 	}
-	b.log.Info("broker headers out", "actor", actor, "destination", d.Name, "method", out.Method, "upstream", out.URL.Host, "path", out.URL.Path, "headers", line)
+	b.log.Info("broker headers out", "actor", actor, "destination", d.Name, "endpoint", e.Name, "method", out.Method, "upstream", out.URL.Host, "path", out.URL.Path, "headers", line)
 }
 
-// headerLogLimiter is a fixed-window line budget per destination+direction.
+// headerLogLimiter is a fixed-window line budget per destination, endpoint
+// and direction.
 type headerLogLimiter struct {
 	mu   sync.Mutex
 	now  func() time.Time
@@ -193,10 +195,10 @@ func newHeaderLogLimiter(now func() time.Time) *headerLogLimiter {
 	return &headerLogLimiter{now: now, wins: map[string]headerLogWin{}}
 }
 
-func (l *headerLogLimiter) allow(dest, dir string) bool {
+func (l *headerLogLimiter) allow(dest, endpoint, dir string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	k, now := dest+"\x00"+dir, l.now()
+	k, now := dest+"\x00"+endpoint+"\x00"+dir, l.now()
 	w := l.wins[k]
 	if now.Sub(w.start) >= headerLogWindow {
 		w = headerLogWin{start: now}

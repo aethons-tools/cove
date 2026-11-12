@@ -25,7 +25,7 @@ func ScopesFor(store Store, a Actor) []Scope {
 
 // ConnectorFor assembles the client connector for an actor: the union of the
 // ClientEnv of every destination in its effective scopes, plus git routing when
-// one of them routes git, plus the model-spec its roles resolve to
+// one of their endpoints routes git, plus the model-spec its roles resolve to
 // (ModelSpecFor) — so a cove re-reads its spec with every connector refresh. Unknown destination names contribute nothing. Two
 // destinations setting one variable to different values, or two different git
 // routes, are an error — fail closed rather than pick one.
@@ -66,11 +66,11 @@ func ConnectorFor(store Store, a Actor) (snippet.Connector, error) {
 			}
 			c.Env[k], owner[k] = v, name
 		}
-		if d.GitRouted() {
-			if c.GitRoute != "" && c.GitRoute != d.Route {
-				return snippet.Connector{}, fmt.Errorf("more than one git destination in scope (%s, %s)", c.GitRoute, d.Route)
+		for _, e := range d.GitEndpoints() {
+			if c.GitRoute != "" && c.GitRoute != e.Route {
+				return snippet.Connector{}, fmt.Errorf("more than one git destination in scope (%s, %s)", c.GitRoute, e.Route)
 			}
-			c.GitRoute, c.GitTarget = d.Route, snippet.GitTargetFor(d.Upstream)
+			c.GitRoute, c.GitTarget = e.Route, snippet.GitTargetFor(e.Upstream)
 		}
 	}
 	spec, err := ModelSpecFor(store, a)

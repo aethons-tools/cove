@@ -115,12 +115,12 @@ func outboundSpec(m ApplyMethod, custom *OutboundSpec) (OutboundSpec, bool) {
 }
 
 // InboundSpec is the effective identity-in spec (IdentityIn / IdentityInSpec).
-func (d Destination) InboundSpec() (InboundSpec, bool) {
-	return inboundSpec(d.IdentityIn, d.IdentityInSpec)
+func (e Endpoint) InboundSpec() (InboundSpec, bool) {
+	return inboundSpec(e.IdentityIn, e.IdentityInSpec)
 }
 
 // OutboundSpec is the effective apply spec (Apply / ApplySpec).
-func (d Destination) OutboundSpec() (OutboundSpec, bool) { return outboundSpec(d.Apply, d.ApplySpec) }
+func (e Endpoint) OutboundSpec() (OutboundSpec, bool) { return outboundSpec(e.Apply, e.ApplySpec) }
 
 // extract returns the identity token the spec finds on h.
 func (s InboundSpec) extract(h http.Header) (string, bool) {
@@ -251,11 +251,11 @@ func (s OutboundSpec) Validate() error {
 
 // validateHeaderSpecs checks IdentityIn/Apply at write time: empty or a known
 // preset, or custom with a valid spec; a spec is only allowed with custom.
-func (d Destination) validateHeaderSpecs() error {
-	if err := validateMethod("identity_in", d.IdentityIn, d.IdentityInSpec != nil, func() error { return d.IdentityInSpec.Validate() }); err != nil {
+func (e Endpoint) validateHeaderSpecs() error {
+	if err := validateMethod("identity_in", e.IdentityIn, e.IdentityInSpec != nil, func() error { return e.IdentityInSpec.Validate() }); err != nil {
 		return err
 	}
-	return validateMethod("apply", d.Apply, d.ApplySpec != nil, func() error { return d.ApplySpec.Validate() })
+	return validateMethod("apply", e.Apply, e.ApplySpec != nil, func() error { return e.ApplySpec.Validate() })
 }
 
 func validateMethod(field string, m ApplyMethod, hasSpec bool, validate func() error) error {

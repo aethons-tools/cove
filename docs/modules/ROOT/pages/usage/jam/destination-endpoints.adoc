@@ -1,0 +1,96 @@
+= Destination endpoints
+:summary: A destination holds a list of named endpoints (route, upstream, identity-in/apply, allow_paths, git, header logging) that share its credential, env and note; the flat single-route file is one endpoint named after the destination. Covers both file forms, normalisation, path matching, the validation rules and the paths Jam reserves.
+:read_when: You are giving one service several addresses in one destination (an `endpoints:` list), a destination write or config plan was refused over an endpoint (a name, a clashing route, a reserved path, a subdomain), or you need to know which endpoint the broker picks for a path.
+:owns: the endpoint model (`jam.Endpoint`, `Destination.Endpoints`), the flat and list encodings and their normalisation, endpoint validation (names, count, address uniqueness, reserved cove paths, subdomains refused), and the broker's most-specific-endpoint match
+:prereqs: serve.adoc#destinations for destination files and their fields
+:tier: leaf
+:updated: 2026-11-12
+
+A destination is a group of *endpoints*.
+Each endpoint has its own address and upstream;
+the destination's `+cred_name+`, `env`, `note` and operator notes apply to all of them.
+A role names whole destinations, so it gets every endpoint
+(xref:usage/jam/roster.adoc[]).
+
+== The two file forms
+
+The *flat* form is the one destinations always had
+(xref:usage/jam/serve.adoc#destinations[serve]).
+It is one endpoint, named after the destination.
+
+The *list* form gives `endpoints:` instead of the endpoint fields:
+
+[source,yaml]
+----
+# destinations/github.yml
+kind: destination
+version: 1
+cred_name: gh-pat
+endpoints:
+  - name: rest
+    route: /api/v3/
+    upstream: https://api.github.com
+    identity_in: bearer
+    apply: bearer
+  - name: graphql
+    route: /api/
+    upstream: https://api.github.com
+    identity_in: bearer
+    apply: bearer
+env: {GH_HOST: "{host}"}
+----
+
+An endpoint takes `name`, `route`, `upstream`, `+identity_in+`, `apply`,
+`+identity_in_spec+`, `+apply_spec+` (xref:usage/jam/header-specs.adoc[header-specs]),
+`+allow_paths+`, `git` (xref:usage/jam/connector.adoc[connector]) and
+`+log_headers_in+`/`+log_headers_out+`
+(xref:usage/jam/destination-header-logging.adoc[header logging]).
+A file may not mix the forms, and unknown fields are refused in both.
+
+A list of one endpoint with no `name` is named after the destination.
+A destination whose only endpoint is named after it is written back flat,
+byte for byte as before endpoints.
+So existing files, stored destinations and backups do not change,
+and the config plan sees no change in them.
+The store (its JSON documents) and backups use the same two forms.
+
+== Matching
+
+The broker serves a request on the endpoint whose `route` is the longest prefix of its path,
+across every destination's endpoints.
+The route is cut off before the request goes upstream.
+The credential comes from the endpoint's destination
+(its default, or the role's mapping);
+the identity-in and apply specs, `+allow_paths+` and header logging come from the endpoint.
+Header logs carry `endpoint`, and their rate limit is per destination, endpoint and direction.
+
+[#validation]
+== Validation
+
+A destination write (admin UI, config plan) is refused with 400 when:
+
+* it has no endpoints, or more than 10;
+* an endpoint of several has no `name`, or two share one;
+* an endpoint has no `route` (`subdomain` is the other address, below), or no `upstream`;
+* an endpoint has a `subdomain`: *this Jam has no destinations domain* yet;
+* a route claims a path Jam serves itself on the cove listener —
+the route is a prefix of one (`/` claims all of them),
+or lies under one's first segment (`/squawks/x/`);
+* two endpoints, in this destination or any other, have the same subdomain and route;
+* an endpoint's header specs, `+allow_paths+` or header-logging levels are invalid.
+
+The reserved paths are one table, `internal/jam/covepaths.go`.
+The cove listener's mux (`cmd/jam/mux.go`) dispatches by it,
+so a new Jam endpoint added there is reserved at once.
+
+A backup import checks the names, the count, subdomains and the per-endpoint specs,
+but not routes or upstreams, so whatever an older Jam stored still imports
+(xref:usage/jam/backup.adoc[backup]).
+
+== Where the first endpoint stands in
+
+Some views still show one endpoint: the admin UI's destination form and list
+(they show and edit the first endpoint and keep the others),
+the connector's `+{url}+` and the `/anthropic/` legacy env default
+(the first endpoint's route).
+`jam destination list` prints a line per endpoint, as `destination/endpoint` when there are several.
