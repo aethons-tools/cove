@@ -2222,3 +2222,28 @@ func TestRaiseCopiesMission(t *testing.T) {
 		t.Fatalf("Mission = %q, want %q", got.Mission, "Ticket title")
 	}
 }
+
+// Raise hands the launcher the subdomain hosts of the role's granted
+// destinations, so the studio resolves them; a caller-set list never survives.
+func TestRaiseHandsDestinationHostsToTheLauncher(t *testing.T) {
+	withDestinationsDomain(t, "jam.example.com")
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	linear := Destination{Name: "linear", Endpoints: []Endpoint{{Name: "linear", Subdomain: "linear", Upstream: "https://api.linear.app"}}}
+	other := Destination{Name: "other", Endpoints: []Endpoint{{Name: "other", Subdomain: "other", Upstream: "https://other.example"}}}
+	for _, d := range []Destination{linear, other} {
+		if err := store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.PutRole("default", Role{Name: "lin", Scope: Scope{Destinations: []string{"linear"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	spec := RaiseSpec{ActorID: "h1", Role: "lin", DestinationHosts: []string{"evil.example"}}
+	if _, _, _, err := sup.Raise(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"linear.jam.example.com"}; !reflect.DeepEqual(f.gotSpec.DestinationHosts, want) {
+		t.Fatalf("launcher spec hosts = %v, want %v", f.gotSpec.DestinationHosts, want)
+	}
+}

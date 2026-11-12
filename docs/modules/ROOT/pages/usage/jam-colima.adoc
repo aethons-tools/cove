@@ -1,10 +1,10 @@
 = jam-colima
 :summary: The `jam-colima` binary — the Studio Manager for a Colima host, a bare-metal process that dials Jam over TLS and hosts studios in a Colima VM; its install, upgrade from jam-studio-manager, config file and `colima.profile`, token, TLS, reconnect backoff, capacity, the host memory/disk and work in progress it reports, automatic disk cleanup, labels and image builds.
 :read_when: You are setting up or running `jam-colima` on a host, upgrading a host from `jam-studio-manager`, editing its `config.yml` (which VM via `colima.profile`, `cleanup` thresholds), or debugging why it will not connect, declines raises (capacity, disk full), removed or rebuilds images, or reports odd memory/disk figures to Jam.
-:owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, TLS trust, reconnect backoff, capacity gate, how host stats are measured, the activities it reports (kit-prepare progress), the disk cleanup policy and disk-full gate, container/volume labels and per-host image builds
+:owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, `colima.destinations-domain`, TLS trust, reconnect backoff, capacity gate, how host stats are measured, the activities it reports (kit-prepare progress), the disk cleanup policy and disk-full gate, container/volume labels and per-host image builds
 :prereqs: jam/studio-managers.adoc for registering the manager and what Jam does with it
 :tier: leaf
-:updated: 2026-11-11
+:updated: 2026-11-12
 
 `jam-colima` is the Studio Manager for a Colima host: it runs next to Colima, dials _into_ Jam over TLS and raises studios in a Colima VM on Jam's behalf.
 Registration, the token's auth, and disconnect/reconnect/revoke behaviour on Jam's side are in xref:usage/jam/studio-managers.adoc[Studio Managers]; this doc is the manager host's side.
@@ -52,6 +52,7 @@ log-level: info               # debug|info|warn|error
 colima:
   runtime-addr: jam.example.com:443  # required; the Jam address studios dial
   jam-host: jam.example.com          # required; the Jam host name studios resolve
+  destinations-domain: ""            # the Jam's destinations.domain; "" = none
   profile: default                   # the Colima VM (colima --profile); letters, digits, - _ .
   docker: false                      # Sysbox docker-in-sandbox
   dns: []
@@ -67,6 +68,22 @@ cleanup:              # percent of the VM's docker disk; 0 = the default
 
 `identity-file` is the SSH key the manager uses to reach its studios (generated on first use); `known-hosts-dir` holds the studio host keys; both default to the manager's own `<dir>`.
 `runtime-addr` is what a studio dials (`+JAM_RUNTIME_ADDR+`); `jam-host` is added to the studio's `/etc/hosts` so that name resolves to the host gateway.
+
+[#destinations-domain]
+`destinations-domain` must be the same value as the Jam's `destinations.domain`
+(xref:usage/jam/serve.adoc#destinations-domain[the destinations domain]).
+It is a lowercase DNS name of at least two labels.
+If you set it, the manager does two things:
+
+* It bakes `+.<domain>+` (the domain and its subdomains) into the studio image's infra egress list
+(xref:OVERVIEW.adoc#egress-four-additive-allow-lists-and-a-ceiling[egress]).
+The domain is part of the image tag, so a change rebuilds the kit images.
+* At a raise, it adds each subdomain host that Jam sends to the studio's `/etc/hosts`, on the host gateway, as for `jam-host`.
+Jam sends the hosts of the subdomain endpoints of the destinations that the role grants.
+The manager accepts a host only if it is exactly one valid label under its own domain.
+It logs and skips every other host (`destination host refused`).
+
+If you do not set it, the images and their tags do not change, and studios cannot reach subdomain endpoints.
 `profile` names the Colima VM studios run in, read as colima reads ``+--profile+``: `default` and `colima` are the default VM, and a `colima-` prefix is dropped (`colima-jam-b` is `jam-b`).
 Every docker call is pinned to its docker context, `colima` for `default`, else `colima-<profile>`.
 So `+colima start --profile jam-b+` and `+profile: jam-b+` place this manager's studios, kit images and volumes in that VM.

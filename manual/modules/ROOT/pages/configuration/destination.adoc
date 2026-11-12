@@ -85,5 +85,6 @@ view-then-edit, and errors at each field: COV-315.
 The admin API already returns each problem at its field (COV-314);
 today's form shows them as one list.
 * Subdomains (COV-311) work in files; the form shows but does not edit them.
+Studios reach them (COV-312); a session started before an endpoint was added needs a restart.
 The connector's `+{host:<endpoint>}+` and `+{url:<endpoint>}+` placeholders (COV-313) work in the agent connector's env.
 endif::[]

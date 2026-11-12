@@ -392,8 +392,19 @@ unmatched path is *404* without contacting an upstream. Every other host is serv
 as before.
 * serve refuses a `listen` host under the domain (its requests would all go to the
 broker). The domain itself may be the Jam host.
-* A studio reaches a subdomain only if its egress admits the host (`+.<domain>+`
-in the role's egress). The agent connector names subdomain endpoints' hosts
+* [[studio-reach]]*Studios reach subdomain endpoints* when their Studio Manager sets
+`colima.destinations-domain` to the same domain
+(xref:usage/jam-colima.adoc#destinations-domain[jam-colima]).
+The manager then bakes `+.<domain>+` into the studio's infra egress list,
+so the role's egress does not have to name it.
+`/etc/hosts` cannot hold a wildcard, so each raise maps named hosts instead.
+Jam sends the hosts (`+<subdomain>.<domain>+`) of the subdomain endpoints of the destinations
+that the role grants. The manager maps each one to the host gateway, as it maps the Jam host.
+Hosts of other destinations are not mapped.
+* *A new subdomain endpoint needs a restart of the session.* The raise fixes the hosts of a studio.
+If you add an endpoint, or grant a role a destination, after the raise, restart the session
+(xref:usage/jam/session-view.adoc[session-view]) so that its studio resolves the new host.
+* The agent connector names subdomain endpoints' hosts
 (`+{host:<endpoint>}+`, `+{url:<endpoint>}+`) and routes git through them
 (xref:usage/jam/connector.adoc[connector]).
 

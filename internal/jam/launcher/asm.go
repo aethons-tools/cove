@@ -19,10 +19,17 @@ const tagHalf = 32
 // payload (the sealed hardening layer, harness payload and jam-studio-agent, hashed
 // by install.AssemblyIdentity), the blessed default base (an omitted base builds FROM it; a context base
 // descends from it), the Jam host (baked into the infra egress list) and the
-// launcher's public key (baked into authorized_keys). Length-prefixed fields.
-func asmDigest(identity, defaultRef, jamHost string, pub []byte) string {
+// launcher's public key (baked into authorized_keys), and the destinations
+// domain (baked into the infra egress list) when there is one. Length-prefixed
+// fields; an empty destDomain adds no field, so a Jam without a destinations
+// domain keeps the fingerprint — and every image tag — it had before.
+func asmDigest(identity, defaultRef, jamHost string, pub []byte, destDomain string) string {
 	h := sha256.New()
-	for _, f := range [][]byte{[]byte(identity), []byte(defaultRef), []byte(jamHost), pub} {
+	fields := [][]byte{[]byte(identity), []byte(defaultRef), []byte(jamHost), pub}
+	if destDomain != "" {
+		fields = append(fields, []byte(destDomain))
+	}
+	for _, f := range fields {
 		var n [8]byte
 		binary.BigEndian.PutUint64(n[:], uint64(len(f)))
 		h.Write(n[:])
@@ -36,7 +43,7 @@ func asmDigest(identity, defaultRef, jamHost string, pub []byte) string {
 // still varies with the other inputs, and the error is logged by the caller.
 func currentAsmDigest(cfg Config) (string, error) {
 	id, err := install.AssemblyIdentity()
-	return asmDigest(id, basedigest.DefaultRef(), cfg.JamHost, cfg.PublicKey), err
+	return asmDigest(id, basedigest.DefaultRef(), cfg.JamHost, cfg.PublicKey, cfg.DestinationsDomain), err
 }
 
 // tagFor names a studio-kit image by its kit build-digest AND the launcher's

@@ -674,14 +674,8 @@ type previewsConfig struct {
 	TLS    *tlsFiles `yaml:"tls"`
 }
 
-// dnsLabelRE is one lowercase DNS label (LDH, no leading/trailing '-').
-var dnsLabelRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
-
 // validDomain reports whether d is a lowercase DNS name of at least two labels.
-func validDomain(d string) bool {
-	labels := strings.Split(d, ".")
-	return len(labels) >= 2 && len(d) <= 253 && !slices.ContainsFunc(labels, func(l string) bool { return !dnsLabelRE.MatchString(l) })
-}
+func validDomain(d string) bool { return jam.ValidDomain(d) }
 
 // validatePreviews checks a set previews block: domain is a lowercase DNS name
 // of at least two labels; tls.cert/tls.key are set; the admin listener serves

@@ -81,6 +81,10 @@ type Config struct {
 	// volumes and inventory so managers can share one docker daemon; it also
 	// makes the JamID default RuntimeAddr#Manager.
 	Manager string
+	// DestinationsDomain is the Jam's destinations domain ("" = none): its
+	// subdomains join the baked infra egress list (".<domain>"), and a raise
+	// maps the spec's DestinationHosts under it to the gateway (addHosts).
+	DestinationsDomain string
 
 	// PrepareKit inputs (studio-cove build path). BuildRoot is where per-kit
 	// build contexts are assembled (default os.TempDir()/jam-kit-builds).
@@ -202,7 +206,7 @@ func (l *Launcher) Raise(ctx context.Context, spec jam.RaiseSpec, creds jam.Laun
 	if err != nil {
 		return "", fmt.Errorf("raise %s: %w", name, err)
 	}
-	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, l.raiseLabels(spec.ActorID), l.cfg.DNS, []string{l.cfg.JamHost}, l.cfg.Docker, mounts...); err != nil {
+	if _, err := l.cfg.Ops.RunEphemeral(image, digest, name, l.raiseLabels(spec.ActorID), l.cfg.DNS, l.addHosts(spec), l.cfg.Docker, mounts...); err != nil {
 		return "", fmt.Errorf("raise %s: run: %w", name, err)
 	}
 	// From here, clean up the container on any failure so a failed raise leaks nothing.
@@ -336,6 +340,27 @@ func (l *Launcher) applyRoleEgress(name string, spec jam.RaiseSpec) error {
 		return nil
 	}
 	return l.applyEgress(name, spec.ActorID, spec.Project, spec.Role, spec.Egress)
+}
+
+// addHosts is the names a raise maps to the host gateway: the Jam host, then
+// the spec's DestinationHosts that are exactly one valid subdomain label
+// (jam.ValidSubdomain) under this launcher's destinations domain, sorted and
+// unique. They reach docker argv, so any other entry — or every one when the
+// launcher has no domain, as its images' egress admits none — is dropped with
+// a warning naming it.
+func (l *Launcher) addHosts(spec jam.RaiseSpec) []string {
+	var ok []string
+	for _, h := range spec.DestinationHosts {
+		sub, under := strings.CutSuffix(h, "."+l.cfg.DestinationsDomain)
+		if l.cfg.DestinationsDomain == "" || !under || jam.ValidSubdomain(sub) != nil {
+			l.cfg.Log.Warn("destination host refused: not one subdomain label under this manager's destinations domain",
+				"actor", spec.ActorID, "host", h, "destinations_domain", l.cfg.DestinationsDomain)
+			continue
+		}
+		ok = append(ok, h)
+	}
+	slices.Sort(ok)
+	return append([]string{l.cfg.JamHost}, slices.Compact(ok)...)
 }
 
 // SetSSHUserCA replaces the SSH user-CA key later raises install (nil turns

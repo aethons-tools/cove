@@ -23,6 +23,36 @@ func ScopesFor(store Store, a Actor) []Scope {
 	return scopes
 }
 
+// DestinationHostsFor is the sorted, unique hosts (<sub>.<domain>) of the
+// subdomain endpoints of the destinations a's grants name, on this Jam's
+// destinations domain; nil without one. Only granted destinations count: a
+// studio resolves the subdomains its role may use, not every one.
+func DestinationHostsFor(store Store, a Actor) []string {
+	domain := DestinationsDomain()
+	if domain == "" {
+		return nil
+	}
+	inScope := map[string]bool{}
+	for _, s := range ScopesFor(store, a) {
+		for _, n := range s.Destinations {
+			inScope[n] = true
+		}
+	}
+	var hosts []string
+	for _, d := range store.ListDestinations() {
+		if !inScope[d.Name] {
+			continue
+		}
+		for _, e := range d.Endpoints {
+			if host, err := e.hostOn(domain); err == nil && host != "" {
+				hosts = append(hosts, host)
+			}
+		}
+	}
+	slices.Sort(hosts)
+	return slices.Compact(hosts)
+}
+
 // ConnectorFor assembles the client connector for an actor: the union of the
 // ClientEnv of every destination in its effective scopes, plus git routing when
 // one of their endpoints routes git, plus the model-spec its roles resolve to

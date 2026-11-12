@@ -4,7 +4,7 @@
 :owns: the project overview: studio image assembly, security model, package map
 :prereqs: none
 :tier: leaf
-:updated: 2026-11-11
+:updated: 2026-11-12
 
 This repo builds Jam and the *hardened Claude Code studios* it runs: a Studio
 Manager assembles each studio image (a kit base, the harness layer, then the
@@ -70,7 +70,7 @@ Sitting after the kit base, a CLI bump rebuilds only from this stage on (Docker
 layer cache). It needs no secret — the install is unauthenticated.
 . *Non-overridable hardening* (embedded; `FROM harness`) —
 `nftables.conf`, `squid.conf` (its four additive allow-list ACLs — base, infra, kit, session — and the empty session egress file the session ACL reads), sshd hardening, the entrypoint and its `/agent-data` seeding _mechanism_ (`seed-agent-data.sh` — not the seeded content), `sshd` `AcceptEnv` config, the git credential helper, the managed Claude settings, the sealed env (`+CLAUDE_CONFIG_DIR=/agent-data+`, the proxy vars), the version-locked `jam-studio-agent` binary, and — for the opt-in `+docker:true+` boot path — the systemd egress unit (`jam-egress.service`) plus the `docker`/`ssh` ordering drop-ins and the inner-dockerd `daemon.json` (see the https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#d-init-model--daemon-lifecycle[Sysbox docker-in-sandbox design]).
-. *Generated* — the kit's egress list (baked into `+allowed_domains.kit.txt+` and the `+egress_ceiling.txt+` bound), the Jam host into `+allowed_domains.infra.txt+`, the kit's MCP servers, and the managed public key (see <<egress-four-additive-allow-lists-and-a-ceiling,Egress: four additive allow-lists and a ceiling>>).
+. *Generated* — the kit's egress list (baked into `+allowed_domains.kit.txt+` and the `+egress_ceiling.txt+` bound), the Jam host (and the destinations domain's subdomains, if set) into `+allowed_domains.infra.txt+`, the kit's MCP servers, and the managed public key (see <<egress-four-additive-allow-lists-and-a-ceiling,Egress: four additive allow-lists and a ceiling>>).
 
 The kit's *``image/``* is _not_ overlaid here — it is the Docker *build context*
 for the kit's `image/Dockerfile`, which selects/builds the base the manager hardens
@@ -172,7 +172,7 @@ the sealed base or the `nftables` lock:
 |file |source |when |scope
 
 |`+allowed_domains.txt+` |sealed hardening |baked |base, unconditional
-|`+allowed_domains.infra.txt+` |the Jam host (the manager's `colima.jam-host`) |baked at build |every studio; a role can't remove it
+|`+allowed_domains.infra.txt+` |the Jam host (the manager's `colima.jam-host`), and `+.<domain>+` when the manager sets `colima.destinations-domain` |baked at build |every studio; a role can't remove it
 |`+allowed_domains.kit.txt+` |the *active policy list*: the studio kit's `+egress:+` by default |baked at build; replaced at raise for a Jam role with a policy |every studio
 |`+allowed_domains.session.txt+` |baked *empty* (the per-session tier is unused) |baked |—
 |===
@@ -184,6 +184,14 @@ must fit inside (below). Every list and the ceiling are root-owned `0644`.
 So a studio's effective egress is *``+base ∪ infra ∪ kit+``* (the kit list being
 the role's policy when it has one). The session file stays empty, so its ACL never
 dangles.
+
+*The destinations domain widens infra by its subdomains only.* If the Studio Manager
+sets `colima.destinations-domain`, the infra list holds `+.<domain>+`, and no other
+new name. The broker on that domain still checks each request's identity and
+destination (xref:usage/jam/serve.adoc#studio-reach[serve]). A raise maps only the
+subdomain hosts of the role's granted destinations to the host gateway, and the
+manager refuses any host that is not one label under its domain before it reaches
+`docker run`. Without the domain, the image and its tag do not change.
 
 *A Jam role's egress replaces the policy list, within the ceiling, at raise.*
 When Jam raises a cove for a role with an egress policy

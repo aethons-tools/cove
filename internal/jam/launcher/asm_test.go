@@ -29,22 +29,22 @@ func TestImageTagShortDigest(t *testing.T) {
 }
 
 func TestAsmDigestCoversEveryInput(t *testing.T) {
-	base := asmDigest("id", "ref", "jam.a", []byte("key"))
-	if base != asmDigest("id", "ref", "jam.a", []byte("key")) {
+	base := asmDigest("id", "ref", "jam.a", []byte("key"), "")
+	if base != asmDigest("id", "ref", "jam.a", []byte("key"), "") {
 		t.Fatal("asmDigest not deterministic")
 	}
 	for name, d := range map[string]string{
-		"identity": asmDigest("id2", "ref", "jam.a", []byte("key")),
-		"base":     asmDigest("id", "ref2", "jam.a", []byte("key")),
-		"jamhost":  asmDigest("id", "ref", "jam.b", []byte("key")),
-		"key":      asmDigest("id", "ref", "jam.a", []byte("key2")),
+		"identity": asmDigest("id2", "ref", "jam.a", []byte("key"), ""),
+		"base":     asmDigest("id", "ref2", "jam.a", []byte("key"), ""),
+		"jamhost":  asmDigest("id", "ref", "jam.b", []byte("key"), ""),
+		"key":      asmDigest("id", "ref", "jam.a", []byte("key2"), ""),
 	} {
 		if d == base {
 			t.Fatalf("changing %s did not change the digest", name)
 		}
 	}
 	// Length-prefixed: shifting a boundary must not collide.
-	if asmDigest("ab", "c", "h", nil) == asmDigest("a", "bc", "h", nil) {
+	if asmDigest("ab", "c", "h", nil, "") == asmDigest("a", "bc", "h", nil, "") {
 		t.Fatal("field boundary shift collided")
 	}
 }

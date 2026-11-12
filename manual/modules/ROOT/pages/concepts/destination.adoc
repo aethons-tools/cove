@@ -68,6 +68,13 @@ Subdomains work once the Jam has a domain for them,
 as it has for previews;
 without one, an endpoint with a subdomain is refused.
 
+Agents reach the subdomains of the destinations their role may use
+once the Jam's Studio Managers know that domain too.
+A session learns these subdomains when it starts.
+After you add an endpoint on a new subdomain,
+or let a role use another destination,
+restart the role's running sessions so that they can reach it.
+
 == Identity and credential
 
 An agent presents its own Jam identity,
@@ -130,7 +137,9 @@ whose wildcard DNS and TLS the operator provides), routed by `Host` before path.
 Shipped by COV-313: the connector's `+{host:<endpoint>}+` and `+{url:<endpoint>}+` placeholders
 (`+{url}+`, `+{base}+` and `+{host}+` kept for one-endpoint destinations)
 and git routing by host (`+git_host+` on `/connector`, additive).
-Still to come (COV-309): the rest of subdomain support (COV-312)
-and the endpoints grid on the destination page (COV-315).
+Shipped by COV-312: studios reach subdomain endpoints. The manager's `colima.destinations-domain`
+admits `.<domain>` in the studio's egress, and a raise maps the hosts of the role's granted
+destinations to the host gateway, so a new one needs a restart of the session.
+Still to come (COV-309): the endpoints grid on the destination page (COV-315).
 * An existing destination's one endpoint is named after the destination.
 endif::[]
