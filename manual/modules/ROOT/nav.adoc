@@ -1,1 +1,2 @@
 * xref:index.adoc[About this manual]
+* xref:glossary.adoc[Glossary]

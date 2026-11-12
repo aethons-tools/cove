@@ -1,0 +1,14 @@
+= Glossary
+:page-area: ROOT
+:page-id: ROOT/glossary
+:page-conventions: sentence-case
+
+// Stub: the goal for this page is not written yet.
+// Idea waiting on it (Linear, label page:ROOT/glossary):
+// COV-305, each manual should include a glossary.
+
+The words this manual uses for Jam's parts,
+each with a one-line meaning
+and a link to the page that describes it.
+
+This page is a stub.
