@@ -20,8 +20,8 @@ Click *Edit* to make the whole card editable;
 
 image::destination-edit.png[The github destination, editing,800]
 
-The card shows the destination's *Credential*,
-the name of the secret Jam applies upstream,
+The card shows the destination's *Default credential*,
+the secret Jam applies upstream unless a role maps the destination to another,
 and an optional *Note*.
 
 == Endpoints

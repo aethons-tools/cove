@@ -20,7 +20,7 @@ One service often needs several addresses.
 GitHub has git, its REST API and GraphQL;
 Linear has its API and its MCP server.
 A destination holds all of them as *endpoints*
-that share one credential and one agent connector,
+that share one default credential and one agent connector,
 so you set those up once.
 
 Each endpoint has a name,
@@ -75,6 +75,9 @@ Every agent that may use the destination gets these at its next start.
 
 A role lists the destinations its agents may use,
 and gets every endpoint of each one.
+Each destination has a default credential;
+a role can use another credential for it instead,
+and that credential then applies to all of the destination's endpoints.
 When a role should reach only part of a service,
 that part is a destination of its own.
 
