@@ -4,9 +4,10 @@
 :owns: the destination header-logging levels, their log lines and redaction rules, and their rate limit
 :prereqs: serve.adoc#destinations for destinations; header-specs.adoc for identity_in/apply
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-12
 
-Turn on per-destination header logs to see what the broker read from a studio
+Turn on per-endpoint header logs (the fields are an
+xref:usage/jam/destination-endpoints.adoc[endpoint]'s; a flat destination is one endpoint) to see what the broker read from a studio
 and what it sent upstream. Secrets never appear: a credential-bearing value is
 logged structurally, enough to tell _which_ credential went without revealing it.
 Both settings default to `none`. Leave them off except while debugging.
@@ -26,7 +27,7 @@ Both settings default to `none`. Leave them off except while debugging.
 |===
 
 `broker headers in` is logged before the identity is checked, so a missing or
-malformed one shows too. It carries `destination`, `method`, `path` and
+malformed one shows too. It carries `destination`, `endpoint`, `method`, `path` and
 `headers`. `broker headers out` adds `actor` and `upstream`. Hop-by-hop headers
 and `X-Forwarded-For`, which Go's proxy sets after the broker, are not shown.
 
@@ -47,7 +48,7 @@ To check that the logged secret is the one you expect, compare prefixes:
 
 == Rate limit
 
-At most 60 lines per destination and direction per minute; the rest are dropped.
+At most 60 lines per destination, endpoint and direction per minute; the rest are dropped.
 
 == Setting it
 

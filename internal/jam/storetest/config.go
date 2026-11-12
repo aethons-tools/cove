@@ -18,7 +18,7 @@ func ConfigWriteFixture() (jam.ConfigWrite, ident.ID, ident.ID, ident.ID) {
 	return jam.ConfigWrite{
 		Connections:  []jam.Connection{{ID: cid, Kind: "linear", Name: "acme", CredName: "linear", Status: jam.StatusLive}},
 		Users:        []jam.User{{ID: uid, Name: "bob", Status: jam.StatusLive, Logins: []string{"bob@acme"}}},
-		Destinations: []jam.Destination{{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", CredName: "gh"}},
+		Destinations: []jam.Destination{{Name: "gh", Endpoints: []jam.Endpoint{{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com"}}, CredName: "gh"}},
 		ModelSpecs:   []jam.ModelSpec{{Name: "fast", Type: jam.HarnessClaude, Version: "2.1.3"}},
 		Kits:         []jam.Kit{{Name: "web", Current: 1, Versions: map[int]string{1: `{"kind":"studio"}`}}},
 		Projects:     []jam.Project{{ID: pid, Name: "app", ChatService: string(cid)}},

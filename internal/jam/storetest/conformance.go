@@ -6,6 +6,7 @@ package storetest
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -49,21 +50,20 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		s := newStore(t)
 		in := &jam.InboundSpec{Header: "X-Jam", Prefixes: []string{"Jam "}}
 		out := &jam.OutboundSpec{Header: "Private-Token", Template: "{cred}"}
-		d := jam.Destination{Name: "gl", Route: "/gl/", Upstream: "https://gl", IdentityIn: jam.ApplyCustom, IdentityInSpec: in,
-			Apply: jam.ApplyCustom, ApplySpec: out, Env: map[string]string{"A": "{url}"}}
+		d := jam.Destination{Name: "gl", Endpoints: []jam.Endpoint{{Name: "gl", Route: "/gl/", Upstream: "https://gl", IdentityIn: jam.ApplyCustom, IdentityInSpec: in, Apply: jam.ApplyCustom, ApplySpec: out}}, Env: map[string]string{"A": "{url}"}}
 		if err := s.AddDestination(d); err != nil {
 			t.Fatalf("AddDestination: %v", err)
 		}
 		// Mutating the caller's value after the write does not reach the store.
 		in.Prefixes[0], out.Header, d.Env["A"] = "mutated", "Mutated", "mutated"
 		got := s.ListDestinations()
-		if len(got) != 1 || got[0].IdentityInSpec.Prefixes[0] != "Jam " || got[0].ApplySpec.Header != "Private-Token" || got[0].Env["A"] != "{url}" {
+		if len(got) != 1 || got[0].Endpoints[0].IdentityInSpec.Prefixes[0] != "Jam " || got[0].Endpoints[0].ApplySpec.Header != "Private-Token" || got[0].Env["A"] != "{url}" {
 			t.Fatalf("stored = %+v", got)
 		}
 		// Mutating a returned value does not reach the store.
-		got[0].IdentityInSpec.Prefixes[0], got[0].ApplySpec.Template, got[0].Env["A"] = "mutated", "mutated", "mutated"
-		m, ok := s.Match("/gl/x")
-		if !ok || m.IdentityInSpec.Prefixes[0] != "Jam " || m.ApplySpec.Template != "{cred}" || m.Env["A"] != "{url}" {
+		got[0].Endpoints[0].IdentityInSpec.Prefixes[0], got[0].Endpoints[0].ApplySpec.Template, got[0].Env["A"] = "mutated", "mutated", "mutated"
+		m, _, ok := s.Match("/gl/x")
+		if !ok || m.Endpoints[0].IdentityInSpec.Prefixes[0] != "Jam " || m.Endpoints[0].ApplySpec.Template != "{cred}" || m.Env["A"] != "{url}" {
 			t.Fatalf("ListDestinations must return copies, got %+v", m)
 		}
 	})
@@ -359,26 +359,46 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 		}
 	})
 
-	t.Run("destinations_and_match", func(t *testing.T) {
+	t.Run("destination_endpoints_round_trip_and_match", func(t *testing.T) {
 		s := newStore(t)
-		if err := s.AddDestination(jam.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}); err != nil {
+		gh := jam.Destination{Name: "github", CredName: "gh", Endpoints: []jam.Endpoint{
+			{Name: "rest", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer, LogHeadersIn: jam.HeaderLogAll},
+			{Name: "graphql", Route: "/api/", Upstream: "https://api.github.com/graphql", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer, AllowPaths: []string{"/graphql"}},
+			{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, Apply: jam.ApplyBasicPassword, Git: true},
+		}}
+		if err := s.AddDestination(gh); err != nil {
 			t.Fatalf("AddDestination: %v", err)
 		}
-		if err := s.AddDestination(jam.Destination{Name: "anthropic-msgs", Route: "/anthropic/v1/messages", Upstream: "https://api.anthropic.com"}); err != nil {
+		if got := s.ListDestinations(); len(got) != 1 || !reflect.DeepEqual(got[0], gh) {
+			t.Fatalf("stored = %+v, want %+v", got, gh)
+		}
+		for path, want := range map[string]string{"/api/v3/repos/x": "rest", "/api/graphql": "graphql", "/git/a/b.git": "git"} {
+			if d, e, ok := s.Match(path); !ok || d.Name != "github" || e.Name != want {
+				t.Fatalf("Match(%s) = %s/%s, %v; want github/%s", path, d.Name, e.Name, ok, want)
+			}
+		}
+	})
+
+	t.Run("destinations_and_match", func(t *testing.T) {
+		s := newStore(t)
+		if err := s.AddDestination(jam.Destination{Name: "anthropic", Endpoints: []jam.Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}}}); err != nil {
+			t.Fatalf("AddDestination: %v", err)
+		}
+		if err := s.AddDestination(jam.Destination{Name: "anthropic-msgs", Endpoints: []jam.Endpoint{{Name: "anthropic-msgs", Route: "/anthropic/v1/messages", Upstream: "https://api.anthropic.com"}}}); err != nil {
 			t.Fatal(err)
 		}
 		if all := s.ListDestinations(); len(all) != 2 {
 			t.Fatalf("ListDestinations = %d, want 2", len(all))
 		}
 		// longest-prefix wins.
-		d, ok := s.Match("/anthropic/v1/messages")
+		d, _, ok := s.Match("/anthropic/v1/messages")
 		if !ok || d.Name != "anthropic-msgs" {
 			t.Fatalf("Match = %+v, %v (want anthropic-msgs)", d, ok)
 		}
-		if d, ok := s.Match("/anthropic/other"); !ok || d.Name != "anthropic" {
+		if d, _, ok := s.Match("/anthropic/other"); !ok || d.Name != "anthropic" {
 			t.Fatalf("Match = %+v, %v (want anthropic)", d, ok)
 		}
-		if _, ok := s.Match("/nope"); ok {
+		if _, _, ok := s.Match("/nope"); ok {
 			t.Fatal("Match of an unrouted path must be false")
 		}
 		if err := s.RemoveDestination("anthropic"); err != nil {

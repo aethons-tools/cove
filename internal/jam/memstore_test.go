@@ -21,14 +21,14 @@ func mustCreateProject(t *testing.T, s Store, names ...string) {
 func TestMemStoreDestinationsAndMatch(t *testing.T) {
 	s := NewMemStore()
 	mustCreateProject(t, s, "ACME")
-	d := Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword}
+	d := Destination{Name: "git", Endpoints: []Endpoint{{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword}}, CredName: "git-pat"}
 	if err := s.AddDestination(d); err != nil {
 		t.Fatalf("AddDestination: %v", err)
 	}
 	if err := s.AddActor(Actor{ID: "spider-18", TokenHash: HashToken("tok"), Grants: []Grant{{Project: "ACME", Role: "guest"}}}); err != nil {
 		t.Fatalf("AddActor: %v", err)
 	}
-	if got, ok := s.Match("/git/acme/api.git/info/refs"); !ok || got.Name != "git" {
+	if got, _, ok := s.Match("/git/acme/api.git/info/refs"); !ok || got.Name != "git" {
 		t.Fatalf("Match = %+v, %v", got, ok)
 	}
 	if len(s.ListDestinations()) != 1 || len(s.ListActors()) != 1 {
@@ -37,7 +37,7 @@ func TestMemStoreDestinationsAndMatch(t *testing.T) {
 	if err := s.RemoveDestination("git"); err != nil {
 		t.Fatalf("RemoveDestination: %v", err)
 	}
-	if _, ok := s.Match("/git/acme/api.git/info/refs"); ok {
+	if _, _, ok := s.Match("/git/acme/api.git/info/refs"); ok {
 		t.Fatal("destination still matched after removal")
 	}
 }

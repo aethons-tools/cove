@@ -30,8 +30,8 @@ func newTestBroker(t *testing.T, upstreamAnthropic, upstreamGit string) (*Broker
 		t.Fatal(err)
 	}
 	for _, d := range []Destination{
-		{Name: "anthropic", Route: "/anthropic/", Upstream: upstreamAnthropic, IdentityIn: ApplyBearer, CredName: "anthropic-bearer", Apply: ApplyBearer},
-		{Name: "git", Route: "/git/", Upstream: upstreamGit, IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword},
+		{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: upstreamAnthropic, IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "anthropic-bearer"},
+		{Name: "git", Endpoints: []Endpoint{{Name: "git", Route: "/git/", Upstream: upstreamGit, IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword}}, CredName: "git-pat"},
 	} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)
@@ -127,7 +127,7 @@ func TestBrokerDeniesWhenGrantRoleDeleted(t *testing.T) {
 	}
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") }))
 	defer up.Close()
-	if err := store.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyBearer, CredName: "anthropic-bearer", Apply: ApplyBearer}); err != nil {
+	if err := store.AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "anthropic-bearer"}); err != nil {
 		t.Fatal(err)
 	}
 	b := NewBroker(store, fakeCreds{"anthropic-bearer": "REAL-ANTHROPIC"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -202,7 +202,7 @@ func TestBrokerSwapsXAPIKey(t *testing.T) {
 	if err := store.AddActor(Actor{ID: "spider-18", TokenHash: HashToken(tok), Grants: []Grant{{Project: DefaultProject, Role: "guest"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, CredName: "anthropic-key", Apply: ApplyXAPIKey}); err != nil {
+	if err := store.AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, Apply: ApplyXAPIKey}}, CredName: "anthropic-key"}); err != nil {
 		t.Fatal(err)
 	}
 	b := NewBroker(store, fakeCreds{"anthropic-key": "REAL-ANTHROPIC"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -245,8 +245,8 @@ func TestBrokerServesGHStyleAPIWithRoleMappedCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, d := range []Destination{
-		{Name: "github-api", Route: "/api/v3/", Upstream: up.URL, IdentityIn: ApplyBearer, CredName: "gh-default", Apply: ApplyBearer},
-		{Name: "github-graphql", Route: "/api/", Upstream: up.URL, IdentityIn: ApplyBearer, CredName: "gh-default", Apply: ApplyBearer},
+		{Name: "github-api", Endpoints: []Endpoint{{Name: "github-api", Route: "/api/v3/", Upstream: up.URL, IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "gh-default"},
+		{Name: "github-graphql", Endpoints: []Endpoint{{Name: "github-graphql", Route: "/api/", Upstream: up.URL, IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "gh-default"},
 	} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)
@@ -294,7 +294,7 @@ func TestBrokerStripsInboundIdentityHeader(t *testing.T) {
 			if err := store.AddActor(Actor{ID: "spider-18", TokenHash: HashToken(tok), Grants: []Grant{{Project: DefaultProject, Role: "guest"}}}); err != nil {
 				t.Fatal(err)
 			}
-			if err := store.AddDestination(Destination{Name: "svc", Route: "/svc/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, CredName: tc.credName, Apply: tc.apply}); err != nil {
+			if err := store.AddDestination(Destination{Name: "svc", Endpoints: []Endpoint{{Name: "svc", Route: "/svc/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, Apply: tc.apply}}, CredName: tc.credName}); err != nil {
 				t.Fatal(err)
 			}
 			b := NewBroker(store, fakeCreds{"real": "REAL-CRED"}, slog.New(slog.NewTextHandler(io.Discard, nil)))

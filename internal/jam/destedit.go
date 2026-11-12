@@ -1,6 +1,8 @@
 package jam
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"sync"
@@ -15,13 +17,13 @@ var destMu sync.Mutex
 const MaxDestinationNote = 300
 
 // ValidateDestination checks a destination at write time — the rules shared by
-// the JSON admin API and the UI: name, route and upstream are required, a
-// default credential must be configured, identity_in/apply must be a preset
-// or custom with a valid spec, env must pass ValidateEnv, and allow_paths
-// ValidateAllowPaths.
-// Refusals are 400 WriteErrors.
+// the JSON admin API, the UI and the config plan: a name, a default
+// credential that is configured, env passing ValidateEnv, and endpoints
+// passing validateEndpoints. Rules across destinations are
+// checkEndpointClashes'. Refusals are 400 WriteErrors.
 func ValidateDestination(d Destination, credExists func(string) bool) error {
-	if d.Name == "" || d.Route == "" || d.Upstream == "" {
+	d.normalize()
+	if d.Name == "" || len(d.Endpoints) == 0 {
 		return writeErr(http.StatusBadRequest, "name, route and upstream are required")
 	}
 	if d.LegacyOAuthBeta {
@@ -33,19 +35,92 @@ func ValidateDestination(d Destination, credExists func(string) bool) error {
 	if len(d.Note) > MaxDestinationNote {
 		return writeErr(http.StatusBadRequest, "note is %d bytes; at most %d", len(d.Note), MaxDestinationNote)
 	}
-	if err := d.validateHeaderSpecs(); err != nil {
-		return writeErr(http.StatusBadRequest, "%s", err.Error())
-	}
 	if err := d.ValidateEnv(); err != nil {
 		return writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
-	if err := d.ValidateAllowPaths(); err != nil {
-		return writeErr(http.StatusBadRequest, "%s", err.Error())
-	}
-	if err := d.ValidateHeaderLogging(); err != nil {
+	if err := d.validateEndpoints(true); err != nil {
 		return writeErr(http.StatusBadRequest, "%s", err.Error())
 	}
 	return nil
+}
+
+// validateEndpoints checks d's endpoints: at most MaxEndpoints, each named
+// (uniquely in d) with an upstream and a subdomain or route; no subdomain
+// (this Jam has no destinations domain); no route claiming a path Jam serves
+// on the cove listener (ReservedRoute); and each endpoint's header specs,
+// allow_paths and header logging. An error names the endpoint when d has
+// more than one. Without addresses, the route and upstream rules are skipped:
+// a backup is checked so (validateSnapshotContext), as it was before
+// endpoints, so whatever a Jam stored imports.
+func (d Destination) validateEndpoints(addresses bool) error {
+	if len(d.Endpoints) > MaxEndpoints {
+		return fmt.Errorf("%d endpoints; at most %d", len(d.Endpoints), MaxEndpoints)
+	}
+	seen := map[string]bool{}
+	for _, e := range d.Endpoints {
+		where := ""
+		if len(d.Endpoints) > 1 {
+			where = fmt.Sprintf("endpoint %q: ", e.Name)
+		}
+		switch {
+		case e.Name == "":
+			return errors.New("every endpoint needs a name")
+		case seen[e.Name]:
+			return fmt.Errorf("endpoint name %q is used twice", e.Name)
+		case e.Subdomain != "":
+			return fmt.Errorf("%ssubdomain %q: this Jam has no destinations domain", where, e.Subdomain)
+		case !addresses:
+		case e.Route == "":
+			return fmt.Errorf("%sa subdomain or a route is required", where)
+		case e.Upstream == "":
+			return fmt.Errorf("%supstream is required", where)
+		case ReservedRoute(e.Route) != "":
+			return fmt.Errorf("%sroute %s claims %s, which Jam serves", where, e.Route, ReservedRoute(e.Route))
+		}
+		seen[e.Name] = true
+		for _, check := range []func() error{e.validateHeaderSpecs, e.ValidateAllowPaths, e.ValidateHeaderLogging} {
+			if err := check(); err != nil {
+				return fmt.Errorf("%s%w", where, err)
+			}
+		}
+	}
+	return nil
+}
+
+// checkEndpointClashes refuses d when two of its endpoints, or one of its and
+// one of another destination in all (d's own entry there skipped), have the
+// same subdomain and route: each address belongs to one endpoint in the
+// whole Jam. A 400 WriteError.
+func checkEndpointClashes(d Destination, all []Destination) error {
+	type addr struct{ sub, route string }
+	owner := map[addr]string{}
+	for _, o := range all {
+		if o.Name == d.Name {
+			continue
+		}
+		for _, e := range o.Endpoints {
+			owner[addr{e.Subdomain, e.Route}] = fmt.Sprintf("destination %q's endpoint %q", o.Name, e.Name)
+		}
+	}
+	for _, e := range d.Endpoints {
+		a := addr{e.Subdomain, e.Route}
+		if prev, ok := owner[a]; ok {
+			return writeErr(http.StatusBadRequest, "endpoint %q: %s is already %s", e.Name, endpointAddr(e), prev)
+		}
+		owner[a] = fmt.Sprintf("endpoint %q", e.Name)
+	}
+	return nil
+}
+
+// endpointAddr is e's address for a message: its subdomain and/or route.
+func endpointAddr(e Endpoint) string {
+	switch {
+	case e.Subdomain == "":
+		return "route " + e.Route
+	case e.Route == "":
+		return "subdomain " + e.Subdomain
+	}
+	return "subdomain " + e.Subdomain + " route " + e.Route
 }
 
 // findDestination returns the stored destination named name.
@@ -73,6 +148,9 @@ func CreateDestination(store Store, d Destination, credExists func(string) bool)
 	if destinationExists(store, d.Name) {
 		return writeErr(http.StatusConflict, "destination %q already exists", d.Name)
 	}
+	if err := checkEndpointClashes(d, store.ListDestinations()); err != nil {
+		return err
+	}
 	return store.AddDestination(d)
 }
 
@@ -83,10 +161,13 @@ func UpdateDestination(store Store, d Destination, credExists func(string) bool)
 }
 
 // UpdateDestinationKeepSpecs is UpdateDestination for an editor that can't
-// edit header specs or operator notes (the admin UI form): where d keeps
-// identity_in / apply "custom" with no spec, the stored spec is kept, and the
-// stored operator notes always are. The lookup and the write are one step
-// under destMu, so a concurrent spec change can't be reverted.
+// edit header specs, operator notes or more than one endpoint (the admin UI
+// form): d's one endpoint replaces the stored first endpoint's fields but its
+// name and subdomain, the stored destination's other endpoints are kept, and
+// where an endpoint keeps identity_in / apply "custom" with no spec, its
+// stored spec is kept; the stored operator notes always are. The lookup and
+// the write are one step under destMu, so a concurrent change can't be
+// reverted.
 func UpdateDestinationKeepSpecs(store Store, d Destination, credExists func(string) bool) error {
 	return updateDestination(store, d, credExists, true)
 }
@@ -102,15 +183,29 @@ func updateDestination(store Store, d Destination, credExists func(string) bool,
 		return writeErr(http.StatusNotFound, "destination %q does not exist", d.Name)
 	}
 	if keepSpecs {
-		if d.IdentityIn == ApplyCustom && d.IdentityInSpec == nil && cur.IdentityIn == ApplyCustom {
-			d.IdentityInSpec = cur.IdentityInSpec
+		d.Endpoints = slices.Clone(d.Endpoints)
+		if len(d.Endpoints) == 1 && len(cur.Endpoints) > 0 {
+			d.Endpoints[0].Name, d.Endpoints[0].Subdomain = cur.Endpoints[0].Name, cur.Endpoints[0].Subdomain
+			d.Endpoints = append(d.Endpoints, cur.Endpoints[1:]...)
 		}
-		if d.Apply == ApplyCustom && d.ApplySpec == nil && cur.Apply == ApplyCustom {
-			d.ApplySpec = cur.ApplySpec
+		for i, e := range d.Endpoints {
+			c, ok := cur.Endpoint(e.Name)
+			if !ok {
+				continue
+			}
+			if e.IdentityIn == ApplyCustom && e.IdentityInSpec == nil && c.IdentityIn == ApplyCustom {
+				d.Endpoints[i].IdentityInSpec = c.IdentityInSpec
+			}
+			if e.Apply == ApplyCustom && e.ApplySpec == nil && c.Apply == ApplyCustom {
+				d.Endpoints[i].ApplySpec = c.ApplySpec
+			}
 		}
 		d.OperatorNotes = cur.OperatorNotes
 	}
 	if err := ValidateDestination(d, credExists); err != nil {
+		return err
+	}
+	if err := checkEndpointClashes(d, store.ListDestinations()); err != nil {
 		return err
 	}
 	return store.AddDestination(d)

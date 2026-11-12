@@ -1353,8 +1353,8 @@ func TestRaiseHandsTheRolesConnectorToTheLauncher(t *testing.T) {
 func TestRaiseConnectorConflictRollsBack(t *testing.T) {
 	f := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, f)
-	a := Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://a", Env: map[string]string{"X": "1"}}
-	b := Destination{Name: "b", Route: "/b/", Upstream: "https://b", Env: map[string]string{"X": "2"}}
+	a := Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://a"}}, Env: map[string]string{"X": "1"}}
+	b := Destination{Name: "b", Endpoints: []Endpoint{{Name: "b", Route: "/b/", Upstream: "https://b"}}, Env: map[string]string{"X": "2"}}
 	for _, d := range []Destination{a, b} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)
@@ -1543,7 +1543,7 @@ func TestContextForDoesNotRelogLint(t *testing.T) {
 func TestRaiseContextCarriesNoSecrets(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, fl)
-	if err := store.AddDestination(Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", CredName: "gh-pat-SECRETNAME",
+	if err := store.AddDestination(Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com"}}, CredName: "gh-pat-SECRETNAME",
 		Env: map[string]string{"GH_ENTERPRISE_TOKEN": "{token}", "GH_HOST": "{host}"}}); err != nil {
 		t.Fatal(err)
 	}

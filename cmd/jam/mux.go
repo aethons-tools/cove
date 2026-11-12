@@ -31,45 +31,27 @@ func serveMux(lis net.Listener, tlsCfg *tls.Config, gs *grpc.Server, httpHandler
 	return srv.ServeTLS(lis, "", "")
 }
 
-// squawksMux routes exactly "/squawks" and its subpaths (targets, commit,
-// call-in, leave, and the ask routes) to squawksH, "/escalate" to escH, "/end", "/idle", "/mute" and "/kept"
-// to turnEndH, "/alarms" and "/alarms/{name}" to alarmH, "/exposures" and "/exposures/{name}" to exposureH, "/report" to
-// reportH, "/mission" to missionH, and "/focus" to focusH; every other path goes
-// to broker unchanged. Used to mount Jam's brokered ticket-squawk
-// endpoint (its target-discovery and commit-cursor subpaths included) and its
-// brokered escalation-category endpoint on the same cove-facing handler as
-// the broker, without disturbing the broker's own routing.
+// squawksMux routes the paths jam.CoveHandlerFor names to their handlers:
+// "/squawks" and its subpaths (targets, commit, call-in, leave, and the ask
+// routes) to squawksH, "/escalate" to escH, "/end", "/idle", "/mute" and
+// "/kept" to turnEndH, "/alarms" and "/alarms/{name}" to alarmH, "/exposures"
+// and "/exposures/{name}" to exposureH, "/report" to reportH, "/mission" to
+// missionH, and "/focus" to focusH; every other path goes to broker
+// unchanged. Used to mount Jam's brokered ticket-squawk endpoint (its
+// target-discovery and commit-cursor subpaths included) and its brokered
+// escalation-category endpoint on the same cove-facing handler as the broker,
+// without disturbing the broker's own routing.
 func squawksMux(squawksH, escH, turnEndH, alarmH, exposureH, reportH, missionH, focusH, broker http.Handler) http.Handler {
+	byHandler := map[jam.CoveHandler]http.Handler{
+		jam.CoveSquawks: squawksH, jam.CoveEscalate: escH, jam.CoveTurnEnd: turnEndH, jam.CoveAlarms: alarmH,
+		jam.CoveExposures: exposureH, jam.CoveReport: reportH, jam.CoveMission: missionH, jam.CoveFocus: focusH,
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/alarms" || strings.HasPrefix(r.URL.Path, "/alarms/") {
-			alarmH.ServeHTTP(w, r)
+		if h, ok := byHandler[jam.CoveHandlerFor(r.URL.Path)]; ok {
+			h.ServeHTTP(w, r)
 			return
 		}
-		if r.URL.Path == "/squawks/boards" || strings.HasPrefix(r.URL.Path, "/squawks/boards/") || strings.HasPrefix(r.URL.Path, "/squawks/blobs/") {
-			squawksH.ServeHTTP(w, r)
-			return
-		}
-		if r.URL.Path == "/exposures" || strings.HasPrefix(r.URL.Path, "/exposures/") {
-			exposureH.ServeHTTP(w, r)
-			return
-		}
-		switch r.URL.Path {
-		case "/squawks", "/squawks/targets", "/squawks/commit", "/squawks/call-in", "/squawks/leave",
-			"/squawks/ask", "/squawks/ask/amend", "/squawks/ask/withdraw", "/squawks/asks", "/squawks/uploads":
-			squawksH.ServeHTTP(w, r)
-		case "/escalate":
-			escH.ServeHTTP(w, r)
-		case "/end", "/idle", "/mute", "/kept":
-			turnEndH.ServeHTTP(w, r)
-		case "/report":
-			reportH.ServeHTTP(w, r)
-		case "/mission":
-			missionH.ServeHTTP(w, r)
-		case "/focus":
-			focusH.ServeHTTP(w, r)
-		default:
-			broker.ServeHTTP(w, r)
-		}
+		broker.ServeHTTP(w, r)
 	})
 }
 
@@ -97,11 +79,11 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg
 	ctxH := jam.NewContextHandler(st, sup, time.Now, log)
 	withCoveEndpoints := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/connector":
+			switch jam.CoveHandlerFor(r.URL.Path) {
+			case jam.CoveConnector:
 				connH.ServeHTTP(w, r)
 				return
-			case "/context":
+			case jam.CoveContext:
 				ctxH.ServeHTTP(w, r)
 				return
 			}
@@ -141,7 +123,7 @@ func withMetrics(next, metrics http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/metrics" {
+		if jam.CoveHandlerFor(r.URL.Path) == jam.CoveMetrics {
 			metrics.ServeHTTP(w, r)
 			return
 		}

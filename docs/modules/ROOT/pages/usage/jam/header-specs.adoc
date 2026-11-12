@@ -4,9 +4,9 @@
 :owns: the `identity_in`/`apply` presets, the custom header-spec schema (`identity_in_spec`/`apply_spec`), its validation and storage compatibility
 :prereqs: serve.adoc#destinations for the destination verb
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-12
 
-Every destination has two header specs (header auth only):
+Every destination endpoint (xref:usage/jam/destination-endpoints.adoc[]) has two header specs (header auth only):
 
 * *inbound* (`+identity_in+`) — where the studio presents its Jam identity
 token: `+{header, prefixes, encoding}+`. Jam reads the header, cuts the first

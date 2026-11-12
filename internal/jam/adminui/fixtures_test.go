@@ -149,8 +149,8 @@ func seedRichRole(t *testing.T) jam.Store {
 	store := newStore(t)
 	mustCreateProject(t, store, "acme")
 	for _, d := range []jam.Destination{
-		{Name: "git", Route: "/git/", Upstream: "https://git.example", CredName: "git-default"},
-		{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", CredName: "anth-key"},
+		{Name: "git", Endpoints: []jam.Endpoint{{Name: "git", Route: "/git/", Upstream: "https://git.example"}}, CredName: "git-default"},
+		{Name: "anthropic", Endpoints: []jam.Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}}, CredName: "anth-key"},
 	} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)

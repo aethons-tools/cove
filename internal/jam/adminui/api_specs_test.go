@@ -53,14 +53,14 @@ func TestDestinationsAPI(t *testing.T) {
 	// A custom identity-in spec survives a form save.
 	e.Edit(func(st jam.Store) {
 		dest := destNamed(t, st, "gh")
-		dest.IdentityIn, dest.IdentityInSpec = jam.ApplyCustom, &jam.InboundSpec{Header: "X-Agent-Token"}
+		dest.Endpoints[0].IdentityIn, dest.Endpoints[0].IdentityInSpec = jam.ApplyCustom, &jam.InboundSpec{Header: "X-Agent-Token"}
 		if err := jam.UpdateDestination(st, dest, anyCred); err != nil {
 			t.Fatal(err)
 		}
 	})
 	apiDo(t, h, "POST", "/app/admin/api/destinations/gh", destBody(map[string]string{"identityIn": "custom"}), &d)
-	if after := destNamed(t, e.Store(), "gh"); after.IdentityInSpec == nil || d.IdentityInSpec == "" {
-		t.Errorf("custom spec lost: %+v / %q", after.IdentityInSpec, d.IdentityInSpec)
+	if after := destNamed(t, e.Store(), "gh"); after.Endpoints[0].IdentityInSpec == nil || d.IdentityInSpec == "" {
+		t.Errorf("custom spec lost: %+v / %q", after.Endpoints[0].IdentityInSpec, d.IdentityInSpec)
 	}
 	// Two destinations in one role setting GH_HOST differently conflict.
 	apiDo(t, h, "POST", "/app/admin/api/destinations", destBody(map[string]string{"name": "ghe", "route": "/ghe/", "upstream": "https://ghe.example.com", "env": "GH_HOST=ghe.example.com"}), nil)

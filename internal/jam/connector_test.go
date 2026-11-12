@@ -2,6 +2,7 @@ package jam
 
 import (
 	"maps"
+	"slices"
 	"testing"
 )
 
@@ -31,9 +32,9 @@ func actorWith(roles ...string) Actor {
 }
 
 var (
-	legacyAnthropic = Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: ApplyXAPIKey, Apply: ApplyXAPIKey}
-	legacyGit       = Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword}
-	ghAPI           = Destination{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: ApplyBearer, Apply: ApplyBearer,
+	legacyAnthropic = Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: ApplyXAPIKey, Apply: ApplyXAPIKey}}}
+	legacyGit       = Destination{Name: "git", Endpoints: []Endpoint{{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword}}}
+	ghAPI           = Destination{Name: "github-api", Endpoints: []Endpoint{{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: ApplyBearer, Apply: ApplyBearer}},
 		Env: map[string]string{"GH_HOST": "{host}", "GH_ENTERPRISE_TOKEN": "{token}"}}
 )
 
@@ -48,7 +49,8 @@ func TestConnectorForLegacyDestinations(t *testing.T) {
 
 func TestConnectorForPoolAnthropicUsesAuthToken(t *testing.T) {
 	pool := legacyAnthropic
-	pool.IdentityIn = ApplyBearer
+	pool.Endpoints = slices.Clone(pool.Endpoints)
+	pool.Endpoints[0].IdentityIn = ApplyBearer
 	st := connectorStore(t, []Destination{pool}, map[string]Scope{"w": {Destinations: []string{"anthropic"}}})
 	c, err := ConnectorFor(st, actorWith("w"))
 	if err != nil || c.Env["ANTHROPIC_AUTH_TOKEN"] != "{token}" || c.Env["ANTHROPIC_API_KEY"] != "" || c.GitRoute != "" {
@@ -78,9 +80,9 @@ func TestConnectorForUnionsGrantsAndSkipsUnknown(t *testing.T) {
 }
 
 func TestConnectorForConflicts(t *testing.T) {
-	same := Destination{Name: "x", Route: "/x/", Upstream: "https://x", Env: map[string]string{"GH_HOST": "{host}"}}
-	diff := Destination{Name: "y", Route: "/y/", Upstream: "https://y", Env: map[string]string{"GH_HOST": "other"}}
-	st := connectorStore(t, []Destination{ghAPI, same, diff, legacyGit, {Name: "git2", Route: "/git2/", Upstream: "https://github.com", Git: true}},
+	same := Destination{Name: "x", Endpoints: []Endpoint{{Name: "x", Route: "/x/", Upstream: "https://x"}}, Env: map[string]string{"GH_HOST": "{host}"}}
+	diff := Destination{Name: "y", Endpoints: []Endpoint{{Name: "y", Route: "/y/", Upstream: "https://y"}}, Env: map[string]string{"GH_HOST": "other"}}
+	st := connectorStore(t, []Destination{ghAPI, same, diff, legacyGit, {Name: "git2", Endpoints: []Endpoint{{Name: "git2", Route: "/git2/", Upstream: "https://github.com", Git: true}}}},
 		map[string]Scope{"ok": {Destinations: []string{"github-api", "x"}}, "env": {Destinations: []string{"github-api", "y"}}, "git": {Destinations: []string{"git", "git2"}}})
 	if _, err := ConnectorFor(st, actorWith("ok")); err != nil {
 		t.Fatalf("equal values must not conflict: %v", err)
@@ -107,14 +109,14 @@ func TestDestinationValidateEnv(t *testing.T) {
 // Env reaching the store other than through the admin API (config import,
 // direct writes) is still validated before it can reach a studio.
 func TestConnectorForRejectsInvalidEnv(t *testing.T) {
-	bad := Destination{Name: "x", Route: "/x/", Upstream: "https://x", Env: map[string]string{"NOT-A-NAME": "v"}}
+	bad := Destination{Name: "x", Endpoints: []Endpoint{{Name: "x", Route: "/x/", Upstream: "https://x"}}, Env: map[string]string{"NOT-A-NAME": "v"}}
 	st := connectorStore(t, []Destination{bad}, map[string]Scope{"w": {Destinations: []string{"x"}}})
 	if _, err := ConnectorFor(st, actorWith("w")); err == nil {
 		t.Fatal("a malformed env key must fail the connector")
 	}
 	// A reserved key never reaches the connector (it would clobber the
 	// identity token): dropped (TestConnectorForDropsAStoredReservedEnvKey).
-	clobber := Destination{Name: "y", Route: "/y/", Upstream: "https://y", Env: map[string]string{"JAM_IDENTITY_TOKEN": "pwned"}}
+	clobber := Destination{Name: "y", Endpoints: []Endpoint{{Name: "y", Route: "/y/", Upstream: "https://y"}}, Env: map[string]string{"JAM_IDENTITY_TOKEN": "pwned"}}
 	st = connectorStore(t, []Destination{clobber}, map[string]Scope{"w": {Destinations: []string{"y"}}})
 	if c, err := ConnectorFor(st, actorWith("w")); err != nil || len(c.Env) != 0 {
 		t.Fatalf("connector = %+v, %v", c, err)
@@ -124,8 +126,7 @@ func TestConnectorForRejectsInvalidEnv(t *testing.T) {
 // A git destination's rewrite target is its upstream host; github.com stays
 // implicit (GitTarget "") so a pre-target client applies it unchanged.
 func TestConnectorForGitTargetFromUpstream(t *testing.T) {
-	gitlab := Destination{Name: "gitlab-git", Route: "/gitlab-git/", Upstream: "https://gitlab.example.com", Git: true,
-		IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword}
+	gitlab := Destination{Name: "gitlab-git", Endpoints: []Endpoint{{Name: "gitlab-git", Route: "/gitlab-git/", Upstream: "https://gitlab.example.com", Git: true, IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword}}}
 	st := connectorStore(t, []Destination{legacyGit, gitlab},
 		map[string]Scope{"gh": {Destinations: []string{"git"}}, "gl": {Destinations: []string{"gitlab-git"}}})
 	if c, err := ConnectorFor(st, actorWith("gl")); err != nil || c.GitRoute != "/gitlab-git/" || c.GitTarget != "https://gitlab.example.com/" {

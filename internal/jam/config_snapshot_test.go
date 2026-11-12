@@ -30,7 +30,7 @@ func populated(t *testing.T) *MemStore {
 	if _, err := s.PushKit("base", "image: x"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddDestination(Destination{Name: "anthropic", Route: "/v1", Upstream: "https://api"}); err != nil {
+	if err := s.AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/v1", Upstream: "https://api"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := AddPerson(s, DefaultProject, Human{Name: "alice", Handle: "@alice"}); err != nil {
@@ -200,10 +200,10 @@ func TestImportConfigValidatesAuthoredContext(t *testing.T) {
 			s.Projects[0].Resources = []sessionctx.Resource{{Name: "r", Kind: "url", Ref: "x"}}
 		},
 		"long destination note": func(s *ConfigSnapshot) {
-			s.Destinations = []Destination{{Name: "d", Route: "/d/", Upstream: "https://d", Note: strings.Repeat("n", MaxDestinationNote+1)}}
+			s.Destinations = []Destination{{Name: "d", Endpoints: []Endpoint{{Name: "d", Route: "/d/", Upstream: "https://d"}}, Note: strings.Repeat("n", MaxDestinationNote+1)}}
 		},
 		"destination custom without spec": func(s *ConfigSnapshot) {
-			s.Destinations = []Destination{{Name: "d", Route: "/d/", Upstream: "https://d", Apply: ApplyCustom}}
+			s.Destinations = []Destination{{Name: "d", Endpoints: []Endpoint{{Name: "d", Route: "/d/", Upstream: "https://d", Apply: ApplyCustom}}}}
 		},
 	} {
 		s := good()
@@ -222,9 +222,8 @@ func TestImportConfigValidatesAuthoredContext(t *testing.T) {
 func TestConfigSnapshotDestinationHeaderSpecsRoundTrip(t *testing.T) {
 	src := NewMemStore()
 	for _, d := range []Destination{
-		{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword},
-		{Name: "gl", Route: "/gl/", Upstream: "https://gl", IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "Private-Token"},
-			Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Private-Token", Template: "{cred}"}},
+		{Name: "git", Endpoints: []Endpoint{{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword}}},
+		{Name: "gl", Endpoints: []Endpoint{{Name: "gl", Route: "/gl/", Upstream: "https://gl", IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "Private-Token"}, Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Private-Token", Template: "{cred}"}}}},
 	} {
 		if err := src.AddDestination(d); err != nil {
 			t.Fatal(err)

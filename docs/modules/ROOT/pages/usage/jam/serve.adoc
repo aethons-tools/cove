@@ -4,7 +4,7 @@
 :owns: the `jam serve` command + serve-config schema (listen/admin-listen/tls/admin-tls/store-postgres/state-dir/removed storage keys/credentials/pool/ssh/config/kits/blobs/previews), the layered `--config` overlay + the host-key table, the broker model, the subscription account pool + `pool` verb, the `destination` verb, and the off-loopback exposure guard
 :prereqs: INDEX.adoc for the service overview; operators.adoc for the `operator-auth.oidc` block referenced here
 :tier: leaf
-:updated: 2026-11-05
+:updated: 2026-11-12
 
 `+jam serve --config <file>+` runs one process that is both the *broker*
 (the reverse proxy studios send Anthropic/git through) and a *loopback admin API*
@@ -318,6 +318,10 @@ apply: basic-password
 ----
 
 `jam destination list` prints them.
+A destination can also hold several named endpoints (an `endpoints:` list), which share
+its credential, env and note; the fields below then go on each endpoint, except
+`+cred_name+`, `env` and `note` — see xref:usage/jam/destination-endpoints.adoc[destination-endpoints],
+which also gives the routes Jam refuses.
 
 * `+identity_in+` / `apply` are a preset, `bearer | basic-password | x-api-key | raw` —
 how the studio presents its identity, and how Jam applies the real credential;
