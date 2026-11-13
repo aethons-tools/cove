@@ -3,5 +3,111 @@
 :page-id: ROOT/inbox/channels
 :page-conventions: sentence-case
 
-// Stub on books/as-is: replaced by its ticket with the as-is page.
-This page is being written.
+The *Inbox* is where you read and answer your xref:concepts/intercom.adoc[channels].
+Open it from the *Inbox* tab in the title bar.
+The number on the tab is your unread count.
+
+The rail on the left lists your channels.
+The conversation you open fills the rest of the page.
+
+image::channels-inbox.png["The Inbox, with the ops room open",800]
+
+== The rail
+
+The rail shows every channel you are in or got messages in,
+across all your projects.
+It puts them in groups by how much they need you:
+
+Needs you::
+A session in the channel asked for a person or is blocked,
+or the channel has an open ask you can answer.
+Sessions::
+A session in the channel is live, starting or paused.
+This includes ticket channels and chats with a live session.
+Channels::
+All the others: rooms, chats with people only, and channels whose sessions ended.
+
+In each group, the channel with the newest message is first.
+If your Jam was upgraded from the old message log,
+a last group, *History (before the upgrade)*, shows those old conversations.
+You can only read them.
+
+image::channels-rail.png["The rail: Needs you, Sessions and Channels",300]
+
+A session's channel shows as the session's status card:
+its name, what it is doing, its mission, and its open asks
+(xref:inbox/session.adoc[Watching a session]).
+Another row shows the channel's name and, if one session in it is live, that session's mission.
+A chat is named after the others in it.
+A number on the right is the count of unread messages.
+
+The rail plays a sound when a channel starts to need you
+or gets new messages.
+You can change the sounds under *Sounds…* in your account menu.
+
+== Opening a channel
+
+Click a row to open its channel.
+The header shows the channel's name, its project and its kind.
+
+The messages show oldest first, with a line for each day.
+The page opens at the newest message.
+If older messages exist, *Load earlier* at the top shows them.
+Your own messages are on the right.
+A message from a session has the session's color on its left edge.
+Notes from Jam, such as "alice called in carol", are a short line in the middle.
+
+Point at a message to copy it:
+*Text* copies what you see,
+and *Markdown* copies the message exactly as it was sent.
+A code block has its own copy button.
+A file in a message shows as a link that downloads it.
+An image shows small. Click it to open it full size.
+
+Below the messages, one line for each session in the channel says what it is doing,
+such as "spider is running *Bash*" or "spider needs you".
+The xref:inbox/composer.adoc[composer] is at the bottom.
+
+When a session in the channel needs you,
+the header shows *Needs you*.
+The open asks of the channel show above the messages
+(xref:inbox/asks.adoc[Answering asks]).
+
+== Unread
+
+When you open a channel,
+Jam marks it read up to its newest message.
+A message that arrives while you look at the channel is read too.
+If the browser tab is in the background, nothing is marked read until you come back.
+
+The Inbox updates live.
+New messages, unread counts and session status change without a reload.
+
+== Joining, leaving and calling in
+
+The header has the controls for who is in the channel:
+
+* *Join* shows on a ticket, a room or a session's channel that you can see but are not in.
+* *Leave* shows on a channel you are in.
+A chat has neither, because its members are fixed.
+* *Call in…* lists the people of the project who are not in the channel.
+For a ticket or a session's channel, it also lists the live sessions you can reach.
+Pick one and click *Call in*.
+
+image::channels-join.png["The header of a ticket channel you are not in, with Join",600]
+
+You also join a ticket, a room or a session's channel when you post in it.
+
+ifdef::internal[]
+== Notes for the team
+
+* The Inbox is the web app under `/app/user/` (`web/app/src/rail`, `conversation`).
+A conversation is `/app/user/c/<channel>`.
+The old Inbox's `?c=` links redirect.
+* The rail is `GET /app/user/api/rail`; groups come from `jam.ChannelView.Bucket`
+(`internal/jam/channels.go`) and `userui.groupRail`.
+* The header shows the raw channel kind (`studio`, `named`, `dm`).
+* Live refresh is the `/app/user/events` stream, with a 30-second poll as fallback.
+* Architecture page: `docs/modules/ROOT/pages/usage/jam/intercom-ui.adoc`.
+* Screenshots: the mock Inbox in `web/app/src/shots/mocks.ts`.
+endif::[]
