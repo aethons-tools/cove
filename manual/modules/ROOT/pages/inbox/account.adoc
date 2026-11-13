@@ -1,0 +1,146 @@
+= Your account, app tokens and notifications
+:page-area: ROOT
+:page-id: ROOT/inbox/account
+:page-conventions: sentence-case
+
+Your account menu is the round button with your initial
+at the right of the title bar.
+It shows your name and your role,
+and the controls for this device and your connected apps.
+There is no separate account page.
+
+image::account-menu.png["The account menu",500]
+
+The menu has these items:
+
+* *Notifications*, for push notifications on this device.
+* *Sounds…*, for the sounds Jam plays on this device.
+* *Connected apps…*, for the apps that use Jam as you.
+* *Sign out*.
+
+The button left of it switches the color scheme:
+light, dark, or the same as your system.
+
+== Push notifications
+
+Jam can send a notification to your phone or computer
+when a message is for you,
+even when Jam is closed.
+You turn notifications on for each device and browser separately.
+
+The menu item shows the state on this device:
+
+Notifications: Off::
+Click it to turn notifications on.
+Your browser asks for permission first.
+Notifications: On::
+Click it to turn them off on this device.
+Notifications: Blocked in browser settings::
+You blocked notifications for Jam in this browser.
+Allow them in the browser's site settings, then reload the page.
+Add Jam to your Home Screen to get notifications::
+On an iPhone or iPad, only the Jam app on the Home Screen gets notifications.
+Add Jam to the Home Screen, open it from there, and turn notifications on.
+
+If the item is not there,
+this Jam does not send push notifications,
+or this browser cannot get them.
+
+Jam notifies you about:
+
+* Each message in a chat or a session's channel that you are in.
+* An ask that names you.
+* A call-in that brings you into a channel.
+* An escalation that calls you.
+
+Jam does not notify you about your own messages,
+or about the channel that you have open in a Jam window you are looking at.
+A newer message replaces the channel's notification,
+which then counts the new messages.
+Click a notification to open its channel.
+Where your device shows a number on the app's icon,
+it is your count of unread messages.
+
+The notification shows who wrote, the channel, and the start of the message,
+also on the lock screen.
+Your operator can hide the text.
+Then it says "New message".
+
+When you sign out,
+Jam turns notifications off on this device first,
+so that the next person on the device does not get yours.
+
+== Sounds
+
+*Sounds…* sets the sounds for this browser:
+
+* *Messages*: for a new message in a channel you are in.
+* *Needs you*: when a channel starts to need you,
+for example for an ask, a call-in or an escalation.
+
+Pick a sound for each, or *Off*.
+Click ▶ to hear it.
+*Volume* is for both.
+Your changes save at once.
+
+image::account-sounds.png["The Sounds dialog",500]
+
+Jam plays these sounds while a Jam window is open,
+also in a background tab.
+It plays none for the channel you are looking at,
+and at most one sound a second.
+Your browser plays sound only after you click or type in the page once.
+
+A push notification cannot play these sounds.
+It plays your system's notification sound,
+or none when that kind of sound is *Off*.
+While a Jam window can play sounds,
+Jam sends its notifications silently,
+so you do not hear the same message twice.
+
+== Connected apps
+
+An app such as the Jam extension for VS Code
+can use Jam as you, with an *app token*.
+An app token is a key that Jam gives to one app.
+
+To connect an app,
+sign in from the app, for example with *Jam: Sign In* in VS Code.
+Your browser opens a Jam page that asks if the app can use Jam as you.
+Click *Allow* or *Cancel*.
+The app can then see and do what you can in the Inbox,
+and open SSH connections to the studios you can reach.
+If you are an operator,
+the page says that the app also gets your operator rights,
+and the app can use the admin console's API.
+
+*Connected apps…* lists your connected apps,
+with when each was last used and when it expires.
+An app with your operator rights shows *operator rights*.
+Click *Revoke* to disconnect an app at once.
+
+image::account-apps.png["Connected apps, with two VS Code tokens",500]
+
+An app token lasts 30 days.
+For a member, each use moves the end 30 days ahead.
+A token with operator rights ends 30 days after you allowed it.
+You can have 20 tokens at most.
+A new one replaces the one you used least recently.
+
+ifdef::internal[]
+== Notes for the team
+
+* Push needs a `runtime.push` block in the serve config, with the VAPID key as a credential
+(`docs/modules/ROOT/pages/usage/jam/push.adoc`, "Enabling push on a Jam").
+`preview: false` hides the text.
+* Notifications go only to members of the channel who can see the message and have not read it.
+A member keeps at most 20 subscribed devices.
+* Focus: the app posts the open, focused channel to `POST /app/user/push/focus`; Jam forgets it after 60 seconds.
+* Sounds are kept in the browser (`localStorage` `jam-sounds`, and IndexedDB for the service worker),
+which silences a push while a page that can chime checked in during the last 90 seconds (`internal/jam/appui/sw.js`).
+* App tokens: the consent page is `GET /app/auth/app-token` (`internal/jam/apptoken/consent.html`);
+the dialog uses `GET` and `DELETE /app/user/api/app-tokens`.
+An operator revokes a user's tokens on the user's admin page.
+* The screenshots run in headless Chrome, which denies notifications, so the menu shows *Blocked in browser settings*.
+* Architecture pages: `docs/modules/ROOT/pages/usage/jam/push.adoc`, `push-delivery.adoc`, `app-tokens.adoc`.
+endif::[]

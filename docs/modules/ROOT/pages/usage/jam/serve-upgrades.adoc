@@ -1,0 +1,49 @@
+= Upgrading a Jam's store and relay state
+:summary: One-time upgrade notes for a Jam's data — moving to project ids (migrations `0013`/`0014`), moving the intercom onto the channel log (intercompg `0004`), and moving the relay files into `state-dir` — with what is lost if you skip a step.
+:read_when: You are upgrading a Jam across the project-id or channel-log release, or a release that moved the relay files (`relay-cursors.json`, `relay-markers.json`, `relay-receipts.json`) into `state-dir`, and need the steps and what breaks if you skip one.
+:owns: the project-id, channel-log and relay-state upgrade notes
+:prereqs: serve-store.adoc for the Postgres store; serve.adoc for `state-dir`
+:tier: leaf
+:updated: 2026-11-13
+
+Some releases change a Jam's stored data once, at first start. Each section says what to do.
+
+== Upgrading to project ids
+
+The release with intercom 1b-2a keys roles by project id (jam migration
+`0013`) and, at first start, rewrites grants, sessions and allocation-ledger
+events that name a project (or a personal session's owner) by name to name it
+by id; session events gain `+project_id+`/`+owner_id+`, and `relay-cursors.json`
+is re-keyed by project id (the old file is kept as `relay-cursors.json.bak`).
+Migration `0014` keys projects by id, so a removed project leaves a tombstone
+and a project can be renamed (xref:usage/jam/projects.adoc[]).
+A Jam that skipped the 2026-10-06 releases must start one of them first
+(they mint project ids): `0013` refuses to run while a project has none. Back
+up the database first: an older Jam can't read it (roles lose their name
+column), so the only way back is restoring that backup.
+
+== Upgrading to the channel log
+
+The release with intercom slice 2b moves the intercom onto the channel log
+(intercompg migration `0004`, under an advisory lock, at first start). *Stop
+every older Jam first* — an older one would keep writing the renamed legacy
+tables — and don't roll back past it. The earlier log stays as read-only
+history; what this changes for agents, relays and `/app/user` is in
+xref:usage/jam/intercom.adoc#enabling-it[intercom].
+
+[#upgrading-relay-state]
+== Upgrading relay state
+
+The relay files `relay-cursors.json`, `relay-markers.json`, and
+`relay-receipts.json` used to live in the directory of `+store:+` when it was set,
+otherwise in *serve's working directory* (e.g. the systemd
+`WorkingDirectory`). On upgrade, move them from there into `state-dir` (or point
+`state-dir` at that directory). If you do not:
+
+* Egress marks re-seed to the Log tail: nothing is redelivered, but squawks
+appended-but-undelivered at shutdown and pending retries are dropped.
+* Linear ingress starts from "now", so replies posted during the upgrade
+downtime are never ingested.
+* Discord ingress re-reads recent messages (deduped).
+* Discord replies to posts made before the upgrade no longer route to their
+studio (receipts lost).

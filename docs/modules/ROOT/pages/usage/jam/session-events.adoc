@@ -43,7 +43,7 @@ still reaches Done after the 5 s delay.
 The Attach server dedupes replays, turns a reported gap into a gap row
 (`seq` = the gap's end), *persists, then publishes* to the live hub, and acks
 per stream on a 250 ms tick, only after persistence. See
-xref:usage/jam/coves.adoc#the-attach-stream[coves] for the stream itself.
+xref:usage/jam/studio-agent.adoc#the-attach-stream[studio-agent] for the stream itself.
 
 == Storage and config
 

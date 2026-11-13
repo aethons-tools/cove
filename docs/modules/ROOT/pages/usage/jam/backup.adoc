@@ -4,7 +4,7 @@
 :owns: the `jam export` / `jam import` command surface and the backup file's scope + semantics
 :prereqs: operators.adoc for signing in (`--app`/`--token`); roster.adoc and kits.adoc for what the aggregates are
 :tier: leaf
-:updated: 2026-11-12
+:updated: 2026-11-13
 
 For a reviewable, mergeable source of the same config in git, see xref:usage/jam/config-git.adoc[config-git].
 
@@ -30,7 +30,7 @@ xref:usage/jam/app-tokens.adoc#storage[App tokens] are not exported.
 The format is `+version: 5+`, which carries kit trees and blobs and names projects by id in roles and grants; an
 older Jam can't read it. Older backups still import: their project names become
 ids, a `+version: 1+` backup's per-project humans are merged into users the way an
-upgrade does (xref:usage/jam/comms-addressing.adoc#project-members-and-rooms[comms-addressing]),
+upgrade does (xref:usage/jam/project-members.adoc[project-members]),
 and a `+version: 1+` or `2` backup's project channels become rooms.
 A backup from before kit trees (version ≤ 4) still imports. Its kits are
 migrated to trees right after (xref:usage/jam/kits-directory.adoc#stored-as-trees[kits-directory]).
@@ -111,8 +111,8 @@ re-mint every token). The wire is JSON; YAML exists only at the file boundary.
 Jam is Postgres-only. For a Jam that ran on the old file store, export/import is
 the *only* upgrade path: run `jam export` with the old version, then
 `jam import` into a Jam running on `store-postgres`
-(xref:usage/jam/serve.adoc#postgres-store-store-postgres[serve.adoc]). Squawk history and session
+(xref:usage/jam/serve-store.adoc[]). Squawk history and session
 events in the old files are not migrated. The relay cursor/marker/receipt files
 must also be moved into ``state-dir``; see
-xref:usage/jam/serve.adoc#upgrading-relay-state[serve.adoc] for where they were and what is lost
+xref:usage/jam/serve-upgrades.adoc#upgrading-relay-state[] for where they were and what is lost
 if you skip it.

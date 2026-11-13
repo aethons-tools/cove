@@ -1,0 +1,87 @@
+= The Postgres store and the allocation ledger
+:summary: The `store-postgres` block `jam serve` requires — what lives in Postgres (control plane, channel log, session events, allocation ledger), the in-memory read cache and startup migrations, the password credential, the removed file-store keys, a local dev database — and the allocation ledger that caps raises per role and session kind.
+:read_when: You are writing a serve config's `store-postgres` block, `serve` refused to start over the store or a removed `store`/`intercom-log`/`session-events-dir` key, you want a local Postgres to develop against, or you need to know how Jam caps concurrent sessions (the allocation ledger, its reconcile sweep, session kinds).
+:owns: the `store-postgres` block and what the store holds, the removed storage keys, the allocation event store (atomic grant, release, reconcile sweep, per-kind counting, personal caps in the grant)
+:prereqs: serve.adoc for the rest of the serve config; credentials.adoc for supplying `password-cred`
+:tier: leaf
+:updated: 2026-11-13
+
+The control plane lives in Postgres — the source of truth — while `serve`
+keeps an in-memory read cache (so the broker's hot path never round-trips the
+DB) and writes through to Postgres transactionally. `serve` applies its schema
+migrations automatically at startup and *fails closed* if it can't connect,
+migrate, or load. The intercom's channel log (xref:usage/jam/ui-console.adoc#channel-log[ui-console.md#channel-log]), session
+events, and the allocation ledger live in the same database and pool (tables
+auto-created), so the intercom and session events are always on.
+
+[#removed-keys]
+== Removed keys
+
+`store`, `intercom-log`, and `session-events-dir` were removed: setting any of
+them is a *hard startup error* naming the key. Operators already on
+`store-postgres` just *delete the leftover line*: those keys were ignored
+there, so no migration is needed. To move a file-backed Jam, run
+`jam export` with the old version and `jam import` into a Postgres Jam
+(xref:usage/jam/backup.adoc[backup]). Squawk history and session events in the old files
+are *not* migrated.
+
+[#the-connection]
+== The connection
+
+[source,yaml]
+----
+store-postgres:
+  host: db.internal
+  port: 5432
+  database: jam
+  user: jam
+  sslmode: verify-full
+  password-cred: jam-db      # a name in `credentials:` — never an inline password
+----
+
+No credential is ever inline — the DB password included: `password-cred` names a `+credentials:+`
+entry (supplied by the xref:usage/jam/credentials.adoc[credentials file]), resolved on the host in memory when `serve` assembles the connection
+string — it is never written to disk, put on a command line, or logged (the
+startup log names only the host and database).
+
+For a local Postgres to develop against (matching this schema and the CI
+integration setup), see https://github.com/aethons-tools/cove/blob/main/dev/README.md[`dev/`] — a `docker compose`
+that raises a `+postgres:18+` on `+localhost:15432+` with database/user `jam`,
+plus a sample dev serve config (`dev/examples/jam.dev.yml.example`, copied to `dev/jam.dev.yml`) wired to it.
+
+[#the-allocation-ledger]
+== The allocation ledger
+
+*The allocation event store is AUTHORITATIVE for the cap.* Jam always runs an
+Allocator (its capacity authority), with or without a Requisitioner. It admits each raise through an
+*atomic optimistic-concurrency grant* on an allocation event store on the same
+database and pool (its `+alloc_events+` table is auto-created): a single conditional
+append that writes a `+reservation_granted+` _iff_ the stream's outstanding count
+(`+granted − released+`) is below budget, gated by `+UNIQUE(stream_id, stream_revision)+`. The grant happens *before* the raise (it reserves the slot,
+so admission cannot overshoot the budget under concurrency), and a
+`+reservation_released+` is written on teardown *and* as compensation if the
+claim/prompt/raise fails after a grant. The cap is therefore per-normalized-`(project, role)` `Outstanding`, not a global instance count. `serve` always has the ledger. (A ledger-less Allocator, used only in tests, falls back to the *registry
+live instance count vs budget*.) A crash _between_ a grant and the raise leaves a dangling
+`+reservation_granted+` (a leaked slot); a resident *reconcile sweep*
+reclaims it, so the ledger self-heals. Every minute the Allocator releases each
+outstanding reservation (net `+granted − released > 0+`) whose latest grant is older
+than a ~5-minute grace window *and* whose actor has no live instance — the grace
+window keeps an in-flight raise (instance not yet in the registry) from being
+swept. The sweep is best-effort (a per-reservation release failure is logged and
+retried on the next tick) and needs the ledger. The cap stays
+≤ budget throughout, so an unreclaimed slot is only a transient availability
+nuisance, not a correctness break.
+
+Each reservation event also records its *session kind* (`+session_kind+`, plus a
+standing session's name and a personal session's owner), and the grant counts
+outstanding reservations *of the requested kind only*, so kinds never consume
+each other's capacity; a release inherits the kind of the reservation's latest
+grant. All three kinds are admitted: `ephemeral` (Requisitioner) sessions,
+`personal` sessions (xref:usage/jam/personal-sessions.adoc[]), and
+`standing` sessions (xref:usage/jam/standing-sessions.adoc#admission[Admission]).
+Pre-existing rows are tagged `ephemeral`. The reconcile sweep releases leaked
+ephemeral and standing reservations, never personal ones. The ephemeral budget is the role's roster `max-ephemeral`, falling
+back to the Requisitioner's `max-concurrent` (xref:usage/jam/roster.adoc#roles[Roles]). A
+personal grant checks two caps in the same atomic append: the role's
+`max-personal` pool and, when set, the owner's `max-personal-per-owner` share.
+Personal sessions need the ledger, which `serve` always has.

@@ -1,0 +1,249 @@
+= Configuring a kit
+:page-area: ROOT
+:page-id: ROOT/configuration/kits
+:page-conventions: sentence-case
+
+You see the kits under *Config › Kits*.
+For what a kit does,
+see xref:concepts/kit.adoc[].
+You change kits on a branch of the config repo;
+each save is a commit to that branch
+(xref:configuration/config-branches.adoc[]).
+Importing, tracking and syncing a kit from git
+are the exception:
+they change the Jam directly, with or without a branch.
+
+== The list
+
+The *Kits* list shows each kit's current version and how many versions it has,
+its base,
+how many outside domains it allows,
+and how many roles use it.
+For the `default` kit,
+that count includes the roles that name no kit.
+A base of `+kit: <name>+` means the kit builds on that kit.
+*draft* next to a name means a draft is open on the branch you view.
+*invalid* means the current version is not a valid kit.
+
+image::kits-list.png[The kits list on a branch, with Import from git open,800]
+
+New kit::
+On a branch only.
+Give the kit a name
+(letters, digits, `_`, `.` and `-`)
+and its `kit.yml`.
+*Create kit* saves it and opens its page.
+A name that exists already is refused:
+make a new version on the kit's page instead.
+Import from git::
+Give the source as `+<repo>[//<dir>]@<ref>+`,
+such as `+https://github.com/acme/kits//web@main+`:
+the repository, the folder that holds `kit.yml`,
+and a branch, a tag or a full commit id.
+*Kit name* is optional;
+without it, Jam uses the folder's name, or the repository's.
+With *Track this source* on,
+Jam also remembers the source for *Sync*.
+*Import* stores the kit as a new version and opens its page.
+Never put a token in the source:
+the person who runs the Jam gives it the credentials for private repositories.
+Delete::
+On a branch only.
+It deletes the kit and all its versions after you confirm.
+The button is off while a role uses the kit.
+Jam also refuses while another kit builds on it.
+
+== A kit's page
+
+Click a kit's name to open its page.
+The title line shows the current version
+and how many versions there are.
+*Operator notes* below it are for operators;
+agents never see them.
+
+image::kit-page.png[The review-kit kit's page,800]
+
+=== Versions
+
+The rail on the left lists every version,
+with the short id of the image it builds.
+Versions with the same id use the same image.
+Click a version to view it.
+
+*diff v3* compares a version with the one before it.
+*diff current* compares it with the current version.
+On a branch,
+*Pin* makes an older version current again, after you confirm
+(xref:concepts/kit.adoc#_versions[Versions]).
+
+The cards on the right describe the version you view:
+
+v4::
+Its base,
+the kits it is built on
+(each with the version it uses, and whether it *follows* or is *pinned*),
+its egress,
+the egress ceiling
+(the egress without the domains no studio may reach),
+its build args and secret demands,
+and its prompt.
+Effective::
+Only for a kit that builds on another kit.
+What a role that uses this kit gets:
+the settings of the whole chain, merged.
+YAML::
+The version's `kit.yml`, with *Copy*.
+Files::
+Every file of the version.
+Click one to see its content.
+Used by::
+The roles that use the kit,
+and the kits that build on it.
+*no kit set* marks a role that uses `default` because it names no kit.
+Versions::
+When each version was made,
+and where it came from:
+*config* for the config repo,
+or the repository, folder, ref and commit it was imported from.
+
+=== Diff
+
+A diff shows the line changes to `kit.yml`.
+Its title line says whether the image changes:
+*build digest changed — a new image is built*,
+or *same build digest — the cached image is reused*.
+*close* returns to the version.
+
+image::kit-diff.png[The diff from v3 to v4,800]
+
+Below it,
+*Files* lists the files that were added, removed or changed,
+with their sizes.
+Click one to see its own line diff.
+
+image::kit-files-diff.png[The files changed from v3 to v4,800]
+
+=== Source
+
+*Source* shows where the kit is imported from:
+the repository, the folder, the ref
+and the commit of the last sync.
+
+image::kit-source.png[The Source card of a kit tracked from git,800]
+
+*Sync* reads the source again.
+If its ref points to a new commit,
+Jam stores a new version and makes it current.
+If nothing changed,
+the message says *unchanged*.
+*Untrack* makes Jam forget the source, after you confirm;
+the versions stay.
+A kit with no tracked source offers *Track…*:
+give a source,
+and Jam imports it and tracks it.
+
+When the kit came in together with a parent kit from the same repository,
+the card says *Part of a set with* that kit.
+
+== Changing a kit's files
+
+On a branch,
+the page ends with the *Draft* section.
+With no draft open,
+choose a version in *Open from*
+(the current one is chosen for you)
+and click *Open draft*.
+
+image::kit-draft.png[A draft of review-kit with its new Dockerfile open,800]
+
+Draft::
+The version the draft started from,
+the current version,
+and who saved it last.
+*Discard* deletes the draft after you confirm.
+If a newer version arrived after you opened the draft,
+a notice says so:
+publishing does not merge that version's changes.
+Publish::
+The draft's problems, if there are any.
+*Publish* is off until they are fixed.
+Publishing asks you to confirm,
+then saves the draft's files to the branch as one commit,
+and closes the draft.
+The *Published* card then links to the new version.
+The open file::
+Click a file in *Files* to open it.
+A text file opens in an editor:
+*Save* saves it to the draft.
+*Executable (0755)* sets its mode.
+*diff vs v4* shows its changes,
+and *Download* gets a copy.
+You can also replace it with an upload,
+rename it,
+or delete it.
+A file that is not text,
+is larger than 1 MiB,
+or has Windows line ends
+does not open in the editor;
+a note says why,
+and you can still download, replace, rename or delete it.
+Files::
+The draft's files by folder,
+each marked *added*, *modified* or *mode* against the version it started from.
+Removed files are listed last, struck through.
+Add file…::
+A path in the kit's folder,
+such as `scripts/setup.sh`,
+and either an upload or nothing,
+for an empty text file to edit.
+Changes::
+The draft's files compared with the version it started from,
+and the line changes to `kit.yml`.
+
+If you leave the page,
+or do something else in the draft,
+while the editor holds changes you have not saved,
+Jam asks you first.
+If someone else saved the draft after you opened it,
+your save is refused and your text stays in the editor:
+click *Reload* to read the draft again,
+then make your change again.
+
+=== Push new version
+
+On a branch,
+*Push new version* is a quicker way to change only `kit.yml`.
+It is filled in with the `kit.yml` of the version you view.
+*Push version* saves your text with the current version's other files.
+If nothing changed,
+Jam says the kit is unchanged and saves nothing.
+
+== When a change reaches the studios
+
+A change you save on a branch reaches the Jam
+only when the branch is merged.
+Then each role that uses the kit
+gets the new version the next time one of its sessions starts.
+A session that runs now keeps its image,
+and shows *image stale* when the new version builds a different one
+(xref:concepts/kit.adoc#when-it-takes-effect[When a change takes effect]).
+
+To make a role use a kit,
+set *Kit* on the role's page
+(xref:configuration/roles.adoc[]).
+
+ifdef::internal[]
+== Notes for the team
+
+* Screens: `web/app/src/admin/kits/KitsPage.tsx`, `KitPage.tsx`, `KitParts.tsx`, `VersionRail.tsx`, `DraftSection.tsx`, `DraftEditor.tsx`, `DraftPublish.tsx`.
+API: `internal/jam/adminui/api_kits.go` (`/app/admin/api/kits…`) and `api_kit_draft.go` (`…/kits/<kit>/draft…`).
+* The page's selectors are in the URL: `?v=N`, `?v=N&diff=M`, `&file=<path>`; the draft's open file is `?dfile=<path>` and its diff `&ddiff=1`.
+* `kits/import`, `kits/<name>/sync` and `kits/<name>/source` are live even on a branch (`branchLive` in `internal/jam/adminui/branches.go`); every other kit write is a branch save.
+Without a git fetcher on the serve, *Import from git*, *Track…*, *Sync* and *Untrack* are hidden.
+* The list's *Delete* checks only roles; the server also refuses while another kit builds on it, and the kit page disables *Delete* for both and always for `default`.
+* *Push new version* replaces `kit.yml` only (`jam.ReplaceKitYML`); the version keeps its other files.
+* A `kit.yml` with a packed `base.context` (from before kits were folders) is shown masked, or not at all, with a note to rewrite it with `jam config write`.
+* Publishing never pins followers: the config repo names a parent without a version.
+* Draft test builds have no console screen; the VS Code extension's *Build Kit Draft* runs them.
+* Depth: `docs/modules/ROOT/pages/usage/jam/ui-pages.adoc` (Kit pages), `kits-drafts-ui.adoc`, `kits-drafts.adoc` and `kits-git.adoc`.
+endif::[]

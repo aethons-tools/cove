@@ -1,0 +1,96 @@
+= Writing a message
+:page-area: ROOT
+:page-id: ROOT/inbox/composer
+:page-conventions: sentence-case
+
+You write in the *composer*, the box at the bottom of a conversation.
+To start a new conversation, click *New message* at the top of the rail.
+
+image::composer-box.png["The composer",600]
+
+== Starting a conversation
+
+*New message* lists everyone you can write to, grouped by project:
+
+* People, marked *person*. Your message starts a chat with them.
+* Live sessions, marked *agent*. Your message goes to the session's own channel, and you join it.
+* Tickets of live sessions, marked *ticket*.
+* Rooms, marked *room*.
+
+Type in the search box to filter the list,
+then click a name.
+
+image::composer-new-message-list.png["The New message list",600]
+
+The page then says *New message* and who it is to.
+Write your message and send it.
+The Inbox then opens the conversation.
+If a chat with the same people exists already,
+your message goes into it.
+
+image::composer-new-message.png["A new message to bob",600]
+
+If your Jam lets you start your own sessions,
+*New session* is next to *New message*
+(xref:inbox/session.adoc[Watching a session]).
+
+== Sending
+
+Type your message and press *Ctrl+Enter* (*⌘↵* on a Mac),
+or click *Send*.
+Enter starts a new line.
+
+Messages are markdown, so `+**bold**+`, lists, links and code blocks show formatted.
+To send text exactly as typed, such as a log,
+tick *Plain text* before you send.
+
+To paste text as a code block,
+press *Ctrl+Shift+V* (*⇧⌘V* on a Mac).
+
+If the send fails,
+your text stays in the box and a note says why.
+A message to a session that waits for an answer wakes the session.
+
+== Drafts
+
+What you type is kept for each conversation,
+so you can switch to another one and come back.
+It stays in this browser tab only, and Jam never gets it.
+
+To put a draft aside and write something else first,
+press *Ctrl+↓* (*⌘↓* on a Mac).
+The box clears, and a chip shows how many drafts you put aside.
+When you send, the last draft comes back into the box.
+To get it back sooner, empty the box and press *Ctrl+↑* (*⌘↑*),
+or click the chip.
+
+== Attachments
+
+If your Jam has attachments on,
+the composer has a *📎* button.
+To attach files, do one of these:
+
+* Click *📎* and pick files.
+* Paste a screenshot into the box.
+* Drag files onto the composer.
+
+Each file uploads at once, as a chip with its progress.
+Click *✕* on a chip to remove the file.
+*Send* waits until all files are uploaded.
+You can send files with no text.
+If Jam refuses a file, for example because it is too large,
+its chip says why, and the file is not sent.
+
+Attachments also work in a new message.
+
+ifdef::internal[]
+== Notes for the team
+
+* The composer is `web/app/src/composer/Composer.tsx`;
+New message is `web/app/src/compose` (`RecipientPicker`, `NewMessage`, route `/app/user/new?to=…`).
+* A send is `POST /app/user/api/messages` (`to`: a channel id, `user:<id>` or `session:<actor>`);
+uploads are `POST /app/user/uploads`.
+* Drafts and the draft stack are in the tab's `sessionStorage` (`me-reply:` and `me-drafts:` keys).
+* Architecture pages: `docs/modules/ROOT/pages/usage/jam/intercom-ui.adoc` (the composer)
+and `attachments.adoc`.
+endif::[]

@@ -2,9 +2,9 @@
 :summary: A destination holds a list of named endpoints (subdomain and/or route, upstream, identity-in/apply, allow_paths, git, header logging) that share its credential, env and note; the flat single-route file is one endpoint named after the destination. Covers both file forms, normalisation, host and path matching, the validation rules and the paths Jam reserves.
 :read_when: You are giving one service several addresses in one destination (an `endpoints:` list), a destination write or config plan was refused over an endpoint (a name, a clashing route, a reserved path, a subdomain), or you need to know which endpoint the broker picks for a host and path.
 :owns: the endpoint model (`jam.Endpoint`, `Destination.Endpoints`), the flat and list encodings and their normalisation, endpoint validation (names, count, address uniqueness, reserved cove paths, subdomains), and the broker's most-specific-endpoint match by host and path
-:prereqs: serve.adoc#destinations for destination files and their fields
+:prereqs: destinations.adoc for destination files and their fields
 :tier: leaf
-:updated: 2026-11-12
+:updated: 2026-11-13
 
 A destination is a group of *endpoints*.
 Each endpoint has its own address and upstream;
@@ -15,7 +15,7 @@ A role names whole destinations, so it gets every endpoint
 == The two file forms
 
 The *flat* form is the one destinations always had
-(xref:usage/jam/serve.adoc#destinations[serve]).
+(xref:usage/jam/destinations.adoc[]).
 It is one endpoint, named after the destination.
 
 The *list* form gives `endpoints:` instead of the endpoint fields:
@@ -59,10 +59,10 @@ The store (its JSON documents) and backups use the same two forms.
 
 An endpoint's address is a `subdomain`, a `route`, or both.
 A subdomain is one label under the destinations domain
-(xref:usage/jam/serve.adoc#destinations-domain[serve]):
+(xref:usage/jam/destinations.adoc#destinations-domain[]):
 the endpoint is reached at `+<subdomain>.<domain><route>+`.
 How a studio reaches and resolves that host, and why a new one needs a restart of the session,
-is in xref:usage/jam/serve.adoc#studio-reach[serve].
+is in xref:usage/jam/destinations.adoc#studio-reach[].
 
 The broker matches by host, then path:
 

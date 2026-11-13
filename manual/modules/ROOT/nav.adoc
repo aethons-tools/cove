@@ -1,7 +1,31 @@
 * xref:index.adoc[About this manual]
+* xref:start/signing-in.adoc[Signing in and finding your way]
 
 .Concepts
+* xref:concepts/project.adoc[Projects]
+* xref:concepts/agent.adoc[Roles, agents and sessions]
+* xref:concepts/intercom.adoc[Intercom: channels, messages and asks]
+* xref:concepts/escalation.adoc[Escalation]
 * xref:concepts/destination.adoc[Destinations]
+* xref:concepts/kit.adoc[Kits and studios]
+* xref:concepts/model-spec.adoc[Model specs]
+* xref:concepts/config-repo.adoc[The config repo and its branches]
+
+.Using the Inbox
+* xref:inbox/channels.adoc[Reading and replying]
+* xref:inbox/composer.adoc[Writing a message]
+* xref:inbox/asks.adoc[Answering asks]
+* xref:inbox/session.adoc[Watching a session]
+* xref:inbox/whiteboards.adoc[Whiteboards]
+* xref:inbox/account.adoc[Your account, app tokens and notifications]
 
 .Configuration
+* xref:configuration/dashboard.adoc[The dashboard, search and health]
+* xref:configuration/projects.adoc[Configuring a project]
+* xref:configuration/users.adoc[Configuring users]
+* xref:configuration/roles.adoc[Configuring roles and raising agents]
+* xref:configuration/agents.adoc[An agent's page]
 * xref:configuration/destination.adoc[Destinations]
+* xref:configuration/model-specs.adoc[Configuring a model spec]
+* xref:configuration/kits.adoc[Configuring a kit]
+* xref:configuration/config-branches.adoc[Editing on a branch and applying the config repo]

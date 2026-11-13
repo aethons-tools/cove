@@ -4,7 +4,7 @@
 :owns: a project's pages (/app/admin/config/projects/<name>[/members[/<user>]|agents|intercom|escalation]), creating a project and a role, the role page (/app/admin/config/projects/<project>/agents/<role>), and the project list (/app/admin/config/projects)
 :prereqs: ui-console.adoc for the Config tree and URLs; ui-attention.adoc for the badges; ui-editing.adoc for the write rules; projects.adoc for the project lifecycle; roster.adoc for roles and grants
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-13
 
 Everything scoped to one project lives under *Config › Projects* in the
 xref:usage/jam/ui-console.adoc#finding-a-page[Config tree]: the project's node opens its
@@ -79,7 +79,7 @@ agents pick up the change on the supervisor's next reconcile.
 * *Allocation* — session caps and the personal-session idle ladder.
 Durations take `30m`/`1h30m` (or bare seconds); a blank field is unset, and
 the page says what applies when unset.
-* *Standing agents* (xref:usage/jam/standing-sessions.adoc[standing sessions]) — declare, xref:usage/jam/standing-sessions.adoc#upgrading-a-standing-session[upgrade], xref:usage/jam/standing-sessions.adoc#reset[reset] and dismiss;
+* *Standing agents* (xref:usage/jam/standing-sessions.adoc[standing sessions]) — declare, xref:usage/jam/standing-upgrade.adoc[upgrade], xref:usage/jam/standing-sessions.adoc#reset[reset] and dismiss;
 each shows its xref:usage/jam/ui-pages.adoc#agent-status[status], flagged *image stale* per xref:usage/jam/coves.adoc#the-studio-verbs[coves] (its Upgrade button highlighted) and any pending upgrade; a queued upgrade or pending reset flashes as accepted.
 * *Holders* and *Running* — the agents granted the role (linked; marked where the
 grant overrides the scope; grants are managed on the agent's page) and the role's

@@ -4,7 +4,7 @@
 :owns: the Web Push setup steps (keygen → credential → config → egress hosts), the per-device Notifications toggle and its states, the iOS Home Screen rule, the notify rule as members see it, focus suppression as members see it, the on-device behaviour (one notification per conversation, tap-through, app badge, sounds, sign-out unsubscribing the device), the preview/privacy behaviour, and push troubleshooting. Does NOT own how the relay sends or the `/app/user/push/*` routes — see push-delivery.md; nor the `runtime.push` key reference — see serve.md; nor installing the app — see ui.md.
 :prereqs: ui.adoc (the Jam app, its login and installing it); credentials.adoc (supplying a credential); serve.adoc#the-serve-config (the `runtime.push` keys)
 :tier: leaf
-:updated: 2026-10-29
+:updated: 2026-11-13
 
 Jam uses standard *Web Push*: a member's browser subscribes with its own
 vendor's push service (Google, Mozilla, Apple, Microsoft) under Jam's *VAPID*
@@ -90,7 +90,7 @@ buzzed for:
 an *escalation* reaching them.
 
 The same set reaches the Jam VS Code extension
-(xref:usage/jam/vscode.adoc#notifications-and-the-badge[notifications]).
+(xref:usage/jam/vscode-notifications.adoc[notifications]).
 
 An ask being amended, withdrawn or answered never notifies, and a push that
 can't go out within 10 minutes is dropped rather than buzzing late

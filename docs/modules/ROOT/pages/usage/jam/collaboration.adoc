@@ -1,10 +1,10 @@
 = Studio collaboration (SSH, IDEs and previews)
-:summary: Studio collaboration — reaching an agent's running studio through Jam: SSH and IDEs (VS Code Remote-SSH, JetBrains Gateway) via `jam ssh`, who may connect to a studio (operators, the session's requester, role `collaborate` policy, share grants — for SSH and previews alike), and how it works (Jam-issued short-lived certs over a studio-dialed tunnel). Previews themselves are in previews.md.
-:read_when: You want to SSH or point an IDE at an agent's studio, let a teammate in (`studio share`), set a role's `collaborate` policy, enable the `ssh:` serve config, or a `jam ssh` connection was refused or timed out.
-:owns: the studio-collaboration user and operator guide — jam ssh-config/ssh-proxy/ssh and login --participant, the access rules and share grants (studio share/unshare/access, revocation) for every right, the ssh: serve-config block's setup steps, and the tunnel/cert mechanism at the level an operator needs
+:summary: Studio collaboration — reaching an agent's running studio through Jam: SSH and IDEs (VS Code Remote-SSH, JetBrains Gateway) via `jam ssh`, who may connect to a studio (operators, the session's requester, role `collaborate` policy, share grants — for SSH and previews alike), idle studios, and how it works (Jam-issued short-lived certs over a studio-dialed tunnel). Share grants are in collaboration-sharing.adoc; previews in previews.md.
+:read_when: You want to SSH or point an IDE at an agent's studio, set a role's `collaborate` policy, enable the `ssh:` serve config, or a `jam ssh` connection was refused or timed out.
+:owns: the studio-collaboration user and operator guide — jam ssh-config/ssh-proxy/ssh and login --participant, the access rules for every right, idle studios, the ssh: serve-config block's setup steps, and the tunnel/cert mechanism at the level an operator needs
 :prereqs: serve.adoc (serve config, credentials), roster.adoc (roles, users), operators.adoc (login)
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-13
 
 A person can work _in_ an agent's running studio — a shell, VS Code
 Remote-SSH, JetBrains Gateway — or open a web app the agent serves there
@@ -107,35 +107,7 @@ takes no certs or tunnels (409); a paused one is resumed for an allowed caller
 (<<idle-studios,Idle studios>>). The rules need no project membership: a
 share grant works for a user who is in no project.
 
-[#sharing]
-== Sharing
-
-[%header]
-|===
-|Command |What it does
-
-|`+jam studio share <studio> --with user:<name> --rights preview,ssh [--for 8h]+` |Grants the user those rights on the studio (`+POST …/studios/<studio>/shares+` `+{user, rights, for}+` → 201) until `+--for+` runs out: a Go duration (`4h`, `90m`) or whole days (`7d`); default 8 h, at most 7 d (longer → 400). Sharing again replaces the user's grant (dropping `ssh` closes all their open connections to the studio — SSH, IDE and previews — as unshare does). The grant is keyed to the session and removed when it ends.
-|`+jam studio unshare <studio> --with user:<name>+` |Removes the grant (`+DELETE …/shares/<user>+` → 204; none → 404; the user may also be a `+usr_+` id, or the name of a removed user with a leftover grant) and closes all the user's open connections to the studio (SSH, IDE and previews), unless they still hold `ssh` another way.
-|`jam studio access <studio>` |Who can reach it and why (`+GET …/access+` → `+{requester, role, grants, live, previews_on, previews}+`): operators, the requester, the role's policy for members, each grant (rights, expiry, granted by), the open connections (each with its right, `ssh` or `preview`) and a `PREVIEWS` section (name, port, URL).
-|===
-
-They pick the plane as the ssh commands do. An operator may share anything. A
-participant must hold some right on the studio to use any of the three, may
-grant only rights they hold — and one they hold only by a grant, for no longer
-than that grant runs — never to themselves, and may remove (or share over) a
-grant whose rights they all hold, or their own. A grant made by a grantee is
-its own grant: it is bounded by the grantor's expiry when made, but it stays
-if the grantor's grant is later removed. Each share and unshare is logged
-(`studio shared` / ``studio unshared``: grantor, user, session, rights, expires).
-
-*Revocation.* Every minute Jam re-checks each open SSH and preview
-connection (operators' excepted) against the rules above, for the right it
-uses, and drops those no longer allowed — the user was removed, the role's
-policy or the user's membership changed, the grant expired — logging
-`ssh tunnel revoked` / `preview connection revoked` (user, session, right,
-reason). The
-agent page's *Access* card shows the same, with an Unshare button
-(xref:usage/jam/ui-pages.adoc#agent-pages[ui-pages.adoc]).
+Letting a teammate in with a share grant, and revocation: xref:usage/jam/collaboration-sharing.adoc[collaboration-sharing].
 
 [#idle-studios]
 == Idle studios
@@ -157,12 +129,12 @@ or stopping takes no new tunnels (409, retry).
 . `jam ssh-proxy` asks Jam's admin/UI listener for the tunnel
 (`+GET …/studios/<studio>/ssh+`, HTTP/1.1 `+Upgrade: jam-tunnel+`).
 . Jam authorizes the caller, then pushes `+OpenTunnel{id, port 2222}+` down the
-studio's Attach stream (xref:usage/jam/coves.adoc#the-attach-stream[coves]).
+studio's Attach stream (xref:usage/jam/studio-agent.adoc#the-attach-stream[studio-agent]).
 . The studio's jam-studio-agent dials the `Tunnel` RPC back to Jam on 443 (the
 same egress as Attach), claims the id, and connects it to its loopback sshd
 (`+127.0.0.1:2222+`). It dials only loopback, and only sshd's port and the
 ports the session exposes as xref:usage/jam/previews.adoc[previews]
-(xref:usage/jam/coves.adoc#the-attach-stream[allow-list]).
+(xref:usage/jam/studio-agent.adoc#the-attach-stream[allow-list]).
 . Jam answers `101` and splices the two; every allowed request is audited
 (user, session, reason, port — never a key, token or cert) and the session
 gets a "connected over SSH" notice.

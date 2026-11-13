@@ -1,0 +1,193 @@
+= Roles, agents and sessions
+:page-area: ROOT
+:page-id: ROOT/concepts/agent
+:page-conventions: sentence-case
+
+An *agent* is an AI worker that Jam runs for a xref:concepts/project.adoc[project].
+What an agent may do comes from its *role*.
+Each agent that Jam runs is a *session*:
+one conversation,
+in its own *studio*,
+that waits between turns and wakes when there is something to do.
+
+To set up roles and raise agents,
+see xref:configuration/roles.adoc[].
+To look at one agent,
+see xref:configuration/agents.adoc[].
+
+== Roles
+
+A *role* belongs to one project.
+It is the set of rules for every agent that holds it:
+
+* the xref:concepts/destination.adoc[destinations] its agents may reach,
+and the credential Jam adds for each;
+* who its agents may send messages to (its *addressing*),
+such as `user:*` for every member of the project;
+* how long an agent's identity lasts (its *TTL*);
+* the xref:concepts/kit.adoc[kit] its studios are built from,
+the xref:concepts/model-spec.adoc[model spec] that runs the agent,
+and the outside domains its studios may reach beyond the kit's (its *egress*);
+* how many agents of each kind it may have at once (its *allocation*);
+* its *standing agents*, if any;
+* its *agent context*: instructions every agent of the role is given.
+
+A role is part of the xref:concepts/config-repo.adoc[config repo].
+You change it only on a branch,
+and each save is a commit.
+
+== Grants
+
+A *grant* gives an agent one role in one project.
+An agent can hold several grants;
+it may then reach every destination that any of its roles allows.
+If two of its grants send the same destination different credentials,
+Jam refuses that request rather than pick one.
+
+A grant can also *override* the role's destinations for that one agent,
+for example to map `git` to another credential.
+
+Every agent Jam raises gets a grant of its role.
+You can also *enroll* an agent by hand:
+an identity, with a token,
+for something Jam does not run itself, such as a CI bot.
+An enrolled agent has no studio;
+it shows as *pending*.
+
+== Kinds of session
+
+[cols="1,3"]
+|===
+|Kind |What it is
+
+|*Standing*
+|A named teammate declared on a role, such as `reviewer-bot`.
+Jam keeps exactly one running for each name.
+If its studio stops, Jam raises it again,
+and it carries on with the same conversation and files.
+
+|*Ticket*
+|Raised by Jam for one ticket that is ready on the project's tracker.
+It works the ticket through to a merged pull request,
+keeps the ticket's state up to date,
+and then ends itself.
+
+|*Personal*
+|Your own agent of a role.
+Only you can talk to it,
+and it stays until you release it.
+
+|*Manual*
+|Raised by an operator with *Raise agent*,
+with a label and an optional first prompt.
+|===
+
+== Studios
+
+A *studio* is the sandbox an agent runs in:
+an isolated machine built from the role's kit.
+It reaches the outside world only through Jam
+and the few domains its kit and role allow.
+The agent never holds a real credential:
+Jam adds it on the way out.
+
+A studio keeps its files while its session lives.
+People can look into a running studio,
+over SSH or a *preview* of a web app the agent serves,
+when the role or a share allows it.
+
+== Waiting and waking
+
+An agent works in *turns*.
+When a turn ends, the session does not stop:
+it *waits*.
+After about a minute of waiting,
+Jam pauses the studio, so it uses almost nothing.
+The session wakes, and its studio resumes, when:
+
+* someone sends a message in its channel
+(xref:concepts/intercom.adoc[]);
+* one of its alarms goes off;
+* its role's idle timeout passes, if the role sets one.
+
+Jam never ends a session only because it is waiting.
+A session that needs a person can ask for one;
+Jam then calls people in by the project's
+xref:concepts/escalation.adoc[escalation] rules.
+
+If a studio stops by accident,
+Jam raises the session again under the same id,
+and it picks up its conversation where it left off.
+
+=== Personal agents that sit idle
+
+A personal agent that has waited on you for a while
+sends you a reminder in its channel:
+after 4 hours by default,
+then once a day.
+Reply to carry on.
+To the reminder only,
+you can also reply `keep` (wait longer; the reminders start over)
+or `release` (end it).
+A role can change these times,
+and can make Jam end a personal agent
+that has waited too long.
+
+== Status
+
+Every list and page gives an agent one *status*:
+
+[cols="1,3"]
+|===
+|Status |Meaning
+
+|pending |No studio: enrolled only, or not raised yet.
+|setting up |Its studio is being raised.
+|orienting |Its studio is up, but the agent has not reported yet.
+|running |In a turn.
+|holding |Its turn is over, but background tasks still run.
+|waiting |Its turn is over; it waits for its next message.
+|blocked |It says it cannot go on.
+|idled |Paused while it waits.
+|done |It has finished; its studio goes next.
+|terminating, lost, gone |Being torn down, lost, or torn down.
+|===
+
+== Raising and tearing down
+
+* *Standing* agents are raised by Jam
+as soon as a role declares them.
+Remove the name from the role to stop one for good.
+* *Ticket* agents are raised by Jam's requisitioner
+when a ticket is ready and marked for dispatch.
+* *Personal* agents are raised when a member asks for one:
+*New session* in the Inbox,
+or *Request* on a role in the admin console.
+The role must allow personal agents,
+and has a limit for all owners and for each owner.
+* *Manual* agents are raised with *Raise agent* on the *Agents* tab.
+
+An operator can *tear down* any running agent.
+A ticket or personal agent then ends.
+A standing agent is raised again by Jam,
+and resumes its work,
+until its name is removed from the role.
+
+ifdef::internal[]
+== Notes for the team
+
+* Kinds come from the Instance's `session_kind`
+(`standing`, `personal`, else ephemeral);
+the UI shows an ephemeral session with a unit as `ticket`, without one as `manual`,
+and an actor with no studio as `enrolled`
+(`internal/jam/adminui/agents.go`, `agentKind`).
+* Status is `jam.StatusOf` (`internal/jam/agentstatus.go`).
+A `recovering` phase has no status of its own:
+it shows by the agent's last activity.
+* The pause is the wake-on engine's `warm-timeout` (default 60s, `runtime.wake`).
+Reminders are the idle ladder (`idle-after`, `nag-every`, `reclaim-after`);
+the nags are posted in the session's channel through the intercom (`intercomNagger`).
+* Depth: `docs/modules/ROOT/pages/usage/jam/roster.adoc`,
+`standing-sessions.adoc`, `personal-sessions.adoc`, `requisitioner.adoc`,
+`coves.adoc`, `turn-end.adoc`.
+endif::[]

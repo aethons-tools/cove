@@ -1,10 +1,10 @@
 = Roles, grants & enrollment (RBAC)
 :summary: The roster/RBAC operator guide — projects, roles, grants, and enrollment; a role's file in the config repo, the `role list`/`grant`/`ungrant`/`actors`/`enroll`/`revoke` verbs and how a Role's scope authorizes a studio at the broker.
 :read_when: You are deciding who can reach what on a Jam — adding or changing a role (its scope, kit, allocation, raw egress), granting roles to actors, enrolling a studio, viewing the roster, or revoking an identity.
-:owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role file's fields (`scope`, `kit`, `model-spec`, the `allocation` policy and personal idle ladder, `turn-end`, `collaborate`), the grant/ungrant/actors/enroll/revoke verbs, a role's egress policy (`scope.egress`, `egress show` and its route), the enrollment snippet, and the in-progress identity registry (project ids, users, memberships, connections, accounts)
-:prereqs: INDEX.adoc for the service overview; operators.adoc for the admin-client flags; serve.adoc for destinations (what a role's scope points at); kits.adoc for binding a kit to a role
+:owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role file's fields (`scope`, `kit`, `model-spec`, the `allocation` policy and the personal idle-ladder fields, `turn-end`, `collaborate`), the grant/ungrant/actors/enroll/revoke verbs, the enrollment snippet, and the in-progress identity registry (project ids, users, memberships, connections, accounts)
+:prereqs: INDEX.adoc for the service overview; operators.adoc for the admin-client flags; destinations.adoc for destinations (what a role's scope points at); kits.adoc for binding a kit to a role
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-13
 
 Jam authorizes every brokered request against a *role-based* model:
 
@@ -15,7 +15,7 @@ exist first, except `default` — see xref:usage/jam/projects.adoc[]).
 A Role owns the *scope*: which `destinations` it may reach, the
 *credential* the broker injects for each (``credentials``; a destination
 without one uses its own default `cred-name` — see
-xref:usage/jam/serve.adoc#destinations[Destinations]), which comms `addressing` targets it may
+xref:usage/jam/destinations.adoc[Destinations]), which comms `addressing` targets it may
 message (globs, e.g. ``+user:*+``; comms plane — see
 xref:usage/jam/comms-addressing.adoc[comms-addressing]), a default token `ttl`, and
 optionally a bound *kit* (see xref:usage/jam/kits.adoc[kits]).
@@ -92,7 +92,7 @@ set the role's personal-session *idle ladder*: nag the owner once a session
 has waited on them `idle-after` (unset = 4h), then every `nag-every`
 (unset = 24h), and reclaim it after `reclaim-after` (unset = never).
 Negative values are refused. API: `+idle_after_seconds+`/`+nag_every_seconds+`/`+reclaim_after_seconds+`. What the ladder
-does: xref:usage/jam/personal-sessions.adoc#the-idle-ladder[The idle ladder]. (Not to be confused with `+turn-end: {idle-timeout, on-idle: wake|teardown, time-zone}+`, API `+idle_timeout_seconds+`/`+on_idle+`/``+time_zone+``: the role's xref:usage/jam/turn-end.adoc#idle-timeout[turn-end policy].)
+does: xref:usage/jam/personal-idle-ladder.adoc[The idle ladder]. (Not to be confused with `+turn-end: {idle-timeout, on-idle: wake|teardown, time-zone}+`, API `+idle_timeout_seconds+`/`+on_idle+`/``+time_zone+``: the role's xref:usage/jam/turn-end.adoc#idle-timeout[turn-end policy].)
 * A role's *collaboration policy* says which rights the project's members get
 on its studios: `+collaborate: {preview: members|none, ssh: members|none}+`
 (defaults `members` and `none`); other values are refused. API: `+collaborate_preview+`/`+collaborate_ssh+`. Per-session share grants are
@@ -101,60 +101,13 @@ xref:usage/jam/collaboration.adoc[collaboration].
 * A role's *standing sessions* (named, always-running teammates) are
 `allocation.standing` (`+[{name, prompt}]+`); `jam standing list|reset|upgrade`
 operates them. See xref:usage/jam/standing-sessions.adoc[].
-* A role's *egress policy* is ``scope.egress``: see <<role-egress,Role egress>>.
+* A role's *egress policy* is ``scope.egress``: see xref:usage/jam/role-egress.adoc[].
 * A role's session context is its `+context:+` (xref:usage/jam/session-context-authoring.adoc[]).
 
 [#role-egress]
 === Role egress
 
-A role can set the *raw egress* of every studio Jam raises for it. That is
-the domains the studio's squid allows beyond the sealed base and the kit's
-always-on infra list (model provider, self-hosted GitLab, Jam host).
-
-[source,yaml]
-----
-# projects/acme/roles/fenced.yml
-scope:
-  egress: [registry.npmjs.org, .pypi.org]   # [] = an empty policy; no egress: = the kit's list
-----
-
-----
-jam egress show --project acme --role fenced   # "kit default", "none", or the list
-----
-
-* *No policy (the default) = the kit's list.* The studio gets the kit's
-`+egress:+` list, so existing roles are unchanged. A *set but
-empty* policy (`+egress: []+`) means nothing beyond the base and infra lists.
-* *The kit is the ceiling.* The role's list _replaces_ the kit's list, but every
-domain must be covered by the kit's
-`+egress:+` list (xref:usage/jam/kits.adoc#the-egress-ceiling-cov-208[kits]). A leading-dot
-entry (`.x.com`) covers `x.com` and its subdomains; an exact entry covers only
-itself. Jam checks only syntax and normalizes (lowercase, dedupe, sort, drop
-entries a wildcard in the list already covers); *the box enforces the ceiling*.
-A role asking for more fails its raise with an error naming the domain.
-* *Reaches running studios within one reconcile pass.* Each studio records the
-policy it runs under; Jam's xref:usage/jam/coves.adoc#egress-drift[reconcile pass] re-applies
-the role's current one when they differ (removing `+egress:+` restores the kit's list). A
-paused studio gets it when it resumes, before its agent is woken.
-* *Fails closed.* A re-apply that fails is retried on the next pass; the third
-consecutive failure — or a failed re-apply on resume — tears the studio down, so a
-studio never keeps running under a policy other than its role's. A standing session
-is then raised again under the new policy; an ephemeral or personal one ends.
-A policy outside the kit's ceiling fails every time, so it reaches that teardown
-(the log names the domain).
-* Domains follow the rule `pass:c[^\.?[a-z0-9\]([a-z0-9-\]*[a-z0-9\])?(\.[a-z0-9\]([a-z0-9-\]*[a-z0-9\])?)+$]`
-after lowercasing: at least two labels, no scheme, port, path, `+*+` or whitespace.
-* Grant overrides don't touch egress.
-* `role list` shows the state as `egress=kit`, `egress=none` or
-`egress=<a.com,.b.org>`.
-
-How it is applied in the box: xref:OVERVIEW.adoc#egress-four-additive-allow-lists-and-a-ceiling[the egress model];
-when in the raise: xref:usage/jam/coves.adoc#raising-a-real-managed-studio[coves]; on a running
-studio: xref:usage/jam/coves.adoc#egress-drift[coves].
-
-Admin API: `+GET /admin/roles/{project}/{role}/egress+` answers *200*
-`+{"managed":bool,"domains":[…]}+` (`+managed:false+` = kit default), *404* for an
-unknown role.
+A role can set the raw egress of its studios, within the kit's ceiling: xref:usage/jam/role-egress.adoc[].
 
 == Grants
 
@@ -198,4 +151,4 @@ Lists every Actor with its grants and each grant's *effective* destinations
 (role scope, after any per-grant overrides). Never prints a token or hash.
 
 Design rationale (the one fault line, the additive/per-grant model) lives in
-https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-09-12-harbor-actor-roster.md[`../../superpowers/specs/2026-09-12-harbor-actor-roster.md`]. The roster is moving to a Jam-wide identity registry (surrogate ids for projects, users, connections and accounts, plus project memberships; removing a user is a tombstone); a project's people are its members — users with a membership (see xref:usage/jam/comms-addressing.adoc#project-members-and-rooms[comms-addressing]) — see https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md[`../../superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md`].
+https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-09-12-harbor-actor-roster.md[`../../superpowers/specs/2026-09-12-harbor-actor-roster.md`]. The roster is moving to a Jam-wide identity registry (surrogate ids for projects, users, connections and accounts, plus project memberships; removing a user is a tombstone); a project's people are its members — users with a membership (see xref:usage/jam/project-members.adoc[project-members]) — see https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md[`../../superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md`].

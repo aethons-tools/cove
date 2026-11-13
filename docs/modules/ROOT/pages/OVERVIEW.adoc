@@ -4,7 +4,7 @@
 :owns: the project overview: studio image assembly, security model, package map
 :prereqs: none
 :tier: leaf
-:updated: 2026-11-12
+:updated: 2026-11-13
 
 This repo builds Jam and the *hardened Claude Code studios* it runs: a Studio
 Manager assembles each studio image (a kit base, the harness layer, then the
@@ -188,14 +188,14 @@ dangles.
 *The destinations domain widens infra by its subdomains only.* If the Studio Manager
 sets `colima.destinations-domain`, the infra list holds `+.<domain>+`, and no other
 new name. The broker on that domain still checks each request's identity and
-destination (xref:usage/jam/serve.adoc#studio-reach[serve]). A raise maps only the
+destination (xref:usage/jam/destinations.adoc#studio-reach[]). A raise maps only the
 subdomain hosts of the role's granted destinations to the host gateway, and the
 manager refuses any host that is not one label under its domain before it reaches
 `docker run`. Without the domain, the image and its tag do not change.
 
 *A Jam role's egress replaces the policy list, within the ceiling, at raise.*
 When Jam raises a cove for a role with an egress policy
-(xref:usage/jam/roster.adoc#role-egress[`scope.egress`] in its file in the config repo), the manager runs the
+(xref:usage/jam/role-egress.adoc[`scope.egress`] in its file in the config repo), the manager runs the
 sealed, root-only `apply-role-egress.sh` via host `docker exec -u root` after sshd
 answers and *before jam-studio-agent (and so the agent) starts*. It reads the role's
 domains on stdin, refuses — changing nothing — any domain the ceiling doesn't cover
@@ -203,11 +203,11 @@ domains on stdin, refuses — changing nothing — any domain the ceiling doesn'
 only itself), then overwrites `+allowed_domains.kit.txt+`, clears the session file, and
 runs `squid -k reconfigure`. The base and infra lists stay on. A role with no policy
 keeps the kit default; a failed apply fails the raise
-(xref:usage/jam/coves.adoc#raising-a-real-managed-studio[coves]). When the role's policy
+(xref:usage/jam/coves-raise.adoc[coves-raise]). When the role's policy
 later changes, Jam re-applies it to the role's running coves the same way
 (`+apply-role-egress.sh --kit-default+` restores the ceiling's list when the policy is
 cleared; that mode takes no domains) —
-see xref:usage/jam/coves.adoc#egress-drift[egress drift].
+see xref:usage/jam/coves-raise.adoc#egress-drift[egress drift].
 
 *Nested-container egress is contained too.* The `nftables` `output` chain locks the
 agent's _direct_ egress (only the `proxy` user reaches the network); a `forward` chain
@@ -234,7 +234,7 @@ How the running pieces connect:
 
 |Jam (`jam serve`) |anywhere, including xref:usage/jam/container.adoc[a container] |xref:usage/jam/serve.adoc[]
 |Studio Managers (`jam-colima`) |bare-metal next to their substrate (Colima), dialing Jam |xref:usage/jam-colima.adoc[], xref:usage/jam/studio-managers.adoc[]
-|Studios (`jam-studio-agent`) |on a manager's host, dialing Jam's Attach stream |xref:usage/jam/coves.adoc#jam-studio-agent-the-in-cove-client[coves]
+|Studios (`jam-studio-agent`) |on a manager's host, dialing Jam's Attach stream |xref:usage/jam/studio-agent.adoc#jam-studio-agent-the-in-cove-client[studio-agent]
 |===
 
 A pure *plan* (what to do) is separated from *execution* (doing it),

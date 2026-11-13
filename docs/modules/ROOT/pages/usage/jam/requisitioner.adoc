@@ -83,7 +83,7 @@ not read).
 The block also accepts `wake-poll-interval`, `wait-max` (deprecated and ignored),
 and `warm-timeout` (the wake-on engine) and `escalation-poll-interval` (the escalation engine). These are now a
 *fallback*: the matching `runtime.wake` field, or `runtime.escalation-poll-interval`,
-wins when set — see xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[intercom] and
+wins when set — see xref:usage/jam/wake-on.adoc[wake-on] and
 xref:usage/jam/escalation.adoc[escalation]. The Requisitioner also brings the tracker relay (Linear or GitHub comments), which
 needs its tracker; the intercom itself (`/squawks`, wake-on, escalation, the Discord
 relay) runs without a Requisitioner.
