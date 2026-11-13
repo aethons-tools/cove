@@ -60,10 +60,11 @@ and the names of the settings.
 Values are not shown here;
 the edit form shows them.
 
+*Operator notes* below the title line are for operators;
+agents never see them.
 On a branch,
-the page also shows *Operator notes*,
-which agents never see,
-and a *Delete* button in the title line.
+you add or edit them there,
+and a *Delete* button shows in the title line.
 Jam refuses to delete a spec that a role uses,
 and names the role.
 
@@ -145,7 +146,7 @@ ifdef::internal[]
 API `GET`/`POST /app/admin/api/model-specs` and `GET`/`POST`/`DELETE +/app/admin/api/model-specs/{name}+`
 (`internal/jam/adminui/api_specs.go`), checked by `jam.ValidateModelSpec`.
 * The list's title is *Model-specs*; the nav group is *Model Specs*.
-* *Delete* and *Operator notes* show only on a branch.
+* *Delete*, the edit form and editing *Operator notes* show only on a branch; notes that exist show everywhere.
 * The page lists provider env and settings by key only; the form shows the values.
 * `jam model-spec list` and `jam model-spec show <name>` read specs from the command line.
 * Depth: `docs/modules/ROOT/pages/usage/jam/ui-pages.adoc` (Model-spec pages)
