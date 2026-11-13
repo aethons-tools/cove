@@ -1,10 +1,10 @@
 = The user area (`/app/user`)
 :summary: The user area under `/app/user` — the Jam app, a single-page web app where a person reads and replies to their intercom channels (and their legacy History), grouped by attention (Needs you → Sessions → Channels), with New message, asks, attachments, whiteboards, per-(participant,channel) unread and a live status strip for the sessions in each conversation. It reads the user area's JSON API (`/app/user/api/`) and refreshes live over an SSE signal stream (`GET /app/user/events`), with a 30 s poll as fallback.
-:read_when: You want a project member to read/reply to their studios and channels in a browser (not via the Discord/tracker relays), or you're operating the `/app/user` area — what it shows, its URLs, the composer and copy controls, unread, membership, the live refresh, or the session status strip.
-:owns: what the `/app/user` user area shows and does — the rail attention grouping, the conversation view, New message, New session, asks in a conversation, the composer (keys, saved reply, draft stack, attachments) and copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
+:read_when: You want a project member to read/reply to their studios and channels in a browser (not via the Discord/tracker relays), or you're operating the `/app/user` area — what it shows, its URLs, asks and copy controls, unread, membership, the live refresh, or the session status strip. The composer is in intercom-composer.adoc.
+:owns: what the `/app/user` user area shows and does — the rail attention grouping, the conversation view, New message, New session, asks in a conversation, copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
 :prereqs: web-app.md for how the app is built and served; session-events.adoc for the event stream the status strip derives from; ui.adoc for the `/app` login and who counts as a user; intercom.adoc for the squawk Log + wake-on; coves.adoc for the session phases and activity the "Needs you" treatment reflects; escalation.adoc for asking for a person
 :tier: leaf
-:updated: 2026-11-05
+:updated: 2026-11-13
 
 A *project member* reads and replies to their intercom channels in the *Jam
 app*, a single-page web app served under `/app/user`, rather than through the
@@ -94,35 +94,7 @@ system notes. *Discuss* starts a reply about the ask: the reply carries
 `+reply_to+` and shows a *re:* chip linking the card. The *Open asks* panel
 above the messages lists the conversation's open asks.
 
-[#the-composer]
-== The composer
-
-* *Sending* posts `+{to, body}+` through the participant send path
-(xref:usage/jam/intercom.adoc[intercom]): `to` is the open channel, or for New message
-`+user:<id>+` / `+session:<id>+`. The intercom decides whether the person may
-post there and who hears it. A reply to a waiting studio *wakes it* exactly
-as a relayed reply does (xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[wake-on]).
-Messages are markdown; tick *Plain text* to send one as `text/plain`. A
-message is trimmed at both ends.
-* *Keys:* *⌘↵* (Ctrl+Enter off a Mac) sends; Enter and Shift+Enter insert
-a newline. *⌘⇧V* (Ctrl+Shift+V) pastes as a fenced code block on its own
-lines, its fence longer than any backtick run in the text; it rides the
-browser's own paste-as-plain-text shortcut, so no permission prompt. VS
-Code's webview swallows that shortcut, so there the pane reads the clipboard
-instead.
-* *Saved reply:* what you type is kept per conversation in the tab's session
-storage, so it survives switching conversations; a send or emptying the box
-clears it. It never leaves the browser.
-* *Draft stack:* *⌘↓* (Ctrl+↓) pushes the draft onto a per-conversation
-stack and clears the box; sending pops the top draft back, cursor and all;
-*⌘↑* or the "↩ N stacked drafts" chip pops by hand. A pop never overwrites
-text in the box. Stacks live in session storage, never sent to Jam.
-* *Attachments* (with xref:usage/jam/attachments.adoc[attachments] on): *📎*, *paste*
-(a screenshot) or *drag-and-drop*. Each file uploads at once as a chip with
-progress and ✕; Send waits until they finish, then sends their refs (the text
-may be empty). A refused upload says why on its chip. In the stream, images
-show as thumbnails that open full size; other files as a download chip.
-New message doesn't attach.
+The composer — sending, keys, saved reply, draft stack and attachments: xref:usage/jam/intercom-composer.adoc[intercom-composer].
 
 == Membership controls
 
@@ -145,7 +117,7 @@ It carries payload-free signals — `changed` (the squawk Log grew),
 xref:usage/jam/session-card.adoc#freshness[card] shows; at
 most one per 250 ms, the last always sent; it refetches the rail too) and `board` (a whiteboard changed) — and one event with
 content, ``+event: notify+``: the viewer's own notification, as a push would
-show it (xref:usage/jam/vscode.adoc#notifications-and-the-badge[VS Code]); the web app
+show it (xref:usage/jam/vscode-notifications.adoc[VS Code]); the web app
 ignores it. The app refetches what each names through the API, which checks access again. A
 reconnect refetches too, and a *30 s poll* covers state that appends
 nothing and a dropped stream. A half-typed reply is never touched.

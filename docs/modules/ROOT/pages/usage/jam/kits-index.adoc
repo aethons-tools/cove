@@ -1,0 +1,24 @@
+= Kits — section index
+:summary: Section index for the kit docs — the kit registry, kit directories, drafts, inheritance, kits from git, and kit MCP servers.
+:read_when: You are adding, changing, building on, importing from git or editing a kit, or a kit write, import or raise was refused, and need to know which kit doc to open.
+:owns: the map of the kit docs
+:prereqs: INDEX.adoc for the rest of the jam operator docs
+:tier: section
+:updated: 2026-11-13
+
+A *kit* is the definition a studio is built and raised from; a role names one. Start at xref:usage/jam/kits.adoc[kits] for the model, then open the doc for your task.
+
+[%header]
+|===
+|Doc |Read when
+
+|xref:usage/jam/kits.adoc[kits] |You are adding a kit to Jam, changing a kit's files or rolling one back, binding a kit to a role, giving a kit's sessions extra MCP servers, or making a kit build on another kit (the detail is in kits-inheritance.md).
+|xref:usage/jam/kits-mcp-servers.adoc[kits-mcp-servers] |You are giving a kit's sessions extra MCP servers, a kit's `mcp-servers` entry was refused, or a kit's MCP server did not load in a session.
+|xref:usage/jam/kits-directory.adoc[kits-directory] |You are laying out a kit directory (Dockerfile, scripts, note files) in the config repo, a config plan, draft or import refused a file (symlink, limit, unsafe name, packed-context field), or you want to know what a version stores.
+|xref:usage/jam/kits-drafts.adoc[kits-drafts] |You want to change a kit's files (Dockerfile, scripts, notes, kit.yml) in the admin console, or a draft save or publish was refused (problems, no changes, a stale draft).
+|xref:usage/jam/kits-drafts-ui.adoc[kits-drafts-ui] |You are using or changing the Draft section of a kit's page in the admin console (`/app/admin/config/kits/<name>`), or a Draft form refused a save or a publish.
+|xref:usage/jam/kits-inheritance.adoc[kits-inheritance] |You want one kit to build on another (a role bound to `my-app` gets `+default → web-dev → my-app+`), are choosing between following and pinning a parent, a config plan, import or raise failed with a parent/cycle/too-deep error, a kit's delete was refused because of child kits, or a child studio went `image=stale` after its parent changed.
+|xref:usage/jam/kits-git.adoc[kits-git] |You want a kit's definition to live in its own git repo instead of the config repo, are writing a `+--git+` source, giving Jam a token for a private kit repo, wondering why a sync said `unchanged`, or an import/track/sync failed (auth, ref or kit.yml not found, escape refused, limit exceeded).
+|xref:usage/jam/kits-git-errors.adoc[kits-git-errors] |A `kit import`, `track` or `sync` (or Import from git) failed and you want to know what its message means and how to fix it.
+|xref:usage/jam/kits-path-parents.adoc[kits-path-parents] |A kit in a git repo builds on another kit in the same repo (`+base: { kit: ../web }+`), you are importing, tracking or syncing such a kit and want to know which kits it writes and at which versions, a set import was refused (not from this source, local version newer, leaves the checkout, no kit.yml, cycle, too deep, name used twice), or a kit was refused with `path parents resolve only in a git import`.
+|===

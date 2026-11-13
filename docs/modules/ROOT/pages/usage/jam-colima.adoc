@@ -4,7 +4,7 @@
 :owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, `colima.destinations-domain`, TLS trust, reconnect backoff, capacity gate, how host stats are measured, the activities it reports (kit-prepare progress), the disk cleanup policy and disk-full gate, container/volume labels and per-host image builds
 :prereqs: jam/studio-managers.adoc for registering the manager and what Jam does with it
 :tier: leaf
-:updated: 2026-11-12
+:updated: 2026-11-13
 
 `jam-colima` is the Studio Manager for a Colima host: it runs next to Colima, dials _into_ Jam over TLS and raises studios in a Colima VM on Jam's behalf.
 Registration, the token's auth, and disconnect/reconnect/revoke behaviour on Jam's side are in xref:usage/jam/studio-managers.adoc[Studio Managers]; this doc is the manager host's side.
@@ -71,7 +71,7 @@ cleanup:              # percent of the VM's docker disk; 0 = the default
 
 [#destinations-domain]
 `destinations-domain` must be the same value as the Jam's `destinations.domain`
-(xref:usage/jam/serve.adoc#destinations-domain[the destinations domain]).
+(xref:usage/jam/destinations.adoc#destinations-domain[the destinations domain]).
 It is a lowercase DNS name of at least two labels.
 If you set it, the manager does two things:
 

@@ -1,0 +1,106 @@
+= Answering asks
+:page-area: ROOT
+:page-id: ROOT/inbox/asks
+:page-conventions: sentence-case
+
+An *ask* is a question from a session with answers to pick from.
+The session posts it in a channel,
+and a person answers it there.
+The session does not stop and wait.
+It can have several asks open at once,
+and you can answer them in any order.
+
+An ask stays open until a person answers it
+or the session withdraws it.
+While a session has an open ask,
+its channel shows under *Needs you* in the rail
+(xref:inbox/channels.adoc[Reading and replying]).
+If nobody answers for a while,
+Jam can call people in
+(xref:concepts/escalation.adoc[Escalation]).
+
+image::asks-conversation.png["A ticket channel with two open asks, one answered and one withdrawn",800]
+
+== Open asks
+
+The *Open asks* panel above the messages lists the channel's open asks,
+with a count.
+Click a question to jump to its card.
+An ask that is for other people shows *for* and their names.
+
+== The ask card
+
+Each ask shows as a card where the session asked it.
+The card shows the question
+and, under it, one button for each answer.
+A button can have a short line of detail under its label.
+
+image::asks-card.png["An open ask: two answers, Other…, a comment box and Discuss",600]
+
+To answer, click a button.
+You can write a comment in the box first.
+Jam sends your answer to the session in your name,
+and the session wakes up to read it.
+
+If none of the answers fits,
+write a comment and click *Other…*.
+*Other…* needs a comment.
+
+The first answer wins.
+If someone answered before you,
+Jam says who and what they chose,
+and your answer is not sent.
+
+You can answer only if you are in the channel.
+In a ticket's channel, any member of the project can answer.
+A session can name the people the ask is for.
+Then only they can answer,
+and other people see the answers as grey tags they cannot click.
+Sessions never answer asks.
+
+== Discussing an ask
+
+Click *Discuss* on an open card
+to talk about the ask before you answer.
+The composer shows *Replying about* and the question,
+and starts your message with a "re:" line.
+Click ✕ to stop.
+
+image::asks-discuss.png["The composer, replying about an ask",600]
+
+Your message is an ordinary message.
+It shows a "re:" link above it
+that goes back to the ask's card.
+It does not answer the ask.
+
+== Edited and closed asks
+
+The session can reword an open ask.
+The card then shows *edited*,
+and a line in the channel shows the new wording.
+If you answer while the session rewords the ask,
+Jam refuses your answer and shows the new version,
+so that nobody answers a question they did not see.
+
+When an ask closes,
+its card changes:
+
+* An answered card shows ✓, who answered, the answer, and the comment.
+A line in the channel says the same.
+* A withdrawn card shows *withdrawn* and the session's reason, if it gave one.
+
+When a session ends,
+its open asks close as withdrawn.
+
+ifdef::internal[]
+== Notes for the team
+
+* A session asks with its `ask` tool and rewords or withdraws with `amend` and `withdraw`.
+Limits: 2 to 8 answers, question up to 2 KiB, comment up to 4 KiB.
+* The app answers with `+POST /app/user/api/asks/{id}/answer+` (`+{version, choice, comment}+`).
+A stale version is `409 ask_changed`; a closed ask is `409 ask_closed`.
+* Cards: `web/app/src/asks` (`AskCard.tsx`, `OpenAsks.tsx`); the card's data is `userui.askCard` (`internal/jam/userui/asks.go`).
+* The Discord and tracker relays skip asks: they are answered in the app only.
+* Architecture page: `docs/modules/ROOT/pages/usage/jam/asks.adoc`.
+* Screenshots: the `chn_acme42` conversation in `web/app/src/shots/mocks.ts`.
+endif::[]

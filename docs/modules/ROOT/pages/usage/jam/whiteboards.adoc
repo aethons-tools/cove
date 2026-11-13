@@ -65,6 +65,7 @@ capped font size and drawn area), so a pathological board renders partly
 rather than slowly. It serves the card
 thumbnails and `+board_snapshot+`.
 
+[#in-app-user]
 == In /app/user
 
 A conversation you can post in has *New whiteboard* in its header (it asks a

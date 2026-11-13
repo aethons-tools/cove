@@ -1,0 +1,52 @@
+= Old admin pages and the /ui, /me migration
+:summary: Where the Jam admin console's old server-rendered page paths redirect (302, the old-to-new path table), and the steps for moving a Jam from the old `/ui` and `/me` logins to the one `/app` login.
+:read_when: You followed an old admin-console page link and want to know where it goes, or you are upgrading a Jam from the `/ui` and `/me` logins and need to know what to register at the IdP and what users will see.
+:owns: the old admin pages' 302 redirect table and the /ui·/me migration steps
+:prereqs: ui.adoc for the `/app` routes, the 308 redirects of old `/ui`·`/me` URLs, and the login
+:tier: leaf
+:updated: 2026-11-13
+
+[#old-admin-pages]
+== Old admin pages
+
+The console's server-rendered pages are gone; a `GET` or `HEAD`
+on an old page path answers `302` to its new page, with the query kept
+(except `project` on an agent path; a draft's `file` and `diff` become the
+kit page's `dfile` and `ddiff`). The gate runs first, so a non-admin
+gets its 403 and learns nothing. A write there gets a 405, never a page.
+
+[%header]
+|===
+|Old path (under `/app/admin/`) |New path
+
+|`config` |`config/tracking`
+|`+users[/…]+`, `+destinations[/…]+`, `+model-specs[/…]+` |`config/` + the same
+|`+projects/<p>[/members\|agents\|intercom\|escalation]+` |`+config/projects/<p>[/…]+`
+|`projects/<p>/roles` |`config/projects/<p>/agents`
+|`+projects/<p>/roles/<r>[/setup]+`, `roles/<p>/<r>` |`config/projects/<p>/agents/<r>`
+|`+kits/<k>[/draft]+` |`config/kits/<k>`
+|`specs` |`config/kits`
+|`intercom` |`health/intercom`
+|`agents/<id>/setup` |`agents/<id>`
+|`+coves[/<id>[/session]]+`, `actors` |`+agents[/<id>[/session]]+`
+|`roles`, or any other old path |the Dashboard
+|`next/<path>` (the app's preview address) |`<path>`
+|===
+
+
+[#migrating-from-ui-and-me]
+== Migrating from /ui and /me
+
+* *Before deploying*, register `+https://<jam-host>/app/auth/callback+` at the
+IdP. Keep the old `/ui/auth/callback` and `/me/auth/callback` until the
+rollout settles; the previews callback is unchanged.
+* The login now requests `openid` plus `require-scope`. Check that your IdP
+issues tokens to users not entitled to that scope; one that rejects the
+authorize request locks out Inbox-only users. See also
+xref:usage/jam/ui.adoc#empty-require-scope[empty `require-scope`]: it makes
+everyone an admin.
+* Everyone signs in once more (the old `+jam_session+` and `+jam_participant+`
+cookies are ignored). Reload open tabs: an old tab posts to `/me/send`, which
+now answers 404.
+* Old `+/ui/*+` and `+/me/*+` bookmarks get a `308` to the new path for one release
+(cached for an hour). `+/admin/*+` and `+/me/studios/*+` are unchanged.

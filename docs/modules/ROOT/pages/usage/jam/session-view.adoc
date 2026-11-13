@@ -49,7 +49,7 @@ The server re-checks permission (403 otherwise). Once a session ends, its header
 === Session controls
 
 Interrupt, Compact and Clear act on the session's agent; jam-studio-agent's handling is in
-xref:usage/jam/coves.adoc#session-controls-interrupt-compact-clear[coves]. Anyone who can see the
+xref:usage/jam/studio-agent.adoc#session-controls-interrupt-compact-clear[studio-agent]. Anyone who can see the
 session may press them, on any session kind. Clear asks for confirmation.
 
 [%header]
@@ -67,6 +67,7 @@ A paused studio is resumed first, so a press may take up to about 30s. The Think
 each press as "<Command> — pressed by <name>", and a press jam-studio-agent dropped with its reason,
 e.g. "Clear — pressed by Bob (ignored: live episode)".
 
+[#pane]
 == Pane
 
 The pane is closed until a tab opens it. Clicking the open tab again, or *×*, closes it.

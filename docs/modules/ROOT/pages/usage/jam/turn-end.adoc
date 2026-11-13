@@ -8,7 +8,7 @@
 
 When a managed session's turn ends, it either *ends* (it called `end`) or
 *waits* for something worth another turn — an inbound squawk
-(xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[intercom]), one of its
+(xref:usage/jam/wake-on.adoc[wake-on]), one of its
 *alarms*, or its *idle timeout* — and every Wake tells the agent *why* it
 was woken. A ticket session also reports its ticket's state. The design is in
 the https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-05-turn-end-lifecycle-design.md[turn-end spec].

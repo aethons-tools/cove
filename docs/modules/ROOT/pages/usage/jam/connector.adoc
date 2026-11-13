@@ -2,9 +2,9 @@
 :summary: The studio connector contract — what a studio sets (env vars, git routing) to use the destinations in its scope; destinations declare it with `env`/`git` in their file in the config repo, and Jam assembles each identity's connector. Includes the `gh` (GitHub API) destinations.
 :read_when: You are adding a destination a studio needs client-side setup for (env vars like GH_HOST, or git routing), wondering why a studio has (or lacks) some ANTHROPIC_*/GH_* variable, or wiring `gh` through Jam.
 :owns: destination `env`/`git`, the template placeholders (incl. `+{host:<endpoint>}+`/`+{url:<endpoint>}+`), git routing by host, the legacy defaults, connector assembly + conflicts, and the GitHub-API (`gh`) destination recipe
-:prereqs: serve.adoc#destinations for destinations; roster.adoc for which destinations a role's scope allows
+:prereqs: destinations.adoc for destinations; roster.adoc for which destinations a role's scope allows
 :tier: leaf
-:updated: 2026-11-12
+:updated: 2026-11-13
 
 A studio reaches Jam's destinations by setting *client env* (and, for git, a
 token-free git config). Each destination declares what it needs; Jam assembles
@@ -12,7 +12,7 @@ an identity's *connector* from the destinations its grants allow.
 
 == Declaring it on a destination
 
-In the destination's file in the config repo (xref:usage/jam/serve.adoc#destinations[serve.adoc]):
+In the destination's file in the config repo (xref:usage/jam/destinations.adoc[]):
 
 [source,yaml]
 ----
@@ -30,7 +30,7 @@ env: {GH_HOST: "{host}", GH_ENTERPRISE_TOKEN: "{token}"}
 * `+env: {KEY: TEMPLATE}+`, set once for the whole destination.
 Placeholders:
 ** `+{host:<endpoint>}+` = that endpoint's host: `+<subdomain>.<domain>+`
-(the xref:usage/jam/serve.adoc#destinations-domain[destinations domain]), or the Jam host when it has no subdomain.
+(the xref:usage/jam/destinations.adoc#destinations-domain[destinations domain]), or the Jam host when it has no subdomain.
 ** `+{url:<endpoint>}+` = `+https://<that host><route>+`, without a trailing `/`.
 ** `+{url}+` = `+{url:<first endpoint>}+`, `+{base}+` = `+https://<jam host>+`,
 `+{host}+` = the Jam host — kept for one-endpoint destinations.
@@ -77,7 +77,7 @@ it before every agent *episode* (each spawn of the agent process), so edits
 reach a running studio at its next episode — not within one: a reply delivered
 into a live agent (one holding its session open, e.g. for a background task)
 runs under the env that episode started with
-(xref:usage/jam/coves.adoc#jam-studio-agent-the-in-cove-client[coves]).
+(xref:usage/jam/studio-agent.adoc#jam-studio-agent-the-in-cove-client[studio-agent]).
 * *Host-side clients* call
 `GET /connector` on the broker listener with the identity as a bearer (or
 `token`) and receive `+{"env": {…}, "git_route": "/git/"}+` — templates still

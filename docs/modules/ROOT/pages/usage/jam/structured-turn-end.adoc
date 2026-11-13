@@ -57,7 +57,7 @@ claude's `result` carries only the turn's last reply. Anything the model writes 
 * *What it skips.* Subagent messages (`+parent_tool_use_id+` set) are skipped. So is a `/compact` turn, a turn under the legacy turn end, and text not yet posted when a turn is interrupted or errors.
 * *Commits nothing.* A failed post is logged and the turn goes on.
 
-*Auto-posts don't wake sessions.* An auto-post carries the part `pass:c[application/vnd.jam.turn-end+json]`. Wake-on skips it when its author is a session (xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[intercom]), and it never counts toward the loop breaker. People are notified as usual. A session that wants another session to act uses `send`.
+*Auto-posts don't wake sessions.* An auto-post carries the part `pass:c[application/vnd.jam.turn-end+json]`. Wake-on skips it when its author is a session (xref:usage/jam/wake-on.adoc[wake-on]), and it never counts toward the loop breaker. People are notified as usual. A session that wants another session to act uses `send`.
 
 *Duplicate replies.* Jam skips an auto-post whose trimmed body equals a `send` by the same session in the same channel since its previous auto-post, within 10 minutes. It answers `+{"skipped": true}+`, which covers an agent that also ``send``s its reply. The same short answer at two turn ends is two replies, and both are posted.
 

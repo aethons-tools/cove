@@ -1,0 +1,88 @@
+= Project members and rooms
+:summary: A Project's addressable things — its members (users of the Jam-wide registry, their logins and OIDC bindings, accounts and delivery) and its rooms (named channels bound to a ref) — and where and how they are set.
+:read_when: You are adding or changing a project's members or rooms, linking a user's login, OIDC identity or tracker/Discord account, using `jam user|account|connection|room` verbs, or a members or rooms change was refused.
+:owns: a Project's members and rooms (incl. a user's `logins` and OIDC identity bindings, accounts, room bindings and the per-project-roster upgrade), their config files and their `jam` verbs and admin routes
+:prereqs: comms-addressing.adoc for how a target names a member or room; roster.adoc for the identity registry
+:tier: leaf
+:updated: 2026-11-13
+
+A *Project* (the same namespace a `Role` lives in — see xref:usage/jam/roster.adoc[roster.adoc])
+has two kinds of addressable things:
+
+* *Members* — users in the Jam-wide xref:usage/jam/roster.adoc[identity registry] with a
+membership in the project. A member is addressed by their user name or id
+(`+user:<name|usr_id>+`). Their tracker `@`-handle is the *account* linked to
+them on the connection of the tracker's kind (`linear`, or their login on
+`github` for a GitHub-tracked Jam, whatever handle they hold on the other);
+their Discord user id is the account on the `discord` connection. Their
+per-project *delivery* addresses (e.g. a Discord inbox) live on the membership. A user's *logins* link them to
+their admin login (OIDC `sub`, or `local` on loopback), so Jam knows who is
+behind an admin request, e.g. to own a
+xref:usage/jam/personal-sessions.adoc[personal session]. Their *OIDC identity bindings*
+`+{Issuer, Subject}+` are for a browser login, e.g. xref:usage/jam/intercom-ui.adoc[`/app/user`];
+they are opaque, never secrets, and both parts are non-empty.
+* *Rooms* — the project's named channels (`+channel:<name>+`) in Jam's channel
+registry, each with an id and a *binding* of a `Ref` (a tracker issue
+identifier like `ACME-1`, or a Discord channel id) on a connection.
+
+A ref receives replies for at most one room: binding a taken ref is refused
+(`409`). Removing a room archives it.
+
+*A person is one user Jam-wide.* The same name in two projects is one person.
+A login, OIDC binding, tracker handle or Discord user id belongs to one person
+Jam-wide; claiming another person's is *400*. A person's logins, OIDC
+bindings and service accounts are managed on the *user*, and their
+per-project delivery addresses on the *membership*.
+
+*Upgrades from per-project rosters* migrated them once (don't roll back past
+it). Humans were merged into users: the same login, OIDC binding or Discord id
+makes one user, else the same name; on a clash the first keeps the name and the
+other becomes `<name>-<project>`. Channels became rooms: if two shared a ref,
+the first kept it and the other only posts there (re-saving it unchanged keeps
+it so); a service other than `linear` or `discord` stays unused in the
+project's record. The upgrade logs each of these.
+
+A Project's members also back its *escalation policy* — ordered tiers
+called into a waiting session's channel; see xref:usage/jam/escalation.adoc[escalation].
+
+Users, connections, members and rooms are config: files in the config repo
+(xref:usage/jam/config-git.adoc#layout[config-git]), changed by a commit, by hand or on a
+branch in the admin console (xref:usage/jam/config-branches.adoc[config-branches]):
+
+[source,yaml]
+----
+# users/alice.yml: kind: user, version: 1, and
+logins: ['auth0|abc123']
+# connections/acme.yml: kind: connection, version: 1, and
+service: linear            # linear | discord | github
+cred: acme-linear          # a credential NAME
+# projects/acme/project.yml: kind: project, version: 1, and
+members: [{user: alice, delivery: [{service: discord, address: "<inbox-channel>"}]}]
+rooms: [{key: ops, bindings: [{connection: acme, ref: ACME-1}]}]
+----
+
+Live, through `jam` (xref:usage/jam/operators.adoc[operators.adoc] for its flags):
+
+----
+jam user list | show <user>
+jam user oidc  <user> [<issuer>:<subject>...]   # replaces the set; none clears it
+jam project member list <project>
+jam account add --connection linear --handle alice.h --user <user>     # tracker @-handle
+jam account list [--connection c] | link <account> <user> | unlink <account>
+jam connection list
+jam room list <project>
+----
+
+A `<user>` is a name (its file name) or a `+usr_+` id. Removing a user's file
+tombstones the user; the plan refuses it while the user owns a live personal
+session, is in an escalation tier or is a project member. The admin API
+behind the verbs is `/admin/users`, `+/admin/projects/{p}/members+`,
+`/admin/accounts`, `/admin/connections` and `+/admin/projects/{p}/rooms+`.
+
+A room binding's `connection` names a connection in the repo or Jam. A `github` room's ref is a ticket key (`+owner/repo#<n>+`); on the GitHub tracker's connection it must be on the tracker's repo (any case), else it is refused with "github ticket key is not on the tracker's repo" — nothing could be delivered there.
+A room is named by its `key` (or a `+chn_+` id); renaming one changes only which `+channel:+` globs match it. `room list` marks a room that only posts to its ref
+(another channel receives its replies) `post-only`. Because an OIDC issuer is commonly
+a URL that itself contains colons, `user oidc` splits on the *final* colon: the
+subject is the text after it, the issuer everything before. `user list` shows
+each binding as `+oidc=<issuer>:<subject>+`. A malformed value (empty issuer or subject) exits `2`
+(the admin route answers `400`).
