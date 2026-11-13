@@ -3,5 +3,150 @@
 :page-id: ROOT/configuration/agents
 :page-conventions: sentence-case
 
-// Stub on books/as-is: replaced by its ticket with the as-is page.
-This page is being written.
+The *Agents* tab lists every xref:concepts/agent.adoc[agent] on the Jam,
+running or not.
+Click one to open its page:
+its identity and grants,
+its studio while it runs,
+and what it has done.
+The actions here work on any branch of the config repo.
+
+== The Agents tab
+
+image::agents-list.png[The Agents tab,800]
+
+Each row shows the agent's name and id
+(and its ticket, for a ticket agent),
+its kind,
+its project and role
+(*+N* when it holds more grants),
+its status,
+whether its connector is set up,
+whether its image is *stale*,
+and when Jam last heard from it.
+The links above the table show only the agents with one status:
+*Running*, *Waiting*, *Setting up*, *Idled*,
+or *Lost / terminating*.
+The list refreshes every 3 seconds.
+
+*Raise agent* raises a manual agent:
+a label,
+a role and project,
+an optional unit (such as a ticket id),
+and an optional first prompt.
+Jam opens the new agent's page.
+*Teardown* on a row stops that agent's studio,
+after you confirm.
+Both show only when Jam runs agents.
+
+*Enroll agent* makes an identity for something Jam does not run,
+such as a CI bot:
+an id,
+a role and project,
+and optional destination overrides (`git=git-pat`).
+Jam then shows its token once.
+Copy it at that time:
+Jam does not show it again.
+
+== An agent's page
+
+image::agent-page.png[A personal agent's page,800]
+
+The header shows the agent's id,
+its status,
+its kind (with its owner, for a personal agent, and its name),
+its project, role and ticket.
+On the right:
+
+* *Open live timeline* shows its session's events as they happen;
+it shows when Jam records sessions.
+* *Teardown* stops its studio and returns to the list.
+* *Revoke* deletes its identity, so its token no longer works.
+
+Each asks you to confirm.
+
+An agent that is not running shows a grey note.
+Its session and messages stay on its page as a record.
+
+=== Identity
+
+The agent's grants, as `project/role` tags.
+Point at one to see the destinations it gives.
+*×* removes a grant.
+*+ Grant* adds one:
+a role and project,
+and optional destination overrides.
+*Token expiry* shows when its identity ends,
+from its role's TTL.
+
+=== Runtime
+
+When the studio was raised,
+when Jam last heard from it,
+which Jam process looks after it (*Lease*),
+and where it runs (*Backend*).
+
+=== Waiting and escalation
+
+* *Waiting*: since when it waits.
+A new message in its channel wakes it.
+* *Escalation*: the open escalation,
+which tier of people was called and when,
+and on which chain
+(xref:concepts/escalation.adoc[]).
+* *Owner nags*: for a personal agent,
+how many reminders it has sent its owner while it waits.
+* *Inbox*: how far it has read its messages.
+
+=== Egress
+
+Which version of its role's egress list the studio runs with.
+If Jam fails to apply a changed list,
+*Re-apply* counts the failures;
+after too many, Jam tears the studio down,
+so it never runs under the wrong list.
+
+=== Access
+
+Who can reach the running studio, over SSH or a preview, and why:
+
+* operators, always;
+* the owner of a personal agent;
+* the project's members, as the role allows
+(*preview* and *ssh*, each `members` or `none`);
+* each person it is shared with:
+the rights, when the share ends, and who shared it.
+*Unshare* removes a share and closes that person's SSH connections,
+unless they have access in another way.
+
+Below are the open connections
+and the agent's *Previews*:
+each web app it serves, as a link.
+When the Jam has no SSH access or previews set up,
+the card says so.
+You share a studio with `jam studio share`.
+
+=== Session, squawks and setup
+
+*Session* lists the agent's recorded sessions.
+Click one to open it on the timeline.
+
+*Squawks* shows the newest 50 messages in its conversations;
+*in Intercom* opens the full log of its messages.
+
+*Setup*, at the end,
+shows what the studio was set up with when you click it:
+its kit, settings and image.
+
+ifdef::internal[]
+== Notes for the team
+
+* Pages: `web/app/src/admin/agents/AgentsPage.tsx` and `AgentPage.tsx`;
+API `/app/admin/api/agents[/<id>]` (`internal/jam/adminui/api_agents.go`, `agent.go`).
+* *Raise agent* and *Teardown* need a runtime supervisor (`canEdit`).
+*Enroll agent*, grants, *Revoke* and *Unshare* are live writes, not config-branch commits.
+* Runtime, Waiting and escalation, Egress and Access show only while the agent has a studio.
+* Enroll shows only the token; for the full connector snippet use `jam enroll`.
+* Depth: `docs/modules/ROOT/pages/usage/jam/ui-pages.adoc` (#agent-pages, #agent-status),
+`ui-editing.adoc`, `collaboration.adoc`, `coves.adoc`.
+endif::[]

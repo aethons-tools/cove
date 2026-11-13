@@ -3,5 +3,195 @@
 :page-id: ROOT/configuration/roles
 :page-conventions: sentence-case
 
-// Stub on books/as-is: replaced by its ticket with the as-is page.
-This page is being written.
+A project's xref:concepts/agent.adoc[roles] and agents are on its *Agents* page,
+under *Config › Projects › _your project_ › Agents*.
+Each role has its own page below it.
+To change a role you must be on a branch of the config repo
+(xref:configuration/config-branches.adoc[]);
+each save is a commit to that branch.
+Raising agents works on any branch.
+
+== The Agents page
+
+image::project-agents.png[The acme project's Agents page,800]
+
+*Roles* lists the project's roles.
+For each one it shows the destinations it may reach,
+with the credential where the role maps its own
+(`github → github-review`),
+its TTL,
+and its kit (*default* when it names none).
+Click a role to open its page.
+
+*Agents* lists every agent that runs in the project or holds a grant into it,
+one row each:
+its name and id (and its ticket, for a ticket agent),
+its kind,
+its roles here,
+its status,
+whether its image is *stale*
+(older than what its role would run now),
+and when Jam last heard from it.
+Click an agent to open its page
+(xref:configuration/agents.adoc[]).
+The page refreshes every 3 seconds.
+
+On a branch, *New role* opens a short form:
+a name,
+destinations (comma-separated, `name=credential` to map a credential),
+a TTL in seconds,
+a kit,
+and a model spec (blank means `claude-default`).
+*Create role* makes the role and opens its page.
+
+== A role's page
+
+image::role-page.png[The reviewer role's page,800]
+
+The top line shows the role's project,
+kit, model spec and TTL.
+The sections below show the whole role.
+On a branch, each section has its own *Edit …* panel,
+already filled in,
+that saves only that section.
+
+Scope::
+Each destination,
+the credential Jam adds for it
+(*role mapping*, or the *destination default*),
+and its route.
+A destination that does not exist is marked *unregistered*.
+*Addressing* lists who the role's agents may message;
+with none, they cannot message anyone.
+*Edit scope* changes the destinations, addressing, TTL (such as `1h`), kit and model spec.
+Egress::
+The outside domains the role's studios may reach,
+within what the kit allows,
+or *Kit default* when the role sets none.
+In *Edit egress*, put one domain per line;
+a leading dot (`.golang.org`) also allows its subdomains.
+Saving an empty list allows nothing extra.
+*Reset to kit default* removes the role's list.
+Running agents get the change within a short while.
+Allocation::
+How many agents the role may have at once,
+and the reminders for idle personal agents.
+A value that is not set shows what applies instead.
+The role's idle timeout, what happens then, and its alarm time zone show here too,
+but you cannot change them on this page.
+Agent context::
+The instructions every agent of the role is given,
+edited like a project's
+(xref:projects:agent-context.adoc[]),
+without resources.
+Standing agents::
+Each standing agent's name, prompt and status.
+Holders::
+Every agent that holds the role.
+*override* marks a grant that changes the role's destinations.
+Open an agent to manage its grants.
+Running::
+The role's running agents.
+Setup::
+Click it to see what a studio of this role would get if it were raised now.
+
+*Operator notes*, above the sections,
+hold notes for operators only;
+agents never see them.
+They show when there are some, and on a branch,
+where *Add notes* or *Edit* changes them.
+On a branch, *Delete* removes the role and returns to the Agents page.
+
+=== Allocation
+
+image::role-allocation-edit.png[Editing the reviewer role's allocation,800]
+
+*Max ephemeral*::
+The limit on ticket and manual agents running at once.
+*Max personal*::
+The limit on personal agents, for all owners together.
+When it is not set, the role has no personal agents.
+*Max personal per owner*::
+The limit for one person.
+*Idle after*, *Nag every*::
+When a waiting personal agent first reminds its owner (default 4h),
+and how often after that (default 24h).
+*Reclaim after*::
+When Jam ends a personal agent that still waits (default never).
+
+Times take values such as `30m`, `1h30m` or `72h`.
+Leave a field blank to unset it.
+
+== Standing agents
+
+On a branch, *Declare standing agent* takes a name and a prompt.
+Jam raises the agent once you apply the branch,
+and keeps it running.
+
+Each standing agent has these actions:
+
+*Upgrade*::
+Restarts it on the current image,
+once it is between turns.
+It keeps its conversation and files.
+When it is marked *image stale*, the button is highlighted;
+while the upgrade waits, an *upgrade:* tag shows how far it has got.
+*Reset*::
+Deletes its conversation and files.
+Jam raises it fresh, as a new session.
+*Dismiss* (on a branch)::
+Stops it and deletes its conversation and files.
+
+Each action asks you to confirm.
+*Upgrade* and *Reset* work on any branch.
+
+== Raising agents
+
+=== Requesting a personal agent
+
+*Request* on a role's row,
+or *Request agent* on its page,
+raises a personal agent of that role for you.
+It starts with the prompt
+"Squawk me (user:_you_) and we will get to work.",
+so it opens a conversation with you in the Inbox.
+A message says that it was raised,
+or why it was not.
+
+You must be signed in,
+and your login must belong to a member of the project.
+The role's limits apply:
+*Max personal* must be set,
+and neither it nor your share may be used up.
+Members can also start one from the Inbox with *New session*.
+
+=== Raising and tearing down from the Agents tab
+
+The *Agents* tab (xref:configuration/agents.adoc[]) has *Raise agent*:
+a label,
+a role and project,
+an optional unit (such as a ticket id),
+and an optional first prompt.
+Each running agent there has *Teardown*.
+
+Raising, requesting, upgrading and tearing down need Jam to run agents.
+On a Jam that runs none, those buttons do not show.
+
+ifdef::internal[]
+== Notes for the team
+
+* Pages: `web/app/src/admin/roles/AgentsPage.tsx` and `RolePage.tsx`;
+API under `/app/admin/api/projects/<project>/agents` and `…/roles/<role>`
+(`internal/jam/adminui/api_roles.go`).
+* *Request*, *Upgrade* and *Reset* show when a runtime supervisor runs (`canRequest`);
+*Delete*, *Dismiss* and the edit panels only on a branch.
+* A role's file: `projects/<project>/roles/<name>.yml`.
+The allocation fields are `allocation.max-ephemeral`, `max-personal`, `max-personal-per-owner`,
+`idle-after`, `nag-every`, `reclaim-after`;
+an unset `max-ephemeral` falls back to the requisitioner's `max-concurrent`.
+The idle timeout is `turn-end`;
+the collaboration policy (`collaborate`) is not shown on the role page.
+* The Request prompt is `requestPrompt` (`internal/jam/adminui/role_request.go`).
+* Depth: `docs/modules/ROOT/pages/usage/jam/ui-projects.adoc` (#role-pages),
+`roster.adoc`, `standing-sessions.adoc`, `personal-sessions.adoc`, `ui-editing.adoc`.
+endif::[]
