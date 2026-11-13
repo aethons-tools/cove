@@ -3,5 +3,165 @@
 :page-id: ROOT/concepts/model-spec
 :page-conventions: sentence-case
 
-// Stub on books/as-is: replaced by its ticket with the as-is page.
-This page is being written.
+A *model spec* says how a role's agents run.
+It names the agent program and its version,
+the account the agent uses to reach the model,
+which model it uses,
+and what the agent may do without asking.
+Every role runs one model spec.
+All the sessions of the role run under it.
+
+To set one up,
+see xref:configuration/model-specs.adoc[].
+
+== The harness
+
+The *harness* is the agent program that runs in a studio.
+Today there is one type of harness, `claude`:
+Claude Code.
+
+A model spec sets the exact *version* of Claude Code,
+such as `2.1.322`.
+Jam installs that version when it builds the studio image
+(xref:concepts/kit.adoc[]).
+It also installs the spec's *plugins*,
+such as `superpowers@claude-plugins-official`.
+Plugins come only from the `claude-plugins-official` marketplace.
+
+A model spec can also set a *version constraint*,
+such as `2.x` or `>=2.1.0`.
+Before the agent starts,
+the studio compares its installed Claude Code with the constraint.
+If the version does not match,
+the session stops with an error
+that tells you to rebuild the image or change the spec.
+With no constraint,
+the installed version must be exactly the spec's version.
+
+== The principal
+
+The *principal* is the account the agent uses to reach the model.
+The spec names a credential that Jam holds,
+never the secret itself.
+It can also name `pool`,
+the shared pool of subscriptions,
+when the Jam has one.
+Jam adds the real credential on the way out,
+as it does for a xref:concepts/destination.adoc[destination].
+
+The principal can carry *header rules*:
+extra HTTP headers that Jam adds to the agent's requests to the model's service.
+A rule either sets a header to a value,
+or adds an item to a header that holds a list.
+For example, a subscription token outside the pool
+needs `anthropic-beta += oauth-2025-04-20`.
+Header rules never reach the role's other destinations,
+such as GitHub.
+
+== The model and the provider
+
+The spec can name a *model*,
+such as `claude-opus-5-5`,
+and an *effort*,
+such as `high`.
+When it names none,
+Claude Code uses its own default.
+
+The *provider* is the service that serves the model:
+`anthropic`, `vertex` (Google Vertex AI) or `bedrock` (Amazon Bedrock).
+*Provider env* adds settings the provider needs,
+such as the Vertex region.
+These values are not secret.
+
+The spec can also carry Claude Code *settings*,
+such as the color theme.
+Settings are preferences only.
+Permissions, hooks, MCP servers and plugins are not settings:
+other parts of the spec, the kit or the studio own them.
+
+== The policy
+
+The *policy* says what the agent may do without asking.
+Agents run with nobody to answer a question,
+so a tool use that would need a question is refused.
+
+Mode::
+One of Claude Code's permission modes:
+`default`, `acceptEdits`, `bypassPermissions` or `dontAsk`.
+With no mode, the agent runs as `bypassPermissions`:
+it uses any tool without asking.
+`plan` is not offered,
+because an agent could never leave it.
+Allow::
+Tools the agent may use without asking,
+in Claude Code's rule format,
+such as `+Bash(go test *)+`.
+In every mode except `bypassPermissions`,
+the agent may also always use its intercom tools.
+Deny::
+Tools the agent may never use.
+A deny rule wins over an allow rule,
+in every mode.
+
+== The default
+
+Jam makes a model spec named `claude-default`
+the first time it starts.
+It runs Claude Code at the version this Jam release ships,
+on the `anthropic` provider,
+in `bypassPermissions` mode,
+with the `superpowers` plugin
+and a set of display preferences.
+Its principal is the pool when the Jam has one,
+else the credential of the `anthropic` destination.
+
+A role that names no model spec runs `claude-default`.
+Jam does not change a `claude-default` that exists already,
+so a newer Jam release does not move it to a newer Claude Code.
+To change its version,
+edit it like any other spec.
+
+[#when-it-takes-effect]
+== When a change takes effect
+
+A role names its model spec on its page
+(xref:configuration/roles.adoc[]).
+When you change a spec,
+or the spec a role uses,
+each of the role's sessions takes the change
+at the start of its next turn.
+Until then, the session's connector shows *stale*.
+
+The version and the plugins are part of the studio image.
+A change to them builds a new image the next time a session of the role starts.
+A session that runs now keeps its image.
+If the new version is outside its version constraint,
+its next turn fails.
+To avoid that,
+set a constraint that admits both versions,
+such as `2.x`,
+before you change the version.
+
+You cannot delete a model spec that a role uses.
+This includes `claude-default`
+while any role names no spec.
+
+ifdef::internal[]
+== Notes for the team
+
+* The spec is the `model-spec` entity: `model-specs/<name>.yml` in the config repo
+(`+kind: model-spec+`, the Claude Code version as `harness-version`, no `name:`),
+the `+model_specs+` table, and the `+model_spec+` field of `GET /connector`.
+* The harness checks and applies the spec before each episode (`internal/agentrun/workload.go`);
+the version and plugins are build inputs of the harness layer, so they are in the image's build digest.
+* The seed is `jam.EnsureDefaultModelSpec` at `jam serve` startup, version `modelspec.DefaultClaudeVersion`.
+With no pool and no `anthropic` destination, nothing is seeded:
+unbound roles get no spec, and their studios keep the built-in defaults with no version check.
+* Header rules apply only on the destination that serves the provider's API
+(the one whose connector sets `+ANTHROPIC_BASE_URL+`, or `+ANTHROPIC_VERTEX_BASE_URL+` for vertex);
+`bedrock` specs have none, so their rules apply nowhere.
+A rule that names a header the destination's identity-in or apply spec uses is skipped, with a WARN.
+* `model.effort` is not checked at write; Claude Code takes `low` to `max`.
+* Depth: `docs/modules/ROOT/pages/usage/jam/model-specs.adoc`, `model-spec-harness.adoc`,
+`model-spec-headers.adoc` and `model-spec-policy.adoc`.
+endif::[]

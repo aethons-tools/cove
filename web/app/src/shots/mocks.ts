@@ -3,10 +3,10 @@
 // "METHOD /path" (with its query, or without to match any), each value the
 // JSON answer, built from the tests' fixtures. A request with no entry
 // answers 404, is logged and fails the shot, naming what it still needs.
-import type { ConfigBranches, Plan, Tracking, TreeNode, TreeResponse } from "../admin/api/types";
+import type { ConfigBranches, Plan, SpecListRow, SpecsResponse, Tracking, TreeNode, TreeResponse } from "../admin/api/types";
 import { adminBoot } from "../admin/fixtures";
 import { filledContext, project } from "../admin/projects/fixtures";
-import { dest, destFields, endpoint } from "../admin/specs/fixtures";
+import { dest, destFields, endpoint, spec, specFields } from "../admin/specs/fixtures";
 import type { AgentDetail, AgentListRow, AgentsResponse, CoveRow } from "../admin/api/types";
 import { agents as projectAgents, role } from "../admin/roles/fixtures";
 import { emptyContext } from "../admin/projects/fixtures";
@@ -27,7 +27,7 @@ const tree: TreeResponse = {
     group("config/users", "Users", leaf("config/users/usr_1", "alice")),
     group("config/kits", "Kits"),
     group("config/destinations", "Destinations", leaf("config/destinations/github", "github")),
-    group("config/model-specs", "Model Specs"),
+    group("config/model-specs", "Model Specs", leaf("config/model-specs/claude-default", "claude-default"), leaf("config/model-specs/review-opus", "review-opus")),
   ],
 };
 
@@ -154,6 +154,34 @@ const coder01: AgentDetail = {
   ],
 };
 
+// The manual's model specs (ROOT/concepts/model-spec and
+// ROOT/configuration/model-specs): the seeded claude-default, which acme's
+// roles run, and review-opus, a spec with a pinned model, a policy and a
+// header rule that no role runs yet.
+const specChoices = { types: ["claude"], principals: ["anthropic-key", "solo-sub"], modes: ["default", "acceptEdits", "bypassPermissions", "dontAsk"],
+  providers: ["anthropic", "vertex", "bedrock"] };
+const defaultSettings = ["agentPushNotifEnabled", "alwaysThinkingEnabled", "disableAgentView", "inputNeededNotifEnabled", "prefersReducedMotion",
+  "showThinkingSummaries", "showTurnDuration", "spinnerTipsEnabled", "theme"];
+const claudeDefault = spec({
+  name: "claude-default", choices: specChoices,
+  fields: specFields({ version: "2.1.322", principal: "anthropic-key", mode: "bypassPermissions",
+    note: "Seeded by Jam: the built-in Claude Code defaults every unbound role runs under.", plugins: "superpowers@claude-plugins-official",
+    settings: JSON.stringify(Object.fromEntries(defaultSettings.map((k) => [k, k === "theme" ? "dark" : k !== "spinnerTipsEnabled"])), null, 2) }),
+  plugins: ["superpowers@claude-plugins-official"], settingsKeys: defaultSettings,
+  uses: [{ project: "acme", role: "coder", implicit: true }, { project: "acme", role: "reviewer", implicit: true }],
+});
+const reviewOpus = spec({
+  name: "review-opus", choices: specChoices,
+  fields: specFields({ version: "2.1.322", versionConstraint: "2.x", principal: "solo-sub", modelId: "claude-opus-5-5", effort: "high", mode: "dontAsk",
+    headers: "anthropic-beta += oauth-2025-04-20", allow: "Bash(gh pr *)\nBash(go test *)\nRead", deny: "WebFetch",
+    plugins: "superpowers@claude-plugins-official", note: "For reviewers: Opus at high effort, read-only tools." }),
+  headerRules: [{ name: "anthropic-beta", op: "+=", value: "oauth-2025-04-20" }],
+  allow: ["Bash(gh pr *)", "Bash(go test *)", "Read"], deny: ["WebFetch"], plugins: ["superpowers@claude-plugins-official"], uses: [],
+});
+const specRow = (s: typeof claudeDefault): SpecListRow => ({ name: s.name, type: s.fields.type, version: s.fields.version, versionConstraint: s.fields.versionConstraint,
+  principal: s.fields.principal, modelId: s.fields.modelId, effort: s.fields.effort, mode: s.fields.mode, provider: s.fields.provider, usedBy: s.uses.length });
+const specList: SpecsResponse = { specs: [claudeDefault, reviewOpus].map(specRow), new: specFields({ version: "", principal: "" }), choices: specChoices };
+
 export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/bootstrap": adminBoot,
   "GET /app/admin/api/tree": tree,
@@ -167,4 +195,7 @@ export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/agents/ses_01jc3d9q7r": coder01,
   "GET /app/admin/api/projects/acme/agents": acmeAgents,
   "GET /app/admin/api/projects/acme/roles/reviewer": reviewer,
+  "GET /app/admin/api/model-specs": specList,
+  "GET /app/admin/api/model-specs/claude-default": claudeDefault,
+  "GET /app/admin/api/model-specs/review-opus": reviewOpus,
 };
