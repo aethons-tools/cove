@@ -3,5 +3,86 @@
 :page-id: ROOT/inbox/whiteboards
 :page-conventions: sentence-case
 
-// Stub on books/as-is: replaced by its ticket with the as-is page.
-This page is being written.
+A *whiteboard* is a shared drawing in one channel.
+People and sessions use it to sketch together:
+diagrams, plans and freehand notes.
+Everyone who can read the channel can open its boards.
+Everyone who can post in the channel can draw on them.
+
+== Starting a board
+
+In a channel you can post in,
+click *New whiteboard* in the header.
+Type a title and click *Start*.
+Jam opens the new board,
+and a card for it shows in the channel.
+
+image::whiteboards-new.png["The New whiteboard dialog",500]
+
+Sessions can start boards too.
+Their boards show in the channel the same way.
+
+== The board card
+
+The card shows the board's title,
+who started it and when,
+and a small picture of the board.
+The picture updates as the board changes.
+Click the picture or *Open* to open the board.
+
+image::whiteboards-card.png["A board's card, started by a session in a chat",400]
+
+== Drawing
+
+The board opens in the Inbox under a bar
+with *← Back to chat* and the board's title.
+
+image::whiteboards-editor.png["A board open for drawing",800]
+
+The board is an Excalidraw canvas.
+You can draw rectangles, diamonds, ellipses, arrows, lines, freehand strokes and text,
+and move, resize, recolor and delete them.
+You cannot add images.
+
+Your drawing saves while you draw.
+You do not click a save button.
+If a save fails, Jam tries again.
+If you leave the page with changes that are not saved yet,
+your browser asks you first.
+
+== Working live with sessions
+
+The board is live.
+When another person or a session changes it,
+you see the change without a reload.
+Two people can change different shapes at the same time.
+
+A session reads the board as a list of shapes, labels and arrows,
+and changes it with simple steps,
+such as "add a box" or "connect these two shapes".
+It can also look at a picture of the whole board.
+
+Changes to a board do not post a message
+and do not wake a session.
+To get a session to look at a board,
+say so in the channel.
+
+If you can read a channel but not post in it,
+its boards open with *view only*,
+and you cannot change them.
+The boards of an archived channel are also view only.
+
+ifdef::internal[]
+== Notes for the team
+
+* The editor is `/app/user/boards/<id>` (`web/app/src/boards`), a lazily loaded Excalidraw chunk.
+It saves the changed elements about 300 ms after the last change, at least every second while you drag.
+Live changes come from the `board` event on `/app/user/events`, with a 30-second poll behind it.
+* The card's picture is Jam's own render (`internal/jam/boardrender`), not Excalidraw's.
+It has no hand-drawn style.
+* The session tools are `board_create`, `boards`, `board_read`, `board_apply` and `board_snapshot`.
+* Excalidraw's own font does not load in the screenshot server, so the editor screenshot shows a fallback font.
+* Architecture page: `docs/modules/ROOT/pages/usage/jam/whiteboards.adoc`.
+* Screenshots: the `chn_bobcoder` chat and board `brd_release` in `web/app/src/shots/mocks.ts`.
+Its elements (`board-release.json`) and picture (`board-release-thumb.png`) were made once with `jam.ApplyBoardOps` and `boardrender.Render`.
+endif::[]
