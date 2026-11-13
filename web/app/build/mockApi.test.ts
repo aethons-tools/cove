@@ -37,6 +37,14 @@ describe("the mock API", () => {
     expect(p.api.misses).toEqual(["GET /app/admin/api/projects/zeta?section=intercom"]);
   });
 
+  it("answers an EventStream mock as Server-Sent Events", async () => {
+    const p = mockApi("/m.ts");
+    const mocks = { "GET /app/user/session/s1/thinking/events": { eventStream: [{ event: "stream", data: "a" }, { event: "ev", data: "{}" }] } };
+    const { res } = await serve(p, mocks, "GET", "/app/user/session/s1/thinking/events");
+    expect(res.body).toBe("retry: 86400000\n\nevent: stream\ndata: a\n\nevent: ev\ndata: {}\n\n");
+    expect(p.api.misses).toEqual([]);
+  });
+
   it("leaves everything outside the API to Vite", async () => {
     const p = mockApi("/m.ts");
     const { next } = await serve(p, {}, "GET", "/app/admin/config/projects/zeta");

@@ -10,7 +10,8 @@ import { dest, destFields, endpoint, spec, specFields } from "../admin/specs/fix
 import type { AgentDetail, AgentListRow, AgentsResponse, CoveRow } from "../admin/api/types";
 import { agents as projectAgents, role } from "../admin/roles/fixtures";
 import { emptyContext } from "../admin/projects/fixtures";
-import type { Bootstrap, ChannelRow, Conversation, MessageRow } from "../api/types";
+import type { Bootstrap, ChannelRow, Conversation, MessageRow, SessionHead, SessionPane, ThinkingEvent } from "../api/types";
+import type { EventStream } from "../../build/mockApi";
 import { card } from "../test/card";
 import { draftPage, draftView, kit, kitView } from "../admin/kits/fixtures";
 import type { KitsResponse } from "../admin/api/types";
@@ -329,6 +330,63 @@ const goTools = kit({
   files: { n: 2, size: "640 B", rows: [{ path: "Dockerfile", label: "Dockerfile", mode: "0644", size: 402 }, { path: "kit.yml", label: "kit.yml", mode: "0644", size: 138 }], hidden: 0 },
 });
 
+// The session view (ROOT/inbox/session): helper, alice's personal session in
+// acme, at work on the 1.14 release notes, with its header and each tab of
+// its pane.
+const helperId = "ses_helper";
+const helperColor = "#1c7ed6";
+const helperConv: Conversation = {
+  ...ops, channelId: "chn_helper", label: "helper", kind: "studio", sendTo: "chn_helper", lastSeq: 88,
+  canJoin: false, canLeave: false, callIn: [], session: helperId, color: helperColor,
+  sessionIds: [helperId], sessions: [{ label: "helper", text: "is running", tool: "Bash", class: "busy" }],
+  messages: [
+    msg({ seq: 85, from: "alice", mine: true, time: "2026-11-10T10:02:00Z",
+      body: "<p>Please draft the release notes for 1.14 from the changelog, and show me a preview.</p>",
+      raw: "Please draft the release notes for 1.14 from the changelog, and show me a preview." }),
+    msg({ seq: 87, from: "helper", color: helperColor, time: "2026-11-10T10:09:00Z",
+      body: "<p>The first draft is up at the <code>notes</code> preview. It covers <a href=\"https://github.com/acme/app/pull/57\">acme/app#57</a> and <a href=\"https://github.com/acme/app/pull/61\">acme/app#61</a>.</p>",
+      raw: "The first draft is up at the `notes` preview. It covers https://github.com/acme/app/pull/57 and https://github.com/acme/app/pull/61.",
+      files: [{ id: "blb_notes", name: "release-notes-1.14.md", size: "6 KB", image: false }] }),
+    msg({ seq: 88, from: "alice", mine: true, time: "2026-11-10T10:12:00Z",
+      body: "<p>Good. Add the upgrade steps for the cache change too.</p>", raw: "Good. Add the upgrade steps for the cache change too." }),
+  ],
+};
+const helperHead: SessionHead = {
+  id: helperId, label: "helper", channel: "chn_helper", kind: "personal", color: helperColor, ticket: "", role: "coder", project: "acme", owner: "alice",
+  state: { label: "helper", text: "is running", tool: "Bash", class: "busy" }, since: "2m", openAsks: 0,
+  cost: "$1.84", turnCost: "$0.21", tokens: "412,305 in / 18,940 out tokens",
+  context: "ctx 84k / 200k · 42%", contextTip: "context: 84,112 of 200,000 tokens (claude-opus-5-5)", uptime: "1h 12m",
+  mission: "Draft the 1.14 release notes", card: card({ session: helperId, name: "helper", color: helperColor, mission: "Draft the 1.14 release notes", focus: "Adding the upgrade steps" }),
+  ssh: "jam ssh ses_helper", canRelease: true, canRestart: false, canEnd: false, canUpgrade: false, ops: true,
+  canInterrupt: true, canCompact: true, canClear: false, restartLabel: "Restart", upgradeState: "",
+};
+const helperPane = (tab: string, over: Partial<SessionPane>): SessionPane => ({
+  id: helperId, tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false, ...over,
+});
+const stream = "4b1e7c20a9d35f18";
+const at = (hms: string) => Date.parse(`2026-11-10T${hms}Z`);
+const ev = (seq: number, hms: string, over: Partial<ThinkingEvent>): ThinkingEvent => ({
+  stream, seq, turn: 3, at: at(hms), kind: "text", tool: "", toolUseId: "", text: "", detail: "", detailTruncated: 0, isError: false,
+  truncatedBytes: 0, costUsd: 0, durationMs: 0, claudeSession: "c1", ...over,
+});
+const helperEvents: ThinkingEvent[] = [
+  ev(201, "10:12:04", { kind: "prompt", text: "alice: Good. Add the upgrade steps for the cache change too." }),
+  ev(202, "10:12:07", { kind: "thinking", text: "The cache change is #61. I need its upgrade notes: check the PR's description and the migration it adds." }),
+  ev(203, "10:12:09", { kind: "tool_call", tool: "Bash", toolUseId: "t1", text: "gh pr view 61 --json body -q .body", detail: "gh pr view 61 --json body -q .body" }),
+  ev(204, "10:12:11", { kind: "tool_result", tool: "Bash", toolUseId: "t1", text: "Moves the cache to Redis…", detail: "Moves the cache to Redis.\n\nUpgrade: set CACHE_URL before you restart." }),
+  ev(205, "10:12:14", { kind: "tool_call", tool: "Read", toolUseId: "t2", text: "docs/upgrade.md", detail: "docs/upgrade.md" }),
+  ev(206, "10:12:14", { kind: "tool_result", tool: "Read", toolUseId: "t2", text: "# Upgrading…", detail: "# Upgrading\n\n…" }),
+  ev(207, "10:12:20", { kind: "text", text: "I'll add an Upgrading section with the CACHE_URL step." }),
+  ev(208, "10:12:22", { kind: "tool_call", tool: "Edit", toolUseId: "t3", text: "notes/1.14.md", detail: "notes/1.14.md" }),
+  ev(209, "10:12:23", { kind: "tool_result", tool: "Edit", toolUseId: "t3", text: "ok", detail: "The file notes/1.14.md has been updated." }),
+  ev(210, "10:12:25", { kind: "tool_call", tool: "Bash", toolUseId: "t4", text: "npm run build --prefix notes", detail: "npm run build --prefix notes" }),
+];
+const helperThinking: EventStream = { eventStream: [
+  { event: "stream", data: stream },
+  ...helperEvents.map((e) => ({ event: "ev", data: JSON.stringify(e) })),
+  { event: "more", data: "201" },
+] };
+
 export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/bootstrap": adminBoot,
   "GET /app/admin/api/tree": tree,
@@ -359,4 +417,29 @@ export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/kits/review-kit?v=4&diff=3": reviewDiff,
   "GET /app/admin/api/kits/review-kit/draft": reviewDraft,
   "GET /app/admin/api/kits/go-tools": goTools,
+
+  "GET /app/user/api/conversations/chn_helper": helperConv,
+  "GET /app/user/api/conversations/chn_helper/presence": { sessions: helperConv.sessions },
+  "POST /app/user/api/conversations/chn_helper/read": {},
+  "GET /app/user/api/sessions/ses_helper": helperHead,
+  "GET /app/user/api/sessions/ses_helper/pane/thinking": helperPane("thinking", {
+    streams: [{ id: stream, firstAt: "2026-11-10T09:00:00Z", events: 210 }, { id: "9e03d6b1c4a27f50", firstAt: "2026-11-09T15:40:00Z", events: 96 }] }),
+  "GET /app/user/session/ses_helper/thinking/events": helperThinking,
+  "GET /app/user/api/sessions/ses_helper/pane/previews": helperPane("previews", { previews: [
+    { name: "notes", url: "https://notes--helper.jam-previews.example/", port: 4000, frame: true },
+    { name: "api", url: "https://api--helper.jam-previews.example/", port: 8080, frame: true },
+  ] }),
+  "GET /app/user/api/sessions/ses_helper/pane/artifacts": helperPane("artifacts", {
+    files: [{ id: "blb_notes", name: "release-notes-1.14.md", size: "6 KB", image: false }],
+    asks: [{ id: "ask_1", question: "Ship the notes with 1.14 or wait for 1.14.1?", state: "answered" }],
+    links: [{ url: "https://github.com/acme/app/pull/61", label: "app PR #61" }, { url: "https://github.com/acme/app/pull/57", label: "app PR #57" }],
+  }),
+  "GET /app/user/api/sessions/ses_helper/pane/status": helperPane("status", { status: [
+    { name: "State", value: "is running Bash" }, { name: "In this state", value: "2m" }, { name: "Up", value: "1h 12m" },
+    { name: "Model spec", value: "claude-default" }, { name: "Kit", value: "default@v3" }, { name: "Image", value: "jam-studio:1.14.0" },
+    { name: "Alarm pr-check", value: "*/10 * * * * · next Nov 10 10:20" },
+    { name: "Turns", value: "3 (2 episodes)" }, { name: "Tool calls", value: "58 (1 error)" }, { name: "Tokens", value: "412,305 in / 18,940 out" },
+    { name: "Context", value: "84,112 of 200,000 tokens (claude-opus-5-5)" }, { name: "Cost", value: "$1.84" }, { name: "This turn", value: "$0.21" },
+    { name: "Last event", value: "just now" },
+  ] }),
 };
