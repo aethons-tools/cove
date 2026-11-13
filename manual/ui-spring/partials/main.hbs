@@ -1,11 +1,11 @@
 {{!-- Jam (adapted from antora-ui-spring's main.hbs, MPL-2.0). --}}
 <main class="article">
 {{> toolbar}}
-{{!-- Jam: breadcrumbs and the Next/Goal banners sit outside article.doc, the only part the search index reads. --}}
+{{!-- Jam: breadcrumbs and the Next/Goal banners (admonitions, so in a div.doc for their styles) sit outside article.doc, the only part the search index reads. --}}
 <div class="jam-above-doc">
 {{> breadcrumbs}}
-{{#if (eq page.version 'next')}}<p class="jam-banner">Merged, not released yet.</p>{{/if}}
-{{#if (eq page.version 'goal')}}<p class="jam-banner">How it should work, not necessarily how it works today.</p>{{/if}}
+{{#if (eq page.version 'next')}}<div class="doc jam-banner"><div class="admonitionblock note"><table><tr><td class="icon"><i class="fa icon-note" title="Next"></i></td><td class="content">Merged, not released yet.</td></tr></table></div></div>{{/if}}
+{{#if (eq page.version 'goal')}}<div class="doc jam-banner"><div class="admonitionblock important"><table><tr><td class="icon"><i class="fa icon-important" title="Goal"></i></td><td class="content">How it should work, not necessarily how it works today.</td></tr></table></div></div>{{/if}}
 </div>
   <div class="content">
 {{#if (eq page.layout '404')}}
