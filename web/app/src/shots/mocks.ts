@@ -15,6 +15,7 @@ import type { EventStream } from "../../build/mockApi";
 import { card } from "../test/card";
 import { draftPage, draftView, kit, kitView } from "../admin/kits/fixtures";
 import type { KitsResponse } from "../admin/api/types";
+import type { ChannelLog, Dashboard, Health, SearchResult } from "../admin/api/types";
 import type { ChainRow, MemberRow, ProjectsResponse, SquawkRow, UserDetail, UserRow, UsersResponse } from "../admin/api/types";
 import boardRelease from "./board-release.json";
 import boardReleaseThumb from "./board-release-thumb.png?inline";
@@ -22,17 +23,24 @@ import boardReleaseThumb from "./board-release-thumb.png?inline";
 const leaf = (path: string, label: string): TreeNode => ({ path, label, group: false, badge: 0, badgeRed: false, badgeTitle: "", children: [] });
 const group = (path: string, label: string, ...children: TreeNode[]): TreeNode => ({ ...leaf(path, label), group: true, children });
 
+// badged is a node with one config item at or under it (the dashboard page,
+// ROOT/configuration/dashboard: acme's infra chain names user:sre, who is
+// nobody there).
+const badged = (n: TreeNode): TreeNode => ({ ...n, badge: 1, badgeTitle: "1 config" });
+
 const acme = "config/projects/acme";
+const projectNode = (name: string, base = "config/projects/" + name) => group(base, name,
+  group(base + "/members", "Members"), group(base + "/agents", "Agents"), leaf(base + "/intercom", "Intercom"), leaf(base + "/escalation", "Escalation"));
 const tree: TreeResponse = {
   nodes: [
     leaf("config/tracking", "Tracking"),
-    group("config/projects", "Projects", group(acme, "acme",
+    badged(group("config/projects", "Projects", badged(group(acme, "acme",
       group(acme + "/members", "Members", leaf(acme + "/members/usr_1", "alice")),
       group(acme + "/agents", "Agents", leaf(acme + "/agents/coder", "coder"), leaf(acme + "/agents/reviewer", "reviewer")),
       leaf(acme + "/intercom", "Intercom"),
-      leaf(acme + "/escalation", "Escalation"),
-    )),
-    group("config/users", "Users", leaf("config/users/usr_1", "alice")),
+      badged(leaf(acme + "/escalation", "Escalation")),
+    )), projectNode("default"), projectNode("website"))),
+    group("config/users", "Users", leaf("config/users/usr_1", "alice"), leaf("config/users/usr_2", "bob"), leaf("config/users/usr_3", "carol")),
     group("config/kits", "Kits", ...["default", "go-tools", "review-kit", "web-dev"].map((k) => leaf("config/kits/" + k, k))),
     group("config/destinations", "Destinations", leaf("config/destinations/github", "github")),
     group("config/model-specs", "Model Specs", leaf("config/model-specs/claude-default", "claude-default"), leaf("config/model-specs/review-opus", "review-opus")),
@@ -194,7 +202,7 @@ const specList: SpecsResponse = { specs: [claudeDefault, reviewOpus].map(specRow
 // with the ops room open, and whom she may start a conversation with.
 const userBoot: Bootstrap = {
   brand: "Acme Jam", user: { id: "usr_1", name: "alice", initial: "A" }, roles: "member", admin: false, signOut: true,
-  tabs: [{ key: "inbox", label: "Inbox", href: "/app/user/", badge: 3, badgeRed: false, badgeTitle: "" }],
+  tabs: [{ key: "inbox", label: "Inbox", href: "/app/user/", badge: 0, badgeRed: false, badgeTitle: "" }],
   attachMax: 25 << 20, pushKey: "BKmanual-shot-vapid-key", boards: true, pushFocus: false, newSession: false,
 };
 const row = (over: Partial<ChannelRow>): ChannelRow => ({
@@ -484,8 +492,63 @@ const appTokens: AppTokensResponse = {
   ],
 };
 
+// The dashboard, search and health (ROOT/configuration/dashboard, and the
+// title bar on ROOT/start/signing-in): two open conditions, the stale
+// reviewer-bot and acme's unknown escalation target, badged on the tabs;
+// the dashboard's tiles count the agents above.
+const adminTabs = adminBoot.tabs.map((t) => ({ ...t, ...{
+  dashboard: { badge: 4, badgeRed: true, badgeTitle: "1 broken · 1 out of date · 1 config · 1 warning" },
+  config: { badge: 1, badgeRed: false, badgeTitle: "1 config" },
+  agents: { badge: 1, badgeRed: false, badgeTitle: "1 out of date" },
+  health: { badge: 2, badgeRed: true, badgeTitle: "1 broken · 1 warning" },
+}[t.key] }));
+const credDown = "credential anthropic-key cannot be resolved; brokered requests using it fail (502)";
+const diskFull = "manager mac-mini disk 91% full (182.0GiB of 200.0GiB used)";
+const dashboard: Dashboard = {
+  stats: { studios: 4, running: 1, waiting: 1, settingUp: 1, idled: 1, attention: 0, projects: 3, agents: 5, users: 3, specs: 7 },
+  attention: [{ kind: "broken", why: credDown, path: "health" }, { kind: "alert", why: diskFull, path: "health" }],
+  jamContext: { ...emptyContext, scope: "Jam-wide", showResources: false }, jamNotes: { markdown: "", html: "" },
+  hasManagers: true,
+  managers: [{ name: "mac-mini", connected: true, version: "1.14.0", studios: 4, capacity: 8, lastSeen: "10:44:02", strays: [],
+    host: { at: "10:44:02", mem: "11.2GiB / 32.0GiB", memPct: 35, disk: "182.0GiB / 200.0GiB", diskPct: 91, reclaimable: "24.5GiB",
+      reclaimableDetail: "images 18.0GiB · build cache 6.5GiB · volumes 0B", lastCleanup: "Nov 12 06:00: freed 12.3GiB (above high mark)" },
+    activities: ["preparing kit review-kit@v4: building step 7/12 (2m)"] }],
+  coves: agentRows.filter((a) => a.hasStudio).map((a) => ({ ...coveRow(a), manager: "mac-mini",
+    attn: a.image === "stale" ? { kind: "stale", why: a.id + ": image stale" } : null })),
+};
+const health: Health = {
+  open: [
+    { key: "cred.unavailable:anthropic-key", severity: "critical", summary: credDown, age: "12m", lasted: "", detail: "",
+      fix: "check the credentials file has anthropic-key, then restart jam serve" },
+    { key: "manager.disk:mac-mini", severity: "warning", summary: diskFull, age: "3h", lasted: "",
+      detail: "reclaimable: images 18.0GiB, build cache 6.5GiB, volumes 0B",
+      fix: "free disk in the manager's VM (jam-colima cleans up automatically above its high mark), or grow the VM disk (colima stop; colima start --disk <GiB>)" },
+  ],
+  resolved: [
+    { key: "config.follow:jam", severity: "warning", summary: "the Jam could not apply its config repo", fix: "", detail: "", age: "1d", lasted: "25m" },
+    { key: "pool.account.refresh:solo", severity: "warning", summary: "pool account solo cannot refresh its token", fix: "", detail: "", age: "3d", lasted: "2h" },
+  ],
+  silences: "https://alerts.acme.example/#/silences",
+};
+const hit = (title: string, sub: string, path: string) => ({ title, sub, path, exact: false });
+const searchReview: SearchResult = { q: "review", tooShort: false, total: 6, jump: "", groups: [
+  { key: "agents", name: "Agents", count: 2, more: "", hits: [
+    hit("ci-bot", "grants: acme/reviewer", "agents/ci-bot"),
+    hit("ses_01jc2b8k4m", "acme/reviewer · waiting", "agents/ses_01jc2b8k4m")] },
+  { key: "roles", name: "Roles", count: 1, more: "", hits: [hit("acme/reviewer", "destinations: github · kit review-kit", acme + "/agents/reviewer")] },
+  { key: "kits", name: "Kits", count: 1, more: "", hits: [hit("review-kit", "current v4 · " + reviewPrompt, "config/kits/review-kit")] },
+  { key: "model-specs", name: "Model-specs", count: 1, more: "", hits: [hit("review-opus", "claude · anthropic-key · claude-opus-5-5", "config/model-specs/review-opus")] },
+  { key: "squawks", name: "Squawks", count: 1, more: "health/intercom?q=review", hits: [
+    hit("Can you review the login fix before I open the PR?", "Nov 12 10:38 · coder-01 → coder-01", "health/intercom?q=review")] },
+] };
+const channelLog: ChannelLog = { configured: true, legacy: false, filtered: false, badDate: false, rows: acmeSquawks };
+
 export const mocks: Record<string, unknown> = {
-  "GET /app/admin/api/bootstrap": adminBoot,
+  "GET /app/admin/api/bootstrap": { ...adminBoot, name: "Local admin", tabs: adminTabs },
+  "GET /app/admin/api/dashboard": dashboard,
+  "GET /app/admin/api/health": health,
+  "GET /app/admin/api/intercom": channelLog,
+  "GET /app/admin/api/search?q=review": searchReview,
   "GET /app/admin/api/tree": tree,
   "GET /app/admin/api/config/branches": branches,
   "GET /app/admin/api/config/branches/pr": { url: "" },

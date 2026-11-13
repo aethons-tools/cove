@@ -3,5 +3,259 @@
 :page-id: ROOT/configuration/dashboard
 :page-conventions: sentence-case
 
-// Stub on books/as-is: replaced by its ticket with the as-is page.
-This page is being written.
+The admin console is the part of the Jam app for admins,
+at `/app/admin`
+(xref:start/signing-in.adoc[Signing in and finding your way]).
+It has four tabs in the title bar:
+
+Dashboard::
+The Jam at a glance, and what needs attention.
+Config::
+Every configured thing, in a tree:
+projects, users, kits, destinations and model specs.
+Agents::
+Every agent, running or not
+(xref:configuration/agents.adoc[An agent's page]).
+Health::
+Problems Jam found in itself,
+and the Channel log.
+
+image::title-bar-admin.png[The admin console's tabs, with attention badges, and the search box,800]
+
+== The Config tree
+
+The *Config* pages show a tree on the left.
+Click a name to open its page.
+Click ▸ to open a group and ▾ to close it.
+The tree remembers which groups you opened,
+and the group of the page you are on is always open.
+
+image::config-tree.png[The Config tree, open at acme's Escalation,300]
+
+The tree holds:
+
+* *Tracking*: the config repo the Jam follows
+(xref:configuration/config-branches.adoc[Editing on a branch and applying the config repo]).
+* *Projects*: each project,
+with its *Members*, *Agents* (its roles), *Intercom* and *Escalation*
+(xref:configuration/projects.adoc[Configuring a project],
+xref:configuration/roles.adoc[Configuring roles and raising agents]).
+* *Users* (xref:configuration/users.adoc[Configuring users]).
+* *Kits* (xref:configuration/kits.adoc[Configuring a kit]).
+* *Destinations* (xref:configuration/destination.adoc[Configuring a destination]).
+* *Model Specs* (xref:configuration/model-specs.adoc[Configuring a model spec]).
+
+Type in *Filter* above the tree to show only the names that match.
+While you filter, every group is open.
+The tree refreshes every 3 seconds.
+
+[#search]
+== Search
+
+The search box in the title bar looks through the whole Jam at once.
+Press `/` anywhere outside a text field to jump to it.
+Type at least 2 characters and press Enter.
+
+* If one thing's name is exactly what you typed,
+such as an agent's id or `acme/reviewer`,
+Jam opens its page.
+* Otherwise the *Search* page lists the matches,
+in groups.
+Each match links to its page.
+Type in the box on that page to search again as you type.
+
+image::search.png[Search results for "review",700]
+
+Search finds agents, roles, projects, kits, destinations, model specs, users and rooms,
+by name and by what they contain:
+an agent's ticket and owner,
+a role's kit and destinations,
+a kit's prompt and allowed hosts,
+a destination's routes and addresses,
+or a user's logins and account handles.
+It also finds message text:
+it shows the 10 newest messages that match,
+with a link to the Channel log for the rest.
+Case does not matter.
+
+== The dashboard
+
+The *Dashboard* tab is the console's first page.
+It refreshes every 3 seconds.
+
+image::dashboard.png[The dashboard,800]
+
+From top to bottom:
+
+* *Tiles* that count the agents by status:
+*Running*, *Waiting*, *Setting up*, *Lost / terminating* and *Idled*.
+Click one to open the *Agents* tab showing only those agents.
+Then come the counts of *Projects*, *Agents*, *Users* and *Specs*
+(kits, destinations and model specs together).
+All but *Projects* open their list.
+* *Needs attention*: problems with the Jam itself
+(below).
+* *Operator notes*,
+when the Jam's own config file has notes for operators.
+Agents never see them.
+* *Agent context*: what every agent on this Jam is told
+(xref:projects:agent-context.adoc[]).
+* *Managers*,
+when the Jam runs its studios on Studio Managers:
+each one's status, version, how many studios it runs and can run,
+when it was last seen,
+memory and disk use,
+how much disk it could free,
+its last clean-up,
+and what it is doing now, such as building a kit.
+The disk bar turns amber at 90% and red at 95%.
+* *Running agents*: every agent that has a studio,
+with its status,
+whether its connector and image are up to date,
+its project, role, manager and ticket,
+and when Jam last heard from it.
+*timeline* opens the agent's live session.
+
+=== Needs attention
+
+*Needs attention* lists the problems that belong to the Jam as a whole,
+rather than to one project:
+
+* a problem on the *Health* tab that is critical or a warning,
+* a kit whose current version Jam cannot read,
+* a destination that clashes with another one for a role.
+
+Each line says what is wrong,
+and links to the page where you fix it.
+Its tag says what kind of problem it is:
+*broken*, *warning* or *config*.
+When there is nothing,
+the card says *Nothing needs attention.*
+
+Problems in a project,
+such as an agent whose studio is out of date,
+are not on this card:
+the badges show them.
+
+[#attention-badges]
+== Attention badges
+
+The console counts everything that needs an admin,
+and shows the count as a badge.
+A badge is *red* when at least one thing in it is broken,
+and *amber* otherwise.
+Point at a badge to see what it counts,
+such as `1 broken · 1 out of date`.
+
+On the tabs:
+
+* *Agents* counts agents whose studio is broken
+(lost, terminating, recovering, or failing to update its network rules)
+or out of date (an old image or connector).
+* *Config* counts configuration that names something that is not there:
+a role whose kit or model spec is gone,
+an escalation target who is nobody in the project,
+a kit Jam cannot read,
+or a destination that clashes with another one.
+* *Health* counts the open critical and warning problems.
+* *Dashboard* counts all of them.
+
+In the *Config* tree,
+a badge counts the configuration problems at that item or below it.
+For example, a project's badge adds up its roles' and its escalation's problems.
+In the agent tables,
+a red or amber *!* next to an agent marks its problem;
+point at it to see why.
+One agent counts once, as its worst problem.
+
+The tree's badges refresh every 3 seconds.
+The tabs' badges refresh each time you open a page.
+
+== The Health tab
+
+*Health* lists the problems Jam has found in itself,
+each with how to fix it.
+It refreshes every 10 seconds.
+
+image::health.png[The Health tab,800]
+
+*Open* lists the problems that are still there.
+Each one shows:
+
+* its severity:
+*critical* (agents fail now),
+*warning* (something works badly, or soon will),
+or *info* (shown here only),
+* what is wrong, and for how long,
+* how to fix it, in a box you can copy from,
+* sometimes *Detail*, which you open for more,
+* its key, which names the problem and the thing it is about.
+
+A problem closes by itself when Jam sees the thing work again.
+*Resolved (7 days)* lists the ones that closed in the last week,
+how long each one lasted,
+and when it closed.
+
+Jam raises problems such as:
+
+* a credential it cannot get,
+* a pooled account whose token will not refresh,
+* push notifications that keep failing,
+* a Studio Manager whose disk is nearly full,
+* a kit that could not be moved to the new format,
+or still uses an old name,
+* a destination that sets a name reserved for Jam,
+* a config repo that Jam could not apply,
+or whose first apply waits for you to confirm it.
+
+If your team gets alerts from Alertmanager,
+*Silences ↗* opens its page,
+where you can quiet an alert you know about.
+
+== The Channel log
+
+*Channel log*, linked from the top of *Health*,
+shows every message in every channel,
+newest first.
+You can only read it here.
+
+image::channel-log.png[The Channel log,800]
+
+Each row shows when the message was sent,
+who sent it,
+its channel and project,
+and the message.
+Click an agent's name to open its page,
+or a channel to see only its messages.
+
+To narrow the list,
+fill in any of the filters and click *Filter*:
+
+* *Project*.
+* *Participant*: the id of a user, an agent, an account or a channel.
+* *Body contains*: text in the message.
+* *Since* and *Until*: dates, taken as whole days in UTC.
+A date Jam cannot read is left out,
+and the page says so.
+
+The filters go into the page's address,
+so you can share a filtered view as a link.
+*Reset* clears them.
+The list does not update by itself;
+click *Refresh* to see new messages.
+
+If your Jam was upgraded from the old message log,
+choose *Legacy* under *Log* to read the messages from before the upgrade.
+
+ifdef::internal[]
+== Notes for the team
+
+* The console's pages and URLs: `docs/modules/ROOT/pages/usage/jam/ui-console.adoc`;
+the badges: `ui-attention.adoc`;
+conditions, `/metrics` and the Alertmanager bundle: `monitoring.adoc`.
+* Code: `web/app/src/admin/dash`, `admin/health`, `admin/search`, `admin/config/ConfigTree.tsx`;
+on the server, `internal/jam/adminui/attention.go` (the attention items), `tree.go`, `search.go`, `api_dash.go`.
+* The Needs attention card lists the Jam-scope items only (conditions, kits, destinations); a project's items are on the badges and rows.
+* Operator notes on the dashboard come from `operator-notes` in `jam.yml`; the card is read-only there.
+* `jam attention list` shows the same conditions on the command line.
+endif::[]
