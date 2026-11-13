@@ -3,5 +3,127 @@
 :page-id: ROOT/concepts/escalation
 :page-conventions: sentence-case
 
-// Stub on books/as-is: replaced by its ticket with the as-is page.
-This page is being written.
+When an agent needs a person,
+it does not have to wait until someone happens to look.
+*Escalation* calls people into the agent's channel,
+one group after another,
+until someone answers.
+Each xref:concepts/project.adoc[project] sets its own escalation;
+a project that sets none does not escalate.
+To set it up, see xref:configuration/projects.adoc#escalation[Configuring a project].
+
+== When an agent asks for a person
+
+Every agent's turn ends in *waiting*
+(xref:concepts/agent.adoc#_waiting_and_waking[Waiting and waking]).
+Most waiting needs nobody.
+Jam escalates only while a waiting session has asked for a person.
+A session asks for a person when:
+
+* it has an open xref:inbox/asks.adoc[ask];
+* a ticket session reports that it *needs input*;
+* it asks for a person with its `escalate` tool.
+
+This works for every kind of session:
+standing, ticket, personal and manual.
+A session that asked to end,
+or that is ending or gone,
+is never escalated.
+
+== Tiers and chains
+
+A *chain* is an ordered list of *tiers*.
+Each tier names one or more people,
+and how long to wait for them.
+
+[source]
+----
+user:alice,user:bob@15m
+user:carol@1h
+----
+
+Here alice and bob are tier 0.
+If nobody answers within 15 minutes,
+carol is tier 1.
+
+A tier names people by `user:` and the user's name or id.
+They must be members of the project.
+Jam skips a name that is not a member,
+and anything that is not a person, such as a room.
+A tier that names nobody Jam can call in calls no one,
+but its wait still runs,
+so a mistake in one tier never stops the chain.
+
+== Categories
+
+A project has a *default chain*,
+and can have more chains, one for each *category*.
+A category is a word that says what kind of help is needed,
+such as `infra` or `code-review`.
+You choose the categories.
+
+An agent names a category when it asks for a person with its `escalate` tool.
+Jam then uses that category's chain.
+If the agent names no category,
+or one the project has no chain for,
+Jam uses the default chain.
+The category stays until the agent names another one,
+or the session ends.
+
+== Who gets called in, and when
+
+When a session that asked for a person starts to wait:
+
+. Jam calls in tier 0 at once.
+Jam checks every 30 seconds,
+so this can take up to half a minute.
+. If the tier's wait passes and the session still waits,
+Jam calls in the next tier.
+. After the last tier, Jam stops.
+It does not start again from tier 0,
+and it never ends the session.
+
+To be *called in* means to join the session's own channel
+(xref:concepts/intercom.adoc#_joining_leaving_and_calling_in[Joining, leaving and calling in]).
+The session posts a note there, such as:
+
+----
+Needs input from acme-42 on ACME-42 — called in alice, bob (escalation tier 0).
+----
+
+The note reaches each person like any other message in the channel:
+in the Inbox,
+and on Discord when the project uses it.
+People called in stay in the channel afterwards,
+and can leave it.
+
+== Answering
+
+Answer in the session's channel, as you would any message.
+Your answer wakes the session.
+Escalation does not watch for answers itself:
+it stops because the session is no longer waiting.
+The next time the session asks for a person and waits,
+escalation starts again from tier 0.
+
+On an agent's page,
+*Waiting and escalation* shows the open escalation:
+the tier called in last, when, and on which chain
+(xref:configuration/agents.adoc[]).
+
+ifdef::internal[]
+== Notes for the team
+
+* The engine is `internal/escalate` (`escalate.go`).
+It polls every `runtime.escalation-poll-interval` (default 30s).
+"Asked for a person" is `jam.AskedForPerson`:
+`EscalationAsked` (the `escalate` tool, cleared on the next wake),
+open asks, or a `needs-input` report.
+* A tier's state (`EscalationTier`, `TierPingedAt`) resets each time the session enters Waiting.
+* The call-in and notice are `Intercom.Escalate` (`internal/jam/intercom_escalate.go`);
+Jam acts on the operator's policy, so the role's addressing is not checked.
+* The chains are `escalation` and `escalation-by-category` in `projects/<p>/project.yml`;
+`jam project escalation list <project>` prints them.
+* Not built: Jam choosing a category itself, tiers that call in a session or post to a room, showing the tier in `jam studio list`.
+* Depth: `docs/modules/ROOT/pages/usage/jam/escalation.adoc`.
+endif::[]

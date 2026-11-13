@@ -3,5 +3,188 @@
 :page-id: ROOT/configuration/projects
 :page-conventions: sentence-case
 
-// Stub on books/as-is: replaced by its ticket with the as-is page.
-This page is being written.
+You see and change a xref:concepts/project.adoc[project] under *Config › Projects*.
+Each project has an overview page,
+and below it, in the tree,
+*Members*, *Agents*, *Intercom* and *Escalation*.
+To change a project you must be on a branch of the config repo
+(xref:configuration/config-branches.adoc[]);
+each save is a commit to that branch.
+On the followed branch the pages are read-only.
+
+The *Agents* page,
+with the project's roles and agents,
+has its own page in this manual:
+xref:configuration/roles.adoc[].
+
+== The project list
+
+image::projects-list.png[The project list,800]
+
+*Projects* lists every project,
+with how many members, roles and rooms it has.
+Click a name to open the project.
+
+On a branch, *New project* takes a *Name*.
+*Create project* makes the project and opens it.
+
+== The overview
+
+image::project-overview.png[The acme project's overview, on a branch,800]
+
+The heading shows the project's name
+and its chat service,
+or *tracker @-mentions only* when it has none.
+
+On a branch, the heading also has:
+
+*Rename*::
+Type the new name and click *Rename*.
+The page opens at the new name.
+You cannot rename `default`.
+Jam treats a renamed project as a new project
+(xref:concepts/project.adoc#_names_and_ids[Names and ids]).
+*Delete*::
+Asks you to confirm, then deletes the project
+and returns to the project list.
+While something still uses the project,
+the button is off;
+point at it to see what uses it, such as `3 member(s)`.
+Remove that first.
+
+*Operator notes* hold notes for operators only;
+agents never see them.
+On a branch, *Add notes* or *Edit* changes them.
+
+Four tiles count the project's members,
+its agents (live of all) and roles,
+its rooms,
+and its escalation chains.
+Click a tile to open that page.
+
+*Chat service* says where members get messages outside Jam:
+*none — tracker @-mentions only*,
+or a Discord connection.
+On a branch, pick one and click *Save*.
+
+Below is the project's *Agent context* card
+(xref:projects:agent-context.adoc[]).
+
+== Members
+
+image::project-members.png[The acme project's Members page, on a branch,800]
+
+*Members* lists the users that agents in the project can send messages to.
+For each one it shows:
+
+* *User*: their name. Click it to open the member's page.
+* *Handle*: their @-handle on the project's tracker,
+from their accounts (xref:configuration/users.adoc#accounts[Accounts]).
+* *Delivery*: where Jam sends them messages outside Jam in this project,
+such as their own Discord channel.
+
+On a branch:
+
+* *Add member* takes a *User* (a user's name)
+and an optional *Delivery*:
+one `service:address` per line,
+such as `discord:<channel id>`.
+The user must already exist
+(xref:configuration/users.adoc[]).
+* *Edit* on a member's row changes their delivery.
+Click *Save* with their name to keep it.
+* *Remove* takes them out of the project,
+after you confirm.
+
+=== A member's page
+
+image::project-member.png[alice's page under the acme project,800]
+
+The member's page shows *Member of _project_*,
+with their delivery in this project.
+On a branch, *Remove from _project_* takes them out of the project
+and returns to *Members*.
+To change their delivery, use *Edit* on the *Members* page.
+
+Below is the user's own page,
+the same as under *Config › Users*
+(xref:configuration/users.adoc#_a_users_page[A user's page]).
+
+== Intercom
+
+image::project-intercom.png[The acme project's Intercom page,800]
+
+*Rooms* lists the project's rooms
+(xref:concepts/intercom.adoc[]).
+For each room it shows its *Name*,
+the *Connection* it is bound to and that connection's service,
+and its *Ref*:
+the channel or issue on that service,
+such as a Discord channel id or a tracker issue such as `ACME-1`.
+A room marked *post-only* posts to its ref,
+but replies there go to another room that has the same ref.
+
+On a branch:
+
+* *Add room* takes a *Name*,
+a *Connection* (a connection's name, or a service such as `discord` for its connection)
+and a *Ref*.
+If a room with that name exists,
+it is bound to the new connection and ref instead.
+* *Remove* removes a room, after you confirm.
+
+*Recent messages* shows the newest 50 messages in the project's channels:
+when, who from, in which channel, and the message.
+*Full log* opens the channel log of the whole Jam,
+filtered to this project.
+
+[#escalation]
+== Escalation
+
+image::project-escalation.png[The acme project's Escalation page, on a branch,800]
+
+*Chains* shows the project's xref:concepts/escalation.adoc[escalation chains]:
+first the *default chain*,
+then one for each *category*.
+Each tier is a numbered line:
+the people it calls in,
+then how long Jam waits for them.
+A target shown in red names nobody among the project's members:
+Jam skips it.
+It is a warning only;
+you can save it.
+*No escalation policy.* means the project has no chains.
+
+On a branch, you change a chain as text, one tier per line:
+targets separated by commas, `@`, then the wait.
+The first line is tier 0.
+The wait is a time such as `10m`, `1h` or `1h30m`.
+
+image::project-escalation-edit.png[Editing the default chain,800]
+
+* *Edit default chain* opens the default chain.
+*Save chain* keeps it;
+*Clear* removes it, after you confirm.
+* *Edit*, under a category's chain, does the same for that chain.
+* *Add category chain* takes a *Category* and its *Tiers*.
+If the category already has a chain,
+the new tiers replace it.
+
+A chain needs at least one tier,
+and each tier needs at least one target and a wait.
+To remove a chain, use *Clear*.
+
+ifdef::internal[]
+== Notes for the team
+
+* Pages: `web/app/src/admin/projects/` (`ProjectsPage`, `ProjectPage`, `MembersPage`, `MemberPage`, `IntercomPage`, `EscalationPage`);
+API under `/app/admin/api/projects[/<project>[/…]]` (`internal/jam/adminui/api_projects.go`).
+* Config: `projects/<p>/project.yml` (`members[].delivery`, `rooms`, `chat-service`, `escalation`, `escalation-by-category`).
+* The chain editor's hint shows `channel:eng` as a target, and a room's name is not flagged red,
+but the escalation engine calls in people only (`internal/escalate`, `resolveMembers`):
+a `channel:` target is skipped.
+* A delivery line with a Discord user id (`discord:<channel>:<user id>`) is refused:
+the user id is an account, added on the user's page.
+* *Delete* is off while `projectRef` finds a member, standing agent, role, session not yet gone or grant.
+* Depth: `docs/modules/ROOT/pages/usage/jam/ui-projects.adoc`, `projects.adoc`, `comms-addressing.adoc`, `escalation.adoc`.
+endif::[]

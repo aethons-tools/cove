@@ -3,5 +3,130 @@
 :page-id: ROOT/configuration/users
 :page-conventions: sentence-case
 
-// Stub on books/as-is: replaced by its ticket with the as-is page.
-This page is being written.
+A *user* is a person that Jam knows:
+someone who signs in,
+and whom agents can send messages to.
+A user is one person on the whole Jam,
+even when they are a member of several projects.
+You see and change users under *Config › Users*.
+
+The user's name, logins and removal are part of the config repo:
+you change them on a branch
+(xref:configuration/config-branches.adoc[]),
+and each save is a commit to that branch.
+OIDC identities, accounts and connected apps change at once,
+on any branch, including the followed one.
+
+To add a user to a project,
+use the project's *Members* page
+(xref:configuration/projects.adoc#_members[Configuring a project]).
+
+== The users list
+
+image::users-list.png[The users list,800]
+
+*Users* lists every user,
+with their logins,
+their accounts (each with its connection and handle or user id),
+and the projects they are a member of.
+Click a name to open the user's page.
+
+On a branch, *New user* takes:
+
+* a *Name*, unique on the Jam;
+* optional *Logins*, one per line;
+* optional *OIDC identities*, one per line, as `issuer:subject`.
+
+*Create user* makes the user and opens their page.
+
+== A user's page
+
+image::user-page.png[alice's page, on a branch,800]
+
+The heading shows the user's name and id.
+On a branch, *Remove user* removes them, after you confirm
+(<<removing-a-user,Removing a user>>).
+*Operator notes* hold notes for operators only.
+
+Name::
+On a branch, type a new name and click *Rename*.
+Jam refuses while the user owns a running personal agent.
+Escalation tiers that name the user by name do not change with it:
+update them after a rename
+(xref:configuration/projects.adoc#escalation[Escalation]).
+Projects::
+The projects the user is a member of.
+Click one to open it.
+Logins::
+The sign-in identities of this person in the admin console,
+one per line,
+such as the subject of their single sign-on login,
+or `local` on a Jam you reach on your own machine.
+They tell Jam who is behind a request,
+for example who owns a personal agent.
+On a branch, *Save logins* replaces the whole list.
+OIDC identities::
+The browser logins for this person in the Inbox,
+one per line, as `issuer:subject`.
+*Save identities* replaces the whole list.
+
+A login or identity belongs to one person only:
+Jam refuses one that another user already has.
+
+[#accounts]
+=== Accounts
+
+*Accounts* are this person on the services that Jam is connected to:
+their handle on the tracker,
+or their Discord user id.
+Jam uses them to know who wrote a comment or a reply there,
+and to @-mention the person.
+Each row shows the *Connection*,
+the service's *User id*,
+the *Handle*,
+and Jam's id for the account.
+
+* *Add account* takes a *Connection*,
+the service's *User id* (such as a Discord user id)
+and the *Handle* (without the @).
+* *Unlink* takes the account away from this user, after you confirm.
+
+=== Connected apps
+
+*Connected apps* lists the apps,
+such as VS Code,
+that are signed in as this person:
+each with when it was last used, when it expires,
+and *operator rights* if it has them.
+*Revoke* signs the app out at once, after you confirm.
+
+[#removing-a-user]
+== Removing a user
+
+*Remove user* takes the person out of every project.
+Jam refuses while they own a running personal agent:
+release the agent first.
+Take them out of any escalation tiers first, too.
+
+Jam keeps a removed user's id,
+so messages and history still show them,
+as *_name_ (removed)*.
+Their page is read-only.
+The name is free for a new user.
+
+ifdef::internal[]
+== Notes for the team
+
+* Pages: `web/app/src/admin/users/` (`UsersPage`, `UserPage`, `AppTokens`);
+API under `/app/admin/api/users[/<user>[/…]]` (`internal/jam/adminui/api_users.go`).
+* A user is `users/<name>.yml` (`logins`, `oidc`).
+OIDC identities, accounts and app tokens are not in the repo:
+the console writes them live, also on a branch (`branchLive` in `internal/jam/adminui/branches.go`).
+* The *Name* card's hint names tiers as `human:<name>`; tiers today are written `user:<name>`.
+* Rename and remove are refused while the user owns a live personal session (`users_admin.go`).
+Applying a user's removal from the config repo is also refused while a project's escalation names them,
+or a project lists them as a member (`config_plan_delete.go`, `deleteUser`).
+* CLI: `jam user list | show`, `jam user oidc`, `jam account add | list | link | unlink`.
+* Depth: `docs/modules/ROOT/pages/usage/jam/ui-pages.adoc` (#user-pages),
+`comms-addressing.adoc` (#project-members-and-rooms), `app-tokens.adoc`.
+endif::[]
