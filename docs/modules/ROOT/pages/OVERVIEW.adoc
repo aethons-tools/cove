@@ -4,7 +4,7 @@
 :owns: the project overview: studio image assembly, security model, package map
 :prereqs: none
 :tier: leaf
-:updated: 2026-11-12
+:updated: 2026-11-13
 
 This repo builds Jam and the *hardened Claude Code studios* it runs: a Studio
 Manager assembles each studio image (a kit base, the harness layer, then the
@@ -188,14 +188,14 @@ dangles.
 *The destinations domain widens infra by its subdomains only.* If the Studio Manager
 sets `colima.destinations-domain`, the infra list holds `+.<domain>+`, and no other
 new name. The broker on that domain still checks each request's identity and
-destination (xref:usage/jam/serve.adoc#studio-reach[serve]). A raise maps only the
+destination (xref:usage/jam/destinations.adoc#studio-reach[]). A raise maps only the
 subdomain hosts of the role's granted destinations to the host gateway, and the
 manager refuses any host that is not one label under its domain before it reaches
 `docker run`. Without the domain, the image and its tag do not change.
 
 *A Jam role's egress replaces the policy list, within the ceiling, at raise.*
 When Jam raises a cove for a role with an egress policy
-(xref:usage/jam/roster.adoc#role-egress[`scope.egress`] in its file in the config repo), the manager runs the
+(xref:usage/jam/role-egress.adoc[`scope.egress`] in its file in the config repo), the manager runs the
 sealed, root-only `apply-role-egress.sh` via host `docker exec -u root` after sshd
 answers and *before jam-studio-agent (and so the agent) starts*. It reads the role's
 domains on stdin, refuses — changing nothing — any domain the ceiling doesn't cover

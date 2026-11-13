@@ -4,7 +4,7 @@
 :owns: the web/app source layout, the admin area's mount, API and Config tree plumbing, the shared /app/assets/ path, `just app` / `app-dev` / `app-check`, scripts/app.sh and the size budget, the webapp serving package (bootstrap, CSP, not-built page), the tygo type generation, and the app's test layers
 :prereqs: usage/jam/intercom-ui.adoc for what the user area does; superpowers/specs/2026-10-26-jam-spa-design.md for why
 :tier: leaf
-:updated: 2026-11-11
+:updated: 2026-11-13
 
 The Jam app is the React single-page app that is the user area, served at *``/app/user/``*
 behind the user gate (xref:usage/jam/intercom-ui.adoc[what it does],
@@ -45,7 +45,7 @@ Inbox at the cutover. Old links keep working: `src/routes/Home.tsx` redirects th
 [#admin-area]
 == Admin area
 
-The admin console is the app's admin area (xref:usage/jam/ui-console.adoc[what it shows], https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-28-admin-spa-design.md[design]), served at *``/app/admin/``* (`adminui.appMount`, ``src/admin/paths.ts``' `ADMIN`) behind the admin gate. It replaced the server-rendered pages (html/template and htmx), which are gone: `adminui.Handler` serves only the app, its API, `/app/admin/suggest` and `redirectOld` (`redirect.go`), which answers a `GET` of an old page path — or of `+next/…+`, the preview address — with a `302` to its new page, query kept (xref:usage/jam/ui.adoc#old-admin-pages[the table]).
+The admin console is the app's admin area (xref:usage/jam/ui-console.adoc[what it shows], https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-28-admin-spa-design.md[design]), served at *``/app/admin/``* (`adminui.appMount`, ``src/admin/paths.ts``' `ADMIN`) behind the admin gate. It replaced the server-rendered pages (html/template and htmx), which are gone: `adminui.Handler` serves only the app, its API, `/app/admin/suggest` and `redirectOld` (`redirect.go`), which answers a `GET` of an old page path — or of `+next/…+`, the preview address — with a `302` to its new page, query kept (xref:usage/jam/ui-old-links.adoc#old-admin-pages[the table]).
 
 * One bundle: `src/main.tsx` lazily imports `src/admin/start.tsx` on `/app/admin/` paths, so the user area's initial load doesn't carry it.
 * ``src/admin/``: `AdminApp.tsx` (routes), `AdminShell.tsx` (the title bar — `shell/TitleBar.tsx`, shared with the user area's `UserTitleBar` — and, on `config/` pages, the Config tree as the navbar, a drawer on narrow screens), `config/` (the tree: `ConfigTree`, polled every 3 s, with ``treeState.ts``' filter, ancestors and remembered open branches in localStorage `jam-admin-tree`), `NoSuchPage` (an unknown path); `search/SearchBox.tsx` is the title bar's search (``TitleBar``'s `search` slot; `/` focuses it unless typing elsewhere; Enter opens `+search?q=…&go=1+`, which jumps to a single exact match, replacing the history entry).

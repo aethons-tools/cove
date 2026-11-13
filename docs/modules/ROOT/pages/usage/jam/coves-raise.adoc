@@ -27,7 +27,7 @@ ____
 
 The raise sequence is: enroll the identity → assemble its connector (a conflict among the role's destinations fails the raise and revokes the identity) → start the container → wait for sshd →
 *apply the role's egress policy* → start jam-studio-agent (and so the agent). The egress
-step runs only for a role with a xref:usage/jam/roster.adoc#role-egress[policy] and lands before the
+step runs only for a role with a xref:usage/jam/role-egress.adoc[policy] and lands before the
 agent exists. It runs the sealed in-box helper as root, which enforces the kit's
 ceiling. It *fails closed*: if the backend can't apply a policy, or the box refuses
 a domain outside the ceiling, the raise fails (the error names the domain), the
@@ -57,9 +57,9 @@ from its directory (xref:usage/jam/kits-directory.adoc[kits-directory]).
 [#egress-drift]
 == Egress drift
 
-Each Instance records the xref:usage/jam/roster.adoc#role-egress[role egress policy] it runs under
+Each Instance records the xref:usage/jam/role-egress.adoc[role egress policy] it runs under
 (`egress`). Each reconcile pass re-applies the role's current policy to a `live`
 studio whose lease it holds when the two differ (`+--kit-default+` for a cleared one);
 `idled` studios are skipped and get it on *resume*, before they are `live` again.
 Failures count in ``+egress_failures+``; the teardown rule is in
-xref:usage/jam/roster.adoc#role-egress[roster.adoc]. Logs carry domain counts, never lists.
+xref:usage/jam/role-egress.adoc[]. Logs carry domain counts, never lists.

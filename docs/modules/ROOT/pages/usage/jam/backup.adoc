@@ -4,7 +4,7 @@
 :owns: the `jam export` / `jam import` command surface and the backup file's scope + semantics
 :prereqs: operators.adoc for signing in (`--app`/`--token`); roster.adoc and kits.adoc for what the aggregates are
 :tier: leaf
-:updated: 2026-11-12
+:updated: 2026-11-13
 
 For a reviewable, mergeable source of the same config in git, see xref:usage/jam/config-git.adoc[config-git].
 
@@ -111,8 +111,8 @@ re-mint every token). The wire is JSON; YAML exists only at the file boundary.
 Jam is Postgres-only. For a Jam that ran on the old file store, export/import is
 the *only* upgrade path: run `jam export` with the old version, then
 `jam import` into a Jam running on `store-postgres`
-(xref:usage/jam/serve.adoc#postgres-store-store-postgres[serve.adoc]). Squawk history and session
+(xref:usage/jam/serve-store.adoc[]). Squawk history and session
 events in the old files are not migrated. The relay cursor/marker/receipt files
 must also be moved into ``state-dir``; see
-xref:usage/jam/serve.adoc#upgrading-relay-state[serve.adoc] for where they were and what is lost
+xref:usage/jam/serve-upgrades.adoc#upgrading-relay-state[] for where they were and what is lost
 if you skip it.

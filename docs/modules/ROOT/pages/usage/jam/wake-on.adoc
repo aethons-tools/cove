@@ -22,9 +22,9 @@ waiting for help keeps its studio and its work (it is still paused at
 xref:usage/jam/turn-end.adoc#idle-timeout[idle timeout], `end`, and operators end sessions;
 xref:usage/jam/escalation.adoc[escalation] draws attention to one that is stuck. `wait-max` is
 deprecated and ignored (serve warns when it is set). A personal session instead climbs the
-xref:usage/jam/personal-sessions.adoc#the-idle-ladder[idle ladder] — nags into its channel, and an
+xref:usage/jam/personal-idle-ladder.adoc[idle ladder] — nags into its channel, and an
 optional reclaim. Its starter's `keep`/`release` reply to a nag is acted on by Jam
-and doesn't wake the agent (xref:usage/jam/personal-sessions.adoc#the-idle-ladder[personal-sessions.adoc]).
+and doesn't wake the agent (xref:usage/jam/personal-idle-ladder.adoc[]).
 A standing session has no owner, so it gets no nags.
 
 A reply that lands while the studio is still *``running``* or

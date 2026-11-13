@@ -162,7 +162,7 @@ background task outstanding — xref:usage/jam/turn-end.adoc#holding[`holding`])
 it instead — see the wake paragraph above. A resident session ends only when a teardown cancels the
 run: the owner's release for a personal session, or the name's removal for a
 standing one. Jam's wake-on engine never tears any session down for
-waiting; only the role's idle timeout and a personal session's optional xref:usage/jam/personal-sessions.adoc#the-idle-ladder[idle-ladder reclaim] does.
+waiting; only the role's idle timeout and a personal session's optional xref:usage/jam/personal-idle-ladder.adoc[idle-ladder reclaim] does.
 A restarted or xref:usage/jam/coves.adoc#recovery[recovered] session resumes its conversation, whatever its kind
 (xref:usage/jam/standing-state.adoc[standing-state.adoc]).
 

@@ -148,7 +148,7 @@ can't be removed; the plan refuses it naming the referencing role or kits
 (`+cannot delete kit web: role app/ic binds it+`). Rebind the role first.
 
 The admin UI shows the same on each kit's page — versions, diffs, files
-(xref:usage/jam/ui-pages.adoc#kit-pages[ui-pages.adoc]); on a branch it also edits the kit. A
+(xref:usage/jam/ui-kit-pages.adoc[]); on a branch it also edits the kit. A
 diff shows the `kit.yml` line diff, then the files added, removed, modified
 (sizes) or mode-changed; `&file=<path>` shows one file or its line diff
 (binary or over 64 KiB: sizes only).
