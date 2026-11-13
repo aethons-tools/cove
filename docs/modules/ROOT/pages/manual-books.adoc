@@ -1,10 +1,10 @@
 = Books and search on the team site
 :summary: The team site's books (Antora components on "Jam books" — the Jam manual, the architecture book from docs/, and the process book from the private aethons-tools/jam-config, pulled in by manual/extensions/books.js from a local clone or CI checkout with the JAM_CONFIG_DEPLOY_KEY secret) its full-text search (@antora/lunr-extension) with the UI contract it needs, and its UI (spring-io/antora-ui-spring, pinned and sha256-verified, plus our supplemental files).
 :read_when: You are adding a book to the team site, building the team site with or without the process book, setting up its jam-config deploy key, touching search or the book switcher, or changing or bumping the team site's UI bundle.
-:owns: the team site's books (the content sources and manual/extensions/books.js), the architecture book's and the process book's branch-to-version mappings and how it is pulled in (JAM_CONFIG_DIR, JAM_CONFIG_DEPLOY_KEY), search (@antora/lunr-extension and the UI's side of it), and the team site's UI (antora-ui-spring, scripts/manual-ui.sh, manual/ui-spring)
+:owns: the team site's books (the content sources and manual/extensions/books.js), the architecture book's and the process book's branch-to-version mappings and how it is pulled in (JAM_CONFIG_DIR, JAM_CONFIG_DEPLOY_KEY), search (@antora/lunr-extension and the UI's side of it), the team site's UI (antora-ui-spring, scripts/manual-ui.sh, manual/ui-spring), and diagrams in the books (manual/extensions/diagrams.js)
 :prereqs: manual.adoc for the manual, its versions and its builds
 :tier: leaf
-:updated: 2026-11-12
+:updated: 2026-11-13
 
 * *Books.* The team site, titled _Jam books_ (``site.title``; the customer
 manual stays _Jam manual_), hosts several books, each an Antora component:
@@ -57,6 +57,28 @@ dropdown attaches to it), an "In this book" checkbox
 `lunr.js`, `search-ui.js` and ``search.css``; the UI must not ship them). The
 indexer reads only `article.doc` and takes the title from its `h1.page`, so
 keep page content in them.
+* *Diagrams* are code, in every book.
+A `+[mermaid]+` listing block in a page
+(`+[mermaid,alt="…"]+` then `+----+`-delimited Mermaid source)
+is rendered at build time into an inline SVG
+by `manual/extensions/diagrams.js`,
+an Asciidoctor block extension that every playbook registers,
+the customer one included.
+It runs `@mermaid-js/mermaid-cli` (`mmdc`, pinned in `manual/package.json`,
+`PUPPETEER_SKIP_DOWNLOAD` so it fetches no browser)
+with the headless Chrome `just manual-shot` uses
+(`+$JAM_BROWSER+`, else the kit's `/opt/chrome-headless-shell`;
+CI's `manual-site.yml` and `scripts/manual.sh` set `+JAM_BROWSER+` to the runner's Chrome).
+The SVG carries no script,
+so the customer manual, embedded in Jam under a CSP that allows none, can show it;
+`alt` becomes its `<title>` and is required.
+Rendered SVGs are cached under `manual/build/diagrams/` by a hash of the source and the `mmdc` version,
+so a rebuild renders only what changed.
+A block that fails to render, or has no `alt`, fails the build with the page and line.
+No other diagram tool, no client-side rendering,
+and no committed images of diagrams:
+the source in the page is the only copy.
+Screenshots stay images (xref:manual.adoc#screenshots[]).
 * *The team site's UI* (team and local playbooks) is
 https://github.com/spring-io/antora-ui-spring[spring-io/antora-ui-spring]
 v0.4.26 (MPL-2.0); the customer manual keeps `manual/ui` (no scripts: Jam's
