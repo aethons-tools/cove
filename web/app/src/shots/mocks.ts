@@ -10,12 +10,14 @@ import { dest, destFields, endpoint, spec, specFields } from "../admin/specs/fix
 import type { AgentDetail, AgentListRow, AgentsResponse, CoveRow } from "../admin/api/types";
 import { agents as projectAgents, role } from "../admin/roles/fixtures";
 import { emptyContext } from "../admin/projects/fixtures";
-import type { Bootstrap, ChannelRow, Conversation, MessageRow, SessionHead, SessionPane, ThinkingEvent } from "../api/types";
+import type { AppTokensResponse, AskCard, Bootstrap, ChannelRow, Conversation, MessageRow, SessionHead, SessionPane, ThinkingEvent } from "../api/types";
 import type { EventStream } from "../../build/mockApi";
 import { card } from "../test/card";
 import { draftPage, draftView, kit, kitView } from "../admin/kits/fixtures";
 import type { KitsResponse } from "../admin/api/types";
 import type { ChainRow, MemberRow, ProjectsResponse, SquawkRow, UserDetail, UserRow, UsersResponse } from "../admin/api/types";
+import boardRelease from "./board-release.json";
+import boardReleaseThumb from "./board-release-thumb.png?inline";
 
 const leaf = (path: string, label: string): TreeNode => ({ path, label, group: false, badge: 0, badgeRed: false, badgeTitle: "", children: [] });
 const group = (path: string, label: string, ...children: TreeNode[]): TreeNode => ({ ...leaf(path, label), group: true, children });
@@ -193,7 +195,7 @@ const specList: SpecsResponse = { specs: [claudeDefault, reviewOpus].map(specRow
 const userBoot: Bootstrap = {
   brand: "Acme Jam", user: { id: "usr_1", name: "alice", initial: "A" }, roles: "member", admin: false, signOut: true,
   tabs: [{ key: "inbox", label: "Inbox", href: "/app/user/", badge: 3, badgeRed: false, badgeTitle: "" }],
-  attachMax: 25 << 20, pushKey: "", boards: false, pushFocus: false, newSession: false,
+  attachMax: 25 << 20, pushKey: "BKmanual-shot-vapid-key", boards: true, pushFocus: false, newSession: false,
 };
 const row = (over: Partial<ChannelRow>): ChannelRow => ({
   id: "", label: "", project: "acme", kind: "studio", needsYou: false, phase: "", unread: 0, openAsks: 0,
@@ -425,6 +427,63 @@ const aliceDetail: UserDetail = { user: aliceUser, removed: false, loginSpec: al
   appTokens: [], // none: a token's "last used" is relative to now, so the shot would drift
   notes: { markdown: "", html: "" } };
 
+// Asks (ROOT/inbox/asks): ACME-42's ticket conversation, where spider asked
+// alice to pick a fix (answered), withdrew one ask, reworded the merge ask
+// (open) and asked bob about staging (open, for bob only).
+const ask = (over: Partial<AskCard>): AskCard => ({
+  id: "", question: "", options: [], version: 1, state: "open", answeredBy: "", choice: "", comment: "", reason: "", edited: false, canAnswer: true, for: "", ...over,
+});
+const askFix = ask({ id: "ask_fix", question: "Which fix do you want?", state: "answered", canAnswer: false, answeredBy: "alice", choice: "Poll for the form",
+  comment: "keep the wait under 10 s", options: [{ id: "poll", label: "Poll for the form", detail: "Wait until the form shows" }, { id: "clock", label: "Mock the clock" }] });
+const askRerun = ask({ id: "ask_rerun", question: "Shall I rerun the whole suite?", state: "withdrawn", canAnswer: false, reason: "CI reran it on its own",
+  options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] });
+const askMerge = ask({ id: "ask_merge", question: "Merge PR #212 into main?", version: 2, edited: true,
+  options: [{ id: "merge", label: "Merge", detail: "CI is green; squash and merge" }, { id: "wait", label: "Wait", detail: "Leave it open for review" }] });
+const askStaging = ask({ id: "ask_staging", question: "Deploy the fix to staging tonight?", canAnswer: false, for: "bob",
+  options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] });
+const spiderSays = (seq: number, time: string, text: string) => msg({ seq, from: "spider", color: "#e8590c", time, body: `<p>${text}</p>`, raw: text });
+const acme42: Conversation = {
+  ...ops, channelId: "chn_acme42", label: "ACME-42", kind: "studio", needsYou: true, sendTo: "chn_acme42", lastSeq: 90,
+  canJoin: false, canLeave: true, callIn: [], openAsks: [askMerge, askStaging],
+  messages: [
+    spiderSays(60, "2026-11-12T09:02:00Z", "The login test waits on a fixed 2 s timer, so it fails on a slow runner. I can fix it two ways."),
+    msg({ seq: 61, card: "ask", ask: askFix, from: "spider", time: "2026-11-12T09:02:00Z" }),
+    msg({ seq: 62, system: true, sysText: "alice chose Poll for the form on: Which fix do you want? — keep the wait under 10 s", time: "2026-11-12T09:10:00Z" }),
+    msg({ seq: 70, card: "ask", ask: askRerun, from: "spider", time: "2026-11-12T09:31:00Z" }),
+    msg({ seq: 71, system: true, sysText: "spider withdrew ask: Shall I rerun the whole suite? (CI reran it on its own)", time: "2026-11-12T09:44:00Z" }),
+    msg({ seq: 80, card: "ask", ask: askMerge, from: "spider", time: "2026-11-12T10:05:00Z" }),
+    msg({ seq: 81, system: true, sysText: "spider edited ask: Merge PR #212 into main? — Merge, Wait", time: "2026-11-12T10:07:00Z" }),
+    msg({ seq: 84, card: "ask", ask: askStaging, from: "spider", time: "2026-11-12T10:08:00Z" }),
+    msg({ seq: 90, from: "alice", mine: true, time: "2026-11-12T10:12:00Z", reAsk: { id: "ask_merge", question: "Merge PR #212 into main?" },
+      body: "<p>re: Merge PR #212 into main?<br>Did the test pass three runs in a row?</p>", raw: "re: Merge PR #212 into main?\nDid the test pass three runs in a row?" }),
+  ],
+};
+
+// Whiteboards (ROOT/inbox/whiteboards): alice's chat with bob and the coder
+// session, with the board coder started; its elements are what board_apply adds and its
+// thumbnail Jam's own render of them (both generated once with
+// jam.ApplyBoardOps and boardrender.Render).
+const bobCoder: Conversation = {
+  ...ops, channelId: "chn_bobcoder", label: "bob, coder", kind: "dm", sendTo: "chn_bobcoder", lastSeq: 80,
+  canJoin: false, canLeave: true, callIn: [], newBoard: true,
+  messages: [
+    msg({ seq: 76, from: "coder", color: "#2f9e44", time: "2026-11-12T11:20:00Z", body: "<p>I drew the release steps from the ops thread. Please check the order.</p>",
+      raw: "I drew the release steps from the ops thread. Please check the order." }),
+    msg({ seq: 77, from: "coder", color: "#2f9e44", time: "2026-11-12T11:20:00Z", card: "board", board: { id: "brd_release", title: "Release 1.14" } }),
+    msg({ seq: 80, from: "alice", mine: true, time: "2026-11-12T11:31:00Z", body: "<p>Looks right. I added a note on the board.</p>", raw: "Looks right. I added a note on the board." }),
+  ],
+};
+
+// Your account (ROOT/inbox/account): the apps alice signed in to Jam, with
+// times relative to now so the dialog reads the same on every shot.
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+const appTokens: AppTokensResponse = {
+  tokens: [
+    { id: "apt_1", label: "VS Code", created: hoursAgo(72), lastUsed: hoursAgo(2), expires: hoursAgo(-24 * 30), operator: true },
+    { id: "apt_2", label: "VS Code Insiders", created: hoursAgo(24 * 20), lastUsed: hoursAgo(24 * 6), expires: hoursAgo(-24 * 24), operator: false },
+  ],
+};
+
 export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/bootstrap": adminBoot,
   "GET /app/admin/api/tree": tree,
@@ -484,4 +543,15 @@ export const mocks: Record<string, unknown> = {
     { name: "Context", value: "84,112 of 200,000 tokens (claude-opus-5-5)" }, { name: "Cost", value: "$1.84" }, { name: "This turn", value: "$0.21" },
     { name: "Last event", value: "just now" },
   ] }),
+
+  "GET /app/user/api/conversations/chn_acme42": acme42,
+  "GET /app/user/api/conversations/chn_acme42/presence": { sessions: [] },
+  "POST /app/user/api/conversations/chn_acme42/read": {},
+  "GET /app/user/api/conversations/chn_bobcoder": bobCoder,
+  "GET /app/user/api/conversations/chn_bobcoder/presence": { sessions: [] },
+  "POST /app/user/api/conversations/chn_bobcoder/read": {},
+  "GET /app/user/api/boards/brd_release": { id: "brd_release", title: "Release 1.14", channel: "chn_bobcoder", readOnly: false },
+  "GET /app/user/boards/brd_release/elements": { seq: 10, elements: boardRelease },
+  "GET /app/user/boards/brd_release/thumb.png": boardReleaseThumb,
+  "GET /app/user/api/app-tokens": appTokens,
 };
