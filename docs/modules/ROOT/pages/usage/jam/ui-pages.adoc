@@ -66,7 +66,7 @@ connections (who, right — `ssh` or `preview` — since when) and the
 (or "Previews are off on this Jam" without a xref:usage/jam/serve.adoc[`+previews:+`]
 domain). With neither SSH collaboration nor previews configured the card
 says so instead. Sharing itself is
-`jam studio share` (xref:usage/jam/collaboration.adoc#sharing[collaboration]).
+`jam studio share` (xref:usage/jam/collaboration-sharing.adoc[collaboration-sharing]).
 * *Session* — its captured event streams (start, last event, count), each
 opening the timeline on that stream (xref:usage/jam/session-events.adoc[]).
 * *Squawks* — the newest 50 squawks in its conversations (and, from before

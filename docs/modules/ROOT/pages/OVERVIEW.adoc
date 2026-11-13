@@ -203,11 +203,11 @@ domains on stdin, refuses — changing nothing — any domain the ceiling doesn'
 only itself), then overwrites `+allowed_domains.kit.txt+`, clears the session file, and
 runs `squid -k reconfigure`. The base and infra lists stay on. A role with no policy
 keeps the kit default; a failed apply fails the raise
-(xref:usage/jam/coves.adoc#raising-a-real-managed-studio[coves]). When the role's policy
+(xref:usage/jam/coves-raise.adoc[coves-raise]). When the role's policy
 later changes, Jam re-applies it to the role's running coves the same way
 (`+apply-role-egress.sh --kit-default+` restores the ceiling's list when the policy is
 cleared; that mode takes no domains) —
-see xref:usage/jam/coves.adoc#egress-drift[egress drift].
+see xref:usage/jam/coves-raise.adoc#egress-drift[egress drift].
 
 *Nested-container egress is contained too.* The `nftables` `output` chain locks the
 agent's _direct_ egress (only the `proxy` user reaches the network); a `forward` chain
@@ -234,7 +234,7 @@ How the running pieces connect:
 
 |Jam (`jam serve`) |anywhere, including xref:usage/jam/container.adoc[a container] |xref:usage/jam/serve.adoc[]
 |Studio Managers (`jam-colima`) |bare-metal next to their substrate (Colima), dialing Jam |xref:usage/jam-colima.adoc[], xref:usage/jam/studio-managers.adoc[]
-|Studios (`jam-studio-agent`) |on a manager's host, dialing Jam's Attach stream |xref:usage/jam/coves.adoc#jam-studio-agent-the-in-cove-client[coves]
+|Studios (`jam-studio-agent`) |on a manager's host, dialing Jam's Attach stream |xref:usage/jam/studio-agent.adoc#jam-studio-agent-the-in-cove-client[studio-agent]
 |===
 
 A pure *plan* (what to do) is separated from *execution* (doing it),

@@ -1,10 +1,10 @@
 = A Jam's configuration in git
-:summary: A Jam's configuration as a git repo — the file layout and file kinds, `config write|diff --dir`, the plan (the repo always wins), its refusals, managed marks, the objects Jam keeps unmanaged, and replicating a Jam from its repo.
-:read_when: You are writing a Jam's config into a repo for the first time, editing the repo's files by hand, standing up a replica, or a config diff, sync or merge refused, updated or listed something unmanaged.
-:owns: the config repo layout and file kinds, the `jam config write|diff --dir` verbs, the plan actions and refusals, managed marks, unmanaged objects and Jam's own ensures, the `/admin/config/diff|export-tree` routes
+:summary: A Jam's configuration as a git repo — the file layout and file kinds, `config write|diff --dir`, replicating a Jam from its repo, and the config routes and upload limits. What a diff or apply plans is in config-plan.adoc.
+:read_when: You are writing a Jam's config into a repo for the first time, editing the repo's files by hand, standing up a replica, or uploading a tree to the config routes.
+:owns: the config repo layout and file kinds, the `jam config write|diff --dir` verbs, replicating a Jam, the `/admin/config/diff|export-tree` routes and their limits
 :prereqs: serve.adoc (layered serve configs, host keys); backup.adoc (how this differs from export/import)
 :tier: leaf
-:updated: 2026-11-03
+:updated: 2026-11-13
 
 A Jam's configuration is a directory of small YAML files in a git repo, which
 you review and merge like code. *Config changes only by a commit* to the
@@ -120,63 +120,7 @@ the files, `+config diff --dir+` to see the plan, commit and push: the follower
 applies it within a minute. There is no apply of a checkout: `config apply`
 and `config release` are gone.
 
-[#the-plan]
-== The plan
-
-A kit's plan entry compares its `kit.yml` and its file list (mode, size, sha256, path).
-Printed as `action  kind name`, then `forget  kind name  (mark only)` lines, `N unchanged`, `+unmanaged: …+`,
-`+serve-config: …+`, and a `+refused:+` block (each refusal indented).
-An update prints what it overwrites under its line: a kit its version diff (`kit.yml` lines, then the files; same tree, other source: the listing diff, its `+# source:+` line), any other kind a compact line diff (`+--- jam+` / `pass:c[+++ repo]`). A delete prints `+jam:+` and `+repo:+` blocks, its repo side `(not in the repo)`. The Config page shows the same.
-
-*The repo always wins.* An object the repo holds is applied over Jam's copy,
-whether or not it is managed and whatever was changed in Jam since its mark.
-
-[%header]
-|===
-|Action |Meaning
-
-|`create` / `update` |In the repo, absent / different in Jam (managed or not). A managed mark whose object is gone from Jam and present in the repo is a ``create``; absent from both, it is a `forget`.
-|`forget` |A managed mark whose object is gone from Jam and the repo: apply removes the mark only, so a later unmanaged object of that name stays untouched. Counted as a change (`N forgotten`).
-|`adopt` |An unmanaged Jam object identical to the repo's: marked managed, nothing written. A kit tracking the very repo, dir and ref its `kits/<n>.source.yml` names is adopted too (its ref moved since Jam synced: an `update`, a new version at the fetched commit).
-|`delete` |Managed, no longer in the repo. Subject to the guards below.
-|`unchanged` / `unmanaged` |Nothing to do / live but not in the repo: never touched, never deleted.
-|===
-
-Refusal texts (any one blocks the whole apply; nothing is written):
-
-* ``+<file>: <error>+``: a file that does not load or validate, located at its path.
-* `+cannot delete <kind> <name>: <reason>+`, guarding: a role with a live
-instance; a kit a role binds (`role app/ic binds it`) or another kit builds
-on; a model spec a role resolves to; a user who owns a live personal
-session, is named in a remaining escalation tier, or is a *member of any
-project* (managed or not); a project with live instances, unremoved
-members, unmanaged roles, standing sessions or grants; a connection with
-accounts, a binding or a chat service.
-
-Order: creates/updates run users, connections → destinations, model specs →
-kits (parents first) → projects → roles → Jam context; deletes the reverse.
-Loading, planning and validation precede the single `Store.ApplyConfig`
-write, so a failure writes nothing.
-
-*Managed marks* record which objects the repo owns (kind + name; a role is
-``<project>/<role>``; the Jam context is `jam`) and the commit. They are
-bookkeeping: an apply deletes only objects it once created, and the marks say
-which. They live in the Jam, not the repo, and are *not* part of `jam export`
-(xref:usage/jam/backup.adoc[backup]): a restored Jam starts with none, and its next apply
-adopts identical objects. Errors are file-located and never echo credential
-values or unvalidated text (a type error is `+line N: a value has the wrong type+`).
-
-== Objects Jam keeps itself
-
-With no live edits, an unmanaged object is one Jam created itself or one left
-from before the Jam followed a repo. Unmanaged objects the repo doesn't hold
-are never deleted: the default studio kit, the seeded `claude-default` model
-spec, the requisitioner's default project, the relay's author connections.
-Jam's own startup ensures skip an object the repo manages, so they never edit
-it: commit the repo's copy instead. If the repo deletes the default model spec
-or the requisitioner's default project, serve recreates it, unmanaged, at its
-next start, and a grant or enrollment naming the default project recreates
-that project too; once the repo holds it again, the next apply adopts it.
+What a diff or apply plans, its refusals, managed marks and the objects Jam keeps itself: xref:usage/jam/config-plan.adoc[config-plan].
 
 [#replicating-a-jam]
 == Replicating a Jam

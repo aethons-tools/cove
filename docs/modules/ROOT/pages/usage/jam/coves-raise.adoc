@@ -1,0 +1,65 @@
+= Raising a real managed studio
+:summary: How `studio raise` starts a real studio on a Studio Manager — the raise sequence and its fail-closed egress step, Anthropic credentialing, the StudioKit's lazy kit-prepare handshake, and egress drift on live studios.
+:read_when: A raise on a Studio Manager failed or did something you did not expect (egress refused, kit not ready, an image rebuilt), you are changing the raise sequence or the kit-prepare protocol, or a live studio's egress differs from its role's.
+:owns: the real launcher's raise sequence (connector, sshd, the role-egress step), Anthropic credentialing of a raised studio, the StudioKit light-reference/lazy-prepare protocol, and egress-drift re-application
+:prereqs: coves.adoc for the runtime registry and the `studio` verbs; kits.adoc for the StudioKit
+:tier: leaf
+:updated: 2026-11-13
+
+`+studio raise --prompt-file <f>+` on a Studio Manager runs the whole lifecycle end to end: Jam starts a
+Colima studio from the configured image, injects the agent connector — the client env
+and git routing declared by the role's destinations (xref:usage/jam/connector.adoc[connector]) — plus the jam-studio-agent env, your prompt and the compiled xref:usage/jam/session-context.adoc[session context] over SSH, and starts
+`jam-studio-agent`, which runs `claude -p` on the prompt. The studio reports
+`running` → `waiting` over the xref:usage/jam/studio-agent.adoc#the-attach-stream[Attach stream] after each turn,
+and the supervisor tears it down when Jam ends the session (xref:usage/jam/turn-end.adoc[turn-end.adoc]). The *role must grant the `anthropic` and `git`
+destinations* for the agent to reach them. This validates the managed-cove
+lifecycle; automated result-handling (commit/push/PR after the agent) comes with the
+Requisitioner. With `runtime.studio-managers` off, `raise` records a placeholder Instance only
+(no real studio).
+
+____
+*Anthropic credentialing.* How the agent's `claude` authenticates follows the
+anthropic destination: identity-in `x-api-key` gives `+ANTHROPIC_API_KEY+`, and the
+xref:usage/jam/pool.adoc[`+pool:+`] configuration (identity-in `bearer`) gives `+ANTHROPIC_AUTH_TOKEN+`
+(a static bearer, no credentials file) and the broker swaps in a pooled
+subscription token. The connector carries the mode; the cove is unaware.
+____
+
+The raise sequence is: enroll the identity → assemble its connector (a conflict among the role's destinations fails the raise and revokes the identity) → start the container → wait for sshd →
+*apply the role's egress policy* → start jam-studio-agent (and so the agent). The egress
+step runs only for a role with a xref:usage/jam/roster.adoc#role-egress[policy] and lands before the
+agent exists. It runs the sealed in-box helper as root, which enforces the kit's
+ceiling. It *fails closed*: if the backend can't apply a policy, or the box refuses
+a domain outside the ceiling, the raise fails (the error names the domain), the
+container is removed and the identity revoked. It never falls back to the wider kit
+default. A role with no policy skips the step and keeps the kit's list.
+
+[#the-studiokit-and-its-kit-prepare-protocol]
+== The StudioKit and its kit-prepare protocol
+
+The real launcher raises from a *xref:usage/jam/kits.adoc#the-studiokit[StudioKit]* — the
+role's named kit, or the seeded `default` (xref:usage/jam/kits.adoc#role-to-kit-and-the-default-kit[kits]).
+Its egress ceiling excludes Anthropic (COV-208). It is built on demand via a
+*light-reference / lazy-prepare* handshake that tolerates a remote-building
+substrate: each raise carries only the kit reference (`<id>@v<n>`); on an inventory
+*miss* the launcher raises no container and reports not-ready; Jam resolves the
+full kit from the xref:usage/jam/kits.adoc[registry], calls the launcher's `PrepareKit` to build it
+*on the substrate backend* (the colima daemon, so the image lands where
+`RunEphemeral` runs it) and retries. The image is tagged by the kit's build-digest
+plus the Studio Manager's assembly fingerprint (xref:usage/jam/kits.adoc#the-studiokit[kits]),
+so a prompt-only edit reuses the cached image while a manager upgrade rebuilds it. An in-progress build does not block
+— the raise defers to the next reconcile tick. The build context is *data* (the
+kit plus resources compiled into the manager's binary and its key), with
+*no source kit directory*, so the build can move to a remote substrate. The
+xref:usage/jam/session-context.adoc[session context] is compiled at raise, outside the image. A kit's own stage is built
+from its directory (xref:usage/jam/kits-directory.adoc[kits-directory]).
+
+[#egress-drift]
+== Egress drift
+
+Each Instance records the xref:usage/jam/roster.adoc#role-egress[role egress policy] it runs under
+(`egress`). Each reconcile pass re-applies the role's current policy to a `live`
+studio whose lease it holds when the two differ (`+--kit-default+` for a cleared one);
+`idled` studios are skipped and get it on *resume*, before they are `live` again.
+Failures count in ``+egress_failures+``; the teardown rule is in
+xref:usage/jam/roster.adoc#role-egress[roster.adoc]. Logs carry domain counts, never lists.

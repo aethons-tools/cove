@@ -133,7 +133,7 @@ itself. Jam checks only syntax and normalizes (lowercase, dedupe, sort, drop
 entries a wildcard in the list already covers); *the box enforces the ceiling*.
 A role asking for more fails its raise with an error naming the domain.
 * *Reaches running studios within one reconcile pass.* Each studio records the
-policy it runs under; Jam's xref:usage/jam/coves.adoc#egress-drift[reconcile pass] re-applies
+policy it runs under; Jam's xref:usage/jam/coves-raise.adoc#egress-drift[reconcile pass] re-applies
 the role's current one when they differ (removing `+egress:+` restores the kit's list). A
 paused studio gets it when it resumes, before its agent is woken.
 * *Fails closed.* A re-apply that fails is retried on the next pass; the third
@@ -149,8 +149,8 @@ after lowercasing: at least two labels, no scheme, port, path, `+*+` or whitespa
 `egress=<a.com,.b.org>`.
 
 How it is applied in the box: xref:OVERVIEW.adoc#egress-four-additive-allow-lists-and-a-ceiling[the egress model];
-when in the raise: xref:usage/jam/coves.adoc#raising-a-real-managed-studio[coves]; on a running
-studio: xref:usage/jam/coves.adoc#egress-drift[coves].
+when in the raise: xref:usage/jam/coves-raise.adoc[coves-raise]; on a running
+studio: xref:usage/jam/coves-raise.adoc#egress-drift[coves-raise].
 
 Admin API: `+GET /admin/roles/{project}/{role}/egress+` answers *200*
 `+{"managed":bool,"domains":[…]}+` (`+managed:false+` = kit default), *404* for an
@@ -198,4 +198,4 @@ Lists every Actor with its grants and each grant's *effective* destinations
 (role scope, after any per-grant overrides). Never prints a token or hash.
 
 Design rationale (the one fault line, the additive/per-grant model) lives in
-https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-09-12-harbor-actor-roster.md[`../../superpowers/specs/2026-09-12-harbor-actor-roster.md`]. The roster is moving to a Jam-wide identity registry (surrogate ids for projects, users, connections and accounts, plus project memberships; removing a user is a tombstone); a project's people are its members — users with a membership (see xref:usage/jam/comms-addressing.adoc#project-members-and-rooms[comms-addressing]) — see https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md[`../../superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md`].
+https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-09-12-harbor-actor-roster.md[`../../superpowers/specs/2026-09-12-harbor-actor-roster.md`]. The roster is moving to a Jam-wide identity registry (surrogate ids for projects, users, connections and accounts, plus project memberships; removing a user is a tombstone); a project's people are its members — users with a membership (see xref:usage/jam/project-members.adoc[project-members]) — see https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md[`../../superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md`].

@@ -73,7 +73,7 @@ enable) — see xref:usage/jam/serve.adoc[serve.adoc] for the `runtime.discord.c
 *The reply loop:* when a person *replies* (Discord's own reply-to-message
 feature) to one of Jam's posts, Jam puts the reply in that post's conversation
 — the chat or room it was in — so the session(s) in it hear it and a waiting
-one xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[wakes]. Routing works by a
+one xref:usage/jam/wake-on.adoc[wakes]. Routing works by a
 *receipt* recorded on every post (`+discord-msg-id → {channel, squawk id, author}+`); the reply's `+reply_to+` is the answered squawk's id, so it joins
 that squawk's thread. A receipt from before the channel log (no channel) still
 routes, to its session's home channel, while that session runs. Who the
