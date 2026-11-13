@@ -1,0 +1,7 @@
+= Configuring a model spec
+:page-area: ROOT
+:page-id: ROOT/configuration/model-specs
+:page-conventions: sentence-case
+
+// Stub on books/as-is: replaced by its ticket with the as-is page.
+This page is being written.

@@ -1,0 +1,7 @@
+= The config repo and its branches
+:page-area: ROOT
+:page-id: ROOT/concepts/config-repo
+:page-conventions: sentence-case
+
+// Stub on books/as-is: replaced by its ticket with the as-is page.
+This page is being written.

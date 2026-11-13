@@ -1,0 +1,7 @@
+= Roles, agents and sessions
+:page-area: ROOT
+:page-id: ROOT/concepts/agent
+:page-conventions: sentence-case
+
+// Stub on books/as-is: replaced by its ticket with the as-is page.
+This page is being written.

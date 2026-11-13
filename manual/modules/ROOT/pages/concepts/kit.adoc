@@ -1,0 +1,7 @@
+= Kits and studios
+:page-area: ROOT
+:page-id: ROOT/concepts/kit
+:page-conventions: sentence-case
+
+// Stub on books/as-is: replaced by its ticket with the as-is page.
+This page is being written.

@@ -1,0 +1,7 @@
+= Projects
+:page-area: ROOT
+:page-id: ROOT/concepts/project
+:page-conventions: sentence-case
+
+// Stub on books/as-is: replaced by its ticket with the as-is page.
+This page is being written.

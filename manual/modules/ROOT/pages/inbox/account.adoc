@@ -1,0 +1,7 @@
+= Your account, app tokens and notifications
+:page-area: ROOT
+:page-id: ROOT/inbox/account
+:page-conventions: sentence-case
+
+// Stub on books/as-is: replaced by its ticket with the as-is page.
+This page is being written.
