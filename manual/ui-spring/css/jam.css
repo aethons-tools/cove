@@ -9,7 +9,8 @@ html.dark-theme{--jam-acc:#e07aa5}
 .jam-filter{font-size:12px;white-space:nowrap}
 .jam-above-doc{margin:12px 0 0 36px;max-width:740px}
 .jam-above-doc .breadcrumbs-container{margin:0}
-.jam-banner{border:1px solid var(--jam-acc);border-radius:6px;padding:8px 12px;font-size:14px;margin:8px 0 0}
+.jam-banner{margin:0;padding:0}
+.jam-banner .admonitionblock{margin:1.25rem 0 0}
 .doc div.internal{position:relative;border:1px dashed var(--jam-acc);border-radius:6px;padding:18px 12px 4px;margin:12px 0}
 .doc div.internal::before{content:"Team";position:absolute;top:-9px;left:10px;background:var(--jam-bg);padding:0 6px;color:var(--jam-acc);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .doc span.internal{text-decoration:underline dotted var(--jam-acc);text-underline-offset:3px}
