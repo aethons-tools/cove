@@ -12,6 +12,8 @@ import { agents as projectAgents, role } from "../admin/roles/fixtures";
 import { emptyContext } from "../admin/projects/fixtures";
 import type { Bootstrap, ChannelRow, Conversation, MessageRow } from "../api/types";
 import { card } from "../test/card";
+import { draftPage, draftView, kit, kitView } from "../admin/kits/fixtures";
+import type { KitsResponse } from "../admin/api/types";
 
 const leaf = (path: string, label: string): TreeNode => ({ path, label, group: false, badge: 0, badgeRed: false, badgeTitle: "", children: [] });
 const group = (path: string, label: string, ...children: TreeNode[]): TreeNode => ({ ...leaf(path, label), group: true, children });
@@ -27,7 +29,7 @@ const tree: TreeResponse = {
       leaf(acme + "/escalation", "Escalation"),
     )),
     group("config/users", "Users", leaf("config/users/usr_1", "alice")),
-    group("config/kits", "Kits"),
+    group("config/kits", "Kits", ...["default", "go-tools", "review-kit", "web-dev"].map((k) => leaf("config/kits/" + k, k))),
     group("config/destinations", "Destinations", leaf("config/destinations/github", "github")),
     group("config/model-specs", "Model Specs", leaf("config/model-specs/claude-default", "claude-default"), leaf("config/model-specs/review-opus", "review-opus")),
   ],
@@ -251,6 +253,82 @@ const recipients = {
   ],
 };
 
+// The manual's kits (ROOT/concepts/kit and ROOT/configuration/kits): the
+// seeded default kit, web-dev with its own Dockerfile, review-kit built on
+// web-dev (the reviewer role's kit, a draft open on jam/docs), and go-tools,
+// imported from its own git repo and tracked.
+const kitList: KitsResponse = {
+  canSource: true,
+  kits: [
+    { name: "default", current: 1, count: 1, base: "blessed default", egress: 3, usedBy: 1, invalid: false, draft: false, tracked: false, attn: null },
+    { name: "go-tools", current: 2, count: 2, base: "Dockerfile", egress: 4, usedBy: 0, invalid: false, draft: false, tracked: true, attn: null },
+    { name: "review-kit", current: 4, count: 4, base: "kit: web-dev", egress: 1, usedBy: 1, invalid: false, draft: true, tracked: false, attn: null },
+    { name: "web-dev", current: 3, count: 3, base: "Dockerfile", egress: 3, usedBy: 0, invalid: false, draft: false, tracked: false, attn: null },
+  ],
+};
+const reviewYaml = (prompt: string) => `kind: studio\nbase:\n  kit: web-dev\negress: [api.github.com]\nprompt: ${prompt}\n`;
+const reviewPrompt = "You review pull requests on acme/app. Read the ticket first.";
+const reviewView = kitView({
+  n: 4, pushText: reviewYaml(reviewPrompt), yaml: reviewYaml(reviewPrompt), base: "kit: web-dev",
+  egress: ["api.github.com"], ceiling: ["api.github.com"], prompt: reviewPrompt, digest: "7d0c41e9b2a5",
+});
+const webDevEgress = ["github.com", "proxy.golang.org", "registry.npmjs.org"];
+const kitVersion = (n: number, pushed: string, digest: string, current = false) => ({ n, prev: n - 1, current, digest, pushed, source: null });
+const reviewKit = kit({
+  name: "review-kit", current: 4,
+  versions: [kitVersion(1, "2026-10-02 14:10", "51a9e0c3d7f2"), kitVersion(2, "2026-10-19 09:42", "51a9e0c3d7f2"),
+    kitVersion(3, "2026-11-04 16:05", "c3e88a10f6b4"), kitVersion(4, "2026-11-12 11:20", "7d0c41e9b2a5", true)],
+  view: reviewView,
+  uses: [{ project: "acme", role: "reviewer", implicit: false }],
+  chain: [{ name: "web-dev", version: 3, follow: true }],
+  effective: kitView({
+    n: 4, base: "kit: web-dev", egress: ["api.github.com", ...webDevEgress], ceiling: ["api.github.com", ...webDevEgress],
+    buildArgs: [{ key: "GO_VERSION", value: "1.25" }, { key: "NODE_VERSION", value: "22" }],
+    secrets: [{ key: "GH_TOKEN", value: "clone and review access" }],
+    mcpServers: [{ key: "linear", value: "http ${LINEAR_MCP_URL}" }],
+    notes: [{ key: "review.md", value: "you review a pull request" }, { key: "web.md", value: "you run the web app" }],
+    prompt: "You work on acme's web services.\n\n" + reviewPrompt, digest: "7d0c41e9b2a5",
+  }),
+  files: { n: 4, size: "1.2 KiB", rows: [{ path: "kit.yml", label: "kit.yml", mode: "0644", size: 131 }, { path: "notes/review.md", label: "notes/review.md", mode: "0644", size: 1102 }], hidden: 0 },
+});
+const reviewDiff = kit({
+  ...reviewKit,
+  diff: { from: 3, to: 4, digestChanged: true, tooLarge: false, lines: [
+    { op: " ", text: "kind: studio" }, { op: " ", text: "base:" }, { op: " ", text: "  kit: web-dev" },
+    { op: "+", text: "egress: [api.github.com]" }, { op: "-", text: "prompt: You review pull requests on acme/app." }, { op: "+", text: "prompt: " + reviewPrompt },
+  ] },
+  filesDiff: { from: 3, to: 4, rows: [{ change: "modified", path: "kit.yml", label: "kit.yml", mode: "0644", size: "84 B → 131 B" },
+    { change: "added", path: "notes/review.md", label: "notes/review.md", mode: "0644", size: "1102 B" }], more: 0, unchanged: 0 },
+});
+const reviewDockerfile = "ARG JAM_STUDIO_BASE_IMAGE\nFROM ${JAM_STUDIO_BASE_IMAGE}\nRUN apt-get update && apt-get install -y --no-install-recommends shellcheck\n";
+const reviewDraft = draftPage({
+  name: "review-kit", current: 4, versions: [1, 2, 3, 4],
+  draft: draftView({
+    base: 4, current: 4, etag: "t9", actor: "alice", updated: "2026-11-13 09:50", size: "1.3 KiB",
+    tree: [
+      { depth: 0, name: "Dockerfile", dir: false, path: "Dockerfile", label: "Dockerfile", mode: "0644", size: 120, change: "added" },
+      { depth: 0, name: "kit.yml", dir: false, path: "kit.yml", label: "kit.yml", mode: "0644", size: 131, change: "" },
+      { depth: 0, name: "notes", dir: true, path: "", label: "notes", mode: "", size: 0, change: "" },
+      { depth: 1, name: "review.md", dir: false, path: "notes/review.md", label: "notes/review.md", mode: "0644", size: 1102, change: "" },
+    ],
+    removed: [],
+    editor: { path: "Dockerfile", label: "Dockerfile", mode: "0644", size: 120, exec: false, etag: "t9", editable: true, text: reviewDockerfile, invisible: false, note: "" },
+    changes: { from: 4, to: 0, rows: [{ change: "added", path: "Dockerfile", label: "Dockerfile", mode: "0644", size: "120 B" }], more: 0, unchanged: 2 },
+  }),
+});
+const goToolsSource = { repo: "https://github.com/acme/kits", repoLink: "https://github.com/acme/kits", dir: "go", ref: "main",
+  commit: "0123456789ab", commitLink: "https://github.com/acme/kits/commit/0123456789ab" };
+const goToolsYaml = "kind: studio\negress: [proxy.golang.org, sum.golang.org, go.dev, github.com]\nbuild-args: {GO_VERSION: \"1.25\"}\nprompt: You build and test Go code.\n";
+const goTools = kit({
+  name: "go-tools", current: 2,
+  versions: [{ n: 1, prev: 0, current: false, digest: "e4f1a07c9d32", pushed: "2026-10-21 08:00", source: { ...goToolsSource, commit: "9f8e7d6c5b4a", commitLink: "https://github.com/acme/kits/commit/9f8e7d6c5b4a" } },
+    { n: 2, prev: 1, current: true, digest: "b2d93c5e18f0", pushed: "2026-11-10 15:31", source: goToolsSource }],
+  view: kitView({ n: 2, pushText: goToolsYaml, yaml: goToolsYaml, base: "Dockerfile", egress: ["github.com", "go.dev", "proxy.golang.org", "sum.golang.org"],
+    ceiling: ["github.com", "go.dev", "proxy.golang.org", "sum.golang.org"], buildArgs: [{ key: "GO_VERSION", value: "1.25" }], prompt: "You build and test Go code.", digest: "b2d93c5e18f0" }),
+  uses: [], source: goToolsSource,
+  files: { n: 2, size: "640 B", rows: [{ path: "Dockerfile", label: "Dockerfile", mode: "0644", size: 402 }, { path: "kit.yml", label: "kit.yml", mode: "0644", size: 138 }], hidden: 0 },
+});
+
 export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/bootstrap": adminBoot,
   "GET /app/admin/api/tree": tree,
@@ -276,4 +354,9 @@ export const mocks: Record<string, unknown> = {
   "GET /app/user/api/conversations/chn_acme37": acme37,
   "GET /app/user/api/conversations/chn_acme37/presence": { sessions: [] },
   "POST /app/user/api/conversations/chn_acme37/read": {},
+  "GET /app/admin/api/kits": kitList,
+  "GET /app/admin/api/kits/review-kit": reviewKit,
+  "GET /app/admin/api/kits/review-kit?v=4&diff=3": reviewDiff,
+  "GET /app/admin/api/kits/review-kit/draft": reviewDraft,
+  "GET /app/admin/api/kits/go-tools": goTools,
 };
