@@ -3,5 +3,93 @@
 :page-id: ROOT/concepts/project
 :page-conventions: sentence-case
 
-// Stub on books/as-is: replaced by its ticket with the as-is page.
-This page is being written.
+A *project* is one area of work on a Jam,
+such as a product or a team.
+Everything an agent does happens inside a project.
+To see and change a project,
+see xref:configuration/projects.adoc[].
+
+== What a project holds
+
+Roles and agents::
+The project's xref:concepts/agent.adoc[roles] say what its agents may do.
+Every agent Jam runs belongs to one project,
+and holds one of the project's roles.
+Members::
+The people who work in the project.
+A member is a xref:configuration/users.adoc[user] of the Jam:
+the same person can be a member of several projects.
+Members see the project's channels in the Inbox,
+and agents can send them messages
+when their role allows it.
+For each member, the project can also say where Jam sends their messages outside Jam,
+such as their own Discord channel.
+Agent context::
+Instructions and resources that every agent in the project starts with
+(xref:projects:agent-context.adoc[]).
+Intercom::
+The project's *rooms*:
+named channels such as `ops`,
+which can also be shown in a tracker issue or a Discord channel.
+The project's *chat service* says where people get messages outside Jam:
+none (only @-mentions in the tracker) or Discord
+(xref:concepts/intercom.adoc[]).
+Escalation::
+Who Jam calls in, and in which order,
+when an agent in the project waits for a person
+(xref:concepts/escalation.adoc[]).
+
+A project is part of the xref:concepts/config-repo.adoc[config repo].
+You add, rename, change and delete it on a branch;
+each save is a commit.
+
+== Names and ids
+
+You name a project by its name everywhere:
+in the admin console, the CLI and the config repo.
+Inside, Jam keeps an id for each project.
+If you rename a project,
+Jam treats it as a new project under the new name,
+with a new id.
+
+== Deleting a project
+
+You can delete a project only when nothing uses it:
+no members, no roles,
+no agents that run in it or hold a grant into it.
+When a project is deleted,
+its escalation and chat service go with it.
+Its rooms and other channels are archived:
+you can still read their history.
+The name is free again.
+A new project with the same name starts empty:
+it gets nothing from the old one.
+
+== The default project
+
+Every Jam can use a project named `default`.
+When something names no project,
+it means `default`.
+Where you type a project name,
+the suggestions always include `default`,
+even before anything uses it.
+Jam creates it the first time something names it,
+so a Jam with one project works with no setup.
+You cannot rename `default`,
+and you cannot rename another project to `default`.
+
+ifdef::internal[]
+== Notes for the team
+
+* A project is `projects/<name>/` in the config repo:
+`project.yml` (members, rooms, escalation, chat service),
+its agent context and `roles/`.
+Its id is `+prj_…+`; roles, grants and sessions refer to it by id.
+* `default` is created by the first write that names it.
+* The console's delete guard is `projectRef` (`internal/jam/adminui/projects.go`):
+members, standing agents, roles, sessions not yet gone, grants.
+Applying a removal from the config repo has its own guard (`config_plan_delete.go`).
+* `jam project list` lists the projects.
+* Depth: `docs/modules/ROOT/pages/usage/jam/projects.adoc`,
+`comms-addressing.adoc` (members and rooms).
+endif::[]

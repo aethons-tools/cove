@@ -15,6 +15,7 @@ import type { EventStream } from "../../build/mockApi";
 import { card } from "../test/card";
 import { draftPage, draftView, kit, kitView } from "../admin/kits/fixtures";
 import type { KitsResponse } from "../admin/api/types";
+import type { ChainRow, MemberRow, ProjectsResponse, SquawkRow, UserDetail, UserRow, UsersResponse } from "../admin/api/types";
 
 const leaf = (path: string, label: string): TreeNode => ({ path, label, group: false, badge: 0, badgeRed: false, badgeTitle: "", children: [] });
 const group = (path: string, label: string, ...children: TreeNode[]): TreeNode => ({ ...leaf(path, label), group: true, children });
@@ -387,6 +388,43 @@ const helperThinking: EventStream = { eventStream: [
   { event: "more", data: "201" },
 ] };
 
+// The manual's projects and users (ROOT/concepts/project,
+// ROOT/concepts/escalation, ROOT/configuration/projects and
+// ROOT/configuration/users): acme with three members, two rooms, a default
+// escalation chain and an infra chain that names someone who isn't a member.
+const member = (userId: string, name: string, handle: string, inbox: string): MemberRow => ({ userId, name, handle,
+  delivery: inbox ? [{ service: "discord", address: inbox }] : [], deliverySpec: inbox ? "discord:" + inbox : "" });
+const acmeMembers = [member("usr_1", "alice", "alice", "1188201945"), member("usr_2", "bob", "bob", ""), member("usr_3", "carol", "carol", "1188202271")];
+const chainRow = (category: string, tiers: [string[], string][], unknown: string[] = []): ChainRow => ({ category,
+  tiers: tiers.map(([targets, timeout]) => ({ targets: targets.map((text) => ({ text, unknown: unknown.includes(text) })), timeout })),
+  spec: tiers.map(([targets, timeout]) => targets.join(",") + "@" + timeout).join("\n") });
+const acmeDefaultChain = chainRow("", [[["user:alice", "user:bob"], "15m"], [["user:carol"], "1h"]]);
+const acmeChains = [acmeDefaultChain, chainRow("infra", [[["user:carol", "user:sre"], "10m"]], ["user:sre"])];
+const acmeProject = project({ chatService: "disc", context: filledContext, members: acmeMembers, roles: 2, agents: 5, liveAgents: 3,
+  rooms: [{ name: "eng", connection: "disc", kind: "discord", ref: "1188190033", postOnly: false },
+    { name: "ops", connection: "acme-linear", kind: "linear", ref: "ACME-1", postOnly: false }],
+  escalation: acmeChains, defaultChain: acmeDefaultChain, inUseBy: "3 member(s)" });
+const squawk = (at: string, from: string, fromId: string, channel: string, body: string): SquawkRow => ({ at, from, fromId,
+  agentId: fromId.startsWith("ses_") ? fromId : "", channel, channelId: "chn_" + channel, project: "acme", body, plain: false, to: [] });
+const acmeSquawks = [
+  squawk("Nov 12 10:44", "acme-42", "ses_01jc4f2t6w", "acme-42", "<p>Needs input from acme-42 on ACME-42 — called in alice, bob (escalation tier 0).</p>"),
+  squawk("Nov 12 10:42", "acme-42", "ses_01jc4f2t6w", "acme-42", "<p>The migration needs a maintenance window. Which night suits you?</p>"),
+  squawk("Nov 12 10:40", "coder-01", "ses_01jc3d9q7r", "coder-01", "<p>The login form is fixed; the preview <code>web</code> shows it. Shall I open the PR?</p>"),
+  squawk("Nov 12 09:58", "carol", "usr_3", "ops", "<p>Deploy of <code>v1.8.2</code> is done.</p>"),
+];
+const projectList: ProjectsResponse = { projects: [{ name: "acme", members: 3, roles: 2, rooms: 2 }, { name: "default", members: 0, roles: 0, rooms: 0 },
+  { name: "website", members: 1, roles: 1, rooms: 0 }] };
+const userRow = (id: string, name: string, logins: string[], accounts: UserRow["accounts"], projects: string[]): UserRow => ({ id, name, logins, accounts, projects });
+const aliceUser = userRow("usr_1", "alice", ["auth0|6512a9e0"], [{ id: "acc_1", connection: "acme-linear", serviceUid: "", handle: "alice" },
+  { id: "acc_2", connection: "disc", serviceUid: "801234567890123456", handle: "" }], ["acme", "website"]);
+const userList: UsersResponse = { users: [aliceUser,
+  userRow("usr_2", "bob", ["auth0|6512aa14"], [{ id: "acc_3", connection: "acme-linear", serviceUid: "", handle: "bob" }], ["acme"]),
+  userRow("usr_3", "carol", [], [{ id: "acc_4", connection: "acme-linear", serviceUid: "", handle: "carol" }], ["acme"])] };
+const aliceDetail: UserDetail = { user: aliceUser, removed: false, loginSpec: aliceUser.logins.join("\n"),
+  oidcSpec: "https://acme.eu.auth0.com/:auth0|6512a9e0", connections: [{ name: "acme-linear", kind: "linear" }, { name: "disc", kind: "discord" }],
+  appTokens: [], // none: a token's "last used" is relative to now, so the shot would drift
+  notes: { markdown: "", html: "" } };
+
 export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/bootstrap": adminBoot,
   "GET /app/admin/api/tree": tree,
@@ -394,7 +432,11 @@ export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/config/branches/pr": { url: "" },
   "GET /app/admin/api/tracking": tracking,
   "POST /app/admin/api/tracking/diff": trackingPlan,
-  "GET /app/admin/api/projects/acme": project({ chatService: "disc", context: filledContext }),
+  "GET /app/admin/api/projects": projectList,
+  "GET /app/admin/api/projects/acme": acmeProject,
+  "GET /app/admin/api/projects/acme?section=intercom": { ...acmeProject, squawks: acmeSquawks },
+  "GET /app/admin/api/users": userList,
+  "GET /app/admin/api/users/usr_1": aliceDetail,
   "GET /app/admin/api/destinations/github": github,
   "GET /app/admin/api/agents": agentList,
   "GET /app/admin/api/agents/ses_01jc3d9q7r": coder01,
