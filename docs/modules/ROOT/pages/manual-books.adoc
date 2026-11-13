@@ -60,18 +60,29 @@ keep page content in them.
 * *Diagrams* are code, in every book.
 A `+[mermaid]+` listing block in a page
 (`+[mermaid,alt="…"]+` then `+----+`-delimited Mermaid source)
-is rendered at build time into an inline SVG
+is rendered at build time into an SVG file
 by `manual/extensions/diagrams.js`,
-an Asciidoctor block extension that every playbook registers,
+an Antora extension that every playbook registers,
 the customer one included.
-It runs `@mermaid-js/mermaid-cli` (`mmdc`, pinned in `manual/package.json`,
+The block becomes an image of that file,
+added to the page's module as a generated image (never committed),
+so the page shows it as an `<img>`:
+Mermaid styles its SVG with an inline `<style>`,
+which Jam's CSP for the customer manual (`default-src 'self'`, no `style-src`) blocks in an inline SVG
+but not in an image file.
+The extension runs `@mermaid-js/mermaid-cli` (`mmdc`, pinned in `manual/package.json`,
 `PUPPETEER_SKIP_DOWNLOAD` so it fetches no browser)
 with the headless Chrome `just manual-shot` uses
-(`+$JAM_BROWSER+`, else the kit's `/opt/chrome-headless-shell`;
-CI's `manual-site.yml` and `scripts/manual.sh` set `+JAM_BROWSER+` to the runner's Chrome).
-The SVG carries no script,
-so the customer manual, embedded in Jam under a CSP that allows none, can show it;
-`alt` becomes its `<title>` and is required.
+(`+$JAM_BROWSER+`, else the kit's `/opt/chrome-headless-shell`).
+Every build that renders the books needs that Chrome:
+`manual-site.yml`, and `scripts/manual.sh`, so also `just build`
+and the release (goreleaser runs `scripts/manual.sh`), which set `+JAM_BROWSER+` to the runner's Chrome.
+The SVG carries no script.
+`alt` is required and becomes the image's alt text and the SVG's `<title>`.
+Diagrams follow the internal rules like any image:
+a diagram in internal content is dropped from the customer manual
+(xref:manual.adoc[], "Marking content internal");
+every other diagram is in it.
 Rendered SVGs are cached under `manual/build/diagrams/` by a hash of the source and the `mmdc` version,
 so a rebuild renders only what changed.
 A block that fails to render, or has no `alt`, fails the build with the page and line.
