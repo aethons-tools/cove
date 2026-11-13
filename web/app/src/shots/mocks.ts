@@ -3,7 +3,7 @@
 // "METHOD /path" (with its query, or without to match any), each value the
 // JSON answer, built from the tests' fixtures. A request with no entry
 // answers 404, is logged and fails the shot, naming what it still needs.
-import type { ConfigBranches, TreeNode, TreeResponse } from "../admin/api/types";
+import type { ConfigBranches, Plan, Tracking, TreeNode, TreeResponse } from "../admin/api/types";
 import { adminBoot } from "../admin/fixtures";
 import { filledContext, project } from "../admin/projects/fixtures";
 import { dest, destFields, endpoint } from "../admin/specs/fixtures";
@@ -36,7 +36,33 @@ const branches: ConfigBranches = {
     { name: "main", head: "4f2a9c1e0b7d", short: "4f2a9c1", followed: true },
     { name: "jam/docs", head: "9b81d07a3c22", short: "9b81d07", followed: false },
   ],
-  followed: "main", defaultName: "jam/local-admin", canPR: false, repoLink: "", treeLink: "", prNoun: "pull request",
+  followed: "main", defaultName: "jam/local-admin", canPR: true, repoLink: "https://github.com/acme/jam-config",
+  treeLink: "https://github.com/acme/jam-config/tree/", prNoun: "pull request",
+};
+
+// The manual's Tracking page (ROOT/configuration/config-branches): acme's
+// config repo, in sync, the objects it manages, and the plan Diff shows for
+// a commit that landed since the follower's last check.
+const managed = (kind: string, name: string, path: string) => ({ kind, name, path, commit: "4f2a9c1", applied: "Nov 13 09:12" });
+const tracking: Tracking = {
+  source: { label: "https://github.com/acme/jam-config@main", repo: "https://github.com/acme/jam-config", repoLink: "https://github.com/acme/jam-config",
+    dir: "", ref: "main", commit: "4f2a9c1", commitLink: "https://github.com/acme/jam-config/commit/4f2a9c1e0b7d", applied: "Nov 13 09:12" },
+  rows: [
+    managed("destination", "github", "config/destinations/github"),
+    managed("project", "acme", acme),
+    managed("role", "acme/coder", acme + "/agents/coder"),
+    managed("role", "acme/reviewer", acme + "/agents/reviewer"),
+    managed("user", "alice", "config/users/usr_1"),
+  ],
+  lastCommit: "4f2a9c1", lastApplied: "Nov 13 09:12", canGit: true, plan: null,
+  follow: { state: "in-sync", head: "4f2a9c1", applied: "4f2a9c1", error: "", checked: "Nov 13 10:41" },
+};
+const trackingPlan: Plan = {
+  source: "https://github.com/acme/jam-config@main", commit: "7c4e2d1", digest: "d1", changes: 1, unchanged: 4,
+  ops: [{ action: "update", kind: "role", name: "acme/reviewer", path: acme + "/agents/reviewer", file: "projects/acme/roles/reviewer.yml",
+    lines: [{ op: "…", text: "scope:" }, { op: "-", text: "  ttl: 24h" }, { op: "+", text: "  ttl: 12h" }], tooLarge: false, diff: "" }],
+  forget: [], unmanaged: [{ kind: "kit", name: "default" }, { kind: "model-spec", name: "claude-default" }], kitSources: [], refusals: [],
+  serve: { state: "same", keys: [] },
 };
 
 // github is the manual's destination (ROOT/configuration/destination): git,
@@ -132,6 +158,9 @@ export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/bootstrap": adminBoot,
   "GET /app/admin/api/tree": tree,
   "GET /app/admin/api/config/branches": branches,
+  "GET /app/admin/api/config/branches/pr": { url: "" },
+  "GET /app/admin/api/tracking": tracking,
+  "POST /app/admin/api/tracking/diff": trackingPlan,
   "GET /app/admin/api/projects/acme": project({ chatService: "disc", context: filledContext }),
   "GET /app/admin/api/destinations/github": github,
   "GET /app/admin/api/agents": agentList,
