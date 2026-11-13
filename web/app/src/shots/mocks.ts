@@ -10,6 +10,8 @@ import { dest, destFields, endpoint, spec, specFields } from "../admin/specs/fix
 import type { AgentDetail, AgentListRow, AgentsResponse, CoveRow } from "../admin/api/types";
 import { agents as projectAgents, role } from "../admin/roles/fixtures";
 import { emptyContext } from "../admin/projects/fixtures";
+import type { Bootstrap, ChannelRow, Conversation, MessageRow } from "../api/types";
+import { card } from "../test/card";
 
 const leaf = (path: string, label: string): TreeNode => ({ path, label, group: false, badge: 0, badgeRed: false, badgeTitle: "", children: [] });
 const group = (path: string, label: string, ...children: TreeNode[]): TreeNode => ({ ...leaf(path, label), group: true, children });
@@ -182,6 +184,73 @@ const specRow = (s: typeof claudeDefault): SpecListRow => ({ name: s.name, type:
   principal: s.fields.principal, modelId: s.fields.modelId, effort: s.fields.effort, mode: s.fields.mode, provider: s.fields.provider, usedBy: s.uses.length });
 const specList: SpecsResponse = { specs: [claudeDefault, reviewOpus].map(specRow), new: specFields({ version: "", principal: "" }), choices: specChoices };
 
+// The Inbox (ROOT/inbox/channels, ROOT/inbox/composer): alice's rail in acme,
+// with the ops room open, and whom she may start a conversation with.
+const userBoot: Bootstrap = {
+  brand: "Acme Jam", user: { id: "usr_1", name: "alice", initial: "A" }, roles: "member", admin: false, signOut: true,
+  tabs: [{ key: "inbox", label: "Inbox", href: "/app/user/", badge: 3, badgeRed: false, badgeTitle: "" }],
+  attachMax: 25 << 20, pushKey: "", boards: false, pushFocus: false, newSession: false,
+};
+const row = (over: Partial<ChannelRow>): ChannelRow => ({
+  id: "", label: "", project: "acme", kind: "studio", needsYou: false, phase: "", unread: 0, openAsks: 0,
+  lastSeq: 0, selected: false, mission: "", session: "", ssh: false, ...over,
+});
+const rail = {
+  unreadTotal: 3,
+  groups: [
+    { bucket: "needs-you", title: "Needs you", rows: [
+      row({ id: "chn_acme42", label: "ACME-42", needsYou: true, phase: "live", openAsks: 1, unread: 1, lastSeq: 90,
+        card: card({ session: "ses_spider", name: "spider", state: "idle", pill: "needs you", tool: "", mission: "Fix the flaky login test", counts: { asks: 1, alarms: 0, previews: 0, processes: 0, subagents: 0 } }) }),
+    ] },
+    { bucket: "active", title: "Sessions", rows: [
+      row({ id: "chn_helper", label: "helper", phase: "live", lastSeq: 88,
+        card: card({ session: "ses_helper", name: "helper", mission: "Draft the 1.14 release notes", focus: "Reading the changelog" }) }),
+      row({ id: "chn_bobcoder", label: "bob, coder", kind: "dm", phase: "live", lastSeq: 80, mission: "Review open pull requests" }),
+    ] },
+    { bucket: "channels", title: "Channels", rows: [
+      row({ id: "chn_ops", label: "ops", kind: "named", lastSeq: 86, selected: true }),
+      row({ id: "chn_bob", label: "bob", kind: "dm", unread: 2, lastSeq: 84 }),
+      row({ id: "chn_acme37", label: "ACME-37", lastSeq: 40 }),
+    ] },
+  ],
+};
+const msg = (over: Partial<MessageRow>): MessageRow => ({
+  from: "", body: "", raw: "", plain: false, at: "", time: "", mine: false, seq: 0, system: false, sysText: "", card: "", ...over,
+});
+const ops: Conversation = {
+  channelId: "chn_ops", label: "ops", kind: "named", project: "acme", phase: "", needsYou: false, sendTo: "chn_ops",
+  lastSeq: 86, earlier: false, sessionIds: [], sessions: [], openAsks: [], newBoard: false, session: "",
+  canJoin: false, canLeave: true,
+  callIn: [{ to: "user:usr_3", label: "carol", kind: "person", project: "" }, { to: "user:usr_4", label: "dan", kind: "person", project: "" }],
+  messages: [
+    msg({ seq: 81, from: "bob", time: "2026-11-10T09:12:00Z", body: "<p>Release 1.14 is tagged. Can someone check the deploy log before we announce it?</p>", raw: "Release 1.14 is tagged. Can someone check the deploy log before we announce it?" }),
+    msg({ seq: 83, from: "coder", color: "#2f9e44", time: "2026-11-10T09:20:00Z",
+      body: "<p>The deploy finished. One warning, from the cache warm-up:</p><pre><code>WARN cache: 3 keys missed on warm-up\n</code></pre>",
+      raw: "The deploy finished. One warning, from the cache warm-up:\n\n```\nWARN cache: 3 keys missed on warm-up\n```",
+      files: [{ id: "blb_deploylog", name: "deploy-1.14.log", size: "48 KB", image: false }] }),
+    msg({ seq: 84, system: true, sysText: "alice called in carol", time: "2026-11-10T09:24:00Z" }),
+    msg({ seq: 86, from: "alice", mine: true, time: "2026-11-10T09:26:00Z", body: "<p>Thanks. That warning is known; I'll post the announcement.</p>", raw: "Thanks. That warning is known; I'll post the announcement." }),
+  ],
+};
+// ACME-37's ticket conversation: alice can see it but isn't in it.
+const acme37: Conversation = {
+  ...ops, channelId: "chn_acme37", label: "ACME-37", kind: "studio", sendTo: "chn_acme37", lastSeq: 40,
+  canJoin: true, canLeave: false, callIn: [],
+  messages: [msg({ seq: 40, from: "reviewer", time: "2026-11-09T16:02:00Z", body: "<p>Merged: the retry fix for the webhook relay.</p>", raw: "Merged: the retry fix for the webhook relay." })],
+};
+const recipients = {
+  options: [
+    { to: "user:usr_2", label: "bob", kind: "person", project: "acme" },
+    { to: "user:usr_3", label: "carol", kind: "person", project: "acme" },
+    { to: "session:ses_helper", label: "helper", kind: "agent", project: "acme" },
+    { to: "session:ses_spider", label: "spider", kind: "agent", project: "acme" },
+    { to: "chn_acme42", label: "ACME-42", kind: "ticket", project: "acme" },
+    { to: "chn_ops", label: "ops", kind: "room", project: "acme" },
+    { to: "user:usr_5", label: "erin", kind: "person", project: "website" },
+    { to: "chn_launch", label: "launch", kind: "room", project: "website" },
+  ],
+};
+
 export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/bootstrap": adminBoot,
   "GET /app/admin/api/tree": tree,
@@ -198,4 +267,13 @@ export const mocks: Record<string, unknown> = {
   "GET /app/admin/api/model-specs": specList,
   "GET /app/admin/api/model-specs/claude-default": claudeDefault,
   "GET /app/admin/api/model-specs/review-opus": reviewOpus,
+  "GET /app/user/api/bootstrap": userBoot,
+  "GET /app/user/api/rail": rail,
+  "GET /app/user/api/recipients": recipients,
+  "GET /app/user/api/conversations/chn_ops": ops,
+  "GET /app/user/api/conversations/chn_ops/presence": { sessions: [] },
+  "POST /app/user/api/conversations/chn_ops/read": {},
+  "GET /app/user/api/conversations/chn_acme37": acme37,
+  "GET /app/user/api/conversations/chn_acme37/presence": { sessions: [] },
+  "POST /app/user/api/conversations/chn_acme37/read": {},
 };
