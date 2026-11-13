@@ -1,0 +1,56 @@
+= Role egress
+:summary: A role's raw egress policy (`scope.egress` in its file in the config repo) — the domains its studios may reach beyond the sealed base and infra lists, capped by the kit's ceiling; how it reaches running studios, fails closed, `jam egress show`, and its admin route.
+:read_when: You are limiting or widening what a role's studios may reach on the network, a raise failed naming a domain outside the kit's ceiling, a studio was torn down after egress re-apply failures, or you want to read a role's policy (`egress show`, `role list`'s `egress=`).
+:owns: a role's egress policy — `scope.egress` semantics (unset, empty, a list), the kit ceiling check, domain syntax, re-apply on running studios and its fail-closed teardown, `egress show`, and `GET /admin/roles/\{project}/\{role}/egress`
+:prereqs: roster.adoc for roles; kits.adoc for the kit's `egress:` ceiling; coves-raise.adoc for the raise and the egress-drift pass
+:tier: leaf
+:updated: 2026-11-13
+
+A role can set the *raw egress* of every studio Jam raises for it. That is
+the domains the studio's squid allows beyond the sealed base and the kit's
+always-on infra list (model provider, self-hosted GitLab, Jam host).
+
+[source,yaml]
+----
+# projects/acme/roles/fenced.yml
+scope:
+  egress: [registry.npmjs.org, .pypi.org]   # [] = an empty policy; no egress: = the kit's list
+----
+
+----
+jam egress show --project acme --role fenced   # "kit default", "none", or the list
+----
+
+* *No policy (the default) = the kit's list.* The studio gets the kit's
+`+egress:+` list, so existing roles are unchanged. A *set but
+empty* policy (`+egress: []+`) means nothing beyond the base and infra lists.
+* *The kit is the ceiling.* The role's list _replaces_ the kit's list, but every
+domain must be covered by the kit's
+`+egress:+` list (xref:usage/jam/kits.adoc#the-egress-ceiling-cov-208[kits]). A leading-dot
+entry (`.x.com`) covers `x.com` and its subdomains; an exact entry covers only
+itself. Jam checks only syntax and normalizes (lowercase, dedupe, sort, drop
+entries a wildcard in the list already covers); *the box enforces the ceiling*.
+A role asking for more fails its raise with an error naming the domain.
+* *Reaches running studios within one reconcile pass.* Each studio records the
+policy it runs under; Jam's xref:usage/jam/coves-raise.adoc#egress-drift[reconcile pass] re-applies
+the role's current one when they differ (removing `+egress:+` restores the kit's list). A
+paused studio gets it when it resumes, before its agent is woken.
+* *Fails closed.* A re-apply that fails is retried on the next pass; the third
+consecutive failure — or a failed re-apply on resume — tears the studio down, so a
+studio never keeps running under a policy other than its role's. A standing session
+is then raised again under the new policy; an ephemeral or personal one ends.
+A policy outside the kit's ceiling fails every time, so it reaches that teardown
+(the log names the domain).
+* Domains follow the rule `pass:c[^\.?[a-z0-9\]([a-z0-9-\]*[a-z0-9\])?(\.[a-z0-9\]([a-z0-9-\]*[a-z0-9\])?)+$]`
+after lowercasing: at least two labels, no scheme, port, path, `+*+` or whitespace.
+* Grant overrides don't touch egress.
+* `role list` shows the state as `egress=kit`, `egress=none` or
+`egress=<a.com,.b.org>`.
+
+How it is applied in the box: xref:OVERVIEW.adoc#egress-four-additive-allow-lists-and-a-ceiling[the egress model];
+when in the raise: xref:usage/jam/coves-raise.adoc[coves-raise]; on a running
+studio: xref:usage/jam/coves-raise.adoc#egress-drift[coves-raise].
+
+Admin API: `+GET /admin/roles/{project}/{role}/egress+` answers *200*
+`+{"managed":bool,"domains":[…]}+` (`+managed:false+` = kit default), *404* for an
+unknown role.

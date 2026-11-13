@@ -127,7 +127,7 @@ What a diff or apply plans, its refusals, managed marks and the objects Jam keep
 
 Serve the replica with `+--config jam.yml --config jam.local.yml+` (portable
 settings from the repo, host keys in the local file; see
-xref:usage/jam/serve.adoc#layering-serve-configs[serve.adoc] for the overlay, host keys and the
+xref:usage/jam/serve-layering.adoc[] for the overlay, host keys and the
 `same | differs | absent | unknown` comparison `config diff` reports), supply
 the credentials the destinations and connections name, point its `+config:+`
 block at the same repo (xref:usage/jam/config-git-sources.adoc[config-git-sources]), and

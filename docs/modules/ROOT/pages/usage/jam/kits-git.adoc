@@ -21,7 +21,7 @@ jam kit untrack web                                                       # stop
 ----
 
 The admin UI does the same from the Kits list (*Import from git*) and each
-kit's *Source* card (xref:usage/jam/ui-pages.adoc#kit-pages[ui-pages.adoc]).
+kit's *Source* card (xref:usage/jam/ui-kit-pages.adoc[]).
 
 [#the-source-repodirref]
 == The source: `+<repo>[//<dir>]@<ref>+`

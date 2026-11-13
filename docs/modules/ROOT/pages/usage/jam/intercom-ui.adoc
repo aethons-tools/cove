@@ -117,7 +117,7 @@ It carries payload-free signals — `changed` (the squawk Log grew),
 xref:usage/jam/session-card.adoc#freshness[card] shows; at
 most one per 250 ms, the last always sent; it refetches the rail too) and `board` (a whiteboard changed) — and one event with
 content, ``+event: notify+``: the viewer's own notification, as a push would
-show it (xref:usage/jam/vscode.adoc#notifications-and-the-badge[VS Code]); the web app
+show it (xref:usage/jam/vscode-notifications.adoc[VS Code]); the web app
 ignores it. The app refetches what each names through the API, which checks access again. A
 reconnect refetches too, and a *30 s poll* covers state that appends
 nothing and a dropped stream. A half-typed reply is never touched.

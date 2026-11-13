@@ -4,9 +4,9 @@
 :owns: the subscription account pool — the `pool:` behavior, the identity→account binding + bearer injection, the broker's oauth beta for pool credentials (and the oauth_beta flag's removal), the `jam pool` verb, the broker-owned refresher (endpoint + egress), and the pool rollout
 :prereqs: serve.adoc for the `pool:` config block + the broker model and `destination` verb; coves.adoc for how a raised cove is credentialed
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-13
 
-By default the `anthropic` xref:usage/jam/serve.adoc#destinations[destination] injects a single
+By default the `anthropic` xref:usage/jam/destinations.adoc[destination] injects a single
 configured credential (e.g. a `jam mint anthropic` federated service-account
 token). Those tokens are a *distinct principal* from a personal subscription —
 not entitled to the same models — and cost markedly more per token. The
@@ -55,7 +55,7 @@ jam pool list --store /var/lib/jam/pool.json    # names + expiries, never tokens
 
 `pool add`/`list` write the host-side store file *directly* (not via the admin
 API); `+--from-file+` defaults to stdin. Then point the anthropic destination at the
-pool, by a commit to the config repo (xref:usage/jam/serve.adoc#destinations[Destinations]):
+pool, by a commit to the config repo (xref:usage/jam/destinations.adoc[Destinations]):
 
 [source,yaml]
 ----

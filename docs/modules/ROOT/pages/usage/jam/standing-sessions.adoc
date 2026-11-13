@@ -1,10 +1,10 @@
 = Standing sessions
-:summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again (resuming its conversation and workspace) if it dies, and tears it down with its state when the name is removed. Covers declaring, declaring one in the config repo, the `standing list|reset|upgrade` verbs and admin routes, keep-alive with backoff, reset, upgrading to the current image, dismissal, admission, and messaging.
-:read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing, resetting or upgrading one (e.g. its image is stale after a jam, kit or model-spec change), or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
-:owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the declaration ↔ session map (session ids), the `standing list|reset|upgrade` verbs and `/admin/roles/\{project}/\{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, upgrade (the queue, prepare-first, idle wait, `--wait`), standing admission (declared-name cap, file-store behavior), and how a standing session messages people
-:prereqs: roster.adoc for roles; standing-state.adoc for what a restart keeps; coves.adoc for what a raised studio does and resident mode; comms-addressing.adoc for `send(to=…)` targets and a role's addressing; discord.adoc for the Discord reply loop; serve.adoc for `store-postgres` and the allocation ledger
+:summary: Standing sessions — named, long-lived teammates an operator declares on a role (e.g. `reviewer/alice-bot`); Jam keeps exactly one studio running per name, raises it again (resuming its conversation and workspace) if it dies, and tears it down with its state when the name is removed. Covers declaring, declaring one in the config repo, the `standing list|reset|upgrade` verbs and admin routes, keep-alive with backoff, reset, dismissal, admission, and messaging.
+:read_when: You want a role to have a permanent, named agent running (a standing teammate), or you are removing or resetting one (upgrading one whose image is stale: standing-upgrade.adoc), or a standing session keeps restarting / isn't coming up and you want to know why, or you need to know how a standing session reaches people.
+:owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the declaration ↔ session map (session ids), the `standing list|reset|upgrade` verbs and `/admin/roles/\{project}/\{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, standing admission (declared-name cap, file-store behavior), and how a standing session messages people
+:prereqs: roster.adoc for roles; standing-state.adoc for what a restart keeps; coves.adoc for what a raised studio does and resident mode; comms-addressing.adoc for `send(to=…)` targets and a role's addressing; discord.adoc for the Discord reply loop; serve-store.adoc for `store-postgres` and the allocation ledger
 :tier: leaf
-:updated: 2026-11-05
+:updated: 2026-11-13
 
 A *standing session* is a named, long-lived agent that an operator declares on
 a role, such as `reviewer/alice-bot`. The declaration is the desired state.
@@ -45,7 +45,7 @@ or — with a warning on stderr — when Jam can't list studios).
 * *reset* keeps the name but deletes its studio and state, so Jam raises it
 fresh (see <<reset,Reset>>).
 * *upgrade* queues a restart on the current image, keeping its state
-(`+--force+`, ``+--wait+``; see <<upgrading-a-standing-session,Upgrading a standing session>>).
+(`+--force+`, ``+--wait+``; see xref:usage/jam/standing-upgrade.adoc[]).
 
 Each declaration *is a session* (Jam's standing-session map): its first raise
 starts one with a minted `+ses_…+` id (`standing list` shows it); every restart or
@@ -61,7 +61,7 @@ it is declared twice on the role or contains `/`.
 |Route |Result
 
 |`+GET /admin/roles/{project}/{role}/standing+` |*200* with the declared list, prompts included, each with its pending `upgrade` state (omitted when none). *404* for an unknown role.
-|`+POST /admin/roles/{project}/{role}/standing/{name}/upgrade[?force=true]+` |*202* `+{"pending":true,"state":…}+` queued; *200* already current or not started yet. *409* a reset is pending or the session id is held by another studio; *404*; *503* without the standing reconciler. See <<upgrading-a-standing-session,Upgrading>>.
+|`+POST /admin/roles/{project}/{role}/standing/{name}/upgrade[?force=true]+` |*202* `+{"pending":true,"state":…}+` queued; *200* already current or not started yet. *409* a reset is pending or the session id is held by another studio; *404*; *503* without the standing reconciler. See xref:usage/jam/standing-upgrade.adoc[Upgrading].
 |`+POST /admin/roles/{project}/{role}/standing/{name}/reset+` |*200* ``+{"pending":false}+``: studio torn down and state deleted, declaration kept. *202* ``+{"pending":true,"reason":…}+``: still in progress (see <<reset,Reset>>). *404* if the role or the name doesn't exist. *409* if the session id is held by a studio that isn't this session. *503* without the standing reconciler.
 |===
 
@@ -89,7 +89,7 @@ that name again: 30s, then doubling (1m, 2m, …) up to 30m. The backoff is per 
 so one failing name doesn't delay another. It resets once the name has a live
 studio, and it is kept in memory, so a Jam restart retries at once. A denied or
 failed _grant_ is logged and retried on the next pass, without backoff.
-A role whose xref:usage/jam/roster.adoc#role-egress[egress policy] asks for a domain outside the
+A role whose xref:usage/jam/role-egress.adoc[egress policy] asks for a domain outside the
 kit's ceiling fails every raise this way, so its standing sessions back off (each
 failure logged, naming the domain) until the policy or the kit is fixed.
 
@@ -104,7 +104,7 @@ xref:usage/jam/studio-agent.adoc#jam-studio-agent-the-in-cove-client[studio-agen
 xref:usage/jam/wake-on.adoc[wake-on]). Past the `warm-timeout`
 it is still paused and woken on a reply. It gets *no idle nags* and is never
 reclaimed, because it has no owner. That ladder is for
-xref:usage/jam/personal-sessions.adoc#the-idle-ladder[personal sessions] only.
+xref:usage/jam/personal-idle-ladder.adoc[personal sessions] only.
 
 [#state-across-restarts]
 == State across restarts
@@ -132,37 +132,7 @@ state remains.
 [#upgrading-a-standing-session]
 == Upgrading a standing session
 
-A standing studio keeps the image it was raised on. When `standing list` or the
-role page shows xref:usage/jam/coves.adoc#the-studio-verbs[`image=stale`] — after a new jam
-build, a build-changing kit edit, or a xref:usage/jam/model-specs.adoc[model-spec] change —
-queue an upgrade with `standing upgrade` (or the role page's *Upgrade* button,
-highlighted when stale). The request only records intent and answers at once:
-*202* `+{"pending":true,"state":"queued"}+`, or *200*
-`+{"pending":false,"reason":"already current"}+` when the studio's image is `ok`
-(unless ``+--force+``; `unknown` is queued). The reconciler's passes then:
-
-. *Prepare* (`preparing`): it builds the image a raise would run now, off its lock, and
-waits until that image is ready, on the session's xref:usage/jam/coves.adoc#managers-and-placement[pinned manager]
-only (default when unpinned; unavailable keeps it `preparing`). Nothing is torn down
-meanwhile; a slow or failed build is no raise failure. While the build runs, the
-state carries the manager's reported step (``+preparing: building step 7/12+``;
-xref:usage/jam/studio-managers.adoc#activities[activities]).
-. *Wait for idle* (`+waiting-for-idle: <state>+`): right before the teardown
-it re-checks that the session is between episodes — `idled`, or live and
-`waiting`, `blocked` or `done`. `running`, `raising`, an unreported activity,
-and xref:usage/jam/turn-end.adoc#holding[`holding`] (background tasks a teardown would kill)
-are busy: the upgrade waits, it is never refused. `+--force+` skips the wait.
-. *Restart*: a plain teardown — *its volumes are kept* — then a raise of the same
-session, which *resumes its conversation and workspace* like any restart (its Docker
-cache starts clean: it is the studio's). A failed teardown stays pending
-(`+teardown-failed: <reason>+`), retried every pass; a failed raise backs the name off as usual.
-A name with no studio is just raised, its backoff cleared.
-
-`standing list` shows a pending upgrade as `upgrade=<state>` (and the role page
-row as an *upgrade:* pill); `+standing upgrade --wait+` polls it until done
-(`+--wait-timeout+`, default 15m), exiting 0 once the studio runs an `ok` or `unknown` image.
-A pending reset refuses an upgrade (*409*; the reset raises it fresh anyway).
-Pending upgrades are *in memory*: re-run `standing upgrade` after a Jam restart. Jam never upgrades on its own (a restart interrupts a teammate).
+`standing upgrade` restarts a standing session on the current image, keeping its state: xref:usage/jam/standing-upgrade.adoc[].
 
 [#dismissal]
 == Dismissal
@@ -185,7 +155,7 @@ A standing grant must name a declared session. Otherwise it is denied.
 
 * The grant goes through the allocation ledger and is
 capped at *the number of names declared on the role*
-(xref:usage/jam/serve.adoc#postgres-store-store-postgres[Postgres store (`store-postgres`)]). Standing
+(xref:usage/jam/serve-store.adoc#the-allocation-ledger[The allocation ledger]). Standing
 reservations are counted separately from ephemeral and personal ones, so a dead
 name's slot can't be taken by another kind. A standing reservation leaked by a
 crash between the grant and the raise is reclaimed by the reconcile sweep.
