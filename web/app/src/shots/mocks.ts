@@ -202,7 +202,7 @@ const specList: SpecsResponse = { specs: [claudeDefault, reviewOpus].map(specRow
 // with the ops room open, and whom she may start a conversation with.
 const userBoot: Bootstrap = {
   brand: "Acme Jam", user: { id: "usr_1", name: "alice", initial: "A" }, roles: "member", admin: false, signOut: true,
-  tabs: [{ key: "inbox", label: "Inbox", href: "/app/user/", badge: 3, badgeRed: false, badgeTitle: "" }],
+  tabs: [{ key: "inbox", label: "Inbox", href: "/app/user/", badge: 0, badgeRed: false, badgeTitle: "" }],
   attachMax: 25 << 20, pushKey: "BKmanual-shot-vapid-key", boards: true, pushFocus: false, newSession: false,
 };
 const row = (over: Partial<ChannelRow>): ChannelRow => ({

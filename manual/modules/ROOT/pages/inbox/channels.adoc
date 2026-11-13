@@ -5,7 +5,6 @@
 
 The *Inbox* is where you read and answer your xref:concepts/intercom.adoc[channels].
 Open it from the *Inbox* tab in the title bar.
-The number on the tab is your unread count.
 
 The rail on the left lists your channels.
 The conversation you open fills the rest of the page.
