@@ -1,10 +1,10 @@
 = The kit registry
-:summary: The kit registry operator guide — authoring named, versioned StudioKits as `kits/<name>/` in the config repo, inspecting them with `kit list|show|versions|diff` (and `import|track|untrack|sync` from git), the StudioKit schema (incl. kit-declared MCP servers), and binding one to a role with the role file's `kit:`.
-:read_when: You are adding a kit to Jam, changing a kit's files or rolling one back, binding a kit to a role, giving a kit's sessions extra MCP servers, or making a kit build on another kit (the detail is in kits-inheritance.md).
-:owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`) incl. `mcp-servers`, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
+:summary: The kit registry operator guide — authoring named, versioned StudioKits as `kits/<name>/` in the config repo, inspecting them with `kit list|show|versions|diff` (and `import|track|untrack|sync` from git), the StudioKit schema, and binding one to a role with the role file's `kit:`. Kit-declared MCP servers are in kits-mcp-servers.adoc.
+:read_when: You are adding a kit to Jam, changing a kit's files or rolling one back, binding a kit to a role, or making a kit build on another kit (the detail is in kits-inheritance.md).
+:owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`; `mcp-servers` is owned by kits-mcp-servers.adoc), the build-digest and image layering, the egress ceiling, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 :prereqs: INDEX.adoc for the service overview; operators.adoc for the admin-client flags; roster.adoc for the role a kit binds to
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-13
 
 Jam stores *studio kits* — the small, directly-authored definition a brokered
 studio is built and raised from — and a role references one by name. A kit is
@@ -57,28 +57,7 @@ mcp-servers:               # extra MCP servers for the session's agent (env refs
 
 A kit version is a *directory*: `kit.yml` plus its files; a `Dockerfile` beside `kit.yml` is the build context — the files, limits and `.dockerignore` are in xref:usage/jam/kits-directory.adoc[kits-directory].
 
-[#mcp-servers-cov-240]
-=== `mcp-servers` (COV-240)
-
-A map of server name → `+{type, url, headers}+` (`+type: http+`) or
-`+{type, command, args}+` (`+type: stdio+`) — Claude Code's `+--mcp-config+` entry
-shape. Before the agent's first turn, jam-studio-agent's claude harness generates *one* config holding
-the cove's own *``messaging``* server (`jam-studio-agent mcp`, the
-xref:usage/jam/intercom.adoc#delivery-to-the-agent[intercom]) plus these, and runs claude with
-`+--strict-mcp-config+`, so exactly messaging + the kit's servers load.
-
-* *``messaging`` is reserved* — a kit can neither declare nor override it.
-* *No secret values.* Every header value must be an env reference `+${VAR}+`,
-optionally after one scheme word (`+Bearer ${VAR}+`); a literal is rejected
-when the version is stored (and again by the harness). Claude Code expands `+${VAR}+` from the
-agent's environment at start; a server whose variable is unset fails to load
-without affecting the others. (Per-demand `secrets` injection is not wired yet
-— see the table — so today a variable must come from the image or connector.)
-* *Egress is separate:* an `http` server's host must also be in `egress`.
-* *Delivery:* `mcp-servers` is baked (non-secret JSON) into the image at
-`/etc/jam/mcp-servers.json`, the same build-time path as the egress lists,
-so it is *build-affecting* (part of the build-digest). jam-studio-agent refuses to
-start the agent if that file is missing or the generated config can't be written.
+The `mcp-servers` field: xref:usage/jam/kits-mcp-servers.adoc[kits-mcp-servers].
 
 [#building-on-another-kit-basekit]
 === Building on another kit (`base.kit`)
@@ -199,7 +178,7 @@ The supervisor carries only a light *reference* (`<id>@v<n>`) on each raise; the
 launcher resolves it against its prepared-image inventory and, on a miss, Jam
 resolves the full kit from _this_ registry and calls `PrepareKit` to build it. That
 handshake is documented on the raise side in
-xref:usage/jam/coves.adoc#the-studiokit-and-its-kit-prepare-protocol[coves]. A `ref` base is
+xref:usage/jam/coves-raise.adoc#the-studiokit-and-its-kit-prepare-protocol[coves-raise]. A `ref` base is
 *provenance-gated at build with no `+--allow-unverified+` escape hatch*.
 
 Design rationale (the versioning model) lives in

@@ -40,7 +40,7 @@ Because a subscription carries its own rate limits, *size the pool to your cove
 concurrency* — one account can back several coves but will throttle.
 
 The launcher chooses the mode; the cove is unaware. See
-xref:usage/jam/coves.adoc#raising-a-real-managed-studio[coves] for where credentialing lands
+xref:usage/jam/coves-raise.adoc[coves-raise] for where credentialing lands
 in the raise sequence.
 
 == Seeding accounts (`jam pool`)
@@ -108,7 +108,7 @@ interactive `claude auth login` path keeps the full allow-list on the
 interactive kit. It's defense-in-depth — the cove holds no real Anthropic
 credential (only the fake identity). The ceiling and `kit show` output are in
 xref:usage/jam/kits.adoc#the-egress-ceiling-cov-208[kits]; the raise-side build protocol is
-in xref:usage/jam/coves.adoc#the-studiokit-and-its-kit-prepare-protocol[coves].
+in xref:usage/jam/coves-raise.adoc#the-studiokit-and-its-kit-prepare-protocol[coves-raise].
 ____
 
 == Broker-owned refresh

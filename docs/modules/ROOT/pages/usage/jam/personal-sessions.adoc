@@ -27,7 +27,7 @@ shared Discord inbox) doesn't let them in — but you can *call them in*
 (`/app/user` *Call in…*), and you may *leave* it (xref:usage/jam/intercom.adoc#channel-membership[membership]). It may message *only* you: Jam enrolls it with an addressing
 override of exactly `+user:<owner's usr_id>+`.
 . Once its agent is idle — its turn over and no background task still running —
-the studio waits for you (it is xref:usage/jam/coves.adoc#jam-studio-agent-the-in-cove-client[resident];
+the studio waits for you (it is xref:usage/jam/studio-agent.adoc#jam-studio-agent-the-in-cove-client[resident];
 there is no time limit). While it waits past the `warm-timeout` it is paused
 (`idled`, ≈0 CPU). If it ended its turn with a background task running (say, a
 dev server), it stays `running` and keeps the agent live instead, for up to 30m.
@@ -129,7 +129,7 @@ member of the target project. Both are in the config repo:
 in `projects/acme/project.yml`.
 
 A login belongs to one user Jam-wide. Logins are described with the
-rest of a project's members in xref:usage/jam/comms-addressing.adoc#project-members-and-rooms[comms-addressing].
+rest of a project's members in xref:usage/jam/project-members.adoc[project-members].
 If no member of the project is linked to your login, every `session` call answers
 *403*.
 

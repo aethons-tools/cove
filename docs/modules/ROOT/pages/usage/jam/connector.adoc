@@ -77,7 +77,7 @@ it before every agent *episode* (each spawn of the agent process), so edits
 reach a running studio at its next episode — not within one: a reply delivered
 into a live agent (one holding its session open, e.g. for a background task)
 runs under the env that episode started with
-(xref:usage/jam/coves.adoc#jam-studio-agent-the-in-cove-client[coves]).
+(xref:usage/jam/studio-agent.adoc#jam-studio-agent-the-in-cove-client[studio-agent]).
 * *Host-side clients* call
 `GET /connector` on the broker listener with the identity as a bearer (or
 `token`) and receive `+{"env": {…}, "git_route": "/git/"}+` — templates still

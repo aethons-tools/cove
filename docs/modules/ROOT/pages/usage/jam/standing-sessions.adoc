@@ -100,8 +100,8 @@ raises the session normally, rather than failing "already exists" from then on.
 
 A standing studio is *resident*, like a personal session: it waits after every
 turn instead of ending, and it is never torn down for waiting (see
-xref:usage/jam/coves.adoc#jam-studio-agent-the-in-cove-client[coves] and
-xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[intercom]). Past the `warm-timeout`
+xref:usage/jam/studio-agent.adoc#jam-studio-agent-the-in-cove-client[studio-agent] and
+xref:usage/jam/wake-on.adoc[wake-on]). Past the `warm-timeout`
 it is still paused and woken on a reply. It gets *no idle nags* and is never
 reclaimed, because it has no owner. That ladder is for
 xref:usage/jam/personal-sessions.adoc#the-idle-ladder[personal sessions] only.

@@ -15,7 +15,7 @@ import (
 	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
-// The session pane (docs/modules/ROOT/pages/usage/jam/intercom-ui.adoc#the-session-view): the
+// The session pane (docs/modules/ROOT/pages/usage/jam/session-view.adoc#pane): the
 // tabbed pane beside a session's messages (GET api/sessions/{id}/pane/{tab}).
 
 // paneTabs are the tabs a session's pane has.

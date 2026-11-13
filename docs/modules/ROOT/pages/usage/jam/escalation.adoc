@@ -14,14 +14,14 @@ session's xref:usage/jam/intercom.adoc#channel-membership[home channel] (its tic
 own) and an escalation notice is posted there. Tier 0 is called the moment the
 session starts waiting, the next tier if nobody answers in time. It is opt-in — a
 Project with no policy behaves exactly as before (see
-xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[intercom]). Every kind of session
+xref:usage/jam/wake-on.adoc[wake-on]). Every kind of session
 escalates: ticket, standing, personal and manual.
 
 == The policy: ordered tiers + per-tier timeout
 
 A Project's `Escalation` is an ordered list of tiers, each `+{Targets, Timeout}+`.
 `Targets` name people (`+user:<name>+` or ``+user:<usr_id>+``; `+human:<name>+` is read as `+user:+`), resolved against the
-same Project xref:usage/jam/comms-addressing.adoc#project-members-and-rooms[members] used for addressed
+same Project xref:usage/jam/project-members.adoc[members] used for addressed
 `+send(to=…)+`. Tiers are
 *people only*: a `+channel:+` or `+session:+` target (or anything malformed) in a tier is skipped
 with a logged warning, never a hard failure. `Timeout` is how long the engine
@@ -86,7 +86,7 @@ role's idle timeout) are *independent*, run by two separate engines:
 
 * *Escalation* only calls tiers in on a schedule; it never reads replies, never
 wakes a session, and never tears one down.
-* *Wake-on* (see xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[intercom]) owns
+* *Wake-on* (see xref:usage/jam/wake-on.adoc[wake-on]) owns
 reply-detection, waking, pausing and the idle timeout — unchanged by escalation.
 
 A person's answer — in the session's channel, on any surface, at _any_ tier —
