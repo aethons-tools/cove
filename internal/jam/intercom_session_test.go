@@ -187,24 +187,30 @@ func TestIntercomSessionChannelVisibility(t *testing.T) {
 	}
 }
 
-// From /me, a person reaches a session in its home channel, joining it —
-// unless it is someone else's personal session.
-func TestIntercomPlanHome(t *testing.T) {
+// From /me, a person reaches a session in a dm with it — unless it is
+// someone else's personal session.
+func TestIntercomPlanSessionDM(t *testing.T) {
 	f := newICFixture(t)
-	p, err := f.ic.PlanHome(f.bob.ID, ident.ID(f.standing.ActorID))
-	if err != nil || p.Channel.Kind != SourceSession || !p.Join || !slices.Equal(p.Audience, ids(f.standing)) {
+	p, err := f.ic.PlanSessionDM(f.bob.ID, ident.ID(f.standing.ActorID))
+	if err != nil || p.Channel.Kind != SourceDM || p.Join || !slices.Equal(p.Audience, ids(f.standing)) {
 		t.Fatalf("bob → standing = %+v, %v", p, err)
 	}
-	if _, err := f.ic.PlanHome(f.bob.ID, ident.ID(f.personal.ActorID)); !errors.Is(err, ErrSendDenied) {
+	if again, _ := f.ic.PlanSessionDM(f.bob.ID, ident.ID(f.standing.ActorID)); again.Channel.ID != p.Channel.ID {
+		t.Fatal("one dm for each pair")
+	}
+	if _, err := f.ic.PlanSessionDM(f.bob.ID, ident.ID(f.personal.ActorID)); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("bob → alice's personal session: %v, want ErrSendDenied", err)
 	}
-	if _, err := f.ic.PlanHome(f.alice.ID, ident.ID(f.personal.ActorID)); err != nil {
+	if err := f.ic.SetUp(f.personal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ic.PlanSessionDM(f.alice.ID, ident.ID(f.personal.ActorID)); err != nil {
 		t.Fatalf("alice → her personal session: %v", err)
 	}
-	if _, err := f.ic.PlanHome(f.carol.ID, ident.ID(f.standing.ActorID)); !errors.Is(err, ErrSendDenied) {
+	if _, err := f.ic.PlanSessionDM(f.carol.ID, ident.ID(f.standing.ActorID)); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("carol (no member) → standing: %v", err)
 	}
-	if _, err := f.ic.PlanHome(f.bob.ID, "ses_nosuch"); !errors.Is(err, ErrSendDenied) {
+	if _, err := f.ic.PlanSessionDM(f.bob.ID, "ses_nosuch"); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("unknown session: %v, want ErrSendDenied (never tells)", err)
 	}
 }

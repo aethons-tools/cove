@@ -174,7 +174,14 @@ func TestSurfacesChatOverDiscord(t *testing.T) {
 // standing session's channel from /me gets its posts in their inbox.
 func TestSurfacesSessionChannel(t *testing.T) {
 	k := newRelayKit(t)
-	pl, err := k.ic.PlanHome(k.bob.ID, ident.ID(k.std.ActorID))
+	home, err := k.ic.HomeChannel(k.std)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := k.ic.JoinChannel(k.bob.ID, home.ID); err != nil {
+		t.Fatal(err)
+	}
+	pl, err := k.ic.PlanChannel(jam.Poster{ID: k.bob.ID}, home.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

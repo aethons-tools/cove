@@ -63,6 +63,15 @@ describe("the conversation view", () => {
     await waitFor(() => expect(reads).toEqual([2]));
   });
 
+  it("names the conversation's kind: DM, group, room, or work", async () => {
+    for (const [kind, shown] of [["dm", "test · DM"], ["group", "test · group"], ["room", "test · room"], ["work", "test · work"]] as const) {
+      serve(conv({ kind, channelId: `chn_${kind}` }));
+      const { unmount } = renderApp(boot, `/app/user/c/chn_${kind}`);
+      expect(await screen.findByText(shown)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
   it("borders a session's bubbles and the composer in the session's color", async () => {
     serve(conv({ session: "ses_1", color: "#aa3f4e", messages: [msg(1, { color: "#aa3f4e" }), msg(2, { mine: true, raw: "mine", body: "<p>mine</p>" })] }));
     const { container } = renderApp(boot, "/app/user/c/chn_a");
@@ -231,8 +240,8 @@ describe("the conversation view", () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => { release = r; });
     const railRows: RailResponse = { unreadTotal: 0, groups: [{ bucket: "channels", title: "Channels", rows: [
-      { id: "chn_a", label: "alpha", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "", session: "", ssh: false },
-      { id: "chn_b", label: "beta", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "", session: "", ssh: false },
+      { id: "chn_a", label: "alpha", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "", session: "", ssh: false, sessionView: "" },
+      { id: "chn_b", label: "beta", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "", session: "", ssh: false, sessionView: "" },
     ] }] };
     serve(conv());
     server.use(http.get("/app/user/api/rail", async ({ request }) => {

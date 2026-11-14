@@ -132,7 +132,7 @@ func TestIntercomNotify(t *testing.T) {
 func TestIntercomPlanPersonChat(t *testing.T) {
 	f := newICFixture(t)
 	if _, err := f.ic.PlanPersonChat(f.bob.ID, ident.ID(f.personal.ActorID)); !errors.Is(err, ErrSendUnresolved) {
-		t.Fatalf("a chat with a session: %v (a session is reached in its home channel: PlanHome)", err)
+		t.Fatalf("a chat with a session: %v (a session is reached with PlanSessionDM)", err)
 	}
 	if p, err := f.ic.PlanPersonChat(f.bob.ID, f.alice.ID); err != nil || len(p.Audience) != 1 || p.Audience[0] != f.alice.ID {
 		t.Fatalf("bob with alice = %+v, %v", p, err)

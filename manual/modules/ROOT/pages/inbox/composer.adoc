@@ -12,9 +12,17 @@ image::composer-box.png["The composer",600]
 
 *New message* lists everyone you can write to, grouped by project:
 
-* People, marked *person*. Your message starts a chat with them.
-* Live sessions, marked *agent*. Your message goes to the session's own channel, and you join it.
-* Tickets of live sessions, marked *ticket*.
+* People, marked *person*.
+Click one for a DM.
+For a group DM, tick the boxes of several people in one project,
+then click *Message* and their names.
+* Live agents, marked *agent*. Your message is a DM to the agent.
+* Units of work, marked *work*.
+Choose *Log* to post to the work log,
+or *Worker* to DM the agent working on it now
+(xref:concepts/work.adoc#_reaching_the_work[Reaching the work]).
+If no agent works on it,
+Jam doesn't send your message and says so.
 * Rooms, marked *room*.
 
 Type in the search box to filter the list,
@@ -25,7 +33,7 @@ image::composer-new-message-list.png["The New message list",600]
 The page then says *New message* and who it is to.
 Write your message and send it.
 The Inbox then opens the conversation.
-If a chat with the same people exists already,
+If a DM or group DM with the same people exists already,
 your message goes into it.
 
 image::composer-new-message.png["A new message to bob",600]
@@ -88,7 +96,8 @@ ifdef::internal[]
 
 * The composer is `web/app/src/composer/Composer.tsx`;
 New message is `web/app/src/compose` (`RecipientPicker`, `NewMessage`, route `/app/user/new?to=…`).
-* A send is `POST /app/user/api/messages` (`to`: a channel id, `user:<id>` or `session:<actor>`);
+* A send is `POST /app/user/api/messages`
+(`to`: a channel id, `user:<id>`, `chat:user:<id>,user:<id>…`, `session:<actor>`, or `worker:<log id>`);
 uploads are `POST /app/user/uploads`.
 * Drafts and the draft stack are in the tab's `sessionStorage` (`me-reply:` and `me-drafts:` keys).
 * Architecture pages: `docs/modules/ROOT/pages/usage/jam/intercom-ui.adoc` (the composer)

@@ -62,25 +62,29 @@ type RailResponse struct {
 
 // ChannelRow is one channel in the left rail, from the viewer's perspective.
 type ChannelRow struct {
-	ID       string          `json:"id"`
-	Label    string          `json:"label"`
-	Project  string          `json:"project"`
-	Kind     jam.ChannelKind `json:"kind"`
-	NeedsYou bool            `json:"needsYou"`
-	Phase    string          `json:"phase"`
-	Unread   int             `json:"unread"`
-	OpenAsks int             `json:"openAsks"`
-	LastSeq  int64           `json:"lastSeq"`
-	Selected bool            `json:"selected"`
-	Mission  string          `json:"mission"` // the backing session's mission (its end goal); "" = none
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Project  string `json:"project"`
+	Kind     string `json:"kind"` // the conversation kind: dm | group | room | work | session (a session's own channel)
+	NeedsYou bool   `json:"needsYou"`
+	Phase    string `json:"phase"`
+	Unread   int    `json:"unread"`
+	OpenAsks int    `json:"openAsks"`
+	LastSeq  int64  `json:"lastSeq"`
+	Selected bool   `json:"selected"`
+	Mission  string `json:"mission"` // the backing session's mission (its end goal); "" = none
 	// Session is the actor id of the session whose home this channel is,
 	// when the viewer may see it ("" = none), as api/conversations reports it.
 	Session string `json:"session"`
 	// SSH reports whether the viewer may SSH into Session's studio.
 	SSH bool `json:"ssh"`
-	// Card is a session channel's status card; nil for rooms, chats, and a
-	// channel with no active session.
+	// Card is the status card of the session the row stands for (a session
+	// channel's own, or a dm's agent); nil for rooms, work logs, groups, dms
+	// with people, and a channel with no active session.
 	Card *SessionCard `json:"card,omitempty"`
+	// SessionView is the conversation that is the card's session view (its
+	// session's home channel), when the viewer may open it ("" = none).
+	SessionView string `json:"sessionView"`
 	// cardSession is the actor whose card stands for the row (jam.ChannelView.CardSession).
 	cardSession string
 }
@@ -185,15 +189,15 @@ type AskRef struct {
 
 // Conversation is the right-pane view of one open channel.
 type Conversation struct {
-	ChannelID string          `json:"channelId"`
-	Label     string          `json:"label"`
-	Kind      jam.ChannelKind `json:"kind"`
-	Project   string          `json:"project"`
-	Phase     string          `json:"phase"`
-	NeedsYou  bool            `json:"needsYou"`
-	SendTo    string          `json:"sendTo"` // the composer's POST api/messages "to" ("" = read-only History)
-	Messages  []MessageRow    `json:"messages"`
-	LastSeq   int64           `json:"lastSeq"`
+	ChannelID string       `json:"channelId"`
+	Label     string       `json:"label"`
+	Kind      string       `json:"kind"` // as ChannelRow.Kind
+	Project   string       `json:"project"`
+	Phase     string       `json:"phase"`
+	NeedsYou  bool         `json:"needsYou"`
+	SendTo    string       `json:"sendTo"` // the composer's POST api/messages "to" ("" = read-only History)
+	Messages  []MessageRow `json:"messages"`
+	LastSeq   int64        `json:"lastSeq"`
 	// Earlier: the API page has older messages before its first (GET
 	// api/conversations/{c}?before=<first seq>).
 	Earlier bool `json:"earlier"`
@@ -202,8 +206,8 @@ type Conversation struct {
 	SessionIDs []string     `json:"sessionIds"`
 	Sessions   []SessionRow `json:"sessions"`
 	OpenAsks   []AskCard    `json:"openAsks"` // the channel's open asks (the panel above the stream)
-	// Membership controls: Join (a channel they can see but aren't in),
-	// Leave (one they're in; never a chat), and who they may call in.
+	// Membership controls: Join (a room or work log they can see but aren't
+	// in), Leave (one they're in), and who they may call in (a room's).
 	CanJoin  bool               `json:"canJoin"`
 	CanLeave bool               `json:"canLeave"`
 	CallIn   []NewMessageOption `json:"callIn"`
@@ -217,9 +221,13 @@ type Conversation struct {
 	Color string `json:"color,omitempty"`
 }
 
-// NewMessageOption is one recipient offered in the New Message picker.
+// NewMessageOption is one recipient offered in the New Message picker (or
+// a Call in list). Kind is person, agent, work (a unit of work), or room.
 type NewMessageOption struct {
-	To      string `json:"to"` // POST api/messages' "to": user:<id>, session:<id>, or a channel id
+	To string `json:"to"` // POST api/messages' "to": user:<id>, session:<id>, or a channel id (a unit of work's: its log)
+	// Worker is a unit of work's "to" for its current worker,
+	// worker:<log id> ("" for every other kind).
+	Worker  string `json:"worker,omitempty"`
 	Label   string `json:"label"`
 	Kind    string `json:"kind"`
 	Project string `json:"project"`

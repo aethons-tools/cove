@@ -5,12 +5,15 @@ import { SessionCard } from "../session/card/SessionCard";
 
 // RailList is the rail's groups and rows, shared by the web app (router
 // links) and the VS Code rail (click handlers): rowProps makes a row a link
-// or a button, and marker adds a cue before its unread badge.
-export function RailList({ groups, active, rowProps, marker }: {
+// or a button, marker adds a cue before its unread badge, and openSession
+// opens a status card's session view (the conversation it names) from its
+// name.
+export function RailList({ groups, active, rowProps, marker, openSession }: {
   groups: RailGroup[];
   active?: string;
   rowProps: (r: ChannelRow) => Record<string, unknown>;
   marker?: (r: ChannelRow) => ReactNode;
+  openSession?: (channel: string, session: string) => void;
 }) {
   return (
     <ScrollArea>
@@ -26,8 +29,10 @@ export function RailList({ groups, active, rowProps, marker }: {
                   key={r.id}
                   {...rowProps(r)}
                   active={r.id === active}
-                  // A session channel's row is its session's status card.
-                  label={r.card ? <SessionCard card={r.card} compact /> : r.label}
+                  // A session channel's or an agent DM's row is the session's status card.
+                  label={r.card
+                    ? <SessionCard card={r.card} compact onName={openSession && r.sessionView ? () => openSession(r.sessionView, r.card!.session) : undefined} />
+                    : r.label}
                   description={r.card ? undefined : r.mission || undefined}
                   rightSection={mark || unread ? <Group gap={4} wrap="nowrap">{mark}{unread}</Group> : null}
                 />
