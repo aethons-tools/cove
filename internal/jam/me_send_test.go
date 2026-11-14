@@ -29,7 +29,7 @@ func TestParticipantSendIntoAChannel(t *testing.T) {
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatal(err)
 	}
-	ticket, _ := f.ic.HomeChannel(f.ticket)
+	ticket, _ := f.ic.TicketChannelOf(f.ticket)
 	h := NewParticipantSendHandler(f.store, f.ic, nil)
 	if w := meSend(t, h, f.bob, `{"to":"`+string(ticket.ID)+`","body":"go ahead"}`); w.Code != http.StatusNoContent {
 		t.Fatalf("send = %d %s", w.Code, w.Body)
@@ -124,9 +124,8 @@ func TestParticipantSendToASession(t *testing.T) {
 	if got := f.log.InboxSince(ident.ID(f.standing.ActorID), 0, 0); len(got) != 2 || got[0].Channel != dm.ID {
 		t.Fatalf("session inbox = %+v", got)
 	}
-	home, _ := f.ic.HomeChannelIfExists(f.standing)
-	if !isMember(f.store, home.ID, f.bob.ID) {
-		t.Fatal("bob joins the session's home channel too, where its turn-end reply goes")
+	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 0 {
+		t.Fatalf("a dm made session channels: %+v", got)
 	}
 	if _, err := h.Send(p, SendRequest{To: "session:" + f.personal.ActorID, Body: "hi"}); err == nil {
 		t.Fatal("bob reached alice's personal session")
@@ -139,9 +138,34 @@ func TestParticipantSendToASession(t *testing.T) {
 	}
 }
 
+// worker:<key> from /me is the dm with the unit's current worker; with no
+// worker it is a 409 and nothing is sent.
+func TestParticipantSendToAWorker(t *testing.T) {
+	f := newICFixture(t)
+	h := NewParticipantSendHandler(f.store, f.ic, nil)
+	p := Participant{UserID: f.bob.ID, Name: f.bob.Name, Projects: []string{"acme"}}
+	var se *SendError
+	if _, err := h.Send(p, SendRequest{To: "worker:ACME-7", Body: "hi"}); !errors.As(err, &se) || se.Status != http.StatusConflict || se.Code != "no-worker" {
+		t.Fatalf("no worker yet: %v, want a 409 no-worker", err)
+	}
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	m, err := h.Send(p, SendRequest{To: "worker:ACME-7", Body: "quick question"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch, _ := f.store.GetChannel(m.Channel); ch.Kind != SourceDM || !isMember(f.store, ch.ID, ident.ID(f.ticket.ActorID)) {
+		t.Fatalf("worker:ACME-7 went to %+v", ch)
+	}
+	if got := f.log.InboxSince(ident.ID(f.ticket.ActorID), 0, 0); len(got) != 1 || got[0].Body != "quick question" {
+		t.Fatalf("worker's inbox = %+v", got)
+	}
+}
+
 func TestParticipantSendErrors(t *testing.T) {
 	f := newICFixture(t)
-	ownerChat, _ := f.ic.HomeChannel(f.personal)
+	ownerChat, _, _ := f.ic.StarterDM(f.personal)
 	h := NewParticipantSendHandler(f.store, f.ic, nil)
 	for body, want := range map[string]int{
 		`{"to":"user:alice","body":""}`: http.StatusBadRequest,
@@ -189,10 +213,7 @@ func TestParticipantSendContentType(t *testing.T) {
 // to one elsewhere.
 func TestParticipantSendReplyToAsk(t *testing.T) {
 	f := newICFixture(t)
-	home := f.mustPlan(f.standing, "").Channel
-	if err := f.ic.JoinChannel(f.bob.ID, home.ID); err != nil {
-		t.Fatal(err)
-	}
+	home := f.defaultGroup(f.standing, f.bob.ID)
 	a, _, err := f.ic.Ask(f.poster(f.standing), "", AskInput{Question: "Merge?", Options: askYesNo}, f.now)
 	if err != nil {
 		t.Fatal(err)

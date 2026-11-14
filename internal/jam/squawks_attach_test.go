@@ -29,15 +29,12 @@ func (f *sqFixture) upload(inst Instance, body string) string {
 	return out.Ref
 }
 
-// A session uploads, sends it home with no text, and its channel's members
+// A session uploads, sends it to its default conversation with no text, and its members
 // (another session included) read it; one outside can't.
 func TestSquawksAttachRoundTrip(t *testing.T) {
 	f := newSqFixture(t)
 	f.h.SetAttachments(NewAttachments(f.log, blobstore.NewMem(), f.ic, 1<<20))
-	home := f.mustPlan(f.standing, "").Channel
-	if err := f.ic.JoinChannel(f.alice.ID, home.ID); err != nil {
-		t.Fatal(err)
-	}
+	f.defaultGroup(f.standing, f.alice.ID)
 	ref := f.upload(f.standing, "line 1\nline 2\n")
 	if code, _ := f.send(f.standing, `{"attachments":["`+ref+`"]}`); code != http.StatusOK {
 		t.Fatalf("send with only an attachment = %d", code)

@@ -21,7 +21,7 @@ tested: xref:web-app.adoc[web-app].
 |URL |Shows
 
 |`/app/user/` |the rail, no conversation open
-|`/app/user/c/<channel>` |a conversation (a session's home channel adds its header and pane, xref:usage/jam/session-view.adoc[session-view.adoc])
+|`/app/user/c/<channel>` |a conversation (a session's conversation adds its header and pane, xref:usage/jam/session-view.adoc[session-view.adoc])
 |`/app/user/s/<session>` |a xref:usage/jam/session-view.adoc[session view]: its activity in every conversation, with its header and pane
 |`/app/user/new` |New message
 |`/app/user/boards/<id>` |a xref:usage/jam/whiteboards.adoc[whiteboard]
@@ -41,8 +41,7 @@ principal menu; see xref:usage/jam/ui.adoc[ui.adoc]) with *Inbox* current.
 with a session that *asked for a person* — a `needs-input` report or the
 `escalate` tool, see xref:usage/jam/escalation.adoc[escalation] — or is blocked, live or
 paused while it waits, or with an open ask you may answer), then `Agents`
-(a `dm` or `group` with a live, starting, or paused session, idle included;
-a session's own channel too, until the migration archives them),
+(a `dm` or `group` with a live, starting, or paused session, idle included),
 then `Conversations`: the rest —
 rooms, work logs, `dm`s with people, and `dm`s with sessions that ended.
 The rail holds every
@@ -55,16 +54,16 @@ Each row shows the label, a presence pin, its open asks and an *unread*
 badge. Last, *History (before the upgrade)*: the conversations of the
 frozen legacy log, read-only. *New message* (and *New session*) sit in the rail's header.
 ** *Mission:* a row may show a session's xref:usage/jam/intercom.adoc#what-the-tools-do[mission]
-as a muted second line. A session channel shows its own active session's; a
-work log the most recently raised active session's; a dm or group only when
+as a muted second line. A
+work log shows the most recently raised active session's; a dm or group only when
 exactly one session in it is active; rooms never.
-** *Status card:* a `dm` with an active session, and a session channel (its own session), show as that session's
+** *Status card:* a `dm` with an active session shows as that session's
 xref:usage/jam/session-card.adoc[status card];
 work logs, groups, rooms, and `dm`s with people show their name.
 The card's name opens the session's view
-(`/app/user/s/<session>`, offered when the person may open it, with `sessionView` its home channel, which the VS Code rail opens; clicking the rest of the row opens the `dm`).
+(`/app/user/s/<session>`, offered when the person may open it, with `sessionView` the session's conversation for the person, which the VS Code rail opens; clicking the rest of the row opens the `dm`).
 * *The open conversation:* a header with its name, its project, and its kind
-(*DM*, *group*, *room*, or *work*; a session's own channel reads *agent*),
+(*DM*, *group*, *room*, or *work*; an archived session channel an older Jam made reads *agent*),
 then its messages (the viewer's own on one side) with
 day dividers and *Load earlier* for older pages, a *"Needs you"* chip
 when a session in it asked for a person or is blocked, the *Open asks*
@@ -81,10 +80,10 @@ just the code.
 * *New message:* a picker of who to start a conversation with in the
 person's projects (`GET /app/user/api/recipients`, `userui.newMessageOptions`):
 other members, marked *person* (click one for a `dm`, or tick several for a `group`, all of one project);
-the live sessions they may reach, marked *agent* (a standing or ticket session; a personal session only if they're
-already in its channel), whose message goes to the `dm` with the session,
-and the person also joins the session's home channel, where its turn-end text still goes (until COV-350);
-the project's units of work, marked *work*, each with *Log* (post to its work log);
+the live sessions they may reach, marked *agent* (a standing or ticket session; a personal session only if they started it or
+are already in a `dm` with it), whose message goes to the `dm` with the session;
+the project's units of work, marked *work*, each with *Log* (post to its work log)
+and, while the unit has a live worker they may reach, *Worker* (a `dm` with the agent working on it now);
 and rooms.
 The `to` forms are in xref:usage/jam/intercom-composer.adoc[intercom-composer].
 * *New session:* start a xref:usage/jam/personal-sessions.adoc#starting-one-from-the-inbox[personal session]
@@ -114,7 +113,7 @@ The composer — sending, keys, saved reply, draft stack and attachments: xref:u
 [#membership-controls]
 == Membership controls
 
-The conversation header offers *Join* (a room, a work log, or a session's own channel the person can see but
+The conversation header offers *Join* (a room or a work log the person can see but
 isn't in), *Leave* (one they're in) and *Call in…* (the
 project's people not yet in it, and the live sessions they may reach,
 xref:usage/jam/intercom.adoc#channel-membership[membership]).
@@ -122,7 +121,7 @@ A room's header also lists its current members (`Conversation.members`),
 people first, each session marked *(agent)*
 (xref:usage/jam/intercom.adoc#sessions-in-rooms[sessions in rooms]).
 A `dm` and a `group` have none, because their members are fixed.
-Session channels keep these controls until the migration retires them (COV-354). The rules are the intercom's
+The rules are the intercom's
 (xref:usage/jam/intercom.adoc#channel-membership[membership]).
 
 [#unread-and-refresh]
@@ -178,8 +177,8 @@ Terminating, lost and gone sessions are left out. The status comes from the
 session's phase and activity plus its xref:usage/jam/session-events.adoc[session events],
 summarized by an in-memory tracker every published event passes through
 (`sessionevents.Presence`, fed via `Hub.Observe`). The strip shows only the
-status and a *tool name*; event content is for members of the session's home
-channel, in its Thinking tab (xref:usage/jam/session-events.adoc#sensitivity[Sensitivity]). After a restart a running session reads "working" until its next event.
+status and a *tool name*; event content is for the people who may open the session's view,
+in its Thinking tab (xref:usage/jam/session-events.adoc#sensitivity[Sensitivity]). After a restart a running session reads "working" until its next event.
 
 == Enabling it
 

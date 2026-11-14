@@ -1,8 +1,7 @@
 // Package escalate is Jam's resident escalation engine: while a session is
-// Waiting and has asked for a person, it calls ordered tiers of people from
-// its Project's escalation policy into the session's home channel on
-// per-tier timers, advancing to the next tier on timeout (intercom slice 4:
-// escalation as call-in). It reads no
+// Waiting and has asked for a person, it asks ordered tiers of people from
+// its Project's escalation policy, in a dm or a group with the session, on
+// per-tier timers, advancing to the next tier on timeout. It reads no
 // comments, wakes no coves, and tears nothing down — reply-detection, waking, and
 // max-wait teardown stay in internal/wakeon. The two engines share only the
 // Instance.Activity==Waiting gate. Wired from cmd/jam; not imported by
@@ -29,8 +28,8 @@ type State interface {
 	SetEscalation(actorID string, tier int, at time.Time) error
 }
 
-// Caller calls a tier's people into a session's home channel and posts the
-// escalation notice there (jam.Intercom.Escalate); the relays deliver it.
+// Caller opens the dm or group of a session and a tier's people and posts
+// the escalation notice there (jam.Intercom.Escalate); the relays deliver it.
 type Caller interface {
 	Escalate(ctx context.Context, inst jam.Instance, tier int, category string, members []jam.Member) error
 }
@@ -111,8 +110,8 @@ func chainFor(proj jam.Project, category string) []jam.EscalationTier {
 	return proj.Escalation
 }
 
-// pingTier calls the tier's people into the session's home channel (with
-// the escalation notice) and records the advance. A tier with no resolvable
+// pingTier asks the tier's people (the escalation notice, in their dm or
+// group with the session) and records the advance. A tier with no resolvable
 // members calls no one but still advances the timer (so a mis-configured
 // tier can't wedge a blocked session); a failed call is retried next tick.
 func (e *Engine) pingTier(ctx context.Context, inst jam.Instance, proj jam.Project, chain []jam.EscalationTier, tier int) {

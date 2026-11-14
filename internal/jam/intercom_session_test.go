@@ -14,138 +14,168 @@ func isCurrentMember(s Store, ch, p ident.ID) bool {
 	return slices.ContainsFunc(s.ChannelMembers(ch), func(m ChannelMember) bool { return m.ParticipantID == p && !m.Left })
 }
 
-func (f *icFixture) sessionChannel(inst Instance) Channel {
+// starterDM is the dm between a personal session and the person who started
+// it, failing the test when there is none.
+func (f *icFixture) starterDM(inst Instance) Channel {
 	f.t.Helper()
-	ch, ok := f.store.ChannelByKey(f.project.ID, SourceSession, inst.ActorID)
+	key, kind, _ := chatKey([]ident.ID{inst.OwnerID, ident.ID(inst.ActorID)})
+	ch, ok := f.store.ChannelByKey(f.project.ID, kind, key)
 	if !ok {
-		f.t.Fatalf("no session channel for %s", inst.ActorID)
+		f.t.Fatalf("no dm between %s and %s", inst.OwnerID, inst.ActorID)
 	}
 	return ch
 }
 
-// A session without a ticket gets its own channel at setup: the session is
-// in it for good, and a personal session's starter is called in once.
-func TestIntercomSessionChannelLifecycle(t *testing.T) {
+// legacySessionChannel stores a live session channel for inst with members,
+// as an older Jam made one.
+func (f *icFixture) legacySessionChannel(inst Instance, members ...ident.ID) Channel {
+	f.t.Helper()
+	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceSession, Key: inst.ActorID, Label: sessionLabel(inst)})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	for _, m := range append([]ident.ID{ident.ID(inst.ActorID)}, members...) {
+		if err := f.store.JoinChannel(ch.ID, m, 1); err != nil {
+			f.t.Fatal(err)
+		}
+	}
+	return ch
+}
+
+// No session has a channel of its own: setting one up makes none. A
+// personal session's starter gets a dm with it; a ticket session becomes
+// its unit's worker.
+func TestIntercomSetUpMakesNoSessionChannel(t *testing.T) {
 	f := newICFixture(t)
-	f.personal.Name = "alice-help"
-	if err := f.ic.SetUp(f.personal); err != nil {
-		t.Fatalf("SetUp: %v", err)
+	for _, inst := range []Instance{f.ticket, f.personal, f.standing} {
+		if err := f.ic.SetUp(inst); err != nil {
+			t.Fatalf("SetUp(%s): %v", inst.ActorID, err)
+		}
 	}
-	ch := f.sessionChannel(f.personal)
-	if ch.Label != "alice-help" || len(ch.Bindings) != 0 || ch.Status != StatusLive {
-		t.Fatalf("session channel = %+v", ch)
+	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 0 {
+		t.Fatalf("session channels = %+v, want none", got)
 	}
-	if !isCurrentMember(f.store, ch.ID, ident.ID(f.personal.ActorID)) || !isCurrentMember(f.store, ch.ID, f.alice.ID) {
-		t.Fatalf("members = %+v, want the session and its starter", f.store.ChannelMembers(ch.ID))
+	dm := f.starterDM(f.personal)
+	if dm.Kind != SourceDM || !isCurrentMember(f.store, dm.ID, f.alice.ID) || !isCurrentMember(f.store, dm.ID, ident.ID(f.personal.ActorID)) {
+		t.Fatalf("starter dm = %+v, members %+v", dm, f.store.ChannelMembers(dm.ID))
 	}
-	// The starter may leave; setting the session up again doesn't call them back.
-	if err := f.store.LeaveChannel(ch.ID, f.alice.ID, 12); err != nil {
+	if log, ok := f.ic.TicketChannelOf(f.ticket); !ok || log.Worker != ident.ID(f.ticket.ActorID) {
+		t.Fatalf("ticket log = %+v, %v", log, ok)
+	}
+	if got := f.store.ChannelsOf(ident.ID(f.standing.ActorID)); len(got) != 0 {
+		t.Fatalf("a standing session with no rooms is in %v", got)
+	}
+}
+
+// At serve start, each live session channel an older Jam made is archived:
+// its members and history stay, and it takes no more posts.
+func TestIntercomReconcileArchivesSessionChannels(t *testing.T) {
+	f := newICFixture(t)
+	old := f.legacySessionChannel(f.standing, f.bob.ID)
+	if _, err := f.ic.PostTrusted(old, intercom.Squawk{From: f.bob.ID, Body: "before the move"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.ic.Reconcile(); err != nil {
-		t.Fatal(err)
+		t.Fatalf("Reconcile: %v", err)
 	}
-	if isCurrentMember(f.store, ch.ID, f.alice.ID) {
-		t.Fatal("a starter who left was called back in")
+	got, _ := f.store.GetChannel(old.ID)
+	if got.Status != StatusArchived {
+		t.Fatalf("after Reconcile = %+v, want archived", got)
 	}
-	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 3 {
-		t.Fatalf("session channels = %+v, want the personal and (by Reconcile) the standing and ticket ones", got)
+	if h := f.log.ChannelSince(old.ID, 0, 0); len(h) != 1 || h[0].Body != "before the move" {
+		t.Fatalf("history = %+v", h)
 	}
-	if m := f.store.ChannelMembers(f.sessionChannel(f.standing).ID); len(m) != 1 || m[0].ParticipantID != ident.ID(f.standing.ActorID) {
-		t.Fatalf("standing members = %+v", m)
+	if !isCurrentMember(f.store, old.ID, f.bob.ID) || !f.ic.CanSee(f.bob.ID, got) || f.ic.CanSee(f.alice.ID, got) {
+		t.Fatal("an archived session channel stays readable by its members only")
 	}
-	if _, ok := f.store.ChannelByKey(f.project.ID, SourceSession, f.ticket.ActorID); !ok {
-		t.Fatal("a ticket session has its own session channel too")
+	if _, err := f.ic.PostTrusted(got, intercom.Squawk{From: f.bob.ID, Body: "after"}); !errors.Is(err, ErrRemoved) {
+		t.Fatalf("post to an archived session channel: %v", err)
 	}
-
-	// It ends: the channel is archived, but Jam's notice about the end still
-	// reaches the channel's members.
-	if err := f.store.JoinChannel(ch.ID, f.bob.ID, 13); err != nil {
-		t.Fatal(err)
+	if err := f.ic.Reconcile(); err != nil {
+		t.Fatalf("Reconcile again: %v", err)
 	}
-	if err := f.ic.Ended(f.personal); err != nil {
-		t.Fatalf("Ended: %v", err)
-	}
-	if got, _ := f.store.GetChannel(ch.ID); got.Status != StatusArchived {
-		t.Fatalf("after Ended = %+v", got)
-	}
-	m, err := f.ic.Notify(f.personal, "", "it ended")
-	if err != nil || m.Channel != ch.ID {
-		t.Fatalf("Notify after Ended = %+v, %v", m, err)
-	}
-	if got := f.log.InboxSince(f.bob.ID, 0, 0); len(got) != 1 || got[0].Body != "it ended" {
-		t.Fatalf("bob's inbox = %+v", got)
-	}
-	if _, err := f.plan(f.standing, "session:"+f.personal.ActorID); err == nil {
-		t.Fatal("an archived session channel takes no posts")
+	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 0 {
+		t.Fatalf("live session channels = %+v", got)
 	}
 }
 
-// With no address, every session posts to its home channel: its own
-// session channel, a ticket session's included.
-func TestIntercomPlanHomeChannels(t *testing.T) {
+// A room bound to the same issue as a unit's log gives the log the issue's
+// replies (the room only posts to it from then on, keeping its history),
+// both for a log that already exists and for one made now.
+func TestIntercomLogTakesARoomsIssueBinding(t *testing.T) {
 	f := newICFixture(t)
-	if p := f.mustPlan(f.ticket, ""); p.Channel.Kind != SourceSession {
-		t.Fatalf("ticket home = %+v", p.Channel)
-	}
-	p := f.mustPlan(f.personal, "")
-	if p.Channel.Kind != SourceSession || p.Channel.Key != f.personal.ActorID || !slices.Equal(p.Audience, ids(f.alice)) {
-		t.Fatalf("personal home = %+v", p)
-	}
-	s := f.mustPlan(f.standing, "")
-	if s.Channel.Kind != SourceSession || len(s.Audience) != 0 {
-		t.Fatalf("standing home = %+v", s)
-	}
-	// A starter who left the project hears nothing, but the session still posts.
-	if err := f.store.RemoveMember(f.project.ID, f.alice.ID); err != nil {
+	bind := Binding{ConnectionID: f.tracker.ID, Ref: "ACME-7", Mode: BindBoth}
+	if err := f.store.SetChannelBindings(f.room.ID, []Binding{bind}); err != nil {
 		t.Fatal(err)
 	}
-	if again := f.mustPlan(f.personal, ""); again.Channel.ID != p.Channel.ID || len(again.Audience) != 0 {
-		t.Fatalf("after the starter left the project = %+v", again)
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	log, _ := f.ic.TicketChannelOf(f.ticket)
+	if holder, ok := f.store.ChannelByBinding(f.tracker.ID, "ACME-7"); !ok || holder.ID != log.ID {
+		t.Fatalf("the issue's replies go to %+v, want the log %s", holder, log.ID)
+	}
+	if room, _ := f.store.GetChannel(f.room.ID); !slices.Equal(room.Bindings, []Binding{{ConnectionID: f.tracker.ID, Ref: "ACME-7", Mode: BindEgress}}) {
+		t.Fatalf("room bindings = %+v, want post-only", room.Bindings)
+	}
+
+	// A log an older Jam left unbound takes the binding at serve start.
+	g := newICFixture(t)
+	unbound, err := g.store.CreateChannel(Channel{ProjectID: g.project.ID, Kind: SourceWork, Key: string(g.tracker.ID) + "/ACME-9", Label: "ACME-9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.store.SetChannelBindings(g.room.ID, []Binding{{ConnectionID: g.tracker.ID, Ref: "ACME-9", Mode: BindBoth}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.ic.PostTrusted(g.room, intercom.Squawk{From: g.bob.ID, Body: "room history"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.ic.Reconcile(); err != nil {
+		t.Fatal(err)
+	}
+	if holder, ok := g.store.ChannelByBinding(g.tracker.ID, "ACME-9"); !ok || holder.ID != unbound.ID {
+		t.Fatalf("after Reconcile the issue's replies go to %+v, want the log", holder)
+	}
+	if h := g.log.ChannelSince(g.room.ID, 0, 0); len(h) != 1 {
+		t.Fatalf("the room's history = %+v", h)
 	}
 }
 
-// session:<label|id> addresses another session's home channel, within the
-// poster's addressing; posting there joins the poster.
-func TestIntercomSessionAddressing(t *testing.T) {
+// session:<label|id> goes to the dm between the sender and that session,
+// within the sender's addressing.
+func TestIntercomSessionAddressIsADM(t *testing.T) {
 	f := newICFixture(t, "session:spider", "session:ses_*")
 	f.standing.Name = "spider"
 	if err := f.store.PutInstance(f.standing); err != nil {
 		t.Fatal(err)
 	}
 	p := f.mustPlan(f.personal, "session:spider")
-	if p.Channel.Kind != SourceSession || p.Channel.Key != f.standing.ActorID || !p.Join || !slices.Equal(p.Audience, ids(f.standing)) {
+	if p.Channel.Kind != SourceDM || p.Channel.Key != chatKeyOf(f.personal, f.standing) || !slices.Equal(p.Audience, ids(f.standing)) {
 		t.Fatalf("session:spider = %+v", p)
 	}
-	m, err := f.ic.Post(p, intercom.Squawk{From: ident.ID(f.personal.ActorID), Body: "hi"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !isCurrentMember(f.store, m.Channel, ident.ID(f.personal.ActorID)) {
-		t.Fatal("posting by session: joins the poster")
-	}
 	if byID := f.mustPlan(f.personal, "session:"+f.standing.ActorID); byID.Channel.ID != p.Channel.ID {
-		t.Fatal("a session by id is the same channel")
+		t.Fatal("a session by id is the same dm")
 	}
-	// A ticket session is reached the same way (its own session channel).
-	if tp, err := f.plan(f.personal, "session:"+f.ticket.ActorID); err != nil || tp.Channel.Key != f.ticket.ActorID {
-		t.Fatalf("session:<ticket session> = %+v, %v", tp, err)
+	if back := f.mustPlan(f.standing, "session:"+f.personal.ActorID); back.Channel.ID != p.Channel.ID {
+		t.Fatal("the other way round is the same dm")
 	}
-	// One's own session needs no addressing.
-	if own := f.mustPlan(f.standing, "session:spider"); own.Channel.ID != p.Channel.ID {
-		t.Fatal("own session")
+	if tp, err := f.plan(f.personal, "session:"+f.ticket.ActorID); err != nil || tp.Channel.Kind != SourceDM {
+		t.Fatalf("session:<ticket session> = %+v, %v; want a dm", tp, err)
 	}
 	for addr, want := range map[string]error{
-		"session:other":         ErrSendDenied,     // not allowed, whether or not it exists
-		"session:ses_nosuch":    ErrSendUnresolved, // allowed, absent
-		"session:":              ErrSendDenied,
-		"session:" + "standing": ErrSendDenied,
+		"session:other":      ErrSendDenied,     // not allowed, whether or not it exists
+		"session:ses_nosuch": ErrSendUnresolved, // allowed, absent
+		"session:":           ErrSendDenied,
+		"session:standing":   ErrSendDenied,
 	} {
 		if _, err := f.plan(f.personal, addr); !errors.Is(err, want) {
 			t.Errorf("Plan(%q) = %v, want %v", addr, err, want)
 		}
 	}
-	// Two live sessions sharing a label: the label names neither.
+	if _, err := f.plan(f.standing, "session:spider"); !errors.Is(err, ErrSendUnresolved) {
+		t.Fatalf("session:<itself> = %v, want ErrSendUnresolved (no dm with oneself)", err)
+	}
 	dup := Instance{ActorID: string(ident.New(ident.Session)), Project: "acme", Role: "impl", Name: "spider", Phase: PhaseLive}
 	if err := f.store.PutInstance(dup); err != nil {
 		t.Fatal(err)
@@ -153,7 +183,6 @@ func TestIntercomSessionAddressing(t *testing.T) {
 	if _, err := f.plan(f.personal, "session:spider"); !errors.Is(err, ErrSendUnresolved) {
 		t.Fatalf("ambiguous label: %v", err)
 	}
-	// An ended session is gone.
 	gone := f.ticket
 	gone.Phase = PhaseGone
 	if err := f.store.PutInstance(gone); err != nil {
@@ -164,41 +193,105 @@ func TestIntercomSessionAddressing(t *testing.T) {
 	}
 }
 
-// People see a standing session's channel project-wide; a personal
-// session's only as members (invite-only).
-func TestIntercomSessionChannelVisibility(t *testing.T) {
+// chatKeyOf is the dm key of two sessions.
+func chatKeyOf(a, b Instance) string {
+	key, _, _ := chatKey([]ident.ID{ident.ID(a.ActorID), ident.ID(b.ActorID)})
+	return key
+}
+
+// With no address (an older studio's turn end, an ask or a whiteboard), a
+// session posts where it was last delivered a message, else in its unit's
+// log, else in the dm with the person who started it; a session with none of
+// those must name its conversation.
+func TestIntercomDefaultConversation(t *testing.T) {
 	f := newICFixture(t)
-	personal := f.mustPlan(f.personal, "").Channel
-	standing := f.mustPlan(f.standing, "").Channel
-	for _, c := range []struct {
-		who  ident.ID
-		ch   Channel
-		want bool
-	}{
-		{f.alice.ID, personal, true},
-		{f.bob.ID, personal, false},
-		{f.bob.ID, standing, true},
-		{f.carol.ID, standing, false},
-		{ident.ID(f.ticket.ActorID), standing, false},
-	} {
-		if got := f.ic.CanSee(c.who, c.ch); got != c.want {
-			t.Errorf("CanSee(%s, %s) = %v, want %v", c.who, c.ch.Label, got, c.want)
-		}
+	if p := f.mustPlan(f.ticket, ""); p.Channel.Kind != SourceWork {
+		t.Fatalf("ticket default = %+v, want its log", p.Channel)
+	}
+	if p := f.mustPlan(f.personal, ""); p.Channel.ID != f.starterDM(f.personal).ID || !slices.Equal(p.Audience, ids(f.alice)) {
+		t.Fatalf("personal default = %+v, want the dm with its starter", p)
+	}
+	if _, err := f.plan(f.standing, ""); !errors.Is(err, ErrSendNeedsTo) {
+		t.Fatalf("standing default = %v, want ErrSendNeedsTo", err)
+	}
+	// bob writes to the standing session: its reply goes back to him.
+	dm, err := f.ic.PlanSessionDM(f.bob.ID, f.standing.ActorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ic.Post(dm, intercom.Squawk{From: f.bob.ID, Body: "status?"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := f.mustPlan(f.standing, ""); p.Channel.ID != dm.Channel.ID {
+		t.Fatalf("standing default after bob's dm = %+v, want that dm", p.Channel)
+	}
+	// So does the ticket session's, rather than its log.
+	tdm, err := f.ic.PlanSessionDM(f.bob.ID, f.ticket.ActorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ic.Post(tdm, intercom.Squawk{From: f.bob.ID, Body: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := f.mustPlan(f.ticket, ""); p.Channel.ID != tdm.Channel.ID {
+		t.Fatalf("ticket default after a dm = %+v", p.Channel)
 	}
 }
 
-// From /me, a person reaches a session in the dm between them, and joins
-// its home channel besides (its turn-end reply goes there until COV-350) —
-// unless it is someone else's personal session.
+// Jam's notices about a session (the idle ladder's nags, an SSH connection)
+// go to the dm with the person who started it, else to its unit's log;
+// a standing session's reach no one. A gone session's notice never makes a
+// channel it didn't have.
+func TestIntercomNotifyDestinations(t *testing.T) {
+	f := newICFixture(t)
+	m, err := f.ic.Notify(f.personal, "", "idle for 4h")
+	if err != nil || m.Channel != f.starterDM(f.personal).ID {
+		t.Fatalf("personal notice = %+v, %v; want the starter's dm", m, err)
+	}
+	if got := f.log.InboxSince(f.alice.ID, 0, 0); len(got) != 1 || got[0].Body != "idle for 4h" {
+		t.Fatalf("alice's inbox = %+v", got)
+	}
+	m, err = f.ic.Notify(f.ticket, "", "connected over SSH")
+	if log, _ := f.ic.TicketChannelOf(f.ticket); err != nil || m.Channel != log.ID {
+		t.Fatalf("ticket notice = %+v, %v; want its log", m, err)
+	}
+	if m, err := f.ic.Notify(f.standing, "", "connected over SSH"); err != nil || m.Channel != "" {
+		t.Fatalf("standing notice = %+v, %v; want none and no error", m, err)
+	}
+
+	// It ends: the starter still learns why, in the same dm.
+	dm := f.starterDM(f.personal)
+	if err := f.ic.Ended(f.personal); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.RemoveInstance(f.personal.ActorID); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := f.ic.Notify(f.personal, "", "released"); err != nil || m.Channel != dm.ID {
+		t.Fatalf("notice after the end = %+v, %v", m, err)
+	}
+	gone := Instance{ActorID: string(ident.New(ident.Session)), Project: "acme", Role: "impl", Unit: "ACME-99", Phase: PhaseGone}
+	if m, err := f.ic.Notify(gone, "", "ended"); err != nil || m.Channel != "" {
+		t.Fatalf("gone session with no log = %+v, %v", m, err)
+	}
+	if _, ok := f.ic.TicketChannelOf(gone); ok {
+		t.Fatal("a notice made a log for a gone session")
+	}
+}
+
+// From /me, a person reaches a session in the dm between them, and nothing
+// else; someone else's personal session isn't theirs to reach.
 func TestIntercomPlanSessionDM(t *testing.T) {
 	f := newICFixture(t)
 	p, err := f.ic.PlanSessionDM(f.bob.ID, f.standing.ActorID)
-	home, _ := f.ic.HomeChannelIfExists(f.standing)
-	if err != nil || p.Channel.Kind != SourceDM || p.Join || p.JoinHome != home.ID || !slices.Equal(p.Audience, ids(f.standing)) {
+	if err != nil || p.Channel.Kind != SourceDM || !slices.Equal(p.Audience, ids(f.standing)) {
 		t.Fatalf("bob → standing = %+v, %v", p, err)
 	}
 	if _, err := f.ic.PlanSessionDM(f.bob.ID, f.personal.ActorID); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("bob → alice's personal session: %v, want ErrSendDenied", err)
+	}
+	if f.ic.MayReach(f.bob.ID, f.personal) || !f.ic.MayReach(f.alice.ID, f.personal) {
+		t.Fatal("MayReach: only the starter reaches a personal session")
 	}
 	if _, err := f.ic.PlanSessionDM(f.alice.ID, f.personal.ActorID); err != nil {
 		t.Fatalf("alice → her personal session: %v", err)
@@ -209,49 +302,33 @@ func TestIntercomPlanSessionDM(t *testing.T) {
 	if _, err := f.ic.PlanSessionDM(f.bob.ID, "ses_nosuch"); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("unknown session: %v, want ErrSendDenied (never tells)", err)
 	}
-}
-
-// A relay post into a personal session's channel (a Discord reply in a
-// shared inbox) never makes its author a member: the channel is invite-only.
-// A standing session's channel is open, so a person posting there joins.
-func TestIntercomTrustedPostJoinsOnlyOpenSessionChannels(t *testing.T) {
-	f := newICFixture(t)
-	personal := f.mustPlan(f.personal, "").Channel
-	if _, err := f.ic.PostTrusted(personal, intercom.Squawk{From: f.bob.ID, Body: "reply in a shared inbox"}); err != nil {
-		t.Fatal(err)
-	}
-	if isCurrentMember(f.store, personal.ID, f.bob.ID) || f.ic.CanSee(f.bob.ID, personal) {
-		t.Fatal("a trusted post joined bob to a personal session's channel")
-	}
-	standing := f.mustPlan(f.standing, "").Channel
-	if _, err := f.ic.PostTrusted(standing, intercom.Squawk{From: f.bob.ID, Body: "hi"}); err != nil {
-		t.Fatal(err)
-	}
-	if !isCurrentMember(f.store, standing.ID, f.bob.ID) {
-		t.Fatal("posting in a standing session's channel joins")
+	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 0 {
+		t.Fatalf("a dm made session channels: %+v", got)
 	}
 }
 
-// A session set up again under the same id (a restart, an upgrade) gets its
-// channel back, with whoever was in it — not a new one.
-func TestIntercomSessionChannelSurvivesRestart(t *testing.T) {
+// From /me, worker:<key> is the dm with the unit's current worker; with no
+// worker, nothing is sent.
+func TestIntercomPlanWorkerDM(t *testing.T) {
 	f := newICFixture(t)
-	if err := f.ic.SetUp(f.standing); err != nil {
+	if _, err := f.ic.PlanWorkerDM(f.bob.ID, "ACME-7"); !errors.Is(err, ErrNoWorker) {
+		t.Fatalf("no log yet: %v, want ErrNoWorker", err)
+	}
+	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatal(err)
 	}
-	ch := f.sessionChannel(f.standing)
-	if err := f.store.JoinChannel(ch.ID, f.bob.ID, 11); err != nil {
+	p, err := f.ic.PlanWorkerDM(f.bob.ID, "ACME-7")
+	if err != nil || p.Channel.Kind != SourceDM || !slices.Equal(p.Audience, ids(f.ticket)) {
+		t.Fatalf("bob → worker:ACME-7 = %+v, %v", p, err)
+	}
+	if _, err := f.ic.PlanWorkerDM(f.carol.ID, "ACME-7"); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("carol (no member): %v, want ErrSendDenied", err)
+	}
+	if err := f.ic.Ended(f.ticket); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.ic.Ended(f.standing); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.ic.SetUp(f.standing); err != nil {
-		t.Fatal(err)
-	}
-	again := f.sessionChannel(f.standing)
-	if again.ID != ch.ID || !isCurrentMember(f.store, ch.ID, f.bob.ID) {
-		t.Fatalf("after restart = %+v (was %s), members %+v", again, ch.ID, f.store.ChannelMembers(again.ID))
+	if _, err := f.ic.PlanWorkerDM(f.bob.ID, "ACME-7"); !errors.Is(err, ErrNoWorker) {
+		t.Fatalf("worker ended: %v, want ErrNoWorker", err)
 	}
 }
 
@@ -267,34 +344,11 @@ func TestIntercomStarDoesNotAddressSessions(t *testing.T) {
 	}
 }
 
-// A ticket session is reached like any other: session: addressing alone.
-func TestIntercomSessionAddressReachesTicketSession(t *testing.T) {
-	f := newICFixture(t, "session:*")
-	if p, err := f.plan(f.standing, "session:"+f.ticket.ActorID); err != nil || p.Channel.Kind != SourceSession || p.Channel.Key != f.ticket.ActorID {
-		t.Fatalf("session: to a ticket session = %+v, %v; want its session channel", p, err)
-	}
-}
-
-// Jam's notice for a session that is gone and never had its own channel
-// doesn't conjure one up.
-func TestIntercomNotifyNeverCreatesForAGoneSession(t *testing.T) {
-	f := newICFixture(t)
-	if err := f.store.RemoveInstance(f.standing.ActorID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.ic.Notify(f.standing, "", "ended"); err == nil {
-		t.Fatal("Notify for a gone session with no channel must fail")
-	}
-	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 0 {
-		t.Fatalf("a channel was created for a gone session: %+v", got)
-	}
-}
-
-// Session channels are runtime state: a config export leaves them out (a
-// restore makes them again for live sessions; an older Jam can't read them).
+// Session channels an older Jam made are left out of a config export (an
+// older Jam can't import the kind, and they are archived anyway).
 func TestSessionChannelsAreNotExported(t *testing.T) {
 	f := newICFixture(t)
-	f.mustPlan(f.standing, "")
+	f.legacySessionChannel(f.standing)
 	for _, ch := range f.store.ExportConfig().Channels {
 		if ch.Kind == SourceSession {
 			t.Fatalf("exported a session channel: %+v", ch)
@@ -318,49 +372,47 @@ func TestIntercomSessionTargetsIncludeTicketSessions(t *testing.T) {
 	}
 }
 
-// A gone ticket session's notice lands in its archived session channel
-// without joining the dead session back to its ticket.
-func TestIntercomNotifyGoneTicketSession(t *testing.T) {
-	f := newICFixture(t)
-	if err := f.ic.SetUp(f.ticket); err != nil {
-		t.Fatal(err)
+// user:<x> is the dm with that person; a personal session reaches its
+// starter without addressing, and anyone else only as addressing allows.
+func TestIntercomUserAddressIsADM(t *testing.T) {
+	f := newICFixture(t, "user:bob")
+	if p := f.mustPlan(f.personal, "user:alice"); p.Channel.ID != f.starterDM(f.personal).ID {
+		t.Fatalf("a personal session to its starter = %+v", p.Channel)
 	}
-	if err := f.ic.Ended(f.ticket); err != nil {
-		t.Fatal(err)
+	if p := f.mustPlan(f.standing, "user:bob"); p.Channel.Kind != SourceDM || !slices.Equal(p.Audience, ids(f.bob)) {
+		t.Fatalf("user:bob = %+v", p)
 	}
-	if err := f.store.RemoveInstance(f.ticket.ActorID); err != nil {
-		t.Fatal(err)
-	}
-	m, err := f.ic.Notify(f.ticket, "", "done")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ch, _ := f.store.GetChannel(m.Channel); ch.Kind != SourceSession || ch.Key != f.ticket.ActorID {
-		t.Fatalf("notice landed in %+v, want its session channel", ch)
-	}
-	if ticket, ok := f.ic.TicketChannelOf(f.ticket); ok && isCurrentMember(f.store, ticket.ID, ident.ID(f.ticket.ActorID)) {
-		t.Fatal("a gone session was joined back to its ticket")
+	if _, err := f.plan(f.standing, "user:alice"); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("user:alice outside addressing: %v", err)
 	}
 }
 
-// user:<x> from a session whose own channel x is already in posts there,
-// keeping one conversation; otherwise it is a chat, as before.
-func TestIntercomUserAddressUsesHomeWhenMember(t *testing.T) {
+// call_in with no channel calls someone into the session's unit's log; a
+// session with no unit names the room.
+func TestIntercomCallInDefault(t *testing.T) {
 	f := newICFixture(t, "user:*")
-	home := f.mustPlan(f.standing, "").Channel
-	if err := f.ic.JoinChannel(f.alice.ID, home.ID); err != nil {
-		t.Fatal(err)
+	ch, who, err := f.ic.CallIn(f.poster(f.ticket), "", "user:bob")
+	if log, _ := f.ic.TicketChannelOf(f.ticket); err != nil || ch.ID != log.ID || who != f.bob.ID {
+		t.Fatalf("call_in into the default = %+v, %s, %v", ch, who, err)
 	}
-	if p := f.mustPlan(f.standing, "user:alice"); p.Channel.ID != home.ID || !slices.Equal(p.Audience, ids(f.alice)) {
-		t.Fatalf("user:alice (in my channel) = %+v", p)
+	if _, _, err := f.ic.CallIn(f.poster(f.standing), "", "user:bob"); !errors.Is(err, ErrSendNeedsTo) {
+		t.Fatalf("call_in with no unit and no channel: %v, want ErrSendNeedsTo", err)
 	}
-	if p := f.mustPlan(f.standing, "user:bob"); p.Channel.Kind != SourceDM {
-		t.Fatalf("user:bob (not in it) = %+v", p.Channel)
+}
+
+// defaultGroup gives inst a default conversation with people: their group
+// (or dm, for one), in which the first of them writes to it.
+func (f *icFixture) defaultGroup(inst Instance, people ...ident.ID) Channel {
+	f.t.Helper()
+	ch, err := f.ic.chat(f.project, append([]ident.ID{ident.ID(inst.ActorID)}, people...))
+	if err != nil {
+		f.t.Fatal(err)
 	}
-	if p := f.mustPlan(f.personal, "user:alice"); p.Channel.Kind != SourceSession {
-		t.Fatalf("a personal session to its starter = %+v", p.Channel)
+	if _, err := f.ic.PostTrusted(ch, intercom.Squawk{From: people[0], Body: "hello"}); err != nil {
+		f.t.Fatal(err)
 	}
-	if _, err := newICFixture(t, "user:bob").plan(f.standing, "user:alice"); err == nil {
-		t.Fatal("the home shortcut must not bypass addressing")
+	if got := f.mustPlan(inst, "").Channel; got.ID != ch.ID {
+		f.t.Fatalf("default conversation = %+v, want %s", got, ch.ID)
 	}
+	return ch
 }

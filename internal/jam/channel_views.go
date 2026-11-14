@@ -14,8 +14,9 @@ import (
 // projection in channels.go now only serves the legacy log (the History).
 
 // viewKind maps a channel kind onto the rail's kinds: a dm or a group is a
-// conversation with its people and sessions (DM), a work log or a session's
-// own channel is a studio's conversation, a room a named channel.
+// conversation with its people and sessions (DM), a work log (or an archived
+// session channel an older Jam made) is a studio's conversation, a room a
+// named channel.
 func viewKind(k SourceKind) ChannelKind {
 	switch k {
 	case SourceWork, SourceSession:
@@ -104,10 +105,9 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 		v.LastSeq = last[0].Seq
 	}
 	var others []string
-	// The mission shown is the channel's own session's (SourceSession), the
-	// latest-raised active session's (SourceWork), or a dm's or group's only active
-	// session's; rooms show none. A session channel's own session and a dm's
-	// active agent stand for the row's status card (CardSession); work logs,
+	// The mission shown is the latest-raised active session's (SourceWork), or
+	// a dm's or group's only active session's; rooms show none. A dm's active
+	// agent stands for the row's status card (CardSession); work logs,
 	// groups, and rooms have none: they show their name.
 	var active int
 	var latest time.Time
@@ -124,10 +124,6 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 				}
 				active++
 				switch ch.Kind {
-				case SourceSession:
-					if inst.ActorID == ch.Key {
-						v.Mission, v.CardSession = inst.Mission, inst.ActorID
-					}
 				case SourceWork:
 					if active == 1 || inst.RaisedAt.After(latest) {
 						v.Mission, latest = inst.Mission, inst.RaisedAt

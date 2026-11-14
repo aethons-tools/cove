@@ -64,7 +64,7 @@ export interface ChannelRow {
   id: string;
   label: string;
   project: string;
-  kind: string; // the conversation kind: dm | group | room | work | session (a session's own channel)
+  kind: string; // the conversation kind: dm | group | room | work | session (an archived session channel an older Jam made)
   needsYou: boolean;
   phase: string;
   unread: number /* int */;
@@ -73,8 +73,9 @@ export interface ChannelRow {
   selected: boolean;
   mission: string; // the backing session's mission (its end goal); "" = none
   /**
-   * Session is the actor id of the session whose home this channel is,
-   * when the viewer may see it ("" = none), as api/conversations reports it.
+   * Session is the actor id of the session this channel is the
+   * conversation of, when the viewer may see it ("" = none), as
+   * api/conversations reports it.
    */
   session: string;
   /**
@@ -82,14 +83,15 @@ export interface ChannelRow {
    */
   ssh: boolean;
   /**
-   * Card is the status card of the session the row stands for (a session
-   * channel's own, or a dm's agent); nil for rooms, work logs, groups, dms
-   * with people, and a channel with no active session.
+   * Card is the status card of the session the row stands for (a dm's
+   * agent); nil for rooms, work logs, groups, dms with people, and a
+   * channel with no active session.
    */
   card?: SessionCard;
   /**
    * SessionView is the conversation that is the card's session view (its
-   * session's home channel), when the viewer may open it ("" = none).
+   * session's conversation for the viewer), when the viewer may open it
+   * ("" = none).
    */
   sessionView: string;
 }
@@ -254,8 +256,8 @@ export interface Conversation {
    */
   newBoard: boolean;
   /**
-   * Session is the actor id of the session whose home this channel is,
-   * when the viewer may see it ("" = none): the app's session header and
+   * Session is the actor id of the session this channel is the
+   * conversation of, when the viewer may see it ("" = none): the app's session header and
    * pane read api/sessions/{session}.
    */
   session: string;
@@ -278,6 +280,12 @@ export interface MemberRow {
  */
 export interface NewMessageOption {
   to: string; // POST api/messages' "to": user:<id>, session:<id>, or a channel id (a unit of work's: its log)
+  /**
+   * Worker is a unit of work's other "to", worker:<key>: the dm with the
+   * session working on it now, when there is one the viewer may reach
+   * ("" = none).
+   */
+  worker?: string;
   label: string;
   kind: string;
   project: string;
@@ -370,7 +378,7 @@ export interface AnswerRequest {
 export interface SessionHead {
   id: string;
   label: string;
-  channel: string; // the session's home channel (/app/user/c/<channel>)
+  channel: string; // the session's conversation for the viewer: its unit's log, else their dm with it ("" = none; /app/user/c/<channel>)
   kind: string; // standing | personal | ticket | session
   color?: string; // the session's color (#rrggbb; "" = none)
   ticket: string;
@@ -440,7 +448,7 @@ export interface PreviewLink {
   frame: boolean;
 }
 /**
- * PaneBoard is a whiteboard started in the session's home channel.
+ * PaneBoard is a whiteboard started in the session's conversation.
  */
 export interface PaneBoard {
   id: string;
@@ -448,7 +456,7 @@ export interface PaneBoard {
   channel: string;
 }
 /**
- * PaneAsk is an ask posted in the home channel, with its state.
+ * PaneAsk is an ask posted in the session's conversation, with its state.
  */
 export interface PaneAsk {
   id: string;
@@ -456,7 +464,7 @@ export interface PaneAsk {
   state: string; // open | answered | withdrawn
 }
 /**
- * PaneLink is a URL from the home channel's messages.
+ * PaneLink is a URL from the session's conversation's messages.
  */
 export interface PaneLink {
   url: string;
@@ -660,7 +668,7 @@ export interface SessionRole {
 /**
  * StartSessionRequest is POST api/sessions: start a personal session of
  * Project's Role, owned by the viewer; Message, when set, is posted as the
- * viewer's first message in its session channel.
+ * viewer's first message in their dm with it.
  */
 export interface StartSessionRequest {
   project: string;
@@ -668,8 +676,8 @@ export interface StartSessionRequest {
   message?: string;
 }
 /**
- * SessionStarted is POST api/sessions's answer: the new session and its
- * session channel (its conversation).
+ * SessionStarted is POST api/sessions's answer: the new session and the
+ * starter's dm with it.
  */
 export interface SessionStarted {
   id: string;

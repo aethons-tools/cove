@@ -4,7 +4,7 @@
 :owns: the operator-facing Requisitioner story — the poll→claim→raise flow, the `runtime.requisitioner` serve-config block, and the concurrency-cap model
 :prereqs: coves.adoc for what a raised managed studio does (the supervisor + Launcher own its lifecycle); studio-managers.adoc for the Studio Manager a raised studio needs; roster.adoc for the role tickets are raised for
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-14
 
 The *Requisitioner* is an always-on loop inside `jam serve` that
 turns ready tracker tickets into managed-cove raises — the automatic counterpart
@@ -109,8 +109,8 @@ closes the issue (`states.done` is unused).
 * *Blockers.* Blockers are `+Depends on #N+` / `+Blocked by #N+` in the body, in the
 same repo; a cross-repo blocker is ignored with a warning.
 * *Ticket keys and the token.* Ticket keys are `+owner/repo#<n>+`, on the
-tracker's repo: a session whose unit names another repo has no ticket (its
-home is its own channel), and a delivery there is skipped. The token needs
+tracker's repo: a session whose unit names another repo has no ticket,
+and a delivery there is skipped. The token needs
 Issues read/write and Metadata read on the repo (a fine-grained PAT).
 `tracker-token-cred` is Linear-only.
 * *The relay.* The tracker relay carries the issue's comments both ways; what it

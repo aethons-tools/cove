@@ -311,6 +311,8 @@ func boardError(w http.ResponseWriter, err error) bool {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	case errors.Is(err, ErrNoWorker):
 		writeNoWorker(w)
+	case errors.Is(err, ErrSendNeedsTo):
+		writeNoDefault(w)
 	case errors.Is(err, ErrSendDenied), errors.Is(err, ErrSendUnresolved), errors.Is(err, ErrRemoved), errors.Is(err, intercom.ErrNoBoard):
 		http.Error(w, "not found", http.StatusNotFound)
 	default:

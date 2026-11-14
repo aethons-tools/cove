@@ -27,7 +27,7 @@ describe("the app shell", () => {
     expect(screen.getByRole("link", { name: /eng/ })).toHaveAttribute("href", "/app/user/c/chn_b");
   });
 
-  it("shows a session channel's row as its status card", async () => {
+  it("shows an agent dm's row as its status card", async () => {
     const withCard: RailResponse = { ...rail, groups: [{ ...rail.groups[0]!, rows: [{ ...rail.groups[0]!.rows[0]!,
       card: card({ name: "intercom-spider", pill: "needs you", state: "idle", mission: "SPA slice 1", counts: { asks: 1, alarms: 0, previews: 0, processes: 0, subagents: 0 } }) }] }, rail.groups[1]!] };
     server.use(http.get("/app/user/api/rail", () => HttpResponse.json(withCard)));

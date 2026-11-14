@@ -27,7 +27,7 @@ var (
 
 type boardCreateIn struct {
 	Title string `json:"title" jsonschema:"the board's title"`
-	To    string `json:"to,omitempty" jsonschema:"optional target, as for send; omit for your own channel"`
+	To    string `json:"to,omitempty" jsonschema:"optional target, as for send; omit for where you were last messaged"`
 }
 
 type boardCreateOut struct {
@@ -205,7 +205,7 @@ func (c *messagingClient) boardSnapshot(ctx context.Context, id string) (boardSn
 func addBoardTools(s *mcp.Server, client *messagingClient, cfgErr error) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_create",
-		Description: "Start a whiteboard in your own channel (or `to`, as for send): it posts a card people open in the Jam app's Inbox. Returns its board_id.",
+		Description: "Start a whiteboard where you were last messaged (or `to`, as for send): it posts a card people open in the Jam app's Inbox. Returns its board_id.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in boardCreateIn) (*mcp.CallToolResult, boardCreateOut, error) {
 		if cfgErr != nil {
 			return nil, boardCreateOut{}, cfgErr

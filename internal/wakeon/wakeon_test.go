@@ -46,7 +46,7 @@ func TestParticipantSendWakesWaitingStudio(t *testing.T) {
 	if err := ic.SetUp(inst); err != nil {
 		t.Fatal(err)
 	}
-	ticket, _ := ic.HomeChannel(inst)
+	ticket, _ := ic.TicketChannelOf(inst)
 
 	h := jam.NewParticipantSendHandler(st, ic, nil)
 	r := httptest.NewRequest("POST", "/me/send", strings.NewReader(`{"to":"`+string(ticket.ID)+`","body":"go ahead"}`))

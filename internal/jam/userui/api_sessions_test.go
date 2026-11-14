@@ -121,8 +121,8 @@ func TestAPISessionPane(t *testing.T) {
 			t.Errorf("pane JSON carries template-only field %q", k)
 		}
 	}
-	// Artifacts: a link from the home channel, labelled.
-	home, err := e.Intercom.HomeChannel(personal)
+	// Artifacts: a link from its conversation, labelled.
+	home, err := e.homeCh(personal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +387,7 @@ func TestAPISessionPanePreviews(t *testing.T) {
 // needs for "Open in the web app" (/app/user/c/<channel>).
 func TestAPISessionHeadChannel(t *testing.T) {
 	e, p, personal, _, _ := sessionEnv(t)
-	home, err := e.Intercom.HomeChannel(personal)
+	home, err := e.homeCh(personal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +408,7 @@ func TestAPIRailRowSessionAndSSH(t *testing.T) {
 	Handler(e.Deps, nil).ServeHTTP(rec, asPrincipal(req, p, false))
 	rr := decodeAs[RailResponse](t, rec)
 	homeOf := func(inst jam.Instance) string {
-		ch, err := e.Intercom.HomeChannel(inst)
+		ch, err := e.homeCh(inst)
 		if err != nil {
 			t.Fatal(err)
 		}

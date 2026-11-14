@@ -105,7 +105,7 @@ After about a minute of waiting,
 Jam pauses the studio, so it uses almost nothing.
 The session wakes, and its studio resumes, when:
 
-* someone sends a message in its channel
+* someone sends it a message
 (xref:concepts/intercom.adoc[]);
 * one of its alarms goes off;
 * its role's idle timeout passes, if the role sets one.
@@ -122,7 +122,7 @@ and it picks up its conversation where it left off.
 === Personal agents that sit idle
 
 A personal agent that has waited on you for a while
-sends you a reminder in its channel:
+sends you a reminder in your DM with it:
 after 4 hours by default,
 then once a day.
 Reply to carry on.
@@ -186,7 +186,7 @@ A `recovering` phase has no status of its own:
 it shows by the agent's last activity.
 * The pause is the wake-on engine's `warm-timeout` (default 60s, `runtime.wake`).
 Reminders are the idle ladder (`idle-after`, `nag-every`, `reclaim-after`);
-the nags are posted in the session's channel through the intercom (`intercomNagger`).
+the nags are posted in the owner's DM with the session through the intercom (`intercomNagger`, `Intercom.Notify`).
 * Depth: `docs/modules/ROOT/pages/usage/jam/roster.adoc`,
 `standing-sessions.adoc`, `personal-sessions.adoc`, `requisitioner.adoc`,
 `coves.adoc`, `turn-end.adoc`.

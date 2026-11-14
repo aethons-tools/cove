@@ -9,8 +9,9 @@ and what it thinks between them.
 It isn't a conversation.
 Open it from the session's name anywhere in the Inbox:
 on its status card in the rail,
-or in its header, which also shows when you open the session's own channel
-or the work log of the ticket it works on.
+or in its header, which also shows when you open the session's conversation:
+the work log of the ticket it works on,
+or else your DM with it.
 (A session is one run of an agent: xref:concepts/agent.adoc[Roles, agents and sessions].)
 
 A *session header* at the top says who the session is,
@@ -94,7 +95,7 @@ They need the Jam extension,
 and show only when *Copy SSH* does.
 *Interrupt*::
 Stops the agent's current turn.
-The agent then says so in its channel and waits.
+The agent then says so where it was last messaged and waits.
 You can press it only while the session is running.
 
 === The ⋯ menu
@@ -241,7 +242,7 @@ the tab says "Previews aren't available to you here."
 
 === Artifacts
 
-The *Artifacts* tab collects what the channel holds, newest first:
+The *Artifacts* tab collects what the session's conversation holds, newest first:
 
 * *Whiteboards*, with a small picture of each.
 Click one to open it (xref:inbox/whiteboards.adoc[Whiteboards]).

@@ -11,6 +11,7 @@ const recipients: RecipientsResponse = { options: [
   { to: "user:usr_carol", label: "carol", kind: "person", project: "test" },
   { to: "session:ses_spider", label: "intercom-spider", kind: "agent", project: "test" },
   { to: "chn_cov1", label: "COV-1", kind: "work", project: "test" },
+  { to: "chn_cov2", worker: "worker:COV-2", label: "COV-2", kind: "work", project: "test" },
   { to: "chn_eng", label: "eng", kind: "room", project: "other" },
 ] };
 
@@ -73,6 +74,18 @@ describe("New message", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Log of COV-1" }));
     expect(router.state.location.search).toContain("to=chn_cov1");
     expect(await screen.findByText("to the log of COV-1")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Worker of COV-1" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Worker of COV-1" })).toBeNull(); // no one works it now
+  });
+
+  it("offers a DM with the worker while one works the unit", async () => {
+    server.use(
+      http.get("/app/user/api/rail", () => HttpResponse.json({ groups: [], unreadTotal: 0 })),
+      http.get("/app/user/api/recipients", () => HttpResponse.json(recipients)),
+    );
+    const { router } = renderApp(boot);
+    await userEvent.click(await screen.findByRole("button", { name: "New message" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Worker of COV-2" }));
+    expect(router.state.location.search).toContain(`to=${encodeURIComponent("worker:COV-2")}`);
+    expect(await screen.findByText("to the worker of COV-2")).toBeInTheDocument();
   });
 });

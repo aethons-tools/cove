@@ -62,7 +62,7 @@ func (h *handler) apiSessionRoles(w http.ResponseWriter, r *http.Request) {
 }
 
 // startPrompt is a New session's first prompt: open the conversation, or
-// read the owner's first message waiting in the session channel.
+// read the owner's first message waiting in their dm.
 func startPrompt(owner string, message bool) string {
 	if message {
 		return fmt.Sprintf("%s started you from the Jam inbox; their first message is waiting in your inbox. Read it and get to work.", owner)
@@ -72,7 +72,7 @@ func startPrompt(owner string, message bool) string {
 
 // apiStartSession starts a personal session of a role for the viewer (any
 // member of the role's project, within its caps), posts their first
-// message into its session channel, and says where that conversation is.
+// message into their dm with it, and says where that conversation is.
 func (h *handler) apiStartSession(w http.ResponseWriter, r *http.Request) {
 	var req StartSessionRequest
 	if !decodeJSONMax(w, r, &req, jam.MaxSquawkBodyBytes) {
@@ -115,9 +115,12 @@ func (h *handler) apiStartSession(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "internal", "the session ended as it started")
 		return
 	}
-	ch, err := h.d.Intercom.HomeChannel(inst)
+	ch, ok, err := h.d.Intercom.StarterDM(inst)
+	if err == nil && !ok {
+		err = errors.New("no dm with its starter")
+	}
 	if err != nil {
-		h.lg.Error("userui api start session: no session channel", "session", res.ID, "error", err.Error())
+		h.lg.Error("userui api start session: no dm with the session", "session", res.ID, "error", err.Error())
 		writeAPIError(w, http.StatusInternalServerError, "internal", "the session started, but its conversation could not be opened")
 		return
 	}

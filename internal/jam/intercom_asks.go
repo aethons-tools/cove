@@ -40,7 +40,7 @@ func (ic *Intercom) OpenAskCount(session ident.ID) int {
 	return n
 }
 
-// Ask posts p's ask to `to` ("" = its home channel), planned like a send:
+// Ask posts p's ask to `to` ("" = its default conversation), planned like a send:
 // ErrSendDenied, ErrSendUnresolved and ErrRemoved as for Plan; intercom
 // ErrInvalid for a malformed ask.
 func (ic *Intercom) Ask(p Poster, to string, in AskInput, now time.Time) (intercom.Ask, Channel, error) {

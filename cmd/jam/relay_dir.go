@@ -90,9 +90,9 @@ func isSession(id ident.ID) bool {
 // Surfaces lists where m goes on service, minus the surface it came from.
 //
 //   - A ticket or room: each of its bindings on a connection of service.
-//   - A chat: each person in it (but the author) on their Discord inbox when
-//     the project chats over Discord; anyone without one is @-mentioned on
-//     the tracker ticket of a session in the chat (the pre-channel "user:x
+//   - A dm or a group: each person in it (but the author) on their Discord
+//     inbox when the project chats over Discord; anyone without one is
+//     @-mentioned on the tracker ticket of a session in it (the pre-channel "user:x
 //     from a ticket session" delivery).
 //
 // Discord shows "<author>: " before every body; the tracker before a person's
@@ -133,7 +133,7 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 			}
 			out = append(out, relay.Delivery{Service: service, Address: b.Ref, BodyPrefix: prefix(service)})
 		}
-	case jam.SourceDM, jam.SourceGroup, jam.SourceSession: // a session channel reaches its people as a chat does
+	case jam.SourceDM, jam.SourceGroup:
 		p, ok := d.projectOf(ch)
 		if !ok {
 			return nil
@@ -168,12 +168,10 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 		// The tracker fallback carries a session's message to a person (the
 		// pre-channel "user:x from a ticket session"); a person's chat
 		// message is never made a public comment.
-		// A session channel has no such fallback: it is never rendered onto a
-		// ticket another session in it works on.
 		// The session's unit must be a ticket on the tracker (canonical on
 		// github; another repo's would never land). An escalation notice
 		// takes no fallback: its copy in the unit's log is the issue's comment.
-		if tracker, ok := d.tracker(); service == d.trackerService() && jam.IsChat(ch.Kind) && isSession(m.From) && ok && len(mentions) > 0 && !jam.IsEscalationNotice(m.ID) {
+		if tracker, ok := d.tracker(); service == d.trackerService() && isSession(m.From) && ok && len(mentions) > 0 && !jam.IsEscalationNotice(m.ID) {
 			if key, onTicket := jam.TicketUnit(d.store, tracker, ticket); onTicket && !cameFrom(tracker, key) {
 				out = append(out, relay.Delivery{Service: service, Address: key, BodyPrefix: strings.Join(mentions, " ") + " " + prefix(service)})
 			}
@@ -256,11 +254,11 @@ func (d *directory) routeTracker(service string, e relay.Event) (relay.Routed, b
 }
 
 // routeDiscord maps a Discord message: a reply goes to the conversation of
-// the post it answers (its receipt: the channel, or — for a receipt from
-// before the channel log — the author session's default channel while it
-// lives); a non-reply goes to the room bound to the Discord channel, if any.
-// Anything else — a non-reply in a shared inbox, Jam's own posts, a bot —
-// is unroutable.
+// the post it answers (its receipt's channel, while it is live); a non-reply
+// goes to the room bound to the Discord channel, if any. Anything else — a
+// reply to a post from before the channel log (its receipt names no
+// channel), a non-reply in a shared inbox, Jam's own posts, a bot — is
+// unroutable.
 func (d *directory) routeDiscord(e relay.Event) (relay.Routed, bool) {
 	if e.AuthorBot {
 		return relay.Routed{}, false
@@ -276,20 +274,12 @@ func (d *directory) routeDiscord(e relay.Event) (relay.Routed, bool) {
 		if r.ReplyTo == "" {
 			r.ReplyTo = "in:discord:" + e.ReplyToForeign
 		}
-		if rc.Channel != "" {
-			if ch, ok = d.store.GetChannel(ident.ID(rc.Channel)); !ok || ch.Status != jam.StatusLive {
-				return relay.Routed{}, false // its conversation is gone (archived, or its project removed)
-			}
-		} else {
-			inst, live := d.store.GetInstance(rc.Actor)
-			if !live || inst.Phase == jam.PhaseGone {
-				d.debug("relay: legacy discord receipt for an ended session; dropped", "session", rc.Actor)
-				return relay.Routed{}, false
-			}
-			var err error
-			if ch, err = d.ic.HomeChannel(inst); err != nil {
-				return relay.Routed{}, false
-			}
+		if rc.Channel == "" {
+			d.debug("relay: discord reply to a post from before the channel log; dropped", "session", rc.Actor)
+			return relay.Routed{}, false
+		}
+		if ch, ok = d.store.GetChannel(ident.ID(rc.Channel)); !ok || ch.Status != jam.StatusLive {
+			return relay.Routed{}, false // its conversation is gone (archived, or its project removed)
 		}
 	} else {
 		var ok bool

@@ -41,11 +41,8 @@ func TestIntercomEscalate(t *testing.T) {
 			t.Fatalf("notice targets = %v", ids)
 		}
 	}
-	home := f.sessionChannel(f.standing)
-	for _, u := range []ident.ID{f.alice.ID, f.bob.ID} {
-		if !isCurrentMember(f.store, home.ID, u) {
-			t.Fatalf("%s not called into the session's channel", u)
-		}
+	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 0 {
+		t.Fatalf("escalation made a session channel: %+v", got)
 	}
 	if got := f.store.ListChannels(f.project.ID, SourceWork); len(got) != 0 {
 		t.Fatalf("a session on no unit posted to a work log: %+v", got)
@@ -67,9 +64,9 @@ func TestIntercomEscalate(t *testing.T) {
 	}
 }
 
-// Until a session's turn-end text follows the conversation (COV-350), the
-// person escalated to must hear the session's reply: alice answers in the
-// dm, and the session's post with no address (its home channel) reaches her.
+// The person escalated to hears the session's reply: alice answers in the
+// dm, and the session's post with no address (an older studio's turn end:
+// the conversation it was last delivered a message in) reaches her.
 func TestIntercomEscalateReplyReachesThePerson(t *testing.T) {
 	f := newICFixture(t)
 	f.standing.Activity = ActivityWaiting
@@ -136,8 +133,8 @@ func TestIntercomEscalateWorkLog(t *testing.T) {
 	}
 }
 
-// A session that is gone or no longer waiting is not escalated: nobody is
-// called in and no channel is reopened or rejoined.
+// A session that is gone or no longer waiting is not escalated: no
+// conversation is opened for it.
 func TestIntercomEscalateOnlyWaitingSessions(t *testing.T) {
 	f := newICFixture(t)
 	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)

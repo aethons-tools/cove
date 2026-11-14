@@ -1,5 +1,5 @@
 = The session view
-:summary: The session view in the `/app/user` Jam app — one session's own page (its activity is session-activity.adoc), who may open it, and the header (identity, state, cost, context use, uptime, quick actions) and tabbed pane (Thinking, Previews, Artifacts, Status) it shares with the session's home channel; layout memory.
+:summary: The session view in the `/app/user` Jam app — one session's own page (its activity is session-activity.adoc), who may open it, and the header (identity, state, cost, context use, uptime, quick actions) and tabbed pane (Thinking, Previews, Artifacts, Status) it shares with the session's conversation; layout memory.
 :read_when: You're using or extending a session's view in `/app/user` — who may open it, its header and actions (Copy SSH, Interrupt, Compact, Clear, Release, Restart, End, Upgrade), the side pane and its tabs, viewing a preview in the pane, the pane's layout memory and `?tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
 :owns: who may open a session view, the session view page (`/app/user/s/<id>`) and its layout, the session header (`GET /app/user/api/sessions/\{id}`) and its actions (`POST /app/user/api/sessions/\{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/api/sessions/\{id}/pane/\{tab}`) and its tabs, a preview's View here (`POST /app/user/api/sessions/\{id}/frame`), the Thinking tab (`GET /app/user/session/\{id}/thinking/events`, `GET /app/user/api/sessions/\{id}/thinking[/raw]`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) the header shows
 :prereqs: intercom-ui.adoc for the user area this extends; session-events.adoc for the events the aggregates come from; previews.adoc for exposed ports; collaboration.adoc for who may SSH or open a preview; previews.adoc#framing-the-jam-pane for the frame tickets and cookie
@@ -9,15 +9,15 @@
 A session's view is its own page in the xref:usage/jam/intercom-ui.adoc[Jam app], `/app/user/s/<id>`
 (`web/app/src/session/SessionPage.tsx`): the session's header, its activity
 (xref:usage/jam/session-activity.adoc[session-activity]), and a pane beside or below them.
-The same header and pane also show over a live session's *home channel* (its session channel,
-or the work log of the ticket it works), where the header's name links to the session view.
+The same header and pane also show over a live session's *conversation* for the viewer (`Intercom.SessionConversation`),
+the work log of the unit it works or else the viewer's `dm` with it, where the header's name links to the session view.
 The API is in `internal/jam/userui` (`+api_sessions.go+`, `session.go`, `sessionpane.go`).
 
 [#access]
 == Who may open it
 
 The Jam's operators may open any session's view, and the person who started a personal
-session may open its view (`mayOpen` in `session.go`). Being in the session's home channel
+session may open its view (`mayOpen` in `session.go`). Being in the session's conversations
 grants nothing. Everyone else gets 404 from every route below, as for a session that doesn't exist. Once the session ends, its header, pane, actions, and live Thinking feed answer 404,
 and the page keeps only the activity, saying the session has ended in place of the composer.
 
@@ -65,7 +65,7 @@ session's view may press them, on any session kind. Clear asks for confirmation.
 |===
 |Control |Enabled when |Does
 
-|Interrupt |running |stops the current turn; the agent then acknowledges in its channel and waits
+|Interrupt |running |stops the current turn; the agent then acknowledges where it was last messaged and waits
 |Compact |running, holding (a turn ended with background tasks outstanding) or waiting |shrinks the conversation with Claude's `/compact`
 |Clear |waiting, including paused |starts the next turn as a blank conversation, and resets the session's mission and focus, since Clear means a new task (a failed reset is logged and doesn't fail the Clear)
 |===
@@ -91,7 +91,7 @@ every 30s.
 new tab. With framing on, *View here* shows one preview in the pane (see
 <<view-here,View here>>). When previews are off, or collab doesn't allow you to open them,
 the tab shows one message: "Previews aren't available to you here."
-* *Artifacts:* what the home channel holds, newest first:
+* *Artifacts:* what the session's conversation holds, newest first:
 ** whiteboards, with thumbnails;
 ** attached files;
 ** asks, with their state;

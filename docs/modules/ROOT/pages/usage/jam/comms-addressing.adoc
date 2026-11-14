@@ -6,9 +6,8 @@
 :tier: leaf
 :updated: 2026-11-14
 
-A studio's `send` can reach more than its home channel:
-a *person* (a `dm`),
-another *session*'s home channel,
+A studio's `send` can reach
+a *person* or another *session* (a `dm`),
 a group of people and sessions (a `group`),
 a *room*,
 a unit of work's *log*,
@@ -24,8 +23,8 @@ A target is *kind-prefixed*, and names a channel:
 |===
 |Target |Channel
 
-|`+user:<name>+` / `+user:<usr_id>+` |the `dm` between the session and that person — or the session's own channel when that person is already in it
-|`+session:<label>+` / `+session:<ses_id>+` |that session's home channel (its own session channel); the sender joins it by posting, so replies come back. A ticket session is reached like any other (no `+ticket:+` addressing needed); a label two live sessions share names neither.
+|`+user:<name>+` / `+user:<usr_id>+` |the `dm` between the session and that person
+|`+session:<label>+` / `+session:<ses_id>+` |the `dm` between the session and that session. A ticket session is reached like any other (no `+ticket:+` addressing needed); a label two live sessions share names neither, and a session naming itself names nothing (`404`).
 |`+chat:<member>,<member>…+` |the `dm` (one member) or `group` (more) of the session and exactly those members, each a `+user:+` or `+session:+` target
 |`+channel:<name>+` |the project's room of that name (post-only: the session doesn't join)
 |`+work:<key>+` / `+work:<connection>/<key>+` |that unit of work's log (its own is always allowed; another's is post-only); `+ticket:+` is an alias. A GitHub key is `+owner/repo#<n>+` (`+work:acme/board#7+`, or scoped `+work:<connection>/acme/board#7+`), any case or leading zeros naming one ticket; a malformed one is refused with "github ticket key must be owner/repo#<n>".
@@ -81,16 +80,16 @@ other than the studio's own needs a `+ticket:<glob>+` (e.g. `+ticket:*+`). `+ses
 
 Some sends never consult the access-graph — only the token's expiry:
 
-* The studio's *home channel* (`to` empty on an older turn protocol, or `+session:+` naming itself).
+* Its xref:usage/jam/intercom.adoc#default-conversation[default conversation] (`to` empty on an older turn protocol, or on an `ask` or a whiteboard).
 * Its own unit's log (`+work:<its key>+`).
 * For a personal session, the person who started it (`+user:<starter>+`, or that person in a `+chat:+`).
 * A *reply*: any target naming an existing conversation the session was delivered a message in.
-A `+user:+` target names the session's own channel when that person is in it,
-so a person called in (by an escalation, say) can be answered by name.
+A `+user:+` or `+session:+` target names the `dm` with them once they wrote to the session there,
+so a person escalated to can be answered by name.
 Each inbox entry carries `+reply_to+` (`Intercom.ReplyTo`), a target that replies in its conversation:
-`+session:<its own label>+` for its own channel, `+chat:<the other members>+` for a `dm` or `group`,
-`+channel:<room>+`, `+work:<key>+`, or `+session:<other>+` for another session's channel
-(a label two live sessions share falls back to the id).
+`+chat:<the other members>+` for a `dm` or `group`,
+`+channel:<room>+`, or `+work:<key>+`.
+An archived session channel an older Jam made has none.
 
 *Authz is checked before existence.* A target whose form no grant's addressing
 allows returns *403* — the send is denied without ever asking whether the target
@@ -110,13 +109,11 @@ session) and is rendered onto the channel's surfaces by the relays
 
 |work |a comment on its tracker issue |comments on the issue → the work log
 |dm, group |each person's Discord inbox (a Discord-chat project); a person with none is `@<handle>`-mentioned on the ticket of a session in it |a Discord reply to the post → the `dm` or `group`; a tracker reply lands in the work log, which the worker is in too
-|room |its bound surface (a Linear issue or a Discord channel) |from that surface → the room
-|session |each person's Discord inbox, as a `dm` is; never a tracker comment |a Discord reply to the post → the session channel
+|room |its bound surface (a Linear issue or a Discord channel); a room bound to the same issue as a work log only posts to it |from that surface → the room, unless a work log took the issue's binding
 |===
 
-A person posting in a work log, a room or a non-personal session's channel joins
-it and hears what follows; a person sees a project's work logs, rooms and those
-session channels while they are a member of it.
+A person posting in a work log or a room joins
+it and hears what follows; a person sees a project's work logs and rooms while they are a member of it.
 
 [#discovering-targets-get-squawkstargets-list_targets]
 == Discovering targets: `GET /squawks/targets` / `+list_targets+`

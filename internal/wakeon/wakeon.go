@@ -724,7 +724,7 @@ func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 }
 
 // wakes reports whether m's conversation's wake rule wakes inst
-// (conversations.adoc#wake). In a dm, a group, or a session channel, every
+// (conversations.adoc#wake). In a dm or a group, every
 // session member wakes. In a room, only the sessions m mentions, or calls
 // in, and those that joined with wake: all; in a work log, only the current
 // worker, or a session m calls in. A message in no conversation Jam knows

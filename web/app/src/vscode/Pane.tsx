@@ -132,7 +132,7 @@ function Live() {
 }
 
 // Boot is a session pane once the bootstrap is in: its body in a memory
-// router kept on the session's home channel.
+// router kept on the session's conversation.
 function Boot({ bridge, name, session, channel }: { bridge: Bridge; name: SessionPaneName; session: string; channel: string }) {
   const home = `${APP}c/${encodeURIComponent(channel)}`;
   const boot = useQuery<Bootstrap, ApiError>({ queryKey: ["bootstrap"], queryFn: () => apiGet<Bootstrap>("bootstrap"), staleTime: Infinity });

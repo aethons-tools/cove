@@ -60,7 +60,7 @@ func newFake() *fakeReader {
 	return &fakeReader{
 		channels: map[ident.ID]jam.Channel{
 			chat: {ID: chat, Kind: jam.SourceDM},
-			sess: {ID: sess, Kind: jam.SourceSession, Label: "PR #812 review"},
+			sess: {ID: sess, Kind: jam.SourceGroup, Label: "PR #812 review"},
 			room: {ID: room, Kind: jam.SourceRoom, Label: "eng"},
 			tick: {ID: tick, Kind: jam.SourceWork, Label: "ACME-7"},
 		},

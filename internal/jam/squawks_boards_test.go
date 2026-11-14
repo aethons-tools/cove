@@ -9,6 +9,7 @@ import (
 
 func TestSquawksBoards(t *testing.T) {
 	f := newSqFixture(t)
+	f.defaultGroup(f.standing, f.alice.ID) // where its asks and boards go with no `to`
 	f.h.SetBoards(NewBoards(f.log, f.ic))
 	rec := f.do(http.MethodPost, "/squawks/boards", f.standing, `{"title":"Plan"}`)
 	var c struct {

@@ -62,13 +62,12 @@ func TestGitHubTicketChannel(t *testing.T) {
 	}
 
 	// A unit that is no GitHub key (a manual raise's free text) has no
-	// ticket channel: its home is its own session channel, never a failure.
+	// ticket channel: setting it up is never a failure.
 	for _, unit := range []string{"#7", "ACME-7", "acme/board#x"} {
 		bad := f.ticket
 		bad.ActorID, bad.Unit = string(ident.New(ident.Session)), unit
-		home, err := f.ic.HomeChannel(bad)
-		if err != nil || home.Kind != SourceSession || home.Key != bad.ActorID {
-			t.Fatalf("HomeChannel(unit %q on a github tracker) = %+v, %v; want its session channel", unit, home, err)
+		if err := f.ic.SetUp(bad); err != nil {
+			t.Fatalf("SetUp(unit %q on a github tracker): %v", unit, err)
 		}
 		if _, ok := f.ic.TicketChannelOf(bad); ok {
 			t.Fatalf("unit %q: a ticket channel", unit)
@@ -368,11 +367,14 @@ func TestTrackerRepoScopesBindingsAndTickets(t *testing.T) {
 	if unit, ok := TicketUnit(f.store, f.tracker.ID, "Acme/BOARD#07"); !ok || unit != "acme/board#7" {
 		t.Fatalf("TicketUnit(Acme/BOARD#07) = %q, %v; want acme/board#7", unit, ok)
 	}
-	// Another repo's ticket session has no ticket channel: its own channel.
+	// Another repo's ticket session has no ticket channel.
 	other := f.ticket
 	other.ActorID, other.Unit = string(ident.New(ident.Session)), "other/repo#7"
-	if home, err := f.ic.HomeChannel(other); err != nil || home.Kind != SourceSession {
-		t.Fatalf("HomeChannel(other/repo#7) = %+v, %v; want its session channel", home, err)
+	if err := f.ic.SetUp(other); err != nil {
+		t.Fatalf("SetUp(other/repo#7): %v", err)
+	}
+	if _, ok := f.ic.TicketChannelOf(other); ok {
+		t.Fatal("other/repo#7: a ticket channel")
 	}
 }
 
