@@ -74,9 +74,7 @@ Each press is `+POST /app/user/api/sessions/{id}/interrupt|compact|clear+`. The 
 when the control isn't available in the session's state, and 502 when the cove can't be reached.
 A paused studio is resumed first, so a press may take up to about 30s. The Thinking tab shows
 each press as "<Command> — pressed by <name>", and a press jam-studio-agent dropped with its reason,
-e.g. "Clear — pressed by Bob (ignored: live episode)".
-It shows a returned turn that again sent nothing the same way, as "Unaddressed — …"
-(see xref:usage/jam/structured-turn-end.adoc#the-turn-end-rule[returned turns]).
+e.g. "Clear — pressed by Bob (ignored: live episode)", and a returned turn that again sent nothing as "Unaddressed — …" (see xref:usage/jam/structured-turn-end.adoc#the-turn-end-rule[returned turns]).
 
 [#pane]
 == Pane
