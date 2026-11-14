@@ -172,7 +172,7 @@ func TestBoilerplateTurnRule(t *testing.T) {
 		{SessionFacts{Project: "acme", Role: "r", Unit: "AET-9", TurnProtocol: 3}, "Your ticket's log is `work:AET-9`; `report` posts there."},
 	} {
 		core := Boilerplate(c.f).Core
-		for _, w := range []string{c.want, "Text is thinking unless you send it", "`turn_end` and a `to`", "`no_reply: true`", "returned to you once", "`keep_start`", "`claude` then exits"} {
+		for _, w := range []string{c.want, "Text is thinking unless you send it", "`turn_end` and a `to`", "each message shows its reply `to`", "`no_reply: true`", "returned to you once", "`keep_start`", "`claude` then exits"} {
 			if !strings.Contains(core, w) {
 				t.Errorf("%q: missing %q in\n%s", c.f.Kind, w, core)
 			}

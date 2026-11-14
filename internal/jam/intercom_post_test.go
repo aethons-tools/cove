@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -465,7 +466,7 @@ func TestIntercomNameGlobsNeverMatchIDs(t *testing.T) {
 // there, or isn't in it, still needs addressing.
 func TestReplyToPersonInOwnChannel(t *testing.T) {
 	f := newICFixture(t, "ticket:*")
-	f.standing.Name = "spider"
+	f.standing.Name, f.standing.Activity = "spider", ActivityWaiting
 	if err := f.store.PutInstance(f.standing); err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +477,9 @@ func TestReplyToPersonInOwnChannel(t *testing.T) {
 	if _, err := f.plan(f.standing, "user:alice"); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("before alice is in: %v", err)
 	}
-	if err := f.ic.JoinChannel(f.alice.ID, home.ID); err != nil {
+	// Escalation calls alice into the session's channel; she answers there.
+	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)
+	if err := f.ic.Escalate(context.Background(), f.standing, 1, "infra", []Member{alice}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.ic.PostTrusted(home, intercom.Squawk{From: f.alice.ID, Body: "can you look?"}); err != nil {
@@ -517,7 +520,7 @@ func TestReplyToRoundTrips(t *testing.T) {
 		ch   Channel
 		want string
 	}{
-		{f.standing, home, "session:" + f.standing.ActorID},
+		{f.standing, home, "session:spider"},
 		{f.standing, dm, "chat:session:" + f.personal.ActorID},
 		{f.ticket, log, "work:ACME-7"},
 	} {

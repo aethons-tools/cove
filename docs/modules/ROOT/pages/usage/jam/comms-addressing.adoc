@@ -88,8 +88,9 @@ Some sends never consult the access-graph — only the token's expiry:
 A `+user:+` target names the session's own channel when that person is in it,
 so a person called in (by an escalation, say) can be answered by name.
 Each inbox entry carries `+reply_to+` (`Intercom.ReplyTo`), a target that replies in its conversation:
-`+session:<itself>+` for its own channel, `+chat:<the other members>+` for a `dm` or `group`,
-`+channel:<room>+`, `+work:<key>+`, or `+session:<other>+` for another session's channel.
+`+session:<its own label>+` for its own channel, `+chat:<the other members>+` for a `dm` or `group`,
+`+channel:<room>+`, `+work:<key>+`, or `+session:<other>+` for another session's channel
+(a label two live sessions share falls back to the id).
 
 *Authz is checked before existence.* A target whose form no grant's addressing
 allows returns *403* — the send is denied without ever asking whether the target

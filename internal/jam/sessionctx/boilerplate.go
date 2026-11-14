@@ -109,11 +109,11 @@ const structuredTurns = "- Turns: ending your turn is how you wait; `claude` the
 
 // turnRuleTurns is the turns line for a cove that speaks the turn-end rule
 // (TurnProtocolTurnRule): text is thinking unless it is sent.
-const turnRuleTurns = "- Turns: ending your turn is how you wait; `claude` then exits (MCP servers restart) unless your background tasks run (up to 30 min). New messages arrive in your prompt. " +
-	"Text is thinking unless you send it: nothing is posted for you. Answer with `send`, `ask` or `report`, or end with `turn_end` and a `to`, which posts your final text there. " +
+const turnRuleTurns = "- Turns: ending your turn is how you wait; `claude` then exits unless your background tasks run (up to 30 min). New messages arrive in your prompt. " +
+	"Text is thinking unless you send it: nothing is posted for you. Answer with `send`, `ask` or `report`, or end with `turn_end` and a `to`, which posts your final text there; each message shows its reply `to`. " +
 	"When no message is needed, end with no text or with `turn_end` `no_reply: true`. A turn that ends with text and sent nothing is returned to you once. " +
 	"Ending your turn marks the messages you were shown handled; `turn_end` changes that, what wakes you, or what happens next (compact, end). " +
-	"Background processes you start outlive your turn but freeze while the studio is paused as you wait. To keep something running, use `keep_start`: the studio isn't paused while it runs, it wakes you if it exits, and it stops with your session; agree with the person how long it should run and set a `wake_at` to ask them then."
+	"Background processes outlive your turn but freeze while the studio is paused. To keep something running, use `keep_start`: the studio isn't paused while it runs, it wakes you if it exits, and it stops with your session; agree with the person how long it should run and set a `wake_at` to ask them then."
 
 // ticketLine is a ticket session's extra: it keeps its ticket current and
 // ends only once its work has landed — when it can't, it waits for help.

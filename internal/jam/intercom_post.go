@@ -572,7 +572,7 @@ func (ic *Intercom) replyChannel(p Poster, project Project, kind, rest string) (
 }
 
 // ReplyTo is the send address that replies in channel chID for the session
-// self ("" when none answers to it): its own channel is session:<itself>, a
+// self ("" when none answers to it): its own channel is session:<its label>, a
 // dm or group chat: its other members, a room channel:<name>, a work log
 // work:<key>, another session's channel session:<it>. A reply needs no
 // addressing (replyChannel), so the session can always use it.
@@ -583,7 +583,16 @@ func (ic *Intercom) ReplyTo(self Instance, chID ident.ID) string {
 	}
 	switch ch.Kind {
 	case SourceSession:
-		return "session:" + ch.Key // its own channel too: own needs no addressing
+		// Its own channel too (own needs no addressing): by label when the
+		// label names that session alone, else by id.
+		if p, ok := ic.store.GetProject(orDefaultProject(self.Project)); ok {
+			if inst, ok := ic.store.GetInstance(ch.Key); ok {
+				if named, ok := ic.sessionNamed(p, sessionLabel(inst)); ok && named.ActorID == inst.ActorID {
+					return "session:" + sessionLabel(inst)
+				}
+			}
+		}
+		return "session:" + ch.Key
 	case SourceRoom:
 		return "channel:" + ch.Key
 	case SourceWork:
