@@ -433,9 +433,10 @@ func connKind(store Store, id ident.ID) string {
 // ---- planning a post ----
 
 // Plan decides a session's send to addr ("" = its default channel):
-// user:<name|id> (human: alias), session:<label|id> and
-// chat:<member>[,<member>…] (user: or session: members) → the dm or group
-// with them; channel:<name> → a room; work:<key> (ticket:<key> an alias), or
+// user:<name|id> (human: alias) and chat:<member>[,<member>…] (user: or
+// session: members) → the dm or group with them; session:<label|id> → that
+// session's home channel, joining it so replies come back; channel:<name> →
+// a room; work:<key> (ticket:<key> an alias), or
 // with <connection>/<key> → a unit of work's log; worker:<key> → the dm with
 // the unit's current worker. ErrSendDenied when the session's addressing
 // doesn't allow the address (checked first: a 403 never reveals existence),
@@ -471,7 +472,9 @@ func (ic *Intercom) Plan(p Poster, addr string, now time.Time) (Planned, error) 
 	if err != nil {
 		return Planned{}, err
 	}
-	return ic.planIn(p, ch, true)
+	pl, err := ic.planIn(p, ch, true)
+	pl.Join = kind == "session" // addressing a session joins its conversation, so replies come back
+	return pl, err
 }
 
 // resolve finds (creating a dm or group on demand) the channel the address
@@ -527,7 +530,7 @@ func (ic *Intercom) replyChannel(p Poster, project Project, kind, rest string) (
 		}
 	case "session":
 		if target, found := ic.sessionNamed(project, rest); found {
-			ch, ok = ic.existingChat(project, []ident.ID{p.ID, ident.ID(target.ActorID)})
+			ch, ok = ic.store.ChannelByKey(project.ID, SourceSession, target.ActorID)
 		}
 	}
 	return ch, ok && ic.deliveredIn(p.ID, ch.ID)
@@ -979,8 +982,8 @@ func (ic *Intercom) resolveWorker(p Poster, project Project, ref string, globs [
 }
 
 // resolveSession finds the live session of project that ref names (its id,
-// else its unique label) and returns the dm between it and the poster; one's
-// own session is its home channel. One's own session needs no addressing;
+// else its unique label) and returns its home channel. One's own session
+// needs no addressing;
 // any other needs session:<glob>, checked before the session is looked up
 // beyond its address (403 before 404).
 func (ic *Intercom) resolveSession(p Poster, project Project, ref string, globs []string) (Channel, error) {
@@ -993,7 +996,7 @@ func (ic *Intercom) resolveSession(p Poster, project Project, ref string, globs 
 	case own:
 		return ic.HomeChannel(target)
 	case found && anyAllowed([]string{"session:" + sessionLabel(target), "session:" + target.ActorID}, globs):
-		return ic.chat(project, []ident.ID{p.ID, ident.ID(target.ActorID)})
+		return ic.HomeChannel(target)
 	case anyAllowed([]string{"session:" + ref}, globs):
 		return Channel{}, ErrSendUnresolved
 	}

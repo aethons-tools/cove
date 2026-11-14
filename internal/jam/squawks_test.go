@@ -412,19 +412,16 @@ func TestSquawksCallInAndLeave(t *testing.T) {
 			t.Errorf("call-in %s = %d, want %d (%s)", body, rec.Code, want, rec.Body)
 		}
 	}
-	// A session leaves a channel it was called into, never its own.
-	rec = f.do(http.MethodPost, "/squawks/call-in", f.standing, `{"who":"session:`+f.ticket.ActorID+`"}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("standing calls in ticket = %d %s", rec.Code, rec.Body)
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatal(err)
-	}
-	if rec := f.do(http.MethodPost, "/squawks/leave", f.ticket, `{"channel":"`+string(out.Channel.ID)+`"}`); rec.Code != http.StatusNoContent {
-		t.Fatalf("leave = %d %s", rec.Code, rec.Body)
-	}
-	if rec := f.do(http.MethodPost, "/squawks/leave", f.standing, `{"channel":"`+string(out.Channel.ID)+`"}`); rec.Code != http.StatusForbidden {
-		t.Fatalf("leave own home = %d", rec.Code)
+	// A session leaves a channel it joined, never its own.
+	if code, r := f.send(f.ticket, `{"body":"hi","to":"session:`+f.standing.ActorID+`"}`); code != http.StatusOK {
+		t.Fatalf("ticket → standing = %d", code)
+	} else {
+		if rec := f.do(http.MethodPost, "/squawks/leave", f.ticket, `{"channel":"`+string(r.Channel.ID)+`"}`); rec.Code != http.StatusNoContent {
+			t.Fatalf("leave = %d %s", rec.Code, rec.Body)
+		}
+		if rec := f.do(http.MethodPost, "/squawks/leave", f.standing, `{"channel":"`+string(r.Channel.ID)+`"}`); rec.Code != http.StatusForbidden {
+			t.Fatalf("leave own home = %d", rec.Code)
+		}
 	}
 	if rec := f.do(http.MethodPost, "/squawks/leave", f.ticket, `{}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("leave without channel = %d", rec.Code)

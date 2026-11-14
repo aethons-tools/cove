@@ -62,8 +62,7 @@ and any session can answer in a conversation where it got a message.
 To post anywhere else, its role must allow it.
 The role's *addressing* is the list of people, rooms, work, and sessions that the role's sessions can message
 (xref:configuration/roles.adoc[Configuring roles and raising agents]).
-A session messages another session in a DM,
-and the session working on a ticket in a DM too
+A session can message the session working on a ticket in a DM
 (xref:concepts/work.adoc#_reaching_the_work[Reaching the work]).
 
 == Joining, leaving and calling in

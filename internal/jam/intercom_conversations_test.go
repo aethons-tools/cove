@@ -100,8 +100,8 @@ func TestIntercomPlanWorkTargets(t *testing.T) {
 	if isMember(f.store, log.Channel.ID, ident.ID(f.standing.ActorID)) {
 		t.Fatal("a dm with the worker doesn't join its log")
 	}
-	if again := f.mustPlan(f.standing, "session:"+f.ticket.ActorID); again.Channel.ID != dm.Channel.ID {
-		t.Fatal("worker: and session: of the same session are one dm")
+	if again := f.mustPlan(f.standing, "chat:session:"+f.ticket.ActorID); again.Channel.ID != dm.Channel.ID {
+		t.Fatal("worker: and chat:session: of the same session are one dm")
 	}
 	if _, err := f.plan(f.ticket, "worker:ACME-7"); !errors.Is(err, ErrSendUnresolved) {
 		t.Fatalf("the worker addressing itself = %v, want ErrSendUnresolved", err)
@@ -124,18 +124,20 @@ func TestIntercomPlanWorkTargets(t *testing.T) {
 	}
 }
 
-func TestIntercomPlanSessionIsDM(t *testing.T) {
+// session:<label> still goes to the target's home channel and joins the
+// sender, so the target's default-channel reply reaches it (until turn ends
+// are delivered by destination, COV-350).
+func TestIntercomSessionReplyReachesSender(t *testing.T) {
 	f := newICFixture(t, "session:*")
 	p := f.mustPlan(f.personal, "session:"+f.standing.ActorID)
-	if p.Channel.Kind != SourceDM || !slices.Equal(p.Audience, ids(f.standing)) {
-		t.Fatalf("session: = %+v, want a dm with that session", p)
+	if p.Channel.Kind != SourceSession || p.Channel.Key != f.standing.ActorID || !p.Join {
+		t.Fatalf("session: = %+v, want the target's home channel, joining", p)
 	}
-	back := f.mustPlan(f.standing, "session:"+f.personal.ActorID)
-	if back.Channel.ID != p.Channel.ID {
-		t.Fatal("one dm for each pair, either way")
+	if _, err := f.ic.Post(p, intercom.Squawk{From: ident.ID(f.personal.ActorID), Body: "please review"}); err != nil {
+		t.Fatal(err)
 	}
-	if own := f.mustPlan(f.standing, "session:"+f.standing.ActorID); own.Channel.Kind != SourceSession {
-		t.Fatalf("session:<itself> = %+v, want its own channel", own)
+	if reply := f.mustPlan(f.standing, ""); !slices.Contains(reply.Audience, ident.ID(f.personal.ActorID)) {
+		t.Fatalf("the target's default post = %+v, want it to reach the sender", reply)
 	}
 }
 

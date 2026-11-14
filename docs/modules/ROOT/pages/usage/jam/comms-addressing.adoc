@@ -7,8 +7,9 @@
 :updated: 2026-11-14
 
 A studio's `send` can reach more than its home channel:
-a *person* or another *session* (a `dm`),
-a group of them (a `group`),
+a *person* (a `dm`),
+another *session*'s home channel,
+a group of people and sessions (a `group`),
 a *room*,
 a unit of work's *log*,
 or the unit's current *worker* —
@@ -24,7 +25,7 @@ A target is *kind-prefixed*, and names a channel:
 |Target |Channel
 
 |`+user:<name>+` / `+user:<usr_id>+` |the `dm` between the session and that person — or the session's own channel when that person is already in it
-|`+session:<label>+` / `+session:<ses_id>+` |the `dm` between the session and that session; `+session:+` naming the sender itself is its home channel. A ticket session is reached like any other (no `+ticket:+` addressing needed); a label two live sessions share names neither.
+|`+session:<label>+` / `+session:<ses_id>+` |that session's home channel (its own session channel); the sender joins it by posting, so replies come back. A ticket session is reached like any other (no `+ticket:+` addressing needed); a label two live sessions share names neither.
 |`+chat:<member>,<member>…+` |the `dm` (one member) or `group` (more) of the session and exactly those members, each a `+user:+` or `+session:+` target
 |`+channel:<name>+` |the project's room of that name (post-only: the session doesn't join)
 |`+work:<key>+` / `+work:<connection>/<key>+` |that unit of work's log (its own is always allowed; another's is post-only); `+ticket:+` is an alias. A GitHub key is `+owner/repo#<n>+` (`+work:acme/board#7+`, or scoped `+work:<connection>/acme/board#7+`), any case or leading zeros naming one ticket; a malformed one is refused with "github ticket key must be owner/repo#<n>".
@@ -32,7 +33,7 @@ A target is *kind-prefixed*, and names a channel:
 |===
 
 A person must be a member of the session's project. The same members are the
-same `dm` or `group`, however they're listed, so `+worker:+`, `+session:+`, and `+user:+` reach one `dm` per pair. `+human:<name>+` — the pre-registry form — is
+same `dm` or `group`, however they're listed, so `+worker:+` and `+chat:session:+` reach one `dm` per pair. `+human:<name>+` — the pre-registry form — is
 still accepted and read as `+user:+`. A bare name with no known prefix is
 *malformed* and always denied.
 
