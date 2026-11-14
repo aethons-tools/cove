@@ -81,10 +81,12 @@ func Decide(a Actor, scopes []Scope, dest Destination, now time.Time) (Decision,
 // grant's project (404).
 // ErrNoWorker means a worker:<key> target's unit of work has no current
 // worker (409 {"error": "no-worker"}): nothing is held for a later session.
+// ErrSendNeedsTo means a send under the turn-end rule named no target (400).
 var (
 	ErrSendDenied     = errors.New("comms: send target not authorized")
 	ErrSendUnresolved = errors.New("comms: send target not found")
 	ErrNoWorker       = errors.New("comms: the unit of work has no current worker")
+	ErrSendNeedsTo    = errors.New("send needs a `to`: a turn's first send names its conversation")
 )
 
 // normalizeGlob reads a pre-registry "human:" addressing glob as "user:".

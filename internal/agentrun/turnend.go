@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,13 +11,15 @@ import (
 )
 
 // The structured turn end (Config.TurnIO set): a wake's prompt carries the
-// session's pending messages (the batch), the agent's final text is posted for
-// it, and the batch it was shown is committed once its turn ends normally.
+// session's pending messages (the batch), the agent's final text is posted
+// only where turn_end's to says (else it is thinking, and a turn that sent
+// nothing is returned once), and the batch it was shown is committed once its
+// turn ends normally.
 
 // interruptAckStructured is interruptAck for a structured turn end: the
-// acknowledgement is the turn's final text, not a send.
+// acknowledgement goes where the agent sends it.
 const interruptAckStructured = "%s pressed **Interrupt** in the session header, which stopped your turn. Don't resume what you were doing. " +
-	"End this turn by acknowledging the interrupt and asking what they want instead: your final message is posted to your channel."
+	"Acknowledge the interrupt and ask what they want instead: `send` it to them, or end this turn with `turn_end` and a `to`."
 
 // interruptPendingStructured introduces a batch delivered with the acknowledge
 // turn.
@@ -31,23 +34,30 @@ const restartStructured = "Your session was restarted (for example, Jam was upgr
 // idle tracker tags the turn answering it, so a result is never credited with
 // another prompt's batch), the batch it showed (upTo, the commit point; "" =
 // none), whether the structured turn end was on when it was built, and whether
-// it is a maintenance turn (a /compact) whose end posts and commits nothing.
+// it is a maintenance turn (a /compact) whose end posts and commits nothing,
+// and whether it answers a returned turn (it is never returned again).
 // Run's goroutine only.
 type turnMeta struct {
 	gen        uint64
 	upTo       string
 	structured bool
 	quiet      bool
+	returned   bool
 }
 
 // newTurn makes m the prompt in flight, under a new generation, and drops any
 // directives left from a turn that never reached its end (a process that died
-// mid-turn): they were for that turn.
+// mid-turn): they were for that turn, as is what it sent. The first prompt
+// after a returned turn (a maintenance turn aside) is the returned one.
 func (w *Workload) newTurn(m turnMeta) {
 	w.gen++
 	m.gen = w.gen
+	if !m.quiet {
+		m.returned, w.returning = w.returning, false
+	}
 	w.inflight = m
 	w.takeDirectives()
+	w.takeSent()
 }
 
 // structured reports whether the structured turn end is on: TurnIO is set
@@ -147,21 +157,32 @@ func (w *Workload) restartText(ctx context.Context) string {
 	return strings.Join(lines, "\n")
 }
 
-// finishTurn is the structured turn end for the turn that ended with r: post
-// its final text, then commit the batch its prompt showed (only when r answers
-// the prompt in flight, and only when the post didn't fail: an unanswered
-// message must come back). Then the turn's directives (turn_end) apply: what
-// happens next (end, or compact — reported, for the caller to run before
-// anything else is delivered) and what wakes the session. A turn that didn't
-// end normally (interrupted, an error) posts, commits and applies nothing.
-// Every call is bounded; a failure is logged and the run goes on. Callers run
-// it before the next prompt is written, so a later batch never re-shows what
-// this one committed.
+// returnedText is the returned wake's line: the turn before ended with text
+// but sent it nowhere.
+const returnedText = "Your last turn ended with text but sent no message: final text isn't posted for you, so no one saw it. " +
+	"If it was a reply, send it now (`send` with a `to`, or `turn_end` with a `to`); if no message is needed, end with `turn_end` `no_reply: true`. " +
+	"The messages it answered are shown again below."
+
+// postFailedText is the note after a final text turn_end's to could not
+// take: the reply reached no one, so the messages it answered come back.
+const postFailedText = "Your last reply could not be posted to %s (%v); the messages it answered are shown again below. If it was too long, reply more briefly or `send` it in parts."
+
+// finishTurn is the structured turn end for the turn that ended with r
+// (docs/modules/ROOT/pages/usage/jam/structured-turn-end.adoc#the-turn-end-rule):
+// its final text is thinking unless turn_end names a `to`, which it is
+// posted to. A turn that ends with text, no destination and no `send`,
+// `ask` or `report` during it (and doesn't say no_reply) is returned once:
+// nothing is committed and the session is woken at once (reason
+// "returned"); the returned turn ending that way too is committed and
+// recorded as unaddressed. Then the batch its prompt showed is committed
+// (only when r answers the prompt in flight), and the turn's directives
+// apply: what happens next (end, or compact — reported, for the caller to
+// run before anything else is delivered) and what wakes the session. A turn
+// that didn't end normally (interrupted, an error) posts, commits, returns
+// and applies nothing. Every call is bounded; a failure is logged and the
+// run goes on. Callers run it before the next prompt is written, so a later
+// batch never re-shows what this one committed.
 func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) {
-	if r.Interim {
-		w.postInterim(ctx, r)
-		return false
-	}
 	var meta turnMeta
 	if r.Gen != 0 && r.Gen == w.inflight.gen {
 		meta = w.inflight
@@ -171,6 +192,7 @@ func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) 
 		meta.structured = w.structured()
 	}
 	d := w.takeDirectives()
+	sent := w.takeSent()
 	if !meta.structured || meta.quiet {
 		return false
 	}
@@ -188,23 +210,31 @@ func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) 
 		}
 		return err
 	}
-	posted := true
-	if text := strings.TrimSpace(r.Text); text != "" && (d.Post == nil || *d.Post) {
-		err := call("post", func(c context.Context) error { return io.Post(c, text, d.To) })
-		if err != nil && d.To != "" {
-			// Not reachable (or refused): the reply still reaches the home
-			// channel, and the agent hears why at its next prompt.
-			if call("post", func(c context.Context) error { return io.Post(c, text, "") }) == nil {
-				w.note = fmt.Sprintf("Your last reply could not be posted to %s (%v); it was posted to your own channel instead.", d.To, err)
-				err = nil
+	commit := d.Commit == nil || *d.Commit
+	switch text := strings.TrimSpace(r.Text); {
+	case text == "" || d.noReply():
+		// Nothing said, or no message needed: the text stays thinking.
+	case d.To != "":
+		if err := call("post", func(c context.Context) error { return io.Post(c, text, d.To) }); err != nil {
+			// The reply reached no one: what it answered must come back.
+			commit = false
+			why := fmt.Sprintf(postFailedText, d.To, err)
+			if !w.returnTurn(meta, why) {
+				w.note = why
 			}
 		}
-		if err != nil {
-			posted = false
-			w.note = fmt.Sprintf("Your last reply could not be posted (%v); the messages it answered are shown again below. If it was too long, reply more briefly or `send` it in parts.", err)
+	case sent || d.Next == "end":
+		// It sent its messages itself (or ends the session): the text is thinking.
+	case w.returnTurn(meta, returnedText):
+		commit = false
+	default:
+		// Returned once already: commit, and say so in the session view.
+		w.log.Info("agentrun: returned turn ended unaddressed again; committing")
+		if w.recordTurn != nil {
+			w.recordTurn("unaddressed")
 		}
 	}
-	if meta.upTo != "" && posted && (d.Commit == nil || *d.Commit) {
+	if meta.upTo != "" && commit {
 		call("commit", func(c context.Context) error { return io.Commit(c, meta.upTo) })
 	}
 	if d.Next == "end" {
@@ -232,27 +262,27 @@ func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) 
 	return d.Next == "compact"
 }
 
-// postInterim posts a message the model wrote mid-turn (r.Interim) to the
-// home channel as it comes: claude's result carries only the turn's last
-// reply, so without this whatever the model said before a tool call is lost.
-// It is the turn's text, not its reply, so turn_end (recipient, quiet) doesn't
-// apply, and nothing is committed; a failure is logged and the turn goes on.
-// A maintenance (compact) turn, or one under the legacy turn end, posts
-// nothing.
-func (w *Workload) postInterim(ctx context.Context, r TurnResult) {
-	on := w.structured()
-	if r.Gen != 0 && r.Gen == w.inflight.gen {
-		on = w.inflight.structured && !w.inflight.quiet
+// returnTurn returns the turn meta describes, unless it is itself a returned
+// turn (ok=false): the session is woken at once with the reason "returned",
+// whose line is why, and the next prompt's turn is the returned one.
+func (w *Workload) returnTurn(meta turnMeta, why string) (ok bool) {
+	if meta.returned {
+		return false
 	}
-	text := strings.TrimSpace(r.Text)
-	if !on || text == "" {
-		return
-	}
-	cctx, cancel := context.WithTimeout(ctx, turnIOTimeout)
-	defer cancel()
-	if err := w.cfg.TurnIO.Post(cctx, text, ""); err != nil && !errors.Is(err, context.Canceled) {
-		w.log.Warn("agentrun: mid-turn message not posted", "err", err.Error())
-	}
+	w.returning = true
+	w.wake.post([]studioagent.WakeReason{{Kind: "returned", Detail: why}})
+	return true
+}
+
+// emitTurn records a turn's outcome ("unaddressed") in the session event
+// stream as a synthetic stdout-style line, for the Thinking tab.
+func emitTurn(h studioagent.Handle, turn uint32, outcome string) {
+	line, _ := json.Marshal(struct {
+		Type    string `json:"type"`
+		Subtype string `json:"subtype"`
+		Outcome string `json:"outcome"`
+	}{"cove", "turn", outcome})
+	h.Event(turn, line, 0)
 }
 
 // agentBy is who a compact asked for by turn_end is recorded as.

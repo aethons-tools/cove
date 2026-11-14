@@ -15,14 +15,23 @@ func Boilerplate(f SessionFacts) Layer {
 	const ownChannel = "`send` without `to` posts to your own channel: whoever is in it (people who joined it, or were called in with `call_in`) hears you. Pass `to` to reach anyone else (`list_targets` shows who you may message). "
 	var who, comms, turns string
 	turns = "- Turns: each turn is one `claude -p` run. " + legacyBackground
-	structured := f.TurnProtocol == TurnProtocolStructured
-	if structured {
+	structured := f.TurnProtocol == TurnProtocolStructured || f.TurnProtocol == TurnProtocolTurnRule
+	switch f.TurnProtocol {
+	case TurnProtocolStructured:
 		turns = structuredTurns
+	case TurnProtocolTurnRule:
+		turns = turnRuleTurns
 	}
+	// Under the turn rule, send has no home default: a turn's first send
+	// names its conversation.
+	rule := f.TurnProtocol == TurnProtocolTurnRule
 	switch f.Kind {
 	case KindStanding:
 		who = fmt.Sprintf("the standing session %q for role %s in project %s", f.Name, f.Role, f.Project)
 		comms = ownChannel + "A message to you wakes you. You run until an operator removes you."
+		if rule {
+			comms = namedTo + "A message to you wakes you. You run until an operator removes you."
+		}
 		if !structured {
 			turns += " Ending your turn is how you wait."
 		}
@@ -30,6 +39,10 @@ func Boilerplate(f SessionFacts) Layer {
 		who = fmt.Sprintf("a personal session for %s (role %s, project %s)", f.Owner, f.Role, f.Project)
 		comms = fmt.Sprintf("You were started by %[1]s: `send` without `to` posts to your own channel, which %[1]s is in, and their reply wakes you. "+
 			"Pass `to` to reach anyone else (`list_targets`). You stay open until %[1]s releases you.", f.Owner)
+		if rule {
+			comms = fmt.Sprintf("You were started by %[1]s: `send` with `to: user:%[1]s` reaches them, and their reply wakes you. "+
+				"`list_targets` shows who else you may message. You stay open until %[1]s releases you.", f.Owner)
+		}
 		if !structured {
 			turns += " Ending your turn is how you wait."
 		}
@@ -39,6 +52,12 @@ func Boilerplate(f SessionFacts) Layer {
 			turns += " Ending your turn is how you wait."
 		}
 		comms = strings.TrimSpace(ownChannel)
+		if rule {
+			comms = strings.TrimSpace(namedTo)
+			if f.Unit != "" {
+				comms += fmt.Sprintf(" Your ticket's log is `work:%s`; `report` posts there.", f.Unit)
+			}
+		}
 		if f.Unit != "" {
 			turns += "\n- " + ticketLine
 		}
@@ -67,8 +86,17 @@ func Boilerplate(f SessionFacts) Layer {
 }
 
 // TurnProtocolStructured is SessionFacts.TurnProtocol for a cove that speaks
-// the structured turn end (agentrun.TurnProtocol).
+// the structured turn end and posts its final text for it (an older
+// jam-studio-agent).
 const TurnProtocolStructured = 2
+
+// TurnProtocolTurnRule is SessionFacts.TurnProtocol for a cove that speaks
+// the turn-end rule (agentrun.TurnProtocol): nothing is posted for the agent,
+// and a turn that sent nothing is returned.
+const TurnProtocolTurnRule = 3
+
+// namedTo is the intercom line's word on send under the turn-end rule.
+const namedTo = "`send` posts where its `to` says (`list_targets` shows who you may message; you may always reply where you were messaged); a turn's later sends default to its last `to`. "
 
 // legacyBackground is the legacy turns line's word on background processes.
 const legacyBackground = "Background processes you start outlive the turn but freeze while the studio is paused as you wait — finish work within the turn."
@@ -78,6 +106,14 @@ const legacyBackground = "Background processes you start outlive the turn but fr
 // closes when a turn ends with nothing queued and no background task, else
 // after BackgroundWait (30 min).
 const structuredTurns = "- Turns: ending your turn is how you wait; `claude` then exits (MCP servers restart) unless your background tasks run (up to 30 min). New messages arrive in your prompt. End your turn with your reply — your final text is posted for you (to your own channel unless `turn_end` names another recipient); end with no text when there is nothing to say, and don't also `send` it. Text before a tool call is posted as you go; don't `send` it either. It doesn't wake other sessions: to get one to act, `send` to it. Ending your turn marks the messages you were shown as handled; `turn_end` changes that, what wakes you, or what happens next (compact, end). Background processes you start outlive your turn but freeze while the studio is paused as you wait. To keep something running, use `keep_start`: the studio isn't paused while it runs, it wakes you if it exits, and it stops with your session; agree with the person how long it should run and set a `wake_at` to ask them then."
+
+// turnRuleTurns is the turns line for a cove that speaks the turn-end rule
+// (TurnProtocolTurnRule): text is thinking unless it is sent.
+const turnRuleTurns = "- Turns: ending your turn is how you wait; `claude` then exits unless your background tasks run (up to 30 min). New messages arrive in your prompt. " +
+	"Text is thinking unless you send it: nothing is posted for you. Answer with `send`, `ask` or `report`, or end with `turn_end` and a `to`, which posts your final text there; each message shows its reply `to`. " +
+	"When no message is needed, end with no text or with `turn_end` `no_reply: true`. A turn that ends with text and sent nothing is returned to you once. " +
+	"Ending your turn marks the messages you were shown handled; `turn_end` changes that, what wakes you, or what happens next (compact, end). " +
+	"Background processes outlive your turn but freeze while the studio is paused. To keep something running, use `keep_start`: the studio isn't paused while it runs, it wakes you if it exits, and it stops with your session; agree with the person how long it should run and set a `wake_at` to ask them then."
 
 // ticketLine is a ticket session's extra: it keeps its ticket current and
 // ends only once its work has landed — when it can't, it waits for help.

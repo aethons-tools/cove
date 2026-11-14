@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -31,6 +32,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/aethons-tools/cove/internal/agentrun"
 )
 
 // maxJamResponseBytes bounds how much of a Jam response we ever read
@@ -50,6 +53,8 @@ type squawkOut struct {
 	// channel cutover); From who sent it.
 	Channel *partyOut `json:"channel,omitempty"`
 	From    *partyOut `json:"from,omitempty"`
+	// ReplyTo is the send `to` that replies in Channel.
+	ReplyTo string `json:"reply_to,omitempty"`
 	// Parts are typed parts beside the body: an ask event (see ask).
 	Parts []partOut `json:"parts,omitempty"`
 }
@@ -72,7 +77,7 @@ type sendOut struct {
 // sendIn is the "send" tool's typed input.
 type sendIn struct {
 	Text string `json:"text" jsonschema:"the message body to post"`
-	To   string `json:"to,omitempty" jsonschema:"optional target: user:<name>, session:<name>, chat:user:<a>,session:<b>, channel:<room>, work:<key> (ticket:<key> too), or worker:<key>; omit to post in your own channel — your ticket's, or your session's"`
+	To   string `json:"to,omitempty" jsonschema:"target: user:<name>, session:<name>, chat:user:<a>,session:<b>, channel:<room>, work:<key> (ticket:<key> too), or worker:<key>; omit to send where your last send this turn went (a turn's first send needs one)"`
 	// ContentType opts out of the markdown default.
 	Attach      []string `json:"attach,omitempty" jsonschema:"optional: paths of files in your studio to attach (each up to Jam's size cap, at most 10); the text may be empty when attaching"`
 	ContentType string   `json:"content_type,omitempty" jsonschema:"optional: text/markdown (the default; the body is rendered as markdown) or text/plain (shown literally — use it for text that would render badly as markdown, e.g. logs, ASCII art, or stray * and _)"`
@@ -154,7 +159,7 @@ type idleTimeoutIn struct {
 // reportIn is the "report" tool's typed input.
 type reportIn struct {
 	State   string `json:"state" jsonschema:"in-progress, in-review (needs pr), needs-input (put the question in summary), blocked, or done"`
-	Summary string `json:"summary" jsonschema:"what changed, for the ticket's comment"`
+	Summary string `json:"summary" jsonschema:"what changed, for the ticket's work log (mirrored to the ticket as a comment)"`
 	PR      string `json:"pr,omitempty" jsonschema:"the pull request URL, when there is one"`
 }
 
@@ -234,6 +239,9 @@ type messagingClient struct {
 	baseURL string // e.g. "https://jam.example.com", no trailing slash
 	token   string
 	home    string // the agent's home: fetch's default directory is under it
+	// turn is the agent socket: the turn's last send (send's default to) and
+	// whether it sent a message.
+	turn *agentrun.AgentClient
 }
 
 // jamBaseURL derives the https base URL Jam's /squawks endpoint is
@@ -284,7 +292,36 @@ func newMessagingClient(getenv func(string) string) (*messagingClient, error) {
 		baseURL: base,
 		token:   token,
 		home:    getenv("HOME"),
+		turn:    agentrun.DialAgentSocket(agentSocket(getenv)),
 	}, nil
+}
+
+// errFirstSendNeedsTo is a send with no `to` and no earlier send this turn.
+var errFirstSendNeedsTo = errors.New("send needs a `to`: a turn's first send names its conversation (later ones default to it)")
+
+// sendTo is a send's address: to, or with none the address this turn's last
+// send went to (the agent socket's record). With the structured turn end on
+// and no send yet it is errFirstSendNeedsTo; with no socket, or the legacy
+// turn end, "" (Jam decides).
+func (c *messagingClient) sendTo(ctx context.Context, to string) (string, error) {
+	if to != "" {
+		return to, nil
+	}
+	st, err := c.turn.Turn(ctx)
+	switch {
+	case err != nil || !st.Structured:
+		return "", nil
+	case st.LastTo == "":
+		return "", errFirstSendNeedsTo
+	}
+	return st.LastTo, nil
+}
+
+// noteSent tells the agent socket this turn sent a message with tool (to:
+// a send's address), so its turn end isn't returned. Best-effort: an older
+// agent without the route just doesn't hear it.
+func (c *messagingClient) noteSent(ctx context.Context, tool, to string) {
+	_ = c.turn.NoteSent(ctx, tool, to)
 }
 
 // do issues an authenticated request to Jam at c.baseURL+pathSuffix and
@@ -328,8 +365,8 @@ func (c *messagingClient) doStatus(ctx context.Context, method, pathSuffix strin
 	return respBody, resp.StatusCode, nil
 }
 
-// send posts a message via Jam: to the cove's default channel, or, when
-// in.To is non-empty, to the authorized target it names.
+// send posts a message via Jam to the authorized target in.To names; "" is
+// Jam's default (a session on the legacy turn end: its own channel).
 func (c *messagingClient) send(ctx context.Context, in sendIn) (sendOut, error) {
 	refs, err := c.uploadAll(ctx, in.Attach)
 	if err != nil {
@@ -345,9 +382,14 @@ func (c *messagingClient) send(ctx context.Context, in sendIn) (sendOut, error) 
 	if err != nil {
 		return sendOut{}, fmt.Errorf("encoding send payload: %w", err)
 	}
-	body, err := c.do(ctx, http.MethodPost, "/squawks", payload)
-	if err != nil {
+	body, status, err := c.doStatus(ctx, http.MethodPost, "/squawks", payload)
+	switch {
+	case err != nil:
 		return sendOut{}, err
+	case status == http.StatusBadRequest && in.To == "" && bytes.Contains(body, []byte("needs a `to`")):
+		return sendOut{}, errFirstSendNeedsTo
+	case status/100 != 2:
+		return sendOut{}, fmt.Errorf("Jam messages: unexpected status %d", status)
 	}
 	var out sendOut
 	if len(body) > 0 { // an older Jam answers 204, no body
@@ -657,15 +699,21 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
-		Description: "Post a message. Omit 'to' to post in your own channel — your ticket's, or your session's, where whoever started you and anyone called in hear it; set to=user:<name> to talk with a person (their reply reaches you), session:<name> for another session's channel (you join it), chat:user:<a>,session:<b> for a group (user: and session: members), channel:<room> for a room, work:<key> for a unit of work's log (ticket:<key> is an alias), or worker:<key> for a DM with the session working on it now (refused with no-worker when none is). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally. In a room, a message wakes only the sessions it mentions (mentions, or @<name> in the text) and those set to wake for every message. If your context says your final message is posted for you, don't also send it: send is for messaging elsewhere or mid-turn.",
+		Description: "Post a message. Omit 'to' to send to the conversation you last sent to this turn; a turn's first send needs a 'to' (unless your context says send without to posts to your own channel). Set to=user:<name> to talk with a person (their reply reaches you), session:<name> for another session's channel (you join it), chat:user:<a>,session:<b> for a group (user: and session: members), channel:<room> for a room, work:<key> for a unit of work's log (ticket:<key> is an alias), or worker:<key> for a DM with the session working on it now (refused with no-worker when none is). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally. In a room, a message wakes only the sessions it mentions (mentions, or @<name> in the text) and those set to wake for every message. Sending (or ask, or report) is how a turn answers: final text is posted only where turn_end's to says.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, sendOut, error) {
 		if cfgErr != nil {
 			return nil, sendOut{}, cfgErr
 		}
+		to, err := client.sendTo(ctx, in.To)
+		if err != nil {
+			return nil, sendOut{}, err
+		}
+		in.To = to
 		out, err := client.send(ctx, in)
 		if err != nil {
 			return nil, sendOut{}, err
 		}
+		client.noteSent(ctx, "send", to)
 		return nil, out, nil
 	})
 
@@ -790,12 +838,16 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "report",
-		Description: "Update your ticket's state (ticket sessions only): in-progress, in-review (with pr), needs-input (put the question in summary), blocked, or done. Jam moves the ticket and comments. Call it as often as the state changes; it does not end the session — end does.",
+		Description: "Update your ticket's state (ticket sessions only): in-progress, in-review (with pr), needs-input (put the question in summary), blocked, or done. Jam moves the ticket and posts the summary to its work log, which the tracker mirrors as a comment. Call it as often as the state changes; it does not end the session — end does.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in reportIn) (*mcp.CallToolResult, any, error) {
 		if cfgErr != nil {
 			return nil, nil, cfgErr
 		}
-		return nil, nil, client.report(ctx, in.State, in.Summary, in.PR)
+		if err := client.report(ctx, in.State, in.Summary, in.PR); err != nil {
+			return nil, nil, err
+		}
+		client.noteSent(ctx, "report", "")
+		return nil, nil, nil
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

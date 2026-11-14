@@ -175,6 +175,7 @@ func build(ev sessionevents.Event) EventView {
 		Command string `json:"command"`
 		By      string `json:"by"`
 		Ignored string `json:"ignored"`
+		Outcome string `json:"outcome"`
 	}
 	if json.Unmarshal(ev.Raw, &env) != nil {
 		v.Label, v.Detail = "unparsed", string(ev.Raw)
@@ -239,6 +240,11 @@ func build(ev sessionevents.Event) EventView {
 			if env.Ignored != "" {
 				text += " (ignored: " + env.Ignored + ")"
 			}
+			v.Kind, v.Label = KindPrompt, "control"
+			v.Summary, v.Narrative = text, text
+		} else if env.Subtype == "turn" && env.Outcome == "unaddressed" {
+			// The turn-end rule gave up on a returned turn (agentrun).
+			text := "Unaddressed — the turn ended with text it sent nowhere, after being returned once"
 			v.Kind, v.Label = KindPrompt, "control"
 			v.Summary, v.Narrative = text, text
 		} else {

@@ -29,6 +29,9 @@ Jam takes the old session out of the log and puts the new one in.
 The log is mirrored to the issue in the tracker, both ways.
 Each entry becomes a comment on the issue,
 and a comment written on the issue becomes an entry in the log.
+When the session reports its progress or a change of state, such as *in review*,
+the report is an entry in the log,
+so it shows on the issue as a comment.
 
 == Reaching the work
 

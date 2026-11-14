@@ -25,7 +25,7 @@ const ContextEndpointHeader = sessionctx.EndpointHeader
 
 // TurnProtocol is the turn end this cove speaks, asked for on GET /context
 // (?turn-protocol=) so Jam sends the matching guidance.
-const TurnProtocol = 2
+const TurnProtocol = 3
 
 // ErrNoContextEndpoint is a Jam without GET /context (older than live refresh):
 // the session keeps its raise-time bundle and stops asking.

@@ -26,14 +26,17 @@ const AgentSocketPath = "/dev/shm/jam-agent.sock"
 const maxEndReason = 2000
 
 // Directives are an agent's turn_end call: how the current turn ends, beyond
-// the defaults (post the final text to the home channel, commit what was
-// shown, wait, wake on a message). The last call in a turn wins; they apply
-// at that turn's end only.
+// the defaults (the final text is thinking, what was shown is committed, wait,
+// wake on a message). The last call in a turn wins; they apply at that
+// turn's end only.
 type Directives struct {
 	// To is where the final text is posted (send's address grammar); "" =
-	// the home channel.
+	// nowhere.
 	To string `json:"to,omitempty"`
-	// Post false posts nothing this turn.
+	// NoReply says no message is needed: the final text stays thinking and
+	// the turn isn't returned.
+	NoReply bool `json:"no_reply,omitempty"`
+	// Post false is the older spelling of NoReply.
 	Post *bool `json:"post,omitempty"`
 	// Commit false leaves the messages shown this turn pending (deny): they
 	// come back with the next wake.
@@ -55,6 +58,32 @@ type WakeAt struct {
 	Name string `json:"name,omitempty"` // "" = "turn-end"
 	At   string `json:"at"`             // RFC 3339
 	Note string `json:"note,omitempty"`
+}
+
+// noReply reports whether d says no message is needed (no_reply, or
+// post: false).
+func (d Directives) noReply() bool { return d.NoReply || (d.Post != nil && !*d.Post) }
+
+// turnSent is what the current turn sent, as the MCP server reports it:
+// whether it sent a message (send, ask, report) and where its last send went
+// (send's address; "" = none yet).
+type turnSent struct {
+	message bool
+	lastTo  string
+}
+
+// SentNote is a POST /turn/sent body: tool sent a message, to the address
+// to (a send's, as resolved; "" for ask and report).
+type SentNote struct {
+	Tool string `json:"tool"`
+	To   string `json:"to,omitempty"`
+}
+
+// TurnState is GET /turn's answer: whether the structured turn end is on,
+// and the address the current turn's last send went to ("" = none yet).
+type TurnState struct {
+	Structured bool   `json:"structured"`
+	LastTo     string `json:"last_to,omitempty"`
 }
 
 // Validate checks what the Workload can check before the turn ends; Jam
@@ -99,6 +128,26 @@ func (w *Workload) agentSocketHandler() http.Handler {
 		w.dirMu.Unlock()
 		rw.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /turn/sent", func(rw http.ResponseWriter, r *http.Request) {
+		var n SentNote
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&n); err != nil {
+			http.Error(rw, "invalid request", http.StatusBadRequest)
+			return
+		}
+		w.dirMu.Lock()
+		w.sent.message = true
+		if n.Tool == "send" && n.To != "" {
+			w.sent.lastTo = n.To
+		}
+		w.dirMu.Unlock()
+		rw.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /turn", func(rw http.ResponseWriter, _ *http.Request) {
+		w.dirMu.Lock()
+		st := TurnState{Structured: w.structuredOn.Load(), LastTo: w.sent.lastTo}
+		w.dirMu.Unlock()
+		writeSockJSON(rw, http.StatusOK, st)
+	})
 	mux.HandleFunc("POST /keeps", func(rw http.ResponseWriter, r *http.Request) {
 		var in struct{ Name, Command, Workdir string }
 		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
@@ -136,6 +185,16 @@ func (w *Workload) takeDirectives() Directives {
 		return Directives{}
 	}
 	return *d
+}
+
+// takeSent reports whether the turn sent a message, and clears what it
+// sent.
+func (w *Workload) takeSent() bool {
+	w.dirMu.Lock()
+	defer w.dirMu.Unlock()
+	message := w.sent.message
+	w.sent = turnSent{}
+	return message
 }
 
 // serveAgentSocket listens on path (a stale socket file is replaced), mode
@@ -256,4 +315,18 @@ func (c *AgentClient) KeepList(ctx context.Context) ([]KeptProcess, error) {
 // SetTurnEnd records the current turn's directives.
 func (c *AgentClient) SetTurnEnd(ctx context.Context, d Directives) error {
 	return c.do(ctx, http.MethodPut, "/turn-end", d, nil)
+}
+
+// NoteSent records that the current turn sent a message with tool (send,
+// ask, report); to is a send's address.
+func (c *AgentClient) NoteSent(ctx context.Context, tool, to string) error {
+	return c.do(ctx, http.MethodPost, "/turn/sent", SentNote{Tool: tool, To: to}, nil)
+}
+
+// Turn returns the current turn's state: whether the structured turn end is
+// on, and where its last send went.
+func (c *AgentClient) Turn(ctx context.Context) (TurnState, error) {
+	var st TurnState
+	err := c.do(ctx, http.MethodGet, "/turn", nil, &st)
+	return st, err
 }
