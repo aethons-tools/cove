@@ -1,8 +1,6 @@
 package jam
 
 import (
-	"context"
-	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -91,26 +89,5 @@ func TestIntercomEndedTicketSessionLeavesBoth(t *testing.T) {
 	}
 	if ch, _ := f.store.GetChannel(home.ID); ch.Status == StatusLive {
 		t.Fatal("session channel not archived")
-	}
-}
-
-// Escalation calls people into a ticket session's own channel.
-func TestIntercomEscalateTicketSessionIntoSessionChannel(t *testing.T) {
-	f := newICFixture(t)
-	f.ticket.Activity = ActivityWaiting
-	if err := f.store.PutInstance(f.ticket); err != nil {
-		t.Fatal(err)
-	}
-	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)
-	if err := f.ic.Escalate(context.Background(), f.ticket, 0, "", []Member{alice}); err != nil {
-		t.Fatal(err)
-	}
-	home, _ := f.ic.HomeChannel(f.ticket)
-	if !isMember(f.store, home.ID, f.alice.ID) {
-		t.Fatal("alice not called into the session channel")
-	}
-	got := f.log.InboxSince(f.alice.ID, 0, 0)
-	if len(got) != 1 || strings.Contains(got[0].Body, "its issue included") {
-		t.Fatalf("alice's inbox = %+v", got)
 	}
 }

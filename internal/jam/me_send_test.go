@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -42,26 +43,53 @@ func TestParticipantSendIntoAChannel(t *testing.T) {
 	}
 }
 
-// A new message to a person starts (or reuses) a chat with them; to a
-// session, it goes to the session's home channel.
+// A new message to a person starts (or reuses) a dm with them; to several
+// people, a group; to a session, its home channel, which the person joins.
 func TestParticipantSendNewConversations(t *testing.T) {
 	f := newICFixture(t)
+	dave, err := f.store.CreateUser(User{Name: "dave"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.AddMember(f.project.ID, dave.ID); err != nil {
+		t.Fatal(err)
+	}
 	h := NewParticipantSendHandler(f.store, f.ic, nil)
-	for to, who := range map[string]ident.ID{
-		"user:" + string(f.alice.ID):    f.alice.ID,
-		"user:alice":                    f.alice.ID,
-		"session:" + f.standing.ActorID: ident.ID(f.standing.ActorID),
+	p := Participant{UserID: f.bob.ID, Name: f.bob.Name, Projects: []string{"acme"}}
+	for _, c := range []struct {
+		to      string
+		kind    SourceKind
+		members []ident.ID
+	}{
+		{"user:" + string(f.alice.ID), SourceDM, ids(f.alice, f.bob)},
+		{"user:alice", SourceDM, ids(f.alice, f.bob)},
+		{"chat:user:alice,user:" + string(dave.ID), SourceGroup, ids(f.alice, f.bob, dave)},
+		{"chat:user:alice", SourceDM, ids(f.alice, f.bob)},
+		{"session:" + f.standing.ActorID, SourceSession, ids(f.bob, f.standing)},
 	} {
-		before := len(f.log.InboxSince(who, 0, 0))
-		if w := meSend(t, h, f.bob, `{"to":"`+to+`","body":"hello"}`); w.Code != http.StatusNoContent {
-			t.Fatalf("to %s = %d %s", to, w.Code, w.Body)
+		m, err := h.Send(p, SendRequest{To: c.to, Body: "hello"})
+		if err != nil {
+			t.Fatalf("to %s: %v", c.to, err)
 		}
-		if got := f.log.InboxSince(who, 0, 0); len(got) != before+1 || got[len(got)-1].From != f.bob.ID {
-			t.Fatalf("to %s: %s's inbox = %+v", to, who, got)
+		ch, _ := f.store.GetChannel(m.Channel)
+		var got []ident.ID
+		for _, mb := range f.store.ChannelMembers(ch.ID) {
+			got = append(got, mb.ParticipantID)
+		}
+		if ch.Kind != c.kind || !slices.Equal(got, c.members) {
+			t.Fatalf("to %s: a %s of %v, want a %s of %v", c.to, ch.Kind, got, c.kind, c.members)
+		}
+		for _, who := range c.members {
+			if who == f.bob.ID {
+				continue
+			}
+			if in := f.log.InboxSince(who, 0, 0); len(in) == 0 || in[len(in)-1].ID != m.ID {
+				t.Fatalf("to %s: %s did not get it", c.to, who)
+			}
 		}
 	}
 	if chats := f.store.ListChannels(f.project.ID, SourceDM); len(chats) != 1 {
-		t.Fatalf("chats = %+v, want bob+alice (reused by id and name)", chats)
+		t.Fatalf("dms = %+v, want bob+alice (reused by id, name, and chat:)", chats)
 	}
 }
 
@@ -77,6 +105,10 @@ func TestParticipantSendErrors(t *testing.T) {
 		`{"to":"user:carol","body":"x"}`:                            http.StatusNotFound, // not a member
 		`{"to":"user:nobody","body":"x"}`:                           http.StatusNotFound,
 		`{"to":"session:nope","body":"x"}`:                          http.StatusForbidden, // never tells whether it exists
+		`{"to":"session:` + f.personal.ActorID + `","body":"x"}`:    http.StatusForbidden, // alice's personal session
+		`{"to":"chat:user:alice,user:carol","body":"x"}`:            http.StatusNotFound,  // carol is not a member
+		`{"to":"chat:session:spider","body":"x"}`:                   http.StatusNotFound,  // people only
+		`{"to":"chat:","body":"x"}`:                                 http.StatusNotFound,
 		`{"to":"chn_01j9q3zzzzzzzzzzzzzzzzzzzz","body":"x"}`:        http.StatusForbidden, // never tells whether it exists
 		`{"to":"` + string(ownerChat.ID) + `","body":"x"}`:          http.StatusForbidden, // alice's chat, not bob's
 		`{"to":"pigeon:alice","body":"x"}`:                          http.StatusNotFound,

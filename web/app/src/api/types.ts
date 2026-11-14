@@ -64,7 +64,7 @@ export interface ChannelRow {
   id: string;
   label: string;
   project: string;
-  kind: string;
+  kind: string; // the conversation kind: dm | group | room | work | session (a session's own channel)
   needsYou: boolean;
   phase: string;
   unread: number /* int */;
@@ -82,10 +82,16 @@ export interface ChannelRow {
    */
   ssh: boolean;
   /**
-   * Card is a session channel's status card; nil for rooms, chats, and a
-   * channel with no active session.
+   * Card is the status card of the session the row stands for (a session
+   * channel's own, or a dm's agent); nil for rooms, work logs, groups, dms
+   * with people, and a channel with no active session.
    */
   card?: SessionCard;
+  /**
+   * SessionView is the conversation that is the card's session view (its
+   * session's home channel), when the viewer may open it ("" = none).
+   */
+  sessionView: string;
 }
 /**
  * CardState is a status card's state: its sparkline level and pill colour.
@@ -212,7 +218,7 @@ export interface AskRef {
 export interface Conversation {
   channelId: string;
   label: string;
-  kind: string;
+  kind: string; // as ChannelRow.Kind
   project: string;
   phase: string;
   needsYou: boolean;
@@ -232,8 +238,8 @@ export interface Conversation {
   sessions: SessionRow[];
   openAsks: AskCard[]; // the channel's open asks (the panel above the stream)
   /**
-   * Membership controls: Join (a channel they can see but aren't in),
-   * Leave (one they're in; never a chat), and who they may call in.
+   * Membership controls: Join (a room or work log they can see but aren't
+   * in), Leave (one they're in), and who they may call in (a room's).
    */
   canJoin: boolean;
   canLeave: boolean;
@@ -254,10 +260,11 @@ export interface Conversation {
   color?: string;
 }
 /**
- * NewMessageOption is one recipient offered in the New Message picker.
+ * NewMessageOption is one recipient offered in the New Message picker (or
+ * a Call in list). Kind is person, agent, work (a unit of work), or room.
  */
 export interface NewMessageOption {
-  to: string; // POST api/messages' "to": user:<id>, session:<id>, or a channel id
+  to: string; // POST api/messages' "to": user:<id>, session:<id>, or a channel id (a unit of work's: its log)
   label: string;
   kind: string;
   project: string;

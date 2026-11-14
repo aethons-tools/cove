@@ -171,8 +171,9 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 		// A session channel has no such fallback: it is never rendered onto a
 		// ticket another session in it works on.
 		// The session's unit must be a ticket on the tracker (canonical on
-		// github; another repo's would never land).
-		if tracker, ok := d.tracker(); service == d.trackerService() && jam.IsChat(ch.Kind) && isSession(m.From) && ok && len(mentions) > 0 {
+		// github; another repo's would never land). An escalation notice
+		// takes no fallback: its copy in the unit's log is the issue's comment.
+		if tracker, ok := d.tracker(); service == d.trackerService() && jam.IsChat(ch.Kind) && isSession(m.From) && ok && len(mentions) > 0 && !jam.IsEscalationNotice(m.ID) {
 			if key, onTicket := jam.TicketUnit(d.store, tracker, ticket); onTicket && !cameFrom(tracker, key) {
 				out = append(out, relay.Delivery{Service: service, Address: key, BodyPrefix: strings.Join(mentions, " ") + " " + prefix(service)})
 			}

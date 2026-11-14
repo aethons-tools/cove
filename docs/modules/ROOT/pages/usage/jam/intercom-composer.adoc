@@ -10,7 +10,12 @@ The composer sits below an open conversation in the xref:usage/jam/intercom-ui.a
 
 * *Sending* posts `+{to, body}+` through the participant send path
 (xref:usage/jam/intercom.adoc[intercom]): `to` is the open channel, or for New message
-`+user:<id>+` / `+session:<id>+`. The intercom decides whether the person may
+one of these:
+`+user:<id>+` (the `dm` with that person),
+`+chat:user:<id>,user:<id>…+` (the `dm` or `group` with those people, in the first project all of them are members of),
+`+session:<id>+` (that live session's home channel, which the person joins),
+or a unit of work's log id (its *Log*).
+The intercom decides whether the person may
 post there and who hears it. A reply to a waiting studio *wakes it* exactly
 as a relayed reply does (xref:usage/jam/wake-on.adoc[wake-on]).
 Messages are markdown; tick *Plain text* to send one as `text/plain`. A

@@ -19,7 +19,7 @@ If nobody answers for a while,
 Jam can call people in
 (xref:concepts/escalation.adoc[Escalation]).
 
-image::asks-conversation.png["A ticket channel with two open asks, one answered and one withdrawn",800]
+image::asks-conversation.png["A work log with two open asks, one answered and one withdrawn",800]
 
 == Open asks
 

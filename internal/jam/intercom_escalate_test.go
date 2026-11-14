@@ -7,10 +7,12 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/intercom"
 )
 
 // An escalation tier calls its people into the session's home channel and
-// posts the notice there, naming everyone asked — once per tier.
+// opens a group of the session and the tier's people (a dm for one person),
+// posting the notice there, naming everyone asked.
 func TestIntercomEscalate(t *testing.T) {
 	f := newICFixture(t)
 	f.standing.Name = "spider"
@@ -25,13 +27,13 @@ func TestIntercomEscalate(t *testing.T) {
 	if err := f.ic.Escalate(context.Background(), f.standing, 1, "infra", []Member{alice, bob}); err != nil {
 		t.Fatal(err)
 	}
-	home := f.sessionChannel(f.standing)
+	group, ok := f.ic.existingChat(f.project, ids(f.standing, f.alice, f.bob))
+	if !ok || group.Kind != SourceGroup {
+		t.Fatalf("group = %+v, %v", group, ok)
+	}
 	for _, u := range []ident.ID{f.alice.ID, f.bob.ID} {
-		if !isCurrentMember(f.store, home.ID, u) {
-			t.Fatalf("%s not called in", u)
-		}
 		got := f.log.InboxSince(u, 0, 0)
-		if len(got) != 1 || !IsEscalationNotice(got[0].ID) || !IsNotice(got[0].ID) || IsLocalNotice(got[0].ID) ||
+		if len(got) != 1 || got[0].Channel != group.ID || !IsEscalationNotice(got[0].ID) || !IsNotice(got[0].ID) || IsLocalNotice(got[0].ID) ||
 			!strings.Contains(got[0].Body, "alice, bob") || !strings.Contains(got[0].Body, "tier 1") || !strings.Contains(got[0].Body, "infra") {
 			t.Fatalf("%s's inbox = %+v", u, got)
 		}
@@ -39,13 +41,98 @@ func TestIntercomEscalate(t *testing.T) {
 			t.Fatalf("notice targets = %v", ids)
 		}
 	}
-	// A ticket session's home is its own session channel too.
+	home := f.sessionChannel(f.standing)
+	for _, u := range []ident.ID{f.alice.ID, f.bob.ID} {
+		if !isCurrentMember(f.store, home.ID, u) {
+			t.Fatalf("%s not called into the session's channel", u)
+		}
+	}
+	if got := f.store.ListChannels(f.project.ID, SourceWork); len(got) != 0 {
+		t.Fatalf("a session on no unit posted to a work log: %+v", got)
+	}
+
+	// One person: a dm. The next tier reuses it.
+	for tier := range 2 {
+		if err := f.ic.Escalate(context.Background(), f.standing, tier, "", []Member{alice}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dm, ok := f.ic.existingChat(f.project, ids(f.standing, f.alice))
+	if !ok || dm.Kind != SourceDM {
+		t.Fatalf("dm = %+v, %v", dm, ok)
+	}
+	if got := f.log.ChannelSince(dm.ID, 0, 0); len(got) != 2 ||
+		!slices.Equal(EscalationNoticeTargets(got[1].ID), []ident.ID{f.alice.ID}) || !strings.Contains(got[1].Body, "tier 1") {
+		t.Fatalf("dm = %+v", got)
+	}
+}
+
+// Until a session's turn-end text follows the conversation (COV-350), the
+// person escalated to must hear the session's reply: alice answers in the
+// dm, and the session's post with no address (its home channel) reaches her.
+func TestIntercomEscalateReplyReachesThePerson(t *testing.T) {
+	f := newICFixture(t)
+	f.standing.Activity = ActivityWaiting
+	if err := f.store.PutInstance(f.standing); err != nil {
+		t.Fatal(err)
+	}
+	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)
+	if err := f.ic.Escalate(context.Background(), f.standing, 0, "", []Member{alice}); err != nil {
+		t.Fatal(err)
+	}
+	dm, ok := f.ic.existingChat(f.project, ids(f.standing, f.alice))
+	if !ok {
+		t.Fatal("no dm")
+	}
+	if _, err := f.ic.PostTrusted(dm, intercom.Squawk{From: f.alice.ID, Body: "use the staging cluster"}); err != nil {
+		t.Fatal(err)
+	}
+	f.tail += 10
+	pl := f.mustPlan(f.standing, "")
+	reply, err := f.ic.Post(pl, intercom.Squawk{From: ident.ID(f.standing.ActorID), Body: "Thanks, doing that"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := f.log.InboxSince(f.alice.ID, 0, 0)
+	if len(got) == 0 || got[len(got)-1].ID != reply.ID {
+		t.Fatalf("alice's inbox = %+v, want the session's reply last", got)
+	}
+}
+
+// A session on a unit also posts the notice to the unit's log; that copy
+// targets nobody, so push buzzes each person once, in the dm.
+func TestIntercomEscalateWorkLog(t *testing.T) {
+	f := newICFixture(t)
+	f.ticket.Activity = ActivityWaiting
+	if err := f.store.PutInstance(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)
 	if err := f.ic.Escalate(context.Background(), f.ticket, 0, "", []Member{alice}); err != nil {
 		t.Fatal(err)
 	}
-	home, _ = f.ic.HomeChannel(f.ticket)
-	if !isCurrentMember(f.store, home.ID, f.alice.ID) {
-		t.Fatal("alice is called into the session's channel")
+	dm, ok := f.ic.existingChat(f.project, ids(f.ticket, f.alice))
+	if !ok {
+		t.Fatal("no dm")
+	}
+	inDM := f.log.ChannelSince(dm.ID, 0, 0)
+	if len(inDM) != 1 || !slices.Equal(EscalationNoticeTargets(inDM[0].ID), []ident.ID{f.alice.ID}) {
+		t.Fatalf("dm = %+v", inDM)
+	}
+	work, ok := f.ic.TicketChannelOf(f.ticket)
+	if !ok {
+		t.Fatal("no work log")
+	}
+	inLog := f.log.ChannelSince(work.ID, 0, 0)
+	if len(inLog) != 1 || !IsEscalationNotice(inLog[0].ID) || EscalationNoticeTargets(inLog[0].ID) != nil ||
+		inLog[0].Body != inDM[0].Body || inLog[0].From != ident.ID(f.ticket.ActorID) {
+		t.Fatalf("work log = %+v", inLog)
+	}
+	if isCurrentMember(f.store, work.ID, f.alice.ID) {
+		t.Fatal("alice was called into the work log")
 	}
 }
 
