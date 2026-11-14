@@ -33,11 +33,14 @@ type Poster struct {
 
 // Planned is a post's decision: its channel and who hears it (the channel's
 // current members but the author, ended sessions skipped), sorted. Join makes
-// the poster a member by posting (addressing a session's home channel).
+// the poster a member by posting (addressing a session's home channel);
+// JoinHome joins them to that session's home channel besides (a person's dm
+// with a session, until its turn-end text stops going home: COV-350).
 type Planned struct {
 	Channel  Channel
 	Audience []ident.ID
 	Join     bool
+	JoinHome ident.ID
 }
 
 // Source is one channel kind's policy.
@@ -93,6 +96,13 @@ func (ic *Intercom) Post(pl Planned, m intercom.Squawk) (intercom.Squawk, error)
 	if (pl.Join || ic.joinsByPosting(pl.Channel) && !isSessionID(m.From)) && !ic.isMemberOf(pl.Channel, m.From) {
 		if err := ic.store.JoinChannel(pl.Channel.ID, m.From, m.Seq); err != nil && ic.log != nil {
 			ic.log.Warn("intercom: joining the poster to the channel failed", "channel", string(pl.Channel.ID), "err", err.Error())
+		}
+	}
+	if pl.JoinHome != "" {
+		if home, ok := ic.store.GetChannel(pl.JoinHome); ok && !ic.isMemberOf(home, m.From) {
+			if err := ic.store.JoinChannel(home.ID, m.From, m.Seq); err != nil && ic.log != nil {
+				ic.log.Warn("intercom: joining the poster to the session's home channel failed", "channel", string(home.ID), "err", err.Error())
+			}
 		}
 	}
 	return m, nil
@@ -610,30 +620,65 @@ func (ic *Intercom) PlanPersonChat(from ident.ID, with ...ident.ID) (Planned, er
 	return Planned{}, ErrSendUnresolved
 }
 
-// PlanHome decides a person's post to a live session from /me: into the
-// session's home channel, as its source allows them (a personal session's
-// channel only to its members), joining it. A session that doesn't exist or
-// that they may not reach is ErrSendDenied alike.
-func (ic *Intercom) PlanHome(from, session ident.ID) (Planned, error) {
-	inst, ok := ic.store.GetInstance(string(session))
-	if !ok || inst.Phase == PhaseGone || from.Kind() != ident.User {
+// PlanSessionDM decides a person's post to a live session from /me
+// (session:<id|label>): the dm between them (conversations.adoc#targets), as
+// MayReach allows. The session's turn-end text still goes to its home
+// channel until the turn-end rule lands (COV-350), so the person joins that
+// too (JoinHome), as before, to get the reply. A session that doesn't exist
+// or that they may not reach is ErrSendDenied alike.
+func (ic *Intercom) PlanSessionDM(from ident.ID, ref string) (Planned, error) {
+	inst, ok := ic.personSession(from, ref)
+	if !ok {
 		return Planned{}, ErrSendDenied
 	}
 	p, ok := ic.store.GetProject(orDefaultProject(inst.Project))
 	if !ok || !ic.projectUser(p.ID, from) {
 		return Planned{}, ErrSendDenied
 	}
-	ch, err := ic.HomeChannel(inst)
+	home, err := ic.HomeChannel(inst) // set up with its starter, whom MayReach finds there
+	if err != nil {
+		return Planned{}, err
+	}
+	if !ic.MayReach(from, inst) {
+		return Planned{}, ErrSendDenied
+	}
+	ch, err := ic.chat(p, []ident.ID{from, ident.ID(inst.ActorID)})
 	if err != nil {
 		return Planned{}, err
 	}
 	pl, err := ic.planIn(Poster{ID: from}, ch, false)
-	pl.Join = true
-	return pl, err
+	if err != nil {
+		return Planned{}, err
+	}
+	pl.JoinHome = home.ID
+	return pl, nil
+}
+
+// personSession is the live session ref names for person from: by id, else
+// the only one labelled ref in the projects they're a member of.
+func (ic *Intercom) personSession(from ident.ID, ref string) (Instance, bool) {
+	if from.Kind() != ident.User || ref == "" {
+		return Instance{}, false
+	}
+	if inst, ok := ic.store.GetInstance(ref); ok {
+		return inst, inst.Phase != PhaseGone
+	}
+	var found []Instance
+	for _, name := range ic.store.ListProjects() {
+		if p, ok := ic.store.GetProject(name); ok && ic.projectUser(p.ID, from) {
+			if inst, ok := ic.sessionNamed(p, ref); ok {
+				found = append(found, inst)
+			}
+		}
+	}
+	if len(found) != 1 {
+		return Instance{}, false
+	}
+	return found[0], true
 }
 
 // MayReach reports, without creating anything, whether user u may post to
-// live session inst from /me (PlanHome would allow it): a member of its
+// live session inst from /me (PlanSessionDM would allow it): a member of its
 // project, and for a personal session one already in its channel.
 func (ic *Intercom) MayReach(u ident.ID, inst Instance) bool {
 	p, ok := ic.store.GetProject(orDefaultProject(inst.Project))

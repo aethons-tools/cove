@@ -185,7 +185,8 @@ func TestAPISessionCommandsMatrix(t *testing.T) {
 	}
 }
 
-// Any viewer who can see a session may send it a command.
+// Anyone who may open a session's view may send it a command; being in its
+// home channel isn't enough.
 func TestAPISessionCommandsAnyViewer(t *testing.T) {
 	e, _, personal, _, ops := sessionEnv(t)
 	if err := jam.AddPerson(e.st, "proj", jam.Human{Name: "bob", Identity: []jam.OIDCIdentity{{Issuer: "https://idp", Subject: "sub-bob"}}}); err != nil {
@@ -200,8 +201,11 @@ func TestAPISessionCommandsAnyViewer(t *testing.T) {
 	if err := e.st.JoinChannel(ident.ID(e.homeOf(t, personal)), bobID, 0); err != nil {
 		t.Fatal(err)
 	}
-	if rec := sessAPI(t, e, bob, "POST", personal.ActorID+"/compact", "{}", false); rec.Code != http.StatusNoContent {
-		t.Fatalf("viewer compact = %d %s, want 204", rec.Code, rec.Body)
+	if rec := sessAPI(t, e, bob, "POST", personal.ActorID+"/compact", "{}", false); rec.Code != http.StatusNotFound {
+		t.Fatalf("a member of its channel: compact = %d %s, want 404", rec.Code, rec.Body)
+	}
+	if rec := sessAPI(t, e, bob, "POST", personal.ActorID+"/compact", "{}", true); rec.Code != http.StatusNoContent {
+		t.Fatalf("an operator: compact = %d %s, want 204", rec.Code, rec.Body)
 	}
 	if want := (cmdCall{personal.ActorID, jam.CmdCompact, "bob"}); len(ops.cmds) != 1 || ops.cmds[0] != want {
 		t.Errorf("sent %v, want [%v]", ops.cmds, want)
@@ -334,10 +338,11 @@ func TestThinkingJSONBackfillAndLive(t *testing.T) {
 	}
 }
 
-// Thinking's page, raw and pane routes are hidden from an outsider and from
-// a member who left (TestThinkingHiddenFromOutsiders covers the feed).
+// Thinking's page, raw and pane routes are hidden from an outsider, even one
+// in the session's home channel (TestThinkingHiddenFromOutsiders covers the
+// feed).
 func TestAPIThinkingHiddenFromOutsiders(t *testing.T) {
-	e, p, personal, store, _ := thinkEnv(t)
+	e, _, personal, store, _ := thinkEnv(t)
 	appendText(t, store, personal.ActorID, 1, 3)
 	bob := jam.Participant{UserID: ident.New(ident.User), Name: "bob", Projects: []string{"proj"}}
 	paths := []string{personal.ActorID + "/thinking?stream=" + thinkStream + "&before=3", personal.ActorID + "/thinking/raw?stream=" + thinkStream + "&seq=1", personal.ActorID + "/pane/thinking"}
@@ -346,12 +351,12 @@ func TestAPIThinkingHiddenFromOutsiders(t *testing.T) {
 			t.Errorf("outsider %s = %d", path, rec.Code)
 		}
 	}
-	if err := e.st.LeaveChannel(ident.ID(e.homeOf(t, personal)), p.UserID, 0); err != nil {
+	if err := e.st.JoinChannel(ident.ID(e.homeOf(t, personal)), bob.UserID, 0); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range paths {
-		if rec := sessAPI(t, e, p, "GET", path, "", false); rec.Code != http.StatusNotFound {
-			t.Errorf("removed member %s = %d", path, rec.Code)
+		if rec := sessAPI(t, e, bob, "GET", path, "", false); rec.Code != http.StatusNotFound {
+			t.Errorf("a member of its channel %s = %d", path, rec.Code)
 		}
 	}
 }

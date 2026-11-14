@@ -16,7 +16,8 @@ image::composer-box.png["The composer",600]
 Click one for a DM.
 For a group DM, tick the boxes of several people in one project,
 then click *Message* and their names.
-* Live agents, marked *agent*. Your message goes to the agent's own channel, and you join it.
+* Live agents, marked *agent*. Your message goes to a DM with the agent.
+You also join the agent's own channel, where its answers go.
 * Units of work, marked *work*.
 Choose *Log* to post to the work log
 (xref:concepts/work.adoc#_reaching_the_work[Reaching the work]).

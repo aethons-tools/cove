@@ -493,11 +493,82 @@ export interface ThinkingStream {
 }
 /**
  * ThinkingPage is GET api/sessions/{id}/thinking: a stream's events below
- * ?before=, in seq order; Before > 0: older ones exist below it.
+ * ?before= (and above ?after=, a turn's fold), in seq order; Before > 0:
+ * older ones exist below it.
  */
 export interface ThinkingPage {
   events: ThinkingEvent[];
   before: number /* uint64 */;
+}
+/**
+ * SessionActivity is GET api/sessions/{id}/activity: a page of the messages
+ * the session authored or was delivered, in every conversation, oldest
+ * first, paged like read (?anchor=start|end|id&id=&dir=forward|backward&limit=).
+ */
+export interface SessionActivity {
+  messages: ActivityRow[];
+  /**
+   * PageFirst and PageLast are the page's first and last message ids, the
+   * anchors of the next page either way ("" on an empty page); Earlier and
+   * Later report whether messages exist before and after the page.
+   */
+  pageFirst: string;
+  pageLast: string;
+  earlier: boolean;
+  later: boolean;
+  /**
+   * Turns are the session's turns whose thinking folds into this page, by
+   * start: from its first message to the next page's first (the oldest
+   * page from the beginning, the newest on to now).
+   */
+  turns: TurnFold[];
+  /**
+   * Limited are the page's conversations where the agent-to-agent limit is
+   * tripped (Resume: POST api/conversations/{id}/resume).
+   */
+  limited: ConversationRef[];
+  /**
+   * SendTo is the composer's POST api/messages "to": a dm with the session
+   * ("" once it has ended). Ended: the session is gone (no header or pane).
+   */
+  sendTo: string;
+  ended: boolean;
+  label: string;
+  color?: string;
+}
+/**
+ * ActivityRow is one message of a session's activity: the message as a
+ * conversation shows it, the conversation it's in, and whether the session
+ * wrote it (Out) or was delivered it.
+ */
+export interface ActivityRow extends MessageRow {
+  id: string;
+  conversation: ConversationRef;
+  out: boolean;
+}
+/**
+ * ConversationRef names a conversation: its id, kind (dm, group, room,
+ * work, or session), and label.
+ */
+export interface ConversationRef {
+  id: string;
+  kind: string;
+  label: string;
+}
+/**
+ * TurnFold is one turn of the session's thinking, folded between its
+ * activity's messages: open it with GET api/sessions/{id}/thinking?stream=
+ * &after=&before= (the seqs around the turn's events). Start and End are
+ * Unix ms.
+ */
+export interface TurnFold {
+  stream: string;
+  turn: number /* uint32 */;
+  start: number /* int64 */;
+  end: number /* int64 */;
+  after: number /* uint64 */;
+  before: number /* uint64 */;
+  events: number /* int */;
 }
 /**
  * ThinkingRaw is GET api/sessions/{id}/thinking/raw: one event's pretty JSON,

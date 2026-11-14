@@ -2,6 +2,7 @@ package userui
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 
@@ -75,7 +76,8 @@ func newConvEnv(t *testing.T) *convEnv {
 
 // The rail groups Needs you, Agents (dms and groups with a live agent), and
 // Conversations (rooms, work logs, dms with people). A dm with an agent is
-// its status card, whose name opens the session view; every row says its
+// its status card, whose name opens the session view for those who may
+// open it (spider is a standing session: operators); every row says its
 // conversation kind.
 func TestRailConversationGroups(t *testing.T) {
 	c := newConvEnv(t)
@@ -99,11 +101,11 @@ func TestRailConversationGroups(t *testing.T) {
 		card            bool
 		sessionView     string
 	}{
-		{string(c.agentDM), "Agents", "dm", true, spiderHome},
+		{string(c.agentDM), "Agents", "dm", true, ""},
 		{string(c.bobDM), "Conversations", "dm", false, ""},
 		{string(c.work.ID), "Conversations", "work", false, ""},
 		{engID, "Conversations", "room", false, ""},
-		{spiderHome, "Agents", "session", true, spiderHome},
+		{spiderHome, "Agents", "session", true, ""},
 	} {
 		row, bucket, ok := rowByID(r, tc.id)
 		if !ok {
@@ -116,6 +118,14 @@ func TestRailConversationGroups(t *testing.T) {
 	}
 	if row, _, _ := rowByID(r, string(c.agentDM)); row.Card == nil || row.Card.Session != c.spider.ActorID {
 		t.Errorf("agent dm card = %+v, want spider's", row.Card)
+	}
+	rec := httptest.NewRecorder()
+	Handler(c.Deps, nil).ServeHTTP(rec, asPrincipal(httptest.NewRequest("GET", "/app/user/api/rail", nil), c.p, true))
+	op := decodeAs[RailResponse](t, rec)
+	for _, id := range []string{string(c.agentDM), spiderHome} {
+		if row, _, _ := rowByID(op, id); row.SessionView != spiderHome {
+			t.Errorf("operator's %s row: sessionView %q, want %q", row.Label, row.SessionView, spiderHome)
+		}
 	}
 
 	// Once the agent ends, its dm is an ordinary conversation.

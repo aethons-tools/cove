@@ -81,6 +81,10 @@ type Store interface {
 	InboxSince(p ident.ID, afterSeq int64, limit int) []Squawk
 	InboxBefore(p ident.ID, beforeSeq int64, limit int) []Squawk
 	ChannelSince(ch ident.ID, afterSeq int64, limit int) []Squawk
+	// ActivitySince and ActivityBefore page p's activity: the squawks p
+	// authored or was delivered, in every channel.
+	ActivitySince(p ident.ID, afterSeq int64, limit int) []Squawk
+	ActivityBefore(p ident.ID, beforeSeq int64, limit int) []Squawk
 	ChannelBefore(ch ident.ID, beforeSeq int64, limit int) []Squawk
 	// InboxChannels lists the channels p has deliveries in, sorted by id.
 	InboxChannels(p ident.ID) []ChannelStat

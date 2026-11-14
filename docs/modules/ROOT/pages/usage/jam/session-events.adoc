@@ -105,7 +105,8 @@ and xref:usage/jam/session-view.adoc#thinking[Thinking].
 == Sensitivity
 
 Events carry tool inputs and outputs: file contents, command output, possibly
-secrets the agent read. *For now*, anyone who can see a session's home channel sees
+secrets the agent read. Anyone who may open a session's view (its operators, and a
+personal session's starter) sees
 them in ``/app/user``'s Thinking tab (xref:usage/jam/session-view.adoc#thinking[Thinking]). The admin timeline and the
 NDJSON export stay operator-only. jam-studio-agent's redaction applies (exact match of the
 cove's own secrets only). Raw agent output otherwise stays inside the

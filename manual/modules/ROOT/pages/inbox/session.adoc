@@ -3,19 +3,49 @@
 :page-id: ROOT/inbox/session
 :page-conventions: sentence-case
 
-When you open a session's own channel in the Inbox,
-or the work log of the ticket a session works on,
-you see more than the messages.
-A *session header* at the top says who the session is,
-what it does now and what it costs.
-A *pane* beside the messages shows what the session thinks and does,
-its previews, what it shared, and its status.
+A *session view* shows one session:
+everything it says and hears in every conversation,
+and what it thinks between them.
+It isn't a conversation.
+Open it from the session's name anywhere in the Inbox:
+on its status card in the rail,
+or in its header, which also shows when you open the session's own channel
+or the work log of the ticket it works on.
 (A session is one run of an agent: xref:concepts/agent.adoc[Roles, agents and sessions].)
 
-image::session-view.png["A session's channel, with its header and the Thinking pane",800]
+A *session header* at the top says who the session is,
+what it does now, and what it costs.
+Below it, the session's *activity* shows its messages in and out, in order.
+A *pane* beside the activity shows what the session thinks and does,
+its previews, what it shared, and its status.
 
-Anyone who can see the session's channel sees its header and pane.
-When the session ends, they go, and the channel shows only its messages.
+image::session-view.png["A session view, with its header and the Thinking pane",800]
+
+The Jam's operators can open any session view,
+and the person who started a personal session can open its view.
+
+== Activity
+
+The activity lists every message the session sent or got,
+in DMs, group DMs, rooms, and work logs,
+oldest first.
+Each message shows which conversation it's in;
+click that to open the conversation.
+Between the messages, the session's thinking shows collapsed:
+a line for each turn.
+Click a line to open what the session thought in that turn.
+Thinking isn't searchable,
+and only the people who can open the session view see it.
+
+When agents stopped waking each other in one of the session's conversations,
+the activity says so, with *Resume* to lift the limit.
+
+The composer at the bottom sends a DM to the session.
+You see your DM in the activity and in your Inbox.
+
+When the session ends,
+the view keeps its activity,
+but its header and pane go.
 
 == The header
 
@@ -138,7 +168,7 @@ A session that you have not opened before starts with the last layout you used.
 
 To link to a tab,
 add `?tab=thinking`, `?tab=previews`, `?tab=artifacts` or `?tab=status`
-to the conversation's address.
+to the session view's or the conversation's address.
 The tab then opens when someone follows the link.
 
 === Thinking
@@ -246,7 +276,7 @@ It never replaces the name.
 The color shows:
 
 * as a line on the left of the session's messages;
-* on the left edge of the composer, in the session's channel;
+* on the left edge of the composer, in the session view;
 * on the left edge of the session's status card in the rail;
 * in the title bar of the session's studio window in VS Code.
 
@@ -257,10 +287,14 @@ A session started before Jam had colors has none.
 ifdef::internal[]
 == Notes for the team
 
-* The header and pane are `web/app/src/session/`
+* The session view is `/app/user/s/<session>` (`web/app/src/session/SessionPage.tsx`, `ActivityList`, `TurnFold`).
+The header and pane are `web/app/src/session/`
 (`SessionView`, `SessionHeader`, `PaneTabs`; Thinking in `thinking/`, View here in `frames/`).
-The server side is `internal/jam/userui` (`session.go`, `sessionpane.go`, `thinking.go`).
+The server side is `internal/jam/userui` (`session.go`, `api_activity.go`, `sessionpane.go`, `thinking.go`).
+* Who may open it is `mayOpen` (`session.go`): operators, and a personal session's starter.
+* *Resume* shows only once the agent-to-agent limit is wired (`Deps.AgentLimit`, COV-348).
 * Routes: `+GET /app/user/api/sessions/{id}+` (the header),
+`+GET …/sessions/{id}/activity+` (paged like `read`),
 `+POST …/sessions/{id}/interrupt|compact|clear|release|restart|end|upgrade+`,
 `+GET …/sessions/{id}/pane/{tab}+`,
 `+POST …/sessions/{id}/frame+` (View here, 30 a minute per user),

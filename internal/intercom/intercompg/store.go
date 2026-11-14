@@ -167,6 +167,17 @@ func (s *Store) InboxBefore(p ident.ID, beforeSeq int64, limit int) []intercom.S
 	return s.before(`FROM squawk_deliveries d JOIN squawks s ON s.seq = d.seq WHERE d.participant_id = $1`, p, beforeSeq, limit)
 }
 
+// activityFrom selects the squawks $1 authored or was delivered.
+const activityFrom = `FROM squawks s WHERE (s.from_id = $1 OR EXISTS (SELECT 1 FROM squawk_deliveries d WHERE d.seq = s.seq AND d.participant_id = $1))`
+
+func (s *Store) ActivitySince(p ident.ID, afterSeq int64, limit int) []intercom.Squawk {
+	return s.since(activityFrom, p, afterSeq, limit)
+}
+
+func (s *Store) ActivityBefore(p ident.ID, beforeSeq int64, limit int) []intercom.Squawk {
+	return s.before(activityFrom, p, beforeSeq, limit)
+}
+
 func (s *Store) ChannelSince(ch ident.ID, afterSeq int64, limit int) []intercom.Squawk {
 	return s.since(`FROM squawks s WHERE s.channel_id = $1`, ch, afterSeq, limit)
 }

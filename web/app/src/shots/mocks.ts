@@ -10,7 +10,7 @@ import { dest, destFields, endpoint, spec, specFields } from "../admin/specs/fix
 import type { AgentDetail, AgentListRow, AgentsResponse, CoveRow } from "../admin/api/types";
 import { agents as projectAgents, role } from "../admin/roles/fixtures";
 import { emptyContext } from "../admin/projects/fixtures";
-import type { AppTokensResponse, AskCard, Bootstrap, ChannelRow, Conversation, MessageRow, SessionHead, SessionPane, ThinkingEvent } from "../api/types";
+import type { AppTokensResponse, AskCard, Bootstrap, ChannelRow, Conversation, MessageRow, SessionActivity, SessionHead, SessionPane, ThinkingEvent } from "../api/types";
 import type { EventStream } from "../../build/mockApi";
 import { card } from "../test/card";
 import { draftPage, draftView, kit, kitView } from "../admin/kits/fixtures";
@@ -392,6 +392,27 @@ const helperEvents: ThinkingEvent[] = [
   ev(209, "10:12:23", { kind: "tool_result", tool: "Edit", toolUseId: "t3", text: "ok", detail: "The file notes/1.14.md has been updated." }),
   ev(210, "10:12:25", { kind: "tool_call", tool: "Bash", toolUseId: "t4", text: "npm run build --prefix notes", detail: "npm run build --prefix notes" }),
 ];
+// helper's activity: alice's messages and its answers, in its own channel
+// and in the ops room, with each turn's thinking folded between.
+const inHome = { id: "chn_helper", kind: "session", label: "helper" };
+const helperActivity: SessionActivity = {
+  messages: [
+    { ...helperConv.messages[0]!, id: "m85", conversation: inHome, out: false },
+    { ...msg({ seq: 86, from: "dan", time: "2026-11-10T10:05:00Z", body: "<p>@helper which PRs go into 1.14?</p>", raw: "@helper which PRs go into 1.14?" }),
+      id: "m86", conversation: { id: "chn_ops", kind: "room", label: "ops" }, out: false },
+    { ...msg({ seq: 87, from: "helper", color: helperColor, time: "2026-11-10T10:06:00Z", body: "<p>#57 and #61: the notes cover both.</p>", raw: "#57 and #61: the notes cover both." }),
+      id: "m87", conversation: { id: "chn_ops", kind: "room", label: "ops" }, out: true },
+    { ...helperConv.messages[1]!, id: "m88", conversation: inHome, out: true },
+    { ...helperConv.messages[2]!, id: "m89", conversation: inHome, out: false },
+  ],
+  pageFirst: "m85", pageLast: "m89", earlier: false, later: false,
+  turns: [
+    { stream, turn: 1, start: at("10:02:03"), end: at("10:04:40"), after: 0, before: 96, events: 95 },
+    { stream, turn: 2, start: at("10:05:02"), end: at("10:08:51"), after: 95, before: 201, events: 105 },
+    { stream, turn: 3, start: at("10:12:04"), end: at("10:12:25"), after: 200, before: 211, events: 10 },
+  ],
+  limited: [], sendTo: "session:ses_helper", ended: false, label: "helper", color: helperColor,
+};
 const helperThinking: EventStream = { eventStream: [
   { event: "stream", data: stream },
   ...helperEvents.map((e) => ({ event: "ev", data: JSON.stringify(e) })),
@@ -586,6 +607,7 @@ export const mocks: Record<string, unknown> = {
   "GET /app/user/api/conversations/chn_helper/presence": { sessions: helperConv.sessions },
   "POST /app/user/api/conversations/chn_helper/read": {},
   "GET /app/user/api/sessions/ses_helper": helperHead,
+  "GET /app/user/api/sessions/ses_helper/activity": helperActivity,
   "GET /app/user/api/sessions/ses_helper/pane/thinking": helperPane("thinking", {
     streams: [{ id: stream, firstAt: "2026-11-10T09:00:00Z", events: 210 }, { id: "9e03d6b1c4a27f50", firstAt: "2026-11-09T15:40:00Z", events: 96 }] }),
   "GET /app/user/session/ses_helper/thinking/events": helperThinking,

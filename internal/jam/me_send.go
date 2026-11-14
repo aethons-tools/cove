@@ -14,8 +14,8 @@ import (
 // ParticipantSendHandler is a person's send from the /app/user inbox (POST
 // /app/user/send): into a conversation they're in ({"to": "<channel id>"}), or a
 // new one ({"to": "user:<id|name>"} or "chat:user:<id|name>,…": a dm or a
-// group with them; "session:<id>": the session's home channel, which they
-// join). The sender is the gate's participant, never the body; the intercom
+// group with them; "session:<id|label>": a dm with the session). The sender
+// is the gate's participant, never the body; the intercom
 // decides whether they may post there and who hears it. Implements
 // http.Handler.
 type ParticipantSendHandler struct {
@@ -149,7 +149,7 @@ func (h *ParticipantSendHandler) Send(p Participant, req SendRequest) (intercom.
 
 // plan resolves a /me send (conversations.adoc#targets): a channel id, a
 // person to dm, people to dm or group (chat:user:<id|name>,…), or a session
-// to reach in its home channel.
+// to dm.
 func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error) {
 	kind, ref, ok := strings.Cut(to, ":")
 	switch {
@@ -175,7 +175,7 @@ func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error)
 		}
 		return h.ic.PlanPersonChat(p.UserID, with...)
 	case kind == "session":
-		return h.ic.PlanHome(p.UserID, ident.ID(ref))
+		return h.ic.PlanSessionDM(p.UserID, ref)
 	}
 	return Planned{}, ErrSendUnresolved
 }

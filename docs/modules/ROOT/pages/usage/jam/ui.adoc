@@ -151,8 +151,10 @@ an in-process Log writer, not an egress engine.
 * *Identity is the resolved session*, never the body: the sender is the
 principal's user id.
 * *``to`` is a channel or a new conversation* — an open conversation's channel id
-(`+chn_…+`), or `+user:<id|name>+` / `+session:<id>+` to start (or reuse) a chat with
-a member of one of the person's projects or a live session in one. The
+(`+chn_…+`), or `+user:<id|name>+` / `+session:<id|label>+` to start (or reuse) a `dm` with
+a member of one of the person's projects or a live session in one.
+A `dm` with a session also joins the person to the session's home channel,
+where its turn-end text still goes. The
 xref:usage/jam/intercom.adoc#enabling-it[intercom] decides whether they may post there (a
 chat they're in; a ticket or room of a project they belong to — they join it)
 and records who hears it; a waiting session among them *wakes* exactly as on
