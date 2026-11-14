@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-// An escalation tier opens a group of the session and the tier's people (a
-// dm for one person) and posts the notice there, naming everyone asked; the
-// session's own channel calls nobody in.
+// An escalation tier calls its people into the session's home channel and
+// opens a group of the session and the tier's people (a dm for one person),
+// posting the notice there, naming everyone asked.
 func TestIntercomEscalate(t *testing.T) {
 	f := newICFixture(t)
 	f.standing.Name = "spider"
@@ -40,11 +41,10 @@ func TestIntercomEscalate(t *testing.T) {
 			t.Fatalf("notice targets = %v", ids)
 		}
 	}
-	if home, ok := f.ic.HomeChannelIfExists(f.standing); ok {
-		for _, u := range []ident.ID{f.alice.ID, f.bob.ID} {
-			if isCurrentMember(f.store, home.ID, u) {
-				t.Fatalf("%s was called into the session's channel", u)
-			}
+	home := f.sessionChannel(f.standing)
+	for _, u := range []ident.ID{f.alice.ID, f.bob.ID} {
+		if !isCurrentMember(f.store, home.ID, u) {
+			t.Fatalf("%s not called into the session's channel", u)
 		}
 	}
 	if got := f.store.ListChannels(f.project.ID, SourceWork); len(got) != 0 {
@@ -64,6 +64,38 @@ func TestIntercomEscalate(t *testing.T) {
 	if got := f.log.ChannelSince(dm.ID, 0, 0); len(got) != 2 ||
 		!slices.Equal(EscalationNoticeTargets(got[1].ID), []ident.ID{f.alice.ID}) || !strings.Contains(got[1].Body, "tier 1") {
 		t.Fatalf("dm = %+v", got)
+	}
+}
+
+// Until a session's turn-end text follows the conversation (COV-350), the
+// person escalated to must hear the session's reply: alice answers in the
+// dm, and the session's post with no address (its home channel) reaches her.
+func TestIntercomEscalateReplyReachesThePerson(t *testing.T) {
+	f := newICFixture(t)
+	f.standing.Activity = ActivityWaiting
+	if err := f.store.PutInstance(f.standing); err != nil {
+		t.Fatal(err)
+	}
+	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)
+	if err := f.ic.Escalate(context.Background(), f.standing, 0, "", []Member{alice}); err != nil {
+		t.Fatal(err)
+	}
+	dm, ok := f.ic.existingChat(f.project, ids(f.standing, f.alice))
+	if !ok {
+		t.Fatal("no dm")
+	}
+	if _, err := f.ic.PostTrusted(dm, intercom.Squawk{From: f.alice.ID, Body: "use the staging cluster"}); err != nil {
+		t.Fatal(err)
+	}
+	f.tail += 10
+	pl := f.mustPlan(f.standing, "")
+	reply, err := f.ic.Post(pl, intercom.Squawk{From: ident.ID(f.standing.ActorID), Body: "Thanks, doing that"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := f.log.InboxSince(f.alice.ID, 0, 0)
+	if len(got) == 0 || got[len(got)-1].ID != reply.ID {
+		t.Fatalf("alice's inbox = %+v, want the session's reply last", got)
 	}
 }
 

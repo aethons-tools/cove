@@ -78,7 +78,8 @@ and the channel shows a note, such as "alice called in carol".
 A room takes people only.
 Sessions call people in too.
 When an agent asks for help,
-Jam opens a DM between it and the people on call
+Jam calls the people on call into its channel
+and opens a DM between it and them
 (xref:concepts/escalation.adoc[Escalation]).
 
 == Messages

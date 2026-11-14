@@ -26,7 +26,7 @@ that channel's members. Jam holds the tracker token, does the platform I/O, and 
 * *``+send(…, attach?)+``* and *``fetch(ref, path?)``* — attach files from the studio to a message, and download one into it; see xref:usage/jam/attachments.adoc[attachments].
 * *``+board_create+``*, *``boards``*, *``+board_read+``*, *``+board_apply+``*, *``+board_snapshot+``* — sketch with people on a conversation's whiteboard; see xref:usage/jam/whiteboards.adoc[whiteboards.adoc].
 * *``ask(question, options, to?, of?)``*, *``amend``*, *``withdraw``* and *``asks``* — ask people a question with answers to pick from; the answer arrives through `read` as an entry carrying its ask part (`parts`). See xref:usage/jam/asks.adoc[asks].
-* *``escalate(category)``* — asks for a person: declares the block's category (picking the escalation tier chain) and, until the session is next woken, opens an escalation once it waits — each tier opens a dm or group with the session; see xref:usage/jam/escalation.adoc#when-it-opens-waiting-and-asking-for-a-person[escalation].
+* *``escalate(category)``* — asks for a person: declares the block's category (picking the escalation tier chain) and, until the session is next woken, opens an escalation once it waits — each tier is called into the session's channel and gets a dm or group with the session; see xref:usage/jam/escalation.adoc#when-it-opens-waiting-and-asking-for-a-person[escalation].
 
 The agent blends these with its work inside a turn — e.g. leave a status, read the next unprocessed replies, handle them, `commit` up to the last one it handled. See xref:usage/jam/wake-on.adoc[Waiting for a reply] for suspending until a reply arrives.
 

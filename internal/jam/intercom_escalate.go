@@ -13,7 +13,9 @@ import (
 // Escalation (docs/modules/ROOT/pages/usage/jam/escalation.adoc): a tier
 // opens a dm between the waiting session and the tier's one person, or a
 // group of the session and the tier's people, and posts the escalation
-// notice there; a session on a unit also posts it to the unit's log.
+// notice there; a session on a unit also posts it to the unit's log. Until a
+// session's turn-end text follows the conversation (COV-350), the tier's
+// people are also called into its home channel, so they hear its reply.
 
 const escalationPrefix = "escalate:"
 
@@ -52,14 +54,15 @@ func Escalatable(inst Instance) bool {
 	return inst.Activity == ActivityWaiting
 }
 
-// Escalate opens the dm or group of inst and tier's members (Jam acting on
-// the operator's policy: no addressing applies) and posts the escalation
-// notice there as the session, naming everyone asked. When inst works on a
+// Escalate calls tier's members into inst's home channel (members already
+// in stay in), opens the dm or group of inst and them (Jam acting on the
+// operator's policy: no addressing applies), and posts the escalation notice
+// there as the session, naming everyone asked. When inst works on a
 // unit, the notice is also posted to the unit's log, targeting nobody.
 //
 // The session must still be waiting, as the store has it now (the engine
 // works from a list read earlier): one that is gone, ending or woken
-// meanwhile gets no notice, and nothing is opened for it.
+// meanwhile gets no call-in, and nothing is opened or rejoined for it.
 func (ic *Intercom) Escalate(_ context.Context, inst Instance, tier int, category string, members []Member) error {
 	if len(members) == 0 {
 		return nil
@@ -73,10 +76,18 @@ func (ic *Intercom) Escalate(_ context.Context, inst Instance, tier int, categor
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrProjectNotFound, inst.Project)
 	}
+	home, err := ic.HomeChannel(inst)
+	if err != nil {
+		return err
+	}
+	seq := ic.tail()
 	parties := []ident.ID{ident.ID(inst.ActorID)}
 	ids := make([]string, 0, len(members))
 	names := make([]string, 0, len(members))
 	for _, m := range members {
+		if err := ic.store.JoinChannel(home.ID, m.User.ID, seq); err != nil {
+			return err
+		}
 		parties = append(parties, m.User.ID)
 		ids = append(ids, string(m.User.ID))
 		names = append(names, m.User.Name)
