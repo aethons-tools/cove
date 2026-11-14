@@ -366,10 +366,13 @@ func TestAPIConversationAsks(t *testing.T) {
 }
 
 // A conversation names the session whose home it is (the app's header
-// and pane): a ticket session's home is its
-// ticket channel, not its own session channel; a room has none.
+// and pane), when the viewer may open its view: a ticket session's home is
+// its ticket channel, not its own session channel; a room has none.
 func TestAPIConversationSession(t *testing.T) {
-	e, p, personal, _, _ := sessionEnv(t)
+	e, p, personal, standing, _ := sessionEnv(t)
+	if _, c, _ := getConv(t, e, p, e.homeOf(t, standing), ""); c.Session != "" {
+		t.Errorf("a standing session's home names %q to a non-operator", c.Session)
+	}
 	if _, c, body := getConv(t, e, p, e.homeOf(t, personal), ""); c.Session != personal.ActorID {
 		t.Errorf("personal home: session = %q\n%s", c.Session, body)
 	}
@@ -377,6 +380,10 @@ func TestAPIConversationSession(t *testing.T) {
 		t.Errorf("a room names session %q", c.Session)
 	}
 	inst, ticket, own := ticketSession(t, e, p)
+	inst.SessionKind, inst.OwnerID = jam.SessionKindPersonal, p.UserID // alice's, so she may open its view
+	if err := e.st.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
 	if _, c, _ := getConv(t, e, p, string(ticket), ""); c.Session != inst.ActorID {
 		t.Errorf("ticket channel: session = %q, want %q", c.Session, inst.ActorID)
 	}

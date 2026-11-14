@@ -187,24 +187,26 @@ func TestIntercomSessionChannelVisibility(t *testing.T) {
 	}
 }
 
-// From /me, a person reaches a session in its home channel, joining it —
+// From /me, a person reaches a session in the dm between them, and joins
+// its home channel besides (its turn-end reply goes there until COV-350) —
 // unless it is someone else's personal session.
-func TestIntercomPlanHome(t *testing.T) {
+func TestIntercomPlanSessionDM(t *testing.T) {
 	f := newICFixture(t)
-	p, err := f.ic.PlanHome(f.bob.ID, ident.ID(f.standing.ActorID))
-	if err != nil || p.Channel.Kind != SourceSession || !p.Join || !slices.Equal(p.Audience, ids(f.standing)) {
+	p, err := f.ic.PlanSessionDM(f.bob.ID, f.standing.ActorID)
+	home, _ := f.ic.HomeChannelIfExists(f.standing)
+	if err != nil || p.Channel.Kind != SourceDM || p.Join || p.JoinHome != home.ID || !slices.Equal(p.Audience, ids(f.standing)) {
 		t.Fatalf("bob → standing = %+v, %v", p, err)
 	}
-	if _, err := f.ic.PlanHome(f.bob.ID, ident.ID(f.personal.ActorID)); !errors.Is(err, ErrSendDenied) {
+	if _, err := f.ic.PlanSessionDM(f.bob.ID, f.personal.ActorID); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("bob → alice's personal session: %v, want ErrSendDenied", err)
 	}
-	if _, err := f.ic.PlanHome(f.alice.ID, ident.ID(f.personal.ActorID)); err != nil {
+	if _, err := f.ic.PlanSessionDM(f.alice.ID, f.personal.ActorID); err != nil {
 		t.Fatalf("alice → her personal session: %v", err)
 	}
-	if _, err := f.ic.PlanHome(f.carol.ID, ident.ID(f.standing.ActorID)); !errors.Is(err, ErrSendDenied) {
+	if _, err := f.ic.PlanSessionDM(f.carol.ID, f.standing.ActorID); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("carol (no member) → standing: %v", err)
 	}
-	if _, err := f.ic.PlanHome(f.bob.ID, "ses_nosuch"); !errors.Is(err, ErrSendDenied) {
+	if _, err := f.ic.PlanSessionDM(f.bob.ID, "ses_nosuch"); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("unknown session: %v, want ErrSendDenied (never tells)", err)
 	}
 }

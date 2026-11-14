@@ -83,6 +83,29 @@ func (s *MemStore) Streams(actorID string) ([]StreamInfo, error) {
 	return out, nil
 }
 
+func (s *MemStore) Turns(actorID, streamID string) ([]TurnSpan, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []TurnSpan
+	at := map[uint32]int{}
+	for _, e := range s.streams[streamKey{actorID, streamID}] {
+		i, ok := at[e.Turn]
+		if !ok {
+			at[e.Turn], i = len(out), len(out)
+			out = append(out, TurnSpan{Turn: e.Turn, FirstSeq: e.Seq, Start: e.ObservedAt, End: e.ObservedAt})
+		}
+		t := &out[i]
+		t.LastSeq, t.Events = e.Seq, t.Events+1
+		if e.ObservedAt.Before(t.Start) {
+			t.Start = e.ObservedAt
+		}
+		if e.ObservedAt.After(t.End) {
+			t.End = e.ObservedAt
+		}
+	}
+	return out, nil
+}
+
 // DeleteBefore removes whole streams whose last event was received before t.
 func (s *MemStore) DeleteBefore(t time.Time) (int, error) {
 	s.mu.Lock()

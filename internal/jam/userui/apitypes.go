@@ -425,10 +425,62 @@ type ThinkingStream struct {
 }
 
 // ThinkingPage is GET api/sessions/{id}/thinking: a stream's events below
-// ?before=, in seq order; Before > 0: older ones exist below it.
+// ?before= (and above ?after=, a turn's fold), in seq order; Before > 0:
+// older ones exist below it.
 type ThinkingPage struct {
 	Events []ThinkingEvent `json:"events"`
 	Before uint64          `json:"before"`
+}
+
+// SessionActivity is GET api/sessions/{id}/activity: a page of the messages
+// the session authored or was delivered, in every conversation, oldest
+// first, paged like read (?anchor=start|end|id&id=&dir=forward|backward&limit=).
+type SessionActivity struct {
+	Messages []ActivityRow `json:"messages"`
+	// PageFirst and PageLast are the page's first and last message ids, the
+	// anchors of the next page either way ("" on an empty page); Earlier and
+	// Later report whether messages exist before and after the page.
+	PageFirst string `json:"pageFirst"`
+	PageLast  string `json:"pageLast"`
+	Earlier   bool   `json:"earlier"`
+	Later     bool   `json:"later"`
+	// Turns are the session's turns whose thinking folds into this page, by
+	// start: from its first message to the next page's first (the oldest
+	// page from the beginning, the newest on to now).
+	Turns []TurnFold `json:"turns"`
+	// Limited are the page's conversations where the agent-to-agent limit is
+	// tripped (Resume: POST api/conversations/{id}/resume).
+	Limited []jam.Party `json:"limited"`
+	// SendTo is the composer's POST api/messages "to": a dm with the session
+	// ("" once it has ended). Ended: the session is gone (no header or pane).
+	SendTo string `json:"sendTo"`
+	Ended  bool   `json:"ended"`
+	Label  string `json:"label"`
+	Color  string `json:"color,omitempty"`
+}
+
+// ActivityRow is one message of a session's activity: the message as a
+// conversation shows it, the conversation it's in, and whether the session
+// wrote it (Out) or was delivered it.
+type ActivityRow struct {
+	MessageRow
+	ID           string    `json:"id"`
+	Conversation jam.Party `json:"conversation"`
+	Out          bool      `json:"out"`
+}
+
+// TurnFold is one turn of the session's thinking, folded between its
+// activity's messages: open it with GET api/sessions/{id}/thinking?stream=
+// &after=&before= (the seqs around the turn's events). Start and End are
+// Unix ms.
+type TurnFold struct {
+	Stream string `json:"stream"`
+	Turn   uint32 `json:"turn"`
+	Start  int64  `json:"start"`
+	End    int64  `json:"end"`
+	After  uint64 `json:"after"`
+	Before uint64 `json:"before"`
+	Events int    `json:"events"`
 }
 
 // ThinkingRaw is GET api/sessions/{id}/thinking/raw: one event's pretty JSON,

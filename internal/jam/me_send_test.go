@@ -44,7 +44,7 @@ func TestParticipantSendIntoAChannel(t *testing.T) {
 }
 
 // A new message to a person starts (or reuses) a dm with them; to several
-// people, a group; to a session, its home channel, which the person joins.
+// people, a group; to a session, a dm with it.
 func TestParticipantSendNewConversations(t *testing.T) {
 	f := newICFixture(t)
 	dave, err := f.store.CreateUser(User{Name: "dave"})
@@ -65,7 +65,7 @@ func TestParticipantSendNewConversations(t *testing.T) {
 		{"user:alice", SourceDM, ids(f.alice, f.bob)},
 		{"chat:user:alice,user:" + string(dave.ID), SourceGroup, ids(f.alice, f.bob, dave)},
 		{"chat:user:alice", SourceDM, ids(f.alice, f.bob)},
-		{"session:" + f.standing.ActorID, SourceSession, ids(f.bob, f.standing)},
+		{"session:" + f.standing.ActorID, SourceDM, ids(f.bob, f.standing)},
 	} {
 		m, err := h.Send(p, SendRequest{To: c.to, Body: "hello"})
 		if err != nil {
@@ -88,8 +88,54 @@ func TestParticipantSendNewConversations(t *testing.T) {
 			}
 		}
 	}
-	if chats := f.store.ListChannels(f.project.ID, SourceDM); len(chats) != 1 {
-		t.Fatalf("dms = %+v, want bob+alice (reused by id, name, and chat:)", chats)
+	if chats := f.store.ListChannels(f.project.ID, SourceDM); len(chats) != 2 {
+		t.Fatalf("dms = %+v, want bob+alice (reused by id, name, and chat:) and bob+the session", chats)
+	}
+}
+
+// session:<id|label> is the dm between the person and the session
+// (conversations.adoc#targets). Until the turn-end rule lands, the session's
+// turn-end text still goes to its home channel, so the person also joins
+// that, as before, to get the reply. Someone else's personal session isn't
+// theirs to reach.
+func TestParticipantSendToASession(t *testing.T) {
+	f := newICFixture(t)
+	f.standing.Name = "spider"
+	if err := f.store.PutInstance(f.standing); err != nil {
+		t.Fatal(err)
+	}
+	h := NewParticipantSendHandler(f.store, f.ic, nil)
+	p := Participant{UserID: f.bob.ID, Name: f.bob.Name, Projects: []string{"acme"}}
+	var chans []ident.ID
+	for _, to := range []string{"session:" + f.standing.ActorID, "session:spider"} {
+		m, err := h.Send(p, SendRequest{To: to, Body: "hello"})
+		if err != nil {
+			t.Fatalf("to %s: %v", to, err)
+		}
+		chans = append(chans, m.Channel)
+	}
+	dm, ok := f.store.GetChannel(chans[0])
+	if !ok || dm.Kind != SourceDM || chans[1] != chans[0] {
+		t.Fatalf("sent into %v (%+v), want one dm", chans, dm)
+	}
+	if !isMember(f.store, dm.ID, f.bob.ID) || !isMember(f.store, dm.ID, ident.ID(f.standing.ActorID)) {
+		t.Fatalf("dm members = %+v", f.store.ChannelMembers(dm.ID))
+	}
+	if got := f.log.InboxSince(ident.ID(f.standing.ActorID), 0, 0); len(got) != 2 || got[0].Channel != dm.ID {
+		t.Fatalf("session inbox = %+v", got)
+	}
+	home, _ := f.ic.HomeChannelIfExists(f.standing)
+	if !isMember(f.store, home.ID, f.bob.ID) {
+		t.Fatal("bob joins the session's home channel too, where its turn-end reply goes")
+	}
+	if _, err := h.Send(p, SendRequest{To: "session:" + f.personal.ActorID, Body: "hi"}); err == nil {
+		t.Fatal("bob reached alice's personal session")
+	}
+	alice := Participant{UserID: f.alice.ID, Name: f.alice.Name, Projects: []string{"acme"}}
+	if m, err := h.Send(alice, SendRequest{To: "session:" + f.personal.ActorID, Body: "hi"}); err != nil {
+		t.Fatalf("alice to her personal session: %v", err)
+	} else if ch, _ := f.store.GetChannel(m.Channel); ch.Kind != SourceDM {
+		t.Fatalf("alice's message went to %+v", ch)
 	}
 }
 

@@ -119,7 +119,7 @@ func (h *handler) railSessions(r *http.Request, p jam.Participant, groups []Rail
 	for gi := range groups {
 		rows := groups[gi].Rows
 		for i := range rows {
-			inst, ok := h.headSession(p, rows[i].ID)
+			inst, ok := h.headSession(r, p, rows[i].ID)
 			if !ok {
 				continue
 			}

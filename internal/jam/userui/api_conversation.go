@@ -74,7 +74,7 @@ func (h *handler) apiConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	conv.Messages, conv.Earlier = pageOf(conv.Messages, before, int(limit))
 	conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence, h.kitPrep())
-	if inst, ok := h.headSession(p, conv.ChannelID); ok {
+	if inst, ok := h.headSession(r, p, conv.ChannelID); ok {
 		conv.Session = inst.ActorID
 		conv.Color, _ = h.d.Store.SessionColor(inst.ActorID)
 	}

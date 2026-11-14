@@ -42,28 +42,51 @@ func homeSession(d Deps, chID string) (jam.Instance, bool) {
 	return jam.HomeSession(d.Store, ident.ID(chID))
 }
 
-// sessionFor is session id if viewer p may see its home channel.
-func (h *handler) sessionFor(p jam.Participant, id string) (jam.Instance, string, bool) {
-	inst, ok := h.d.Store.GetInstance(id)
+// mayOpen reports whether viewer p may open inst's session view
+// (conversations-sessions.adoc#session-view): the Jam's operators, and for a
+// personal session the person who started it. It reads nothing of the
+// session's channels.
+func mayOpen(r *http.Request, p jam.Participant, inst jam.Instance) bool {
+	if pr, _ := appui.PrincipalFrom(r); pr.Admin {
+		return true
+	}
+	return inst.SessionKind == jam.SessionKindPersonal && inst.OwnerID != "" && inst.OwnerID == p.UserID
+}
+
+// sessionFor is live session id, when viewer p may open its view, with its
+// home channel ("" when it has none yet).
+func (h *handler) sessionFor(r *http.Request, p jam.Participant, id string) (jam.Instance, string, bool) {
+	inst, ok := h.viewedSession(r, p, id)
 	if !ok || inst.Phase == jam.PhaseGone || h.d.Intercom == nil {
 		return jam.Instance{}, "", false
 	}
-	home, ok := h.d.Intercom.HomeChannelIfExists(inst)
-	if !ok || !h.d.Intercom.CanSee(p.UserID, home) {
-		return jam.Instance{}, "", false
+	var home string
+	if ch, ok := h.d.Intercom.HomeChannelIfExists(inst); ok {
+		home = string(ch.ID)
 	}
-	return inst, string(home.ID), true
+	return inst, home, true
+}
+
+// viewedSession is session id, live or ended, when viewer p may open its
+// view: an ended session's view keeps its activity.
+func (h *handler) viewedSession(r *http.Request, p jam.Participant, id string) (jam.Instance, bool) {
+	inst, ok := h.d.Store.GetInstance(id)
+	if !ok || !mayOpen(r, p, inst) {
+		return jam.Instance{}, false
+	}
+	return inst, true
 }
 
 // headSession is the session whose header shows in conversation sel for p:
-// sel's home session, when its routes resolve home to sel (a ticket
-// session's home is its ticket channel, not its own session channel).
-func (h *handler) headSession(p jam.Participant, sel string) (jam.Instance, bool) {
+// sel's home session, when p may open its view and its routes resolve home
+// to sel (a ticket session's home is its ticket channel, not its own
+// session channel).
+func (h *handler) headSession(r *http.Request, p jam.Participant, sel string) (jam.Instance, bool) {
 	inst, ok := homeSession(h.d, sel)
 	if !ok {
 		return jam.Instance{}, false
 	}
-	if _, home, ok := h.sessionFor(p, inst.ActorID); ok && home == sel {
+	if _, home, ok := h.sessionFor(r, p, inst.ActorID); ok && home == sel {
 		return inst, true
 	}
 	return jam.Instance{}, false
