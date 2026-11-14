@@ -110,6 +110,9 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg
 	alarmH := jam.NewAlarmHandler(st, sup, log)
 	exposureH := jam.NewExposureHandler(st, sup, previewURL, log)
 	reportH := jam.NewReportHandler(st, tickets, sup, time.Now, log)
+	if msg != nil {
+		reportH.SetIntercom(msg.ic) // the summary goes to the unit's work log
+	}
 	missionH := jam.NewMissionHandler(st, sup, log)
 	focusH := jam.NewFocusHandler(st, sup, log)
 	log.Info("Jam mission: mounted", "path", "/mission")

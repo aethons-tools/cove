@@ -4,7 +4,7 @@
 :owns: the standing-session story — declarations on a role (`RoleAllocation.Standing`), the declaration ↔ session map (session ids), the `standing list|reset|upgrade` verbs and `/admin/roles/\{project}/\{role}/standing` routes, the standing reconciler (keep-alive, restart under the same name, backoff, dismissal), reset, standing admission (declared-name cap, file-store behavior), and how a standing session messages people
 :prereqs: roster.adoc for roles; standing-state.adoc for what a restart keeps; coves.adoc for what a raised studio does and resident mode; comms-addressing.adoc for `send(to=…)` targets and a role's addressing; discord.adoc for the Discord reply loop; serve-store.adoc for `store-postgres` and the allocation ledger
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 A *standing session* is a named, long-lived agent that an operator declares on
 a role, such as `reviewer/alice-bot`. The declaration is the desired state.
@@ -169,7 +169,9 @@ a `send` with no `to` reaches whoever is in it. Any project member may join it
 `+session:<name>+` may post there; an xref:usage/jam/escalation.adoc[escalation] calls people in. A
 `to` posts elsewhere, within its role's `+--addressing+`. Its xref:usage/jam/session-context.adoc[session context] says so, and a reply
 wakes it with its own resume text ("… `send` without `to` posts to your own
-channel; pass `to` to answer anywhere else."); it ``read``s the reply. See
+channel; pass `to` to answer anywhere else."); it ``read``s the reply.
+Under the xref:usage/jam/structured-turn-end.adoc#the-turn-end-rule[turn-end rule],
+a `send` names its conversation instead. See
 xref:usage/jam/comms-addressing.adoc[comms-addressing] for the targets and
 xref:usage/jam/discord.adoc#egress-the-reply-loop[discord] for the reply loop.
 

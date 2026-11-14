@@ -32,6 +32,7 @@ func TestView(t *testing.T) {
 		{"command", `{"type":"cove","subtype":"command","command":"interrupt","by":"Ann"}`, KindPrompt, "", "", "Interrupt — pressed by Ann", "control", false},
 		{"command no by", `{"type":"cove","subtype":"command","command":"compact"}`, KindPrompt, "", "", "Compact — pressed", "control", false},
 		{"command ignored", `{"type":"cove","subtype":"command","command":"clear","by":"Bob","ignored":"live episode"}`, KindPrompt, "", "", "Clear — pressed by Bob (ignored: live episode)", "control", false},
+		{"unaddressed turn", `{"type":"cove","subtype":"turn","outcome":"unaddressed"}`, KindPrompt, "", "", "Unaddressed — the turn ended with text it sent nowhere, after being returned once", "control", false},
 		{"unparsed", `not json`, KindOther, "", "", "", "unparsed", false},
 	}
 	for _, c := range cases {

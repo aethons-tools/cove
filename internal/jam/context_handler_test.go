@@ -58,7 +58,8 @@ func TestContextHandler(t *testing.T) {
 }
 
 // A cove that speaks the structured turn end asks for its guidance with
-// ?turn-protocol=2; anything else gets the legacy boilerplate.
+// ?turn-protocol=2, one that speaks the turn-end rule with 3; anything else
+// gets the legacy boilerplate.
 func TestContextHandlerTurnProtocol(t *testing.T) {
 	sup, store, clk := supTestKit(t, &fakeLauncher{liveness: LivenessAlive})
 	_, tok, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Prompt: "P"})
@@ -76,8 +77,11 @@ func TestContextHandlerTurnProtocol(t *testing.T) {
 			t.Fatalf("GET /context%s = %d %s", query, rec.Code, rec.Body)
 		}
 		want := 0
-		if query == "?turn-protocol=2" {
+		switch query {
+		case "?turn-protocol=2":
 			want = 2
+		case "?turn-protocol=3":
+			want = 3
 		}
 		if b.TurnProtocol != want || (want == 0) != !strings.Contains(rec.Body.String(), `"turn_protocol"`) {
 			t.Fatalf("GET /context%s: turn_protocol = %d, want %d (absent at 0)", query, b.TurnProtocol, want)
@@ -91,7 +95,10 @@ func TestContextHandlerTurnProtocol(t *testing.T) {
 	if strings.Contains(legacy.Core, "End your turn with your reply") {
 		t.Fatal("the legacy context carries the structured guidance")
 	}
-	if other := get("?turn-protocol=3"); other.Fingerprint != legacy.Fingerprint {
+	if rule := get("?turn-protocol=3"); !strings.Contains(rule.Core, "Text is thinking unless you send it") {
+		t.Fatalf("turn-protocol=3 lacks the turn-end rule:\n%s", rule.Core)
+	}
+	if other := get("?turn-protocol=4"); other.Fingerprint != legacy.Fingerprint {
 		t.Fatal("an unknown turn protocol changed the context")
 	}
 }

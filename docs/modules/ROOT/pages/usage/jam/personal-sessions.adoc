@@ -4,7 +4,7 @@
 :owns: the personal-session story — New session in the Inbox, owner resolution (project member ↔ login), admission (pool + per-owner caps, the ledger requirement), the conversation loop, the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
 :prereqs: comms-addressing.adoc for a Project's members and a user's logins; discord.adoc for Discord delivery profiles, the user-id binding, and reply attribution; intercom.adoc for the intercom a session talks over; roster.adoc for roles and the `--max-personal*` caps; coves.adoc for what a raised studio does; serve-store.adoc for `store-postgres` and the allocation ledger
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 A *personal session* is a long-lived managed studio that a person asks Jam
 for directly — with *New session* in the Inbox, or as an operator from the CLI
@@ -18,8 +18,10 @@ stays until the owner releases it. It needs `store-postgres`.
 
 . The session works its first prompt, delivered as-is. Its
 xref:usage/jam/session-context.adoc[session context] tells the agent it is your personal session and how to reach you.
-. *The studio speaks first.* When it has results or needs input, it ``send``s with
-no `to`, which goes to its own *session channel* (its home channel). You are
+. *The studio speaks first.* When it has results or needs input, it ``send``s to
+`+user:<you>+`, which goes to its own *session channel* (its home channel); a studio on an
+older turn protocol sends with no `to`, which goes there too
+(xref:usage/jam/structured-turn-end.adoc#send-default[`send` without `to`]). You are
 called into that channel when the session starts, so it reaches your Discord
 inbox channel and your xref:usage/jam/intercom-ui.adoc[`/app/user`] inbox. Its nags and notices go
 there too, and still arrive after it has ended. The channel is private: other

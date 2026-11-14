@@ -10,6 +10,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
@@ -489,6 +490,18 @@ func (ic *Intercom) Plan(p Poster, addr string, now time.Time) (Planned, error) 
 	return pl, err
 }
 
+// PlanSend is Plan for a session's send (POST /squawks). Under the turn-end
+// rule (Instance.TurnProtocol 3) a send names its conversation — the cove
+// fills a turn's later sends in from its first — so one with no addr is
+// ErrSendNeedsTo. A session on an older turn protocol keeps Plan's default,
+// its home channel. Asks and whiteboards keep it too.
+func (ic *Intercom) PlanSend(p Poster, addr string, now time.Time) (Planned, error) {
+	if addr == "" && p.Session != nil && p.Session.TurnProtocol == sessionctx.TurnProtocolTurnRule {
+		return Planned{}, ErrSendNeedsTo
+	}
+	return ic.Plan(p, addr, now)
+}
+
 // resolve finds (creating a dm or group on demand) the channel the address
 // kind:rest names in project, as globs allow.
 func (ic *Intercom) resolve(p Poster, project Project, kind, rest string, globs []string) (Channel, error) {
@@ -517,12 +530,22 @@ var anyGlobs = []string{"*", "session:*"}
 
 // replyChannel is the existing conversation the address kind:rest names,
 // when the session was delivered a message in it (ok=false otherwise, or
-// when it names none yet): a reply needs no addressing. It creates nothing.
+// when it names none yet): a reply needs no addressing. A user: address
+// names the session's own channel when that person is in it. It creates
+// nothing.
 func (ic *Intercom) replyChannel(p Poster, project Project, kind, rest string) (Channel, bool) {
 	var ch Channel
 	var ok bool
 	switch kind {
-	case "user", "human", "chat":
+	case "user", "human":
+		if home, found := ic.homeWithMember(p, project, rest, anyGlobs); found {
+			// They are in the session's own channel: reply there, as
+			// resolve would with addressing.
+			ch, ok = home, true
+			break
+		}
+		fallthrough
+	case "chat":
 		refs := strings.Split(rest, ",")
 		if kind != "chat" {
 			refs = []string{"user:" + rest}
@@ -546,6 +569,55 @@ func (ic *Intercom) replyChannel(p Poster, project Project, kind, rest string) (
 		}
 	}
 	return ch, ok && ic.deliveredIn(p.ID, ch.ID)
+}
+
+// ReplyTo is the send address that replies in channel chID for the session
+// self ("" when none answers to it): its own channel is session:<its label>, a
+// dm or group chat: its other members, a room channel:<name>, a work log
+// work:<key>, another session's channel session:<it>. A reply needs no
+// addressing (replyChannel), so the session can always use it.
+func (ic *Intercom) ReplyTo(self Instance, chID ident.ID) string {
+	ch, ok := ic.store.GetChannel(chID)
+	if !ok {
+		return ""
+	}
+	switch ch.Kind {
+	case SourceSession:
+		// Its own channel too (own needs no addressing): by label when the
+		// label names that session alone, else by id.
+		if p, ok := ic.store.GetProject(orDefaultProject(self.Project)); ok {
+			if inst, ok := ic.store.GetInstance(ch.Key); ok {
+				if named, ok := ic.sessionNamed(p, sessionLabel(inst)); ok && named.ActorID == inst.ActorID {
+					return "session:" + sessionLabel(inst)
+				}
+			}
+		}
+		return "session:" + ch.Key
+	case SourceRoom:
+		return "channel:" + ch.Key
+	case SourceWork:
+		conn, unit, _ := strings.Cut(ch.Key, "/")
+		if tracker, ok := ic.tracker(); ok && conn == string(tracker) {
+			return "work:" + unit
+		}
+		return "work:" + ch.Key
+	case SourceDM, SourceGroup:
+		var refs []string
+		for _, m := range strings.Split(ch.Key, ",") {
+			switch {
+			case m == self.ActorID || m == "":
+			case participantKind(ident.ID(m)) == string(ident.User):
+				refs = append(refs, "user:"+m)
+			default:
+				refs = append(refs, "session:"+m)
+			}
+		}
+		if len(refs) == 0 {
+			return ""
+		}
+		return "chat:" + strings.Join(refs, ",")
+	}
+	return ""
 }
 
 // lookupTicket is the existing work log ref names, regardless of addressing

@@ -1,7 +1,7 @@
 = The structured turn end
-:summary: The structured turn end — a woken session finds its pending messages in its prompt, its final text (and what it says before a tool call, as it goes) is posted for it and what it was shown is committed for it; the optional `turn_end` tool changes those defaults (deny, recipient, quiet, compact, end, mute, wake time, idle timeout), and `keep_*` keeps processes running across turns. Covers the turn-protocol switch, `PUT /mute`, the auto-post marker and the agent socket.
-:read_when: You want to know what a woken agent is shown, why a session's reply was (or wasn't) posted or its messages committed, how an agent keeps a preview server running between turns, or you are changing the turn-end defaults, `turn_end`/`keep_*`, or how a studio and Jam agree on the turn protocol.
-:owns: the structured turn end — inbox batches in the wake prompt (caps, rendering, fallback), auto-posting the final text and auto-commit, posting mid-turn text, the `turn_end` tool and its directives, `PUT /mute`, `PUT /kept`, the auto-post marker part and wake-on's skip of it, the duplicate-reply skip, the turn-protocol switch (`GET /context?turn-protocol=2`, `Bundle.turn_protocol`), the agent socket, kept processes (`keep_start`/`keep_stop`/`keep_list`) and the `process-exited` wake. Does NOT own wake-on's other rules (intercom.md), alarms/idle/`end` (turn-end.md) or the context compile (session-context.md).
+:summary: The structured turn end — a woken session finds its pending messages in its prompt, its text is thinking unless it sends it (the turn-end rule: a turn that ends with text and sent nothing is returned once), and what it was shown is committed for it; the optional `turn_end` tool changes those defaults (recipient, no reply, deny, compact, end, mute, wake time, idle timeout), and `keep_*` keeps processes running across turns. Covers the turn-protocol switch, `PUT /mute`, the auto-post marker and the agent socket.
+:read_when: You want to know what a woken agent is shown, why a session's reply was (or wasn't) posted, why a turn was returned or marked unaddressed, or why its messages were committed, how an agent keeps a preview server running between turns, or you are changing the turn-end defaults, `turn_end`/`keep_*`, or how a studio and Jam agree on the turn protocol.
+:owns: the structured turn end — inbox batches in the wake prompt (caps, rendering, fallback), the turn-end rule (posting the final text to `turn_end`'s `to`, returned turns and the `returned` wake, `unaddressed`), auto-commit, the per-turn send record and `send`'s default `to`, the `turn_end` tool and its directives, `PUT /mute`, `PUT /kept`, the auto-post marker part and wake-on's skip of it, the duplicate-reply skip, the turn-protocol switch (`GET /context?turn-protocol=3`, `Bundle.turn_protocol`), the agent socket, kept processes (`keep_start`/`keep_stop`/`keep_list`) and the `process-exited` wake. Does NOT own wake-on's other rules (intercom.md), alarms/idle/`end` (turn-end.md) or the context compile (session-context.md).
 :prereqs: intercom.adoc for the inbox, commit cursor and wake-on; turn-end.adoc for what a turn end is and the wake reasons
 :tier: leaf
 :updated: 2026-11-14
@@ -9,7 +9,10 @@
 An agent loop ends each turn with a message. Under the structured turn end, Jam uses that instead of making the agent do its messaging in tool calls:
 
 * *The wake brings the messages.* The agent's prompt carries its pending messages.
-* *The final text is the reply.* It is posted for the agent.
+* *Text is thinking unless it's sent.* Nothing the agent writes is posted for it:
+it answers with `send`, `ask`, or `report`,
+or ends with `turn_end` and a `to`, which posts its final text there
+(<<the-turn-end-rule,the turn-end rule>>).
 * *Handled is the default.* What the agent was shown is committed for it.
 
 A plain question and answer then costs one model call, not a `read` → answer → `send` → `commit` round. The design is in the https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-28-structured-turn-end-design.md[spec].
@@ -18,18 +21,22 @@ A plain question and answer then costs one model call, not a `read` → answer �
 
 It is on per studio, and only when both sides speak it:
 
-* *The studio asks for it.* The studio's jam-studio-agent fetches its context with `GET /context?turn-protocol=2`.
-* *Jam confirms it.* A Jam that knows the protocol compiles the structured guidance and answers with `+"turn_protocol": 2+` in the bundle. It also records the protocol on the Instance, so setup inspection recompiles the same context.
-* *Otherwise it stays off.* A studio without a live context refresh, or a Jam that answers without `+turn_protocol+`, keeps the legacy behavior: the read prompt, explicit `send`/`commit`, and the legacy guidance. This prevents an old Jam pairing with a new studio from duplicating replies (or the reverse, losing them).
+* *The studio asks for it.* The studio's jam-studio-agent fetches its context with `GET /context?turn-protocol=3` (the turn-end rule).
+* *Jam confirms it.* A Jam that knows the protocol compiles the matching guidance and answers with `+"turn_protocol": 3+` in the bundle. It also records the protocol on the Instance, so setup inspection recompiles the same context, and so `send` knows to refuse a missing `to` (<<send-default,below>>).
+* *An older studio* asks for `2`, whose cove still posts its final text for it.
+Jam keeps answering `2` with that protocol's guidance
+("End your turn with your reply"),
+and keeps a `send` with no `to` going to its home channel.
+* *Otherwise it stays off.* A studio without a live context refresh, or a Jam that answers without the protocol it asked for, keeps the legacy behavior: the read prompt, explicit `send`/`commit`, and the legacy guidance. This prevents a Jam and a studio that disagree from duplicating replies (or the reverse, losing them).
 
 == Delivery: messages in the wake
 
 * *Every wake carries a batch.* Whatever woke the session (a squawk, an alarm, the idle timeout, a kept process), its prompt carries its pending inbox entries:
 ** the entries are past the commit cursor (xref:usage/jam/intercom.adoc#the-inbox-as-a-durable-queue[intercom]), oldest first;
 ** the batch is capped at *20 entries or 32 KiB* of rendered text.
-* *What an entry looks like.* Each entry is a header line, `+From <author> in <channel> (<kind>) at <time> — id <id>+`, followed by its body. Each attachment adds an `+[attachment <name> ref <ref>]+` line.
+* *What an entry looks like.* Each entry is a header line, `+From <author> in <channel> (<kind>) at <time> — id <id> — reply: to=<reply_to>+`, followed by its body. The `to` is the entry's `+reply_to+` (xref:usage/jam/comms-addressing.adoc[comms-addressing]); an older Jam sends none, and the header ends at the id. Each attachment adds an `+[attachment <name> ref <ref>]+` line.
 * *Oversized entries.* An entry alone over the cap is cut, with a marker telling the agent to `read` that id for the rest. A cut entry isn't committed for the agent: it commits it itself once handled, and until then auto-commit doesn't pass it.
-* *The closing line* says either "Reply by ending your turn…" or, when entries were left out, "More messages are waiting — use `read`…".
+* *The closing line* says either "Reply with `send` to a message's reply `to` … or end with `turn_end` and that `to`…" or, when entries were left out, "More messages are waiting — use `read`…".
 * *Fetched just before writing.* The batch is fetched (`GET /squawks`) just before the prompt is written into the episode. Because it starts from the commit cursor at that moment, it never re-shows messages the agent already read and committed itself.
 * *Fallback.* If the fetch fails, that wake gets the legacy read prompt.
 * *Interrupts and restarts.* The interrupt acknowledgement and a standing session's restart prompt carry the batch too.
@@ -38,26 +45,70 @@ It is on per studio, and only when both sides speak it:
 
 The studio reads each turn's `result` event and then acts in this order. It finishes before it writes anything else into the episode.
 
-. *Post.* It posts the trimmed final text as the session, marked as a turn end's (`POST /squawks` with `+auto: true+`).
-** *Where:* to the home channel unless `+turn_end+` named a recipient. If that recipient is refused, the text goes to the home channel and the next prompt says why.
-** *When nothing is posted:* empty text posts nothing.
+. *Post or return* by <<the-turn-end-rule,the turn-end rule>>.
 . *Commit.* It commits the batch the turn's prompt showed (`POST /squawks/commit`), up to the last entry shown in full.
 ** *Only that turn's batch.* Each prompt is numbered, and only the turn that answers it commits its batch. A turn a background task started commits nothing.
-** *Not after a failed post.* If the post failed, nothing is committed: the messages come back with a note saying why.
+** *Not when it's returned,* nor after a failed post: the messages come back.
 . *Apply the turn's directives* (below).
 
-A turn that didn't end normally posts, commits and applies nothing: an interrupt, an error result, or a process that died. Its directives are dropped, as are those of a turn that never reached its end. A `/compact` turn (a press or `+turn_end+`) posts and commits nothing either.
+A turn that didn't end normally posts, commits, returns, and applies nothing: an interrupt, an error result, or a process that died. Its directives are dropped, as are those of a turn that never reached its end. A `/compact` turn (a press or `+turn_end+`) posts, commits, and returns nothing either.
 
-== Mid-turn text: posted as it goes
+[#the-turn-end-rule]
+== The turn-end rule
 
-claude's `result` carries only the turn's last reply. Anything the model writes before a tool call never reaches `result`, so the studio posts it as the turn goes on:
+A turn ends in one of four ways:
 
-* *When.* A top-level assistant message's text is posted once the turn's next top-level event shows the turn went on past it. Text that a `result` ends with is the final text (above), so it is never posted twice. Text that the `result` doesn't carry is posted just before the turn end.
-* *Where.* Always to the home channel, as an auto-post. ``+turn_end+``'s `to` and `post` apply only to the final text.
-* *What it skips.* Subagent messages (`+parent_tool_use_id+` set) are skipped. So is a `/compact` turn, a turn under the legacy turn end, and text not yet posted when a turn is interrupted or errors.
-* *Commits nothing.* A failed post is logged and the turn goes on.
+* *Text and a destination:* `turn_end` with a `to` posts the trimmed final text there,
+as the session, marked as a turn end's (`POST /squawks` with `+auto: true+`).
+A `send`, `ask`, or `report` during the turn counts the same:
+the final text then stays thinking.
+* *Text and no message needed:* `turn_end` with `+no_reply: true+` (or `post: false`).
+The text stays thinking.
+* *No text:* nothing is posted, and the turn isn't returned.
+* *Text with no destination:* the turn is *returned*.
 
-*Auto-posts don't wake sessions.* An auto-post carries the part `pass:c[application/vnd.jam.turn-end+json]`. Wake-on skips it when its author is a session (xref:usage/jam/wake-on.adoc[wake-on]), and it never counts toward the agent-to-agent limit. People are notified as usual. A session that wants another session to act uses `send`.
+Mid-turn text (what the model writes before a tool call) is never posted.
+It shows only in the xref:usage/jam/session-view.adoc#thinking[Thinking] tab.
+
+*A returned turn.*
+jam-studio-agent commits nothing
+and wakes the session at once with the reason `returned`
+(a local wake, like `process-exited`; Jam isn't asked).
+Its line says the turn sent nothing and didn't say no message was needed,
+and the prompt shows the same messages again.
+`returned` is a per-turn flag: the prompt it causes answers a returned turn.
+If that turn also ends with text and no destination,
+it is committed, not returned again,
+and recorded as `unaddressed` in the session event stream
+(`+{"type":"cove","subtype":"turn","outcome":"unaddressed"}+`),
+which the Thinking tab shows.
+A turn that ends the session (`next: end`) isn't returned.
+
+*A refused `to`.*
+If the post to `to` fails (refused or unreachable),
+the reply reached no one:
+nothing is committed,
+and the turn is returned with a line that says why.
+A returned turn's failed post isn't returned again;
+its messages stay pending, and the next prompt opens with why.
+
+*How the studio knows what a turn sent.*
+After a successful `send`, `ask`, or `report`,
+the intercom MCP server tells the agent socket (`POST /turn/sent`, with a send's `to`).
+The record is cleared when the next prompt is written, and at each turn end.
+
+[#send-default]
+*`send` without `to`.*
+The MCP server asks the agent socket (`GET /turn`) where the turn's last `send` went,
+and sends there.
+A turn's first `send` needs a `to`:
+without one, the tool fails before it reaches Jam.
+Jam enforces the same rule for a session on protocol 3:
+`POST /squawks` with no `to` is a `400` ("send needs a `to`").
+Incoming messages never change the default.
+Asks and whiteboards keep their default, the home channel.
+
+*Auto-posts don't wake sessions.* A turn end's post carries the part `pass:c[application/vnd.jam.turn-end+json]`. Wake-on skips it when its author is a session (xref:usage/jam/wake-on.adoc[wake-on]), and it never counts toward the agent-to-agent limit. People are notified as usual. A session that wants another session to act uses `send`.
 
 *Duplicate replies.* Jam skips an auto-post whose trimmed body equals a `send` by the same session in the same channel since its previous auto-post, within 10 minutes. It answers `+{"skipped": true}+`, which covers an agent that also ``send``s its reply. The same short answer at two turn ends is two replies, and both are posted.
 
@@ -70,8 +121,9 @@ claude's `result` carries only the turn's last reply. Anything the model writes 
 |===
 |Field |Default |Effect
 
-|`to` |home channel |where the final text is posted (``send``'s targets)
-|`post` |true |false: post nothing
+|`to` |— |where the final text is posted (``send``'s targets); without it, the final text is thinking
+|`+no_reply+` |false |true: no message is needed; the text stays thinking and the turn isn't returned
+|`post` |true |false: read as `+no_reply: true+`
 |`commit` |true |false (deny): the shown messages stay pending and come back with the next wake. Deny alone doesn't wake.
 |`next` |`wait` |`compact` (compact, then wait) or `end` (with ``reason``: the `end` tool's effect)
 |`+wake_on_message+` |true |false: `PUT /mute`. New messages don't wake the session until it next runs. Alarms, the idle timeout and kept processes still do, and an owner's keep/release reply to a nag still acts. The next turn end with the default unmutes.
@@ -103,6 +155,7 @@ The agent tends what it keeps: its guidance tells it to agree with the person ho
 `+turn_end+` and `+keep_*+` reach the Workload over a unix socket at `/dev/shm/jam-agent.sock` (mode 0600). It is served by jam-studio-agent and used by its MCP subcommand (`jam-studio-agent mcp`). Its routes are:
 
 * ``PUT /turn-end``;
+* `POST /turn/sent` and `GET /turn` (what the turn sent, and its last `send`'s `to`);
 * `POST /keeps`, `+DELETE /keeps/{name}+` and `GET /keeps`.
 
 `+turn_end+` answers 409 while the structured turn end is off. Against a studio with no socket, either tool fails with "upgrade the studio".

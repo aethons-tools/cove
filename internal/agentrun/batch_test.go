@@ -29,6 +29,16 @@ func TestRenderBatchHeaderAndClosing(t *testing.T) {
 	}
 }
 
+// An entry carries the send address that replies in its conversation.
+func TestRenderBatchReplyTo(t *testing.T) {
+	e := entry("m1", "can you look?")
+	e.ReplyTo = "user:alice"
+	text, _ := renderBatch([]InboxEntry{e}, false)
+	if want := "From you in me (session) at 2026-10-28T00:00:00Z — id m1 — reply: to=user:alice\ncan you look?"; !strings.Contains(text, want) {
+		t.Fatalf("batch missing %q:\n%s", want, text)
+	}
+}
+
 func TestRenderBatchMore(t *testing.T) {
 	text, upTo := renderBatch([]InboxEntry{entry("m1", "a"), entry("m2", "b")}, true)
 	if !strings.Contains(text, batchMore) || strings.Contains(text, batchClosing) || upTo != "m2" {

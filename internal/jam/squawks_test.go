@@ -13,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // sqFixture is the /squawks handler over the intercom fixture: each session
@@ -169,6 +170,24 @@ func TestSquawksSendDefaults(t *testing.T) {
 	}
 }
 
+// Under the turn-end rule a send names its conversation: no `to` is a 400,
+// and a `to` still goes through.
+func TestSquawksSendTurnRuleNeedsTo(t *testing.T) {
+	f := newSqFixture(t, "user:alice")
+	inst, _ := f.store.GetInstance(f.standing.ActorID)
+	inst.TurnProtocol = sessionctx.TurnProtocolTurnRule
+	if err := f.store.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	rec := f.do(http.MethodPost, "/squawks", f.standing, `{"body":"hello?"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "needs a `to`") {
+		t.Fatalf("no to = %d %s", rec.Code, rec.Body)
+	}
+	if code, r := f.send(f.standing, `{"body":"hi alice","to":"user:alice"}`); code != http.StatusOK || r.Channel.Kind != "dm" {
+		t.Fatalf("to user = %d %+v", code, r)
+	}
+}
+
 func TestSquawksSendAddressed(t *testing.T) {
 	f := newSqFixture(t, "user:alice", "channel:eng")
 	code, r := f.send(f.standing, `{"body":"hi alice","to":"user:alice"}`)
@@ -232,6 +251,9 @@ func TestSquawksReadIsTheInbox(t *testing.T) {
 	if s.ID != m1.ID || s.Author != "alice" || s.From == nil || *s.From != (Party{ID: f.alice.ID, Kind: "user", Label: "alice"}) ||
 		s.Channel == nil || s.Channel.Kind != "session" || s.At == nil || s.ContentType != intercom.ContentMarkdown {
 		t.Fatalf("entry = %+v (from %+v, channel %+v)", s, s.From, s.Channel)
+	}
+	if s.ReplyTo != "session:"+f.personal.ActorID {
+		t.Fatalf("reply_to = %q, want its own channel", s.ReplyTo)
 	}
 	if r.PageFirst != m1.ID {
 		t.Fatalf("page_first = %q", r.PageFirst)

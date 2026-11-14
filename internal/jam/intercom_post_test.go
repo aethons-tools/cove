@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -456,5 +457,86 @@ func TestIntercomNameGlobsNeverMatchIDs(t *testing.T) {
 		if _, err := f.plan(f.standing, "user:"+string(f.alice.ID)); err != nil {
 			t.Errorf("%s → alice's id: %v, want allowed", glob, err)
 		}
+	}
+}
+
+// A person in the session's own channel who messaged it there is a reply
+// target by name, whatever the session's addressing: under the turn-end rule
+// that reply has no other way to reach them. Someone who didn't message it
+// there, or isn't in it, still needs addressing.
+func TestReplyToPersonInOwnChannel(t *testing.T) {
+	f := newICFixture(t, "ticket:*")
+	f.standing.Name, f.standing.Activity = "spider", ActivityWaiting
+	if err := f.store.PutInstance(f.standing); err != nil {
+		t.Fatal(err)
+	}
+	home, err := f.ic.HomeChannel(f.standing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.plan(f.standing, "user:alice"); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("before alice is in: %v", err)
+	}
+	// Escalation calls alice into the session's channel; she answers there.
+	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)
+	if err := f.ic.Escalate(context.Background(), f.standing, 1, "infra", []Member{alice}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ic.PostTrusted(home, intercom.Squawk{From: f.alice.ID, Body: "can you look?"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, to := range []string{"user:alice", "user:" + string(f.alice.ID), "session:spider", "session:" + f.standing.ActorID} {
+		if pl, err := f.plan(f.standing, to); err != nil || pl.Channel.ID != home.ID {
+			t.Errorf("reply to %q = %+v, %v; want its own channel", to, pl.Channel, err)
+		}
+	}
+	if _, err := f.plan(f.standing, "user:bob"); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("bob, not in its channel: %v", err)
+	}
+}
+
+// ReplyTo names each kind of conversation so that a send to it lands back
+// in the same channel.
+func TestReplyToRoundTrips(t *testing.T) {
+	f := newICFixture(t, "session:*")
+	f.standing.Name = "spider"
+	if err := f.store.PutInstance(f.standing); err != nil {
+		t.Fatal(err)
+	}
+	// Its own channel, where alice messaged it.
+	home, _ := f.ic.HomeChannel(f.standing)
+	if err := f.ic.JoinChannel(f.alice.ID, home.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ic.PostTrusted(home, intercom.Squawk{From: f.alice.ID, Body: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	// A dm another session opened with it.
+	dm := f.mustPlan(f.personal, "chat:session:"+f.standing.ActorID).Channel
+	// Its own ticket's work log.
+	log := f.mustPlan(f.ticket, "work:ACME-7").Channel
+	for _, c := range []struct {
+		inst Instance
+		ch   Channel
+		want string
+	}{
+		{f.standing, home, "session:spider"},
+		{f.standing, dm, "chat:session:" + f.personal.ActorID},
+		{f.ticket, log, "work:ACME-7"},
+	} {
+		to := f.ic.ReplyTo(c.inst, c.ch.ID)
+		if to != c.want {
+			t.Errorf("ReplyTo(%s) = %q, want %q", c.ch.Kind, to, c.want)
+			continue
+		}
+		if pl, err := f.plan(c.inst, to); err != nil || pl.Channel.ID != c.ch.ID {
+			t.Errorf("send to %q = %+v, %v; want channel %s", to, pl.Channel, err, c.ch.ID)
+		}
+	}
+	if to := f.ic.ReplyTo(f.standing, f.room.ID); to != "channel:eng" {
+		t.Errorf("room = %q", to)
+	}
+	if to := f.ic.ReplyTo(f.standing, "chn_nope"); to != "" {
+		t.Errorf("unknown channel = %q", to)
 	}
 }

@@ -79,7 +79,9 @@ type SessionFacts struct {
 	Previews bool   // studio previews are enabled on this Jam (expose/unexpose/exposures)
 	// TurnProtocol is the turn end the cove speaks: 0 = legacy (the agent
 	// `send`s and `commit`s), 2 = structured (messages arrive in the prompt,
-	// the final text is posted and what was shown committed for it).
+	// the final text is posted and what was shown committed for it), 3 = the
+	// turn-end rule (as 2, but text is posted only where turn_end's to says,
+	// and a turn that sent nothing is returned).
 	TurnProtocol int
 }
 

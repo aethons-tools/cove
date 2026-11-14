@@ -35,6 +35,9 @@ who posted in the log, or clicked *Join* on it.
 The whole log is mirrored to the issue in the tracker, both ways.
 Each entry becomes a comment on the issue,
 and a comment written on the issue becomes an entry in the log.
+When the session reports its progress or a change of state, such as *in review*,
+the report is an entry in the log,
+so it shows on the issue as a comment.
 
 == Reaching the work
 
