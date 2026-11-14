@@ -162,14 +162,15 @@ For a room or a work log, only the people a message names are notified.
 == The agent-to-agent limit
 
 Today's loop breaker becomes a limit over time, in every kind of conversation.
-It counts the session-authored messages in a conversation
-since the later of its last person-authored message and the start of a sliding window.
-Past the limit, the next session messages there are delivered but wake no session,
+It trips when the last 8 messages in a conversation are all session-authored
+and all fall within the window (10 minutes):
+the check reads the last 9 messages, as today's does, and also compares their times.
+While it's tripped, the next session messages there are delivered but wake no session,
 and Jam tells the operators,
 and for a personal session the person who started it,
 once each time the limit is reached.
 The numbers are serve config, `runtime.agent-wakes` (a count and a window);
-the defaults keep today's 8 messages, in a 10-minute window.
+the defaults are 8 messages and 10 minutes.
 
 The limit lifts in three ways:
 
@@ -183,7 +184,7 @@ which no person can post in.
 In a `dm`, the limit is per pair.
 A loop among three agents trips it too,
 because each of their conversations sees only session messages.
-The count is read from the log, plus the time of the last *Resume*.
+The check reads only the log, plus the time of the last *Resume*.
 
 [#order]
 == Building it
