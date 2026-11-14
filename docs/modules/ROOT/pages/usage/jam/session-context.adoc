@@ -4,7 +4,7 @@
 :owns: session-context layers, delivery order and precedence, the SANDBOX.md vs context precedence, core budgets, the /agent-data/context layout, the JAM_AGENT_CONTEXT_FILE handoff, GET /context and the refresh notices
 :prereqs: coves.adoc
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-14
 
 At raise Jam compiles a *session context bundle* (`internal/jam/sessionctx`) from
 layers, in delivery order:
@@ -49,9 +49,11 @@ removed, so a reader always sees one complete tree), and starts every episode
 `+--append-system-prompt-file /agent-data/context/CORE.md --system-prompt-snapshot off+`.
 `off` matters: by default claude replays the first turn's system prompt on every
 `+--continue+`. Within one episode the system prompt is fixed; see xref:usage/jam/coves.adoc[coves].
-. Every live refresh asks for ``?turn-protocol=2``; a Jam that honors it compiles the
-xref:usage/jam/structured-turn-end.adoc[structured turn end]'s guidance and marks the bundle
-`+turn_protocol: 2+`.
+. Every live refresh asks for ``?turn-protocol=3``; a Jam that honors it compiles the
+xref:usage/jam/structured-turn-end.adoc[structured turn end]'s guidance for the turn-end rule
+(text is thinking unless it's sent; `send` names its conversation)
+and marks the bundle `+turn_protocol: 3+`.
+An older studio's ``?turn-protocol=2`` still gets that protocol's guidance, marked `+turn_protocol: 2+`.
 . No file or malformed JSON → the agent runs without context, exactly as before
 (`jam-studio-agent.log` then has no `session context applied` line). An unwritable
 directory is warned in `jam-studio-agent.log` and also runs without it. Either way any

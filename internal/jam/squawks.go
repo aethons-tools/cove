@@ -32,6 +32,8 @@ type Squawk struct {
 	ContentType string `json:"content_type"`
 	Channel     *Party `json:"channel,omitempty"`
 	From        *Party `json:"from,omitempty"`
+	// ReplyTo is the send address that replies in Channel (Intercom.ReplyTo).
+	ReplyTo string `json:"reply_to,omitempty"`
 	// Parts are the squawk's typed parts (an ask event: its data is the
 	// intercom.AskEvent).
 	Parts []intercom.Part `json:"parts,omitempty"`
@@ -222,10 +224,14 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 	if !h.configured(w) {
 		return
 	}
-	// No `to`: the session's home channel (its ticket's, or its own). A `to`
-	// is planned against the role's addressing.
-	pl, err := h.ic.Plan(Poster{ID: ident.ID(actor.ID), Session: &inst, Actor: &actor}, req.To, h.now())
+	// No `to`: the session's home channel (its ticket's, or its own), unless
+	// it speaks the turn-end rule (400). A `to` is planned against the role's
+	// addressing.
+	pl, err := h.ic.PlanSend(Poster{ID: ident.ID(actor.ID), Session: &inst, Actor: &actor}, req.To, h.now())
 	switch {
+	case errors.Is(err, ErrSendNeedsTo):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	case errors.Is(err, ErrNoWorker):
 		writeNoWorker(w)
 		return
@@ -445,6 +451,7 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 		if m.Channel != "" {
 			ch := h.ic.ChannelParty(m.Channel)
 			sq.Channel = &ch
+			sq.ReplyTo = h.ic.ReplyTo(inst, m.Channel)
 		}
 		out = append(out, sq)
 	}

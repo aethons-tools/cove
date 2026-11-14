@@ -67,6 +67,32 @@ The role's *addressing* is the list of people, rooms, work, and sessions that th
 A session can message the session working on a ticket in a DM
 (xref:concepts/work.adoc#_reaching_the_work[Reaching the work]).
 
+== Ending a turn
+
+A session works in turns.
+A turn ends in one of four ways:
+
+* The session ends the turn with text and a destination.
+Jam sends the text there.
+Sending a message during the turn counts the same.
+* The session ends the turn with text and no destination.
+Jam returns the turn to the session once to choose,
+so an answer isn't lost by accident.
+If it still names no destination, the text stays as thinking.
+* The session ends the turn with text and explicitly says that no message is needed.
+The text stays as thinking.
+* The session ends the turn with no text.
+Nothing is sent.
+
+What a session writes without sending it is treated as thinking:
+it shows in the session's xref:inbox/session.adoc#_thinking[Thinking] tab, not in any channel.
+
+ifdef::internal[]
+NOTE: For the team: the rule is `+turn_end+`'s `to` and `+no_reply+` and the returned turn
+(`docs/modules/ROOT/pages/usage/jam/structured-turn-end.adoc`, "The turn-end rule").
+Studios on an older image still post their final text for them.
+endif::[]
+
 == Joining, leaving and calling in
 
 You join a work log, a room, or a shared session's channel when you post in it.

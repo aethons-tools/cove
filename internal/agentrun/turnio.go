@@ -51,6 +51,7 @@ type InboxEntry struct {
 	ContentType string      `json:"content_type"`
 	Channel     InboxParty  `json:"channel"`
 	From        InboxParty  `json:"from"`
+	ReplyTo     string      `json:"reply_to"` // the send address that replies in Channel ("" from an older Jam)
 	Parts       []InboxPart `json:"parts"`
 }
 

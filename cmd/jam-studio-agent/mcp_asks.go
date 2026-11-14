@@ -130,7 +130,11 @@ func addAskTools(s *mcp.Server, client *messagingClient, cfgErr error) {
 			return nil, askOut{}, cfgErr
 		}
 		var out askOut
-		return nil, out, client.postJSON(ctx, "/squawks/ask", in, &out)
+		if err := client.postJSON(ctx, "/squawks/ask", in, &out); err != nil {
+			return nil, out, err
+		}
+		client.noteSent(ctx, "ask", "")
+		return nil, out, nil
 	})
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "amend",

@@ -38,13 +38,15 @@ func reportRole(state string) (scheduler.Role, bool) {
 	return 0, false
 }
 
+// Report moves the ticket only: the handler posts the summary to the unit's
+// work log, which the tracker relay mirrors as a comment.
 func (l trackerTicketer) Report(ctx context.Context, inst jam.Instance, r jam.TicketReport) error {
 	role, _ := reportRole(r.State) // validated by the handler
-	body := "**" + r.State + "** — " + r.Summary
-	if r.PR != "" {
-		body += "\n\nPR: " + r.PR
+	id, err := l.t.IssueByIdentifier(ctx, inst.Unit)
+	if err != nil {
+		return err
 	}
-	return l.move(ctx, inst.Unit, role, body)
+	return l.t.Transition(ctx, id, role)
 }
 
 func (l trackerTicketer) BlockUnfinished(ctx context.Context, inst jam.Instance, reason string) error {
