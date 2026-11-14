@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 )
@@ -105,6 +106,8 @@ type Binding struct {
 // Channel is one conversation. Key identifies it within its project and kind
 // (live channels only); Label is how it is shown. Worker is a work log's
 // current worker: the session that holds the unit now ("" when none).
+// ResumedAt is the last Resume of its agent-to-agent limit: messages from
+// before it never count toward the next trip (conversations.adoc#rate-limit).
 type Channel struct {
 	ID        ident.ID   `json:"id"`
 	ProjectID ident.ID   `json:"project_id"`
@@ -114,6 +117,7 @@ type Channel struct {
 	Status    Status     `json:"status"`
 	Bindings  []Binding  `json:"bindings,omitempty"`
 	Worker    ident.ID   `json:"worker,omitempty"`
+	ResumedAt time.Time  `json:"resumed_at,omitzero"`
 }
 
 // ChannelMember is one membership of a participant (a session, user or
@@ -151,6 +155,8 @@ type ChannelStore interface {
 	SetChannelBindings(id ident.ID, bs []Binding) error
 	// SetChannelWorker records work log id's current worker ("" for none).
 	SetChannelWorker(id, worker ident.ID) error
+	// SetChannelResumed records the last Resume of id's agent-to-agent limit.
+	SetChannelResumed(id ident.ID, at time.Time) error
 	// ArchiveChannel ends a channel (ErrRemoved if it already has).
 	ArchiveChannel(id ident.ID) error
 	// ReopenChannel makes an archived channel live again, members and
@@ -420,6 +426,15 @@ func (m *memState) prepareSetChannelWorker(id, worker ident.ID) (Channel, error)
 	return c, nil
 }
 
+func (m *memState) prepareSetChannelResumed(id ident.ID, at time.Time) (Channel, error) {
+	c, err := m.liveChannel(id)
+	if err != nil {
+		return Channel{}, err
+	}
+	c.ResumedAt = at
+	return c, nil
+}
+
 func (m *memState) prepareArchiveChannel(id ident.ID) (Channel, error) {
 	c, err := m.liveChannel(id)
 	if err != nil {
@@ -565,6 +580,10 @@ func (fs *MemStore) SetChannelBindings(id ident.ID, bs []Binding) error {
 
 func (fs *MemStore) SetChannelWorker(id, worker ident.ID) error {
 	return fs.putChannelWith(func() (Channel, error) { return fs.prepareSetChannelWorker(id, worker) })
+}
+
+func (fs *MemStore) SetChannelResumed(id ident.ID, at time.Time) error {
+	return fs.putChannelWith(func() (Channel, error) { return fs.prepareSetChannelResumed(id, at) })
 }
 
 func (fs *MemStore) ArchiveChannel(id ident.ID) error {

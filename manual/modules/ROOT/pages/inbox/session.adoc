@@ -292,7 +292,8 @@ The header and pane are `web/app/src/session/`
 (`SessionView`, `SessionHeader`, `PaneTabs`; Thinking in `thinking/`, View here in `frames/`).
 The server side is `internal/jam/userui` (`session.go`, `api_activity.go`, `sessionpane.go`, `thinking.go`).
 * Who may open it is `mayOpen` (`session.go`): operators, and a personal session's starter.
-* *Resume* shows only once the agent-to-agent limit is wired (`Deps.AgentLimit`, COV-348).
+* *Resume* is `+POST /app/user/api/conversations/{id}/resume+`;
+the limit is the wake-on engine's (`docs/modules/ROOT/pages/usage/jam/wake-on.adoc`).
 * Routes: `+GET /app/user/api/sessions/{id}+` (the header),
 `+GET …/sessions/{id}/activity+` (paged like `read`),
 `+POST …/sessions/{id}/interrupt|compact|clear|release|restart|end|upgrade+`,

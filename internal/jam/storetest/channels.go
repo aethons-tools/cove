@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -312,6 +313,31 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		r := mustChannel(t, s, room(p, "eng"))
 		if err := s.SetChannelWorker(r.ID, w); err == nil {
 			t.Fatal("only a work log has a worker")
+		}
+	})
+
+	t.Run("channel_resumed", func(t *testing.T) {
+		s, p, _ := setup(t)
+		r := mustChannel(t, s, room(p, "eng"))
+		if r.ResumedAt != (time.Time{}) {
+			t.Fatalf("a new channel has no Resume: %+v", r)
+		}
+		at := time.Date(2026, 11, 14, 9, 30, 0, 0, time.UTC)
+		if err := s.SetChannelResumed(r.ID, at); err != nil {
+			t.Fatalf("SetChannelResumed: %v", err)
+		}
+		if got, _ := s.GetChannel(r.ID); !got.ResumedAt.Equal(at) {
+			t.Fatalf("resumed at = %v, want %v", got.ResumedAt, at)
+		}
+		later := at.Add(time.Minute)
+		if err := s.SetChannelResumed(r.ID, later); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.GetChannel(r.ID); !got.ResumedAt.Equal(later) {
+			t.Fatalf("only the last Resume is kept: %v, want %v", got.ResumedAt, later)
+		}
+		if err := s.SetChannelResumed("chn_01j9q3zzzzzzzzzzzzzzzzzzzz", at); !errors.Is(err, jam.ErrChannelNotFound) {
+			t.Fatalf("unknown channel: %v", err)
 		}
 	})
 

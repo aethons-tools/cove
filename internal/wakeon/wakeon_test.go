@@ -1809,7 +1809,7 @@ func TestTick_EveryDeliveryWakes(t *testing.T) {
 	}
 }
 
-// fakeHistory is a channel's log for the loop breaker.
+// fakeHistory is a channel's log for the agent-to-agent limit.
 type fakeHistory struct {
 	byChannel map[ident.ID][]intercom.Squawk
 }
@@ -1827,50 +1827,126 @@ func (f fakeHistory) ChannelBefore(ch ident.ID, beforeSeq int64, limit int) []in
 	return out
 }
 
-type fakeBreaker struct{ notices []string }
+// fakeResumes is the conversations' last Resume.
+type fakeResumes map[ident.ID]time.Time
 
-func (f *fakeBreaker) BreakerNotice(ch, from ident.ID, id, body string) error {
-	f.notices = append(f.notices, string(ch)+"|"+string(from)+"|"+id)
+func (f fakeResumes) GetChannel(id ident.ID) (jam.Channel, bool) {
+	return jam.Channel{ID: id, ResumedAt: f[id]}, true
+}
+
+func (f fakeResumes) SetChannelResumed(id ident.ID, at time.Time) error {
+	f[id] = at
 	return nil
 }
 
-// With session wakes on, another session's post wakes a waiting session —
-// until a channel has had more than the limit of session posts in a row
-// since a person last spoke there: then it doesn't, and Jam posts a notice.
-func TestTick_SessionWakesWithBreaker(t *testing.T) {
-	const ses = ident.ID("ses_01j9q3bbbbbbbbbbbbbbbbbbbb")
-	const ch = ident.ID("chn_01j9q3cccccccccccccccccccc")
-	run := func(history []intercom.Squawk) (bool, *fakeBreaker) {
-		last := history[len(history)-1]
-		reg := &fakeReg{insts: []jam.Instance{
-			{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: last.Seq - 1},
-		}}
-		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {last}}}
-		wake := &fakeWaker{}
-		br := &fakeBreaker{}
-		e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
-		e.SetSessionWakes(fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{ch: history}}, br, 3)
-		e.now = func() time.Time { return time.Unix(2000, 0) }
-		e.tick(context.Background())
-		return contains(wake.woke, "a1"), br
+// limitFixture is a channel's log for the agent-to-agent limit, at minute
+// marks from t0: a person (p) or a session (s, or a1, the woken session).
+const (
+	limitSes    = ident.ID("ses_01j9q3bbbbbbbbbbbbbbbbbbbb")
+	limitPerson = ident.ID("usr_01j9q3aaaaaaaaaaaaaaaaaaaa")
+	limitCh     = ident.ID("chn_01j9q3cccccccccccccccccccc")
+)
+
+var limitT0 = time.Unix(100000, 0)
+
+func limitMsg(seq int64, from ident.ID, minute int) intercom.Squawk {
+	return intercom.Squawk{Seq: seq, ID: fmt.Sprintf("m%d", seq), Channel: limitCh, From: from, Body: "x", At: limitT0.Add(time.Duration(minute) * time.Minute)}
+}
+
+// limitRun ticks a1 waiting on history's last message, with a limit of 3
+// in 10 minutes, and reports whether it woke.
+func limitRun(history []intercom.Squawk, resumes fakeResumes) bool {
+	last := history[len(history)-1]
+	reg := &fakeReg{insts: []jam.Instance{
+		{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: last.Seq - 1},
+	}}
+	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {last}}}
+	wake := &fakeWaker{}
+	e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+	e.SetSessionWakes(fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{limitCh: history}}, resumes, AgentWakes{Count: 3, Window: 10 * time.Minute})
+	e.now = func() time.Time { return last.At.Add(time.Hour) }
+	e.tick(context.Background())
+	return contains(wake.woke, "a1")
+}
+
+// With session wakes on, another session's message wakes a waiting session,
+// until the agent-to-agent limit trips (conversations.adoc#rate-limit): the
+// last count messages before it are all session-authored and, with it, all
+// within the window. Then it is delivered but wakes no one.
+func TestTick_AgentLimit(t *testing.T) {
+	p, s := limitPerson, limitSes
+	for name, tc := range map[string]struct {
+		history []intercom.Squawk
+		wake    bool
+	}{
+		"a person, then three session messages":         {[]intercom.Squawk{limitMsg(1, p, 0), limitMsg(2, s, 1), limitMsg(3, "a1", 2), limitMsg(4, s, 3)}, true},
+		"four session messages in the window":           {[]intercom.Squawk{limitMsg(1, p, 0), limitMsg(2, s, 1), limitMsg(3, "a1", 2), limitMsg(4, s, 3), limitMsg(5, s, 4)}, false},
+		"the window spans exactly 10 minutes":           {[]intercom.Squawk{limitMsg(2, s, 0), limitMsg(3, "a1", 2), limitMsg(4, s, 3), limitMsg(5, s, 10)}, false},
+		"four session messages, slower than the window": {[]intercom.Squawk{limitMsg(2, s, 0), limitMsg(3, "a1", 2), limitMsg(4, s, 3), limitMsg(5, s, 11)}, true},
+		"a person's message wakes":                      {[]intercom.Squawk{limitMsg(2, s, 0), limitMsg(3, s, 1), limitMsg(4, s, 2), limitMsg(5, s, 3), limitMsg(6, p, 4)}, true},
+		"a person posted within the run":                {[]intercom.Squawk{limitMsg(2, s, 0), limitMsg(3, s, 1), limitMsg(4, p, 2), limitMsg(5, s, 3), limitMsg(6, s, 4)}, true},
+	} {
+		if got := limitRun(tc.history, nil); got != tc.wake {
+			t.Errorf("%s: woke = %v, want %v", name, got, tc.wake)
+		}
 	}
-	msg := func(seq int64, from ident.ID) intercom.Squawk {
-		return intercom.Squawk{Seq: seq, ID: "m" + string(rune('a'+seq)), Channel: ch, From: from, Body: "x"}
+}
+
+// Resume restarts the count: messages from before it never count.
+func TestTick_AgentLimitResume(t *testing.T) {
+	s := limitSes
+	history := []intercom.Squawk{limitMsg(1, s, 0), limitMsg(2, s, 1), limitMsg(3, "a1", 2), limitMsg(4, s, 3), limitMsg(5, s, 4)}
+	if limitRun(history, fakeResumes{limitCh: limitT0.Add(30 * time.Second)}) {
+		t.Error("one message from before the Resume, then four: the limit must still trip")
 	}
-	person := ident.ID("usr_01j9q3aaaaaaaaaaaaaaaaaaaa")
-	// A person spoke, then three session posts: within the limit, it wakes.
-	if woke, br := run([]intercom.Squawk{msg(1, person), msg(2, ses), msg(3, "a1"), msg(4, ses)}); !woke || len(br.notices) != 0 {
-		t.Fatalf("within the limit: woke=%v notices=%v", woke, br.notices)
+	if !limitRun(history, fakeResumes{limitCh: limitT0.Add(90 * time.Second)}) {
+		t.Error("two messages from after the Resume: the limit must not trip")
 	}
-	// Four session posts in a row: past the limit — no wake, one notice
-	// keyed by the person's last post.
-	woke, br := run([]intercom.Squawk{msg(1, person), msg(2, ses), msg(3, "a1"), msg(4, ses), msg(5, ses)})
-	if woke || len(br.notices) != 1 || br.notices[0] != string(ch)+"|a1|breaker:"+string(ch)+":1" {
-		t.Fatalf("past the limit: woke=%v notices=%v", woke, br.notices)
+	if !limitRun(history, fakeResumes{limitCh: limitT0.Add(time.Hour)}) {
+		t.Error("a message delivered before a Resume must wake once it is pressed")
 	}
-	// A person's post wakes as always.
-	if woke, _ := run([]intercom.Squawk{msg(2, ses), msg(3, ses), msg(4, ses), msg(5, ses), msg(6, person)}); !woke {
-		t.Fatal("a person's post must wake")
+}
+
+// Tripped reports whether a session message posted now would wake no one;
+// Resume lifts it, records the time, and kicks a tick.
+func TestEngine_TrippedAndResume(t *testing.T) {
+	s := limitSes
+	history := []intercom.Squawk{limitMsg(1, limitPerson, 0), limitMsg(2, s, 1), limitMsg(3, s, 2), limitMsg(4, s, 3)}
+	resumes := fakeResumes{}
+	e := New(&fakeReg{}, &fakeWaker{}, &fakeReaper{}, &fakeIdler{}, &fakeInbox{}, Config{}, nil)
+	now := limitT0.Add(5 * time.Minute)
+	e.now = func() time.Time { return now }
+	if e.Tripped(limitCh) {
+		t.Fatal("without session wakes, nothing trips")
+	}
+	e.SetSessionWakes(fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{limitCh: history}}, resumes, AgentWakes{Count: 3, Window: 10 * time.Minute})
+	if !e.Tripped(limitCh) {
+		t.Fatal("three session messages within the window: tripped")
+	}
+	if e.Tripped("chn_01j9q3dddddddddddddddddddd") {
+		t.Fatal("an empty conversation isn't tripped")
+	}
+	now = limitT0.Add(12 * time.Minute)
+	if e.Tripped(limitCh) {
+		t.Fatal("the window slid past: not tripped")
+	}
+	now = limitT0.Add(5 * time.Minute)
+	if err := e.Resume(limitCh); err != nil {
+		t.Fatal(err)
+	}
+	if !resumes[limitCh].Equal(now) {
+		t.Fatalf("Resume recorded %v, want %v", resumes[limitCh], now)
+	}
+	if e.Tripped(limitCh) {
+		t.Fatal("after Resume: not tripped")
+	}
+	select {
+	case <-e.kick:
+	default:
+		t.Fatal("Resume must kick a tick")
+	}
+	if err := New(&fakeReg{}, &fakeWaker{}, &fakeReaper{}, &fakeIdler{}, &fakeInbox{}, Config{}, nil).Resume(limitCh); err == nil {
+		t.Fatal("Resume without a store must fail")
 	}
 }
 
@@ -1884,7 +1960,7 @@ func TestTick_SessionNoticesDontWakeSessions(t *testing.T) {
 		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {m}}}
 		wake := &fakeWaker{}
 		e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
-		e.SetSessionWakes(fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{m.Channel: {m}}}, &fakeBreaker{}, 8)
+		e.SetSessionWakes(fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{m.Channel: {m}}}, nil, AgentWakes{Count: 8, Window: 10 * time.Minute})
 		e.now = func() time.Time { return time.Unix(2000, 0) }
 		e.tick(context.Background())
 		if got := contains(wake.woke, "a1"); got != want {
@@ -1904,30 +1980,35 @@ func (c *countingHistory) ChannelBefore(ch ident.ID, beforeSeq int64, limit int)
 	return c.fakeHistory.ChannelBefore(ch, beforeSeq, limit)
 }
 
-// A delivery's verdict can't change (earlier seqs are settled), so a
-// suppressed delivery is checked against the log once, not every tick, and
-// the notice is offered once.
-func TestTick_BreakerVerdictIsCached(t *testing.T) {
-	const ses = ident.ID("ses_01j9q3bbbbbbbbbbbbbbbbbbbb")
-	const ch = ident.ID("chn_01j9q3cccccccccccccccccccc")
+// A delivery's verdict can't change (earlier seqs are settled) until a
+// Resume, so a suppressed delivery is checked against the log once, not every
+// tick; a Resume checks it again.
+func TestTick_LimitVerdictIsCached(t *testing.T) {
 	var history []intercom.Squawk
 	for i := int64(1); i <= 5; i++ {
-		history = append(history, intercom.Squawk{Seq: i, ID: fmt.Sprintf("m%d", i), Channel: ch, From: ses, Body: "x"})
+		history = append(history, limitMsg(i, limitSes, int(i)))
 	}
 	reg := &fakeReg{insts: []jam.Instance{{ActorID: "a1", Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: 4}}}
 	inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {history[4]}}}
-	h := &countingHistory{fakeHistory: fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{ch: history}}}
-	br := &fakeBreaker{}
-	e := New(reg, &fakeWaker{}, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
-	e.SetSessionWakes(h, br, 3)
-	e.now = func() time.Time { return time.Unix(2000, 0) }
+	h := &countingHistory{fakeHistory: fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{limitCh: history}}}
+	wake := &fakeWaker{}
+	e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+	e.SetSessionWakes(h, fakeResumes{}, AgentWakes{Count: 3, Window: 10 * time.Minute})
+	e.now = func() time.Time { return limitT0.Add(time.Hour) }
 	e.tick(context.Background())
 	first := h.reads
 	for range 3 {
 		e.tick(context.Background())
 	}
-	if h.reads != first || len(br.notices) != 1 {
-		t.Fatalf("reads %d → %d over later ticks, notices %v", first, h.reads, br.notices)
+	if h.reads != first || len(wake.woke) != 0 {
+		t.Fatalf("reads %d → %d over later ticks, woke %v", first, h.reads, wake.woke)
+	}
+	if err := e.Resume(limitCh); err != nil {
+		t.Fatal(err)
+	}
+	e.tick(context.Background())
+	if !contains(wake.woke, "a1") {
+		t.Fatalf("after Resume the delivery must wake: woke %v", wake.woke)
 	}
 }
 
@@ -2017,7 +2098,7 @@ func TestRepliesSkipSessionAutoPosts(t *testing.T) {
 		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{"a1": {m}}}
 		wake := &fakeWaker{}
 		e := New(reg, wake, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
-		e.SetSessionWakes(fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{ch: {m}}}, &fakeBreaker{}, 8)
+		e.SetSessionWakes(fakeHistory{byChannel: map[ident.ID][]intercom.Squawk{ch: {m}}}, nil, AgentWakes{Count: 8, Window: 10 * time.Minute})
 		e.now = func() time.Time { return time.Unix(2000, 0) }
 		e.tick(context.Background())
 		if got := contains(wake.woke, "a1"); got != tc.wake {
