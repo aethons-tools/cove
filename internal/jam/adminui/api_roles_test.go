@@ -33,7 +33,7 @@ func TestRolesAPI(t *testing.T) {
 	if rec := apiDo(t, h, "GET", "/app/admin/api/projects/acme/roles/coder", nil, &d); rec.Code != 200 || d.Name != "coder" || d.TTL != "1h" || d.Form.TTL != "1h" {
 		t.Fatalf("get = %d %+v", rec.Code, d)
 	}
-	if d.Dests == nil || d.Addressing == nil || d.Standing == nil || d.Holders == nil || d.Running == nil || d.Allocation == nil {
+	if d.Dests == nil || d.Addressing == nil || d.Rooms == nil || d.Standing == nil || d.Holders == nil || d.Running == nil || d.Allocation == nil {
 		t.Errorf("nil lists: %+v", d)
 	}
 	rec = apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/coder/scope", map[string]string{"kit": "nope"}, nil)

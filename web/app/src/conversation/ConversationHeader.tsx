@@ -30,6 +30,11 @@ export function ConversationHeader({ c }: { c: Conversation }) {
       <div>
         <Title order={2} size="h4">{c.label}</Title>
         <Text size="xs" c="dimmed">{c.project}{c.kind && ` · ${kindLabel[c.kind] ?? c.kind}`}</Text>
+        {c.members && c.members.length > 0 && (
+          <Text size="xs" c="dimmed" aria-label="Members">
+            {c.members.map((m) => (m.kind === "agent" ? `${m.label} (agent)` : m.label)).join(", ")}
+          </Text>
+        )}
       </div>
       <Group gap="xs" wrap="nowrap">
         {c.needsYou && <Badge color="yellow">Needs you</Badge>}

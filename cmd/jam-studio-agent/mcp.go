@@ -114,7 +114,7 @@ type callInOut struct {
 
 // leaveIn is the "leave" tool's typed input.
 type leaveIn struct {
-	Channel string `json:"channel" jsonschema:"the channel id (chn_…) to leave; you can't leave your own channel or ticket"`
+	Channel string `json:"channel" jsonschema:"the channel id (chn_…) to leave; you can't leave your own channel, your ticket, or a room your role lists"`
 }
 
 // listTargetsIn is the "list_targets" tool's (empty) typed input.
@@ -761,7 +761,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "call_in",
-		Description: "Call someone into a channel you are in (default: your own channel), so they hear what follows there: who=user:<name> or session:<name>, within what you may address. Chats can't take new members; rooms take no sessions.",
+		Description: "Call someone into a channel you are in (default: your own channel), so they hear what follows there: who=user:<name> or session:<name>, within what you may address. Chats can't take new members.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in callInIn) (*mcp.CallToolResult, callInOut, error) {
 		if cfgErr != nil {
 			return nil, callInOut{}, cfgErr
@@ -775,7 +775,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "leave",
-		Description: "Leave a channel you joined (by id, from a read entry's channel) so you stop hearing it. You can't leave your own channel or your ticket's.",
+		Description: "Leave a channel you joined (by id, from a read entry's channel) so you stop hearing it. You can't leave your own channel, your ticket's, or a room your role lists; you can leave one you were called into.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in leaveIn) (*mcp.CallToolResult, any, error) {
 		if cfgErr != nil {
 			return nil, nil, cfgErr

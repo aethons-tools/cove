@@ -201,14 +201,64 @@ func (ic *Intercom) Reconcile() error {
 // ---- sessions' home channels ----
 
 // SetUp gives a session its home channel (HomeChannel, its own session
-// channel) and, for a session on a ticket, makes it the worker of the unit's
-// work log (ownTicketChannel), so the issue's comments reach it.
+// channel), for a session on a ticket makes it the worker of the unit's work
+// log (ownTicketChannel), so the issue's comments reach it, and joins it to
+// the rooms its role lists (joinRoleRooms).
 func (ic *Intercom) SetUp(inst Instance) error {
 	if _, err := ic.HomeChannel(inst); err != nil {
 		return err
 	}
-	_, _, err := ic.ownTicketChannel(inst)
-	return err
+	if _, _, err := ic.ownTicketChannel(inst); err != nil {
+		return err
+	}
+	return ic.joinRoleRooms(inst)
+}
+
+// joinRoleRooms joins inst to each live room its role's scope.rooms lists,
+// from the tail, with the listed wake (set again when it changed). A listed
+// room that no longer exists is skipped: the config planner refuses one, but
+// a room can be archived after its sessions were raised.
+func (ic *Intercom) joinRoleRooms(inst Instance) error {
+	p, ok := ic.store.GetProject(orDefaultProject(inst.Project))
+	if !ok {
+		return nil
+	}
+	self := ident.ID(inst.ActorID)
+	for _, rm := range ic.roleRooms(inst) {
+		ch, ok := ic.store.ChannelByKey(p.ID, SourceRoom, rm.Name)
+		if !ok || ch.Status != StatusLive {
+			continue
+		}
+		if err := ic.store.JoinChannel(ch.ID, self, ic.tail()); err != nil {
+			return err
+		}
+		if w, _ := ic.wakeOf(ch.ID, self); w != rm.Wake {
+			if err := ic.store.SetChannelWake(ch.ID, self, rm.Wake); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// roleRooms is the scope.rooms of inst's role.
+func (ic *Intercom) roleRooms(inst Instance) []RoomMembership {
+	r, ok := ic.store.GetRole(orDefaultProject(inst.Project), inst.Role)
+	if !ok {
+		return nil
+	}
+	return r.Scope.Rooms
+}
+
+// wakeOf is p's current membership's wake mode in ch; ok=false when p is
+// not a member.
+func (ic *Intercom) wakeOf(ch, p ident.ID) (WakeMode, bool) {
+	for _, m := range ic.store.ChannelMembers(ch) {
+		if m.ParticipantID == p && !m.Left {
+			return m.Wake, true
+		}
+	}
+	return "", false
 }
 
 // Ended withdraws an ended session's open asks, takes it out of its unit's
@@ -1182,8 +1232,9 @@ func (s ticketSource) CanSee(p ident.ID, ch Channel) bool {
 	return s.ic.isMemberOf(ch, p) || s.ic.projectUser(ch.ProjectID, p)
 }
 
-// roomSource: a room is open to its project's members; a session posts to it
-// when its addressing allows (rooms are post-only for sessions).
+// roomSource: a room is open to its project's members and its own (sessions
+// its role lists or that were called in); any other session posts to it when
+// its addressing allows.
 type roomSource struct{ ic *Intercom }
 
 func (roomSource) Kind() SourceKind { return SourceRoom }

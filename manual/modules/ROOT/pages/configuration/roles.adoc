@@ -63,6 +63,10 @@ and its route.
 A destination that does not exist is marked *unregistered*.
 *Addressing* lists who the role's agents may message;
 with none, they cannot message anyone.
+*Rooms* lists the rooms the role's agents join when they start,
+and which messages there wake them:
+*wake named* (only messages that mention the agent) or *wake all* (every message).
+You set the rooms in the role's file in the config repo.
 *Edit scope* changes the destinations, addressing, TTL (such as `1h`), kit and model spec.
 Egress::
 The outside domains the role's studios may reach,

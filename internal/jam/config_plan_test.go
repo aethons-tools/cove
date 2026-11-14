@@ -808,3 +808,29 @@ func TestPlanDeletesEditedManaged(t *testing.T) {
 		t.Fatalf("mark kept %+v", mk)
 	}
 }
+
+// A role's scope.rooms must name rooms of its project, in the planned
+// state: a room the same plan adds resolves; one no file has is refused, as
+// is a listed room the project file drops.
+func TestPlanRoleRoomsMustExist(t *testing.T) {
+	st := NewMemStore()
+	files := map[string]string{
+		"projects/app/project.yml":  "kind: project\nversion: 1\nrooms: [{key: ops}]\n",
+		"projects/app/roles/ic.yml": "kind: role\nversion: 1\nscope: {rooms: [{name: ops, wake: all}]}\n",
+	}
+	applyPlan(t, st, planOn(t, st, treeOf(t, files)))
+	if r, _ := st.GetRole("app", "ic"); len(r.Scope.Rooms) != 1 || r.Scope.Rooms[0] != (RoomMembership{Name: "ops", Wake: WakeAll}) {
+		t.Fatalf("rooms = %+v", r.Scope.Rooms)
+	}
+	files["projects/app/roles/ic.yml"] = "kind: role\nversion: 1\nscope: {rooms: [{name: ops}, {name: eng}]}\n"
+	p := planOn(t, st, treeOf(t, files))
+	if want := "projects/app/roles/ic.yml: scope.rooms: eng is not a room of project app"; !slices.Contains(p.Refusals, want) {
+		t.Errorf("missing %q in %v", want, p.Refusals)
+	}
+	files["projects/app/roles/ic.yml"] = "kind: role\nversion: 1\nscope: {rooms: [{name: ops, wake: all}]}\n"
+	files["projects/app/project.yml"] = "kind: project\nversion: 1\n"
+	p = planOn(t, st, treeOf(t, files))
+	if want := "projects/app/roles/ic.yml: scope.rooms: ops is not a room of project app"; !slices.Contains(p.Refusals, want) {
+		t.Errorf("unchanged role over a dropped room: missing %q in %v", want, p.Refusals)
+	}
+}

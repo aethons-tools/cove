@@ -151,8 +151,9 @@ func rowByID(r RailResponse, id string) (ChannelRow, jam.AttentionBucket, bool) 
 }
 
 // The header's kind and controls: Join and Leave on rooms, work logs, and
-// (until COV-354) a session's own channel; Call in lists people, and agents
-// too except on a room (until COV-349); a dm and a group have none.
+// (until COV-354) a session's own channel; Call in lists people and the
+// agents the viewer may reach; a dm and a group have none. A room lists its
+// members, its sessions marked as agents.
 func TestConversationKindsAndControls(t *testing.T) {
 	c := newConvEnv(t)
 	labels := func(os []NewMessageOption) []string {
@@ -166,8 +167,22 @@ func TestConversationKindsAndControls(t *testing.T) {
 	if room.Kind != "room" || !room.CanLeave || room.CanJoin {
 		t.Errorf("room: kind %q, canLeave %v, canJoin %v", room.Kind, room.CanLeave, room.CanJoin)
 	}
-	if got := labels(room.CallIn); !slices.Contains(got, "bob/person") || slices.Contains(got, "spider/agent") {
-		t.Errorf("room call in = %q, want bob and no agents", got)
+	if got := labels(room.CallIn); !slices.Contains(got, "bob/person") || !slices.Contains(got, "spider/agent") {
+		t.Errorf("room call in = %q, want bob and spider", got)
+	}
+	if err := c.st.JoinChannel(ident.ID(engID), ident.ID(c.spider.ActorID), 0); err != nil {
+		t.Fatal(err)
+	}
+	_, room, _ = getConv(t, c.env, c.p, engID, "")
+	var members []string
+	for _, m := range room.Members {
+		members = append(members, m.Label+"/"+m.Kind)
+	}
+	if got := members; !slices.Contains(got, "spider/agent") || len(got) != 2 {
+		t.Errorf("room members = %q, want the viewer and spider (an agent)", got)
+	}
+	if got := labels(room.CallIn); slices.Contains(got, "spider/agent") {
+		t.Errorf("room call in = %q, offers a member", got)
 	}
 	_, work, _ := getConv(t, c.env, c.p, string(c.work.ID), "")
 	if work.Kind != "work" || !work.CanJoin || work.CanLeave {

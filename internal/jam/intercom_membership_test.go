@@ -66,10 +66,12 @@ func TestIntercomCallInRefusals(t *testing.T) {
 		{"a chat is fixed", Poster{ID: f.alice.ID}, chat.ID, "user:bob", ErrFixedMembers},
 		{"session beyond its addressing", f.poster(f.personal), "", "user:bob", ErrSendDenied},
 		{"session: needs an explicit glob", f.poster(f.personal), "", "session:" + f.standing.ActorID, ErrSendDenied},
-		{"a room takes no sessions", Poster{ID: f.alice.ID}, f.room.ID, "session:" + f.standing.ActorID, ErrFixedMembers},
+		{"session into a room beyond its addressing", f.poster(f.personal), f.room.ID, "session:" + f.standing.ActorID, ErrSendDenied},
 	}
-	if err := f.store.JoinChannel(f.room.ID, f.alice.ID, 10); err != nil {
-		t.Fatal(err)
+	for _, p := range []ident.ID{f.alice.ID, ident.ID(f.personal.ActorID)} {
+		if err := f.store.JoinChannel(f.room.ID, p, 10); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, c := range cases {
 		if _, _, err := f.ic.CallIn(c.p, c.ch, c.who); !errors.Is(err, c.want) {
@@ -168,6 +170,96 @@ func TestIntercomLeaveUnseenChannel(t *testing.T) {
 	}
 	if err := f.ic.LeaveChannel(f.bob.ID, f.room.ID); err != nil {
 		t.Fatalf("leaving a visible channel one isn't in is a no-op: %v", err)
+	}
+}
+
+// memberWake is p's current membership of ch: its wake mode, ok=false when
+// p is not a member.
+func memberWake(s Store, ch, p ident.ID) (WakeMode, bool) {
+	for _, m := range s.ChannelMembers(ch) {
+		if m.ParticipantID == p && !m.Left {
+			return m.Wake, true
+		}
+	}
+	return "", false
+}
+
+// A session is called into a room by a person, or by a session member its
+// addressing allows; it joins with wake: named, and may leave again.
+func TestIntercomCallInSessionToRoom(t *testing.T) {
+	f := newICFixture(t, "session:*")
+	f.standing.Name = "spider"
+	if err := f.store.PutInstance(f.standing); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.JoinChannel(f.room.ID, f.alice.ID, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, who, err := f.ic.CallIn(Poster{ID: f.alice.ID}, f.room.ID, "session:"+f.ticket.ActorID); err != nil || who != ident.ID(f.ticket.ActorID) {
+		t.Fatalf("alice calls in the ticket session: %s, %v", who, err)
+	}
+	if w, ok := memberWake(f.store, f.room.ID, ident.ID(f.ticket.ActorID)); !ok || w != WakeNamed {
+		t.Fatalf("ticket session's membership = %q, %v; want named", w, ok)
+	}
+	if got := f.log.InboxSince(ident.ID(f.ticket.ActorID), 0, 0); len(got) != 1 || !IsCallInNotice(got[0].ID) {
+		t.Fatalf("ticket session's inbox = %+v, want the call-in notice", got)
+	}
+	// The ticket session, now a member, calls in spider: its addressing allows it.
+	if _, _, err := f.ic.CallIn(f.poster(f.ticket), f.room.ID, "session:spider"); err != nil {
+		t.Fatalf("session calls in spider: %v", err)
+	}
+	if w, ok := memberWake(f.store, f.room.ID, ident.ID(f.standing.ActorID)); !ok || w != WakeNamed {
+		t.Fatalf("spider's membership = %q, %v; want named", w, ok)
+	}
+	if err := f.ic.LeaveChannel(ident.ID(f.ticket.ActorID), f.room.ID); err != nil {
+		t.Fatalf("a session leaves a room it was called into: %v", err)
+	}
+	if isCurrentMember(f.store, f.room.ID, ident.ID(f.ticket.ActorID)) {
+		t.Fatal("ticket session is still in the room")
+	}
+}
+
+// A role's sessions join the rooms its scope.rooms lists when they're set up
+// (raised, or at serve start for running ones), with the listed wake; they
+// can't leave them. A listed room that is gone is skipped.
+func TestIntercomRoleRoomsJoinAtSetUp(t *testing.T) {
+	f := newICFixture(t)
+	ops, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceRoom, Key: "ops", Label: "ops"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	role := Role{Name: "impl", Scope: Scope{Rooms: []RoomMembership{{Name: "eng", Wake: WakeAll}, {Name: "ops", Wake: WakeNamed}, {Name: "gone", Wake: WakeNamed}}}}
+	if err := f.store.PutRole("acme", role); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatalf("SetUp: %v", err)
+	}
+	if err := f.ic.Reconcile(); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	for _, inst := range []Instance{f.ticket, f.personal, f.standing} {
+		self := ident.ID(inst.ActorID)
+		if w, ok := memberWake(f.store, f.room.ID, self); !ok || w != WakeAll {
+			t.Errorf("%s in eng: %q, %v; want all", inst.ActorID, w, ok)
+		}
+		if w, ok := memberWake(f.store, ops.ID, self); !ok || w != WakeNamed {
+			t.Errorf("%s in ops: %q, %v; want named", inst.ActorID, w, ok)
+		}
+	}
+	if err := f.ic.LeaveChannel(ident.ID(f.ticket.ActorID), f.room.ID); !errors.Is(err, ErrFixedMembers) {
+		t.Fatalf("a session leaves a room its role lists: %v, want ErrFixedMembers", err)
+	}
+	// The role's wake changes: the next set-up follows it.
+	role.Scope.Rooms[0].Wake = WakeNamed
+	if err := f.store.PutRole("acme", role); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	if w, _ := memberWake(f.store, f.room.ID, ident.ID(f.ticket.ActorID)); w != WakeNamed {
+		t.Fatalf("after the role changed: %q, want named", w)
 	}
 }
 

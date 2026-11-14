@@ -482,6 +482,13 @@ type HolderRow struct {
 	Override bool   `json:"override"` // the grant replaces part of the role's scope
 }
 
+// RoleRoomRow is a room the role's sessions are members of, and which of
+// its messages wake them: named (those that mention the session) or all.
+type RoleRoomRow struct {
+	Name string `json:"name"`
+	Wake string `json:"wake"`
+}
+
 // RoleForm is a role's current values in its edit forms' syntax.
 type RoleForm struct {
 	Destinations        string `json:"destinations"`
@@ -508,6 +515,7 @@ type RoleDetail struct {
 	TTL              string        `json:"ttl"`
 	Dests            []DestRow     `json:"dests"`
 	Addressing       []string      `json:"addressing"`
+	Rooms            []RoleRoomRow `json:"rooms"` // scope.rooms, set in the config repo
 	EgressManaged    bool          `json:"egressManaged"`
 	EgressDomains    []string      `json:"egressDomains"`
 	Allocation       []Setting     `json:"allocation"`

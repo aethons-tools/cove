@@ -11,7 +11,7 @@ export const agents = (a: Partial<ProjectAgents> = {}): ProjectAgents => ({
 export const role = (r: Partial<RoleDetail> = {}): RoleDetail => ({
   project: "acme", name: "coder", kit: "web", modelSpec: "claude-default", modelSpecDefault: true, ttl: "1h",
   dests: [{ name: "gh", cred: "gh-pat", credIsRole: true, route: "/gh/", missing: false }, { name: "old", cred: "", credIsRole: false, route: "", missing: true }],
-  addressing: ["user:*"], egressManaged: true, egressDomains: ["a.example.com"],
+  addressing: ["user:*"], rooms: [{ name: "ops", wake: "all" }], egressManaged: true, egressDomains: ["a.example.com"],
   allocation: [{ label: "Max personal agents", value: "2", unset: false }, { label: "Reclaim after", value: "never", unset: true }],
   standing: [{ name: "ic", prompt: "Mind the shop.", actorId: "ses_1", status: "waiting", image: "stale", upgrade: "" }],
   holders: [{ id: "ses_9", override: true }],
