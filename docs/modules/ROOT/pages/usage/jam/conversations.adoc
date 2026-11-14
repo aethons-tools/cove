@@ -113,8 +113,9 @@ except a reply: a session may always send to a conversation it was delivered a m
 A session may always send to its own unit's log (`+work:<its key>+`),
 and a personal session to the person who started it.
 
-`send` without `to` replies in the conversation of the newest message the turn was shown.
-On a turn with no messages, such as an alarm, `send` needs a `to` (`400`).
+`send` without `to` goes to the conversation the session itself last sent to in this turn.
+The first `send` of a turn needs a `to` (`400` without one).
+Incoming messages never change the default, so one arriving mid-turn can't redirect a send.
 
 [#wake]
 == Who wakes
