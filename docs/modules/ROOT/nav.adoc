@@ -75,6 +75,7 @@
 *** xref:usage/jam/serve-store.adoc[]
 *** xref:usage/jam/serve-upgrades.adoc[]
 *** xref:usage/jam/serve.adoc[]
+*** xref:usage/jam/session-activity.adoc[]
 *** xref:usage/jam/session-card.adoc[]
 *** xref:usage/jam/session-colors.adoc[]
 *** xref:usage/jam/session-context-authoring.adoc[]

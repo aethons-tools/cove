@@ -22,6 +22,7 @@ tested: xref:web-app.adoc[web-app].
 
 |`/app/user/` |the rail, no conversation open
 |`/app/user/c/<channel>` |a conversation (a session's home channel adds its header and pane, xref:usage/jam/session-view.adoc[session-view.adoc])
+|`/app/user/s/<session>` |a xref:usage/jam/session-view.adoc[session view]: its activity in every conversation, with its header and pane
 |`/app/user/new` |New message
 |`/app/user/boards/<id>` |a xref:usage/jam/whiteboards.adoc[whiteboard]
 |===
@@ -81,8 +82,8 @@ just the code.
 person's projects (`GET /app/user/api/recipients`, `userui.newMessageOptions`):
 other members, marked *person* (click one for a `dm`, or tick several for a `group`, all of one project);
 the live sessions they may reach, marked *agent* (a standing or ticket session; a personal session only if they're
-already in its channel), whose message goes to the session's home channel, which the person joins
-(a `dm` once sessions answer in it, COV-354);
+already in its channel), whose message goes to the `dm` with the session,
+and the person also joins the session's home channel, where its turn-end text still goes (until COV-350);
 the project's units of work, marked *work*, each with *Log* (post to its work log);
 and rooms.
 The `to` forms are in xref:usage/jam/intercom-composer.adoc[intercom-composer].

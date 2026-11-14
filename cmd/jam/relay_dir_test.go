@@ -170,11 +170,12 @@ func TestSurfacesChatOverDiscord(t *testing.T) {
 	wantSurfaces(t, "alice's reply reaches bob, not back to her", k.dir.Surfaces("discord", reply), map[string]string{"discord:inbox-B": "alice: "})
 }
 
-// A session channel reaches its people like a chat: a person who joined a
-// standing session's channel from /me gets its posts in their inbox.
+// A session channel reaches its people like a chat: a person who DMed a
+// standing session from /me (and so joined its channel, where its turn-end
+// text goes) gets its posts in their inbox.
 func TestSurfacesSessionChannel(t *testing.T) {
 	k := newRelayKit(t)
-	pl, err := k.ic.PlanHome(k.bob.ID, ident.ID(k.std.ActorID))
+	pl, err := k.ic.PlanSessionDM(k.bob.ID, k.std.ActorID)
 	if err != nil {
 		t.Fatal(err)
 	}

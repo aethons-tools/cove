@@ -13,7 +13,7 @@ The composer sits below an open conversation in the xref:usage/jam/intercom-ui.a
 one of these:
 `+user:<id>+` (the `dm` with that person),
 `+chat:user:<id>,user:<id>…+` (the `dm` or `group` with those people, in the first project all of them are members of),
-`+session:<id>+` (that live session's home channel, which the person joins),
+`+session:<id|label>+` (the `dm` with that live session; the person also joins its home channel, where its turn-end text still goes; a session view's composer always sends this),
 or a unit of work's log id (its *Log*).
 The intercom decides whether the person may
 post there and who hears it. A reply to a waiting studio *wakes it* exactly
