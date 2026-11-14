@@ -165,10 +165,9 @@ Today's loop breaker becomes a limit over time, in every kind of conversation.
 It trips when the last 8 messages in a conversation are all session-authored
 and all fall within the window (10 minutes):
 the check reads the last 9 messages, as today's does, and also compares their times.
-While it's tripped, the next session messages there are delivered but wake no session,
-and Jam tells the operators,
-and for a personal session the person who started it,
-once each time the limit is reached.
+While it's tripped, the next session messages there are delivered but wake no session.
+Jam sends no notice: Jam keeps no list of operators to send one to.
+The session view shows the tripped limit (xref:usage/jam/conversations-sessions.adoc#session-view[conversations-sessions]).
 The numbers are serve config, `runtime.agent-wakes` (a count and a window);
 the defaults are 8 messages and 10 minutes.
 
@@ -177,7 +176,7 @@ The limit lifts in three ways:
 * The window slides past: the conversation is quiet for long enough.
 * A person posts in the conversation.
 * A person who may open either session's view presses *Resume*,
-on Jam's notice or in the session view (`+POST /app/user/api/conversations/{id}/resume+`).
+in the session view (`+POST /app/user/api/conversations/{id}/resume+`).
 This is the only way a person lifts it sooner in a `dm` between two sessions,
 which no person can post in.
 
