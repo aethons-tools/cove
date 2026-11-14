@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -297,13 +296,25 @@ func newMessagingClient(getenv func(string) string) (*messagingClient, error) {
 }
 
 // errFirstSendNeedsTo is a send with no `to` and no earlier send this turn.
-var errFirstSendNeedsTo = errors.New("send needs a `to`: a turn's first send names its conversation (later ones default to it)")
+var errFirstSendNeedsTo = errFirstNeedsTo("send")
+
+// errFirstNeedsTo is tool's post with no `to` and no earlier send this turn.
+func errFirstNeedsTo(tool string) error {
+	return fmt.Errorf("%s needs a `to`: a turn's first send names its conversation (later ones default to it)", tool)
+}
 
 // sendTo is a send's address: to, or with none the address this turn's last
 // send went to (the agent socket's record). With the structured turn end on
 // and no send yet it is errFirstSendNeedsTo; with no socket, or the legacy
 // turn end, "" (Jam decides).
 func (c *messagingClient) sendTo(ctx context.Context, to string) (string, error) {
+	return c.postTo(ctx, "send", to)
+}
+
+// postTo is tool's address (send, ask, board_create): to, or with none the
+// address this turn's last send went to, as for a send (sendTo), so a post
+// never lands where the latest message happened to arrive.
+func (c *messagingClient) postTo(ctx context.Context, tool, to string) (string, error) {
 	if to != "" {
 		return to, nil
 	}
@@ -312,7 +323,10 @@ func (c *messagingClient) sendTo(ctx context.Context, to string) (string, error)
 	case err != nil || !st.Structured:
 		return "", nil
 	case st.LastTo == "":
-		return "", errFirstSendNeedsTo
+		if tool == "send" {
+			return "", errFirstSendNeedsTo
+		}
+		return "", errFirstNeedsTo(tool)
 	}
 	return st.LastTo, nil
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // isCurrentMember reports whether p is in ch and hasn't left.
@@ -415,4 +416,28 @@ func (f *icFixture) defaultGroup(inst Instance, people ...ident.ID) Channel {
 		f.t.Fatalf("default conversation = %+v, want %s", got, ch.ID)
 	}
 	return ch
+}
+
+// On the turn-end rule, an ask or a whiteboard with no `to` is refused as a
+// send is: the studio fills in the turn's last `to`, so Jam never guesses
+// from where the latest message arrived. An older studio keeps the default
+// conversation.
+func TestIntercomAskAndBoardNeedATo(t *testing.T) {
+	f := newICFixture(t)
+	dm := f.defaultGroup(f.standing, f.alice.ID)
+	rule := f.standing
+	rule.TurnProtocol = sessionctx.TurnProtocolTurnRule
+	if _, _, err := f.ic.Ask(f.poster(rule), "", AskInput{Question: "q", Options: askYesNo}, f.now); !errors.Is(err, ErrSendNeedsTo) {
+		t.Fatalf("ask with no to on the turn-end rule: %v, want ErrSendNeedsTo", err)
+	}
+	bs := NewBoards(f.log, f.ic)
+	if _, err := bs.Create(f.poster(rule), "", "Plan", f.now); !errors.Is(err, ErrSendNeedsTo) {
+		t.Fatalf("board with no to on the turn-end rule: %v, want ErrSendNeedsTo", err)
+	}
+	if _, ch, err := f.ic.Ask(f.poster(f.standing), "", AskInput{Question: "q", Options: askYesNo}, f.now); err != nil || ch.ID != dm.ID {
+		t.Fatalf("an older studio's ask = %+v, %v; want its default conversation", ch, err)
+	}
+	if _, err := bs.Create(f.poster(f.standing), "", "Plan", f.now); err != nil {
+		t.Fatalf("an older studio's board: %v", err)
+	}
 }

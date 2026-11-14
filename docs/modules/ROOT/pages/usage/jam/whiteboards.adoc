@@ -42,7 +42,7 @@ merge, 64 KB per element, 8 MB per request.
 
 == Agents
 
-* *``+board_create(title, to?)+``* — a board in `to`, else in the session's xref:usage/jam/intercom.adoc#default-conversation[default conversation].
+* *``+board_create(title, to?)+``* — a board in `to`, else where the turn's last `send` went (a turn's first post needs a `to`; xref:usage/jam/intercom.adoc#default-conversation[the default conversation]).
 * *``boards()``* — the boards it can reach.
 * *``+board_read(board_id)+``* — compact elements: ``+{id, type, x, y, w, h, text, from, to, color, frame}+``; a shape's label is its `text`, an arrow's ends are
 `from`/`to`. Freehand strokes show only their bounds.

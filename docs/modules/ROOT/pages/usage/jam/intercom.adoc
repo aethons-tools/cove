@@ -80,15 +80,23 @@ The studio's `claude` is pointed at a stdio MCP server named `messaging` in the 
 [#default-conversation]
 == The default conversation
 
-A session has no channel of its own,
-so a post that names no conversation goes to its *default conversation*:
+A session has no channel of its own.
+On the turn-end rule, a `send`, an `ask`, or a whiteboard with no `to`
+goes where the turn's last `send` went:
+`jam-studio-agent` fills in that `to`,
+and a turn's first post without one is refused (`400` from Jam too).
+Jam never picks it from where messages arrived, since they can arrive in any order.
+
+A studio on an older turn protocol (2) posts its final text with no `to`,
+and its asks and whiteboards may name none.
+Until it is upgraded, those go to its *default conversation*:
 the live conversation it was last delivered a message in, if it may still post there;
 else its unit's log;
 else, for a personal session, its `dm` with the person who started it.
 A session with none of these gets `400` and must name the conversation.
-This covers a studio on an older turn protocol, whose `send` with no `to` carries its final text,
-and an `ask` or a whiteboard with no `to`.
-A session on the turn-end rule always names its `send`'s conversation.
+With two conversations active, this can pick the wrong one,
+so upgrade the standing sessions right after a release that starts this Jam:
+upgrading moves them to the turn-end rule.
 
 Jam's notices about a session (the idle ladder's nags, "connected over SSH," why it ended)
 go to its `dm` with the person who started it, else to its unit's log.

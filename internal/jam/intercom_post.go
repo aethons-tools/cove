@@ -475,9 +475,11 @@ func (ic *Intercom) Plan(p Poster, addr string, now time.Time) (Planned, error) 
 	return ic.planIn(p, ch, true)
 }
 
-// defaultConversation is where a session's post with no address goes: an
-// older studio's turn end (protocol 2 posts its final text with no `to`),
-// and an ask or a whiteboard. A session has no channel of its own, so it is
+// defaultConversation is where a post with no address from a session on an
+// older turn protocol goes: its turn end (protocol 2 posts its final text
+// with no `to`), an ask, or a whiteboard. It guesses from where messages
+// arrived, which can race; a session on the turn-end rule is never given it
+// (PlanSend). A session has no channel of its own, so it is
 // the live conversation the session was last delivered a message in (what
 // it is most likely answering) that it may still post in; else its unit's
 // log; else, for a personal session, the dm with the person who started
@@ -504,11 +506,12 @@ func (ic *Intercom) defaultConversation(p Poster) (Channel, error) {
 	return Channel{}, ErrSendNeedsTo
 }
 
-// PlanSend is Plan for a session's send (POST /squawks). Under the turn-end
-// rule (Instance.TurnProtocol 3) a send names its conversation — the cove
-// fills a turn's later sends in from its first — so one with no addr is
-// ErrSendNeedsTo. A session on an older turn protocol keeps Plan's default
-// conversation (defaultConversation). Asks and whiteboards keep it too.
+// PlanSend is Plan for a session's send (POST /squawks), ask, or
+// whiteboard. Under the turn-end rule (Instance.TurnProtocol 3) a post names
+// its conversation — the cove fills a turn's later posts in from its first
+// send — so one with no addr is ErrSendNeedsTo. A session on an older turn
+// protocol keeps Plan's default conversation (defaultConversation), until
+// its studio is upgraded.
 func (ic *Intercom) PlanSend(p Poster, addr string, now time.Time) (Planned, error) {
 	if addr == "" && p.Session != nil && p.Session.TurnProtocol == sessionctx.TurnProtocolTurnRule {
 		return Planned{}, ErrSendNeedsTo

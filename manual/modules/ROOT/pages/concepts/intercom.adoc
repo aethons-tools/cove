@@ -189,7 +189,10 @@ and the rooms its sessions join are `scope.rooms` (`+[{name, wake}]+`, `wake` is
 * The conversation kinds are `dm`, `group`, `room`, and `work`.
 Jam archives the session channels (kind `session`) an older Jam made when it starts;
 their members can still read them.
-An agent's post with no destination goes where it was last messaged
+An agent's send, ask, or whiteboard with no destination goes where its turn last sent,
+and a turn's first one needs a destination.
+A studio on an older image posts where it was last messaged until it's upgraded,
+so upgrade standing sessions right after the release
 (`docs/modules/ROOT/pages/usage/jam/intercom.adoc`, "The default conversation").
 * Architecture pages: `docs/modules/ROOT/pages/usage/jam/intercom.adoc` (channels, membership, wake-on),
 `comms-addressing.adoc` (targets and addressing),

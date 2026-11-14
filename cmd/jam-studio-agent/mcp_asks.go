@@ -35,7 +35,7 @@ type askOption struct {
 type askIn struct {
 	Question string      `json:"question" jsonschema:"the question (markdown)"`
 	Options  []askOption `json:"options" jsonschema:"2 to 8 answers; the person can also answer Other with a comment"`
-	To       string      `json:"to,omitempty" jsonschema:"optional target, as for send; omit to ask where you were last messaged"`
+	To       string      `json:"to,omitempty" jsonschema:"optional target, as for send; omit to ask where you last sent this turn (a turn's first post needs one)"`
 	Of       []string    `json:"of,omitempty" jsonschema:"optional: only these people may answer (user:<name>); omit for anyone in the channel"`
 }
 
@@ -124,11 +124,16 @@ func (c *messagingClient) listAsks(ctx context.Context, state string) (asksOut, 
 func addAskTools(s *mcp.Server, client *messagingClient, cfgErr error) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "ask",
-		Description: "Ask people a question with 2-8 answers to pick from (plus Other with a comment), where you were last messaged or `to` (as for send). It returns at once with the ask's id: keep working or end your turn; the answer arrives through read as an entry whose parts carry {event: answer, ask_id, choice, comment}. Open asks put you under Needs you. Several can be open at once.",
+		Description: "Ask people a question with 2-8 answers to pick from (plus Other with a comment), in `to` (as for send; omit it to ask where you last sent this turn, and a turn's first post needs one). It returns at once with the ask's id: keep working or end your turn; the answer arrives through read as an entry whose parts carry {event: answer, ask_id, choice, comment}. Open asks put you under Needs you. Several can be open at once.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in askIn) (*mcp.CallToolResult, askOut, error) {
 		if cfgErr != nil {
 			return nil, askOut{}, cfgErr
 		}
+		to, err := client.postTo(ctx, "ask", in.To)
+		if err != nil {
+			return nil, askOut{}, err
+		}
+		in.To = to
 		var out askOut
 		if err := client.postJSON(ctx, "/squawks/ask", in, &out); err != nil {
 			return nil, out, err

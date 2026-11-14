@@ -16,7 +16,8 @@ and they can answer them in any order. The session never blocks on one.
 
 * *``ask(question, options, to?, of?)``* — posts the ask into `to` (any
 target `send` takes, under the same xref:usage/jam/comms-addressing.adoc[addressing]; omitted:
-the session's xref:usage/jam/intercom.adoc#default-conversation[default conversation]) and returns `+{ask_id, version: 1, channel}+` at once.
+where the turn's last `send` went, and a turn's first post needs one —
+xref:usage/jam/intercom.adoc#default-conversation[the default conversation]) and returns `+{ask_id, version: 1, channel}+` at once.
 `options` are ``+{id, label, detail?}+``; `of` (`+user:<name>+`) limits who may answer,
 else anyone in the channel. `POST /squawks/ask`.
 * *``+amend(ask_id, question?, options?)+``* — rewords an open ask and bumps its

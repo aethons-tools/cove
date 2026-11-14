@@ -80,7 +80,7 @@ other than the studio's own needs a `+ticket:<glob>+` (e.g. `+ticket:*+`). `+ses
 
 Some sends never consult the access-graph — only the token's expiry:
 
-* Its xref:usage/jam/intercom.adoc#default-conversation[default conversation] (`to` empty on an older turn protocol, or on an `ask` or a whiteboard).
+* Its xref:usage/jam/intercom.adoc#default-conversation[default conversation] (`to` empty from a studio on an older turn protocol).
 * Its own unit's log (`+work:<its key>+`).
 * For a personal session, the person who started it (`+user:<starter>+`, or that person in a `+chat:+`).
 * A *reply*: any target naming an existing conversation the session was delivered a message in.

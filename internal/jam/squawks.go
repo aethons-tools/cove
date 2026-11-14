@@ -296,10 +296,10 @@ func writeNoWorker(w http.ResponseWriter) {
 }
 
 // writeNoDefault answers an ask, a whiteboard, or a call-in that names no
-// conversation from a session with no default one (defaultConversation):
-// 400.
+// conversation where it must (a session on the turn-end rule, or one with
+// no default conversation): 400.
 func writeNoDefault(w http.ResponseWriter) {
-	http.Error(w, "name the conversation (to, or channel for call_in): this session has no default one", http.StatusBadRequest)
+	http.Error(w, "needs a `to` (or `channel` for call_in): name the conversation", http.StatusBadRequest)
 }
 
 // autoDupWindow and autoDupScan bound the duplicate check on an auto post:
