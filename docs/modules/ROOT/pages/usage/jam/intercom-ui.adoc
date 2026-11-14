@@ -62,7 +62,7 @@ exactly one session in it is active; rooms never.
 xref:usage/jam/session-card.adoc[status card];
 work logs, groups, rooms, and `dm`s with people show their name.
 The card's name opens the session's view
-(`sessionView`: its home channel, when the person may see it; clicking the rest of the row opens the `dm`).
+(`/app/user/s/<session>`, offered when the person may open it, with `sessionView` its home channel, which the VS Code rail opens; clicking the rest of the row opens the `dm`).
 * *The open conversation:* a header with its name, its project, and its kind
 (*DM*, *group*, *room*, or *work*; a session's own channel reads *agent*),
 then its messages (the viewer's own on one side) with

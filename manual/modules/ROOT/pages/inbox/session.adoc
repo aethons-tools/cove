@@ -7,8 +7,9 @@ A *session view* shows one session:
 everything it says and hears in every conversation,
 and what it thinks between them.
 It isn't a conversation.
-Open it from the session's name in its header,
-which also shows when you open the session's own channel
+Open it from the session's name anywhere in the Inbox:
+on its status card in the rail,
+or in its header, which also shows when you open the session's own channel
 or the work log of the ticket it works on.
 (A session is one run of an agent: xref:concepts/agent.adoc[Roles, agents and sessions].)
 

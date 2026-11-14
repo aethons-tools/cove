@@ -117,6 +117,19 @@ describe("the session view", () => {
     await waitFor(() => expect(seen.resumed).toEqual(["chn_eng"]));
   });
 
+  it("opens from an agent's name in the rail", async () => {
+    serve(activity());
+    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [{ bucket: "agents", title: "Agents", rows: [{
+      id: "chn_dm", label: "pair", project: "test", kind: "dm", needsYou: false, phase: "live", unread: 0, openAsks: 0, lastSeq: 3, selected: false,
+      mission: "", session: "", ssh: false, sessionView: "chn_home", card: card({ session: "ses_1", name: "pair" }),
+    }] }] })));
+    const user = userEvent.setup();
+    const { router } = renderApp(boot, "/app/user/");
+    await user.click(await screen.findByRole("button", { name: "Open pair's session view" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/app/user/s/ses_1"));
+    expect(await screen.findByRole("log", { name: "Activity" })).toBeInTheDocument();
+  });
+
   it("keeps the activity of an ended session, without the header, pane or composer", async () => {
     serve(activity({ ended: true, sendTo: "" }), null);
     renderApp(boot, "/app/user/s/ses_1");
