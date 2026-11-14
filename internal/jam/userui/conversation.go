@@ -48,6 +48,35 @@ func messageRow(from string, m intercom.Squawk, mine bool) MessageRow {
 	}
 }
 
+// shownRow is m as viewer p sees it: its sender's color (colors caches
+// them per sender), and its ask, board, and file cards.
+func shownRow(p jam.Participant, d Deps, m intercom.Squawk, colors map[ident.ID]string) MessageRow {
+	row := messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID)
+	c, ok := colors[m.From]
+	if !ok {
+		c, _ = d.Store.SessionColor(string(m.From)) // a person has none
+		colors[m.From] = c
+	}
+	row.Color = c
+	decorateAsk(&row, p, d, m)
+	if card := boardCard(d, m); card != nil {
+		row.Board = card
+	}
+	switch {
+	case row.Board != nil:
+		row.Card = "board"
+	case row.Ask != nil:
+		row.Card = "ask"
+	}
+	if chips, filesOnly := fileChips(m); len(chips) > 0 {
+		row.Files = chips
+		if filesOnly {
+			row.Body, row.Raw = "", ""
+		}
+	}
+	return row
+}
+
 // conversation builds the open-channel view for channelID, or ok=false if the
 // participant may not see it. A History id opens the legacy conversation,
 // read-only.
@@ -66,32 +95,9 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 		ChannelID: channelID, Label: v.Label, Kind: viewKind(v), Project: v.Project, Phase: v.Phase, NeedsYou: v.NeedsYou,
 		SendTo: channelID, LastSeq: v.LastSeq, SessionIDs: v.Sessions,
 	}
-	colors := map[ident.ID]string{} // per sender, looked up once
+	colors := map[ident.ID]string{}
 	for _, m := range d.Log.ChannelSince(ident.ID(channelID), 0, 0) {
-		row := messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID)
-		c, ok := colors[m.From]
-		if !ok {
-			c, _ = d.Store.SessionColor(string(m.From)) // a person has none
-			colors[m.From] = c
-		}
-		row.Color = c
-		decorateAsk(&row, p, d, m)
-		if card := boardCard(d, m); card != nil {
-			row.Board = card
-		}
-		switch {
-		case row.Board != nil:
-			row.Card = "board"
-		case row.Ask != nil:
-			row.Card = "ask"
-		}
-		if chips, filesOnly := fileChips(m); len(chips) > 0 {
-			row.Files = chips
-			if filesOnly {
-				row.Body, row.Raw = "", ""
-			}
-		}
-		conv.Messages = append(conv.Messages, row)
+		conv.Messages = append(conv.Messages, shownRow(p, d, m, colors))
 	}
 	conv.OpenAsks = openAskCards(p, d, ident.ID(channelID))
 	membershipControls(&conv, p, d)

@@ -40,6 +40,6 @@ export function Rail() {
   if (data.groups.length === 0) return frame(<Text c="dimmed" size="sm" m="md">No conversations yet. Start one with New message.</Text>);
   return frame(
     <RailList groups={data.groups} active={channel} rowProps={(r) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(r.id)}` })}
-      openSession={(c) => nav(`${APP}c/${encodeURIComponent(c)}`)} />,
+      openSession={(_, s) => nav(`${APP}s/${encodeURIComponent(s)}`)} />,
   );
 }

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collab"
@@ -53,9 +54,20 @@ type Deps struct {
 	// waits on it reads "is preparing its kit image" (managers.Hub.KitActivity;
 	// nil: never shown).
 	KitActivity jam.KitActivityFunc
+	// AgentLimit reports where the agent-to-agent limit is tripped, for the
+	// session view's Resume, and lifts it (nil: nowhere, and Resume is 503).
+	AgentLimit AgentLimit
 	// Images resolves a role's current kit (*jam.Supervisor), for the New
 	// session dialog's kit-build progress (nil: none shown).
 	Images ImageResolver
+}
+
+// AgentLimit is the agent-to-agent limit (conversations.adoc#rate-limit):
+// whether session messages in a conversation wake no session now, and
+// Resume, which lifts it there (*wakeon.Engine).
+type AgentLimit interface {
+	Tripped(ch ident.ID) bool
+	Resume(ch ident.ID) error
 }
 
 // ImageResolver is the supervisor's resolution of the image a raise of a

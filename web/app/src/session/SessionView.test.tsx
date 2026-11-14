@@ -60,6 +60,7 @@ describe("the session header", () => {
     }
     expect(within(hd).getByTitle("1,200 in / 300 out tokens")).toHaveTextContent("$1.20");
     expect(within(hd).getByText("ctx 84k / 200k · 42%")).toHaveAttribute("title", "context: 84,300 of 200,000 tokens (claude-x)");
+    expect(within(hd).getByRole("link", { name: "intercom-spider" })).toHaveAttribute("href", "/app/user/s/ses_1");
     // Studio only with the Studio tab; the rest always.
     expect(within(hd).getAllByRole("tab").map((b) => b.textContent)).toEqual(["Thinking", "Previews", "Artifacts", "Status"]);
   });

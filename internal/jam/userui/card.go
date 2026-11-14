@@ -3,6 +3,7 @@ package userui
 import (
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/sessionevents"
+	"net/http"
 )
 
 // The session status card (docs/superpowers/specs/2026-10-30-session-status-card-design.md):
@@ -93,8 +94,9 @@ func (h *handler) card(inst jam.Instance) (SessionCard, bool) {
 }
 
 // attachCards gives each rail row backed by a session (ChannelRow.cardSession)
-// that session's card.
-func (h *handler) attachCards(p jam.Participant, groups []RailGroup) {
+// that session's card, and its home channel when the viewer may open the
+// session's view.
+func (h *handler) attachCards(req *http.Request, p jam.Participant, groups []RailGroup) {
 	for gi := range groups {
 		for ri := range groups[gi].Rows {
 			r := &groups[gi].Rows[ri]
@@ -104,7 +106,7 @@ func (h *handler) attachCards(p jam.Participant, groups []RailGroup) {
 			if inst, ok := h.d.Store.GetInstance(r.cardSession); ok {
 				if c, ok := h.card(inst); ok {
 					r.Card = &c
-					if _, home, ok := h.sessionFor(p, inst.ActorID); ok {
+					if _, home, ok := h.sessionFor(req, p, inst.ActorID); ok {
 						r.SessionView = home
 					}
 				}
