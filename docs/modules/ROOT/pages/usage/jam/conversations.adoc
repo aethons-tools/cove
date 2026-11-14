@@ -1,7 +1,7 @@
 = Conversations, units of work, and session views
-:summary: The goal communication model: DMs, group DMs, rooms, and work logs replace session and ticket channels; units of work; targets; sessions in rooms and who wakes for what; and the agent-to-agent rate limit. The session side (turn end, session view, escalation, migration) is in conversations-sessions.adoc.
+:summary: The goal communication model: DMs, group DMs, rooms, and work logs replace session and ticket channels; units of work; targets; sessions in rooms and who wakes for what; and the agent-to-agent limit. The session side (turn end, session view, escalation, migration) is in conversations-sessions.adoc.
 :read_when: You are building or reviewing any part of the move from session and ticket channels to DMs, rooms, and units of work, or you need the interface one part offers the others.
-:owns: the goal conversation kinds and their targets, the unit of work and its log, sessions as room members, wake rules per kind, the agent-to-agent rate limit, and the build order. Does NOT own the tool wire shapes that stay as they are (intercom.adoc), glob matching (comms-addressing.adoc), or the Discord and tracker relays' mechanics (discord.adoc, intercom.adoc).
+:owns: the goal conversation kinds and their targets, the unit of work and its log, sessions as room members, wake rules per kind, the agent-to-agent limit, and the build order. Does NOT own the tool wire shapes that stay as they are (intercom.adoc), glob matching (comms-addressing.adoc), or the Discord and tracker relays' mechanics (discord.adoc, intercom.adoc).
 :prereqs: intercom.adoc for the channel log, tools, and relays this changes; comms-addressing.adoc for targets and addressing; structured-turn-end.adoc for today's turn end
 :tier: leaf
 :updated: 2026-11-14
@@ -50,7 +50,8 @@ People and sessions can be members.
 
 |`work`
 |The log of one unit of work.
-It has no members; who gets its entries is a rule (<<wake>>).
+Its members are the current worker, swapped as the unit is dispatched,
+and the people who follow it: who posted in it or clicked *Join*.
 |===
 
 The `studio` kind (session channels) goes.
@@ -67,6 +68,7 @@ and a re-dispatched issue's new session takes over the same unit.
 * *The current worker* is the live session that holds the issue now.
 At most one session holds it at a time.
 * *The log* is a `work` conversation bound to the issue.
+When the unit gets a new worker, Jam removes the old one from its members and adds the new one.
 The tracker relay mirrors it both ways, as it mirrors a ticket channel today:
 every entry becomes a comment, and every comment on the issue becomes an entry.
 * `report` posts its summary to the log,
@@ -106,7 +108,8 @@ Addressing is checked as today (xref:usage/jam/comms-addressing.adoc[comms-addre
 with two changes:
 
 * `+work:+` and `+worker:+` match a role's `+ticket:+` globs, so existing roles keep working.
-* There is no home channel, so no send skips the check.
+* There is no home channel, so no send skips the check,
+except a reply: a session may always send to a conversation it was delivered a message in.
 A session may always send to its own unit's log (`+work:<its key>+`),
 and a personal session to the person who started it.
 
@@ -130,9 +133,11 @@ The others get it in their inbox without waking.
 
 |`work`
 |The current worker, unless it is the author.
+People members are notified, not woken.
 |===
 
 *Sessions in rooms.*
+Today a room refuses session members (`ErrFixedMembers`); the goal lifts that guard.
 A session is a member of a room in two ways:
 
 * Its role lists the room in its file,
@@ -146,34 +151,28 @@ A session leaves a room it was called into with `leave`;
 it can't leave a room its role lists.
 A room's sessions show in its member list, marked as agents.
 
-A *mention* is the `mentions` field of `send` (a list of `+session:+` targets),
+A *mention* is the new `mentions` field of `send` (a list of `+session:+` targets),
 or an `@<label>` in the body that names a session member of the room.
-People are notified by the push rules (xref:usage/jam/push.adoc[push]),
-with "a member of the channel" read as "a member of the `dm` or `group`",
-and "named" for rooms and work logs.
+People are notified by the push rules (xref:usage/jam/push.adoc[push]).
+For a `dm` or `group`, every person member is notified.
+For a room or a work log, only the people a message names are notified.
 
 [#rate-limit]
-== The agent-to-agent rate limit
+== The agent-to-agent limit
 
-Each session has a budget of *agent wakes*:
-messages it sends that wake another session.
-Jam counts them over a sliding window,
-in every kind of conversation.
-A message from a person to the session resets its count.
-
-Past the budget,
-the session's messages still go out,
-but they wake no session.
+Today's loop breaker applies in every kind of conversation:
+after a run of messages authored only by sessions
+(8 in a row today, its existing setting),
+the next session messages in that conversation are delivered but wake no session.
+A person's message in the conversation ends the run.
 Jam tells the operators,
 and for a personal session the person who started it,
-once per window.
-The count drops as the window slides.
+once per run.
 
-The budget is per sender, not per pair,
-so a loop among three agents trips it too:
-each of them uses up its own budget.
-The numbers are serve config, `runtime.agent-wakes` (a count and a window).
-It replaces today's per-channel breaker (8 messages in a row between sessions).
+In a `dm`, a run is per pair.
+A loop among three agents trips it too,
+because each of their conversations sees only session messages.
+The breaker keeps no state beyond the log.
 
 [#order]
 == Building it
@@ -182,5 +181,5 @@ The first issue lands the interface:
 the four kinds, `work` units and their log, and the targets,
 with today's behavior otherwise unchanged.
 The rest build against this page in parallel:
-wake rules, the rate limit, the Inbox,
+wake rules, the agent-to-agent limit, the Inbox,
 and each part of xref:usage/jam/conversations-sessions.adoc[conversations-sessions].

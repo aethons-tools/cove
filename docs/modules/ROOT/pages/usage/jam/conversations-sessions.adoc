@@ -1,7 +1,7 @@
 = Sessions in the conversation model
 :summary: The session side of the goal communication model: the turn-end rule that every turn sends or says no message is needed, the session view and who may open it, escalation as a DM, and how today's session channels, ticket channels, and chats move over.
 :read_when: You are building or reviewing the turn-end rule, the session view, escalation delivery, or the migration from session and ticket channels.
-:owns: the goal turn-end rule, session-view access and content, escalation delivery, and the migration. Does NOT own conversation kinds, targets, wake rules, or the rate limit (conversations.adoc).
+:owns: the goal turn-end rule, session-view access and content, escalation delivery, and the migration. Does NOT own conversation kinds, targets, wake rules, or the agent-to-agent limit (conversations.adoc).
 :prereqs: conversations.adoc for the kinds, targets, and wake rules; structured-turn-end.adoc for today's turn end; session-view.adoc for today's view; escalation.adoc for tier timing
 :tier: leaf
 :updated: 2026-11-14
@@ -21,8 +21,9 @@ Text is thinking unless it's sent.
 The final text and mid-turn text are never auto-posted;
 `turn_end` with a `to` posts the final text there.
 
-A turn that ends with neither is *returned* once:
-Jam wakes the session at once with a note that the turn sent nothing and didn't say no message was needed,
+A turn that ends with neither is *returned* once.
+`returned` is a per-turn flag, and the wake it causes has the reason `returned`:
+Jam wakes the session at once (an explicit wake: wakes otherwise key off `WaitSeq`) with a note that the turn sent nothing and didn't say no message was needed,
 and shows it the same messages again (they aren't committed).
 If that turn also ends with neither,
 Jam commits, records `unaddressed` on the turn in the session view,
@@ -69,7 +70,8 @@ Tier timing doesn't change (xref:usage/jam/escalation.adoc[escalation]).
 
 * Each live session channel is archived.
 Its history stays readable in the session view.
-* Each ticket channel becomes its unit's log and keeps its history and its binding to the issue.
+* Each ticket channel becomes its unit's log and keeps its history, members, and binding to the issue.
+Where a room is bound to the same issue, the binding moves to the log, and the room keeps its history.
 * Each chat becomes a `dm` or a `group`.
 * `+session:<label>+`, `+ticket:<key>+`, and `+chat:+` keep working as above,
 so role files and context pages need no change at the switch.

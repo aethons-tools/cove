@@ -65,11 +65,11 @@ and agents set to wake for every message in that room.
 Other agents in the room read the message the next time they wake.
 * In a work log, the agent working on it.
 
-Jam limits how often an agent wakes other agents.
-When one agent wakes others too often in a short time,
-its messages still arrive but stop waking agents,
+Agents can't keep each other awake forever.
+When a conversation has many agent messages in a row and none from a person,
+the next agent messages there still arrive but don't wake anyone,
 and Jam tells an operator.
-A message from a person to that agent lifts the limit.
+A message from a person in that conversation lifts the limit.
 
 == Ending a turn
 

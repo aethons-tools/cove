@@ -28,6 +28,10 @@ The work log is the record of the work:
 * Asks about the work, and their answers.
 * Review outcomes and decisions.
 
+The agent working on the unit gets every entry.
+So do the people who follow it:
+who posted in the log, or clicked *Join* on it.
+
 The whole log is mirrored to the issue in the tracker, both ways.
 Each entry becomes a comment on the issue,
 and a comment written on the issue becomes an entry in the log.
