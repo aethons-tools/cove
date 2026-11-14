@@ -167,8 +167,8 @@ func legacyConversation(p jam.Participant, d Deps, channelID string) (Conversati
 
 // newMessageOptions lists who the participant can start a conversation
 // with, across their projects: its other members (a dm, or several for a
-// group), the live agents they may reach (a dm), its units of work (their
-// log, or their current worker), and its rooms.
+// group), the live agents they may reach (in the agent's home channel), its
+// units of work (their log), and its rooms.
 func newMessageOptions(p jam.Participant, d Deps) []NewMessageOption {
 	seen := map[string]bool{}
 	var out []NewMessageOption
@@ -201,7 +201,7 @@ func newMessageOptions(p jam.Participant, d Deps) []NewMessageOption {
 			}
 		}
 		for _, ch := range d.Store.ListChannels(proj.ID, jam.SourceWork) {
-			add(NewMessageOption{To: string(ch.ID), Worker: "worker:" + string(ch.ID), Label: ch.Label, Kind: "work", Project: name})
+			add(NewMessageOption{To: string(ch.ID), Label: ch.Label, Kind: "work", Project: name})
 		}
 		for _, ch := range d.Store.ListChannels(proj.ID, jam.SourceRoom) {
 			add(NewMessageOption{To: string(ch.ID), Label: ch.Label, Kind: "room", Project: name})

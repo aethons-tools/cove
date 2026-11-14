@@ -610,55 +610,30 @@ func (ic *Intercom) PlanPersonChat(from ident.ID, with ...ident.ID) (Planned, er
 	return Planned{}, ErrSendUnresolved
 }
 
-// PlanSessionDM decides a person's message to a live session from /me: the
-// dm between them (conversations.adoc#targets), when they may reach it
-// (MayReach: never someone else's personal session). A session that doesn't
-// exist or that they may not reach is ErrSendDenied alike.
-func (ic *Intercom) PlanSessionDM(from, session ident.ID) (Planned, error) {
+// PlanHome decides a person's post to a live session from /me: into the
+// session's home channel, as its source allows them (a personal session's
+// channel only to its members), joining it. A session that doesn't exist or
+// that they may not reach is ErrSendDenied alike.
+func (ic *Intercom) PlanHome(from, session ident.ID) (Planned, error) {
 	inst, ok := ic.store.GetInstance(string(session))
-	if !ok || from.Kind() != ident.User || !ic.MayReach(from, inst) {
+	if !ok || inst.Phase == PhaseGone || from.Kind() != ident.User {
 		return Planned{}, ErrSendDenied
 	}
 	p, ok := ic.store.GetProject(orDefaultProject(inst.Project))
-	if !ok {
+	if !ok || !ic.projectUser(p.ID, from) {
 		return Planned{}, ErrSendDenied
 	}
-	ch, err := ic.chat(p, []ident.ID{from, session})
+	ch, err := ic.HomeChannel(inst)
 	if err != nil {
 		return Planned{}, err
 	}
-	return ic.planIn(Poster{ID: from}, ch, false)
-}
-
-// PlanWorker decides a person's message from /me to the current worker of
-// the unit of work whose log is logID: the dm between them. ErrSendDenied
-// for a log they can't see (or none), ErrSendUnresolved for a channel that
-// is no work log, ErrNoWorker when the unit has no live worker: nothing is
-// held for a later session.
-func (ic *Intercom) PlanWorker(from, logID ident.ID) (Planned, error) {
-	log, ok := ic.store.GetChannel(logID)
-	if !ok || from.Kind() != ident.User || !ic.CanSee(from, log) {
-		return Planned{}, ErrSendDenied
-	}
-	if log.Kind != SourceWork || log.Status != StatusLive {
-		return Planned{}, ErrSendUnresolved
-	}
-	if log.Worker == "" || !ic.sessionLive(log.Worker) {
-		return Planned{}, ErrNoWorker
-	}
-	p, ok := ic.projectOf(log)
-	if !ok {
-		return Planned{}, ErrSendUnresolved
-	}
-	ch, err := ic.chat(p, []ident.ID{from, log.Worker})
-	if err != nil {
-		return Planned{}, err
-	}
-	return ic.planIn(Poster{ID: from}, ch, false)
+	pl, err := ic.planIn(Poster{ID: from}, ch, false)
+	pl.Join = true
+	return pl, err
 }
 
 // MayReach reports, without creating anything, whether user u may post to
-// live session inst from /me (PlanSessionDM would allow it): a member of its
+// live session inst from /me (PlanHome would allow it): a member of its
 // project, and for a personal session one already in its channel.
 func (ic *Intercom) MayReach(u ident.ID, inst Instance) bool {
 	p, ok := ic.store.GetProject(orDefaultProject(inst.Project))

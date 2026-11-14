@@ -8,8 +8,8 @@ import { APP } from "../paths";
 
 // RecipientPicker lists whom the viewer may start a conversation with,
 // grouped by project: people (one for a DM; tick several for a group DM),
-// agents (a DM), units of work (Log: its work log; Worker: a DM with its
-// current worker), and rooms. Picking one opens the New message composer
+// agents (in the agent's own channel), units of work (Log: its work log),
+// and rooms. Picking one opens the New message composer
 // (onPick: the caller's instead, as the VS Code rail does).
 export function RecipientPicker({ opened, onClose, onPick, returnFocus = true }: { opened: boolean; onClose: () => void; onPick?: (o: { to: string; label: string }) => void; returnFocus?: boolean }) {
   const [q, setQ] = useState("");
@@ -44,10 +44,7 @@ export function RecipientPicker({ opened, onClose, onPick, returnFocus = true }:
                 return (
                   <Group key={o.to} px="xs" py={4} gap="xs" justify="space-between" wrap="nowrap">
                     {name}
-                    <Group gap={4} wrap="nowrap">
-                      <Button size="compact-xs" variant="light" aria-label={`Log of ${o.label}`} onClick={() => pick(o.to, `the log of ${o.label}`)}>Log</Button>
-                      {o.worker && <Button size="compact-xs" variant="default" aria-label={`Worker of ${o.label}`} onClick={() => pick(o.worker!, `the worker of ${o.label}`)}>Worker</Button>}
-                    </Group>
+                    <Button size="compact-xs" variant="light" aria-label={`Log of ${o.label}`} onClick={() => pick(o.to, `the log of ${o.label}`)}>Log</Button>
                   </Group>
                 );
               }

@@ -10,7 +10,7 @@ const recipients: RecipientsResponse = { options: [
   { to: "user:usr_bob", label: "bob", kind: "person", project: "test" },
   { to: "user:usr_carol", label: "carol", kind: "person", project: "test" },
   { to: "session:ses_spider", label: "intercom-spider", kind: "agent", project: "test" },
-  { to: "chn_cov1", worker: "worker:chn_cov1", label: "COV-1", kind: "work", project: "test" },
+  { to: "chn_cov1", label: "COV-1", kind: "work", project: "test" },
   { to: "chn_eng", label: "eng", kind: "room", project: "other" },
 ] };
 
@@ -63,20 +63,16 @@ describe("New message", () => {
     expect(sent).toMatchObject({ to: "chat:user:usr_bob,user:usr_carol", body: "standup?" });
   });
 
-  it("offers a unit of work's log and its worker; with no worker, says Jam's answer", async () => {
+  it("offers a unit of work's log", async () => {
     server.use(
       http.get("/app/user/api/rail", () => HttpResponse.json({ groups: [], unreadTotal: 0 })),
       http.get("/app/user/api/recipients", () => HttpResponse.json(recipients)),
-      http.post("/app/user/api/messages", () => HttpResponse.json({ error: "no agent is working on this now, so the message was not sent", code: "no-worker" }, { status: 409 })),
     );
     const { router } = renderApp(boot);
     await userEvent.click(await screen.findByRole("button", { name: "New message" }));
-    expect(await screen.findByRole("button", { name: "Log of COV-1" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Worker of COV-1" }));
-    expect(router.state.location.search).toContain("to=worker%3Achn_cov1");
-    expect(await screen.findByText("to the worker of COV-1")).toBeInTheDocument();
-    await userEvent.type(screen.getByRole("textbox", { name: "Message the worker of COV-1" }), "quick one");
-    await userEvent.click(screen.getByRole("button", { name: /Send/ }));
-    expect(await screen.findByText("no agent is working on this now, so the message was not sent")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "Log of COV-1" }));
+    expect(router.state.location.search).toContain("to=chn_cov1");
+    expect(await screen.findByText("to the log of COV-1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Worker of COV-1" })).toBeNull();
   });
 });

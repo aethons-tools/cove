@@ -265,11 +265,6 @@ export interface Conversation {
  */
 export interface NewMessageOption {
   to: string; // POST api/messages' "to": user:<id>, session:<id>, or a channel id (a unit of work's: its log)
-  /**
-   * Worker is a unit of work's "to" for its current worker,
-   * worker:<log id> ("" for every other kind).
-   */
-  worker?: string;
   label: string;
   kind: string;
   project: string;

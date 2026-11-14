@@ -48,12 +48,12 @@ You can start a conversation with anyone in your projects:
 
 * Another member of the project, in a DM.
 * A group of members, in a group DM.
-* A live agent, in a DM.
+* A live session, in its own channel.
 A personal session that belongs to someone else is not offered,
 unless you are already in its channel.
 * A room of the project.
-* A unit of work: its log, or the agent working on it
-(xref:concepts/work.adoc#_reaching_the_work[Reaching the work]).
+* The work log of a unit of work
+(xref:concepts/work.adoc[Units of work]).
 
 You see a project's work logs, rooms, and the channels of its shared sessions while you are a member of the project.
 If you leave a project, its channels disappear from your Inbox at once.

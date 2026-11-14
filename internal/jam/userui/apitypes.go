@@ -224,10 +224,7 @@ type Conversation struct {
 // NewMessageOption is one recipient offered in the New Message picker (or
 // a Call in list). Kind is person, agent, work (a unit of work), or room.
 type NewMessageOption struct {
-	To string `json:"to"` // POST api/messages' "to": user:<id>, session:<id>, or a channel id (a unit of work's: its log)
-	// Worker is a unit of work's "to" for its current worker,
-	// worker:<log id> ("" for every other kind).
-	Worker  string `json:"worker,omitempty"`
+	To      string `json:"to"` // POST api/messages' "to": user:<id>, session:<id>, or a channel id (a unit of work's: its log)
 	Label   string `json:"label"`
 	Kind    string `json:"kind"`
 	Project string `json:"project"`

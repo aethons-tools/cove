@@ -44,7 +44,7 @@ func TestParticipantSendIntoAChannel(t *testing.T) {
 }
 
 // A new message to a person starts (or reuses) a dm with them; to several
-// people, a group; to a session, a dm with it (not its home channel).
+// people, a group; to a session, its home channel, which the person joins.
 func TestParticipantSendNewConversations(t *testing.T) {
 	f := newICFixture(t)
 	dave, err := f.store.CreateUser(User{Name: "dave"})
@@ -65,7 +65,7 @@ func TestParticipantSendNewConversations(t *testing.T) {
 		{"user:alice", SourceDM, ids(f.alice, f.bob)},
 		{"chat:user:alice,user:" + string(dave.ID), SourceGroup, ids(f.alice, f.bob, dave)},
 		{"chat:user:alice", SourceDM, ids(f.alice, f.bob)},
-		{"session:" + f.standing.ActorID, SourceDM, ids(f.bob, f.standing)},
+		{"session:" + f.standing.ActorID, SourceSession, ids(f.bob, f.standing)},
 	} {
 		m, err := h.Send(p, SendRequest{To: c.to, Body: "hello"})
 		if err != nil {
@@ -88,50 +88,8 @@ func TestParticipantSendNewConversations(t *testing.T) {
 			}
 		}
 	}
-	if chats := f.store.ListChannels(f.project.ID, SourceDM); len(chats) != 2 {
-		t.Fatalf("dms = %+v, want bob+alice (reused by id, name, and chat:) and bob+spider", chats)
-	}
-	if _, ok := f.store.ChannelByKey(f.project.ID, SourceSession, f.standing.ActorID); ok {
-		t.Fatal("a person's message to a session made its home channel")
-	}
-}
-
-// A person reaches a unit of work's current worker with worker:<log id>: a
-// dm with it. With no current worker, Jam sends nothing and answers 409
-// no-worker; a log they can't see is 403.
-func TestParticipantSendWorker(t *testing.T) {
-	f := newICFixture(t)
-	if err := f.ic.SetUp(f.ticket); err != nil {
-		t.Fatal(err)
-	}
-	log, _ := f.ic.TicketChannelOf(f.ticket)
-	h := NewParticipantSendHandler(f.store, f.ic, nil)
-	p := Participant{UserID: f.bob.ID, Name: f.bob.Name, Projects: []string{"acme"}}
-	m, err := h.Send(p, SendRequest{To: "worker:" + string(log.ID), Body: "quick question"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ch, _ := f.store.GetChannel(m.Channel); ch.Kind != SourceDM || !isMember(f.store, ch.ID, ident.ID(f.ticket.ActorID)) {
-		t.Fatalf("worker: went to %+v, want the dm with the worker", ch)
-	}
-	if err := f.store.SetChannelWorker(log.ID, ""); err != nil {
-		t.Fatal(err)
-	}
-	before := len(f.log.ListSince(0, 0))
-	_, err = h.Send(p, SendRequest{To: "worker:" + string(log.ID), Body: "anyone?"})
-	var se *SendError
-	if !errors.As(err, &se) || se.Status != http.StatusConflict || se.Code != "no-worker" {
-		t.Fatalf("no worker: %v, want 409 no-worker", err)
-	}
-	if after := len(f.log.ListSince(0, 0)); after != before {
-		t.Fatal("a send to no worker was kept")
-	}
-	carol := Participant{UserID: f.carol.ID, Name: f.carol.Name}
-	if _, err := h.Send(carol, SendRequest{To: "worker:" + string(log.ID), Body: "x"}); !errors.As(err, &se) || se.Status != http.StatusForbidden {
-		t.Fatalf("carol, not in the project: %v, want 403", err)
-	}
-	if _, err := h.Send(p, SendRequest{To: "worker:" + string(f.room.ID), Body: "x"}); !errors.As(err, &se) || se.Status != http.StatusNotFound {
-		t.Fatalf("worker: of a room: %v, want 404", err)
+	if chats := f.store.ListChannels(f.project.ID, SourceDM); len(chats) != 1 {
+		t.Fatalf("dms = %+v, want bob+alice (reused by id, name, and chat:)", chats)
 	}
 }
 

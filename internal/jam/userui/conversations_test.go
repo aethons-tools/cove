@@ -3,7 +3,6 @@ package userui
 import (
 	"net/http"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -44,9 +43,22 @@ func newConvEnv(t *testing.T) *convEnv {
 		}
 		return m.Channel
 	}
-	c.agentDM = post(e.Intercom.PlanSessionDM(p.UserID, ident.ID(spider.ActorID)))
-	c.bobDM = post(e.Intercom.PlanPersonChat(p.UserID, bob))
+	// A dm with an agent (as an agent's send to user:alice opens one).
 	proj, _ := e.st.GetProject("proj")
+	dm, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceDM, Key: string(p.UserID) + "," + spider.ActorID, Label: "alice, spider"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []ident.ID{p.UserID, ident.ID(spider.ActorID)} {
+		if err := e.st.JoinChannel(dm.ID, m, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := e.Intercom.PostTrusted(dm, intercom.Squawk{From: ident.ID(spider.ActorID), Body: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	c.agentDM = dm.ID
+	c.bobDM = post(e.Intercom.PlanPersonChat(p.UserID, bob))
 	work, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceWork, Key: "linear/COV-1", Label: "COV-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -176,8 +188,8 @@ func mustAddPerson(t *testing.T, e *env, name string) ident.ID {
 	return id
 }
 
-// New message offers people (a dm, or several for a group), live agents (a
-// dm), units of work (their log, and their worker), and rooms.
+// New message offers people (a dm, or several for a group), live agents (in
+// their own channel), units of work (their log), and rooms.
 func TestNewMessageOptionsByKind(t *testing.T) {
 	c := newConvEnv(t)
 	ended := jam.Instance{ActorID: string(ident.New(ident.Session)), Project: "proj", Role: "dev", Name: "gone", Phase: jam.PhaseGone}
@@ -191,7 +203,7 @@ func TestNewMessageOptionsByKind(t *testing.T) {
 	want := map[string]NewMessageOption{
 		"bob/person":   {To: "user:" + string(c.bob), Label: "bob", Kind: "person", Project: "proj"},
 		"spider/agent": {To: "session:" + c.spider.ActorID, Label: "spider", Kind: "agent", Project: "proj"},
-		"COV-1/work":   {To: string(c.work.ID), Worker: "worker:" + string(c.work.ID), Label: "COV-1", Kind: "work", Project: "proj"},
+		"COV-1/work":   {To: string(c.work.ID), Label: "COV-1", Kind: "work", Project: "proj"},
 		"eng/room":     {To: engID, Label: "eng", Kind: "room", Project: "proj"},
 	}
 	for k, w := range want {
@@ -203,25 +215,6 @@ func TestNewMessageOptionsByKind(t *testing.T) {
 		if k == "alice/person" || k == "gone/agent" {
 			t.Errorf("offered %s", k)
 		}
-	}
-}
-
-// Worker sends to the unit's current worker in a dm; with none, Jam's
-// no-worker answer (409) comes back and nothing is sent.
-func TestAPISendToWorker(t *testing.T) {
-	c := newConvEnv(t)
-	c.Deps.Send = jam.NewParticipantSendHandler(c.st, c.Intercom, nil)
-	h := Handler(c.Deps, nil)
-	rec := apiPost(t, h, c.p, "/app/user/api/messages", `{"to":"worker:`+string(c.work.ID)+`","body":"quick one"}`)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("to the worker = %d %s", rec.Code, rec.Body)
-	}
-	if err := c.st.SetChannelWorker(c.work.ID, ""); err != nil {
-		t.Fatal(err)
-	}
-	rec = apiPost(t, h, c.p, "/app/user/api/messages", `{"to":"worker:`+string(c.work.ID)+`","body":"anyone?"}`)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"code":"no-worker"`) {
-		t.Fatalf("no worker = %d %s, want 409 no-worker", rec.Code, rec.Body)
 	}
 }
 

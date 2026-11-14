@@ -13,12 +13,8 @@ The composer sits below an open conversation in the xref:usage/jam/intercom-ui.a
 one of these:
 `+user:<id>+` (the `dm` with that person),
 `+chat:user:<id>,user:<id>…+` (the `dm` or `group` with those people, in the first project all of them are members of),
-`+session:<id>+` (the `dm` with that live session, which the person may reach),
-a unit of work's log id (its *Log*),
-or `+worker:<log id>+` (its *Worker*: the `dm` with the unit's current worker).
-With no current worker, the send is `409` with code `no-worker`
-("no agent is working on this now, so the message was not sent"),
-and nothing is kept.
+`+session:<id>+` (that live session's home channel, which the person joins),
+or a unit of work's log id (its *Log*).
 The intercom decides whether the person may
 post there and who hears it. A reply to a waiting studio *wakes it* exactly
 as a relayed reply does (xref:usage/jam/wake-on.adoc[wake-on]).

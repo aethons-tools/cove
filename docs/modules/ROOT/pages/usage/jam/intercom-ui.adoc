@@ -81,8 +81,9 @@ just the code.
 person's projects (`GET /app/user/api/recipients`, `userui.newMessageOptions`):
 other members, marked *person* (click one for a `dm`, or tick several for a `group`, all of one project);
 the live sessions they may reach, marked *agent* (a standing or ticket session; a personal session only if they're
-already in its channel), as a `dm`;
-the project's units of work, marked *work*, each with *Log* (post to its work log) and *Worker* (a `dm` with its current worker; with none, Jam's `no-worker` answer shows and nothing is sent);
+already in its channel), whose message goes to the session's home channel, which the person joins
+(a `dm` once sessions answer in it, COV-354);
+the project's units of work, marked *work*, each with *Log* (post to its work log);
 and rooms.
 The `to` forms are in xref:usage/jam/intercom-composer.adoc[intercom-composer].
 * *New session:* start a xref:usage/jam/personal-sessions.adoc#starting-one-from-the-inbox[personal session]

@@ -13,9 +13,9 @@ import (
 
 // ParticipantSendHandler is a person's send from the /app/user inbox (POST
 // /app/user/send): into a conversation they're in ({"to": "<channel id>"}), or a
-// new one ({"to": "user:<id|name>"}, "chat:user:<id|name>,…", or
-// "session:<id>": a dm or a group with them; "worker:<log id>": a dm with a
-// unit of work's current worker). The sender is the gate's participant, never the body; the intercom
+// new one ({"to": "user:<id|name>"} or "chat:user:<id|name>,…": a dm or a
+// group with them; "session:<id>": the session's home channel, which they
+// join). The sender is the gate's participant, never the body; the intercom
 // decides whether they may post there and who hears it. Implements
 // http.Handler.
 type ParticipantSendHandler struct {
@@ -126,8 +126,6 @@ func (h *ParticipantSendHandler) Send(p Participant, req SendRequest) (intercom.
 		return intercom.Squawk{}, sendErr(http.StatusForbidden, "forbidden", "not allowed")
 	case errors.Is(err, ErrSendUnresolved), errors.Is(err, ErrRemoved):
 		return intercom.Squawk{}, sendErr(http.StatusNotFound, "not_found", "recipient not found")
-	case errors.Is(err, ErrNoWorker):
-		return intercom.Squawk{}, sendErr(http.StatusConflict, "no-worker", "no agent is working on this now, so the message was not sent")
 	case err != nil:
 		h.log.Error("participant send: plan failed", "user", string(p.UserID), "error", err.Error())
 		return intercom.Squawk{}, sendErr(http.StatusInternalServerError, "internal", "send failed")
@@ -150,8 +148,8 @@ func (h *ParticipantSendHandler) Send(p Participant, req SendRequest) (intercom.
 }
 
 // plan resolves a /me send (conversations.adoc#targets): a channel id, a
-// person to dm, people to dm or group (chat:user:<id|name>,…), a session to
-// dm, or the current worker of the unit of work a log id names.
+// person to dm, people to dm or group (chat:user:<id|name>,…), or a session
+// to reach in its home channel.
 func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error) {
 	kind, ref, ok := strings.Cut(to, ":")
 	switch {
@@ -177,11 +175,7 @@ func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error)
 		}
 		return h.ic.PlanPersonChat(p.UserID, with...)
 	case kind == "session":
-		return h.ic.PlanSessionDM(p.UserID, ident.ID(ref))
-	case kind == "worker":
-		if id, err := ident.Parse(ref); err == nil && id.Kind() == ident.Channel {
-			return h.ic.PlanWorker(p.UserID, id)
-		}
+		return h.ic.PlanHome(p.UserID, ident.ID(ref))
 	}
 	return Planned{}, ErrSendUnresolved
 }
