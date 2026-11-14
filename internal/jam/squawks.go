@@ -188,6 +188,9 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		To          string   `json:"to"`
 		ContentType string   `json:"content_type,omitempty"` // "" = text/markdown
 		Attachments []string `json:"attachments,omitempty"`  // uploaded blob refs
+		// Mentions are session:<label|id> targets naming session members of
+		// the conversation (conversations.adoc#wake).
+		Mentions []string `json:"mentions,omitempty"`
 		// Auto marks the cove posting the session's turn-end text for it.
 		Auto bool `json:"auto,omitempty"`
 	}
@@ -239,6 +242,14 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		h.log.Error("intercom: plan failed", "actor", actor.ID, "error", err.Error())
 		http.Error(w, "send failed", http.StatusInternalServerError)
 		return
+	}
+	if len(req.Mentions) > 0 {
+		named, err := h.ic.ResolveMentions(pl.Channel, req.Mentions)
+		if err != nil {
+			http.Error(w, "mention not found: each must be a session: target naming a session member of the conversation", http.StatusBadRequest)
+			return
+		}
+		parts = append(parts, intercom.MentionsPart(named))
 	}
 	if req.Auto {
 		if h.repeats(pl.Channel.ID, ident.ID(actor.ID), req.Body) {

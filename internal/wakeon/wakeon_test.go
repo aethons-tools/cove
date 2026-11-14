@@ -2226,3 +2226,87 @@ func waitFor(t *testing.T, cond func() bool, what string) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// fakeConversations is the channel registry the wake rules read.
+type fakeConversations struct {
+	chans   map[ident.ID]jam.Channel
+	members map[ident.ID][]jam.ChannelMember
+}
+
+func (f fakeConversations) GetChannel(id ident.ID) (jam.Channel, bool) {
+	c, ok := f.chans[id]
+	return c, ok
+}
+
+func (f fakeConversations) ChannelMembers(id ident.ID) []jam.ChannelMember { return f.members[id] }
+
+// Who wakes follows the conversation's kind (conversations.adoc#wake): in a
+// dm or group, every session member; in a room, only the sessions a message
+// mentions and those that joined with wake: all; in a work log, only the
+// current worker. A message that wakes no one still waits in the inbox.
+func TestTick_WakeRulesPerKind(t *testing.T) {
+	const (
+		self   = ident.ID("ses_01j9q3dddddddddddddddddddd")
+		other  = ident.ID("ses_01j9q3eeeeeeeeeeeeeeeeeeee")
+		person = ident.ID("usr_01j9q3aaaaaaaaaaaaaaaaaaaa")
+		dm     = ident.ID("chn_01j9q3dm000000000000000000")
+		group  = ident.ID("chn_01j9q3gr000000000000000000")
+		room   = ident.ID("chn_01j9q3rm000000000000000000")
+		work   = ident.ID("chn_01j9q3wk000000000000000000")
+		sess   = ident.ID("chn_01j9q3ss000000000000000000")
+	)
+	named := func(ids ...ident.ID) []intercom.Part { return []intercom.Part{intercom.MentionsPart(ids)} }
+	for name, tc := range map[string]struct {
+		m        intercom.Squawk
+		wakeAll  bool     // self joined the room with wake: all
+		worker   ident.ID // the work log's current worker
+		wantWake bool
+	}{
+		"dm: a person's message":                 {m: intercom.Squawk{Channel: dm, From: person}, wantWake: true},
+		"dm: a session's message":                {m: intercom.Squawk{Channel: dm, From: other}, wantWake: true},
+		"group: a person's message":              {m: intercom.Squawk{Channel: group, From: person}, wantWake: true},
+		"session channel: as today":              {m: intercom.Squawk{Channel: sess, From: person}, wantWake: true},
+		"room: not mentioned":                    {m: intercom.Squawk{Channel: room, From: person}},
+		"room: mentioned":                        {m: intercom.Squawk{Channel: room, From: person, Parts: named(self)}, wantWake: true},
+		"room: another session mentioned":        {m: intercom.Squawk{Channel: room, From: person, Parts: named(other)}},
+		"room: a session mentions it":            {m: intercom.Squawk{Channel: room, From: other, Parts: named(self)}, wantWake: true},
+		"room: wake all":                         {m: intercom.Squawk{Channel: room, From: person}, wakeAll: true, wantWake: true},
+		"room: a call-in of it":                  {m: intercom.Squawk{ID: "callin:" + string(room) + ":" + string(self) + ":1", Channel: room, From: person}, wantWake: true},
+		"work: the current worker":               {m: intercom.Squawk{Channel: work, From: person}, worker: self, wantWake: true},
+		"work: not the current worker":           {m: intercom.Squawk{Channel: work, From: person}, worker: other},
+		"work: no worker":                        {m: intercom.Squawk{Channel: work, From: person}},
+		"work: mentioned but not the worker":     {m: intercom.Squawk{Channel: work, From: person, Parts: named(self)}, worker: other},
+		"no channel (a legacy squawk): as today": {m: intercom.Squawk{From: person}, wantWake: true},
+		"an unknown channel: as today":           {m: intercom.Squawk{Channel: "chn_01j9q3zzzzzzzzzzzzzzzzzz", From: person}, wantWake: true},
+	} {
+		tc.m.Seq, tc.m.Body = 6, "x"
+		if tc.m.ID == "" {
+			tc.m.ID = "m6"
+		}
+		wake := jam.WakeNamed
+		if tc.wakeAll {
+			wake = jam.WakeAll
+		}
+		convs := fakeConversations{
+			chans: map[ident.ID]jam.Channel{
+				dm: {ID: dm, Kind: jam.SourceDM}, group: {ID: group, Kind: jam.SourceGroup},
+				room: {ID: room, Kind: jam.SourceRoom}, sess: {ID: sess, Kind: jam.SourceSession},
+				work: {ID: work, Kind: jam.SourceWork, Worker: tc.worker},
+			},
+			members: map[ident.ID][]jam.ChannelMember{room: {{ParticipantID: self, Wake: wake}, {ParticipantID: other, Wake: jam.WakeNamed}}},
+		}
+		reg := &fakeReg{insts: []jam.Instance{
+			{ActorID: string(self), Phase: jam.PhaseLive, Activity: jam.ActivityWaiting, WaitingSince: time.Unix(1000, 0), WaitSeq: 5},
+		}}
+		inbox := &fakeInbox{byActor: map[string][]intercom.Squawk{string(self): {tc.m}}}
+		w := &fakeWaker{}
+		e := New(reg, w, &fakeReaper{}, &fakeIdler{}, inbox, Config{MaxWait: time.Hour, WarmTimeout: time.Hour}, nil)
+		e.SetSessionWakes(fakeHistory{}, nil, AgentWakes{Count: 8, Window: 10 * time.Minute})
+		e.SetConversations(convs)
+		e.now = func() time.Time { return time.Unix(2000, 0) }
+		e.tick(context.Background())
+		if got := contains(w.woke, string(self)); got != tc.wantWake {
+			t.Errorf("%s: woke = %v, want %v", name, got, tc.wantWake)
+		}
+	}
+}

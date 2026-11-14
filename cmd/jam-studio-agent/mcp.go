@@ -76,6 +76,7 @@ type sendIn struct {
 	// ContentType opts out of the markdown default.
 	Attach      []string `json:"attach,omitempty" jsonschema:"optional: paths of files in your studio to attach (each up to Jam's size cap, at most 10); the text may be empty when attaching"`
 	ContentType string   `json:"content_type,omitempty" jsonschema:"optional: text/markdown (the default; the body is rendered as markdown) or text/plain (shown literally — use it for text that would render badly as markdown, e.g. logs, ASCII art, or stray * and _)"`
+	Mentions    []string `json:"mentions,omitempty" jsonschema:"optional: session:<name> targets to mention; in a room, only the sessions a message mentions (here or as @<name> in the text) wake, besides those set to wake for every message"`
 }
 
 // readIn is the "read" tool's typed input: optional seek parameters.
@@ -327,10 +328,10 @@ func (c *messagingClient) doStatus(ctx context.Context, method, pathSuffix strin
 	return respBody, resp.StatusCode, nil
 }
 
-// send posts a message via Jam: to the cove's default channel, or, when to
-// is non-empty, to the authorized target it names.
-func (c *messagingClient) send(ctx context.Context, text, to, contentType string, attach ...string) (sendOut, error) {
-	refs, err := c.uploadAll(ctx, attach)
+// send posts a message via Jam: to the cove's default channel, or, when
+// in.To is non-empty, to the authorized target it names.
+func (c *messagingClient) send(ctx context.Context, in sendIn) (sendOut, error) {
+	refs, err := c.uploadAll(ctx, in.Attach)
 	if err != nil {
 		return sendOut{}, err
 	}
@@ -339,7 +340,8 @@ func (c *messagingClient) send(ctx context.Context, text, to, contentType string
 		To          string   `json:"to,omitempty"`
 		ContentType string   `json:"content_type,omitempty"`
 		Attachments []string `json:"attachments,omitempty"`
-	}{Body: text, To: to, ContentType: contentType, Attachments: refs})
+		Mentions    []string `json:"mentions,omitempty"`
+	}{Body: in.Text, To: in.To, ContentType: in.ContentType, Attachments: refs, Mentions: in.Mentions})
 	if err != nil {
 		return sendOut{}, fmt.Errorf("encoding send payload: %w", err)
 	}
@@ -655,12 +657,12 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
-		Description: "Post a message. Omit 'to' to post in your own channel — your ticket's, or your session's, where whoever started you and anyone called in hear it; set to=user:<name> to talk with a person (their reply reaches you), session:<name> for another session's channel (you join it), chat:user:<a>,session:<b> for a group (user: and session: members), channel:<room> for a room, work:<key> for a unit of work's log (ticket:<key> is an alias), or worker:<key> for a DM with the session working on it now (refused with no-worker when none is). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally. If your context says your final message is posted for you, don't also send it: send is for messaging elsewhere or mid-turn.",
+		Description: "Post a message. Omit 'to' to post in your own channel — your ticket's, or your session's, where whoever started you and anyone called in hear it; set to=user:<name> to talk with a person (their reply reaches you), session:<name> for another session's channel (you join it), chat:user:<a>,session:<b> for a group (user: and session: members), channel:<room> for a room, work:<key> for a unit of work's log (ticket:<key> is an alias), or worker:<key> for a DM with the session working on it now (refused with no-worker when none is). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally. In a room, a message wakes only the sessions it mentions (mentions, or @<name> in the text) and those set to wake for every message. If your context says your final message is posted for you, don't also send it: send is for messaging elsewhere or mid-turn.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, sendOut, error) {
 		if cfgErr != nil {
 			return nil, sendOut{}, cfgErr
 		}
-		out, err := client.send(ctx, in.Text, in.To, in.ContentType, in.Attach...)
+		out, err := client.send(ctx, in)
 		if err != nil {
 			return nil, sendOut{}, err
 		}

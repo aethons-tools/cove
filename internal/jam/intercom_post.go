@@ -83,12 +83,14 @@ func NewIntercom(store Store, tracker func() (ident.ID, bool), lg intercom.Store
 // ---- writing ----
 
 // Post appends m to the planned channel with the planned audience (m's
-// Channel is set from the plan). A person posting in a ticket, a room or an
+// Channel is set from the plan, and its mentions part from its own and its
+// body's: withMentions). A person posting in a ticket, a room or an
 // open session channel (not a personal session's: that one is by invitation)
 // joins it, from this post on; so does any poster the plan says joins (one
 // addressing a session, whose access the plan already checked).
 func (ic *Intercom) Post(pl Planned, m intercom.Squawk) (intercom.Squawk, error) {
 	m.Channel = pl.Channel.ID
+	m.Parts = ic.withMentions(pl.Channel, m)
 	m, err := ic.lg.Append(m, pl.Audience)
 	if err != nil {
 		return intercom.Squawk{}, err
