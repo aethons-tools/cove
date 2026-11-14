@@ -36,8 +36,10 @@ Nobody can join or leave a DM or a group DM.
 Room::
 A named channel of a project, such as `ops`.
 People join and leave rooms.
-Sessions can post to a room,
-but they do not join it.
+Sessions are members of the rooms their role lists,
+and of rooms someone calls them into.
+A room shows its members,
+with its sessions marked as agents.
 
 The members of a channel hear every message posted in it from the time they joined.
 A message you get but have not read counts as *unread*.
@@ -105,7 +107,8 @@ What you got before you left stays in the channel.
 A member can *call in* someone else.
 The person or session joins the channel from then on,
 and the channel shows a note, such as "alice called in carol".
-A room takes people only.
+A session called into a room can leave it again,
+but it can't leave a room its role lists.
 Sessions call people in too.
 When an agent asks for help,
 Jam calls the people on call into its channel
@@ -180,7 +183,8 @@ ifdef::internal[]
 
 * Rooms, members, a member's Discord inbox and a project's chat service are config in the config repo
 (`projects/<p>/project.yml`: `rooms`, `members[].delivery`, `chat-service`).
-A role's addressing is `scope.addressing` in its role file.
+A role's addressing is `scope.addressing` in its role file,
+and the rooms its sessions join are `scope.rooms` (`+[{name, wake}]+`, `wake` is `named` or `all`).
 * Attachments are off unless serve has a `blobs:` block; `blobs.max-size` sets the limit.
 * The agent-to-agent limit is serve's `runtime.agent-wakes`:
 8 messages in 10 minutes unless the operator changes it.

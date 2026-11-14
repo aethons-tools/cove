@@ -81,7 +81,7 @@ func roleDetailOf(store jam.Store, img jam.ImageResolver, items []attnItem, proj
 	r := d.Role
 	out := RoleDetail{Project: d.Project, Name: name, Kit: r.Kit,
 		ModelSpec: r.ModelSpecName(), ModelSpecDefault: r.ModelSpec == "", TTL: ttlText(r.Scope.TTL), Dests: []DestRow{},
-		Addressing: append([]string{}, r.Scope.Addressing...), EgressManaged: d.EgressManaged, EgressDomains: []string{},
+		Addressing: append([]string{}, r.Scope.Addressing...), Rooms: []RoleRoomRow{}, EgressManaged: d.EgressManaged, EgressDomains: []string{},
 		Allocation: []Setting{}, Standing: []StandingRow{}, Holders: []HolderRow{}, Running: coveRows(d.Coves, items),
 		Form: RoleForm{Destinations: d.Form.Destinations, Addressing: d.Form.Addressing, TTL: d.Form.TTL, Kit: r.Kit, ModelSpec: r.ModelSpec,
 			MaxEphemeral: d.Form.MaxEphemeral, MaxPersonal: d.Form.MaxPersonal, MaxPersonalPerOwner: d.Form.MaxPersonalPerOwner,
@@ -90,6 +90,9 @@ func roleDetailOf(store jam.Store, img jam.ImageResolver, items []attnItem, proj
 		Attn: attnFlag(items, "agents", d.Project+"/"+name), Notes: operatorNotesOf(r.OperatorNotes)}
 	if r.Scope.Egress != nil {
 		out.EgressDomains = append(out.EgressDomains, r.Scope.Egress.Domains...)
+	}
+	for _, m := range r.Scope.Rooms {
+		out.Rooms = append(out.Rooms, RoleRoomRow{Name: m.Name, Wake: string(m.Wake)})
 	}
 	for _, x := range d.Dests {
 		out.Dests = append(out.Dests, DestRow{Name: x.Name, Cred: x.Cred, CredIsRole: x.CredIsRole, Route: x.Route, Missing: x.Missing})

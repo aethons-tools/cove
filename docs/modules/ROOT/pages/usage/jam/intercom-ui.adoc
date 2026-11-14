@@ -111,13 +111,16 @@ above the messages lists the conversation's open asks.
 
 The composer — sending, keys, saved reply, draft stack and attachments: xref:usage/jam/intercom-composer.adoc[intercom-composer].
 
+[#membership-controls]
 == Membership controls
 
 The conversation header offers *Join* (a room, a work log, or a session's own channel the person can see but
 isn't in), *Leave* (one they're in) and *Call in…* (the
-project's people not yet in it, and on work logs and session channels the live sessions they may reach;
-a room lists people only while it takes no session members,
+project's people not yet in it, and the live sessions they may reach,
 xref:usage/jam/intercom.adoc#channel-membership[membership]).
+A room's header also lists its current members (`Conversation.members`),
+people first, each session marked *(agent)*
+(xref:usage/jam/intercom.adoc#sessions-in-rooms[sessions in rooms]).
 A `dm` and a `group` have none, because their members are fixed.
 Session channels keep these controls until the migration retires them (COV-354). The rules are the intercom's
 (xref:usage/jam/intercom.adoc#channel-membership[membership]).

@@ -534,6 +534,14 @@ export interface HolderRow {
   override: boolean; // the grant replaces part of the role's scope
 }
 /**
+ * RoleRoomRow is a room the role's sessions are members of, and which of
+ * its messages wake them: named (those that mention the session) or all.
+ */
+export interface RoleRoomRow {
+  name: string;
+  wake: string;
+}
+/**
  * RoleForm is a role's current values in its edit forms' syntax.
  */
 export interface RoleForm {
@@ -562,6 +570,7 @@ export interface RoleDetail {
   ttl: string;
   dests: DestRow[];
   addressing: string[];
+  rooms: RoleRoomRow[]; // scope.rooms, set in the config repo
   egressManaged: boolean;
   egressDomains: string[];
   allocation: Setting[];

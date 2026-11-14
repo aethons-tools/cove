@@ -31,6 +31,17 @@ type Scope struct {
 	// = the kit's default list. Set by the role file's `scope.egress` in the
 	// config repo.
 	Egress *EgressPolicy `json:"egress,omitempty"`
+	// Rooms are the project rooms the role's sessions are members of, joined
+	// when each is set up (Intercom.SetUp). Set by the role file's
+	// `scope.rooms` in the config repo.
+	Rooms []RoomMembership `json:"rooms,omitempty"`
+}
+
+// RoomMembership is one room a role lists: its sessions join it with Wake
+// (WakeNamed or WakeAll, never "").
+type RoomMembership struct {
+	Name string   `json:"name"`
+	Wake WakeMode `json:"wake"`
 }
 
 // EgressPolicy is a role's raw-egress allow-list, applied to its coves at raise

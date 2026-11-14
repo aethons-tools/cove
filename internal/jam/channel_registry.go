@@ -72,7 +72,7 @@ func upgradeKind(c Channel) Channel {
 
 // WakeMode is which messages of a conversation wake a session member:
 // WakeNamed only those that name it (the default), WakeAll every one. It is
-// stored with the membership; waking does not read it yet.
+// stored with the membership, and wake-on reads it for rooms.
 type WakeMode string
 
 const (

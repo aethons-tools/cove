@@ -211,6 +211,9 @@ type Conversation struct {
 	CanJoin  bool               `json:"canJoin"`
 	CanLeave bool               `json:"canLeave"`
 	CallIn   []NewMessageOption `json:"callIn"`
+	// Members is a room's member list, its sessions marked as agents; none
+	// for other kinds.
+	Members []MemberRow `json:"members,omitempty"`
 	// NewBoard offers New whiteboard (the viewer may start one here).
 	NewBoard bool `json:"newBoard"`
 	// Session is the actor id of the session whose home this channel is,
@@ -219,6 +222,13 @@ type Conversation struct {
 	Session string `json:"session"`
 	// Color is that session's color, the composer's accent ("" = none).
 	Color string `json:"color,omitempty"`
+}
+
+// MemberRow is one member of a room. Kind is person or agent.
+type MemberRow struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Kind  string `json:"kind"`
 }
 
 // NewMessageOption is one recipient offered in the New Message picker (or
