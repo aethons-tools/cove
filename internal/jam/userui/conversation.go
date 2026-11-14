@@ -107,9 +107,8 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 }
 
 // membershipControls fills the conversation's Join/Leave/Call in controls:
-// a dm or a group has none (its members are fixed). Rooms, work logs, and
-// (until the migration removes them, COV-354) sessions' own channels take
-// Join and Leave; Call in lists the project's people and the agents the
+// a dm or a group has none (its members are fixed). Rooms and work logs
+// take Join and Leave; Call in lists the project's people and the agents the
 // viewer may reach. A room also lists its members.
 func membershipControls(conv *Conversation, p jam.Participant, d Deps) {
 	ch, ok := d.Store.GetChannel(ident.ID(conv.ChannelID))
@@ -198,8 +197,8 @@ func legacyConversation(p jam.Participant, d Deps, channelID string) (Conversati
 
 // newMessageOptions lists who the participant can start a conversation
 // with, across their projects: its other members (a dm, or several for a
-// group), the live agents they may reach (in the agent's home channel), its
-// units of work (their log), and its rooms.
+// group), the live agents they may reach (in a dm), its units of work (their
+// log, and the dm with the worker: workerTo), and its rooms.
 func newMessageOptions(p jam.Participant, d Deps) []NewMessageOption {
 	seen := map[string]bool{}
 	var out []NewMessageOption
@@ -232,11 +231,27 @@ func newMessageOptions(p jam.Participant, d Deps) []NewMessageOption {
 			}
 		}
 		for _, ch := range d.Store.ListChannels(proj.ID, jam.SourceWork) {
-			add(NewMessageOption{To: string(ch.ID), Label: ch.Label, Kind: "work", Project: name})
+			add(NewMessageOption{To: string(ch.ID), Worker: workerTo(p, d, ch), Label: ch.Label, Kind: "work", Project: name})
 		}
 		for _, ch := range d.Store.ListChannels(proj.ID, jam.SourceRoom) {
 			add(NewMessageOption{To: string(ch.ID), Label: ch.Label, Kind: "room", Project: name})
 		}
 	}
 	return out
+}
+
+// workerTo is the worker:<key> target of work log ch for p: the dm with the
+// live session working on it, when p may reach it ("" = none, or a log on a
+// connection other than the tracker, which worker: can't name).
+func workerTo(p jam.Participant, d Deps, ch jam.Channel) string {
+	tracker, ok := d.Intercom.Tracker()
+	conn, key, _ := strings.Cut(ch.Key, "/")
+	if !ok || conn != string(tracker) || ch.Worker == "" {
+		return ""
+	}
+	inst, ok := d.Store.GetInstance(string(ch.Worker))
+	if !ok || !d.Intercom.MayReach(p.UserID, inst) {
+		return ""
+	}
+	return "worker:" + key
 }

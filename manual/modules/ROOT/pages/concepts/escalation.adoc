@@ -5,7 +5,7 @@
 
 When an agent needs a person,
 it does not have to wait until someone happens to look.
-*Escalation* calls people into the agent's channel,
+*Escalation* calls people in,
 one group after another,
 until someone answers.
 Each xref:concepts/project.adoc[project] sets its own escalation;
@@ -86,7 +86,7 @@ and it never ends the session.
 To be *called in* means that Jam opens a DM between you and the session,
 or a group DM when the tier has several people
 (xref:concepts/intercom.adoc[Intercom]).
-Jam posts a note there, such as:
+Jam posts a note in it, such as:
 
 ----
 Needs input from acme-42 on ACME-42 — called in alice, bob (escalation tier 0).
@@ -96,11 +96,12 @@ The note reaches each person like any other DM:
 in the Inbox,
 and on Discord when the project uses it.
 When the session works on a unit of work,
-the note is also posted to its work log.
+the note is also posted to its work log
+(xref:concepts/work.adoc[Work]).
 
 == Answering
 
-Answer in that DM, as you would any message.
+Answer in that DM or group DM, as you would any message.
 Your answer wakes the session.
 Escalation does not watch for answers itself:
 it stops because the session is no longer waiting.
@@ -115,16 +116,15 @@ the tier called in last, when, and on which chain
 ifdef::internal[]
 == Notes for the team
 
-* Goal: tiers open a DM or group DM instead of calling people into the session's channel.
-The interface is in `docs/modules/ROOT/pages/usage/jam/conversations.adoc`.
 * The engine is `internal/escalate` (`escalate.go`).
 It polls every `runtime.escalation-poll-interval` (default 30s).
 "Asked for a person" is `jam.AskedForPerson`:
 `EscalationAsked` (the `escalate` tool, cleared on the next wake),
 open asks, or a `needs-input` report.
 * A tier's state (`EscalationTier`, `TierPingedAt`) resets each time the session enters Waiting.
-* The call-in and notice are `Intercom.Escalate` (`internal/jam/intercom_escalate.go`);
+* The DM or group and the notice are `Intercom.Escalate` (`internal/jam/intercom_escalate.go`);
 Jam acts on the operator's policy, so the role's addressing is not checked.
+The work log's copy names nobody in its id, so push notifies each person once, in the DM.
 * The chains are `escalation` and `escalation-by-category` in `projects/<p>/project.yml`;
 `jam project escalation list <project>` prints them.
 * Not built: Jam choosing a category itself, tiers that call in a session or post to a room, showing the tier in `jam studio list`.

@@ -22,7 +22,8 @@ type TurnIO interface {
 	// oldest first; more reports whether others wait beyond them.
 	Inbox(ctx context.Context, limit int) (es []InboxEntry, more bool, err error)
 	// Post posts text as the session, marked as a turn end's (auto): to its
-	// home channel, or to the target to names.
+	// default conversation (Jam's: where it was last messaged), or to the
+	// target to names.
 	Post(ctx context.Context, text, to string) error
 	// Commit advances the session's commit cursor to upTo.
 	Commit(ctx context.Context, upTo string) error

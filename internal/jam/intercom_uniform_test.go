@@ -17,22 +17,21 @@ func (f *icFixture) ticketChannelOf() Channel {
 	return ch
 }
 
-// Every session's home is its own session channel; a ticket session is also a
-// member of its ticket's channel.
-func TestIntercomTicketSessionHomeIsSessionChannel(t *testing.T) {
+// A ticket session has no channel of its own: it is a member of its
+// ticket's work log, where its post with no address goes.
+func TestIntercomTicketSessionIsInItsLog(t *testing.T) {
 	f := newICFixture(t)
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatal(err)
 	}
-	home, err := f.ic.HomeChannel(f.ticket)
-	if err != nil || home.Kind != SourceSession || home.Key != f.ticket.ActorID {
-		t.Fatalf("home = %+v, %v; want its session channel", home, err)
-	}
 	if !isMember(f.store, f.ticketChannelOf().ID, ident.ID(f.ticket.ActorID)) {
 		t.Fatal("ticket session is not a member of its ticket channel")
 	}
-	if p := f.mustPlan(f.ticket, ""); p.Channel.ID != home.ID {
-		t.Fatalf("send without to = %+v, want home", p.Channel)
+	if p := f.mustPlan(f.ticket, ""); p.Channel.ID != f.ticketChannelOf().ID {
+		t.Fatalf("send without to = %+v, want its log", p.Channel)
+	}
+	if got := f.store.ListChannels(f.project.ID, SourceSession); len(got) != 0 {
+		t.Fatalf("session channels = %+v", got)
 	}
 }
 
@@ -62,32 +61,17 @@ func TestIntercomOwnTicketSendGoesToTicket(t *testing.T) {
 	}
 }
 
-// user:<x> from a ticket session lands in its home when x is already there.
-func TestIntercomTicketSessionUserSendJoinsHome(t *testing.T) {
-	f := newICFixture(t, "user:*")
-	home := f.mustPlan(f.ticket, "").Channel
-	if err := f.ic.JoinChannel(f.alice.ID, home.ID); err != nil {
-		t.Fatal(err)
-	}
-	if p := f.mustPlan(f.ticket, "user:alice"); p.Channel.ID != home.ID {
-		t.Fatalf("user:alice = %+v, want home %s", p.Channel, home.ID)
-	}
-}
-
-// An ended ticket session leaves its ticket channel and its own is archived.
-func TestIntercomEndedTicketSessionLeavesBoth(t *testing.T) {
+// An ended ticket session leaves its ticket channel, which stays.
+func TestIntercomEndedTicketSessionLeavesItsLog(t *testing.T) {
 	f := newICFixture(t)
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatal(err)
 	}
-	home, _ := f.ic.HomeChannel(f.ticket)
 	if err := f.ic.Ended(f.ticket); err != nil {
 		t.Fatal(err)
 	}
-	if isCurrentMember(f.store, f.ticketChannelOf().ID, ident.ID(f.ticket.ActorID)) {
-		t.Fatal("still in the ticket channel")
-	}
-	if ch, _ := f.store.GetChannel(home.ID); ch.Status == StatusLive {
-		t.Fatal("session channel not archived")
+	log := f.ticketChannelOf()
+	if isCurrentMember(f.store, log.ID, ident.ID(f.ticket.ActorID)) || log.Worker != "" || log.Status != StatusLive {
+		t.Fatalf("after Ended: %+v", log)
 	}
 }

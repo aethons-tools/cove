@@ -46,14 +46,9 @@ func newConvEnv(t *testing.T) *convEnv {
 	}
 	// A dm with an agent (as an agent's send to user:alice opens one).
 	proj, _ := e.st.GetProject("proj")
-	dm, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceDM, Key: string(p.UserID) + "," + spider.ActorID, Label: "alice, spider"})
+	dm, err := e.homeCh(spider)
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, m := range []ident.ID{p.UserID, ident.ID(spider.ActorID)} {
-		if err := e.st.JoinChannel(dm.ID, m, 0); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if _, err := e.Intercom.PostTrusted(dm, intercom.Squawk{From: ident.ID(spider.ActorID), Body: "hi"}); err != nil {
 		t.Fatal(err)
@@ -95,7 +90,7 @@ func TestRailConversationGroups(t *testing.T) {
 	if !slices.Equal(titles, []string{"Agents", "Conversations"}) {
 		t.Fatalf("groups = %q", titles)
 	}
-	spiderHome := c.homeOf(t, c.spider)
+	spiderHome := string(c.agentDM) // spider's conversation for alice: it has no unit
 	for _, tc := range []struct {
 		id, title, kind string
 		card            bool
@@ -105,7 +100,6 @@ func TestRailConversationGroups(t *testing.T) {
 		{string(c.bobDM), "Conversations", "dm", false, ""},
 		{string(c.work.ID), "Conversations", "work", false, ""},
 		{engID, "Conversations", "room", false, ""},
-		{spiderHome, "Agents", "session", true, ""},
 	} {
 		row, bucket, ok := rowByID(r, tc.id)
 		if !ok {
@@ -122,10 +116,8 @@ func TestRailConversationGroups(t *testing.T) {
 	rec := httptest.NewRecorder()
 	Handler(c.Deps, nil).ServeHTTP(rec, asPrincipal(httptest.NewRequest("GET", "/app/user/api/rail", nil), c.p, true))
 	op := decodeAs[RailResponse](t, rec)
-	for _, id := range []string{string(c.agentDM), spiderHome} {
-		if row, _, _ := rowByID(op, id); row.SessionView != spiderHome {
-			t.Errorf("operator's %s row: sessionView %q, want %q", row.Label, row.SessionView, spiderHome)
-		}
+	if row, _, _ := rowByID(op, string(c.agentDM)); row.SessionView != spiderHome {
+		t.Errorf("operator's %s row: sessionView %q, want %q", row.Label, row.SessionView, spiderHome)
 	}
 
 	// Once the agent ends, its dm is an ordinary conversation.
@@ -150,9 +142,9 @@ func rowByID(r RailResponse, id string) (ChannelRow, jam.AttentionBucket, bool) 
 	return ChannelRow{}, "", false
 }
 
-// The header's kind and controls: Join and Leave on rooms, work logs, and
-// (until COV-354) a session's own channel; Call in lists people and the
-// agents the viewer may reach; a dm and a group have none. A room lists its
+// The header's kind and controls: Join and Leave on rooms and work logs;
+// Call in lists people and the agents the viewer may reach; a dm and a
+// group have none. A room lists its
 // members, its sessions marked as agents.
 func TestConversationKindsAndControls(t *testing.T) {
 	c := newConvEnv(t)
@@ -188,11 +180,6 @@ func TestConversationKindsAndControls(t *testing.T) {
 	if work.Kind != "work" || !work.CanJoin || work.CanLeave {
 		t.Errorf("work log: kind %q, canJoin %v, canLeave %v", work.Kind, work.CanJoin, work.CanLeave)
 	}
-	_, home, _ := getConv(t, c.env, c.p, c.homeOf(t, c.spider), "")
-	hasAgent := slices.ContainsFunc(home.CallIn, func(o NewMessageOption) bool { return o.Kind == "agent" })
-	if got := labels(home.CallIn); home.Kind != "session" || !home.CanLeave || !slices.Contains(got, "bob/person") || !hasAgent {
-		t.Errorf("session channel: kind %q, canLeave %v, callIn %q", home.Kind, home.CanLeave, got)
-	}
 	for _, id := range []ident.ID{c.agentDM, c.bobDM} {
 		_, conv, _ := getConv(t, c.env, c.p, string(id), "")
 		if conv.Kind != "dm" || conv.CanJoin || conv.CanLeave || len(conv.CallIn) != 0 {
@@ -221,10 +208,12 @@ func mustAddPerson(t *testing.T, e *env, name string) ident.ID {
 	return id
 }
 
-// New message offers people (a dm, or several for a group), live agents (in
-// their own channel), units of work (their log), and rooms.
+// New message offers people (a dm, or several for a group), live agents (a
+// dm), units of work (their log, and a dm with the worker while one works
+// it), and rooms.
 func TestNewMessageOptionsByKind(t *testing.T) {
 	c := newConvEnv(t)
+	c.Deps.Intercom = jam.NewIntercom(c.st, func() (ident.ID, bool) { return "linear", true }, c.lg, nil, nil) // COV-1 is on the tracker
 	ended := jam.Instance{ActorID: string(ident.New(ident.Session)), Project: "proj", Role: "dev", Name: "gone", Phase: jam.PhaseGone}
 	if err := c.st.PutInstance(ended); err != nil {
 		t.Fatal(err)
@@ -236,7 +225,7 @@ func TestNewMessageOptionsByKind(t *testing.T) {
 	want := map[string]NewMessageOption{
 		"bob/person":   {To: "user:" + string(c.bob), Label: "bob", Kind: "person", Project: "proj"},
 		"spider/agent": {To: "session:" + c.spider.ActorID, Label: "spider", Kind: "agent", Project: "proj"},
-		"COV-1/work":   {To: string(c.work.ID), Label: "COV-1", Kind: "work", Project: "proj"},
+		"COV-1/work":   {To: string(c.work.ID), Worker: "worker:COV-1", Label: "COV-1", Kind: "work", Project: "proj"},
 		"eng/room":     {To: engID, Label: "eng", Kind: "room", Project: "proj"},
 	}
 	for k, w := range want {
@@ -247,6 +236,17 @@ func TestNewMessageOptionsByKind(t *testing.T) {
 	for k := range got {
 		if k == "alice/person" || k == "gone/agent" {
 			t.Errorf("offered %s", k)
+		}
+	}
+
+	// With no live worker, the log is still offered, its worker isn't.
+	c.spider.Phase = jam.PhaseGone
+	if err := c.st.PutInstance(c.spider); err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range newMessageOptions(c.p, c.Deps) {
+		if o.Kind == "work" && o.Worker != "" {
+			t.Errorf("work with an ended worker offers %q", o.Worker)
 		}
 	}
 }

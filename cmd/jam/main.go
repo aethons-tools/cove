@@ -2429,18 +2429,21 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 
 	}
-	// Every live session gets its home channel — a ticket session its ticket
-	// channel, bound to the issue on the tracker connection resolved above —
-	// so replies have somewhere to land before it sends.
+	// Move the conversations over (conversations-sessions.adoc#migration):
+	// archive the session channels an older Jam made, give work logs their
+	// issue's binding, and set up every live session — a ticket session in
+	// its log, bound to the issue on the tracker connection resolved above, a
+	// personal one in its dm with its starter — so replies have somewhere to
+	// land before it sends.
 	if err := ic.Reconcile(); err != nil {
-		log.Warn("intercom: giving live ticket sessions their channels failed (they get them on first send)", "err", err.Error())
+		log.Warn("intercom: moving the conversations over failed (live sessions get theirs on first send)", "err", err.Error())
 	}
 
 	// Escalation engine (intercom slice 4), started once the tracker
-	// connection is resolved and live sessions have their home channels
-	// (above): while a session is Waiting and has asked for a person, calls
-	// ordered tiers of its Project's escalation policy into its home channel
-	// on per-tier timers; the relays deliver the notice (a ticket's issue
+	// connection is resolved and live sessions are set up (above): while a
+	// session is Waiting and has asked for a person, asks ordered tiers of
+	// its Project's escalation policy, in a dm or a group with it, on
+	// per-tier timers; the relays deliver the notice (a ticket's issue
 	// @-mentions the tier). Reply-detection, waking and teardown stay
 	// wake-on's job. Runs with or without a Requisitioner.
 	epoll := cfg.escalationPollInterval()

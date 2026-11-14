@@ -1,5 +1,5 @@
 = The session status card
-:summary: The session status card — one compact summary of a session (state, mission, focus, counts, context, a state sparkline) that is a session channel's row in the Jam app's rail and heads the VS Code extension's Session Status pane; what each part shows and where its data comes from.
+:summary: The session status card — one compact summary of a session (state, mission, focus, counts, context, a state sparkline) that is the row of a `dm` with a session in the Jam app's rail and heads the VS Code extension's Session Status pane; what each part shows and where its data comes from.
 :read_when: You are reading or changing a session's status card — its state and pill, count icons, context bar, mission/focus lines or sparkline — or its data (`SessionCard` on `GET /app/user/api/rail` and `GET /app/user/api/sessions/\{id}`) and the live `presence` push that refreshes it.
 :owns: the status card's contents, its state mapping, how its counts (subagents included) are derived, the client-built sparkline, and where the card shows
 :prereqs: intercom-ui.adoc for the rail and the live refresh; session-events.adoc for the event stream Presence derives from; coves.adoc for session phases and activity
@@ -7,8 +7,7 @@
 :updated: 2026-11-14
 
 A session's *status card* sums it up at a glance. It is a *row in the rail*
-for a session channel (the channel's own session)
-and for a `dm` with an active session (that session; its name opens the session view);
+for a `dm` with an active session (that session; its name opens the session view);
 work logs, groups, rooms, and `dm`s with people keep a plain row. It is also the
 top of the extension's *Session Status* pane (xref:usage/jam/vscode.adoc[]); the
 extension's rail (in every window, and the hub) shows the same rows

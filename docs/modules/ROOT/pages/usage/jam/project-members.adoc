@@ -4,7 +4,7 @@
 :owns: a Project's members and rooms (incl. a user's `logins` and OIDC identity bindings, accounts, room bindings and the per-project-roster upgrade), their config files and their `jam` verbs and admin routes
 :prereqs: comms-addressing.adoc for how a target names a member or room; roster.adoc for the identity registry
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 A *Project* (the same namespace a `Role` lives in — see xref:usage/jam/roster.adoc[roster.adoc])
 has two kinds of addressable things:
@@ -43,7 +43,7 @@ it so); a service other than `linear` or `discord` stays unused in the
 project's record. The upgrade logs each of these.
 
 A Project's members also back its *escalation policy* — ordered tiers
-called into a waiting session's channel; see xref:usage/jam/escalation.adoc[escalation].
+messaged in a `dm` or `group` with a waiting session; see xref:usage/jam/escalation.adoc[escalation].
 
 Users, connections, members and rooms are config: files in the config repo
 (xref:usage/jam/config-git.adoc#layout[config-git]), changed by a commit, by hand or on a

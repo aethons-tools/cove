@@ -224,7 +224,7 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 	if !h.configured(w) {
 		return
 	}
-	// No `to`: the session's home channel (its ticket's, or its own), unless
+	// No `to`: the session's default conversation (defaultConversation), unless
 	// it speaks the turn-end rule (400). A `to` is planned against the role's
 	// addressing.
 	pl, err := h.ic.PlanSend(Poster{ID: ident.ID(actor.ID), Session: &inst, Actor: &actor}, req.To, h.now())
@@ -293,6 +293,13 @@ func writeNoWorker(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusConflict)
 	_, _ = w.Write([]byte(`{"error":"no-worker"}` + "\n"))
+}
+
+// writeNoDefault answers an ask, a whiteboard, or a call-in that names no
+// conversation where it must (a session on the turn-end rule, or one with
+// no default conversation): 400.
+func writeNoDefault(w http.ResponseWriter) {
+	http.Error(w, "needs a `to` (or `channel` for call_in): name the conversation", http.StatusBadRequest)
 }
 
 // autoDupWindow and autoDupScan bound the duplicate check on an auto post:
@@ -534,6 +541,8 @@ func membershipError(w http.ResponseWriter, err error) bool {
 		http.Error(w, "not found", http.StatusNotFound)
 	case errors.Is(err, ErrFixedMembers):
 		http.Error(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, ErrSendNeedsTo):
+		writeNoDefault(w)
 	default:
 		http.Error(w, "failed", http.StatusInternalServerError)
 	}

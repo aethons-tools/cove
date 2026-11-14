@@ -29,7 +29,7 @@ export function RailList({ groups, active, rowProps, marker, openSession }: {
                   key={r.id}
                   {...rowProps(r)}
                   active={r.id === active}
-                  // A session channel's or an agent DM's row is the session's status card.
+                  // An agent DM's row is the session's status card.
                   label={r.card
                     ? <SessionCard card={r.card} compact onName={openSession && r.sessionView ? () => openSession(r.sessionView, r.card!.session) : undefined} />
                     : r.label}

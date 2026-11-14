@@ -26,7 +26,8 @@ It is on per studio, and only when both sides speak it:
 * *An older studio* asks for `2`, whose cove still posts its final text for it.
 Jam keeps answering `2` with that protocol's guidance
 ("End your turn with your reply"),
-and keeps a `send` with no `to` going to its home channel.
+and a `send` with no `to` from it goes to the session's
+xref:usage/jam/intercom.adoc#default-conversation[default conversation].
 * *Otherwise it stays off.* A studio without a live context refresh, or a Jam that answers without the protocol it asked for, keeps the legacy behavior: the read prompt, explicit `send`/`commit`, and the legacy guidance. This prevents a Jam and a studio that disagree from duplicating replies (or the reverse, losing them).
 
 == Delivery: messages in the wake
@@ -106,7 +107,10 @@ without one, the tool fails before it reaches Jam.
 Jam enforces the same rule for a session on protocol 3:
 `POST /squawks` with no `to` is a `400` ("send needs a `to`").
 Incoming messages never change the default.
-Asks and whiteboards keep their default, the home channel.
+Asks and whiteboards follow the same rule:
+with no `to`, they go where the turn's last `send` went,
+and a turn's first one is refused, by the MCP server and by Jam
+(xref:usage/jam/intercom.adoc#default-conversation[the default conversation]).
 
 *Auto-posts don't wake sessions.* A turn end's post carries the part `pass:c[application/vnd.jam.turn-end+json]`. Wake-on skips it when its author is a session (xref:usage/jam/wake-on.adoc[wake-on]), and it never counts toward the agent-to-agent limit. People are notified as usual. A session that wants another session to act uses `send`.
 

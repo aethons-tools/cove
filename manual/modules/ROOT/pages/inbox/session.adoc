@@ -7,9 +7,11 @@ A *session view* shows one session:
 everything it says and hears in every conversation,
 and what it thinks between them.
 It isn't a conversation.
-Open it from the session's name anywhere in the Inbox,
-or from its unit of work
-(xref:concepts/work.adoc[Units of work]).
+Open it from the session's name anywhere in the Inbox:
+on its status card in the rail,
+or in its header, which also shows when you open the session's conversation:
+the work log of the ticket it works on,
+or else your DM with it.
 (A session is one run of an agent: xref:concepts/agent.adoc[Roles, agents and sessions].)
 
 A *session header* at the top says who the session is,
@@ -36,8 +38,7 @@ Click a line to open what the session thought in that turn.
 Thinking isn't searchable,
 and only the people who can open the session view see it.
 
-When agents stopped waking each other in one of the session's conversations
-(xref:concepts/intercom.adoc#_when_agents_wake[When agents wake]),
+When agents stopped waking each other in one of the session's conversations,
 the activity says so, with *Resume* to lift the limit.
 
 The composer at the bottom sends a DM to the session.
@@ -94,7 +95,7 @@ They need the Jam extension,
 and show only when *Copy SSH* does.
 *Interrupt*::
 Stops the agent's current turn.
-The agent then says so in its channel and waits.
+The agent then says so where it was last messaged and waits.
 You can press it only while the session is running.
 
 === The ⋯ menu
@@ -168,7 +169,7 @@ A session that you have not opened before starts with the last layout you used.
 
 To link to a tab,
 add `?tab=thinking`, `?tab=previews`, `?tab=artifacts` or `?tab=status`
-to the conversation's address.
+to the session view's or the conversation's address.
 The tab then opens when someone follows the link.
 
 === Thinking
@@ -241,7 +242,7 @@ the tab says "Previews aren't available to you here."
 
 === Artifacts
 
-The *Artifacts* tab collects what the channel holds, newest first:
+The *Artifacts* tab collects what the session's conversation holds, newest first:
 
 * *Whiteboards*, with a small picture of each.
 Click one to open it (xref:inbox/whiteboards.adoc[Whiteboards]).
@@ -290,13 +291,15 @@ A session started before Jam had colors has none.
 ifdef::internal[]
 == Notes for the team
 
-* Goal: the session view replaces the session's own channel (COV-299).
-The activity, who may open the view, and the DM composer are new;
-the interfaces are in `docs/modules/ROOT/pages/usage/jam/conversations.adoc`.
-* The header and pane are `web/app/src/session/`
+* The session view is `/app/user/s/<session>` (`web/app/src/session/SessionPage.tsx`, `ActivityList`, `TurnFold`).
+The header and pane are `web/app/src/session/`
 (`SessionView`, `SessionHeader`, `PaneTabs`; Thinking in `thinking/`, View here in `frames/`).
-The server side is `internal/jam/userui` (`session.go`, `sessionpane.go`, `thinking.go`).
+The server side is `internal/jam/userui` (`session.go`, `api_activity.go`, `sessionpane.go`, `thinking.go`).
+* Who may open it is `mayOpen` (`session.go`): operators, and a personal session's starter.
+* *Resume* is `+POST /app/user/api/conversations/{id}/resume+`;
+the limit is the wake-on engine's (`docs/modules/ROOT/pages/usage/jam/wake-on.adoc`).
 * Routes: `+GET /app/user/api/sessions/{id}+` (the header),
+`+GET …/sessions/{id}/activity+` (paged like `read`),
 `+POST …/sessions/{id}/interrupt|compact|clear|release|restart|end|upgrade+`,
 `+GET …/sessions/{id}/pane/{tab}+`,
 `+POST …/sessions/{id}/frame+` (View here, 30 a minute per user),

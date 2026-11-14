@@ -21,7 +21,7 @@ func TestAPISessionColors(t *testing.T) {
 	if hd := decodeAs[SessionHead](t, sessAPI(t, e, p, "GET", standing.ActorID, "", true)); hd.Color != "" {
 		t.Errorf("uncolored head color = %q", hd.Color)
 	}
-	home, err := e.Intercom.HomeChannel(personal)
+	home, err := e.homeCh(personal)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -170,10 +170,10 @@ func TestSurfacesChatOverDiscord(t *testing.T) {
 	wantSurfaces(t, "alice's reply reaches bob, not back to her", k.dir.Surfaces("discord", reply), map[string]string{"discord:inbox-B": "alice: "})
 }
 
-// A session channel reaches its people like a chat: a person who DMed a
-// standing session from /me (and so joined its channel, where its turn-end
-// text goes) gets its posts in their inbox.
-func TestSurfacesSessionChannel(t *testing.T) {
+// A dm with a session reaches its person in their Discord inbox: a person
+// who DMed a standing session from /me gets its reply there (an older
+// studio's turn end, which goes back where it was last delivered a message).
+func TestSurfacesSessionDM(t *testing.T) {
 	k := newRelayKit(t)
 	pl, err := k.ic.PlanSessionDM(k.bob.ID, k.std.ActorID)
 	if err != nil {
@@ -183,18 +183,31 @@ func TestSurfacesSessionChannel(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := k.send(k.std, "", "hi bob")
+	if m.Channel != pl.Channel.ID {
+		t.Fatalf("the reply went to %s, want the dm %s", m.Channel, pl.Channel.ID)
+	}
 	wantSurfaces(t, "standing session to bob", k.dir.Surfaces("discord", m), map[string]string{"discord:inbox-B": k.ic.PartyOf(ident.ID(k.std.ActorID)).Label + ": "})
 	wantSurfaces(t, "no linear surface", k.dir.Surfaces("linear", m), nil)
+}
 
-	// A ticket session and a person with no inbox in the channel never turn
-	// its posts into public comments on that ticket.
-	ch, _ := k.st.GetChannel(m.Channel)
-	for _, who := range []ident.ID{ident.ID(k.ticket.ActorID), k.carol.ID} {
-		if err := k.st.JoinChannel(ch.ID, who, 100); err != nil {
+// An archived session channel an older Jam made is no surface's: nothing
+// in it is delivered anywhere.
+func TestSurfacesArchivedSessionChannel(t *testing.T) {
+	k := newRelayKit(t)
+	p, _ := k.st.GetProject("acme")
+	ch, err := k.st.CreateChannel(jam.Channel{ProjectID: p.ID, Kind: jam.SourceSession, Key: k.std.ActorID, Label: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, who := range []ident.ID{ident.ID(k.std.ActorID), k.bob.ID} {
+		if err := k.st.JoinChannel(ch.ID, who, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
-	wantSurfaces(t, "no linear fallback for a session channel", k.dir.Surfaces("linear", k.send(k.std, "", "private")), nil)
+	m := intercom.Squawk{ID: "old-1", Channel: ch.ID, From: ident.ID(k.std.ActorID), Body: "from before"}
+	for _, svc := range []string{"discord", "linear"} {
+		wantSurfaces(t, svc, k.dir.Surfaces(svc, m), nil)
+	}
 }
 
 // A person with no Discord inbox is @-mentioned on the ticket of a session in
@@ -307,23 +320,17 @@ func TestRouteDiscordOtherCases(t *testing.T) {
 	if r, ok := k.dir.Route("discord", "acme", relay.Event{ForeignID: "1", Surface: "chan-C", Author: "Bob", AuthorID: "222"}); !ok || r.Channel != room.ID {
 		t.Fatalf("a post in a room's channel goes to the room: %+v, %v", r, ok)
 	}
-	// A receipt from before the channel log: the author session's default
-	// channel while it lives; dropped once it has ended.
+	// A receipt from before the channel log names no conversation: the
+	// reply has nowhere to go, even while its session lives (sessions have no
+	// home channel to fall back on).
 	if err := k.dir.receipts.Record("OLD", k.personal.ActorID, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	chat, _ := k.ic.HomeChannel(k.personal)
-	if r, ok := k.dir.Route("discord", "acme", relay.Event{ForeignID: "2", Surface: "inbox-A", AuthorID: "111", ReplyToForeign: "OLD"}); !ok || r.Channel != chat.ID || r.ReplyTo != "in:discord:OLD" {
-		t.Fatalf("legacy receipt = %+v, %v", r, ok)
-	}
-	if err := k.st.RemoveInstance(k.personal.ActorID); err != nil {
-		t.Fatal(err)
-	}
 	for name, e := range map[string]relay.Event{
-		"legacy receipt, session ended": {ForeignID: "3", Surface: "inbox-A", AuthorID: "111", ReplyToForeign: "OLD"},
-		"a bot":                         {ForeignID: "4", Surface: "chan-C", AuthorID: "b", AuthorBot: true},
-		"a non-reply in an inbox":       {ForeignID: "5", Surface: "inbox-A", AuthorID: "111"},
-		"a reply to no receipt":         {ForeignID: "6", Surface: "inbox-A", AuthorID: "111", ReplyToForeign: "nope"},
+		"legacy receipt":          {ForeignID: "3", Surface: "inbox-A", AuthorID: "111", ReplyToForeign: "OLD"},
+		"a bot":                   {ForeignID: "4", Surface: "chan-C", AuthorID: "b", AuthorBot: true},
+		"a non-reply in an inbox": {ForeignID: "5", Surface: "inbox-A", AuthorID: "111"},
+		"a reply to no receipt":   {ForeignID: "6", Surface: "inbox-A", AuthorID: "111", ReplyToForeign: "nope"},
 	} {
 		if _, ok := k.dir.Route("discord", "acme", e); ok {
 			t.Errorf("%s: must be unroutable", name)

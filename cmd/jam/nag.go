@@ -113,7 +113,7 @@ func (n intercomNagger) clock() time.Time {
 	return time.Now()
 }
 
-// send posts body as the session into its home channel; id "" gets a
+// send posts body as the session into its dm with its owner; id "" gets a
 // notice:… id (jam.Intercom.Notify).
 func (n intercomNagger) send(inst jam.Instance, id, body string) error {
 	if inst.OwnerID == "" && inst.Owner == "" {

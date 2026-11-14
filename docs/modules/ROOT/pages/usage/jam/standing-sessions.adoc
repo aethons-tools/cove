@@ -163,13 +163,17 @@ crash between the grant and the raise is reclaimed by the reconcile sweep.
 [#messaging]
 == Messaging
 
-A standing session's home is its own *session channel* (xref:usage/jam/intercom.adoc[intercom]):
-a `send` with no `to` reaches whoever is in it. Any project member may join it
-(from xref:usage/jam/intercom-ui.adoc[`/app/user`], or by posting) or be xref:usage/jam/intercom.adoc#channel-membership[called in]; a session whose addressing allows
-`+session:<name>+` may post there; an xref:usage/jam/escalation.adoc[escalation] calls people in. A
-`to` posts elsewhere, within its role's `+--addressing+`. Its xref:usage/jam/session-context.adoc[session context] says so, and a reply
-wakes it with its own resume text ("… `send` without `to` posts to your own
-channel; pass `to` to answer anywhere else."); it ``read``s the reply.
+A standing session has no channel of its own (xref:usage/jam/intercom.adoc[intercom]).
+Any project member may message it in a `dm`
+(from xref:usage/jam/intercom-ui.adoc[`/app/user`]);
+a session whose addressing allows `+session:<name>+` reaches it in a `dm` too;
+an xref:usage/jam/escalation.adoc[escalation] opens a `dm` or `group` with people.
+On an older turn protocol, a `send` with no `to` answers where it was last messaged;
+with nowhere to answer, it fails (`400`).
+A `to` posts elsewhere, within its role's `+--addressing+`.
+Its xref:usage/jam/session-context.adoc[session context] says so, and a reply
+wakes it with its own resume text ("… `send` without `to` answers where you were last messaged;
+pass `to` to answer anywhere else."); it ``read``s the reply.
 Under the xref:usage/jam/structured-turn-end.adoc#the-turn-end-rule[turn-end rule],
 a `send` names its conversation instead. See
 xref:usage/jam/comms-addressing.adoc[comms-addressing] for the targets and

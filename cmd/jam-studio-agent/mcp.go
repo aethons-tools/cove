@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -103,7 +102,7 @@ type readOut struct {
 // callInIn is the "call_in" tool's typed input.
 type callInIn struct {
 	Who     string `json:"who" jsonschema:"who to call in: user:<name> or session:<name>"`
-	Channel string `json:"channel,omitempty" jsonschema:"optional channel id (chn_…) you are in, e.g. from a read entry's channel; omit for your own channel"`
+	Channel string `json:"channel,omitempty" jsonschema:"optional channel id (chn_…) you are in, e.g. from a read entry's channel; omit for your ticket's log"`
 }
 
 // callInOut is the "call_in" tool's typed output: the channel and who is now in it.
@@ -114,7 +113,7 @@ type callInOut struct {
 
 // leaveIn is the "leave" tool's typed input.
 type leaveIn struct {
-	Channel string `json:"channel" jsonschema:"the channel id (chn_…) to leave; you can't leave your own channel, your ticket, or a room your role lists"`
+	Channel string `json:"channel" jsonschema:"the channel id (chn_…) to leave; you can't leave your ticket's log or a room your role lists"`
 }
 
 // listTargetsIn is the "list_targets" tool's (empty) typed input.
@@ -297,13 +296,25 @@ func newMessagingClient(getenv func(string) string) (*messagingClient, error) {
 }
 
 // errFirstSendNeedsTo is a send with no `to` and no earlier send this turn.
-var errFirstSendNeedsTo = errors.New("send needs a `to`: a turn's first send names its conversation (later ones default to it)")
+var errFirstSendNeedsTo = errFirstNeedsTo("send")
+
+// errFirstNeedsTo is tool's post with no `to` and no earlier send this turn.
+func errFirstNeedsTo(tool string) error {
+	return fmt.Errorf("%s needs a `to`: a turn's first send names its conversation (later ones default to it)", tool)
+}
 
 // sendTo is a send's address: to, or with none the address this turn's last
 // send went to (the agent socket's record). With the structured turn end on
 // and no send yet it is errFirstSendNeedsTo; with no socket, or the legacy
 // turn end, "" (Jam decides).
 func (c *messagingClient) sendTo(ctx context.Context, to string) (string, error) {
+	return c.postTo(ctx, "send", to)
+}
+
+// postTo is tool's address (send, ask, board_create): to, or with none the
+// address this turn's last send went to, as for a send (sendTo), so a post
+// never lands where the latest message happened to arrive.
+func (c *messagingClient) postTo(ctx context.Context, tool, to string) (string, error) {
 	if to != "" {
 		return to, nil
 	}
@@ -312,7 +323,10 @@ func (c *messagingClient) sendTo(ctx context.Context, to string) (string, error)
 	case err != nil || !st.Structured:
 		return "", nil
 	case st.LastTo == "":
-		return "", errFirstSendNeedsTo
+		if tool == "send" {
+			return "", errFirstSendNeedsTo
+		}
+		return "", errFirstNeedsTo(tool)
 	}
 	return st.LastTo, nil
 }
@@ -366,7 +380,8 @@ func (c *messagingClient) doStatus(ctx context.Context, method, pathSuffix strin
 }
 
 // send posts a message via Jam to the authorized target in.To names; "" is
-// Jam's default (a session on the legacy turn end: its own channel).
+// Jam's default (a session on an older turn protocol: where it was last
+// messaged).
 func (c *messagingClient) send(ctx context.Context, in sendIn) (sendOut, error) {
 	refs, err := c.uploadAll(ctx, in.Attach)
 	if err != nil {
@@ -699,7 +714,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
-		Description: "Post a message. Omit 'to' to send to the conversation you last sent to this turn; a turn's first send needs a 'to' (unless your context says send without to posts to your own channel). Set to=user:<name> to talk with a person (their reply reaches you), session:<name> for another session's channel (you join it), chat:user:<a>,session:<b> for a group (user: and session: members), channel:<room> for a room, work:<key> for a unit of work's log (ticket:<key> is an alias), or worker:<key> for a DM with the session working on it now (refused with no-worker when none is). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally. In a room, a message wakes only the sessions it mentions (mentions, or @<name> in the text) and those set to wake for every message. Sending (or ask, or report) is how a turn answers: final text is posted only where turn_end's to says.",
+		Description: "Post a message. Omit 'to' to send to the conversation you last sent to this turn; a turn's first send needs a 'to' (unless your context says send without to answers where you were last messaged). Set to=user:<name> to talk with a person (their reply reaches you), session:<name> for a DM with another session, chat:user:<a>,session:<b> for a group (user: and session: members), channel:<room> for a room, work:<key> for a unit of work's log (ticket:<key> is an alias), or worker:<key> for a DM with the session working on it now (refused with no-worker when none is). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally. In a room, a message wakes only the sessions it mentions (mentions, or @<name> in the text) and those set to wake for every message. Sending (or ask, or report) is how a turn answers: final text is posted only where turn_end's to says.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, sendOut, error) {
 		if cfgErr != nil {
 			return nil, sendOut{}, cfgErr
@@ -761,7 +776,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "call_in",
-		Description: "Call someone into a channel you are in (default: your own channel), so they hear what follows there: who=user:<name> or session:<name>, within what you may address. Chats can't take new members.",
+		Description: "Call someone into a channel you are in (default: your ticket's log), so they hear what follows there: who=user:<name> or session:<name>, within what you may address. DMs and group DMs can't take new members.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in callInIn) (*mcp.CallToolResult, callInOut, error) {
 		if cfgErr != nil {
 			return nil, callInOut{}, cfgErr
@@ -775,7 +790,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "leave",
-		Description: "Leave a channel you joined (by id, from a read entry's channel) so you stop hearing it. You can't leave your own channel, your ticket's, or a room your role lists; you can leave one you were called into.",
+		Description: "Leave a channel you joined (by id, from a read entry's channel) so you stop hearing it. You can't leave your ticket's log or a room your role lists; you can leave one you were called into.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in leaveIn) (*mcp.CallToolResult, any, error) {
 		if cfgErr != nil {
 			return nil, nil, cfgErr

@@ -142,36 +142,17 @@ func TestIntercomTicketChannelFollowsSessions(t *testing.T) {
 	if got := f.store.ListChannels(f.project.ID, SourceWork); len(got) != 1 {
 		t.Fatalf("ticket channels = %+v, want one per ticket", got)
 	}
-	// A session with no ticket has no ticket channel (its own instead).
+	// A session with no ticket has no ticket channel.
 	if err := f.ic.SetUp(f.standing); err != nil || len(f.store.ListChannels(f.project.ID, SourceWork)) != 1 {
 		t.Fatalf("standing SetUp: %v, ticket channels %v", err, f.store.ListChannels(f.project.ID, SourceWork))
 	}
 }
 
-// A room already receives the issue's replies: the ticket channel still
-// exists (the session's conversation) but leaves the binding to the room.
-func TestIntercomTicketChannelYieldsBindingToRoom(t *testing.T) {
-	f := newICFixture(t)
-	if err := f.store.SetChannelBindings(f.room.ID, []Binding{{ConnectionID: f.tracker.ID, Ref: "ACME-7", Mode: BindBoth}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.ic.SetUp(f.ticket); err != nil {
-		t.Fatalf("SetUp: %v", err)
-	}
-	ch, ok := f.store.ChannelByKey(f.project.ID, SourceWork, string(f.tracker.ID)+"/ACME-7")
-	if !ok || len(ch.Bindings) != 0 {
-		t.Fatalf("ticket channel = %+v, %v; want no binding", ch, ok)
-	}
-}
-
 func TestIntercomPlanDefaults(t *testing.T) {
 	f := newICFixture(t)
-	// A ticket session's default is its own session channel, like any
-	// session's; ticket:<its key> is its ticket channel, created on demand
-	// for a session set up before ticket channels existed.
-	if p := f.mustPlan(f.ticket, ""); p.Channel.Kind != SourceSession || p.Channel.Key != f.ticket.ActorID {
-		t.Fatalf("ticket session default = %+v", p)
-	}
+	// ticket:<its key> is a ticket session's log, created on demand for a
+	// session set up before work logs existed; with nothing delivered to it,
+	// it is its default too.
 	p := f.mustPlan(f.ticket, "ticket:ACME-7")
 	if p.Channel.Kind != SourceWork || p.Channel.Label != "ACME-7" || len(p.Audience) != 0 {
 		t.Fatalf("own ticket = %+v", p)
@@ -460,38 +441,38 @@ func TestIntercomNameGlobsNeverMatchIDs(t *testing.T) {
 	}
 }
 
-// A person in the session's own channel who messaged it there is a reply
-// target by name, whatever the session's addressing: under the turn-end rule
-// that reply has no other way to reach them. Someone who didn't message it
-// there, or isn't in it, still needs addressing.
-func TestReplyToPersonInOwnChannel(t *testing.T) {
+// A person who messaged the session in a dm is a reply target by name,
+// whatever the session's addressing: under the turn-end rule that reply has
+// no other way to reach them. Someone who didn't message it still needs
+// addressing.
+func TestReplyToPersonInADM(t *testing.T) {
 	f := newICFixture(t, "ticket:*")
 	f.standing.Name, f.standing.Activity = "spider", ActivityWaiting
 	if err := f.store.PutInstance(f.standing); err != nil {
 		t.Fatal(err)
 	}
-	home, err := f.ic.HomeChannel(f.standing)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := f.plan(f.standing, "user:alice"); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("before alice is in: %v", err)
+		t.Fatalf("before alice wrote: %v", err)
 	}
-	// Escalation calls alice into the session's channel; she answers there.
+	// Escalation opens a dm with alice; she answers there.
 	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)
 	if err := f.ic.Escalate(context.Background(), f.standing, 1, "infra", []Member{alice}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.ic.PostTrusted(home, intercom.Squawk{From: f.alice.ID, Body: "can you look?"}); err != nil {
+	dm, ok := f.ic.existingChat(f.project, ids(f.standing, f.alice))
+	if !ok {
+		t.Fatal("no dm")
+	}
+	if _, err := f.ic.PostTrusted(dm, intercom.Squawk{From: f.alice.ID, Body: "can you look?"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, to := range []string{"user:alice", "user:" + string(f.alice.ID), "session:spider", "session:" + f.standing.ActorID} {
-		if pl, err := f.plan(f.standing, to); err != nil || pl.Channel.ID != home.ID {
-			t.Errorf("reply to %q = %+v, %v; want its own channel", to, pl.Channel, err)
+	for _, to := range []string{"user:alice", "user:" + string(f.alice.ID)} {
+		if pl, err := f.plan(f.standing, to); err != nil || pl.Channel.ID != dm.ID {
+			t.Errorf("reply to %q = %+v, %v; want the dm", to, pl.Channel, err)
 		}
 	}
 	if _, err := f.plan(f.standing, "user:bob"); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("bob, not in its channel: %v", err)
+		t.Fatalf("bob, who never wrote: %v", err)
 	}
 }
 
@@ -503,14 +484,15 @@ func TestReplyToRoundTrips(t *testing.T) {
 	if err := f.store.PutInstance(f.standing); err != nil {
 		t.Fatal(err)
 	}
-	// Its own channel, where alice messaged it.
-	home, _ := f.ic.HomeChannel(f.standing)
-	if err := f.ic.JoinChannel(f.alice.ID, home.ID); err != nil {
+	// A dm alice opened with it.
+	byAlice, err := f.ic.PlanSessionDM(f.alice.ID, f.standing.ActorID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.ic.PostTrusted(home, intercom.Squawk{From: f.alice.ID, Body: "hi"}); err != nil {
+	if _, err := f.ic.Post(byAlice, intercom.Squawk{From: f.alice.ID, Body: "hi"}); err != nil {
 		t.Fatal(err)
 	}
+	home := byAlice.Channel
 	// A dm another session opened with it.
 	dm := f.mustPlan(f.personal, "chat:session:"+f.standing.ActorID).Channel
 	// Its own ticket's work log.
@@ -520,7 +502,7 @@ func TestReplyToRoundTrips(t *testing.T) {
 		ch   Channel
 		want string
 	}{
-		{f.standing, home, "session:spider"},
+		{f.standing, home, "chat:user:" + string(f.alice.ID)},
 		{f.standing, dm, "chat:session:" + f.personal.ActorID},
 		{f.ticket, log, "work:ACME-7"},
 	} {

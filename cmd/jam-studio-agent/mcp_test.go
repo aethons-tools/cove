@@ -915,16 +915,21 @@ func fakeAgentSocket(t *testing.T, state string) (sock string, sent func() []str
 	}
 }
 
-// A send with no to goes where the turn's last send went; a turn's first
-// send needs one. send, ask and report tell the agent socket the turn sent.
+// A send, an ask or a whiteboard with no to goes where the turn's last send
+// went; a turn's first one needs one. send, ask and report tell the agent socket the turn sent.
 func TestMCPSendDefaultsToTurnsLastSend(t *testing.T) {
 	fh := &fakeJam{}
+	var backendPosts func(path, body string)
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/squawks" {
 			fh.handler()(w, r)
 			return
 		}
-		_, _ = io.WriteString(w, `{}`) // ask, report
+		b, _ := io.ReadAll(r.Body)
+		if backendPosts != nil {
+			backendPosts(r.URL.Path, string(b))
+		}
+		_, _ = io.WriteString(w, `{}`) // ask, report, board_create
 	}))
 	defer backend.Close()
 	sock, sent := fakeAgentSocket(t, `{"structured":true,"last_to":"user:ann"}`)
@@ -938,12 +943,22 @@ func TestMCPSendDefaultsToTurnsLastSend(t *testing.T) {
 	if fh.gotBody["to"] != "user:ann" {
 		t.Fatalf("Jam saw %v, want to user:ann", fh.gotBody)
 	}
+	posted := map[string]string{}
+	backendPosts = func(path, body string) { posted[path] = body }
+	ask := &mcp.CallToolParams{Name: "ask", Arguments: map[string]any{"question": "ok?", "options": []map[string]any{{"id": "y", "label": "yes"}, {"id": "n", "label": "no"}}}}
+	board := &mcp.CallToolParams{Name: "board_create", Arguments: map[string]any{"title": "Plan"}}
 	for _, call := range []*mcp.CallToolParams{
-		{Name: "ask", Arguments: map[string]any{"question": "ok?", "options": []map[string]any{{"id": "y", "label": "yes"}, {"id": "n", "label": "no"}}}},
+		ask,
 		{Name: "report", Arguments: map[string]any{"state": "in-progress", "summary": "going"}},
+		board,
 	} {
 		if res, err := sess.CallTool(ctx, call); err != nil || res.IsError {
 			t.Fatalf("%s: %v %+v", call.Name, err, res)
+		}
+	}
+	for _, path := range []string{"/squawks/ask", "/squawks/boards"} {
+		if !strings.Contains(posted[path], `"to":"user:ann"`) {
+			t.Fatalf("Jam saw %s %q, want to user:ann (the turn's last send)", path, posted[path])
 		}
 	}
 	want := []string{`{"tool":"send","to":"user:ann"}`, `{"tool":"ask"}`, `{"tool":"report"}`}
@@ -958,6 +973,16 @@ func TestMCPSendDefaultsToTurnsLastSend(t *testing.T) {
 	res, err = sess.CallTool(ctx, &mcp.CallToolParams{Name: "send", Arguments: map[string]any{"text": "hi"}})
 	if err != nil || !res.IsError || !strings.Contains(fmt.Sprint(res.Content[0]), "needs a `to`") || fh.gotBody != nil || len(sent()) != 0 {
 		t.Fatalf("first send without to: %v %+v (Jam saw %v)", err, res, fh.gotBody)
+	}
+	clear(posted)
+	for _, call := range []*mcp.CallToolParams{ask, board} {
+		res, err := sess.CallTool(ctx, call)
+		if err != nil || !res.IsError || !strings.Contains(fmt.Sprint(res.Content[0]), call.Name+" needs a `to`") {
+			t.Fatalf("first %s without to: %v %+v", call.Name, err, res)
+		}
+	}
+	if len(posted) != 0 || len(sent()) != 0 {
+		t.Fatalf("a refused first post reached Jam (%v) or the socket (%v)", posted, sent())
 	}
 }
 

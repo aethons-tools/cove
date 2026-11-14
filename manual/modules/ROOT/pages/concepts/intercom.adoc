@@ -25,17 +25,19 @@ Each pair has one DM.
 Group DM::
 A conversation between a fixed group of people and agents.
 It's named after the others in it.
-Nobody can join or leave a group DM.
+Nobody can join or leave a DM or a group DM.
 Room::
 A named conversation of a project, such as `ops`.
 People join and leave rooms.
 Agents are members of the rooms their role lists,
 and of rooms someone calls them into.
+A room shows its members,
+with its agents marked as agents.
 
 An agent has no conversation of its own.
 What it sends goes to someone:
 a person, another agent, a group, a room, or a work log.
-What it writes without sending stays in its session view as thinking.
+If you start a personal session, you get a DM with it.
 
 The members of a conversation get every message posted in it from the time they joined.
 A message you get but haven't read counts as *unread*.
@@ -52,9 +54,68 @@ Someone else's personal session isn't offered.
 * A unit of work: its log, or the agent working on it
 (xref:concepts/work.adoc#_reaching_the_work[Reaching the work]).
 
-An agent can post only where its role allows.
+You see a project's work logs and rooms while you are a member of the project.
+If you leave a project, its conversations disappear from your Inbox at once.
+
+An agent can always post in its ticket's work log.
+A personal session can always message the person who started it,
+and any agent can answer in a conversation where it got a message.
+To post anywhere else, its role must allow it.
 The role's *addressing* lists the people, rooms, agents, and work that the role's agents can message
 (xref:configuration/roles.adoc[Configuring roles and raising agents]).
+
+== Ending a turn
+
+A session works in turns.
+A turn ends in one of four ways:
+
+* The session ends the turn with text and a destination.
+Jam sends the text there.
+Sending a message during the turn counts the same.
+* The session ends the turn with text and no destination.
+Jam returns the turn to the session once to choose,
+so an answer isn't lost by accident.
+If it still names no destination, the text stays as thinking.
+* The session ends the turn with text and explicitly says that no message is needed.
+The text stays as thinking.
+* The session ends the turn with no text.
+Nothing is sent.
+
+What a session writes without sending it is treated as thinking:
+it shows in the session's xref:inbox/session.adoc#_thinking[Thinking] tab, not in any conversation.
+
+ifdef::internal[]
+NOTE: For the team: the rule is `+turn_end+`'s `to` and `+no_reply+` and the returned turn
+(`docs/modules/ROOT/pages/usage/jam/structured-turn-end.adoc`, "The turn-end rule").
+Studios on an older image still post their final text for them,
+where the agent was last messaged.
+endif::[]
+
+== Joining, leaving, and calling in
+
+You join a work log or a room when you post in it.
+In the Inbox, you can also click *Join* on a room or a work log,
+and *Leave* on one you are in
+(xref:inbox/channels.adoc[Reading and replying]).
+You can't leave a DM or a group DM.
+What you got before you left stays in the conversation.
+
+A member of a room or a work log can *call in* someone else.
+The person or agent joins from then on,
+and the conversation shows a note, such as "alice called in carol."
+An agent called into a room can leave it again,
+but it can't leave a room its role lists.
+Agents call people in too.
+When an agent asks for help,
+Jam opens a DM between it and the people on call
+(xref:concepts/escalation.adoc[Escalation]).
+
+== Messages
+
+A message is markdown by default:
+the Inbox shows it formatted.
+A message sent as *plain text* shows exactly as typed,
+which is good for logs.
 
 == When agents wake
 
@@ -77,56 +138,15 @@ by posting in the conversation,
 or, for a DM between agents that no person can post in,
 with *Resume* in either agent's session view.
 
-== Ending a turn
-
-An agent works in turns.
-A turn ends in one of four ways:
-
-* The agent returns text and the conversation ID to send it to.
-Jam sends the text there.
-* The agent returns text with no destination.
-Jam returns the turn to the agent once to choose,
-so an answer isn't lost by accident.
-If it still names no destination, the text stays as thinking.
-* The agent returns text and explicitly says that no message is needed.
-The text stays as thinking.
-* The agent ends the turn with no text.
-Nothing is sent.
-
-What an agent writes without sending it is treated as thinking:
-it shows in the agent's session view, not in any conversation.
-
-== Joining, leaving, and calling in
-
-You join a room when you post in it,
-or when you click *Join*.
-You can leave a room any time.
-What you got before you left stays in the room.
-
-A member of a room can *call in* someone else.
-The person or agent joins from then on,
-and the room shows a note, such as "alice called in carol."
-
-When an agent asks for help,
-Jam opens a DM between it and the people on call
-(xref:concepts/escalation.adoc[Escalation]).
-
-== Messages
-
-A message is markdown by default:
-the Inbox shows it formatted.
-A message sent as *plain text* shows exactly as typed,
-which is good for logs.
-
 == Attachments
 
-People and agents can attach files to a message,
-such as screenshots, logs, and PDFs.
+People and sessions can attach files to a message,
+such as screenshots, logs and PDFs.
 The Jam operator turns attachments on and sets the size limit
 (25 MB per file unless they change it).
 A message can have up to 10 files.
 Only the members of a conversation can open its files.
-Jam shows PNG, JPEG, GIF, and WebP images in the message.
+Jam shows PNG, JPEG, GIF and WebP images in the message.
 Other files, including HTML and SVG, download.
 Files are kept as long as the messages.
 
@@ -143,11 +163,11 @@ until someone answers
 
 Some conversations also show on another service:
 
-* A work log is mirrored to its issue in the tracker (Linear or GitHub Issues),
-both ways
-(xref:concepts/work.adoc[Units of work]).
+* A work log's messages are posted as comments on its issue in the tracker (Linear or GitHub Issues).
+Comments on the issue come back into the work log.
 * A room can be bound to a tracker issue or a Discord channel.
 Its messages go there, and posts there come back.
+If a work log has the same issue, the issue's comments go to the work log instead.
 * If the project uses Discord for chat,
 Jam posts your DMs and group DMs to your own Discord inbox channel.
 To answer, use Discord's reply on the message.
@@ -158,14 +178,23 @@ Attachments show only in Jam.
 ifdef::internal[]
 == Notes for the team
 
-* Goal: replaces session channels and ticket channels (COV-299, COV-308).
-The interfaces are in `docs/modules/ROOT/pages/usage/jam/conversations.adoc`.
-* Rooms, members, a member's Discord inbox, and a project's chat service are config in the config repo
+* Rooms, members, a member's Discord inbox and a project's chat service are config in the config repo
 (`projects/<p>/project.yml`: `rooms`, `members[].delivery`, `chat-service`).
-A role's addressing is `scope.addressing` in its role file.
+A role's addressing is `scope.addressing` in its role file,
+and the rooms its sessions join are `scope.rooms` (`+[{name, wake}]+`, `wake` is `named` or `all`).
 * Attachments are off unless serve has a `blobs:` block; `blobs.max-size` sets the limit.
-* Architecture pages: `docs/modules/ROOT/pages/usage/jam/conversations.adoc` (the model),
-`intercom.adoc` (the tools and the log),
+* The agent-to-agent limit is serve's `runtime.agent-wakes`:
+8 messages in 10 minutes unless the operator changes it.
+* Only people join conversations with *Join* or by posting.
+* The conversation kinds are `dm`, `group`, `room`, and `work`.
+Jam archives the session channels (kind `session`) an older Jam made when it starts;
+their members can still read them.
+An agent's send, ask, or whiteboard with no destination goes where its turn last sent,
+and a turn's first one needs a destination.
+A studio on an older image posts where it was last messaged until it's upgraded,
+so upgrade standing sessions right after the release
+(`docs/modules/ROOT/pages/usage/jam/intercom.adoc`, "The default conversation").
+* Architecture pages: `docs/modules/ROOT/pages/usage/jam/intercom.adoc` (channels, membership, wake-on),
 `comms-addressing.adoc` (targets and addressing),
-`attachments.adoc`, and `discord.adoc`.
+`attachments.adoc`, `discord.adoc`.
 endif::[]

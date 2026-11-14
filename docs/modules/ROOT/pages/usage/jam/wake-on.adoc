@@ -22,7 +22,7 @@ waiting for help keeps its studio and its work (it is still paused at
 xref:usage/jam/turn-end.adoc#idle-timeout[idle timeout], `end`, and operators end sessions;
 xref:usage/jam/escalation.adoc[escalation] draws attention to one that is stuck. `wait-max` is
 deprecated and ignored (serve warns when it is set). A personal session instead climbs the
-xref:usage/jam/personal-idle-ladder.adoc[idle ladder] — nags into its channel, and an
+xref:usage/jam/personal-idle-ladder.adoc[idle ladder] — nags into its starter's `dm` with it, and an
 optional reclaim. Its starter's `keep`/`release` reply to a nag is acted on by Jam
 and doesn't wake the agent (xref:usage/jam/personal-idle-ladder.adoc[]).
 A standing session has no owner, so it gets no nags.
@@ -79,7 +79,7 @@ Every member gets a message in its inbox,
 but only some members wake for it
 (`wakes` in `internal/wakeon`):
 
-* In a `dm`, a `group`, or a session channel,
+* In a `dm` or a `group`,
 every session member but the author wakes.
 * In a `room`,
 only the session members the message mentions,
@@ -151,7 +151,7 @@ A session's notices — its nags, its "ended" notice,
 and the notices the old loop breaker posted — are for people and never wake another session;
 a session calling another in does.
 
-A Project may also configure an *escalation policy* that calls ordered tiers of
-people into a waiting session's channel on their own per-tier timers when it asks
+A Project may also configure an *escalation policy* that messages ordered tiers of
+people in a `dm` or `group` with a waiting session on their own per-tier timers when it asks
 for a person, instead of leaving it to wait passively — a separate, independent clock from the pause and idle timeout above; see
 xref:usage/jam/escalation.adoc[escalation].

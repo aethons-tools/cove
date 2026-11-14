@@ -347,7 +347,7 @@ const goTools = kit({
 const helperId = "ses_helper";
 const helperColor = "#1c7ed6";
 const helperConv: Conversation = {
-  ...ops, channelId: "chn_helper", label: "helper", kind: "session", sendTo: "chn_helper", lastSeq: 88,
+  ...ops, channelId: "chn_helper", label: "helper", kind: "dm", sendTo: "chn_helper", lastSeq: 88,
   canJoin: false, canLeave: false, callIn: [], session: helperId, color: helperColor,
   sessionIds: [helperId], sessions: [{ label: "helper", text: "is running", tool: "Bash", class: "busy" }],
   messages: [
@@ -392,9 +392,9 @@ const helperEvents: ThinkingEvent[] = [
   ev(209, "10:12:23", { kind: "tool_result", tool: "Edit", toolUseId: "t3", text: "ok", detail: "The file notes/1.14.md has been updated." }),
   ev(210, "10:12:25", { kind: "tool_call", tool: "Bash", toolUseId: "t4", text: "npm run build --prefix notes", detail: "npm run build --prefix notes" }),
 ];
-// helper's activity: alice's messages and its answers, in its own channel
+// helper's activity: alice's messages and its answers, in her dm with it
 // and in the ops room, with each turn's thinking folded between.
-const inHome = { id: "chn_helper", kind: "session", label: "helper" };
+const inHome = { id: "chn_helper", kind: "dm", label: "helper" };
 const helperActivity: SessionActivity = {
   messages: [
     { ...helperConv.messages[0]!, id: "m85", conversation: inHome, out: false },

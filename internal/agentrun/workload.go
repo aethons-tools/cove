@@ -33,25 +33,25 @@ const defaultBackgroundWait = 30 * time.Minute
 // resumePrompt is an ephemeral session's wake text: written into a live
 // episode, or as the first message of a new continued episode.
 const resumePrompt = "A message may have arrived — use the intercom `read` tool to fetch new messages, then continue. " +
-	"`send` without `to` posts to your own channel. If you have a ticket, keep it current with `report`."
+	"`send` without `to` answers where you were last messaged. If you have a ticket, keep it current with `report`."
 
 // residentResumePrompt is resumePrompt's resident-mode (personal or standing
 // session) counterpart, delivered the same way when a Wake — typically the
 // owner replying — arrives.
 const residentResumePrompt = "A reply may have arrived — use the intercom `read` tool to fetch new messages, then continue. " +
-	"`send` without `to` posts to your own channel, which the person who started you is in: use it when you have results or need input."
+	"`send` without `to` answers where you were last messaged (at first, your DM with the person who started you): use it when you have results or need input."
 
 // standingResumePrompt is a standing session's wake text: it has no owner;
-// people reach it in its own channel or elsewhere.
+// people reach it in a DM or elsewhere.
 const standingResumePrompt = "A message may have arrived — use the intercom `read` tool to fetch new messages, then continue. " +
-	"`send` without `to` posts to your own channel; pass `to` to answer anywhere else."
+	"`send` without `to` answers where you were last messaged; pass `to` to answer anywhere else."
 
 // restartPrompt is the first message of a session's first
 // episode when it resumes a prior conversation (its /agent-data survived a
 // restart): it replaces the raise prompt, which the conversation already holds.
 const restartPrompt = "Your session was restarted (for example, Jam was upgraded or your studio was re-raised); " +
 	"your conversation and workspace are intact. Use the intercom `read` tool to fetch any messages that arrived meanwhile, " +
-	"then continue where you left off. `send` without `to` posts to your own channel; pass `to` to answer anywhere else. " +
+	"then continue where you left off. `send` without `to` answers where you were last messaged; pass `to` to answer anywhere else. " +
 	"Set your `mission` and `focus` again once you know them."
 
 // resumeFailWindow bounds the resume fallback: a resumed episode that exits

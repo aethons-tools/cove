@@ -24,9 +24,9 @@ var paneTabs = []string{"thinking", "previews", "artifacts", "status"}
 // maxPaneLinks bounds the Links list (the newest win).
 const maxPaneLinks = 50
 
-// buildPane is tab of inst's pane for p (tab one of paneTabs; home is
-// inst's home channel).
-func (h *handler) buildPane(r *http.Request, p jam.Participant, inst jam.Instance, home, tab string) SessionPane {
+// buildPane is tab of inst's pane for p (tab one of paneTabs; conv is
+// inst's conversation for p).
+func (h *handler) buildPane(r *http.Request, p jam.Participant, inst jam.Instance, conv, tab string) SessionPane {
 	pane := SessionPane{ID: inst.ActorID, Tab: tab}
 	switch tab {
 	case "thinking":
@@ -41,7 +41,7 @@ func (h *handler) buildPane(r *http.Request, p jam.Participant, inst jam.Instanc
 	case "previews":
 		h.panePreviews(r, p, inst, &pane)
 	case "artifacts":
-		h.paneArtifacts(home, &pane)
+		h.paneArtifacts(conv, &pane)
 	case "status":
 		h.paneStatus(inst, &pane)
 	}
@@ -92,16 +92,16 @@ func (h *handler) panePreviews(r *http.Request, p jam.Participant, inst jam.Inst
 	}
 }
 
-// paneArtifacts collects what the home channel holds: its whiteboards,
+// paneArtifacts collects what the session's conversation holds: its whiteboards,
 // attachments, asks and links, newest first.
-func (h *handler) paneArtifacts(home string, pane *SessionPane) {
+func (h *handler) paneArtifacts(conv string, pane *SessionPane) {
 	if h.d.Log == nil {
 		return
 	}
-	ch := ident.ID(home)
+	ch := ident.ID(conv)
 	if h.d.Boards != nil {
 		for _, b := range h.d.Log.ListBoards(ch) {
-			pane.Boards = append(pane.Boards, PaneBoard{ID: string(b.ID), Title: b.Title, Channel: home})
+			pane.Boards = append(pane.Boards, PaneBoard{ID: string(b.ID), Title: b.Title, Channel: conv})
 		}
 		slices.Reverse(pane.Boards)
 	}

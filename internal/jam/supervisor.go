@@ -391,7 +391,7 @@ func (s *Supervisor) blockUnfinished(ctx context.Context, inst Instance, reason 
 // and never fails the setup or teardown. Call before serving.
 func (s *Supervisor) SetSessionChannels(c SessionChannels) { s.channels = c }
 
-// trackerOf is the tracker connection the session channels key tickets on
+// trackerOf is the tracker connection work logs key tickets on
 // (the one serve resolved), nil when they don't say: TrackerConnection then.
 func (s *Supervisor) trackerOf() func() (ident.ID, bool) {
 	if t, ok := s.channels.(interface{ Tracker() (ident.ID, bool) }); ok {

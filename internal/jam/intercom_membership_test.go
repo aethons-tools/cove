@@ -14,29 +14,35 @@ func TestIntercomCallIn(t *testing.T) {
 	if err := f.store.PutInstance(f.standing); err != nil {
 		t.Fatal(err)
 	}
-	// The personal session's starter (alice) calls bob into its channel.
-	home := f.mustPlan(f.personal, "").Channel
-	ch, who, err := f.ic.CallIn(Poster{ID: f.alice.ID}, home.ID, "user:bob")
-	if err != nil || ch.ID != home.ID || who != f.bob.ID {
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	// Alice, following the ticket's log, calls bob in.
+	log, _ := f.ic.TicketChannelOf(f.ticket)
+	if err := f.ic.JoinChannel(f.alice.ID, log.ID); err != nil {
+		t.Fatal(err)
+	}
+	ch, who, err := f.ic.CallIn(Poster{ID: f.alice.ID}, log.ID, "user:bob")
+	if err != nil || ch.ID != log.ID || who != f.bob.ID {
 		t.Fatalf("alice calls in bob = %+v, %s, %v", ch, who, err)
 	}
-	if !isCurrentMember(f.store, home.ID, f.bob.ID) {
+	if !isCurrentMember(f.store, log.ID, f.bob.ID) {
 		t.Fatal("bob is in")
 	}
 	inbox := f.log.InboxSince(f.bob.ID, 0, 0)
-	if len(inbox) != 1 || inbox[0].From != f.alice.ID || inbox[0].Channel != home.ID {
+	if len(inbox) != 1 || inbox[0].From != f.alice.ID || inbox[0].Channel != log.ID {
 		t.Fatalf("bob's inbox = %+v, want the call-in notice", inbox)
 	}
 	// Again: a no-op, no second notice.
-	if _, _, err := f.ic.CallIn(Poster{ID: f.alice.ID}, home.ID, "user:"+string(f.bob.ID)); err != nil {
+	if _, _, err := f.ic.CallIn(Poster{ID: f.alice.ID}, log.ID, "user:"+string(f.bob.ID)); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.log.InboxSince(f.bob.ID, 0, 0); len(got) != 1 {
 		t.Fatalf("calling in a member again notified them: %+v", got)
 	}
-	// The session calls another session into its home ("" channel).
-	ch, who, err = f.ic.CallIn(f.poster(f.personal), "", "session:spider")
-	if err != nil || ch.ID != home.ID || who != ident.ID(f.standing.ActorID) {
+	// The session calls another session into its unit's log ("" channel).
+	ch, who, err = f.ic.CallIn(f.poster(f.ticket), "", "session:spider")
+	if err != nil || ch.ID != log.ID || who != ident.ID(f.standing.ActorID) {
 		t.Fatalf("session calls in spider = %+v, %s, %v", ch, who, err)
 	}
 	if got := f.log.InboxSince(ident.ID(f.standing.ActorID), 0, 0); len(got) != 1 {
@@ -46,7 +52,7 @@ func TestIntercomCallIn(t *testing.T) {
 
 func TestIntercomCallInRefusals(t *testing.T) {
 	f := newICFixture(t, "user:alice")
-	home := f.mustPlan(f.personal, "").Channel
+	home := f.room
 	chat, err := f.ic.chat(f.project, []ident.ID{ident.ID(f.personal.ActorID), f.alice.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -64,8 +70,9 @@ func TestIntercomCallInRefusals(t *testing.T) {
 		{"no such person", Poster{ID: f.alice.ID}, home.ID, "user:nobody", ErrSendUnresolved},
 		{"malformed", Poster{ID: f.alice.ID}, home.ID, "bob", ErrSendDenied},
 		{"a chat is fixed", Poster{ID: f.alice.ID}, chat.ID, "user:bob", ErrFixedMembers},
-		{"session beyond its addressing", f.poster(f.personal), "", "user:bob", ErrSendDenied},
-		{"session: needs an explicit glob", f.poster(f.personal), "", "session:" + f.standing.ActorID, ErrSendDenied},
+		{"session beyond its addressing", f.poster(f.personal), f.room.ID, "user:bob", ErrSendDenied},
+		{"session: needs an explicit glob", f.poster(f.personal), f.room.ID, "session:" + f.standing.ActorID, ErrSendDenied},
+		{"no default for a session with no unit", f.poster(f.personal), "", "user:alice", ErrSendNeedsTo},
 		{"session into a room beyond its addressing", f.poster(f.personal), f.room.ID, "session:" + f.standing.ActorID, ErrSendDenied},
 	}
 	for _, p := range []ident.ID{f.alice.ID, ident.ID(f.personal.ActorID)} {
@@ -80,12 +87,10 @@ func TestIntercomCallInRefusals(t *testing.T) {
 	}
 }
 
-// People join what they can see (never a personal session's channel or a
-// chat) and leave anything but a chat; a session never leaves its home.
+// People join what they can see (never a chat) and leave anything but a
+// chat; a session never leaves its unit's log.
 func TestIntercomJoinAndLeave(t *testing.T) {
 	f := newICFixture(t)
-	standing := f.mustPlan(f.standing, "").Channel
-	personal := f.mustPlan(f.personal, "").Channel
 	chat, err := f.ic.PlanPersonChat(f.alice.ID, f.bob.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -96,27 +101,17 @@ func TestIntercomJoinAndLeave(t *testing.T) {
 	if err := f.ic.LeaveChannel(f.alice.ID, chat.Channel.ID); !errors.Is(err, ErrFixedMembers) {
 		t.Fatalf("leaving a chat: %v, want ErrFixedMembers", err)
 	}
-	if err := f.ic.JoinChannel(f.bob.ID, standing.ID); err != nil || !isCurrentMember(f.store, standing.ID, f.bob.ID) {
-		t.Fatalf("bob joins the standing session's channel: %v", err)
+	if err := f.ic.JoinChannel(f.bob.ID, f.room.ID); err != nil || !isCurrentMember(f.store, f.room.ID, f.bob.ID) {
+		t.Fatalf("bob joins the room: %v", err)
 	}
-	if err := f.ic.JoinChannel(f.bob.ID, personal.ID); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("bob joins a personal session's channel: %v, want ErrSendDenied", err)
-	}
-	if err := f.ic.JoinChannel(f.carol.ID, standing.ID); !errors.Is(err, ErrSendDenied) {
+	if err := f.ic.JoinChannel(f.carol.ID, f.room.ID); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("carol (no member) joins: %v", err)
 	}
-	if err := f.ic.LeaveChannel(f.bob.ID, standing.ID); err != nil || isCurrentMember(f.store, standing.ID, f.bob.ID) {
+	if err := f.ic.LeaveChannel(f.bob.ID, f.room.ID); err != nil || isCurrentMember(f.store, f.room.ID, f.bob.ID) {
 		t.Fatalf("bob leaves: %v", err)
 	}
-	if err := f.ic.LeaveChannel(f.bob.ID, standing.ID); err != nil {
+	if err := f.ic.LeaveChannel(f.bob.ID, f.room.ID); err != nil {
 		t.Fatalf("leaving again is a no-op: %v", err)
-	}
-	// The starter may leave her personal session's channel; the session can't.
-	if err := f.ic.LeaveChannel(f.alice.ID, personal.ID); err != nil {
-		t.Fatalf("alice leaves: %v", err)
-	}
-	if err := f.ic.LeaveChannel(ident.ID(f.personal.ActorID), personal.ID); !errors.Is(err, ErrSendDenied) {
-		t.Fatalf("a session leaves its own channel: %v", err)
 	}
 	ticket := f.mustPlan(f.ticket, "").Channel
 	if err := f.ic.LeaveChannel(ident.ID(f.ticket.ActorID), ticket.ID); !errors.Is(err, ErrSendDenied) {
@@ -128,7 +123,7 @@ func TestIntercomJoinAndLeave(t *testing.T) {
 // call in only a session they could reach themselves (MayReach).
 func TestIntercomCallInPersonalSessionNeedsReach(t *testing.T) {
 	f := newICFixture(t)
-	standing := f.mustPlan(f.standing, "").Channel
+	standing := f.room
 	if err := f.ic.JoinChannel(f.bob.ID, standing.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +133,6 @@ func TestIntercomCallInPersonalSessionNeedsReach(t *testing.T) {
 	if err := f.ic.JoinChannel(f.alice.ID, standing.ID); err != nil {
 		t.Fatal(err)
 	}
-	f.mustPlan(f.personal, "") // alice is in her session's channel
 	if _, _, err := f.ic.CallIn(Poster{ID: f.alice.ID}, standing.ID, "session:"+f.personal.ActorID); err != nil {
 		t.Fatalf("alice calls in her own personal session: %v", err)
 	}
@@ -164,7 +158,7 @@ func TestIntercomCallInNoticeIsMarked(t *testing.T) {
 // a refusal never says whether it exists.
 func TestIntercomLeaveUnseenChannel(t *testing.T) {
 	f := newICFixture(t)
-	personal := f.mustPlan(f.personal, "").Channel
+	personal := f.mustPlan(f.personal, "").Channel // the dm with its starter
 	if err := f.ic.LeaveChannel(f.bob.ID, personal.ID); !errors.Is(err, ErrSendDenied) {
 		t.Fatalf("bob leaves a channel he can't see: %v, want ErrSendDenied", err)
 	}

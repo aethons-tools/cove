@@ -87,13 +87,13 @@ func (f *icFixture) putMission(inst *Instance, m string, phase Phase) {
 	}
 }
 
-func TestChannelMissionSession(t *testing.T) {
+func TestChannelMissionStarterDM(t *testing.T) {
 	f := newICFixture(t)
 	f.putMission(&f.personal, "m", PhaseLive)
 	if err := f.ic.SetUp(f.personal); err != nil {
 		t.Fatal(err)
 	}
-	if v := f.missionView(f.sessionChannel(f.personal)); v.Mission != "m" {
+	if v := f.missionView(f.starterDM(f.personal)); v.Mission != "m" {
 		t.Fatalf("Mission = %q, want %q", v.Mission, "m")
 	}
 }
@@ -122,7 +122,7 @@ func TestChannelMissionInactiveHidden(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.putMission(&f.personal, "m", PhaseGone)
-	if v := f.missionView(f.sessionChannel(f.personal)); v.Mission != "" {
+	if v := f.missionView(f.starterDM(f.personal)); v.Mission != "" {
 		t.Fatalf("Mission = %q, want none for a gone session", v.Mission)
 	}
 }
@@ -164,8 +164,8 @@ func TestChannelCardSession(t *testing.T) {
 	if err := f.ic.SetUp(f.personal); err != nil {
 		t.Fatal(err)
 	}
-	if v := f.missionView(f.sessionChannel(f.personal)); v.CardSession != f.personal.ActorID {
-		t.Fatalf("session channel CardSession = %q, want %q", v.CardSession, f.personal.ActorID)
+	if v := f.missionView(f.starterDM(f.personal)); v.CardSession != f.personal.ActorID {
+		t.Fatalf("starter dm CardSession = %q, want %q", v.CardSession, f.personal.ActorID)
 	}
 	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceWork, Key: "t/ACME-9", Label: "ACME-9"})
 	if err != nil {

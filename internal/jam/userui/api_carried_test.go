@@ -216,7 +216,7 @@ func TestAPISessionCommandsAnyViewer(t *testing.T) {
 func TestAPISessionPaneArtifacts(t *testing.T) {
 	e, p, personal, _, _ := sessionEnv(t)
 	e.Deps.Boards = jam.NewBoards(e.lg, e.Intercom)
-	home, err := e.Intercom.HomeChannel(personal)
+	home, err := e.homeCh(personal)
 	if err != nil {
 		t.Fatal(err)
 	}
