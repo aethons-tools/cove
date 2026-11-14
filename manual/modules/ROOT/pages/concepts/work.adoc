@@ -1,0 +1,71 @@
+= Units of work
+:page-area: ROOT
+:page-id: ROOT/concepts/work
+:page-conventions: sentence-case
+
+A *unit of work* is one ticket from the project's tracker,
+seen from Jam:
+the issue,
+the agents that worked or work on it,
+the pull requests they opened,
+its state,
+and its *work log*.
+It isn't a conversation.
+It outlives the agents that work on it.
+
+Jam starts a ticket agent when a ticket is ready and marked for dispatch
+(xref:concepts/agent.adoc[Roles, agents and sessions]).
+If the ticket is worked again later,
+the new agent takes over the same unit of work,
+and reads its log as the history of the work.
+
+== The work log
+
+The work log is the record of the work:
+
+* The agent's progress reports and its state changes, such as *in review*.
+* Messages that people and agents post to the work.
+* Asks about the work, and their answers.
+* Review outcomes and decisions.
+
+The whole log is mirrored to the issue in the tracker, both ways.
+Each entry becomes a comment on the issue,
+and a comment written on the issue becomes an entry in the log.
+
+== Reaching the work
+
+There are two ways to reach a unit of work,
+for two different purposes.
+Choose the one that fits:
+
+Post to the work log::
+For anything that matters to the work:
+a decision, a change to what is wanted, an answer to keep.
+The entry stays with the work,
+shows on the issue,
+and reaches the agent working on it now.
+A later agent reads it too.
+DM the worker::
+For a conversation with the agent working on it now:
+a quick question, or a nudge about this run.
+Jam sends your message as a DM to that agent.
+If no agent is working on the unit of work,
+Jam doesn't send the message and says so.
+The DM stays with that agent, not with the work.
+
+== Seeing the work
+
+A unit of work's page shows its issue,
+its state,
+its agents and their session views,
+its pull requests,
+and its log.
+
+ifdef::internal[]
+== Notes for the team
+
+* Goal: replaces the ticket channel (COV-299, COV-308).
+The interfaces are in `docs/modules/ROOT/pages/usage/jam/conversations.adoc`.
+* The unit of work's page is new. Its layout isn't designed yet;
+COV-308's task-oriented views design it.
+endif::[]

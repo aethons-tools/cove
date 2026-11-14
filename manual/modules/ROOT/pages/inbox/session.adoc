@@ -3,19 +3,46 @@
 :page-id: ROOT/inbox/session
 :page-conventions: sentence-case
 
-When you open a session's own channel in the Inbox,
-or the ticket channel of the ticket a session works on,
-you see more than the messages.
-A *session header* at the top says who the session is,
-what it does now and what it costs.
-A *pane* beside the messages shows what the session thinks and does,
-its previews, what it shared, and its status.
+A *session view* shows one session:
+everything it says and hears in every conversation,
+and what it thinks between them.
+It isn't a conversation.
+Open it from the session's name anywhere in the Inbox,
+or from its unit of work
+(xref:concepts/work.adoc[Units of work]).
 (A session is one run of an agent: xref:concepts/agent.adoc[Roles, agents and sessions].)
 
-image::session-view.png["A session's channel, with its header and the Thinking pane",800]
+A *session header* at the top says who the session is,
+what it does now, and what it costs.
+Below it, the session's *activity* shows its messages in and out, in order.
+A *pane* beside the activity shows what the session thinks and does,
+its previews, what it shared, and its status.
 
-Anyone who can see the session's channel sees its header and pane.
-When the session ends, they go, and the channel shows only its messages.
+image::session-view.png["A session view, with its header and the Thinking pane",800]
+
+The session's owner and the Jam's operators can open its session view.
+For a personal session, the owner is the person who started it;
+for any other session, it's the owners of its role.
+
+== Activity
+
+The activity lists every message the session sent or got,
+in DMs, group DMs, rooms, and work logs,
+oldest first.
+Each message shows which conversation it's in;
+click that to open the conversation.
+Between the messages, the session's thinking shows collapsed:
+a line for each turn.
+Click a line to open what the session thought in that turn.
+Thinking isn't searchable,
+and only the people who can open the session view see it.
+
+The composer at the bottom sends a DM to the session.
+You see your DM in the activity and in your Inbox.
+
+When the session ends,
+the view keeps its activity,
+but its header and pane go.
 
 == The header
 
@@ -246,7 +273,7 @@ It never replaces the name.
 The color shows:
 
 * as a line on the left of the session's messages;
-* on the left edge of the composer, in the session's channel;
+* on the left edge of the composer, in the session view;
 * on the left edge of the session's status card in the rail;
 * in the title bar of the session's studio window in VS Code.
 
@@ -257,6 +284,9 @@ A session started before Jam had colors has none.
 ifdef::internal[]
 == Notes for the team
 
+* Goal: the session view replaces the session's own channel (COV-299).
+The activity, who may open the view, and the DM composer are new;
+the interfaces are in `docs/modules/ROOT/pages/usage/jam/conversations.adoc`.
 * The header and pane are `web/app/src/session/`
 (`SessionView`, `SessionHeader`, `PaneTabs`; Thinking in `thinking/`, View here in `frames/`).
 The server side is `internal/jam/userui` (`session.go`, `sessionpane.go`, `thinking.go`).

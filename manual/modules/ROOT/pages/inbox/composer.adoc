@@ -12,9 +12,12 @@ image::composer-box.png["The composer",600]
 
 *New message* lists everyone you can write to, grouped by project:
 
-* People, marked *person*. Your message starts a chat with them.
-* Live sessions, marked *agent*. Your message goes to the session's own channel, and you join it.
-* Tickets of live sessions, marked *ticket*.
+* People, marked *person*. Pick one for a DM, or several for a group DM.
+* Live agents, marked *agent*. Your message is a DM to the agent.
+* Units of work, marked *work*.
+Choose *Log* to post to the work log,
+or *Worker* to DM the agent working on it now
+(xref:concepts/work.adoc#_reaching_the_work[Reaching the work]).
 * Rooms, marked *room*.
 
 Type in the search box to filter the list,
@@ -25,7 +28,7 @@ image::composer-new-message-list.png["The New message list",600]
 The page then says *New message* and who it is to.
 Write your message and send it.
 The Inbox then opens the conversation.
-If a chat with the same people exists already,
+If a DM or group DM with the same people exists already,
 your message goes into it.
 
 image::composer-new-message.png["A new message to bob",600]

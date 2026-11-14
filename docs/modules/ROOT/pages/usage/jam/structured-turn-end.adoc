@@ -6,6 +6,8 @@
 :tier: leaf
 :updated: 2026-10-30
 
+NOTE: The goal replaces session and ticket channels with DMs, rooms, and units of work. Where this page disagrees with xref:usage/jam/conversations.adoc[conversations], that page wins.
+
 An agent loop ends each turn with a message. Under the structured turn end, Jam uses that instead of making the agent do its messaging in tool calls:
 
 * *The wake brings the messages.* The agent's prompt carries its pending messages.

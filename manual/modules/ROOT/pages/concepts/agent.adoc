@@ -186,7 +186,8 @@ A `recovering` phase has no status of its own:
 it shows by the agent's last activity.
 * The pause is the wake-on engine's `warm-timeout` (default 60s, `runtime.wake`).
 Reminders are the idle ladder (`idle-after`, `nag-every`, `reclaim-after`);
-the nags are posted in the session's channel through the intercom (`intercomNagger`).
+the nags are posted in the session's channel through the intercom (`intercomNagger`);
+in the goal, they are a DM to the session's owner.
 * Depth: `docs/modules/ROOT/pages/usage/jam/roster.adoc`,
 `standing-sessions.adoc`, `personal-sessions.adoc`, `requisitioner.adoc`,
 `coves.adoc`, `turn-end.adoc`.

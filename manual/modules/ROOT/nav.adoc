@@ -5,7 +5,8 @@
 .Concepts
 * xref:concepts/project.adoc[Projects]
 * xref:concepts/agent.adoc[Roles, agents and sessions]
-* xref:concepts/intercom.adoc[Intercom: channels, messages and asks]
+* xref:concepts/intercom.adoc[Intercom: conversations, messages, and asks]
+* xref:concepts/work.adoc[Units of work]
 * xref:concepts/escalation.adoc[Escalation]
 * xref:concepts/destination.adoc[Destinations]
 * xref:concepts/kit.adoc[Kits and studios]
