@@ -53,6 +53,8 @@ type squawkOut struct {
 	// channel cutover); From who sent it.
 	Channel *partyOut `json:"channel,omitempty"`
 	From    *partyOut `json:"from,omitempty"`
+	// ReplyTo is the send `to` that replies in Channel.
+	ReplyTo string `json:"reply_to,omitempty"`
 	// Parts are typed parts beside the body: an ask event (see ask).
 	Parts []partOut `json:"parts,omitempty"`
 }

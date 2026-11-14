@@ -34,9 +34,9 @@ and keeps a `send` with no `to` going to its home channel.
 * *Every wake carries a batch.* Whatever woke the session (a squawk, an alarm, the idle timeout, a kept process), its prompt carries its pending inbox entries:
 ** the entries are past the commit cursor (xref:usage/jam/intercom.adoc#the-inbox-as-a-durable-queue[intercom]), oldest first;
 ** the batch is capped at *20 entries or 32 KiB* of rendered text.
-* *What an entry looks like.* Each entry is a header line, `+From <author> in <channel> (<kind>) at <time> — id <id>+`, followed by its body. Each attachment adds an `+[attachment <name> ref <ref>]+` line.
+* *What an entry looks like.* Each entry is a header line, `+From <author> in <channel> (<kind>) at <time> — id <id> — reply: to=<reply_to>+`, followed by its body. The `to` is the entry's `+reply_to+` (xref:usage/jam/comms-addressing.adoc[comms-addressing]); an older Jam sends none, and the header ends at the id. Each attachment adds an `+[attachment <name> ref <ref>]+` line.
 * *Oversized entries.* An entry alone over the cap is cut, with a marker telling the agent to `read` that id for the rest. A cut entry isn't committed for the agent: it commits it itself once handled, and until then auto-commit doesn't pass it.
-* *The closing line* says either "Reply with `send` … or end with `turn_end` and a `to`…" or, when entries were left out, "More messages are waiting — use `read`…".
+* *The closing line* says either "Reply with `send` to a message's reply `to` … or end with `turn_end` and that `to`…" or, when entries were left out, "More messages are waiting — use `read`…".
 * *Fetched just before writing.* The batch is fetched (`GET /squawks`) just before the prompt is written into the episode. Because it starts from the commit cursor at that moment, it never re-shows messages the agent already read and committed itself.
 * *Fallback.* If the fetch fails, that wake gets the legacy read prompt.
 * *Interrupts and restarts.* The interrupt acknowledgement and a standing session's restart prompt carry the batch too.

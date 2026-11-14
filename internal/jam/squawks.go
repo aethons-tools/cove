@@ -32,6 +32,8 @@ type Squawk struct {
 	ContentType string `json:"content_type"`
 	Channel     *Party `json:"channel,omitempty"`
 	From        *Party `json:"from,omitempty"`
+	// ReplyTo is the send address that replies in Channel (Intercom.ReplyTo).
+	ReplyTo string `json:"reply_to,omitempty"`
 	// Parts are the squawk's typed parts (an ask event: its data is the
 	// intercom.AskEvent).
 	Parts []intercom.Part `json:"parts,omitempty"`
@@ -449,6 +451,7 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 		if m.Channel != "" {
 			ch := h.ic.ChannelParty(m.Channel)
 			sq.Channel = &ch
+			sq.ReplyTo = h.ic.ReplyTo(inst, m.Channel)
 		}
 		out = append(out, sq)
 	}

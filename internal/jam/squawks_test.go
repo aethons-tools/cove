@@ -252,6 +252,9 @@ func TestSquawksReadIsTheInbox(t *testing.T) {
 		s.Channel == nil || s.Channel.Kind != "session" || s.At == nil || s.ContentType != intercom.ContentMarkdown {
 		t.Fatalf("entry = %+v (from %+v, channel %+v)", s, s.From, s.Channel)
 	}
+	if s.ReplyTo != "session:"+f.personal.ActorID {
+		t.Fatalf("reply_to = %q, want its own channel", s.ReplyTo)
+	}
 	if r.PageFirst != m1.ID {
 		t.Fatalf("page_first = %q", r.PageFirst)
 	}

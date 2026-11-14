@@ -530,12 +530,22 @@ var anyGlobs = []string{"*", "session:*"}
 
 // replyChannel is the existing conversation the address kind:rest names,
 // when the session was delivered a message in it (ok=false otherwise, or
-// when it names none yet): a reply needs no addressing. It creates nothing.
+// when it names none yet): a reply needs no addressing. A user: address
+// names the session's own channel when that person is in it. It creates
+// nothing.
 func (ic *Intercom) replyChannel(p Poster, project Project, kind, rest string) (Channel, bool) {
 	var ch Channel
 	var ok bool
 	switch kind {
-	case "user", "human", "chat":
+	case "user", "human":
+		if home, found := ic.homeWithMember(p, project, rest, anyGlobs); found {
+			// They are in the session's own channel: reply there, as
+			// resolve would with addressing.
+			ch, ok = home, true
+			break
+		}
+		fallthrough
+	case "chat":
 		refs := strings.Split(rest, ",")
 		if kind != "chat" {
 			refs = []string{"user:" + rest}
@@ -559,6 +569,46 @@ func (ic *Intercom) replyChannel(p Poster, project Project, kind, rest string) (
 		}
 	}
 	return ch, ok && ic.deliveredIn(p.ID, ch.ID)
+}
+
+// ReplyTo is the send address that replies in channel chID for the session
+// self ("" when none answers to it): its own channel is session:<itself>, a
+// dm or group chat: its other members, a room channel:<name>, a work log
+// work:<key>, another session's channel session:<it>. A reply needs no
+// addressing (replyChannel), so the session can always use it.
+func (ic *Intercom) ReplyTo(self Instance, chID ident.ID) string {
+	ch, ok := ic.store.GetChannel(chID)
+	if !ok {
+		return ""
+	}
+	switch ch.Kind {
+	case SourceSession:
+		return "session:" + ch.Key // its own channel too: own needs no addressing
+	case SourceRoom:
+		return "channel:" + ch.Key
+	case SourceWork:
+		conn, unit, _ := strings.Cut(ch.Key, "/")
+		if tracker, ok := ic.tracker(); ok && conn == string(tracker) {
+			return "work:" + unit
+		}
+		return "work:" + ch.Key
+	case SourceDM, SourceGroup:
+		var refs []string
+		for _, m := range strings.Split(ch.Key, ",") {
+			switch {
+			case m == self.ActorID || m == "":
+			case participantKind(ident.ID(m)) == string(ident.User):
+				refs = append(refs, "user:"+m)
+			default:
+				refs = append(refs, "session:"+m)
+			}
+		}
+		if len(refs) == 0 {
+			return ""
+		}
+		return "chat:" + strings.Join(refs, ",")
+	}
+	return ""
 }
 
 // lookupTicket is the existing work log ref names, regardless of addressing

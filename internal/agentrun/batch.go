@@ -16,7 +16,7 @@ const (
 
 // The batch's closing lines: nothing beyond it, or more waiting.
 const (
-	batchClosing = "Reply with `send` (its `to` names the conversation) or end with `turn_end` and a `to`; nothing you write is posted for you."
+	batchClosing = "Reply with `send` to a message's reply `to`, or end with `turn_end` and that `to`; nothing you write is posted for you."
 	batchMore    = "More messages are waiting — use `read` to page them; only the ones above count as handled when you end your turn."
 )
 
@@ -64,7 +64,11 @@ func renderBatch(es []InboxEntry, more bool) (text, upTo string) {
 // renderEntry is one entry: a header line, its body, and a line per part.
 func renderEntry(e InboxEntry) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "From %s in %s (%s) at %s — id %s\n", e.Author, e.Channel.Label, e.Channel.Kind, e.At, e.ID)
+	fmt.Fprintf(&b, "From %s in %s (%s) at %s — id %s", e.Author, e.Channel.Label, e.Channel.Kind, e.At, e.ID)
+	if e.ReplyTo != "" {
+		fmt.Fprintf(&b, " — reply: to=%s", e.ReplyTo)
+	}
+	b.WriteString("\n")
 	b.WriteString(e.Body)
 	b.WriteString("\n")
 	for _, p := range e.Parts {
