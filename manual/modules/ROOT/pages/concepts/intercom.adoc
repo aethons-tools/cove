@@ -70,7 +70,7 @@ A session can message the session working on a ticket in a DM
 == Joining, leaving and calling in
 
 You join a work log, a room, or a shared session's channel when you post in it.
-In the Inbox, you can also click *Join* on a room or a work log,
+In the Inbox, you can also click *Join* on a room, a work log, or a shared session's channel,
 and *Leave* on one you are in
 (xref:inbox/channels.adoc[Reading and replying]).
 You can't leave a DM or a group DM.

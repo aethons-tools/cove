@@ -234,8 +234,7 @@ const ops: Conversation = {
   channelId: "chn_ops", label: "ops", kind: "room", project: "acme", phase: "", needsYou: false, sendTo: "chn_ops",
   lastSeq: 86, earlier: false, sessionIds: [], sessions: [], openAsks: [], newBoard: false, session: "",
   canJoin: false, canLeave: true,
-  callIn: [{ to: "user:usr_3", label: "carol", kind: "person", project: "" }, { to: "user:usr_4", label: "dan", kind: "person", project: "" },
-    { to: "session:ses_helper", label: "helper", kind: "agent", project: "" }],
+  callIn: [{ to: "user:usr_3", label: "carol", kind: "person", project: "" }, { to: "user:usr_4", label: "dan", kind: "person", project: "" }],
   messages: [
     msg({ seq: 81, from: "bob", time: "2026-11-10T09:12:00Z", body: "<p>Release 1.14 is tagged. Can someone check the deploy log before we announce it?</p>", raw: "Release 1.14 is tagged. Can someone check the deploy log before we announce it?" }),
     msg({ seq: 83, from: "coder", color: "#2f9e44", time: "2026-11-10T09:20:00Z",

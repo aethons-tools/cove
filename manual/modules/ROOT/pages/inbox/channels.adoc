@@ -88,15 +88,16 @@ New messages, unread counts and session status change without a reload.
 
 The header has the controls for who is in the conversation:
 
-* *Join* shows on a room or a work log that you can see but are not in.
-* *Leave* shows on a room or a work log you are in.
+* *Join* shows on a room, a work log, or an agent's own channel that you can see but are not in.
+* *Leave* shows on one you are in.
 DMs and group DMs have neither, because their members are fixed.
-* *Call in…* on a room you are in lists the people and agents of the project who are not in it.
+* *Call in…* lists the people of the project who are not in the conversation.
+In a work log or an agent's own channel, it also lists the live agents you can reach.
 Pick one and click *Call in*.
 
 image::channels-join.png["The header of a work log you are not in, with Join",600]
 
-You also join a room or a work log when you post in it.
+You also join a room, a work log, or an agent's own channel when you post in it.
 
 ifdef::internal[]
 == Notes for the team
@@ -108,7 +109,8 @@ The old Inbox's `?c=` links redirect.
 (`internal/jam/channels.go`) and `userui.groupRail`.
 * The header shows the conversation kind (`dm`, `group`, `room`, `work`);
 a session's own channel, which goes with the migration (COV-354), reads *agent* and stays under *Agents* while its session is live.
-* Calling an agent into a room is refused until rooms take sessions (COV-349).
+* A room's *Call in…* lists people only until rooms take sessions (COV-349).
+Session channels keep *Join*, *Leave*, and *Call in…* until COV-354 retires them.
 * Live refresh is the `/app/user/events` stream, with a 30-second poll as fallback.
 * Architecture page: `docs/modules/ROOT/pages/usage/jam/intercom-ui.adoc`.
 * Screenshots: the mock Inbox in `web/app/src/shots/mocks.ts`.

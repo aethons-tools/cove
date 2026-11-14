@@ -140,29 +140,37 @@ func rowByID(r RailResponse, id string) (ChannelRow, jam.AttentionBucket, bool) 
 	return ChannelRow{}, "", false
 }
 
-// The header's kind and controls: Join and Leave on rooms and work logs
-// only; Call in on rooms, listing people and agents; a dm, a group, and a
-// session's channel have none.
+// The header's kind and controls: Join and Leave on rooms, work logs, and
+// (until COV-354) a session's own channel; Call in lists people, and agents
+// too except on a room (until COV-349); a dm and a group have none.
 func TestConversationKindsAndControls(t *testing.T) {
 	c := newConvEnv(t)
+	labels := func(os []NewMessageOption) []string {
+		var out []string
+		for _, o := range os {
+			out = append(out, o.Label+"/"+o.Kind)
+		}
+		return out
+	}
 	_, room, _ := getConv(t, c.env, c.p, engID, "")
 	if room.Kind != "room" || !room.CanLeave || room.CanJoin {
 		t.Errorf("room: kind %q, canLeave %v, canJoin %v", room.Kind, room.CanLeave, room.CanJoin)
 	}
-	var callIn []string
-	for _, o := range room.CallIn {
-		callIn = append(callIn, o.Label+"/"+o.Kind)
-	}
-	if !slices.Contains(callIn, "bob/person") || !slices.Contains(callIn, "spider/agent") {
-		t.Errorf("room call in = %q, want bob and spider", callIn)
+	if got := labels(room.CallIn); !slices.Contains(got, "bob/person") || slices.Contains(got, "spider/agent") {
+		t.Errorf("room call in = %q, want bob and no agents", got)
 	}
 	_, work, _ := getConv(t, c.env, c.p, string(c.work.ID), "")
-	if work.Kind != "work" || !work.CanJoin || work.CanLeave || len(work.CallIn) != 0 {
-		t.Errorf("work log: kind %q, canJoin %v, canLeave %v, callIn %+v", work.Kind, work.CanJoin, work.CanLeave, work.CallIn)
+	if work.Kind != "work" || !work.CanJoin || work.CanLeave {
+		t.Errorf("work log: kind %q, canJoin %v, canLeave %v", work.Kind, work.CanJoin, work.CanLeave)
 	}
-	for id, kind := range map[string]string{string(c.agentDM): "dm", string(c.bobDM): "dm", c.homeOf(t, c.spider): "session"} {
-		_, conv, _ := getConv(t, c.env, c.p, id, "")
-		if conv.Kind != kind || conv.CanJoin || conv.CanLeave || len(conv.CallIn) != 0 {
+	_, home, _ := getConv(t, c.env, c.p, c.homeOf(t, c.spider), "")
+	hasAgent := slices.ContainsFunc(home.CallIn, func(o NewMessageOption) bool { return o.Kind == "agent" })
+	if got := labels(home.CallIn); home.Kind != "session" || !home.CanLeave || !slices.Contains(got, "bob/person") || !hasAgent {
+		t.Errorf("session channel: kind %q, canLeave %v, callIn %q", home.Kind, home.CanLeave, got)
+	}
+	for _, id := range []ident.ID{c.agentDM, c.bobDM} {
+		_, conv, _ := getConv(t, c.env, c.p, string(id), "")
+		if conv.Kind != "dm" || conv.CanJoin || conv.CanLeave || len(conv.CallIn) != 0 {
 			t.Errorf("%s: kind %q, canJoin %v, canLeave %v, callIn %+v", conv.Label, conv.Kind, conv.CanJoin, conv.CanLeave, conv.CallIn)
 		}
 	}

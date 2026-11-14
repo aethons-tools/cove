@@ -99,12 +99,14 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 }
 
 // membershipControls fills the conversation's Join/Leave/Call in controls:
-// Join and Leave on rooms and work logs only (a dm's and a group's members
-// are fixed; a session's own channel goes with the migration); Call in on
-// rooms, listing the project's people and the agents the viewer may reach.
+// a dm or a group has none (its members are fixed). Rooms, work logs, and
+// (until the migration removes them, COV-354) sessions' own channels take
+// Join and Leave; Call in lists the project's people, and on work logs and
+// session channels the agents the viewer may reach — a room takes no
+// sessions until COV-349.
 func membershipControls(conv *Conversation, p jam.Participant, d Deps) {
 	ch, ok := d.Store.GetChannel(ident.ID(conv.ChannelID))
-	if !ok || ch.Status != jam.StatusLive || (ch.Kind != jam.SourceRoom && ch.Kind != jam.SourceWork) {
+	if !ok || ch.Status != jam.StatusLive || jam.IsChat(ch.Kind) {
 		return
 	}
 	in := map[ident.ID]bool{}
@@ -118,13 +120,13 @@ func membershipControls(conv *Conversation, p jam.Participant, d Deps) {
 		return
 	}
 	conv.CanLeave = true
-	if ch.Kind != jam.SourceRoom {
-		return
-	}
 	for _, uid := range d.Store.ListMembers(ch.ProjectID) {
 		if u, ok := d.Store.GetUser(uid); ok && u.Status == jam.StatusLive && !in[uid] {
 			conv.CallIn = append(conv.CallIn, NewMessageOption{To: "user:" + string(uid), Label: u.Name, Kind: "person"})
 		}
+	}
+	if ch.Kind == jam.SourceRoom {
+		return
 	}
 	for _, inst := range d.Store.ListInstances() {
 		if inst.Phase == jam.PhaseGone || in[ident.ID(inst.ActorID)] {
