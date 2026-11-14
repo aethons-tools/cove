@@ -13,10 +13,9 @@ xref:usage/jam/structured-turn-end.adoc[structured-turn-end],
 or xref:usage/jam/escalation.adoc[escalation],
 this page wins,
 and each issue that builds a part updates those pages to match.
-The product view is in the manual:
-xref:goal@jam:ROOT:concepts/intercom.adoc[Intercom],
-xref:goal@jam:ROOT:concepts/work.adoc[Units of work],
-and xref:goal@jam:ROOT:inbox/session.adoc[Watching a session].
+The product view is in the manual's goal:
+`concepts/intercom.adoc`, `concepts/work.adoc`, and `inbox/session.adoc`
+under `manual/modules/ROOT/pages/`.
 
 == Why
 
@@ -127,7 +126,7 @@ On a turn with no messages, such as an alarm, `send` needs a `to` (`400`).
 |`room`
 |Only the session members it mentions,
 plus the members whose role sets `wake-on-all` for that room.
-The others get it in their inbox, unwoken.
+The others get it in their inbox without waking.
 
 |`work`
 |The current worker, unless it is the author.
@@ -184,7 +183,7 @@ Everyone else gets `404`.
 Thinking can quote what a tool printed,
 so this is the transcript's access rule, not the conversation's.
 
-The view stays after the session ends, without its header and pane.
+After the session ends, the view stays, but without its header or pane.
 
 [#rate-limit]
 == The agent-to-agent rate limit
@@ -213,7 +212,7 @@ Tier timing doesn't change (xref:usage/jam/escalation.adoc[escalation]).
 
 * Each live session channel is archived.
 Its history stays readable in the session view.
-* Each ticket channel becomes its unit's log, history and binding kept.
+* Each ticket channel becomes its unit's log and keeps its history and its binding to the issue.
 * Each chat becomes a `dm` or a `group`.
 * `+session:<label>+`, `+ticket:<key>+`, and `+chat:+` keep working as above,
 so role files and context pages need no change at the switch.

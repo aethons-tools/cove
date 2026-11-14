@@ -78,7 +78,7 @@ Each turn ends one of two ways:
 
 What an agent writes without sending it is thinking:
 it shows in the agent's session view, not in any conversation.
-If a turn ends with neither a message nor "no message needed",
+If a turn ends with neither,
 Jam returns the turn to the agent once to choose,
 so an answer is never lost by accident.
 
@@ -91,7 +91,7 @@ What you got before you left stays in the room.
 
 A member of a room can *call in* someone else.
 The person or agent joins from then on,
-and the room shows a note, such as "alice called in carol".
+and the room shows a note, such as "alice called in carol."
 
 When an agent asks for help,
 Jam opens a DM between it and the people on call
