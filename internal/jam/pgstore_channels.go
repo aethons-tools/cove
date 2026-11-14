@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/jackc/pgx/v5"
@@ -38,6 +39,10 @@ func (s *PostgresStore) SetChannelBindings(id ident.ID, bs []Binding) error {
 
 func (s *PostgresStore) SetChannelWorker(id, worker ident.ID) error {
 	return s.putChannelWith("SetChannelWorker", func() (Channel, error) { return s.prepareSetChannelWorker(id, worker) })
+}
+
+func (s *PostgresStore) SetChannelResumed(id ident.ID, at time.Time) error {
+	return s.putChannelWith("SetChannelResumed", func() (Channel, error) { return s.prepareSetChannelResumed(id, at) })
 }
 
 func (s *PostgresStore) ArchiveChannel(id ident.ID) error {

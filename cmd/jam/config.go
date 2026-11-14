@@ -163,6 +163,7 @@ type serveConfig struct {
 		Discord              *discordConfig       `yaml:"discord"`
 		Push                 *pushConfig          `yaml:"push"`
 		Wake                 *wakeConfig          `yaml:"wake"`
+		AgentWakes           *agentWakesConfig    `yaml:"agent-wakes"`
 		// EscalationPollInterval is how often the escalation engine checks
 		// waiting sessions; it wins over runtime.requisitioner's key.
 		EscalationPollInterval string `yaml:"escalation-poll-interval"`
@@ -185,22 +186,41 @@ type wakeConfig struct {
 	PollInterval string `yaml:"poll-interval"`
 	WaitMax      string `yaml:"wait-max"`
 	WarmTimeout  string `yaml:"warm-timeout"`
-	// SessionWakeLimit is the agent-to-agent loop breaker's run: how many
-	// session posts in a row a channel takes, since a person last posted
-	// there, before session posts stop waking sessions in it. Unset = 8;
-	// 0 = session posts never wake sessions.
-	SessionWakeLimit *int `yaml:"session-wake-limit"`
+	// DeprecatedSessionWakeLimit is runtime.agent-wakes.count's old name,
+	// accepted with a warning (both set is an error); parseServeConfig folds
+	// it into AgentWakes and clears it.
+	DeprecatedSessionWakeLimit *int `yaml:"session-wake-limit"`
 }
 
-// defaultSessionWakeLimit is runtime.wake.session-wake-limit's default.
-const defaultSessionWakeLimit = 8
+// agentWakesConfig is the agent-to-agent limit (conversations.adoc#rate-limit):
+// session messages stop waking sessions in a conversation once its last
+// Count messages are all session-authored and all within Window.
+type agentWakesConfig struct {
+	// Count is the run of session messages; unset = 8, 0 = session
+	// messages never wake sessions.
+	Count *int `yaml:"count"`
+	// Window is how close together the run must be; unset = 10m.
+	Window string `yaml:"window"`
+}
 
-// sessionWakeLimit resolves runtime.wake.session-wake-limit (0: off).
-func (c serveConfig) sessionWakeLimit() int {
-	if c.Runtime.Wake != nil && c.Runtime.Wake.SessionWakeLimit != nil {
-		return *c.Runtime.Wake.SessionWakeLimit
+// runtime.agent-wakes' defaults.
+const (
+	defaultAgentWakeCount  = 8
+	defaultAgentWakeWindow = 10 * time.Minute
+)
+
+// agentWakes resolves runtime.agent-wakes (Count 0: session wakes off).
+func (c serveConfig) agentWakes() wakeon.AgentWakes {
+	a := wakeon.AgentWakes{Count: defaultAgentWakeCount, Window: defaultAgentWakeWindow}
+	if w := c.Runtime.AgentWakes; w != nil {
+		if w.Count != nil {
+			a.Count = *w.Count
+		}
+		if d, err := time.ParseDuration(w.Window); err == nil && d > 0 {
+			a.Window = d
+		}
 	}
-	return defaultSessionWakeLimit
+	return a
 }
 
 // wakeSettings resolves the wake-on engine's settings, per field:
@@ -268,12 +288,19 @@ func (c serveConfig) validateWake() error {
 			return fmt.Errorf("runtime.escalation-poll-interval: want a positive duration, got %q", v)
 		}
 	}
+	if a := c.Runtime.AgentWakes; a != nil {
+		if a.Count != nil && *a.Count < 0 {
+			return fmt.Errorf("runtime.agent-wakes.count: want 0 (off) or more, got %d", *a.Count)
+		}
+		if a.Window != "" {
+			if d, err := time.ParseDuration(a.Window); err != nil || d <= 0 {
+				return fmt.Errorf("runtime.agent-wakes.window: want a positive duration, got %q", a.Window)
+			}
+		}
+	}
 	w := c.Runtime.Wake
 	if w == nil {
 		return nil
-	}
-	if w.SessionWakeLimit != nil && *w.SessionWakeLimit < 0 {
-		return fmt.Errorf("runtime.wake.session-wake-limit: want 0 (off) or more, got %d", *w.SessionWakeLimit)
 	}
 	for name, v := range map[string]string{"poll-interval": w.PollInterval, "wait-max": w.WaitMax, "warm-timeout": w.WarmTimeout} {
 		if v == "" {
@@ -1176,6 +1203,16 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 		}
 		c.Runtime.Requisitioner, c.Runtime.DeprecatedDispatcher = c.Runtime.DeprecatedDispatcher, nil
 		c.deprecated = append(c.deprecated, [2]string{"runtime.dispatcher", "runtime.requisitioner"})
+	}
+	if w := c.Runtime.Wake; w != nil && w.DeprecatedSessionWakeLimit != nil {
+		if c.Runtime.AgentWakes != nil && c.Runtime.AgentWakes.Count != nil {
+			return serveConfig{}, fmt.Errorf("runtime: both agent-wakes.count and wake.session-wake-limit are set; wake.session-wake-limit is the deprecated name — keep only agent-wakes.count")
+		}
+		if c.Runtime.AgentWakes == nil {
+			c.Runtime.AgentWakes = &agentWakesConfig{}
+		}
+		c.Runtime.AgentWakes.Count, w.DeprecatedSessionWakeLimit = w.DeprecatedSessionWakeLimit, nil
+		c.deprecated = append(c.deprecated, [2]string{"runtime.wake.session-wake-limit", "runtime.agent-wakes.count"})
 	}
 	if d := c.Runtime.Requisitioner; d != nil && d.TrackerTokenCred != "" && d.Connection == "" {
 		c.deprecated = append(c.deprecated, [2]string{"runtime.requisitioner.tracker-token-cred", "runtime.requisitioner.connection"})

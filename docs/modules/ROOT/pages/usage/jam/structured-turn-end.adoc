@@ -4,7 +4,7 @@
 :owns: the structured turn end — inbox batches in the wake prompt (caps, rendering, fallback), auto-posting the final text and auto-commit, posting mid-turn text, the `turn_end` tool and its directives, `PUT /mute`, `PUT /kept`, the auto-post marker part and wake-on's skip of it, the duplicate-reply skip, the turn-protocol switch (`GET /context?turn-protocol=2`, `Bundle.turn_protocol`), the agent socket, kept processes (`keep_start`/`keep_stop`/`keep_list`) and the `process-exited` wake. Does NOT own wake-on's other rules (intercom.md), alarms/idle/`end` (turn-end.md) or the context compile (session-context.md).
 :prereqs: intercom.adoc for the inbox, commit cursor and wake-on; turn-end.adoc for what a turn end is and the wake reasons
 :tier: leaf
-:updated: 2026-10-30
+:updated: 2026-11-14
 
 An agent loop ends each turn with a message. Under the structured turn end, Jam uses that instead of making the agent do its messaging in tool calls:
 
@@ -57,7 +57,7 @@ claude's `result` carries only the turn's last reply. Anything the model writes 
 * *What it skips.* Subagent messages (`+parent_tool_use_id+` set) are skipped. So is a `/compact` turn, a turn under the legacy turn end, and text not yet posted when a turn is interrupted or errors.
 * *Commits nothing.* A failed post is logged and the turn goes on.
 
-*Auto-posts don't wake sessions.* An auto-post carries the part `pass:c[application/vnd.jam.turn-end+json]`. Wake-on skips it when its author is a session (xref:usage/jam/wake-on.adoc[wake-on]), and it never counts toward the loop breaker. People are notified as usual. A session that wants another session to act uses `send`.
+*Auto-posts don't wake sessions.* An auto-post carries the part `pass:c[application/vnd.jam.turn-end+json]`. Wake-on skips it when its author is a session (xref:usage/jam/wake-on.adoc[wake-on]), and it never counts toward the agent-to-agent limit. People are notified as usual. A session that wants another session to act uses `send`.
 
 *Duplicate replies.* Jam skips an auto-post whose trimmed body equals a `send` by the same session in the same channel since its previous auto-post, within 10 minutes. It answers `+{"skipped": true}+`, which covers an agent that also ``send``s its reply. The same short answer at two turn ends is two replies, and both are posted.
 

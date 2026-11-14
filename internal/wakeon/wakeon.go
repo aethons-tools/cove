@@ -17,7 +17,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -45,17 +44,25 @@ type Inbox interface {
 }
 
 // ChannelHistory reads a channel's recent squawks (intercom.Store's
-// ChannelBefore: ascending, the last limit before a seq) — what the
-// agent-to-agent loop breaker counts.
+// ChannelBefore: ascending, the last limit before a seq, or the tail at 0) —
+// what the agent-to-agent limit counts.
 type ChannelHistory interface {
 	ChannelBefore(ch ident.ID, beforeSeq int64, limit int) []intercom.Squawk
 }
 
-// BreakerNotifier posts the loop breaker's notice into a channel, as from
-// (the session that wasn't woken), with id (a duplicate id is no error: the
-// notice is posted once). jam.Intercom.BreakerNotice.
-type BreakerNotifier interface {
-	BreakerNotice(ch, from ident.ID, id, body string) error
+// Resumes holds each conversation's last Resume of the agent-to-agent limit
+// (jam.Channel.ResumedAt): the jam.ChannelStore.
+type Resumes interface {
+	GetChannel(id ident.ID) (jam.Channel, bool)
+	SetChannelResumed(id ident.ID, at time.Time) error
+}
+
+// AgentWakes is the agent-to-agent limit (conversations.adoc#rate-limit):
+// a session message wakes no session once the Count messages before it in
+// its conversation are all session-authored and, with it, all within Window.
+type AgentWakes struct {
+	Count  int
+	Window time.Duration
 }
 
 // Idler pauses/unpauses a Live cove going through its warm-idle window (B2).
@@ -193,14 +200,15 @@ type Engine struct {
 	gateRunner GateRunner
 
 	// Sessions waking sessions (SetSessionWakes); off while history is nil.
-	history      ChannelHistory
-	breaker      BreakerNotifier // nil = no notice
-	sessionLimit int
-	// tripped caches each session delivery's verdict by seq (it can't change:
-	// every earlier seq is settled), so a suppressed delivery is checked
-	// against the log once, not every tick; cleared when it grows large.
+	history ChannelHistory
+	resumes Resumes // nil = no Resume
+	limit   AgentWakes
+	// tripped caches each session delivery's verdict by seq, with the Resume
+	// it was decided under (it can't otherwise change: every earlier seq is
+	// settled), so a suppressed delivery is checked against the log once per
+	// Resume, not every tick; cleared when it grows large.
 	trippedMu sync.Mutex
-	tripped   map[int64]bool
+	tripped   map[int64]verdict
 
 	// kick holds one pending Kick; Run ticks kickDelay after it.
 	kick      chan struct{}
@@ -233,13 +241,13 @@ func (e *Engine) Kick() {
 	}
 }
 
-// SetSessionWakes lets another session's post wake a waiting session — with
-// a loop breaker: once a channel has had more than limit session posts in a
-// row since a person or account last posted there, session posts in it no
-// longer wake, and breaker posts one notice there (a person's reply resets
-// it). Call before Run.
-func (e *Engine) SetSessionWakes(history ChannelHistory, breaker BreakerNotifier, limit int) {
-	e.history, e.breaker, e.sessionLimit = history, breaker, limit
+// SetSessionWakes lets another session's post wake a waiting session — up
+// to the agent-to-agent limit: past it, session posts in a conversation are
+// delivered but wake no session, until the window slides past, a person or
+// account posts there, or someone presses Resume (recorded in resumes). Jam
+// sends no notice when it trips. Call before Run.
+func (e *Engine) SetSessionWakes(history ChannelHistory, resumes Resumes, limit AgentWakes) {
+	e.history, e.resumes, e.limit = history, resumes, limit
 }
 
 // SetIdleLadder turns on the personal-session idle ladder: roles supplies each
@@ -675,8 +683,8 @@ func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 	var out []intercom.Squawk
 	for _, m := range e.inbox.Since(ident.ID(inst.ActorID), inst.WaitSeq, 0) {
 		// A person's or an account's post wakes the session. Another
-		// session's wakes it only with session wakes on, and not once its
-		// channel's loop breaker has tripped (two sessions would otherwise
+		// session's wakes it only with session wakes on, and not past its
+		// conversation's agent-to-agent limit (two sessions would otherwise
 		// wake each other turn after turn) — it waits in the inbox for the
 		// next read. A legacy squawk from another session never wakes.
 		if m.From == ident.ID(inst.ActorID) || strings.HasPrefix(string(m.From), "actor:") {
@@ -685,70 +693,94 @@ func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 		if isSession(m.From) && intercom.IsTurnEnd(m) {
 			continue // another session's auto-posted turn end: a `send` wakes, a reply doesn't
 		}
-		if isSession(m.From) && (e.history == nil || jam.IsNotice(m.ID) && !jam.IsCallInNotice(m.ID) || e.loopTripped(inst, m)) {
-			continue // a session's notice (a nag, the breaker's) is for people
+		if isSession(m.From) && (e.history == nil || jam.IsNotice(m.ID) && !jam.IsCallInNotice(m.ID) || e.loopTripped(m)) {
+			continue // a session's notice (a nag, an old breaker's) is for people
 		}
 		out = append(out, m)
 	}
 	return out
 }
 
-// breakerScan bounds how far back the breaker looks for a person's last post
-// (for its notice's id).
-const breakerScan = 500
+// verdict is a cached loopTripped decision and the Resume it was made under.
+type verdict struct {
+	tripped bool
+	resumed time.Time
+}
 
 // loopTripped reports whether m (a session's post) is past its channel's
-// loop breaker: the last sessionLimit+1 squawks there, m included, are all
-// from sessions. When it is, the breaker's notice is posted (once per run,
-// keyed by the person's last post in the channel).
-func (e *Engine) loopTripped(inst jam.Instance, m intercom.Squawk) bool {
+// agent-to-agent limit.
+func (e *Engine) loopTripped(m intercom.Squawk) bool {
 	if m.Channel == "" {
 		return false
 	}
+	resumed := e.resumedAt(m.Channel)
 	e.trippedMu.Lock()
-	verdict, known := e.tripped[m.Seq]
+	v, known := e.tripped[m.Seq]
 	e.trippedMu.Unlock()
-	if known {
-		return verdict
+	if known && v.resumed.Equal(resumed) {
+		return v.tripped
 	}
-	verdict = e.checkLoop(inst, m)
+	v = verdict{tripped: e.limitReached(m.Channel, m.Seq, m.At, resumed), resumed: resumed}
 	e.trippedMu.Lock()
 	if e.tripped == nil || len(e.tripped) >= trippedCacheMax {
-		e.tripped = map[int64]bool{}
+		e.tripped = map[int64]verdict{}
 	}
-	e.tripped[m.Seq] = verdict
+	e.tripped[m.Seq] = v
 	e.trippedMu.Unlock()
-	return verdict
+	return v.tripped
 }
 
-// trippedCacheMax bounds the breaker's verdict cache.
+// trippedCacheMax bounds the limit's verdict cache.
 const trippedCacheMax = 10000
 
-// checkLoop decides loopTripped from the log, posting the notice on a trip.
-func (e *Engine) checkLoop(inst jam.Instance, m intercom.Squawk) bool {
-	window := e.history.ChannelBefore(m.Channel, m.Seq+1, e.sessionLimit+1)
-	if len(window) <= e.sessionLimit {
+// limitReached reports whether a session message at time at, before seq
+// (0: after the tail), is past ch's limit: the limit's count of messages
+// before it are all session-authored, all after the last Resume, and all
+// within the window of at.
+func (e *Engine) limitReached(ch ident.ID, beforeSeq int64, at, resumed time.Time) bool {
+	prior := e.history.ChannelBefore(ch, beforeSeq, e.limit.Count)
+	if len(prior) < e.limit.Count {
 		return false
 	}
-	for _, w := range window {
-		if !isSession(w.From) {
+	for _, w := range prior {
+		if !isSession(w.From) || !w.At.After(resumed) || at.Sub(w.At) > e.limit.Window {
 			return false
 		}
 	}
-	if e.breaker != nil {
-		var since int64
-		for _, w := range e.history.ChannelBefore(m.Channel, window[0].Seq, breakerScan) {
-			if !isSession(w.From) {
-				since = w.Seq
-			}
-		}
-		id := fmt.Sprintf("breaker:%s:%d", m.Channel, since)
-		body := fmt.Sprintf("Jam paused agent-to-agent wakes here after %d messages between sessions in a row. Reply here to resume.", e.sessionLimit)
-		if err := e.breaker.BreakerNotice(m.Channel, ident.ID(inst.ActorID), id, body); err != nil {
-			e.log.Warn("wakeon: loop breaker notice failed", "channel", string(m.Channel), "error", err.Error())
-		}
-	}
 	return true
+}
+
+// resumedAt is ch's last Resume (zero: none).
+func (e *Engine) resumedAt(ch ident.ID) time.Time {
+	if e.resumes == nil {
+		return time.Time{}
+	}
+	c, _ := e.resumes.GetChannel(ch)
+	return c.ResumedAt
+}
+
+// Tripped reports whether the agent-to-agent limit is tripped in ch now: a
+// session message posted there would wake no session. The session view
+// offers Resume where it is.
+func (e *Engine) Tripped(ch ident.ID) bool {
+	if e.history == nil {
+		return false
+	}
+	return e.limitReached(ch, 0, e.now(), e.resumedAt(ch))
+}
+
+// Resume lifts the agent-to-agent limit in ch: messages from before now
+// never count toward the next trip. It kicks a tick, so a delivery the limit
+// held wakes its session.
+func (e *Engine) Resume(ch ident.ID) error {
+	if e.resumes == nil {
+		return errors.New("wakeon: no conversation store to record a Resume in")
+	}
+	if err := e.resumes.SetChannelResumed(ch, e.now()); err != nil {
+		return err
+	}
+	e.Kick()
+	return nil
 }
 
 // Reply-to-act command words (see command).

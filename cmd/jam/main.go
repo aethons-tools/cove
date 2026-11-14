@@ -2228,12 +2228,15 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// past reclaim-after.
 	nagger := intercomNagger{log: ic, roster: st}
 	eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
-	// Sessions wake sessions (intercom slice 3c), with the loop breaker:
-	// past runtime.wake.session-wake-limit session posts in a row in a
-	// channel, they stop waking until a person posts there (0: never wake).
-	if limit := cfg.sessionWakeLimit(); limit > 0 {
-		eng.SetSessionWakes(chlog /*ChannelHistory*/, ic /*BreakerNotifier*/, limit)
+	// Sessions wake sessions (intercom slice 3c), up to the agent-to-agent
+	// limit (runtime.agent-wakes; count 0: never wake): past it, session
+	// posts in a conversation wake no session until the window slides past,
+	// a person posts there, or someone presses Resume.
+	var agentHistory wakeon.ChannelHistory // nil: session wakes off
+	if cfg.agentWakes().Count > 0 {
+		agentHistory = chlog
 	}
+	eng.SetSessionWakes(agentHistory, st /*Resumes*/, cfg.agentWakes())
 
 	// Wake Running coves on a reply too: an agent holding its episode open for
 	// a background task is Running, and its owner's reply must reach it then.
@@ -2635,7 +2638,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sendH := jam.NewParticipantSendHandler(st, ic, log)
 		sendH.SetAttachments(att)
 		userMux.Handle("/app/user/send", sendH)
-		userDeps := userui.Deps{Send: sendH, Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup, res: sup, cmd: rsrv, lines: sup, log: log}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}
+		userDeps := userui.Deps{Send: sendH, Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup, res: sup, cmd: rsrv, lines: sup, log: log}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub,
+			AgentLimit: eng /*the session view's Resume*/}
 		if managerHub != nil {
 			userDeps.KitActivity = managerHub.KitActivity // a raise waiting on its kit build says so
 		}

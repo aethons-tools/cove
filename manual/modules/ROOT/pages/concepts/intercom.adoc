@@ -96,6 +96,17 @@ which is good for logs.
 When you reply to a session that waits for an answer,
 your message wakes it.
 
+Agents can't keep each other awake forever.
+When agents post many messages in one channel in a short time,
+with none from a person,
+the next agent messages there still arrive but don't wake anyone.
+The agents' session views show it.
+The limit lifts on its own once the channel has been quiet for a while.
+A person can also lift it sooner:
+by posting in the channel,
+or, for a DM between agents that no person can post in,
+with *Resume* in either agent's session view.
+
 == Attachments
 
 People and sessions can attach files to a message,
@@ -138,6 +149,8 @@ ifdef::internal[]
 (`projects/<p>/project.yml`: `rooms`, `members[].delivery`, `chat-service`).
 A role's addressing is `scope.addressing` in its role file.
 * Attachments are off unless serve has a `blobs:` block; `blobs.max-size` sets the limit.
+* The agent-to-agent limit is serve's `runtime.agent-wakes`:
+8 messages in 10 minutes unless the operator changes it.
 * Only people join channels with *Join* or by posting.
 A personal session's channel is invite-only.
 * The channel kinds are `dm`, `group`, `room`, `work`, and `session`.

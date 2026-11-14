@@ -2,6 +2,7 @@ package userui
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
@@ -245,10 +246,16 @@ func TestSessionActivityTurns(t *testing.T) {
 	}
 }
 
-// fakeLimit trips the agent-to-agent limit in the conversations it holds.
+// fakeLimit trips the agent-to-agent limit in the conversations it holds;
+// Resume lifts it there.
 type fakeLimit map[ident.ID]bool
 
 func (f fakeLimit) Tripped(ch ident.ID) bool { return f[ch] }
+
+func (f fakeLimit) Resume(ch ident.ID) error {
+	delete(f, ch)
+	return nil
+}
 
 // The activity names the page's conversations where the agent-to-agent
 // limit is tripped, so the view can offer Resume.
@@ -258,5 +265,67 @@ func TestSessionActivityLimited(t *testing.T) {
 	a := decodeAs[SessionActivity](t, sessAPI(t, e, p, "GET", personal.ActorID+"/activity", "", false))
 	if len(a.Limited) != 1 || a.Limited[0].ID != string(e.room.ID) || a.Limited[0].Label != "eng" {
 		t.Errorf("limited = %+v, want just the room", a.Limited)
+	}
+}
+
+// resumeAPI presses Resume in conversation c as p (an operator when admin).
+func resumeAPI(t *testing.T, e *env, p jam.Participant, c string, admin bool) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", "/app/user/api/conversations/"+c+"/resume", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	Handler(e.Deps, nil).ServeHTTP(rec, asPrincipal(req, p, admin))
+	return rec
+}
+
+// Resume lifts the limit for a person who may open either session's view:
+// an operator, or a personal session's starter. Anyone else, and a
+// conversation with no session they may view, gets 404.
+func TestResume(t *testing.T) {
+	e, p, personal, standing, _ := sessionEnv(t)
+	proj, _ := e.st.GetProject("proj")
+	pair := func(key string, a, b ident.ID) ident.ID {
+		ch, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceDM, Key: key, Label: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range []ident.ID{a, b} {
+			if err := e.st.JoinChannel(ch.ID, m, 0); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return ch.ID
+	}
+	other := jam.Instance{ActorID: string(ident.New(ident.Session)), Project: "proj", Role: "dev", SessionKind: jam.SessionKindStanding, Phase: jam.PhaseLive}
+	if err := e.st.PutInstance(other); err != nil {
+		t.Fatal(err)
+	}
+	mine := pair("mine", ident.ID(personal.ActorID), ident.ID(standing.ActorID))
+	theirs := pair("theirs", ident.ID(standing.ActorID), ident.ID(other.ActorID))
+	people := pair("people", p.UserID, ident.New(ident.User))
+	limit := fakeLimit{mine: true, theirs: true, people: true}
+	e.Deps.AgentLimit = limit
+	for _, tc := range []struct {
+		name  string
+		ch    ident.ID
+		admin bool
+		code  int
+	}{
+		{"the starter of one of its sessions", mine, false, http.StatusNoContent},
+		{"a member who may open neither session's view", theirs, false, http.StatusNotFound},
+		{"an operator", theirs, true, http.StatusNoContent},
+		{"a conversation with no session", people, true, http.StatusNotFound},
+		{"no such conversation", "chn_01j9q3zzzzzzzzzzzzzzzzzz", true, http.StatusNotFound},
+	} {
+		if rec := resumeAPI(t, e, p, string(tc.ch), tc.admin); rec.Code != tc.code {
+			t.Errorf("%s: status %d, want %d: %s", tc.name, rec.Code, tc.code, rec.Body)
+		}
+	}
+	if limit[mine] || limit[theirs] || !limit[people] {
+		t.Errorf("tripped after the presses = %v, want only the people's dm", limit)
+	}
+	e.Deps.AgentLimit = nil
+	if rec := resumeAPI(t, e, p, string(mine), false); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("no limit wired: status %d, want 503", rec.Code)
 	}
 }

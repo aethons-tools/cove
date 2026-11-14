@@ -45,10 +45,12 @@ Thinking is never part of a search.
 
 == Resume
 
-A page names its conversations where the agent-to-agent limit is tripped
-(`Deps.AgentLimit`, `Tripped(conversation)`; until it is wired, none are).
+A page names its conversations where the agent-to-agent limit is tripped now
+(`Deps.AgentLimit`, the wake-on engine's `Tripped(conversation)`:
+a session post there would wake no session).
 The app says so above the composer, with *Resume*,
-which posts `+POST /app/user/api/conversations/{id}/resume+`.
+which posts `+POST /app/user/api/conversations/{id}/resume+`
+(xref:usage/jam/wake-on.adoc#agent-limit[wake-on] has the limit and who may press it).
 
 == Composer
 
