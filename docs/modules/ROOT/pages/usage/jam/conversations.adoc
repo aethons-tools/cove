@@ -184,6 +184,8 @@ which no person can post in.
 In a `dm`, the limit is per pair.
 A loop among three agents trips it too,
 because each of their conversations sees only session messages.
+*Resume* restarts the count:
+messages from before it never count toward the next trip.
 The check reads only the log, plus the time of the last *Resume*.
 
 [#order]
