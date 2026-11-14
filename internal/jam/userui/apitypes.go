@@ -450,7 +450,7 @@ type SessionActivity struct {
 	Turns []TurnFold `json:"turns"`
 	// Limited are the page's conversations where the agent-to-agent limit is
 	// tripped (Resume: POST api/conversations/{id}/resume).
-	Limited []jam.Party `json:"limited"`
+	Limited []ConversationRef `json:"limited"`
 	// SendTo is the composer's POST api/messages "to": a dm with the session
 	// ("" once it has ended). Ended: the session is gone (no header or pane).
 	SendTo string `json:"sendTo"`
@@ -463,10 +463,18 @@ type SessionActivity struct {
 // conversation shows it, the conversation it's in, and whether the session
 // wrote it (Out) or was delivered it.
 type ActivityRow struct {
-	MessageRow
-	ID           string    `json:"id"`
-	Conversation jam.Party `json:"conversation"`
-	Out          bool      `json:"out"`
+	MessageRow   `tstype:",extends"`
+	ID           string          `json:"id"`
+	Conversation ConversationRef `json:"conversation"`
+	Out          bool            `json:"out"`
+}
+
+// ConversationRef names a conversation: its id, kind (dm, group, room,
+// work, or session), and label.
+type ConversationRef struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
 }
 
 // TurnFold is one turn of the session's thinking, folded between its

@@ -86,11 +86,19 @@ func (h *handler) apiSessionAction(w http.ResponseWriter, r *http.Request) {
 	writeAPIError(w, status, code, msg)
 }
 
-// openThinking is openSession for the Thinking routes: 404 when this jam
-// records no session events, else the session and the request's ?stream=.
+// openThinking resolves the session for the Thinking page and raw routes,
+// live or ended (an ended session's activity still opens its turns): 404
+// when the viewer may not open its view or this jam records no session
+// events, else the session and the request's ?stream=.
 func (h *handler) openThinking(w http.ResponseWriter, r *http.Request) (jam.Instance, string, bool) {
-	_, inst, _, ok := h.openSession(w, r)
+	p, ok := jam.ParticipantFrom(r)
 	if !ok {
+		writeAPIError(w, http.StatusForbidden, "forbidden", "sign in as a project member")
+		return jam.Instance{}, "", false
+	}
+	inst, ok := h.viewedSession(r, p, r.PathValue("id"))
+	if !ok {
+		noSession(w)
 		return inst, "", false
 	}
 	if h.d.Events == nil {

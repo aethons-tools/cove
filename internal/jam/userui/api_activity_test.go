@@ -68,6 +68,16 @@ func TestSessionViewEnded(t *testing.T) {
 	if len(a.Messages) != 1 || a.Messages[0].Raw != "done" || a.SendTo != "" || !a.Ended {
 		t.Errorf("ended activity = %+v", a)
 	}
+	// Its turns' thinking still opens; the live feed is gone with the pane.
+	events := sessionevents.NewMemStore()
+	e.Deps.Events, e.Deps.Hub = events, sessionevents.NewHub()
+	appendText(t, events, personal.ActorID, 1, 2)
+	if pg := decodeAs[ThinkingPage](t, sessAPI(t, e, p, "GET", personal.ActorID+"/thinking?stream="+thinkStream+"&after=0&before=3", "", false)); len(pg.Events) != 2 {
+		t.Errorf("ended thinking page = %+v", pg)
+	}
+	if rec := thinkGet(Handler(e.Deps, nil), p, "/app/user/session/"+personal.ActorID+"/thinking/events"); rec.Code != http.StatusNotFound {
+		t.Errorf("ended feed = %d", rec.Code)
+	}
 }
 
 // activityEnv is sessionEnv with the personal session in the room: alice
@@ -127,7 +137,7 @@ func TestSessionActivity(t *testing.T) {
 		t.Fatalf("activity = %q, want %q (oldest first; bob's dm left out)", got, want)
 	}
 	hello, reply, dm := a.Messages[0], a.Messages[1], a.Messages[2]
-	if hello.Conversation.ID != e.room.ID || hello.Conversation.Kind != "room" || hello.Conversation.Label != "eng" || hello.Out || !hello.Mine {
+	if hello.Conversation.ID != string(e.room.ID) || hello.Conversation.Kind != "room" || hello.Conversation.Label != "eng" || hello.Out || !hello.Mine {
 		t.Errorf("hello = %+v", hello)
 	}
 	if !reply.Out || reply.Mine || reply.From == "" {
@@ -246,7 +256,7 @@ func TestSessionActivityLimited(t *testing.T) {
 	e, p, personal, _ := activityEnv(t)
 	e.Deps.AgentLimit = fakeLimit{e.room.ID: true, ident.New(ident.Channel): true}
 	a := decodeAs[SessionActivity](t, sessAPI(t, e, p, "GET", personal.ActorID+"/activity", "", false))
-	if len(a.Limited) != 1 || a.Limited[0].ID != e.room.ID || a.Limited[0].Label != "eng" {
+	if len(a.Limited) != 1 || a.Limited[0].ID != string(e.room.ID) || a.Limited[0].Label != "eng" {
 		t.Errorf("limited = %+v, want just the room", a.Limited)
 	}
 }

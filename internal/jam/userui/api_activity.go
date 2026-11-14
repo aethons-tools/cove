@@ -91,19 +91,20 @@ func (h *handler) apiSessionActivity(w http.ResponseWriter, r *http.Request) {
 			msgs = h.d.Log.ActivitySince(self, seq, aq.limit)
 		}
 	}
-	a := SessionActivity{Messages: []ActivityRow{}, Turns: []TurnFold{}, Limited: []jam.Party{}, Ended: inst.Phase == jam.PhaseGone,
+	a := SessionActivity{Messages: []ActivityRow{}, Turns: []TurnFold{}, Limited: []ConversationRef{}, Ended: inst.Phase == jam.PhaseGone,
 		Label: h.d.Intercom.PartyOf(self).Label}
 	a.Color, _ = h.d.Store.SessionColor(inst.ActorID)
 	if !a.Ended {
 		a.SendTo = "session:" + inst.ActorID
 	}
 	colors := map[ident.ID]string{}
-	convs := map[ident.ID]jam.Party{}
+	convs := map[ident.ID]ConversationRef{}
 	var order []ident.ID
 	for _, m := range msgs {
 		c, seen := convs[m.Channel]
 		if !seen {
-			c = h.d.Intercom.ChannelParty(m.Channel)
+			cp := h.d.Intercom.ChannelParty(m.Channel)
+			c = ConversationRef{ID: string(cp.ID), Kind: cp.Kind, Label: cp.Label}
 			convs[m.Channel] = c
 			order = append(order, m.Channel)
 		}
