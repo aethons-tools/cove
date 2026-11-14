@@ -78,7 +78,7 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 	}
 	for _, n := range role.Scope.Destinations {
 		x, known := dests[n]
-		row := destRow{Name: n, Route: x.Route, Missing: !known, Cred: x.CredName}
+		row := destRow{Name: n, Route: x.Primary().Route, Missing: !known, Cred: x.CredName}
 		if c := role.Scope.Credentials[n]; c != "" {
 			row.Cred, row.CredIsRole = c, true
 		}

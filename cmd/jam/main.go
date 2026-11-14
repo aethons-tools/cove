@@ -432,23 +432,29 @@ func cmdDestination(args []string, _ cli.Globals, stdout, stderr io.Writer) int 
 			return 1
 		}
 		for _, dd := range ds {
-			ob := ""
-			if len(dd.Env) > 0 {
-				ob += ", env=" + strings.Join(slices.Sorted(maps.Keys(dd.Env)), ",")
+			for _, e := range dd.Endpoints { // a line per endpoint; dest/endpoint when it has several
+				name := dd.Name
+				if len(dd.Endpoints) > 1 {
+					name += "/" + e.Name
+				}
+				ob := ""
+				if len(dd.Env) > 0 {
+					ob += ", env=" + strings.Join(slices.Sorted(maps.Keys(dd.Env)), ",")
+				}
+				if len(e.AllowPaths) > 0 {
+					ob += fmt.Sprintf(", %d allow-paths", len(e.AllowPaths))
+				}
+				if e.Git {
+					ob += ", git"
+				}
+				if dd.Note != "" {
+					ob += ", note"
+				}
+				if e.LogHeadersIn != "" && e.LogHeadersIn != jam.HeaderLogNone || e.LogHeadersOut != "" && e.LogHeadersOut != jam.HeaderLogNone {
+					ob += fmt.Sprintf(", log-headers=%s/%s", cmp.Or(e.LogHeadersIn, jam.HeaderLogNone), cmp.Or(e.LogHeadersOut, jam.HeaderLogNone))
+				}
+				fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s%s)\n", name, e.Route, e.Upstream, dd.CredName, e.Apply, ob)
 			}
-			if len(dd.AllowPaths) > 0 {
-				ob += fmt.Sprintf(", %d allow-paths", len(dd.AllowPaths))
-			}
-			if dd.Git {
-				ob += ", git"
-			}
-			if dd.Note != "" {
-				ob += ", note"
-			}
-			if dd.LogHeadersIn != "" && dd.LogHeadersIn != jam.HeaderLogNone || dd.LogHeadersOut != "" && dd.LogHeadersOut != jam.HeaderLogNone {
-				ob += fmt.Sprintf(", log-headers=%s/%s", cmp.Or(dd.LogHeadersIn, jam.HeaderLogNone), cmp.Or(dd.LogHeadersOut, jam.HeaderLogNone))
-			}
-			fmt.Fprintf(stdout, "%s\t%s\t-> %s\t(cred %q, %s%s)\n", dd.Name, dd.Route, dd.Upstream, dd.CredName, dd.Apply, ob)
 		}
 	default:
 		fmt.Fprintf(stderr, "jam destination: unknown subcommand %q (want list)\n", sub)
@@ -1625,11 +1631,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	if unknown := unknownServeKeys(data); len(unknown) > 0 {
 		fmt.Fprintf(stderr, "jam: warning: ignoring unknown jam.yml key(s): %s\n", strings.Join(unknown, ", "))
-		for _, k := range unknown {
-			if k == "destinations" {
-				fmt.Fprintln(stderr, "jam: note: destinations are managed in the config repo (see `jam config`)")
-			}
-		}
+	}
+	if cfg.staleDestinations {
+		fmt.Fprintln(stderr, "jam: warning: ignoring the destinations: list in jam.yml")
+		fmt.Fprintln(stderr, "jam: note: destinations are managed in the config repo (see `jam config`); destinations: here takes only the destinations domain ({domain, tls})")
 	}
 	if err := cfg.validateAdminExposure(); err != nil {
 		fmt.Fprintln(stderr, "jam:", err)
@@ -1707,6 +1712,22 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		}
 		adminTLSCfg = adminTLSConfig(adminCert, previewCert, p.Domain)
 		previewURL = previewURLFunc(p.Domain, cfg.AdminListen)
+	}
+	if err := cfg.validateDestinations(); err != nil {
+		fmt.Fprintln(stderr, "jam:", err)
+		return 1
+	}
+	// Endpoints with a subdomain ride the cove-facing listener with their own
+	// wildcard cert (picked by SNI); it loads now so a wrong one fails serve.
+	var destCert *tls.Certificate
+	destDomain := "" // the destinations domain; "" = none
+	if d := cfg.Destinations; d != nil {
+		c, err := loadDestinationsCert(d.TLS.Cert, d.TLS.Key, d.Domain)
+		if err != nil {
+			fmt.Fprintln(stderr, "jam:", err)
+			return 1
+		}
+		destCert, destDomain = &c, d.Domain
 	}
 	if err := cfg.validateSessionEvents(); err != nil {
 		fmt.Fprintln(stderr, "jam:", err)
@@ -1864,6 +1885,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	}
 	creds = jam.NewWatchedResolver(creds, conds, cfg.credFixHint)
 	broker := jam.NewBroker(st, creds, log)
+	broker.SetDestinationsDomain(destDomain)
+	jam.SetDestinationsDomain(destDomain) // the connector's endpoint placeholders and git host
 
 	// Jam's SSH user CA (studio collaboration): every raised studio's sshd
 	// trusts its public key; the private key stays in this process's memory.
@@ -2205,12 +2228,18 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// past reclaim-after.
 	nagger := intercomNagger{log: ic, roster: st}
 	eng.SetIdleLadder(st /*RoleLookup*/, sup /*NagRecorder*/, nagger)
-	// Sessions wake sessions (intercom slice 3c), with the loop breaker:
-	// past runtime.wake.session-wake-limit session posts in a row in a
-	// channel, they stop waking until a person posts there (0: never wake).
-	if limit := cfg.sessionWakeLimit(); limit > 0 {
-		eng.SetSessionWakes(chlog /*ChannelHistory*/, ic /*BreakerNotifier*/, limit)
+	// Sessions wake sessions (intercom slice 3c), up to the agent-to-agent
+	// limit (runtime.agent-wakes; count 0: never wake): past it, session
+	// posts in a conversation wake no session until the window slides past,
+	// a person posts there, or someone presses Resume.
+	var agentHistory wakeon.ChannelHistory // nil: session wakes off
+	if cfg.agentWakes().Count > 0 {
+		agentHistory = chlog
 	}
+	eng.SetSessionWakes(agentHistory, st /*Resumes*/, cfg.agentWakes())
+	// Who wakes per conversation kind: a room's named sessions, a work log's
+	// worker (conversations.adoc#wake).
+	eng.SetConversations(st)
 
 	// Wake Running coves on a reply too: an agent holding its episode open for
 	// a background task is Running, and its owner's reply must reach it then.
@@ -2521,7 +2550,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		credExists := cfg.credConfigured
 		// One planner view of the serve for the config admin API and the UI's
 		// Config page.
-		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, Serve: portable, Conditions: conds,
+		cfgEnv := jam.ConfigEnv{CredExists: credExists, PoolConfigured: cfg.Pool != nil, SubdomainsConfigured: destDomain != "", Serve: portable, Conditions: conds,
 			Followed: cfg.followedSource()}
 		if src := cfgEnv.Followed; src.Repo != "" {
 			// Named as configured: a config.git url (a local path or ssh)
@@ -2612,7 +2641,8 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		sendH := jam.NewParticipantSendHandler(st, ic, log)
 		sendH.SetAttachments(att)
 		userMux.Handle("/app/user/send", sendH)
-		userDeps := userui.Deps{Send: sendH, Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup, res: sup, cmd: rsrv, lines: sup, log: log}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub}
+		userDeps := userui.Deps{Send: sendH, Store: st, Intercom: ic, Log: chlog, Legacy: ml, Attachments: att, Boards: boards, Ops: sessionOps{store: st, sup: sup, res: sup, cmd: rsrv, lines: sup, log: log}, Totals: sessionevents.NewTotalsCache(sessStore), PreviewURL: previewURL, Events: sessStore, Hub: sessHub,
+			AgentLimit: eng /*the session view's Resume*/}
 		if managerHub != nil {
 			userDeps.KitActivity = managerHub.KitActivity // a raise waiting on its kit build says so
 		}
@@ -2816,9 +2846,16 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
 	}
-	tlsCfg := &tls.Config{Certificates: []tls.Certificate{cert}, NextProtos: []string{"h2", "http/1.1"}}
+	tlsCfg := coveTLSConfig(cert, destCert, destDomain)
+	coveH := grpcMux(gs, httpHandler)
+	if destDomain != "" {
+		// Ahead of the gRPC demux and the cove mux: a subdomain host reaches
+		// the broker alone.
+		coveH = destHostRouter(destDomain, broker, coveH)
+		log.Info("Jam destinations domain", "domain", destDomain)
+	}
 	log.Info("Jam broker+Attach listening (mux)", "addr", cfg.Listen)
-	if err := serveMux(rawLis, tlsCfg, gs, httpHandler); err != nil {
+	if err := serveMux(rawLis, tlsCfg, coveH); err != nil {
 		fmt.Fprintln(stderr, "jam:", err)
 		return 1
 	}

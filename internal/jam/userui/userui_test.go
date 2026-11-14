@@ -20,7 +20,7 @@ func TestGroupRail(t *testing.T) {
 	if len(groups) != 3 {
 		t.Fatalf("groups = %d, want 3", len(groups))
 	}
-	wantTitles := []string{"Needs you", "Sessions", "Channels"}
+	wantTitles := []string{"Needs you", "Agents", "Conversations"}
 	for i, g := range groups {
 		if g.Title != wantTitles[i] {
 			t.Errorf("group[%d].Title = %q, want %q", i, g.Title, wantTitles[i])

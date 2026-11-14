@@ -86,8 +86,12 @@ func (o ConfigPlan) Counts() map[string]int {
 type ConfigEnv struct {
 	CredExists     func(string) bool
 	PoolConfigured bool
-	Serve          map[string]any     // the running serve's portable config; nil = unknown
-	Conditions     *condition.Tracker // the import raises kit.migrate on it; nil = none
+	// SubdomainsConfigured is whether the serve has a destinations domain
+	// (destinations: in the serve config): only then may an endpoint have a
+	// subdomain (ValidateDestination).
+	SubdomainsConfigured bool
+	Serve                map[string]any     // the running serve's portable config; nil = unknown
+	Conditions           *condition.Tracker // the import raises kit.migrate on it; nil = none
 	// Followed is the config repo the Jam follows (config.github in the serve
 	// config); zero = none. Syncs apply it, and its applies are recorded.
 	Followed gitsource.Source
@@ -335,7 +339,22 @@ func (p *planner) planDestinations() {
 		o := newConfigObject(f)
 		p.upsert(o.Key, o, func(bool) error {
 			d := copyDestination(f.Destination)
-			if err := ValidateDestination(d, p.credExists); err != nil {
+			// Every destination as the plan leaves it: the tree's, and the
+			// unmanaged ones of the store's the tree doesn't name (a managed
+			// one is deleted: planDeletes).
+			var all []Destination
+			for _, o := range p.in.Tree.Destinations {
+				all = append(all, o.Destination)
+			}
+			for _, o := range p.in.Snapshot.Destinations {
+				k := ConfigKey{ConfigKindDestination, o.Name}
+				if _, inTree := p.in.Tree.Destinations[o.Name]; !inTree {
+					if _, managed := p.marks[k]; !managed {
+						all = append(all, o)
+					}
+				}
+			}
+			if err := checkDestination(d, p.credExists, p.in.Env.SubdomainsConfigured, all); err != nil {
 				return err
 			}
 			p.m.applyPutDestination(d)

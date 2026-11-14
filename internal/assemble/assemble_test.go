@@ -244,6 +244,26 @@ func TestAssembleSplitsEgressLists(t *testing.T) {
 	}
 }
 
+// A destinations domain reaches the infra list as one leading-dot entry (its
+// subdomains, COV-312), never the kit list or the ceiling a role must fit in.
+func TestAssembleInfraDestinationsDomain(t *testing.T) {
+	buildDir := filepath.Join(t.TempDir(), ".build")
+	eg := Egress{Policy: []string{"pkg.go.dev"}, Infra: []string{"jam.example", ".dest.example"}}
+	if err := AssembleContext(buildDir, []byte("k\n"), eg, "", nil, harnessinstall.Default()); err != nil {
+		t.Fatal(err)
+	}
+	squidDir := filepath.Join(buildDir, "image-files/etc/squid")
+	for file, want := range map[string]string{
+		"allowed_domains.infra.txt": ".dest.example,jam.example",
+		"allowed_domains.kit.txt":   "pkg.go.dev",
+		"egress_ceiling.txt":        "pkg.go.dev",
+	} {
+		if g := strings.Join(domainLines(read(t, filepath.Join(squidDir, file))), ","); g != want {
+			t.Errorf("%s domains = %q, want %q", file, g, want)
+		}
+	}
+}
+
 // Every baked list is written (header only when empty) so squid never references a
 // missing ACL file and the helper always finds a ceiling.
 func TestAssembleEgressListsAlwaysWritten(t *testing.T) {

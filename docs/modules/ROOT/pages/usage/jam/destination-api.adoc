@@ -1,0 +1,44 @@
+= Destinations admin API
+:summary: The admin API's destination body — credName, note, env rows and endpoints[] with every endpoint field (identity-in/apply as a preset or an expression, allow paths, git, header logging) — the list's endpoint summary, how a write replaces a destination, and its per-field refusals (errors[] at endpoints[i].field).
+:read_when: You are calling or changing /app/admin/api/destinations (the destination page's reads and writes), or a destination write from the admin UI was refused and you want to know which field the error names.
+:owns: the /app/admin/api/destinations read/write body (DestFields, DestEndpoint, the expression specs), the list row's endpoint summary, the update's replace semantics, and the per-field refusal paths
+:prereqs: destination-endpoints.adoc for the endpoint model and its rules; ui-pages.adoc#destination-pages for the page that uses it; ui-editing.adoc for the gate/CSRF/audit rules
+:tier: leaf
+:updated: 2026-11-12
+
+The destination page (xref:usage/jam/ui-pages.adoc#destination-pages[ui-pages]) and the list
+read and write destinations as structured xref:usage/jam/destination-endpoints.adoc[endpoints].
+The types are `DestFields`, `DestEndpoint`, `DestInboundSpec` and `DestOutboundSpec`
+in `internal/jam/adminui/apitypes.go`.
+
+`GET /app/admin/api/destinations` lists them;
+each row has its endpoint count, each endpoint's address (`addresses`)
+and the distinct upstreams (`upstreams`).
+
+== Reading
+
+`GET /app/admin/api/destinations/<name>` answers the page, its `fields` the destination as it is written:
+`credName`, `note`, `env` (the declared env as `+{key, template}+` rows, by key; `[]` = none)
+and `endpoints[]`, each with every endpoint field —
+`name`, `subdomain`, `route`, `upstream`, `identityIn`/`apply` (a preset or `custom`),
+`identityInSpec` (`header`, `prefixes`, `encoding`) and `applySpec` (`header`, `template`, `encoding`, `basicUser`),
+set exactly when the method is `custom`, `allowPaths`, `git`, and `logHeadersIn`/`logHeadersOut` (`none` when off).
+An encoding reads `raw` for the default.
+
+== Writing
+
+`POST /app/admin/api/destinations` (with `name`) creates one from the same body (an existing name is a 409);
+`POST /app/admin/api/destinations/<name>` replaces every field — endpoints added, removed and edited,
+expressions included — but the operator notes, which have their own write
+(xref:usage/jam/operator-notes.adoc[operator-notes]).
+Text is trimmed, blank allow paths dropped, `none` logging and the `raw` encoding stored unset.
+Writes are config writes: branch-only, CSRF-guarded and audit-logged with each endpoint's address and upstream
+(xref:usage/jam/ui-editing.adoc[ui-editing]).
+
+== Refusals
+
+A refusal is a 400 naming every problem at once, each also in `+errors[]+` at its field:
+`name`, `credName`, `note`, `env` (a key or placeholder), `env[1].key` (a blank or repeated key),
+`endpoints` (none, or more than 10), and an endpoint's field — `endpoints[1].route`,
+`endpoints[0].upstream`, `endpoints[2].applySpec.template`, `endpoints[0].identityInSpec.header`.
+The rules are xref:usage/jam/destination-endpoints.adoc#validation[endpoint validation]'s.

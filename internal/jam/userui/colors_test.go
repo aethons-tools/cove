@@ -18,7 +18,7 @@ func TestAPISessionColors(t *testing.T) {
 	if hd := decodeAs[SessionHead](t, sessAPI(t, e, p, "GET", personal.ActorID, "", false)); hd.Color != "#aa3f4e" || hd.Card.Color != "#aa3f4e" {
 		t.Errorf("head color = %q, card color = %q", hd.Color, hd.Card.Color)
 	}
-	if hd := decodeAs[SessionHead](t, sessAPI(t, e, p, "GET", standing.ActorID, "", false)); hd.Color != "" {
+	if hd := decodeAs[SessionHead](t, sessAPI(t, e, p, "GET", standing.ActorID, "", true)); hd.Color != "" {
 		t.Errorf("uncolored head color = %q", hd.Color)
 	}
 	home, err := e.Intercom.HomeChannel(personal)

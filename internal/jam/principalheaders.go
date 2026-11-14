@@ -87,13 +87,13 @@ func servedProvider(d Destination) string {
 }
 
 // principalHeaderRules returns the header rules to apply to a request the
-// actor made on dest, which presents identities per in: the rules of the
+// actor made on ep, an endpoint of dest, which presents identities per in: the rules of the
 // actor's model-spec (resolved as the connector resolves it) when it is claude
 // on the provider dest serves (servedProvider: anthropic or vertex). Rules failing
 // the static checks or naming a header the destination's identity or apply
 // spec uses are dropped. Warnings name the header only — rule values are not
 // secrets but are never logged — and are deduplicated (b.warns).
-func (b *Broker) principalHeaderRules(actor Actor, dest Destination, in InboundSpec) []ModelHeaderRule {
+func (b *Broker) principalHeaderRules(actor Actor, dest Destination, ep Endpoint, in InboundSpec) []ModelHeaderRule {
 	served := servedProvider(dest)
 	if served == "" {
 		return nil
@@ -119,7 +119,7 @@ func (b *Broker) principalHeaderRules(actor Actor, dest Destination, in InboundS
 		return nil
 	}
 	owned := []string{http.CanonicalHeaderKey(in.Header)}
-	if out, ok := dest.OutboundSpec(); ok {
+	if out, ok := ep.OutboundSpec(); ok {
 		owned = append(owned, http.CanonicalHeaderKey(out.Header))
 	}
 	apply := rules[:0] // rules is the store's fresh copy

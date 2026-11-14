@@ -4,7 +4,7 @@
 :owns: the condition model (keys, severities, lifecycle), the v1 condition kinds, the `/metrics` exposition and its scrape token, the Health tab, `jam attention list`, and the deploy/monitoring bundle
 :prereqs: serve.adoc for the serve config and credentials
 :tier: leaf
-:updated: 2026-11-05
+:updated: 2026-11-14
 
 Jam turns problems it detects in itself into *conditions* — a key, a
 severity, a one-line summary and a *fix* — and shows them in three places:
@@ -38,7 +38,9 @@ Conditions survive a Jam restart and keep their original start time.
 |`+pool.account.refresh:<account>+` |warning; critical while every account fails |2 consecutive failed refresh passes |the next successful refresh, a fresh token (`pool add`), or removal of the account
 |`+push:relay+` |warning |5 consecutive transient xref:usage/jam/push-delivery.adoc#how-jam-sends[push] send failures (network error, 429 or 5xx from a push service) |the next send a push service answers with anything but 429 or 5xx
 |`+manager.disk:<name>+` |warning at ≥90% disk used; critical at ≥95% (back to warning below 95%) |a xref:usage/jam/studio-managers.adoc#status-reports[Studio Manager]'s report shows its studio disk that full (detail: what is reclaimable). Fix: free disk in the manager's VM (jam-colima cleans up automatically above its high mark), or grow the VM disk (`+colima stop; colima start --disk <GiB>+`) |a report below 88% (between 88% and 90% an open condition stays open, a closed one stays closed, so it does not flap), or the manager is revoked (also at serve start for a manager no longer registered); left open while the manager is disconnected
-|`+kit.migrate:<kit>+` |warning |the kit's current version could not be migrated to a tree at the upgrade, or at the import of a pre-tree backup (xref:usage/jam/kits-directory.adoc#stored-as-trees[kits-directory]) |its current version is not broken (a new push or a pin) or the kit is removed; checked at serve start, after the import and every minute (a pin back onto a broken version reopens it)
+|`+kit.migrate:<kit>+` |warning |the kit's current version could not be migrated to a tree at the upgrade, or at the import of a pre-tree backup (xref:usage/jam/kits-directory.adoc#stored-as-trees[kits-directory]); or its current version still uses a pre-rename name, or pins a parent version that does (xref:usage/jam/renamed-from-at.adoc[renamed-from-at]) |its current version is not broken and uses no pre-rename name (a new push or a pin), or the kit is removed; checked at serve start, after the import and every minute (a pin back onto a broken version reopens it)
+|`+config.follow:jam+` |info while the config repo's first apply waits to be confirmed; warning when the follower can't check or apply the repo |the xref:usage/jam/config-git-sources.adoc[config follower]'s check finds the first apply unconfirmed (fix: *Diff* then *Apply this plan* on Config › Tracking, or `jam config sync`), or fails (fix: fix the repo or the credential and push; the Jam retries every minute) |the followed head is applied (in sync)
+|`+destination.env:<destination>+` |warning |the destination's stored env has a key under the reserved `JAM_*` prefix, which Jam drops from every connector (fix: rename the key) |no reserved key is left, or the destination is removed; checked at serve start and every minute
 |===
 
 Each carries its fix (e.g. `gcloud auth application-default login` for a

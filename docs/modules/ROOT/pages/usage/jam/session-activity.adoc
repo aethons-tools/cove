@@ -1,0 +1,58 @@
+= A session's activity
+:summary: The session view's activity — every message a session authored or was delivered, in every conversation (`GET /app/user/api/sessions/\{id}/activity`, paged like `read`), its turns of thinking folded between, Resume where the agent-to-agent limit is tripped, and the DM composer.
+:read_when: You're using or extending the activity in a session's view: its route and paging, the thinking folds, Resume, or the composer that DMs the session.
+:owns: `GET /app/user/api/sessions/\{id}/activity`, the channel log's activity reads (`ActivitySince`, `ActivityBefore`), the session-event store's turn spans (`Turns`), the thinking folds, the Resume notice, and the session view's composer
+:prereqs: session-view.adoc for who may open a session view and its header and pane; comms-addressing.adoc for the `+session:+` target
+:tier: leaf
+:updated: 2026-11-14
+
+The activity is the body of a xref:usage/jam/session-view.adoc[session view]
+(`internal/jam/userui/api_activity.go`; the app's `web/app/src/session/ActivityList.tsx`, `TurnFold.tsx`, and `SessionPage.tsx`).
+Who may read it is who may open the view
+(xref:usage/jam/session-view.adoc#access[Who may open it]),
+and it stays after the session ends.
+
+`+GET /app/user/api/sessions/{id}/activity+` is every message the session authored or was delivered,
+from every kind of conversation
+(`ActivitySince` and `ActivityBefore` on the channel log, `intercom.Store`),
+oldest first, each with its conversation (id, kind, and label)
+and whether the session wrote it.
+It pages like the session's `read`:
+`anchor` is `end` (the default), `start`, or `id` (with `id`),
+`dir` is `forward` (the default) or `backward` from an id,
+and `limit` defaults to 50, at most 500.
+A page carries its first and last message ids,
+and whether messages exist before and after it.
+Legacy squawks from before the cutover aren't part of it.
+
+The app shows each message under its conversation's name, a link to the conversation,
+and loads earlier pages with *Load earlier*.
+It refetches on the events stream's `changed`, and every 30s.
+
+== Thinking folds
+
+A page also lists the session's turns whose thinking falls into it:
+those starting from its first message up to the next page's first
+(the oldest page from the beginning, the newest on to now),
+across all the session's streams, at most 500
+(`Turns` on `sessionevents.Store`: each turn's seqs, time span, and count).
+The app places each turn between the messages by time,
+as one collapsed line ("Thinking · turn 3 · 10:12:04 · 10 events").
+Opening it fetches the turn's events from the Thinking page route
+with `+after=+` and `+before=+` around the turn's seqs,
+and shows them as narrative lines.
+Thinking is never part of a search.
+
+== Resume
+
+A page names its conversations where the agent-to-agent limit is tripped now
+(`Deps.AgentLimit`, the wake-on engine's `Tripped(conversation)`:
+a session post there would wake no session).
+The app says so above the composer, with *Resume*,
+which posts `+POST /app/user/api/conversations/{id}/resume+`
+(xref:usage/jam/wake-on.adoc#agent-limit[wake-on] has the limit and who may press it).
+
+== Composer
+
+The page's composer sends to `+session:<id>+`, the dm between the viewer and the session
+(xref:usage/jam/comms-addressing.adoc[comms-addressing]).

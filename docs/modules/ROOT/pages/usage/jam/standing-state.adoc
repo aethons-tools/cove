@@ -4,11 +4,11 @@
 :owns: a session's state volumes (names, mounts, labels, the per-Jam sweep scope), conversation resume on restart, and the rule that no teardown deletes state
 :prereqs: standing-sessions.adoc for declarations, reset and dismissal
 :tier: leaf
-:updated: 2026-10-26
+:updated: 2026-11-13
 
 Every session's conversation and workspace live in named Docker volumes that
 outlive the container, so a restart (a standing session's re-raise or
-xref:usage/jam/standing-sessions.adoc#upgrading-a-standing-session[upgrade], or any session's
+xref:usage/jam/standing-upgrade.adoc[upgrade], or any session's
 xref:usage/jam/coves.adoc#recovery[recovery] after its studio died) resumes where it left off.
 Only the standing reconciler's sweep deletes them, once the session is gone.
 

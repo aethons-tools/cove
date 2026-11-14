@@ -307,8 +307,8 @@ func (m *memState) ListModelSpecs() []ModelSpec {
 	return out
 }
 
-func (m *memState) Match(reqPath string) (Destination, bool) {
-	return Config{Destinations: m.ListDestinations()}.Match(reqPath)
+func (m *memState) Match(sub, reqPath string) (Destination, Endpoint, bool) {
+	return Config{Destinations: m.ListDestinations()}.Match(sub, reqPath)
 }
 
 // GetProject finds a project by reference: its id, or its name ("" is
@@ -765,21 +765,35 @@ func setProjectContext(p Project, l sessionctx.Layer, rs []sessionctx.Resource) 
 
 // ---- copy helpers (defensive copies for reads) ----
 
-// copyDestination deep-copies d's header specs, Env and AllowPaths, so a store's copy
-// never aliases a caller's.
+// copyDestination deep-copies d's endpoints (their header specs and
+// AllowPaths) and Env, so a store's copy never aliases a caller's, and
+// normalizes it: a lone unnamed endpoint is named after the destination.
 func copyDestination(d Destination) Destination {
-	if d.IdentityInSpec != nil {
-		in := *d.IdentityInSpec
-		in.Prefixes = slices.Clone(in.Prefixes)
-		d.IdentityInSpec = &in
-	}
-	if d.ApplySpec != nil {
-		out := *d.ApplySpec
-		d.ApplySpec = &out
+	if d.Endpoints != nil {
+		eps := make([]Endpoint, len(d.Endpoints))
+		for i, e := range d.Endpoints {
+			eps[i] = copyEndpoint(e)
+		}
+		d.Endpoints = eps
 	}
 	d.Env = maps.Clone(d.Env)
-	d.AllowPaths = slices.Clone(d.AllowPaths)
+	d.normalize()
 	return d
+}
+
+// copyEndpoint deep-copies e's header specs and AllowPaths.
+func copyEndpoint(e Endpoint) Endpoint {
+	if e.IdentityInSpec != nil {
+		in := *e.IdentityInSpec
+		in.Prefixes = slices.Clone(in.Prefixes)
+		e.IdentityInSpec = &in
+	}
+	if e.ApplySpec != nil {
+		out := *e.ApplySpec
+		e.ApplySpec = &out
+	}
+	e.AllowPaths = slices.Clone(e.AllowPaths)
+	return e
 }
 
 // checkKitDocs validates a PutKitDocs batch before anything is written.

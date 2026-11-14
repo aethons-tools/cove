@@ -174,7 +174,7 @@ func (ic *Intercom) MayAnswer(user ident.ID, a intercom.Ask) bool {
 // mayAnswerIn reports whether person user may answer an ask in ch: a member,
 // or anyone who can see a ticket's channel (every project member).
 func (ic *Intercom) mayAnswerIn(ch Channel, user ident.ID) bool {
-	return ic.isMemberOf(ch, user) || ch.Kind == SourceTicket && ic.CanSee(user, ch)
+	return ic.isMemberOf(ch, user) || ch.Kind == SourceWork && ic.CanSee(user, ch)
 }
 
 // asksChanged tells the hook session's asks changed.

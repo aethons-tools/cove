@@ -31,6 +31,7 @@ type Reader interface {
 // Why a recipient is notified.
 const (
 	ReasonMessage    = "message"    // a message in a chat or session channel
+	ReasonMention    = "mention"    // a room or work log message that mentions them
 	ReasonAsk        = "ask"        // an ask whose Of names them
 	ReasonCallIn     = "callin"     // a call-in notice inviting them
 	ReasonEscalation = "escalation" // an escalation notice targeting them
@@ -46,18 +47,23 @@ type Recipient struct {
 // users only, current members of its channel who can see it, not its author,
 // not focused on that channel (focused may be nil), not already read past
 // it (on any device) — for any message in a
-// chat or session channel, or, in any channel kind, an ask naming them, a
-// call-in notice inviting them, or an escalation notice targeting them. Ask
-// amend/withdraw/answer events notify nobody.
+// chat or session channel; in a room or work log, a message that mentions
+// them (conversations.adoc#wake); or, in any channel kind, an ask naming
+// them, a call-in notice inviting them, or an escalation notice targeting
+// them. Ask amend/withdraw/answer events notify nobody.
 func Recipients(r Reader, m intercom.Squawk, focused func(user, channel ident.ID) bool) []Recipient {
 	ch, ok := r.Channel(m.Channel)
 	if !ok {
 		return nil
 	}
 	reasons := map[ident.ID]string{}
-	if ch.Kind == jam.SourceChat || ch.Kind == jam.SourceSession {
+	if jam.IsChat(ch.Kind) || ch.Kind == jam.SourceSession {
 		for _, u := range r.Members(ch.ID) {
 			reasons[u] = ReasonMessage
+		}
+	} else {
+		for _, u := range intercom.Mentions(m) {
+			reasons[u] = ReasonMention
 		}
 	}
 	if ev, ok := intercom.AskOf(m); ok {

@@ -130,7 +130,12 @@ type serveConfig struct {
 	// (and the login host jam.<domain>) on the admin listener, with its own
 	// wildcard cert picked by SNI. Absent ⇒ previews off. See
 	// docs/modules/ROOT/pages/usage/jam/previews.adoc.
-	Previews     *previewsConfig `yaml:"previews"`
+	Previews *previewsConfig `yaml:"previews"`
+	// Destinations, when set, serves destination endpoints that have a
+	// subdomain at <subdomain>.<domain> on the cove-facing listener, with
+	// their own wildcard cert picked by SNI. Absent ⇒ no endpoint may have a
+	// subdomain. See docs/modules/ROOT/pages/usage/jam/serve.adoc.
+	Destinations *destinationsConfig `yaml:"destinations"`
 	OperatorAuth struct {
 		OIDC *struct {
 			Issuer          string `yaml:"issuer"`
@@ -158,6 +163,7 @@ type serveConfig struct {
 		Discord              *discordConfig       `yaml:"discord"`
 		Push                 *pushConfig          `yaml:"push"`
 		Wake                 *wakeConfig          `yaml:"wake"`
+		AgentWakes           *agentWakesConfig    `yaml:"agent-wakes"`
 		// EscalationPollInterval is how often the escalation engine checks
 		// waiting sessions; it wins over runtime.requisitioner's key.
 		EscalationPollInterval string `yaml:"escalation-poll-interval"`
@@ -167,6 +173,9 @@ type serveConfig struct {
 	// deprecated alias (Harbor → Jam rename); serve warns once for each. See
 	// docs/modules/ROOT/pages/usage/jam/renamed-from-harbor.adoc.
 	deprecated [][2]string
+	// staleDestinations is set when destinations: was a list of destination
+	// definitions (destinationsConfig.list): ignored, and serve warns.
+	staleDestinations bool
 }
 
 // wakeConfig configures the resident wake-on engine (internal/wakeon), which
@@ -177,22 +186,41 @@ type wakeConfig struct {
 	PollInterval string `yaml:"poll-interval"`
 	WaitMax      string `yaml:"wait-max"`
 	WarmTimeout  string `yaml:"warm-timeout"`
-	// SessionWakeLimit is the agent-to-agent loop breaker's run: how many
-	// session posts in a row a channel takes, since a person last posted
-	// there, before session posts stop waking sessions in it. Unset = 8;
-	// 0 = session posts never wake sessions.
-	SessionWakeLimit *int `yaml:"session-wake-limit"`
+	// DeprecatedSessionWakeLimit is runtime.agent-wakes.count's old name,
+	// accepted with a warning (both set is an error); parseServeConfig folds
+	// it into AgentWakes and clears it.
+	DeprecatedSessionWakeLimit *int `yaml:"session-wake-limit"`
 }
 
-// defaultSessionWakeLimit is runtime.wake.session-wake-limit's default.
-const defaultSessionWakeLimit = 8
+// agentWakesConfig is the agent-to-agent limit (conversations.adoc#rate-limit):
+// session messages stop waking sessions in a conversation once its last
+// Count messages are all session-authored and all within Window.
+type agentWakesConfig struct {
+	// Count is the run of session messages; unset = 8, 0 = session
+	// messages never wake sessions.
+	Count *int `yaml:"count"`
+	// Window is how close together the run must be; unset = 10m.
+	Window string `yaml:"window"`
+}
 
-// sessionWakeLimit resolves runtime.wake.session-wake-limit (0: off).
-func (c serveConfig) sessionWakeLimit() int {
-	if c.Runtime.Wake != nil && c.Runtime.Wake.SessionWakeLimit != nil {
-		return *c.Runtime.Wake.SessionWakeLimit
+// runtime.agent-wakes' defaults.
+const (
+	defaultAgentWakeCount  = 8
+	defaultAgentWakeWindow = 10 * time.Minute
+)
+
+// agentWakes resolves runtime.agent-wakes (Count 0: session wakes off).
+func (c serveConfig) agentWakes() wakeon.AgentWakes {
+	a := wakeon.AgentWakes{Count: defaultAgentWakeCount, Window: defaultAgentWakeWindow}
+	if w := c.Runtime.AgentWakes; w != nil {
+		if w.Count != nil {
+			a.Count = *w.Count
+		}
+		if d, err := time.ParseDuration(w.Window); err == nil && d > 0 {
+			a.Window = d
+		}
 	}
-	return defaultSessionWakeLimit
+	return a
 }
 
 // wakeSettings resolves the wake-on engine's settings, per field:
@@ -260,12 +288,19 @@ func (c serveConfig) validateWake() error {
 			return fmt.Errorf("runtime.escalation-poll-interval: want a positive duration, got %q", v)
 		}
 	}
+	if a := c.Runtime.AgentWakes; a != nil {
+		if a.Count != nil && *a.Count < 0 {
+			return fmt.Errorf("runtime.agent-wakes.count: want 0 (off) or more, got %d", *a.Count)
+		}
+		if a.Window != "" {
+			if d, err := time.ParseDuration(a.Window); err != nil || d <= 0 {
+				return fmt.Errorf("runtime.agent-wakes.window: want a positive duration, got %q", a.Window)
+			}
+		}
+	}
 	w := c.Runtime.Wake
 	if w == nil {
 		return nil
-	}
-	if w.SessionWakeLimit != nil && *w.SessionWakeLimit < 0 {
-		return fmt.Errorf("runtime.wake.session-wake-limit: want 0 (off) or more, got %d", *w.SessionWakeLimit)
 	}
 	for name, v := range map[string]string{"poll-interval": w.PollInterval, "wait-max": w.WaitMax, "warm-timeout": w.WarmTimeout} {
 		if v == "" {
@@ -666,8 +701,8 @@ type previewsConfig struct {
 	TLS    *tlsFiles `yaml:"tls"`
 }
 
-// dnsLabelRE is one lowercase DNS label (LDH, no leading/trailing '-').
-var dnsLabelRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+// validDomain reports whether d is a lowercase DNS name of at least two labels.
+func validDomain(d string) bool { return jam.ValidDomain(d) }
 
 // validatePreviews checks a set previews block: domain is a lowercase DNS name
 // of at least two labels; tls.cert/tls.key are set; the admin listener serves
@@ -677,8 +712,7 @@ func (c serveConfig) validatePreviews() error {
 	if p == nil {
 		return nil
 	}
-	labels := strings.Split(p.Domain, ".")
-	if len(labels) < 2 || len(p.Domain) > 253 || slices.ContainsFunc(labels, func(l string) bool { return !dnsLabelRE.MatchString(l) }) {
+	if !validDomain(p.Domain) {
 		return fmt.Errorf("previews.domain %q must be a lowercase DNS name of at least two labels (e.g. preview.jam.example)", p.Domain)
 	}
 	if p.TLS == nil || p.TLS.Cert == "" || p.TLS.Key == "" {
@@ -1096,8 +1130,8 @@ func yamlKeys(t reflect.Type) map[string]bool {
 
 // unknownServeKeys returns the top-level keys in the jam.yml that serveConfig
 // does not recognize, sorted. The bootstrap config is parsed leniently (unknown
-// keys are silently dropped), so a stray `destinations:` block — natural to write
-// but now managed via the admin API — would otherwise vanish without a word.
+// keys are silently dropped), so a typo'd key would otherwise vanish without a
+// word. (A stray `destinations:` list is serveConfig.staleDestinations.)
 func unknownServeKeys(data []byte) []string {
 	var m map[string]any
 	if yaml.Unmarshal(data, &m) != nil {
@@ -1160,12 +1194,25 @@ func parseServeConfig(data []byte) (serveConfig, error) {
 	if !c.Runtime.Launcher.IsZero() {
 		return serveConfig{}, errRuntimeLauncherRemoved
 	}
+	if c.Destinations != nil && c.Destinations.list {
+		c.Destinations, c.staleDestinations = nil, true
+	}
 	if c.Runtime.DeprecatedDispatcher != nil {
 		if c.Runtime.Requisitioner != nil {
 			return serveConfig{}, fmt.Errorf("runtime: both requisitioner and dispatcher are set; dispatcher is the deprecated name for requisitioner — keep only requisitioner (see %s)", logging.RenameDoc)
 		}
 		c.Runtime.Requisitioner, c.Runtime.DeprecatedDispatcher = c.Runtime.DeprecatedDispatcher, nil
 		c.deprecated = append(c.deprecated, [2]string{"runtime.dispatcher", "runtime.requisitioner"})
+	}
+	if w := c.Runtime.Wake; w != nil && w.DeprecatedSessionWakeLimit != nil {
+		if c.Runtime.AgentWakes != nil && c.Runtime.AgentWakes.Count != nil {
+			return serveConfig{}, fmt.Errorf("runtime: both agent-wakes.count and wake.session-wake-limit are set; wake.session-wake-limit is the deprecated name — keep only agent-wakes.count")
+		}
+		if c.Runtime.AgentWakes == nil {
+			c.Runtime.AgentWakes = &agentWakesConfig{}
+		}
+		c.Runtime.AgentWakes.Count, w.DeprecatedSessionWakeLimit = w.DeprecatedSessionWakeLimit, nil
+		c.deprecated = append(c.deprecated, [2]string{"runtime.wake.session-wake-limit", "runtime.agent-wakes.count"})
 	}
 	if d := c.Runtime.Requisitioner; d != nil && d.TrackerTokenCred != "" && d.Connection == "" {
 		c.deprecated = append(c.deprecated, [2]string{"runtime.requisitioner.tracker-token-cred", "runtime.requisitioner.connection"})

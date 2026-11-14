@@ -1,16 +1,25 @@
 = The session view
-:summary: The session view in the `/app/user` Jam app — a session's home channel adds a header (identity, state, cost, context use, uptime, quick actions) and a tabbed pane (Thinking, Previews, Artifacts, Status) that can sit right of or below the messages, with its layout remembered per session.
-:read_when: You're using or extending how a session's conversation looks in `/app/user` — its header and actions (Copy SSH, Interrupt, Compact, Clear, Release, Restart, End, Upgrade), the side pane and its tabs, viewing a preview in the pane, the pane's layout memory and `?tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
-:owns: the session header (`GET /app/user/api/sessions/\{id}`) and its actions (`POST /app/user/api/sessions/\{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/api/sessions/\{id}/pane/\{tab}`) and its tabs, a preview's View here (`POST /app/user/api/sessions/\{id}/frame`), the Thinking tab (`GET /app/user/session/\{id}/thinking/events`, `GET /app/user/api/sessions/\{id}/thinking[/raw]`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
+:summary: The session view in the `/app/user` Jam app — one session's own page (its activity is session-activity.adoc), who may open it, and the header (identity, state, cost, context use, uptime, quick actions) and tabbed pane (Thinking, Previews, Artifacts, Status) it shares with the session's home channel; layout memory.
+:read_when: You're using or extending a session's view in `/app/user` — who may open it, its header and actions (Copy SSH, Interrupt, Compact, Clear, Release, Restart, End, Upgrade), the side pane and its tabs, viewing a preview in the pane, the pane's layout memory and `?tab=` links, who sees the session's cost, or the Thinking tab (what the agent thinks and does: filters, formats, limits).
+:owns: who may open a session view, the session view page (`/app/user/s/<id>`) and its layout, the session header (`GET /app/user/api/sessions/\{id}`) and its actions (`POST /app/user/api/sessions/\{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/api/sessions/\{id}/pane/\{tab}`) and its tabs, a preview's View here (`POST /app/user/api/sessions/\{id}/frame`), the Thinking tab (`GET /app/user/session/\{id}/thinking/events`, `GET /app/user/api/sessions/\{id}/thinking[/raw]`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) the header shows
 :prereqs: intercom-ui.adoc for the user area this extends; session-events.adoc for the events the aggregates come from; previews.adoc for exposed ports; collaboration.adoc for who may SSH or open a preview; previews.adoc#framing-the-jam-pane for the frame tickets and cookie
 :tier: leaf
-:updated: 2026-10-31
+:updated: 2026-11-14
 
-When the open conversation is a live session's *home channel* (its session channel, or the
-ticket channel of the ticket it works), the xref:usage/jam/intercom-ui.adoc[Jam app] adds a header above
-it and a pane beside it (`web/app/src/session/`), from the API in `internal/jam/userui`
-(`+api_sessions.go+`, `session.go`, `sessionpane.go`). Anyone who can see the home channel
-sees both. Anyone else gets 404 from every route below.
+A session's view is its own page in the xref:usage/jam/intercom-ui.adoc[Jam app], `/app/user/s/<id>`
+(`web/app/src/session/SessionPage.tsx`): the session's header, its activity
+(xref:usage/jam/session-activity.adoc[session-activity]), and a pane beside or below them.
+The same header and pane also show over a live session's *home channel* (its session channel,
+or the work log of the ticket it works), where the header's name links to the session view.
+The API is in `internal/jam/userui` (`+api_sessions.go+`, `session.go`, `sessionpane.go`).
+
+[#access]
+== Who may open it
+
+The Jam's operators may open any session's view, and the person who started a personal
+session may open its view (`mayOpen` in `session.go`). Being in the session's home channel
+grants nothing. Everyone else gets 404 from every route below, as for a session that doesn't exist. Once the session ends, its header, pane, actions, and live Thinking feed answer 404,
+and the page keeps only the activity, saying the session has ended in place of the composer.
 
 [#header]
 == Header
@@ -28,7 +37,7 @@ gives exact tokens and the model. The size comes from the main thread's latest m
 latest result's `modelUsage`. After a compaction, or a Clear or Compact press jam-studio-agent
 carried out, it shows `+ctx —+` until the next model call.
 * *Uptime:* time since the session was raised.
-* *Tabs:* Studio (only with SSH and framing on), Thinking, Previews, Artifacts, Status. These open the pane.
+* *Tabs:* Thinking, Previews, Artifacts, Status. These open the pane.
 * *Copy SSH:* copies `jam ssh <id>`. It appears only if xref:usage/jam/collaboration.adoc[collab] would allow you to SSH.
 * *Open in VS Code* and *Open in VSCodium:* shown when Copy SSH is. Links to `+vscode://aethons.jam/session/<id>+` and `+vscodium://…+`, which the xref:usage/jam/vscode.adoc[Jam extension] handles. The session head also carries the session's `channel`, so the extension can link back to its page.
 * *Interrupt:* a visible button beside Copy SSH, enabled while the session is running. See <<session-controls,Session controls>>.
@@ -49,8 +58,8 @@ The server re-checks permission (403 otherwise). Once a session ends, its header
 === Session controls
 
 Interrupt, Compact and Clear act on the session's agent; jam-studio-agent's handling is in
-xref:usage/jam/coves.adoc#session-controls-interrupt-compact-clear[coves]. Anyone who can see the
-session may press them, on any session kind. Clear asks for confirmation.
+xref:usage/jam/studio-agent.adoc#session-controls-interrupt-compact-clear[studio-agent]. Anyone who may open the
+session's view may press them, on any session kind. Clear asks for confirmation.
 
 [%header]
 |===
@@ -67,6 +76,7 @@ A paused studio is resumed first, so a press may take up to about 30s. The Think
 each press as "<Command> — pressed by <name>", and a press jam-studio-agent dropped with its reason,
 e.g. "Clear — pressed by Bob (ignored: live episode)".
 
+[#pane]
 == Pane
 
 The pane is closed until a tab opens it. Clicking the open tab again, or *×*, closes it.
@@ -79,8 +89,8 @@ every 30s.
 
 * *Previews:* the session's exposed ports (xref:usage/jam/previews.adoc[]). Each link opens in a
 new tab. With framing on, *View here* shows one preview in the pane (see
-<<view-here,View here>>). The tab says
-so when previews are off, or when collab doesn't allow you to open them.
+<<view-here,View here>>). When previews are off, or collab doesn't allow you to open them,
+the tab shows one message: "Previews aren't available to you here."
 * *Artifacts:* what the home channel holds, newest first:
 ** whiteboards, with thumbnails;
 ** attached files;
@@ -94,18 +104,16 @@ and the last event.
 
 *Layout memory:* the open tab, placement and size are saved in `localStorage` under
 `+jam-pane:<session id>+`. A session you have never opened starts from the last layout you
-used (`+jam-pane:last+`). `?tab=previews|artifacts|status|thinking` on a conversation URL
-(`/app/user/c/<channel>?tab=`) opens that tab. A remembered or linked `studio` tab (the
+used (`+jam-pane:last+`). `?tab=previews|artifacts|status|thinking` on a session view or conversation URL
+(`/app/user/s/<id>?tab=`, `/app/user/c/<channel>?tab=`) opens that tab. A remembered or linked `studio` tab (the
 removed Studio, below) opens the pane closed. A page restored with the browser's Back or
 Forward reloads a framed view.
 
 == Studio (removed)
 
-The pane used to have a *Studio* tab: a built-in web IDE (code-server) framed in the pane.
-It was removed, with code-server, in favour of the VS Code extension
-(xref:usage/jam/vscode-checklist.adoc[]), which connects over xref:usage/jam/collaboration.adoc[SSH]. A
-kit that wants a web IDE can still run one and `expose` it; it is then an ordinary
-xref:usage/jam/previews.adoc[preview], named as the kit chooses (`ide` included).
+The pane's old *Studio* tab (code-server framed in the pane) gave way to the VS Code extension
+(xref:usage/jam/vscode-checklist.adoc[]) over xref:usage/jam/collaboration.adoc[SSH]; a kit can still
+`expose` a web IDE as an ordinary xref:usage/jam/previews.adoc[preview].
 
 [#view-here]
 === View here
@@ -140,36 +148,32 @@ even when a mint is refused.
 
 == Cost and counts
 
-`sessionevents.Totals` folds a session's events across all its streams into turns,
-episodes, tool calls, errors, tokens, and cost. A turn's cost is its result's increase
-over the previous result of the same claude session (xref:usage/jam/session-events.adoc[why]), and the
-cost is the sum of those. `sessionevents.TotalsCache` keeps the totals per
-session and reads only events newer than those it has seen. Event content is shown in the Thinking tab
-(xref:usage/jam/session-events.adoc#sensitivity[Sensitivity]).
+`sessionevents.Totals` folds a session's events across all its streams into turns, episodes, tool calls, errors, tokens, and cost.
+A turn's cost is its result's increase over the previous result of the same claude session (xref:usage/jam/session-events.adoc[why]); the cost is their sum.
+`sessionevents.TotalsCache` keeps the totals per session and reads only newer events.
 
 [#thinking]
 == Thinking
 
 The *Thinking* tab shows what the session's agent thinks and does, live, beside the chat.
-Anyone who can see the home channel sees it (xref:usage/jam/session-events.adoc#sensitivity[Sensitivity]).
-The server sends each event as `ThinkingEvent` JSON (`internal/jam/userui/thinking.go`, using
-`internal/jam/sessionview`); the app (`web/app/src/session/thinking/`) filters and formats
-them in a virtualized list. Without recorded events the tab says so.
+Anyone who may open the session's view sees it (xref:usage/jam/session-events.adoc#sensitivity[Sensitivity]).
+The server sends each event as `ThinkingEvent` JSON (`internal/jam/userui/thinking.go`, using `internal/jam/sessionview`);
+the app (`web/app/src/session/thinking/`) filters and formats them in a virtualized list. Without recorded events the tab says so.
 
 [%header]
 |===
 |Route |Returns
 
 |`+GET /app/user/session/{id}/thinking/events+` |A live SSE stream of new events; 429 beyond 4 streams per viewer
-|`+GET /app/user/api/sessions/{id}/thinking?stream=&before=+` |An older page of 300 events (Load earlier)
+|`+GET /app/user/api/sessions/{id}/thinking?stream=&before=[&after=]+` |An older page of 300 events (Load earlier), or with `after`, the events of one turn's fold
 |`+GET /app/user/api/sessions/{id}/thinking/raw?stream=&seq=+` |One event's raw JSON, capped at 1 MB
 |===
 
-All three give 404 to anyone who can't see the home channel (as for every route above), and 204 when events aren't recorded.
+All three give 404 to anyone who may not open the session's view (as for every route above), and 204 when events aren't recorded; the page and raw routes also serve an ended session, for its activity's folds.
 An open `events` stream re-checks access every 25s (its keep-alive) and ends once the viewer loses it.
 When the stream is refused, the tab checks the pane: a 404 shows "This session is no longer available
 to you"; anything else (such as the 429) retries after 2s, 5s, and 15s, then shows "Too many Thinking
-views open".
+views open — close one, or reload".
 
 * *Filters:* Thinking, Text, Tools, Errors only, Progress. A tool dropdown narrows Tools to
 one tool, and search matches each line's text, including its details.

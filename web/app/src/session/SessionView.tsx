@@ -9,9 +9,10 @@ import { PaneBody } from "./PaneTabs";
 const GROW: Record<string, number> = { ArrowLeft: 1, ArrowUp: 1, ArrowRight: -1, ArrowDown: -1 };
 const border = "1px solid var(--mantine-color-default-border)";
 
-// SessionView lays out a conversation: when it is a session's home (id),
-// the session's header, then the conversation (header, then messages)
-// beside or above the session pane. Without a session, or once it's gone
+// SessionView lays out a conversation, or a session's own view (header
+// null): when it is a session's home (id), the session's header (its name
+// links to the session view from a conversation), then the conversation
+// (header, then messages) beside or above the session pane. Without a session, or once it's gone
 // (its head 404s), it is the plain conversation. Its shape never changes
 // with id, so the conversation (composer, reading place) stays mounted
 // when a session ends or appears.
@@ -61,7 +62,7 @@ export function SessionView({ id, linked, onAsk, header, children }: {
     : { flex: `0 0 ${pane.size}px`, minHeight: MIN_PANE, maxHeight: `calc(100% - ${MIN_MAIN}px)` };
   return (
     <>
-      {h && <SessionHeader key={h.id} head={h} tab={tab} onTab={pane.toggle} />}
+      {h && <SessionHeader key={h.id} head={h} tab={tab} onTab={pane.toggle} linked={header != null} />}
       {header}
       <div ref={split} data-place={pane.place} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: right ? "row" : "column" }}>
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>{children}</div>

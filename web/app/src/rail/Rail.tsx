@@ -5,7 +5,7 @@ import { RecipientPicker } from "../compose/RecipientPicker";
 import { NewSession } from "../compose/NewSession";
 import { useBoot } from "../BootContext";
 import { useChimes } from "../sounds/chimes";
-import { NavLink as RouterLink, useLocation, useParams } from "react-router";
+import { NavLink as RouterLink, useLocation, useNavigate, useParams } from "react-router";
 import { useRail } from "./useRail";
 import { RailList } from "./RailList";
 import { useAppBadge } from "../push/useAppBadge";
@@ -20,6 +20,7 @@ export function Rail() {
   const [picking, picker] = useDisclosure(false);
   const [starting, starter] = useDisclosure(false);
   const boot = useBoot();
+  const nav = useNavigate();
   useChimes(data, dataUpdatedAt, channel);
   // The New message (and New session) buttons head every state of the rail,
   // so a member with no conversations yet can start one.
@@ -38,6 +39,7 @@ export function Rail() {
   if (error) return frame(<Problem error={error} here={here.pathname + here.search} />);
   if (data.groups.length === 0) return frame(<Text c="dimmed" size="sm" m="md">No conversations yet. Start one with New message.</Text>);
   return frame(
-    <RailList groups={data.groups} active={channel} rowProps={(r) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(r.id)}` })} />,
+    <RailList groups={data.groups} active={channel} rowProps={(r) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(r.id)}` })}
+      openSession={(_, s) => nav(`${APP}s/${encodeURIComponent(s)}`)} />,
   );
 }

@@ -1,0 +1,41 @@
+= The composer in the Jam app
+:summary: The composer of a conversation in the `/app/user` Jam app — how a message is sent, its keyboard shortcuts, the saved reply, the draft stack and attachments.
+:read_when: You are writing or changing how a person sends a message in the Jam app — Send, ⌘↵ or ⌘⇧V, Plain text, the saved reply, the draft stack (⌘↓/⌘↑), or attaching a file — or a send or upload from it behaved unexpectedly.
+:owns: the `/app/user` composer — the send path, keys, saved reply, draft stack and attachments
+:prereqs: intercom-ui.adoc for the Jam app around it
+:tier: leaf
+:updated: 2026-11-14
+
+The composer sits below an open conversation in the xref:usage/jam/intercom-ui.adoc[Jam app]; a person writes and sends messages with it.
+
+* *Sending* posts `+{to, body}+` through the participant send path
+(xref:usage/jam/intercom.adoc[intercom]): `to` is the open channel, or for New message
+one of these:
+`+user:<id>+` (the `dm` with that person),
+`+chat:user:<id>,user:<id>…+` (the `dm` or `group` with those people, in the first project all of them are members of),
+`+session:<id|label>+` (the `dm` with that live session; the person also joins its home channel, where its turn-end text still goes; a session view's composer always sends this),
+or a unit of work's log id (its *Log*).
+The intercom decides whether the person may
+post there and who hears it. A reply to a waiting studio *wakes it* exactly
+as a relayed reply does (xref:usage/jam/wake-on.adoc[wake-on]).
+Messages are markdown; tick *Plain text* to send one as `text/plain`. A
+message is trimmed at both ends.
+* *Keys:* *⌘↵* (Ctrl+Enter off a Mac) sends; Enter and Shift+Enter insert
+a newline. *⌘⇧V* (Ctrl+Shift+V) pastes as a fenced code block on its own
+lines, its fence longer than any backtick run in the text; it rides the
+browser's own paste-as-plain-text shortcut, so no permission prompt. VS
+Code's webview swallows that shortcut, so there the pane reads the clipboard
+instead.
+* *Saved reply:* what you type is kept per conversation in the tab's session
+storage, so it survives switching conversations; a send or emptying the box
+clears it. It never leaves the browser.
+* *Draft stack:* *⌘↓* (Ctrl+↓) pushes the draft onto a per-conversation
+stack and clears the box; sending pops the top draft back, cursor and all;
+*⌘↑* or the "↩ N stacked drafts" chip pops by hand. A pop never overwrites
+text in the box. Stacks live in session storage, never sent to Jam.
+* *Attachments* (with xref:usage/jam/attachments.adoc[attachments] on): *📎*, *paste*
+(a screenshot) or *drag-and-drop*. Each file uploads at once as a chip with
+progress and ✕; Send waits until they finish, then sends their refs (the text
+may be empty). A refused upload says why on its chip. In the stream, images
+show as thumbnails that open full size; other files as a download chip.
+New message attaches files too.

@@ -22,15 +22,16 @@ const vertexModelPath = "/v1/projects/p1/locations/us-east5/publishers/anthropic
 
 func vertexDest() Destination {
 	return Destination{
-		Name: "vertex-us-east5", Route: "/vertex/us-east5/", IdentityIn: ApplyBearer, CredName: "vertex-gcp", Apply: ApplyBearer,
+		Name: "vertex-us-east5",
+		Endpoints: []Endpoint{{Name: "vertex-us-east5", Route: "/vertex/us-east5/", IdentityIn: ApplyBearer, Apply: ApplyBearer, AllowPaths: []string{
+			"/v1/projects/p1/locations/us-east5/publishers/anthropic/models/*:rawPredict",
+			"/v1/projects/p1/locations/us-east5/publishers/anthropic/models/*:streamRawPredict",
+		}}},
+		CredName: "vertex-gcp",
 		Env: map[string]string{
 			"ANTHROPIC_VERTEX_BASE_URL":    "{url}/v1",
 			"CLAUDE_CODE_SKIP_VERTEX_AUTH": "1",
 			"ANTHROPIC_CUSTOM_HEADERS":     "Authorization: Bearer {token}",
-		},
-		AllowPaths: []string{
-			"/v1/projects/p1/locations/us-east5/publishers/anthropic/models/*:rawPredict",
-			"/v1/projects/p1/locations/us-east5/publishers/anthropic/models/*:streamRawPredict",
 		},
 	}
 }
@@ -47,7 +48,7 @@ func TestBrokerAllowPaths(t *testing.T) {
 	}))
 	defer up.Close()
 	d := vertexDest()
-	d.Upstream = up.URL
+	d.Endpoints[0].Upstream = up.URL
 	store := NewMemStore()
 	tok, _ := MintToken()
 	mustCreateProject(t, store, "ACME")
@@ -109,7 +110,7 @@ func (f credFunc) Resolve(name string) (string, error) { return f(name) }
 
 func TestDestinationAllowPaths(t *testing.T) {
 	ok := vertexDest()
-	if err := ok.ValidateAllowPaths(); err != nil {
+	if err := ok.Endpoints[0].ValidateAllowPaths(); err != nil {
 		t.Fatalf("valid allow_paths refused: %v", err)
 	}
 	for name, paths := range map[string][]string{
@@ -120,15 +121,15 @@ func TestDestinationAllowPaths(t *testing.T) {
 		"too many":  make([]string, MaxAllowPaths+1),
 		"empty one": {""},
 	} {
-		d := Destination{AllowPaths: paths}
+		d := Endpoint{AllowPaths: paths}
 		if err := d.ValidateAllowPaths(); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	if !(Destination{}).PathAllowed("/anything/../at/all") {
+	if !(Endpoint{}).PathAllowed("/anything/../at/all") {
 		t.Error("no allow_paths must allow any path")
 	}
-	err := ValidateDestination(Destination{Name: "v", Route: "/v/", Upstream: "https://x", AllowPaths: []string{"nope"}}, func(string) bool { return true })
+	err := ValidateDestination(Destination{Name: "v", Endpoints: []Endpoint{{Name: "v", Route: "/v/", Upstream: "https://x", AllowPaths: []string{"nope"}}}}, func(string) bool { return true }, false)
 	if WriteStatus(err, 0) != http.StatusBadRequest {
 		t.Errorf("ValidateDestination: err = %v, want 400", err)
 	}

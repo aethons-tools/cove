@@ -64,6 +64,12 @@ type RaiseSpec struct {
 	// destinations (ConnectorFor). Supervisor.Raise always fills it; nil (a
 	// caller bypassing the supervisor) = the legacy built-in contract.
 	Connector *snippet.Connector
+	// DestinationHosts are the hosts (<sub>.<destinations domain>) of the
+	// subdomain endpoints of the destinations the role grants
+	// (DestinationHostsFor), which the launcher maps to the gateway so the
+	// studio resolves them. Supervisor.Raise always fills it, overriding any
+	// caller-set value; the launcher still checks each against its own domain.
+	DestinationHosts []string
 	// Context is the compiled session context (sessionctx.Compile): Jam
 	// boilerplate for the session kind, then the kit layer. Supervisor.Raise
 	// always sets it; the launcher stages it for jam-studio-agent, which delivers
@@ -75,12 +81,12 @@ type RaiseSpec struct {
 	// and identity are rolled back.
 	recovering bool
 	// DraftImage, set by Supervisor.Raise for a draft studio
-	// (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#draft-studio), is the test build's image
+	// (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#test-build), is the test build's image
 	// the launcher runs (by id) instead of the kit inventory's. nil for every
 	// other raise.
 	DraftImage *KitDraftImage
 	// KitDraft names a kit whose draft the studio runs instead of the role's
-	// kit: an admin manual raise only (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#draft-studio).
+	// kit: an admin manual raise only (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#test-build).
 	// No other caller sets it.
 	KitDraft string
 	// draft is the draft tree a draft studio runs (Raise and a context
@@ -477,6 +483,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 		return Instance{}, "", "", fmt.Errorf("raise: connector for role %s/%s: %w", orDefaultProject(spec.Project), spec.Role, err)
 	}
 	spec.Connector = &conn
+	spec.DestinationHosts = DestinationHostsFor(s.store, actor)
 	// The role, not the caller, decides the cove's egress policy AND its kit
 	// (Enroll just proved the role exists). Callers — the Requisitioner, sessions,
 	// standing — need no change, and none can widen a role's egress or pick its kit

@@ -20,7 +20,7 @@ func searchFixture(t *testing.T) (http.Handler, jam.Store) {
 	store := newStore(t)
 	mustCreateProject(t, store, "zephyr-labs")
 	mustCreateProject(t, store, "acme")
-	if err := store.AddDestination(jam.Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://zephyr.example"}); err != nil {
+	if err := store.AddDestination(jam.Destination{Name: "gh", Endpoints: []jam.Endpoint{{Name: "gh", Route: "/api/v3/", Upstream: "https://zephyr.example"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := jam.PushStudioKit(store, "web", "kind: studio\nprompt: You maintain the Zephyr service.\n"); err != nil {

@@ -1,0 +1,169 @@
+= Intercom: channels, messages and asks
+:page-area: ROOT
+:page-id: ROOT/concepts/intercom
+:page-conventions: sentence-case
+
+The intercom is how people and agent sessions talk in Jam.
+Every message is in one *channel*,
+and the channel's members get it.
+People read and write in the xref:inbox/channels.adoc[Inbox];
+sessions use their own messaging tools.
+Both see the same messages.
+
+== Channels
+
+A channel is a conversation with a fixed place in a project.
+There are five kinds:
+
+Session channel::
+Each session has its own channel, made when the session starts.
+The session is always in it.
+If you start a personal session, you are in its channel too.
+When the session ends, its channel closes.
+Work log::
+The log of one ticket's work
+(xref:concepts/work.adoc[Units of work]).
+The session that works on the ticket is in it.
+The work log stays when the session ends.
+If the ticket is worked again, the new session takes the old one's place in it.
+DM::
+A conversation between two members: two people, a person and a session, or two sessions.
+Each pair has one DM.
+Group DM::
+A conversation between a fixed group of three or more people and sessions.
+It's named after the others in it.
+Nobody can join or leave a DM or a group DM.
+Room::
+A named channel of a project, such as `ops`.
+People join and leave rooms.
+Sessions can post to a room,
+but they do not join it.
+
+The members of a channel hear every message posted in it from the time they joined.
+A message you get but have not read counts as *unread*.
+
+== Who can message whom
+
+You can start a conversation with anyone in your projects:
+
+* Another member of the project, in a DM.
+* A group of members, in a group DM.
+* A live session, in its own channel.
+A personal session that belongs to someone else is not offered,
+unless you are already in its channel.
+* A room of the project.
+* The work log of a unit of work
+(xref:concepts/work.adoc[Units of work]).
+
+You see a project's work logs, rooms, and the channels of its shared sessions while you are a member of the project.
+If you leave a project, its channels disappear from your Inbox at once.
+
+A session can always post in its own channel and in its ticket's work log.
+A personal session can always message the person who started it,
+and any session can answer in a conversation where it got a message.
+To post anywhere else, its role must allow it.
+The role's *addressing* is the list of people, rooms, work, and sessions that the role's sessions can message
+(xref:configuration/roles.adoc[Configuring roles and raising agents]).
+A session can message the session working on a ticket in a DM
+(xref:concepts/work.adoc#_reaching_the_work[Reaching the work]).
+
+== Joining, leaving and calling in
+
+You join a work log, a room, or a shared session's channel when you post in it.
+In the Inbox, you can also click *Join* on a room, a work log, or a shared session's channel,
+and *Leave* on one you are in
+(xref:inbox/channels.adoc[Reading and replying]).
+You can't leave a DM or a group DM.
+What you got before you left stays in the channel.
+
+A member can *call in* someone else.
+The person or session joins the channel from then on,
+and the channel shows a note, such as "alice called in carol".
+A room takes people only.
+Sessions call people in too.
+When an agent asks for help,
+Jam calls the people on call into its channel
+and opens a DM between it and them
+(xref:concepts/escalation.adoc[Escalation]).
+
+== Messages
+
+A message is markdown by default:
+the Inbox shows it formatted.
+A message sent as *plain text* shows exactly as typed,
+which is good for logs.
+
+== When agents wake
+
+A message wakes the agents it's for:
+
+* In a DM, a group DM, or a session's channel, every agent in it.
+* In a room, only the agents the message names, such as `@editor`,
+and agents set to wake for every message in that room.
+Other agents in the room read the message the next time they wake.
+* In a work log, the agent working on it.
+
+Agents can't keep each other awake forever.
+When agents post many messages in one channel in a short time,
+with none from a person,
+the next agent messages there still arrive but don't wake anyone.
+The agents' session views show it.
+The limit lifts on its own once the channel has been quiet for a while.
+A person can also lift it sooner:
+by posting in the channel,
+or, for a DM between agents that no person can post in,
+with *Resume* in either agent's session view.
+
+== Attachments
+
+People and sessions can attach files to a message,
+such as screenshots, logs and PDFs.
+The Jam operator turns attachments on and sets the size limit
+(25 MB per file unless they change it).
+A message can have up to 10 files.
+Only the people and sessions who can read the channel can open its files.
+Jam shows PNG, JPEG, GIF and WebP images in the message.
+Other files, including HTML and SVG, download.
+Files are kept as long as the messages.
+
+== Asks
+
+A session can *ask* a question with answers to pick from.
+The ask shows as a card in its channel,
+and the conversation moves to *Needs you* in your Inbox
+until someone answers
+(xref:inbox/asks.adoc[Answering asks]).
+
+== Outside Jam
+
+Some channels are also shown on another service:
+
+* A work log's messages are posted as comments on its issue in the tracker (Linear or GitHub Issues).
+Comments on the issue come back into the work log.
+* A room can be bound to a tracker issue or a Discord channel.
+Its messages go there, and posts there come back.
+* If the project uses Discord for chat,
+Jam posts your DMs, group DMs, and session channels to your own Discord inbox channel.
+To answer, use Discord's reply on the message.
+A message in your inbox channel that is not a reply does not go to Jam.
+
+Attachments show only in Jam.
+
+ifdef::internal[]
+== Notes for the team
+
+* Rooms, members, a member's Discord inbox and a project's chat service are config in the config repo
+(`projects/<p>/project.yml`: `rooms`, `members[].delivery`, `chat-service`).
+A role's addressing is `scope.addressing` in its role file.
+* Attachments are off unless serve has a `blobs:` block; `blobs.max-size` sets the limit.
+* The agent-to-agent limit is serve's `runtime.agent-wakes`:
+8 messages in 10 minutes unless the operator changes it.
+* Only people join channels with *Join* or by posting.
+A personal session's channel is invite-only.
+* The channel kinds are `dm`, `group`, `room`, `work`, and `session`.
+Session channels go in a later change
+(`docs/modules/ROOT/pages/usage/jam/conversations.adoc` on the `goal` branch).
+* Architecture pages: `docs/modules/ROOT/pages/usage/jam/intercom.adoc` (channels, membership, wake-on),
+`comms-addressing.adoc` (targets and addressing),
+`attachments.adoc`, `discord.adoc`.
+endif::[]

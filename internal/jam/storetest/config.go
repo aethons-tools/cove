@@ -18,7 +18,7 @@ func ConfigWriteFixture() (jam.ConfigWrite, ident.ID, ident.ID, ident.ID) {
 	return jam.ConfigWrite{
 		Connections:  []jam.Connection{{ID: cid, Kind: "linear", Name: "acme", CredName: "linear", Status: jam.StatusLive}},
 		Users:        []jam.User{{ID: uid, Name: "bob", Status: jam.StatusLive, Logins: []string{"bob@acme"}}},
-		Destinations: []jam.Destination{{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", CredName: "gh"}},
+		Destinations: []jam.Destination{{Name: "gh", Endpoints: []jam.Endpoint{{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com"}}, CredName: "gh"}},
 		ModelSpecs:   []jam.ModelSpec{{Name: "fast", Type: jam.HarnessClaude, Version: "2.1.3"}},
 		Kits:         []jam.Kit{{Name: "web", Current: 1, Versions: map[int]string{1: `{"kind":"studio"}`}}},
 		Projects:     []jam.Project{{ID: pid, Name: "app", ChatService: string(cid)}},
@@ -196,7 +196,7 @@ func runConfigConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 		st := mk(t)
 		w, _, cid, pid := full()
 		w.Projects[0].Context = sessionctx.Layer{Core: "goal"}
-		ticket := jam.Channel{ID: ident.New(ident.Channel), ProjectID: pid, Kind: jam.SourceTicket, Key: string(cid) + "/ACME-9",
+		ticket := jam.Channel{ID: ident.New(ident.Channel), ProjectID: pid, Kind: jam.SourceWork, Key: string(cid) + "/ACME-9",
 			Label: "t", Status: jam.StatusLive}
 		w.Channels = append(w.Channels, ticket)
 		if err := st.ApplyConfig(w); err != nil {

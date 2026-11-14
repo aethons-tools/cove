@@ -357,11 +357,32 @@ func (o configObject) Digest() string {
 
 // ---- destination ----
 
-// DestinationFile is destinations/<name>.yml.
+// DestinationFile is destinations/<name>.yml: the destination in either of
+// its forms (destwire.go) — the flat single-route form or an endpoints: list.
 type DestinationFile struct {
 	Kind        string `yaml:"kind"`
 	Version     int    `yaml:"version"`
 	Destination `yaml:",inline"`
+}
+
+// destinationFileFlat / destinationFileList / destinationFileIn are the
+// file's wire forms.
+type destinationFileFlat struct {
+	Kind    string          `yaml:"kind"`
+	Version int             `yaml:"version"`
+	Dest    destinationFlat `yaml:",inline"`
+}
+
+type destinationFileList struct {
+	Kind    string          `yaml:"kind"`
+	Version int             `yaml:"version"`
+	Dest    destinationList `yaml:",inline"`
+}
+
+type destinationFileIn struct {
+	Kind            string `yaml:"kind"`
+	Version         int    `yaml:"version"`
+	destinationWire `yaml:",inline"`
 }
 
 func (f DestinationFile) configKey() ConfigKey {
@@ -379,13 +400,29 @@ func (f DestinationFile) configFiles() map[string][]byte {
 	return map[string][]byte{f.configKey().Path(): renderYAML(n)}
 }
 
+// MarshalYAML renders the destination in the form it encodes as.
+func (f DestinationFile) MarshalYAML() (any, error) {
+	switch w := f.Destination.wire().(type) {
+	case destinationFlat:
+		return destinationFileFlat{Kind: f.Kind, Version: f.Version, Dest: w}, nil
+	default:
+		return destinationFileList{Kind: f.Kind, Version: f.Version, Dest: w.(destinationList)}, nil
+	}
+}
+
 // ParseDestinationFile parses destinations/<name>.yml.
 func ParseDestinationFile(path, name string, data []byte) (DestinationFile, error) {
-	var f DestinationFile
-	if err := decodeStrict(path, data, &f); err != nil {
-		return f, err
+	var in destinationFileIn
+	if err := decodeStrict(path, data, &in); err != nil {
+		return DestinationFile{}, err
 	}
-	err := checkHeader(path, ConfigKindDestination, f.Kind, f.Version, name, &f.Destination.Name)
+	d, err := in.destination()
+	if err != nil {
+		return DestinationFile{}, fmt.Errorf("%s: %w", path, err)
+	}
+	f := DestinationFile{Kind: in.Kind, Version: in.Version, Destination: d}
+	err = checkHeader(path, ConfigKindDestination, f.Kind, f.Version, name, &f.Destination.Name)
+	f.Destination.normalize()
 	return f, err
 }
 

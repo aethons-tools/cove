@@ -30,8 +30,8 @@ func newTestBroker(t *testing.T, upstreamAnthropic, upstreamGit string) (*Broker
 		t.Fatal(err)
 	}
 	for _, d := range []Destination{
-		{Name: "anthropic", Route: "/anthropic/", Upstream: upstreamAnthropic, IdentityIn: ApplyBearer, CredName: "anthropic-bearer", Apply: ApplyBearer},
-		{Name: "git", Route: "/git/", Upstream: upstreamGit, IdentityIn: ApplyBasicPassword, CredName: "git-pat", Apply: ApplyBasicPassword},
+		{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: upstreamAnthropic, IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "anthropic-bearer"},
+		{Name: "git", Endpoints: []Endpoint{{Name: "git", Route: "/git/", Upstream: upstreamGit, IdentityIn: ApplyBasicPassword, Apply: ApplyBasicPassword}}, CredName: "git-pat"},
 	} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)
@@ -127,7 +127,7 @@ func TestBrokerDeniesWhenGrantRoleDeleted(t *testing.T) {
 	}
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") }))
 	defer up.Close()
-	if err := store.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyBearer, CredName: "anthropic-bearer", Apply: ApplyBearer}); err != nil {
+	if err := store.AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "anthropic-bearer"}); err != nil {
 		t.Fatal(err)
 	}
 	b := NewBroker(store, fakeCreds{"anthropic-bearer": "REAL-ANTHROPIC"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -202,7 +202,7 @@ func TestBrokerSwapsXAPIKey(t *testing.T) {
 	if err := store.AddActor(Actor{ID: "spider-18", TokenHash: HashToken(tok), Grants: []Grant{{Project: DefaultProject, Role: "guest"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, CredName: "anthropic-key", Apply: ApplyXAPIKey}); err != nil {
+	if err := store.AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, Apply: ApplyXAPIKey}}, CredName: "anthropic-key"}); err != nil {
 		t.Fatal(err)
 	}
 	b := NewBroker(store, fakeCreds{"anthropic-key": "REAL-ANTHROPIC"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -245,8 +245,8 @@ func TestBrokerServesGHStyleAPIWithRoleMappedCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, d := range []Destination{
-		{Name: "github-api", Route: "/api/v3/", Upstream: up.URL, IdentityIn: ApplyBearer, CredName: "gh-default", Apply: ApplyBearer},
-		{Name: "github-graphql", Route: "/api/", Upstream: up.URL, IdentityIn: ApplyBearer, CredName: "gh-default", Apply: ApplyBearer},
+		{Name: "github-api", Endpoints: []Endpoint{{Name: "github-api", Route: "/api/v3/", Upstream: up.URL, IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "gh-default"},
+		{Name: "github-graphql", Endpoints: []Endpoint{{Name: "github-graphql", Route: "/api/", Upstream: up.URL, IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "gh-default"},
 	} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)
@@ -294,7 +294,7 @@ func TestBrokerStripsInboundIdentityHeader(t *testing.T) {
 			if err := store.AddActor(Actor{ID: "spider-18", TokenHash: HashToken(tok), Grants: []Grant{{Project: DefaultProject, Role: "guest"}}}); err != nil {
 				t.Fatal(err)
 			}
-			if err := store.AddDestination(Destination{Name: "svc", Route: "/svc/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, CredName: tc.credName, Apply: tc.apply}); err != nil {
+			if err := store.AddDestination(Destination{Name: "svc", Endpoints: []Endpoint{{Name: "svc", Route: "/svc/", Upstream: up.URL, IdentityIn: ApplyXAPIKey, Apply: tc.apply}}, CredName: tc.credName}); err != nil {
 				t.Fatal(err)
 			}
 			b := NewBroker(store, fakeCreds{"real": "REAL-CRED"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -374,5 +374,69 @@ func TestBrokerBasicPasswordSendsCredentialUser(t *testing.T) {
 	b.ServeHTTP(rec, req)
 	if rec.Code != 200 || gotUser != "me@x.com" || gotPass != "API-TOKEN" {
 		t.Fatalf("status %d, upstream basic %q:%q", rec.Code, gotUser, gotPass)
+	}
+}
+
+// On a subdomain of the destinations domain the broker serves that
+// subdomain's endpoints only: its most specific endpoint, with the path
+// unchanged on one without a route; an unknown subdomain, a deeper name or an
+// unmatched path is a 404 that never reaches an upstream.
+func TestBrokerRoutesBySubdomain(t *testing.T) {
+	var hits []string
+	ups := map[string]string{} // endpoint name -> its upstream's URL
+	for _, name := range []string{"rest", "jamhost", "linear"} {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits = append(hits, name+" "+r.URL.Path)
+			io.WriteString(w, "{}")
+		}))
+		defer up.Close()
+		ups[name] = up.URL
+	}
+	store := NewMemStore()
+	tok, _ := MintToken()
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", Role{Name: "dev", Scope: Scope{Destinations: []string{"github", "linear"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddActor(Actor{ID: "s", TokenHash: HashToken(tok), Grants: []Grant{{Project: "acme", Role: "dev"}}}); err != nil {
+		t.Fatal(err)
+	}
+	bearer := func(name, sub, route string) Endpoint {
+		return Endpoint{Name: name, Subdomain: sub, Route: route, Upstream: ups[name], IdentityIn: ApplyBearer, Apply: ApplyBearer}
+	}
+	for _, d := range []Destination{
+		{Name: "github", CredName: "c", Endpoints: []Endpoint{bearer("rest", "gh", "/api/v3/"), bearer("jamhost", "", "/api/")}},
+		{Name: "linear", CredName: "c", Endpoints: []Endpoint{bearer("linear", "linear", "")}},
+	} {
+		if err := store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := NewBroker(store, fakeCreds{"c": "REAL"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b.SetDestinationsDomain("d.example")
+	do := func(host, path string) int {
+		req := httptest.NewRequest("GET", "https://"+host+path, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		rec := httptest.NewRecorder()
+		b.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for _, tc := range []struct{ host, path, want string }{
+		{"gh.d.example", "/api/v3/repos/x", "rest /repos/x"},
+		{"linear.d.example:443", "/graphql", "linear /graphql"},
+		{"jam.example", "/api/graphql", "jamhost /graphql"},
+	} {
+		hits = nil
+		if code := do(tc.host, tc.path); code != 200 || len(hits) != 1 || hits[0] != tc.want {
+			t.Errorf("%s%s: status %d, upstream %v; want %s", tc.host, tc.path, code, hits, tc.want)
+		}
+	}
+	for _, tc := range []struct{ host, path string }{
+		{"gh.d.example", "/api/graphql"}, {"nope.d.example", "/api/v3/x"}, {"a.gh.d.example", "/api/v3/x"}, {"jam.example", "/graphql"},
+	} {
+		hits = nil
+		if code := do(tc.host, tc.path); code != http.StatusNotFound || len(hits) != 0 {
+			t.Errorf("%s%s: status %d, upstream %v; want 404 and no upstream", tc.host, tc.path, code, hits)
+		}
 	}
 }

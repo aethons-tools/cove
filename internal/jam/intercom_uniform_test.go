@@ -1,8 +1,6 @@
 package jam
 
 import (
-	"context"
-	"strings"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -12,7 +10,7 @@ import (
 // ticketChannelOf is the fixture ticket's channel (it must exist).
 func (f *icFixture) ticketChannelOf() Channel {
 	f.t.Helper()
-	ch, ok := f.store.ChannelByKey(f.project.ID, SourceTicket, string(f.tracker.ID)+"/ACME-7")
+	ch, ok := f.store.ChannelByKey(f.project.ID, SourceWork, string(f.tracker.ID)+"/ACME-7")
 	if !ok {
 		f.t.Fatal("no ticket channel")
 	}
@@ -59,7 +57,7 @@ func TestIntercomOwnTicketSendGoesToTicket(t *testing.T) {
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatal(err)
 	}
-	if p := f.mustPlan(f.ticket, "ticket:ACME-7"); p.Channel.Kind != SourceTicket {
+	if p := f.mustPlan(f.ticket, "ticket:ACME-7"); p.Channel.Kind != SourceWork {
 		t.Fatalf("ticket:ACME-7 = %+v", p.Channel)
 	}
 }
@@ -91,26 +89,5 @@ func TestIntercomEndedTicketSessionLeavesBoth(t *testing.T) {
 	}
 	if ch, _ := f.store.GetChannel(home.ID); ch.Status == StatusLive {
 		t.Fatal("session channel not archived")
-	}
-}
-
-// Escalation calls people into a ticket session's own channel.
-func TestIntercomEscalateTicketSessionIntoSessionChannel(t *testing.T) {
-	f := newICFixture(t)
-	f.ticket.Activity = ActivityWaiting
-	if err := f.store.PutInstance(f.ticket); err != nil {
-		t.Fatal(err)
-	}
-	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)
-	if err := f.ic.Escalate(context.Background(), f.ticket, 0, "", []Member{alice}); err != nil {
-		t.Fatal(err)
-	}
-	home, _ := f.ic.HomeChannel(f.ticket)
-	if !isMember(f.store, home.ID, f.alice.ID) {
-		t.Fatal("alice not called into the session channel")
-	}
-	got := f.log.InboxSince(f.alice.ID, 0, 0)
-	if len(got) != 1 || strings.Contains(got[0].Body, "its issue included") {
-		t.Fatalf("alice's inbox = %+v", got)
 	}
 }

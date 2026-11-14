@@ -1,10 +1,10 @@
 = Admin UI entity pages
-:summary: The Jam admin console's per-entity pages outside a project — a user's page (/app/admin/config/users/<id>), an agent's page (/app/admin/agents/<id>: identity, grants, studio, access, session, squawks, setup), a destination's (/app/admin/config/destinations/<name>), a model-spec's (/app/admin/config/model-specs/<name>) and a kit's (/app/admin/config/kits/<name>) — what each shows and how editing them works.
-:read_when: You are viewing or editing a user, agent, destination, model-spec or kit in the Jam admin UI — a user's logins, OIDC identities or accounts; an agent's grants, studio runtime, waiting/escalation state, who can reach its studio (the Access card, Unshare), session streams or squawks; a destination's client env/connector; a kit's versions, diffs or pinning; or who uses any of them — or wondering why the list pages only create.
-:owns: the user, agent, destination, model-spec and kit detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags, kit version rail/diff/push)
+:summary: The Jam admin console's per-entity pages outside a project — a user's page (/app/admin/config/users/<id>), an agent's page (/app/admin/agents/<id>: identity, grants, studio, access, session, squawks, setup), a destination's (/app/admin/config/destinations/<name>), a model-spec's (/app/admin/config/model-specs/<name>) and a kit's (/app/admin/config/kits/<name>, detailed in ui-kit-pages.adoc) — what each shows and how editing them works.
+:read_when: You are viewing or editing a user, agent, destination, model-spec or kit in the Jam admin UI — a user's logins, OIDC identities or accounts; an agent's grants, studio runtime, waiting/escalation state, who can reach its studio (the Access card, Unshare), session streams or squawks; a destination's client env/connector; or who uses any of them — or wondering why the list pages only create.
+:owns: the user, agent, destination and model-spec detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags); the kit page is ui-kit-pages.adoc's
 :prereqs: ui-console.adoc for the Config tree and URLs; ui-editing.adoc for the gate/CSRF/audit rules; projects.adoc for the project lifecycle; roster.adoc for roles; connector.adoc for destination env/git; kits.adoc for the StudioKit schema and versioning
 :tier: leaf
-:updated: 2026-11-09
+:updated: 2026-11-14
 
 Entity names across the xref:usage/jam/ui-console.adoc[admin console] link to a page that shows the whole
 object and edits it in place. The list pages' forms only *create* (an
@@ -28,7 +28,9 @@ xref:usage/jam/ui-projects.adoc[].
 
 `/app/admin/config/users` lists and (on a branch) creates users; `/app/admin/config/users/<id>` renames one, replaces its
 logins and removes it (on a branch; rename and
-remove are refused while the user owns a live personal session), and replaces its OIDC identities and adds or unlinks accounts.
+remove are refused only while the user owns a live personal session — `RemoveUserChecked`;
+a removal's other refusals (xref:usage/jam/project-members.adoc[project-members]) apply when the config repo's removal is applied, such as at Merge).
+It also replaces the user's OIDC identities and adds or unlinks accounts: live edits, not branch commits.
 The page lists the user's xref:usage/jam/app-tokens.adoc[app tokens] (label, created, last used, expiry,
 operator standing) and revokes one.
 
@@ -37,8 +39,11 @@ operator standing) and revokes one.
 
 Each agent id (in the Agents list, a running-agents table, a role's holders, a
 project's Agents page, or search) opens `/app/admin/agents/<id>`, the page for one
-agent identity, under the Agents tab. The header shows its kind, its <<agent-status,status>>, standing name or
-personal owner, project, role and unit (linked), with *Open live timeline*
+agent identity, under the Agents tab. While the agent runs, the header shows its <<agent-status,status>>,
+its kind with its standing name or personal owner, project, role, and unit (linked); otherwise, only its kind.
+The UI splits the session kinds (ephemeral, standing, and personal) into five:
+`standing`, `personal`, `ticket` (an ephemeral session with a unit), `manual`
+(one without), and `enrolled` (an identity with no studio). The header has *Open live timeline*
 (the xref:usage/jam/ui-console.adoc#session-timeline[session timeline]; shown when session capture is
 configured), *Teardown* (returns to the Agents list) when it has a
 studio and a runtime supervisor runs, and *Revoke* when it is enrolled.
@@ -66,7 +71,7 @@ connections (who, right — `ssh` or `preview` — since when) and the
 (or "Previews are off on this Jam" without a xref:usage/jam/serve.adoc[`+previews:+`]
 domain). With neither SSH collaboration nor previews configured the card
 says so instead. Sharing itself is
-`jam studio share` (xref:usage/jam/collaboration.adoc#sharing[collaboration]).
+`jam studio share` (xref:usage/jam/collaboration-sharing.adoc[collaboration-sharing]).
 * *Session* — its captured event streams (start, last event, count), each
 opening the timeline on that stream (xref:usage/jam/session-events.adoc[]).
 * *Squawks* — the newest 50 squawks in its conversations (and, from before
@@ -120,17 +125,29 @@ layer in the xref:usage/jam/session-context-authoring.adoc[`jam context` format]
 == Destination pages
 
 Each destination name in the Destinations table (`/app/admin/config/destinations`) links to
-`/app/admin/config/destinations/<name>`. The table itself shows route, upstream, auth
-(`+identity-in → apply+`), the default credential, the studio-connector summary
-(env keys, `git`) and how many roles list it.
+`/app/admin/config/destinations/<name>`. The table summarises its
+xref:usage/jam/destination-endpoints.adoc[endpoints] (each one's address, the distinct upstreams),
+the default credential, the studio-connector summary (env keys, `git`) and how many roles list it.
 
 The page shows:
 
-* *Broker* — route, upstream, identity-in, apply (any custom xref:usage/jam/header-specs.adoc[header spec]
-read-only) and default credential.
-* *Agent connector* — the client env an agent's studio sets (`+{url}+` already resolved
-to `+{base}<route>+`) and git routing. A destination with no declared env shows
-its route's legacy default, labeled as implied (see
+* *Destination* — one card, read-only until *Edit* (on a branch); then the whole
+card is editable and *Save destination* sends every field in one update
+(`specs/DestinationPage.tsx`, its model `specs/destDraft.ts`, ``ContextPanel``'s pattern).
+It holds the default credential and the note (the usage hint sessions see,
+xref:usage/jam/connector.adoc#notes-for-sessions[connector], with its 300-byte thermometer);
+the *Endpoints* `QuietGrid` — name, subdomain, route, upstream, identity in, apply as,
+allowed paths (space-separated), route git — with *+ new endpoint…* at the bottom and a
+thermometer for the 10-endpoint limit; and the *Agent connector* env grid
+(variable, value with its placeholders). A row's ▸ expands it to what its identity-in
+and apply mean — a preset's xref:usage/jam/header-specs.adoc[header spec] read-only,
+an `expression` (the API's `custom`) editable, seeded from the preset it replaces —
+and its two header-logging selects; a row that logs shows a *logging* tag.
+The card checks what it can as the server does (names, addresses, a template's
+`+{cred}+`, env keys and placeholders) and shows the server's `+errors[]+` at their
+fields (opening a row whose detail has one); the footer counts problems and
+*Save destination* stays off until there are none. A destination with no declared
+env shows its route's legacy default, labeled as implied (see
 xref:usage/jam/connector.adoc[connector]).
 * *Used by* — every role whose scope lists it, with the credential each
 injects there (the role's mapping or this default), linked to the role page.
@@ -141,19 +158,20 @@ holding that role can't assemble a connector (Jam fails closed with 409)
 until one side changes. The check is over each role's own scope; a grant
 override can still differ.
 
-*Edit destination* is one pre-filled form for every field but the name:
-client env is one `KEY=TEMPLATE` per line (empty = the route's legacy default),
-identity-in/apply select a preset (incl. ``raw``; a `custom` one stays custom,
-spec kept), git routing is a checkbox, and the note is the usage hint
-sessions see (xref:usage/jam/connector.adoc#notes-for-sessions[connector]). Validation matches the admin API
-(required fields, a configured default credential, env keys and placeholders).
-Changing env on the `/git/` route drops its implied git routing unless *Route
-git* is ticked; the form says so. *Delete* is on the page header.
+*New destination* on the list is a form for a destination with one endpoint
+(client env one `KEY=TEMPLATE` per line, empty = the route's legacy default);
+subdomains, more endpoints and expressions are set on its page.
+*Delete* is on the page header.
+
+The user-facing description is the manual's `ROOT/configuration/destination` page.
+
+The page reads and writes the destination through the structured
+xref:usage/jam/destination-api.adoc[destinations API].
 
 [#model-spec-pages]
 == Model-spec pages
 
-Each model-spec name in the Model Specs table (`/app/admin/config/model-specs`) links to
+Each model-spec name in the table on the *Model-specs* page (`/app/admin/config/model-specs`) links to
 `/app/admin/config/model-specs/<name>`. The table shows type, version (with any constraint as a chip), principal,
 model, policy mode, provider and how many roles use it. The page shows the harness (type, version, constraint, principal
 credential _name_ and header rules, model, effort, note), the policy (mode, allow/deny rules), the
@@ -168,70 +186,10 @@ default); version is the exact `X.Y.Z` the image installs, version-constraint th
 runtime check; allow, deny, plugins and xref:usage/jam/model-spec-headers.adoc#in-the-admin-ui[principal header rules]
 take one entry per line; provider-env one `KEY=VALUE` per line; settings a JSON object. Writes go through the same
 validation as `jam model-spec` (xref:usage/jam/model-specs.adoc#validation[Validation]);
-a refusal shows in the form and stores nothing. *Delete* is on the
-page header and each table row.
+a refusal shows in the form and stores nothing. *Delete* (on the
+page header and each table row) and the forms show only on a branch.
 
 [#kit-pages]
 == Kit pages
 
-Each kit name in the Kits table (`/app/admin/config/kits`) links to `/app/admin/config/kits/<name>`. The table shows the
-current version (of how many), the current version's base kind and egress count,
-and how many roles raise it (for `default`, that includes roles with no kit
-set). A kit built on a parent shows `+kit: <parent>[@vN]+` as its base. A kit
-whose current version won't parse is marked *invalid*. The *New kit* form
-takes a name and studio-kit YAML and validates it as a kit in the config repo
-(xref:usage/jam/kits.adoc[kits]); an existing name is refused — push new versions on the
-kit's page. *Import from git* takes `+<repo>[//<dir>]@<ref>+` and an optional
-name and imports the kit as a new version, then opens its page. Its *Track this
-source* box (on by default) also tracks the source, like ``kit track``; uncheck
-it for a one-off `kit import`.
-
-The page has a *version rail* — every version with its short build digest
-(versions sharing one reuse one image), *Pin* to make an older or newer
-version current, and links to diff a version against its predecessor or
-against current. `?v=N` views a version; `?v=N&diff=M` adds a line diff of the
-two versions' YAML (long unchanged runs collapsed) and says whether the build
-digest changed — i.e. whether that version builds a new image.
-
-For the viewed version it shows the base (image ref, `Dockerfile`, or the
-blessed default; `+kit: <parent>+` for a chained kit), the kit's files and its
-`kit.yml` (xref:usage/jam/kits.adoc#the-kit-verbs[kits] has the table, the diff and
-`&file=`), egress with the effective ceiling and anything excluded (COV-208),
-build args, secret demands (name + description; never values), the prompt, the
-build digest, and its `kit.yml` as stored, with *Copy*. A stored version that isn't a valid
-studio kit (a pre-studio row) shows its parse error and raw text instead. A
-packed context left in its `base` is masked as `+«packed context, not shown»+`,
-with a note above the push form to remove it before pushing; a text the page
-cannot analyse (not one plain YAML document: anchors, aliases and merge keys
-count against it) that mentions a context is not shown at all, and the page says to get it with `jam config write`. A broken version,
-one the migration to trees could not convert, shows its migration error.
-
-A kit built on a parent kit (xref:usage/jam/kits-inheritance.adoc[kits-inheritance]) also
-shows *Built on* — each parent, root first, linked to its page with the
-version it resolves to and whether the kit follows the parent's current version
-or pins one — and an *Effective* card: the chain merged (egress union and
-ceiling, MCP servers, build args, secret demands, notes, joined prompt), i.e.
-what a role binding the kit gets. An unchained kit has neither. A chain that
-doesn't resolve (a missing or invalid parent, a cycle) shows the reason in a
-banner instead. Built on and Effective describe the viewed version; Used by and
-Delete (below) reflect each kit's current version.
-
-The *Source* card shows the tracked git source — repo (linked when `https`),
-dir, ref and the last synced commit (12 chars, linked on github.com and
-gitlab hosts) — with *Sync* and *Untrack* (versions are kept), or a
-*Track…* form when the kit has none. It also notes a
-xref:usage/jam/kits-path-parents.adoc#where-a-set-shows[kit set]. The *Versions* table lists
-each version's push time, source and commit. The import, track, sync and
-untrack controls need the git fetcher (always present in `jam serve`),
-disable their button while the fetch runs, and follow the admin API's rules and
-errors (xref:usage/jam/kits-git.adoc[kits-git]); without one the page only shows
-provenance.
-
-*Push new version* is pre-filled with the viewed version's full YAML; pushing
-makes a new current version, or reports the kit unchanged when it equals
-current. *Used by* links the roles that raise the kit and the kits whose
-current version builds on it (follows or pinned). *Delete* is disabled while
-any role or kit uses the kit, and always for the built-in `default` kit (Jam
-re-seeds it at serve start).
-
-The kit's *Draft* section edits and publishes a draft: see xref:usage/jam/kits-drafts-ui.adoc[kits-drafts-ui].
+A kit's page, its versions, source and push form: xref:usage/jam/ui-kit-pages.adoc[].

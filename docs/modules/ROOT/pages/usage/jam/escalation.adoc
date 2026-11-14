@@ -1,27 +1,29 @@
 = Escalation (human tiers)
-:summary: The escalation engine — a per-project, category-keyed ordered policy of human tiers + per-tier timeouts that calls people into a waiting session's channel when it asks for a person, opt-in and independent of wake-on's reply/max-wait clock.
+:summary: The escalation engine — a per-project, category-keyed ordered policy of human tiers + per-tier timeouts that calls people into a waiting session's channel and messages them in a dm or group with it when it asks for a person, opt-in and independent of wake-on's reply/max-wait clock.
 :read_when: You want a waiting session that asked for a person to actively reach people instead of passively waiting — configuring ordered tiers of people to call in with per-tier timeouts, routing by block category, or operating/tuning the resident escalation engine.
-:owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), when an escalation opens (needs-input or `escalate`), tiers as call-ins and the escalation notice (immediate tier 0, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.escalation-poll-interval` config, and where it is set (`escalation:` / `escalation-by-category:` in project.yml; `jam project escalation list`).
-:prereqs: intercom.adoc for the wake-on engine, the Waiting/suspend model, home channels and call-in escalation builds on, and the other brokered studio tools `escalate` sits alongside; comms-addressing.adoc for the Project members tiers resolve against
+:owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), when an escalation opens (needs-input or `escalate`), tiers as call-ins plus a dm or group, and the escalation notice with its work-log copy (immediate tier 0, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.escalation-poll-interval` config, and where it is set (`escalation:` / `escalation-by-category:` in project.yml; `jam project escalation list`).
+:prereqs: intercom.adoc for the wake-on engine, the Waiting/suspend model, the dms, groups, and work logs escalation posts in, and the other brokered studio tools `escalate` sits alongside; comms-addressing.adoc for the Project members tiers resolve against
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-14
 
 While a session is *Waiting* and has asked for a person, a separate resident
 *escalation engine* can actively bring people in instead of leaving it to wait
 passively. A *Project* opts in with an ordered *escalation policy*: tiers of
-people, each with a timeout. Each tier is a *call-in*: its people join the
-session's xref:usage/jam/intercom.adoc#channel-membership[home channel] (its ticket's, or its
-own) and an escalation notice is posted there. Tier 0 is called the moment the
+people, each with a timeout. Each tier calls its people into the session's
+xref:usage/jam/intercom.adoc#channel-membership[home channel],
+opens a `dm` between the session and the tier's one person,
+or a `group` of the session and the tier's people,
+and posts an escalation notice there. Tier 0 is called the moment the
 session starts waiting, the next tier if nobody answers in time. It is opt-in — a
 Project with no policy behaves exactly as before (see
-xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[intercom]). Every kind of session
+xref:usage/jam/wake-on.adoc[wake-on]). Every kind of session
 escalates: ticket, standing, personal and manual.
 
 == The policy: ordered tiers + per-tier timeout
 
 A Project's `Escalation` is an ordered list of tiers, each `+{Targets, Timeout}+`.
 `Targets` name people (`+user:<name>+` or ``+user:<usr_id>+``; `+human:<name>+` is read as `+user:+`), resolved against the
-same Project xref:usage/jam/comms-addressing.adoc#project-members-and-rooms[members] used for addressed
+same Project xref:usage/jam/project-members.adoc[members] used for addressed
 `+send(to=…)+`. Tiers are
 *people only*: a `+channel:+` or `+session:+` target (or anything malformed) in a tier is skipped
 with a logged warning, never a hard failure. `Timeout` is how long the engine
@@ -86,23 +88,37 @@ role's idle timeout) are *independent*, run by two separate engines:
 
 * *Escalation* only calls tiers in on a schedule; it never reads replies, never
 wakes a session, and never tears one down.
-* *Wake-on* (see xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[intercom]) owns
+* *Wake-on* (see xref:usage/jam/wake-on.adoc[wake-on]) owns
 reply-detection, waking, pausing and the idle timeout — unchanged by escalation.
 
-A person's answer — in the session's channel, on any surface, at _any_ tier —
+A person's answer — in the dm or group or the session's channel, on any surface, at _any_ tier —
 wakes it like any other reply. Escalation has no reply handling of its own; the
 two engines share only the `Activity == Waiting` gate.
 
-== Delivery: a call-in and an escalation notice
+== Delivery: a call-in, a dm or group, and an escalation notice
 
-A tier's `+user:+` targets are called into the session's home channel (people
-already in it stay in; called-in people stay members afterwards and may leave),
-and the session posts an *escalation notice* there: "Needs input from
-worker-3 on ACME-7 — called in alice, bob (escalation tier 1, infra)." The home
-channel is the session's own channel for every session, a ticket session's
-included, so the notice reaches each member's Discord inbox like any post there
-(and Jam push); a person with only Linear sees it in
-xref:usage/jam/intercom-ui.adoc[`/app/user`]. It is never a comment on the ticket's issue.
+A tier's `+user:+` targets are called into the session's own channel
+(people already in stay in, and may leave later):
+its turn-end text still goes there, so that is how they hear its reply,
+until turn-end text follows the conversation.
+With the session, they also make up a `dm` (one person) or a `group` (more),
+which Jam opens or reuses, and the session posts an *escalation notice* there.
+For tier 0, it reads: "Needs input from
+worker-3 on ACME-7 — called in alice, bob (escalation tier 0, infra)."
+The notice reaches each person like any `dm` or `group` message:
+on their Discord inbox when the project chats on Discord,
+by Jam push, and in xref:usage/jam/intercom-ui.adoc[`/app/user`].
+When the session works on a unit,
+the session also posts the notice to the unit's work log
+(created if it has none yet),
+which the tracker relay mirrors as one comment on the issue.
+The notice's id records the people it asked
+(`+escalate:<session>:<tier>:<nanos>:<usr>,<usr>…+`, read by `jam.EscalationNoticeTargets`),
+so push notifies each of them with the *Needs you* reason.
+The work log's copy records nobody (`+…:<nanos>:log:+`),
+so it notifies no one twice,
+and the dm or group's notice takes no tracker @-mention fallback,
+so the issue gets one comment.
 
 Jam acts on the operator's policy here, so the comms access-graph
 (`Scope.Addressing`) is not consulted. The notice is for people: it never wakes
@@ -177,5 +193,5 @@ Design rationale lives in
 https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-09-14-harbor-escalation.md[`../../superpowers/specs/2026-09-14-harbor-escalation.md`]
 (the default-chain engine), for categories,
 https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-09-14-harbor-escalation-categories.md[`../../superpowers/specs/2026-09-14-harbor-escalation-categories.md`],
-and for call-in
+and for the call-in that dms and groups replaced,
 https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-07-intercom-slice4-escalation-call-in-design.md[`../../superpowers/specs/2026-10-07-intercom-slice4-escalation-call-in-design.md`].

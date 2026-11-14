@@ -6,8 +6,10 @@ import (
 	"github.com/aethons-tools/cove/internal/ident"
 )
 
-// HomeSession is channel ch's live session: a session channel's own, or the
-// live session working a ticket channel's unit in its project (ok=false: none).
+// HomeSession is channel ch's live session: a session channel's own, or a
+// work log's current worker — else, for a log from before workers were
+// recorded, the live session working its unit in its project (ok=false:
+// none).
 func HomeSession(st Store, ch ident.ID) (Instance, bool) {
 	c, ok := st.GetChannel(ch)
 	if !ok {
@@ -18,7 +20,11 @@ func HomeSession(st Store, ch ident.ID) (Instance, bool) {
 	case SourceSession:
 		inst, ok := st.GetInstance(c.Key)
 		return inst, ok && live(inst)
-	case SourceTicket:
+	case SourceWork:
+		if c.Worker != "" {
+			inst, ok := st.GetInstance(string(c.Worker))
+			return inst, ok && live(inst)
+		}
 		_, unit, found := strings.Cut(c.Key, "/")
 		if !found {
 			return Instance{}, false

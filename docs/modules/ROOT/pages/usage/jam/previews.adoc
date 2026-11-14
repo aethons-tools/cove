@@ -33,7 +33,7 @@ right. Project members may unless the role says `+--collaborate-preview none+`
 (the default is `members`). Anyone else needs a grant:
 `+jam studio share <studio> --with user:<name> --rights preview+`. Each
 request is checked live. Open connections (WebSocket, streaming) end within a
-minute of losing the right (xref:usage/jam/collaboration.adoc#sharing[revocation]). A paused studio is
+minute of losing the right (xref:usage/jam/collaboration-sharing.adoc[revocation]). A paused studio is
 resumed for an allowed caller. Each viewer's first request per preview is
 logged as `preview opened` (again after 10 min).
 

@@ -26,9 +26,9 @@ func TestUnknownServeKeys(t *testing.T) {
 	if got := unknownServeKeys([]byte("listen: \":8443\"\nadmin-listen: \"127.0.0.1:8081\"\nstore-postgres: {}\n")); len(got) != 0 {
 		t.Fatalf("clean config unknowns = %v", got)
 	}
-	// a stray destinations block + a hyphen/underscore typo → both reported, sorted
-	got := unknownServeKeys([]byte("listen: \":8443\"\ndestinations: [a]\nadmin_listen: x\n"))
-	if want := []string{"admin_listen", "destinations"}; !reflect.DeepEqual(got, want) {
+	// hyphen/underscore typos → reported, sorted
+	got := unknownServeKeys([]byte("listen: \":8443\"\nruntime: {wak: {}}\nadmin_listen: x\n"))
+	if want := []string{"admin_listen", "runtime.wak"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("unknowns = %v, want %v", got, want)
 	}
 	// every known key is accepted (guards the reflect-derived set against drift)
@@ -1006,23 +1006,43 @@ func TestEscalationPollInterval(t *testing.T) {
 	}
 }
 
-func TestSessionWakeLimit(t *testing.T) {
-	for yml, want := range map[string]int{
-		"runtime:\n  listen: x\n":                        8,
-		"runtime:\n  wake:\n    session-wake-limit: 3\n": 3,
-		"runtime:\n  wake:\n    session-wake-limit: 0\n": 0,
+// runtime.agent-wakes is the agent-to-agent limit's count and window
+// (8 and 10 minutes unset); runtime.wake.session-wake-limit is its count's
+// deprecated alias.
+func TestAgentWakes(t *testing.T) {
+	for yml, want := range map[string]wakeon.AgentWakes{
+		"runtime:\n  listen: x\n":                                  {Count: 8, Window: 10 * time.Minute},
+		"runtime:\n  agent-wakes:\n    count: 3\n    window: 2m\n": {Count: 3, Window: 2 * time.Minute},
+		"runtime:\n  agent-wakes:\n    window: 1h\n":               {Count: 8, Window: time.Hour},
+		"runtime:\n  agent-wakes:\n    count: 0\n":                 {Count: 0, Window: 10 * time.Minute},
+		"runtime:\n  wake:\n    session-wake-limit: 3\n":           {Count: 3, Window: 10 * time.Minute},
+		"runtime:\n  wake:\n    session-wake-limit: 0\n":           {Count: 0, Window: 10 * time.Minute},
 	} {
 		cfg, err := parseServeConfig([]byte(yml))
 		if err != nil || cfg.validateWake() != nil {
-			t.Fatalf("%q: %v", yml, err)
+			t.Fatalf("%q: %v / %v", yml, err, cfg.validateWake())
 		}
-		if got := cfg.sessionWakeLimit(); got != want {
-			t.Errorf("%q = %d, want %d", yml, got, want)
+		if got := cfg.agentWakes(); got != want {
+			t.Errorf("%q = %+v, want %+v", yml, got, want)
 		}
 	}
-	bad, _ := parseServeConfig([]byte("runtime:\n  wake:\n    session-wake-limit: -1\n"))
-	if bad.validateWake() == nil {
-		t.Fatal("a negative limit must be refused")
+	alias, _ := parseServeConfig([]byte("runtime:\n  wake:\n    session-wake-limit: 3\n"))
+	if !slices.Contains(alias.deprecated, [2]string{"runtime.wake.session-wake-limit", "runtime.agent-wakes.count"}) {
+		t.Errorf("the alias must warn: deprecated = %v", alias.deprecated)
+	}
+	if _, err := parseServeConfig([]byte("runtime:\n  agent-wakes:\n    count: 3\n  wake:\n    session-wake-limit: 4\n")); err == nil {
+		t.Error("the count under both names must be refused")
+	}
+	for _, yml := range []string{
+		"runtime:\n  agent-wakes:\n    count: -1\n",
+		"runtime:\n  wake:\n    session-wake-limit: -1\n",
+		"runtime:\n  agent-wakes:\n    window: soon\n",
+		"runtime:\n  agent-wakes:\n    window: 0s\n",
+	} {
+		bad, err := parseServeConfig([]byte(yml))
+		if err == nil && bad.validateWake() == nil {
+			t.Errorf("%q must be refused", yml)
+		}
 	}
 }
 

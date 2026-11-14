@@ -178,9 +178,10 @@ func withAsk(m Squawk, ev AskEvent) Squawk {
 }
 
 // validateParts checks m's parts: inline only (no attachments yet), known
-// types, at most one ask whose data decodes, at most one turn-end mark.
+// types, at most one ask whose data decodes, at most one turn-end mark, at
+// most one mentions list.
 func validateParts(parts []Part) error {
-	asks, refs, boards, turnEnds := 0, 0, 0, 0
+	asks, refs, boards, turnEnds, mentions := 0, 0, 0, 0, 0
 	for _, p := range parts {
 		if p.Ref != "" {
 			if err := validateRef(p); err != nil {
@@ -200,6 +201,15 @@ func validateParts(parts []Part) error {
 			}
 			if err := json.Unmarshal(p.Data, &d); err != nil || d.BoardID.Kind() != ident.Board {
 				return fmt.Errorf("%w: board part", ErrInvalid)
+			}
+			continue
+		}
+		if p.Type == MentionsPartType {
+			if mentions++; mentions > 1 {
+				return fmt.Errorf("%w: more than one mentions part", ErrInvalid)
+			}
+			if err := validateMentions(p); err != nil {
+				return err
 			}
 			continue
 		}

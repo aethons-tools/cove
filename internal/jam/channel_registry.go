@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 )
@@ -12,23 +14,71 @@ import (
 // The channel registry (intercom slice 2a): a channel is a conversation,
 // owned by the intercom as a row — id, project, kind, key, status, bindings,
 // members — whose meaning its source (the kind) supplies. Rooms (kind "room")
-// are what roster channels became; chats and ticket channels arrive with the
-// sources. See docs/superpowers/specs/2026-10-06-intercom-slice2-channels-design.md.
+// are what roster channels became. The kinds are the conversation model's
+// (docs/modules/ROOT/pages/usage/jam/conversations.adoc#kinds): a dm or a
+// group (what chats became, by member count), a room, and a unit of work's
+// log; a session's own channel stays until the migration removes it. See
+// docs/superpowers/specs/2026-10-06-intercom-slice2-channels-design.md.
 
 // SourceKind is a channel's kind: what the conversation is anchored to, and
 // so the channel source that owns its policy.
 type SourceKind string
 
 const (
-	SourceChat   SourceKind = "chat"   // a fixed member set
-	SourceTicket SourceKind = "ticket" // a work item: "<connection id>/<issue key>"
-	SourceRoom   SourceKind = "room"   // a topic, named per project
+	SourceDM    SourceKind = "dm"    // exactly two members, fixed
+	SourceGroup SourceKind = "group" // three or more members, fixed
+	SourceRoom  SourceKind = "room"  // a topic, named per project
+	// SourceWork is a unit of work's log: keyed "<connection id>/<issue
+	// key>", bound to the issue; its current worker is Channel.Worker.
+	SourceWork SourceKind = "work"
 	// SourceSession is a session's own channel: keyed by its session id, the
 	// home of a session that has no ticket (intercom slice 3).
 	SourceSession SourceKind = "session"
 )
 
-var sourceKinds = []SourceKind{SourceChat, SourceTicket, SourceRoom, SourceSession}
+var sourceKinds = []SourceKind{SourceDM, SourceGroup, SourceRoom, SourceWork, SourceSession}
+
+// Legacy kinds: a chat (now a dm or a group, by its member count) and a
+// ticket channel (now a work log), as an older Jam stored them.
+const (
+	legacyChat   SourceKind = "chat"
+	legacyTicket SourceKind = "ticket"
+)
+
+// chatKind is the kind of the fixed-member conversation of n members: a dm
+// for two, a group for more.
+func chatKind(n int) SourceKind {
+	if n <= 2 {
+		return SourceDM
+	}
+	return SourceGroup
+}
+
+// IsChat reports whether k is a fixed-member conversation (a dm or a group).
+func IsChat(k SourceKind) bool { return k == SourceDM || k == SourceGroup }
+
+// upgradeKind reads a channel stored by an older Jam (a config snapshot) in
+// today's kinds: a chat, keyed by its comma-joined members, becomes a dm or
+// a group; a ticket channel becomes a work log.
+func upgradeKind(c Channel) Channel {
+	switch c.Kind {
+	case legacyChat:
+		c.Kind = chatKind(len(strings.Split(c.Key, ",")))
+	case legacyTicket:
+		c.Kind = SourceWork
+	}
+	return c
+}
+
+// WakeMode is which messages of a conversation wake a session member:
+// WakeNamed only those that name it (the default), WakeAll every one. It is
+// stored with the membership; waking does not read it yet.
+type WakeMode string
+
+const (
+	WakeNamed WakeMode = "named"
+	WakeAll   WakeMode = "all"
+)
 
 // StatusArchived is a channel that ended: its history stays readable, it
 // accepts no posts or joins, and its key and bindings are free again.
@@ -54,7 +104,10 @@ type Binding struct {
 }
 
 // Channel is one conversation. Key identifies it within its project and kind
-// (live channels only); Label is how it is shown.
+// (live channels only); Label is how it is shown. Worker is a work log's
+// current worker: the session that holds the unit now ("" when none).
+// ResumedAt is the last Resume of its agent-to-agent limit: messages from
+// before it never count toward the next trip (conversations.adoc#rate-limit).
 type Channel struct {
 	ID        ident.ID   `json:"id"`
 	ProjectID ident.ID   `json:"project_id"`
@@ -63,17 +116,21 @@ type Channel struct {
 	Label     string     `json:"label"`
 	Status    Status     `json:"status"`
 	Bindings  []Binding  `json:"bindings,omitempty"`
+	Worker    ident.ID   `json:"worker,omitempty"`
+	ResumedAt time.Time  `json:"resumed_at,omitzero"`
 }
 
 // ChannelMember is one membership of a participant (a session, user or
 // account id; grandfathered session ids included) in a channel, from the log
 // position it joined at. Left reports that it ended, at LeftSeq (a seq of 0
-// is a real position: the start of an empty log).
+// is a real position: the start of an empty log). Wake is the membership's
+// wake mode (WakeNamed unless set).
 type ChannelMember struct {
 	ParticipantID ident.ID `json:"participant_id"`
 	JoinedSeq     int64    `json:"joined_seq"`
 	Left          bool     `json:"left,omitempty"`
 	LeftSeq       int64    `json:"left_seq,omitempty"`
+	Wake          WakeMode `json:"wake,omitempty"`
 }
 
 var (
@@ -96,6 +153,10 @@ type ChannelStore interface {
 	ListChannels(project ident.ID, kind SourceKind) []Channel
 	RenameChannel(id ident.ID, key, label string) error
 	SetChannelBindings(id ident.ID, bs []Binding) error
+	// SetChannelWorker records work log id's current worker ("" for none).
+	SetChannelWorker(id, worker ident.ID) error
+	// SetChannelResumed records the last Resume of id's agent-to-agent limit.
+	SetChannelResumed(id ident.ID, at time.Time) error
 	// ArchiveChannel ends a channel (ErrRemoved if it already has).
 	ArchiveChannel(id ident.ID) error
 	// ReopenChannel makes an archived channel live again, members and
@@ -107,6 +168,8 @@ type ChannelStore interface {
 	// LeaveChannel ends its membership at seq (a no-op when it is none).
 	JoinChannel(ch, p ident.ID, seq int64) error
 	LeaveChannel(ch, p ident.ID, seq int64) error
+	// SetChannelWake sets current member p's wake mode in ch.
+	SetChannelWake(ch, p ident.ID, w WakeMode) error
 	// ChannelMembers returns ch's current members, sorted by participant.
 	ChannelMembers(ch ident.ID) []ChannelMember
 	// ChannelsOf returns the channels p is currently a member of, sorted.
@@ -351,6 +414,27 @@ func (m *memState) prepareSetChannelBindings(id ident.ID, bs []Binding) (Channel
 	return c, nil
 }
 
+func (m *memState) prepareSetChannelWorker(id, worker ident.ID) (Channel, error) {
+	c, err := m.liveChannel(id)
+	if err != nil {
+		return Channel{}, err
+	}
+	if c.Kind != SourceWork && worker != "" {
+		return Channel{}, fmt.Errorf("channel: a %s has no worker", c.Kind)
+	}
+	c.Worker = worker
+	return c, nil
+}
+
+func (m *memState) prepareSetChannelResumed(id ident.ID, at time.Time) (Channel, error) {
+	c, err := m.liveChannel(id)
+	if err != nil {
+		return Channel{}, err
+	}
+	c.ResumedAt = at
+	return c, nil
+}
+
 func (m *memState) prepareArchiveChannel(id ident.ID) (Channel, error) {
 	c, err := m.liveChannel(id)
 	if err != nil {
@@ -401,6 +485,20 @@ func (m *memState) prepareLeaveChannel(ch, p ident.ID) (bool, error) {
 	return member, nil
 }
 
+// prepareSetChannelWake validates a wake mode for p's membership of ch.
+func (m *memState) prepareSetChannelWake(ch, p ident.ID, w WakeMode) error {
+	if _, ok := m.channels[ch]; !ok {
+		return fmt.Errorf("%w: %s", ErrChannelNotFound, ch)
+	}
+	if w != WakeNamed && w != WakeAll {
+		return fmt.Errorf("channel: unknown wake mode %q", w)
+	}
+	if _, member := m.currentMember(ch, p); !member {
+		return fmt.Errorf("channel: %s is not a member of %s", p, ch)
+	}
+	return nil
+}
+
 // ---- apply ----
 
 func (m *memState) applyPutChannel(c Channel) { m.channels[c.ID] = copyChannel(c) }
@@ -414,7 +512,13 @@ func (m *memState) applyJoinChannel(ch, p ident.ID, seq int64) {
 			return
 		}
 	}
-	m.chanMembers[ch] = append(m.chanMembers[ch], ChannelMember{ParticipantID: p, JoinedSeq: seq})
+	m.chanMembers[ch] = append(m.chanMembers[ch], ChannelMember{ParticipantID: p, JoinedSeq: seq, Wake: WakeNamed})
+}
+
+func (m *memState) applySetChannelWake(ch, p ident.ID, w WakeMode) {
+	if i, ok := m.currentMember(ch, p); ok {
+		m.chanMembers[ch][i].Wake = w
+	}
 }
 
 func (m *memState) applyLeaveChannel(ch, p ident.ID, seq int64) {
@@ -474,6 +578,14 @@ func (fs *MemStore) SetChannelBindings(id ident.ID, bs []Binding) error {
 	return fs.putChannelWith(func() (Channel, error) { return fs.prepareSetChannelBindings(id, bs) })
 }
 
+func (fs *MemStore) SetChannelWorker(id, worker ident.ID) error {
+	return fs.putChannelWith(func() (Channel, error) { return fs.prepareSetChannelWorker(id, worker) })
+}
+
+func (fs *MemStore) SetChannelResumed(id ident.ID, at time.Time) error {
+	return fs.putChannelWith(func() (Channel, error) { return fs.prepareSetChannelResumed(id, at) })
+}
+
 func (fs *MemStore) ArchiveChannel(id ident.ID) error {
 	return fs.putChannelWith(func() (Channel, error) { return fs.prepareArchiveChannel(id) })
 }
@@ -512,5 +624,15 @@ func (fs *MemStore) LeaveChannel(ch, p ident.ID, seq int64) error {
 		return err
 	}
 	fs.applyLeaveChannel(ch, p, seq)
+	return nil
+}
+
+func (fs *MemStore) SetChannelWake(ch, p ident.ID, w WakeMode) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if err := fs.prepareSetChannelWake(ch, p, w); err != nil {
+		return err
+	}
+	fs.applySetChannelWake(ch, p, w)
 	return nil
 }

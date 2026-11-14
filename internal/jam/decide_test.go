@@ -33,7 +33,7 @@ func TestDecideAllowsWhenAGrantAuthorizes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
-	if !dec.NeedCred || dec.CredName != "anthropic-bearer" || dec.Apply != ApplyBearer {
+	if !dec.NeedCred || dec.CredName != "anthropic-bearer" {
 		t.Fatalf("decision = %+v", dec)
 	}
 }

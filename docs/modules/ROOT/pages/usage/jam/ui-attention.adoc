@@ -4,12 +4,12 @@
 :owns: the attention model (kinds, severity, where each item is counted), the title-bar/tree/row badges and the Needs attention card
 :prereqs: ui-console.adoc for the tabs and the Config tree; coves.adoc for studio phases, image and connector status
 :tier: leaf
-:updated: 2026-10-28
+:updated: 2026-11-14
 
 The admin console computes one list of things that need an operator's
 attention and shows it as a *badge* on the title-bar tabs and on the
-xref:usage/jam/ui-console.adoc#finding-a-page[Config tree]'s nodes, and as a *⚠* on the row
-it names. A badge is a count of items, *red* when any of them is broken,
+xref:usage/jam/ui-console.adoc#finding-a-page[Config tree]'s nodes, and as a small red or amber *!* badge
+(`AttnFlag`; hover for why) on the row it names. A badge is a count of items, *red* when any of them is broken,
 *amber* otherwise; hover for the breakdown (`+1 broken · 2 out of date+`). The
 tree refreshes every 3 seconds, and at once after a write, so its badges stay
 live; the title-bar badges refresh with each page load.
@@ -18,7 +18,7 @@ live; the title-bar badges refresh with each page load.
 |===
 |Kind |Severity |Raised when |Counted at
 
-|broken |red |a studio is `lost` or `terminating`, or its egress re-apply is failing |Agents
+|broken |red |a studio is `lost`, `terminating`, or `recovering`, or its egress re-apply is failing |Agents
 |out of date |amber |a studio runs a stale image or connector (xref:usage/jam/coves.adoc#the-studio-verbs[coves]) |Agents
 |config |amber |an escalation target names nobody on the project |the project's Escalation node
 |config |amber |a role's kit or model-spec no longer exists |the role's node
@@ -35,5 +35,5 @@ items at it or under it, so a project's node sums its roles' and its
 Escalation's.
 
 *Needs attention.* The Dashboard lists Jam's own items — open conditions,
-kits and destinations — each with why and a link to where to fix it, or says
-nothing needs attention.
+kits and destinations — each marked with a red or amber *⚠*, with why and a link to where to fix it, or says
+nothing needs attention. The *⚠* appears only on this card.

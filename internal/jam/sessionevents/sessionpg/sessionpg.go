@@ -220,6 +220,27 @@ FROM session_events WHERE actor_id=$1 GROUP BY stream_id ORDER BY MIN(received_a
 	return out, rows.Err()
 }
 
+func (s *Store) Turns(actorID, streamID string) ([]sessionevents.TurnSpan, error) {
+	rows, err := s.pool.Query(context.Background(), `SELECT turn, MIN(seq), MAX(seq), MIN(observed_at), MAX(observed_at), COUNT(*)
+FROM session_events WHERE actor_id=$1 AND stream_id=$2 GROUP BY turn ORDER BY MIN(seq)`, actorID, streamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []sessionevents.TurnSpan
+	for rows.Next() {
+		var ts sessionevents.TurnSpan
+		var turn int32
+		var first, last int64
+		if err := rows.Scan(&turn, &first, &last, &ts.Start, &ts.End, &ts.Events); err != nil {
+			return nil, err
+		}
+		ts.Turn, ts.FirstSeq, ts.LastSeq = uint32(turn), uint64(first), uint64(last)
+		out = append(out, ts)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) DeleteBefore(t time.Time) (int, error) {
 	tag, err := s.pool.Exec(context.Background(), `DELETE FROM session_events WHERE received_at < $1`, t)
 	return int(tag.RowsAffected()), err

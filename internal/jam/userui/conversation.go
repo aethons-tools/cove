@@ -48,6 +48,35 @@ func messageRow(from string, m intercom.Squawk, mine bool) MessageRow {
 	}
 }
 
+// shownRow is m as viewer p sees it: its sender's color (colors caches
+// them per sender), and its ask, board, and file cards.
+func shownRow(p jam.Participant, d Deps, m intercom.Squawk, colors map[ident.ID]string) MessageRow {
+	row := messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID)
+	c, ok := colors[m.From]
+	if !ok {
+		c, _ = d.Store.SessionColor(string(m.From)) // a person has none
+		colors[m.From] = c
+	}
+	row.Color = c
+	decorateAsk(&row, p, d, m)
+	if card := boardCard(d, m); card != nil {
+		row.Board = card
+	}
+	switch {
+	case row.Board != nil:
+		row.Card = "board"
+	case row.Ask != nil:
+		row.Card = "ask"
+	}
+	if chips, filesOnly := fileChips(m); len(chips) > 0 {
+		row.Files = chips
+		if filesOnly {
+			row.Body, row.Raw = "", ""
+		}
+	}
+	return row
+}
+
 // conversation builds the open-channel view for channelID, or ok=false if the
 // participant may not see it. A History id opens the legacy conversation,
 // read-only.
@@ -63,35 +92,12 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 		return Conversation{}, false
 	}
 	conv := Conversation{
-		ChannelID: channelID, Label: v.Label, Kind: v.Kind, Project: v.Project, Phase: v.Phase, NeedsYou: v.NeedsYou,
+		ChannelID: channelID, Label: v.Label, Kind: viewKind(v), Project: v.Project, Phase: v.Phase, NeedsYou: v.NeedsYou,
 		SendTo: channelID, LastSeq: v.LastSeq, SessionIDs: v.Sessions,
 	}
-	colors := map[ident.ID]string{} // per sender, looked up once
+	colors := map[ident.ID]string{}
 	for _, m := range d.Log.ChannelSince(ident.ID(channelID), 0, 0) {
-		row := messageRow(d.Intercom.PartyOf(m.From).Label, m, m.From == p.UserID)
-		c, ok := colors[m.From]
-		if !ok {
-			c, _ = d.Store.SessionColor(string(m.From)) // a person has none
-			colors[m.From] = c
-		}
-		row.Color = c
-		decorateAsk(&row, p, d, m)
-		if card := boardCard(d, m); card != nil {
-			row.Board = card
-		}
-		switch {
-		case row.Board != nil:
-			row.Card = "board"
-		case row.Ask != nil:
-			row.Card = "ask"
-		}
-		if chips, filesOnly := fileChips(m); len(chips) > 0 {
-			row.Files = chips
-			if filesOnly {
-				row.Body, row.Raw = "", ""
-			}
-		}
-		conv.Messages = append(conv.Messages, row)
+		conv.Messages = append(conv.Messages, shownRow(p, d, m, colors))
 	}
 	conv.OpenAsks = openAskCards(p, d, ident.ID(channelID))
 	membershipControls(&conv, p, d)
@@ -99,10 +105,14 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 }
 
 // membershipControls fills the conversation's Join/Leave/Call in controls:
-// a chat has none (its members are fixed); a room takes people, not sessions.
+// a dm or a group has none (its members are fixed). Rooms, work logs, and
+// (until the migration removes them, COV-354) sessions' own channels take
+// Join and Leave; Call in lists the project's people, and on work logs and
+// session channels the agents the viewer may reach — a room takes no
+// sessions until COV-349.
 func membershipControls(conv *Conversation, p jam.Participant, d Deps) {
 	ch, ok := d.Store.GetChannel(ident.ID(conv.ChannelID))
-	if !ok || ch.Status != jam.StatusLive || ch.Kind == jam.SourceChat {
+	if !ok || ch.Status != jam.StatusLive || jam.IsChat(ch.Kind) {
 		return
 	}
 	in := map[ident.ID]bool{}
@@ -155,7 +165,7 @@ func legacyConversation(p jam.Participant, d Deps, channelID string) (Conversati
 	for _, name := range legacyNames(p) {
 		mine[intercom.Target{Kind: "human", Ref: name}.String()] = true
 	}
-	conv := Conversation{ChannelID: channelID, Label: meta.Label, Kind: meta.Kind, Project: meta.Project, LastSeq: meta.LastSeq}
+	conv := Conversation{ChannelID: channelID, Label: meta.Label, Kind: viewKind(*meta), Project: meta.Project, LastSeq: meta.LastSeq}
 	for _, m := range jam.ChannelSquawks(strings.TrimPrefix(channelID, legacyPrefix), d.Legacy, d.Store.ListInstances()) {
 		row := messageRow(m.From.Ref, intercom.Squawk{Seq: m.Seq, Body: m.Body, At: m.At, ContentType: m.ContentType}, mine[m.From.String()])
 		conv.Messages = append(conv.Messages, row)
@@ -164,9 +174,9 @@ func legacyConversation(p jam.Participant, d Deps, channelID string) (Conversati
 }
 
 // newMessageOptions lists who the participant can start a conversation
-// with, across their projects: its other members (a chat), the live sessions
-// they may reach (in a session's home channel) and their tickets, and its
-// rooms.
+// with, across their projects: its other members (a dm, or several for a
+// group), the live agents they may reach (in the agent's home channel), its
+// units of work (their log), and its rooms.
 func newMessageOptions(p jam.Participant, d Deps) []NewMessageOption {
 	seen := map[string]bool{}
 	var out []NewMessageOption
@@ -194,15 +204,12 @@ func newMessageOptions(p jam.Participant, d Deps) []NewMessageOption {
 			if !jam.SameProject(d.Store, inst.Project, name) || (inst.Phase != jam.PhaseLive && inst.Phase != jam.PhaseRaising && inst.Phase != jam.PhaseIdled) {
 				continue
 			}
-			label := d.Intercom.PartyOf(ident.ID(inst.ActorID)).Label
 			if d.Intercom.MayReach(p.UserID, inst) {
-				add(NewMessageOption{To: "session:" + inst.ActorID, Label: label, Kind: "agent", Project: name})
+				add(NewMessageOption{To: "session:" + inst.ActorID, Label: d.Intercom.PartyOf(ident.ID(inst.ActorID)).Label, Kind: "agent", Project: name})
 			}
-			if inst.Unit != "" {
-				if ch, ok := d.Intercom.TicketChannelOf(inst); ok {
-					add(NewMessageOption{To: string(ch.ID), Label: ch.Label, Kind: "ticket", Project: name})
-				}
-			}
+		}
+		for _, ch := range d.Store.ListChannels(proj.ID, jam.SourceWork) {
+			add(NewMessageOption{To: string(ch.ID), Label: ch.Label, Kind: "work", Project: name})
 		}
 		for _, ch := range d.Store.ListChannels(proj.ID, jam.SourceRoom) {
 			add(NewMessageOption{To: string(ch.ID), Label: ch.Label, Kind: "room", Project: name})

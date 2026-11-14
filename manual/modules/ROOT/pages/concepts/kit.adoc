@@ -1,0 +1,242 @@
+= Kits and studios
+:page-area: ROOT
+:page-id: ROOT/concepts/kit
+:page-conventions: sentence-case
+
+A *studio* is the sandbox an agent runs in
+(xref:concepts/agent.adoc#_studios[Studios]).
+A *kit* says what goes into a role's studios:
+the tools on the machine,
+the files the agent starts with,
+the outside domains it may reach,
+and what the agent is told about its work.
+Each role names one kit.
+All the studios of the role are built from it.
+
+To look at kits and change them,
+see xref:configuration/kits.adoc[].
+
+== What a kit holds
+
+A kit is a folder of files.
+Its main file, `kit.yml`, sets:
+
+Base::
+What the studio's image starts from.
+With no base,
+the image starts from Jam's own image, the *blessed default*.
+A kit can instead build on another kit
+(<<kits-on-kits,below>>),
+or start from a prebuilt image that Jam trusts.
+Dockerfile::
+A `Dockerfile` next to `kit.yml` installs more tools.
+It builds on the base,
+and can use the other files in the folder,
+such as setup scripts.
+Egress::
+The outside domains a studio may reach.
+A role can set its own list instead
+(xref:configuration/roles.adoc[]).
+A studio can never reach `anthropic.com`, `claude.com` or `claude.ai` directly,
+even when the kit names them:
+it reaches the model only through Jam.
+Build args::
+Settings for the image build,
+such as a Go version.
+They are never secret.
+Secret demands::
+The names of the secrets the kit needs,
+each with a description.
+A kit never holds a secret's value.
+Prompt::
+A short text that tells each agent what it works on.
+It is part of the agent's context
+(xref:projects:agent-context.adoc[]).
+Notes::
+Longer texts that the agent reads only when its task needs them.
+MCP servers::
+Extra tools for the agent,
+as MCP servers it can use.
+
+You do not install the agent program in a kit.
+Jam adds Claude Code to every image
+at the version the role's xref:concepts/model-spec.adoc[model spec] names.
+Then it adds its own security layer last,
+so a kit can never change it.
+
+== Versions
+
+Each change to a kit's files makes a new *version*:
+`v1`, `v2`, and so on.
+Jam keeps every version,
+and never changes or deletes one.
+One version is *current*.
+A role uses its kit's current version,
+so a new version reaches every role that uses the kit.
+
+To go back to an older version,
+you *pin* it:
+it becomes current again.
+On a branch of the config repo,
+pinning saves that version's files to the branch;
+when you merge it,
+Jam stores them as a new version.
+You cannot pin a version while other kits follow this kit,
+because they would move with it.
+
+Two versions can build the same image.
+Jam builds an image only when something that goes into it changes:
+the base, the files of a kit with a `Dockerfile`, the egress, the build args or the MCP servers.
+A change to the prompt, the notes or the secret demands
+uses the image that is there already.
+
+[#when-it-takes-effect]
+=== When a change takes effect
+
+Jam builds a studio's image when a session starts,
+from the current version.
+A session that runs now keeps its image.
+When a newer version would build a different image,
+the session shows *image stale*
+(xref:configuration/agents.adoc[]).
+It gets the new image the next time it is raised.
+To move a standing agent now,
+use *Upgrade* on its role's page
+(xref:configuration/roles.adoc#_standing_agents[Standing agents]).
+
+A change to the prompt or the notes
+needs no new image.
+Each session gets it by its next turn.
+
+[#kits-on-kits]
+== Kits that build on kits
+
+A kit can name another kit as its *parent*.
+Its image then builds on the parent's image,
+and its settings add to the parent's.
+For example,
+`review-kit` can build on `web-dev`,
+which has the web tools,
+and add only what reviewers need.
+A role that uses `review-kit` gets both.
+
+The settings merge like this:
+
+* egress, secret demands and build args are added together;
+when both kits set the same one,
+the child's wins;
+* MCP servers and notes with the same name
+take the child's;
+* the prompts are joined,
+the parent's first.
+
+A child can *follow* its parent:
+it always uses the parent's current version.
+Then a new version of the parent
+also changes the child's studios.
+A child can also be *pinned* to one version of its parent,
+so later versions of the parent do not change it.
+In the config repo a child always follows its parent.
+A pin comes from a kit imported from git.
+
+A chain holds at most 4 kits,
+the kit itself included.
+Jam refuses a kit whose parent is missing,
+or whose chain loops back on itself.
+It also refuses to delete a kit
+while a role or another kit uses it.
+
+== Where kits come from
+
+Most kits live in the xref:concepts/config-repo.adoc[config repo],
+each in its own folder, `kits/<name>/`.
+A commit that changes a kit's files
+makes its next version when Jam applies it.
+
+[#from-git]
+=== Kits from their own repository
+
+A kit can also live in its own git repository.
+You *import* it once:
+Jam reads the kit's folder from the repository,
+at a branch, a tag or a commit,
+and stores it as a new version.
+Each version records the repository and the commit it came from.
+
+If you *track* the source,
+Jam remembers it.
+Then *Sync* reads it again
+and makes a new version when the commit has changed.
+Jam does not check for new commits on its own:
+a sync happens only when you ask for one.
+
+In a repository, a kit can build on another kit by its path,
+such as `../web`.
+Jam then imports the two kits together,
+and pins the child to the parent version it just stored.
+
+Importing, tracking and syncing change the Jam directly,
+not the config repo.
+The config repo can also name a kit's repository
+in place of its files;
+Jam then imports it on each apply.
+
+[#drafts]
+=== Drafts
+
+To change a kit's files in the admin console,
+you open a *draft* on a branch of the config repo.
+A draft is a copy of one version's files.
+You add, edit, rename and delete files in it,
+then *publish* it.
+Publishing saves the files to the branch as one commit.
+When the branch is merged,
+Jam makes the next version from them.
+
+A kit has at most one draft on a branch.
+Saving a draft makes no commit.
+Jam checks the draft as you work,
+and lists its *problems*,
+such as a `kit.yml` that does not parse.
+You cannot publish a draft with problems.
+
+You can also build a draft's image before you publish it,
+to see that it builds.
+This *test build* is in the Jam extension for VS Code,
+not in the admin console.
+It starts no studio and changes no version.
+
+== The default kit
+
+Jam makes a kit named `default` the first time it starts.
+It starts from the blessed default image,
+allows a few outside domains,
+and has a short general prompt.
+A role that names no kit uses `default`.
+
+Each time Jam starts,
+it sets `default` back to its built-in content.
+To change the kit,
+add a `kits/default/` folder to the config repo:
+the repo owns the kit from then on,
+and Jam no longer resets it.
+You cannot delete the `default` kit.
+
+ifdef::internal[]
+== Notes for the team
+
+* The kit is `kits/<name>/kit.yml` (`+kind: studio+`, no `name:`) plus its files, or `kits/<name>.source.yml` for a git-sourced kit.
+A role names its kit with `+kit: <name>+` in `projects/<p>/roles/<r>.yml`; the config repo refuses a version pin there.
+* A kit's `prompt` is at most 800 bytes and it has at most 20 notes, both counted on the merged chain;
+`kit/tools.md` is generated from `build-args`.
+* Directory limits: regular files only, modes `0644`/`0755`, at most 2000 files, 4 MiB a file, 64 MiB in total; a root `.dockerignore` filters what is stored.
+* The image is tagged by a build digest over `base`, the build context's tree hash, `egress`, `build-args`, `mcp-servers` and the harness (type, version, plugins).
+The admin console shows the digest under `claude-default`'s harness.
+* Per-demand injection of `secrets` into the session is not wired yet: the field is declarative.
+* Git credentials for private kit repos are `kits.git` in the serve config.
+Fetch limits: 50 MiB transferred, 64 MiB checked out, 60 s.
+* Test builds: `POST /app/admin/api/kits/<kit>/draft/build` and friends (`internal/jam/adminui/api_kit_draft_build.go`), used by the *Build Kit Draft* command in `web/vscode`.
+* CLI: `jam kit list|show|versions|diff|import|track|sync|untrack`.
+* Depth: `docs/modules/ROOT/pages/usage/jam/kits.adoc`, `kits-inheritance.adoc`, `kits-path-parents.adoc`,
+`kits-git.adoc`, `kits-directory.adoc` and `kits-drafts.adoc`.
+endif::[]

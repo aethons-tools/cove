@@ -52,10 +52,10 @@ func (r pushReader) ReadThrough(u, ch ident.ID) int64 { return r.store.ChannelRe
 // PartyLabel is a participant's display label.
 func (r pushReader) PartyLabel(id ident.ID) string { return r.ic.PartyOf(id).Label }
 
-// ChannelLabel is ch's label as forUser's rail shows it: a chat's other
+// ChannelLabel is ch's label as forUser's rail shows it: a dm's or group's other
 // members' labels, else the channel's own.
 func (r pushReader) ChannelLabel(ch jam.Channel, forUser ident.ID) string {
-	if ch.Kind != jam.SourceChat {
+	if !jam.IsChat(ch.Kind) {
 		return ch.Label
 	}
 	var others []string

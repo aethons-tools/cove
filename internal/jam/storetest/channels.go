@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/jam"
@@ -56,7 +57,7 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		if got := s.ListChannels(p.ID, jam.SourceRoom); len(got) != 1 || got[0].ID != ch.ID {
 			t.Fatalf("ListChannels = %+v", got)
 		}
-		if got := s.ListChannels(p.ID, jam.SourceChat); len(got) != 0 {
+		if got := s.ListChannels(p.ID, jam.SourceDM); len(got) != 0 {
 			t.Fatalf("ListChannels(chat) = %+v", got)
 		}
 		if e, ok := s.Resolve(ch.ID); !ok || e.Kind != ident.Channel || e.Label() != "eng" {
@@ -217,7 +218,7 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		if err := s.JoinChannel(ch.ID, legacy, 6); err != nil {
 			t.Fatalf("JoinChannel legacy session: %v", err)
 		}
-		want := []jam.ChannelMember{{ParticipantID: legacy, JoinedSeq: 6}, {ParticipantID: u.ID, JoinedSeq: 5}}
+		want := []jam.ChannelMember{{ParticipantID: legacy, JoinedSeq: 6, Wake: jam.WakeNamed}, {ParticipantID: u.ID, JoinedSeq: 5, Wake: jam.WakeNamed}}
 		if got := s.ChannelMembers(ch.ID); !reflect.DeepEqual(got, want) {
 			t.Fatalf("members = %+v, want %+v (joining twice is a no-op)", got, want)
 		}
@@ -239,7 +240,7 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		if err := s.JoinChannel(ch.ID, u.ID, 12); err != nil {
 			t.Fatalf("rejoin: %v", err)
 		}
-		if got := s.ChannelMembers(ch.ID); len(got) != 2 || got[1] != (jam.ChannelMember{ParticipantID: u.ID, JoinedSeq: 12}) {
+		if got := s.ChannelMembers(ch.ID); len(got) != 2 || got[1] != (jam.ChannelMember{ParticipantID: u.ID, JoinedSeq: 12, Wake: jam.WakeNamed}) {
 			t.Fatalf("members after rejoin = %+v", got)
 		}
 		// Joining and leaving at the start of the log (seq 0) ends the membership.
@@ -260,6 +261,103 @@ func runChannelConformance(t *testing.T, newStore func(t *testing.T) jam.Store) 
 		}
 		if err := s.LeaveChannel(ch.ID, u.ID, 20); err != nil {
 			t.Fatalf("leaving an archived channel is allowed: %v", err)
+		}
+	})
+
+	t.Run("channel_member_wake", func(t *testing.T) {
+		s, p, _ := setup(t)
+		ch := mustChannel(t, s, room(p, "eng"))
+		u, _ := s.CreateUser(jam.User{Name: "alice"})
+		if err := s.SetChannelWake(ch.ID, u.ID, jam.WakeAll); err == nil {
+			t.Fatal("a wake mode needs a current member")
+		}
+		if err := s.JoinChannel(ch.ID, u.ID, 5); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.ChannelMembers(ch.ID); len(got) != 1 || got[0].Wake != jam.WakeNamed {
+			t.Fatalf("members = %+v, want wake named by default", got)
+		}
+		if err := s.SetChannelWake(ch.ID, u.ID, "sometimes"); err == nil {
+			t.Fatal("an unknown wake mode is refused")
+		}
+		if err := s.SetChannelWake(ch.ID, u.ID, jam.WakeAll); err != nil {
+			t.Fatalf("SetChannelWake: %v", err)
+		}
+		if got := s.ChannelMembers(ch.ID); len(got) != 1 || got[0].Wake != jam.WakeAll {
+			t.Fatalf("members = %+v, want wake all", got)
+		}
+		if err := s.SetChannelWake("chn_01j9q3zzzzzzzzzzzzzzzzzzzz", u.ID, jam.WakeAll); !errors.Is(err, jam.ErrChannelNotFound) {
+			t.Fatalf("unknown channel: %v", err)
+		}
+	})
+
+	t.Run("work_log_worker", func(t *testing.T) {
+		s, p, c := setup(t)
+		work := mustChannel(t, s, jam.Channel{ProjectID: p.ID, Kind: jam.SourceWork, Key: string(c.ID) + "/ACME-7", Label: "ACME-7"})
+		if work.Worker != "" {
+			t.Fatalf("a new work log has no worker: %+v", work)
+		}
+		w := ident.New(ident.Session)
+		if err := s.SetChannelWorker(work.ID, w); err != nil {
+			t.Fatalf("SetChannelWorker: %v", err)
+		}
+		if got, _ := s.GetChannel(work.ID); got.Worker != w {
+			t.Fatalf("worker = %q, want %q", got.Worker, w)
+		}
+		if err := s.SetChannelWorker(work.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.GetChannel(work.ID); got.Worker != "" {
+			t.Fatalf("worker cleared = %q", got.Worker)
+		}
+		r := mustChannel(t, s, room(p, "eng"))
+		if err := s.SetChannelWorker(r.ID, w); err == nil {
+			t.Fatal("only a work log has a worker")
+		}
+	})
+
+	t.Run("channel_resumed", func(t *testing.T) {
+		s, p, _ := setup(t)
+		r := mustChannel(t, s, room(p, "eng"))
+		if r.ResumedAt != (time.Time{}) {
+			t.Fatalf("a new channel has no Resume: %+v", r)
+		}
+		at := time.Date(2026, 11, 14, 9, 30, 0, 0, time.UTC)
+		if err := s.SetChannelResumed(r.ID, at); err != nil {
+			t.Fatalf("SetChannelResumed: %v", err)
+		}
+		if got, _ := s.GetChannel(r.ID); !got.ResumedAt.Equal(at) {
+			t.Fatalf("resumed at = %v, want %v", got.ResumedAt, at)
+		}
+		later := at.Add(time.Minute)
+		if err := s.SetChannelResumed(r.ID, later); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.GetChannel(r.ID); !got.ResumedAt.Equal(later) {
+			t.Fatalf("only the last Resume is kept: %v, want %v", got.ResumedAt, later)
+		}
+		if err := s.SetChannelResumed("chn_01j9q3zzzzzzzzzzzzzzzzzzzz", at); !errors.Is(err, jam.ErrChannelNotFound) {
+			t.Fatalf("unknown channel: %v", err)
+		}
+	})
+
+	t.Run("import_upgrades_legacy_kinds", func(t *testing.T) {
+		s, p, c := setup(t)
+		snap := s.ExportConfig()
+		u1, u2, u3 := ident.New(ident.User), ident.New(ident.User), ident.New(ident.User)
+		snap.Channels = append(snap.Channels,
+			jam.Channel{ID: ident.New(ident.Channel), ProjectID: p.ID, Kind: "chat", Key: string(u1) + "," + string(u2), Label: "a, b", Status: jam.StatusLive},
+			jam.Channel{ID: ident.New(ident.Channel), ProjectID: p.ID, Kind: "chat", Key: string(u1) + "," + string(u2) + "," + string(u3), Label: "a, b, c", Status: jam.StatusLive},
+			jam.Channel{ID: ident.New(ident.Channel), ProjectID: p.ID, Kind: "ticket", Key: string(c.ID) + "/ACME-7", Label: "ACME-7", Status: jam.StatusLive},
+		)
+		fresh := newStore(t)
+		if err := fresh.ImportConfig(snap); err != nil {
+			t.Fatalf("ImportConfig: %v", err)
+		}
+		for kind, n := range map[jam.SourceKind]int{jam.SourceDM: 1, jam.SourceGroup: 1, jam.SourceWork: 1} {
+			if got := fresh.ListChannels(p.ID, kind); len(got) != n {
+				t.Errorf("%s channels = %+v, want %d", kind, got, n)
+			}
 		}
 	})
 

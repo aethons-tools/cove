@@ -38,7 +38,7 @@ func TestIntercomPostJoinsPeople(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ms := f.store.ChannelMembers(f.room.ID); len(ms) != 1 || ms[0] != (ChannelMember{ParticipantID: f.bob.ID, JoinedSeq: m.Seq}) {
+	if ms := f.store.ChannelMembers(f.room.ID); len(ms) != 1 || ms[0] != (ChannelMember{ParticipantID: f.bob.ID, JoinedSeq: m.Seq, Wake: WakeNamed}) {
 		t.Fatalf("room members = %+v", ms)
 	}
 	if _, err := f.ic.Post(f.mustPlan(f.standing, "channel:eng"), intercom.Squawk{From: ident.ID(f.standing.ActorID), Body: "from a session"}); err != nil {
@@ -132,7 +132,7 @@ func TestIntercomNotify(t *testing.T) {
 func TestIntercomPlanPersonChat(t *testing.T) {
 	f := newICFixture(t)
 	if _, err := f.ic.PlanPersonChat(f.bob.ID, ident.ID(f.personal.ActorID)); !errors.Is(err, ErrSendUnresolved) {
-		t.Fatalf("a chat with a session: %v (a session is reached in its home channel: PlanHome)", err)
+		t.Fatalf("a chat with a session: %v (a session is reached in its dm: PlanSessionDM)", err)
 	}
 	if p, err := f.ic.PlanPersonChat(f.bob.ID, f.alice.ID); err != nil || len(p.Audience) != 1 || p.Audience[0] != f.alice.ID {
 		t.Fatalf("bob with alice = %+v, %v", p, err)

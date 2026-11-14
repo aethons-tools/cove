@@ -476,18 +476,19 @@ const row = (id: string, kind: string, over: Record<string, unknown> = {}) => ({
 describe("pickSession", () => {
   const rail = {
     groups: [
-      { bucket: "needs-you", title: "Needs you", rows: [row("chn_a", "studio", { label: "A", needsYou: true }), row("chn_n", "named")] },
-      { bucket: "active", title: "Sessions", rows: [row("chn_a", "studio"), row("chn_b", "studio", { label: "B" }), row("chn_d", "dm")] },
-      { bucket: "history", title: "History", rows: [row("chn_h", "studio")] },
+      { bucket: "needs-you", title: "Needs you", rows: [row("chn_a", "work", { label: "A", needsYou: true }), row("chn_n", "room")] },
+      { bucket: "active", title: "Agents", rows: [row("chn_a", "work", { phase: "live" }), row("chn_b", "session", { label: "B", phase: "live" }), row("chn_d", "dm", { phase: "live" })] },
+      { bucket: "channels", title: "Conversations", rows: [row("chn_w", "work", { label: "W", phase: "idled" }), row("chn_e", "work", { label: "E", phase: "" })] },
+      { bucket: "history", title: "History", rows: [row("chn_h", "session", { phase: "live" })] },
     ],
     unreadTotal: 0,
   };
 
-  it("lists live studio rows only and opens the picked row's session", async () => {
+  it("lists rows of live sessions' own channels and work logs only, and opens the picked row's session", async () => {
     const f = fake({ rail, conv: { session: ID }, global: "always" });
     await pickSession(f.d);
     const items = f.ui.pick.mock.calls[0]![0] as { label: string; description: string; detail: string }[];
-    expect(items.map((i) => i.label)).toEqual(["$(bell) A", "B"]);
+    expect(items.map((i) => i.label)).toEqual(["$(bell) A", "B", "W"]);
     expect(items[0]).toMatchObject({ description: "p", detail: "m" });
     expect(f.api.conversation).toHaveBeenCalledWith("chn_a");
     expect(f.ui.openFolder).toHaveBeenCalledWith(STUDIO);

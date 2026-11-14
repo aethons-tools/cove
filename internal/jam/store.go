@@ -102,7 +102,9 @@ type Store interface {
 	AddDestination(d Destination) error
 	RemoveDestination(name string) error
 	ListDestinations() []Destination
-	Match(reqPath string) (Destination, bool)
+	// Match is the endpoint that serves reqPath on the host sub names ("" for
+	// the Jam host), and its destination (Config.Match).
+	Match(sub, reqPath string) (Destination, Endpoint, bool)
 	// PutModelSpec upserts a model-spec by name (validation is the caller's:
 	// see ValidateModelSpec); GetModelSpec / ListModelSpecs return copies, the
 	// list sorted by name; RemoveModelSpec errors for an absent name and

@@ -13,8 +13,9 @@ import (
 
 // ParticipantSendHandler is a person's send from the /app/user inbox (POST
 // /app/user/send): into a conversation they're in ({"to": "<channel id>"}), or a
-// new one ({"to": "user:<id|name>"} or {"to": "session:<id>"}: a chat with
-// them). The sender is the gate's participant, never the body; the intercom
+// new one ({"to": "user:<id|name>"} or "chat:user:<id|name>,…": a dm or a
+// group with them; "session:<id|label>": a dm with the session). The sender
+// is the gate's participant, never the body; the intercom
 // decides whether they may post there and who hears it. Implements
 // http.Handler.
 type ParticipantSendHandler struct {
@@ -146,8 +147,9 @@ func (h *ParticipantSendHandler) Send(p Participant, req SendRequest) (intercom.
 	return m, nil
 }
 
-// plan resolves a /me send: a channel id, a person to chat with, or a
-// session to reach in its home channel.
+// plan resolves a /me send (conversations.adoc#targets): a channel id, a
+// person to dm, people to dm or group (chat:user:<id|name>,…), or a session
+// to dm.
 func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error) {
 	kind, ref, ok := strings.Cut(to, ":")
 	switch {
@@ -156,16 +158,32 @@ func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error)
 			return h.ic.PlanChannel(Poster{ID: p.UserID}, id)
 		}
 	case kind == "user" || kind == "human":
-		id, err := ident.Parse(ref)
-		if err != nil {
-			var found bool
-			if id, found = h.store.LookupName(ident.User, ref); !found {
-				return Planned{}, ErrSendUnresolved
-			}
+		id, ok := h.user(ref)
+		if !ok {
+			return Planned{}, ErrSendUnresolved
 		}
 		return h.ic.PlanPersonChat(p.UserID, id)
+	case kind == "chat":
+		var with []ident.ID
+		for _, m := range strings.Split(ref, ",") {
+			k, r, _ := strings.Cut(m, ":")
+			id, ok := h.user(r)
+			if k != "user" || !ok {
+				return Planned{}, ErrSendUnresolved
+			}
+			with = append(with, id)
+		}
+		return h.ic.PlanPersonChat(p.UserID, with...)
 	case kind == "session":
-		return h.ic.PlanHome(p.UserID, ident.ID(ref))
+		return h.ic.PlanSessionDM(p.UserID, ref)
 	}
 	return Planned{}, ErrSendUnresolved
+}
+
+// user is the user ref names: their id, else their name.
+func (h *ParticipantSendHandler) user(ref string) (ident.ID, bool) {
+	if id, err := ident.Parse(ref); err == nil {
+		return id, true
+	}
+	return h.store.LookupName(ident.User, ref)
 }

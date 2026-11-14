@@ -1,0 +1,151 @@
+= Signing in and finding your way
+:page-area: ROOT
+:page-id: ROOT/start/signing-in
+:page-conventions: sentence-case
+
+The Jam app is one web app with two areas.
+You sign in once,
+and Jam decides which areas you may use.
+
+== Signing in
+
+Open your Jam's address in a browser.
+If you are not signed in,
+Jam sends you to your company's sign-in page (single sign-on, OIDC).
+After you sign in,
+Jam sends you back to the app.
+
+Jam then looks at who you are:
+
+* If you are a member of at least one xref:concepts/project.adoc[project],
+you are a *member*:
+you may use the Inbox.
+* If your sign-in gives you operator rights,
+you are an *admin*:
+you may use the admin console.
+* You can be both.
+
+A member lands on the Inbox,
+and an admin who is not a member lands on the admin console.
+If you are neither,
+Jam shows a *Not authorized* page instead.
+
+The *Not authorized* page says why.
+It also shows when your sign-in has partly expired,
+for example when an admin who is also a member opens the console
+after their operator rights lapsed.
+Click *Sign in again* to start a new sign-in.
+
+=== Signing in on the Jam's own machine
+
+A browser on the machine that runs Jam
+(or one that reaches it through an SSH tunnel)
+is always an admin.
+It needs no sign-in for the admin console;
+the account menu then reads *Local admin*.
+The Inbox still needs you to sign in,
+because it must know which person you are:
+it shows *Sign in to use the Inbox*.
+If you sign in there,
+you keep your own name and are an admin too.
+
+== The two areas
+
+The Inbox::
+At `/app/user`.
+Your channels, messages and asks, across all your projects
+(xref:inbox/channels.adoc[Reading and replying]).
+The admin console::
+At `/app/admin`.
+Where admins configure the Jam and watch its agents
+(xref:configuration/dashboard.adoc[The dashboard, search and health]).
+
+Every page has its own address,
+so you can bookmark it or send a link to it.
+
+== The title bar
+
+Every page starts with the same title bar.
+
+image::title-bar-admin.png[The title bar in the admin console,800]
+
+From left to right it shows:
+
+* The Jam's name, such as *Acme Jam*.
+* The tabs you may use:
+*Inbox* if you are a member,
+and *Dashboard*, *Config*, *Agents* and *Health* if you are an admin.
+The tab you are on is highlighted.
+An admin's tabs can carry a red or amber count of things that need attention
+(xref:configuration/dashboard.adoc#attention-badges[Attention badges]).
+* In the admin console, the search box
+(xref:configuration/dashboard.adoc#search[Search]).
+* The theme button.
+Each click moves to the next theme:
+light, then your device's setting, then dark.
+* Your account menu, behind the round button with your initial.
+It shows your name and whether you are a member, an admin, or both.
+In the Inbox it also holds this device's *Notifications*, *Sounds…* and *Connected apps…*
+(xref:inbox/account.adoc[Your account, app tokens and notifications]).
+*Sign out* is there too,
+except for a local admin who did not sign in.
+
+On a narrow screen,
+the *Config* pages put their tree behind the ☰ button.
+
+== Installing the app
+
+You can install the Jam app like a native app,
+so it opens in its own window.
+Use your browser's own command:
+*Install* in Chrome and Edge,
+*Add to Dock* in Safari on macOS,
+or *Add to Home Screen* on a phone.
+The app has no install button of its own.
+
+The installed app is named after your Jam.
+It is always online and always current:
+it keeps nothing for offline use.
+Installing works only when the Jam is served over HTTPS
+(or on `localhost`).
+On iPhone and iPad,
+only the installed app can show notifications and a badge.
+
+== Opening Jam from VS Code
+
+The Jam extension for VS Code (and VSCodium)
+puts your conversations in the editor
+and opens a session's studio over SSH in one click.
+
+. Install it with `jam vscode install`.
+Your Jam serves the extension that matches it.
+. Run *Jam: Sign In* in VS Code.
+Your browser opens a page that asks *Connect VS Code on …?*.
+It names the person you act as.
+Click *Allow*.
+VS Code then has an app token for you,
+which you can revoke later under *Connected apps…*.
+. The *Conversations* view in the Jam side bar
+lists your conversations, the same way as the Inbox's rail.
+Click one to open it as a tab in the *Jam hub*,
+a VS Code window just for conversations.
+Double-click a session to open its studio window.
+
+To open a session's studio from the web app instead,
+use *Open in VS Code* in the session's header
+(xref:inbox/session.adoc[Watching a session]).
+
+ifdef::internal[]
+== Notes for the team
+
+* Routes and the login: `docs/modules/ROOT/pages/usage/jam/ui.adoc` (the `/app` gate, its cookies, loopback trust, the 403 page, old `/ui` and `/me` redirects).
+The gate is `internal/jam/appui/gate.go`; the title bar is `internal/jam/appui/titlebar.go` and `web/app/src/shell/TitleBar.tsx`.
+* Admin means the login's access token carries `operator-auth.oidc.require-scope`.
+With `require-scope` empty, every signed-in user is an admin.
+Off loopback, browser login needs `operator-auth.oidc.browser-client-id` and TLS.
+* `/` and `/app/` send a member to `/app/user/` and an admin who is not one to `/app/admin/` (`landing` in `internal/jam/appui/mux.go`).
+* The consent page is `internal/jam/apptoken/consent.html`.
+App tokens: `docs/modules/ROOT/pages/usage/jam/app-tokens.adoc`.
+The extension: `docs/modules/ROOT/pages/usage/jam/vscode.adoc` and `vscode-hub.adoc`.
+* The customer manual is served at `/app/manual/` to anyone signed in, but nothing in the app links to it yet.
+endif::[]

@@ -64,7 +64,7 @@ export interface ChannelRow {
   id: string;
   label: string;
   project: string;
-  kind: string;
+  kind: string; // the conversation kind: dm | group | room | work | session (a session's own channel)
   needsYou: boolean;
   phase: string;
   unread: number /* int */;
@@ -82,10 +82,16 @@ export interface ChannelRow {
    */
   ssh: boolean;
   /**
-   * Card is a session channel's status card; nil for rooms, chats, and a
-   * channel with no active session.
+   * Card is the status card of the session the row stands for (a session
+   * channel's own, or a dm's agent); nil for rooms, work logs, groups, dms
+   * with people, and a channel with no active session.
    */
   card?: SessionCard;
+  /**
+   * SessionView is the conversation that is the card's session view (its
+   * session's home channel), when the viewer may open it ("" = none).
+   */
+  sessionView: string;
 }
 /**
  * CardState is a status card's state: its sparkline level and pill colour.
@@ -212,7 +218,7 @@ export interface AskRef {
 export interface Conversation {
   channelId: string;
   label: string;
-  kind: string;
+  kind: string; // as ChannelRow.Kind
   project: string;
   phase: string;
   needsYou: boolean;
@@ -232,8 +238,8 @@ export interface Conversation {
   sessions: SessionRow[];
   openAsks: AskCard[]; // the channel's open asks (the panel above the stream)
   /**
-   * Membership controls: Join (a channel they can see but aren't in),
-   * Leave (one they're in; never a chat), and who they may call in.
+   * Membership controls: Join (a room or work log they can see but aren't
+   * in), Leave (one they're in), and who they may call in (a room's).
    */
   canJoin: boolean;
   canLeave: boolean;
@@ -254,10 +260,11 @@ export interface Conversation {
   color?: string;
 }
 /**
- * NewMessageOption is one recipient offered in the New Message picker.
+ * NewMessageOption is one recipient offered in the New Message picker (or
+ * a Call in list). Kind is person, agent, work (a unit of work), or room.
  */
 export interface NewMessageOption {
-  to: string; // POST api/messages' "to": user:<id>, session:<id>, or a channel id
+  to: string; // POST api/messages' "to": user:<id>, session:<id>, or a channel id (a unit of work's: its log)
   label: string;
   kind: string;
   project: string;
@@ -486,11 +493,82 @@ export interface ThinkingStream {
 }
 /**
  * ThinkingPage is GET api/sessions/{id}/thinking: a stream's events below
- * ?before=, in seq order; Before > 0: older ones exist below it.
+ * ?before= (and above ?after=, a turn's fold), in seq order; Before > 0:
+ * older ones exist below it.
  */
 export interface ThinkingPage {
   events: ThinkingEvent[];
   before: number /* uint64 */;
+}
+/**
+ * SessionActivity is GET api/sessions/{id}/activity: a page of the messages
+ * the session authored or was delivered, in every conversation, oldest
+ * first, paged like read (?anchor=start|end|id&id=&dir=forward|backward&limit=).
+ */
+export interface SessionActivity {
+  messages: ActivityRow[];
+  /**
+   * PageFirst and PageLast are the page's first and last message ids, the
+   * anchors of the next page either way ("" on an empty page); Earlier and
+   * Later report whether messages exist before and after the page.
+   */
+  pageFirst: string;
+  pageLast: string;
+  earlier: boolean;
+  later: boolean;
+  /**
+   * Turns are the session's turns whose thinking folds into this page, by
+   * start: from its first message to the next page's first (the oldest
+   * page from the beginning, the newest on to now).
+   */
+  turns: TurnFold[];
+  /**
+   * Limited are the page's conversations where the agent-to-agent limit is
+   * tripped (Resume: POST api/conversations/{id}/resume).
+   */
+  limited: ConversationRef[];
+  /**
+   * SendTo is the composer's POST api/messages "to": a dm with the session
+   * ("" once it has ended). Ended: the session is gone (no header or pane).
+   */
+  sendTo: string;
+  ended: boolean;
+  label: string;
+  color?: string;
+}
+/**
+ * ActivityRow is one message of a session's activity: the message as a
+ * conversation shows it, the conversation it's in, and whether the session
+ * wrote it (Out) or was delivered it.
+ */
+export interface ActivityRow extends MessageRow {
+  id: string;
+  conversation: ConversationRef;
+  out: boolean;
+}
+/**
+ * ConversationRef names a conversation: its id, kind (dm, group, room,
+ * work, or session), and label.
+ */
+export interface ConversationRef {
+  id: string;
+  kind: string;
+  label: string;
+}
+/**
+ * TurnFold is one turn of the session's thinking, folded between its
+ * activity's messages: open it with GET api/sessions/{id}/thinking?stream=
+ * &after=&before= (the seqs around the turn's events). Start and End are
+ * Unix ms.
+ */
+export interface TurnFold {
+  stream: string;
+  turn: number /* uint32 */;
+  start: number /* int64 */;
+  end: number /* int64 */;
+  after: number /* uint64 */;
+  before: number /* uint64 */;
+  events: number /* int */;
 }
 /**
  * ThinkingRaw is GET api/sessions/{id}/thinking/raw: one event's pretty JSON,

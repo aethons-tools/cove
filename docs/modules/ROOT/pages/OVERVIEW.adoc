@@ -4,7 +4,7 @@
 :owns: the project overview: studio image assembly, security model, package map
 :prereqs: none
 :tier: leaf
-:updated: 2026-11-11
+:updated: 2026-11-14
 
 This repo builds Jam and the *hardened Claude Code studios* it runs: a Studio
 Manager assembles each studio image (a kit base, the harness layer, then the
@@ -70,7 +70,7 @@ Sitting after the kit base, a CLI bump rebuilds only from this stage on (Docker
 layer cache). It needs no secret — the install is unauthenticated.
 . *Non-overridable hardening* (embedded; `FROM harness`) —
 `nftables.conf`, `squid.conf` (its four additive allow-list ACLs — base, infra, kit, session — and the empty session egress file the session ACL reads), sshd hardening, the entrypoint and its `/agent-data` seeding _mechanism_ (`seed-agent-data.sh` — not the seeded content), `sshd` `AcceptEnv` config, the git credential helper, the managed Claude settings, the sealed env (`+CLAUDE_CONFIG_DIR=/agent-data+`, the proxy vars), the version-locked `jam-studio-agent` binary, and — for the opt-in `+docker:true+` boot path — the systemd egress unit (`jam-egress.service`) plus the `docker`/`ssh` ordering drop-ins and the inner-dockerd `daemon.json` (see the https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#d-init-model--daemon-lifecycle[Sysbox docker-in-sandbox design]).
-. *Generated* — the kit's egress list (baked into `+allowed_domains.kit.txt+` and the `+egress_ceiling.txt+` bound), the Jam host into `+allowed_domains.infra.txt+`, the kit's MCP servers, and the managed public key (see <<egress-four-additive-allow-lists-and-a-ceiling,Egress: four additive allow-lists and a ceiling>>).
+. *Generated* — the kit's egress list (baked into `+allowed_domains.kit.txt+` and the `+egress_ceiling.txt+` bound), the Jam host (and the destinations domain's subdomains, if set) into `+allowed_domains.infra.txt+`, the kit's MCP servers, and the managed public key (see <<egress-four-additive-allow-lists-and-a-ceiling,Egress: four additive allow-lists and a ceiling>>).
 
 The kit's *``image/``* is _not_ overlaid here — it is the Docker *build context*
 for the kit's `image/Dockerfile`, which selects/builds the base the manager hardens
@@ -172,7 +172,7 @@ the sealed base or the `nftables` lock:
 |file |source |when |scope
 
 |`+allowed_domains.txt+` |sealed hardening |baked |base, unconditional
-|`+allowed_domains.infra.txt+` |the Jam host (the manager's `colima.jam-host`) |baked at build |every studio; a role can't remove it
+|`+allowed_domains.infra.txt+` |the Jam host (the manager's `colima.jam-host`), and `+.<domain>+` when the manager sets `colima.destinations-domain` |baked at build |every studio; a role can't remove it
 |`+allowed_domains.kit.txt+` |the *active policy list*: the studio kit's `+egress:+` by default |baked at build; replaced at raise for a Jam role with a policy |every studio
 |`+allowed_domains.session.txt+` |baked *empty* (the per-session tier is unused) |baked |—
 |===
@@ -185,9 +185,17 @@ So a studio's effective egress is *``+base ∪ infra ∪ kit+``* (the kit list b
 the role's policy when it has one). The session file stays empty, so its ACL never
 dangles.
 
+*The destinations domain widens infra by its subdomains only.* If the Studio Manager
+sets `colima.destinations-domain`, the infra list holds `+.<domain>+`, and no other
+new name. The broker on that domain still checks each request's identity and
+destination (xref:usage/jam/destinations.adoc#studio-reach[]). A raise maps only the
+subdomain hosts of the role's granted destinations to the host gateway, and the
+manager refuses any host that is not one label under its domain before it reaches
+`docker run`. Without the domain, the image and its tag do not change.
+
 *A Jam role's egress replaces the policy list, within the ceiling, at raise.*
 When Jam raises a cove for a role with an egress policy
-(xref:usage/jam/roster.adoc#role-egress[`scope.egress`] in its file in the config repo), the manager runs the
+(xref:usage/jam/role-egress.adoc[`scope.egress`] in its file in the config repo), the manager runs the
 sealed, root-only `apply-role-egress.sh` via host `docker exec -u root` after sshd
 answers and *before jam-studio-agent (and so the agent) starts*. It reads the role's
 domains on stdin, refuses — changing nothing — any domain the ceiling doesn't cover
@@ -195,11 +203,11 @@ domains on stdin, refuses — changing nothing — any domain the ceiling doesn'
 only itself), then overwrites `+allowed_domains.kit.txt+`, clears the session file, and
 runs `squid -k reconfigure`. The base and infra lists stay on. A role with no policy
 keeps the kit default; a failed apply fails the raise
-(xref:usage/jam/coves.adoc#raising-a-real-managed-studio[coves]). When the role's policy
+(xref:usage/jam/coves-raise.adoc[coves-raise]). When the role's policy
 later changes, Jam re-applies it to the role's running coves the same way
 (`+apply-role-egress.sh --kit-default+` restores the ceiling's list when the policy is
 cleared; that mode takes no domains) —
-see xref:usage/jam/coves.adoc#egress-drift[egress drift].
+see xref:usage/jam/coves-raise.adoc#egress-drift[egress drift].
 
 *Nested-container egress is contained too.* The `nftables` `output` chain locks the
 agent's _direct_ egress (only the `proxy` user reaches the network); a `forward` chain
@@ -226,7 +234,7 @@ How the running pieces connect:
 
 |Jam (`jam serve`) |anywhere, including xref:usage/jam/container.adoc[a container] |xref:usage/jam/serve.adoc[]
 |Studio Managers (`jam-colima`) |bare-metal next to their substrate (Colima), dialing Jam |xref:usage/jam-colima.adoc[], xref:usage/jam/studio-managers.adoc[]
-|Studios (`jam-studio-agent`) |on a manager's host, dialing Jam's Attach stream |xref:usage/jam/coves.adoc#jam-studio-agent-the-in-cove-client[coves]
+|Studios (`jam-studio-agent`) |on a manager's host, dialing Jam's Attach stream |xref:usage/jam/studio-agent.adoc#jam-studio-agent-the-in-cove-client[studio-agent]
 |===
 
 A pure *plan* (what to do) is separated from *execution* (doing it),
@@ -238,7 +246,7 @@ a `Fake` records calls for tests.
 ----
 cmd/jam/                       jam: `serve` (broker + control plane + Requisitioner) and the admin-API client verbs
 internal/mintcmd/              `jam mint`: the host-side token minter (github / anthropic)
-cmd/jam-colima/                remote Studio Manager: dials Jam, hosts studios on a Colima host (logic in internal/studiomanager/; colima verbs in internal/colimacmd/)
+cmd/jam-colima/                remote Studio Manager: dials Jam, hosts studios on a Colima host
 cmd/jam-studio-agent/          the in-studio agent supervisor (embedded in every studio image)
 cmd/{adopt-base,gen-blessed,gen-icons}/  dev tools: raise the blessed watermark, snapshot blessed bases, regenerate app icons
 internal/jam/                  broker + control plane (store, roster, intercom, admin API/UI); internal/jam/launcher is the code a Studio Manager raises studios with
@@ -259,6 +267,30 @@ internal/keys/                 a Studio Manager's SSH keypair (generated on firs
 internal/naming/               studio container and volume names
 internal/{usersecret,mint,secret}/  Jam's credentials file, mint: expansion, host-side resolution
 internal/sshargs/              pure argv builders for the ssh client
+internal/studiomanager/        the generic Studio Manager host runtime (config, connect loop, Jam's ops) jam-colima runs
+internal/colimacmd/            jam-colima's `colima setup-docker|check-docker` verbs
+internal/colimacfg/            pure colima.yaml edit: Sysbox provision hook + sysbox-runc runtime
+internal/studioagent/          jam-studio-agent's Attach-stream client: activity up, control down
+internal/agentrun/             jam-studio-agent's agent wrapper: runs the agent headless as episodes
+internal/tracker/              the one tracker contract (Tracker) the trackers implement
+internal/ticketkey/            validated, canonical GitHub ticket keys (owner/repo#n)
+internal/allocator/            Jam's capacity authority: admits sessions per (project, role) against a budget
+internal/standing/             standing-session reconciler: one live cove per declared standing session
+internal/wakeon/               wake-on engine: wakes Waiting coves on replies, tears down past max-wait
+internal/escalate/             escalation engine: calls tiers of people into a waiting session's channel and a dm or group with it
+internal/intercom/             the durable, append-only squawk Log
+internal/relay/                squawk Log adapter engine: bridges the Log to an external Service
+internal/blobstore/            attachment bytes in an S3-compatible bucket (or memory)
+internal/kittree/              a kit version's files as a content-addressed tree
+internal/ident/                Jam's surrogate ids: opaque, kind-prefixed, time-sortable
+internal/legacynames/          the pre-rename names Jam's migrations and refusals still recognise
+internal/update/               `jam update`: drives the embedded install.sh to update the binaries
+internal/adoptbase/            pure file transform behind cmd/adopt-base (raise the blessed watermark)
+internal/blessgen/             generates the blessed jam-studio-base list at build time
+internal/cli/                  zero-dependency command registry shared by the binaries
+internal/logging/              slog-based logging: attended and unattended modes
+internal/textesc/              makes untrusted text inert for a terminal, a plan or a page
+internal/numfmt/               display formatting: thousands separators, binary sizes
 internal/runner/               Runner interface (OS impl + Fake)
 ----
 

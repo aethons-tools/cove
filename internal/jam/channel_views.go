@@ -13,12 +13,12 @@ import (
 // may see; unread is their deliveries above their read cursor. The synthetic
 // projection in channels.go now only serves the legacy log (the History).
 
-// viewKind maps a channel kind onto the rail's kinds: a chat is a
-// conversation with its people and sessions (DM), a ticket or a session's
+// viewKind maps a channel kind onto the rail's kinds: a dm or a group is a
+// conversation with its people and sessions (DM), a work log or a session's
 // own channel is a studio's conversation, a room a named channel.
 func viewKind(k SourceKind) ChannelKind {
 	switch k {
-	case SourceTicket, SourceSession:
+	case SourceWork, SourceSession:
 		return ChannelStudio
 	case SourceRoom:
 		return ChannelNamed
@@ -96,7 +96,7 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 	if !ok || !ic.CanSee(u, ch) {
 		return ChannelView{}, false
 	}
-	v := ChannelView{ID: string(ch.ID), Kind: viewKind(ch.Kind), Label: ch.Label}
+	v := ChannelView{ID: string(ch.ID), Kind: viewKind(ch.Kind), Source: ch.Kind, Label: ch.Label}
 	if e, ok := store.Resolve(ch.ProjectID); ok {
 		v.Project = e.Name
 	}
@@ -105,12 +105,13 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 	}
 	var others []string
 	// The mission shown is the channel's own session's (SourceSession), the
-	// latest-raised active session's (SourceTicket), or a chat's only active
-	// session's; rooms show none. The same session stands for a studio
-	// channel's status card (CardSession); chats and rooms have no card.
+	// latest-raised active session's (SourceWork), or a dm's or group's only active
+	// session's; rooms show none. A session channel's own session and a dm's
+	// active agent stand for the row's status card (CardSession); work logs,
+	// groups, and rooms have none: they show their name.
 	var active int
 	var latest time.Time
-	var chatMission string
+	var chatMission, chatSession string
 	for _, m := range store.ChannelMembers(ch.ID) {
 		if m.ParticipantID == u {
 			continue
@@ -127,16 +128,16 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 					if inst.ActorID == ch.Key {
 						v.Mission, v.CardSession = inst.Mission, inst.ActorID
 					}
-				case SourceTicket:
+				case SourceWork:
 					if active == 1 || inst.RaisedAt.After(latest) {
-						v.Mission, v.CardSession, latest = inst.Mission, inst.ActorID, inst.RaisedAt
+						v.Mission, latest = inst.Mission, inst.RaisedAt
 					}
-				case SourceChat:
-					chatMission = inst.Mission
+				case SourceDM, SourceGroup:
+					chatMission, chatSession = inst.Mission, inst.ActorID
 				}
 			}
 		}
-		if ch.Kind == SourceChat {
+		if IsChat(ch.Kind) {
 			others = append(others, ic.PartyOf(m.ParticipantID).Label)
 		}
 	}
@@ -146,10 +147,13 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 			v.NeedsYou = true
 		}
 	}
-	if ch.Kind == SourceChat && active == 1 {
+	if IsChat(ch.Kind) && active == 1 {
 		v.Mission = chatMission
 	}
-	if ch.Kind == SourceChat && len(others) > 0 {
+	if ch.Kind == SourceDM && active == 1 {
+		v.CardSession = chatSession
+	}
+	if IsChat(ch.Kind) && len(others) > 0 {
 		v.Label = strings.Join(others, ", ")
 	}
 	return v, true

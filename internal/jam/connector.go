@@ -23,13 +23,47 @@ func ScopesFor(store Store, a Actor) []Scope {
 	return scopes
 }
 
+// DestinationHostsFor is the sorted, unique hosts (<sub>.<domain>) of the
+// subdomain endpoints of the destinations a's grants name, on this Jam's
+// destinations domain; nil without one. Only granted destinations count: a
+// studio resolves the subdomains its role may use, not every one.
+func DestinationHostsFor(store Store, a Actor) []string {
+	domain := DestinationsDomain()
+	if domain == "" {
+		return nil
+	}
+	inScope := map[string]bool{}
+	for _, s := range ScopesFor(store, a) {
+		for _, n := range s.Destinations {
+			inScope[n] = true
+		}
+	}
+	var hosts []string
+	for _, d := range store.ListDestinations() {
+		if !inScope[d.Name] {
+			continue
+		}
+		for _, e := range d.Endpoints {
+			if host, err := e.hostOn(domain); err == nil && host != "" {
+				hosts = append(hosts, host)
+			}
+		}
+	}
+	slices.Sort(hosts)
+	return slices.Compact(hosts)
+}
+
 // ConnectorFor assembles the client connector for an actor: the union of the
 // ClientEnv of every destination in its effective scopes, plus git routing when
-// one of them routes git, plus the model-spec its roles resolve to
-// (ModelSpecFor) — so a cove re-reads its spec with every connector refresh. Unknown destination names contribute nothing. Two
-// destinations setting one variable to different values, or two different git
-// routes, are an error — fail closed rather than pick one.
+// one of their endpoints routes git, plus the model-spec its roles resolve to
+// (ModelSpecFor) — so a cove re-reads its spec with every connector refresh.
+// Endpoint placeholders and a git endpoint's host resolve on the destinations
+// domain (DestinationsDomain). Unknown destination names contribute nothing.
+// Two destinations setting one variable to different values, two different
+// git routes, or an endpoint on a subdomain this Jam cannot name, are an
+// error — fail closed rather than pick one.
 func ConnectorFor(store Store, a Actor) (snippet.Connector, error) {
+	domain := DestinationsDomain()
 	byName := map[string]Destination{}
 	for _, d := range store.ListDestinations() {
 		byName[d.Name] = d
@@ -57,7 +91,11 @@ func ConnectorFor(store Store, a Actor) (snippet.Connector, error) {
 		if err := d.ValidateEnv(); err != nil {
 			return snippet.Connector{}, fmt.Errorf("destination %q: %w", name, err)
 		}
-		for k, v := range d.ClientEnv() {
+		env, err := d.clientEnv(domain)
+		if err != nil {
+			return snippet.Connector{}, fmt.Errorf("destination %q: %w", name, err)
+		}
+		for k, v := range env {
 			if prev, seen := owner[k]; seen && c.Env[k] != v {
 				return snippet.Connector{}, fmt.Errorf("destinations %q and %q set %s differently", prev, name, k)
 			}
@@ -66,11 +104,19 @@ func ConnectorFor(store Store, a Actor) (snippet.Connector, error) {
 			}
 			c.Env[k], owner[k] = v, name
 		}
-		if d.GitRouted() {
-			if c.GitRoute != "" && c.GitRoute != d.Route {
-				return snippet.Connector{}, fmt.Errorf("more than one git destination in scope (%s, %s)", c.GitRoute, d.Route)
+		for _, e := range d.GitEndpoints() {
+			host, err := e.hostOn(domain)
+			if err != nil {
+				return snippet.Connector{}, fmt.Errorf("destination %q: %w", name, err)
 			}
-			c.GitRoute, c.GitTarget = d.Route, snippet.GitTargetFor(d.Upstream)
+			route := e.Route
+			if route == "" { // an endpoint taking every path on its subdomain
+				route = "/"
+			}
+			if c.GitRoute != "" && (c.GitRoute != route || c.GitHost != host) {
+				return snippet.Connector{}, fmt.Errorf("more than one git destination in scope (%s, %s)", c.GitHost+c.GitRoute, host+route)
+			}
+			c.GitRoute, c.GitHost, c.GitTarget = route, host, snippet.GitTargetFor(e.Upstream)
 		}
 	}
 	spec, err := ModelSpecFor(store, a)

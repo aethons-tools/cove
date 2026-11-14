@@ -188,6 +188,9 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		To          string   `json:"to"`
 		ContentType string   `json:"content_type,omitempty"` // "" = text/markdown
 		Attachments []string `json:"attachments,omitempty"`  // uploaded blob refs
+		// Mentions are session:<label|id> targets naming session members of
+		// the conversation (conversations.adoc#wake).
+		Mentions []string `json:"mentions,omitempty"`
 		// Auto marks the cove posting the session's turn-end text for it.
 		Auto bool `json:"auto,omitempty"`
 	}
@@ -223,6 +226,9 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 	// is planned against the role's addressing.
 	pl, err := h.ic.Plan(Poster{ID: ident.ID(actor.ID), Session: &inst, Actor: &actor}, req.To, h.now())
 	switch {
+	case errors.Is(err, ErrNoWorker):
+		writeNoWorker(w)
+		return
 	case errors.Is(err, ErrSendDenied):
 		http.Error(w, "target not authorized", http.StatusForbidden)
 		return
@@ -236,6 +242,14 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 		h.log.Error("intercom: plan failed", "actor", actor.ID, "error", err.Error())
 		http.Error(w, "send failed", http.StatusInternalServerError)
 		return
+	}
+	if len(req.Mentions) > 0 {
+		named, err := h.ic.ResolveMentions(pl.Channel, req.Mentions)
+		if err != nil {
+			http.Error(w, "mention not found: each must be a session: target naming a session member of the conversation", http.StatusBadRequest)
+			return
+		}
+		parts = append(parts, intercom.MentionsPart(named))
 	}
 	if req.Auto {
 		if h.repeats(pl.Channel.ID, ident.ID(actor.ID), req.Body) {
@@ -265,6 +279,14 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 	}{ID: m.ID, Channel: ch}); err != nil {
 		h.log.Error("intercom: encode send response failed", "actor", actor.ID, "error", err.Error())
 	}
+}
+
+// writeNoWorker answers a worker:<key> send whose unit has no current
+// worker: 409 {"error": "no-worker"}.
+func writeNoWorker(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusConflict)
+	_, _ = w.Write([]byte(`{"error":"no-worker"}` + "\n"))
 }
 
 // autoDupWindow and autoDupScan bound the duplicate check on an auto post:
@@ -313,18 +335,34 @@ func (h *SquawksHandler) handleTargets(w http.ResponseWriter, r *http.Request, a
 		tracker = h.ic.Tracker
 	}
 	targets := ListTargets(h.store, tracker, actor, h.now())
-	out := make([]targetOut, 0, len(targets)+1)
-	// The session's own ticket, by its key on the tracker (canonical on
-	// github; a Unit that is no github key has no ticket there).
+	out := make([]targetOut, 0, len(targets)+2)
+	seen := map[string]bool{}
+	add := func(kind, name string) {
+		if t := kind + ":" + name; !seen[t] {
+			seen[t] = true
+			out = append(out, targetOut{Target: t, Kind: kind, Name: name})
+		}
+	}
+	// What a session may always message: its own unit's log, by its key on
+	// the tracker (canonical on github; a Unit that is no github key has no
+	// log there), and a personal session's starter.
 	unit, onTicket := inst.Unit, inst.Unit != ""
 	if id, ok := trackerOrDefault(h.store, tracker); ok {
 		unit, onTicket = TicketUnit(h.store, id, inst.Unit)
 	}
 	if onTicket {
-		out = append(out, targetOut{Target: "ticket:" + unit, Kind: "ticket", Name: unit})
+		add("work", unit)
+	}
+	if h.ic != nil {
+		p, ok := h.store.GetProject(orDefaultProject(inst.Project))
+		if starter, isPersonal := h.ic.starter(inst); ok && isPersonal && h.ic.projectUser(p.ID, starter) {
+			if u, ok := h.store.GetUser(starter); ok {
+				add("user", u.Name)
+			}
+		}
 	}
 	for _, t := range targets {
-		out = append(out, targetOut{Target: t.Kind + ":" + t.Name, Kind: t.Kind, Name: t.Name})
+		add(t.Kind, t.Name)
 	}
 	h.log.Info("intercom", "actor", actor.ID, "op", "targets", "count", len(out))
 	w.Header().Set("Content-Type", "application/json")

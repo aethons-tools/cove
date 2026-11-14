@@ -100,7 +100,7 @@ func TestChannelMissionSession(t *testing.T) {
 
 func TestChannelMissionTicketLatest(t *testing.T) {
 	f := newICFixture(t)
-	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceTicket, Key: "t/ACME-9", Label: "ACME-9"})
+	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceWork, Key: "t/ACME-9", Label: "ACME-9"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestChannelMissionChatAndRoom(t *testing.T) {
 	f.putMission(&f.standing, "other", PhaseLive)
 	chat := func(key string) Channel {
 		t.Helper()
-		ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceChat, Key: key})
+		ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceDM, Key: key})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -167,23 +167,84 @@ func TestChannelCardSession(t *testing.T) {
 	if v := f.missionView(f.sessionChannel(f.personal)); v.CardSession != f.personal.ActorID {
 		t.Fatalf("session channel CardSession = %q, want %q", v.CardSession, f.personal.ActorID)
 	}
-	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceTicket, Key: "t/ACME-9", Label: "ACME-9"})
+	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceWork, Key: "t/ACME-9", Label: "ACME-9"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	older, newer := f.ticket, f.ticket
-	newer.ActorID = string(ident.New(ident.Session))
-	older.RaisedAt, newer.RaisedAt = f.now.Add(-time.Hour), f.now
-	f.putMission(&newer, "", PhaseLive)
-	f.putMission(&older, "", PhaseLive)
-	if v := f.missionView(ch, f.alice.ID, ident.ID(older.ActorID), ident.ID(newer.ActorID)); v.CardSession != newer.ActorID {
-		t.Fatalf("ticket CardSession = %q, want the later-raised %q", v.CardSession, newer.ActorID)
+	f.putMission(&f.ticket, "", PhaseLive)
+	if v := f.missionView(ch, f.alice.ID, ident.ID(f.ticket.ActorID)); v.CardSession != "" {
+		t.Fatalf("work log CardSession = %q, want none (a work log shows its name)", v.CardSession)
 	}
-	chat, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceChat, Key: "one"})
-	if err != nil {
+	create := func(kind SourceKind, key string) Channel {
+		t.Helper()
+		c, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: kind, Key: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	if v := f.missionView(create(SourceDM, "one"), ids(f.alice, f.standing)...); v.CardSession != f.standing.ActorID {
+		t.Fatalf("dm with an agent: CardSession = %q, want %q", v.CardSession, f.standing.ActorID)
+	}
+	if v := f.missionView(create(SourceGroup, "three"), ids(f.alice, f.bob, f.standing)...); v.CardSession != "" {
+		t.Fatalf("group CardSession = %q, want none", v.CardSession)
+	}
+	if v := f.missionView(create(SourceDM, "people"), ids(f.alice, f.bob)...); v.CardSession != "" {
+		t.Fatalf("dm with a person: CardSession = %q, want none", v.CardSession)
+	}
+	ended := Instance{ActorID: string(ident.New(ident.Session)), Project: "acme", Role: "impl", Phase: PhaseGone}
+	if err := f.store.PutInstance(ended); err != nil {
 		t.Fatal(err)
 	}
-	if v := f.missionView(chat, ids(f.alice, f.standing)...); v.CardSession != "" {
-		t.Fatalf("chat CardSession = %q, want none", v.CardSession)
+	if v := f.missionView(create(SourceDM, "ended"), ids(f.alice, ended)...); v.CardSession != "" {
+		t.Fatalf("dm with an ended agent: CardSession = %q, want none", v.CardSession)
+	}
+}
+
+// The rail's groups (conversations.adoc#kinds; the manual's inbox/channels):
+// a dm or a group with a live, starting, or paused agent is under Agents;
+// rooms, work logs, dms with people, and dms with ended agents are
+// Conversations. Every view carries its conversation kind.
+func TestChannelBucketByKind(t *testing.T) {
+	f := newICFixture(t)
+	ended := Instance{ActorID: string(ident.New(ident.Session)), Project: "acme", Role: "impl", Phase: PhaseGone}
+	paused := Instance{ActorID: string(ident.New(ident.Session)), Project: "acme", Role: "impl", Phase: PhaseIdled}
+	for _, inst := range []Instance{ended, paused} {
+		if err := f.store.PutInstance(inst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	create := func(kind SourceKind, key string) Channel {
+		t.Helper()
+		c, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: kind, Key: key, Label: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	tests := []struct {
+		name    string
+		ch      Channel
+		members []ident.ID
+		want    AttentionBucket
+	}{
+		{"dm with a live agent", create(SourceDM, "live"), ids(f.alice, f.standing), BucketActive},
+		{"dm with a paused agent", create(SourceDM, "paused"), ids(f.alice, paused), BucketActive},
+		{"group with a live agent", create(SourceGroup, "group"), ids(f.alice, f.bob, f.standing), BucketActive},
+		{"dm with an ended agent", create(SourceDM, "ended"), ids(f.alice, ended), BucketChannels},
+		{"dm with a person", create(SourceDM, "people"), ids(f.alice, f.bob), BucketChannels},
+		{"work log with a live worker", create(SourceWork, "t/ACME-9"), ids(f.alice, f.ticket), BucketChannels},
+		{"room with a live agent", f.room, ids(f.alice, f.standing), BucketChannels},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := f.missionView(tt.ch, tt.members...)
+			if got := v.Bucket(); got != tt.want {
+				t.Fatalf("Bucket = %q, want %q", got, tt.want)
+			}
+			if v.Source != tt.ch.Kind {
+				t.Fatalf("Source = %q, want %q", v.Source, tt.ch.Kind)
+			}
+		})
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
 	"github.com/aethons-tools/cove/internal/jam/collab"
@@ -53,9 +54,20 @@ type Deps struct {
 	// waits on it reads "is preparing its kit image" (managers.Hub.KitActivity;
 	// nil: never shown).
 	KitActivity jam.KitActivityFunc
+	// AgentLimit reports where the agent-to-agent limit is tripped, for the
+	// session view's Resume, and lifts it (nil: nowhere, and Resume is 503).
+	AgentLimit AgentLimit
 	// Images resolves a role's current kit (*jam.Supervisor), for the New
 	// session dialog's kit-build progress (nil: none shown).
 	Images ImageResolver
+}
+
+// AgentLimit is the agent-to-agent limit (conversations.adoc#rate-limit):
+// whether session messages in a conversation wake no session now, and
+// Resume, which lifts it there (*wakeon.Engine).
+type AgentLimit interface {
+	Tripped(ch ident.ID) bool
+	Resume(ch ident.ID) error
 }
 
 // ImageResolver is the supervisor's resolution of the image a raise of a
@@ -83,8 +95,8 @@ const bucketHistory jam.AttentionBucket = "history"
 
 var bucketTitle = map[jam.AttentionBucket]string{
 	jam.BucketNeedsYou: "Needs you",
-	jam.BucketActive:   "Sessions",
-	jam.BucketChannels: "Channels",
+	jam.BucketActive:   "Agents",
+	jam.BucketChannels: "Conversations",
 	bucketHistory:      "History (before the upgrade)",
 }
 
@@ -147,8 +159,20 @@ func legacyChannels(p jam.Participant, d Deps) []jam.ChannelView {
 	return all
 }
 
+// legacyKind is a History conversation's kind, in the conversation model's
+// words.
+var legacyKind = map[jam.ChannelKind]string{jam.ChannelNamed: "room", jam.ChannelDM: "dm", jam.ChannelStudio: "session"}
+
+// viewKind is the conversation kind the app shows for ch.
+func viewKind(ch jam.ChannelView) string {
+	if ch.Source != "" {
+		return string(ch.Source)
+	}
+	return legacyKind[ch.Kind]
+}
+
 // groupRail groups channels into the attention-ordered rail (Needs you →
-// Active → Channels); within a group, most-recent first, then id. Empty groups
+// Agents → Conversations); within a group, most-recent first, then id. Empty groups
 // are dropped. selectedID marks the open channel.
 func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 	byBucket := map[jam.AttentionBucket][]ChannelRow{}
@@ -167,7 +191,7 @@ func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 			ID:          ch.ID,
 			Label:       ch.Label,
 			Project:     ch.Project,
-			Kind:        ch.Kind,
+			Kind:        viewKind(ch),
 			NeedsYou:    ch.NeedsYou,
 			Phase:       ch.Phase,
 			Unread:      ch.Unread,

@@ -4,7 +4,7 @@
 :owns: the kit-set story — path-parent syntax and resolution, set naming/order/pinning, the stored name@vN rewrite, set atomicity, set track/sync, the set refusals and their texts, set locking and its accepted race, the `also` result, the CLI ancestor lines, the UI flash suffix and the kit page's set note
 :prereqs: kits-inheritance.adoc for `base.kit`, follow vs pin and the chain rules; kits-git.adoc for sources, import vs track/sync and provenance
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-13
 
 A kit in a git repo can build on another kit *in the same repo* by path. The
 repo is then a unit: importing, tracking or syncing the child brings in its
@@ -131,7 +131,7 @@ line: `pass:c[  web-dev v2 (with app)]`, or `pass:c[  web-dev unchanged (v1)]`.
 * *Kit page:* the track and sync flash ends with `+With: web-dev v2+` (adding
 `(unchanged)` per ancestor). The Source card notes `+Part of a set with web-dev — imported from the same repo.+` It lists the chain parents, of the
 viewed version, whose resolved version came from the same repo at another
-dir (xref:usage/jam/ui-pages.adoc#kit-pages[ui-pages.adoc]).
+dir (xref:usage/jam/ui-kit-pages.adoc[]).
 
 The design is in
 https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-20-kit-git-sources-and-inheritance-design.md[`../../superpowers/specs/2026-10-20-kit-git-sources-and-inheritance-design.md`]

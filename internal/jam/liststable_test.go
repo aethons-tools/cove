@@ -16,7 +16,7 @@ func TestListsAreSortedByKey(t *testing.T) {
 		must(t, st.AddActor(Actor{ID: n, TokenHash: "h-" + n}))
 		must(t, st.PutRole("acme", Role{Name: n}))
 		must(t, st.PutInstance(Instance{ActorID: n, Project: "acme", Role: n}))
-		must(t, st.AddDestination(Destination{Name: n, Route: "/" + n + "/", Upstream: "https://" + n}))
+		must(t, st.AddDestination(Destination{Name: n, Endpoints: []Endpoint{{Name: n, Route: "/" + n + "/", Upstream: "https://" + n}}}))
 		if _, err := st.PushKit(n, "x: 1\n"); err != nil {
 			t.Fatal(err)
 		}

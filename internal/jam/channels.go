@@ -65,23 +65,39 @@ type ChannelView struct {
 	// shown: see userChannel for which session speaks for the channel.
 	Mission string
 	// CardSession is the actor id of the session whose status card stands
-	// for a studio channel (its own session, or a ticket's latest-raised
-	// active one); "" for rooms, chats, and channels with no active session.
+	// for the channel: a session channel's own session, or the active agent
+	// of a dm; "" for rooms, work logs, groups, dms with people, and channels
+	// with no active session.
 	CardSession string
+	// Source is the conversation's kind (dm, group, room, work, or a
+	// session's own channel); "" in the legacy projection.
+	Source SourceKind
 }
 
 // Bucket places the channel in the attention-ordered rail. NeedsYou wins; a
-// live/raising/idled session-backed channel is Active; everything else is a
-// plain Channel.
+// dm or a group with a live, starting, or paused agent (or, until the
+// migration removes them, a session's own channel) is Active (the rail's
+// Agents); everything else — rooms, work logs, dms with people or ended
+// agents — is a plain Channel (Conversations).
 func (c ChannelView) Bucket() AttentionBucket {
 	switch {
 	case c.NeedsYou:
 		return BucketNeedsYou
-	case activePhase(c.Phase) && (c.Kind == ChannelStudio || c.Kind == ChannelDM):
+	case activePhase(c.Phase) && c.withAgent():
 		return BucketActive
 	default:
 		return BucketChannels
 	}
+}
+
+// withAgent reports whether an active session makes the channel an agent's
+// conversation: a dm, a group, or a session's own channel (the legacy
+// projection: a studio or a dm).
+func (c ChannelView) withAgent() bool {
+	if c.Source == "" {
+		return c.Kind == ChannelStudio || c.Kind == ChannelDM
+	}
+	return IsChat(c.Source) || c.Source == SourceSession
 }
 
 // StudioChannelID derives a studio channel's id from its Instance.Unit.

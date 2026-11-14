@@ -33,12 +33,14 @@ func CallInInvitee(id string) (ident.ID, bool) {
 
 // IsLocalNotice reports whether a squawk id is one of Jam's own notes inside
 // a channel that the relays never render onto a ticket's issue or a room's
-// surface (only onto people's own inboxes): a call-in notice. The loop
-// breaker's notice is not one — it asks whoever follows the conversation, on
+// surface (only onto people's own inboxes): a call-in notice. The old loop
+// breaker's notice is not one — it asked whoever follows the conversation, on
 // any surface, to reply.
 func IsLocalNotice(id string) bool { return IsCallInNotice(id) }
 
-// IsBreakerNotice reports whether a squawk id is the loop breaker's notice.
+// IsBreakerNotice reports whether a squawk id is the old loop breaker's
+// notice: the agent-to-agent limit that replaced it posts none, but the log
+// keeps the ones it posted.
 func IsBreakerNotice(id string) bool { return strings.HasPrefix(id, "breaker:") }
 
 // IsNotice reports whether a squawk id is one of Jam's notices posted as a
@@ -47,21 +49,6 @@ func IsBreakerNotice(id string) bool { return strings.HasPrefix(id, "breaker:") 
 // session (wake-on).
 func IsNotice(id string) bool {
 	return strings.HasPrefix(id, "nag:") || strings.HasPrefix(id, "notice:") || IsCallInNotice(id) || IsBreakerNotice(id) || IsEscalationNotice(id)
-}
-
-// BreakerNotice posts the agent-to-agent loop breaker's notice (wake-on) into
-// live channel chID as from, trusted. A repeat of its id — the notice already
-// posted — and a channel that is gone are no error.
-func (ic *Intercom) BreakerNotice(chID, from ident.ID, id, body string) error {
-	ch, ok := ic.store.GetChannel(chID)
-	if !ok || ch.Status != StatusLive {
-		return nil
-	}
-	_, err := ic.PostTrusted(ch, intercom.Squawk{ID: id, From: from, Body: body, ContentType: intercom.ContentPlain})
-	if errors.Is(err, intercom.ErrDuplicateID) {
-		return nil
-	}
-	return err
 }
 
 // ErrFixedMembers refuses a membership change a channel doesn't take: a chat
@@ -97,7 +84,7 @@ func (ic *Intercom) CallIn(p Poster, chID ident.ID, who string) (Channel, ident.
 	if ch.Status != StatusLive {
 		return Channel{}, "", fmt.Errorf("%w: channel %s", ErrRemoved, ch.ID)
 	}
-	if ch.Kind == SourceChat {
+	if IsChat(ch.Kind) {
 		return Channel{}, "", ErrFixedMembers
 	}
 	project, ok := ic.projectOf(ch)
@@ -191,7 +178,7 @@ func (ic *Intercom) projectOf(ch Channel) (Project, bool) {
 // ErrSendDenied alike for a channel that doesn't exist or isn't theirs.
 func (ic *Intercom) JoinChannel(u, chID ident.ID) error {
 	ch, ok := ic.store.GetChannel(chID)
-	if !ok || u.Kind() != ident.User || ch.Kind == SourceChat || !ic.CanSee(u, ch) {
+	if !ok || u.Kind() != ident.User || IsChat(ch.Kind) || !ic.CanSee(u, ch) {
 		return ErrSendDenied
 	}
 	if ch.Status != StatusLive {
@@ -215,7 +202,7 @@ func (ic *Intercom) LeaveChannel(p, chID ident.ID) error {
 		}
 		return nil
 	}
-	if ch.Kind == SourceChat {
+	if IsChat(ch.Kind) {
 		return ErrFixedMembers
 	}
 	if isSessionID(p) {

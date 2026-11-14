@@ -63,7 +63,7 @@ func TestConnectorHandler(t *testing.T) {
 }
 
 func TestConnectorHandlerConflict(t *testing.T) {
-	clash := Destination{Name: "y", Route: "/y/", Upstream: "https://y", Env: map[string]string{"GH_HOST": "other"}}
+	clash := Destination{Name: "y", Endpoints: []Endpoint{{Name: "y", Route: "/y/", Upstream: "https://y"}}, Env: map[string]string{"GH_HOST": "other"}}
 	st := connectorStore(t, []Destination{ghAPI, clash}, map[string]Scope{"w": {Destinations: []string{"github-api", "y"}}})
 	tok, _ := MintToken()
 	if err := st.AddActor(Actor{ID: "a", TokenHash: HashToken(tok), Grants: []Grant{{Project: "p", Role: "w"}}}); err != nil {

@@ -332,13 +332,7 @@ func validateSnapshotContext(s ConfigSnapshot) error {
 		if len(d.Note) > MaxDestinationNote {
 			return bad("destination "+d.Name, fmt.Errorf("note is %d bytes; at most %d", len(d.Note), MaxDestinationNote))
 		}
-		if err := d.validateHeaderSpecs(); err != nil {
-			return bad("destination "+d.Name, err)
-		}
-		if err := d.ValidateAllowPaths(); err != nil {
-			return bad("destination "+d.Name, err)
-		}
-		if err := d.ValidateHeaderLogging(); err != nil {
+		if err := d.validateEndpoints(false, false); err != nil {
 			return bad("destination "+d.Name, err)
 		}
 	}
@@ -594,6 +588,9 @@ func importPlan(m *memState, s ConfigSnapshot) (ConfigSnapshot, humanPlan, error
 		return ConfigSnapshot{}, humanPlan{}, err
 	}
 	s = withReferencedProjects(deepCopySnapshot(s))
+	for i, c := range s.Channels { // an older Jam's chats and ticket channels
+		s.Channels[i] = upgradeKind(c)
+	}
 	var existing []Connection
 	for _, c := range m.connections {
 		existing = append(existing, c)

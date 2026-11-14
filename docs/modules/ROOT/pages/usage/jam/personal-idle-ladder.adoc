@@ -1,0 +1,63 @@
+= The personal-session idle ladder
+:summary: How Jam handles a personal session that waits on its owner — pause past `warm-timeout`, nags every `nag-every` after `idle-after`, answering a nag with `keep` or `release` (owner-only, the Discord user-id binding), and the optional reclaim after `reclaim-after`.
+:read_when: Your personal session is nagging you or was reclaimed and you want to know why, you want to answer a nag with `keep`/`release` (or it didn't work), or you are tuning a role's `idle-after`/`nag-every`/`reclaim-after`.
+:owns: the personal-session idle ladder — the pause, nag and reclaim steps, replying `keep`/`release` to a nag and who it counts for, and the `idle-after`/`nag-every`/`reclaim-after` semantics
+:prereqs: personal-sessions.adoc for what a personal session is and its conversation loop; discord.adoc for reply attribution and the user-id binding; roster.adoc for the role's allocation fields
+:tier: leaf
+:updated: 2026-11-14
+
+A session is *idle* while it waits on you, measured from when it last started
+waiting (each reply you send runs another turn and restarts the clock). Jam's
+wake-on engine walks it up a ladder set by the role:
+
+. *Pause.* Past the `warm-timeout` it is paused (step 3 of xref:usage/jam/personal-sessions.adoc#the-conversation[The conversation]).
+. *Nag.* Once it has waited *``idle-after``* (default *4h*), Jam messages you
+_as the session_: the nag is posted through the intercom into the session's channel,
+so it reaches your Inbox (and your Discord inbox, when the project chats over Discord).
+It reads "Your personal session _id_ (_role_) has
+been idle for _N_. Reply to this message to pick it back up, or release
+it with: ``jam session release <id>``{empty}". It repeats every *``nag-every``*
+(default *24h*). *Replying to a nag is replying to the session* — it wakes and
+carries on, and the ladder starts over.
+*Or answer the nag with a command:* reply to the nag with exactly
+*``keep``* or *``release``* (case and a trailing `.`/`!` don't matter).
+`release` tears the session down like `session release` and confirms
+("Released your personal session …"). `keep` restarts the idle clock without
+waking the agent (a paused session stays paused), and confirms ("Keeping your
+personal session … Next reminder in _idle-after_."). Rules:
+** *Owner only.* The reply counts only if Jam attributes it to you, never
+by Discord display name (xref:usage/jam/discord.adoc#who-a-discord-reply-is-from[the rules]).
+*Bind your Discord user id (recommended):* add it as your account on
+the `discord` connection (`+jam account add --connection discord --uid <your-user-id> --user <you>+`). Then only your own
+Discord account counts as you, and `keep`/`release` works from *any*
+inbox, shared ones included.
+*Unbound*, only an inbox channel that is *exactly yours* proves it's
+you. A shared inbox (or one that is also a room's channel) gets no
+`keep`/`release` hint in the nag, and its replies are ordinary replies.
+Jam can't see Discord permissions, so unbound this relies on your setup:
+*only you (and Jam's bot) may post in your inbox channel.* Anyone who can
+post there can release your session (and could already steer it by
+replying).
+** *Only a reply to a nag.* A `keep` replying to the agent's own message is
+your answer to the agent; it wakes the session.
+** *Anything else wakes.* Someone else's `keep`/`release`, or a word in a
+sentence, is an ordinary reply. If several replies are pending, a `release`
+wins, then any other text wakes, and only ``keep``s alone keep.
+. *Reclaim (optional).* If the role sets *``reclaim-after``* (default: never) and
+the session has waited that long, Jam tells you ("Reclaimed your personal
+session …") and tears it down exactly as a release would, freeing your slot. The
+notice is delivered even though the session is gone.
+
+A nag that fails to send is retried on the next tick and never ends the session;
+a reclaim waits until its notice has been sent. The three settings are in
+the role's file in the config repo:
+
+[source,yaml]
+----
+# projects/acme/roles/pair.yml
+allocation: {max-personal: 3, idle-after: 4h, nag-every: 24h, reclaim-after: 72h}
+----
+
+Unset means the default; negative values are refused
+(xref:usage/jam/roster.adoc#roles[Roles]).
+Nags go through the intercom, so they need no Discord relay.

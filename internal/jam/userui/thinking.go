@@ -10,10 +10,10 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/sessionview"
 )
 
-// The Thinking tab (docs/modules/ROOT/pages/usage/jam/intercom-ui.adoc#the-session-view): a
+// The Thinking tab (docs/modules/ROOT/pages/usage/jam/session-view.adoc#thinking): a
 // member's live view of what a session is doing — its newest stream's events
 // over SSE, older pages on demand, and one event's raw JSON. Every route
-// re-checks that the viewer may see the session's home channel.
+// re-checks that the viewer may open the session's view.
 
 // thinkingTail is how many of the newest events a fresh feed backfills;
 // thinkingPageSize how many a "Load earlier" page holds (vars: tests shrink
@@ -38,7 +38,7 @@ func (h *handler) thinkingSession(w http.ResponseWriter, r *http.Request) (jam.P
 		http.Error(w, "no participant", http.StatusUnauthorized)
 		return p, jam.Instance{}, false
 	}
-	inst, _, ok := h.sessionFor(p, r.PathValue("id"))
+	inst, _, ok := h.sessionFor(r, p, r.PathValue("id"))
 	if !ok {
 		http.NotFound(w, r)
 		return p, inst, false
@@ -106,20 +106,21 @@ func (h *handler) thinkingEvents(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 	}()
 	id := r.PathValue("id")
-	// Re-checked on each keep-alive: a viewer who loses the session (left
-	// its home channel, the session gone) stops receiving it.
+	// Re-checked on each keep-alive: a viewer who loses the session (the
+	// session gone) stops receiving it.
 	allowed := func() bool {
-		again, _, ok := h.sessionFor(p, id)
+		again, _, ok := h.sessionFor(r, p, id)
 		return ok && again.ActorID == inst.ActorID
 	}
 	sessionview.Serve(w, r, sessionview.Source{Store: h.d.Events, Hub: h.d.Hub, ActorID: inst.ActorID,
 		Tail: thinkingTail, FollowNewest: true, Event: h.thinkingJSON, Allowed: allowed})
 }
 
-// thinkingPageOf is the thinkingPageSize events of actor's stream below
-// before, in seq order, and the seq below which older ones exist (0 = none).
-func (h *handler) thinkingPageOf(actor, stream string, before uint64) ([]sessionview.EventView, uint64, error) {
-	evs, err := h.d.Events.List(sessionevents.Filter{ActorID: actor, StreamID: stream, BeforeSeq: before, Newest: true, Limit: thinkingPageSize})
+// thinkingPageOf is the thinkingPageSize events of actor's stream between
+// after and before, in seq order, and the seq below which older ones exist
+// there (0 = none).
+func (h *handler) thinkingPageOf(actor, stream string, after, before uint64) ([]sessionview.EventView, uint64, error) {
+	evs, err := h.d.Events.List(sessionevents.Filter{ActorID: actor, StreamID: stream, AfterSeq: after, BeforeSeq: before, Newest: true, Limit: thinkingPageSize})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -128,7 +129,7 @@ func (h *handler) thinkingPageOf(actor, stream string, before uint64) ([]session
 		out = append(out, sessionview.View(ev))
 	}
 	var below uint64
-	if len(evs) > 0 && evs[0].Seq > 1 {
+	if len(evs) > 0 && evs[0].Seq > after+1 {
 		below = evs[0].Seq
 	}
 	return out, below, nil

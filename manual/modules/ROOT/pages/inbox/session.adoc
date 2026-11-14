@@ -1,0 +1,311 @@
+= Watching a session
+:page-area: ROOT
+:page-id: ROOT/inbox/session
+:page-conventions: sentence-case
+
+A *session view* shows one session:
+everything it says and hears in every conversation,
+and what it thinks between them.
+It isn't a conversation.
+Open it from the session's name anywhere in the Inbox:
+on its status card in the rail,
+or in its header, which also shows when you open the session's own channel
+or the work log of the ticket it works on.
+(A session is one run of an agent: xref:concepts/agent.adoc[Roles, agents and sessions].)
+
+A *session header* at the top says who the session is,
+what it does now, and what it costs.
+Below it, the session's *activity* shows its messages in and out, in order.
+A *pane* beside the activity shows what the session thinks and does,
+its previews, what it shared, and its status.
+
+image::session-view.png["A session view, with its header and the Thinking pane",800]
+
+The Jam's operators can open any session view,
+and the person who started a personal session can open its view.
+
+== Activity
+
+The activity lists every message the session sent or got,
+in DMs, group DMs, rooms, and work logs,
+oldest first.
+Each message shows which conversation it's in;
+click that to open the conversation.
+Between the messages, the session's thinking shows collapsed:
+a line for each turn.
+Click a line to open what the session thought in that turn.
+Thinking isn't searchable,
+and only the people who can open the session view see it.
+
+When agents stopped waking each other in one of the session's conversations,
+the activity says so, with *Resume* to lift the limit.
+
+The composer at the bottom sends a DM to the session.
+You see your DM in the activity and in your Inbox.
+
+When the session ends,
+the view keeps its activity,
+but its header and pane go.
+
+== The header
+
+image::session-header.png["The session header",800]
+
+From left to right, the header shows:
+
+Who it is::
+The session's name and its kind:
+*standing*, *personal*, *ticket* or *session*.
+A ticket session also shows its ticket.
+Under the name are its role, its project and, for a personal session, whose it is.
+Under them is the session's mission, the goal it set for itself, if it has one.
+State::
+What the session does now, such as "is running *Bash*", "is idle" or "needs you",
+and how long it has been in that state.
+A number with *?* is its count of open asks.
+Cost::
+What the session has cost so far, and what its current or last turn cost.
+Point at the cost to see the input and output tokens.
+Context::
+How full the agent's context is,
+for example "ctx 84k / 200k · 42%".
+Point at it to see the exact tokens and the model.
+After the agent compacts or clears its conversation,
+it shows "ctx —" until the agent next calls the model.
+Uptime::
+How long ago the session started, such as "up 1h 12m".
+
+The header updates live, and at least every 30 seconds.
+
+On the right are the pane's tabs
+(<<the-pane,The pane>>)
+and the session's actions.
+
+=== Quick actions
+
+*Copy SSH*::
+Copies the command `jam ssh <session>`,
+which opens a shell in the session's studio.
+It shows only if the role or a share lets you connect to the studio
+(xref:concepts/agent.adoc[Roles, agents and sessions]).
+*Open in VS Code* and *Open in VSCodium*::
+Open the session's studio in your editor.
+They need the Jam extension,
+and show only when *Copy SSH* does.
+*Interrupt*::
+Stops the agent's current turn.
+The agent then says so in its channel and waits.
+You can press it only while the session is running.
+
+=== The ⋯ menu
+
+The *⋯* button opens the other actions.
+Some ask you to confirm first.
+An action that you can't use now is greyed out.
+If Jam refuses an action, a note says why.
+
+[%header]
+|===
+|Action |Who sees it |What it does
+
+|*Compact*
+|Everyone who sees the session
+|Shrinks the agent's conversation, so its context has room again.
+You can use it while the session runs, holds background work, or waits.
+
+|*Clear*
+|Everyone who sees the session
+|Starts the agent's next turn with an empty conversation.
+The agent keeps its files and memory,
+but forgets the conversation, its mission and its focus.
+You can use it only while the session waits.
+It asks you to confirm.
+
+|*Release*
+|The owner of a personal session, and operators
+|Ends the personal session now.
+
+|*Restart*
+|Operators
+|Restarts the session's studio and keeps the session and its work.
+
+|*End*
+|Operators, for sessions that are not personal
+|Ends the session for good.
+If it works on a ticket, the ticket is marked blocked.
+
+|*Upgrade*
+|Operators, for standing sessions
+|Moves the standing session to the current studio image.
+A pending upgrade shows beside the action.
+|===
+
+If the session's studio is paused,
+*Interrupt*, *Compact* and *Clear* resume it first,
+so they can take up to about 30 seconds.
+The *Thinking* tab shows each press and who pressed it.
+
+[#the-pane]
+== The pane
+
+The pane is closed until you click one of its tabs in the header:
+*Thinking*, *Previews*, *Artifacts* or *Status*.
+Click the open tab again, or *×*, to close it.
+The open tab updates live, and at least every 30 seconds.
+
+=== Layout
+
+* *⇄* moves the pane between the right of the messages and below them.
+In a window narrower than 900 pixels, the pane is always below.
+* Drag the line between the messages and the pane to resize it.
+You can also click the line and use the arrow keys.
+* The composer stays under the messages.
+
+image::session-below.png["The Status pane below the messages",600]
+
+Jam remembers the open tab, the place and the size for each session, in this browser.
+A session that you have not opened before starts with the last layout you used.
+
+To link to a tab,
+add `?tab=thinking`, `?tab=previews`, `?tab=artifacts` or `?tab=status`
+to the session view's or the conversation's address.
+The tab then opens when someone follows the link.
+
+=== Thinking
+
+The *Thinking* tab shows what the agent thinks and does, live.
+Each line has an icon and the time under it:
+
+* *→* the message that started the turn;
+* *💭* the agent's thinking;
+* *💬* what the agent wrote;
+* *▶* a tool call, such as *Bash* with its command.
+Under it, *✓* or *✗* shows how the call ended and how long it took.
+* A line across the list ends each episode, with its cost and its duration.
+
+While the agent works, "working…" shows at the end.
+
+image::session-thinking.png["The Thinking tab",400]
+
+The bar at the top changes what you see:
+
+* *Thinking*, *Text*, *Tools*, *Errors only* and *Progress* turn kinds of lines on and off.
+* *All tools* narrows the tool calls to one tool.
+* *Search* keeps only the lines that contain your text.
+* *Narrative* shows one line for each event.
+Click a line to see its details.
+*Detailed* shows all the details,
+and *Raw* shows each event as it was recorded.
+* *Current* follows the newest run of the session.
+After a restart, the session has a new run,
+and you can pick an older one from the list.
+
+The list stays at the newest line while you are at the bottom.
+If you scroll up, it stays where you are,
+and a "↓ N new" button counts the new lines.
+Click it to go back to the bottom.
+*Load earlier* at the top shows older events.
+
+Jam remembers your choices in this browser,
+except the search.
+
+If your Jam does not record session events,
+the tab says so.
+
+=== Previews
+
+An agent can serve a web app in its studio and _expose_ it as a *preview*,
+a web address that people can open.
+The *Previews* tab lists the session's previews,
+each with its name and port.
+
+image::session-previews.png["The Previews tab",400]
+
+* Click a name to open the preview in a new browser tab.
+You sign in there the first time.
+* Click *View here* to show the preview inside the pane.
+A bar above it has *← All previews*, which goes back to the list,
+and *Open in new tab*.
+The pane shows one preview at a time.
+
+If the preview can't show in the pane, a note says why.
+For example, some browsers, such as Safari, can't sign in inside the pane:
+use *Open in new tab*.
+
+If you aren't allowed to open the session's previews,
+or your Jam has no previews,
+the tab says "Previews aren't available to you here."
+
+=== Artifacts
+
+The *Artifacts* tab collects what the channel holds, newest first:
+
+* *Whiteboards*, with a small picture of each.
+Click one to open it (xref:inbox/whiteboards.adoc[Whiteboards]).
+* *Files* attached to messages.
+Images show small. Click a file to download it.
+* *Asks*, each with its state: open, answered or withdrawn.
+Click one to go to it in the conversation
+(xref:inbox/asks.adoc[Answering asks]).
+* *Links* from the messages, each one once, up to 50.
+A GitHub pull request or issue shows as, for example, "app PR #61".
+
+image::session-artifacts.png["The Artifacts tab",400]
+
+=== Status
+
+The *Status* tab lists facts about the session:
+its state and how long it has been in it,
+its uptime, model spec, kit and image,
+and its alarms with their next time.
+Once the agent has worked,
+it also shows its turns and episodes,
+its tool calls and errors,
+its tokens, its context use,
+its cost and the cost of this turn,
+and when its last event was.
+(xref:concepts/model-spec.adoc[Model specs], xref:concepts/kit.adoc[Kits and studios].)
+
+== Session colors
+
+Jam gives each session a color when the session starts,
+and the session keeps it for good.
+The color helps you tell sessions apart.
+It never replaces the name.
+
+The color shows:
+
+* as a line on the left of the session's messages;
+* on the left edge of the composer, in the session view;
+* on the left edge of the session's status card in the rail;
+* in the title bar of the session's studio window in VS Code.
+
+Jam picks the color that is most different from the colors of the sessions that run now.
+With more than 24 sessions, colors repeat.
+A session started before Jam had colors has none.
+
+ifdef::internal[]
+== Notes for the team
+
+* The session view is `/app/user/s/<session>` (`web/app/src/session/SessionPage.tsx`, `ActivityList`, `TurnFold`).
+The header and pane are `web/app/src/session/`
+(`SessionView`, `SessionHeader`, `PaneTabs`; Thinking in `thinking/`, View here in `frames/`).
+The server side is `internal/jam/userui` (`session.go`, `api_activity.go`, `sessionpane.go`, `thinking.go`).
+* Who may open it is `mayOpen` (`session.go`): operators, and a personal session's starter.
+* *Resume* is `+POST /app/user/api/conversations/{id}/resume+`;
+the limit is the wake-on engine's (`docs/modules/ROOT/pages/usage/jam/wake-on.adoc`).
+* Routes: `+GET /app/user/api/sessions/{id}+` (the header),
+`+GET …/sessions/{id}/activity+` (paged like `read`),
+`+POST …/sessions/{id}/interrupt|compact|clear|release|restart|end|upgrade+`,
+`+GET …/sessions/{id}/pane/{tab}+`,
+`+POST …/sessions/{id}/frame+` (View here, 30 a minute per user),
+and the Thinking feed `+GET /app/user/session/{id}/thinking/events+` (SSE, 4 per viewer).
+* The pane layout is in `localStorage` under `+jam-pane:<session>+` and `+jam-pane:last+`;
+the Thinking choices under `jam-thinking`.
+* *Interrupt*, *Compact* and *Clear* show only when `jam serve` wires the session actions (`hd.Ops`), which it always does.
+* Colors: `internal/jam/sessioncolor.go`, the `session_colors` table.
+* Architecture pages: `docs/modules/ROOT/pages/usage/jam/session-view.adoc`,
+`session-colors.adoc`, `previews.adoc` and `session-card.adoc`.
+* Screenshots: the `helper` session in `web/app/src/shots/mocks.ts`.
+The Thinking feed's mock is an `EventStream` (`web/app/build/mockApi.ts`).
+endif::[]

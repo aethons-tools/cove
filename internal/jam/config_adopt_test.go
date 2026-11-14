@@ -30,32 +30,25 @@ func adoptJam(t *testing.T) (*MemStore, KitFetcher) {
 	st := NewMemStore()
 	creds := func(string) bool { return true }
 	dests := []Destination{
-		{Name: "nea-atlassian", Route: "/atlassian/", Upstream: "https://nea.atlassian.net",
-			IdentityIn: ApplyBearer, CredName: "atlassian-token",
-			Apply:      ApplyCustom,
-			ApplySpec:  &OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "bot@nea.example"},
-			Env:        map[string]string{"JIRA_URL": "{url}", "JIRA_API_TOKEN": "{token}", "CONFLUENCE_URL": "{url}/wiki"},
-			AllowPaths: []string{"/rest/api/3/*", "/wiki/rest/api/*"},
-			Note:       "Use the jira CLI with JIRA_URL.\nConfluence lives under /wiki.\n"},
+		{Name: "nea-atlassian", Endpoints: []Endpoint{{Name: "nea-atlassian", Route: "/atlassian/", Upstream: "https://nea.atlassian.net", IdentityIn: ApplyBearer, Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "{cred}", Encoding: EncodingBasic, BasicUser: "bot@nea.example"}, AllowPaths: []string{"/rest/api/3/*", "/wiki/rest/api/*"}}}, CredName: "atlassian-token",
+			Env:  map[string]string{"JIRA_URL": "{url}", "JIRA_API_TOKEN": "{token}", "CONFLUENCE_URL": "{url}/wiki"},
+			Note: "Use the jira CLI with JIRA_URL.\nConfluence lives under /wiki.\n"},
 		// Values yaml.v3's own style loses or cannot write: a leading
 		// newline, and a multi-line value opening with a tab.
-		{Name: "odd", Route: "/odd/", Upstream: "https://odd.example", IdentityIn: ApplyRaw, CredName: "odd", Apply: ApplyRaw,
+		{Name: "odd", Endpoints: []Endpoint{{Name: "odd", Route: "/odd/", Upstream: "https://odd.example", IdentityIn: ApplyRaw, Apply: ApplyRaw}}, CredName: "odd",
 			Env: map[string]string{"ODD": "\n\nlead"}, Note: "\tfoo\nbar"},
-		{Name: "nea-gitlab-api", Route: "/gitlab/api/", Upstream: "https://gitlab.nea.example/api/v4",
-			IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "Private-Token"},
+		{Name: "nea-gitlab-api", Endpoints: []Endpoint{{Name: "nea-gitlab-api", Route: "/gitlab/api/", Upstream: "https://gitlab.nea.example/api/v4", IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "Private-Token"}, Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Private-Token", Template: "{cred}"}}},
 			CredName: "gitlab-pat",
-			Apply:    ApplyCustom, ApplySpec: &OutboundSpec{Header: "Private-Token", Template: "{cred}"},
-			Env:  map[string]string{"GITLAB_HOST": "{host}", "GITLAB_TOKEN": "{token}", "GITLAB_API_HOST": "{base}"},
-			Note: "glab api --hostname $GITLAB_HOST"},
-		{Name: "nea-gitlab-git", Route: "/gitlab/git/", Upstream: "https://gitlab.nea.example",
-			IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "Authorization", Prefixes: []string{"Bearer ", "token "}, Encoding: "raw"},
+			Env:      map[string]string{"GITLAB_HOST": "{host}", "GITLAB_TOKEN": "{token}", "GITLAB_API_HOST": "{base}"},
+			Note:     "glab api --hostname $GITLAB_HOST"},
+		{Name: "nea-gitlab-git", Endpoints: []Endpoint{{Name: "nea-gitlab-git", Route: "/gitlab/git/", Upstream: "https://gitlab.nea.example", IdentityIn: ApplyCustom, IdentityInSpec: &InboundSpec{Header: "Authorization", Prefixes: []string{"Bearer ", "token "}, Encoding: "raw"}, Apply: ApplyBasicPassword, Git: true}},
 			CredName: "gitlab-pat",
-			Apply:    ApplyBasicPassword, Git: true},
-		{Name: "linear", Route: "/linear/", Upstream: "https://api.linear.app", IdentityIn: ApplyRaw, CredName: "linear", Apply: ApplyRaw},
-		{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: ApplyXAPIKey, CredName: "anthropic", Apply: ApplyXAPIKey},
+		},
+		{Name: "linear", Endpoints: []Endpoint{{Name: "linear", Route: "/linear/", Upstream: "https://api.linear.app", IdentityIn: ApplyRaw, Apply: ApplyRaw}}, CredName: "linear"},
+		{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: ApplyXAPIKey, Apply: ApplyXAPIKey}}, CredName: "anthropic"},
 	}
 	for _, d := range dests {
-		must(t, CreateDestination(st, d, creds))
+		must(t, CreateDestination(st, d, creds, false))
 	}
 	if _, err := EnsureDefaultModelSpec(st, false); err != nil {
 		t.Fatal(err)
@@ -395,8 +388,7 @@ func TestConfigPlanUpdatesUnmanagedKitFromOtherSource(t *testing.T) {
 // carries both canonical forms so the diff shows the change.
 func TestConfigPlanUnmanagedUpdateShowsBothSides(t *testing.T) {
 	st := NewMemStore()
-	must(t, CreateDestination(st, Destination{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com",
-		IdentityIn: ApplyBearer, CredName: "gh", Apply: ApplyBearer, Note: "jam"}, func(string) bool { return true }))
+	must(t, CreateDestination(st, Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "gh", Note: "jam"}, func(string) bool { return true }, false))
 	dir := t.TempDir()
 	exp, err := ExportConfigTree(st.ExportConfig(), nil, nil, true)
 	if err != nil {
@@ -452,8 +444,8 @@ func TestConfigFileRenderRoundTrips(t *testing.T) {
 	}
 	kinds := []kind{
 		{"destination", func(s string) configFile {
-			return DestinationFile{Kind: ConfigKindDestination, Version: 1, Destination: Destination{Name: "d", Route: "/d/", Upstream: "https://x",
-				Env: map[string]string{"K": s}, AllowPaths: []string{s}, Note: s}}
+			return DestinationFile{Kind: ConfigKindDestination, Version: 1, Destination: Destination{Name: "d", Endpoints: []Endpoint{{Name: "d", Route: "/d/", Upstream: "https://x", AllowPaths: []string{s}}},
+				Env: map[string]string{"K": s}, Note: s}}
 		}, func(f map[string][]byte) (configFile, error) {
 			return ParseDestinationFile("destinations/d.yml", "d", f["destinations/d.yml"])
 		}},

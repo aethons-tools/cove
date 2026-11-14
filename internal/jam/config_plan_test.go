@@ -180,7 +180,7 @@ func TestPlanTable(t *testing.T) {
 	if o := opOf(planOn(t, st, changed), ConfigKindDestination, "gh"); o.Action != ConfigUpdate {
 		t.Fatalf("update %+v", o)
 	}
-	_ = st.AddDestination(Destination{Name: "other", Route: "/o/", Upstream: "https://o.example"})
+	_ = st.AddDestination(Destination{Name: "other", Endpoints: []Endpoint{{Name: "other", Route: "/o/", Upstream: "https://o.example"}}})
 	same := treeOf(t, map[string]string{"destinations/gh.yml": ghDest,
 		"destinations/other.yml": "kind: destination\nversion: 1\nroute: /o/\nupstream: https://o.example\n"})
 	if o := opOf(planOn(t, st, same), ConfigKindDestination, "other"); o.Action != ConfigAdopt {
@@ -218,7 +218,7 @@ func TestPlanReferencesResolveAgainstPlannedState(t *testing.T) {
 func TestPlanSeededDefaultModelSpec(t *testing.T) {
 	st := NewMemStore()
 	// EnsureDefaultModelSpec seeds from the anthropic destination's credential.
-	if err := st.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", CredName: "anthropic"}); err != nil {
+	if err := st.AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}}, CredName: "anthropic"}); err != nil {
 		t.Fatal(err)
 	}
 	if created, err := EnsureDefaultModelSpec(st, false); err != nil || !created {

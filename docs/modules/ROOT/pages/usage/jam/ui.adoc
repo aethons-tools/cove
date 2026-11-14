@@ -1,10 +1,10 @@
 = The Jam app (`/app/`)
-:summary: The Jam app — the one browser UI `jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and legacy redirects (old `/ui`·`/me` URLs and the old admin pages' paths), the title bar and shared look, installing the app, the login and Principal (user / admin / both), and the `POST /app/user/send` path; the console's pages are in ui-console.md and what it can change in ui-editing.md.
-:read_when: You want to expose Jam in a browser, understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), read the title bar, install the app, or follow an old /ui, /me or old admin-page link. For what the console pages show (agents, search, Channel log, session timeline) read ui-console.md; to change something from the UI, read ui-editing.md.
-:owns: the `/app` route table, the legacy `/ui`·`/me` 308 redirects and the old admin pages' 302 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; installing the app (manifest, service worker, icons); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
+:summary: The Jam app — the one browser UI `jam serve` serves under `/app` (the admin console at `/app/admin/`, the user Inbox at `/app/user/`) behind one OIDC login; loopback is always an admin. Covers the routes and the 308 redirects of old `/ui`·`/me` URLs (old admin pages' paths and the /ui·/me migration are in ui-old-links.adoc), the title bar and shared look, installing the app, the login and Principal (user / admin / both), and the `POST /app/user/send` path; the console's pages are in ui-console.md and what it can change in ui-editing.md.
+:read_when: You want to expose Jam in a browser, understand who may reach /app/user vs /app/admin and why you got a 403, configure browser login (redirect URI, scopes, cookies), read the title bar, install the app, or follow an old /ui or /me link (an old admin-page link or the /ui·/me migration: ui-old-links.adoc). For what the console pages show (agents, search, Channel log, session timeline) read ui-console.md; to change something from the UI, read ui-editing.md.
+:owns: the `/app` route table and the legacy `/ui`·`/me` 308 redirects; the `/app` gate (one browser OIDC login, its two session cookies, the Principal — user, admin, both — loopback trust, the 403 page); the `/app` title bar (blended tabs, principal menu, narrow-screen behaviour) and the shared `jam.css` look; installing the app (manifest, service worker, icons); and the `/app/user/` area's identity rules and the `POST /app/user/send` participant send path
 :prereqs: serve.adoc for the admin listener + the off-loopback fail-closed rule; roster.adoc for the RBAC model these edits act on; coves.adoc for the managed-cove lifecycle the runtime actions drive; comms-addressing.adoc for the squawk targets/wake-on model the send path writes into; INDEX.adoc for the service overview
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-14
 
 `jam serve` serves one browser app on the same *admin listener* as the
 JSON admin API. Point a browser at the admin URL; `/` and `/app/` land on the
@@ -23,6 +23,7 @@ http://127.0.0.1:8081/app/
 |`+/app/auth/{login,callback,logout}+` |the one browser login (ungated)
 |`/app/auth/app-token`, `/app/auth/app-token/exchange` |sign-in for a client such as VS Code (xref:usage/jam/app-tokens.adoc[app-tokens])
 |`+/app/static/*+` |`jam.css` (for the 403 page), the brand mark and app icons (ungated)
+|`+/app/manual/*+` |the customer manual, a static site built into the Jam, served to anyone signed in (xref:manual.adoc[manual])
 |`/app/manifest.webmanifest`, `/app/sw.js` |the <<installing-the-app,installable app>>'s manifest and service worker (ungated)
 |===
 
@@ -31,37 +32,12 @@ and stay where they are. *Old URLs:* a `GET`/`HEAD` on a former `+/ui/*+` or
 `+/me/*+` page (login and static included) answers `308` to its `+/app/...+`
 equivalent with the query kept — `/ui/agents?status=running` →
 `/app/admin/agents?status=running`, `/ui/users/u` → `/app/admin/users/u`
-(which <<old-admin-pages,goes on>> to `/app/admin/config/users/u`), `+/me/?c=chn_x+` → `+/app/user/?c=chn_x+` (which the app
+(which xref:usage/jam/ui-old-links.adoc#old-admin-pages[goes on] to `/app/admin/config/users/u`), `+/me/?c=chn_x+` → `+/app/user/?c=chn_x+` (which the app
 turns into `+/app/user/c/chn_x+`). Any other method on an old path is 404, never
 replayed. The redirects last one release. `+/app/next/*+`, the app's preview
 address, redirects to `+/app/user/*+` the same way.
 
-[#old-admin-pages]
-== Old admin pages
-
-The console's server-rendered pages are gone; a `GET` or `HEAD`
-on an old page path answers `302` to its new page, with the query kept
-(except `project` on an agent path; a draft's `file` and `diff` become the
-kit page's `dfile` and `ddiff`). The gate runs first, so a non-admin
-gets its 403 and learns nothing. A write there gets a 405, never a page.
-
-[%header]
-|===
-|Old path (under `/app/admin/`) |New path
-
-|`config` |`config/tracking`
-|`+users[/…]+`, `+destinations[/…]+`, `+model-specs[/…]+` |`config/` + the same
-|`+projects/<p>[/members\|agents\|intercom\|escalation]+` |`+config/projects/<p>[/…]+`
-|`projects/<p>/roles` |`config/projects/<p>/agents`
-|`+projects/<p>/roles/<r>[/setup]+`, `roles/<p>/<r>` |`config/projects/<p>/agents/<r>`
-|`+kits/<k>[/draft]+` |`config/kits/<k>`
-|`specs` |`config/kits`
-|`intercom` |`health/intercom`
-|`agents/<id>/setup` |`agents/<id>`
-|`+coves[/<id>[/session]]+`, `actors` |`+agents[/<id>[/session]]+`
-|`roles`, or any other old path |the Dashboard
-|`next/<path>` (the app's preview address) |`<path>`
-|===
+Old admin-console page paths `302` to their new pages: xref:usage/jam/ui-old-links.adoc#old-admin-pages[Old admin pages].
 
 [#the-title-bar-and-look]
 == The title bar and look
@@ -155,27 +131,10 @@ on `/app/user/`). The 403 page says which, and offers *Sign in again*
 member admin whose access token lapsed is briefly a user only.
 
 Browser login needs TLS. Upgrading from the old `/ui` and `/me` logins: see
-<<migrating-from-ui-and-me,Migrating>>.
+xref:usage/jam/ui-old-links.adoc#migrating-from-ui-and-me[Migrating from /ui and /me].
 
 The UI never renders a token hash, launch secret, or credential value, except
 the identity token shown once at enroll (xref:usage/jam/ui-editing.adoc#roster-and-roles[Roster and roles]).
-
-[#migrating-from-ui-and-me]
-=== Migrating from /ui and /me
-
-* *Before deploying*, register `+https://<jam-host>/app/auth/callback+` at the
-IdP. Keep the old `/ui/auth/callback` and `/me/auth/callback` until the
-rollout settles; the previews callback is unchanged.
-* The login now requests `openid` plus `require-scope`. Check that your IdP
-issues tokens to users not entitled to that scope; one that rejects the
-authorize request locks out Inbox-only users. See also
-<<signing-in-one-login-one-principal,empty `require-scope`>> (above): it makes
-everyone an admin.
-* Everyone signs in once more (the old `+jam_session+` and `+jam_participant+`
-cookies are ignored). Reload open tabs: an old tab posts to `/me/send`, which
-now answers 404.
-* Old `+/ui/*+` and `+/me/*+` bookmarks get a `308` to the new path for one release
-(cached for an hour). `+/admin/*+` and `+/me/studios/*+` are unchanged.
 
 [#sending-post-appusersend]
 === Sending (`POST /app/user/send`)
@@ -192,8 +151,10 @@ an in-process Log writer, not an egress engine.
 * *Identity is the resolved session*, never the body: the sender is the
 principal's user id.
 * *``to`` is a channel or a new conversation* — an open conversation's channel id
-(`+chn_…+`), or `+user:<id|name>+` / `+session:<id>+` to start (or reuse) a chat with
-a member of one of the person's projects or a live session in one. The
+(`+chn_…+`), or `+user:<id|name>+` / `+session:<id|label>+` to start (or reuse) a `dm` with
+a member of one of the person's projects or a live session in one.
+A `dm` with a session also joins the person to the session's home channel,
+where its turn-end text still goes. The
 xref:usage/jam/intercom.adoc#enabling-it[intercom] decides whether they may post there (a
 chat they're in; a ticket or room of a project they belong to — they join it)
 and records who hears it; a waiting session among them *wakes* exactly as on

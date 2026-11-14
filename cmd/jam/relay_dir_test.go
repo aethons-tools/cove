@@ -170,11 +170,12 @@ func TestSurfacesChatOverDiscord(t *testing.T) {
 	wantSurfaces(t, "alice's reply reaches bob, not back to her", k.dir.Surfaces("discord", reply), map[string]string{"discord:inbox-B": "alice: "})
 }
 
-// A session channel reaches its people like a chat: a person who joined a
-// standing session's channel from /me gets its posts in their inbox.
+// A session channel reaches its people like a chat: a person who DMed a
+// standing session from /me (and so joined its channel, where its turn-end
+// text goes) gets its posts in their inbox.
 func TestSurfacesSessionChannel(t *testing.T) {
 	k := newRelayKit(t)
-	pl, err := k.ic.PlanHome(k.bob.ID, ident.ID(k.std.ActorID))
+	pl, err := k.ic.PlanSessionDM(k.bob.ID, k.std.ActorID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,8 +410,9 @@ func TestSurfacesSkipCallInNotice(t *testing.T) {
 	wantSurfaces(t, "call-in notice", k.dir.Surfaces("linear", m[0]), nil)
 }
 
-// An escalation notice lands in the session's own channel: it reaches each
-// called-in person's Discord inbox and is never a comment on the issue.
+// An escalation notice lands in the group of the session and the tier's
+// people: it reaches each person's Discord inbox, takes no tracker fallback,
+// and its copy in the work log is the issue's one comment.
 func TestSurfacesEscalationNotice(t *testing.T) {
 	k := newRelayKit(t)
 	var members []jam.Member
@@ -436,6 +438,15 @@ func TestSurfacesEscalationNotice(t *testing.T) {
 	wantSurfaces(t, "linear", k.dir.Surfaces("linear", m[0]), nil)
 	label := k.ic.PartyOf(ident.ID(k.ticket.ActorID)).Label + ": "
 	wantSurfaces(t, "discord", k.dir.Surfaces("discord", m[0]), map[string]string{"discord:inbox-A": label, "discord:inbox-B": label})
+	work, ok := k.ic.TicketChannelOf(k.ticket)
+	if !ok {
+		t.Fatal("no work log")
+	}
+	inLog := k.lg.ChannelSince(work.ID, 0, 0)
+	if len(inLog) == 0 || !jam.IsEscalationNotice(inLog[len(inLog)-1].ID) {
+		t.Fatalf("work log = %+v", inLog)
+	}
+	wantSurfaces(t, "the work log's copy", k.dir.Surfaces("linear", inLog[len(inLog)-1]), map[string]string{"linear:ACME-7": ""})
 }
 
 // Relays are paused for asks: a squawk with parts reaches no surface.
