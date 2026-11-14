@@ -18,7 +18,7 @@ func HomeSession(st Store, ch ident.ID) (Instance, bool) {
 	case SourceSession:
 		inst, ok := st.GetInstance(c.Key)
 		return inst, ok && live(inst)
-	case SourceTicket:
+	case SourceWork:
 		_, unit, found := strings.Cut(c.Key, "/")
 		if !found {
 			return Instance{}, false

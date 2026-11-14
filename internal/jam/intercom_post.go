@@ -71,7 +71,7 @@ func NewIntercom(store Store, tracker func() (ident.ID, bool), lg intercom.Store
 	}
 	ic := &Intercom{store: store, tracker: tracker, lg: lg, tail: tail, log: log}
 	ic.sources = map[SourceKind]Source{}
-	for _, s := range []Source{chatSource{ic}, ticketSource{ic}, roomSource{ic}, sessionSource{ic}} {
+	for _, s := range []Source{chatSource{ic, SourceDM}, chatSource{ic, SourceGroup}, ticketSource{ic}, roomSource{ic}, sessionSource{ic}} {
 		ic.sources[s.Kind()] = s
 	}
 	return ic
@@ -102,7 +102,7 @@ func (ic *Intercom) Post(pl Planned, m intercom.Squawk) (intercom.Squawk, error)
 // a ticket, a room, or a session channel open to its project.
 func (ic *Intercom) joinsByPosting(ch Channel) bool {
 	switch ch.Kind {
-	case SourceTicket, SourceRoom:
+	case SourceWork, SourceRoom:
 		return true
 	case SourceSession:
 		inst, ok := ic.store.GetInstance(ch.Key)
@@ -358,10 +358,10 @@ func (ic *Intercom) ticketChannel(inst Instance, create bool) (Channel, bool, er
 		return Channel{}, false, fmt.Errorf("%w: %q", ErrProjectNotFound, inst.Project)
 	}
 	key := string(conn) + "/" + unit
-	if ch, ok := ic.store.ChannelByKey(p.ID, SourceTicket, key); ok || !create {
+	if ch, ok := ic.store.ChannelByKey(p.ID, SourceWork, key); ok || !create {
 		return ch, ok, nil
 	}
-	ch := Channel{ProjectID: p.ID, Kind: SourceTicket, Key: key, Label: unit}
+	ch := Channel{ProjectID: p.ID, Kind: SourceWork, Key: key, Label: unit}
 	b := Binding{ConnectionID: conn, Ref: unit, Mode: BindBoth}
 	if holder, taken := ic.store.ChannelByBinding(conn, unit); !taken {
 		ch.Bindings = []Binding{b}
@@ -375,7 +375,7 @@ func (ic *Intercom) ticketChannel(inst Instance, create bool) (Channel, bool, er
 		created, err = ic.store.CreateChannel(ch)
 	}
 	if errors.Is(err, ErrChannelExists) { // created meanwhile
-		created, ok = ic.store.ChannelByKey(p.ID, SourceTicket, key)
+		created, ok = ic.store.ChannelByKey(p.ID, SourceWork, key)
 		return created, ok, nil
 	}
 	return created, err == nil, err
@@ -693,8 +693,8 @@ func (ic *Intercom) memberUser(project Project, ref string) (User, bool) {
 	return u, true
 }
 
-// chat is the live chat of exactly members in project, created (members
-// joined from the log tail) when there is none.
+// chat is the live dm (two members) or group (more) of exactly members in
+// project, created (members joined from the log tail) when there is none.
 func (ic *Intercom) chat(project Project, members []ident.ID) (Channel, error) {
 	members = slices.Clone(members)
 	slices.Sort(members)
@@ -705,13 +705,13 @@ func (ic *Intercom) chat(project Project, members []ident.ID) (Channel, error) {
 		parts[i] = string(m)
 		labels[i] = ic.label(m)
 	}
-	key := strings.Join(parts, ",")
-	ch, ok := ic.store.ChannelByKey(project.ID, SourceChat, key)
+	key, kind := strings.Join(parts, ","), chatKind(len(members))
+	ch, ok := ic.store.ChannelByKey(project.ID, kind, key)
 	if !ok {
 		var err error
-		ch, err = ic.store.CreateChannel(Channel{ProjectID: project.ID, Kind: SourceChat, Key: key, Label: strings.Join(labels, ", ")})
+		ch, err = ic.store.CreateChannel(Channel{ProjectID: project.ID, Kind: kind, Key: key, Label: strings.Join(labels, ", ")})
 		if errors.Is(err, ErrChannelExists) { // created meanwhile
-			ch, ok = ic.store.ChannelByKey(project.ID, SourceChat, key)
+			ch, ok = ic.store.ChannelByKey(project.ID, kind, key)
 			if !ok {
 				return Channel{}, err
 			}
@@ -813,7 +813,7 @@ func (ic *Intercom) resolveTicket(p Poster, project Project, ref string, globs [
 	case !isKey:
 		return Channel{}, fmt.Errorf("%w: %w", ErrSendUnresolved, ticketkey.ErrGitHub)
 	}
-	ch, ok := ic.store.ChannelByKey(project.ID, SourceTicket, string(connID)+"/"+canon)
+	ch, ok := ic.store.ChannelByKey(project.ID, SourceWork, string(connID)+"/"+canon)
 	if !ok {
 		return Channel{}, ErrSendUnresolved
 	}
@@ -864,10 +864,13 @@ func (ic *Intercom) sessionNamed(project Project, ref string) (Instance, bool) {
 
 // ---- the sources ----
 
-// chatSource: a chat is its fixed member set; only they post and see.
-type chatSource struct{ ic *Intercom }
+// chatSource: a dm or a group is its fixed member set; only they post and see.
+type chatSource struct {
+	ic   *Intercom
+	kind SourceKind
+}
 
-func (chatSource) Kind() SourceKind { return SourceChat }
+func (s chatSource) Kind() SourceKind { return s.kind }
 func (s chatSource) CanPost(p Poster, ch Channel, _ bool) bool {
 	return s.ic.isMemberOf(ch, p.ID)
 }
@@ -878,7 +881,7 @@ func (s chatSource) CanSee(p ident.ID, ch Channel) bool { return s.ic.isMemberOf
 // see; a session whose addressing allows the ticket may post without joining.
 type ticketSource struct{ ic *Intercom }
 
-func (ticketSource) Kind() SourceKind { return SourceTicket }
+func (ticketSource) Kind() SourceKind { return SourceWork }
 func (s ticketSource) CanPost(p Poster, ch Channel, allowed bool) bool {
 	return allowed || s.CanSee(p.ID, ch)
 }

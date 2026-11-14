@@ -102,7 +102,7 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 // a chat has none (its members are fixed); a room takes people, not sessions.
 func membershipControls(conv *Conversation, p jam.Participant, d Deps) {
 	ch, ok := d.Store.GetChannel(ident.ID(conv.ChannelID))
-	if !ok || ch.Status != jam.StatusLive || ch.Kind == jam.SourceChat {
+	if !ok || ch.Status != jam.StatusLive || jam.IsChat(ch.Kind) {
 		return
 	}
 	in := map[ident.ID]bool{}

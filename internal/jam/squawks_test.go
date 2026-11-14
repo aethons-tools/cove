@@ -171,7 +171,7 @@ func TestSquawksSendDefaults(t *testing.T) {
 func TestSquawksSendAddressed(t *testing.T) {
 	f := newSqFixture(t, "user:alice", "channel:eng")
 	code, r := f.send(f.standing, `{"body":"hi alice","to":"user:alice"}`)
-	if code != http.StatusOK || r.Channel.Kind != "chat" {
+	if code != http.StatusOK || r.Channel.Kind != "dm" {
 		t.Fatalf("to user = %d %+v", code, r)
 	}
 	if code, r := f.send(f.standing, `{"body":"hi room","to":"channel:eng"}`); code != http.StatusOK || r.Channel.ID != f.room.ID {

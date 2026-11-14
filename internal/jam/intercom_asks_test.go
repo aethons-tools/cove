@@ -186,7 +186,7 @@ func TestAskInTicketChannelAnswerableByProjectMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, ch, err := f.ic.Ask(f.poster(f.ticket), "ticket:ACME-7", AskInput{Question: "Merge?", Options: askYesNo}, f.now)
-	if err != nil || ch.Kind != SourceTicket {
+	if err != nil || ch.Kind != SourceWork {
 		t.Fatalf("ask = %+v in %+v, %v", a, ch, err)
 	}
 	if !f.ic.MayAnswer(f.bob.ID, a) {

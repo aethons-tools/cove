@@ -55,7 +55,7 @@ func Recipients(r Reader, m intercom.Squawk, focused func(user, channel ident.ID
 		return nil
 	}
 	reasons := map[ident.ID]string{}
-	if ch.Kind == jam.SourceChat || ch.Kind == jam.SourceSession {
+	if jam.IsChat(ch.Kind) || ch.Kind == jam.SourceSession {
 		for _, u := range r.Members(ch.ID) {
 			reasons[u] = ReasonMessage
 		}

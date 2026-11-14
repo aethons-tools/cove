@@ -97,7 +97,7 @@ func (ic *Intercom) CallIn(p Poster, chID ident.ID, who string) (Channel, ident.
 	if ch.Status != StatusLive {
 		return Channel{}, "", fmt.Errorf("%w: channel %s", ErrRemoved, ch.ID)
 	}
-	if ch.Kind == SourceChat {
+	if IsChat(ch.Kind) {
 		return Channel{}, "", ErrFixedMembers
 	}
 	project, ok := ic.projectOf(ch)
@@ -191,7 +191,7 @@ func (ic *Intercom) projectOf(ch Channel) (Project, bool) {
 // ErrSendDenied alike for a channel that doesn't exist or isn't theirs.
 func (ic *Intercom) JoinChannel(u, chID ident.ID) error {
 	ch, ok := ic.store.GetChannel(chID)
-	if !ok || u.Kind() != ident.User || ch.Kind == SourceChat || !ic.CanSee(u, ch) {
+	if !ok || u.Kind() != ident.User || IsChat(ch.Kind) || !ic.CanSee(u, ch) {
 		return ErrSendDenied
 	}
 	if ch.Status != StatusLive {
@@ -215,7 +215,7 @@ func (ic *Intercom) LeaveChannel(p, chID ident.ID) error {
 		}
 		return nil
 	}
-	if ch.Kind == SourceChat {
+	if IsChat(ch.Kind) {
 		return ErrFixedMembers
 	}
 	if isSessionID(p) {

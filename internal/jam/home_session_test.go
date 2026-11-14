@@ -31,9 +31,9 @@ func TestHomeSession(t *testing.T) {
 
 	must(f.store.CreateProject("beta"))
 	beta, _ := f.store.GetProject("beta")
-	otherTicket, err := f.store.CreateChannel(Channel{ProjectID: beta.ID, Kind: SourceTicket, Key: ticketCh.Key, Label: "ACME-7"})
+	otherTicket, err := f.store.CreateChannel(Channel{ProjectID: beta.ID, Kind: SourceWork, Key: ticketCh.Key, Label: "ACME-7"})
 	must(err)
-	chat, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceChat, Key: "chat-ab", Label: "chat"})
+	chat, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceDM, Key: "chat-ab", Label: "chat"})
 	must(err)
 
 	for _, tc := range []struct {

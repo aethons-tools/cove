@@ -36,6 +36,10 @@ func (s *PostgresStore) SetChannelBindings(id ident.ID, bs []Binding) error {
 	return s.putChannelWith("SetChannelBindings", func() (Channel, error) { return s.prepareSetChannelBindings(id, bs) })
 }
 
+func (s *PostgresStore) SetChannelWorker(id, worker ident.ID) error {
+	return s.putChannelWith("SetChannelWorker", func() (Channel, error) { return s.prepareSetChannelWorker(id, worker) })
+}
+
 func (s *PostgresStore) ArchiveChannel(id ident.ID) error {
 	return s.putChannelWith("ArchiveChannel", func() (Channel, error) { return s.prepareArchiveChannel(id) })
 }
@@ -100,6 +104,21 @@ func (s *PostgresStore) LeaveChannel(ch, p ident.ID, seq int64) error {
 		return err
 	}
 	s.applyLeaveChannel(ch, p, seq)
+	return nil
+}
+
+func (s *PostgresStore) SetChannelWake(ch, p ident.ID, w WakeMode) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.prepareSetChannelWake(ch, p, w); err != nil {
+		return err
+	}
+	if err := s.exec("SetChannelWake",
+		`UPDATE channel_members SET wake = $3 WHERE channel_id = $1 AND participant_id = $2 AND left_seq IS NULL`,
+		ch, p, string(w)); err != nil {
+		return err
+	}
+	s.applySetChannelWake(ch, p, w)
 	return nil
 }
 
@@ -168,7 +187,7 @@ func (s *PostgresStore) loadChannels(ctx context.Context) error {
 		return err
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT channel_id, participant_id, joined_seq, left_seq FROM channel_members ORDER BY channel_id, joined_seq`)
+		`SELECT channel_id, participant_id, joined_seq, left_seq, wake FROM channel_members ORDER BY channel_id, joined_seq`)
 	if err != nil {
 		return fmt.Errorf("pgstore: load channel_members: %w", err)
 	}
@@ -177,7 +196,7 @@ func (s *PostgresStore) loadChannels(ctx context.Context) error {
 		var ch string
 		var ms ChannelMember
 		var left *int64
-		if err := rows.Scan(&ch, &ms.ParticipantID, &ms.JoinedSeq, &left); err != nil {
+		if err := rows.Scan(&ch, &ms.ParticipantID, &ms.JoinedSeq, &left, &ms.Wake); err != nil {
 			return err
 		}
 		if left != nil {

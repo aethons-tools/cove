@@ -12,7 +12,7 @@ import (
 // ticketChannelOf is the fixture ticket's channel (it must exist).
 func (f *icFixture) ticketChannelOf() Channel {
 	f.t.Helper()
-	ch, ok := f.store.ChannelByKey(f.project.ID, SourceTicket, string(f.tracker.ID)+"/ACME-7")
+	ch, ok := f.store.ChannelByKey(f.project.ID, SourceWork, string(f.tracker.ID)+"/ACME-7")
 	if !ok {
 		f.t.Fatal("no ticket channel")
 	}
@@ -59,7 +59,7 @@ func TestIntercomOwnTicketSendGoesToTicket(t *testing.T) {
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatal(err)
 	}
-	if p := f.mustPlan(f.ticket, "ticket:ACME-7"); p.Channel.Kind != SourceTicket {
+	if p := f.mustPlan(f.ticket, "ticket:ACME-7"); p.Channel.Kind != SourceWork {
 		t.Fatalf("ticket:ACME-7 = %+v", p.Channel)
 	}
 }

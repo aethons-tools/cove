@@ -196,7 +196,7 @@ func runConfigConformance(t *testing.T, mk func(t *testing.T) jam.Store) {
 		st := mk(t)
 		w, _, cid, pid := full()
 		w.Projects[0].Context = sessionctx.Layer{Core: "goal"}
-		ticket := jam.Channel{ID: ident.New(ident.Channel), ProjectID: pid, Kind: jam.SourceTicket, Key: string(cid) + "/ACME-9",
+		ticket := jam.Channel{ID: ident.New(ident.Channel), ProjectID: pid, Kind: jam.SourceWork, Key: string(cid) + "/ACME-9",
 			Label: "t", Status: jam.StatusLive}
 		w.Channels = append(w.Channels, ticket)
 		if err := st.ApplyConfig(w); err != nil {
