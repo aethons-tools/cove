@@ -139,6 +139,25 @@ func TestMCPSendForwardsToJam(t *testing.T) {
 	}
 }
 
+// send's mentions reach Jam as the request's mentions.
+func TestMCPSendForwardsMentions(t *testing.T) {
+	fh := &fakeJam{}
+	backend := httptest.NewServer(fh.handler())
+	defer backend.Close()
+	env := map[string]string{"JAM_RUNTIME_ADDR": backend.URL, "JAM_IDENTITY_TOKEN": "tok-A"}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "send",
+		Arguments: map[string]any{"text": "over to you", "to": "channel:ops", "mentions": []string{"session:editor"}},
+	})
+	if err != nil || res.IsError {
+		t.Fatalf("CallTool(send) = %+v, %v", res, err)
+	}
+	if got, _ := json.Marshal(fh.gotBody["mentions"]); string(got) != `["session:editor"]` {
+		t.Fatalf("Jam saw mentions %s, want [session:editor]", got)
+	}
+}
+
 func TestMCPReadReturnsInbox(t *testing.T) {
 	fh := &fakeJam{inbox: []squawkOut{
 		{ID: "m1", Author: "brent", Body: "hello", At: "2026-09-13T00:00:00Z"},
@@ -204,7 +223,7 @@ func TestMCPSendForwardsTo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := c.send(context.Background(), "hi", "human:alice", "")
+	out, err := c.send(context.Background(), sendIn{Text: "hi", To: "human:alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +250,7 @@ func TestMCPSendReturnsIDAndChannel(t *testing.T) {
 		}
 		return ""
 	})
-	out, err := c.send(context.Background(), "hi", "", "")
+	out, err := c.send(context.Background(), sendIn{Text: "hi"})
 	if err != nil || out.ID != "m1" || out.Channel != (partyOut{ID: "chn_x", Kind: "ticket", Label: "ACME-7"}) {
 		t.Fatalf("send = %+v, %v", out, err)
 	}

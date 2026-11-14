@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -504,5 +505,36 @@ func TestSquawksSendToWorker(t *testing.T) {
 	}
 	if code, r := f.send(f.standing, `{"body":"hi","to":"work:ACME-7"}`); code != http.StatusOK || r.Channel.Kind != "work" {
 		t.Fatalf("to the log = %d %+v", code, r)
+	}
+}
+
+// send's mentions name session members of the conversation; the post
+// records them (and the body's @<label>s). One that names no session member
+// is refused with 400.
+func TestSquawksSendMentions(t *testing.T) {
+	f := newSqFixture(t, "channel:eng")
+	if err := f.store.JoinChannel(f.room.ID, ident.ID(f.ticket.ActorID), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.JoinChannel(f.room.ID, f.bob.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	code, r := f.send(f.standing, `{"body":"over to you, @bob","to":"channel:eng","mentions":["session:`+f.ticket.ActorID+`"]}`)
+	if code != http.StatusOK {
+		t.Fatalf("send with mentions = %d", code)
+	}
+	var got []ident.ID
+	for _, m := range f.log.ChannelBefore(f.room.ID, 0, 0) {
+		if m.ID == r.ID {
+			got = intercom.Mentions(m)
+		}
+	}
+	if want := ids(f.bob, f.ticket); !slices.Equal(got, want) {
+		t.Fatalf("mentions = %v, want %v", got, want)
+	}
+	for _, bad := range []string{`["session:nobody"]`, `["user:bob"]`, `["session:` + f.personal.ActorID + `"]`} {
+		if code, _ := f.send(f.standing, `{"body":"x","to":"channel:eng","mentions":`+bad+`}`); code != http.StatusBadRequest {
+			t.Errorf("mentions %s = %d, want 400", bad, code)
+		}
 	}
 }

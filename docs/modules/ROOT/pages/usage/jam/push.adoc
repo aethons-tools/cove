@@ -86,6 +86,9 @@ the conversation they currently have open in the app. Within that, a member is
 buzzed for:
 
 * any message in a *chat* (direct or group) or a *session* conversation;
+* in a *room* or a *work log*, a message that mentions them
+(an `@<name>` in its body, recorded as its mentions:
+xref:usage/jam/wake-on.adoc#who-wakes[wake-on]);
 * in any channel, an *ask* whose `of` names them, a *call-in* inviting them, or
 an *escalation* reaching them.
 An ask with no `of` (anyone in the channel may answer) buzzes no one as an ask;
