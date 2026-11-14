@@ -4,7 +4,7 @@
 :owns: what the `/app/user` user area shows and does — the rail attention grouping, the conversation view, New message, New session, asks in a conversation, copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
 :prereqs: web-app.md for how the app is built and served; session-events.adoc for the event stream the status strip derives from; ui.adoc for the `/app` login and who counts as a user; intercom.adoc for the squawk Log + wake-on; coves.adoc for the session phases and activity the "Needs you" treatment reflects; escalation.adoc for asking for a person
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 A *project member* reads and replies to their intercom channels in the *Jam
 app*, a single-page web app served under `/app/user`, rather than through the
@@ -49,10 +49,10 @@ badge. Last, *History (before the upgrade)*: the conversations of the
 frozen legacy log, read-only. *New message* (and *New session*) sit in the rail's header.
 ** *Mission:* a row may show a session's xref:usage/jam/intercom.adoc#what-the-tools-do[mission]
 as a muted second line. A session channel shows its own active session's; a
-ticket channel the most recently raised active session's; a chat only when
+work log the most recently raised active session's; a dm or group only when
 exactly one session in it is active; rooms never.
-** *Status card:* a session channel's row (its own session, or a ticket's
-most recently raised active one; never chats or rooms) is that session's
+** *Status card:* a session channel's row (its own session, or a work log's
+most recently raised active one; never dms, groups, or rooms) is that session's
 xref:usage/jam/session-card.adoc[status card].
 * *The open conversation:* its messages (the viewer's own on one side) with
 day dividers and *Load earlier* for older pages, a *"Needs you"* chip

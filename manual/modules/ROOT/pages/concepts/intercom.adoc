@@ -13,21 +13,26 @@ Both see the same messages.
 == Channels
 
 A channel is a conversation with a fixed place in a project.
-There are four kinds:
+There are five kinds:
 
 Session channel::
 Each session has its own channel, made when the session starts.
 The session is always in it.
 If you start a personal session, you are in its channel too.
 When the session ends, its channel closes.
-Ticket::
-A session that works on a ticket is also in the ticket's channel.
-The ticket's channel stays when the session ends.
-If the ticket is worked again, the new session joins the same channel.
-Chat::
-A conversation between a fixed group of people and sessions.
-A chat is named after the others in it.
-Nobody can join or leave a chat.
+Work log::
+The log of one ticket's work
+(xref:concepts/work.adoc[Units of work]).
+The session that works on the ticket is in it.
+The work log stays when the session ends.
+If the ticket is worked again, the new session takes the old one's place in it.
+DM::
+A conversation between two members: two people, a person and a session, or two sessions.
+Each pair has one DM.
+Group DM::
+A conversation between a fixed group of three or more people and sessions.
+It's named after the others in it.
+Nobody can join or leave a DM or a group DM.
 Room::
 A named channel of a project, such as `ops`.
 People join and leave rooms.
@@ -41,26 +46,31 @@ A message you get but have not read counts as *unread*.
 
 You can start a conversation with anyone in your projects:
 
-* Another member of the project. This starts a chat with them.
+* Another member of the project, in a DM.
 * A live session, in its own channel.
 A personal session that belongs to someone else is not offered,
 unless you are already in its channel.
-* The ticket of a live session.
+* The work log of a live session's ticket.
 * A room of the project.
 
-You see a project's tickets, rooms and the channels of its shared sessions while you are a member of the project.
+You see a project's work logs, rooms, and the channels of its shared sessions while you are a member of the project.
 If you leave a project, its channels disappear from your Inbox at once.
 
-A session can always post in its own channel.
+A session can always post in its own channel and in its ticket's work log.
+A personal session can always message the person who started it,
+and any session can answer in a conversation where it got a message.
 To post anywhere else, its role must allow it.
-The role's *addressing* is the list of people, rooms, tickets and sessions that the role's sessions can message
+The role's *addressing* is the list of people, rooms, work, and sessions that the role's sessions can message
 (xref:configuration/roles.adoc[Configuring roles and raising agents]).
+A session messages another session in a DM,
+and the session working on a ticket in a DM too
+(xref:concepts/work.adoc#_reaching_the_work[Reaching the work]).
 
 == Joining, leaving and calling in
 
-You join a ticket, a room, or a shared session's channel when you post in it,
+You join a work log, a room, or a shared session's channel when you post in it,
 or when you click *Join*.
-You can leave any channel you are in, except a chat.
+You can leave any channel you are in, except a DM or a group DM.
 What you got before you left stays in the channel.
 
 A member can *call in* someone else.
@@ -105,12 +115,12 @@ until someone answers
 
 Some channels are also shown on another service:
 
-* A ticket's messages are posted as comments on its issue in the tracker (Linear or GitHub Issues).
-Comments on the issue come back into the ticket's channel.
+* A work log's messages are posted as comments on its issue in the tracker (Linear or GitHub Issues).
+Comments on the issue come back into the work log.
 * A room can be bound to a tracker issue or a Discord channel.
 Its messages go there, and posts there come back.
 * If the project uses Discord for chat,
-Jam posts your chats and session channels to your own Discord inbox channel.
+Jam posts your DMs, group DMs, and session channels to your own Discord inbox channel.
 To answer, use Discord's reply on the message.
 A message in your inbox channel that is not a reply does not go to Jam.
 
@@ -125,6 +135,9 @@ A role's addressing is `scope.addressing` in its role file.
 * Attachments are off unless serve has a `blobs:` block; `blobs.max-size` sets the limit.
 * Only people join channels with *Join* or by posting.
 A personal session's channel is invite-only.
+* The channel kinds are `dm`, `group`, `room`, `work`, and `session`.
+Session channels go in a later change
+(`docs/modules/ROOT/pages/usage/jam/conversations.adoc` on the `goal` branch).
 * Architecture pages: `docs/modules/ROOT/pages/usage/jam/intercom.adoc` (channels, membership, wake-on),
 `comms-addressing.adoc` (targets and addressing),
 `attachments.adoc`, `discord.adoc`.

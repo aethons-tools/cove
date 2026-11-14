@@ -1,0 +1,67 @@
+= Units of work
+:page-area: ROOT
+:page-id: ROOT/concepts/work
+:page-conventions: sentence-case
+
+A *unit of work* is one ticket from the project's tracker,
+seen from Jam:
+the issue,
+the session that works on it now,
+and its *work log*.
+It outlives the sessions that work on it.
+
+Jam starts a ticket agent when a ticket is ready and marked for dispatch
+(xref:concepts/agent.adoc[Roles, agents and sessions]).
+If the ticket is worked again later,
+the new session takes over the same unit of work.
+At most one session works on a unit at a time.
+
+== The work log
+
+The work log is the conversation of the work
+(xref:concepts/intercom.adoc[Intercom]).
+The session working on the unit gets every entry.
+So do the people who follow it:
+who posted in the log, or clicked *Join* on it.
+When a new session takes over the unit,
+Jam takes the old session out of the log and puts the new one in.
+
+The log is mirrored to the issue in the tracker, both ways.
+Each entry becomes a comment on the issue,
+and a comment written on the issue becomes an entry in the log.
+
+== Reaching the work
+
+An agent reaches a unit of work in two ways,
+for two different purposes:
+
+Post to the work log::
+For anything that matters to the work:
+a decision, a change to what is wanted, an answer to keep.
+The entry stays with the work,
+shows on the issue,
+and reaches the session working on it now.
+DM the worker::
+For a conversation with the session working on it now:
+a quick question, or a nudge about this run.
+Jam sends the message as a DM to that session.
+If no session is working on the unit of work,
+Jam doesn't send the message and says so.
+The DM stays with that session, not with the work.
+
+An agent can always post to the log of its own ticket.
+To reach other work, its role's addressing must allow the ticket
+(xref:configuration/roles.adoc[Configuring roles and raising agents]).
+
+ifdef::internal[]
+== Notes for the team
+
+* The targets are `work:<key>` (the log; `ticket:<key>` is an alias) and `worker:<key>` (the DM;
+`409 {"error": "no-worker"}` with no current worker).
+Both match a role's `ticket:` addressing globs.
+* The log is a channel of kind `work`; it records its current worker.
+* People can't DM a unit's worker from the Inbox yet,
+and a unit of work has no page of its own yet (COV-308).
+* Architecture pages: `docs/modules/ROOT/pages/usage/jam/comms-addressing.adoc` (targets and addressing),
+`intercom.adoc` (the channel log).
+endif::[]
