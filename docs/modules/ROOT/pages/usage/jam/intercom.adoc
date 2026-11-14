@@ -6,8 +6,6 @@
 :tier: leaf
 :updated: 2026-11-13
 
-NOTE: The goal replaces session and ticket channels with DMs, rooms, and units of work. Where this page disagrees with xref:usage/jam/conversations.adoc[conversations], that page wins.
-
 A managed studio's agent gets *Jam-brokered* tools — `read`, `send`,
 `+list_targets+`, and `escalate` — over Jam's *channel log*: every squawk is in
 one channel (a ticket's conversation, a session's own channel, a chat with people, a room) and reaches

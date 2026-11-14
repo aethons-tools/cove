@@ -6,8 +6,6 @@
 :tier: leaf
 :updated: 2026-11-14
 
-NOTE: The goal replaces session and ticket channels with DMs, rooms, and units of work. Where this page disagrees with xref:usage/jam/conversations.adoc[conversations], that page wins.
-
 When the open conversation is a live session's *home channel* (its session channel, or the
 ticket channel of the ticket it works), the xref:usage/jam/intercom-ui.adoc[Jam app] adds a header above
 it and a pane beside it (`web/app/src/session/`), from the API in `internal/jam/userui`

@@ -6,8 +6,6 @@
 :tier: leaf
 :updated: 2026-11-13
 
-NOTE: The goal replaces session and ticket channels with DMs, rooms, and units of work. Where this page disagrees with xref:usage/jam/conversations.adoc[conversations], that page wins.
-
 A studio's `send` can reach more than its home channel: a *person* or a
 group of them (a chat), a *room*, another *ticket*'s conversation, or
 another *session* —

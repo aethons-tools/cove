@@ -20,9 +20,8 @@ its previews, what it shared, and its status.
 
 image::session-view.png["A session view, with its header and the Thinking pane",800]
 
-The session's owner and the Jam's operators can open its session view.
-For a personal session, the owner is the person who started it;
-for any other session, it's the owners of its role.
+The Jam's operators can open any session view,
+and the person who started a personal session can open its view.
 
 == Activity
 

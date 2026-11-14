@@ -1,7 +1,7 @@
 = Conversations, units of work, and session views
-:summary: The goal communication model: DMs, group DMs, rooms, and work logs replace session and ticket channels; who wakes for what; the turn-end rule that every turn sends or says no message is needed; the session view as a read-only view of one session; the agent-to-agent rate limit; escalation as a DM; and how today's channels move over.
+:summary: The goal communication model: DMs, group DMs, rooms, and work logs replace session and ticket channels; units of work; targets; sessions in rooms and who wakes for what; and the agent-to-agent rate limit. The session side (turn end, session view, escalation, migration) is in conversations-sessions.adoc.
 :read_when: You are building or reviewing any part of the move from session and ticket channels to DMs, rooms, and units of work, or you need the interface one part offers the others.
-:owns: the goal conversation kinds and their targets, the unit of work and its log, wake rules per kind, the turn-end rule, session-view access, the agent-to-agent rate limit, escalation delivery, and the migration. Does NOT own the tool wire shapes that stay as they are (intercom.adoc), glob matching (comms-addressing.adoc), or the Discord and tracker relays' mechanics (discord.adoc, intercom.adoc).
+:owns: the goal conversation kinds and their targets, the unit of work and its log, sessions as room members, wake rules per kind, the agent-to-agent rate limit, and the build order. Does NOT own the tool wire shapes that stay as they are (intercom.adoc), glob matching (comms-addressing.adoc), or the Discord and tracker relays' mechanics (discord.adoc, intercom.adoc).
 :prereqs: intercom.adoc for the channel log, tools, and relays this changes; comms-addressing.adoc for targets and addressing; structured-turn-end.adoc for today's turn end
 :tier: leaf
 :updated: 2026-11-14
@@ -107,8 +107,8 @@ with two changes:
 
 * `+work:+` and `+worker:+` match a role's `+ticket:+` globs, so existing roles keep working.
 * There is no home channel, so no send skips the check.
-A session may always send to its own unit's log (`+work:<its key>+`)
-and to its owner.
+A session may always send to its own unit's log (`+work:<its key>+`),
+and a personal session to the person who started it.
 
 `send` without `to` replies in the conversation of the newest message the turn was shown.
 On a turn with no messages, such as an alarm, `send` needs a `to` (`400`).
@@ -125,101 +125,55 @@ On a turn with no messages, such as an alarm, `send` needs a `to` (`400`).
 
 |`room`
 |Only the session members it mentions,
-plus the members whose role sets `wake-on-all` for that room.
+plus the session members that joined with `wake: all`.
 The others get it in their inbox without waking.
 
 |`work`
 |The current worker, unless it is the author.
 |===
 
+*Sessions in rooms.*
+A session is a member of a room in two ways:
+
+* Its role lists the room in its file,
+`scope.rooms: [{name: ops, wake: named}]`,
+and its sessions join it when they're raised.
+`wake` is `named` (the default) or `all`.
+* A member of the room calls it in (`call_in`), and the caller's addressing allows the session.
+It joins with `wake: named`.
+
+A session leaves a room it was called into with `leave`;
+it can't leave a room its role lists.
+A room's sessions show in its member list, marked as agents.
+
 A *mention* is the `mentions` field of `send` (a list of `+session:+` targets),
 or an `@<label>` in the body that names a session member of the room.
-A role opts in per room in its file:
-`scope.rooms: [{name: ops, wake: all}]`.
-
 People are notified by the push rules (xref:usage/jam/push.adoc[push]),
 with "a member of the channel" read as "a member of the `dm` or `group`",
 and "named" for rooms and work logs.
 
-[#turn-end]
-== The turn-end rule
-
-Every turn ends in one of two ways:
-
-* It sent something: a `send`, an `ask`, a `report`, or `turn_end` with a `to`.
-* It said no message is needed: `turn_end` with `+no_reply: true+`.
-
-Text is thinking unless it's sent.
-The final text and mid-turn text are never auto-posted;
-`turn_end` with a `to` posts the final text there.
-
-A turn that ends with neither is *returned* once:
-Jam wakes the session at once with a note that the turn sent nothing and didn't say no message was needed,
-and shows it the same messages again (they aren't committed).
-If that turn also ends with neither,
-Jam commits, records `unaddressed` on the turn in the session view,
-and doesn't return it again.
-
-Interrupted, errored, and `/compact` turns are exempt, as today.
-`turn_end` keeps `post: false`, read as `+no_reply: true+`.
-
-[#session-view]
-== The session view
-
-The session view is read-only over the log and the Thinking feed:
-
-* *Activity*: every message the session authored or was delivered, from any kind,
-with its conversation.
-`+GET /app/user/api/sessions/{id}/activity+`, paged like `read`.
-* *Thinking*: the existing feed (xref:usage/jam/session-view.adoc[session-view]),
-folded between messages a turn at a time, collapsed by default.
-Thinking is never indexed for search.
-* *Composer*: posts to `+session:<label>+` as the viewer, a `dm`.
-
-*Who may open it:* the session's owner and the Jam's operators.
-The owner of a personal session is its starter;
-of any other session, the role's owners.
-Everyone else gets `404`.
-Thinking can quote what a tool printed,
-so this is the transcript's access rule, not the conversation's.
-
-After the session ends, the view stays, but without its header or pane.
-
 [#rate-limit]
 == The agent-to-agent rate limit
 
-Jam counts the messages one session sends to another,
-in any `dm`, `group`, or room mention,
-per pair of sessions over a sliding window.
-Past the limit, Jam holds the pair's next messages to each other,
-notifies both sessions' owners,
-and releases the hold when an owner says so or the window passes.
-The numbers are serve config, `runtime.agent-rate`.
-Today's loop breaker (8 messages in a row between sessions) becomes this limit.
+Each session has a budget of *agent wakes*:
+messages it sends that wake another session.
+Jam counts them over a sliding window,
+in every kind of conversation.
+A message from a person to the session resets its count.
 
-[#escalation]
-== Escalation
+Past the budget,
+the session's messages still go out,
+but they wake no session.
+Jam tells the operators,
+and for a personal session the person who started it,
+once per window.
+The count drops as the window slides.
 
-A tier opens a `dm` between the session and the tier's one person,
-or a `group` of the session and the tier's people,
-and posts the escalation notice there.
-When the session works on a unit,
-the notice is also posted to its log.
-Tier timing doesn't change (xref:usage/jam/escalation.adoc[escalation]).
-
-[#migration]
-== Moving over
-
-* Each live session channel is archived.
-Its history stays readable in the session view.
-* Each ticket channel becomes its unit's log and keeps its history and its binding to the issue.
-* Each chat becomes a `dm` or a `group`.
-* `+session:<label>+`, `+ticket:<key>+`, and `+chat:+` keep working as above,
-so role files and context pages need no change at the switch.
-* A personal session's starter gets a `dm` with it;
-the idle ladder's nags go there.
-* The Discord relay posts `dm` and `group` messages to people's inbox channels,
-as it posts chats today.
+The budget is per sender, not per pair,
+so a loop among three agents trips it too:
+each of them uses up its own budget.
+The numbers are serve config, `runtime.agent-wakes` (a count and a window).
+It replaces today's per-channel breaker (8 messages in a row between sessions).
 
 [#order]
 == Building it
@@ -228,4 +182,5 @@ The first issue lands the interface:
 the four kinds, `work` units and their log, and the targets,
 with today's behavior otherwise unchanged.
 The rest build against this page in parallel:
-wake rules, the turn-end rule, the session view, the rate limit, escalation, the Inbox, and the migration.
+wake rules, the rate limit, the Inbox,
+and each part of xref:usage/jam/conversations-sessions.adoc[conversations-sessions].

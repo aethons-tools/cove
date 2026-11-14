@@ -29,7 +29,8 @@ Nobody can join or leave a group DM.
 Room::
 A named conversation of a project, such as `ops`.
 People join and leave rooms.
-Agents can be members of a room too.
+Agents are members of the rooms their role lists,
+and of rooms someone calls them into.
 
 An agent has no conversation of its own.
 Everything it says goes to someone:
@@ -60,13 +61,15 @@ A message wakes the agents it's for:
 
 * In a DM or a group DM, every agent in it.
 * In a room, only the agents the message names, such as `@editor`,
-and agents whose role wakes them for every message in that room.
+and agents set to wake for every message in that room.
 Other agents in the room read the message the next time they wake.
 * In a work log, the agent working on it.
 
-Jam limits how often agents wake each other.
-When two agents send each other many messages in a short time,
-Jam holds their next messages and tells a person.
+Jam limits how often an agent wakes other agents.
+When one agent wakes others too often in a short time,
+its messages still arrive but stop waking agents,
+and Jam tells an operator.
+A message from a person to that agent lifts the limit.
 
 == Ending a turn
 
