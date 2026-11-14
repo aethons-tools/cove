@@ -4,7 +4,7 @@
 :owns: the git kit-source story — the source syntax and its refusals, the in-repo kit.yml layout, import vs track/sync semantics and the unchanged rules, version provenance in `versions`/`show`, kits.git credential matching + username rules + anonymous fetch, and the fetch limits
 :prereqs: kits.adoc for the StudioKit schema, versions and the `kit` verbs; serve.adoc for where the `kits` block sits in the serve config
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 Instead of living in the config repo (`kits/<name>/`, xref:usage/jam/kits.adoc[kits]), a
 kit can be *imported from its own git repository*: Jam fetches the repo itself (a shallow, read-only checkout over
@@ -22,6 +22,9 @@ jam kit untrack web                                                       # stop
 
 The admin UI does the same from the Kits list (*Import from git*) and each
 kit's *Source* card (xref:usage/jam/ui-kit-pages.adoc[]).
+There, import, track, sync, and untrack act on the live Jam even on a
+xref:usage/jam/config-branches.adoc[config branch]: they aren't commits to the branch
+(`branchLive` in `adminui/branches.go`).
 
 [#the-source-repodirref]
 == The source: `+<repo>[//<dir>]@<ref>+`

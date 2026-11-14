@@ -4,7 +4,7 @@
 :owns: the `/app/user` composer — the send path, keys, saved reply, draft stack and attachments
 :prereqs: intercom-ui.adoc for the Jam app around it
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 The composer sits below an open conversation in the xref:usage/jam/intercom-ui.adoc[Jam app]; a person writes and sends messages with it.
 
@@ -33,4 +33,4 @@ text in the box. Stacks live in session storage, never sent to Jam.
 progress and ✕; Send waits until they finish, then sends their refs (the text
 may be empty). A refused upload says why on its chip. In the stream, images
 show as thumbnails that open full size; other files as a download chip.
-New message doesn't attach.
+New message attaches files too.

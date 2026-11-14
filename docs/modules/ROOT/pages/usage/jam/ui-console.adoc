@@ -4,7 +4,7 @@
 :owns: the `/app/admin/` console's navigation (tabs, the Config tree and filter, the page URL table) and its Dashboard, Agents list and Health pages (tiles, filters, fixed table order); console search; the Channel log page (`/app/admin/health/intercom`); the `/app/admin/agents/\{id}/session` timeline
 :prereqs: ui.adoc for the routes, the login and the title bar these pages sit under; ui-attention.adoc for the badges; ui-editing.adoc for what can be changed
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 The admin console is the Jam app's admin area: four title-bar tabs —
 *Dashboard · Config · Agents · Health* — and a search box. Every page is its
@@ -88,7 +88,11 @@ project/role, grants — one hit per id), roles (project/name, kit,
 destinations), projects, kits (name, current prompt and egress), destinations
 (name, route, upstream, env keys), model-specs (name, type, model, principal),
 users (name, logins, OIDC subject, account handles and ids) and rooms, and
-squawk bodies (newest 10; the rest via the Channel log's `q=`).
+squawk bodies (newest 10).
+The search page links the rest of the squawks as *open in Intercom*
+(or *all N in Intercom* when there are more than it shows), to
+`+/app/admin/intercom?q=…+`, which redirects to the <<channel-log,Channel log>>
+(xref:usage/jam/ui-old-links.adoc[old links]).
 Matching is case-insensitive substring, at least 2 characters; results are
 grouped and link to each object's page. *Enter* jumps to the page when one
 object's name is the whole query (e.g. an agent id or `acme/dev`), else opens
