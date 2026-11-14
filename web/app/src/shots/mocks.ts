@@ -206,23 +206,22 @@ const userBoot: Bootstrap = {
   attachMax: 25 << 20, pushKey: "BKmanual-shot-vapid-key", boards: true, pushFocus: false, newSession: false,
 };
 const row = (over: Partial<ChannelRow>): ChannelRow => ({
-  id: "", label: "", project: "acme", kind: "studio", needsYou: false, phase: "", unread: 0, openAsks: 0,
-  lastSeq: 0, selected: false, mission: "", session: "", ssh: false, ...over,
+  id: "", label: "", project: "acme", kind: "work", needsYou: false, phase: "", unread: 0, openAsks: 0,
+  lastSeq: 0, selected: false, mission: "", session: "", ssh: false, sessionView: "", ...over,
 });
 const rail = {
   unreadTotal: 3,
   groups: [
     { bucket: "needs-you", title: "Needs you", rows: [
-      row({ id: "chn_acme42", label: "ACME-42", needsYou: true, phase: "live", openAsks: 1, unread: 1, lastSeq: 90,
-        card: card({ session: "ses_spider", name: "spider", state: "idle", pill: "needs you", tool: "", mission: "Fix the flaky login test", counts: { asks: 1, alarms: 0, previews: 0, processes: 0, subagents: 0 } }) }),
+      row({ id: "chn_acme42", label: "ACME-42", needsYou: true, phase: "live", openAsks: 1, unread: 1, lastSeq: 90, mission: "Fix the flaky login test" }),
     ] },
-    { bucket: "active", title: "Sessions", rows: [
-      row({ id: "chn_helper", label: "helper", phase: "live", lastSeq: 88,
+    { bucket: "active", title: "Agents", rows: [
+      row({ id: "chn_helperdm", label: "helper", kind: "dm", phase: "live", lastSeq: 88, sessionView: "chn_helper",
         card: card({ session: "ses_helper", name: "helper", mission: "Draft the 1.14 release notes", focus: "Reading the changelog" }) }),
-      row({ id: "chn_bobcoder", label: "bob, coder", kind: "dm", phase: "live", lastSeq: 80, mission: "Review open pull requests" }),
+      row({ id: "chn_bobcoder", label: "bob, coder", kind: "group", phase: "live", lastSeq: 80, mission: "Review open pull requests" }),
     ] },
-    { bucket: "channels", title: "Channels", rows: [
-      row({ id: "chn_ops", label: "ops", kind: "named", lastSeq: 86, selected: true }),
+    { bucket: "channels", title: "Conversations", rows: [
+      row({ id: "chn_ops", label: "ops", kind: "room", lastSeq: 86, selected: true }),
       row({ id: "chn_bob", label: "bob", kind: "dm", unread: 2, lastSeq: 84 }),
       row({ id: "chn_acme37", label: "ACME-37", lastSeq: 40 }),
     ] },
@@ -232,7 +231,7 @@ const msg = (over: Partial<MessageRow>): MessageRow => ({
   from: "", body: "", raw: "", plain: false, at: "", time: "", mine: false, seq: 0, system: false, sysText: "", card: "", ...over,
 });
 const ops: Conversation = {
-  channelId: "chn_ops", label: "ops", kind: "named", project: "acme", phase: "", needsYou: false, sendTo: "chn_ops",
+  channelId: "chn_ops", label: "ops", kind: "room", project: "acme", phase: "", needsYou: false, sendTo: "chn_ops",
   lastSeq: 86, earlier: false, sessionIds: [], sessions: [], openAsks: [], newBoard: false, session: "",
   canJoin: false, canLeave: true,
   callIn: [{ to: "user:usr_3", label: "carol", kind: "person", project: "" }, { to: "user:usr_4", label: "dan", kind: "person", project: "" }],
@@ -246,9 +245,9 @@ const ops: Conversation = {
     msg({ seq: 86, from: "alice", mine: true, time: "2026-11-10T09:26:00Z", body: "<p>Thanks. That warning is known; I'll post the announcement.</p>", raw: "Thanks. That warning is known; I'll post the announcement." }),
   ],
 };
-// ACME-37's ticket conversation: alice can see it but isn't in it.
+// ACME-37's work log: alice can see it but isn't in it.
 const acme37: Conversation = {
-  ...ops, channelId: "chn_acme37", label: "ACME-37", kind: "studio", sendTo: "chn_acme37", lastSeq: 40,
+  ...ops, channelId: "chn_acme37", label: "ACME-37", kind: "work", sendTo: "chn_acme37", lastSeq: 40,
   canJoin: true, canLeave: false, callIn: [],
   messages: [msg({ seq: 40, from: "reviewer", time: "2026-11-09T16:02:00Z", body: "<p>Merged: the retry fix for the webhook relay.</p>", raw: "Merged: the retry fix for the webhook relay." })],
 };
@@ -258,7 +257,8 @@ const recipients = {
     { to: "user:usr_3", label: "carol", kind: "person", project: "acme" },
     { to: "session:ses_helper", label: "helper", kind: "agent", project: "acme" },
     { to: "session:ses_spider", label: "spider", kind: "agent", project: "acme" },
-    { to: "chn_acme42", label: "ACME-42", kind: "ticket", project: "acme" },
+    { to: "chn_acme42", label: "ACME-42", kind: "work", project: "acme" },
+    { to: "chn_acme37", label: "ACME-37", kind: "work", project: "acme" },
     { to: "chn_ops", label: "ops", kind: "room", project: "acme" },
     { to: "user:usr_5", label: "erin", kind: "person", project: "website" },
     { to: "chn_launch", label: "launch", kind: "room", project: "website" },
@@ -347,7 +347,7 @@ const goTools = kit({
 const helperId = "ses_helper";
 const helperColor = "#1c7ed6";
 const helperConv: Conversation = {
-  ...ops, channelId: "chn_helper", label: "helper", kind: "studio", sendTo: "chn_helper", lastSeq: 88,
+  ...ops, channelId: "chn_helper", label: "helper", kind: "session", sendTo: "chn_helper", lastSeq: 88,
   canJoin: false, canLeave: false, callIn: [], session: helperId, color: helperColor,
   sessionIds: [helperId], sessions: [{ label: "helper", text: "is running", tool: "Bash", class: "busy" }],
   messages: [
@@ -451,7 +451,7 @@ const askStaging = ask({ id: "ask_staging", question: "Deploy the fix to staging
   options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] });
 const spiderSays = (seq: number, time: string, text: string) => msg({ seq, from: "spider", color: "#e8590c", time, body: `<p>${text}</p>`, raw: text });
 const acme42: Conversation = {
-  ...ops, channelId: "chn_acme42", label: "ACME-42", kind: "studio", needsYou: true, sendTo: "chn_acme42", lastSeq: 90,
+  ...ops, channelId: "chn_acme42", label: "ACME-42", kind: "work", needsYou: true, sendTo: "chn_acme42", lastSeq: 90,
   canJoin: false, canLeave: true, callIn: [], openAsks: [askMerge, askStaging],
   messages: [
     spiderSays(60, "2026-11-12T09:02:00Z", "The login test waits on a fixed 2 s timer, so it fails on a slow runner. I can fix it two ways."),
@@ -472,8 +472,8 @@ const acme42: Conversation = {
 // thumbnail Jam's own render of them (both generated once with
 // jam.ApplyBoardOps and boardrender.Render).
 const bobCoder: Conversation = {
-  ...ops, channelId: "chn_bobcoder", label: "bob, coder", kind: "dm", sendTo: "chn_bobcoder", lastSeq: 80,
-  canJoin: false, canLeave: true, callIn: [], newBoard: true,
+  ...ops, channelId: "chn_bobcoder", label: "bob, coder", kind: "group", sendTo: "chn_bobcoder", lastSeq: 80,
+  canJoin: false, canLeave: false, callIn: [], newBoard: true,
   messages: [
     msg({ seq: 76, from: "coder", color: "#2f9e44", time: "2026-11-12T11:20:00Z", body: "<p>I drew the release steps from the ops thread. Please check the order.</p>",
       raw: "I drew the release steps from the ops thread. Please check the order." }),

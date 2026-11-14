@@ -47,11 +47,13 @@ A message you get but have not read counts as *unread*.
 You can start a conversation with anyone in your projects:
 
 * Another member of the project, in a DM.
+* A group of members, in a group DM.
 * A live session, in its own channel.
 A personal session that belongs to someone else is not offered,
 unless you are already in its channel.
-* The work log of a live session's ticket.
 * A room of the project.
+* The work log of a unit of work
+(xref:concepts/work.adoc[Units of work]).
 
 You see a project's work logs, rooms, and the channels of its shared sessions while you are a member of the project.
 If you leave a project, its channels disappear from your Inbox at once.
@@ -67,9 +69,11 @@ A session can message the session working on a ticket in a DM
 
 == Joining, leaving and calling in
 
-You join a work log, a room, or a shared session's channel when you post in it,
-or when you click *Join*.
-You can leave any channel you are in, except a DM or a group DM.
+You join a work log, a room, or a shared session's channel when you post in it.
+In the Inbox, you can also click *Join* on a room, a work log, or a shared session's channel,
+and *Leave* on one you are in
+(xref:inbox/channels.adoc[Reading and replying]).
+You can't leave a DM or a group DM.
 What you got before you left stays in the channel.
 
 A member can *call in* someone else.

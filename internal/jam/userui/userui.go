@@ -83,8 +83,8 @@ const bucketHistory jam.AttentionBucket = "history"
 
 var bucketTitle = map[jam.AttentionBucket]string{
 	jam.BucketNeedsYou: "Needs you",
-	jam.BucketActive:   "Sessions",
-	jam.BucketChannels: "Channels",
+	jam.BucketActive:   "Agents",
+	jam.BucketChannels: "Conversations",
 	bucketHistory:      "History (before the upgrade)",
 }
 
@@ -147,8 +147,20 @@ func legacyChannels(p jam.Participant, d Deps) []jam.ChannelView {
 	return all
 }
 
+// legacyKind is a History conversation's kind, in the conversation model's
+// words.
+var legacyKind = map[jam.ChannelKind]string{jam.ChannelNamed: "room", jam.ChannelDM: "dm", jam.ChannelStudio: "session"}
+
+// viewKind is the conversation kind the app shows for ch.
+func viewKind(ch jam.ChannelView) string {
+	if ch.Source != "" {
+		return string(ch.Source)
+	}
+	return legacyKind[ch.Kind]
+}
+
 // groupRail groups channels into the attention-ordered rail (Needs you →
-// Active → Channels); within a group, most-recent first, then id. Empty groups
+// Agents → Conversations); within a group, most-recent first, then id. Empty groups
 // are dropped. selectedID marks the open channel.
 func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 	byBucket := map[jam.AttentionBucket][]ChannelRow{}
@@ -167,7 +179,7 @@ func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 			ID:          ch.ID,
 			Label:       ch.Label,
 			Project:     ch.Project,
-			Kind:        ch.Kind,
+			Kind:        viewKind(ch),
 			NeedsYou:    ch.NeedsYou,
 			Phase:       ch.Phase,
 			Unread:      ch.Unread,

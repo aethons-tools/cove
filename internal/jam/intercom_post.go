@@ -579,21 +579,33 @@ func (ic *Intercom) PlanChannel(p Poster, chID ident.ID) (Planned, error) {
 	return ic.planIn(p, ch, false)
 }
 
-// PlanPersonChat decides a person's new conversation from /me with another
-// user: a chat in a project both are live members of (the first by name).
-// ErrSendUnresolved when there is none.
-func (ic *Intercom) PlanPersonChat(from, with ident.ID) (Planned, error) {
-	if from == with || from.Kind() != ident.User || with.Kind() != ident.User {
+// PlanPersonChat decides a person's new conversation from /me with other
+// users: the dm (one other) or the group (several) in a project all of them
+// are live members of (the first by name). ErrSendUnresolved when there is
+// none.
+func (ic *Intercom) PlanPersonChat(from ident.ID, with ...ident.ID) (Planned, error) {
+	members := []ident.ID{from}
+	for _, w := range with {
+		if w.Kind() != ident.User {
+			return Planned{}, ErrSendUnresolved
+		}
+		if !slices.Contains(members, w) {
+			members = append(members, w)
+		}
+	}
+	if from.Kind() != ident.User || len(members) < 2 {
 		return Planned{}, ErrSendUnresolved
 	}
 	for _, name := range ic.store.ListProjects() {
-		if p, ok := ic.store.GetProject(name); ok && ic.projectUser(p.ID, from) && ic.projectUser(p.ID, with) {
-			ch, err := ic.chat(p, []ident.ID{from, with})
-			if err != nil {
-				return Planned{}, err
-			}
-			return ic.planIn(Poster{ID: from}, ch, false)
+		p, ok := ic.store.GetProject(name)
+		if !ok || slices.ContainsFunc(members, func(m ident.ID) bool { return !ic.projectUser(p.ID, m) }) {
+			continue
 		}
+		ch, err := ic.chat(p, members)
+		if err != nil {
+			return Planned{}, err
+		}
+		return ic.planIn(Poster{ID: from}, ch, false)
 	}
 	return Planned{}, ErrSendUnresolved
 }

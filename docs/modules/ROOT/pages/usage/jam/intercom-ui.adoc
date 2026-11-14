@@ -1,5 +1,5 @@
 = The user area (`/app/user`)
-:summary: The user area under `/app/user` — the Jam app, a single-page web app where a person reads and replies to their intercom channels (and their legacy History), grouped by attention (Needs you → Sessions → Channels), with New message, asks, attachments, whiteboards, per-(participant,channel) unread and a live status strip for the sessions in each conversation. It reads the user area's JSON API (`/app/user/api/`) and refreshes live over an SSE signal stream (`GET /app/user/events`), with a 30 s poll as fallback.
+:summary: The user area under `/app/user` — the Jam app, a single-page web app where a person reads and replies to their intercom channels (and their legacy History), grouped by attention (Needs you → Agents → Conversations), with New message, asks, attachments, whiteboards, per-(participant,channel) unread and a live status strip for the sessions in each conversation. It reads the user area's JSON API (`/app/user/api/`) and refreshes live over an SSE signal stream (`GET /app/user/events`), with a 30 s poll as fallback.
 :read_when: You want a project member to read/reply to their studios and channels in a browser (not via the Discord/tracker relays), or you're operating the `/app/user` area — what it shows, its URLs, asks and copy controls, unread, membership, the live refresh, or the session status strip. The composer is in intercom-composer.adoc.
 :owns: what the `/app/user` user area shows and does — the rail attention grouping, the conversation view, New message, New session, asks in a conversation, copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
 :prereqs: web-app.md for how the app is built and served; session-events.adoc for the event stream the status strip derives from; ui.adoc for the `/app` login and who counts as a user; intercom.adoc for the squawk Log + wake-on; coves.adoc for the session phases and activity the "Needs you" treatment reflects; escalation.adoc for asking for a person
@@ -36,14 +36,20 @@ link back.
 The page carries the shared app title bar (logo, `+{display name} Jam+`, tabs,
 principal menu; see xref:usage/jam/ui.adoc[ui.adoc]) with *Inbox* current.
 
-* *Left rail — channels grouped by attention:* `Needs you` (a conversation
+* *Left rail — conversations grouped by attention:* `Needs you` (a conversation
 with a session that *asked for a person* — a `needs-input` report or the
 `escalate` tool, see xref:usage/jam/escalation.adoc[escalation] — or is blocked, live or
-paused while it waits, or with an open ask you may answer), then `Sessions`
-(a live, starting or paused session, idle included), then ``Channels``: every
+paused while it waits, or with an open ask you may answer), then `Agents`
+(a `dm` or `group` with a live, starting, or paused session, idle included;
+a session's own channel too, until the migration archives them),
+then `Conversations`: the rest —
+rooms, work logs, `dm`s with people, and `dm`s with sessions that ended.
+The rail holds every
 xref:usage/jam/intercom.adoc#enabling-it[channel] the person is in or has messages in, that
-they may see — chats (labelled with the others in them), tickets and rooms —
-across their projects. Leaving a project takes its channels away at once.
+they may see, across their projects;
+a `dm` or `group` is labelled with the others in it
+(`jam.ChannelView.Bucket`, `userui.groupRail`).
+Each row carries its conversation kind (`kind`: `dm`, `group`, `room`, `work`, or `session`). Leaving a project takes its channels away at once.
 Each row shows the label, a presence pin, its open asks and an *unread*
 badge. Last, *History (before the upgrade)*: the conversations of the
 frozen legacy log, read-only. *New message* (and *New session*) sit in the rail's header.
@@ -51,10 +57,14 @@ frozen legacy log, read-only. *New message* (and *New session*) sit in the rail'
 as a muted second line. A session channel shows its own active session's; a
 work log the most recently raised active session's; a dm or group only when
 exactly one session in it is active; rooms never.
-** *Status card:* a session channel's row (its own session, or a work log's
-most recently raised active one; never dms, groups, or rooms) is that session's
-xref:usage/jam/session-card.adoc[status card].
-* *The open conversation:* its messages (the viewer's own on one side) with
+** *Status card:* a `dm` with an active session, and a session channel (its own session), show as that session's
+xref:usage/jam/session-card.adoc[status card];
+work logs, groups, rooms, and `dm`s with people show their name.
+The card's name opens the session's view
+(`sessionView`: its home channel, when the person may see it; clicking the rest of the row opens the `dm`).
+* *The open conversation:* a header with its name, its project, and its kind
+(*DM*, *group*, *room*, or *work*; a session's own channel reads *agent*),
+then its messages (the viewer's own on one side) with
 day dividers and *Load earlier* for older pages, a *"Needs you"* chip
 when a session in it asked for a person or is blocked, the *Open asks*
 panel, the session status strip, and a composer. Each message renders per
@@ -68,10 +78,14 @@ always scrolls there.
 sent; a note says whether it copied. Each code block has a copy icon for
 just the code.
 * *New message:* a picker of who to start a conversation with in the
-person's projects: other members (a chat with them), the live sessions they
-may reach (a standing or ticket session; a personal session only if they're
-already in its channel), live sessions' tickets, and rooms. A message to a
-session goes to its home channel, which the person joins.
+person's projects (`GET /app/user/api/recipients`, `userui.newMessageOptions`):
+other members, marked *person* (click one for a `dm`, or tick several for a `group`, all of one project);
+the live sessions they may reach, marked *agent* (a standing or ticket session; a personal session only if they're
+already in its channel), whose message goes to the session's home channel, which the person joins
+(a `dm` once sessions answer in it, COV-354);
+the project's units of work, marked *work*, each with *Log* (post to its work log);
+and rooms.
+The `to` forms are in xref:usage/jam/intercom-composer.adoc[intercom-composer].
 * *New session:* start a xref:usage/jam/personal-sessions.adoc#starting-one-from-the-inbox[personal session]
 of a role, with an optional first message, and land in its conversation.
 
@@ -98,10 +112,13 @@ The composer — sending, keys, saved reply, draft stack and attachments: xref:u
 
 == Membership controls
 
-The conversation header offers *Join* (a channel the person can see but
-isn't in), *Leave* (one they're in; never a chat) and *Call in…* (the
-project's people, and on ticket and session channels its live sessions, not
-yet in it). The rules are the intercom's
+The conversation header offers *Join* (a room, a work log, or a session's own channel the person can see but
+isn't in), *Leave* (one they're in) and *Call in…* (the
+project's people not yet in it, and on work logs and session channels the live sessions they may reach;
+a room lists people only while it takes no session members,
+xref:usage/jam/intercom.adoc#channel-membership[membership]).
+A `dm` and a `group` have none, because their members are fixed.
+Session channels keep these controls until the migration retires them (COV-354). The rules are the intercom's
 (xref:usage/jam/intercom.adoc#channel-membership[membership]).
 
 [#unread-and-refresh]

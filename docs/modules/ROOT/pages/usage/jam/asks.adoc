@@ -4,7 +4,7 @@
 :owns: the ask model (open → answered | withdrawn, versions), the `ask`/`amend`/`withdraw`/`asks` tools and their `/squawks` routes, who may ask and answer, the answer as a read entry's part, limits, and how open asks count as asking for a person. Does NOT own the `/app/user` rendering — see intercom-ui.md.
 :prereqs: intercom.adoc for channels, read and wake-on; comms-addressing.adoc for `to`; escalation.adoc for what asking for a person sets off
 :tier: leaf
-:updated: 2026-10-23
+:updated: 2026-11-14
 
 An *ask* is a question with 2–8 answers to pick from, plus *Other…* with a
 comment, that a session posts into a channel. It is an *open item*: it stays
@@ -43,7 +43,7 @@ answer in ``parts``: ``pass:c[{type: "application/vnd.jam.ask+json", data: {even
 == Rules
 
 * Only the asking session amends or withdraws. Only a *person* answers — a
-current member of the ask's live channel (for a ticket's channel, any project member who can see it), and one of `of` if it names anyone.
+current member of the ask's live channel (in a work log, any member of its project), the same rule the app's card uses (`CanAnswer`), and one of `of` if it names anyone.
 Sessions never answer.
 * *First answer wins*; a later one is refused (`409`, "already answered").
 * When the asking session ends, its open asks close as withdrawn ("session

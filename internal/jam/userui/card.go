@@ -94,7 +94,7 @@ func (h *handler) card(inst jam.Instance) (SessionCard, bool) {
 
 // attachCards gives each rail row backed by a session (ChannelRow.cardSession)
 // that session's card.
-func (h *handler) attachCards(groups []RailGroup) {
+func (h *handler) attachCards(p jam.Participant, groups []RailGroup) {
 	for gi := range groups {
 		for ri := range groups[gi].Rows {
 			r := &groups[gi].Rows[ri]
@@ -104,6 +104,9 @@ func (h *handler) attachCards(groups []RailGroup) {
 			if inst, ok := h.d.Store.GetInstance(r.cardSession); ok {
 				if c, ok := h.card(inst); ok {
 					r.Card = &c
+					if _, home, ok := h.sessionFor(p, inst.ActorID); ok {
+						r.SessionView = home
+					}
 				}
 			}
 		}

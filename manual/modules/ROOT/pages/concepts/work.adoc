@@ -60,7 +60,8 @@ ifdef::internal[]
 `409 {"error": "no-worker"}` with no current worker).
 Both match a role's `ticket:` addressing globs.
 * The log is a channel of kind `work`; it records its current worker.
-* People can't DM a unit's worker from the Inbox yet,
+* People post to a unit's log with *Log* in the Inbox's *New message*.
+They can't DM a unit's worker from the Inbox yet (COV-354),
 and a unit of work has no page of its own yet (COV-308).
 * Architecture pages: `docs/modules/ROOT/pages/usage/jam/comms-addressing.adoc` (targets and addressing),
 `intercom.adoc` (the channel log).

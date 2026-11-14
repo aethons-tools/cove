@@ -7,6 +7,10 @@ import type { Conversation } from "../api/types";
 import { useBoot } from "../BootContext";
 import { NewBoard } from "../boards/NewBoard";
 
+// kindLabel is how the header names a conversation's kind (a session's own
+// channel reads "agent").
+const kindLabel: Record<string, string> = { dm: "DM", group: "group", room: "room", work: "work", session: "agent" };
+
 // ConversationHeader: title, project · kind, Needs you, and the membership
 // controls (Join / Leave / Call in), which refetch the conversation and rail.
 export function ConversationHeader({ c }: { c: Conversation }) {
@@ -25,7 +29,7 @@ export function ConversationHeader({ c }: { c: Conversation }) {
     <Group justify="space-between" px="sm" py="xs" wrap="nowrap" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
       <div>
         <Title order={2} size="h4">{c.label}</Title>
-        <Text size="xs" c="dimmed">{c.project}{c.kind && ` · ${c.kind === "session" ? "agent" : c.kind}`}</Text>
+        <Text size="xs" c="dimmed">{c.project}{c.kind && ` · ${kindLabel[c.kind] ?? c.kind}`}</Text>
       </div>
       <Group gap="xs" wrap="nowrap">
         {c.needsYou && <Badge color="yellow">Needs you</Badge>}

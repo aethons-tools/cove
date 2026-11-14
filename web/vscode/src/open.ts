@@ -376,15 +376,16 @@ export function readPending(raw: string | undefined, now: number): string | unde
 export type RailRow = RailResponse["groups"][number]["rows"][number];
 export type SessionPick = { label: string; description?: string; detail?: string; row: RailRow };
 
-// Live studio rows (needs-you first), one per channel.
+// Rows of a session's own channel or a work log with a live session
+// (needs-you first), one per channel.
 export async function sessionPicks(api: JamApi): Promise<SessionPick[]> {
   const rail = await api.rail();
   const seen = new Set<string>();
   const items: SessionPick[] = [];
   for (const g of rail.groups) {
-    if (g.bucket !== "needs-you" && g.bucket !== "active") continue;
+    if (g.bucket === "history") continue;
     for (const r of g.rows) {
-      if (r.kind !== "studio" || seen.has(r.id)) continue;
+      if ((r.kind !== "session" && r.kind !== "work") || !(r.phase || r.needsYou) || seen.has(r.id)) continue;
       seen.add(r.id);
       items.push({ label: (g.bucket === "needs-you" ? "$(bell) " : "") + r.label, description: r.project, detail: r.mission, row: r });
     }

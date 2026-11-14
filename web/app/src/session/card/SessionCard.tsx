@@ -17,7 +17,8 @@ export function contextColor(pct: number): string {
   return `hsl(${Math.round(hue)} 70% 45%)`;
 }
 
-export function SessionCard({ card, compact = false }: { card: Card; compact?: boolean }) {
+// onName makes the name a control (the rail's: it opens the session view).
+export function SessionCard({ card, compact = false, onName }: { card: Card; compact?: boolean; onName?: () => void }) {
   const points = useStateHistory(card);
   const now = useNow();
   const { used, window } = card.context;
@@ -38,7 +39,16 @@ export function SessionCard({ card, compact = false }: { card: Card; compact?: b
           </div>
         )}
         <div className="sc-main">
-          <div className="sc-name" title={card.name}>{card.name}</div>
+          {onName
+            ? (
+              // A span, not a button: the rail row around it is itself a link or a button.
+              <span className="sc-name" data-link role="button" tabIndex={0} title={card.name} aria-label={`Open ${card.name}'s session view`}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onName(); }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onName(); } }}>
+                {card.name}
+              </span>
+            )
+            : <div className="sc-name" title={card.name}>{card.name}</div>}
           <span className="sc-pill" data-state={card.state} title={card.tool ? `${card.pill}: ${card.tool}` : card.pill}>{card.pill}</span>
           <Counts c={card.counts} />
         </div>

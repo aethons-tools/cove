@@ -96,7 +96,7 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 	if !ok || !ic.CanSee(u, ch) {
 		return ChannelView{}, false
 	}
-	v := ChannelView{ID: string(ch.ID), Kind: viewKind(ch.Kind), Label: ch.Label}
+	v := ChannelView{ID: string(ch.ID), Kind: viewKind(ch.Kind), Source: ch.Kind, Label: ch.Label}
 	if e, ok := store.Resolve(ch.ProjectID); ok {
 		v.Project = e.Name
 	}
@@ -106,11 +106,12 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 	var others []string
 	// The mission shown is the channel's own session's (SourceSession), the
 	// latest-raised active session's (SourceWork), or a dm's or group's only active
-	// session's; rooms show none. The same session stands for a studio
-	// channel's status card (CardSession); chats and rooms have no card.
+	// session's; rooms show none. A session channel's own session and a dm's
+	// active agent stand for the row's status card (CardSession); work logs,
+	// groups, and rooms have none: they show their name.
 	var active int
 	var latest time.Time
-	var chatMission string
+	var chatMission, chatSession string
 	for _, m := range store.ChannelMembers(ch.ID) {
 		if m.ParticipantID == u {
 			continue
@@ -129,10 +130,10 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 					}
 				case SourceWork:
 					if active == 1 || inst.RaisedAt.After(latest) {
-						v.Mission, v.CardSession, latest = inst.Mission, inst.ActorID, inst.RaisedAt
+						v.Mission, latest = inst.Mission, inst.RaisedAt
 					}
 				case SourceDM, SourceGroup:
-					chatMission = inst.Mission
+					chatMission, chatSession = inst.Mission, inst.ActorID
 				}
 			}
 		}
@@ -148,6 +149,9 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 	}
 	if IsChat(ch.Kind) && active == 1 {
 		v.Mission = chatMission
+	}
+	if ch.Kind == SourceDM && active == 1 {
+		v.CardSession = chatSession
 	}
 	if IsChat(ch.Kind) && len(others) > 0 {
 		v.Label = strings.Join(others, ", ")
