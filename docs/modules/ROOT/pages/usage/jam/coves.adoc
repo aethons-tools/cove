@@ -4,7 +4,7 @@
 :owns: the operator-facing managed-cove runtime story — the Instance registry (Phase vs Activity, leases), recovery, managers and placement, the `studio` verbs (formerly `cove`) and their `connector`/`image` columns, and the `runtime:` serve-config block
 :prereqs: INDEX.adoc for the service overview; operators.adoc for the admin-client flags; roster.adoc for the role a studio is raised for
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 Jam keeps a *runtime registry* of the studios it manages — each a raised
 Worker or standing Manager — and drives their lifecycle: raise → record → track
@@ -76,6 +76,9 @@ Not recovered (ended as before): a session that asked to `end`, one lost
 together with its manager (removed or force-revoked — its state went with it),
 and one raised before recovery existed. The rail shows a recovering session as
 _recovering_; the admin console lists it under attention.
+`jam.StatusOf` has no xref:usage/jam/ui-pages.adoc#agent-status[status] for `recovering`,
+so the console shows such a session by its activity;
+recovery clears the activity, so until the re-raise it reads _orienting_.
 
 [#managers-and-placement]
 === Managers and placement

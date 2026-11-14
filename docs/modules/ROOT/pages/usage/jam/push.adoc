@@ -4,7 +4,7 @@
 :owns: the Web Push setup steps (keygen → credential → config → egress hosts), the per-device Notifications toggle and its states, the iOS Home Screen rule, the notify rule as members see it, focus suppression as members see it, the on-device behaviour (one notification per conversation, tap-through, app badge, sounds, sign-out unsubscribing the device), the preview/privacy behaviour, and push troubleshooting. Does NOT own how the relay sends or the `/app/user/push/*` routes — see push-delivery.md; nor the `runtime.push` key reference — see serve.md; nor installing the app — see ui.md.
 :prereqs: ui.adoc (the Jam app, its login and installing it); credentials.adoc (supplying a credential); serve.adoc#the-serve-config (the `runtime.push` keys)
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 Jam uses standard *Web Push*: a member's browser subscribes with its own
 vendor's push service (Google, Mozilla, Apple, Microsoft) under Jam's *VAPID*
@@ -86,8 +86,10 @@ the conversation they currently have open in the app. Within that, a member is
 buzzed for:
 
 * any message in a *chat* (direct or group) or a *session* conversation;
-* in any channel, an *ask* they may answer, a *call-in* inviting them, or
+* in any channel, an *ask* whose `of` names them, a *call-in* inviting them, or
 an *escalation* reaching them.
+An ask with no `of` (anyone in the channel may answer) buzzes no one as an ask;
+in a chat or session conversation it buzzes as any message does.
 
 The same set reaches the Jam VS Code extension
 (xref:usage/jam/vscode-notifications.adoc[notifications]).

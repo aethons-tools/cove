@@ -4,7 +4,7 @@
 :owns: the operator-facing kit-registry story — the StudioKit schema (`kind: studio`; `mcp-servers` is owned by kits-mcp-servers.adoc), the build-digest and image layering, the egress ceiling, the name/version/current model, the `kit` verbs, and the role→kit binding incl. the default kit
 :prereqs: INDEX.adoc for the service overview; operators.adoc for the admin-client flags; roster.adoc for the role a kit binds to
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 Jam stores *studio kits* — the small, directly-authored definition a brokered
 studio is built and raised from — and a role references one by name. A kit is
@@ -170,9 +170,13 @@ A brokered cove for the role raises from that kit. Resolution is
 *fail-closed*: a name absent from the registry, or not tag-safe, fails the
 raise. A role with no `+kit:+` raises the built-in *``default``* studio
 kit — the blessed base, a minimal Anthropic-free egress list and a generic
-prompt — which Jam *seeds into the registry at serve start* (idempotent,
-and skipped once the config repo manages `default`), so
+prompt — which Jam *seeds into the registry at serve start*, so
 it is inspectable/versioned like any other (`kit show default`).
+Every start pushes the built-in `default` kit again
+(`EnsureDefaultStudioKit`) unless the config repo manages `kits/default/`:
+when the current version already matches, the push reuses it;
+otherwise, the built-in definition becomes a new current version,
+replacing an operator's own push or pin of `default`.
 
 The supervisor carries only a light *reference* (`<id>@v<n>`) on each raise; the
 launcher resolves it against its prepared-image inventory and, on a miss, Jam

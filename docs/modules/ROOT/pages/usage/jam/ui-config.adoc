@@ -4,7 +4,7 @@
 :owns: the Tracking page (source card, managed-objects table, the rendered plan, Apply's digest binding, the follower's state on the source card)
 :prereqs: config-git.adoc (plan actions, marks); config-git-sources.adoc (the followed repo); ui-editing.adoc (the write banner, CSRF and audit rules)
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-14
 
 The *Tracking* page (`/app/admin/config/tracking`, the first node of the
 xref:usage/jam/ui-console.adoc#finding-a-page[Config tree] and where the *Config* tab opens) is the UI for
@@ -18,7 +18,8 @@ Changing config happens on a branch of the followed repo: xref:usage/jam/config-
 
 * *Source* — the followed repo, dir and branch, and the commit and time of
 the last apply from it, linked on GitHub and GitLab. *Following* is the
-follower's state (`in sync`, `waiting for you`, `failed`) and when it last
+follower's state (`in sync`, `waiting for you`, `failed`, or `not checked yet` —
+state `off`, before the follower's first check) and when it last
 checked; *Head* is the branch head it saw. `waiting for you` is the first
 apply's confirm: *Diff*, review the plan, *Apply this plan*. A failed check shows its
 error; the Jam retries every minute. Without a config repo the card says

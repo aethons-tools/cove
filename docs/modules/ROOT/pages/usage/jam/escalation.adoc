@@ -4,7 +4,7 @@
 :owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), when an escalation opens (needs-input or `escalate`), tiers as call-ins and the escalation notice (immediate tier 0, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.escalation-poll-interval` config, and where it is set (`escalation:` / `escalation-by-category:` in project.yml; `jam project escalation list`).
 :prereqs: intercom.adoc for the wake-on engine, the Waiting/suspend model, home channels and call-in escalation builds on, and the other brokered studio tools `escalate` sits alongside; comms-addressing.adoc for the Project members tiers resolve against
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-14
 
 While a session is *Waiting* and has asked for a person, a separate resident
 *escalation engine* can actively bring people in instead of leaving it to wait
@@ -97,8 +97,9 @@ two engines share only the `Activity == Waiting` gate.
 
 A tier's `+user:+` targets are called into the session's home channel (people
 already in it stay in; called-in people stay members afterwards and may leave),
-and the session posts an *escalation notice* there: "Needs input from
-worker-3 on ACME-7 — called in alice, bob (escalation tier 1, infra)." The home
+and the session posts an *escalation notice* there.
+For the first tier, which is tier 0, it reads: "Needs input from
+worker-3 on ACME-7 — called in alice, bob (escalation tier 0, infra)." The home
 channel is the session's own channel for every session, a ticket session's
 included, so the notice reaches each member's Discord inbox like any post there
 (and Jam push); a person with only Linear sees it in

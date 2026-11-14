@@ -4,7 +4,7 @@
 :owns: the user, agent, destination and model-spec detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags); the kit page is ui-kit-pages.adoc's
 :prereqs: ui-console.adoc for the Config tree and URLs; ui-editing.adoc for the gate/CSRF/audit rules; projects.adoc for the project lifecycle; roster.adoc for roles; connector.adoc for destination env/git; kits.adoc for the StudioKit schema and versioning
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 Entity names across the xref:usage/jam/ui-console.adoc[admin console] link to a page that shows the whole
 object and edits it in place. The list pages' forms only *create* (an
@@ -28,7 +28,9 @@ xref:usage/jam/ui-projects.adoc[].
 
 `/app/admin/config/users` lists and (on a branch) creates users; `/app/admin/config/users/<id>` renames one, replaces its
 logins and removes it (on a branch; rename and
-remove are refused while the user owns a live personal session), and replaces its OIDC identities and adds or unlinks accounts.
+remove are refused only while the user owns a live personal session — `RemoveUserChecked`;
+a removal's other refusals (xref:usage/jam/project-members.adoc[project-members]) apply when the config repo's removal is applied, such as at Merge).
+It also replaces the user's OIDC identities and adds or unlinks accounts: live edits, not branch commits.
 The page lists the user's xref:usage/jam/app-tokens.adoc[app tokens] (label, created, last used, expiry,
 operator standing) and revokes one.
 
@@ -37,8 +39,11 @@ operator standing) and revokes one.
 
 Each agent id (in the Agents list, a running-agents table, a role's holders, a
 project's Agents page, or search) opens `/app/admin/agents/<id>`, the page for one
-agent identity, under the Agents tab. The header shows its kind, its <<agent-status,status>>, standing name or
-personal owner, project, role and unit (linked), with *Open live timeline*
+agent identity, under the Agents tab. While the agent runs, the header shows its <<agent-status,status>>,
+its kind with its standing name or personal owner, project, role, and unit (linked); otherwise, only its kind.
+The UI splits the session kinds (ephemeral, standing, and personal) into five:
+`standing`, `personal`, `ticket` (an ephemeral session with a unit), `manual`
+(one without), and `enrolled` (an identity with no studio). The header has *Open live timeline*
 (the xref:usage/jam/ui-console.adoc#session-timeline[session timeline]; shown when session capture is
 configured), *Teardown* (returns to the Agents list) when it has a
 studio and a runtime supervisor runs, and *Revoke* when it is enrolled.
@@ -166,7 +171,7 @@ xref:usage/jam/destination-api.adoc[destinations API].
 [#model-spec-pages]
 == Model-spec pages
 
-Each model-spec name in the Model Specs table (`/app/admin/config/model-specs`) links to
+Each model-spec name in the table on the *Model-specs* page (`/app/admin/config/model-specs`) links to
 `/app/admin/config/model-specs/<name>`. The table shows type, version (with any constraint as a chip), principal,
 model, policy mode, provider and how many roles use it. The page shows the harness (type, version, constraint, principal
 credential _name_ and header rules, model, effort, note), the policy (mode, allow/deny rules), the
@@ -181,8 +186,8 @@ default); version is the exact `X.Y.Z` the image installs, version-constraint th
 runtime check; allow, deny, plugins and xref:usage/jam/model-spec-headers.adoc#in-the-admin-ui[principal header rules]
 take one entry per line; provider-env one `KEY=VALUE` per line; settings a JSON object. Writes go through the same
 validation as `jam model-spec` (xref:usage/jam/model-specs.adoc#validation[Validation]);
-a refusal shows in the form and stores nothing. *Delete* is on the
-page header and each table row.
+a refusal shows in the form and stores nothing. *Delete* (on the
+page header and each table row) and the forms show only on a branch.
 
 [#kit-pages]
 == Kit pages
