@@ -1,7 +1,7 @@
 = Waiting for a reply (wake-on)
-:summary: The wake-on engine — how a studio waits after its turn, is paused after `warm-timeout`, and is woken when a squawk reaches it; the `WaitSeq` reply trigger, the agent-to-agent limit and its Resume, and the `runtime.wake` and `runtime.agent-wakes` serve config.
-:read_when: You need to know why a waiting studio did or did not wake on a reply, or when a waiting studio is paused; you are tuning `runtime.wake` (poll-interval, warm-timeout) or `runtime.agent-wakes`; or sessions stopped waking each other.
-:owns: wake-on — waiting, pausing at `warm-timeout` and waking on a reply, the `WaitSeq` trigger, the agent-to-agent limit and Resume, and the `runtime.wake` and `runtime.agent-wakes` config
+:summary: The wake-on engine — how a studio waits after its turn, is paused after `warm-timeout`, and is woken when a squawk reaches it; the `WaitSeq` reply trigger, who wakes in each kind of conversation, mentions, the agent-to-agent limit and its Resume, and the `runtime.wake` and `runtime.agent-wakes` serve config.
+:read_when: You need to know why a waiting studio did or did not wake on a reply, or which sessions a room's or work log's message wakes, or when a waiting studio is paused; you are tuning `runtime.wake` (poll-interval, warm-timeout) or `runtime.agent-wakes`; or sessions stopped waking each other.
+:owns: wake-on — waiting, pausing at `warm-timeout` and waking on a reply, the `WaitSeq` trigger, who wakes per conversation kind and mentions, the agent-to-agent limit and Resume, and the `runtime.wake` and `runtime.agent-wakes` config
 :prereqs: intercom.adoc for the tools, the channel log and the relays; turn-end.adoc for how a turn ends
 :tier: leaf
 :updated: 2026-11-14
@@ -72,6 +72,43 @@ not a wall-clock one (`WaitingSince` is unchanged, but now drives only
 by the relay ingress engine (xref:usage/jam/intercom.adoc#enabling-it[intercom]), so a Waiting studio wakes on a reply only once a relay
 has ingested it; with no relay configured, it waits until the idle timeout or an
 operator ends it (pausing at `warm-timeout` still happens).
+
+[#who-wakes]
+*Who wakes depends on the conversation's kind.*
+Every member gets a message in its inbox,
+but only some members wake for it
+(`wakes` in `internal/wakeon`):
+
+* In a `dm`, a `group`, or a session channel,
+every session member but the author wakes.
+* In a `room`,
+only the session members the message mentions,
+plus those whose membership's wake mode is `all`.
+* In a `work` log,
+only the unit's current worker (`Channel.Worker`),
+unless it's the author.
+A session called into the log doesn't wake for its messages.
+
+A call-in notice always wakes the session it calls in.
+A message in a conversation Jam doesn't know,
+such as a legacy squawk, wakes as before.
+The others read the message at their next `read`.
+
+A *mention* names a member of the conversation.
+It comes from `send`'s `mentions` field,
+a list of `+session:<label|id>+` targets that each name a session member
+(`400` otherwise),
+or from an `@<label>` in the body that names a member:
+a session by its label or id, or a person by their name.
+An `@` that follows a letter, such as in an email address, isn't a mention,
+and an author never mentions itself.
+Jam resolves mentions when it posts the message
+and stores them as its mentions part
+(`application/vnd.jam.mentions+json`, `+{"ids": [...]}+`),
+so a later rename doesn't change who a message named
+(`withMentions` in `internal/jam`).
+Push reads the people it names
+(xref:usage/jam/push.adoc#what-notifies[push]).
 
 [#agent-limit]
 *Sessions wake sessions, up to the agent-to-agent limit.*

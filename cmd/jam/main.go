@@ -2237,6 +2237,9 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		agentHistory = chlog
 	}
 	eng.SetSessionWakes(agentHistory, st /*Resumes*/, cfg.agentWakes())
+	// Who wakes per conversation kind: a room's named sessions, a work log's
+	// worker (conversations.adoc#wake).
+	eng.SetConversations(st)
 
 	// Wake Running coves on a reply too: an agent holding its episode open for
 	// a background task is Running, and its owner's reply must reach it then.

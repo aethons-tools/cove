@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +49,14 @@ type Inbox interface {
 // what the agent-to-agent limit counts.
 type ChannelHistory interface {
 	ChannelBefore(ch ident.ID, beforeSeq int64, limit int) []intercom.Squawk
+}
+
+// Conversations is the channel registry the wake rules read (jam.Store): a
+// message's conversation, its kind and current worker, and its members' wake
+// modes.
+type Conversations interface {
+	GetChannel(id ident.ID) (jam.Channel, bool)
+	ChannelMembers(id ident.ID) []jam.ChannelMember
 }
 
 // Resumes holds each conversation's last Resume of the agent-to-agent limit
@@ -210,6 +219,10 @@ type Engine struct {
 	trippedMu sync.Mutex
 	tripped   map[int64]verdict
 
+	// The wake rules per conversation kind (SetConversations); nil: every
+	// delivery wakes.
+	convs Conversations
+
 	// kick holds one pending Kick; Run ticks kickDelay after it.
 	kick      chan struct{}
 	kickDelay time.Duration
@@ -249,6 +262,12 @@ func (e *Engine) Kick() {
 func (e *Engine) SetSessionWakes(history ChannelHistory, resumes Resumes, limit AgentWakes) {
 	e.history, e.resumes, e.limit = history, resumes, limit
 }
+
+// SetConversations turns on the wake rules per conversation kind
+// (conversations.adoc#wake): a room's message wakes only the sessions it
+// mentions and those that joined it with wake: all, and a work log's only
+// its current worker. The rest still get it in their inbox. Call before Run.
+func (e *Engine) SetConversations(c Conversations) { e.convs = c }
 
 // SetIdleLadder turns on the personal-session idle ladder: roles supplies each
 // role's idle settings, nags records sent nags, and nagger delivers them (nil =
@@ -696,9 +715,44 @@ func (e *Engine) replies(inst jam.Instance) []intercom.Squawk {
 		if isSession(m.From) && (e.history == nil || jam.IsNotice(m.ID) && !jam.IsCallInNotice(m.ID) || e.loopTripped(m)) {
 			continue // a session's notice (a nag, an old breaker's) is for people
 		}
+		if !e.wakes(inst, m) {
+			continue // not named in a room, or not the work log's worker: it waits in the inbox
+		}
 		out = append(out, m)
 	}
 	return out
+}
+
+// wakes reports whether m's conversation's wake rule wakes inst
+// (conversations.adoc#wake). In a dm, a group, or a session channel, every
+// session member wakes. In a room, only the sessions m mentions, or calls
+// in, and those that joined with wake: all; in a work log, only the current
+// worker, or a session m calls in. A message in no conversation Jam knows
+// (a legacy squawk) wakes as before.
+func (e *Engine) wakes(inst jam.Instance, m intercom.Squawk) bool {
+	if e.convs == nil || m.Channel == "" {
+		return true
+	}
+	ch, ok := e.convs.GetChannel(m.Channel)
+	if !ok {
+		return true
+	}
+	self := ident.ID(inst.ActorID)
+	if invitee, ok := jam.CallInInvitee(m.ID); ok && invitee == self {
+		return true
+	}
+	switch ch.Kind {
+	case jam.SourceRoom:
+		if slices.Contains(intercom.Mentions(m), self) {
+			return true
+		}
+		return slices.ContainsFunc(e.convs.ChannelMembers(ch.ID), func(mem jam.ChannelMember) bool {
+			return mem.ParticipantID == self && !mem.Left && mem.Wake == jam.WakeAll
+		})
+	case jam.SourceWork:
+		return ch.Worker == self
+	}
+	return true
 }
 
 // verdict is a cached loopTripped decision and the Resume it was made under.

@@ -49,6 +49,7 @@ or this browser cannot get them.
 Jam notifies you about:
 
 * Each message in a chat or a session's channel that you are in.
+* Each message in a room or a work log that names you, such as `@alice`.
 * An ask that names you.
 * A call-in that brings you into a channel.
 * An escalation that calls you.
