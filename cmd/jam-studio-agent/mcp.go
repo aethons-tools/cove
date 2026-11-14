@@ -55,7 +55,7 @@ type squawkOut struct {
 }
 
 // partyOut mirrors a channel or participant in Jam's responses: an id, a kind
-// (ticket/chat/room; session/user/account) and a label.
+// (dm/group/room/work/session; session/user/account) and a label.
 type partyOut struct {
 	ID    string `json:"id,omitempty"`
 	Kind  string `json:"kind,omitempty"`
@@ -72,7 +72,7 @@ type sendOut struct {
 // sendIn is the "send" tool's typed input.
 type sendIn struct {
 	Text string `json:"text" jsonschema:"the message body to post"`
-	To   string `json:"to,omitempty" jsonschema:"optional target: user:<name>, chat:user:<a>,user:<b>, channel:<room>, ticket:<key>, or session:<name>; omit to post in your own channel — your ticket's, or your session's"`
+	To   string `json:"to,omitempty" jsonschema:"optional target: user:<name>, session:<name>, chat:user:<a>,session:<b>, channel:<room>, work:<key> (ticket:<key> too), or worker:<key>; omit to post in your own channel — your ticket's, or your session's"`
 	// ContentType opts out of the markdown default.
 	Attach      []string `json:"attach,omitempty" jsonschema:"optional: paths of files in your studio to attach (each up to Jam's size cap, at most 10); the text may be empty when attaching"`
 	ContentType string   `json:"content_type,omitempty" jsonschema:"optional: text/markdown (the default; the body is rendered as markdown) or text/plain (shown literally — use it for text that would render badly as markdown, e.g. logs, ASCII art, or stray * and _)"`
@@ -655,7 +655,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
-		Description: "Post a message. Omit 'to' to post in your own channel — your ticket's, or your session's, where whoever started you and anyone called in hear it; set to=user:<name> to talk with a person (their reply reaches you), chat:user:<a>,user:<b> for a group, channel:<room> for a room, ticket:<key> for a ticket's conversation, or session:<name> for another session's channel (you join it). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally. If your context says your final message is posted for you, don't also send it: send is for messaging elsewhere or mid-turn.",
+		Description: "Post a message. Omit 'to' to post in your own channel — your ticket's, or your session's, where whoever started you and anyone called in hear it; set to=user:<name> to talk with a person (their reply reaches you), session:<name> for another session's channel (you join it), chat:user:<a>,session:<b> for a group (user: and session: members), channel:<room> for a room, work:<key> for a unit of work's log (ticket:<key> is an alias), or worker:<key> for a DM with the session working on it now (refused with no-worker when none is). Returns the message id and the channel it went to. The body is markdown by default; set content_type=text/plain to have it shown literally. If your context says your final message is posted for you, don't also send it: send is for messaging elsewhere or mid-turn.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, sendOut, error) {
 		if cfgErr != nil {
 			return nil, sendOut{}, cfgErr
@@ -697,7 +697,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_targets",
-		Description: "List the targets this cove may send to (ticket:<key> / user:<name> / channel:<room> / session:<name>).",
+		Description: "List the targets this cove may send to (user:<name> / channel:<room> / session:<name> / work:<key> / worker:<key>).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listTargetsIn) (*mcp.CallToolResult, targetsOut, error) {
 		if cfgErr != nil {
 			return nil, targetsOut{}, cfgErr

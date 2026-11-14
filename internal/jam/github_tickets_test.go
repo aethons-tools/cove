@@ -46,7 +46,7 @@ func TestGitHubTicketChannel(t *testing.T) {
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatalf("SetUp: %v", err)
 	}
-	ch, ok := f.store.ChannelByKey(f.project.ID, SourceTicket, string(f.tracker.ID)+"/acme/board#7")
+	ch, ok := f.store.ChannelByKey(f.project.ID, SourceWork, string(f.tracker.ID)+"/acme/board#7")
 	if !ok || ch.Label != "acme/board#7" || len(ch.Bindings) != 1 || ch.Bindings[0] != (Binding{ConnectionID: f.tracker.ID, Ref: "acme/board#7", Mode: BindBoth}) {
 		t.Fatalf("ticket channel = %+v, %v", ch, ok)
 	}
@@ -74,7 +74,7 @@ func TestGitHubTicketChannel(t *testing.T) {
 			t.Fatalf("unit %q: a ticket channel", unit)
 		}
 	}
-	if n := len(f.store.ListChannels(f.project.ID, SourceTicket)); n != 1 {
+	if n := len(f.store.ListChannels(f.project.ID, SourceWork)); n != 1 {
 		t.Fatalf("%d ticket channels; want only acme/board#7's", n)
 	}
 }
@@ -137,7 +137,7 @@ func TestPlanLinearTicketsBesideGitHub(t *testing.T) {
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := f.store.ChannelByKey(f.project.ID, SourceTicket, string(f.tracker.ID)+"/ACME-7"); !ok {
+	if _, ok := f.store.ChannelByKey(f.project.ID, SourceWork, string(f.tracker.ID)+"/ACME-7"); !ok {
 		t.Fatal("linear ticket channel keyed as before")
 	}
 	own := f.mustPlan(f.ticket, "ticket:ACME-7")
@@ -313,8 +313,9 @@ func TestPlanRoomGitHubRef(t *testing.T) {
 	}
 }
 
-// GET /squawks/targets lists a ticket session's own ticket by its canonical
-// key on a github tracker, and no ticket: for a Unit that is no key there.
+// GET /squawks/targets lists a ticket session's own unit's log by its
+// canonical key on a github tracker, and no work: for a Unit that is no key
+// there.
 func TestSquawksTargetsGitHubTicketCanonical(t *testing.T) {
 	targets := func(f *sqFixture) []string {
 		rec := f.do(http.MethodGet, "/squawks/targets", f.ticket, "")
@@ -326,13 +327,13 @@ func TestSquawksTargetsGitHubTicketCanonical(t *testing.T) {
 		}
 		var out []string
 		for _, tg := range r.Targets {
-			if tg.Kind == "ticket" {
+			if tg.Kind == "work" {
 				out = append(out, tg.Target)
 			}
 		}
 		return out
 	}
-	for unit, want := range map[string][]string{"Acme/Board#007": {"ticket:acme/board#7"}, "ACME-7": nil} {
+	for unit, want := range map[string][]string{"Acme/Board#007": {"work:acme/board#7"}, "ACME-7": nil} {
 		f := newSqFixture(t, "user:*")
 		f.icFixture = newGitHubICFixtureFrom(t, f.icFixture)
 		f.ticket.Unit = unit

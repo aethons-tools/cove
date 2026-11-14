@@ -74,7 +74,7 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 			}
 			for _, name := range store.ListProjects() {
 				p, _ := store.GetProject(name)
-				for _, k := range []jam.SourceKind{jam.SourceTicket, jam.SourceRoom, jam.SourceChat, jam.SourceSession} {
+				for _, k := range []jam.SourceKind{jam.SourceWork, jam.SourceRoom, jam.SourceDM, jam.SourceGroup, jam.SourceSession} {
 					for _, c := range store.ListChannels(p.ID, k) {
 						out = append(out, string(c.ID))
 					}

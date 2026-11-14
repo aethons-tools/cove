@@ -100,7 +100,7 @@ func TestChannelMissionSession(t *testing.T) {
 
 func TestChannelMissionTicketLatest(t *testing.T) {
 	f := newICFixture(t)
-	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceTicket, Key: "t/ACME-9", Label: "ACME-9"})
+	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceWork, Key: "t/ACME-9", Label: "ACME-9"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestChannelMissionChatAndRoom(t *testing.T) {
 	f.putMission(&f.standing, "other", PhaseLive)
 	chat := func(key string) Channel {
 		t.Helper()
-		ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceChat, Key: key})
+		ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceDM, Key: key})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -167,7 +167,7 @@ func TestChannelCardSession(t *testing.T) {
 	if v := f.missionView(f.sessionChannel(f.personal)); v.CardSession != f.personal.ActorID {
 		t.Fatalf("session channel CardSession = %q, want %q", v.CardSession, f.personal.ActorID)
 	}
-	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceTicket, Key: "t/ACME-9", Label: "ACME-9"})
+	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceWork, Key: "t/ACME-9", Label: "ACME-9"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestChannelCardSession(t *testing.T) {
 	if v := f.missionView(ch, f.alice.ID, ident.ID(older.ActorID), ident.ID(newer.ActorID)); v.CardSession != newer.ActorID {
 		t.Fatalf("ticket CardSession = %q, want the later-raised %q", v.CardSession, newer.ActorID)
 	}
-	chat, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceChat, Key: "one"})
+	chat, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceDM, Key: "one"})
 	if err != nil {
 		t.Fatal(err)
 	}

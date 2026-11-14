@@ -38,7 +38,7 @@ func TestIntercomPostJoinsPeople(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ms := f.store.ChannelMembers(f.room.ID); len(ms) != 1 || ms[0] != (ChannelMember{ParticipantID: f.bob.ID, JoinedSeq: m.Seq}) {
+	if ms := f.store.ChannelMembers(f.room.ID); len(ms) != 1 || ms[0] != (ChannelMember{ParticipantID: f.bob.ID, JoinedSeq: m.Seq, Wake: WakeNamed}) {
 		t.Fatalf("room members = %+v", ms)
 	}
 	if _, err := f.ic.Post(f.mustPlan(f.standing, "channel:eng"), intercom.Squawk{From: ident.ID(f.standing.ActorID), Body: "from a session"}); err != nil {

@@ -182,7 +182,7 @@ func ticketSession(t *testing.T, e *env, p jam.Participant) (inst jam.Instance, 
 		t.Fatal(err)
 	}
 	proj, _ := e.st.GetProject("proj")
-	tc, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceTicket, Key: "linear/COV-1", Label: "COV-1"})
+	tc, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceWork, Key: "linear/COV-1", Label: "COV-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -32,7 +32,7 @@ func (f *fakeReader) ReadThrough(u, ch ident.ID) int64 { return f.reads[u][ch] }
 func (f *fakeReader) PartyLabel(id ident.ID) string { return f.labels[id] }
 
 func (f *fakeReader) ChannelLabel(ch jam.Channel, forUser ident.ID) string {
-	if ch.Kind != jam.SourceChat {
+	if !jam.IsChat(ch.Kind) {
 		return ch.Label
 	}
 	var out []string
@@ -59,10 +59,10 @@ var (
 func newFake() *fakeReader {
 	return &fakeReader{
 		channels: map[ident.ID]jam.Channel{
-			chat: {ID: chat, Kind: jam.SourceChat},
+			chat: {ID: chat, Kind: jam.SourceDM},
 			sess: {ID: sess, Kind: jam.SourceSession, Label: "PR #812 review"},
 			room: {ID: room, Kind: jam.SourceRoom, Label: "eng"},
-			tick: {ID: tick, Kind: jam.SourceTicket, Label: "ACME-7"},
+			tick: {ID: tick, Kind: jam.SourceWork, Label: "ACME-7"},
 		},
 		members: map[ident.ID][]ident.ID{
 			chat: {u1, u2, ses, acc},

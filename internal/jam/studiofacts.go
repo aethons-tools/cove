@@ -65,6 +65,10 @@ func studioFacts(store Store, tracker func() (ident.ID, bool), a Actor, owner st
 			who = "channel"
 		case t.Kind == "session":
 			who = "session"
+		case t.Kind == "work":
+			who = "work log"
+		case t.Kind == "worker":
+			who = "worker"
 		case t.Name == owner:
 			who = "started you"
 		}

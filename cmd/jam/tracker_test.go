@@ -249,7 +249,7 @@ func TestRelayEndToEndBothTrackers(t *testing.T) {
 					t.Fatalf("post %q: %v", ev.Body, err)
 				}
 			}
-			ch, ok := st.ChannelByKey(p.ID, jam.SourceTicket, string(conn.ID)+"/"+c.Key)
+			ch, ok := st.ChannelByKey(p.ID, jam.SourceWork, string(conn.ID)+"/"+c.Key)
 			if !ok {
 				t.Fatal("no ticket channel")
 			}

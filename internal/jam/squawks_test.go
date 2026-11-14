@@ -171,7 +171,7 @@ func TestSquawksSendDefaults(t *testing.T) {
 func TestSquawksSendAddressed(t *testing.T) {
 	f := newSqFixture(t, "user:alice", "channel:eng")
 	code, r := f.send(f.standing, `{"body":"hi alice","to":"user:alice"}`)
-	if code != http.StatusOK || r.Channel.Kind != "chat" {
+	if code != http.StatusOK || r.Channel.Kind != "dm" {
 		t.Fatalf("to user = %d %+v", code, r)
 	}
 	if code, r := f.send(f.standing, `{"body":"hi room","to":"channel:eng"}`); code != http.StatusOK || r.Channel.ID != f.room.ID {
@@ -357,13 +357,29 @@ func TestSquawksTargets(t *testing.T) {
 	for _, t := range r.Targets {
 		got[t.Target] = true
 	}
-	for _, want := range []string{"ticket:ACME-7", "user:alice", "user:bob"} {
+	for _, want := range []string{"work:ACME-7", "user:alice", "user:bob"} {
 		if !got[want] {
 			t.Errorf("targets lack %q: %+v", want, r.Targets)
 		}
 	}
 	if got["user:carol"] {
 		t.Error("a non-member is no target")
+	}
+}
+
+// A personal session may always message the person who started it, so its
+// targets list them whatever its addressing.
+func TestSquawksTargetsListTheStarter(t *testing.T) {
+	f := newSqFixture(t)
+	rec := f.do(http.MethodGet, "/squawks/targets", f.personal, "")
+	var r struct {
+		Targets []targetOut `json:"targets"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &r); rec.Code != http.StatusOK || err != nil {
+		t.Fatalf("targets = %d %v", rec.Code, err)
+	}
+	if len(r.Targets) != 1 || r.Targets[0] != (targetOut{Target: "user:alice", Kind: "user", Name: "alice"}) {
+		t.Fatalf("targets = %+v, want only the starter", r.Targets)
 	}
 }
 
@@ -465,5 +481,28 @@ func TestSquawksAutoPostRepeatedAnswerPosts(t *testing.T) {
 		if code, r := f.send(f.standing, `{"body":"Done.","auto":true}`); code != http.StatusOK || r.ID == "" {
 			t.Fatalf("auto post %d = %d %+v", i, code, r)
 		}
+	}
+}
+
+// worker:<key> with no current worker is a 409 no-worker; with one, a dm.
+func TestSquawksSendToWorker(t *testing.T) {
+	f := newSqFixture(t, "ticket:*", "session:*")
+	rec := f.do(http.MethodPost, "/squawks", f.standing, `{"body":"hi","to":"worker:ACME-7"}`)
+	if rec.Code != http.StatusConflict || strings.TrimSpace(rec.Body.String()) != `{"error":"no-worker"}` || rec.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("no worker = %d %q", rec.Code, rec.Body)
+	}
+	rec = f.do(http.MethodPost, "/squawks/ask", f.standing, `{"question":"q?","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"to":"worker:ACME-7"}`)
+	if rec.Code != http.StatusConflict || strings.TrimSpace(rec.Body.String()) != `{"error":"no-worker"}` {
+		t.Fatalf("ask with no worker = %d %q", rec.Code, rec.Body)
+	}
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	code, r := f.send(f.standing, `{"body":"hi","to":"worker:ACME-7"}`)
+	if code != http.StatusOK || r.Channel.Kind != "dm" {
+		t.Fatalf("to the worker = %d %+v", code, r)
+	}
+	if code, r := f.send(f.standing, `{"body":"hi","to":"work:ACME-7"}`); code != http.StatusOK || r.Channel.Kind != "work" {
+		t.Fatalf("to the log = %d %+v", code, r)
 	}
 }

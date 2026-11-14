@@ -352,7 +352,7 @@ func TestIntercomUserAddressUsesHomeWhenMember(t *testing.T) {
 	if p := f.mustPlan(f.standing, "user:alice"); p.Channel.ID != home.ID || !slices.Equal(p.Audience, ids(f.alice)) {
 		t.Fatalf("user:alice (in my channel) = %+v", p)
 	}
-	if p := f.mustPlan(f.standing, "user:bob"); p.Channel.Kind != SourceChat {
+	if p := f.mustPlan(f.standing, "user:bob"); p.Channel.Kind != SourceDM {
 		t.Fatalf("user:bob (not in it) = %+v", p.Channel)
 	}
 	if p := f.mustPlan(f.personal, "user:alice"); p.Channel.Kind != SourceSession {
