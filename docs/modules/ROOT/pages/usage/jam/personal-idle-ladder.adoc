@@ -4,7 +4,7 @@
 :owns: the personal-session idle ladder — the pause, nag and reclaim steps, replying `keep`/`release` to a nag and who it counts for, and the `idle-after`/`nag-every`/`reclaim-after` semantics
 :prereqs: personal-sessions.adoc for what a personal session is and its conversation loop; discord.adoc for reply attribution and the user-id binding; roster.adoc for the role's allocation fields
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 A session is *idle* while it waits on you, measured from when it last started
 waiting (each reply you send runs another turn and restarts the clock). Jam's
@@ -12,7 +12,9 @@ wake-on engine walks it up a ladder set by the role:
 
 . *Pause.* Past the `warm-timeout` it is paused (step 3 of xref:usage/jam/personal-sessions.adoc#the-conversation[The conversation]).
 . *Nag.* Once it has waited *``idle-after``* (default *4h*), Jam messages you
-_as the session_, in your Discord inbox: "Your personal session _id_ (_role_) has
+_as the session_: the nag is posted through the intercom into the session's channel,
+so it reaches your Inbox (and your Discord inbox, when the project chats over Discord).
+It reads "Your personal session _id_ (_role_) has
 been idle for _N_. Reply to this message to pick it back up, or release
 it with: ``jam session release <id>``{empty}". It repeats every *``nag-every``*
 (default *24h*). *Replying to a nag is replying to the session* — it wakes and
@@ -57,5 +59,5 @@ allocation: {max-personal: 3, idle-after: 4h, nag-every: 24h, reclaim-after: 72h
 ----
 
 Unset means the default; negative values are refused
-(xref:usage/jam/roster.adoc#roles[Roles]). Nags need the Discord relay to deliver them; without it there are no nags, but a configured reclaim still
-happens.
+(xref:usage/jam/roster.adoc#roles[Roles]).
+Nags go through the intercom, so they need no Discord relay.

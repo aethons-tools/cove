@@ -4,7 +4,7 @@
 :owns: the branch context and its header, branch workspaces (scratch stores) and saves as commits, Create/Open/Merge/PR and their API, the per-file merge rule, the refusal of live config writes, what config paths a branch serves and what stays live, the bare clone in the state dir
 :prereqs: config-git-sources.adoc (following config.github, config.gitlab or config.git); ui-config.adoc (the Tracking page); config-git.adoc (the repo layout)
 :tier: leaf
-:updated: 2026-11-02
+:updated: 2026-11-14
 
 Config changes only by a commit to the followed repo (xref:usage/jam/config-git-sources.adoc[config-git-sources]). In the admin console, the *Config* pages work on one branch of it at a time. The followed branch (`main`) is what's running and is the default view, read-only; editing happens on a branch and reaches the Jam only by *Merge*, or a merge in git (a pull request, or by hand).
 The design is in https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-31-config-branch-editor-design.md[the config-in-git spec].
@@ -13,8 +13,9 @@ The design is in https://github.com/aethons-tools/cove/blob/main/docs/superpower
 
 Above every Config page:
 
-* *On the followed branch:* "Viewing main: what's running (read-only)", with *Create branch* (default name `jam/<operator>`) and *Open branch* (the repo's other branches).
-* *On a branch:* its name and head, a link to it (and to its PR, once open), *Merge*, *PR*, *Open branch* and *Back to main*. With `config.git` there is no PR button and no links.
+* *On the followed branch:* "Viewing main: what's running (read-only). Edit on a branch, then Merge or open a PR.", with *Create branch* (default name `jam/<operator>`) and *Open branch* (the repo's other branches).
+* *On a branch:* its name and head, a link to it (and to its PR, once open), *Merge*, *PR*, *Open branch*, and *Back to _followed branch_* (for example, *Back to main*). With `config.git` there is no PR button and no links.
+* *Open branch* shows only when the repo has a branch other than the followed one.
 * *No config repo:* a *Read-only* notice: `This Jam has no config repo. Set config.github, config.gitlab or config.git in the serve config to edit its config on branches.` No form or button that changes config is shown.
 
 Switching branches reloads every page from the Config root: objects are addressed by ids that differ per branch.

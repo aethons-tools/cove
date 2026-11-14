@@ -4,7 +4,7 @@
 :owns: the session header (`GET /app/user/api/sessions/\{id}`) and its actions (`POST /app/user/api/sessions/\{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/api/sessions/\{id}/pane/\{tab}`) and its tabs, a preview's View here (`POST /app/user/api/sessions/\{id}/frame`), the Thinking tab (`GET /app/user/session/\{id}/thinking/events`, `GET /app/user/api/sessions/\{id}/thinking[/raw]`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) shown to members
 :prereqs: intercom-ui.adoc for the user area this extends; session-events.adoc for the events the aggregates come from; previews.adoc for exposed ports; collaboration.adoc for who may SSH or open a preview; previews.adoc#framing-the-jam-pane for the frame tickets and cookie
 :tier: leaf
-:updated: 2026-10-31
+:updated: 2026-11-14
 
 When the open conversation is a live session's *home channel* (its session channel, or the
 ticket channel of the ticket it works), the xref:usage/jam/intercom-ui.adoc[Jam app] adds a header above
@@ -28,7 +28,7 @@ gives exact tokens and the model. The size comes from the main thread's latest m
 latest result's `modelUsage`. After a compaction, or a Clear or Compact press jam-studio-agent
 carried out, it shows `+ctx —+` until the next model call.
 * *Uptime:* time since the session was raised.
-* *Tabs:* Studio (only with SSH and framing on), Thinking, Previews, Artifacts, Status. These open the pane.
+* *Tabs:* Thinking, Previews, Artifacts, Status. These open the pane.
 * *Copy SSH:* copies `jam ssh <id>`. It appears only if xref:usage/jam/collaboration.adoc[collab] would allow you to SSH.
 * *Open in VS Code* and *Open in VSCodium:* shown when Copy SSH is. Links to `+vscode://aethons.jam/session/<id>+` and `+vscodium://…+`, which the xref:usage/jam/vscode.adoc[Jam extension] handles. The session head also carries the session's `channel`, so the extension can link back to its page.
 * *Interrupt:* a visible button beside Copy SSH, enabled while the session is running. See <<session-controls,Session controls>>.
@@ -80,8 +80,8 @@ every 30s.
 
 * *Previews:* the session's exposed ports (xref:usage/jam/previews.adoc[]). Each link opens in a
 new tab. With framing on, *View here* shows one preview in the pane (see
-<<view-here,View here>>). The tab says
-so when previews are off, or when collab doesn't allow you to open them.
+<<view-here,View here>>). When previews are off, or collab doesn't allow you to open them,
+the tab shows one message: "Previews aren't available to you here."
 * *Artifacts:* what the home channel holds, newest first:
 ** whiteboards, with thumbnails;
 ** attached files;
@@ -170,7 +170,7 @@ All three give 404 to anyone who can't see the home channel (as for every route 
 An open `events` stream re-checks access every 25s (its keep-alive) and ends once the viewer loses it.
 When the stream is refused, the tab checks the pane: a 404 shows "This session is no longer available
 to you"; anything else (such as the 429) retries after 2s, 5s, and 15s, then shows "Too many Thinking
-views open".
+views open — close one, or reload".
 
 * *Filters:* Thinking, Text, Tools, Errors only, Progress. A tool dropdown narrows Tools to
 one tool, and search matches each line's text, including its details.

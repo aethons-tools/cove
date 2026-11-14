@@ -4,7 +4,7 @@
 :owns: the Kits table and the kit detail page (version rail, diffs, pinning, viewed-version contents, Built on/Effective, Source card, Versions table, push form, Used by, Delete)
 :prereqs: ui-pages.adoc for how entity pages edit (branches, create-only lists); kits.adoc for the kit schema and versioning; kits-inheritance.adoc for chained kits; kits-git.adoc for git sources
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 Each kit name in the Kits table (`/app/admin/config/kits`) links to `/app/admin/config/kits/<name>`. The table shows the
 current version (of how many), the current version's base kind and egress count,
@@ -20,7 +20,7 @@ it for a one-off `kit import`.
 
 The page has a *version rail* — every version with its short build digest
 (versions sharing one reuse one image), *Pin* to make an older or newer
-version current, and links to diff a version against its predecessor or
+version current (only on a branch, where it commits the pinned version's files), and links to diff a version against its predecessor or
 against current. `?v=N` views a version; `?v=N&diff=M` adds a line diff of the
 two versions' YAML (long unchanged runs collapsed) and says whether the build
 digest changed — i.e. whether that version builds a new image.
@@ -58,6 +58,8 @@ untrack controls need the git fetcher (always present in `jam serve`),
 disable their button while the fetch runs, and follow the admin API's rules and
 errors (xref:usage/jam/kits-git.adoc[kits-git]); without one the page only shows
 provenance.
+Import, track, sync, and untrack act on the live Jam even on a branch:
+they are not branch commits (`branchLive` in `adminui/branches.go`).
 
 *Push new version* is pre-filled with the viewed version's full YAML; pushing
 makes a new current version, or reports the kit unchanged when it equals
