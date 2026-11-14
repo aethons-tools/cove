@@ -25,6 +25,8 @@
 *** xref:usage/jam/config-git.adoc[]
 *** xref:usage/jam/config-plan.adoc[]
 *** xref:usage/jam/connector.adoc[]
+*** xref:usage/jam/conversations.adoc[]
+*** xref:usage/jam/conversations-sessions.adoc[]
 *** xref:usage/jam/container.adoc[]
 *** xref:usage/jam/coves-raise.adoc[]
 *** xref:usage/jam/coves.adoc[]

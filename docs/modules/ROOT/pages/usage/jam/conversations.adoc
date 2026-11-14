@@ -1,0 +1,199 @@
+= Conversations, units of work, and session views
+:summary: The goal communication model: DMs, group DMs, rooms, and work logs replace session and ticket channels; units of work; targets; sessions in rooms and who wakes for what; and the agent-to-agent limit. The session side (turn end, session view, escalation, migration) is in conversations-sessions.adoc.
+:read_when: You are building or reviewing any part of the move from session and ticket channels to DMs, rooms, and units of work, or you need the interface one part offers the others.
+:owns: the goal conversation kinds and their targets, the unit of work and its log, sessions as room members, wake rules per kind, the agent-to-agent limit, and the build order. Does NOT own the tool wire shapes that stay as they are (intercom.adoc), glob matching (comms-addressing.adoc), or the Discord and tracker relays' mechanics (discord.adoc, intercom.adoc).
+:prereqs: intercom.adoc for the channel log, tools, and relays this changes; comms-addressing.adoc for targets and addressing; structured-turn-end.adoc for today's turn end
+:tier: leaf
+:updated: 2026-11-14
+
+This page is the goal.
+Where it disagrees with xref:usage/jam/intercom.adoc[intercom],
+xref:usage/jam/comms-addressing.adoc[comms-addressing],
+xref:usage/jam/structured-turn-end.adoc[structured-turn-end],
+or xref:usage/jam/escalation.adoc[escalation],
+this page wins,
+and each issue that builds a part updates those pages to match.
+The product view is in the manual's goal:
+`concepts/intercom.adoc`, `concepts/work.adoc`, and `inbox/session.adoc`
+under `manual/modules/ROOT/pages/`.
+
+== Why
+
+A session's own channel made every session a broadcaster:
+its final text went to everyone in its channel,
+so sessions that shared people heard, and answered, messages meant for others.
+A ticket channel tied the work's record to an intercom channel,
+which ends up doing three jobs: the record, the tracker mirror, and a way to reach the worker.
+This model gives each job its own place.
+
+[#kinds]
+== Conversation kinds
+
+Every message of the channel log is in one conversation.
+A conversation has a kind:
+
+[%header,cols="1,3"]
+|===
+|Kind |What it is
+
+|`dm`
+|Exactly two members: two people, a person and a session, or two sessions.
+Jam keeps one `dm` for each pair.
+
+|`group`
+|Three or more members, fixed at creation.
+One `group` for each set of members.
+
+|`room`
+|A project's named room, as today.
+People and sessions can be members.
+
+|`work`
+|The log of one unit of work.
+Its members are the current worker, swapped as the unit is dispatched,
+and the people who follow it: who posted in it or clicked *Join*.
+|===
+
+The `studio` kind (session channels) goes.
+Today's chats become `dm` or `group` by their member count.
+
+[#work]
+== Units of work
+
+A unit of work is one tracker issue as Jam sees it:
+the issue, its sessions (the current one and past ones), its pull requests, its state, and its log.
+The Requisitioner creates it when it first raises a session on the issue,
+and a re-dispatched issue's new session takes over the same unit.
+
+* *The current worker* is the live session that holds the issue now.
+At most one session holds it at a time.
+* *The log* is a `work` conversation bound to the issue.
+When the unit gets a new worker, Jam removes the old one from its members and adds the new one.
+The tracker relay mirrors it both ways, as it mirrors a ticket channel today:
+every entry becomes a comment, and every comment on the issue becomes an entry.
+* `report` posts its summary to the log,
+and asks and whiteboards can live there.
+
+[#targets]
+== Targets
+
+[%header,cols="2,3"]
+|===
+|Target |Goes to
+
+|`+user:<name>+`
+|The `dm` between the sender and that person.
+
+|`+session:<label>+`
+|The `dm` between the sender and that session.
+
+|`+chat:<member>,<member>…+`
+|The `dm` or `group` with exactly those members and the sender.
+Members are `+user:+` or `+session:+` targets.
+
+|`+channel:<room>+`
+|The room.
+
+|`+work:<key>+`
+|The unit of work's log.
+`+ticket:<key>+` stays as an alias.
+
+|`+worker:<key>+`
+|The `dm` between the sender and the unit's current worker.
+With no current worker, `409` with `+{"error": "no-worker"}+`;
+nothing is held for a later session.
+|===
+
+Addressing is checked as today (xref:usage/jam/comms-addressing.adoc[comms-addressing]),
+with two changes:
+
+* `+work:+` and `+worker:+` match a role's `+ticket:+` globs, so existing roles keep working.
+* There is no home channel, so no send skips the check,
+except a reply: a session may always send to a conversation it was delivered a message in.
+A session may always send to its own unit's log (`+work:<its key>+`),
+and a personal session to the person who started it.
+
+`send` without `to` goes to the conversation the session itself last sent to in this turn.
+The first `send` of a turn needs a `to` (`400` without one).
+Incoming messages never change the default, so one arriving mid-turn can't redirect a send.
+
+[#wake]
+== Who wakes
+
+[%header,cols="1,3"]
+|===
+|Kind |A new message wakes
+
+|`dm`, `group`
+|Every session member but the author.
+
+|`room`
+|Only the session members it mentions,
+plus the session members that joined with `wake: all`.
+The others get it in their inbox without waking.
+
+|`work`
+|The current worker, unless it is the author.
+People members are notified, not woken.
+|===
+
+*Sessions in rooms.*
+Today a room refuses session members (`ErrFixedMembers`); the goal lifts that guard.
+A session is a member of a room in two ways:
+
+* Its role lists the room in its file,
+`scope.rooms: [{name: ops, wake: named}]`,
+and its sessions join it when they're raised.
+`wake` is `named` (the default) or `all`.
+* A member of the room calls it in (`call_in`), and the caller's addressing allows the session.
+It joins with `wake: named`.
+
+A session leaves a room it was called into with `leave`;
+it can't leave a room its role lists.
+A room's sessions show in its member list, marked as agents.
+
+A *mention* is the new `mentions` field of `send` (a list of `+session:+` targets),
+or an `@<label>` in the body that names a session member of the room.
+People are notified by the push rules (xref:usage/jam/push.adoc[push]).
+For a `dm` or `group`, every person member is notified.
+For a room or a work log, only the people a message names are notified.
+
+[#rate-limit]
+== The agent-to-agent limit
+
+Today's loop breaker becomes a limit over time, in every kind of conversation.
+It trips when the last 8 messages in a conversation are all session-authored
+and all fall within the window (10 minutes):
+the check reads the last 9 messages, as today's does, and also compares their times.
+While it's tripped, the next session messages there are delivered but wake no session,
+and Jam tells the operators,
+and for a personal session the person who started it,
+once each time the limit is reached.
+The numbers are serve config, `runtime.agent-wakes` (a count and a window);
+the defaults are 8 messages and 10 minutes.
+
+The limit lifts in three ways:
+
+* The window slides past: the conversation is quiet for long enough.
+* A person posts in the conversation.
+* A person who may open either session's view presses *Resume*,
+on Jam's notice or in the session view (`+POST /app/user/api/conversations/{id}/resume+`).
+This is the only way a person lifts it sooner in a `dm` between two sessions,
+which no person can post in.
+
+In a `dm`, the limit is per pair.
+A loop among three agents trips it too,
+because each of their conversations sees only session messages.
+*Resume* restarts the count:
+messages from before it never count toward the next trip.
+The check reads only the log, plus the time of the last *Resume*.
+
+[#order]
+== Building it
+
+The first issue lands the interface:
+the four kinds, `work` units and their log, and the targets,
+with today's behavior otherwise unchanged.
+The rest build against this page in parallel:
+wake rules, the agent-to-agent limit, the Inbox,
+and each part of xref:usage/jam/conversations-sessions.adoc[conversations-sessions].

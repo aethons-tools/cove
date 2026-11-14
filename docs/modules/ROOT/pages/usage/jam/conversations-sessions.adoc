@@ -1,0 +1,85 @@
+= Sessions in the conversation model
+:summary: The session side of the goal communication model: the turn-end rule that every turn sends or says no message is needed, the session view and who may open it, escalation as a DM, and how today's session channels, ticket channels, and chats move over.
+:read_when: You are building or reviewing the turn-end rule, the session view, escalation delivery, or the migration from session and ticket channels.
+:owns: the goal turn-end rule, session-view access and content, escalation delivery, and the migration. Does NOT own conversation kinds, targets, wake rules, or the agent-to-agent limit (conversations.adoc).
+:prereqs: conversations.adoc for the kinds, targets, and wake rules; structured-turn-end.adoc for today's turn end; session-view.adoc for today's view; escalation.adoc for tier timing
+:tier: leaf
+:updated: 2026-11-14
+
+This page is the goal, with xref:usage/jam/conversations.adoc[conversations];
+where they disagree with the pages they name, they win.
+
+[#turn-end]
+== The turn-end rule
+
+A turn ends in one of four ways:
+
+* *Text and a destination:* `turn_end` with a `to` posts the final text there.
+A `send`, `ask`, or `report` during the turn counts the same.
+* *Text with no destination:* the turn is returned, below.
+* *Text and no message needed:* `turn_end` with `+no_reply: true+`. The text stays as thinking.
+* *No text:* nothing is posted, and the turn isn't returned.
+
+Text is thinking unless it's sent.
+The final text and mid-turn text are never auto-posted;
+`turn_end` with a `to` posts the final text there.
+
+A turn that ends with text, no destination, and no message sent during it is *returned* once.
+`returned` is a per-turn flag, and the wake it causes has the reason `returned`:
+Jam wakes the session at once (an explicit wake: wakes otherwise key off `WaitSeq`) with a note that the turn sent nothing and didn't say no message was needed,
+and shows it the same messages again (they aren't committed).
+If that turn also ends that way,
+Jam commits, records `unaddressed` on the turn in the session view,
+and doesn't return it again.
+
+Interrupted, errored, and `/compact` turns are exempt, as today.
+`turn_end` keeps `post: false`, read as `+no_reply: true+`.
+
+[#session-view]
+== The session view
+
+The session view is read-only over the log and the Thinking feed:
+
+* *Activity*: every message the session authored or was delivered, from any kind,
+with its conversation.
+`+GET /app/user/api/sessions/{id}/activity+`, paged like `read`.
+* *Thinking*: the existing feed (xref:usage/jam/session-view.adoc[session-view]),
+folded between messages a turn at a time, collapsed by default.
+Thinking is never indexed for search.
+* *Composer*: posts to `+session:<label>+` as the viewer, a `dm`.
+
+*Who may open it:* the Jam's operators,
+and for a personal session, the person who started it.
+Everyone else gets `404`.
+Roles have no owners;
+if they get them, their owners join this list.
+Thinking can quote what a tool printed,
+so this is the transcript's access rule, not the conversation's.
+
+After the session ends, the view stays, but without its header or pane.
+
+[#escalation]
+== Escalation
+
+A tier opens a `dm` between the session and the tier's one person,
+or a `group` of the session and the tier's people,
+and posts the escalation notice there.
+When the session works on a unit,
+the notice is also posted to its log.
+Tier timing doesn't change (xref:usage/jam/escalation.adoc[escalation]).
+
+[#migration]
+== Moving over
+
+* Each live session channel is archived.
+Its history stays readable in the session view.
+* Each ticket channel becomes its unit's log and keeps its history, members, and binding to the issue.
+Where a room is bound to the same issue, the binding moves to the log, and the room keeps its history.
+* Each chat becomes a `dm` or a `group`.
+* `+session:<label>+`, `+ticket:<key>+`, and `+chat:+` keep working as above,
+so role files and context pages need no change at the switch.
+* A personal session's starter gets a `dm` with it;
+the idle ladder's nags go there.
+* The Discord relay posts `dm` and `group` messages to people's inbox channels,
+as it posts chats today.
+

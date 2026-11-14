@@ -3,28 +3,28 @@
 :page-id: ROOT/inbox/channels
 :page-conventions: sentence-case
 
-The *Inbox* is where you read and answer your xref:concepts/intercom.adoc[channels].
+The *Inbox* is where you read and answer your xref:concepts/intercom.adoc[conversations].
 Open it from the *Inbox* tab in the title bar.
 
-The rail on the left lists your channels.
+The rail on the left lists your conversations.
 The conversation you open fills the rest of the page.
 
 image::channels-inbox.png["The Inbox, with the ops room open",800]
 
 == The rail
 
-The rail shows every channel you are in or got messages in,
-across all your projects.
+The rail shows every conversation you are in or got messages in,
+across all your projects:
+DMs, group DMs, rooms, and the work logs you posted in or are named in.
 It puts them in groups by how much they need you:
 
 Needs you::
-A session in the channel asked for a person or is blocked,
-or the channel has an open ask you can answer.
-Sessions::
-A session in the channel is live, starting or paused.
-This includes ticket channels and chats with a live session.
-Channels::
-All the others: rooms, chats with people only, and channels whose sessions ended.
+An agent in the conversation asked for a person or is blocked,
+or the conversation has an open ask you can answer.
+Agents::
+DMs and group DMs with an agent that is live, starting, or paused.
+Conversations::
+All the others: rooms, work logs, DMs with people, and DMs with agents that ended.
 
 In each group, the channel with the newest message is first.
 If your Jam was upgraded from the old message log,
@@ -33,11 +33,12 @@ You can only read them.
 
 image::channels-rail.png["The rail: Needs you, Sessions and Channels",300]
 
-A session's channel shows as the session's status card:
-its name, what it is doing, its mission, and its open asks
+A DM with an agent shows as the agent's status card:
+its name, what it is doing, its mission, and its open asks.
+Click the name to open its session view
 (xref:inbox/session.adoc[Watching a session]).
-Another row shows the channel's name and, if one session in it is live, that session's mission.
-A chat is named after the others in it.
+Another row shows the conversation's name.
+A DM or group DM is named after the others in it.
 A number on the right is the count of unread messages.
 
 The rail plays a sound when a channel starts to need you
@@ -86,19 +87,22 @@ New messages, unread counts and session status change without a reload.
 
 The header has the controls for who is in the channel:
 
-* *Join* shows on a ticket, a room or a session's channel that you can see but are not in.
-* *Leave* shows on a channel you are in.
-A chat has neither, because its members are fixed.
-* *Call in…* lists the people of the project who are not in the channel.
-For a ticket or a session's channel, it also lists the live sessions you can reach.
+* *Join* shows on a room that you can see but are not in.
+* *Leave* shows on a room you are in.
+DMs and group DMs have neither, because their members are fixed.
+* *Call in…* on a room lists the people and agents of the project who are not in it.
 Pick one and click *Call in*.
 
 image::channels-join.png["The header of a ticket channel you are not in, with Join",600]
 
-You also join a ticket, a room or a session's channel when you post in it.
+You also join a room when you post in it.
 
 ifdef::internal[]
 == Notes for the team
+
+* Goal: session channels and ticket channels go (COV-299, COV-308);
+the interfaces are in `docs/modules/ROOT/pages/usage/jam/conversations.adoc`.
+The screenshots still show the as-is Inbox.
 
 * The Inbox is the web app under `/app/user/` (`web/app/src/rail`, `conversation`).
 A conversation is `/app/user/c/<channel>`.
