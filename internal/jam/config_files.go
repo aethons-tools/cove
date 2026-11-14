@@ -670,6 +670,13 @@ type RoleScopeFile struct {
 	Addressing   []string          `yaml:"addressing,omitempty"`
 	TTL          string            `yaml:"ttl,omitempty"`
 	Egress       *[]string         `yaml:"egress,omitempty"` // nil = the kit's default list
+	Rooms        []RoleRoomFile    `yaml:"rooms,omitempty"`
+}
+
+// RoleRoomFile is one room of a role's scope.rooms.
+type RoleRoomFile struct {
+	Name string `yaml:"name"`
+	Wake string `yaml:"wake,omitempty"` // "" = named
 }
 
 // StandingFile is one standing session.
@@ -762,6 +769,9 @@ func (f RoleFile) role() (Role, error) {
 		}
 		r.Scope.Egress = &EgressPolicy{Domains: d}
 	}
+	if r.Scope.Rooms, err = roleRooms(f.Scope.Rooms); err != nil {
+		return r, fmt.Errorf("scope.rooms: %w", err)
+	}
 	a := f.Allocation
 	for _, c := range []struct {
 		k string
@@ -796,6 +806,26 @@ func (f RoleFile) role() (Role, error) {
 	return r, nil
 }
 
+// roleRooms reads scope.rooms: each room named once, wake named (the
+// default) or all. That each is a room of the project is the planner's check.
+func roleRooms(files []RoleRoomFile) ([]RoomMembership, error) {
+	var out []RoomMembership
+	for _, rf := range files {
+		if rf.Name == "" {
+			return nil, errors.New("a room needs a name")
+		}
+		if slices.ContainsFunc(out, func(m RoomMembership) bool { return m.Name == rf.Name }) {
+			return nil, fmt.Errorf("%s is listed twice", rf.Name)
+		}
+		w := WakeMode(cmp.Or(rf.Wake, string(WakeNamed)))
+		if w != WakeNamed && w != WakeAll {
+			return nil, fmt.Errorf("%s: wake must be named or all, not %q", rf.Name, rf.Wake)
+		}
+		out = append(out, RoomMembership{Name: rf.Name, Wake: w})
+	}
+	return out, nil
+}
+
 // roleFileOf is a role in canonical file form. userName resolves a user id in
 // an addressing entry to the user's name; unresolved entries stay verbatim.
 func roleFileOf(project, name string, r Role, userName func(ident.ID) (string, bool)) RoleFile {
@@ -823,6 +853,13 @@ func roleFileOf(project, name string, r Role, userName func(ident.ID) (string, b
 			d = []string{}
 		}
 		f.Scope.Egress = &d
+	}
+	for _, m := range r.Scope.Rooms {
+		rf := RoleRoomFile{Name: m.Name}
+		if m.Wake != WakeNamed {
+			rf.Wake = string(m.Wake)
+		}
+		f.Scope.Rooms = append(f.Scope.Rooms, rf)
 	}
 	a := r.Allocation
 	f.Allocation = AllocationFile{

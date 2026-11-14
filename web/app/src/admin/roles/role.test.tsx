@@ -58,6 +58,7 @@ describe("a role's page", () => {
     expect(screen.getByText("unregistered")).toBeInTheDocument();
     expect(screen.getByText("role mapping")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "ses_9" })).toHaveAttribute("href", ADMIN + "agents/ses_9");
+    expect(screen.getByText("ops · wake all")).toBeInTheDocument();
   });
 
   it("saves the scope from its prefilled form, and shows a refusal inline", async () => {

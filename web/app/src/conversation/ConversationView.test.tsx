@@ -98,6 +98,12 @@ describe("the conversation view", () => {
     expect(screen.queryByRole("button", { name: "Join" })).toBeNull();
   });
 
+  it("lists a room's members, its agents marked", async () => {
+    serve(conv({ kind: "room", members: [{ id: "usr_1", label: "alice", kind: "person" }, { id: "ses_1", label: "editor", kind: "agent" }] }));
+    renderApp(boot, "/app/user/c/chn_a");
+    expect(await screen.findByLabelText("Members")).toHaveTextContent("alice, editor (agent)");
+  });
+
   it("joins, then refetches", async () => {
     let joined = false;
     serve(conv({ canJoin: true, canLeave: false, callIn: [] }));

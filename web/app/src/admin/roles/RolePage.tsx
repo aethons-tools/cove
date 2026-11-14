@@ -80,6 +80,9 @@ function Role({ d }: { d: RoleDetail }) {
           <Group gap="xs"><Text size="sm" fw={600}>Addressing</Text>
             {d.addressing.length ? d.addressing.map((a) => <Badge key={a} size="sm" variant="light" color="gray" tt="none">{a}</Badge>) : <Text size="sm" c="dimmed">No comms targets — it can't squawk anyone.</Text>}
           </Group>
+          <Group gap="xs"><Text size="sm" fw={600}>Rooms</Text>
+            {d.rooms.length ? d.rooms.map((x) => <Badge key={x.name} size="sm" variant="light" color="gray" tt="none" title={x.wake === "all" ? "every message wakes its agents" : "only messages that mention an agent wake it"}>{x.name} · wake {x.wake}</Badge>) : <Text size="sm" c="dimmed">None — its agents join rooms only when called in.</Text>}
+          </Group>
           {editable && edit("Edit scope", <ScopeForm key={JSON.stringify(d.form)} d={d} onSave={(b) => post("scope", b)} />)}
         </Stack>
       </Section>

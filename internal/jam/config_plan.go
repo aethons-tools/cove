@@ -758,6 +758,10 @@ func (p *planner) planRoles() {
 	for _, n := range slices.Sorted(maps.Keys(p.in.Tree.Roles)) {
 		f := p.in.Tree.Roles[n]
 		o := newConfigObject(f)
+		if err := p.checkRoleRooms(f); err != nil {
+			p.refuse("%s: %s", o.Key.Path(), err)
+			continue
+		}
 		p.upsert(o.Key, o, func(bool) error {
 			proj, ok := p.m.projects[f.Project]
 			if !ok || proj.Status == StatusRemoved {
@@ -775,6 +779,22 @@ func (p *planner) planRoles() {
 			return nil
 		})
 	}
+}
+
+// checkRoleRooms checks that each room f's scope.rooms lists is a live room
+// of its project in the planned state — for every role, changed or not, so a
+// project file can't drop a room a role still lists.
+func (p *planner) checkRoleRooms(f RoleFile) error {
+	proj, ok := p.m.projects[f.Project]
+	if !ok || proj.Status == StatusRemoved {
+		return nil // the write refuses it
+	}
+	for _, rf := range f.Scope.Rooms {
+		if _, ok := p.m.liveChannelByKey(proj.ID, SourceRoom, rf.Name); !ok {
+			return fmt.Errorf("scope.rooms: %s is not a room of project %s", rf.Name, f.Project)
+		}
+	}
+	return nil
 }
 
 // validateConfigRole is the admin API's role-write rule set (POST /admin/roles

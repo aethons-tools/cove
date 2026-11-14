@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -200,6 +201,42 @@ func TestParseKitSourceFileNeverEchoesSource(t *testing.T) {
 		_, _, err := ParseKitSourceFile("kits/app.source.yml", "app", []byte("kind: kit-source\nversion: 1\ngit: "+git+"\n"))
 		if err == nil || strings.Contains(err.Error(), token) || !strings.HasPrefix(err.Error(), "kits/app.source.yml: git: source: ") {
 			t.Errorf("%q: %v", git, err)
+		}
+	}
+}
+
+// scope.rooms round-trips with wake named (the default) left out of the
+// canonical file; a bad wake, an empty name, and a room listed twice are
+// refused.
+func TestRoleFileRooms(t *testing.T) {
+	in := "kind: role\nversion: 1\nscope:\n  rooms: [{name: ops, wake: all}, {name: eng, wake: named}, {name: help}]\n"
+	f, err := ParseRoleFile("projects/app/roles/ic.yml", "ic", []byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := f.role()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []RoomMembership{{Name: "ops", Wake: WakeAll}, {Name: "eng", Wake: WakeNamed}, {Name: "help", Wake: WakeNamed}}
+	if !slices.Equal(r.Scope.Rooms, want) {
+		t.Fatalf("rooms = %+v, want %+v", r.Scope.Rooms, want)
+	}
+	canon := string(newConfigObject(f).Canon)
+	if strings.Contains(canon, "named") || !strings.Contains(canon, "wake: all") {
+		t.Fatalf("canon:\n%s", canon)
+	}
+	back := roleFileOf("app", "ic", r, func(ident.ID) (string, bool) { return "", false })
+	if a := string(newConfigObject(back).Canon); a != canon {
+		t.Fatalf("canon differs:\n%s\n---\n%s", canon, a)
+	}
+	for in, want := range map[string]string{
+		"scope: {rooms: [{name: ops, wake: loud}]}\n":  `projects/app/roles/ic.yml: scope.rooms: ops: wake must be named or all, not "loud"`,
+		"scope: {rooms: [{wake: all}]}\n":              "projects/app/roles/ic.yml: scope.rooms: a room needs a name",
+		"scope: {rooms: [{name: ops}, {name: ops}]}\n": "projects/app/roles/ic.yml: scope.rooms: ops is listed twice",
+	} {
+		if _, err := ParseRoleFile("projects/app/roles/ic.yml", "ic", []byte("kind: role\nversion: 1\n"+in)); err == nil || err.Error() != want {
+			t.Errorf("%q: %v, want %q", in, err, want)
 		}
 	}
 }

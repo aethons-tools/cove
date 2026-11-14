@@ -164,12 +164,17 @@ func seedRichRole(t *testing.T) jam.Store {
 			Addressing:   []string{"human:*", "channel:eng"},
 			TTL:          90 * time.Minute,
 			Egress:       &jam.EgressPolicy{Domains: []string{"pypi.org"}},
+			Rooms:        []jam.RoomMembership{{Name: "eng", Wake: jam.WakeAll}},
 		},
 		Allocation: jam.RoleAllocation{
 			MaxPersonal: 2,
 			NagEvery:    2 * time.Hour,
 			Standing:    []jam.StandingSession{{Name: "nightly", Prompt: "run the nightly sweep"}},
 		},
+	}
+	proj, _ := store.GetProject("acme")
+	if _, err := store.CreateChannel(jam.Channel{ProjectID: proj.ID, Kind: jam.SourceRoom, Key: "eng", Label: "eng"}); err != nil {
+		t.Fatal(err) // the room scope.rooms lists
 	}
 	if err := store.PutRole("acme", role); err != nil {
 		t.Fatal(err)

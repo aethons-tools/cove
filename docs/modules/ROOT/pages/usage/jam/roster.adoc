@@ -4,7 +4,7 @@
 :owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role file's fields (`scope`, `kit`, `model-spec`, the `allocation` policy and the personal idle-ladder fields, `turn-end`, `collaborate`), the grant/ungrant/actors/enroll/revoke verbs, the enrollment snippet, and the in-progress identity registry (project ids, users, memberships, connections, accounts)
 :prereqs: INDEX.adoc for the service overview; operators.adoc for the admin-client flags; destinations.adoc for destinations (what a role's scope points at); kits.adoc for binding a kit to a role
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 Jam authorizes every brokered request against a *role-based* model:
 
@@ -53,6 +53,7 @@ scope:
   destinations: [anthropic, git]
   credentials: {git: git-pat-acme}   # optional per-destination credential
   addressing: ["user:*", "channel:eng-help"]
+  rooms: [{name: eng-help, wake: all}, {name: ops}]   # optional; wake defaults to named
   ttl: 24h
 kit: review-kit                      # optional; unset = the default kit
 model-spec: fast                     # optional; unset = claude-default
@@ -73,6 +74,15 @@ scopes which comms targets the role's actors may `+send(to=…)+`. This is a
 separate plane from ``destinations``; see
 xref:usage/jam/comms-addressing.adoc[comms-addressing] for the target space and the
 Project's roster of humans/channels the globs resolve against.
+* `scope.rooms` lists the project's rooms the role's sessions are members of:
+each entry is a `name` and a `wake`, `named` (the default, left out of the canonical file) or `all`.
+Each room must be a live room of the role's project in the planned state,
+so a project file can't drop a room a role still lists;
+a room listed twice or an unknown `wake` is refused.
+How sessions join, and why they can't leave:
+xref:usage/jam/intercom.adoc#sessions-in-rooms[sessions in rooms].
+`role list` (the admin API's `rooms`) and the role page show them;
+only the config repo sets them.
 * `scope.ttl` is the default identity lifetime applied at enrollment (unset =
 no expiry). *A role with no `ttl` mints non-expiring tokens* — set one for
 ephemeral studios.

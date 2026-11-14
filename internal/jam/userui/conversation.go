@@ -1,7 +1,9 @@
 package userui
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -107,9 +109,8 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 // membershipControls fills the conversation's Join/Leave/Call in controls:
 // a dm or a group has none (its members are fixed). Rooms, work logs, and
 // (until the migration removes them, COV-354) sessions' own channels take
-// Join and Leave; Call in lists the project's people, and on work logs and
-// session channels the agents the viewer may reach — a room takes no
-// sessions until COV-349.
+// Join and Leave; Call in lists the project's people and the agents the
+// viewer may reach. A room also lists its members.
 func membershipControls(conv *Conversation, p jam.Participant, d Deps) {
 	ch, ok := d.Store.GetChannel(ident.ID(conv.ChannelID))
 	if !ok || ch.Status != jam.StatusLive || jam.IsChat(ch.Kind) {
@@ -121,6 +122,9 @@ func membershipControls(conv *Conversation, p jam.Participant, d Deps) {
 			in[m.ParticipantID] = true
 		}
 	}
+	if ch.Kind == jam.SourceRoom {
+		conv.Members = roomMembers(d, ch, in)
+	}
 	if !in[p.UserID] {
 		conv.CanJoin = true
 		return
@@ -130,9 +134,6 @@ func membershipControls(conv *Conversation, p jam.Participant, d Deps) {
 		if u, ok := d.Store.GetUser(uid); ok && u.Status == jam.StatusLive && !in[uid] {
 			conv.CallIn = append(conv.CallIn, NewMessageOption{To: "user:" + string(uid), Label: u.Name, Kind: "person"})
 		}
-	}
-	if ch.Kind == jam.SourceRoom {
-		return
 	}
 	for _, inst := range d.Store.ListInstances() {
 		if inst.Phase == jam.PhaseGone || in[ident.ID(inst.ActorID)] {
@@ -145,6 +146,28 @@ func membershipControls(conv *Conversation, p jam.Participant, d Deps) {
 			conv.CallIn = append(conv.CallIn, NewMessageOption{To: "session:" + inst.ActorID, Label: d.Intercom.PartyOf(ident.ID(inst.ActorID)).Label, Kind: "agent"})
 		}
 	}
+}
+
+// roomMembers is room ch's member list, people then agents, each by label:
+// a person while they are a live user, a session while it lives.
+func roomMembers(d Deps, ch jam.Channel, in map[ident.ID]bool) []MemberRow {
+	out := []MemberRow{}
+	for id := range in {
+		switch {
+		case id.Kind() == ident.User:
+			if u, ok := d.Store.GetUser(id); ok && u.Status == jam.StatusLive {
+				out = append(out, MemberRow{ID: string(id), Label: u.Name, Kind: "person"})
+			}
+		default:
+			if inst, ok := d.Store.GetInstance(string(id)); ok && inst.Phase != jam.PhaseGone {
+				out = append(out, MemberRow{ID: string(id), Label: d.Intercom.PartyOf(id).Label, Kind: "agent"})
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b MemberRow) int {
+		return cmp.Or(cmp.Compare(b.Kind, a.Kind), cmp.Compare(a.Label, b.Label), cmp.Compare(a.ID, b.ID)) // person before agent
+	})
+	return out
 }
 
 // legacyConversation is a History conversation: the legacy projection's

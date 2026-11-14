@@ -3,6 +3,7 @@ package jam
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,15 +53,15 @@ func IsNotice(id string) bool {
 }
 
 // ErrFixedMembers refuses a membership change a channel doesn't take: a chat
-// is its fixed member set, and a room takes no sessions.
+// is its fixed member set, and a session stays in the rooms its role lists.
 var ErrFixedMembers = errors.New("intercom: this channel's members are fixed")
 
 // CallIn has member p call who — "user:<name|id>" or "session:<label|id>" —
 // into channel chID ("" for a session: its home channel). The inviter must
 // be in the channel, and a session inviter's addressing must allow who (as
 // for a send); the invitee must be live in the channel's project. They join
-// from the tail and hear the inviter's notice. Calling in a member is a
-// no-op. ErrSendDenied (not a member, not allowed, no such channel — alike),
+// from the tail, a session with wake: named, and hear the inviter's notice.
+// Calling in a member is a no-op. ErrSendDenied (not a member, not allowed, no such channel — alike),
 // ErrSendUnresolved (no such invitee), ErrFixedMembers.
 func (ic *Intercom) CallIn(p Poster, chID ident.ID, who string) (Channel, ident.ID, error) {
 	var ch Channel
@@ -101,6 +102,11 @@ func (ic *Intercom) CallIn(p Poster, chID ident.ID, who string) (Channel, ident.
 	if err := ic.store.JoinChannel(ch.ID, invitee, ic.tail()); err != nil {
 		return Channel{}, "", err
 	}
+	if w, ok := ic.wakeOf(ch.ID, invitee); ok && w != WakeNamed {
+		if err := ic.store.SetChannelWake(ch.ID, invitee, WakeNamed); err != nil {
+			return Channel{}, "", err
+		}
+	}
 	note := intercom.Squawk{ID: fmt.Sprintf("callin:%s:%s:%d", ch.ID, invitee, time.Now().UnixNano()), From: p.ID, Body: ic.label(p.ID) + " called in " + ic.label(invitee), ContentType: intercom.ContentPlain}
 	if _, err := ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, p.ID)}, note); err != nil {
 		return Channel{}, "", err
@@ -125,9 +131,6 @@ func (ic *Intercom) resolveInvitee(p Poster, project Project, ch Channel, who st
 		globs = ic.ceiling(p, project.Name)
 	}
 	if kind == "session" {
-		if ch.Kind == SourceRoom {
-			return "", ErrFixedMembers // rooms are post-only for sessions
-		}
 		target, found := ic.sessionNamed(project, ref)
 		if !session && found && !ic.MayReach(p.ID, target) {
 			return "", ErrSendDenied // never a back door into someone's personal session
@@ -189,8 +192,9 @@ func (ic *Intercom) JoinChannel(u, chID ident.ID) error {
 
 // LeaveChannel ends p's membership of chID from the tail: what was delivered
 // stays. A session never leaves its home (its own channel, or the ticket it
-// works while it lives); a chat is fixed. Leaving a channel one isn't in is
-// a no-op.
+// works while it lives) or a room its role lists (ErrFixedMembers), only one
+// it was called into; a chat is fixed. Leaving a channel one isn't in is a
+// no-op.
 func (ic *Intercom) LeaveChannel(p, chID ident.ID) error {
 	ch, ok := ic.store.GetChannel(chID)
 	if !ok {
@@ -209,6 +213,9 @@ func (ic *Intercom) LeaveChannel(p, chID ident.ID) error {
 		if inst, ok := ic.store.GetInstance(string(p)); ok && inst.Phase != PhaseGone {
 			if home, ok := ic.homeIfExists(inst); ok && home.ID == ch.ID {
 				return ErrSendDenied
+			}
+			if ch.Kind == SourceRoom && slices.ContainsFunc(ic.roleRooms(inst), func(m RoomMembership) bool { return m.Name == ch.Key }) {
+				return fmt.Errorf("%w: your role lists room %s", ErrFixedMembers, ch.Key)
 			}
 		}
 	}

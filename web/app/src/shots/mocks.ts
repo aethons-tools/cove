@@ -124,7 +124,7 @@ const reviewer = role({
   name: "reviewer", kit: "review-kit", modelSpec: "claude-default", modelSpecDefault: true, ttl: "24h",
   dests: [{ name: "anthropic", cred: "anthropic-key", credIsRole: false, route: "", missing: false },
     { name: "github", cred: "github-review", credIsRole: true, route: "", missing: false }],
-  addressing: ["user:*", "channel:eng"], egressManaged: true, egressDomains: ["registry.npmjs.org", ".golang.org"],
+  addressing: ["user:*", "channel:eng"], rooms: [{ name: "eng", wake: "named" }], egressManaged: true, egressDomains: ["registry.npmjs.org", ".golang.org"],
   allocation: [
     { label: "Max ephemeral agents", value: "4", unset: false },
     { label: "Max personal agents", value: "3", unset: false },

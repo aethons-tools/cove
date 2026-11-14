@@ -245,6 +245,11 @@ export interface Conversation {
   canLeave: boolean;
   callIn: NewMessageOption[];
   /**
+   * Members is a room's member list, its sessions marked as agents; none
+   * for other kinds.
+   */
+  members?: MemberRow[];
+  /**
    * NewBoard offers New whiteboard (the viewer may start one here).
    */
   newBoard: boolean;
@@ -258,6 +263,14 @@ export interface Conversation {
    * Color is that session's color, the composer's accent ("" = none).
    */
   color?: string;
+}
+/**
+ * MemberRow is one member of a room. Kind is person or agent.
+ */
+export interface MemberRow {
+  id: string;
+  label: string;
+  kind: string;
 }
 /**
  * NewMessageOption is one recipient offered in the New Message picker (or
