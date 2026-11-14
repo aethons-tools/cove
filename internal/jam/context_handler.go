@@ -14,8 +14,9 @@ import (
 // identity's session context, recompiled from the current config (ContextFor),
 // so jam-studio-agent can refresh a running session. The identity arrives as a
 // bearer (or gh's "token" scheme); unknown or expired → 401, no registered
-// instance → 404. ?turn-protocol=2 asks for the structured turn end's guidance
-// (the bundle's TurnProtocol confirms it). Logs the actor id only. Records the
+// instance → 404. ?turn-protocol=2 asks for the structured turn end's
+// guidance, ?turn-protocol=3 for the turn-end rule's (the bundle's
+// TurnProtocol confirms it). Logs the actor id only. Records the
 // delivered part as a setup snapshot (on change).
 func NewContextHandler(store Store, sup *Supervisor, now func() time.Time, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,11 +40,15 @@ func NewContextHandler(store Store, sup *Supervisor, now func() time.Time, log *
 			http.Error(w, "no session context on this Jam", http.StatusNotFound)
 			return
 		}
-		// Only the structured turn end ("2") is recognized; anything else
-		// gets the legacy guidance.
+		// Only the structured turn end ("2", an older studio's) and the
+		// turn-end rule ("3") are recognized; anything else gets the legacy
+		// guidance.
 		turnProtocol := 0
-		if r.URL.Query().Get("turn-protocol") == strconv.Itoa(sessionctx.TurnProtocolStructured) {
+		switch r.URL.Query().Get("turn-protocol") {
+		case strconv.Itoa(sessionctx.TurnProtocolStructured):
 			turnProtocol = sessionctx.TurnProtocolStructured
+		case strconv.Itoa(sessionctx.TurnProtocolTurnRule):
+			turnProtocol = sessionctx.TurnProtocolTurnRule
 		}
 		if err := sup.SetTurnProtocol(a.ID, turnProtocol); err != nil && !errors.Is(err, ErrNoInstance) {
 			log.Warn("context: turn protocol not recorded", "actor", a.ID, "err", err.Error())

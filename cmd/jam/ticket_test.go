@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/dispatch/scheduler"
@@ -46,8 +47,10 @@ func TestTicketerReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"lookup AET-1", "transition id-AET-1 in-review", "comment id-AET-1 **in-review** — PR is up\n\nPR: https://github.com/o/r/pull/7"}
-	if len(tr.calls) != 3 || tr.calls[0] != want[0] || tr.calls[1] != want[1] || tr.calls[2] != want[2] {
+	// No comment: the summary goes to the unit's work log, which the relay
+	// mirrors (jam.ReportHandler).
+	want := []string{"lookup AET-1", "transition id-AET-1 in-review"}
+	if !slices.Equal(tr.calls, want) {
 		t.Fatalf("calls = %q", tr.calls)
 	}
 }
@@ -95,7 +98,7 @@ func TestTicketerErrorsPropagate(t *testing.T) {
 		t.Fatal("no error")
 	}
 	if len(tr.calls) != 2 {
-		t.Fatalf("commented after a failed transition: %q", tr.calls)
+		t.Fatalf("calls after a failed transition: %q", tr.calls)
 	}
 }
 
@@ -110,7 +113,7 @@ func TestTicketHolder(t *testing.T) {
 	tr := &fakeTicketTracker{}
 	h.set(trackerTicketer{tr})
 	_ = h.Report(context.Background(), jam.Instance{Unit: "AET-1"}, jam.TicketReport{State: "done", Summary: "x"})
-	if len(tr.calls) != 3 {
+	if len(tr.calls) != 2 {
 		t.Fatalf("set holder calls = %q", tr.calls)
 	}
 }

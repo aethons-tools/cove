@@ -4,7 +4,7 @@
 :owns: the turn-end model, the `end`, `idle_timeout`, `report` and `alarm_*` tools and their `/end`, `/idle`, `/report`, `/alarms` endpoints, how a ticket session finishes (blocked when ended without a final report), the alarm limits, firing rules and gates (`RunGate`/`GateResult`), the role's turn-end policy (`--idle-timeout`/`--on-idle`/`--time-zone` semantics), the `holding` activity (its wake/pause/teardown semantics and the WaitSeq rule), and wake reasons (kinds, rendering, the legacy fallback). Does NOT own reply detection, wait-max, or warm-timeout pausing — see intercom.md.
 :prereqs: coves.adoc for Phase vs Activity; intercom.adoc for the wake-on engine and how a reply is detected
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-14
 
 When a managed session's turn ends, it either *ends* (it called `end`) or
 *waits* for something worth another turn — an inbound squawk
@@ -42,11 +42,15 @@ read.
 
 * *``report(state, summary, pr?)``* (`POST /report`): `state` is `in-progress`,
 `in-review` (needs `pr`), `needs-input` (the question goes in `summary`),
-`blocked` or `done`. Jam moves the ticket to that state and comments
-`+**<state>** — <summary>+` (plus `+PR: <url>+`). Call it whenever the state
-changes; it never ends the session.
+`blocked` or `done`. Jam moves the ticket to that state,
+then posts `+**<state>** — <summary>+` (plus `+PR: <url>+`) to the unit's work log as the session.
+The tracker relay mirrors that entry to the issue as a comment
+(xref:usage/jam/intercom.adoc[intercom]); Jam doesn't comment on the issue itself.
+A `report` counts as a message the turn sent
+(xref:usage/jam/structured-turn-end.adoc#the-turn-end-rule[the turn-end rule]).
+Call it whenever the state changes; it never ends the session.
 * *Errors:* a session with no ticket, or bad input, is a ``400``; no tracker
-configured is a ``503``; a tracker failure is a `502` and nothing is recorded —
+configured is a ``503``; a tracker failure, or a failed post to the work log, is a `502` and nothing is recorded —
 retry.
 * *Ending without a final report:* when Jam ends a ticket session — `end`, the
 idle timeout's teardown, an operator's teardown, or a lost studio — and its
@@ -176,6 +180,7 @@ A Wake carries a list of reasons; the agent's resume prompt names them.
 |Kind |Rendered as
 
 |`squawk` |the pending messages (xref:usage/jam/structured-turn-end.adoc[structured turn end]), else the session kind's usual "a message may have arrived — `read`…" prompt
+|`returned` |its detail: why the last turn was returned (it ended with text it sent nowhere, or its `to` was refused) — a local wake (xref:usage/jam/structured-turn-end.adoc#the-turn-end-rule[the turn-end rule])
 |`process-exited` |`+Kept process `<name>` exited (status N); last lines:+` — a xref:usage/jam/structured-turn-end.adoc#kept-processes[kept process] (raised in the studio, not by Jam)
 |`alarm` |`+Alarm "<name>" fired: <note>+` (plus the gate's output, when gated)
 |`gate-failed` |`+Alarm "<name>" gate could not run: <detail>+`
@@ -190,5 +195,5 @@ distinct reason; none is dropped.
 the read-your-inbox prompt.
 * A Wake with *no* reasons (from an older Jam) gets the session kind's usual prompt,
 unchanged.
-* `+turn_end+` sets a turn's ending in one call (deny, recipient, compact, end, mute, wake
+* `+turn_end+` sets a turn's ending in one call (recipient, no reply, deny, compact, end, mute, wake
 time, idle timeout) — see xref:usage/jam/structured-turn-end.adoc#turn_end[`+turn_end+`].

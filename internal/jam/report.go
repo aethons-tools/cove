@@ -9,6 +9,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
+	"github.com/aethons-tools/cove/internal/intercom"
 )
 
 // Ticket report states (the `report` tool). See
@@ -63,8 +66,9 @@ func ValidateReport(r *TicketReport) error {
 	return nil
 }
 
-// TicketReporter moves a session's ticket to the reported state and comments
-// on it. Implemented in cmd/jam over the Requisitioner's tracker.
+// TicketReporter moves a session's ticket to the reported state. Implemented
+// in cmd/jam over the Requisitioner's tracker. The summary isn't its: the
+// handler posts it to the unit's work log, which the tracker relay mirrors.
 type TicketReporter interface {
 	Report(ctx context.Context, inst Instance, r TicketReport) error
 }
@@ -75,15 +79,43 @@ type reportSetter interface {
 }
 
 // ReportHandler is Jam's brokered POST /report, self-scoped to the caller's
-// OWN instance: it validates the report, has the tracker move the ticket and
-// comment (synchronously: a failure is a 502 the agent can retry), then
-// stamps Instance.Report. Implements http.Handler.
+// OWN instance: it validates the report, has the tracker move the ticket
+// (synchronously: a failure is a 502 the agent can retry), posts the summary
+// to the unit's work log as the session (the tracker relay mirrors it to the
+// issue as a comment), then stamps Instance.Report. Implements http.Handler.
 type ReportHandler struct {
 	store    escalateStore
 	reporter TicketReporter
 	setter   reportSetter
+	ic       *Intercom // nil: the summary is posted nowhere (no intercom log)
 	now      func() time.Time
 	log      *slog.Logger
+}
+
+// SetIntercom sets the intercom the summary is posted through.
+func (h *ReportHandler) SetIntercom(ic *Intercom) { h.ic = ic }
+
+// ReportBody is a report as its work-log entry reads.
+func ReportBody(r TicketReport) string {
+	body := "**" + r.State + "** — " + r.Summary
+	if r.PR != "" {
+		body += "\n\nPR: " + r.PR
+	}
+	return body
+}
+
+// postSummary posts r to the work log of inst's unit, as the session.
+func (h *ReportHandler) postSummary(inst Instance, actor Actor, r TicketReport) error {
+	if h.ic == nil {
+		return nil
+	}
+	p := Poster{ID: ident.ID(actor.ID), Session: &inst, Actor: &actor}
+	pl, err := h.ic.Plan(p, "work:"+inst.Unit, h.now())
+	if err != nil {
+		return err
+	}
+	_, err = h.ic.Post(pl, intercom.Squawk{From: p.ID, Body: ReportBody(r)})
+	return err
 }
 
 // NewReportHandler constructs a ReportHandler; a nil reporter answers 503.
@@ -133,6 +165,11 @@ func (h *ReportHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		h.log.Warn("report: tracker update failed", "actor", actor.ID, "ticket", inst.Unit, "state", rep.State, "error", err.Error())
 		http.Error(w, "tracker update failed; retry", http.StatusBadGateway)
+		return
+	}
+	if err := h.postSummary(inst, actor, rep); err != nil {
+		h.log.Warn("report: work log post failed", "actor", actor.ID, "ticket", inst.Unit, "state", rep.State, "error", err.Error())
+		http.Error(w, "work log post failed; retry", http.StatusBadGateway)
 		return
 	}
 	if err := h.setter.SetReport(actor.ID, rep); err != nil {

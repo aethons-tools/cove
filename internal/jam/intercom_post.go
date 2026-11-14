@@ -10,6 +10,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
@@ -487,6 +488,18 @@ func (ic *Intercom) Plan(p Poster, addr string, now time.Time) (Planned, error) 
 	pl, err := ic.planIn(p, ch, true)
 	pl.Join = kind == "session" // addressing a session joins its conversation, so replies come back
 	return pl, err
+}
+
+// PlanSend is Plan for a session's send (POST /squawks). Under the turn-end
+// rule (Instance.TurnProtocol 3) a send names its conversation — the cove
+// fills a turn's later sends in from its first — so one with no addr is
+// ErrSendNeedsTo. A session on an older turn protocol keeps Plan's default,
+// its home channel. Asks and whiteboards keep it too.
+func (ic *Intercom) PlanSend(p Poster, addr string, now time.Time) (Planned, error) {
+	if addr == "" && p.Session != nil && p.Session.TurnProtocol == sessionctx.TurnProtocolTurnRule {
+		return Planned{}, ErrSendNeedsTo
+	}
+	return ic.Plan(p, addr, now)
 }
 
 // resolve finds (creating a dm or group on demand) the channel the address

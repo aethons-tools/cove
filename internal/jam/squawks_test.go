@@ -13,6 +13,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // sqFixture is the /squawks handler over the intercom fixture: each session
@@ -166,6 +167,24 @@ func TestSquawksSendDefaults(t *testing.T) {
 	}
 	if code, r = f.send(f.standing, `{"body":"hello?"}`); code != http.StatusOK || r.Channel.Kind != "session" {
 		t.Fatalf("standing default = %d %+v", code, r)
+	}
+}
+
+// Under the turn-end rule a send names its conversation: no `to` is a 400,
+// and a `to` still goes through.
+func TestSquawksSendTurnRuleNeedsTo(t *testing.T) {
+	f := newSqFixture(t, "user:alice")
+	inst, _ := f.store.GetInstance(f.standing.ActorID)
+	inst.TurnProtocol = sessionctx.TurnProtocolTurnRule
+	if err := f.store.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	rec := f.do(http.MethodPost, "/squawks", f.standing, `{"body":"hello?"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "needs a `to`") {
+		t.Fatalf("no to = %d %s", rec.Code, rec.Body)
+	}
+	if code, r := f.send(f.standing, `{"body":"hi alice","to":"user:alice"}`); code != http.StatusOK || r.Channel.Kind != "dm" {
+		t.Fatalf("to user = %d %+v", code, r)
 	}
 }
 

@@ -16,7 +16,7 @@ const (
 
 // The batch's closing lines: nothing beyond it, or more waiting.
 const (
-	batchClosing = "Reply by ending your turn: your final message is posted to your channel."
+	batchClosing = "Reply with `send` (its `to` names the conversation) or end with `turn_end` and a `to`; nothing you write is posted for you."
 	batchMore    = "More messages are waiting — use `read` to page them; only the ones above count as handled when you end your turn."
 )
 

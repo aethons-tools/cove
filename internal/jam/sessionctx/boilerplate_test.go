@@ -159,6 +159,35 @@ func TestBoilerplateStatusLine(t *testing.T) {
 	}
 }
 
+// A cove that speaks the turn-end rule (TurnProtocol 3) is told its text is
+// thinking unless it sends it, how to say no message is needed, that a turn
+// that sent nothing comes back, and that send names its conversation.
+func TestBoilerplateTurnRule(t *testing.T) {
+	for _, c := range []struct {
+		f    SessionFacts
+		want string
+	}{
+		{SessionFacts{Kind: KindStanding, Name: "bot", Project: "acme", Role: "r", TurnProtocol: 3}, "a turn's later sends default to its last `to`"},
+		{SessionFacts{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "r", TurnProtocol: 3}, "`send` with `to: user:alice` reaches them"},
+		{SessionFacts{Project: "acme", Role: "r", Unit: "AET-9", TurnProtocol: 3}, "Your ticket's log is `work:AET-9`; `report` posts there."},
+	} {
+		core := Boilerplate(c.f).Core
+		for _, w := range []string{c.want, "Text is thinking unless you send it", "`turn_end` and a `to`", "`no_reply: true`", "returned to you once", "`keep_start`", "`claude` then exits"} {
+			if !strings.Contains(core, w) {
+				t.Errorf("%q: missing %q in\n%s", c.f.Kind, w, core)
+			}
+		}
+		for _, w := range []string{"your final text is posted for you", "`send` without `to` posts to your own channel", "End your turn with your reply"} {
+			if strings.Contains(core, w) {
+				t.Errorf("%q: still says %q", c.f.Kind, w)
+			}
+		}
+		if len(core) > BudgetBoilerplate {
+			t.Errorf("%q: boilerplate %d bytes > budget %d", c.f.Kind, len(core), BudgetBoilerplate)
+		}
+	}
+}
+
 // A cove that speaks the structured turn end (TurnProtocol 2) is told its
 // final text is its reply and how to keep a process alive; a legacy one
 // (0) gets exactly today's boilerplate.

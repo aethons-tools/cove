@@ -296,58 +296,18 @@ const (
 	lnSubToolRes = `{"type":"user","parent_tool_use_id":"t1","message":{"content":[]}}`
 )
 
-// What the model says before a tool call is queued as it goes on, in order
-// with the turn ends; its last reply is the result's, never queued twice.
-func TestTrackerQueuesMidTurnText(t *testing.T) {
+// What the model says before a tool call is thinking: only the result's
+// final text ends the turn, and nothing mid-turn is queued.
+func TestTrackerQueuesOnlyTurnEnds(t *testing.T) {
 	tr := newIdleTracker(Claude{}.ParseEvent, nil)
 	tr.NoteWrite(1)
 	feed(tr, lnInit, assistantText("Looking."), lnToolUse)
-	if rs := tr.TakeTurnEnds(); !slices.Equal(rs, []TurnResult{{Text: "Looking.", OK: true, Gen: 1, Interim: true}}) {
+	if rs := tr.TakeTurnEnds(); len(rs) != 0 {
 		t.Fatalf("after the tool call = %+v", rs)
 	}
-	feed(tr, lnToolRes, assistantText("Found it."), assistantText("Fixing."), lnToolUse, lnToolRes,
+	feed(tr, lnToolRes, assistantText("Found it."), lnToolUse, lnSubText, lnSubToolRes, lnToolRes,
 		assistantText("Done."), `{"type":"result","subtype":"success","result":"Done."}`)
-	want := []TurnResult{
-		{Text: "Found it.", OK: true, Gen: 1, Interim: true},
-		{Text: "Fixing.", OK: true, Gen: 1, Interim: true},
-		{Text: "Done.", OK: true, Gen: 1},
-	}
-	if rs := tr.TakeTurnEnds(); !slices.Equal(rs, want) {
+	if rs, want := tr.TakeTurnEnds(), []TurnResult{{Text: "Done.", OK: true, Gen: 1}}; !slices.Equal(rs, want) {
 		t.Fatalf("TakeTurnEnds = %+v, want %+v", rs, want)
-	}
-}
-
-func TestTrackerMidTurnTextEdges(t *testing.T) {
-	cases := []struct {
-		name  string
-		lines []string
-		want  []TurnResult
-	}{
-		{"subagent text and events are not the session's",
-			[]string{lnInit, assistantText("Asking a subagent."), lnToolUse, lnSubText, lnSubToolRes, lnSubText, lnToolRes, assistantText("ok"),
-				`{"type":"result","subtype":"success","result":"ok"}`},
-			[]TurnResult{{Text: "Asking a subagent.", OK: true, Interim: true}, {Text: "ok", OK: true}}},
-		{"a tool call with no text before it queues nothing",
-			[]string{lnInit, lnToolUse, lnToolRes, `{"type":"result","subtype":"success","result":""}`},
-			[]TurnResult{{OK: true}}},
-		{"text the result doesn't carry is still said",
-			[]string{lnInit, assistantText("Said."), `{"type":"result","subtype":"success","result":""}`},
-			[]TurnResult{{Text: "Said.", OK: true, Interim: true}, {OK: true}}},
-		{"an interrupted turn drops what it hadn't posted",
-			[]string{lnInit, assistantText("Half"), lnResultErr},
-			[]TurnResult{{}}},
-		{"a new turn forgets the last one's text",
-			[]string{lnInit, assistantText("one"), `{"type":"result","subtype":"success","result":"one","queued_turn_count":1}`,
-				lnInit, lnToolUse, `{"type":"result","subtype":"success","result":""}`},
-			[]TurnResult{{Text: "one", OK: true}, {OK: true}}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			tr := newIdleTracker(Claude{}.ParseEvent, nil)
-			feed(tr, c.lines...)
-			if rs := tr.TakeTurnEnds(); !slices.Equal(rs, c.want) {
-				t.Fatalf("TakeTurnEnds = %+v, want %+v", rs, c.want)
-			}
-		})
 	}
 }

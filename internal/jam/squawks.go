@@ -222,10 +222,14 @@ func (h *SquawksHandler) handlePost(w http.ResponseWriter, r *http.Request, acto
 	if !h.configured(w) {
 		return
 	}
-	// No `to`: the session's home channel (its ticket's, or its own). A `to`
-	// is planned against the role's addressing.
-	pl, err := h.ic.Plan(Poster{ID: ident.ID(actor.ID), Session: &inst, Actor: &actor}, req.To, h.now())
+	// No `to`: the session's home channel (its ticket's, or its own), unless
+	// it speaks the turn-end rule (400). A `to` is planned against the role's
+	// addressing.
+	pl, err := h.ic.PlanSend(Poster{ID: ident.ID(actor.ID), Session: &inst, Actor: &actor}, req.To, h.now())
 	switch {
+	case errors.Is(err, ErrSendNeedsTo):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	case errors.Is(err, ErrNoWorker):
 		writeNoWorker(w)
 		return

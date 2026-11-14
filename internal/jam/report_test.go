@@ -3,9 +3,13 @@ package jam
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aethons-tools/cove/internal/ident"
 )
 
 type fakeReporter struct {
@@ -109,5 +113,29 @@ func TestReportTerminal(t *testing.T) {
 		if got := (TicketReport{State: s}).Terminal(); got != want {
 			t.Errorf("%s terminal = %v", s, got)
 		}
+	}
+}
+
+// The summary is posted to the unit's work log as the session (the tracker
+// relay mirrors it to the issue); the tracker only moves the ticket.
+func TestReportPostsSummaryToWorkLog(t *testing.T) {
+	f := newSqFixture(t)
+	rep, set := &fakeReporter{}, &fakeReportSetter{}
+	h := NewReportHandler(f.store, rep, set, func() time.Time { return f.now }, testLogger())
+	h.SetIntercom(f.ic)
+	req := httptest.NewRequest(http.MethodPost, "/report", strings.NewReader(`{"state":"in-review","summary":"PR is up","pr":"https://github.com/o/r/pull/7"}`))
+	req.Header.Set("Authorization", "Bearer tok-"+f.ticket.ActorID)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent || len(rep.got) != 1 || len(set.set) != 1 {
+		t.Fatalf("%d %s; reported %+v", rec.Code, rec.Body, rep.got)
+	}
+	ch, err := f.ic.resolveTicket(f.poster(f.ticket), f.project, f.ticket.Unit, anyGlobs)
+	if err != nil || ch.Kind != SourceWork {
+		t.Fatalf("work log = %+v, %v", ch, err)
+	}
+	got := f.log.ChannelBefore(ch.ID, 0, 10)
+	if len(got) != 1 || got[0].From != ident.ID(f.ticket.ActorID) || got[0].Body != "**in-review** — PR is up\n\nPR: https://github.com/o/r/pull/7" {
+		t.Fatalf("work log entries = %+v", got)
 	}
 }
