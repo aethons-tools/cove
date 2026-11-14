@@ -4,7 +4,7 @@
 :owns: the project overview: studio image assembly, security model, package map
 :prereqs: none
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 This repo builds Jam and the *hardened Claude Code studios* it runs: a Studio
 Manager assembles each studio image (a kit base, the harness layer, then the
@@ -277,7 +277,7 @@ internal/ticketkey/            validated, canonical GitHub ticket keys (owner/re
 internal/allocator/            Jam's capacity authority: admits sessions per (project, role) against a budget
 internal/standing/             standing-session reconciler: one live cove per declared standing session
 internal/wakeon/               wake-on engine: wakes Waiting coves on replies, tears down past max-wait
-internal/escalate/             escalation engine: calls tiers of people into a waiting session's channel
+internal/escalate/             escalation engine: messages tiers of people in a dm or group with a waiting session
 internal/intercom/             the durable, append-only squawk Log
 internal/relay/                squawk Log adapter engine: bridges the Log to an external Service
 internal/blobstore/            attachment bytes in an S3-compatible bucket (or memory)

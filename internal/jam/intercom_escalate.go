@@ -10,19 +10,20 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-// Escalation as call-in (intercom slice 4): a tier's people are called into
-// the waiting session's home channel and the escalation notice is posted
-// there; the relays render it wherever the channel goes (on a ticket's issue
-// with the tier's @-handles). See
-// docs/superpowers/specs/2026-10-07-intercom-slice4-escalation-call-in-design.md.
+// Escalation (docs/modules/ROOT/pages/usage/jam/escalation.adoc): a tier
+// opens a dm between the waiting session and the tier's one person, or a
+// group of the session and the tier's people, and posts the escalation
+// notice there; a session on a unit also posts it to the unit's log.
 
 const escalationPrefix = "escalate:"
 
 // IsEscalationNotice reports whether a squawk id is an escalation notice.
 func IsEscalationNotice(id string) bool { return strings.HasPrefix(id, escalationPrefix) }
 
-// EscalationNoticeTargets are the users an escalation notice called in, as
-// its id records them ("escalate:<session>:<tier>:<nanos>:<usr>,<usr>…").
+// EscalationNoticeTargets are the users an escalation notice asked, as its
+// id records them ("escalate:<session>:<tier>:<nanos>:<usr>,<usr>…"). The
+// work log's copy records none ("…:<nanos>:log:"): its people are notified
+// in the dm or group.
 func EscalationNoticeTargets(id string) []ident.ID {
 	if !IsEscalationNotice(id) {
 		return nil
@@ -51,13 +52,14 @@ func Escalatable(inst Instance) bool {
 	return inst.Activity == ActivityWaiting
 }
 
-// Escalate calls tier's members into inst's home channel (Jam acting on the
-// operator's policy: no addressing applies; members already in stay in) and
-// posts the escalation notice there as the session, naming everyone asked.
+// Escalate opens the dm or group of inst and tier's members (Jam acting on
+// the operator's policy: no addressing applies) and posts the escalation
+// notice there as the session, naming everyone asked. When inst works on a
+// unit, the notice is also posted to the unit's log, targeting nobody.
 //
 // The session must still be waiting, as the store has it now (the engine
 // works from a list read earlier): one that is gone, ending or woken
-// meanwhile gets no call-in, and nothing is reopened or rejoined for it.
+// meanwhile gets no notice, and nothing is opened for it.
 func (ic *Intercom) Escalate(_ context.Context, inst Instance, tier int, category string, members []Member) error {
 	if len(members) == 0 {
 		return nil
@@ -67,19 +69,21 @@ func (ic *Intercom) Escalate(_ context.Context, inst Instance, tier int, categor
 		return fmt.Errorf("%w: session %s is no longer waiting", ErrRemoved, inst.ActorID)
 	}
 	inst = cur
-	ch, err := ic.HomeChannel(inst)
-	if err != nil {
-		return err
+	project, ok := ic.store.GetProject(orDefaultProject(inst.Project))
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrProjectNotFound, inst.Project)
 	}
-	seq := ic.tail()
+	parties := []ident.ID{ident.ID(inst.ActorID)}
 	ids := make([]string, 0, len(members))
 	names := make([]string, 0, len(members))
 	for _, m := range members {
-		if err := ic.store.JoinChannel(ch.ID, m.User.ID, seq); err != nil {
-			return err
-		}
+		parties = append(parties, m.User.ID)
 		ids = append(ids, string(m.User.ID))
 		names = append(names, m.User.Name)
+	}
+	ch, err := ic.chat(project, parties)
+	if err != nil {
+		return err
 	}
 	why := fmt.Sprintf("escalation tier %d", tier)
 	if category != "" {
@@ -89,12 +93,21 @@ func (ic *Intercom) Escalate(_ context.Context, inst Instance, tier int, categor
 	if inst.Unit != "" {
 		subject += " on " + inst.Unit
 	}
+	id := fmt.Sprintf("%s%s:%d:%d:", escalationPrefix, inst.ActorID, tier, time.Now().UnixNano())
 	note := intercom.Squawk{
-		ID:          fmt.Sprintf("%s%s:%d:%d:%s", escalationPrefix, inst.ActorID, tier, time.Now().UnixNano(), strings.Join(ids, ",")),
+		ID:          id + strings.Join(ids, ","),
 		From:        ident.ID(inst.ActorID),
 		Body:        fmt.Sprintf("Needs input %s — called in %s (%s).", subject, strings.Join(names, ", "), why),
 		ContentType: intercom.ContentPlain,
 	}
-	_, err = ic.PostTrusted(ch, note)
+	if _, err := ic.PostTrusted(ch, note); err != nil {
+		return err
+	}
+	work, ok, err := ic.ticketChannel(inst, true)
+	if err != nil || !ok {
+		return err
+	}
+	note.ID = id + "log:"
+	_, err = ic.PostTrusted(work, note)
 	return err
 }

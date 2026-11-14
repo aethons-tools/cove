@@ -76,8 +76,9 @@ A member can *call in* someone else.
 The person or session joins the channel from then on,
 and the channel shows a note, such as "alice called in carol".
 A room takes people only.
-Sessions call people in too,
-and Jam calls people into a session's channel when the session asks for help
+Sessions call people in too.
+When an agent asks for help,
+Jam opens a DM between it and the people on call
 (xref:concepts/escalation.adoc[Escalation]).
 
 == Messages
