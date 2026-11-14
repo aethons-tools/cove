@@ -48,6 +48,8 @@ func (h *SquawksHandler) askError(w http.ResponseWriter, p Poster, err error) bo
 		return true
 	case errors.Is(err, intercom.ErrInvalid):
 		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, ErrNoWorker):
+		writeNoWorker(w)
 	case errors.Is(err, ErrSendDenied), errors.Is(err, intercom.ErrAskForbidden):
 		http.Error(w, "not allowed", http.StatusForbidden)
 	case errors.Is(err, ErrSendUnresolved), errors.Is(err, ErrRemoved), errors.Is(err, intercom.ErrAskNotFound):

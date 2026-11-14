@@ -62,3 +62,23 @@ func TestHomeSession(t *testing.T) {
 		})
 	}
 }
+
+// A work log's session is its current worker, while an older session on the
+// same unit still lives.
+func TestHomeSessionIsTheWorker(t *testing.T) {
+	f := newICFixture(t)
+	for range 5 {
+		next := f.ticket
+		next.ActorID = string(ident.New(ident.Session))
+		if err := f.store.PutInstance(next); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.ic.SetUp(next); err != nil {
+			t.Fatal(err)
+		}
+		ch, _ := f.ic.TicketChannelOf(next)
+		if inst, ok := HomeSession(f.store, ch.ID); !ok || inst.ActorID != next.ActorID {
+			t.Fatalf("HomeSession = %+v, %v; want the worker %s", inst, ok, next.ActorID)
+		}
+	}
+}

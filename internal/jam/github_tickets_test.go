@@ -313,8 +313,9 @@ func TestPlanRoomGitHubRef(t *testing.T) {
 	}
 }
 
-// GET /squawks/targets lists a ticket session's own ticket by its canonical
-// key on a github tracker, and no ticket: for a Unit that is no key there.
+// GET /squawks/targets lists a ticket session's own unit's log by its
+// canonical key on a github tracker, and no work: for a Unit that is no key
+// there.
 func TestSquawksTargetsGitHubTicketCanonical(t *testing.T) {
 	targets := func(f *sqFixture) []string {
 		rec := f.do(http.MethodGet, "/squawks/targets", f.ticket, "")
@@ -326,13 +327,13 @@ func TestSquawksTargetsGitHubTicketCanonical(t *testing.T) {
 		}
 		var out []string
 		for _, tg := range r.Targets {
-			if tg.Kind == "ticket" {
+			if tg.Kind == "work" {
 				out = append(out, tg.Target)
 			}
 		}
 		return out
 	}
-	for unit, want := range map[string][]string{"Acme/Board#007": {"ticket:acme/board#7"}, "ACME-7": nil} {
+	for unit, want := range map[string][]string{"Acme/Board#007": {"work:acme/board#7"}, "ACME-7": nil} {
 		f := newSqFixture(t, "user:*")
 		f.icFixture = newGitHubICFixtureFrom(t, f.icFixture)
 		f.ticket.Unit = unit

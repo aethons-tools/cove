@@ -79,9 +79,12 @@ func Decide(a Actor, scopes []Scope, dest Destination, now time.Time) (Decision,
 // it never reveals whether the target exists. ErrSendUnresolved means the target
 // was authorized-in-form but is absent from the roster of every authorizing
 // grant's project (404).
+// ErrNoWorker means a worker:<key> target's unit of work has no current
+// worker (409 {"error": "no-worker"}): nothing is held for a later session.
 var (
 	ErrSendDenied     = errors.New("comms: send target not authorized")
 	ErrSendUnresolved = errors.New("comms: send target not found")
+	ErrNoWorker       = errors.New("comms: the unit of work has no current worker")
 )
 
 // normalizeGlob reads a pre-registry "human:" addressing glob as "user:".
@@ -190,16 +193,18 @@ func isIDForm(f string) bool {
 }
 
 // Target is one address a session may send to: a person ("user", by name),
-// a room ("channel") or a session ("session", by label, or by id when its
-// label is shared), in the project of the grant that allows it.
+// a room ("channel"), a session ("session", by label, or by id when its
+// label is shared), a unit of work's log ("work", by its key) or the dm with
+// its current worker ("worker"), in the project of the grant that allows it.
 type Target struct {
-	Kind    string // "user" | "channel" | "session"
+	Kind    string // "user" | "channel" | "session" | "work" | "worker"
 	Name    string
 	Project string
 }
 
 // ListTargets returns the actor's allowed-and-resolvable targets: the members,
-// rooms and other live sessions of each grant's project its addressing allows
+// rooms, other live sessions, and units of work (their logs, and the workers
+// of those that have one) of each grant's project its addressing allows
 // (dedup by kind:name, grant then name order). An expired actor has none.
 // tracker is the tracker connection serve resolved (Intercom.Tracker); a
 // ticket session is listed like any other, so it is unused for now.
@@ -231,6 +236,20 @@ func ListTargets(store Store, tracker func() (ident.ID, bool), a Actor, now time
 			if !seen[key] && anyAllowed([]string{key}, globs) {
 				seen[key] = true
 				out = append(out, Target{Kind: "channel", Name: c.Key, Project: g.Project})
+			}
+		}
+		for _, c := range store.ListChannels(p.ID, SourceWork) {
+			if !anyAllowed([]string{"ticket:" + c.Label}, globs) {
+				continue
+			}
+			if key := "work:" + c.Label; !seen[key] {
+				seen[key] = true
+				out = append(out, Target{Kind: "work", Name: c.Label, Project: g.Project})
+			}
+			w, ok := store.GetInstance(string(c.Worker))
+			if key := "worker:" + c.Label; ok && w.Phase != PhaseGone && w.ActorID != a.ID && !seen[key] {
+				seen[key] = true
+				out = append(out, Target{Kind: "worker", Name: c.Label, Project: g.Project})
 			}
 		}
 		for _, inst := range liveSessionsOf(store, p.Name) {

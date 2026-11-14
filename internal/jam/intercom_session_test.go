@@ -105,8 +105,8 @@ func TestIntercomPlanHomeChannels(t *testing.T) {
 	}
 }
 
-// session:<label|id> addresses another session's home channel, within the
-// poster's addressing; posting there joins the poster.
+// session:<label|id> addresses the dm with another session, within the
+// poster's addressing; one's own session is its home channel.
 func TestIntercomSessionAddressing(t *testing.T) {
 	f := newICFixture(t, "session:spider", "session:ses_*")
 	f.standing.Name = "spider"
@@ -114,26 +114,22 @@ func TestIntercomSessionAddressing(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := f.mustPlan(f.personal, "session:spider")
-	if p.Channel.Kind != SourceSession || p.Channel.Key != f.standing.ActorID || !p.Join || !slices.Equal(p.Audience, ids(f.standing)) {
+	if p.Channel.Kind != SourceDM || !slices.Equal(p.Audience, ids(f.standing)) {
 		t.Fatalf("session:spider = %+v", p)
 	}
-	m, err := f.ic.Post(p, intercom.Squawk{From: ident.ID(f.personal.ActorID), Body: "hi"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !isCurrentMember(f.store, m.Channel, ident.ID(f.personal.ActorID)) {
-		t.Fatal("posting by session: joins the poster")
+	if !isCurrentMember(f.store, p.Channel.ID, ident.ID(f.personal.ActorID)) {
+		t.Fatal("the poster is a member of its dm")
 	}
 	if byID := f.mustPlan(f.personal, "session:"+f.standing.ActorID); byID.Channel.ID != p.Channel.ID {
-		t.Fatal("a session by id is the same channel")
+		t.Fatal("a session by id is the same dm")
 	}
-	// A ticket session is reached the same way (its own session channel).
-	if tp, err := f.plan(f.personal, "session:"+f.ticket.ActorID); err != nil || tp.Channel.Key != f.ticket.ActorID {
+	// A ticket session is reached the same way.
+	if tp, err := f.plan(f.personal, "session:"+f.ticket.ActorID); err != nil || tp.Channel.Kind != SourceDM || !slices.Equal(tp.Audience, ids(f.ticket)) {
 		t.Fatalf("session:<ticket session> = %+v, %v", tp, err)
 	}
-	// One's own session needs no addressing.
-	if own := f.mustPlan(f.standing, "session:spider"); own.Channel.ID != p.Channel.ID {
-		t.Fatal("own session")
+	// One's own session needs no addressing: its home channel.
+	if own := f.mustPlan(f.standing, "session:spider"); own.Channel.Kind != SourceSession || own.Channel.Key != f.standing.ActorID {
+		t.Fatalf("own session = %+v", own)
 	}
 	for addr, want := range map[string]error{
 		"session:other":         ErrSendDenied,     // not allowed, whether or not it exists
@@ -268,8 +264,8 @@ func TestIntercomStarDoesNotAddressSessions(t *testing.T) {
 // A ticket session is reached like any other: session: addressing alone.
 func TestIntercomSessionAddressReachesTicketSession(t *testing.T) {
 	f := newICFixture(t, "session:*")
-	if p, err := f.plan(f.standing, "session:"+f.ticket.ActorID); err != nil || p.Channel.Kind != SourceSession || p.Channel.Key != f.ticket.ActorID {
-		t.Fatalf("session: to a ticket session = %+v, %v; want its session channel", p, err)
+	if p, err := f.plan(f.standing, "session:"+f.ticket.ActorID); err != nil || p.Channel.Kind != SourceDM || !slices.Equal(p.Audience, ids(f.ticket)) {
+		t.Fatalf("session: to a ticket session = %+v, %v; want the dm with it", p, err)
 	}
 }
 
