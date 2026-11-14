@@ -7,7 +7,7 @@ import (
 )
 
 // The session status card (docs/superpowers/specs/2026-10-30-session-status-card-design.md):
-// one compact summary of a session, the rail row of a session channel and the
+// one compact summary of a session, the rail row of a dm with a session and the
 // extension's Session Status pane.
 
 // cardOf is inst's status card from its latest event-derived status (st,
@@ -94,7 +94,7 @@ func (h *handler) card(inst jam.Instance) (SessionCard, bool) {
 }
 
 // attachCards gives each rail row backed by a session (ChannelRow.cardSession)
-// that session's card, and its home channel when the viewer may open the
+// that session's card, and its conversation for the viewer when they may open the
 // session's view.
 func (h *handler) attachCards(req *http.Request, p jam.Participant, groups []RailGroup) {
 	for gi := range groups {
@@ -106,8 +106,8 @@ func (h *handler) attachCards(req *http.Request, p jam.Participant, groups []Rai
 			if inst, ok := h.d.Store.GetInstance(r.cardSession); ok {
 				if c, ok := h.card(inst); ok {
 					r.Card = &c
-					if _, home, ok := h.sessionFor(req, p, inst.ActorID); ok {
-						r.SessionView = home
+					if _, conv, ok := h.sessionFor(req, p, inst.ActorID); ok {
+						r.SessionView = conv
 					}
 				}
 			}

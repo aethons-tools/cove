@@ -12,7 +12,7 @@ wake-on engine walks it up a ladder set by the role:
 
 . *Pause.* Past the `warm-timeout` it is paused (step 3 of xref:usage/jam/personal-sessions.adoc#the-conversation[The conversation]).
 . *Nag.* Once it has waited *``idle-after``* (default *4h*), Jam messages you
-_as the session_: the nag is posted through the intercom into the session's channel,
+_as the session_: the nag is posted through the intercom into your `dm` with the session,
 so it reaches your Inbox (and your Discord inbox, when the project chats over Discord).
 It reads "Your personal session _id_ (_role_) has
 been idle for _N_. Reply to this message to pick it back up, or release

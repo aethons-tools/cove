@@ -65,7 +65,7 @@ type ChannelRow struct {
 	ID       string `json:"id"`
 	Label    string `json:"label"`
 	Project  string `json:"project"`
-	Kind     string `json:"kind"` // the conversation kind: dm | group | room | work | session (a session's own channel)
+	Kind     string `json:"kind"` // the conversation kind: dm | group | room | work | session (an archived session channel an older Jam made)
 	NeedsYou bool   `json:"needsYou"`
 	Phase    string `json:"phase"`
 	Unread   int    `json:"unread"`
@@ -73,17 +73,19 @@ type ChannelRow struct {
 	LastSeq  int64  `json:"lastSeq"`
 	Selected bool   `json:"selected"`
 	Mission  string `json:"mission"` // the backing session's mission (its end goal); "" = none
-	// Session is the actor id of the session whose home this channel is,
-	// when the viewer may see it ("" = none), as api/conversations reports it.
+	// Session is the actor id of the session this channel is the
+	// conversation of, when the viewer may see it ("" = none), as
+	// api/conversations reports it.
 	Session string `json:"session"`
 	// SSH reports whether the viewer may SSH into Session's studio.
 	SSH bool `json:"ssh"`
-	// Card is the status card of the session the row stands for (a session
-	// channel's own, or a dm's agent); nil for rooms, work logs, groups, dms
-	// with people, and a channel with no active session.
+	// Card is the status card of the session the row stands for (a dm's
+	// agent); nil for rooms, work logs, groups, dms with people, and a
+	// channel with no active session.
 	Card *SessionCard `json:"card,omitempty"`
 	// SessionView is the conversation that is the card's session view (its
-	// session's home channel), when the viewer may open it ("" = none).
+	// session's conversation for the viewer), when the viewer may open it
+	// ("" = none).
 	SessionView string `json:"sessionView"`
 	// cardSession is the actor whose card stands for the row (jam.ChannelView.CardSession).
 	cardSession string
@@ -216,8 +218,8 @@ type Conversation struct {
 	Members []MemberRow `json:"members,omitempty"`
 	// NewBoard offers New whiteboard (the viewer may start one here).
 	NewBoard bool `json:"newBoard"`
-	// Session is the actor id of the session whose home this channel is,
-	// when the viewer may see it ("" = none): the app's session header and
+	// Session is the actor id of the session this channel is the
+	// conversation of, when the viewer may see it ("" = none): the app's session header and
 	// pane read api/sessions/{session}.
 	Session string `json:"session"`
 	// Color is that session's color, the composer's accent ("" = none).
@@ -234,7 +236,11 @@ type MemberRow struct {
 // NewMessageOption is one recipient offered in the New Message picker (or
 // a Call in list). Kind is person, agent, work (a unit of work), or room.
 type NewMessageOption struct {
-	To      string `json:"to"` // POST api/messages' "to": user:<id>, session:<id>, or a channel id (a unit of work's: its log)
+	To string `json:"to"` // POST api/messages' "to": user:<id>, session:<id>, or a channel id (a unit of work's: its log)
+	// Worker is a unit of work's other "to", worker:<key>: the dm with the
+	// session working on it now, when there is one the viewer may reach
+	// ("" = none).
+	Worker  string `json:"worker,omitempty"`
 	Label   string `json:"label"`
 	Kind    string `json:"kind"`
 	Project string `json:"project"`
@@ -317,7 +323,7 @@ type AnswerRequest struct {
 type SessionHead struct {
 	ID       string     `json:"id"`
 	Label    string     `json:"label"`
-	Channel  string     `json:"channel"`         // the session's home channel (/app/user/c/<channel>)
+	Channel  string     `json:"channel"`         // the session's conversation for the viewer: its unit's log, else their dm with it ("" = none; /app/user/c/<channel>)
 	Kind     string     `json:"kind"`            // standing | personal | ticket | session
 	Color    string     `json:"color,omitempty"` // the session's color (#rrggbb; "" = none)
 	Ticket   string     `json:"ticket"`
@@ -377,21 +383,21 @@ type PreviewLink struct {
 	Frame bool   `json:"frame"`
 }
 
-// PaneBoard is a whiteboard started in the session's home channel.
+// PaneBoard is a whiteboard started in the session's conversation.
 type PaneBoard struct {
 	ID      string `json:"id"`
 	Title   string `json:"title"`
 	Channel string `json:"channel"`
 }
 
-// PaneAsk is an ask posted in the home channel, with its state.
+// PaneAsk is an ask posted in the session's conversation, with its state.
 type PaneAsk struct {
 	ID       string `json:"id"`
 	Question string `json:"question"`
 	State    string `json:"state"` // open | answered | withdrawn
 }
 
-// PaneLink is a URL from the home channel's messages.
+// PaneLink is a URL from the session's conversation's messages.
 type PaneLink struct {
 	URL   string `json:"url"`
 	Label string `json:"label"`
@@ -566,15 +572,15 @@ type SessionRole struct {
 
 // StartSessionRequest is POST api/sessions: start a personal session of
 // Project's Role, owned by the viewer; Message, when set, is posted as the
-// viewer's first message in its session channel.
+// viewer's first message in their dm with it.
 type StartSessionRequest struct {
 	Project string `json:"project"`
 	Role    string `json:"role"`
 	Message string `json:"message,omitempty"`
 }
 
-// SessionStarted is POST api/sessions's answer: the new session and its
-// session channel (its conversation).
+// SessionStarted is POST api/sessions's answer: the new session and the
+// starter's dm with it.
 type SessionStarted struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`

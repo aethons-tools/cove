@@ -1,5 +1,5 @@
 = Personal sessions
-:summary: Personal sessions — a person's own long-lived session of a role, started from the Inbox's New session (any project member) or by an operator, admitted against the role's pool and per-owner caps, conversed with in its session channel (the Inbox, and Discord when set up), and released by that owner (or reclaimed by the idle ladder, which personal-idle-ladder.adoc covers); the `session request|list|release` verbs and their admin routes.
+:summary: Personal sessions — a person's own long-lived session of a role, started from the Inbox's New session (any project member) or by an operator, admitted against the role's pool and per-owner caps, conversed with in its dm with its starter (the Inbox, and Discord when set up), and released by that owner (or reclaimed by the idle ladder, which personal-idle-ladder.adoc covers); the `session request|list|release` verbs and their admin routes.
 :read_when: You want Jam to raise a session of a role for you personally (from the Inbox or the CLI), or you are setting a role's personal caps, or a `session` command answered 400/403/409 and you need to know why, or you want to know how to talk to your session. If your session is nagging you or was reclaimed, read personal-idle-ladder.adoc.
 :owns: the personal-session story — New session in the Inbox, owner resolution (project member ↔ login), admission (pool + per-owner caps, the ledger requirement), the conversation loop, the `session request|list|release` verbs, the `/admin/sessions/personal` routes, and owner-only release
 :prereqs: comms-addressing.adoc for a Project's members and a user's logins; discord.adoc for Discord delivery profiles, the user-id binding, and reply attribution; intercom.adoc for the intercom a session talks over; roster.adoc for roles and the `--max-personal*` caps; coves.adoc for what a raised studio does; serve-store.adoc for `store-postgres` and the allocation ledger
@@ -10,7 +10,7 @@ A *personal session* is a long-lived managed studio that a person asks Jam
 for directly — with *New session* in the Inbox, or as an operator from the CLI
 or admin UI. Jam admits it against the role's personal caps, raises it *owned by
 that person*, and only the owner can list or release it. The owner talks to it in
-its session channel (the xref:usage/jam/intercom-ui.adoc[Inbox], and Discord when set up), and it
+their `dm` with it (the xref:usage/jam/intercom-ui.adoc[Inbox], and Discord when set up), and it
 stays until the owner releases it. It needs `store-postgres`.
 
 [#the-conversation]
@@ -19,15 +19,18 @@ stays until the owner releases it. It needs `store-postgres`.
 . The session works its first prompt, delivered as-is. Its
 xref:usage/jam/session-context.adoc[session context] tells the agent it is your personal session and how to reach you.
 . *The studio speaks first.* When it has results or needs input, it ``send``s to
-`+user:<you>+`, which goes to its own *session channel* (its home channel); a studio on an
-older turn protocol sends with no `to`, which goes there too
-(xref:usage/jam/structured-turn-end.adoc#send-default[`send` without `to`]). You are
-called into that channel when the session starts, so it reaches your Discord
-inbox channel and your xref:usage/jam/intercom-ui.adoc[`/app/user`] inbox. Its nags and notices go
-there too, and still arrive after it has ended. The channel is private: other
-people can't join it on their own, and a reply by someone else (say, in a
-shared Discord inbox) doesn't let them in — but you can *call them in*
-(`/app/user` *Call in…*), and you may *leave* it (xref:usage/jam/intercom.adoc#channel-membership[membership]). It may message *only* you: Jam enrolls it with an addressing
+`+user:<you>+`, which goes to your `dm` with it.
+Jam opens that `dm` when it sets the session up.
+A studio on an older turn protocol sends with no `to`,
+which goes where it was last messaged, and to that `dm` at first
+(xref:usage/jam/structured-turn-end.adoc#send-default[`send` without `to`]).
+The `dm` reaches your Discord
+inbox channel and your xref:usage/jam/intercom-ui.adoc[`/app/user`] inbox.
+Its nags and notices go
+there too, including the notice that it ended.
+A `dm` is private: it never takes new members,
+and nobody leaves it (xref:usage/jam/intercom.adoc#channel-membership[membership]).
+It may message *only* you: Jam enrolls it with an addressing
 override of exactly `+user:<owner's usr_id>+`.
 . Once its agent is idle — its turn over and no background task still running —
 the studio waits for you (it is xref:usage/jam/studio-agent.adoc#jam-studio-agent-the-in-cove-client[resident];
@@ -43,7 +46,7 @@ your reply and carries on. Repeat from 2.
 *v1 limit:* you can only _reply_ to the studio's messages; a new, non-reply message
 in your inbox channel does not reach it. The session is never torn down for
 waiting; it xref:usage/jam/escalation.adoc[escalates] only when it calls `escalate` and the
-project has a policy (you are already in its channel); it ends when you release it, or
+project has a policy; it ends when you release it, or
 when the xref:usage/jam/personal-idle-ladder.adoc[idle ladder] reclaims it (only if its role sets
 `reclaim-after`).
 
@@ -59,7 +62,7 @@ When a session waits on you, Jam pauses it, then nags you, and (only if the role
 every role with `max-personal` above 0 in each of your projects (a full one is
 shown greyed, with why). Pick one, optionally write a first message, and
 *Start*: Jam starts the session owned by you (the same admission as below; no
-login link needed, you are signed in), opens its session channel with you in it,
+login link needed, you are signed in), opens your `dm` with it,
 posts your first message there, and takes you to that conversation. The button
 is hidden when Jam runs no supervisor. Discord is optional: to also talk to it
 over Discord, set the project's chat service to `discord` and give yourself a

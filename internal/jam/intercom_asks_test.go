@@ -13,17 +13,12 @@ import (
 
 var askYesNo = []intercom.AskOption{{ID: "yes", Label: "Yes"}, {ID: "no", Label: "No"}}
 
-// askFixture: the standing session asks in its own channel, which alice and
-// bob have joined; the hook records each open-asks count.
+// askFixture: the standing session asks in its default conversation, a
+// group with alice and bob; the hook records each open-asks count.
 func askFixture(t *testing.T, addressing ...string) (*icFixture, *[]int) {
 	t.Helper()
 	f := newICFixture(t, addressing...)
-	home := f.mustPlan(f.standing, "").Channel
-	for _, u := range []ident.ID{f.alice.ID, f.bob.ID} {
-		if err := f.ic.JoinChannel(u, home.ID); err != nil {
-			t.Fatal(err)
-		}
-	}
+	f.defaultGroup(f.standing, f.alice.ID, f.bob.ID)
 	var counts []int
 	f.ic.SetOnAsksChanged(func(s ident.ID) {
 		if s == ident.ID(f.standing.ActorID) {
@@ -39,7 +34,7 @@ func TestIntercomAskAndAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.State != intercom.AskOpen || a.Version != 1 || ch.Kind != SourceSession {
+	if a.State != intercom.AskOpen || a.Version != 1 || ch.Kind != SourceGroup {
 		t.Fatalf("ask = %+v in %+v", a, ch)
 	}
 	if got := f.ic.OpenAsksIn(ch.ID); len(got) != 1 || !f.ic.MayAnswer(f.alice.ID, got[0]) || f.ic.MayAnswer(f.carol.ID, got[0]) {

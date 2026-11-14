@@ -4,7 +4,7 @@
 :owns: the `jam export` / `jam import` command surface and the backup file's scope + semantics
 :prereqs: operators.adoc for signing in (`--app`/`--token`); roster.adoc and kits.adoc for what the aggregates are
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-14
 
 For a reviewable, mergeable source of the same config in git, see xref:usage/jam/config-git.adoc[config-git].
 
@@ -21,8 +21,8 @@ control-plane aggregates:
 connections, accounts, project memberships and the legacy human aliases — with
 their ids, so a restore keeps every reference valid
 * the *channel registry*: rooms (a project's channels, archived ones too)
-with their bindings and ids. Channel membership and session channels are
-runtime state and are not exported.
+with their bindings and ids. Channel membership is
+runtime state and is not exported, and neither are the archived session channels an older Jam made.
 * the *Jam-wide session context*
 
 xref:usage/jam/app-tokens.adoc#storage[App tokens] are not exported.

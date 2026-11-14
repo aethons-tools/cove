@@ -126,6 +126,8 @@ func (h *ParticipantSendHandler) Send(p Participant, req SendRequest) (intercom.
 		return intercom.Squawk{}, sendErr(http.StatusForbidden, "forbidden", "not allowed")
 	case errors.Is(err, ErrSendUnresolved), errors.Is(err, ErrRemoved):
 		return intercom.Squawk{}, sendErr(http.StatusNotFound, "not_found", "recipient not found")
+	case errors.Is(err, ErrNoWorker):
+		return intercom.Squawk{}, sendErr(http.StatusConflict, "no-worker", "no session is working on it now; nothing was sent")
 	case err != nil:
 		h.log.Error("participant send: plan failed", "user", string(p.UserID), "error", err.Error())
 		return intercom.Squawk{}, sendErr(http.StatusInternalServerError, "internal", "send failed")
@@ -148,8 +150,8 @@ func (h *ParticipantSendHandler) Send(p Participant, req SendRequest) (intercom.
 }
 
 // plan resolves a /me send (conversations.adoc#targets): a channel id, a
-// person to dm, people to dm or group (chat:user:<id|name>,…), or a session
-// to dm.
+// person to dm, people to dm or group (chat:user:<id|name>,…), a session to
+// dm, or a unit of work's current worker to dm (worker:<key>).
 func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error) {
 	kind, ref, ok := strings.Cut(to, ":")
 	switch {
@@ -176,6 +178,8 @@ func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error)
 		return h.ic.PlanPersonChat(p.UserID, with...)
 	case kind == "session":
 		return h.ic.PlanSessionDM(p.UserID, ref)
+	case kind == "worker":
+		return h.ic.PlanWorkerDM(p.UserID, ref)
 	}
 	return Planned{}, ErrSendUnresolved
 }

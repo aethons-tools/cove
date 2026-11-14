@@ -48,7 +48,7 @@ func TestCmdBoxTakesOnceAndCollapses(t *testing.T) {
 
 func TestInterruptPrompt(t *testing.T) {
 	ack := "Ann pressed **Interrupt** in the session header, which stopped your turn. Don't resume what you were doing. " +
-		"In your channel, acknowledge the interrupt with `send`, ask what they want instead, then end your turn."
+		"Acknowledge the interrupt with `send` where you were last messaged, ask what they want instead, then end your turn."
 	if got := interruptPrompt("Ann", nil); got != ack {
 		t.Fatalf("got %q\nwant %q", got, ack)
 	}

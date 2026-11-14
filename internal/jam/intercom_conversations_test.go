@@ -124,14 +124,14 @@ func TestIntercomPlanWorkTargets(t *testing.T) {
 	}
 }
 
-// session:<label> still goes to the target's home channel and joins the
-// sender, so the target's default-channel reply reaches it (until turn ends
-// are delivered by destination, COV-350).
+// session:<label> goes to the dm between the sender and the target, so the
+// target's reply with no address (an older studio's turn end) reaches the
+// sender there.
 func TestIntercomSessionReplyReachesSender(t *testing.T) {
 	f := newICFixture(t, "session:*")
 	p := f.mustPlan(f.personal, "session:"+f.standing.ActorID)
-	if p.Channel.Kind != SourceSession || p.Channel.Key != f.standing.ActorID || !p.Join {
-		t.Fatalf("session: = %+v, want the target's home channel, joining", p)
+	if p.Channel.Kind != SourceDM {
+		t.Fatalf("session: = %+v, want the dm with the target", p)
 	}
 	if _, err := f.ic.Post(p, intercom.Squawk{From: ident.ID(f.personal.ActorID), Body: "please review"}); err != nil {
 		t.Fatal(err)

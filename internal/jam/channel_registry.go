@@ -17,7 +17,8 @@ import (
 // are what roster channels became. The kinds are the conversation model's
 // (docs/modules/ROOT/pages/usage/jam/conversations.adoc#kinds): a dm or a
 // group (what chats became, by member count), a room, and a unit of work's
-// log; a session's own channel stays until the migration removes it. See
+// log. A session's own channel, which an older Jam made, is archived at
+// serve start (Intercom.Reconcile) and never made again. See
 // docs/superpowers/specs/2026-10-06-intercom-slice2-channels-design.md.
 
 // SourceKind is a channel's kind: what the conversation is anchored to, and
@@ -31,8 +32,9 @@ const (
 	// SourceWork is a unit of work's log: keyed "<connection id>/<issue
 	// key>", bound to the issue; its current worker is Channel.Worker.
 	SourceWork SourceKind = "work"
-	// SourceSession is a session's own channel: keyed by its session id, the
-	// home of a session that has no ticket (intercom slice 3).
+	// SourceSession is a session's own channel, keyed by its session id, as
+	// an older Jam made one: archived at serve start (Intercom.Reconcile),
+	// its history readable by its members, and never made again.
 	SourceSession SourceKind = "session"
 )
 

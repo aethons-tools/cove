@@ -10,10 +10,7 @@ import (
 
 func TestSquawksAskLifecycle(t *testing.T) {
 	f := newSqFixture(t)
-	home := f.mustPlan(f.standing, "").Channel
-	if err := f.ic.JoinChannel(f.alice.ID, home.ID); err != nil {
-		t.Fatal(err)
-	}
+	home := f.defaultGroup(f.standing, f.alice.ID)
 	rec := f.do(http.MethodPost, "/squawks/ask", f.standing, `{"question":"Merge PR #12?","options":[{"id":"yes","label":"Yes"},{"id":"no","label":"No","detail":"hold"}]}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ask = %d %s", rec.Code, rec.Body)
@@ -61,6 +58,7 @@ func TestSquawksAskLifecycle(t *testing.T) {
 
 func TestSquawksAskRefusals(t *testing.T) {
 	f := newSqFixture(t)
+	f.defaultGroup(f.standing, f.alice.ID) // where its asks go with no `to`
 	opts := `"options":[{"id":"yes","label":"Yes"},{"id":"no","label":"No"}]`
 	rec := f.do(http.MethodPost, "/squawks/ask", f.standing, `{"question":"q",`+opts+`}`)
 	var asked struct {

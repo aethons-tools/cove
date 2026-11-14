@@ -17,7 +17,7 @@ import (
 
 // Who may open a session view (conversations-sessions.adoc#session-view):
 // the operators, and for a personal session its starter. Being in the
-// session's home channel grants nothing, and leaving it takes nothing away.
+// session's conversations grants nothing, and leaving them takes nothing away.
 func TestSessionViewAccess(t *testing.T) {
 	e, p, personal, standing, _ := sessionEnv(t)
 	bob := jam.Participant{UserID: ident.New(ident.User), Name: "bob", Projects: []string{"proj"}}
@@ -52,7 +52,7 @@ func TestSessionViewAccess(t *testing.T) {
 // the pane, and its composer goes.
 func TestSessionViewEnded(t *testing.T) {
 	e, p, personal, _, _ := sessionEnv(t)
-	home, _ := e.Intercom.HomeChannel(personal)
+	home, _ := e.homeCh(personal)
 	if _, err := e.Intercom.PostTrusted(home, intercom.Squawk{From: ident.ID(personal.ActorID), Body: "done"}); err != nil {
 		t.Fatal(err)
 	}

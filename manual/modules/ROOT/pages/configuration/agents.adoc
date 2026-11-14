@@ -89,7 +89,7 @@ and where it runs (*Backend*).
 === Waiting and escalation
 
 * *Waiting*: since when it waits.
-A new message in its channel wakes it.
+A new message to it wakes it.
 * *Escalation*: the open escalation,
 which tier of people was called and when,
 and on which chain

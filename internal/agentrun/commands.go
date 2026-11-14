@@ -14,7 +14,7 @@ import (
 // interruptAck is the acknowledge turn's text after an Interrupt; %s is who
 // pressed it.
 const interruptAck = "%s pressed **Interrupt** in the session header, which stopped your turn. Don't resume what you were doing. " +
-	"In your channel, acknowledge the interrupt with `send`, ask what they want instead, then end your turn."
+	"Acknowledge the interrupt with `send` where you were last messaged, ask what they want instead, then end your turn."
 
 // interruptPending is appended to the acknowledge prompt when it also answers
 // wakes coalesced into the interrupted turn.

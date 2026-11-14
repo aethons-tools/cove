@@ -57,7 +57,8 @@ func IsNotice(id string) bool {
 var ErrFixedMembers = errors.New("intercom: this channel's members are fixed")
 
 // CallIn has member p call who — "user:<name|id>" or "session:<label|id>" —
-// into channel chID ("" for a session: its home channel). The inviter must
+// into channel chID ("" for a session: its unit's log; ErrSendNeedsTo for
+// one with no unit). The inviter must
 // be in the channel, and a session inviter's addressing must allow who (as
 // for a send); the invitee must be live in the channel's project. They join
 // from the tail, a session with wake: named, and hear the inviter's notice.
@@ -67,11 +68,14 @@ func (ic *Intercom) CallIn(p Poster, chID ident.ID, who string) (Channel, ident.
 	var ch Channel
 	switch {
 	case chID == "" && p.Session != nil:
-		home, err := ic.HomeChannel(*p.Session)
+		log, ok, err := ic.ownTicketChannel(*p.Session)
 		if err != nil {
 			return Channel{}, "", err
 		}
-		ch = home
+		if !ok {
+			return Channel{}, "", ErrSendNeedsTo
+		}
+		ch = log
 	default:
 		got, ok := ic.store.GetChannel(chID)
 		if !ok {
@@ -191,9 +195,9 @@ func (ic *Intercom) JoinChannel(u, chID ident.ID) error {
 }
 
 // LeaveChannel ends p's membership of chID from the tail: what was delivered
-// stays. A session never leaves its home (its own channel, or the ticket it
-// works while it lives) or a room its role lists (ErrFixedMembers), only one
-// it was called into; a chat is fixed. Leaving a channel one isn't in is a
+// stays. A session never leaves the work log of the unit it works while it
+// lives, or a room its role lists (ErrFixedMembers), only one it was called
+// into; a chat is fixed. Leaving a channel one isn't in is a
 // no-op.
 func (ic *Intercom) LeaveChannel(p, chID ident.ID) error {
 	ch, ok := ic.store.GetChannel(chID)
@@ -211,7 +215,7 @@ func (ic *Intercom) LeaveChannel(p, chID ident.ID) error {
 	}
 	if isSessionID(p) {
 		if inst, ok := ic.store.GetInstance(string(p)); ok && inst.Phase != PhaseGone {
-			if home, ok := ic.homeIfExists(inst); ok && home.ID == ch.ID {
+			if log, ok := ic.TicketChannelOf(inst); ok && log.ID == ch.ID {
 				return ErrSendDenied
 			}
 			if ch.Kind == SourceRoom && slices.ContainsFunc(ic.roleRooms(inst), func(m RoomMembership) bool { return m.Name == ch.Key }) {
@@ -221,17 +225,3 @@ func (ic *Intercom) LeaveChannel(p, chID ident.ID) error {
 	}
 	return ic.store.LeaveChannel(ch.ID, p, ic.tail())
 }
-
-// homeIfExists is inst's home channel if it already exists (creating none).
-func (ic *Intercom) homeIfExists(inst Instance) (Channel, bool) {
-	if inst.Unit != "" {
-		if ch, ok := ic.TicketChannelOf(inst); ok {
-			return ch, true
-		}
-	}
-	return ic.ownSessionChannel(inst)
-}
-
-// HomeChannelIfExists is inst's home channel if it already exists (creating
-// none).
-func (ic *Intercom) HomeChannelIfExists(inst Instance) (Channel, bool) { return ic.homeIfExists(inst) }

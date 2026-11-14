@@ -13,7 +13,8 @@ import (
 
 // notifyEvent is the notify surface's Event: push's payload for m and user
 // (pushPayload, so the send-time re-check is push's), with the squawk's id
-// (even when Build cleared it for size) and the channel's live session.
+// (even when Build cleared it for size) and the live session the channel is
+// the conversation of (jam.ChannelSession).
 // ok=false: user is no longer one of m's recipients.
 func notifyEvent(r pushReader, focus *push.Focus, unread func(ident.ID) int, preview bool) func(intercom.Squawk, ident.ID) (notify.Event, bool) {
 	payload := pushPayload(r, focus, unread, preview)
@@ -24,7 +25,7 @@ func notifyEvent(r pushReader, focus *push.Focus, unread func(ident.ID) int, pre
 		}
 		p.ID = m.ID
 		e := notify.Event{Payload: p}
-		if inst, ok := jam.HomeSession(r.store, m.Channel); ok {
+		if inst, ok := jam.ChannelSession(r.store, m.Channel); ok {
 			e.Session = inst.ActorID
 		}
 		return e, true
