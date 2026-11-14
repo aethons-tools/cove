@@ -60,7 +60,7 @@ func TestParticipantSendNewConversations(t *testing.T) {
 			t.Fatalf("to %s: %s's inbox = %+v", to, who, got)
 		}
 	}
-	if chats := f.store.ListChannels(f.project.ID, SourceChat); len(chats) != 1 {
+	if chats := f.store.ListChannels(f.project.ID, SourceDM); len(chats) != 1 {
 		t.Fatalf("chats = %+v, want bob+alice (reused by id and name)", chats)
 	}
 }

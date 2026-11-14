@@ -4,7 +4,7 @@
 :page-conventions: sentence-case
 
 When you open a session's own channel in the Inbox,
-or the ticket channel of the ticket a session works on,
+or the work log of the ticket a session works on,
 you see more than the messages.
 A *session header* at the top says who the session is,
 what it does now and what it costs.

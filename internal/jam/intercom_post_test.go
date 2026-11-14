@@ -114,14 +114,14 @@ func TestIntercomTicketChannelFollowsSessions(t *testing.T) {
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatalf("SetUp: %v", err)
 	}
-	ch, ok := f.store.ChannelByKey(f.project.ID, SourceTicket, string(f.tracker.ID)+"/ACME-7")
+	ch, ok := f.store.ChannelByKey(f.project.ID, SourceWork, string(f.tracker.ID)+"/ACME-7")
 	if !ok || ch.Label != "ACME-7" || len(ch.Bindings) != 1 || ch.Bindings[0] != (Binding{ConnectionID: f.tracker.ID, Ref: "ACME-7", Mode: BindBoth}) {
 		t.Fatalf("ticket channel = %+v, %v", ch, ok)
 	}
 	if got, _ := f.store.ChannelByBinding(f.tracker.ID, "ACME-7"); got.ID != ch.ID {
 		t.Fatal("tracker replies on the ticket resolve to its channel")
 	}
-	if m := f.store.ChannelMembers(ch.ID); len(m) != 1 || m[0] != (ChannelMember{ParticipantID: ident.ID(f.ticket.ActorID), JoinedSeq: 10}) {
+	if m := f.store.ChannelMembers(ch.ID); len(m) != 1 || m[0] != (ChannelMember{ParticipantID: ident.ID(f.ticket.ActorID), JoinedSeq: 10, Wake: WakeNamed}) {
 		t.Fatalf("members = %+v, want the session from the log tail", m)
 	}
 	// The session ends; a re-dispatch is a new session on the same channel.
@@ -138,12 +138,12 @@ func TestIntercomTicketChannelFollowsSessions(t *testing.T) {
 	if m := f.store.ChannelMembers(ch.ID); len(m) != 1 || m[0].ParticipantID != ident.ID(next.ActorID) || m[0].JoinedSeq != 20 {
 		t.Fatalf("members after re-dispatch = %+v", m)
 	}
-	if got := f.store.ListChannels(f.project.ID, SourceTicket); len(got) != 1 {
+	if got := f.store.ListChannels(f.project.ID, SourceWork); len(got) != 1 {
 		t.Fatalf("ticket channels = %+v, want one per ticket", got)
 	}
 	// A session with no ticket has no ticket channel (its own instead).
-	if err := f.ic.SetUp(f.standing); err != nil || len(f.store.ListChannels(f.project.ID, SourceTicket)) != 1 {
-		t.Fatalf("standing SetUp: %v, ticket channels %v", err, f.store.ListChannels(f.project.ID, SourceTicket))
+	if err := f.ic.SetUp(f.standing); err != nil || len(f.store.ListChannels(f.project.ID, SourceWork)) != 1 {
+		t.Fatalf("standing SetUp: %v, ticket channels %v", err, f.store.ListChannels(f.project.ID, SourceWork))
 	}
 }
 
@@ -157,7 +157,7 @@ func TestIntercomTicketChannelYieldsBindingToRoom(t *testing.T) {
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatalf("SetUp: %v", err)
 	}
-	ch, ok := f.store.ChannelByKey(f.project.ID, SourceTicket, string(f.tracker.ID)+"/ACME-7")
+	ch, ok := f.store.ChannelByKey(f.project.ID, SourceWork, string(f.tracker.ID)+"/ACME-7")
 	if !ok || len(ch.Bindings) != 0 {
 		t.Fatalf("ticket channel = %+v, %v; want no binding", ch, ok)
 	}
@@ -172,7 +172,7 @@ func TestIntercomPlanDefaults(t *testing.T) {
 		t.Fatalf("ticket session default = %+v", p)
 	}
 	p := f.mustPlan(f.ticket, "ticket:ACME-7")
-	if p.Channel.Kind != SourceTicket || p.Channel.Label != "ACME-7" || len(p.Audience) != 0 {
+	if p.Channel.Kind != SourceWork || p.Channel.Label != "ACME-7" || len(p.Audience) != 0 {
 		t.Fatalf("own ticket = %+v", p)
 	}
 	if !isMember(f.store, p.Channel.ID, ident.ID(f.ticket.ActorID)) {
@@ -192,7 +192,7 @@ func TestIntercomPlanDefaults(t *testing.T) {
 func TestIntercomPlanUsers(t *testing.T) {
 	f := newICFixture(t, "user:*")
 	p := f.mustPlan(f.standing, "user:alice")
-	if p.Channel.Kind != SourceChat || !slices.Equal(p.Audience, ids(f.alice)) {
+	if p.Channel.Kind != SourceDM || !slices.Equal(p.Audience, ids(f.alice)) {
 		t.Fatalf("user:alice = %+v", p)
 	}
 	if byID := f.mustPlan(f.standing, "user:"+string(f.alice.ID)); byID.Channel.ID != p.Channel.ID {
@@ -202,7 +202,7 @@ func TestIntercomPlanUsers(t *testing.T) {
 		t.Fatal("human: is an alias of user:")
 	}
 	group := f.mustPlan(f.standing, "chat:user:bob,user:alice")
-	if group.Channel.Kind != SourceChat || group.Channel.ID == p.Channel.ID || !slices.Equal(group.Audience, ids(f.alice, f.bob)) {
+	if group.Channel.Kind != SourceGroup || group.Channel.ID == p.Channel.ID || !slices.Equal(group.Audience, ids(f.alice, f.bob)) {
 		t.Fatalf("group chat = %+v", group)
 	}
 	if again := f.mustPlan(f.standing, "chat:user:alice,user:bob,user:alice"); again.Channel.ID != group.Channel.ID {
@@ -396,7 +396,7 @@ func TestIntercomChatCompletesMembership(t *testing.T) {
 	f := newICFixture(t, "user:*")
 	members := []string{f.standing.ActorID, string(f.alice.ID)}
 	slices.Sort(members)
-	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceChat, Key: strings.Join(members, ","), Label: "x"})
+	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceDM, Key: strings.Join(members, ","), Label: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}

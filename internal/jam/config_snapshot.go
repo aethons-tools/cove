@@ -588,6 +588,9 @@ func importPlan(m *memState, s ConfigSnapshot) (ConfigSnapshot, humanPlan, error
 		return ConfigSnapshot{}, humanPlan{}, err
 	}
 	s = withReferencedProjects(deepCopySnapshot(s))
+	for i, c := range s.Channels { // an older Jam's chats and ticket channels
+		s.Channels[i] = upgradeKind(c)
+	}
 	var existing []Connection
 	for _, c := range m.connections {
 		existing = append(existing, c)

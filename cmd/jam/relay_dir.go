@@ -122,7 +122,7 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 	cameFrom := func(conn ident.ID, ref string) bool { return m.Origin == conn && m.OriginRef == ref }
 	var out []relay.Delivery
 	switch ch.Kind {
-	case jam.SourceTicket, jam.SourceRoom:
+	case jam.SourceWork, jam.SourceRoom:
 		if jam.IsLocalNotice(m.ID) {
 			return nil // Jam's own note: never a public comment or a room post
 		}
@@ -133,7 +133,7 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 			}
 			out = append(out, relay.Delivery{Service: service, Address: b.Ref, BodyPrefix: prefix(service)})
 		}
-	case jam.SourceChat, jam.SourceSession: // a session channel reaches its people as a chat does
+	case jam.SourceDM, jam.SourceGroup, jam.SourceSession: // a session channel reaches its people as a chat does
 		p, ok := d.projectOf(ch)
 		if !ok {
 			return nil
@@ -172,7 +172,7 @@ func (d *directory) Surfaces(service string, m intercom.Squawk) []relay.Delivery
 		// ticket another session in it works on.
 		// The session's unit must be a ticket on the tracker (canonical on
 		// github; another repo's would never land).
-		if tracker, ok := d.tracker(); service == d.trackerService() && ch.Kind == jam.SourceChat && isSession(m.From) && ok && len(mentions) > 0 {
+		if tracker, ok := d.tracker(); service == d.trackerService() && jam.IsChat(ch.Kind) && isSession(m.From) && ok && len(mentions) > 0 {
 			if key, onTicket := jam.TicketUnit(d.store, tracker, ticket); onTicket && !cameFrom(tracker, key) {
 				out = append(out, relay.Delivery{Service: service, Address: key, BodyPrefix: strings.Join(mentions, " ") + " " + prefix(service)})
 			}

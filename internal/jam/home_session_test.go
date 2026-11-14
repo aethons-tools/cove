@@ -31,9 +31,9 @@ func TestHomeSession(t *testing.T) {
 
 	must(f.store.CreateProject("beta"))
 	beta, _ := f.store.GetProject("beta")
-	otherTicket, err := f.store.CreateChannel(Channel{ProjectID: beta.ID, Kind: SourceTicket, Key: ticketCh.Key, Label: "ACME-7"})
+	otherTicket, err := f.store.CreateChannel(Channel{ProjectID: beta.ID, Kind: SourceWork, Key: ticketCh.Key, Label: "ACME-7"})
 	must(err)
-	chat, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceChat, Key: "chat-ab", Label: "chat"})
+	chat, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceDM, Key: "chat-ab", Label: "chat"})
 	must(err)
 
 	for _, tc := range []struct {
@@ -60,5 +60,25 @@ func TestHomeSession(t *testing.T) {
 				t.Fatalf("HomeSession = %+v, %v; want %s", inst, ok, tc.want)
 			}
 		})
+	}
+}
+
+// A work log's session is its current worker, while an older session on the
+// same unit still lives.
+func TestHomeSessionIsTheWorker(t *testing.T) {
+	f := newICFixture(t)
+	for range 5 {
+		next := f.ticket
+		next.ActorID = string(ident.New(ident.Session))
+		if err := f.store.PutInstance(next); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.ic.SetUp(next); err != nil {
+			t.Fatal(err)
+		}
+		ch, _ := f.ic.TicketChannelOf(next)
+		if inst, ok := HomeSession(f.store, ch.ID); !ok || inst.ActorID != next.ActorID {
+			t.Fatalf("HomeSession = %+v, %v; want the worker %s", inst, ok, next.ActorID)
+		}
 	}
 }

@@ -22,7 +22,7 @@ A session in the channel asked for a person or is blocked,
 or the channel has an open ask you can answer.
 Sessions::
 A session in the channel is live, starting or paused.
-This includes ticket channels and chats with a live session.
+This includes work logs, DMs, and group DMs with a live session.
 Channels::
 All the others: rooms, chats with people only, and channels whose sessions ended.
 
