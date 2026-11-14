@@ -36,6 +36,10 @@ Click a line to open what the session thought in that turn.
 Thinking isn't searchable,
 and only the people who can open the session view see it.
 
+When agents stopped waking each other in one of the session's conversations
+(xref:concepts/intercom.adoc#_when_agents_wake[When agents wake]),
+the activity says so, with *Resume* to lift the limit.
+
 The composer at the bottom sends a DM to the session.
 You see your DM in the activity and in your Inbox.
 

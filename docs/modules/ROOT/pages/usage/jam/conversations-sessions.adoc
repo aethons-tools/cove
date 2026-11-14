@@ -12,20 +12,23 @@ where they disagree with the pages they name, they win.
 [#turn-end]
 == The turn-end rule
 
-Every turn ends in one of two ways:
+A turn ends in one of four ways:
 
-* It sent something: a `send`, an `ask`, a `report`, or `turn_end` with a `to`.
-* It said no message is needed: `turn_end` with `+no_reply: true+`.
+* *Text and a destination:* `turn_end` with a `to` posts the final text there.
+A `send`, `ask`, or `report` during the turn counts the same.
+* *Text with no destination:* the turn is returned, below.
+* *Text and no message needed:* `turn_end` with `+no_reply: true+`. The text stays as thinking.
+* *No text:* nothing is posted, and the turn isn't returned.
 
 Text is thinking unless it's sent.
 The final text and mid-turn text are never auto-posted;
 `turn_end` with a `to` posts the final text there.
 
-A turn that ends with neither is *returned* once.
+A turn that ends with text, no destination, and no message sent during it is *returned* once.
 `returned` is a per-turn flag, and the wake it causes has the reason `returned`:
 Jam wakes the session at once (an explicit wake: wakes otherwise key off `WaitSeq`) with a note that the turn sent nothing and didn't say no message was needed,
 and shows it the same messages again (they aren't committed).
-If that turn also ends with neither,
+If that turn also ends that way,
 Jam commits, records `unaddressed` on the turn in the session view,
 and doesn't return it again.
 

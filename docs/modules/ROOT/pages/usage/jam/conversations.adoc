@@ -161,19 +161,29 @@ For a room or a work log, only the people a message names are notified.
 [#rate-limit]
 == The agent-to-agent limit
 
-Today's loop breaker applies in every kind of conversation:
-after a run of messages authored only by sessions
-(8 in a row today, its existing setting),
-the next session messages in that conversation are delivered but wake no session.
-A person's message in the conversation ends the run.
-Jam tells the operators,
+Today's loop breaker becomes a limit over time, in every kind of conversation.
+It counts the session-authored messages in a conversation
+since the later of its last person-authored message and the start of a sliding window.
+Past the limit, the next session messages there are delivered but wake no session,
+and Jam tells the operators,
 and for a personal session the person who started it,
-once per run.
+once each time the limit is reached.
+The numbers are serve config, `runtime.agent-wakes` (a count and a window);
+the defaults keep today's 8 messages, in a 10-minute window.
 
-In a `dm`, a run is per pair.
+The limit lifts in three ways:
+
+* The window slides past: the conversation is quiet for long enough.
+* A person posts in the conversation.
+* A person who may open either session's view presses *Resume*,
+on Jam's notice or in the session view (`+POST /app/user/api/conversations/{id}/resume+`).
+This is the only way a person lifts it sooner in a `dm` between two sessions,
+which no person can post in.
+
+In a `dm`, the limit is per pair.
 A loop among three agents trips it too,
 because each of their conversations sees only session messages.
-The breaker keeps no state beyond the log.
+The count is read from the log, plus the time of the last *Resume*.
 
 [#order]
 == Building it
