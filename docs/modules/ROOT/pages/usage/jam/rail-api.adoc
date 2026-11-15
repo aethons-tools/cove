@@ -7,11 +7,11 @@
 :updated: 2026-11-15
 
 `GET /app/user/api/rail` (`userui.RailResponse`) serves the rail two ways.
-`groups` is the attention grouping of xref:usage/jam/intercom-ui.adoc[intercom-ui], which the app and the VS Code rail show today.
+`groups` is the attention grouping of xref:usage/jam/intercom-ui.adoc[intercom-ui], which the web app shows.
 Beside it are the sections of the goal rail
 (the goal page `usage/jam/inbox-rail.adoc` on the `goal` branch),
-which the clients don't read yet;
-`groups` goes once both read them.
+which the VS Code rail shows (xref:usage/jam/vscode-hub.adoc#the-rail[vscode-hub]) and the web app doesn't read yet;
+`groups` goes once it does.
 
 [#sections]
 == Sections

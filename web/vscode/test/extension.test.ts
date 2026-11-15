@@ -46,7 +46,7 @@ function jamFetch(calls: Call[]) {
     if (u.pathname === "/app/user/events") return new Response(null, { status: 204 });
     if (u.pathname === `/app/user/api/sessions/${SES}`) return Response.json({ label: "alpha", channel: CHN });
     if (u.pathname === "/app/user/push/focus") return new Response(null, { status: 204 });
-    if (u.pathname === "/app/user/api/rail") return Response.json({ groups: [] });
+    if (u.pathname === "/app/user/api/rail") return Response.json({ me: [], work: [], agents: [], history: [], unreadTotal: 0 });
     if (u.pathname === `/app/user/api/conversations/${CHN}`) return Response.json({ session: SES, label: "alpha" });
     return Response.json({});
   });
@@ -86,7 +86,7 @@ describe("activate", () => {
       if (u.pathname === "/app/user/api/rail") {
         const n = answers.length > 1 ? answers.shift()! : answers[0]!;
         const rows = Array.from({ length: n }, (_, i) => ({ id: `chn_${i}`, label: `l${i}`, project: "p", kind: "session", needsYou: true, mission: "" }));
-        return Response.json({ groups: [{ bucket: "needs-you", title: "Needs you", rows }], unreadTotal: 0 });
+        return Response.json({ me: rows, work: [], agents: [], history: [], unreadTotal: 0 });
       }
       return Response.json({});
     });
@@ -113,7 +113,7 @@ describe("activate", () => {
       if (u.pathname === "/app/user/events") return new Response(null, { status: 204 });
       if (u.pathname === "/app/user/api/rail") {
         const rows = [{ id: "chn_0", label: "l0", project: "p", kind: "session", needsYou: true, mission: "" }];
-        return Response.json({ groups: [{ bucket: "needs-you", title: "Needs you", rows }], unreadTotal: 0 });
+        return Response.json({ me: rows, work: [], agents: [], history: [], unreadTotal: 0 });
       }
       return Response.json({});
     });
@@ -1388,7 +1388,7 @@ describe("updates", () => {
       if (u.pathname === "/me/vscode") return Response.json({ available: true, version: "0.5.0" });
       if (u.pathname === "/me/vscode/jam.vsix") return new Response(new Uint8Array([7, 7]));
       if (u.pathname === "/app/user/events") return new Response(null, { status: 204 });
-      return Response.json({ groups: [] });
+      return Response.json({ me: [], work: [], agents: [], history: [], unreadTotal: 0 });
     });
     try {
       const ctx = fakeContext();

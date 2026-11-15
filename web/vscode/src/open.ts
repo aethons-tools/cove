@@ -373,24 +373,26 @@ export function readPending(raw: string | undefined, now: number): string | unde
   return channel;
 }
 
-export type RailRow = RailResponse["groups"][number]["rows"][number];
+export type RailRow = RailResponse["me"][number];
 export type SessionPick = { label: string; description?: string; detail?: string; row: RailRow };
 
-// Rows of a dm with a live agent (its status card) or a work log with a
-// live session (needs-you first), one per channel.
+// Me's rows of a dm with a live agent (its status card) or a work log with a
+// live session, needs-you first, one per channel.
 export async function sessionPicks(api: JamApi): Promise<SessionPick[]> {
   const rail = await api.rail();
   const seen = new Set<string>();
-  const items: SessionPick[] = [];
-  for (const g of rail.groups) {
-    if (g.bucket === "history") continue;
-    for (const r of g.rows) {
-      if ((!r.card && r.kind !== "work") || !(r.phase || r.needsYou) || seen.has(r.id)) continue;
-      seen.add(r.id);
-      items.push({ label: (g.bucket === "needs-you" ? "$(bell) " : "") + r.label, description: r.project, detail: r.mission, row: r });
-    }
+  const rows: RailRow[] = [];
+  for (const r of rail.me ?? []) {
+    if ((!r.card && r.kind !== "work") || !(r.phase || r.needsYou) || seen.has(r.id)) continue;
+    seen.add(r.id);
+    rows.push(r);
   }
-  return items;
+  return [...rows.filter((r) => r.needsYou), ...rows.filter((r) => !r.needsYou)].map((r) => ({
+    label: (r.needsYou ? "$(bell) " : "") + r.label,
+    description: r.project,
+    detail: r.mission,
+    row: r,
+  }));
 }
 
 export async function sessionOfPick(api: JamApi, p: SessionPick): Promise<string | undefined> {

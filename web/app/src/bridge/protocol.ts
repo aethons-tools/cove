@@ -3,7 +3,7 @@
 export type SessionPaneName = "conversation" | "thinking" | "previews" | "status" | "artifacts";
 export type PaneName = SessionPaneName | "board" | "rail";
 export type ThinkingEventName = "open" | "stream" | "totals" | "ev" | "more" | "skipped" | "newstream";
-export type Method = "GET" | "POST" | "DELETE";
+export type Method = "GET" | "POST" | "PUT" | "DELETE";
 export type BridgeRequest = {
   method: Method;
   path: string;
