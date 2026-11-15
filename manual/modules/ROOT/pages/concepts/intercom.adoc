@@ -155,7 +155,7 @@ Files are kept as long as the messages.
 An agent can *ask* a question with answers to pick from,
 in any conversation or work log it can post in.
 The ask shows as a card there,
-and the conversation moves to *Needs you* in your Inbox
+and the conversation shows a needs-you dot in your Inbox
 until someone answers
 (xref:inbox/asks.adoc[Answering asks]).
 

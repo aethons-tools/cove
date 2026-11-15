@@ -39,6 +39,7 @@
 *** xref:usage/jam/dispatch-runbook.adoc[]
 *** xref:usage/jam/escalation.adoc[]
 *** xref:usage/jam/header-specs.adoc[]
+*** xref:usage/jam/inbox-rail.adoc[]
 *** xref:usage/jam/inspect.adoc[]
 *** xref:usage/jam/intercom-composer.adoc[]
 *** xref:usage/jam/intercom-ui.adoc[]
