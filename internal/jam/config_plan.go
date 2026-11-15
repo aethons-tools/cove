@@ -86,8 +86,12 @@ func (o ConfigPlan) Counts() map[string]int {
 type ConfigEnv struct {
 	CredExists     func(string) bool
 	PoolConfigured bool
-	Serve          map[string]any     // the running serve's portable config; nil = unknown
-	Conditions     *condition.Tracker // the import raises kit.migrate on it; nil = none
+	// SubdomainsConfigured is whether the serve has a destinations domain
+	// (destinations: in the serve config): only then may an endpoint have a
+	// subdomain (ValidateDestination).
+	SubdomainsConfigured bool
+	Serve                map[string]any     // the running serve's portable config; nil = unknown
+	Conditions           *condition.Tracker // the import raises kit.migrate on it; nil = none
 	// Followed is the config repo the Jam follows (config.github in the serve
 	// config); zero = none. Syncs apply it, and its applies are recorded.
 	Followed gitsource.Source
@@ -335,7 +339,22 @@ func (p *planner) planDestinations() {
 		o := newConfigObject(f)
 		p.upsert(o.Key, o, func(bool) error {
 			d := copyDestination(f.Destination)
-			if err := ValidateDestination(d, p.credExists); err != nil {
+			// Every destination as the plan leaves it: the tree's, and the
+			// unmanaged ones of the store's the tree doesn't name (a managed
+			// one is deleted: planDeletes).
+			var all []Destination
+			for _, o := range p.in.Tree.Destinations {
+				all = append(all, o.Destination)
+			}
+			for _, o := range p.in.Snapshot.Destinations {
+				k := ConfigKey{ConfigKindDestination, o.Name}
+				if _, inTree := p.in.Tree.Destinations[o.Name]; !inTree {
+					if _, managed := p.marks[k]; !managed {
+						all = append(all, o)
+					}
+				}
+			}
+			if err := checkDestination(d, p.credExists, p.in.Env.SubdomainsConfigured, all); err != nil {
 				return err
 			}
 			p.m.applyPutDestination(d)
@@ -739,6 +758,10 @@ func (p *planner) planRoles() {
 	for _, n := range slices.Sorted(maps.Keys(p.in.Tree.Roles)) {
 		f := p.in.Tree.Roles[n]
 		o := newConfigObject(f)
+		if err := p.checkRoleRooms(f); err != nil {
+			p.refuse("%s: %s", o.Key.Path(), err)
+			continue
+		}
 		p.upsert(o.Key, o, func(bool) error {
 			proj, ok := p.m.projects[f.Project]
 			if !ok || proj.Status == StatusRemoved {
@@ -756,6 +779,22 @@ func (p *planner) planRoles() {
 			return nil
 		})
 	}
+}
+
+// checkRoleRooms checks that each room f's scope.rooms lists is a live room
+// of its project in the planned state — for every role, changed or not, so a
+// project file can't drop a room a role still lists.
+func (p *planner) checkRoleRooms(f RoleFile) error {
+	proj, ok := p.m.projects[f.Project]
+	if !ok || proj.Status == StatusRemoved {
+		return nil // the write refuses it
+	}
+	for _, rf := range f.Scope.Rooms {
+		if _, ok := p.m.liveChannelByKey(proj.ID, SourceRoom, rf.Name); !ok {
+			return fmt.Errorf("scope.rooms: %s is not a room of project %s", rf.Name, f.Project)
+		}
+	}
+	return nil
 }
 
 // validateConfigRole is the admin API's role-write rule set (POST /admin/roles

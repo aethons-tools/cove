@@ -703,7 +703,7 @@ func DraftKitDefinition(store Store, name string, h harnessinstall.Install) (Kit
 // Ensure is a draft studio's image: def (DraftKitDefinition: kit ref.Kit's
 // draft tree ref.Tree under the raising role's harness), built through the
 // same jobs as a test build, for by
-// (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#draft-studio), and the manager holding it,
+// (docs/modules/ROOT/pages/usage/jam/kits-drafts.adoc#test-build), and the manager holding it,
 // which the studio must run on. The candidates are managers (the raise's
 // placement; empty = any) that can build drafts now, in managers' order
 // (else the builder's). It also returns the tree and its blobs, which the

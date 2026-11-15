@@ -123,8 +123,8 @@ func cfgMust(t *testing.T, err error) {
 func seedJam(t *testing.T, st *jam.MemStore) {
 	t.Helper()
 	creds := func(string) bool { return true }
-	cfgMust(t, jam.CreateDestination(st, jam.Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", CredName: "gh-pat",
-		Env: map[string]string{"GH_HOST": "{host}"}, AllowPaths: []string{"/repos/*"}}, creds))
+	cfgMust(t, jam.CreateDestination(st, jam.Destination{Name: "gh", Endpoints: []jam.Endpoint{{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", AllowPaths: []string{"/repos/*"}}}, CredName: "gh-pat",
+		Env: map[string]string{"GH_HOST": "{host}"}}, creds, false))
 	bob, err := st.CreateUser(jam.User{ID: ident.New(ident.User), Name: "bob", Status: jam.StatusLive, Logins: []string{"bob@acme"}})
 	cfgMust(t, err)
 	_, err = st.CreateUser(jam.User{ID: ident.New(ident.User), Name: "alice", Status: jam.StatusLive})

@@ -534,6 +534,14 @@ export interface HolderRow {
   override: boolean; // the grant replaces part of the role's scope
 }
 /**
+ * RoleRoomRow is a room the role's sessions are members of, and which of
+ * its messages wake them: named (those that mention the session) or all.
+ */
+export interface RoleRoomRow {
+  name: string;
+  wake: string;
+}
+/**
  * RoleForm is a role's current values in its edit forms' syntax.
  */
 export interface RoleForm {
@@ -562,6 +570,7 @@ export interface RoleDetail {
   ttl: string;
   dests: DestRow[];
   addressing: string[];
+  rooms: RoleRoomRow[]; // scope.rooms, set in the config repo
   egressManaged: boolean;
   egressDomains: string[];
   allocation: Setting[];
@@ -631,14 +640,13 @@ export interface SetupResponse {
   manager: string; // the chosen one
 }
 /**
- * DestListRow is one destination in the list.
+ * DestListRow is one destination in the list, its endpoints summarised.
  */
 export interface DestListRow {
   name: string;
-  route: string;
-  upstream: string;
-  identityIn: string;
-  apply: string;
+  endpoints: number /* int */; // how many
+  addresses: string[]; // each endpoint's subdomain and/or route, in order
+  upstreams: string[]; // the distinct upstreams, in endpoint order
   credName: string;
   envKeys: string[];
   gitRouted: boolean;
@@ -678,20 +686,56 @@ export interface DestConflict {
   what: string;
 }
 /**
- * DestFields are a destination's form values ("none" = header logging off).
+ * DestInboundSpec is an endpoint's identity-in expression (a custom header
+ * spec): the header the identity arrives in, the prefixes cut from it, and
+ * its encoding.
  */
-export interface DestFields {
+export interface DestInboundSpec {
+  header: string;
+  prefixes: string[]; // [] = the bare value
+  encoding: string; // raw or basic (basic takes no prefixes)
+}
+/**
+ * DestOutboundSpec is an endpoint's apply expression (a custom header spec):
+ * the header set upstream, its template ({cred} exactly once), its encoding
+ * and, for basic, the user sent.
+ */
+export interface DestOutboundSpec {
+  header: string;
+  template: string;
+  encoding: string; // raw or basic
+  basicUser: string; // basic only; {user} takes it from a user:token credential
+}
+/**
+ * DestEndpoint is one endpoint of a destination, as read and written.
+ */
+export interface DestEndpoint {
+  name: string;
+  subdomain: string; // only on a Jam with a destinations domain
   route: string;
   upstream: string;
-  identityIn: string;
+  identityIn: string; // a preset, custom (identityInSpec), or "" (none)
+  identityInSpec?: DestInboundSpec | null; // set exactly when identityIn is custom
   apply: string;
-  credName: string;
-  env: string; // KEY=TEMPLATE lines, the declared env only
-  allowPaths: string; // one pattern per line
-  note: string;
-  logHeadersIn: string;
-  logHeadersOut: string;
+  applySpec?: DestOutboundSpec | null; // set exactly when apply is custom
+  allowPaths: string[]; // path.Match patterns after the route; [] = any path
   git: boolean;
+  logHeadersIn: string; // none, examined or all
+  logHeadersOut: string; // none, changed or all
+}
+/**
+ * DestFields are a destination's editable fields: its page's, and the body
+ * of a create (with name) or an update (every field replaced; the name is
+ * the path, the operator notes have their own write). A refused write's
+ * errors[] name fields by these names: credName, env[1].key,
+ * endpoints[0].route, endpoints[2].applySpec.template.
+ */
+export interface DestFields {
+  name?: string; // create only
+  credName: string;
+  note: string;
+  env: EnvRow[]; // the declared env, by key; [] = none (the route's legacy default applies)
+  endpoints: DestEndpoint[];
 }
 /**
  * DestDetail is a destination's page.
@@ -699,11 +743,8 @@ export interface DestFields {
 export interface DestDetail {
   name: string;
   fields: DestFields;
-  methods: string[];
-  identityInSpec: string; // a custom spec as the Broker section shows it; "" = none
-  applySpec: string;
-  allowPaths: string[];
-  env: EnvRow[];
+  methods: string[]; // the identity-in / apply presets (custom is the expression)
+  env: EnvRow[]; // the effective client env, {url} resolved
   envImplied: boolean; // no env declared: the route's legacy default applies
   gitRouted: boolean;
   gitImplied: boolean; // routed only by the legacy /git/ rule

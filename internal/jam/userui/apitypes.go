@@ -62,25 +62,31 @@ type RailResponse struct {
 
 // ChannelRow is one channel in the left rail, from the viewer's perspective.
 type ChannelRow struct {
-	ID       string          `json:"id"`
-	Label    string          `json:"label"`
-	Project  string          `json:"project"`
-	Kind     jam.ChannelKind `json:"kind"`
-	NeedsYou bool            `json:"needsYou"`
-	Phase    string          `json:"phase"`
-	Unread   int             `json:"unread"`
-	OpenAsks int             `json:"openAsks"`
-	LastSeq  int64           `json:"lastSeq"`
-	Selected bool            `json:"selected"`
-	Mission  string          `json:"mission"` // the backing session's mission (its end goal); "" = none
-	// Session is the actor id of the session whose home this channel is,
-	// when the viewer may see it ("" = none), as api/conversations reports it.
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Project  string `json:"project"`
+	Kind     string `json:"kind"` // the conversation kind: dm | group | room | work | session (an archived session channel an older Jam made)
+	NeedsYou bool   `json:"needsYou"`
+	Phase    string `json:"phase"`
+	Unread   int    `json:"unread"`
+	OpenAsks int    `json:"openAsks"`
+	LastSeq  int64  `json:"lastSeq"`
+	Selected bool   `json:"selected"`
+	Mission  string `json:"mission"` // the backing session's mission (its end goal); "" = none
+	// Session is the actor id of the session this channel is the
+	// conversation of, when the viewer may see it ("" = none), as
+	// api/conversations reports it.
 	Session string `json:"session"`
 	// SSH reports whether the viewer may SSH into Session's studio.
 	SSH bool `json:"ssh"`
-	// Card is a session channel's status card; nil for rooms, chats, and a
+	// Card is the status card of the session the row stands for (a dm's
+	// agent); nil for rooms, work logs, groups, dms with people, and a
 	// channel with no active session.
 	Card *SessionCard `json:"card,omitempty"`
+	// SessionView is the conversation that is the card's session view (its
+	// session's conversation for the viewer), when the viewer may open it
+	// ("" = none).
+	SessionView string `json:"sessionView"`
 	// cardSession is the actor whose card stands for the row (jam.ChannelView.CardSession).
 	cardSession string
 }
@@ -185,15 +191,15 @@ type AskRef struct {
 
 // Conversation is the right-pane view of one open channel.
 type Conversation struct {
-	ChannelID string          `json:"channelId"`
-	Label     string          `json:"label"`
-	Kind      jam.ChannelKind `json:"kind"`
-	Project   string          `json:"project"`
-	Phase     string          `json:"phase"`
-	NeedsYou  bool            `json:"needsYou"`
-	SendTo    string          `json:"sendTo"` // the composer's POST api/messages "to" ("" = read-only History)
-	Messages  []MessageRow    `json:"messages"`
-	LastSeq   int64           `json:"lastSeq"`
+	ChannelID string       `json:"channelId"`
+	Label     string       `json:"label"`
+	Kind      string       `json:"kind"` // as ChannelRow.Kind
+	Project   string       `json:"project"`
+	Phase     string       `json:"phase"`
+	NeedsYou  bool         `json:"needsYou"`
+	SendTo    string       `json:"sendTo"` // the composer's POST api/messages "to" ("" = read-only History)
+	Messages  []MessageRow `json:"messages"`
+	LastSeq   int64        `json:"lastSeq"`
 	// Earlier: the API page has older messages before its first (GET
 	// api/conversations/{c}?before=<first seq>).
 	Earlier bool `json:"earlier"`
@@ -202,24 +208,39 @@ type Conversation struct {
 	SessionIDs []string     `json:"sessionIds"`
 	Sessions   []SessionRow `json:"sessions"`
 	OpenAsks   []AskCard    `json:"openAsks"` // the channel's open asks (the panel above the stream)
-	// Membership controls: Join (a channel they can see but aren't in),
-	// Leave (one they're in; never a chat), and who they may call in.
+	// Membership controls: Join (a room or work log they can see but aren't
+	// in), Leave (one they're in), and who they may call in (a room's).
 	CanJoin  bool               `json:"canJoin"`
 	CanLeave bool               `json:"canLeave"`
 	CallIn   []NewMessageOption `json:"callIn"`
+	// Members is a room's member list, its sessions marked as agents; none
+	// for other kinds.
+	Members []MemberRow `json:"members,omitempty"`
 	// NewBoard offers New whiteboard (the viewer may start one here).
 	NewBoard bool `json:"newBoard"`
-	// Session is the actor id of the session whose home this channel is,
-	// when the viewer may see it ("" = none): the app's session header and
+	// Session is the actor id of the session this channel is the
+	// conversation of, when the viewer may see it ("" = none): the app's session header and
 	// pane read api/sessions/{session}.
 	Session string `json:"session"`
 	// Color is that session's color, the composer's accent ("" = none).
 	Color string `json:"color,omitempty"`
 }
 
-// NewMessageOption is one recipient offered in the New Message picker.
+// MemberRow is one member of a room. Kind is person or agent.
+type MemberRow struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Kind  string `json:"kind"`
+}
+
+// NewMessageOption is one recipient offered in the New Message picker (or
+// a Call in list). Kind is person, agent, work (a unit of work), or room.
 type NewMessageOption struct {
-	To      string `json:"to"` // POST api/messages' "to": user:<id>, session:<id>, or a channel id
+	To string `json:"to"` // POST api/messages' "to": user:<id>, session:<id>, or a channel id (a unit of work's: its log)
+	// Worker is a unit of work's other "to", worker:<key>: the dm with the
+	// session working on it now, when there is one the viewer may reach
+	// ("" = none).
+	Worker  string `json:"worker,omitempty"`
 	Label   string `json:"label"`
 	Kind    string `json:"kind"`
 	Project string `json:"project"`
@@ -302,7 +323,7 @@ type AnswerRequest struct {
 type SessionHead struct {
 	ID       string     `json:"id"`
 	Label    string     `json:"label"`
-	Channel  string     `json:"channel"`         // the session's home channel (/app/user/c/<channel>)
+	Channel  string     `json:"channel"`         // the session's conversation for the viewer: its unit's log, else their dm with it ("" = none; /app/user/c/<channel>)
 	Kind     string     `json:"kind"`            // standing | personal | ticket | session
 	Color    string     `json:"color,omitempty"` // the session's color (#rrggbb; "" = none)
 	Ticket   string     `json:"ticket"`
@@ -362,21 +383,21 @@ type PreviewLink struct {
 	Frame bool   `json:"frame"`
 }
 
-// PaneBoard is a whiteboard started in the session's home channel.
+// PaneBoard is a whiteboard started in the session's conversation.
 type PaneBoard struct {
 	ID      string `json:"id"`
 	Title   string `json:"title"`
 	Channel string `json:"channel"`
 }
 
-// PaneAsk is an ask posted in the home channel, with its state.
+// PaneAsk is an ask posted in the session's conversation, with its state.
 type PaneAsk struct {
 	ID       string `json:"id"`
 	Question string `json:"question"`
 	State    string `json:"state"` // open | answered | withdrawn
 }
 
-// PaneLink is a URL from the home channel's messages.
+// PaneLink is a URL from the session's conversation's messages.
 type PaneLink struct {
 	URL   string `json:"url"`
 	Label string `json:"label"`
@@ -420,10 +441,70 @@ type ThinkingStream struct {
 }
 
 // ThinkingPage is GET api/sessions/{id}/thinking: a stream's events below
-// ?before=, in seq order; Before > 0: older ones exist below it.
+// ?before= (and above ?after=, a turn's fold), in seq order; Before > 0:
+// older ones exist below it.
 type ThinkingPage struct {
 	Events []ThinkingEvent `json:"events"`
 	Before uint64          `json:"before"`
+}
+
+// SessionActivity is GET api/sessions/{id}/activity: a page of the messages
+// the session authored or was delivered, in every conversation, oldest
+// first, paged like read (?anchor=start|end|id&id=&dir=forward|backward&limit=).
+type SessionActivity struct {
+	Messages []ActivityRow `json:"messages"`
+	// PageFirst and PageLast are the page's first and last message ids, the
+	// anchors of the next page either way ("" on an empty page); Earlier and
+	// Later report whether messages exist before and after the page.
+	PageFirst string `json:"pageFirst"`
+	PageLast  string `json:"pageLast"`
+	Earlier   bool   `json:"earlier"`
+	Later     bool   `json:"later"`
+	// Turns are the session's turns whose thinking folds into this page, by
+	// start: from its first message to the next page's first (the oldest
+	// page from the beginning, the newest on to now).
+	Turns []TurnFold `json:"turns"`
+	// Limited are the page's conversations where the agent-to-agent limit is
+	// tripped (Resume: POST api/conversations/{id}/resume).
+	Limited []ConversationRef `json:"limited"`
+	// SendTo is the composer's POST api/messages "to": a dm with the session
+	// ("" once it has ended). Ended: the session is gone (no header or pane).
+	SendTo string `json:"sendTo"`
+	Ended  bool   `json:"ended"`
+	Label  string `json:"label"`
+	Color  string `json:"color,omitempty"`
+}
+
+// ActivityRow is one message of a session's activity: the message as a
+// conversation shows it, the conversation it's in, and whether the session
+// wrote it (Out) or was delivered it.
+type ActivityRow struct {
+	MessageRow   `tstype:",extends"`
+	ID           string          `json:"id"`
+	Conversation ConversationRef `json:"conversation"`
+	Out          bool            `json:"out"`
+}
+
+// ConversationRef names a conversation: its id, kind (dm, group, room,
+// work, or session), and label.
+type ConversationRef struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+}
+
+// TurnFold is one turn of the session's thinking, folded between its
+// activity's messages: open it with GET api/sessions/{id}/thinking?stream=
+// &after=&before= (the seqs around the turn's events). Start and End are
+// Unix ms.
+type TurnFold struct {
+	Stream string `json:"stream"`
+	Turn   uint32 `json:"turn"`
+	Start  int64  `json:"start"`
+	End    int64  `json:"end"`
+	After  uint64 `json:"after"`
+	Before uint64 `json:"before"`
+	Events int    `json:"events"`
 }
 
 // ThinkingRaw is GET api/sessions/{id}/thinking/raw: one event's pretty JSON,
@@ -491,15 +572,15 @@ type SessionRole struct {
 
 // StartSessionRequest is POST api/sessions: start a personal session of
 // Project's Role, owned by the viewer; Message, when set, is posted as the
-// viewer's first message in its session channel.
+// viewer's first message in their dm with it.
 type StartSessionRequest struct {
 	Project string `json:"project"`
 	Role    string `json:"role"`
 	Message string `json:"message,omitempty"`
 }
 
-// SessionStarted is POST api/sessions's answer: the new session and its
-// session channel (its conversation).
+// SessionStarted is POST api/sessions's answer: the new session and the
+// starter's dm with it.
 type SessionStarted struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`

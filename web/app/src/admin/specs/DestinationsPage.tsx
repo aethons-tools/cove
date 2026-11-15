@@ -50,9 +50,8 @@ export function DestinationsPage() {
       {isPending ? <Loader size="sm" /> : error ? <Problem error={error} here={here.pathname} /> : (
         <DataTable rows={data.destinations} rowKey={(d) => d.name} empty="No destinations." columns={[
           { key: "n", label: "Name", render: (d) => <Group gap={6}><Anchor component={Link} to={nodeHref("config/destinations/" + enc(d.name))} fw={600} ff="monospace">{d.name}</Anchor><AttnFlag flag={d.attn} /></Group> },
-          { key: "r", label: "Route", render: (d) => mono(d.route) },
-          { key: "u", label: "Upstream", render: (d) => mono(d.upstream) },
-          { key: "a", label: "Auth", render: (d) => mono(d.identityIn || d.apply ? `${d.identityIn} → ${d.apply}` : "") },
+          { key: "r", label: "Endpoints", render: (d) => <Group gap={4}>{d.addresses.map((a, i) => <Badge key={i} size="sm" variant="light" color="gray" tt="none" ff="monospace">{a}</Badge>)}</Group> },
+          { key: "u", label: "Upstream", render: (d) => mono(d.upstreams.join(", ")) },
           { key: "c", label: "Credential", render: (d) => mono(d.credName) },
           { key: "e", label: "Agent connector", render: (d) => d.envKeys.length || d.gitRouted
             ? <Group gap={4}>{d.envKeys.map((k) => <Badge key={k} size="sm" variant="light" color="gray" tt="none">{k}</Badge>)}{d.gitRouted && <Badge size="sm" variant="light">git</Badge>}</Group>

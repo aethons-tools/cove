@@ -68,9 +68,9 @@ func TestBrokerInjectsPoolTokenAndPreservesBeta(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.AddDestination(Destination{
-		Name: "anthropic", Route: "/anthropic/", Upstream: up.URL,
-		IdentityIn: ApplyBearer, CredName: "anthropic-sub", Apply: ApplyBearer,
-	}); err != nil {
+		Name:      "anthropic",
+		Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: ApplyBearer, Apply: ApplyBearer}},
+		CredName:  "anthropic-sub"}); err != nil {
 		t.Fatal(err)
 	}
 

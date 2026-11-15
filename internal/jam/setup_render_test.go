@@ -73,10 +73,9 @@ func setupFixture(t *testing.T) (SetupDeps, Instance, []string, *fakeImages) {
 	t.Helper()
 	sup, store, fl := chainRaiseKit(t)
 	fl.asm = "asm1"
-	_ = store.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: ApplyXAPIKey, Apply: ApplyXAPIKey, CredName: "anthropic-key"})
-	_ = store.AddDestination(Destination{Name: "gh", Route: "/gh/", Upstream: "https://bot:" + secretUpstreamPass + "@api.github.com", IdentityIn: ApplyBearer,
-		Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "token {cred}"}, CredName: "gh-pat",
-		Env: map[string]string{"GH_TOKEN": secretDestEnv, "GH_HOST": "{host}"}, Git: true})
+	_ = store.AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: ApplyXAPIKey, Apply: ApplyXAPIKey}}, CredName: "anthropic-key"})
+	_ = store.AddDestination(Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/gh/", Upstream: "https://bot:" + secretUpstreamPass + "@api.github.com", IdentityIn: ApplyBearer, Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "token {cred}"}, Git: true}}, CredName: "gh-pat",
+		Env: map[string]string{"GH_TOKEN": secretDestEnv, "GH_HOST": "{host}"}})
 	// my-app v2: a secret build arg and an MCP server with a secret header and arg.
 	app := studio.StudioKit{Kind: studio.Kind, Prompt: "leaf prompt", Egress: []string{"npmjs.org"}, BuildArgs: map[string]string{"NODE_VERSION": "22", "NPM_TOKEN": secretBuildArg},
 		Notes: []studio.KitNote{{Name: "b.md", ReadWhen: "leaf b", Body: "LEAF-B\nexport " + secretKitNote}, {Name: "c.md", ReadWhen: "leaf c", Body: "LEAF-C"}},
@@ -538,7 +537,7 @@ func TestInstanceSetupStaleness(t *testing.T) {
 		conn, _ := ConnectorFor(d.Store, actorOf(d.Store, inst))
 		inst.Connector = snippet.Fingerprint(conn) // the cove reported applying it
 		_ = d.Store.PutInstance(inst)
-		_ = d.Store.AddDestination(Destination{Name: "npm", Route: "/npm/", Upstream: "https://registry.npmjs.org", IdentityIn: ApplyBearer, Apply: ApplyBearer, CredName: "npm-tok",
+		_ = d.Store.AddDestination(Destination{Name: "npm", Endpoints: []Endpoint{{Name: "npm", Route: "/npm/", Upstream: "https://registry.npmjs.org", IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "npm-tok",
 			Env: map[string]string{"NPM_REGISTRY": "{base}/npm/"}})
 		r, _ := d.Store.GetRole("default", "dev")
 		r.Scope.Destinations = append(r.Scope.Destinations, "npm")

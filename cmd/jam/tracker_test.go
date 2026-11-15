@@ -53,7 +53,7 @@ func TestTicketerOnBothTrackers(t *testing.T) {
 		t.Run(c.Kind, func(t *testing.T) {
 			err := trackerTicketer{c.Tracker}.Report(ctx, jam.Instance{Unit: c.Key},
 				jam.TicketReport{State: "in-review", Summary: "PR is up", PR: "https://github.com/acme/board/pull/9"})
-			if err != nil || c.State() != "in-review" || !slices.Contains(c.Posted(), "**in-review** — PR is up\n\nPR: https://github.com/acme/board/pull/9") {
+			if err != nil || c.State() != "in-review" || len(c.Posted()) != 0 {
 				t.Fatalf("report: state %q, posted %q, %v", c.State(), c.Posted(), err)
 			}
 			if err := (trackerTicketer{c.Tracker}).BlockUnfinished(ctx, jam.Instance{Unit: c.Key}, "wrapped up"); err != nil || c.State() != "blocked" {
@@ -249,7 +249,7 @@ func TestRelayEndToEndBothTrackers(t *testing.T) {
 					t.Fatalf("post %q: %v", ev.Body, err)
 				}
 			}
-			ch, ok := st.ChannelByKey(p.ID, jam.SourceTicket, string(conn.ID)+"/"+c.Key)
+			ch, ok := st.ChannelByKey(p.ID, jam.SourceWork, string(conn.ID)+"/"+c.Key)
 			if !ok {
 				t.Fatal("no ticket channel")
 			}

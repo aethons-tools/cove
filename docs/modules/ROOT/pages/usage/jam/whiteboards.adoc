@@ -4,7 +4,7 @@
 :owns: the board model (in a channel; elements merged per element), board access, the sync routes, the agent tools (board_create, boards, board_read, board_apply, board_snapshot), the server-side renderer, the `board` live push, and the board in the Jam app (New whiteboard, the card, the `/app/user/boards/<id>` editor and how it saves).
 :prereqs: intercom.adoc for channels and the live push; comms-addressing.adoc for `to`
 :tier: leaf
-:updated: 2026-10-27
+:updated: 2026-11-14
 
 A *board* is a shared canvas in one conversation. Whoever may read the
 conversation may read the board — a person who can see it, a session in it
@@ -42,7 +42,7 @@ merge, 64 KB per element, 8 MB per request.
 
 == Agents
 
-* *``+board_create(title, to?)+``* — a board in the session's channel (or `to`).
+* *``+board_create(title, to?)+``* — a board in `to`, else where the turn's last `send` went (a turn's first post needs a `to`; xref:usage/jam/intercom.adoc#default-conversation[the default conversation]).
 * *``boards()``* — the boards it can reach.
 * *``+board_read(board_id)+``* — compact elements: ``+{id, type, x, y, w, h, text, from, to, color, frame}+``; a shape's label is its `text`, an arrow's ends are
 `from`/`to`. Freehand strokes show only their bounds.
@@ -65,6 +65,7 @@ capped font size and drawn area), so a pathological board renders partly
 rather than slowly. It serves the card
 thumbnails and `+board_snapshot+`.
 
+[#in-app-user]
 == In /app/user
 
 A conversation you can post in has *New whiteboard* in its header (it asks a

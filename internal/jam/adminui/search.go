@@ -177,9 +177,14 @@ func search(store jam.Store, msgs SquawkReader, q string) searchData {
 
 	dests := searchGroup{Key: "destinations", Name: "Destinations"}
 	for _, x := range store.ListDestinations() {
-		envKeys := slices.Sorted(maps.Keys(x.ClientEnv()))
-		if m.any(append([]string{x.Name, x.Route, x.Upstream}, envKeys...)...) {
-			dests.add(searchHit{Title: x.Name, Sub: x.Route + " → " + x.Upstream, URL: destURL(x.Name), Exact: m.exact(x.Name)})
+		fields := []string{x.Name}
+		var subs []string
+		for _, e := range x.Endpoints {
+			fields = append(fields, e.Name, e.Route, e.Upstream)
+			subs = append(subs, e.Route+" → "+e.Upstream)
+		}
+		if m.any(append(fields, slices.Sorted(maps.Keys(x.ClientEnv()))...)...) {
+			dests.add(searchHit{Title: x.Name, Sub: strings.Join(subs, " · "), URL: destURL(x.Name), Exact: m.exact(x.Name)})
 		}
 	}
 

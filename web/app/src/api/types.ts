@@ -64,7 +64,7 @@ export interface ChannelRow {
   id: string;
   label: string;
   project: string;
-  kind: string;
+  kind: string; // the conversation kind: dm | group | room | work | session (an archived session channel an older Jam made)
   needsYou: boolean;
   phase: string;
   unread: number /* int */;
@@ -73,8 +73,9 @@ export interface ChannelRow {
   selected: boolean;
   mission: string; // the backing session's mission (its end goal); "" = none
   /**
-   * Session is the actor id of the session whose home this channel is,
-   * when the viewer may see it ("" = none), as api/conversations reports it.
+   * Session is the actor id of the session this channel is the
+   * conversation of, when the viewer may see it ("" = none), as
+   * api/conversations reports it.
    */
   session: string;
   /**
@@ -82,10 +83,17 @@ export interface ChannelRow {
    */
   ssh: boolean;
   /**
-   * Card is a session channel's status card; nil for rooms, chats, and a
+   * Card is the status card of the session the row stands for (a dm's
+   * agent); nil for rooms, work logs, groups, dms with people, and a
    * channel with no active session.
    */
   card?: SessionCard;
+  /**
+   * SessionView is the conversation that is the card's session view (its
+   * session's conversation for the viewer), when the viewer may open it
+   * ("" = none).
+   */
+  sessionView: string;
 }
 /**
  * CardState is a status card's state: its sparkline level and pill colour.
@@ -212,7 +220,7 @@ export interface AskRef {
 export interface Conversation {
   channelId: string;
   label: string;
-  kind: string;
+  kind: string; // as ChannelRow.Kind
   project: string;
   phase: string;
   needsYou: boolean;
@@ -232,19 +240,24 @@ export interface Conversation {
   sessions: SessionRow[];
   openAsks: AskCard[]; // the channel's open asks (the panel above the stream)
   /**
-   * Membership controls: Join (a channel they can see but aren't in),
-   * Leave (one they're in; never a chat), and who they may call in.
+   * Membership controls: Join (a room or work log they can see but aren't
+   * in), Leave (one they're in), and who they may call in (a room's).
    */
   canJoin: boolean;
   canLeave: boolean;
   callIn: NewMessageOption[];
   /**
+   * Members is a room's member list, its sessions marked as agents; none
+   * for other kinds.
+   */
+  members?: MemberRow[];
+  /**
    * NewBoard offers New whiteboard (the viewer may start one here).
    */
   newBoard: boolean;
   /**
-   * Session is the actor id of the session whose home this channel is,
-   * when the viewer may see it ("" = none): the app's session header and
+   * Session is the actor id of the session this channel is the
+   * conversation of, when the viewer may see it ("" = none): the app's session header and
    * pane read api/sessions/{session}.
    */
   session: string;
@@ -254,10 +267,25 @@ export interface Conversation {
   color?: string;
 }
 /**
- * NewMessageOption is one recipient offered in the New Message picker.
+ * MemberRow is one member of a room. Kind is person or agent.
+ */
+export interface MemberRow {
+  id: string;
+  label: string;
+  kind: string;
+}
+/**
+ * NewMessageOption is one recipient offered in the New Message picker (or
+ * a Call in list). Kind is person, agent, work (a unit of work), or room.
  */
 export interface NewMessageOption {
-  to: string; // POST api/messages' "to": user:<id>, session:<id>, or a channel id
+  to: string; // POST api/messages' "to": user:<id>, session:<id>, or a channel id (a unit of work's: its log)
+  /**
+   * Worker is a unit of work's other "to", worker:<key>: the dm with the
+   * session working on it now, when there is one the viewer may reach
+   * ("" = none).
+   */
+  worker?: string;
   label: string;
   kind: string;
   project: string;
@@ -350,7 +378,7 @@ export interface AnswerRequest {
 export interface SessionHead {
   id: string;
   label: string;
-  channel: string; // the session's home channel (/app/user/c/<channel>)
+  channel: string; // the session's conversation for the viewer: its unit's log, else their dm with it ("" = none; /app/user/c/<channel>)
   kind: string; // standing | personal | ticket | session
   color?: string; // the session's color (#rrggbb; "" = none)
   ticket: string;
@@ -420,7 +448,7 @@ export interface PreviewLink {
   frame: boolean;
 }
 /**
- * PaneBoard is a whiteboard started in the session's home channel.
+ * PaneBoard is a whiteboard started in the session's conversation.
  */
 export interface PaneBoard {
   id: string;
@@ -428,7 +456,7 @@ export interface PaneBoard {
   channel: string;
 }
 /**
- * PaneAsk is an ask posted in the home channel, with its state.
+ * PaneAsk is an ask posted in the session's conversation, with its state.
  */
 export interface PaneAsk {
   id: string;
@@ -436,7 +464,7 @@ export interface PaneAsk {
   state: string; // open | answered | withdrawn
 }
 /**
- * PaneLink is a URL from the home channel's messages.
+ * PaneLink is a URL from the session's conversation's messages.
  */
 export interface PaneLink {
   url: string;
@@ -486,11 +514,82 @@ export interface ThinkingStream {
 }
 /**
  * ThinkingPage is GET api/sessions/{id}/thinking: a stream's events below
- * ?before=, in seq order; Before > 0: older ones exist below it.
+ * ?before= (and above ?after=, a turn's fold), in seq order; Before > 0:
+ * older ones exist below it.
  */
 export interface ThinkingPage {
   events: ThinkingEvent[];
   before: number /* uint64 */;
+}
+/**
+ * SessionActivity is GET api/sessions/{id}/activity: a page of the messages
+ * the session authored or was delivered, in every conversation, oldest
+ * first, paged like read (?anchor=start|end|id&id=&dir=forward|backward&limit=).
+ */
+export interface SessionActivity {
+  messages: ActivityRow[];
+  /**
+   * PageFirst and PageLast are the page's first and last message ids, the
+   * anchors of the next page either way ("" on an empty page); Earlier and
+   * Later report whether messages exist before and after the page.
+   */
+  pageFirst: string;
+  pageLast: string;
+  earlier: boolean;
+  later: boolean;
+  /**
+   * Turns are the session's turns whose thinking folds into this page, by
+   * start: from its first message to the next page's first (the oldest
+   * page from the beginning, the newest on to now).
+   */
+  turns: TurnFold[];
+  /**
+   * Limited are the page's conversations where the agent-to-agent limit is
+   * tripped (Resume: POST api/conversations/{id}/resume).
+   */
+  limited: ConversationRef[];
+  /**
+   * SendTo is the composer's POST api/messages "to": a dm with the session
+   * ("" once it has ended). Ended: the session is gone (no header or pane).
+   */
+  sendTo: string;
+  ended: boolean;
+  label: string;
+  color?: string;
+}
+/**
+ * ActivityRow is one message of a session's activity: the message as a
+ * conversation shows it, the conversation it's in, and whether the session
+ * wrote it (Out) or was delivered it.
+ */
+export interface ActivityRow extends MessageRow {
+  id: string;
+  conversation: ConversationRef;
+  out: boolean;
+}
+/**
+ * ConversationRef names a conversation: its id, kind (dm, group, room,
+ * work, or session), and label.
+ */
+export interface ConversationRef {
+  id: string;
+  kind: string;
+  label: string;
+}
+/**
+ * TurnFold is one turn of the session's thinking, folded between its
+ * activity's messages: open it with GET api/sessions/{id}/thinking?stream=
+ * &after=&before= (the seqs around the turn's events). Start and End are
+ * Unix ms.
+ */
+export interface TurnFold {
+  stream: string;
+  turn: number /* uint32 */;
+  start: number /* int64 */;
+  end: number /* int64 */;
+  after: number /* uint64 */;
+  before: number /* uint64 */;
+  events: number /* int */;
 }
 /**
  * ThinkingRaw is GET api/sessions/{id}/thinking/raw: one event's pretty JSON,
@@ -569,7 +668,7 @@ export interface SessionRole {
 /**
  * StartSessionRequest is POST api/sessions: start a personal session of
  * Project's Role, owned by the viewer; Message, when set, is posted as the
- * viewer's first message in its session channel.
+ * viewer's first message in their dm with it.
  */
 export interface StartSessionRequest {
   project: string;
@@ -577,8 +676,8 @@ export interface StartSessionRequest {
   message?: string;
 }
 /**
- * SessionStarted is POST api/sessions's answer: the new session and its
- * session channel (its conversation).
+ * SessionStarted is POST api/sessions's answer: the new session and the
+ * starter's dm with it.
  */
 export interface SessionStarted {
   id: string;

@@ -94,9 +94,9 @@ func TestEnrollCommandPrintsSnippet(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, d := range []jam.Destination{
-		{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: jam.ApplyXAPIKey, Apply: jam.ApplyXAPIKey},
-		{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, Apply: jam.ApplyBasicPassword},
-		{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer, Env: map[string]string{"GH_HOST": "{host}"}},
+		{Name: "anthropic", Endpoints: []jam.Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", IdentityIn: jam.ApplyXAPIKey, Apply: jam.ApplyXAPIKey}}},
+		{Name: "git", Endpoints: []jam.Endpoint{{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, Apply: jam.ApplyBasicPassword}}},
+		{Name: "github-api", Endpoints: []jam.Endpoint{{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer}}, Env: map[string]string{"GH_HOST": "{host}"}},
 	} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)
@@ -1099,8 +1099,8 @@ func TestDestinationListEnvAndGit(t *testing.T) {
 	defer ts.Close()
 	getenv := func(string) string { return "" }
 	var out, errb bytes.Buffer
-	if err := store.AddDestination(jam.Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer,
-		Env: map[string]string{"GH_HOST": "{host}", "GH_ENTERPRISE_TOKEN": "{token}"}, Git: true}); err != nil {
+	if err := store.AddDestination(jam.Destination{Name: "gh", Endpoints: []jam.Endpoint{{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer, Git: true}},
+		Env: map[string]string{"GH_HOST": "{host}", "GH_ENTERPRISE_TOKEN": "{token}"}}); err != nil {
 		t.Fatal(err)
 	}
 	if code := run([]string{"destination", "list", "--admin-url", ts.URL}, getenv, &out, &errb); code != 0 || !strings.Contains(out.String(), "env=GH_ENTERPRISE_TOKEN,GH_HOST") || !strings.Contains(out.String(), "git") {
@@ -1111,7 +1111,7 @@ func TestDestinationListEnvAndGit(t *testing.T) {
 // A custom apply method without its spec is refused by ValidateDestination
 // (the check destinations changed in git still pass).
 func TestDestinationCustomSpecValidation(t *testing.T) {
-	err := jam.ValidateDestination(jam.Destination{Name: "bad", Route: "/bad/", Upstream: "https://x", Apply: "custom"}, func(string) bool { return true })
+	err := jam.ValidateDestination(jam.Destination{Name: "bad", Endpoints: []jam.Endpoint{{Name: "bad", Route: "/bad/", Upstream: "https://x", Apply: "custom"}}}, func(string) bool { return true }, false)
 	if err == nil || !strings.Contains(err.Error(), "apply_spec") {
 		t.Fatalf("custom without spec: %v", err)
 	}

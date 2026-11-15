@@ -6,12 +6,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 )
 
 // sqFixture is the /squawks handler over the intercom fixture: each session
@@ -92,13 +94,21 @@ func bodiesOf(sq []Squawk) []string {
 	return out
 }
 
-// deliver posts body from a person into the session's default channel.
-func (f *sqFixture) reply(inst Instance, from ident.ID, body string) intercom.Squawk {
+// dmWith is the dm between a person and the session.
+func (f *sqFixture) dmWith(inst Instance, from ident.ID) Channel {
 	f.t.Helper()
-	ch, err := f.ic.HomeChannel(inst)
+	p, _ := f.ic.store.GetProject(inst.Project)
+	ch, err := f.ic.chat(p, []ident.ID{from, ident.ID(inst.ActorID)})
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	return ch
+}
+
+// reply posts body from a person to the session, in the dm between them.
+func (f *sqFixture) reply(inst Instance, from ident.ID, body string) intercom.Squawk {
+	f.t.Helper()
+	ch := f.dmWith(inst, from)
 	m, err := f.ic.PostTrusted(ch, intercom.Squawk{From: from, Body: body})
 	if err != nil {
 		f.t.Fatal(err)
@@ -152,26 +162,46 @@ func TestSquawksSendValidation(t *testing.T) {
 
 func TestSquawksSendDefaults(t *testing.T) {
 	f := newSqFixture(t)
+	// An older studio's send with no `to` goes to its default conversation:
+	// a ticket session's log, a personal session's dm with its starter.
 	code, r := f.send(f.ticket, `{"body":"status: working"}`)
-	if code != http.StatusOK || r.ID == "" || r.Channel.Kind != "session" {
+	if code != http.StatusOK || r.ID == "" || r.Channel.Kind != "work" {
 		t.Fatalf("ticket default = %d %+v", code, r)
 	}
 	code, r = f.send(f.personal, `{"body":"done?"}`)
-	if code != http.StatusOK || r.Channel.Kind != "session" {
+	if code != http.StatusOK || r.Channel.Kind != "dm" {
 		t.Fatalf("personal default = %d %+v", code, r)
 	}
 	if got := f.log.InboxSince(f.alice.ID, 0, 0); len(got) != 1 || got[0].Body != "done?" {
 		t.Fatalf("alice's inbox = %+v", got)
 	}
-	if code, r = f.send(f.standing, `{"body":"hello?"}`); code != http.StatusOK || r.Channel.Kind != "session" {
-		t.Fatalf("standing default = %d %+v", code, r)
+	if code, r = f.send(f.standing, `{"body":"hello?"}`); code != http.StatusBadRequest {
+		t.Fatalf("standing default = %d %+v, want 400: it has no default conversation", code, r)
+	}
+}
+
+// Under the turn-end rule a send names its conversation: no `to` is a 400,
+// and a `to` still goes through.
+func TestSquawksSendTurnRuleNeedsTo(t *testing.T) {
+	f := newSqFixture(t, "user:alice")
+	inst, _ := f.store.GetInstance(f.standing.ActorID)
+	inst.TurnProtocol = sessionctx.TurnProtocolTurnRule
+	if err := f.store.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	rec := f.do(http.MethodPost, "/squawks", f.standing, `{"body":"hello?"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "needs a `to`") {
+		t.Fatalf("no to = %d %s", rec.Code, rec.Body)
+	}
+	if code, r := f.send(f.standing, `{"body":"hi alice","to":"user:alice"}`); code != http.StatusOK || r.Channel.Kind != "dm" {
+		t.Fatalf("to user = %d %+v", code, r)
 	}
 }
 
 func TestSquawksSendAddressed(t *testing.T) {
 	f := newSqFixture(t, "user:alice", "channel:eng")
 	code, r := f.send(f.standing, `{"body":"hi alice","to":"user:alice"}`)
-	if code != http.StatusOK || r.Channel.Kind != "chat" {
+	if code != http.StatusOK || r.Channel.Kind != "dm" {
 		t.Fatalf("to user = %d %+v", code, r)
 	}
 	if code, r := f.send(f.standing, `{"body":"hi room","to":"channel:eng"}`); code != http.StatusOK || r.Channel.ID != f.room.ID {
@@ -229,8 +259,11 @@ func TestSquawksReadIsTheInbox(t *testing.T) {
 	}
 	s := r.Squawks[0]
 	if s.ID != m1.ID || s.Author != "alice" || s.From == nil || *s.From != (Party{ID: f.alice.ID, Kind: "user", Label: "alice"}) ||
-		s.Channel == nil || s.Channel.Kind != "session" || s.At == nil || s.ContentType != intercom.ContentMarkdown {
+		s.Channel == nil || s.Channel.Kind != "dm" || s.At == nil || s.ContentType != intercom.ContentMarkdown {
 		t.Fatalf("entry = %+v (from %+v, channel %+v)", s, s.From, s.Channel)
+	}
+	if s.ReplyTo != "chat:user:"+string(f.alice.ID) {
+		t.Fatalf("reply_to = %q, want the dm with alice", s.ReplyTo)
 	}
 	if r.PageFirst != m1.ID {
 		t.Fatalf("page_first = %q", r.PageFirst)
@@ -295,10 +328,7 @@ func TestSquawksQueueAnchorsAndCommit(t *testing.T) {
 
 func TestSquawksReadLimitIsCapped(t *testing.T) {
 	f := newSqFixture(t)
-	ch, err := f.ic.HomeChannel(f.personal)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ch := f.dmWith(f.personal, f.alice.ID)
 	for range maxReadLimit + 5 {
 		if _, err := f.ic.PostTrusted(ch, intercom.Squawk{From: f.alice.ID, Body: "x"}); err != nil {
 			t.Fatal(err)
@@ -357,7 +387,7 @@ func TestSquawksTargets(t *testing.T) {
 	for _, t := range r.Targets {
 		got[t.Target] = true
 	}
-	for _, want := range []string{"ticket:ACME-7", "user:alice", "user:bob"} {
+	for _, want := range []string{"work:ACME-7", "user:alice", "user:bob"} {
 		if !got[want] {
 			t.Errorf("targets lack %q: %+v", want, r.Targets)
 		}
@@ -367,9 +397,25 @@ func TestSquawksTargets(t *testing.T) {
 	}
 }
 
+// A personal session may always message the person who started it, so its
+// targets list them whatever its addressing.
+func TestSquawksTargetsListTheStarter(t *testing.T) {
+	f := newSqFixture(t)
+	rec := f.do(http.MethodGet, "/squawks/targets", f.personal, "")
+	var r struct {
+		Targets []targetOut `json:"targets"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &r); rec.Code != http.StatusOK || err != nil {
+		t.Fatalf("targets = %d %v", rec.Code, err)
+	}
+	if len(r.Targets) != 1 || r.Targets[0] != (targetOut{Target: "user:alice", Kind: "user", Name: "alice"}) {
+		t.Fatalf("targets = %+v, want only the starter", r.Targets)
+	}
+}
+
 func TestSquawksCallInAndLeave(t *testing.T) {
 	f := newSqFixture(t, "user:*", "session:*")
-	rec := f.do(http.MethodPost, "/squawks/call-in", f.personal, `{"who":"user:bob"}`)
+	rec := f.do(http.MethodPost, "/squawks/call-in", f.ticket, `{"who":"user:bob"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("call-in = %d %s", rec.Code, rec.Body)
 	}
@@ -377,10 +423,10 @@ func TestSquawksCallInAndLeave(t *testing.T) {
 		Channel Party `json:"channel"`
 		Member  Party `json:"member"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Channel.Kind != "session" || out.Member.ID != f.bob.ID || out.Member.Kind != "user" {
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Channel.Kind != "work" || out.Member.ID != f.bob.ID || out.Member.Kind != "user" {
 		t.Fatalf("call-in response = %+v, %v", out, err)
 	}
-	chat, err := f.ic.chat(f.project, []ident.ID{ident.ID(f.personal.ActorID), f.alice.ID})
+	chat, err := f.ic.chat(f.project, []ident.ID{ident.ID(f.ticket.ActorID), f.alice.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,20 +438,25 @@ func TestSquawksCallInAndLeave(t *testing.T) {
 		`{"who":"user:bob","channel":"` + string(chat.ID) + `"}`:      http.StatusConflict,
 		`{"who":"user:bob","channel":"chn_01j9q3zzzzzzzzzzzzzzzzzz"}`: http.StatusForbidden,
 	} {
-		if rec := f.do(http.MethodPost, "/squawks/call-in", f.personal, body); rec.Code != want {
+		if rec := f.do(http.MethodPost, "/squawks/call-in", f.ticket, body); rec.Code != want {
 			t.Errorf("call-in %s = %d, want %d (%s)", body, rec.Code, want, rec.Body)
 		}
 	}
-	// A session leaves a channel it joined, never its own.
-	if code, r := f.send(f.ticket, `{"body":"hi","to":"session:`+f.standing.ActorID+`"}`); code != http.StatusOK {
-		t.Fatalf("ticket → standing = %d", code)
-	} else {
-		if rec := f.do(http.MethodPost, "/squawks/leave", f.ticket, `{"channel":"`+string(r.Channel.ID)+`"}`); rec.Code != http.StatusNoContent {
-			t.Fatalf("leave = %d %s", rec.Code, rec.Body)
-		}
-		if rec := f.do(http.MethodPost, "/squawks/leave", f.standing, `{"channel":"`+string(r.Channel.ID)+`"}`); rec.Code != http.StatusForbidden {
-			t.Fatalf("leave own home = %d", rec.Code)
-		}
+	if rec := f.do(http.MethodPost, "/squawks/call-in", f.personal, `{"who":"user:bob"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("call-in with no unit and no channel = %d, want 400", rec.Code)
+	}
+	// A session leaves a room it was called into, never its unit's log.
+	if err := f.store.JoinChannel(f.room.ID, f.alice.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.ic.CallIn(Poster{ID: f.alice.ID}, f.room.ID, "session:"+f.ticket.ActorID); err != nil {
+		t.Fatal(err)
+	}
+	if rec := f.do(http.MethodPost, "/squawks/leave", f.ticket, `{"channel":"`+string(f.room.ID)+`"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("leave = %d %s", rec.Code, rec.Body)
+	}
+	if rec := f.do(http.MethodPost, "/squawks/leave", f.ticket, `{"channel":"`+string(out.Channel.ID)+`"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("leave its own log = %d", rec.Code)
 	}
 	if rec := f.do(http.MethodPost, "/squawks/leave", f.ticket, `{}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("leave without channel = %d", rec.Code)
@@ -434,11 +485,11 @@ func TestSquawksAutoPostMarked(t *testing.T) {
 // then ends its turn with it. Later, or elsewhere, it posts.
 func TestSquawksAutoPostSkipsDuplicate(t *testing.T) {
 	f := newSqFixture(t, "channel:eng")
-	code, r := f.send(f.standing, `{"body":"Hi"}`)
+	code, r := f.send(f.personal, `{"body":"Hi"}`)
 	if code != http.StatusOK {
 		t.Fatalf("send = %d", code)
 	}
-	rec := f.do(http.MethodPost, "/squawks", f.standing, `{"body":"  Hi\n","auto":true}`)
+	rec := f.do(http.MethodPost, "/squawks", f.personal, `{"body":"  Hi\n","auto":true}`)
 	var skip struct {
 		ID      string `json:"id"`
 		Skipped bool   `json:"skipped"`
@@ -449,11 +500,11 @@ func TestSquawksAutoPostSkipsDuplicate(t *testing.T) {
 	if got := f.log.ChannelBefore(r.Channel.ID, 0, 0); len(got) != 1 {
 		t.Fatalf("channel holds %d squawks, want 1", len(got))
 	}
-	if code, r2 := f.send(f.standing, `{"body":"Hi","auto":true,"to":"channel:eng"}`); code != http.StatusOK || r2.ID == "" {
+	if code, r2 := f.send(f.personal, `{"body":"Hi","auto":true,"to":"channel:eng"}`); code != http.StatusOK || r2.ID == "" {
 		t.Fatalf("auto post to another channel = %d %+v", code, r2)
 	}
 	f.h.now = func() time.Time { return time.Now().Add(11 * time.Minute) }
-	if code, r2 := f.send(f.standing, `{"body":"Hi","auto":true}`); code != http.StatusOK || r2.ID == "" {
+	if code, r2 := f.send(f.personal, `{"body":"Hi","auto":true}`); code != http.StatusOK || r2.ID == "" {
 		t.Fatalf("auto post after ten minutes = %d %+v", code, r2)
 	}
 }
@@ -462,8 +513,62 @@ func TestSquawksAutoPostRepeatedAnswerPosts(t *testing.T) {
 	f := newSqFixture(t, "channel:eng")
 	// The same short answer at two turn ends is two replies, not a duplicate.
 	for i := range 2 {
-		if code, r := f.send(f.standing, `{"body":"Done.","auto":true}`); code != http.StatusOK || r.ID == "" {
+		if code, r := f.send(f.personal, `{"body":"Done.","auto":true}`); code != http.StatusOK || r.ID == "" {
 			t.Fatalf("auto post %d = %d %+v", i, code, r)
+		}
+	}
+}
+
+// worker:<key> with no current worker is a 409 no-worker; with one, a dm.
+func TestSquawksSendToWorker(t *testing.T) {
+	f := newSqFixture(t, "ticket:*", "session:*")
+	rec := f.do(http.MethodPost, "/squawks", f.standing, `{"body":"hi","to":"worker:ACME-7"}`)
+	if rec.Code != http.StatusConflict || strings.TrimSpace(rec.Body.String()) != `{"error":"no-worker"}` || rec.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("no worker = %d %q", rec.Code, rec.Body)
+	}
+	rec = f.do(http.MethodPost, "/squawks/ask", f.standing, `{"question":"q?","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"to":"worker:ACME-7"}`)
+	if rec.Code != http.StatusConflict || strings.TrimSpace(rec.Body.String()) != `{"error":"no-worker"}` {
+		t.Fatalf("ask with no worker = %d %q", rec.Code, rec.Body)
+	}
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	code, r := f.send(f.standing, `{"body":"hi","to":"worker:ACME-7"}`)
+	if code != http.StatusOK || r.Channel.Kind != "dm" {
+		t.Fatalf("to the worker = %d %+v", code, r)
+	}
+	if code, r := f.send(f.standing, `{"body":"hi","to":"work:ACME-7"}`); code != http.StatusOK || r.Channel.Kind != "work" {
+		t.Fatalf("to the log = %d %+v", code, r)
+	}
+}
+
+// send's mentions name session members of the conversation; the post
+// records them (and the body's @<label>s). One that names no session member
+// is refused with 400.
+func TestSquawksSendMentions(t *testing.T) {
+	f := newSqFixture(t, "channel:eng")
+	if err := f.store.JoinChannel(f.room.ID, ident.ID(f.ticket.ActorID), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.JoinChannel(f.room.ID, f.bob.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	code, r := f.send(f.standing, `{"body":"over to you, @bob","to":"channel:eng","mentions":["session:`+f.ticket.ActorID+`"]}`)
+	if code != http.StatusOK {
+		t.Fatalf("send with mentions = %d", code)
+	}
+	var got []ident.ID
+	for _, m := range f.log.ChannelBefore(f.room.ID, 0, 0) {
+		if m.ID == r.ID {
+			got = intercom.Mentions(m)
+		}
+	}
+	if want := ids(f.bob, f.ticket); !slices.Equal(got, want) {
+		t.Fatalf("mentions = %v, want %v", got, want)
+	}
+	for _, bad := range []string{`["session:nobody"]`, `["user:bob"]`, `["session:` + f.personal.ActorID + `"]`} {
+		if code, _ := f.send(f.standing, `{"body":"x","to":"channel:eng","mentions":`+bad+`}`); code != http.StatusBadRequest {
+			t.Errorf("mentions %s = %d, want 400", bad, code)
 		}
 	}
 }

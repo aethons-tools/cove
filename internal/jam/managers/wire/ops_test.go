@@ -27,6 +27,8 @@ func TestRaiseRequestRoundTrip(t *testing.T) {
 			Context:    &sessionctx.Bundle{Core: "core", Files: map[string]string{"f.md": "x"}, Fingerprint: "fp", Layers: map[string]string{"l": "1"}},
 			DraftImage: &jam.KitDraftImage{Tag: "t", ID: "i"},
 			KitDraft:   "kd",
+			// Subdomain hosts the studio resolves to the gateway (COV-312).
+			DestinationHosts: []string{"gh.jam.example.com"},
 		},
 		Creds: jam.LaunchCreds{IdentityToken: "tok", LaunchSecret: "sec"},
 	}

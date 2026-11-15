@@ -51,7 +51,8 @@ func NewBoards(lg intercom.Store, ic *Intercom) *Boards {
 }
 
 // Create starts a board titled title and posts its card: a person names the
-// channel id in target; a session addresses it like a send ("" = home).
+// channel id in target; a session addresses it like a send (PlanSend: with
+// no target, refused on the turn-end rule, else its default conversation).
 func (b *Boards) Create(p Poster, target, title string, now time.Time) (intercom.Board, error) {
 	if title == "" || len(title) > 200 {
 		return intercom.Board{}, fmt.Errorf("%w: a title is 1–200 bytes", intercom.ErrInvalid)
@@ -59,7 +60,7 @@ func (b *Boards) Create(p Poster, target, title string, now time.Time) (intercom
 	var pl Planned
 	var err error
 	if p.Session != nil {
-		pl, err = b.ic.Plan(p, target, now)
+		pl, err = b.ic.PlanSend(p, target, now)
 	} else {
 		pl, err = b.ic.PlanChannel(p, ident.ID(target))
 	}
@@ -309,6 +310,10 @@ func boardError(w http.ResponseWriter, err error) bool {
 		return true
 	case errors.Is(err, intercom.ErrInvalid):
 		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, ErrNoWorker):
+		writeNoWorker(w)
+	case errors.Is(err, ErrSendNeedsTo):
+		writeNoDefault(w)
 	case errors.Is(err, ErrSendDenied), errors.Is(err, ErrSendUnresolved), errors.Is(err, ErrRemoved), errors.Is(err, intercom.ErrNoBoard):
 		http.Error(w, "not found", http.StatusNotFound)
 	default:

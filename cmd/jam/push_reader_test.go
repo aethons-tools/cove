@@ -13,7 +13,7 @@ func TestPushReader(t *testing.T) {
 	r := pushReader{store: k.st, ic: k.ic}
 	m := k.send(k.std, "chat:user:alice,user:bob", "standup")
 	ch, ok := r.Channel(m.Channel)
-	if !ok || ch.Kind != jam.SourceChat {
+	if !ok || ch.Kind != jam.SourceGroup {
 		t.Fatalf("Channel = %+v, %v", ch, ok)
 	}
 	if got := r.Members(ch.ID); len(got) != 3 {

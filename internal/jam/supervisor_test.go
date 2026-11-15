@@ -1353,8 +1353,8 @@ func TestRaiseHandsTheRolesConnectorToTheLauncher(t *testing.T) {
 func TestRaiseConnectorConflictRollsBack(t *testing.T) {
 	f := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, f)
-	a := Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://a", Env: map[string]string{"X": "1"}}
-	b := Destination{Name: "b", Route: "/b/", Upstream: "https://b", Env: map[string]string{"X": "2"}}
+	a := Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://a"}}, Env: map[string]string{"X": "1"}}
+	b := Destination{Name: "b", Endpoints: []Endpoint{{Name: "b", Route: "/b/", Upstream: "https://b"}}, Env: map[string]string{"X": "2"}}
 	for _, d := range []Destination{a, b} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)
@@ -1543,7 +1543,7 @@ func TestContextForDoesNotRelogLint(t *testing.T) {
 func TestRaiseContextCarriesNoSecrets(t *testing.T) {
 	fl := &fakeLauncher{liveness: LivenessAlive}
 	sup, store, _ := supTestKit(t, fl)
-	if err := store.AddDestination(Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", CredName: "gh-pat-SECRETNAME",
+	if err := store.AddDestination(Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com"}}, CredName: "gh-pat-SECRETNAME",
 		Env: map[string]string{"GH_ENTERPRISE_TOKEN": "{token}", "GH_HOST": "{host}"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -2220,5 +2220,30 @@ func TestRaiseCopiesMission(t *testing.T) {
 	got, _ := store.GetInstance("w1")
 	if got.Mission != "Ticket title" {
 		t.Fatalf("Mission = %q, want %q", got.Mission, "Ticket title")
+	}
+}
+
+// Raise hands the launcher the subdomain hosts of the role's granted
+// destinations, so the studio resolves them; a caller-set list never survives.
+func TestRaiseHandsDestinationHostsToTheLauncher(t *testing.T) {
+	withDestinationsDomain(t, "jam.example.com")
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	linear := Destination{Name: "linear", Endpoints: []Endpoint{{Name: "linear", Subdomain: "linear", Upstream: "https://api.linear.app"}}}
+	other := Destination{Name: "other", Endpoints: []Endpoint{{Name: "other", Subdomain: "other", Upstream: "https://other.example"}}}
+	for _, d := range []Destination{linear, other} {
+		if err := store.AddDestination(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.PutRole("default", Role{Name: "lin", Scope: Scope{Destinations: []string{"linear"}, TTL: time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
+	spec := RaiseSpec{ActorID: "h1", Role: "lin", DestinationHosts: []string{"evil.example"}}
+	if _, _, _, err := sup.Raise(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"linear.jam.example.com"}; !reflect.DeepEqual(f.gotSpec.DestinationHosts, want) {
+		t.Fatalf("launcher spec hosts = %v, want %v", f.gotSpec.DestinationHosts, want)
 	}
 }

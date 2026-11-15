@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/server";
@@ -58,7 +58,8 @@ describe("operator notes", () => {
     await waitFor(() => expect(sent).toEqual({ notes: "Ask **ops** first." }));
     expect(await screen.findByText("ops", { selector: "strong" })).toBeInTheDocument();
     expect(screen.queryByLabelText(/^Notes/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    const card = screen.getByRole("heading", { name: "Operator notes" }).closest<HTMLElement>(".mantine-Card-root")!;
+    expect(within(card).getByRole("button", { name: "Edit" })).toBeInTheDocument();
   });
 
   it("of a kit are shown only, naming the file that holds them", async () => {

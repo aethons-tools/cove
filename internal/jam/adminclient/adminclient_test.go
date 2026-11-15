@@ -68,7 +68,7 @@ func TestClientRoundTrip(t *testing.T) {
 	ts, store := newServer(t)
 	c := New(ts.URL, "")
 
-	if err := store.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, CredName: "git-pat", Apply: jam.ApplyBasicPassword}); err != nil {
+	if err := store.AddDestination(jam.Destination{Name: "git", Endpoints: []jam.Endpoint{{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: jam.ApplyBasicPassword, Apply: jam.ApplyBasicPassword}}, CredName: "git-pat"}); err != nil {
 		t.Fatalf("AddDestination: %v", err)
 	}
 	ds, err := c.ListDestinations()
@@ -216,8 +216,9 @@ func TestClientRosterAndAddressing(t *testing.T) {
 		t.Fatalf("rooms after removal = %+v, %v", rooms, err)
 	}
 
-	// A role's Scope.Addressing round-trips via ListRoles.
-	if err := store.PutRole("acme", jam.Role{Name: "impl", Scope: jam.Scope{Addressing: []string{"human:*", "channel:eng-help"}}}); err != nil {
+	// A role's Scope.Addressing and Scope.Rooms round-trip via ListRoles.
+	rooms := []jam.RoomMembership{{Name: "eng-help", Wake: jam.WakeAll}, {Name: "ops", Wake: jam.WakeNamed}}
+	if err := store.PutRole("acme", jam.Role{Name: "impl", Scope: jam.Scope{Addressing: []string{"human:*", "channel:eng-help"}, Rooms: rooms}}); err != nil {
 		t.Fatalf("PutRole: %v", err)
 	}
 	roles, err := c.ListRoles("acme")
@@ -225,13 +226,17 @@ func TestClientRosterAndAddressing(t *testing.T) {
 		t.Fatalf("ListRoles: %v", err)
 	}
 	var got []string
+	var gotRooms []jam.RoomMembership
 	for _, r := range roles {
 		if r.Name == "impl" {
-			got = r.Scope.Addressing
+			got, gotRooms = r.Scope.Addressing, r.Scope.Rooms
 		}
 	}
 	if len(got) != 2 || got[0] != "human:*" || got[1] != "channel:eng-help" {
 		t.Fatalf("role addressing = %+v, roles=%+v", got, roles)
+	}
+	if !reflect.DeepEqual(gotRooms, rooms) {
+		t.Fatalf("role rooms = %+v, want %+v", gotRooms, rooms)
 	}
 	// A role's Allocation round-trips via ListRoles.
 	if err := store.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}}); err != nil {

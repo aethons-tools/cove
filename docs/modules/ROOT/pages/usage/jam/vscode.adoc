@@ -1,10 +1,10 @@
 = The Jam VS Code extension
-:summary: The Jam VS Code extension (`aethons.jam`), in VS Code or VSCodium — installing it with `jam vscode install` and its update offers, signing in with an app token, opening a session's studio window over Remote-SSH, the hub, the rail, conversation and board tabs and the four session views, notifications and the needs-you badge, what it writes to your machine, and fixing its errors.
-:read_when: You want to open an agent's session or studio in VS Code or VSCodium from the Jam app or a link, are installing, updating or signing in the Jam extension (`jam vscode install`, the update offer), are using or changing a Jam view (Thinking, Previews, Status, Artifacts), a conversation tab or a board tab, or want VS Code or OS notifications and the Jam badge (or none show on macOS), or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
-:owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session's studio window and the connected mark; conversation tabs, the four views, board tabs, its empty states and link rules; VS Code and OS notifications; and what starts the extension; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; VSCodium and Open Remote - SSH; its troubleshooting
+:summary: The Jam VS Code extension (`aethons.jam`), in VS Code or VSCodium — installing it with `jam vscode install` and its update offers, signing in with an app token, opening a session's studio window over Remote-SSH, the hub, the rail, conversation and board tabs and the four session views, what it writes to your machine, and fixing its errors.
+:read_when: You want to open an agent's session or studio in VS Code or VSCodium from the Jam app or a link, are installing, updating or signing in the Jam extension (`jam vscode install`, the update offer), are using or changing a Jam view (Thinking, Previews, Status, Artifacts), a conversation tab or a board tab, or it showed an error (host identification changed, participant sign-in missing, jam not found, can't SSH into, signed out).
+:owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session's studio window and the connected mark; conversation tabs, the four views, board tabs, its empty states and link rules; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; VSCodium and Open Remote - SSH; its troubleshooting
 :prereqs: collaboration.adoc for who may SSH and the ssh_config block the CLI writes; app-tokens.adoc for the sign-in token
 :tier: leaf
-:updated: 2026-11-04
+:updated: 2026-11-13
 
 The extension opens a session's studio window in VS Code with one click, over Remote-SSH,
 with no `+jam login --participant+` or `jam ssh-config` step.
@@ -43,7 +43,7 @@ When Jam's is *newer* than the installed one it offers _Update_ or _Later_:
 
 * *Update* downloads `/me/vscode/jam.vsix`, installs it, and offers _Reload Window_ (reload other VS Code windows too).
 * *Later* holds that version back for a day in every window; a newer one is offered at once.
-* One window offers each version per 6 h period (the notification lock, below).
+* One window offers each version per 6 h period (the notification lock, xref:usage/jam/vscode-notifications.adoc[]).
 * A Jam rolled back to an older extension never downgrades you, a dev build (`0.0.0`) never checks,
 and a failed check only writes a line to the Jam output channel.
 
@@ -133,20 +133,7 @@ A failed lookup shows "Couldn't load the focused session: …" with Try again.
 [#notifications-and-the-badge]
 == Notifications and the badge
 
-The extension starts with VS Code (`onStartupFinished`), in every window, and every signed-in window holds one live stream.
-What notifies is the phone's rule (xref:usage/jam/push.adoc#what-notifies[What notifies]), not restated here.
-
-* *One window per event, usually the focused one.* The focused window gets a 250 ms head start, so a lagging stream can let an unfocused window win; it then also shows an OS banner while VS Code is focused. Windows agree through a lock file in the extension's global storage, so a second VS Code profile, and VS Code Insiders, each notify separately. If the lock can't be written (e.g. read-only storage), every window notifies and the Jam output channel says why, once per window.
-* *Rate:* at most one message notification per conversation per 5 s; asks, call-ins and escalations always notify. An ask shows as a warning, a message as information. Link syntax in a message (`+[text](command:…)+`, `+https:+`, `+file:+`) shows as text, never as a clickable link.
-* *Open*, and the OS notification (`+vscode://aethons.jam/go/<chn>?session=<id>+`), xref:usage/jam/vscode-hub.adoc#the-hub[go to the conversation]: the session's studio window if open, else its hub tab.
-* *OS notifications* show only while the winning window isn't focused:
-** macOS uses the bundled `terminal-notifier` 3.0.0 (vendored from node-notifier, ad-hoc signed, not notarized, shipped whole with Apple's ``Terminal.icns``; the .vsix is private). It is listed as _terminal-notifier_ in System Settings → Notifications, where you allow or mute it. The first notification waits up to 120 s for the permission prompt; if it times out, only that note falls back to `osascript`. A declined permission shows nothing and does not fall back. If the notifier can't run it falls back to `osascript`, whose banners can't open a session.
-** Linux uses `notify-send`, with a click only when it supports `+--action+` (libnotify 0.7.10+); at most one waits per conversation and 8 overall. Without `notify-send` you get toasts only, and one line in the Jam output channel.
-** Other platforms get VS Code notifications only.
-* *Closed VS Code:* nothing is queued (the phone still gets Web Push); a user with both gets both.
-* *Lock screen:* body visibility follows xref:usage/jam/push.adoc#privacy-and-previews[`preview`] and the OS's settings.
-* *The badge:* the rail's needs-you count (xref:usage/jam/vscode-hub.adoc#the-rail[The rail]).
-* *Signed out:* no notifications, no badge. A revoked token shows "sign-in expired" at startup.
+What notifies in VS Code and the OS, and the needs-you badge: xref:usage/jam/vscode-notifications.adoc[].
 
 [#what-it-writes]
 == What it writes

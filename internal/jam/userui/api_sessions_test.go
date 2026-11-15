@@ -121,8 +121,8 @@ func TestAPISessionPane(t *testing.T) {
 			t.Errorf("pane JSON carries template-only field %q", k)
 		}
 	}
-	// Artifacts: a link from the home channel, labelled.
-	home, err := e.Intercom.HomeChannel(personal)
+	// Artifacts: a link from its conversation, labelled.
+	home, err := e.homeCh(personal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,15 +150,15 @@ func TestAPISessionActions(t *testing.T) {
 		code   int
 		want   string
 	}{
-		{standing, "restart", false, 403, `"code":"forbidden"`},
-		{standing, "upgrade", false, 403, "operators only, standing sessions"},
+		{standing, "restart", false, 404, `"code":"not_found"`}, // only operators may open it
+		{standing, "upgrade", false, 404, `"code":"not_found"`},
 		{standing, "release", true, 403, "only the session's owner (or an operator) may release it"},
 		{personal, "interrupt", false, 409, "is not available while the session is"},
 		{personal, "explode", false, 404, `"code":"not_found"`},
 		{personal, "release", false, 204, ""},
 		{standing, "upgrade", true, 204, ""},
 		{standing, "restart", true, 204, ""},
-		{standing, "end", false, 403, `"code":"forbidden"`},
+		{standing, "end", false, 404, `"code":"not_found"`},
 		{personal, "end", true, 403, `"code":"forbidden"`},
 		{personal, "restart", true, 204, ""},
 		{standing, "end", true, 204, ""},
@@ -387,7 +387,7 @@ func TestAPISessionPanePreviews(t *testing.T) {
 // needs for "Open in the web app" (/app/user/c/<channel>).
 func TestAPISessionHeadChannel(t *testing.T) {
 	e, p, personal, _, _ := sessionEnv(t)
-	home, err := e.Intercom.HomeChannel(personal)
+	home, err := e.homeCh(personal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +408,7 @@ func TestAPIRailRowSessionAndSSH(t *testing.T) {
 	Handler(e.Deps, nil).ServeHTTP(rec, asPrincipal(req, p, false))
 	rr := decodeAs[RailResponse](t, rec)
 	homeOf := func(inst jam.Instance) string {
-		ch, err := e.Intercom.HomeChannel(inst)
+		ch, err := e.homeCh(inst)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -424,8 +424,8 @@ func TestAPIRailRowSessionAndSSH(t *testing.T) {
 	if r, ok := rows[mine]; !ok || r.Session != personal.ActorID || !r.SSH {
 		t.Errorf("personal row = %+v (present %v)", r, ok)
 	}
-	if r, ok := rows[theirs]; !ok || r.Session != standing.ActorID || r.SSH {
-		t.Errorf("standing row = %+v (present %v)", r, ok)
+	if r, ok := rows[theirs]; !ok || r.Session != "" || r.SSH {
+		t.Errorf("standing row = %+v (present %v), want no session: only operators may open its view", r, ok)
 	}
 	for id, r := range rows {
 		if id != mine && id != theirs && (r.Session != "" || r.SSH) {

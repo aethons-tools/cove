@@ -16,9 +16,10 @@ import (
 	"github.com/aethons-tools/cove/internal/numfmt"
 )
 
-// The session view (docs/modules/ROOT/pages/usage/jam/intercom-ui.adoc#the-session-view): a
-// session's home channel gains a header — who it is, what it's doing, what
-// it costs, quick actions — and tabs for the pane beside the messages.
+// The session view (docs/modules/ROOT/pages/usage/jam/session-view.adoc#header): a
+// session's conversation (its unit's log, or the viewer's dm with it) gains
+// a header — who it is, what it's doing, what it costs, quick actions — and
+// tabs for the pane beside the messages.
 
 // SessionOps are the session actions the header offers (serve: the
 // supervisor and the standing reconciler).
@@ -36,45 +37,67 @@ type SessionOps interface {
 	Command(ctx context.Context, inst jam.Instance, c jam.SessionCommand, by string) error
 }
 
-// homeSession is the live session whose home channel chID is (see
-// jam.HomeSession).
-func homeSession(d Deps, chID string) (jam.Instance, bool) {
-	return jam.HomeSession(d.Store, ident.ID(chID))
+// channelSession is the live session whose conversation chID is (see
+// jam.ChannelSession).
+func channelSession(d Deps, chID string) (jam.Instance, bool) {
+	return jam.ChannelSession(d.Store, ident.ID(chID))
 }
 
-// sessionFor is session id if viewer p may see its home channel.
-func (h *handler) sessionFor(p jam.Participant, id string) (jam.Instance, string, bool) {
-	inst, ok := h.d.Store.GetInstance(id)
+// mayOpen reports whether viewer p may open inst's session view
+// (conversations-sessions.adoc#session-view): the Jam's operators, and for a
+// personal session the person who started it. It reads nothing of the
+// session's channels.
+func mayOpen(r *http.Request, p jam.Participant, inst jam.Instance) bool {
+	if pr, _ := appui.PrincipalFrom(r); pr.Admin {
+		return true
+	}
+	return inst.SessionKind == jam.SessionKindPersonal && inst.OwnerID != "" && inst.OwnerID == p.UserID
+}
+
+// sessionFor is live session id, when viewer p may open its view, with its
+// conversation for p ("" when it has none yet: jam.Intercom.SessionConversation).
+func (h *handler) sessionFor(r *http.Request, p jam.Participant, id string) (jam.Instance, string, bool) {
+	inst, ok := h.viewedSession(r, p, id)
 	if !ok || inst.Phase == jam.PhaseGone || h.d.Intercom == nil {
 		return jam.Instance{}, "", false
 	}
-	home, ok := h.d.Intercom.HomeChannelIfExists(inst)
-	if !ok || !h.d.Intercom.CanSee(p.UserID, home) {
-		return jam.Instance{}, "", false
+	var conv string
+	if ch, ok := h.d.Intercom.SessionConversation(inst, p.UserID); ok {
+		conv = string(ch.ID)
 	}
-	return inst, string(home.ID), true
+	return inst, conv, true
+}
+
+// viewedSession is session id, live or ended, when viewer p may open its
+// view: an ended session's view keeps its activity.
+func (h *handler) viewedSession(r *http.Request, p jam.Participant, id string) (jam.Instance, bool) {
+	inst, ok := h.d.Store.GetInstance(id)
+	if !ok || !mayOpen(r, p, inst) {
+		return jam.Instance{}, false
+	}
+	return inst, true
 }
 
 // headSession is the session whose header shows in conversation sel for p:
-// sel's home session, when its routes resolve home to sel (a ticket
-// session's home is its ticket channel, not its own session channel).
-func (h *handler) headSession(p jam.Participant, sel string) (jam.Instance, bool) {
-	inst, ok := homeSession(h.d, sel)
+// sel's session, when p may open its view and its conversation for p is
+// sel (a ticket session's is its log, not a dm with it).
+func (h *handler) headSession(r *http.Request, p jam.Participant, sel string) (jam.Instance, bool) {
+	inst, ok := channelSession(h.d, sel)
 	if !ok {
 		return jam.Instance{}, false
 	}
-	if _, home, ok := h.sessionFor(p, inst.ActorID); ok && home == sel {
+	if _, conv, ok := h.sessionFor(r, p, inst.ActorID); ok && conv == sel {
 		return inst, true
 	}
 	return jam.Instance{}, false
 }
 
-// sessionHead is inst's header for p; home is its home channel.
-func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Instance, home string) SessionHead {
+// sessionHead is inst's header for p; conv is its conversation for p.
+func (h *handler) sessionHead(r *http.Request, p jam.Participant, inst jam.Instance, conv string) SessionHead {
 	now := time.Now()
 	pr, _ := appui.PrincipalFrom(r)
 	op := pr.Admin
-	hd := SessionHead{ID: inst.ActorID, Label: inst.Name, Channel: home, Kind: kindLabel(inst), Role: inst.Role, Project: jam.ProjectName(h.d.Store, inst.Project),
+	hd := SessionHead{ID: inst.ActorID, Label: inst.Name, Channel: conv, Kind: kindLabel(inst), Role: inst.Role, Project: jam.ProjectName(h.d.Store, inst.Project),
 		Ticket: inst.Unit, OpenAsks: inst.OpenAsks, Uptime: since(now, inst.RaisedAt), Mission: inst.Mission}
 	if hd.Label == "" {
 		hd.Label = inst.ActorID

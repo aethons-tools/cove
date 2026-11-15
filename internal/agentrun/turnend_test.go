@@ -105,37 +105,50 @@ func wantCalls(t *testing.T, got []string, want ...string) {
 	}
 }
 
-func TestTurnEndPostsAndCommits(t *testing.T) {
+// A turn that ends with text it sent nowhere is returned at once, its batch
+// shown again uncommitted; the returned turn ending that way too is
+// committed and recorded as unaddressed. Nothing is ever posted for it.
+func TestTurnEndReturnsUnsentText(t *testing.T) {
 	s := newStreamSpawner()
 	io := &fakeTurnIO{pages: [][]InboxEntry{{entry("m1", "hello")}}}
 	w := turnWL(t, s, io)
-	done := runAsyncEpisodes(w, &recordHandle{}, 2)
+	h := &recordHandle{}
+	done := runAsyncEpisodes(w, h, 1)
 	p := s.next(t)
 	p.in.next(t)
-	p.emit(lnInit, resultLine("first"))
-	p.in.waitClosed(t)
-	p.exit <- nil
-	// The raise prompt's turn has no batch: its reply is posted, nothing committed.
-	wantCalls(t, io.waitCalls(t, 1), `Post "first" ""`)
-
+	p.emit(lnInit)
 	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
-	p = s.next(t)
-	got := p.in.next(t)
-	if !strings.Contains(got, "id m1\nhello") || strings.Contains(got, "use the intercom `read` tool") {
+	time.Sleep(10 * time.Millisecond)
+	p.emit(resultLine("")) // the raise turn: no text, not returned
+	if got := p.in.next(t); !strings.Contains(got, "id m1\nhello") || strings.Contains(got, "sent no message") {
 		t.Fatalf("resume = %q", got)
 	}
-	p.emit(lnInit, resultLine("Done."))
+	p.emit(lnInit, resultLine("Hi there."))
+	got := p.in.next(t)
+	if !strings.Contains(got, returnedText) || !strings.Contains(got, "id m1\nhello") {
+		t.Fatalf("returned = %q", got)
+	}
+	p.emit(lnInit, resultLine("Hi there."))
 	p.in.waitClosed(t)
 	p.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	wantCalls(t, io.callList(), `Post "first" ""`, "Inbox", `Post "Done." ""`, "Commit m1")
+	wantCalls(t, io.callList(), "Inbox", "Inbox", "Commit m1")
+	var outcomes []string
+	for _, e := range h.eventList() {
+		if strings.Contains(e.raw, `"type":"cove"`) {
+			outcomes = append(outcomes, e.raw)
+		}
+	}
+	if len(outcomes) != 1 || outcomes[0] != `{"type":"cove","subtype":"turn","outcome":"unaddressed"}` {
+		t.Fatalf("cove events = %q", outcomes)
+	}
 }
 
-// What the model says before a tool call is posted home as it goes on, ahead
-// of the final text, which alone follows turn_end; nothing is posted twice.
-func TestTurnEndPostsMidTurnText(t *testing.T) {
+// What the model says before a tool call is thinking: never posted. Only
+// turn_end's to posts the final text.
+func TestTurnEndNeverPostsMidTurnText(t *testing.T) {
 	s := newStreamSpawner()
 	io := &fakeTurnIO{pages: [][]InboxEntry{{entry("m1", "hello")}}}
 	sock := shortSock(t)
@@ -144,7 +157,7 @@ func TestTurnEndPostsMidTurnText(t *testing.T) {
 	p := s.next(t)
 	p.in.next(t)
 	p.emit(lnInit, assistantText("Looking into it."), lnToolUse)
-	wantCalls(t, io.waitCalls(t, 1), `Post "Looking into it." ""`)
+	waitFor(t, func() bool { return w.structuredOn.Load() })
 	if err := DialAgentSocket(sock).SetTurnEnd(context.Background(), Directives{To: "user:bob"}); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +167,46 @@ func TestTurnEndPostsMidTurnText(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	wantCalls(t, io.callList(), `Post "Looking into it." ""`, `Post "Found it." ""`, `Post "Fixed." "user:bob"`)
+	wantCalls(t, io.callList(), `Post "Fixed." "user:bob"`)
+}
+
+// A turn that sent a message (send, ask, report) isn't returned: its final
+// text is thinking. Each prompt starts a fresh record, and the last send's
+// address is the turn's default to.
+func TestTurnEndSentTurnIsNotReturned(t *testing.T) {
+	io := &fakeTurnIO{}
+	w := unitWL(io)
+	sock := shortSock(t)
+	stop, err := serveAgentSocket(sock, w.agentSocketHandler(), w.log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	c := DialAgentSocket(sock)
+	ctx := context.Background()
+	w.newTurn(turnMeta{upTo: "m1", structured: true})
+	if st, err := c.Turn(ctx); err != nil || st.Structured || st.LastTo != "" {
+		t.Fatalf("fresh turn = %+v %v", st, err)
+	}
+	c.NoteSent(ctx, "send", "user:ann")
+	c.NoteSent(ctx, "ask", "")
+	if st, _ := c.Turn(ctx); st.LastTo != "user:ann" {
+		t.Fatalf("last to = %q", st.LastTo)
+	}
+	w.finishTurn(ctx, TurnResult{Text: "Sent it.", OK: true, Gen: w.inflight.gen})
+	wantCalls(t, io.callList(), "Commit m1")
+	if w.wake.has() {
+		t.Fatal("a turn that sent was returned")
+	}
+	w.newTurn(turnMeta{structured: true})
+	if st, _ := c.Turn(ctx); st.LastTo != "" {
+		t.Fatalf("a new turn kept the last to: %q", st.LastTo)
+	}
+	c.NoteSent(ctx, "report", "")
+	w.finishTurn(ctx, TurnResult{Text: "Reported.", OK: true, Gen: w.inflight.gen})
+	if w.wake.has() {
+		t.Fatal("a turn that reported was returned")
+	}
 }
 
 func TestWakeFallsBackWhenInboxFails(t *testing.T) {
@@ -193,17 +245,18 @@ func TestTurnEndNotNormalNeitherPostsNorCommits(t *testing.T) {
 	p.emit(lnInit)
 	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
 	time.Sleep(10 * time.Millisecond)
-	p.emit(resultLine("ok"))
+	p.emit(resultLine(""))
 	if got := p.in.next(t); !strings.Contains(got, "id m1") {
 		t.Fatalf("resume = %q", got)
 	}
-	p.emit(lnInit, lnResultErr)
+	// An error result with text is neither committed nor returned.
+	p.emit(lnInit, `{"type":"result","subtype":"error_during_execution","is_error":true,"queued_turn_count":0,"result":"half"}`)
 	p.in.waitClosed(t)
 	p.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	wantCalls(t, io.callList(), `Post "ok" ""`, "Inbox")
+	wantCalls(t, io.callList(), "Inbox")
 }
 
 func TestTurnEndFinishesBeforeNextResume(t *testing.T) {
@@ -223,17 +276,17 @@ func TestTurnEndFinishesBeforeNextResume(t *testing.T) {
 	// turn's commit, so its batch can't re-show m1.
 	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
 	time.Sleep(10 * time.Millisecond)
-	p.emit(resultLine("seen a"))
+	p.emit(resultLine(""))
 	if got := p.in.next(t); !strings.Contains(got, "id m2") {
 		t.Fatalf("second resume = %q", got)
 	}
-	p.emit(lnInit, resultLine("seen b"))
+	p.emit(lnInit, resultLine(""))
 	p.in.waitClosed(t)
 	p.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	wantCalls(t, io.callList(), "Inbox", `Post "seen a" ""`, "Commit m1", "Inbox", `Post "seen b" ""`, "Commit m2")
+	wantCalls(t, io.callList(), "Inbox", "Commit m1", "Inbox", "Commit m2")
 }
 
 func TestCompactTurnIsQuiet(t *testing.T) {
@@ -246,17 +299,18 @@ func TestCompactTurnIsQuiet(t *testing.T) {
 	p.emit(lnInit)
 	w.Control(studioagent.Control{Kind: studioagent.Compact, By: "you"})
 	time.Sleep(10 * time.Millisecond)
-	p.emit(resultLine("reply"))
+	p.emit(resultLine(""))
 	if got := p.in.next(t); got != "/compact" {
 		t.Fatalf("got %q, want /compact", got)
 	}
+	// The compaction's text is neither posted nor returned.
 	p.emit(lnInit, resultLine("Compacted."))
 	p.in.waitClosed(t)
 	p.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	wantCalls(t, io.callList(), `Post "reply" ""`)
+	wantCalls(t, io.callList())
 }
 
 func TestInterruptAckCarriesBatch(t *testing.T) {
@@ -272,16 +326,16 @@ func TestInterruptAckCarriesBatch(t *testing.T) {
 	p.in.nextCtrl(t) // the interrupt control request
 	p.emit(lnResultErr)
 	got := p.in.next(t)
-	if !strings.Contains(got, "pressed **Interrupt**") || !strings.Contains(got, "id m1\nstop that") || strings.Contains(got, "with `send`") {
+	if !strings.Contains(got, "pressed **Interrupt**") || !strings.Contains(got, "id m1\nstop that") || !strings.Contains(got, "`turn_end` and a `to`") {
 		t.Fatalf("ack = %q", got)
 	}
-	p.emit(lnInit, resultLine("Stopped. What instead?"))
+	p.emit(lnInit, resultLine(""))
 	p.in.waitClosed(t)
 	p.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	wantCalls(t, io.callList(), "Inbox", `Post "Stopped. What instead?" ""`, "Commit m1")
+	wantCalls(t, io.callList(), "Inbox", "Commit m1")
 }
 
 // shortSock is a socket path under the unix-socket length limit.
@@ -338,16 +392,17 @@ func TestTurnEndDirectives(t *testing.T) {
 		d    Directives
 		want []string
 	}{
-		{"defaults", Directives{}, []string{"Inbox", `Post "reply" ""`, "Commit m1"}},
-		{"quiet", Directives{Post: bp(false)}, []string{"Inbox", "Commit m1"}},
-		{"deny", Directives{Commit: bp(false)}, []string{"Inbox", `Post "reply" ""`}},
+		{"no_reply", Directives{NoReply: true}, []string{"Inbox", "Commit m1"}},
+		{"post false reads as no_reply", Directives{Post: bp(false)}, []string{"Inbox", "Commit m1"}},
+		{"deny", Directives{NoReply: true, Commit: bp(false)}, []string{"Inbox"}},
 		{"to", Directives{To: "user:x"}, []string{"Inbox", `Post "reply" "user:x"`, "Commit m1"}},
-		{"end", Directives{Next: "end", Reason: "all done"}, []string{"Inbox", `Post "reply" ""`, "Commit m1", `End "all done"`}},
-		{"compact", Directives{Next: "compact"}, []string{"Inbox", `Post "reply" ""`, "Commit m1"}},
-		{"mute", Directives{WakeOnMessage: bp(false)}, []string{"Inbox", `Post "reply" ""`, "Commit m1", "Mute true"}},
-		{"wake_at", Directives{WakeAt: &WakeAt{At: "2026-10-28T09:00:00Z", Note: "ask about the preview"}},
-			[]string{"Inbox", `Post "reply" ""`, "Commit m1", `SetAlarm turn-end 2026-10-28T09:00:00Z "ask about the preview"`}},
-		{"idle", Directives{IdleTimeout: "2h"}, []string{"Inbox", `Post "reply" ""`, "Commit m1", "SetIdle 2h"}},
+		{"to and deny", Directives{To: "user:x", Commit: bp(false)}, []string{"Inbox", `Post "reply" "user:x"`}},
+		{"end", Directives{Next: "end", Reason: "all done"}, []string{"Inbox", "Commit m1", `End "all done"`}},
+		{"compact", Directives{Next: "compact", NoReply: true}, []string{"Inbox", "Commit m1"}},
+		{"mute", Directives{WakeOnMessage: bp(false), NoReply: true}, []string{"Inbox", "Commit m1", "Mute true"}},
+		{"wake_at", Directives{WakeAt: &WakeAt{At: "2026-10-28T09:00:00Z", Note: "ask about the preview"}, NoReply: true},
+			[]string{"Inbox", "Commit m1", `SetAlarm turn-end 2026-10-28T09:00:00Z "ask about the preview"`}},
+		{"idle", Directives{IdleTimeout: "2h", NoReply: true}, []string{"Inbox", "Commit m1", "SetIdle 2h"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -401,15 +456,29 @@ func TestAgentSocketValidates(t *testing.T) {
 	}
 }
 
-func TestTurnEndRefusedToFallsBackHome(t *testing.T) {
+// A final text whose to is refused reached no one: nothing is committed and
+// the turn is returned with why; a returned turn's refused post isn't
+// returned again, and its messages stay pending.
+func TestTurnEndRefusedToIsReturned(t *testing.T) {
 	io := &refusingIO{fakeTurnIO: &fakeTurnIO{}}
-	w := New(Config{TurnIO: io}, nil)
-	w.ctxr = &contextRefresher{last: sessionctx.Bundle{TurnProtocol: TurnProtocol}}
+	w := unitWL(io)
+	w.newTurn(turnMeta{upTo: "m1", structured: true})
 	w.directives = &Directives{To: "user:nobody"}
-	w.finishTurn(context.Background(), TurnResult{Text: "hi", OK: true})
-	wantCalls(t, io.callList(), `Post "hi" "user:nobody"`, `Post "hi" ""`)
-	if !strings.Contains(w.note, "could not be posted to user:nobody") {
-		t.Fatalf("note = %q", w.note)
+	w.finishTurn(context.Background(), TurnResult{Text: "hi", OK: true, Gen: w.inflight.gen})
+	wantCalls(t, io.callList(), `Post "hi" "user:nobody"`)
+	rs := w.wake.take()
+	if len(rs) != 1 || rs[0].Kind != "returned" || !strings.Contains(rs[0].Detail, "could not be posted to user:nobody") {
+		t.Fatalf("wake = %+v", rs)
+	}
+	w.newTurn(turnMeta{upTo: "m1", structured: true})
+	if !w.inflight.returned {
+		t.Fatal("the next prompt's turn isn't the returned one")
+	}
+	w.directives = &Directives{To: "user:nobody"}
+	w.finishTurn(context.Background(), TurnResult{Text: "hi", OK: true, Gen: w.inflight.gen})
+	wantCalls(t, io.callList(), `Post "hi" "user:nobody"`, `Post "hi" "user:nobody"`)
+	if w.wake.has() || !strings.Contains(w.note, "could not be posted to user:nobody") {
+		t.Fatalf("returned again (%v) or no note (%q)", w.wake.has(), w.note)
 	}
 }
 
@@ -468,33 +537,14 @@ func unitWL(io TurnIO) *Workload {
 	return w
 }
 
-type failingPostIO struct{ *fakeTurnIO }
-
-func (f *failingPostIO) Post(ctx context.Context, text, to string) error {
-	f.fakeTurnIO.Post(ctx, text, to)
-	return errors.New("POST /squawks: request failed")
-}
-
-func TestTurnEndPostFailureKeepsMessages(t *testing.T) {
-	io := &failingPostIO{&fakeTurnIO{}}
-	w := unitWL(io)
-	w.newTurn(turnMeta{upTo: "m1", structured: true})
-	w.finishTurn(context.Background(), TurnResult{Text: "answer", OK: true, Gen: w.inflight.gen})
-	// The reply never reached anyone: the question must come back.
-	wantCalls(t, io.callList(), `Post "answer" ""`)
-	if !strings.Contains(w.note, "could not be posted") {
-		t.Fatalf("note = %q", w.note)
-	}
-}
-
 func TestTurnEndOnlyCommitsItsOwnPrompt(t *testing.T) {
 	io := &fakeTurnIO{}
 	w := unitWL(io)
 	w.newTurn(turnMeta{upTo: "m1", structured: true})
 	stale := w.inflight.gen - 1 // a turn a background task started before this prompt
-	w.finishTurn(context.Background(), TurnResult{Text: "bg", OK: true, Gen: stale})
-	w.finishTurn(context.Background(), TurnResult{Text: "answer", OK: true, Gen: w.inflight.gen})
-	wantCalls(t, io.callList(), `Post "bg" ""`, `Post "answer" ""`, "Commit m1")
+	w.finishTurn(context.Background(), TurnResult{OK: true, Gen: stale})
+	w.finishTurn(context.Background(), TurnResult{OK: true, Gen: w.inflight.gen})
+	wantCalls(t, io.callList(), "Commit m1")
 }
 
 func TestTurnEndNotNormalDropsDirectives(t *testing.T) {
@@ -552,12 +602,12 @@ func TestResumeFailureDoesNotCommitRestartBatch(t *testing.T) {
 	if got := p.in.next(t); got != "do it" {
 		t.Fatalf("fresh prompt = %q", got)
 	}
-	p.emit(lnInit, resultLine("hello"))
+	p.emit(lnInit, resultLine(""))
 	p.in.waitClosed(t)
 	p.exit <- nil
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
 	// m1 was never shown to the fresh conversation: it stays pending.
-	wantCalls(t, io.callList(), "Inbox", `Post "hello" ""`)
+	wantCalls(t, io.callList(), "Inbox")
 }

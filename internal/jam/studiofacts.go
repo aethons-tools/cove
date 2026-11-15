@@ -3,6 +3,7 @@ package jam
 import (
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -33,9 +34,22 @@ func studioFacts(store Store, tracker func() (ident.ID, bool), a Actor, owner st
 		if !ok {
 			continue
 		}
-		f.Destinations = append(f.Destinations, sessionctx.StudioDestination{
-			Name: d.Name, Upstream: d.Upstream, EnvKeys: slices.Sorted(maps.Keys(d.ClientEnv())), Git: d.GitRouted(), Note: d.Note,
-		})
+		var ups []string
+		for _, e := range d.Endpoints {
+			if !slices.Contains(ups, e.Upstream) {
+				ups = append(ups, e.Upstream)
+			}
+		}
+		sd := sessionctx.StudioDestination{
+			Name: d.Name, Upstream: strings.Join(ups, ", "), EnvKeys: slices.Sorted(maps.Keys(d.ClientEnv())), Note: d.Note,
+		}
+		if g := d.GitEndpoints(); len(g) > 0 {
+			sd.Git = true
+			if len(ups) > 1 {
+				sd.GitUpstream = g[0].Upstream
+			}
+		}
+		f.Destinations = append(f.Destinations, sd)
 	}
 	switch {
 	case roleEgress != nil:
@@ -51,6 +65,10 @@ func studioFacts(store Store, tracker func() (ident.ID, bool), a Actor, owner st
 			who = "channel"
 		case t.Kind == "session":
 			who = "session"
+		case t.Kind == "work":
+			who = "work log"
+		case t.Kind == "worker":
+			who = "worker"
 		case t.Name == owner:
 			who = "started you"
 		}

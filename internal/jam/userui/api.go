@@ -106,7 +106,7 @@ func (h *handler) apiRail(w http.ResponseWriter, r *http.Request) {
 	// ?c= is the open conversation, counted as read (it is being read).
 	groups := Rail(p, h.d, r.URL.Query().Get("c"))
 	h.railSessions(r, p, groups)
-	h.attachCards(groups)
+	h.attachCards(r, p, groups)
 	if groups == nil {
 		groups = []RailGroup{}
 	}
@@ -119,7 +119,7 @@ func (h *handler) railSessions(r *http.Request, p jam.Participant, groups []Rail
 	for gi := range groups {
 		rows := groups[gi].Rows
 		for i := range rows {
-			inst, ok := h.headSession(p, rows[i].ID)
+			inst, ok := h.headSession(r, p, rows[i].ID)
 			if !ok {
 				continue
 			}

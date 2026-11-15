@@ -16,7 +16,7 @@ func TestOperatorNotesAPI(t *testing.T) {
 	for _, c := range []struct{ path string }{
 		{"/app/admin/api/destinations"}, {"/app/admin/api/model-specs"}, {"/app/admin/api/users"}, {"/app/admin/api/projects"},
 	} {
-		body := map[string]string{"name": "acme"}
+		var body any = map[string]string{"name": "acme"}
 		switch c.path {
 		case "/app/admin/api/destinations":
 			body = destBody(nil)
@@ -61,7 +61,7 @@ func TestOperatorNotesAPI(t *testing.T) {
 
 	// The destination and model-spec forms don't carry the notes: a save keeps them.
 	var dd adminui.DestDetail
-	apiDo(t, h, "POST", "/app/admin/api/destinations/gh", destBody(map[string]string{"note": "use gh"}), &dd)
+	apiDo(t, h, "POST", "/app/admin/api/destinations/gh", destBody(func(b *adminui.DestFields) { b.Note = "use gh" }), &dd)
 	var sd adminui.SpecDetail
 	apiDo(t, h, "POST", "/app/admin/api/model-specs/fast", specBody(map[string]string{"note": "fast"}), &sd)
 	if dd.Fields.Note != "use gh" || dd.Notes.Markdown != notes["notes"] || sd.Fields.Note != "fast" || sd.Notes.Markdown != notes["notes"] {

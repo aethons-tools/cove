@@ -1,0 +1,11 @@
+/* DestinationPage: the Destination card's endpoints grid and its expanded rows. */
+.jam-dest .dim { color: var(--mantine-color-dimmed); }
+.jam-dest .expr { color: var(--mantine-color-anchor); }
+.jam-dest .tick { color: var(--mantine-color-green-7); }
+.jam-dest .none { color: var(--mantine-color-dimmed); padding: 8px 10px; font-size: var(--mantine-font-size-sm); }
+.jam-dest-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 28px; padding: 10px 14px 14px 36px; }
+.jam-dest-detail .logging { grid-column: 1 / -1; }
+.jam-dest-detail .field { margin-top: 6px; }
+.jam-dest-detail .ro { min-height: 24px; padding-top: 2px; }
+.jam-dest .jam-qgrid .cell { flex-wrap: wrap; row-gap: 2px; }
+.jam-dest .jam-qgrid .cell .mantine-Badge-root { flex-shrink: 0; overflow: visible; }

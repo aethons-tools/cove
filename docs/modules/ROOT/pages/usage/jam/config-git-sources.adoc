@@ -136,7 +136,7 @@ to such a kit (`web@v3`) cannot be written: pin it by name (`web`).
 credential URL is refused this way and never echoed.
 * ``+kits/<n>.source.yml: kit <n> is also kits/<n>/kit.yml+``: keep one form.
 * ``+kits/<n>.source.yml: <fetch error>+``: the fetcher's redacted message
-(xref:usage/jam/kits-git.adoc#errors-and-troubleshooting[kits-git]). This is a refusal,
+(xref:usage/jam/kits-git-errors.adoc[kits-git-errors]). This is a refusal,
 never a delete.
 * ``+kits/<n>.source.yml: kit <a> is also <file>+``: two references load
 different kits under one name.

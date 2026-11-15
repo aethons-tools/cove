@@ -1,0 +1,24 @@
+= The Jam app (UI) — section index
+:summary: Section index for the Jam app's browser UI docs — the `/app` login and routes, old links, the admin console's pages, editing from the UI, attention badges and the Tracking page.
+:read_when: You are using, exposing or changing the Jam app in a browser (`/app`) and need to know which UI doc to open.
+:owns: the map of the UI docs
+:prereqs: INDEX.adoc for the rest of the jam operator docs
+:tier: section
+:updated: 2026-11-13
+
+The Jam app is one browser UI under `/app`: the Inbox for members and the admin console for operators. Start at xref:usage/jam/ui.adoc[ui] for the routes and the login, then open the doc for your task. The Inbox itself is in xref:usage/jam/comms-index.adoc[comms-index].
+
+[%header]
+|===
+|Doc |Read when
+
+|xref:usage/jam/ui.adoc[ui.adoc] |You want to use or expose Jam in a browser (`/app`) — who reaches /app/user vs /app/admin or why you got a 403; configure browser login (redirect URI, scopes, cookies); read the title bar; install the app; or follow an old /ui or /me link. To change something, see ui-editing.md.
+|xref:usage/jam/ui-old-links.adoc[ui-old-links] |You followed an old admin-console page link and want to know where it goes, or you are upgrading a Jam from the `/ui` and `/me` logins to the one `/app` login.
+|xref:usage/jam/ui-console.adoc[ui-console.adoc] |You want to find your way around the admin console — its tabs, the Config tree and page URLs, what the Dashboard, Agents list or Health show, search, the Channel log, or an agent's session timeline.
+|xref:usage/jam/ui-editing.adoc[ui-editing.adoc] |You want to change something from the Jam admin UI — enroll or revoke an agent, add a grant, raise or tear down an agent, request a personal agent, or (on a branch) create a role or edit a kit/destination/model-spec — or a UI write was refused and you want to know why.
+|xref:usage/jam/ui-projects.adoc[ui-projects.adoc] |You are viewing the project list or editing one project in the admin console (Config › Projects) — its overview, members, agents and roles, rooms and messages, escalation, chat service, context — or a role's page (scope, egress, allocation, standing sessions).
+|xref:usage/jam/ui-attention.adoc[ui-attention.adoc] |You see a red or amber badge in the admin console's title bar, on a Config tree node or a row and want to know what it counts and where to fix it.
+|xref:usage/jam/ui-pages.adoc[ui-pages.adoc] |You are viewing or editing one user, agent, destination or model-spec in the admin UI — a user's logins/OIDC/accounts, an agent's grants and its studio's runtime/session/squawks, client env/connector, who uses it — or wondering why the list pages only create.
+|xref:usage/jam/ui-kit-pages.adoc[ui-kit-pages] |You are viewing or changing a kit in the admin console — its versions, a diff between two, pinning, its tracked git source (Sync, Untrack, Track…), the merged chain of a kit built on a parent, pushing a new version, or why Delete is disabled.
+|xref:usage/jam/ui-config.adoc[ui-config.adoc] |You are using the admin console's Tracking page to review or apply the followed config repo, or to confirm its first apply.
+|===

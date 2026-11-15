@@ -26,6 +26,44 @@ func (h *handler) conversationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /app/user/api/conversations/{c}/join", h.apiJoin)
 	mux.HandleFunc("POST /app/user/api/conversations/{c}/leave", h.apiLeave)
 	mux.HandleFunc("POST /app/user/api/conversations/{c}/call-in", h.apiCallIn)
+	mux.HandleFunc("POST /app/user/api/conversations/{c}/resume", h.apiResume)
+}
+
+// apiResume lifts the agent-to-agent limit in {c}
+// (conversations.adoc#rate-limit), for a person who may open the view of
+// one of its sessions: messages from before it never count toward the next
+// trip. Any other conversation is not found.
+func (h *handler) apiResume(w http.ResponseWriter, r *http.Request) {
+	p, ok := jam.ParticipantFrom(r)
+	if !ok {
+		writeAPIError(w, http.StatusForbidden, "forbidden", "sign in as a project member")
+		return
+	}
+	if h.d.AgentLimit == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "unavailable", "the agent-to-agent limit is not wired")
+		return
+	}
+	ch := ident.ID(r.PathValue("c"))
+	if c, ok := h.d.Store.GetChannel(ch); !ok || c.Status != jam.StatusLive || !h.mayResume(r, p, ch) {
+		notFound(w)
+		return
+	}
+	if err := h.d.AgentLimit.Resume(ch); err != nil {
+		h.lg.Error("resume: recording failed", "conversation", string(ch), "error", err.Error())
+		writeAPIError(w, http.StatusInternalServerError, "internal", "could not resume")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// mayResume reports whether p may open the view of one of ch's sessions.
+func (h *handler) mayResume(r *http.Request, p jam.Participant, ch ident.ID) bool {
+	for _, m := range h.d.Store.ChannelMembers(ch) {
+		if inst, ok := h.d.Store.GetInstance(string(m.ParticipantID)); ok && mayOpen(r, p, inst) {
+			return true
+		}
+	}
+	return false
 }
 
 // notFound is every "no such conversation": the same for one the viewer may
@@ -74,7 +112,7 @@ func (h *handler) apiConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	conv.Messages, conv.Earlier = pageOf(conv.Messages, before, int(limit))
 	conv.Sessions = sessionRows(conv.SessionIDs, h.d.Store.ListInstances(), h.presence, h.kitPrep())
-	if inst, ok := h.headSession(p, conv.ChannelID); ok {
+	if inst, ok := h.headSession(r, p, conv.ChannelID); ok {
 		conv.Session = inst.ActorID
 		conv.Color, _ = h.d.Store.SessionColor(inst.ActorID)
 	}

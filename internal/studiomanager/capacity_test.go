@@ -3,6 +3,7 @@ package studiomanager
 import (
 	"context"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +27,7 @@ type fakeBackend struct {
 	paused     []string
 	unpaused   []string
 	caFor      map[string][]byte // container -> InstallSSHUserCA pub
+	addHosts   []string          // the last RunEphemeral's addHosts
 
 	addOnRun bool          // RunEphemeral lists the container it ran, with its labels, as docker would
 	entered  chan struct{} // if set, RunEphemeral sends on it (non-blocking)
@@ -35,6 +37,7 @@ type fakeBackend struct {
 func (f *fakeBackend) RunEphemeral(image, digest, name string, labels []string, dns, addHosts []string, docker bool, mounts ...backend.Mount) (backend.Instance, error) {
 	f.mu.Lock()
 	f.runs++
+	f.addHosts = slices.Clone(addHosts)
 	if f.addOnRun {
 		if f.containers == nil {
 			f.containers = map[string]map[string]string{}

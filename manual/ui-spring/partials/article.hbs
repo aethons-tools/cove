@@ -1,0 +1,9 @@
+{{!-- Jam (adapted from antora-ui-spring's article.hbs, MPL-2.0): the theme's, without breadcrumbs (in main, unindexed) and its "newer version" notice (our banners say it). --}}
+<article class="doc">
+{{#with page.title}}
+<h1 id="page-title" class="page">{{{this}}}</h1>
+{{/with}}
+{{{page.contents}}}
+{{> nav-section-summary}}
+{{> pagination}}
+</article>

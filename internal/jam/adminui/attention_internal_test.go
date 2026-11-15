@@ -45,8 +45,8 @@ func attnFixture(t *testing.T) jam.Store {
 		t.Fatal(err)
 	}
 	for _, d := range []jam.Destination{
-		{Name: "git-a", Route: "/git-a/", Upstream: "https://github.com", Git: true},
-		{Name: "git-b", Route: "/git-b/", Upstream: "https://github.com", Git: true},
+		{Name: "git-a", Endpoints: []jam.Endpoint{{Name: "git-a", Route: "/git-a/", Upstream: "https://github.com", Git: true}}},
+		{Name: "git-b", Endpoints: []jam.Endpoint{{Name: "git-b", Route: "/git-b/", Upstream: "https://github.com", Git: true}}},
 	} {
 		if err := st.AddDestination(d); err != nil {
 			t.Fatal(err)

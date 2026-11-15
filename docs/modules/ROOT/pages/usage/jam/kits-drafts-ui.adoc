@@ -4,9 +4,9 @@
 :owns: the admin console's kit Draft section (on /app/admin/config/kits/<name>, `?dfile=`/`&ddiff=1`), its editor rules, its Published card, its ui kit draft log lines
 :prereqs: kits-drafts.adoc, config-branches.adoc (the Draft section shows only on a branch), ui-editing.adoc for the admin console's write rules
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-13
 
-A kit's page (`/app/admin/config/kits/<name>`, xref:usage/jam/ui-pages.adoc#kit-pages[ui-pages.adoc])
+A kit's page (`/app/admin/config/kits/<name>`, xref:usage/jam/ui-kit-pages.adoc[])
 ends with its *Draft* section, on a branch only (xref:usage/jam/config-branches.adoc[config-branches]). With no draft open it offers *Open draft*
 from any version (current preselected). The opened file is `?dfile=<path>`
 in the page's URL (its diff against the base `&ddiff=1`). The Kits table and

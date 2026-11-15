@@ -2,16 +2,16 @@
 :summary: Running cove `claude` on Google Vertex AI through Jam's broker — the GCP credential stays on the Jam host as an `exchange: gcp` credential, each region is one path-guarded destination, and the cove holds only its Jam identity.
 :read_when: You want a role's coves to run Claude on Vertex AI under Jam, are adding or changing a Vertex region or GCP project, or a Vertex cove gets 403 "path not allowed" / 502 "credential unavailable".
 :owns: the Vertex brokering recipe — the per-region vertex destination (route, upstream, client env, allow-paths), the model-spec it pairs with, and why the cove needs no GCP credential or Google egress
-:prereqs: serve.adoc#destinations for the destination verb; credentials.adoc for `exchange: gcp`; model-specs.adoc for `claude.provider`
+:prereqs: destinations.adoc for the destination verb; credentials.adoc for `exchange: gcp`; model-specs.adoc for `claude.provider`
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-13
 
 A cove on a `+provider: vertex+` model-spec reaches Vertex *only through the
 broker*. The Google credentials JSON stays on the Jam host as an
 xref:usage/jam/credentials.adoc#demand-and-supply[`+exchange: gcp+`] credential. The broker
 injects a short-lived access token that it refreshes itself, so the cove holds
 nothing but its Jam identity. This is the same model as the
-xref:usage/jam/serve.adoc#destinations[anthropic destination].
+xref:usage/jam/destinations.adoc[anthropic destination].
 
 [#1-the-credential]
 == 1. The credential
@@ -78,7 +78,7 @@ allow_paths:
 turn the route into a general Vertex AI proxy holding the service account's
 powers. The patterns pin the project, the region and Anthropic's
 publisher models. Token counting (`+count-tokens:rawPredict+`) is covered by the
-first pattern. See xref:usage/jam/serve.adoc#destinations[Destinations] for the pattern rules.
+first pattern. See xref:usage/jam/destinations.adoc[Destinations] for the pattern rules.
 * The cove's `Authorization` carries its identity token, as on the anthropic
 route. The broker strips it and applies the GCP token, so the identity never
 reaches Google.

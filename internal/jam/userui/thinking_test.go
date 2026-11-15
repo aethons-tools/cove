@@ -16,7 +16,7 @@ import (
 )
 
 func TestThinkingHiddenFromOutsiders(t *testing.T) {
-	e, p, personal, store, _ := thinkEnv(t)
+	e, _, personal, store, _ := thinkEnv(t)
 	appendText(t, store, personal.ActorID, 1, 3)
 	bob := jam.Participant{UserID: ident.New(ident.User), Name: "bob", Projects: []string{"proj"}}
 	h := Handler(e.Deps, nil)
@@ -27,13 +27,13 @@ func TestThinkingHiddenFromOutsiders(t *testing.T) {
 			t.Errorf("outsider %s = %d", path, c)
 		}
 	}
-	// A member removed from the home channel loses it too.
-	if err := e.st.LeaveChannel(ident.ID(e.homeOf(t, personal)), p.UserID, 0); err != nil {
+	// Being in the session's home channel isn't enough.
+	if err := e.st.JoinChannel(ident.ID(e.homeOf(t, personal)), bob.UserID, 0); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range paths {
-		if c := thinkGet(h, p, path).Code; c != http.StatusNotFound {
-			t.Errorf("removed member %s = %d", path, c)
+		if c := thinkGet(h, bob, path).Code; c != http.StatusNotFound {
+			t.Errorf("a member of its channel %s = %d", path, c)
 		}
 	}
 }
@@ -62,7 +62,7 @@ func TestThinkingNoStore(t *testing.T) {
 }
 
 // An open feed ends (at the next keep-alive) once its viewer loses the
-// session's home channel.
+// session: it ended.
 func TestThinkingEventsEndOnRevoke(t *testing.T) {
 	old := sessionview.KeepAlive
 	sessionview.KeepAlive = 10 * time.Millisecond
@@ -82,7 +82,8 @@ func TestThinkingEventsEndOnRevoke(t *testing.T) {
 	rd := sseLines(resp.Body)
 	var buf strings.Builder
 	sseRead(t, rd, &buf, "id: "+thinkStream+":1")
-	if err := e.st.LeaveChannel(ident.ID(e.homeOf(t, personal)), p.UserID, 0); err != nil {
+	personal.Phase = jam.PhaseGone
+	if err := e.st.PutInstance(personal); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.After(5 * time.Second)
@@ -93,7 +94,7 @@ func TestThinkingEventsEndOnRevoke(t *testing.T) {
 				return
 			}
 		case <-deadline:
-			t.Fatal("a removed member's feed is still open")
+			t.Fatal("an ended session's feed is still open")
 		}
 	}
 }

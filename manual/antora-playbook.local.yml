@@ -37,10 +37,14 @@ asciidoc:
   extensions:
   # Drops `[.internal]` blocks and sections when `internal` is unset.
   - ./extensions/internal-blocks.js
+# spring-io/antora-ui-spring (MPL-2.0), fetched and sha256-verified by
+# scripts/manual-ui.sh (Antora can't verify a bundle it fetches), plus our
+# supplemental files. The customer manual keeps ./ui. See
+# docs/modules/ROOT/pages/manual-books.adoc ("The team site's UI").
 ui:
   bundle:
-    url: ./ui
-    snapshot: true
+    url: ./build/ui-spring.zip
+  supplemental_files: ./ui-spring
 output:
   dir: ./build/site
 runtime:

@@ -29,7 +29,7 @@ func suggestions(t *testing.T, h http.Handler, query string) []string {
 func suggestFixture(t *testing.T) http.Handler {
 	t.Helper()
 	store := seedProjects(t) // acme (dev, ops; alice; eng), beta, default (solo)
-	if err := store.AddDestination(jam.Destination{Name: "git", Route: "/git/", Upstream: "https://github.com"}); err != nil {
+	if err := store.AddDestination(jam.Destination{Name: "git", Endpoints: []jam.Endpoint{{Name: "git", Route: "/git/", Upstream: "https://github.com"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := jam.PushStudioKit(store, "web", "kind: studio\n"); err != nil {

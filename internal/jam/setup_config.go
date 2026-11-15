@@ -48,21 +48,38 @@ func destinationsBody(store Store, a Actor) string {
 			fmt.Fprintf(&sb, "%s: not configured (skipped)\n", SafeText(n))
 			continue
 		}
-		git := "no"
-		if d.GitRouted() {
-			git = "routed (" + flat(snippet.RewriteTargetFor(d.Upstream)) + ")"
-		}
 		fmt.Fprintf(&sb, "%s\n", SafeText(d.Name))
-		fmt.Fprintf(&sb, "  route:       %s\n", SafeText(d.Route))
-		fmt.Fprintf(&sb, "  upstream:    %s\n", displayURL(d.Upstream))
-		fmt.Fprintf(&sb, "  identity-in: %s\n", inboundText(d.IdentityIn, d.IdentityInSpec))
-		fmt.Fprintf(&sb, "  apply:       %s\n", outboundText(d.Apply, d.ApplySpec))
-		fmt.Fprintf(&sb, "  credential:  %s\n", cmp.Or(SafeText(cmp.Or(creds[n], d.CredName)), "none"))
-		fmt.Fprintf(&sb, "  git:         %s\n", git)
-		fmt.Fprintf(&sb, "  allow-paths: %s\n", joinOr(flatAll(d.AllowPaths), "any"))
+		cred := cmp.Or(SafeText(cmp.Or(creds[n], d.CredName)), "none")
+		if len(d.Endpoints) == 1 { // the pre-endpoints layout
+			writeEndpointConfig(&sb, "  ", d, d.Endpoints[0], cred)
+		} else {
+			fmt.Fprintf(&sb, "  credential:  %s\n", cred)
+			for _, e := range d.Endpoints {
+				fmt.Fprintf(&sb, "  endpoint %s\n", SafeText(e.Name))
+				writeEndpointConfig(&sb, "    ", d, e, "")
+			}
+		}
 		fmt.Fprintf(&sb, "  env keys:    %s\n", joinOr(slices.Sorted(maps.Keys(d.ClientEnv())), "none"))
 	}
 	return sb.String()
+}
+
+// writeEndpointConfig writes e's lines, an endpoint of d, each indented by
+// ind; the credential line too when cred is set.
+func writeEndpointConfig(sb *strings.Builder, ind string, d Destination, e Endpoint, cred string) {
+	git := "no"
+	if d.RoutesGit(e) {
+		git = "routed (" + flat(snippet.RewriteTargetFor(e.Upstream)) + ")"
+	}
+	fmt.Fprintf(sb, "%sroute:       %s\n", ind, SafeText(e.Route))
+	fmt.Fprintf(sb, "%supstream:    %s\n", ind, displayURL(e.Upstream))
+	fmt.Fprintf(sb, "%sidentity-in: %s\n", ind, inboundText(e.IdentityIn, e.IdentityInSpec))
+	fmt.Fprintf(sb, "%sapply:       %s\n", ind, outboundText(e.Apply, e.ApplySpec))
+	if cred != "" {
+		fmt.Fprintf(sb, "%scredential:  %s\n", ind, cred)
+	}
+	fmt.Fprintf(sb, "%sgit:         %s\n", ind, git)
+	fmt.Fprintf(sb, "%sallow-paths: %s\n", ind, joinOr(flatAll(e.AllowPaths), "any"))
 }
 
 func inboundText(m ApplyMethod, s *InboundSpec) string {

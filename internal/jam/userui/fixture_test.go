@@ -120,8 +120,8 @@ func (f *fakeOps) Upgrade(inst jam.Instance) (string, error) {
 
 func (f *fakeOps) UpgradeState(jam.Instance) string { return "" }
 
-// sessionEnv adds sessions with home channels alice is in: her personal
-// session and a standing one; ops and events are fakes.
+// sessionEnv adds sessions alice has a dm with: her personal session and a
+// standing one; ops and events are fakes.
 func sessionEnv(t *testing.T) (*env, jam.Participant, jam.Instance, jam.Instance, *fakeOps) {
 	t.Helper()
 	e, p := fixture()
@@ -137,13 +137,7 @@ func sessionEnv(t *testing.T) (*env, jam.Participant, jam.Instance, jam.Instance
 		if err := e.st.PutInstance(inst); err != nil {
 			t.Fatal(err)
 		}
-		ch, err := e.Intercom.HomeChannel(inst)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := e.st.JoinChannel(ch.ID, p.UserID, 0); err != nil {
-			t.Fatal(err)
-		}
+		e.homeOf(t, inst)
 	}
 	_ = events.Append(sessionevents.Event{ActorID: personal.ActorID, StreamID: "s", Seq: 1, Kind: sessionevents.KindEvent, Turn: 1, ObservedAt: now,
 		Raw:   []byte(`{"type":"result","modelUsage":{"claude-x":{"contextWindow":200000}}}`),
@@ -163,17 +157,19 @@ func asPrincipal(r *http.Request, p jam.Participant, admin bool) *http.Request {
 	return appui.WithPrincipal(r, pr)
 }
 
+// homeOf is the dm between alice and live session inst (created on first
+// use): her conversation with it.
 func (e *env) homeOf(t *testing.T, inst jam.Instance) string {
 	t.Helper()
-	ch, err := e.Intercom.HomeChannel(inst)
+	pl, err := e.Intercom.PlanSessionDM(e.alice.ID, inst.ActorID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(ch.ID)
+	return string(pl.Channel.ID)
 }
 
-// ticketSession adds a ticket session (COV-1) whose home is its ticket
-// channel, with a session channel of its own besides; p is in both.
+// ticketSession adds a ticket session (COV-1), the worker of its work log,
+// with a session channel an older Jam made besides (archived); p is in both.
 func ticketSession(t *testing.T, e *env, p jam.Participant) (inst jam.Instance, ticket, own ident.ID) {
 	t.Helper()
 	e.Deps.Intercom = jam.NewIntercom(e.st, func() (ident.ID, bool) { return "linear", true }, e.lg, nil, nil) // a tracker: ticket channels
@@ -182,12 +178,15 @@ func ticketSession(t *testing.T, e *env, p jam.Participant) (inst jam.Instance, 
 		t.Fatal(err)
 	}
 	proj, _ := e.st.GetProject("proj")
-	tc, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceTicket, Key: "linear/COV-1", Label: "COV-1"})
+	tc, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceWork, Key: "linear/COV-1", Label: "COV-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	oc, err := e.st.CreateChannel(jam.Channel{ID: ident.New(ident.Channel), ProjectID: proj.ID, Kind: jam.SourceSession, Key: inst.ActorID, Label: "own"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.st.SetChannelWorker(tc.ID, ident.ID(inst.ActorID)); err != nil {
 		t.Fatal(err)
 	}
 	for _, ch := range []ident.ID{tc.ID, oc.ID} {
@@ -319,4 +318,11 @@ func isIn(st *jam.MemStore, ch, p ident.ID) bool {
 		}
 	}
 	return false
+}
+
+// homeCh is the dm between alice and live session inst, created on first
+// use (homeOf, with its error).
+func (e *env) homeCh(inst jam.Instance) (jam.Channel, error) {
+	pl, err := e.Intercom.PlanSessionDM(e.alice.ID, inst.ActorID)
+	return pl.Channel, err
 }

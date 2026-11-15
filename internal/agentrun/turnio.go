@@ -22,7 +22,8 @@ type TurnIO interface {
 	// oldest first; more reports whether others wait beyond them.
 	Inbox(ctx context.Context, limit int) (es []InboxEntry, more bool, err error)
 	// Post posts text as the session, marked as a turn end's (auto): to its
-	// home channel, or to the target to names.
+	// default conversation (Jam's: where it was last messaged), or to the
+	// target to names.
 	Post(ctx context.Context, text, to string) error
 	// Commit advances the session's commit cursor to upTo.
 	Commit(ctx context.Context, upTo string) error
@@ -51,6 +52,7 @@ type InboxEntry struct {
 	ContentType string      `json:"content_type"`
 	Channel     InboxParty  `json:"channel"`
 	From        InboxParty  `json:"from"`
+	ReplyTo     string      `json:"reply_to"` // the send address that replies in Channel ("" from an older Jam)
 	Parts       []InboxPart `json:"parts"`
 }
 

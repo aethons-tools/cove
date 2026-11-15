@@ -145,15 +145,20 @@ func TestBoardsNoOpMergeIsQuiet(t *testing.T) {
 	}
 }
 
-func TestBoardsSessionCreatesAtHome(t *testing.T) {
+// A session's board with no target goes to its default conversation: for
+// a personal session, the dm with its starter.
+func TestBoardsSessionCreatesInItsDefaultConversation(t *testing.T) {
 	f := newICFixture(t)
 	bs := NewBoards(f.log, f.ic)
-	b, err := bs.Create(f.poster(f.standing), "", "Plan", f.now)
+	b, err := bs.Create(f.poster(f.personal), "", "Plan", f.now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if home, _ := f.ic.HomeChannel(f.standing); b.Channel != home.ID {
-		t.Fatalf("board in %s, want the home channel", b.Channel)
+	if dm := f.starterDM(f.personal); b.Channel != dm.ID {
+		t.Fatalf("board in %s, want the starter's dm %s", b.Channel, dm.ID)
+	}
+	if _, err := bs.Create(f.poster(f.standing), "", "Plan", f.now); !errors.Is(err, ErrSendNeedsTo) {
+		t.Fatalf("a standing session's board with no target: %v, want ErrSendNeedsTo", err)
 	}
 }
 
@@ -209,6 +214,7 @@ func TestBoardsHTTP(t *testing.T) {
 
 func TestBoardsAgentRoutes(t *testing.T) {
 	f := newSqFixture(t)
+	f.defaultGroup(f.standing, f.alice.ID) // where its asks and boards go with no `to`
 	f.h.SetBoards(NewBoards(f.log, f.ic))
 	rec := f.do(http.MethodPost, "/squawks/boards", f.standing, `{"title":"Arch"}`)
 	var c struct {

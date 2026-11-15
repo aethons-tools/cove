@@ -1,13 +1,17 @@
-import type { DestDetail, DestFields, SpecDetail, SpecFields } from "../api/types";
+import type { DestDetail, DestEndpoint, DestFields, SpecDetail, SpecFields } from "../api/types";
+
+export const endpoint = (e: Partial<DestEndpoint> = {}): DestEndpoint => ({
+  name: "gh", subdomain: "", route: "/gh/", upstream: "https://api.github.com", identityIn: "bearer", identityInSpec: null, apply: "bearer", applySpec: null,
+  allowPaths: [], git: false, logHeadersIn: "none", logHeadersOut: "none", ...e,
+});
 
 export const destFields = (f: Partial<DestFields> = {}): DestFields => ({
-  route: "/gh/", upstream: "https://api.github.com", identityIn: "bearer", apply: "bearer", credName: "gh-pat", env: "GH_HOST={host}",
-  allowPaths: "", note: "", logHeadersIn: "none", logHeadersOut: "none", git: false, ...f,
+  credName: "gh-pat", note: "", env: [{ key: "GH_HOST", template: "{host}" }], endpoints: [endpoint()], ...f,
 });
 
 export const dest = (d: Partial<DestDetail> = {}): DestDetail => ({
-  name: "gh", fields: destFields(), methods: ["bearer", "x-api-key", "basic"], identityInSpec: "", applySpec: "",
-  allowPaths: [], env: [{ key: "GH_HOST", template: "api.github.com" }], envImplied: false, gitRouted: false, gitImplied: false,
+  name: "gh", fields: destFields(), methods: ["bearer", "x-api-key", "basic"],
+  env: [{ key: "GH_HOST", template: "api.github.com" }], envImplied: false, gitRouted: false, gitImplied: false,
   uses: [{ project: "acme", role: "coder", cred: "", credIsRole: false }, { project: "acme", role: "rev", cred: "rev-pat", credIsRole: true }],
   conflicts: [], conflictRoles: [], notes: { markdown: "", html: "" }, ...d,
 });

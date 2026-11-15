@@ -12,9 +12,9 @@ import (
 
 func TestBuildTitleAndFields(t *testing.T) {
 	f := newFake()
-	m := intercom.Squawk{ID: "sq-1", Channel: sess, From: ses, Body: "Review done: 3 comments"}
+	m := intercom.Squawk{ID: "sq-1", Channel: tick, From: ses, Body: "Review done: 3 comments"}
 	got := Build(f, m, Recipient{User: u1, Reason: ReasonMessage}, 7, true)
-	want := Payload{Title: "Code-review agent · PR #812 review", Body: "Review done: 3 comments", Channel: string(sess), ID: "sq-1", Unread: 7, Kind: "messages"}
+	want := Payload{Title: "Code-review agent · ACME-7", Body: "Review done: 3 comments", Channel: string(tick), ID: "sq-1", Unread: 7, Kind: "messages"}
 	if got != want {
 		t.Fatalf("Build = %+v, want %+v", got, want)
 	}

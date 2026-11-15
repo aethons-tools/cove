@@ -1,10 +1,12 @@
-import { ActionIcon, Badge, Button, Group, Loader, Menu, Modal, Stack, Text } from "@mantine/core";
+import { ActionIcon, Anchor, Badge, Button, Group, Loader, Menu, Modal, Stack, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router";
 import { apiPost, type ApiError } from "../api/client";
 import type { SessionHead } from "../api/types";
 import { copyText } from "../conversation/copy";
+import { APP } from "../paths";
 import { PANE_TABS, TAB_LABEL, type PaneTab } from "./layout";
 import { vscodeLink, vscodiumLink } from "./vscode";
 
@@ -26,9 +28,10 @@ function confirmText(a: Action, h: SessionHead): string | null {
 const actionLabel = (a: Action) => a[0]!.toUpperCase() + a.slice(1);
 
 // SessionHeader is a session's header: who it is, what it's doing, what it
-// costs, its pane's tabs (when onTab is given), and its actions. The server re-checks every
-// action; a refusal shows its message.
-export function SessionHeader({ head: h, tab, onTab }: { head: SessionHead; tab?: PaneTab | null; onTab?: (t: PaneTab) => void }) {
+// costs, its pane's tabs (when onTab is given), and its actions; linked makes
+// the name a link to the session view. The server re-checks every action; a
+// refusal shows its message.
+export function SessionHeader({ head: h, tab, onTab, linked }: { head: SessionHead; tab?: PaneTab | null; onTab?: (t: PaneTab) => void; linked?: boolean }) {
   const client = useQueryClient();
   const [asking, setAsking] = useState<Action | null>(null);
   const run = useMutation<void, ApiError, Action>({
@@ -47,7 +50,9 @@ export function SessionHeader({ head: h, tab, onTab }: { head: SessionHead; tab?
       style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
       <Stack gap={0} maw={360}>
         <Group gap={6} wrap="nowrap">
-          <Text fw={700} size="sm">{h.label}</Text>
+          {linked
+            ? <Anchor component={Link} to={`${APP}s/${encodeURIComponent(h.id)}`} fw={700} size="sm" c="inherit" underline="hover">{h.label}</Anchor>
+            : <Text fw={700} size="sm">{h.label}</Text>}
           <Badge size="xs" variant="light">{h.kind}</Badge>
           {h.ticket && <Badge size="xs" variant="outline">{h.ticket}</Badge>}
         </Group>

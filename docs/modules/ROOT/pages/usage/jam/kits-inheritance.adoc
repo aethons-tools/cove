@@ -4,7 +4,7 @@
 :owns: the kit-inheritance story — the `base.kit` syntax and its refusals, follow vs pin, the chain cap/cycle/missing-parent errors, the merge rules, store-time checks on the merged kit, the stage-by-stage chain build and stage cache, chain staleness, the recorded raise chain, the delete chain guard, and the chain in `kit show`/`kit list`
 :prereqs: kits.adoc for the StudioKit schema, versions and the `kit` verbs
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-13
 
 A studio kit can name another registered kit as its *parent*. Its image then
 builds on the parent's image, and its definition (egress, MCP servers, build
@@ -121,7 +121,7 @@ A chained kit's build digest covers every link's build-affecting fields
 When a parent that a kit follows changes one of those, directly or further up
 the chain, its running studios show
 xref:usage/jam/coves.adoc#the-studio-verbs[`image=stale`];
-xref:usage/jam/standing-sessions.adoc#upgrading-a-standing-session[`standing upgrade`] moves a
+xref:usage/jam/standing-upgrade.adoc[`standing upgrade`] moves a
 standing one to the new image. A pinned parent's later versions don't make a
 child stale. A pin fixes only its own link, though: if the pinned version
 itself follows _its_ parent, changes further up still reach the child. A
@@ -154,7 +154,7 @@ that doesn't resolve prints `+# chain error: …+` and falls back to the kit's o
 YAML.
 * *``kit list``* adds `+parent=<name>[@vN]+` to a chained kit's row.
 * *The kit page* shows _Built on_, _Effective_ and child kits under _Used by_
-(xref:usage/jam/ui-pages.adoc#kit-pages[ui-pages.adoc]).
+(xref:usage/jam/ui-kit-pages.adoc[]).
 
 [#kits-from-git]
 == Kits from git

@@ -17,7 +17,7 @@ This run gated the removal of the in-process launcher (done in plan 6); the runb
 * A trusted cert for `jam.local.aethons.tools` in the secrets directory's `tls/`, and the OIDC tenant from the container config (xref:usage/jam/container.adoc#running-it-with-the-dev-compose[container]).
 * Jam and the manager on one version (xref:usage/jam/container.adoc#version-lockstep[lockstep]): `just build && just jam-image` from one checkout, or a release image with that release's `jam-colima`.
 * The `anthropic` and `git` destinations need credentials in the container: uncomment the `anthropic-key` and `git-pat` placeholders in `dev/jam.container.yml` and the secrets directory's `credentials.yml`, fill in real values, and restart Jam (`just dev-jam-up`).
-* After step 2, a project and a role that grant the `anthropic` and `git` destinations (xref:usage/jam/roster.adoc[], xref:usage/jam/coves.adoc#raising-a-real-managed-studio[coves]), and a kit for the role (xref:usage/jam/kits.adoc[kits]), committed to the config repo the Jam follows (a local one: https://github.com/aethons-tools/cove/blob/main/dev/README.md#config-a-local-repo[dev/README.md]).
+* After step 2, a project and a role that grant the `anthropic` and `git` destinations (xref:usage/jam/roster.adoc[], xref:usage/jam/coves-raise.adoc[coves-raise]), and a kit for the role (xref:usage/jam/kits.adoc[kits]), committed to the config repo the Jam follows (a local one: https://github.com/aethons-tools/cove/blob/main/dev/README.md#config-a-local-repo[dev/README.md]).
 * `jam` on the Mac, signed in: `+jam login --admin-url https://jam.local.aethons.tools:8081+` (xref:usage/jam/container.adoc#admin-access[admin access]).
 
 The examples use the manager name `mac-1`, the role `acme/guest` and the kit `app`.
@@ -47,7 +47,7 @@ The agent reaches Anthropic and git through Jam (activity `running`, then `waiti
 Change a build-affecting field of the role's kit (`kits/app/` in the config repo), commit it and wait for Jam to apply it (`jam config status`), then raise `live-2` as in item 5.
 Expect: the manager builds the new image, and the raise waits for it, then goes `live`.
 `jam role images acme/guest` shows a `mac-1` row with the new tag.
-. *Pause and unpause.* There is no pause verb: Jam pauses through the idle ladder (xref:usage/jam/intercom.adoc#waiting-for-a-reply-wake-on[wake-on]).
+. *Pause and unpause.* There is no pause verb: Jam pauses through the idle ladder (xref:usage/jam/wake-on.adoc[wake-on]).
 Leave `live-1` `waiting` past `runtime.wake.warm-timeout` (default 60s).
 Expect: `studio list` shows phase `idled`, and `docker ps` shows the container `(Paused)`.
 Then send the session a message in the Inbox (`/app/user`).

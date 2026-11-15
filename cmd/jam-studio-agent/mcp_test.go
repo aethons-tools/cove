@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/aethons-tools/cove/internal/jam"
@@ -63,6 +64,15 @@ func connectMCP(t *testing.T, getenv func(string) string) *mcp.ClientSession {
 	t.Helper()
 	ctx := context.Background()
 
+	// Hermetic: never the studio's real agent socket.
+	none := filepath.Join(t.TempDir(), "none.sock")
+	inner := getenv
+	getenv = func(k string) string {
+		if v := inner(k); v != "" || k != "JAM_AGENT_SOCKET" {
+			return v
+		}
+		return none
+	}
 	srv := newMessagingServer(getenv)
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 
@@ -139,6 +149,25 @@ func TestMCPSendForwardsToJam(t *testing.T) {
 	}
 }
 
+// send's mentions reach Jam as the request's mentions.
+func TestMCPSendForwardsMentions(t *testing.T) {
+	fh := &fakeJam{}
+	backend := httptest.NewServer(fh.handler())
+	defer backend.Close()
+	env := map[string]string{"JAM_RUNTIME_ADDR": backend.URL, "JAM_IDENTITY_TOKEN": "tok-A"}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "send",
+		Arguments: map[string]any{"text": "over to you", "to": "channel:ops", "mentions": []string{"session:editor"}},
+	})
+	if err != nil || res.IsError {
+		t.Fatalf("CallTool(send) = %+v, %v", res, err)
+	}
+	if got, _ := json.Marshal(fh.gotBody["mentions"]); string(got) != `["session:editor"]` {
+		t.Fatalf("Jam saw mentions %s, want [session:editor]", got)
+	}
+}
+
 func TestMCPReadReturnsInbox(t *testing.T) {
 	fh := &fakeJam{inbox: []squawkOut{
 		{ID: "m1", Author: "brent", Body: "hello", At: "2026-09-13T00:00:00Z"},
@@ -204,7 +233,7 @@ func TestMCPSendForwardsTo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := c.send(context.Background(), "hi", "human:alice", "")
+	out, err := c.send(context.Background(), sendIn{Text: "hi", To: "human:alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +260,7 @@ func TestMCPSendReturnsIDAndChannel(t *testing.T) {
 		}
 		return ""
 	})
-	out, err := c.send(context.Background(), "hi", "", "")
+	out, err := c.send(context.Background(), sendIn{Text: "hi"})
 	if err != nil || out.ID != "m1" || out.Channel != (partyOut{ID: "chn_x", Kind: "ticket", Label: "ACME-7"}) {
 		t.Fatalf("send = %+v, %v", out, err)
 	}
@@ -788,11 +817,11 @@ func TestMCPTurnEndForwardsToAgentSocket(t *testing.T) {
 
 	env := map[string]string{"JAM_RUNTIME_ADDR": "http://127.0.0.1:1", "JAM_IDENTITY_TOKEN": "tok", "JAM_AGENT_SOCKET": sock}
 	sess := connectMCP(t, func(k string) string { return env[k] })
-	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "turn_end", Arguments: map[string]any{"commit": false, "next": "end", "reason": "done"}})
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "turn_end", Arguments: map[string]any{"commit": false, "next": "end", "reason": "done", "no_reply": true}})
 	if err != nil || res.IsError {
 		t.Fatalf("turn_end: %v %+v", err, res)
 	}
-	if got["commit"] != false || got["next"] != "end" || got["reason"] != "done" {
+	if got["commit"] != false || got["next"] != "end" || got["reason"] != "done" || got["no_reply"] != true {
 		t.Fatalf("socket got %v", got)
 	}
 
@@ -844,5 +873,130 @@ func TestMCPKeepToolsForwardToAgentSocket(t *testing.T) {
 	}
 	if strings.Join(seen, ",") != "POST /keeps,GET /keeps,DELETE /keeps/preview" {
 		t.Fatalf("socket saw %v", seen)
+	}
+}
+
+// fakeAgentSocket serves the agent socket's turn routes at a fresh path: GET
+// /turn answers state, and every POST /turn/sent body is recorded.
+func fakeAgentSocket(t *testing.T, state string) (sock string, sent func() []string) {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "as")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock = filepath.Join(dir, "a.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var got []string
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "GET /turn":
+			_, _ = io.WriteString(w, state)
+		case "POST /turn/sent":
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			got = append(got, strings.TrimSpace(string(b)))
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("socket got %s %s", r.Method, r.URL.Path)
+		}
+	})}
+	go srv.Serve(ln)
+	t.Cleanup(func() { srv.Close() })
+	return sock, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), got...)
+	}
+}
+
+// A send, an ask or a whiteboard with no to goes where the turn's last send
+// went; a turn's first one needs one. send, ask and report tell the agent socket the turn sent.
+func TestMCPSendDefaultsToTurnsLastSend(t *testing.T) {
+	fh := &fakeJam{}
+	var backendPosts func(path, body string)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/squawks" {
+			fh.handler()(w, r)
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		if backendPosts != nil {
+			backendPosts(r.URL.Path, string(b))
+		}
+		_, _ = io.WriteString(w, `{}`) // ask, report, board_create
+	}))
+	defer backend.Close()
+	sock, sent := fakeAgentSocket(t, `{"structured":true,"last_to":"user:ann"}`)
+	env := map[string]string{"JAM_RUNTIME_ADDR": backend.URL, "JAM_IDENTITY_TOKEN": "tok", "JAM_AGENT_SOCKET": sock}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+	ctx := context.Background()
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "send", Arguments: map[string]any{"text": "more"}})
+	if err != nil || res.IsError {
+		t.Fatalf("send: %v %+v", err, res)
+	}
+	if fh.gotBody["to"] != "user:ann" {
+		t.Fatalf("Jam saw %v, want to user:ann", fh.gotBody)
+	}
+	posted := map[string]string{}
+	backendPosts = func(path, body string) { posted[path] = body }
+	ask := &mcp.CallToolParams{Name: "ask", Arguments: map[string]any{"question": "ok?", "options": []map[string]any{{"id": "y", "label": "yes"}, {"id": "n", "label": "no"}}}}
+	board := &mcp.CallToolParams{Name: "board_create", Arguments: map[string]any{"title": "Plan"}}
+	for _, call := range []*mcp.CallToolParams{
+		ask,
+		{Name: "report", Arguments: map[string]any{"state": "in-progress", "summary": "going"}},
+		board,
+	} {
+		if res, err := sess.CallTool(ctx, call); err != nil || res.IsError {
+			t.Fatalf("%s: %v %+v", call.Name, err, res)
+		}
+	}
+	for _, path := range []string{"/squawks/ask", "/squawks/boards"} {
+		if !strings.Contains(posted[path], `"to":"user:ann"`) {
+			t.Fatalf("Jam saw %s %q, want to user:ann (the turn's last send)", path, posted[path])
+		}
+	}
+	want := []string{`{"tool":"send","to":"user:ann"}`, `{"tool":"ask"}`, `{"tool":"report"}`}
+	if got := sent(); !slices.Equal(got, want) {
+		t.Fatalf("socket heard %q, want %q", got, want)
+	}
+
+	sock, sent = fakeAgentSocket(t, `{"structured":true}`)
+	env["JAM_AGENT_SOCKET"] = sock
+	fh.gotBody = nil
+	sess = connectMCP(t, func(k string) string { return env[k] })
+	res, err = sess.CallTool(ctx, &mcp.CallToolParams{Name: "send", Arguments: map[string]any{"text": "hi"}})
+	if err != nil || !res.IsError || !strings.Contains(fmt.Sprint(res.Content[0]), "needs a `to`") || fh.gotBody != nil || len(sent()) != 0 {
+		t.Fatalf("first send without to: %v %+v (Jam saw %v)", err, res, fh.gotBody)
+	}
+	clear(posted)
+	for _, call := range []*mcp.CallToolParams{ask, board} {
+		res, err := sess.CallTool(ctx, call)
+		if err != nil || !res.IsError || !strings.Contains(fmt.Sprint(res.Content[0]), call.Name+" needs a `to`") {
+			t.Fatalf("first %s without to: %v %+v", call.Name, err, res)
+		}
+	}
+	if len(posted) != 0 || len(sent()) != 0 {
+		t.Fatalf("a refused first post reached Jam (%v) or the socket (%v)", posted, sent())
+	}
+}
+
+// Jam's 400 for a send with no to (the socket unreachable) reads as the
+// same refusal.
+func TestMCPSendWithoutToRefusedByJam(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "send needs a `to`", http.StatusBadRequest)
+	}))
+	defer backend.Close()
+	env := map[string]string{"JAM_RUNTIME_ADDR": backend.URL, "JAM_IDENTITY_TOKEN": "tok"}
+	sess := connectMCP(t, func(k string) string { return env[k] })
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "send", Arguments: map[string]any{"text": "hi"}})
+	if err != nil || !res.IsError || !strings.Contains(fmt.Sprint(res.Content[0]), "a turn's first send names its conversation") {
+		t.Fatalf("%v %+v", err, res)
 	}
 }

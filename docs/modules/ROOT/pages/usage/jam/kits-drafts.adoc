@@ -4,7 +4,7 @@
 :owns: kit drafts — opening one, the draft's status and problems, the ETag rule, publishing a draft (a commit of the kit's files), where a draft lives
 :prereqs: config-branches.adoc (branches and saves), kits.adoc, kits-directory.adoc
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-14
 
 A kit's files change only by a commit to the config repo. In the admin
 console that is a *draft* on a branch (xref:usage/jam/config-branches.adoc[config-branches]):
@@ -95,6 +95,9 @@ one commit, authored by the operator.
 A draft can be built before it is published, to check that it builds. The
 build commits nothing and starts no studio; the kit's real image is still
 built when the merged version is raised. There is no draft studio.
+The admin console has no control for test builds;
+only the VS Code extension's *Build Kit Draft* calls these routes
+(xref:usage/jam/vscode-kits.adoc[vscode-kits]).
 
 [%header]
 |===

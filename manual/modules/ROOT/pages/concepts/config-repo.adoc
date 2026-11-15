@@ -1,0 +1,122 @@
+= The config repo and its branches
+:page-area: ROOT
+:page-id: ROOT/concepts/config-repo
+:page-conventions: sentence-case
+
+Jam keeps its configuration in a git repository,
+the *config repo*.
+The repo holds small text files,
+one for each thing you configure.
+You review and merge changes to it like code,
+and git keeps the history of every change.
+
+To edit the config in the admin console,
+see xref:configuration/config-branches.adoc[].
+
+== Config and live state
+
+*Config* is what the repo holds:
+
+* xref:concepts/project.adoc[projects],
+with their members, rooms, escalation and agent context;
+* the xref:concepts/agent.adoc[roles] of each project;
+* users;
+* xref:concepts/kit.adoc[kits];
+* xref:concepts/destination.adoc[destinations];
+* xref:concepts/model-spec.adoc[model specs];
+* connections to chat services;
+* the agent context for the whole Jam.
+
+*Live state* is what happens while Jam runs.
+It is never in the repo,
+and you change it directly, with no branch:
+
+* sessions: the agents Jam raises, and their studios;
+* grants, and the agents you enroll by hand;
+* people's sign-ins, accounts and app tokens;
+* messages, channels and asks on the intercom.
+
+The repo names credentials,
+such as `github-pat`,
+but never holds their values.
+Jam gets the values from where it runs.
+
+== Following the repo
+
+A Jam *follows* one branch of one config repo,
+usually `main`.
+The person who runs the Jam sets which repo and branch in its server settings.
+
+Jam checks the branch every minute.
+When a new commit is there,
+Jam applies it:
+it makes its own config match the files.
+The repo always wins.
+If something in Jam differs from the repo,
+the apply sets it back to what the repo says.
+
+An object the repo once applied is *managed*.
+If you remove its file from the repo,
+Jam deletes the object.
+Jam refuses to delete something that is still in use,
+such as a kit that a role builds on.
+Objects that Jam made itself,
+and that the repo doesn't hold,
+are *unmanaged*:
+Jam never changes or deletes them.
+The default kit and the `claude-default` model spec are examples.
+
+If a commit has an error,
+Jam applies none of it.
+It keeps running the last config that worked,
+shows the error on the *Tracking* page,
+and tries again each minute.
+
+The first time a Jam follows a repo,
+it waits for a person to confirm.
+You look at what would change,
+then apply it once.
+After that, Jam applies each new commit on its own.
+It waits again if the repo, branch or folder it follows changes.
+
+If the Jam follows no repo,
+its config is read-only in the admin console.
+
+== Branches are drafts
+
+The branch the Jam follows is what is running.
+In the admin console it is read-only.
+To change the config,
+you work on another branch of the repo:
+a draft that does not affect the Jam.
+
+On a branch,
+each save in the admin console is a commit to that branch.
+Nothing changes in the Jam until the branch is merged into the followed branch.
+You can merge it from the console,
+and the Jam applies it at once.
+Or you can open a pull request,
+so other people can review it first,
+and the Jam applies it within a minute of the merge.
+
+You can also change the repo without the console,
+with git and the editor you prefer.
+Jam applies those commits in the same way.
+
+ifdef::internal[]
+== Notes for the team
+
+* The repo is named by `config.github`, `config.gitlab` or `config.git` in the serve config;
+exactly one is set.
+`branch` defaults to `main`; `dir` names a folder inside the repo.
+* File layout: `users/<n>.yml`, `connections/<n>.yml`, `destinations/<n>.yml`, `model-specs/<n>.yml`,
+`kits/<n>/kit.yml` or `kits/<n>.source.yml`,
+`projects/<n>/project.yml`, `projects/<n>/context.md`, `projects/<n>/roles/<r>.yml`,
+`context.md` (Jam-wide) and `jam.yml` (portable serve settings, which the console never writes).
+* The follower is `ConfigFollowEvery` (one minute) in `internal/jam/config_follow.go`;
+its states are `awaiting-confirm`, `in-sync`, `failed` and `off`.
+* Managed marks live in the Jam's store, not the repo, and are not in `jam export`.
+* CLI: `jam config write|diff|sync|status`. No admin API or CLI verb writes config live.
+* Depth: `docs/modules/ROOT/pages/usage/jam/config-git.adoc`,
+`config-git-sources.adoc`, `config-branches.adoc`, `backup.adoc`.
+endif::[]

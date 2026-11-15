@@ -75,6 +75,10 @@ type ColimaConfig struct {
 	DNS           []string `yaml:"dns"`
 	IdentityFile  string   `yaml:"identity-file"`   // default <dir>/id_ed25519
 	KnownHostsDir string   `yaml:"known-hosts-dir"` // default <dir>/known_hosts.d
+	// DestinationsDomain is the Jam's destinations domain (its serve config
+	// destinations.domain); "" = none. Set, studios' egress admits its
+	// subdomains and a raise resolves the role's endpoint hosts under it.
+	DestinationsDomain string `yaml:"destinations-domain"`
 }
 
 // DockerContext is the docker context of the profile's VM: colima for the
@@ -223,6 +227,9 @@ func (c Config) validate() error {
 	}
 	if c.Colima.JamHost == "" {
 		return fmt.Errorf("colima.jam-host is required")
+	}
+	if d := c.Colima.DestinationsDomain; d != "" && !jam.ValidDomain(d) {
+		return fmt.Errorf("colima.destinations-domain %q must be a lowercase DNS name of at least two labels (the Jam's destinations.domain, e.g. jam.example.com)", d)
 	}
 	if !colimacfg.ValidProfile(colimacfg.NormalizeProfile(c.Colima.Profile)) {
 		return fmt.Errorf("colima.profile %q is not a valid colima profile name (letters, digits, '-', '_', '.')", c.Colima.Profile)

@@ -130,7 +130,7 @@ xref:usage/jam/model-spec-harness.adoc[].
 
 The resolved spec rides in the role's xref:usage/jam/connector.adoc[connector] (`+model_spec+`,
 `GET /connector`), which jam-studio-agent re-fetches before every episode
-(xref:usage/jam/coves.adoc#jam-studio-agent-the-in-cove-client[coves]) — so an edit or a re-binding
+(xref:usage/jam/studio-agent.adoc#jam-studio-agent-the-in-cove-client[studio-agent]) — so an edit or a re-binding
 takes effect at each cove's *next episode*, and the cove's `connector` status
 shows `stale` until then. The spec carries names only, never a secret value.
 An actor whose roles resolve to different specs, or a binding to a missing spec,

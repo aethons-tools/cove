@@ -12,3 +12,5 @@
 .jam-qgrid [data-error="true"] .cell, .jam-qgrid [data-error="true"] input, .jam-qgrid [data-error="true"] select { border-color: var(--mantine-color-error); }
 .jam-qgrid .err { color: var(--mantine-color-error); font-size: var(--mantine-font-size-xs); padding: 0 9px 4px; }
 .jam-qgrid .add { width: 100%; min-height: 34px; padding: 6px 9px; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }
+.jam-qgrid .tog button { width: 100%; min-height: 34px; border: 0; background: none; color: var(--mantine-color-dimmed); font-size: 0.8em; cursor: pointer; }
+.jam-qgrid tr.open > td, .jam-qgrid tr.detail > td { background: light-dark(var(--mantine-color-jam-0), var(--mantine-color-dark-6)); }

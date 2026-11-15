@@ -48,7 +48,7 @@ var renamedAllow = []struct {
 	{"docs/modules/ROOT/pages/usage/jam/renamed-from-harbor.adoc", nil},
 	{"docs/modules/ROOT/pages/usage/jam/renamed-from-at.adoc", nil},
 	{"docs/modules/ROOT/pages/usage/jam/INDEX.adoc", []string{`at-jam`, `at-mint`, `at-studio-manager`, `harbor\.cove`}}, // the routing row to renamed-from-at.adoc names what it renames
-	{"docs/modules/ROOT/pages/usage/jam/coves.adoc", []string{`cove-master`}},                                            // its link to the 2026-09-13-cove-master-client.md design spec (history keeps its name)
+	{"docs/modules/ROOT/pages/usage/jam/studio-agent.adoc", []string{`cove-master`}},                                     // its link to the 2026-09-13-cove-master-client.md design spec (history keeps its name)
 	{"internal/legacynames/", nil},
 	{"renamed_test.go", nil},
 	{"deleted_test.go", nil},

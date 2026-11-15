@@ -4,7 +4,7 @@
 :owns: the ordered end-to-end dispatch stand-up procedure and its field gotchas; it links to the reference docs it stitches together and never restates their schemas
 :prereqs: serve.adoc, roster.adoc, requisitioner.adoc, coves.adoc — this runbook orders them, it does not replace them
 :tier: leaf
-:updated: 2026-11-05
+:updated: 2026-11-13
 
 The shortest correct path to a working *Linear ticket → raised studio* loop on a
 single host with Colima, and the traps that actually bite. Each step links to the
@@ -22,7 +22,7 @@ doc that owns the detail; this runbook only owns the *order* and the
 
 . *Postgres (required)* — `just dev-up` raises the dev
 Postgres; the `store-postgres` block holds the control plane _and_ the
-intercom log (the durable squawk Log). See xref:usage/jam/serve.adoc#postgres-store-store-postgres[serve.adoc]
+intercom log (the durable squawk Log). See xref:usage/jam/serve-store.adoc[]
 and https://github.com/aethons-tools/cove/blob/main/dev/README.md[`dev/`].
 . *``jam serve``* — write the serve config: cove-facing `+listen: :443+` +
 `tls`, loopback `admin-listen` (no OIDC needed on loopback), `store-postgres`,
@@ -36,7 +36,7 @@ branch in the admin console: xref:usage/jam/config-branches.adoc[config-branches
 . *Destinations* — `destinations/anthropic.yml` and `destinations/git.yml`.
 Each `+cred_name+` must resolve to a `+credentials:+` entry, *validated by the
 plan* — so add the credential to the serve config and restart before
-committing the destination. xref:usage/jam/serve.adoc#destinations[serve.adoc].
+committing the destination. xref:usage/jam/destinations.adoc[].
 . *Project and role* — `projects/acme/project.yml` and
 `projects/acme/roles/worker.yml` with
 `+scope: {destinations: [anthropic, git], ttl: 24h}+`. The git credential's own scope bounds which repos it reaches. A role with *no `ttl` mints non-expiring

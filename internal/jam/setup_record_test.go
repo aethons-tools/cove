@@ -140,7 +140,7 @@ func TestConnectorHandlerRecordsSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = st.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com",
+	_ = st.AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}},
 		Env: map[string]string{"GH_TOKEN": "ghp_LITERAL", "ANTHROPIC_API_KEY": "{token}"}})
 	h := NewConnectorHandler(st, func() time.Time { return *clk }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	serve := func(token string) {
@@ -263,7 +263,7 @@ func TestDeliveryBeforeSetupRecord(t *testing.T) {
 	if err := SetRoleContext(st, "default", "guest", sessionctx.Layer{Core: "A new rule."}); err != nil {
 		t.Fatal(err)
 	}
-	_ = st.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", Env: map[string]string{"X": "y"}})
+	_ = st.AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}}, Env: map[string]string{"X": "y"}})
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for name, h := range map[string]http.Handler{
 		"context":   NewContextHandler(st, sup, func() time.Time { return *clk }, logger),

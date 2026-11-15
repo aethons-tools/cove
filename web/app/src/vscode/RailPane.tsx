@@ -79,6 +79,7 @@ export function RailPane({ bridge, windows, active }: { bridge: Bridge; windows:
   if (isPending) return frame(<Loader m="md" size="sm" />);
   if (error) return frame(<Problem error={error} here="" />);
   if (data.groups.length === 0) return frame(<Text c="dimmed" size="sm" m="md">No conversations yet. Start one with New message.</Text>);
-  return frame(<RailList groups={data.groups} active={active} rowProps={rowProps} marker={marker} />);
+  return frame(<RailList groups={data.groups} active={active} rowProps={rowProps} marker={marker}
+    openSession={(c, s) => { clearTimeout(timer.current); goChannel(c, s); }} />);
 }
 

@@ -7,7 +7,7 @@ import (
 	"github.com/aethons-tools/cove/internal/intercom"
 )
 
-// Whiteboards in the user area (docs/modules/ROOT/pages/usage/jam/intercom-ui.adoc#whiteboards):
+// Whiteboards in the user area (docs/modules/ROOT/pages/usage/jam/whiteboards.adoc#in-app-user):
 // a board's card in its conversation (the app opens the editor).
 
 // boardCard is m's board card, if it carries a board part.

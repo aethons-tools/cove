@@ -14,13 +14,13 @@ func TestBoilerplatePerKind(t *testing.T) {
 		mustNot []string
 	}{
 		{SessionFacts{Kind: KindStanding, Name: "alice-bot", Project: "acme", Role: "reviewer"},
-			[]string{`the standing session "alice-bot" for role reviewer in project acme`, "`send` without `to` posts to your own channel", "until an operator removes you"},
+			[]string{`the standing session "alice-bot" for role reviewer in project acme`, "`send` without `to` answers where you were last messaged", "until an operator removes you"},
 			[]string{"owner"}},
 		{SessionFacts{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "pair"},
-			[]string{"a personal session for alice", "`send` without `to` posts to your own channel, which alice is in", "until alice releases"},
+			[]string{"a personal session for alice", "`send` without `to` answers where you were last messaged (at first, your DM with alice)", "until alice releases"},
 			nil},
 		{SessionFacts{Kind: "", Project: "acme", Role: "worker", Unit: "AET-9"},
-			[]string{"an ephemeral worker session for role worker in project acme", "`send` without `to` posts to your own channel", "only once your work has landed", "`call_in`"},
+			[]string{"an ephemeral worker session for role worker in project acme", "`send` without `to` answers where you were last messaged", "only once your work has landed", "`call_in`"},
 			[]string{"owner", "posts to your ticket", "as your last action once it is finished"}},
 	}
 	for _, c := range cases {
@@ -76,12 +76,12 @@ func TestBoilerplateTicketTurnContract(t *testing.T) {
 	}
 }
 
-// Without a unit there is no ticket: `send` without `to` posts to the
-// session's own channel.
-func TestBoilerplateEphemeralWithoutUnitHasOwnChannel(t *testing.T) {
+// Without a unit there is no ticket: `send` without `to` answers where the
+// session was last messaged.
+func TestBoilerplateEphemeralWithoutUnitAnswersWhereMessaged(t *testing.T) {
 	c := Boilerplate(SessionFacts{Kind: KindEphemeral, Project: "p", Role: "r"}).Core
-	if strings.Contains(c, "posts to your ticket") || !strings.Contains(c, "posts to your own channel") {
-		t.Fatalf("unit-less ephemeral must be told about its own channel:\n%s", c)
+	if strings.Contains(c, "posts to your ticket") || strings.Contains(c, "your own channel") || !strings.Contains(c, "answers where you were last messaged") {
+		t.Fatalf("unit-less ephemeral must be told where send without to goes:\n%s", c)
 	}
 }
 
@@ -159,6 +159,35 @@ func TestBoilerplateStatusLine(t *testing.T) {
 	}
 }
 
+// A cove that speaks the turn-end rule (TurnProtocol 3) is told its text is
+// thinking unless it sends it, how to say no message is needed, that a turn
+// that sent nothing comes back, and that send names its conversation.
+func TestBoilerplateTurnRule(t *testing.T) {
+	for _, c := range []struct {
+		f    SessionFacts
+		want string
+	}{
+		{SessionFacts{Kind: KindStanding, Name: "bot", Project: "acme", Role: "r", TurnProtocol: 3}, "a turn's later sends default to its last `to`"},
+		{SessionFacts{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "r", TurnProtocol: 3}, "`send` with `to: user:alice` reaches them"},
+		{SessionFacts{Project: "acme", Role: "r", Unit: "AET-9", TurnProtocol: 3}, "Your ticket's log is `work:AET-9`; `report` posts there."},
+	} {
+		core := Boilerplate(c.f).Core
+		for _, w := range []string{c.want, "Text is thinking unless you send it", "`turn_end` and a `to`", "each message shows its reply `to`", "`no_reply: true`", "returned to you once", "`keep_start`", "`claude` then exits"} {
+			if !strings.Contains(core, w) {
+				t.Errorf("%q: missing %q in\n%s", c.f.Kind, w, core)
+			}
+		}
+		for _, w := range []string{"your final text is posted for you", "`send` without `to` answers where you were last messaged", "End your turn with your reply"} {
+			if strings.Contains(core, w) {
+				t.Errorf("%q: still says %q", c.f.Kind, w)
+			}
+		}
+		if len(core) > BudgetBoilerplate {
+			t.Errorf("%q: boilerplate %d bytes > budget %d", c.f.Kind, len(core), BudgetBoilerplate)
+		}
+	}
+}
+
 // A cove that speaks the structured turn end (TurnProtocol 2) is told its
 // final text is its reply and how to keep a process alive; a legacy one
 // (0) gets exactly today's boilerplate.
@@ -183,7 +212,7 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 			t.Errorf("%q: the turns line misstates when claude exits:\n%s", f.Kind, core)
 		}
 		if strings.Contains(core, "comment on your ticket") {
-			t.Errorf("%q: final text must go to the session's own channel, not the ticket", f.Kind)
+			t.Errorf("%q: final text must go where the session was last messaged, not the ticket", f.Kind)
 		}
 		if len(core) > BudgetBoilerplate {
 			t.Errorf("%q: boilerplate %d bytes > budget %d", f.Kind, len(core), BudgetBoilerplate)
@@ -193,16 +222,17 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 	// structured turn end existed, but for the background-process sentence
 	// corrected since (processes outlive the turn; the pause freezes them) and
 	// the mission line widened since to the status line (mission and focus),
-	// and the ticket session told its home is its own channel and to wait
-	// rather than exit (uniform sessions).
+	// the ticket session told to wait rather than exit (uniform sessions),
+	// and send without to answering where it was last messaged (no session
+	// has a channel of its own).
 	for i, c := range []struct {
 		f    SessionFacts
 		hash string
 	}{
-		{SessionFacts{Kind: KindStanding, Name: "bot", Project: "acme", Role: "r", Previews: true}, "812818fbdc362ff2068cf13a277f21ecb61222fd1d1037d572838378e9d825aa"},
-		{SessionFacts{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "r"}, "6a61d6a0a93880f67e6cb19fe14f4059ce8c9404191eff602d5e4f913819c3e5"},
-		{SessionFacts{Project: "acme", Role: "r", Unit: "AET-9"}, "d0fa9683a74970de5d97753e40b826c79fd646b4e656f7ff3ff2437d62273228"},
-		{SessionFacts{Project: "acme", Role: "r"}, "295eb04930f3015be4ce3f2eaba7e8eb1f6704c043f69017b276e714bc96a1a5"},
+		{SessionFacts{Kind: KindStanding, Name: "bot", Project: "acme", Role: "r", Previews: true}, "70750b0f6b0ab1d8ae3529599be579b6621c035a0e23a28c52f8996c7d7b8853"},
+		{SessionFacts{Kind: KindPersonal, Owner: "alice", Project: "acme", Role: "r"}, "649740f1d47be1a83cb0387698450ecaf1f744aa2bbe72f533f0c921401b3528"},
+		{SessionFacts{Project: "acme", Role: "r", Unit: "AET-9"}, "497bc630aecfb733a0bbe2a38a2a75c74f926f536d76c166c1aa06fbd01af8df"},
+		{SessionFacts{Project: "acme", Role: "r"}, "ca06d96527d0c50ad886ebb489fe2246bbfd14010fbfd370cfa51b498f768e21"},
 	} {
 		core := Boilerplate(c.f).Core
 		if !strings.Contains(core, legacyBackground) {
@@ -211,7 +241,7 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 		core = strings.Replace(core, legacyBackground, "Background processes you start die when the turn ends — finish work within the turn.", 1)
 		core = strings.Replace(core, statusLine, legacyMissionLine, 1)
 		if got := fmt.Sprintf("%x", sha256.Sum256([]byte(core))); got != c.hash {
-			t.Errorf("legacy case %d changed:\n%s", i, Boilerplate(c.f).Core)
+			t.Errorf("legacy case %d changed (hash %s):\n%s", i, got, Boilerplate(c.f).Core)
 		}
 	}
 }

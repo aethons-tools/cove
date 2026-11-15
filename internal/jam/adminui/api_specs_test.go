@@ -19,11 +19,13 @@ func destNamed(t *testing.T, store jam.Store, name string) jam.Destination {
 	return jam.Destination{}
 }
 
-func destBody(over map[string]string) map[string]string {
-	b := map[string]string{"name": "gh", "route": "/gh/", "upstream": "https://api.github.com", "identityIn": "bearer", "apply": "bearer",
-		"credName": "", "env": "GH_HOST={host}", "allowPaths": "", "note": "", "logHeadersIn": "none", "logHeadersOut": "none", "git": ""}
-	for k, v := range over {
-		b[k] = v
+// destBody is the gh destination's write body: one endpoint, GH_HOST set;
+// edit changes it.
+func destBody(edit func(*adminui.DestFields)) adminui.DestFields {
+	b := adminui.DestFields{Name: "gh", Env: []adminui.EnvRow{{Key: "GH_HOST", Template: "{host}"}}, Endpoints: []adminui.DestEndpoint{{
+		Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", IdentityIn: "bearer", Apply: "bearer", LogHeadersIn: "none", LogHeadersOut: "none"}}}
+	if edit != nil {
+		edit(&b)
 	}
 	return b
 }
@@ -46,24 +48,15 @@ func TestDestinationsAPI(t *testing.T) {
 		t.Fatalf("list = %+v", list)
 	}
 	var d adminui.DestDetail
-	apiDo(t, h, "POST", "/app/admin/api/destinations/gh", destBody(map[string]string{"note": "use gh", "git": "on"}), &d)
-	if d.Fields.Note != "use gh" || !d.Fields.Git || !d.GitRouted || d.Fields.Env != "GH_HOST={host}" || d.Fields.LogHeadersIn != "none" {
+	apiDo(t, h, "POST", "/app/admin/api/destinations/gh", destBody(func(b *adminui.DestFields) { b.Note, b.Endpoints[0].Git = "use gh", true }), &d)
+	if d.Fields.Note != "use gh" || !d.Fields.Endpoints[0].Git || !d.GitRouted || len(d.Fields.Env) != 1 || d.Fields.Endpoints[0].LogHeadersIn != "none" {
 		t.Errorf("edited = %+v", d)
 	}
-	// A custom identity-in spec survives a form save.
-	e.Edit(func(st jam.Store) {
-		dest := destNamed(t, st, "gh")
-		dest.IdentityIn, dest.IdentityInSpec = jam.ApplyCustom, &jam.InboundSpec{Header: "X-Agent-Token"}
-		if err := jam.UpdateDestination(st, dest, anyCred); err != nil {
-			t.Fatal(err)
-		}
-	})
-	apiDo(t, h, "POST", "/app/admin/api/destinations/gh", destBody(map[string]string{"identityIn": "custom"}), &d)
-	if after := destNamed(t, e.Store(), "gh"); after.IdentityInSpec == nil || d.IdentityInSpec == "" {
-		t.Errorf("custom spec lost: %+v / %q", after.IdentityInSpec, d.IdentityInSpec)
-	}
 	// Two destinations in one role setting GH_HOST differently conflict.
-	apiDo(t, h, "POST", "/app/admin/api/destinations", destBody(map[string]string{"name": "ghe", "route": "/ghe/", "upstream": "https://ghe.example.com", "env": "GH_HOST=ghe.example.com"}), nil)
+	apiDo(t, h, "POST", "/app/admin/api/destinations", destBody(func(b *adminui.DestFields) {
+		b.Name, b.Env = "ghe", []adminui.EnvRow{{Key: "GH_HOST", Template: "ghe.example.com"}}
+		b.Endpoints[0].Name, b.Endpoints[0].Route, b.Endpoints[0].Upstream = "ghe", "/ghe/", "https://ghe.example.com"
+	}), nil)
 	e.Edit(func(st jam.Store) {
 		mustCreateProject(t, st, "acme")
 		if err := st.PutRole("acme", jam.Role{Name: "coder", Scope: jam.Scope{Destinations: []string{"gh", "ghe"}}}); err != nil {

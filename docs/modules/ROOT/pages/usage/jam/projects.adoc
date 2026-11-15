@@ -46,7 +46,7 @@ zero-config, single-project Jam keeps working without adding it to the repo.
 *Removal.* Removing a managed project's directory deletes it; the plan
 refuses (`+cannot delete project acme: …+`) while something still uses it:
 live instances, grants into it, standing sessions, roles the repo doesn't
-manage (xref:usage/jam/config-git.adoc#the-plan[config-git] has the full guard). End those
+manage (xref:usage/jam/config-plan.adoc[config-plan] has the full guard). End those
 first (`ungrant`/`revoke` for grants).
 The project's escalation and chat service go with it, and its rooms and other
 channels are archived (their history stays readable). A removed project is a

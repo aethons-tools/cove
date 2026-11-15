@@ -1,0 +1,185 @@
+= Editing on a branch and applying the config repo
+:page-area: ROOT
+:page-id: ROOT/configuration/config-branches
+:page-conventions: sentence-case
+
+Every page under *Config* shows the config from one branch of the
+xref:concepts/config-repo.adoc[config repo].
+The *branch bar* at the top of the page says which one.
+You edit the config on a branch,
+then merge the branch to change what the Jam runs.
+The *Tracking* page shows the repo the Jam follows,
+and applies it by hand when you need to.
+
+== The branch bar
+
+When you open *Config*,
+you see the branch the Jam follows,
+usually `main`.
+It is what is running,
+so it is read-only:
+the pages show no forms or buttons that change the config.
+
+image::branch-bar-main.png[The branch bar on main,800]
+
+*Create branch* asks for a *Branch name*.
+It suggests `jam/` and your name.
+The new branch starts at the followed branch's latest commit,
+and the console opens it.
+
+*Open branch* lists the repo's other branches,
+each with its latest commit.
+Pick one to work on it.
+
+Each browser tab keeps its own branch.
+When you change branch,
+the console goes back to the start of *Config*,
+because each branch can hold different objects.
+
+If the Jam follows no config repo,
+the bar is a *Read-only* notice instead,
+and you cannot edit the config in the console.
+
+== Editing on a branch
+
+On a branch,
+the bar shows a *branch* badge,
+the branch's name and its latest commit.
+
+image::branch-bar-branch.png[The branch bar on the branch jam/docs,800]
+
+Now the config pages have their edit controls.
+Each save is one commit to the branch,
+in your name.
+A save that changes nothing makes no commit.
+The Jam itself doesn't change yet.
+
+Before a save,
+Jam checks that the branch would still load with your change.
+If it would not,
+for example because an escalation tier names a user who doesn't exist,
+nothing is saved,
+and the page says why.
+If someone else pushed to the branch since your page loaded it,
+the save is refused:
+reload, and make your change again.
+
+*View the branch* opens the branch on GitHub or GitLab.
+A plain git repo,
+not on GitHub or GitLab,
+has no links in the bar.
+
+== Merging
+
+*Merge* merges your branch into the followed branch.
+It asks you to confirm,
+then the Jam applies the result at once.
+
+Jam first checks the merged config against the running Jam.
+If the merge would be refused,
+nothing is merged,
+and *Not merged* shows the reason.
+Jam also refuses to merge when a file was changed both on your branch and on the followed branch.
+In that case, open a pull request instead,
+where git can merge the changes line by line.
+
+*PR* (on GitLab, *MR*) opens a pull request,
+or a merge request,
+from your branch into the followed branch.
+The bar then links to it.
+When someone merges it,
+the Jam applies it within a minute.
+A plain git repo has no *PR* button:
+merge from the console,
+or merge in git yourself.
+
+*Back to main* leaves the branch
+and shows the followed branch again.
+
+== The Tracking page
+
+*Config › Tracking* is the first page under *Config*.
+It shows how the Jam follows its repo.
+
+image::tracking.png[The Tracking page,800]
+
+The *Source* card shows:
+
+Following::
+How the last check went, and when it ran:
+*in sync*, *waiting for you*, *failed* or *not checked yet*.
+Repo, Dir and Branch::
+What the Jam follows.
+*Dir* shows only when the config is in a folder of the repo.
+Head::
+The latest commit on the branch that the check saw.
+Last applied::
+The commit the Jam last applied from the repo, and when.
+
+*Waiting for you* means the Jam has not yet applied anything from this repo.
+Click *Diff*, read the plan, and apply it.
+After that first time,
+the Jam applies each new commit on its own.
+
+*Failed* shows the error from the last check.
+The Jam keeps its last good config,
+and tries again every minute.
+
+*Managed objects* lists every object the repo manages,
+with a link to its page,
+the commit it came from
+and when it was applied.
+
+== Diff and apply
+
+*Diff* compares the repo's branch with the running Jam,
+and shows the *Plan*:
+what an apply would do.
+
+image::tracking-plan.png[The Tracking page with a plan,800]
+
+Each change has its action
+(such as *create*, *update* or *delete*),
+the object, and its file in the repo.
+*Changes* opens the lines that would change.
+Below the table,
+the plan lists objects that the apply leaves alone (*Unmanaged*),
+and whether the repo's server settings match this Jam's.
+
+*Apply this plan* asks you to confirm,
+then applies exactly the plan on screen.
+If the Jam or the repo changed since you clicked *Diff*,
+nothing is applied:
+click *Diff* again and check the new plan.
+
+If the plan has problems,
+a red *Refused* box lists them,
+and there is no *Apply this plan*.
+Fix the files in the repo first.
+
+You don't need *Apply this plan* for normal work:
+a merge is applied on its own.
+Use it to confirm the first apply,
+or to see what the Jam would do with the branch now.
+
+ifdef::internal[]
+== Notes for the team
+
+* The branch lives in `sessionStorage` (`jam.admin.configBranch`) and is sent as `X-Jam-Config-Branch`,
+with the head read as `X-Jam-Config-Head` (`web/app/src/admin/branch/branch.ts`).
+A link with `?branch=<name>` opens that branch.
+* Only config paths are served from the branch: `tree`, `users`, `connections`, `projects`, `roles`,
+`destinations`, `model-specs`, `kits`, `jam/context`.
+Live state under them (a user's accounts and app tokens, a project's agents, a role's Request) stays live
+(`internal/jam/adminui/branches.go`).
+* A save's commit is authored `<operator> <operator>@jam`, with the message `jam: <METHOD> <api path>`;
+a merge commit's message is `jam: merge <branch>`.
+* A save that leaves the branch unloadable is 409 `not saved: the branch would no longer load: …`;
+a stale save is 409 `the branch moved since it was read; reload it`;
+a merge conflict is `merge conflict in: <files>`.
+* A local `config.git` repo refuses a save or merge onto a branch that is checked out there.
+* The PR's title is `Jam config: <branch>`; GitHub and GitLab need a token that can push and open PRs.
+* Tracking: `GET /app/admin/api/tracking`, `POST …/tracking/diff`, `POST …/tracking/apply` with the plan's digest
+(409 when stale). Without a git fetcher on the serve, *Diff* is replaced by "Git actions are not available on this serve."
+* Depth: `docs/modules/ROOT/pages/usage/jam/config-branches.adoc`, `ui-config.adoc`, `config-git-sources.adoc`.
+endif::[]

@@ -49,13 +49,13 @@ func TestSensitiveHeader(t *testing.T) {
 }
 
 func TestValidateHeaderLogging(t *testing.T) {
-	for _, d := range []Destination{{}, {LogHeadersIn: HeaderLogNone, LogHeadersOut: HeaderLogNone},
+	for _, e := range []Endpoint{{}, {LogHeadersIn: HeaderLogNone, LogHeadersOut: HeaderLogNone},
 		{LogHeadersIn: HeaderLogExamined, LogHeadersOut: HeaderLogChanged}, {LogHeadersIn: HeaderLogAll, LogHeadersOut: HeaderLogAll}} {
-		if err := d.ValidateHeaderLogging(); err != nil {
-			t.Errorf("%+v refused: %v", d, err)
+		if err := e.ValidateHeaderLogging(); err != nil {
+			t.Errorf("%+v refused: %v", e, err)
 		}
 	}
-	for _, d := range []Destination{{LogHeadersIn: "changed"}, {LogHeadersOut: "examined"}, {LogHeadersIn: "raw"}, {LogHeadersOut: "changed-raw"}} {
+	for _, d := range []Endpoint{{LogHeadersIn: "changed"}, {LogHeadersOut: "examined"}, {LogHeadersIn: "raw"}, {LogHeadersOut: "changed-raw"}} {
 		if err := d.ValidateHeaderLogging(); err == nil {
 			t.Errorf("%+v accepted", d)
 		}
@@ -67,7 +67,7 @@ func brokerWithLogging(t *testing.T, upstream string, in, out HeaderLog) (*Broke
 	t.Helper()
 	b, _, tok := newTestBroker(t, "http://unused", upstream)
 	d, _ := findDestination(b.store, "git")
-	d.LogHeadersIn, d.LogHeadersOut = in, out
+	d.Endpoints[0].LogHeadersIn, d.Endpoints[0].LogHeadersOut = in, out
 	if err := b.store.AddDestination(d); err != nil {
 		t.Fatal(err)
 	}
@@ -142,24 +142,24 @@ func TestBrokerHeaderLoggingOffByDefault(t *testing.T) {
 	}
 }
 
-// At most headerLogBurst lines per destination and direction per window.
+// At most headerLogBurst lines per destination, endpoint and direction per window.
 func TestHeaderLogRateLimit(t *testing.T) {
 	now := time.Unix(1000, 0)
 	l := newHeaderLogLimiter(func() time.Time { return now })
 	n := 0
 	for range headerLogBurst + 5 {
-		if l.allow("git", "in") {
+		if l.allow("git", "git", "in") {
 			n++
 		}
 	}
 	if n != headerLogBurst {
 		t.Fatalf("allowed %d, want %d", n, headerLogBurst)
 	}
-	if !l.allow("git", "out") || !l.allow("other", "in") {
-		t.Fatal("limit not per destination and direction")
+	if !l.allow("git", "git", "out") || !l.allow("other", "git", "in") || !l.allow("git", "other", "in") {
+		t.Fatal("limit not per destination, endpoint and direction")
 	}
 	now = now.Add(headerLogWindow)
-	if !l.allow("git", "in") {
+	if !l.allow("git", "git", "in") {
 		t.Fatal("window did not reset")
 	}
 }

@@ -69,8 +69,7 @@ func NewJam(gt kit.GitHubTracker, token string, httpc *http.Client) (*Client, er
 }
 
 // send issues a REST call and returns the status, headers, body and any
-// transport error: Bearer auth, GitHub media type. It mirrors
-// internal/dispatch/github's helper.
+// transport error: Bearer auth, GitHub media type.
 func (c *Client) send(ctx context.Context, method, u string, payload []byte) (int, http.Header, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(payload))
 	if err != nil {

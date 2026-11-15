@@ -4,12 +4,12 @@
 :owns: the `/app/admin/` console's navigation (tabs, the Config tree and filter, the page URL table) and its Dashboard, Agents list and Health pages (tiles, filters, fixed table order); console search; the Channel log page (`/app/admin/health/intercom`); the `/app/admin/agents/\{id}/session` timeline
 :prereqs: ui.adoc for the routes, the login and the title bar these pages sit under; ui-attention.adoc for the badges; ui-editing.adoc for what can be changed
 :tier: leaf
-:updated: 2026-10-31
+:updated: 2026-11-14
 
 The admin console is the Jam app's admin area: four title-bar tabs —
 *Dashboard · Config · Agents · Health* — and a search box. Every page is its
 own URL, so it can be linked and bookmarked; the old server-rendered pages'
-paths xref:usage/jam/ui.adoc#old-admin-pages[redirect] here.
+paths xref:usage/jam/ui-old-links.adoc#old-admin-pages[redirect] here.
 
 [#finding-a-page]
 == Finding a page
@@ -88,7 +88,11 @@ project/role, grants — one hit per id), roles (project/name, kit,
 destinations), projects, kits (name, current prompt and egress), destinations
 (name, route, upstream, env keys), model-specs (name, type, model, principal),
 users (name, logins, OIDC subject, account handles and ids) and rooms, and
-squawk bodies (newest 10; the rest via the Channel log's `q=`).
+squawk bodies (newest 10).
+The search page links the rest of the squawks as *open in Intercom*
+(or *all N in Intercom* when there are more than it shows), to
+`+/app/admin/intercom?q=…+`, which redirects to the <<channel-log,Channel log>>
+(xref:usage/jam/ui-old-links.adoc[old links]).
 Matching is case-insensitive substring, at least 2 characters; results are
 grouped and link to each object's page. *Enter* jumps to the page when one
 object's name is the whole query (e.g. an agent id or `acme/dev`), else opens
@@ -105,7 +109,7 @@ across a poll or an edit, and the JSON admin API and CLI lists match it.
 The Channel log page (`/app/admin/health/intercom`, linked from *Health*) is
 a read-only view of Jam's xref:usage/jam/intercom.adoc#enabling-it[channel log] (always
 available; it lives in Postgres — see
-xref:usage/jam/serve.adoc#postgres-store-store-postgres[Postgres store (`store-postgres`)]). It shows a filterable,
+xref:usage/jam/serve-store.adoc[Postgres store (`store-postgres`)]). It shows a filterable,
 newest-first table of squawks, each with its sender and channel
 (`+<label> · <kind>+`, linking to that channel's squawks): filter by project,
 participant (an id — a user, session, account or channel), a body substring

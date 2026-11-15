@@ -162,7 +162,7 @@ func TestHTTPContextSourceSendsTurnProtocol(t *testing.T) {
 	if _, err := HTTPContextSource(ts.URL, "tok").Fetch(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got != strconv.Itoa(TurnProtocol) || TurnProtocol != 2 {
-		t.Fatalf("turn-protocol = %q, want 2", got)
+	if got != strconv.Itoa(TurnProtocol) || TurnProtocol != 3 {
+		t.Fatalf("turn-protocol = %q, want 3", got)
 	}
 }

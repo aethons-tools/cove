@@ -3,6 +3,7 @@ import type { Bootstrap } from "./api/types";
 import { Shell } from "./shell/Shell";
 import { Home } from "./routes/Home";
 import { Conversation } from "./routes/Conversation";
+import { Session } from "./routes/Session";
 import { NewMessage } from "./compose/NewMessage";
 import { BoardPage } from "./boards/BoardPage";
 import { NotFound } from "./routes/NotFound";
@@ -17,6 +18,7 @@ export function routes(boot: Bootstrap): RouteObject[] {
     children: [
       { index: true, element: <Home /> },
       { path: "c/:channel", element: <Conversation /> },
+      { path: "s/:session", element: <Session /> },
       { path: "new", element: <NewMessage /> },
       { path: "boards/:id", element: <BoardPage /> },
       { path: "*", element: <NotFound /> },

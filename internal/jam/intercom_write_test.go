@@ -38,7 +38,7 @@ func TestIntercomPostJoinsPeople(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ms := f.store.ChannelMembers(f.room.ID); len(ms) != 1 || ms[0] != (ChannelMember{ParticipantID: f.bob.ID, JoinedSeq: m.Seq}) {
+	if ms := f.store.ChannelMembers(f.room.ID); len(ms) != 1 || ms[0] != (ChannelMember{ParticipantID: f.bob.ID, JoinedSeq: m.Seq, Wake: WakeNamed}) {
 		t.Fatalf("room members = %+v", ms)
 	}
 	if _, err := f.ic.Post(f.mustPlan(f.standing, "channel:eng"), intercom.Squawk{From: ident.ID(f.standing.ActorID), Body: "from a session"}); err != nil {
@@ -103,9 +103,9 @@ func TestIntercomReconcile(t *testing.T) {
 	}
 }
 
-// Jam's notices go as the session into its home channel — for a personal
-// session, its own channel with its starter in it — and still arrive after
-// teardown, from the instance alone; one who left the project hears none.
+// Jam's notices go as the session — for a personal session, into the dm
+// with its starter — and still arrive after teardown, from the instance
+// alone; one who left the project hears none.
 func TestIntercomNotify(t *testing.T) {
 	f := newICFixture(t)
 	if err := f.store.RemoveInstance(f.personal.ActorID); err != nil {
@@ -132,7 +132,7 @@ func TestIntercomNotify(t *testing.T) {
 func TestIntercomPlanPersonChat(t *testing.T) {
 	f := newICFixture(t)
 	if _, err := f.ic.PlanPersonChat(f.bob.ID, ident.ID(f.personal.ActorID)); !errors.Is(err, ErrSendUnresolved) {
-		t.Fatalf("a chat with a session: %v (a session is reached in its home channel: PlanHome)", err)
+		t.Fatalf("a chat with a session: %v (a session is reached in its dm: PlanSessionDM)", err)
 	}
 	if p, err := f.ic.PlanPersonChat(f.bob.ID, f.alice.ID); err != nil || len(p.Audience) != 1 || p.Audience[0] != f.alice.ID {
 		t.Fatalf("bob with alice = %+v, %v", p, err)
@@ -150,13 +150,14 @@ func TestIntercomPlanPersonChat(t *testing.T) {
 	}
 }
 
-// A personal session recorded with only its starter's name still calls them in.
-func TestIntercomHomeChannelStarterByName(t *testing.T) {
+// A personal session recorded with only its starter's name still gets its
+// dm with them.
+func TestIntercomStarterDMByName(t *testing.T) {
 	f := newICFixture(t)
 	old := f.personal
 	old.OwnerID, old.Owner = "", "alice"
-	ch, err := f.ic.HomeChannel(old)
-	if err != nil || !isMember(f.store, ch.ID, f.alice.ID) {
-		t.Fatalf("owner by name: %+v, %v", ch, err)
+	ch, ok, err := f.ic.StarterDM(old)
+	if err != nil || !ok || !isMember(f.store, ch.ID, f.alice.ID) {
+		t.Fatalf("owner by name: %+v, %v, %v", ch, ok, err)
 	}
 }

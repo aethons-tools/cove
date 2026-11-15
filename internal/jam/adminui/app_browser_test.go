@@ -187,7 +187,7 @@ func TestBrowserAdminDestinationNote(t *testing.T) {
 	}
 	ctx := browsertest.Ctx(t)
 	store := jam.NewMemStore()
-	if err := store.AddDestination(jam.Destination{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer}); err != nil {
+	if err := store.AddDestination(jam.Destination{Name: "gh", Endpoints: []jam.Endpoint{{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", IdentityIn: jam.ApplyBearer, Apply: jam.ApplyBearer}}}); err != nil {
 		t.Fatal(err)
 	}
 	srv := adminServer(t, store)

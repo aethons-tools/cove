@@ -307,8 +307,8 @@ var ErrNoDefaultPrincipal = errors.New("no subscription pool and no anthropic de
 // DefaultModelSpecFor builds DefaultModelSpec as Jam seeds it
 // (modelspec.Default), authenticating as the pool when one is configured,
 // else as the anthropic destination's
-// credential (the destination named "anthropic", or else the one routed at
-// /anthropic/). ErrNoDefaultPrincipal when neither resolves.
+// credential (the destination named "anthropic", or else the one with an
+// endpoint routed at /anthropic/). ErrNoDefaultPrincipal when neither resolves.
 func DefaultModelSpecFor(store Store, poolConfigured bool) (ModelSpec, error) {
 	cred := ""
 	if poolConfigured {
@@ -317,7 +317,9 @@ func DefaultModelSpecFor(store Store, poolConfigured bool) (ModelSpec, error) {
 		dests := store.ListDestinations()
 		for _, match := range []func(Destination) bool{
 			func(d Destination) bool { return d.Name == "anthropic" },
-			func(d Destination) bool { return d.Route == "/anthropic/" },
+			func(d Destination) bool {
+				return slices.ContainsFunc(d.Endpoints, func(e Endpoint) bool { return e.Route == "/anthropic/" })
+			},
 		} {
 			if i := slices.IndexFunc(dests, match); i >= 0 && dests[i].CredName != "" {
 				cred = dests[i].CredName

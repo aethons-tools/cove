@@ -46,7 +46,7 @@ func TestGitHubTicketChannel(t *testing.T) {
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatalf("SetUp: %v", err)
 	}
-	ch, ok := f.store.ChannelByKey(f.project.ID, SourceTicket, string(f.tracker.ID)+"/acme/board#7")
+	ch, ok := f.store.ChannelByKey(f.project.ID, SourceWork, string(f.tracker.ID)+"/acme/board#7")
 	if !ok || ch.Label != "acme/board#7" || len(ch.Bindings) != 1 || ch.Bindings[0] != (Binding{ConnectionID: f.tracker.ID, Ref: "acme/board#7", Mode: BindBoth}) {
 		t.Fatalf("ticket channel = %+v, %v", ch, ok)
 	}
@@ -62,19 +62,18 @@ func TestGitHubTicketChannel(t *testing.T) {
 	}
 
 	// A unit that is no GitHub key (a manual raise's free text) has no
-	// ticket channel: its home is its own session channel, never a failure.
+	// ticket channel: setting it up is never a failure.
 	for _, unit := range []string{"#7", "ACME-7", "acme/board#x"} {
 		bad := f.ticket
 		bad.ActorID, bad.Unit = string(ident.New(ident.Session)), unit
-		home, err := f.ic.HomeChannel(bad)
-		if err != nil || home.Kind != SourceSession || home.Key != bad.ActorID {
-			t.Fatalf("HomeChannel(unit %q on a github tracker) = %+v, %v; want its session channel", unit, home, err)
+		if err := f.ic.SetUp(bad); err != nil {
+			t.Fatalf("SetUp(unit %q on a github tracker): %v", unit, err)
 		}
 		if _, ok := f.ic.TicketChannelOf(bad); ok {
 			t.Fatalf("unit %q: a ticket channel", unit)
 		}
 	}
-	if n := len(f.store.ListChannels(f.project.ID, SourceTicket)); n != 1 {
+	if n := len(f.store.ListChannels(f.project.ID, SourceWork)); n != 1 {
 		t.Fatalf("%d ticket channels; want only acme/board#7's", n)
 	}
 }
@@ -137,7 +136,7 @@ func TestPlanLinearTicketsBesideGitHub(t *testing.T) {
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := f.store.ChannelByKey(f.project.ID, SourceTicket, string(f.tracker.ID)+"/ACME-7"); !ok {
+	if _, ok := f.store.ChannelByKey(f.project.ID, SourceWork, string(f.tracker.ID)+"/ACME-7"); !ok {
 		t.Fatal("linear ticket channel keyed as before")
 	}
 	own := f.mustPlan(f.ticket, "ticket:ACME-7")
@@ -313,8 +312,9 @@ func TestPlanRoomGitHubRef(t *testing.T) {
 	}
 }
 
-// GET /squawks/targets lists a ticket session's own ticket by its canonical
-// key on a github tracker, and no ticket: for a Unit that is no key there.
+// GET /squawks/targets lists a ticket session's own unit's log by its
+// canonical key on a github tracker, and no work: for a Unit that is no key
+// there.
 func TestSquawksTargetsGitHubTicketCanonical(t *testing.T) {
 	targets := func(f *sqFixture) []string {
 		rec := f.do(http.MethodGet, "/squawks/targets", f.ticket, "")
@@ -326,13 +326,13 @@ func TestSquawksTargetsGitHubTicketCanonical(t *testing.T) {
 		}
 		var out []string
 		for _, tg := range r.Targets {
-			if tg.Kind == "ticket" {
+			if tg.Kind == "work" {
 				out = append(out, tg.Target)
 			}
 		}
 		return out
 	}
-	for unit, want := range map[string][]string{"Acme/Board#007": {"ticket:acme/board#7"}, "ACME-7": nil} {
+	for unit, want := range map[string][]string{"Acme/Board#007": {"work:acme/board#7"}, "ACME-7": nil} {
 		f := newSqFixture(t, "user:*")
 		f.icFixture = newGitHubICFixtureFrom(t, f.icFixture)
 		f.ticket.Unit = unit
@@ -367,11 +367,14 @@ func TestTrackerRepoScopesBindingsAndTickets(t *testing.T) {
 	if unit, ok := TicketUnit(f.store, f.tracker.ID, "Acme/BOARD#07"); !ok || unit != "acme/board#7" {
 		t.Fatalf("TicketUnit(Acme/BOARD#07) = %q, %v; want acme/board#7", unit, ok)
 	}
-	// Another repo's ticket session has no ticket channel: its own channel.
+	// Another repo's ticket session has no ticket channel.
 	other := f.ticket
 	other.ActorID, other.Unit = string(ident.New(ident.Session)), "other/repo#7"
-	if home, err := f.ic.HomeChannel(other); err != nil || home.Kind != SourceSession {
-		t.Fatalf("HomeChannel(other/repo#7) = %+v, %v; want its session channel", home, err)
+	if err := f.ic.SetUp(other); err != nil {
+		t.Fatalf("SetUp(other/repo#7): %v", err)
+	}
+	if _, ok := f.ic.TicketChannelOf(other); ok {
+		t.Fatal("other/repo#7: a ticket channel")
 	}
 }
 

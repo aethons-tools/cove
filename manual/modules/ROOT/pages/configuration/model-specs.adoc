@@ -1,0 +1,154 @@
+= Configuring a model spec
+:page-area: ROOT
+:page-id: ROOT/configuration/model-specs
+:page-conventions: sentence-case
+
+You see the model specs under *Config › Model Specs*.
+For what a model spec does,
+see xref:concepts/model-spec.adoc[].
+You change model specs on a branch of the config repo;
+saving is a commit to that branch
+(xref:configuration/config-branches.adoc[]).
+
+== The list
+
+The *Model-specs* list shows each spec's type,
+its Claude Code version,
+its principal,
+its model,
+its policy mode,
+its provider,
+and how many roles use it.
+A grey tag under the version is its version constraint.
+A grey tag under the model is its effort.
+*default* means the spec leaves the model or the mode to Claude Code.
+
+image::model-specs-list.png[The model specs list on a branch,800]
+
+On a branch,
+*New model-spec* opens the same form as a spec's page, with a *Name*.
+*Create model-spec* makes the spec and opens its page.
+*Delete* on a row deletes the spec after you confirm.
+
+== A spec's page
+
+Click a spec's name to open its page.
+The title line shows its type and version.
+
+image::model-spec-view.png[The claude-default model spec's page,800]
+
+Harness::
+The type,
+the version,
+the version constraint (*exactly the version* when there is none),
+the principal's credential name,
+its header rules,
+the model and effort (*harness default* when unset),
+and the note.
+Policy::
+The mode,
+and the allow and deny rules.
+Used by::
+The roles that run this spec.
+A role marked *no model-spec set* names no spec,
+so it runs `claude-default`.
+Claude::
+The provider,
+the names of the provider env variables,
+the plugins,
+and the names of the settings.
+Values are not shown here;
+the edit form shows them.
+
+*Operator notes* below the title line are for operators;
+agents never see them.
+On a branch,
+you add or edit them there,
+and a *Delete* button shows in the title line.
+Jam refuses to delete a spec that a role uses,
+and names the role.
+
+== Editing
+
+On a branch,
+open *Edit model-spec* at the bottom of the page.
+The form starts with the spec's current values.
+*Save model-spec* saves it.
+
+image::model-spec-edit.png[Editing the review-opus model spec,800]
+
+Type::
+The harness. Only `claude` is offered.
+Version::
+The exact Claude Code version the studio image installs,
+as three numbers, such as `2.1.322`.
+Version constraint::
+Optional.
+The versions a studio may run under this spec,
+such as `2.x`, `2.1.x` or `>=2.1.0`.
+It must include *Version*.
+Principal credential::
+A credential name from the Jam's configuration,
+or `pool` when the Jam has a subscription pool.
+A name that is no longer configured stays selected,
+so a save never changes it without you.
+Model id and Effort::
+Optional; empty leaves the choice to Claude Code.
+Policy mode::
+One of the permission modes,
+or empty for `bypassPermissions`.
+Claude provider::
+`anthropic`, `vertex` or `bedrock`.
+Principal header rules::
+One rule per line.
+`NAME = VALUE` sets the header.
+`NAME += ITEM` adds the item to a header that holds a comma-separated list,
+unless it is there already.
+You cannot set `Authorization`, `X-Api-Key`, `Cookie` or `Host`.
+A spec has up to 16 rules.
+Allow and Deny::
+One permission rule per line,
+such as `+Bash(go test *)+` or `WebFetch`.
+Provider env::
+One `KEY=VALUE` per line.
+Do not put credentials here,
+and do not set variables that Jam sets itself.
+Plugins::
+One per line, as `name@claude-plugins-official`.
+Settings::
+A JSON object of Claude Code preferences, such as `+{"theme": "light"}+`.
+Jam refuses keys that are not preferences,
+such as `permissions`, `hooks` and `env`.
+Note::
+A hint for other operators, up to 300 bytes.
+
+If Jam refuses the spec,
+the form shows why,
+keeps what you typed,
+and saves nothing.
+
+== What a save changes
+
+A saved change reaches every session of the roles that run the spec
+at the start of its next turn.
+A change to *Version* or *Plugins*
+reaches a session only when it starts with a new studio image
+(xref:concepts/model-spec.adoc#when-it-takes-effect[When a change takes effect]).
+
+To make a role use a spec,
+set *Model-spec* on the role's page
+(xref:configuration/roles.adoc[]).
+
+ifdef::internal[]
+== Notes for the team
+
+* Screens: `web/app/src/admin/specs/ModelSpecsPage.tsx`, `ModelSpecPage.tsx`, `SpecFields.tsx`;
+API `GET`/`POST /app/admin/api/model-specs` and `GET`/`POST`/`DELETE +/app/admin/api/model-specs/{name}+`
+(`internal/jam/adminui/api_specs.go`), checked by `jam.ValidateModelSpec`.
+* The list's title is *Model-specs*; the nav group is *Model Specs*.
+* *Delete*, the edit form and editing *Operator notes* show only on a branch; notes that exist show everywhere.
+* The page lists provider env and settings by key only; the form shows the values.
+* `jam model-spec list` and `jam model-spec show <name>` read specs from the command line.
+* Depth: `docs/modules/ROOT/pages/usage/jam/ui-pages.adoc` (Model-spec pages)
+and `docs/modules/ROOT/pages/usage/jam/model-specs.adoc` (Validation).
+endif::[]

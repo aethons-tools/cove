@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -114,14 +115,14 @@ func TestIntercomTicketChannelFollowsSessions(t *testing.T) {
 	if err := f.ic.SetUp(f.ticket); err != nil {
 		t.Fatalf("SetUp: %v", err)
 	}
-	ch, ok := f.store.ChannelByKey(f.project.ID, SourceTicket, string(f.tracker.ID)+"/ACME-7")
+	ch, ok := f.store.ChannelByKey(f.project.ID, SourceWork, string(f.tracker.ID)+"/ACME-7")
 	if !ok || ch.Label != "ACME-7" || len(ch.Bindings) != 1 || ch.Bindings[0] != (Binding{ConnectionID: f.tracker.ID, Ref: "ACME-7", Mode: BindBoth}) {
 		t.Fatalf("ticket channel = %+v, %v", ch, ok)
 	}
 	if got, _ := f.store.ChannelByBinding(f.tracker.ID, "ACME-7"); got.ID != ch.ID {
 		t.Fatal("tracker replies on the ticket resolve to its channel")
 	}
-	if m := f.store.ChannelMembers(ch.ID); len(m) != 1 || m[0] != (ChannelMember{ParticipantID: ident.ID(f.ticket.ActorID), JoinedSeq: 10}) {
+	if m := f.store.ChannelMembers(ch.ID); len(m) != 1 || m[0] != (ChannelMember{ParticipantID: ident.ID(f.ticket.ActorID), JoinedSeq: 10, Wake: WakeNamed}) {
 		t.Fatalf("members = %+v, want the session from the log tail", m)
 	}
 	// The session ends; a re-dispatch is a new session on the same channel.
@@ -138,41 +139,22 @@ func TestIntercomTicketChannelFollowsSessions(t *testing.T) {
 	if m := f.store.ChannelMembers(ch.ID); len(m) != 1 || m[0].ParticipantID != ident.ID(next.ActorID) || m[0].JoinedSeq != 20 {
 		t.Fatalf("members after re-dispatch = %+v", m)
 	}
-	if got := f.store.ListChannels(f.project.ID, SourceTicket); len(got) != 1 {
+	if got := f.store.ListChannels(f.project.ID, SourceWork); len(got) != 1 {
 		t.Fatalf("ticket channels = %+v, want one per ticket", got)
 	}
-	// A session with no ticket has no ticket channel (its own instead).
-	if err := f.ic.SetUp(f.standing); err != nil || len(f.store.ListChannels(f.project.ID, SourceTicket)) != 1 {
-		t.Fatalf("standing SetUp: %v, ticket channels %v", err, f.store.ListChannels(f.project.ID, SourceTicket))
-	}
-}
-
-// A room already receives the issue's replies: the ticket channel still
-// exists (the session's conversation) but leaves the binding to the room.
-func TestIntercomTicketChannelYieldsBindingToRoom(t *testing.T) {
-	f := newICFixture(t)
-	if err := f.store.SetChannelBindings(f.room.ID, []Binding{{ConnectionID: f.tracker.ID, Ref: "ACME-7", Mode: BindBoth}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.ic.SetUp(f.ticket); err != nil {
-		t.Fatalf("SetUp: %v", err)
-	}
-	ch, ok := f.store.ChannelByKey(f.project.ID, SourceTicket, string(f.tracker.ID)+"/ACME-7")
-	if !ok || len(ch.Bindings) != 0 {
-		t.Fatalf("ticket channel = %+v, %v; want no binding", ch, ok)
+	// A session with no ticket has no ticket channel.
+	if err := f.ic.SetUp(f.standing); err != nil || len(f.store.ListChannels(f.project.ID, SourceWork)) != 1 {
+		t.Fatalf("standing SetUp: %v, ticket channels %v", err, f.store.ListChannels(f.project.ID, SourceWork))
 	}
 }
 
 func TestIntercomPlanDefaults(t *testing.T) {
 	f := newICFixture(t)
-	// A ticket session's default is its own session channel, like any
-	// session's; ticket:<its key> is its ticket channel, created on demand
-	// for a session set up before ticket channels existed.
-	if p := f.mustPlan(f.ticket, ""); p.Channel.Kind != SourceSession || p.Channel.Key != f.ticket.ActorID {
-		t.Fatalf("ticket session default = %+v", p)
-	}
+	// ticket:<its key> is a ticket session's log, created on demand for a
+	// session set up before work logs existed; with nothing delivered to it,
+	// it is its default too.
 	p := f.mustPlan(f.ticket, "ticket:ACME-7")
-	if p.Channel.Kind != SourceTicket || p.Channel.Label != "ACME-7" || len(p.Audience) != 0 {
+	if p.Channel.Kind != SourceWork || p.Channel.Label != "ACME-7" || len(p.Audience) != 0 {
 		t.Fatalf("own ticket = %+v", p)
 	}
 	if !isMember(f.store, p.Channel.ID, ident.ID(f.ticket.ActorID)) {
@@ -192,7 +174,7 @@ func TestIntercomPlanDefaults(t *testing.T) {
 func TestIntercomPlanUsers(t *testing.T) {
 	f := newICFixture(t, "user:*")
 	p := f.mustPlan(f.standing, "user:alice")
-	if p.Channel.Kind != SourceChat || !slices.Equal(p.Audience, ids(f.alice)) {
+	if p.Channel.Kind != SourceDM || !slices.Equal(p.Audience, ids(f.alice)) {
 		t.Fatalf("user:alice = %+v", p)
 	}
 	if byID := f.mustPlan(f.standing, "user:"+string(f.alice.ID)); byID.Channel.ID != p.Channel.ID {
@@ -202,7 +184,7 @@ func TestIntercomPlanUsers(t *testing.T) {
 		t.Fatal("human: is an alias of user:")
 	}
 	group := f.mustPlan(f.standing, "chat:user:bob,user:alice")
-	if group.Channel.Kind != SourceChat || group.Channel.ID == p.Channel.ID || !slices.Equal(group.Audience, ids(f.alice, f.bob)) {
+	if group.Channel.Kind != SourceGroup || group.Channel.ID == p.Channel.ID || !slices.Equal(group.Audience, ids(f.alice, f.bob)) {
 		t.Fatalf("group chat = %+v", group)
 	}
 	if again := f.mustPlan(f.standing, "chat:user:alice,user:bob,user:alice"); again.Channel.ID != group.Channel.ID {
@@ -396,7 +378,7 @@ func TestIntercomChatCompletesMembership(t *testing.T) {
 	f := newICFixture(t, "user:*")
 	members := []string{f.standing.ActorID, string(f.alice.ID)}
 	slices.Sort(members)
-	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceChat, Key: strings.Join(members, ","), Label: "x"})
+	ch, err := f.store.CreateChannel(Channel{ProjectID: f.project.ID, Kind: SourceDM, Key: strings.Join(members, ","), Label: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,5 +438,87 @@ func TestIntercomNameGlobsNeverMatchIDs(t *testing.T) {
 		if _, err := f.plan(f.standing, "user:"+string(f.alice.ID)); err != nil {
 			t.Errorf("%s → alice's id: %v, want allowed", glob, err)
 		}
+	}
+}
+
+// A person who messaged the session in a dm is a reply target by name,
+// whatever the session's addressing: under the turn-end rule that reply has
+// no other way to reach them. Someone who didn't message it still needs
+// addressing.
+func TestReplyToPersonInADM(t *testing.T) {
+	f := newICFixture(t, "ticket:*")
+	f.standing.Name, f.standing.Activity = "spider", ActivityWaiting
+	if err := f.store.PutInstance(f.standing); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.plan(f.standing, "user:alice"); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("before alice wrote: %v", err)
+	}
+	// Escalation opens a dm with alice; she answers there.
+	alice, _ := MemberOf(f.store, f.project.ID, f.alice.ID)
+	if err := f.ic.Escalate(context.Background(), f.standing, 1, "infra", []Member{alice}); err != nil {
+		t.Fatal(err)
+	}
+	dm, ok := f.ic.existingChat(f.project, ids(f.standing, f.alice))
+	if !ok {
+		t.Fatal("no dm")
+	}
+	if _, err := f.ic.PostTrusted(dm, intercom.Squawk{From: f.alice.ID, Body: "can you look?"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, to := range []string{"user:alice", "user:" + string(f.alice.ID)} {
+		if pl, err := f.plan(f.standing, to); err != nil || pl.Channel.ID != dm.ID {
+			t.Errorf("reply to %q = %+v, %v; want the dm", to, pl.Channel, err)
+		}
+	}
+	if _, err := f.plan(f.standing, "user:bob"); !errors.Is(err, ErrSendDenied) {
+		t.Fatalf("bob, who never wrote: %v", err)
+	}
+}
+
+// ReplyTo names each kind of conversation so that a send to it lands back
+// in the same channel.
+func TestReplyToRoundTrips(t *testing.T) {
+	f := newICFixture(t, "session:*")
+	f.standing.Name = "spider"
+	if err := f.store.PutInstance(f.standing); err != nil {
+		t.Fatal(err)
+	}
+	// A dm alice opened with it.
+	byAlice, err := f.ic.PlanSessionDM(f.alice.ID, f.standing.ActorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ic.Post(byAlice, intercom.Squawk{From: f.alice.ID, Body: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	home := byAlice.Channel
+	// A dm another session opened with it.
+	dm := f.mustPlan(f.personal, "chat:session:"+f.standing.ActorID).Channel
+	// Its own ticket's work log.
+	log := f.mustPlan(f.ticket, "work:ACME-7").Channel
+	for _, c := range []struct {
+		inst Instance
+		ch   Channel
+		want string
+	}{
+		{f.standing, home, "chat:user:" + string(f.alice.ID)},
+		{f.standing, dm, "chat:session:" + f.personal.ActorID},
+		{f.ticket, log, "work:ACME-7"},
+	} {
+		to := f.ic.ReplyTo(c.inst, c.ch.ID)
+		if to != c.want {
+			t.Errorf("ReplyTo(%s) = %q, want %q", c.ch.Kind, to, c.want)
+			continue
+		}
+		if pl, err := f.plan(c.inst, to); err != nil || pl.Channel.ID != c.ch.ID {
+			t.Errorf("send to %q = %+v, %v; want channel %s", to, pl.Channel, err, c.ch.ID)
+		}
+	}
+	if to := f.ic.ReplyTo(f.standing, f.room.ID); to != "channel:eng" {
+		t.Errorf("room = %q", to)
+	}
+	if to := f.ic.ReplyTo(f.standing, "chn_nope"); to != "" {
+		t.Errorf("unknown channel = %q", to)
 	}
 }

@@ -43,7 +43,7 @@ func importSnapshot(t *testing.T) jam.ConfigSnapshot {
 	must(fs.AddActor(jam.Actor{ID: "spider-18", TokenHash: jam.HashToken("tok"), Grants: []jam.Grant{{Project: jam.DefaultProject, Role: "guest"}}}))
 	_, err := fs.PushKit("base", "image: x")
 	must(err)
-	must(fs.AddDestination(jam.Destination{Name: "anthropic", Route: "/v1", Upstream: "https://api"}))
+	must(fs.AddDestination(jam.Destination{Name: "anthropic", Endpoints: []jam.Endpoint{{Name: "anthropic", Route: "/v1", Upstream: "https://api"}}}))
 	must(jam.AddPerson(fs, jam.DefaultProject, jam.Human{Name: "alice", Handle: "@alice"}))
 	return fs.ExportConfig()
 }
@@ -74,7 +74,7 @@ func TestPGImportConfigRoundTrip(t *testing.T) {
 func TestPGImportConfigRefusesWhenNotEmpty(t *testing.T) {
 	snap := importSnapshot(t)
 	pg, _ := pgImportStore(t)
-	if err := pg.AddDestination(jam.Destination{Name: "d", Route: "/r", Upstream: "u"}); err != nil {
+	if err := pg.AddDestination(jam.Destination{Name: "d", Endpoints: []jam.Endpoint{{Name: "d", Route: "/r", Upstream: "u"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := pg.ImportConfig(snap); !errors.Is(err, jam.ErrConfigNotEmpty) {

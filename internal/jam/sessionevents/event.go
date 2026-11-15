@@ -65,6 +65,15 @@ type StreamInfo struct {
 	Events          int
 }
 
+// TurnSpan summarizes one turn of a stream: its events' seqs and
+// ObservedAt range.
+type TurnSpan struct {
+	Turn              uint32
+	FirstSeq, LastSeq uint64
+	Start, End        time.Time
+	Events            int
+}
+
 // Store persists session events.
 type Store interface {
 	// Append persists ev. Appending an (actor, stream, seq) that already exists
@@ -76,6 +85,8 @@ type Store interface {
 	List(f Filter) ([]Event, error)
 	// Streams lists an actor's streams, newest (by FirstAt) first.
 	Streams(actorID string) ([]StreamInfo, error)
+	// Turns lists a stream's turns, by first seq.
+	Turns(actorID, streamID string) ([]TurnSpan, error)
 	// DeleteBefore removes data last received before t; returns rows removed.
 	DeleteBefore(t time.Time) (int, error)
 }

@@ -114,6 +114,12 @@ func (l *Log) delivered(p ident.ID) func(Squawk) bool {
 	return func(m Squawk) bool { return slices.Contains(l.deliveries[m.Seq], p) }
 }
 
+// involved selects the squawks p authored or was delivered.
+func (l *Log) involved(p ident.ID) func(Squawk) bool {
+	heard := l.delivered(p)
+	return func(m Squawk) bool { return m.From == p || heard(m) }
+}
+
 func (l *Log) inChannel(ch ident.ID) func(Squawk) bool {
 	return func(m Squawk) bool { return m.Channel == ch }
 }
@@ -124,6 +130,14 @@ func (l *Log) InboxSince(p ident.ID, afterSeq int64, limit int) []Squawk {
 
 func (l *Log) InboxBefore(p ident.ID, beforeSeq int64, limit int) []Squawk {
 	return l.before(l.delivered(p), beforeSeq, limit)
+}
+
+func (l *Log) ActivitySince(p ident.ID, afterSeq int64, limit int) []Squawk {
+	return l.since(l.involved(p), afterSeq, limit)
+}
+
+func (l *Log) ActivityBefore(p ident.ID, beforeSeq int64, limit int) []Squawk {
+	return l.before(l.involved(p), beforeSeq, limit)
 }
 
 func (l *Log) ChannelSince(ch ident.ID, afterSeq int64, limit int) []Squawk {

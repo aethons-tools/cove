@@ -40,11 +40,12 @@ func (ic *Intercom) OpenAskCount(session ident.ID) int {
 	return n
 }
 
-// Ask posts p's ask to `to` ("" = its home channel), planned like a send:
-// ErrSendDenied, ErrSendUnresolved and ErrRemoved as for Plan; intercom
-// ErrInvalid for a malformed ask.
+// Ask posts p's ask to `to`, planned like a send (PlanSend): with no `to`,
+// ErrSendNeedsTo on the turn-end rule (the studio fills in the turn's last
+// `to`), else its default conversation; ErrSendDenied, ErrSendUnresolved
+// and ErrRemoved as for Plan; intercom ErrInvalid for a malformed ask.
 func (ic *Intercom) Ask(p Poster, to string, in AskInput, now time.Time) (intercom.Ask, Channel, error) {
-	pl, err := ic.Plan(p, to, now)
+	pl, err := ic.PlanSend(p, to, now)
 	if err != nil {
 		return intercom.Ask{}, Channel{}, err
 	}
@@ -174,7 +175,7 @@ func (ic *Intercom) MayAnswer(user ident.ID, a intercom.Ask) bool {
 // mayAnswerIn reports whether person user may answer an ask in ch: a member,
 // or anyone who can see a ticket's channel (every project member).
 func (ic *Intercom) mayAnswerIn(ch Channel, user ident.ID) bool {
-	return ic.isMemberOf(ch, user) || ch.Kind == SourceTicket && ic.CanSee(user, ch)
+	return ic.isMemberOf(ch, user) || ch.Kind == SourceWork && ic.CanSee(user, ch)
 }
 
 // asksChanged tells the hook session's asks changed.

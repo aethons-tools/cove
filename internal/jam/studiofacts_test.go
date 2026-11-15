@@ -11,9 +11,9 @@ import (
 func TestStudioFactsFromScope(t *testing.T) {
 	_, store, _ := supTestKit(t, &fakeLauncher{})
 	for _, d := range []Destination{
-		{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com", CredName: "gh-pat-SECRETNAME",
+		{Name: "github-api", Endpoints: []Endpoint{{Name: "github-api", Route: "/api/v3/", Upstream: "https://api.github.com"}}, CredName: "gh-pat-SECRETNAME",
 			Env: map[string]string{"GH_HOST": "{host}", "GH_ENTERPRISE_TOKEN": "{token}"}, Note: "pass -R $GH_HOST/o/r"},
-		{Name: "git", Route: "/git/", Upstream: "https://github.com", Git: true},
+		{Name: "git", Endpoints: []Endpoint{{Name: "git", Route: "/git/", Upstream: "https://github.com", Git: true}}},
 	} {
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)

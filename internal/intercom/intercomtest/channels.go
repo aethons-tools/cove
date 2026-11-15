@@ -107,6 +107,31 @@ func RunConformance(t *testing.T, newLog func(t *testing.T, legacy int) Fixture)
 		}
 	})
 
+	t.Run("activity_is_authored_and_delivered", func(t *testing.T) {
+		s := newLog(t, 0).Store
+		post(t, s, chA, ses, "1 from ses", alice)
+		post(t, s, chA, alice, "2 to ses", ses)
+		post(t, s, chB, ses, "3 from ses to no one")
+		post(t, s, chB, alice, "4 not ses's", bob)
+		m5 := post(t, s, chB, bob, "5 to both", alice, ses)
+		post(t, s, chA, ses, "6 from ses", alice)
+		cases := []struct {
+			name string
+			got  []intercom.Squawk
+			want []string
+		}{
+			{"all", s.ActivitySince(ses, 0, 0), []string{"1 from ses", "2 to ses", "3 from ses to no one", "5 to both", "6 from ses"}},
+			{"since", s.ActivitySince(ses, m5.Seq-1, 1), []string{"5 to both"}},
+			{"before", s.ActivityBefore(ses, m5.Seq, 2), []string{"2 to ses", "3 from ses to no one"}},
+			{"from the end", s.ActivityBefore(ses, 0, 2), []string{"5 to both", "6 from ses"}},
+		}
+		for _, c := range cases {
+			if got := squawkBodies(c.got); !slices.Equal(got, c.want) {
+				t.Errorf("%s = %q, want %q", c.name, got, c.want)
+			}
+		}
+	})
+
 	t.Run("paging_both_ways", func(t *testing.T) {
 		s := newLog(t, 0).Store
 		var seqs []int64

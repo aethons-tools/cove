@@ -11,9 +11,8 @@ import (
 
 func TestDestinationsBody(t *testing.T) {
 	st := NewMemStore()
-	_ = st.AddDestination(Destination{Name: "gh", Route: "/gh/", Upstream: "https://user:pw@api.github.com", IdentityIn: ApplyBearer,
-		Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "token {cred}"}, CredName: "gh-pat",
-		Env: map[string]string{"GH_TOKEN": "ghp_SECRET", "GH_HOST": "{host}"}, Git: true, AllowPaths: []string{"/repos/*"}})
+	_ = st.AddDestination(Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/gh/", Upstream: "https://user:pw@api.github.com", IdentityIn: ApplyBearer, Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "token {cred}"}, Git: true, AllowPaths: []string{"/repos/*"}}}, CredName: "gh-pat",
+		Env: map[string]string{"GH_TOKEN": "ghp_SECRET", "GH_HOST": "{host}"}})
 	if err := st.PutRole("default", Role{Name: "r", Scope: Scope{Destinations: []string{"gh", "ghost"}, Credentials: map[string]string{"gh": "gh-bot"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -129,8 +128,7 @@ func TestSetupConfigFix1(t *testing.T) {
 	}
 
 	st := NewMemStore()
-	_ = st.AddDestination(Destination{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", IdentityIn: ApplyBearer,
-		Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "{cred};static=sk_live_LITERAL123"}, CredName: "gh-pat"})
+	_ = st.AddDestination(Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/gh/", Upstream: "https://api.github.com", IdentityIn: ApplyBearer, Apply: ApplyCustom, ApplySpec: &OutboundSpec{Header: "Authorization", Template: "{cred};static=sk_live_LITERAL123"}}}, CredName: "gh-pat"})
 	_ = st.PutRole("default", Role{Name: "r", Scope: Scope{Destinations: []string{"gh"}}})
 	d := destinationsBody(st, Actor{Grants: []Grant{{Project: "default", Role: "r"}}})
 	if strings.Contains(d, "sk_live_LITERAL123") || !strings.Contains(d, MarkMasked) {

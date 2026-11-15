@@ -180,7 +180,7 @@ func TestPlanTable(t *testing.T) {
 	if o := opOf(planOn(t, st, changed), ConfigKindDestination, "gh"); o.Action != ConfigUpdate {
 		t.Fatalf("update %+v", o)
 	}
-	_ = st.AddDestination(Destination{Name: "other", Route: "/o/", Upstream: "https://o.example"})
+	_ = st.AddDestination(Destination{Name: "other", Endpoints: []Endpoint{{Name: "other", Route: "/o/", Upstream: "https://o.example"}}})
 	same := treeOf(t, map[string]string{"destinations/gh.yml": ghDest,
 		"destinations/other.yml": "kind: destination\nversion: 1\nroute: /o/\nupstream: https://o.example\n"})
 	if o := opOf(planOn(t, st, same), ConfigKindDestination, "other"); o.Action != ConfigAdopt {
@@ -218,7 +218,7 @@ func TestPlanReferencesResolveAgainstPlannedState(t *testing.T) {
 func TestPlanSeededDefaultModelSpec(t *testing.T) {
 	st := NewMemStore()
 	// EnsureDefaultModelSpec seeds from the anthropic destination's credential.
-	if err := st.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com", CredName: "anthropic"}); err != nil {
+	if err := st.AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: "https://api.anthropic.com"}}, CredName: "anthropic"}); err != nil {
 		t.Fatal(err)
 	}
 	if created, err := EnsureDefaultModelSpec(st, false); err != nil || !created {
@@ -806,5 +806,31 @@ func TestPlanDeletesEditedManaged(t *testing.T) {
 	}
 	if mk := markOf(st, ConfigKindDestination, "gh"); mk.Name != "" {
 		t.Fatalf("mark kept %+v", mk)
+	}
+}
+
+// A role's scope.rooms must name rooms of its project, in the planned
+// state: a room the same plan adds resolves; one no file has is refused, as
+// is a listed room the project file drops.
+func TestPlanRoleRoomsMustExist(t *testing.T) {
+	st := NewMemStore()
+	files := map[string]string{
+		"projects/app/project.yml":  "kind: project\nversion: 1\nrooms: [{key: ops}]\n",
+		"projects/app/roles/ic.yml": "kind: role\nversion: 1\nscope: {rooms: [{name: ops, wake: all}]}\n",
+	}
+	applyPlan(t, st, planOn(t, st, treeOf(t, files)))
+	if r, _ := st.GetRole("app", "ic"); len(r.Scope.Rooms) != 1 || r.Scope.Rooms[0] != (RoomMembership{Name: "ops", Wake: WakeAll}) {
+		t.Fatalf("rooms = %+v", r.Scope.Rooms)
+	}
+	files["projects/app/roles/ic.yml"] = "kind: role\nversion: 1\nscope: {rooms: [{name: ops}, {name: eng}]}\n"
+	p := planOn(t, st, treeOf(t, files))
+	if want := "projects/app/roles/ic.yml: scope.rooms: eng is not a room of project app"; !slices.Contains(p.Refusals, want) {
+		t.Errorf("missing %q in %v", want, p.Refusals)
+	}
+	files["projects/app/roles/ic.yml"] = "kind: role\nversion: 1\nscope: {rooms: [{name: ops, wake: all}]}\n"
+	files["projects/app/project.yml"] = "kind: project\nversion: 1\n"
+	p = planOn(t, st, treeOf(t, files))
+	if want := "projects/app/roles/ic.yml: scope.rooms: ops is not a room of project app"; !slices.Contains(p.Refusals, want) {
+		t.Errorf("unchanged role over a dropped room: missing %q in %v", want, p.Refusals)
 	}
 }

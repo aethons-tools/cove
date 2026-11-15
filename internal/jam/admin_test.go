@@ -72,7 +72,7 @@ func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder, out any) {
 
 func TestAdminListDestination(t *testing.T) {
 	h, store := newTestAdmin(t)
-	if err := store.AddDestination(Destination{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: "basic-password", CredName: "git-pat", Apply: "basic-password"}); err != nil {
+	if err := store.AddDestination(Destination{Name: "git", Endpoints: []Endpoint{{Name: "git", Route: "/git/", Upstream: "https://github.com", IdentityIn: "basic-password", Apply: "basic-password"}}, CredName: "git-pat"}); err != nil {
 		t.Fatal(err)
 	}
 	var got []Destination
@@ -122,7 +122,7 @@ func TestRoleConfigRoutesGone(t *testing.T) {
 }
 
 func TestAdminRejectsUnresolvableCredName(t *testing.T) {
-	err := ValidateDestination(Destination{Name: "bad", Route: "/bad/", Upstream: "https://x", IdentityIn: "bearer", CredName: "nope", Apply: "bearer"}, func(n string) bool { return n == "git-pat" })
+	err := ValidateDestination(Destination{Name: "bad", Endpoints: []Endpoint{{Name: "bad", Route: "/bad/", Upstream: "https://x", IdentityIn: "bearer", Apply: "bearer"}}, CredName: "nope"}, func(n string) bool { return n == "git-pat" }, false)
 	if err == nil {
 		t.Fatal("want an error for an unresolvable cred_name")
 	}
@@ -875,18 +875,18 @@ func TestAdminGrantAndEnrollOverrideCredentialsValidated(t *testing.T) {
 func TestAdminAddDestinationValidatesEnv(t *testing.T) {
 	store := NewMemStore()
 	credExists := func(string) bool { return true }
-	bad := Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Env: map[string]string{"JAM_IDENTITY_TOKEN": "{token}"}}
-	if err := ValidateDestination(bad, credExists); err == nil {
+	bad := Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com"}}, Env: map[string]string{"JAM_IDENTITY_TOKEN": "{token}"}}
+	if err := ValidateDestination(bad, credExists, false); err == nil {
 		t.Fatal("reserved env key: want an error")
 	}
-	good := Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Env: map[string]string{"GH_HOST": "{host}"}, Git: true}
-	if err := ValidateDestination(good, credExists); err != nil {
+	good := Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Git: true}}, Env: map[string]string{"GH_HOST": "{host}"}}
+	if err := ValidateDestination(good, credExists, false); err != nil {
 		t.Fatalf("valid env: %v", err)
 	}
 	if err := store.AddDestination(good); err != nil {
 		t.Fatal(err)
 	}
-	if d := store.ListDestinations(); len(d) != 1 || d[0].Env["GH_HOST"] != "{host}" || !d[0].Git {
+	if d := store.ListDestinations(); len(d) != 1 || d[0].Env["GH_HOST"] != "{host}" || !d[0].Endpoints[0].Git {
 		t.Fatalf("stored = %+v", d)
 	}
 }
@@ -894,7 +894,7 @@ func TestAdminAddDestinationValidatesEnv(t *testing.T) {
 func TestAdminEnrollReturnsConnector(t *testing.T) {
 	h, store := newTestAdmin(t)
 	mustCreateProject(t, store, "acme")
-	if err := store.AddDestination(Destination{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com", Env: map[string]string{"GH_HOST": "{host}"}}); err != nil {
+	if err := store.AddDestination(Destination{Name: "gh", Endpoints: []Endpoint{{Name: "gh", Route: "/api/v3/", Upstream: "https://api.github.com"}}, Env: map[string]string{"GH_HOST": "{host}"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.PutRole("acme", Role{Name: "w", Scope: Scope{Destinations: []string{"gh"}}}); err != nil {

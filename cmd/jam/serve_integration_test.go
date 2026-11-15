@@ -36,7 +36,7 @@ func TestServeBrokersOverTLS(t *testing.T) {
 	defer up.Close()
 
 	store := jam.NewMemStore()
-	if err := store.AddDestination(jam.Destination{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: jam.ApplyXAPIKey, CredName: "anthropic-key", Apply: jam.ApplyXAPIKey}); err != nil {
+	if err := store.AddDestination(jam.Destination{Name: "anthropic", Endpoints: []jam.Endpoint{{Name: "anthropic", Route: "/anthropic/", Upstream: up.URL, IdentityIn: jam.ApplyXAPIKey, Apply: jam.ApplyXAPIKey}}, CredName: "anthropic-key"}); err != nil {
 		t.Fatal(err)
 	}
 	mustCreateProject(t, store, "ACME")

@@ -33,25 +33,25 @@ const defaultBackgroundWait = 30 * time.Minute
 // resumePrompt is an ephemeral session's wake text: written into a live
 // episode, or as the first message of a new continued episode.
 const resumePrompt = "A message may have arrived — use the intercom `read` tool to fetch new messages, then continue. " +
-	"`send` without `to` posts to your own channel. If you have a ticket, keep it current with `report`."
+	"`send` without `to` answers where you were last messaged. If you have a ticket, keep it current with `report`."
 
 // residentResumePrompt is resumePrompt's resident-mode (personal or standing
 // session) counterpart, delivered the same way when a Wake — typically the
 // owner replying — arrives.
 const residentResumePrompt = "A reply may have arrived — use the intercom `read` tool to fetch new messages, then continue. " +
-	"`send` without `to` posts to your own channel, which the person who started you is in: use it when you have results or need input."
+	"`send` without `to` answers where you were last messaged (at first, your DM with the person who started you): use it when you have results or need input."
 
 // standingResumePrompt is a standing session's wake text: it has no owner;
-// people reach it in its own channel or elsewhere.
+// people reach it in a DM or elsewhere.
 const standingResumePrompt = "A message may have arrived — use the intercom `read` tool to fetch new messages, then continue. " +
-	"`send` without `to` posts to your own channel; pass `to` to answer anywhere else."
+	"`send` without `to` answers where you were last messaged; pass `to` to answer anywhere else."
 
 // restartPrompt is the first message of a session's first
 // episode when it resumes a prior conversation (its /agent-data survived a
 // restart): it replaces the raise prompt, which the conversation already holds.
 const restartPrompt = "Your session was restarted (for example, Jam was upgraded or your studio was re-raised); " +
 	"your conversation and workspace are intact. Use the intercom `read` tool to fetch any messages that arrived meanwhile, " +
-	"then continue where you left off. `send` without `to` posts to your own channel; pass `to` to answer anywhere else. " +
+	"then continue where you left off. `send` without `to` answers where you were last messaged; pass `to` to answer anywhere else. " +
 	"Set your `mission` and `focus` again once you know them."
 
 // resumeFailWindow bounds the resume fallback: a resumed episode that exits
@@ -129,7 +129,8 @@ type Config struct {
 	// raise prompt and clearedNotice; its first reply removes it.
 	ClearMarker string
 	// TurnIO, when set, turns on the structured turn end: wakes deliver the
-	// session's pending messages, and each turn's final text is posted and the
+	// session's pending messages, each turn's final text is posted where
+	// turn_end's to says (a turn that sent nothing is returned once), and the
 	// messages it was shown committed (see turnend.go). nil = the legacy read
 	// prompt; the agent posts and commits itself.
 	TurnIO TurnIO
@@ -184,10 +185,18 @@ type Workload struct {
 	// interrupted: the last episode exited with an interrupted turn not yet
 	// acknowledged; its result, drained after the exit, didn't end normally.
 	interrupted bool
-	// directives are the current turn's turn_end call (nil = defaults), set
-	// on the agent socket's goroutine.
+	// directives are the current turn's turn_end call (nil = defaults), and
+	// sent what it sent (send, ask, report) and where its last send went;
+	// both set on the agent socket's goroutine.
 	dirMu      sync.Mutex
 	directives *Directives
+	sent       turnSent
+	// returning: the last turn was returned; the next prompt's turn is the
+	// returned one (turnMeta.returned). Run's goroutine only.
+	returning bool
+	// recordTurn records a turn's outcome in the session event stream (set by
+	// Run for each episode; nil = not recorded). Run's goroutine only.
+	recordTurn func(outcome string)
 	// muted: Jam was last asked not to wake the session on messages (Run's
 	// goroutine only).
 	muted bool
@@ -374,6 +383,7 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 		if err != nil {
 			return err
 		}
+		w.recordTurn = func(outcome string) { emitTurn(h, t, outcome) }
 		w.dropStaleInterrupt(h, t) // before Running: a press after it is this episode's
 		h.Report(studioagent.Running)
 		w.log.Info("agentrun: agent started", "workdir", w.cfg.WorkDir, "continued", continued)
@@ -717,11 +727,14 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			if maintenance {
 				continue
 			}
-			if ackBy != "" && !r.Interim {
+			if ackBy != "" {
 				r.OK = false // the interrupted turn: whatever claude called it
 			}
 			if w.finishTurn(ctx, r) && !compacting && compact == nil {
 				compact = &compactReq{by: agentBy}
+			}
+			if w.returning {
+				tr.Owe() // the returned wake is delivered in this episode
 			}
 		}
 	}

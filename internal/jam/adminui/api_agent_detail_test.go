@@ -125,7 +125,7 @@ func TestAgentAPIChannelLogSquawks(t *testing.T) {
 	h := adminui.Handler(store, testLogger(), &jam.Supervisor{}, nil, anyCred, adminui.NewSquawkReader(store, ic, lg, nil))
 	var d adminui.AgentDetail
 	apiDo(t, h, "GET", "/app/admin/api/agents/sess-2", nil, &d)
-	if len(d.Squawks) != 1 || rowText(d.Squawks[0]) != "a reply on the ticket" || d.Squawks[0].Channel != "COV-1 · ticket" || !d.CanEdit {
+	if len(d.Squawks) != 1 || rowText(d.Squawks[0]) != "a reply on the ticket" || d.Squawks[0].Channel != "COV-1 · work" || !d.CanEdit {
 		t.Fatalf("squawks = %+v", d.Squawks)
 	}
 	for i := range 50 {

@@ -1,10 +1,10 @@
 = Kits from git
-:summary: Kits from git — importing a studio kit from a repository (`kit import`), tracking it and pulling new commits by hand (`kit track|sync|untrack`), the `<repo>[//<dir>]@<ref>` source syntax, version provenance, `kits.git` credentials, the fetch limits, and what each fetch error means.
+:summary: Kits from git — importing a studio kit from a repository (`kit import`), tracking it and pulling new commits by hand (`kit track|sync|untrack`), the `<repo>[//<dir>]@<ref>` source syntax, version provenance, `kits.git` credentials and the fetch limits. What each fetch error means is in kits-git-errors.adoc.
 :read_when: You want a kit's definition to live in its own git repo instead of the config repo, are writing a `--git` source, giving Jam a token for a private kit repo, wondering why a sync said `unchanged`, or an import/track/sync failed (auth, ref or kit.yml not found, escape refused, limit exceeded).
-:owns: the git kit-source story — the source syntax and its refusals, the in-repo kit.yml layout, import vs track/sync semantics and the unchanged rules, version provenance in `versions`/`show`, kits.git credential matching + username rules + anonymous fetch, the fetch limits, the kit-source admin API status codes, and kit-source troubleshooting
+:owns: the git kit-source story — the source syntax and its refusals, the in-repo kit.yml layout, import vs track/sync semantics and the unchanged rules, version provenance in `versions`/`show`, kits.git credential matching + username rules + anonymous fetch, and the fetch limits
 :prereqs: kits.adoc for the StudioKit schema, versions and the `kit` verbs; serve.adoc for where the `kits` block sits in the serve config
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-14
 
 Instead of living in the config repo (`kits/<name>/`, xref:usage/jam/kits.adoc[kits]), a
 kit can be *imported from its own git repository*: Jam fetches the repo itself (a shallow, read-only checkout over
@@ -21,7 +21,10 @@ jam kit untrack web                                                       # stop
 ----
 
 The admin UI does the same from the Kits list (*Import from git*) and each
-kit's *Source* card (xref:usage/jam/ui-pages.adoc#kit-pages[ui-pages.adoc]).
+kit's *Source* card (xref:usage/jam/ui-kit-pages.adoc[]).
+There, import, track, sync, and untrack act on the live Jam even on a
+xref:usage/jam/config-branches.adoc[config branch]: they aren't commits to the branch
+(`branchLive` in `adminui/branches.go`).
 
 [#the-source-repodirref]
 == The source: `+<repo>[//<dir>]@<ref>+`
@@ -160,35 +163,7 @@ CLI allows 90 s per call. The directory then meets the
 xref:usage/jam/kits-directory.adoc#limits[kit directory limits], and `kit.yml` is read only up to
 4 MiB.
 
-[#errors-and-troubleshooting]
-== Errors and troubleshooting
-
-The CLI refuses a malformed source itself (exit 2); otherwise it exits 1
-with the admin API's status and message. The API answers
-*400* for a bad source or an invalid kit, *404* for an unknown kit,
-*409* for `sync` of an untracked kit or a refused
-xref:usage/jam/kits-path-parents.adoc#refusals[set ancestor], *502* for a fetch, auth or limit
-failure (the message is already redacted), and *500* for a store failure.
-
-[%header]
-|===
-|Message |Fix
-
-|`+auth failed for <prefix>: the token was rejected (401; …)+` |The named credential's token is wrong or expired.
-|`+auth failed for <prefix>: the token was accepted but may not read this repo (403; …)+` |Valid token without access: a fine-grained PAT must be owned by the org with *Contents: read* (and org-approved); a classic PAT needs `repo` and, under SAML SSO, SSO authorization.
-|`kits.git cred <name> could not be resolved` |The credential's supply (`credentials.yml` command, minter) failed at fetch time; check it on the Jam host.
-|`auth required for <host> (add a kits.git entry)` |A private repo with no matching prefix: add one.
-|`+repository … not found (if private, add a kits.git entry)+` |Wrong URL, or private (forges often answer "not found" without auth).
-|`+repository … not found (or kits.git cred <name> cannot read it)+` |Wrong URL, or the named credential's token cannot read this repo.
-|`+ref <ref> not found in …+` |No such branch or tag; check spelling and that it is pushed.
-|`+commit … not found in … (or the server does not serve commits by id)+` |Unknown id, or the server refuses fetch-by-commit: use a branch or tag.
-|`+<dir>: not a directory+` / `+<dir>: kit.yml missing at the root+` |No such directory, or no `kit.yml` in it (check `//<dir>`).
-|`+<dir>/<path>: symlinks are not allowed+` |A symlink in the kit directory: commit the file itself.
-|`+base.context… is no longer supported…+` |The kit still uses a packed build context; see xref:usage/jam/kits-directory.adoc#refusals[the refusals].
-|`+note "…": file must be a relative path inside the kit directory+` / `+note "…": file … is not in the kit+` |A note's `file` escapes the directory or is missing: keep it relative, inside `<dir>`.
-|`exceeded the <n>-byte transfer limit` / `checkout too large` / `+timed out after …+` |The repo is too big or too slow for one fetch: move the kit to a smaller repo.
-|`kit has no tracked source (use kit track)` |`sync` needs `track` first.
-|===
+What each import, track or sync error means: xref:usage/jam/kits-git-errors.adoc[kits-git-errors].
 
 == In a config repo
 

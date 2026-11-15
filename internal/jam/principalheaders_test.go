@@ -155,13 +155,13 @@ func newPrincipalCase(t *testing.T, rules []modelspec.HeaderRule, dests ...Desti
 	}
 	var names []string
 	for _, d := range dests {
-		route := d.Route
+		route := d.Endpoints[0].Route
 		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			pc.got[route] = r.Header.Clone()
 			io.WriteString(w, "ok")
 		}))
 		t.Cleanup(up.Close)
-		d.Upstream = up.URL
+		d.Endpoints[0].Upstream = up.URL
 		if err := store.AddDestination(d); err != nil {
 			t.Fatal(err)
 		}
@@ -198,11 +198,11 @@ func (pc *principalCase) send(path, route string, kv ...string) http.Header {
 }
 
 func anthropicDest() Destination {
-	return Destination{Name: "anthropic", Route: "/anthropic/", IdentityIn: ApplyBearer, CredName: "anthropic-sub", Apply: ApplyBearer}
+	return Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/", IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "anthropic-sub"}
 }
 
 func gitDest() Destination {
-	return Destination{Name: "github", Route: "/git/", IdentityIn: ApplyBearer, CredName: "gh", Apply: ApplyBearer}
+	return Destination{Name: "github", Endpoints: []Endpoint{{Name: "github", Route: "/git/", IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "gh"}
 }
 
 var oauthRule = modelspec.HeaderRule{Name: "anthropic-beta", EnsureListItem: "oauth-2025-04-20"}
@@ -253,10 +253,10 @@ func TestBrokerPrincipalRulesNotAppliedToOtherDestinations(t *testing.T) {
 // env sets it, whatever its name — never a more specific sub-route or another
 // route.
 func TestBrokerPrincipalProviderDestinationIsAnthropicBaseURL(t *testing.T) {
-	byEnv := Destination{Name: "claude-sub", Route: "/claude/", IdentityIn: ApplyBearer, CredName: "anthropic-sub", Apply: ApplyBearer,
+	byEnv := Destination{Name: "claude-sub", Endpoints: []Endpoint{{Name: "claude-sub", Route: "/claude/", IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "anthropic-sub",
 		Env: map[string]string{"ANTHROPIC_BASE_URL": "{url}", "ANTHROPIC_AUTH_TOKEN": "{token}"}}
-	sub := Destination{Name: "anthropic-files", Route: "/anthropic/files/", IdentityIn: ApplyBearer, CredName: "anthropic-sub", Apply: ApplyBearer}
-	named := Destination{Name: "anthropic", Route: "/anthropic2/", IdentityIn: ApplyBearer, CredName: "anthropic-sub", Apply: ApplyBearer,
+	sub := Destination{Name: "anthropic-files", Endpoints: []Endpoint{{Name: "anthropic-files", Route: "/anthropic/files/", IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "anthropic-sub"}
+	named := Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic2/", IdentityIn: ApplyBearer, Apply: ApplyBearer}}, CredName: "anthropic-sub",
 		Env: map[string]string{"OTHER": "{url}"}}
 	legacy := anthropicDest()
 	legacy.Name = "legacy"
@@ -294,8 +294,8 @@ func TestBrokerPrincipalRuleNotAppliedForOtherProviders(t *testing.T) {
 // stays Jam's.
 func TestBrokerPrincipalRuleConflictingWithDestinationSkipped(t *testing.T) {
 	d := anthropicDest()
-	d.Apply = ApplyCustom
-	d.ApplySpec = &OutboundSpec{Header: "X-Upstream-Key", Template: "{cred}"}
+	d.Endpoints[0].Apply = ApplyCustom
+	d.Endpoints[0].ApplySpec = &OutboundSpec{Header: "X-Upstream-Key", Template: "{cred}"}
 	pc := newPrincipalCase(t, []modelspec.HeaderRule{
 		{Name: "x-upstream-key", Set: "rule-value-123"},
 		{Name: "X-Ok", Set: "fine"},
@@ -325,8 +325,8 @@ func TestBrokerPrincipalStaticDenylistRecheckedAtApply(t *testing.T) {
 // Warnings are deduplicated: a persistent condition logs once, not per request.
 func TestBrokerPrincipalWarningsDeduplicated(t *testing.T) {
 	d := anthropicDest()
-	d.Apply = ApplyCustom
-	d.ApplySpec = &OutboundSpec{Header: "X-Upstream-Key", Template: "{cred}"}
+	d.Endpoints[0].Apply = ApplyCustom
+	d.Endpoints[0].ApplySpec = &OutboundSpec{Header: "X-Upstream-Key", Template: "{cred}"}
 	pc := newPrincipalCase(t, []modelspec.HeaderRule{{Name: "X-Upstream-Key", Set: "v"}}, d)
 	for range 3 {
 		pc.send("/anthropic/v1/messages", "/anthropic/")

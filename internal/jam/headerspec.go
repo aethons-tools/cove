@@ -115,12 +115,12 @@ func outboundSpec(m ApplyMethod, custom *OutboundSpec) (OutboundSpec, bool) {
 }
 
 // InboundSpec is the effective identity-in spec (IdentityIn / IdentityInSpec).
-func (d Destination) InboundSpec() (InboundSpec, bool) {
-	return inboundSpec(d.IdentityIn, d.IdentityInSpec)
+func (e Endpoint) InboundSpec() (InboundSpec, bool) {
+	return inboundSpec(e.IdentityIn, e.IdentityInSpec)
 }
 
 // OutboundSpec is the effective apply spec (Apply / ApplySpec).
-func (d Destination) OutboundSpec() (OutboundSpec, bool) { return outboundSpec(d.Apply, d.ApplySpec) }
+func (e Endpoint) OutboundSpec() (OutboundSpec, bool) { return outboundSpec(e.Apply, e.ApplySpec) }
 
 // extract returns the identity token the spec finds on h.
 func (s InboundSpec) extract(h http.Header) (string, bool) {
@@ -197,15 +197,25 @@ func validateHeaderName(header string) error {
 // encoding only on Authorization.
 func validateHeaderAndEncoding(header string, enc HeaderEncoding) error {
 	if err := validateHeaderName(header); err != nil {
-		return err
+		return errAt("header", "%s", err)
 	}
 	if enc != EncodingRaw && enc != "raw" && enc != EncodingBasic {
-		return fmt.Errorf("encoding %q is not raw or basic", enc)
+		return errAt("encoding", "encoding %q is not raw or basic", enc)
 	}
 	if enc == EncodingBasic && http.CanonicalHeaderKey(header) != "Authorization" {
-		return errors.New("basic encoding requires header Authorization")
+		return errAt("encoding", "basic encoding requires header Authorization")
 	}
 	return nil
+}
+
+// fieldErr is a spec validation error at one of the spec's fields, by its
+// admin API wire name (header, encoding, prefixes, template, basicUser).
+type fieldErr struct{ field, msg string }
+
+func (e fieldErr) Error() string { return e.msg }
+
+func errAt(field, format string, a ...any) error {
+	return fieldErr{field: field, msg: fmt.Sprintf(format, a...)}
 }
 
 func validHeaderValuePart(s string) bool {
@@ -218,11 +228,11 @@ func (s InboundSpec) Validate() error {
 		return err
 	}
 	if s.Encoding == EncodingBasic && len(s.Prefixes) > 0 {
-		return errors.New("prefixes don't apply to basic encoding")
+		return errAt("prefixes", "prefixes don't apply to basic encoding")
 	}
 	for _, p := range s.Prefixes {
 		if p == "" || !validHeaderValuePart(p) {
-			return errors.New("prefixes must be non-empty and single-line")
+			return errAt("prefixes", "prefixes must be non-empty and single-line")
 		}
 	}
 	return nil
@@ -234,49 +244,65 @@ func (s OutboundSpec) Validate() error {
 		return err
 	}
 	if strings.Count(s.Template, "{cred}") != 1 {
-		return errors.New("template must contain {cred} exactly once")
+		return errAt("template", "template must contain {cred} exactly once")
 	}
 	if !validHeaderValuePart(s.Template) {
-		return errors.New("template must be single-line")
+		return errAt("template", "template must be single-line")
 	}
 	if s.Encoding == EncodingBasic {
 		if s.BasicUser == "" || strings.Contains(s.BasicUser, ":") || !validHeaderValuePart(s.BasicUser) {
-			return errors.New("basic encoding requires a basic_user without ':'")
+			return errAt("basicUser", "basic encoding requires a basic_user without ':'")
 		}
 	} else if s.BasicUser != "" {
-		return errors.New("basic_user applies only to basic encoding")
+		return errAt("basicUser", "basic_user applies only to basic encoding")
 	}
 	return nil
 }
 
-// validateHeaderSpecs checks IdentityIn/Apply at write time: empty or a known
+// headerSpecProblems checks IdentityIn/Apply at write time: empty or a known
 // preset, or custom with a valid spec; a spec is only allowed with custom.
-func (d Destination) validateHeaderSpecs() error {
-	if err := validateMethod("identity_in", d.IdentityIn, d.IdentityInSpec != nil, func() error { return d.IdentityInSpec.Validate() }); err != nil {
-		return err
+// Each problem is a fieldErr at its endpoint field's wire name: identityIn /
+// apply for the method, identityInSpec[.<field>] / applySpec[.<field>] for
+// the spec.
+func (e Endpoint) headerSpecProblems() []fieldErr {
+	var out []fieldErr
+	if p, ok := methodProblem("identity_in", "identityIn", e.IdentityIn, e.IdentityInSpec != nil, func() error { return e.IdentityInSpec.Validate() }); ok {
+		out = append(out, p)
 	}
-	return validateMethod("apply", d.Apply, d.ApplySpec != nil, func() error { return d.ApplySpec.Validate() })
+	if p, ok := methodProblem("apply", "apply", e.Apply, e.ApplySpec != nil, func() error { return e.ApplySpec.Validate() }); ok {
+		out = append(out, p)
+	}
+	return out
 }
 
-func validateMethod(field string, m ApplyMethod, hasSpec bool, validate func() error) error {
+// methodProblem is headerSpecProblems for one direction: field is its file
+// name (in the message), wire its admin API name (the problem's field).
+func methodProblem(field, wire string, m ApplyMethod, hasSpec bool, validate func() error) (fieldErr, bool) {
+	at := func(f, format string, a ...any) (fieldErr, bool) {
+		return fieldErr{field: f, msg: fmt.Sprintf(format, a...)}, true
+	}
 	if m == ApplyCustom {
 		if !hasSpec {
-			return fmt.Errorf("%s custom requires %s_spec", field, field)
+			return at(wire, "%s custom requires %s_spec", field, field)
 		}
 		if err := validate(); err != nil {
-			return fmt.Errorf("%s_spec: %w", field, err)
+			f := wire + "Spec"
+			if fe, ok := errors.AsType[fieldErr](err); ok {
+				f += "." + fe.field
+			}
+			return at(f, "%s_spec: %s", field, err)
 		}
-		return nil
+		return fieldErr{}, false
 	}
 	if hasSpec {
-		return fmt.Errorf("%s_spec is only used with %s custom", field, field)
+		return at(wire+"Spec", "%s_spec is only used with %s custom", field, field)
 	}
 	if m != "" && !slices.Contains(Presets, m) {
 		names := make([]string, 0, len(Presets)+1)
 		for _, p := range Presets {
 			names = append(names, string(p))
 		}
-		return fmt.Errorf("%s %q is not one of %s", field, m, strings.Join(append(names, string(ApplyCustom)), ", "))
+		return at(wire, "%s %q is not one of %s", field, m, strings.Join(append(names, string(ApplyCustom)), ", "))
 	}
-	return nil
+	return fieldErr{}, false
 }

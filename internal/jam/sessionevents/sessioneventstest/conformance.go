@@ -137,6 +137,37 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) sessionevents.Stor
 		}
 	})
 
+	t.Run("turns span their events", func(t *testing.T) {
+		s := newStore(t)
+		at := func(i int) time.Time { return t0.Add(time.Duration(i) * time.Second) }
+		for i, turn := range []uint32{0, 1, 1, 1, 2, 2} {
+			e := ev("w1", streamA, uint64(i+1), at(i), `{"type":"x"}`)
+			e.Turn = turn
+			must(t, s.Append(e))
+		}
+		must(t, s.Append(ev("w1", streamB, 1, at(9), `{"type":"x"}`)))
+		got, err := s.Turns("w1", streamA)
+		must(t, err)
+		want := []sessionevents.TurnSpan{
+			{Turn: 0, FirstSeq: 1, LastSeq: 1, Start: at(0), End: at(0), Events: 1},
+			{Turn: 1, FirstSeq: 2, LastSeq: 4, Start: at(1), End: at(3), Events: 3},
+			{Turn: 2, FirstSeq: 5, LastSeq: 6, Start: at(4), End: at(5), Events: 2},
+		}
+		if len(got) != len(want) {
+			t.Fatalf("turns = %+v", got)
+		}
+		for i := range want {
+			g := got[i]
+			if g.Turn != want[i].Turn || g.FirstSeq != want[i].FirstSeq || g.LastSeq != want[i].LastSeq || g.Events != want[i].Events ||
+				!g.Start.Equal(want[i].Start) || !g.End.Equal(want[i].End) {
+				t.Fatalf("turn %d = %+v, want %+v", i, g, want[i])
+			}
+		}
+		if none, err := s.Turns("w1", "cccccccccccccccccccccccccccccccc"); err != nil || len(none) != 0 {
+			t.Fatalf("unknown stream's turns = %+v, %v", none, err)
+		}
+	})
+
 	t.Run("streams newest first", func(t *testing.T) {
 		s := newStore(t)
 		must(t, s.Append(ev("w1", streamA, 1, t0, `{}`)))

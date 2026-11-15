@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -19,8 +20,10 @@ import (
 // Connector is what a client sets up to reach the destinations in its scope:
 // env-var templates plus, optionally, git routing. Templates may use {base}
 // (the broker base URL, e.g. https://jam.example), {host} (the Jam host) and
-// {token} (the identity token). Jam resolves each destination's {url} to
-// {base}<route> before handing a Connector out, so the token never sits in a
+// {token} (the identity token). Jam resolves each destination's {url},
+// {url:<endpoint>} and {host:<endpoint>} before handing a Connector out — to
+// {base}<route> or {host} for an endpoint on the Jam host, to its own host
+// for one on a subdomain — so the token never sits in a
 // template — the client substitutes it in memory (Expand) or references
 // $JAM_IDENTITY_TOKEN in a rendered shell snippet (Render).
 //
@@ -32,7 +35,12 @@ type Connector struct {
 	Env       map[string]string `json:"env,omitempty"`
 	GitRoute  string            `json:"git_route,omitempty"`  // e.g. "/git/"; "" = no git routing
 	GitTarget string            `json:"git_target,omitempty"` // the URL prefix GitRoute rewrites; "" = GitRewriteTarget
-	ModelSpec *modelspec.Spec   `json:"model_spec,omitempty"`
+	// GitHost is the host GitRoute is on, for an endpoint on a subdomain of
+	// the destinations domain (e.g. "git.jam.example"); "" = the Jam host. A
+	// client predating it routes git through the Jam host, which is right for
+	// every destination without a subdomain.
+	GitHost   string          `json:"git_host,omitempty"`
+	ModelSpec *modelspec.Spec `json:"model_spec,omitempty"`
 }
 
 // ErrNoConnectorEndpoint is Fetch's error for a Jam that predates GET /connector;
@@ -87,14 +95,17 @@ func (c Connector) Render(baseURL, token string) string {
 }
 
 // GitConfig returns the token-free `git config --global` commands routing
-// github.com through the connector's git route, or "" when it routes no git.
+// the rewrite target through the connector's git route (on GitBase), with
+// the credential helper scoped to GitBase, or "" when it routes no git. A
+// GitHost arrives from Jam and lands in a double-quoted shell word, so one
+// that is not a plain host name routes no git rather than being rendered.
 // The keys come from the builders execGit (jam-studio-agent's per-turn refresh) sets
 // via argv, so the two cannot drift; here the subsection is shell-quoted.
 func (c Connector) GitConfig(baseURL string) string {
-	if c.GitRoute == "" {
+	if c.GitRoute == "" || (c.GitHost != "" && !gitHostRE.MatchString(c.GitHost)) {
 		return ""
 	}
-	baseURL = strings.TrimRight(baseURL, "/")
+	baseURL = c.GitBase(baseURL)
 	quote := func(sub string) string { return fmt.Sprintf("%q", sub) }
 	var b strings.Builder
 	// The target arrives from Jam (GitTarget), so it is single-quoted, never interpreted.
@@ -102,6 +113,19 @@ func (c Connector) GitConfig(baseURL string) string {
 	fmt.Fprintf(&b, "git config --global %s %s\n", gitRewriteKey(quote(baseURL+c.GitRoute)), target)
 	fmt.Fprintf(&b, "git config --global %s %s\n", gitHelperKey(quote(baseURL)), gitHelper)
 	return b.String()
+}
+
+// gitHostRE is a plain host name (lowercase DNS labels), the only GitHost
+// GitConfig renders.
+var gitHostRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
+
+// GitBase is the base URL c's git route is on: https://<GitHost>, else
+// baseURL (the Jam's own base), without a trailing "/".
+func (c Connector) GitBase(baseURL string) string {
+	if c.GitHost != "" {
+		return "https://" + c.GitHost
+	}
+	return strings.TrimRight(baseURL, "/")
 }
 
 // GitRewriteTarget is the URL prefix a git route rewrites (the insteadOf value)

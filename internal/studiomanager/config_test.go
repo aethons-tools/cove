@@ -47,6 +47,10 @@ func TestLoadRejects(t *testing.T) {
 		{"capacity", minimal + "capacity: -1\n", "capacity must not be negative"},
 		{"no runtime-addr", strings.Replace(minimal, "  runtime-addr: 10.0.0.1:8443\n", "", 1), "colima.runtime-addr is required"},
 		{"no jam-host", strings.Replace(minimal, "  jam-host: jam.example.com\n", "", 1), "colima.jam-host is required"},
+		{"destinations-domain one label", minimal + "  destinations-domain: example\n", `colima.destinations-domain "example" must be a lowercase DNS name`},
+		{"destinations-domain upper", minimal + "  destinations-domain: Jam.Example.com\n", `colima.destinations-domain "Jam.Example.com"`},
+		{"destinations-domain dot", minimal + "  destinations-domain: .jam.example.com\n", `colima.destinations-domain ".jam.example.com"`},
+		{"destinations-domain wildcard", minimal + "  destinations-domain: \"*.jam.example.com\"\n", `colima.destinations-domain "*.jam.example.com"`},
 		{"profile", minimal + "  profile: \"a b\"\n", `colima.profile "a b" is not a valid colima profile name`},
 		{"profile slash", minimal + "  profile: ../x\n", `colima.profile "../x"`},
 		{"docker-context", minimal + "  docker-context: colima-work\n", "colima.docker-context is replaced by colima.profile (the VM name; its docker context is colima-<profile>)"},
@@ -66,6 +70,16 @@ func TestLoadRejects(t *testing.T) {
 				t.Fatalf("err = %v, want mention of %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadDestinationsDomain(t *testing.T) {
+	c, err := Load(write(t, minimal+"  destinations-domain: dest.example.com\n"), env(map[string]string{"HOME": "/h"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Colima.DestinationsDomain != "dest.example.com" {
+		t.Fatalf("destinations-domain = %q", c.Colima.DestinationsDomain)
 	}
 }
 

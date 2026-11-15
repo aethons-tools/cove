@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam/sessionctx"
 	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
@@ -32,12 +34,10 @@ type Poster struct {
 }
 
 // Planned is a post's decision: its channel and who hears it (the channel's
-// current members but the author, ended sessions skipped), sorted. Join makes
-// the poster a member by posting (addressing a session's home channel).
+// current members but the author, ended sessions skipped), sorted.
 type Planned struct {
 	Channel  Channel
 	Audience []ident.ID
-	Join     bool
 }
 
 // Source is one channel kind's policy.
@@ -71,7 +71,7 @@ func NewIntercom(store Store, tracker func() (ident.ID, bool), lg intercom.Store
 	}
 	ic := &Intercom{store: store, tracker: tracker, lg: lg, tail: tail, log: log}
 	ic.sources = map[SourceKind]Source{}
-	for _, s := range []Source{chatSource{ic}, ticketSource{ic}, roomSource{ic}, sessionSource{ic}} {
+	for _, s := range []Source{chatSource{ic, SourceDM}, chatSource{ic, SourceGroup}, ticketSource{ic}, roomSource{ic}, sessionSource{ic}} {
 		ic.sources[s.Kind()] = s
 	}
 	return ic
@@ -80,17 +80,17 @@ func NewIntercom(store Store, tracker func() (ident.ID, bool), lg intercom.Store
 // ---- writing ----
 
 // Post appends m to the planned channel with the planned audience (m's
-// Channel is set from the plan). A person posting in a ticket, a room or an
-// open session channel (not a personal session's: that one is by invitation)
-// joins it, from this post on; so does any poster the plan says joins (one
-// addressing a session, whose access the plan already checked).
+// Channel is set from the plan, and its mentions part from its own and its
+// body's: withMentions). A person posting in a work log or a room joins it,
+// from this post on.
 func (ic *Intercom) Post(pl Planned, m intercom.Squawk) (intercom.Squawk, error) {
 	m.Channel = pl.Channel.ID
+	m.Parts = ic.withMentions(pl.Channel, m)
 	m, err := ic.lg.Append(m, pl.Audience)
 	if err != nil {
 		return intercom.Squawk{}, err
 	}
-	if (pl.Join || ic.joinsByPosting(pl.Channel) && !isSessionID(m.From)) && !ic.isMemberOf(pl.Channel, m.From) {
+	if joinsByPosting(pl.Channel) && !isSessionID(m.From) && !ic.isMemberOf(pl.Channel, m.From) {
 		if err := ic.store.JoinChannel(pl.Channel.ID, m.From, m.Seq); err != nil && ic.log != nil {
 			ic.log.Warn("intercom: joining the poster to the channel failed", "channel", string(pl.Channel.ID), "err", err.Error())
 		}
@@ -98,18 +98,9 @@ func (ic *Intercom) Post(pl Planned, m intercom.Squawk) (intercom.Squawk, error)
 	return m, nil
 }
 
-// joinsByPosting reports whether a person posting in ch becomes a member:
-// a ticket, a room, or a session channel open to its project.
-func (ic *Intercom) joinsByPosting(ch Channel) bool {
-	switch ch.Kind {
-	case SourceTicket, SourceRoom:
-		return true
-	case SourceSession:
-		inst, ok := ic.store.GetInstance(ch.Key)
-		return ok && !isPersonal(inst)
-	}
-	return false
-}
+// joinsByPosting reports whether a person posting in ch becomes a member: a
+// work log or a room.
+func joinsByPosting(ch Channel) bool { return ch.Kind == SourceWork || ch.Kind == SourceRoom }
 
 // PostTrusted posts m into ch without asking the source whether its author
 // may: relay ingress (already resolved by its binding) and Jam's own notices.
@@ -121,60 +112,53 @@ func (ic *Intercom) PostTrusted(ch Channel, m intercom.Squawk) (intercom.Squawk,
 	return ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, m.From)}, m)
 }
 
-// Notify posts a notice from Jam as the session into its home channel,
-// trusted: it works from the instance alone, after teardown too — a session
-// channel archived at the session's end still takes Jam's notices about it,
-// so its members learn why it ended. id "" gets a "notice:" id (IsNotice).
+// Notify posts a notice from Jam as the session, trusted: into the dm with
+// the person who started it (a personal session), else into its unit's log.
+// It works from the instance alone, after teardown too, so the starter
+// learns why it ended. A session with neither has no one to tell: nothing is
+// posted (a zero squawk, no error), and a gone session's notice makes no
+// channel it didn't have. id "" gets a "notice:" id (IsNotice).
 func (ic *Intercom) Notify(inst Instance, id, body string) (intercom.Squawk, error) {
 	if id == "" {
 		id = fmt.Sprintf("notice:%s:%d", inst.ActorID, time.Now().UnixNano())
 	}
 	m := intercom.Squawk{ID: id, From: ident.ID(inst.ActorID), Body: body}
-	if ch, ok := ic.ownSessionChannel(inst); ok && ch.Status != StatusLive {
-		return ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, m.From)}, m)
-	}
-	if !ic.sessionLive(ident.ID(inst.ActorID)) { // gone: post where it was, joining or creating nothing
-		if ch, ok := ic.ownSessionChannel(inst); ok {
-			return ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, m.From)}, m)
+	if ch, ok, err := ic.starterDM(inst); err != nil || ok {
+		if err != nil {
+			return intercom.Squawk{}, err
 		}
-		if ch, ok, err := ic.ticketChannel(inst, false); err == nil && ok {
-			return ic.PostTrusted(ch, m)
-		}
-		return ic.notifyGone(inst, m)
+		return ic.PostTrusted(ch, m)
 	}
-	ch, err := ic.HomeChannel(inst)
-	if err != nil {
+	ch, ok, err := ic.ticketChannel(inst, ic.sessionLive(ident.ID(inst.ActorID)))
+	if err != nil || !ok {
 		return intercom.Squawk{}, err
 	}
 	return ic.PostTrusted(ch, m)
 }
 
-// notifyGone delivers Jam's notice about a session that is gone and never
-// had its own channel: a personal session's starter still learns why it
-// ended, in a channel archived as soon as it carries the notice; anyone
-// else's notice has no one to reach and no channel is made for it.
-func (ic *Intercom) notifyGone(inst Instance, m intercom.Squawk) (intercom.Squawk, error) {
-	if _, ok := ic.starter(inst); !ok {
-		return intercom.Squawk{}, fmt.Errorf("%w: session %s ended with no channel", ErrRemoved, inst.ActorID)
-	}
-	live := inst
-	live.Phase = PhaseLive
-	ch, err := ic.sessionChannel(live)
-	if err != nil {
-		return intercom.Squawk{}, err
-	}
-	posted, err := ic.Post(Planned{Channel: ch, Audience: ic.audience(ch, m.From)}, m)
-	if aerr := ic.store.ArchiveChannel(ch.ID); err == nil && aerr != nil {
-		err = aerr
-	}
-	return posted, err
-}
-
-// Reconcile gives every live session its home channel — at startup, for
-// sessions set up before ticket or session channels existed, so replies have
-// somewhere to land before they send.
+// Reconcile moves serve's conversations over at startup
+// (conversations-sessions.adoc#migration): it archives every live session
+// channel an older Jam made (members and history stay), gives each work log
+// its issue's binding from a room that holds it (moveRoomBindings), and sets
+// up every live session (SetUp), so a reply has somewhere to land.
 func (ic *Intercom) Reconcile() error {
 	var errs []error
+	for _, name := range ic.store.ListProjects() {
+		p, ok := ic.store.GetProject(name)
+		if !ok {
+			continue
+		}
+		for _, ch := range ic.store.ListChannels(p.ID, SourceSession) {
+			if err := ic.store.ArchiveChannel(ch.ID); err != nil && !errors.Is(err, ErrRemoved) {
+				errs = append(errs, fmt.Errorf("archive %s: %w", ch.ID, err))
+			}
+		}
+		for _, ch := range ic.store.ListChannels(p.ID, SourceWork) {
+			if err := ic.takeRoomBinding(ch); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", ch.ID, err))
+			}
+		}
+	}
 	for _, inst := range ic.store.ListInstances() {
 		if inst.Phase != PhaseGone {
 			if err := ic.SetUp(inst); err != nil {
@@ -185,53 +169,116 @@ func (ic *Intercom) Reconcile() error {
 	return errors.Join(errs...)
 }
 
-// ---- sessions' home channels ----
+// ---- sessions' conversations ----
 
-// SetUp gives a session its home channel (HomeChannel, its own session
-// channel) and, for a session on a ticket, joins it to the ticket's channel
-// too, so the issue's comments reach it.
+// SetUp gives a session its conversations: on a ticket, it becomes the
+// worker of the unit's work log (ownTicketChannel), so the issue's comments
+// reach it; a personal session gets its dm with the person who started it;
+// and it joins the rooms its role lists (joinRoleRooms). A session has no
+// channel of its own.
 func (ic *Intercom) SetUp(inst Instance) error {
-	if _, err := ic.HomeChannel(inst); err != nil {
+	if _, _, err := ic.ownTicketChannel(inst); err != nil {
 		return err
 	}
-	_, _, err := ic.ownTicketChannel(inst)
-	return err
+	if _, _, err := ic.starterDM(inst); err != nil {
+		return err
+	}
+	return ic.joinRoleRooms(inst)
 }
 
-// Ended withdraws an ended session's open asks, takes it out of its
-// ticket's channel, and archives its session channel (history stays readable; Notify still reaches it).
-func (ic *Intercom) Ended(inst Instance) error {
-	ic.withdrawAsksOf(ident.ID(inst.ActorID))
-	if inst.Unit != "" {
-		ch, ok, err := ic.ticketChannel(inst, false)
-		if err != nil {
+// StarterDM is the dm between a personal session and the person who started
+// it, created when there is none (ok=false: no starter, or they are no
+// longer a member of its project).
+func (ic *Intercom) StarterDM(inst Instance) (Channel, bool, error) { return ic.starterDM(inst) }
+
+func (ic *Intercom) starterDM(inst Instance) (Channel, bool, error) {
+	starter, ok := ic.starter(inst)
+	if !ok {
+		return Channel{}, false, nil
+	}
+	p, ok := ic.store.GetProject(orDefaultProject(inst.Project))
+	if !ok || !ic.projectUser(p.ID, starter) {
+		return Channel{}, false, nil
+	}
+	ch, err := ic.chat(p, []ident.ID{starter, ident.ID(inst.ActorID)})
+	return ch, err == nil, err
+}
+
+// joinRoleRooms joins inst to each live room its role's scope.rooms lists,
+// from the tail, with the listed wake (set again when it changed). A listed
+// room that no longer exists is skipped: the config planner refuses one, but
+// a room can be archived after its sessions were raised.
+func (ic *Intercom) joinRoleRooms(inst Instance) error {
+	p, ok := ic.store.GetProject(orDefaultProject(inst.Project))
+	if !ok {
+		return nil
+	}
+	self := ident.ID(inst.ActorID)
+	for _, rm := range ic.roleRooms(inst) {
+		ch, ok := ic.store.ChannelByKey(p.ID, SourceRoom, rm.Name)
+		if !ok || ch.Status != StatusLive {
+			continue
+		}
+		if err := ic.store.JoinChannel(ch.ID, self, ic.tail()); err != nil {
 			return err
 		}
-		if ok {
-			if err := ic.store.LeaveChannel(ch.ID, ident.ID(inst.ActorID), ic.tail()); err != nil {
+		if w, _ := ic.wakeOf(ch.ID, self); w != rm.Wake {
+			if err := ic.store.SetChannelWake(ch.ID, self, rm.Wake); err != nil {
 				return err
 			}
 		}
 	}
-	ch, ok := ic.ownSessionChannel(inst)
-	if !ok || ch.Status != StatusLive {
+	return nil
+}
+
+// roleRooms is the scope.rooms of inst's role.
+func (ic *Intercom) roleRooms(inst Instance) []RoomMembership {
+	r, ok := ic.store.GetRole(orDefaultProject(inst.Project), inst.Role)
+	if !ok {
 		return nil
 	}
-	return ic.store.ArchiveChannel(ch.ID)
+	return r.Scope.Rooms
 }
 
-// HomeChannel is the channel a session is always in, where it posts with no
-// address: its own session channel, whatever started it. A session channel
-// is created on first use with the session in it — and, for a personal
-// session, the user who started it, called in once (one who later leaves
-// stays out).
-func (ic *Intercom) HomeChannel(inst Instance) (Channel, error) {
-	return ic.sessionChannel(inst)
+// wakeOf is p's current membership's wake mode in ch; ok=false when p is
+// not a member.
+func (ic *Intercom) wakeOf(ch, p ident.ID) (WakeMode, bool) {
+	for _, m := range ic.store.ChannelMembers(ch) {
+		if m.ParticipantID == p && !m.Left {
+			return m.Wake, true
+		}
+	}
+	return "", false
 }
 
-// ownTicketChannel is the channel of inst's ticket, created on demand, with
-// inst joined to it (a no-op while it is a member). ok=false when inst has no
-// ticket on the tracker.
+// Ended withdraws an ended session's open asks and takes it out of its
+// unit's work log (the unit has no worker until it is dispatched again).
+// Its dms stay: Notify still reaches the person who started it.
+func (ic *Intercom) Ended(inst Instance) error {
+	ic.withdrawAsksOf(ident.ID(inst.ActorID))
+	if inst.Unit == "" {
+		return nil
+	}
+	ch, ok, err := ic.ticketChannel(inst, false)
+	if err != nil || !ok {
+		return err
+	}
+	if err := ic.store.LeaveChannel(ch.ID, ident.ID(inst.ActorID), ic.tail()); err != nil {
+		return err
+	}
+	if ch.Worker == ident.ID(inst.ActorID) {
+		if err := ic.store.SetChannelWorker(ch.ID, ""); err != nil && !errors.Is(err, ErrRemoved) {
+			return err
+		}
+	}
+	return nil
+}
+
+// ownTicketChannel is the work log of inst's unit, created on demand, with
+// inst its worker: a new worker takes the old one's place in the members
+// (a no-op while inst is the worker). A live worker raised after inst keeps
+// the unit, and inst is no member. ok=false when inst has no ticket on the
+// tracker.
 func (ic *Intercom) ownTicketChannel(inst Instance) (Channel, bool, error) {
 	if inst.Unit == "" {
 		return Channel{}, false, nil
@@ -240,82 +287,25 @@ func (ic *Intercom) ownTicketChannel(inst Instance) (Channel, bool, error) {
 	if err != nil || !ok {
 		return Channel{}, false, err
 	}
-	if err := ic.store.JoinChannel(ch.ID, ident.ID(inst.ActorID), ic.tail()); err != nil {
+	self := ident.ID(inst.ActorID)
+	if ch.Worker != self && ch.Worker != "" {
+		if cur, ok := ic.store.GetInstance(string(ch.Worker)); ok && cur.Phase != PhaseGone && cur.RaisedAt.After(inst.RaisedAt) {
+			return ch, true, ic.store.LeaveChannel(ch.ID, self, ic.tail()) // a no-op unless it was a member
+		}
+		if err := ic.store.LeaveChannel(ch.ID, ch.Worker, ic.tail()); err != nil {
+			return Channel{}, false, err
+		}
+	}
+	if ch.Worker != self {
+		if err := ic.store.SetChannelWorker(ch.ID, self); err != nil {
+			return Channel{}, false, err
+		}
+		ch.Worker = self
+	}
+	if err := ic.store.JoinChannel(ch.ID, self, ic.tail()); err != nil {
 		return Channel{}, false, err
 	}
 	return ch, true, nil
-}
-
-// ownSessionChannel is the session channel inst is in, in its project: the
-// live one, else the latest archived one.
-func (ic *Intercom) ownSessionChannel(inst Instance) (Channel, bool) {
-	p, exists := ic.store.GetProject(orDefaultProject(inst.Project))
-	if !exists {
-		return Channel{}, false
-	}
-	var found Channel
-	ok := false
-	for _, id := range ic.store.ChannelsOf(ident.ID(inst.ActorID)) {
-		ch, exists := ic.store.GetChannel(id)
-		if !exists || ch.Kind != SourceSession || ch.Key != inst.ActorID || ch.ProjectID != p.ID {
-			continue
-		}
-		if ch.Status == StatusLive {
-			return ch, true
-		}
-		if !ok || ch.ID > found.ID {
-			found, ok = ch, true
-		}
-	}
-	return found, ok
-}
-
-// sessionChannel finds or creates inst's live session channel.
-func (ic *Intercom) sessionChannel(inst Instance) (Channel, error) {
-	p, ok := ic.store.GetProject(orDefaultProject(inst.Project))
-	if !ok {
-		return Channel{}, fmt.Errorf("%w: %q", ErrProjectNotFound, inst.Project)
-	}
-	self := ident.ID(inst.ActorID)
-	if ch, ok := ic.store.ChannelByKey(p.ID, SourceSession, inst.ActorID); ok {
-		return ch, ic.store.JoinChannel(ch.ID, self, ic.tail()) // a no-op while it is one
-	}
-	if inst.Phase == PhaseGone {
-		return Channel{}, fmt.Errorf("%w: session %s ended", ErrRemoved, inst.ActorID)
-	}
-	// Set up again under the same id (a restart, an upgrade): its channel
-	// comes back, with whoever was in it.
-	if old, ok := ic.ownSessionChannel(inst); ok {
-		if err := ic.store.ReopenChannel(old.ID); err == nil {
-			old.Status = StatusLive
-			return old, ic.store.JoinChannel(old.ID, self, ic.tail())
-		} else if !errors.Is(err, ErrChannelExists) {
-			return Channel{}, err
-		}
-		if ch, ok := ic.store.ChannelByKey(p.ID, SourceSession, inst.ActorID); ok { // reopened or created meanwhile
-			return ch, ic.store.JoinChannel(ch.ID, self, ic.tail())
-		}
-	}
-	ch, err := ic.store.CreateChannel(Channel{ProjectID: p.ID, Kind: SourceSession, Key: inst.ActorID, Label: sessionLabel(inst)})
-	if errors.Is(err, ErrChannelExists) { // created meanwhile: its creator called the starter in
-		if ch, ok = ic.store.ChannelByKey(p.ID, SourceSession, inst.ActorID); !ok {
-			return Channel{}, err
-		}
-		return ch, ic.store.JoinChannel(ch.ID, self, ic.tail())
-	}
-	if err != nil {
-		return Channel{}, err
-	}
-	seq := ic.tail()
-	if err := ic.store.JoinChannel(ch.ID, self, seq); err != nil {
-		return Channel{}, err
-	}
-	if starter, ok := ic.starter(inst); ok && ic.projectUser(p.ID, starter) {
-		if err := ic.store.JoinChannel(ch.ID, starter, seq); err != nil {
-			return Channel{}, err
-		}
-	}
-	return ch, nil
 }
 
 // starter is the user who started a personal session (by id, or by name for
@@ -339,11 +329,11 @@ func (ic *Intercom) TicketChannelOf(inst Instance) (Channel, bool) {
 
 // ticketChannel finds (or, with create, creates) the channel of inst's
 // ticket: keyed "<tracker connection>/<issue key>" in its project, bound to
-// the issue for ingress — unless a room already holds that binding, which
-// keeps it. ok=false when there is no tracker connection, or inst's unit is
-// no ticket key on it (a github tracker's unit must be owner/repo#<n>; any
-// other, say a manual raise's free text, leaves the session on its own
-// channel).
+// the issue for ingress — taking the binding from a room that holds it
+// (takeRoomBinding). ok=false when there is no tracker connection, or inst's
+// unit is no ticket key on it (a github tracker's unit must be
+// owner/repo#<n>; any other, say a manual raise's free text, leaves the
+// session with no log).
 func (ic *Intercom) ticketChannel(inst Instance, create bool) (Channel, bool, error) {
 	conn, ok := ic.tracker()
 	if !ok {
@@ -358,27 +348,61 @@ func (ic *Intercom) ticketChannel(inst Instance, create bool) (Channel, bool, er
 		return Channel{}, false, fmt.Errorf("%w: %q", ErrProjectNotFound, inst.Project)
 	}
 	key := string(conn) + "/" + unit
-	if ch, ok := ic.store.ChannelByKey(p.ID, SourceTicket, key); ok || !create {
+	if ch, ok := ic.store.ChannelByKey(p.ID, SourceWork, key); ok || !create {
 		return ch, ok, nil
 	}
-	ch := Channel{ProjectID: p.ID, Kind: SourceTicket, Key: key, Label: unit}
-	b := Binding{ConnectionID: conn, Ref: unit, Mode: BindBoth}
-	if holder, taken := ic.store.ChannelByBinding(conn, unit); !taken {
-		ch.Bindings = []Binding{b}
-	} else if ic.log != nil {
-		ic.log.Warn("intercom: ticket channel left unbound; another channel receives the issue's replies",
-			"ticket", unit, "holder", string(holder.ID))
-	}
-	created, err := ic.store.CreateChannel(ch)
-	if errors.Is(err, ErrBindingTaken) { // a room took the issue meanwhile: it keeps it
-		ch.Bindings = nil
-		created, err = ic.store.CreateChannel(ch)
-	}
+	created, err := ic.store.CreateChannel(Channel{ProjectID: p.ID, Kind: SourceWork, Key: key, Label: unit})
 	if errors.Is(err, ErrChannelExists) { // created meanwhile
-		created, ok = ic.store.ChannelByKey(p.ID, SourceTicket, key)
+		created, ok = ic.store.ChannelByKey(p.ID, SourceWork, key)
 		return created, ok, nil
 	}
-	return created, err == nil, err
+	if err != nil {
+		return Channel{}, false, err
+	}
+	if err := ic.takeRoomBinding(created); err != nil {
+		return Channel{}, false, err
+	}
+	created, _ = ic.store.GetChannel(created.ID)
+	return created, true, nil
+}
+
+// takeRoomBinding binds work log ch to its issue for ingress
+// (conversations-sessions.adoc#migration): a log with no binding takes it,
+// and a room that holds it keeps posting to the issue (BindEgress, as a
+// post-only room) while the log gets the issue's replies. The room keeps its
+// history. A log that already has a binding, or one keyed on no issue, is
+// left as it is.
+func (ic *Intercom) takeRoomBinding(ch Channel) error {
+	if len(ch.Bindings) > 0 {
+		return nil
+	}
+	c, unit, ok := strings.Cut(ch.Key, "/")
+	if !ok || unit == "" {
+		return nil
+	}
+	conn := ident.ID(c)
+	b := Binding{ConnectionID: conn, Ref: unit, Mode: BindBoth}
+	if holder, taken := ic.store.ChannelByBinding(conn, unit); taken {
+		if holder.Kind != SourceRoom {
+			if ic.log != nil {
+				ic.log.Warn("intercom: work log left unbound; another channel receives the issue's replies", "ticket", unit, "holder", string(holder.ID))
+			}
+			return nil
+		}
+		bs := slices.Clone(holder.Bindings)
+		for i := range bs {
+			if bs[i] == b {
+				bs[i].Mode = BindEgress
+			}
+		}
+		if err := ic.store.SetChannelBindings(holder.ID, bs); err != nil {
+			return err
+		}
+		if ic.log != nil {
+			ic.log.Info("intercom: the work log takes its issue's replies from a room, which still posts to it", "ticket", unit, "room", holder.Key)
+		}
+	}
+	return ic.store.SetChannelBindings(ch.ID, []Binding{b})
 }
 
 // Tracker is the tracker connection ticket channels are keyed on (the one
@@ -408,12 +432,18 @@ func connKind(store Store, id ident.ID) string {
 
 // ---- planning a post ----
 
-// Plan decides a session's send to addr ("" = its default channel):
-// user:<name|id> (human: alias) and chat:user:<a>[,user:<b>…] → a chat with
-// them; channel:<name> → a room; ticket:<key> or ticket:<connection>/<key> →
-// a ticket's channel. ErrSendDenied when the session's addressing doesn't
-// allow the address (checked first: a 403 never reveals existence),
-// ErrSendUnresolved when it does but nothing answers to it (404).
+// Plan decides a session's send to addr ("" = its default conversation,
+// defaultConversation): user:<name|id> (human: alias),
+// session:<label|id>, and chat:<member>[,<member>…] (user: or session:
+// members) → the dm or group with them; channel:<name> →
+// a room; work:<key> (ticket:<key> an alias), or
+// with <connection>/<key> → a unit of work's log; worker:<key> → the dm with
+// the unit's current worker. ErrSendDenied when the session's addressing
+// doesn't allow the address (checked first: a 403 never reveals existence),
+// ErrSendUnresolved when it does but nothing answers to it (404), ErrNoWorker
+// when a worker: unit has no current worker (409). A reply needs no
+// addressing: a session may always send to a conversation it was delivered
+// a message in (replyChannel).
 func (ic *Intercom) Plan(p Poster, addr string, now time.Time) (Planned, error) {
 	if p.Session == nil || p.Actor == nil {
 		return Planned{}, fmt.Errorf("intercom: Plan needs a session poster")
@@ -422,7 +452,7 @@ func (ic *Intercom) Plan(p Poster, addr string, now time.Time) (Planned, error) 
 		return Planned{}, ErrSendDenied
 	}
 	if addr == "" {
-		ch, err := ic.HomeChannel(*p.Session)
+		ch, err := ic.defaultConversation(p)
 		if err != nil {
 			return Planned{}, err
 		}
@@ -432,45 +462,181 @@ func (ic *Intercom) Plan(p Poster, addr string, now time.Time) (Planned, error) 
 	if !ok {
 		return Planned{}, ErrSendUnresolved
 	}
-	globs := ic.ceiling(p, project.Name)
 	kind, rest, _ := strings.Cut(addr, ":")
-	var ch Channel
-	var err error
-	switch kind {
-	case "user", "human":
-		if home, ok := ic.homeWithMember(p, project, rest, globs); ok {
-			ch = home // already in the session's own channel: keep one conversation
-			break
+	ch, err := ic.resolve(p, project, kind, rest, ic.ceiling(p, project.Name))
+	if errors.Is(err, ErrSendDenied) {
+		if reply, ok := ic.replyChannel(p, project, kind, rest); ok {
+			ch, err = reply, nil
 		}
-		ch, err = ic.resolveChat(p, project, []string{rest}, globs)
-	case "chat":
-		var refs []string
-		for _, m := range strings.Split(rest, ",") {
-			ref, ok := strings.CutPrefix(m, "user:")
-			if !ok {
-				return Planned{}, ErrSendDenied
-			}
-			refs = append(refs, ref)
-		}
-		ch, err = ic.resolveChat(p, project, refs, globs)
-	case "channel":
-		ch, err = ic.resolveRoom(project, rest, globs)
-	case "ticket":
-		ch, err = ic.resolveTicket(p, project, rest, globs)
-	case "session":
-		if ch, err = ic.resolveSession(p, project, rest, globs); err != nil {
-			return Planned{}, err
-		}
-		pl, err := ic.planIn(p, ch, true)
-		pl.Join = true // addressing a session joins its conversation, so replies come back
-		return pl, err
-	default:
-		return Planned{}, ErrSendDenied
 	}
 	if err != nil {
 		return Planned{}, err
 	}
 	return ic.planIn(p, ch, true)
+}
+
+// defaultConversation is where a post with no address from a session on an
+// older turn protocol goes: its turn end (protocol 2 posts its final text
+// with no `to`), an ask, or a whiteboard. It guesses from where messages
+// arrived, which can race; a session on the turn-end rule is never given it
+// (PlanSend). A session has no channel of its own, so it is
+// the live conversation the session was last delivered a message in (what
+// it is most likely answering) that it may still post in; else its unit's
+// log; else, for a personal session, the dm with the person who started
+// it. A session with none of these must name its conversation
+// (ErrSendNeedsTo).
+func (ic *Intercom) defaultConversation(p Poster) (Channel, error) {
+	delivered := ic.lg.InboxChannels(p.ID)
+	slices.SortFunc(delivered, func(a, b intercom.ChannelStat) int { return cmp.Compare(b.LastSeq, a.LastSeq) })
+	for _, st := range delivered {
+		ch, ok := ic.store.GetChannel(st.Channel)
+		if !ok || ch.Status != StatusLive {
+			continue
+		}
+		if src, ok := ic.sources[ch.Kind]; ok && src.CanPost(p, ch, false) {
+			return ch, nil
+		}
+	}
+	if ch, ok, err := ic.ownTicketChannel(*p.Session); err != nil || ok {
+		return ch, err
+	}
+	if ch, ok, err := ic.starterDM(*p.Session); err != nil || ok {
+		return ch, err
+	}
+	return Channel{}, ErrSendNeedsTo
+}
+
+// PlanSend is Plan for a session's send (POST /squawks), ask, or
+// whiteboard. Under the turn-end rule (Instance.TurnProtocol 3) a post names
+// its conversation — the cove fills a turn's later posts in from its first
+// send — so one with no addr is ErrSendNeedsTo. A session on an older turn
+// protocol keeps Plan's default conversation (defaultConversation), until
+// its studio is upgraded.
+func (ic *Intercom) PlanSend(p Poster, addr string, now time.Time) (Planned, error) {
+	if addr == "" && p.Session != nil && p.Session.TurnProtocol == sessionctx.TurnProtocolTurnRule {
+		return Planned{}, ErrSendNeedsTo
+	}
+	return ic.Plan(p, addr, now)
+}
+
+// resolve finds (creating a dm or group on demand) the channel the address
+// kind:rest names in project, as globs allow.
+func (ic *Intercom) resolve(p Poster, project Project, kind, rest string, globs []string) (Channel, error) {
+	switch kind {
+	case "user", "human":
+		return ic.resolveChat(p, project, []string{"user:" + rest}, globs)
+	case "chat":
+		return ic.resolveChat(p, project, strings.Split(rest, ","), globs)
+	case "channel":
+		return ic.resolveRoom(project, rest, globs)
+	case "ticket", "work":
+		return ic.resolveTicket(p, project, rest, globs)
+	case "worker":
+		return ic.resolveWorker(p, project, rest, globs)
+	case "session":
+		return ic.resolveSession(p, project, rest, globs)
+	}
+	return Channel{}, ErrSendDenied
+}
+
+// anyGlobs allow every address: resolving one regardless of addressing.
+var anyGlobs = []string{"*", "session:*"}
+
+// replyChannel is the existing conversation the address kind:rest names,
+// when the session was delivered a message in it (ok=false otherwise, or
+// when it names none yet): a reply needs no addressing. It creates nothing.
+func (ic *Intercom) replyChannel(p Poster, project Project, kind, rest string) (Channel, bool) {
+	var ch Channel
+	var ok bool
+	switch kind {
+	case "user", "human", "session", "chat":
+		refs := strings.Split(rest, ",")
+		if kind != "chat" {
+			refs = []string{kind + ":" + rest}
+			if kind == "human" {
+				refs = []string{"user:" + rest}
+			}
+		}
+		if members, err := ic.chatMembers(p, project, refs, anyGlobs); err == nil {
+			ch, ok = ic.existingChat(project, members)
+		}
+	case "channel":
+		ch, ok = ic.store.ChannelByKey(project.ID, SourceRoom, rest)
+	case "ticket", "work":
+		if !ic.ownUnit(p, rest) {
+			ch, ok = ic.lookupTicket(p, project, rest)
+		}
+	case "worker":
+		if log, found := ic.lookupTicket(p, project, rest); found && log.Worker != "" {
+			ch, ok = ic.existingChat(project, []ident.ID{p.ID, log.Worker})
+		}
+	}
+	return ch, ok && ic.deliveredIn(p.ID, ch.ID)
+}
+
+// ReplyTo is the send address that replies in channel chID for the session
+// self ("" when none answers to it): a dm or group chat: its other members,
+// a room channel:<name>, a work log work:<key>. An archived session channel
+// an older Jam made takes no replies. A reply needs no addressing
+// (replyChannel), so the session can always use it.
+func (ic *Intercom) ReplyTo(self Instance, chID ident.ID) string {
+	ch, ok := ic.store.GetChannel(chID)
+	if !ok {
+		return ""
+	}
+	switch ch.Kind {
+	case SourceRoom:
+		return "channel:" + ch.Key
+	case SourceWork:
+		conn, unit, _ := strings.Cut(ch.Key, "/")
+		if tracker, ok := ic.tracker(); ok && conn == string(tracker) {
+			return "work:" + unit
+		}
+		return "work:" + ch.Key
+	case SourceDM, SourceGroup:
+		var refs []string
+		for _, m := range strings.Split(ch.Key, ",") {
+			switch {
+			case m == self.ActorID || m == "":
+			case participantKind(ident.ID(m)) == string(ident.User):
+				refs = append(refs, "user:"+m)
+			default:
+				refs = append(refs, "session:"+m)
+			}
+		}
+		if len(refs) == 0 {
+			return ""
+		}
+		return "chat:" + strings.Join(refs, ",")
+	}
+	return ""
+}
+
+// lookupTicket is the existing work log ref names, regardless of addressing
+// (never one's own unit, which resolveTicket may create).
+func (ic *Intercom) lookupTicket(p Poster, project Project, ref string) (Channel, bool) {
+	if ic.ownUnit(p, ref) {
+		return Channel{}, false
+	}
+	ch, err := ic.resolveTicket(p, project, ref, anyGlobs)
+	return ch, err == nil
+}
+
+// ownUnit reports whether ref names the poster's own unit's key on the
+// tracker (as written: a scoped or respelled ref is looked up instead).
+func (ic *Intercom) ownUnit(p Poster, ref string) bool {
+	tracker, ok := ic.tracker()
+	if !ok {
+		return false
+	}
+	own, onTicket := TicketUnit(ic.store, tracker, p.Session.Unit)
+	key, isKey := TicketUnit(ic.store, tracker, ref)
+	return onTicket && isKey && own == key
+}
+
+// deliveredIn reports whether participant p was delivered a message in ch.
+func (ic *Intercom) deliveredIn(p, ch ident.ID) bool {
+	return slices.ContainsFunc(ic.lg.InboxChannels(p), func(st intercom.ChannelStat) bool { return st.Channel == ch })
 }
 
 // PlanChannel decides a person's post into an existing channel (replying in
@@ -489,50 +655,130 @@ func (ic *Intercom) PlanChannel(p Poster, chID ident.ID) (Planned, error) {
 	return ic.planIn(p, ch, false)
 }
 
-// PlanPersonChat decides a person's new conversation from /me with another
-// user: a chat in a project both are live members of (the first by name).
-// ErrSendUnresolved when there is none.
-func (ic *Intercom) PlanPersonChat(from, with ident.ID) (Planned, error) {
-	if from == with || from.Kind() != ident.User || with.Kind() != ident.User {
+// PlanPersonChat decides a person's new conversation from /me with other
+// users: the dm (one other) or the group (several) in a project all of them
+// are live members of (the first by name). ErrSendUnresolved when there is
+// none.
+func (ic *Intercom) PlanPersonChat(from ident.ID, with ...ident.ID) (Planned, error) {
+	members := []ident.ID{from}
+	for _, w := range with {
+		if w.Kind() != ident.User {
+			return Planned{}, ErrSendUnresolved
+		}
+		if !slices.Contains(members, w) {
+			members = append(members, w)
+		}
+	}
+	if from.Kind() != ident.User || len(members) < 2 {
 		return Planned{}, ErrSendUnresolved
 	}
 	for _, name := range ic.store.ListProjects() {
-		if p, ok := ic.store.GetProject(name); ok && ic.projectUser(p.ID, from) && ic.projectUser(p.ID, with) {
-			ch, err := ic.chat(p, []ident.ID{from, with})
-			if err != nil {
-				return Planned{}, err
-			}
-			return ic.planIn(Poster{ID: from}, ch, false)
+		p, ok := ic.store.GetProject(name)
+		if !ok || slices.ContainsFunc(members, func(m ident.ID) bool { return !ic.projectUser(p.ID, m) }) {
+			continue
 		}
+		ch, err := ic.chat(p, members)
+		if err != nil {
+			return Planned{}, err
+		}
+		return ic.planIn(Poster{ID: from}, ch, false)
 	}
 	return Planned{}, ErrSendUnresolved
 }
 
-// PlanHome decides a person's post to a live session from /me: into the
-// session's home channel, as its source allows them (a personal session's
-// channel only to its members), joining it. A session that doesn't exist or
-// that they may not reach is ErrSendDenied alike.
-func (ic *Intercom) PlanHome(from, session ident.ID) (Planned, error) {
-	inst, ok := ic.store.GetInstance(string(session))
-	if !ok || inst.Phase == PhaseGone || from.Kind() != ident.User {
+// PlanSessionDM decides a person's post to a live session from /me
+// (session:<id|label>): the dm between them (conversations.adoc#targets), as
+// MayReach allows. A session that doesn't exist or that they may not reach
+// is ErrSendDenied alike.
+func (ic *Intercom) PlanSessionDM(from ident.ID, ref string) (Planned, error) {
+	inst, ok := ic.personSession(from, ref)
+	if !ok || !ic.MayReach(from, inst) {
 		return Planned{}, ErrSendDenied
 	}
+	return ic.planSessionDM(from, inst)
+}
+
+// planSessionDM is the dm between person from and live session inst, who
+// may reach it.
+func (ic *Intercom) planSessionDM(from ident.ID, inst Instance) (Planned, error) {
 	p, ok := ic.store.GetProject(orDefaultProject(inst.Project))
-	if !ok || !ic.projectUser(p.ID, from) {
+	if !ok {
 		return Planned{}, ErrSendDenied
 	}
-	ch, err := ic.HomeChannel(inst)
+	ch, err := ic.chat(p, []ident.ID{from, ident.ID(inst.ActorID)})
 	if err != nil {
 		return Planned{}, err
 	}
-	pl, err := ic.planIn(Poster{ID: from}, ch, false)
-	pl.Join = true
-	return pl, err
+	return ic.planIn(Poster{ID: from}, ch, false)
+}
+
+// PlanWorkerDM decides a person's post to a unit of work's current worker
+// from /me (worker:<key>): the dm between them (conversations.adoc#targets).
+// key is the issue key on the tracker, in a project the person is a member
+// of. ErrNoWorker when the unit has no live worker (or no log yet: nothing
+// is held for a later session); ErrSendDenied when they may not reach it.
+func (ic *Intercom) PlanWorkerDM(from ident.ID, key string) (Planned, error) {
+	tracker, ok := ic.tracker()
+	if !ok || from.Kind() != ident.User {
+		return Planned{}, ErrSendDenied
+	}
+	unit, ok := TicketUnit(ic.store, tracker, key)
+	if !ok {
+		return Planned{}, ErrSendUnresolved
+	}
+	member := false
+	for _, name := range ic.store.ListProjects() {
+		p, ok := ic.store.GetProject(name)
+		if !ok || !ic.projectUser(p.ID, from) {
+			continue
+		}
+		member = true
+		log, ok := ic.store.ChannelByKey(p.ID, SourceWork, string(tracker)+"/"+unit)
+		if !ok {
+			continue
+		}
+		inst, ok := ic.store.GetInstance(string(log.Worker))
+		if log.Worker == "" || !ok || inst.Phase == PhaseGone {
+			return Planned{}, ErrNoWorker
+		}
+		if !ic.MayReach(from, inst) {
+			return Planned{}, ErrSendDenied
+		}
+		return ic.planSessionDM(from, inst)
+	}
+	if !member {
+		return Planned{}, ErrSendDenied
+	}
+	return Planned{}, ErrNoWorker
+}
+
+// personSession is the live session ref names for person from: by id, else
+// the only one labelled ref in the projects they're a member of.
+func (ic *Intercom) personSession(from ident.ID, ref string) (Instance, bool) {
+	if from.Kind() != ident.User || ref == "" {
+		return Instance{}, false
+	}
+	if inst, ok := ic.store.GetInstance(ref); ok {
+		return inst, inst.Phase != PhaseGone
+	}
+	var found []Instance
+	for _, name := range ic.store.ListProjects() {
+		if p, ok := ic.store.GetProject(name); ok && ic.projectUser(p.ID, from) {
+			if inst, ok := ic.sessionNamed(p, ref); ok {
+				found = append(found, inst)
+			}
+		}
+	}
+	if len(found) != 1 {
+		return Instance{}, false
+	}
+	return found[0], true
 }
 
 // MayReach reports, without creating anything, whether user u may post to
-// live session inst from /me (PlanHome would allow it): a member of its
-// project, and for a personal session one already in its channel.
+// live session inst from /me (PlanSessionDM would allow it): a member of its
+// project, and for a personal session the person who started it, or one
+// already in a dm with it.
 func (ic *Intercom) MayReach(u ident.ID, inst Instance) bool {
 	p, ok := ic.store.GetProject(orDefaultProject(inst.Project))
 	if !ok || inst.Phase == PhaseGone || !ic.projectUser(p.ID, u) {
@@ -541,8 +787,11 @@ func (ic *Intercom) MayReach(u ident.ID, inst Instance) bool {
 	if !isPersonal(inst) {
 		return true
 	}
-	ch, ok := ic.store.ChannelByKey(p.ID, SourceSession, inst.ActorID)
-	return ok && ic.isMemberOf(ch, u)
+	if starter, ok := ic.starter(inst); ok && starter == u {
+		return true
+	}
+	_, ok = ic.existingChat(p, []ident.ID{u, ident.ID(inst.ActorID)})
+	return ok
 }
 
 // isPersonal reports whether a session is someone's own (a personal session,
@@ -634,46 +883,65 @@ func (ic *Intercom) ceiling(p Poster, project string) []string {
 	return globs
 }
 
-// resolveChat resolves user refs (names or ids) to members of project the
-// session may address, then the chat of them and the session. Every member
-// is checked before any is looked up beyond its address (403 before 404).
-func (ic *Intercom) resolveChat(p Poster, project Project, refs []string, globs []string) (Channel, error) {
-	members := []ident.ID{p.ID}
-	var missing bool
-	for _, ref := range refs {
-		if ref == "" {
-			return Channel{}, ErrSendDenied
-		}
-		written := []string{"user:" + ref}
-		u, found := ic.memberUser(project, ref)
-		switch {
-		case found && anyAllowed([]string{"user:" + u.Name, "user:" + string(u.ID)}, globs):
-			members = append(members, u.ID)
-		case anyAllowed(written, globs):
-			missing = true
-		default:
-			return Channel{}, ErrSendDenied
-		}
-	}
-	if missing {
-		return Channel{}, ErrSendUnresolved
+// resolveChat resolves member targets (user:<name|id>, session:<label|id>)
+// the session may address, then the dm or group of them and the session.
+func (ic *Intercom) resolveChat(p Poster, project Project, targets []string, globs []string) (Channel, error) {
+	members, err := ic.chatMembers(p, project, targets, globs)
+	if err != nil {
+		return Channel{}, err
 	}
 	return ic.chat(project, members)
 }
 
-// homeWithMember is the poster's own session channel when user ref (whom its
-// addressing allows) is already a member of it — a user: send then posts
-// there rather than opening a separate chat with them.
-func (ic *Intercom) homeWithMember(p Poster, project Project, ref string, globs []string) (Channel, bool) {
-	u, found := ic.memberUser(project, ref)
-	if !found || !anyAllowed([]string{"user:" + u.Name, "user:" + string(u.ID)}, globs) {
-		return Channel{}, false
+// chatMembers resolves member targets to the poster and the members of
+// project they name: people who are members, live sessions. Every member is
+// checked before any is looked up beyond its address (403 before 404).
+func (ic *Intercom) chatMembers(p Poster, project Project, targets []string, globs []string) ([]ident.ID, error) {
+	members := []ident.ID{p.ID}
+	var missing bool
+	for _, t := range targets {
+		kind, ref, _ := strings.Cut(t, ":")
+		if ref == "" {
+			return nil, ErrSendDenied
+		}
+		var id ident.ID
+		var found, allowed bool
+		switch kind {
+		case "user":
+			var u User
+			u, found = ic.memberUser(project, ref)
+			allowed = found && ic.userAllowed(p, u, globs)
+			id = u.ID
+		case "session":
+			var inst Instance
+			inst, found = ic.sessionNamed(project, ref)
+			allowed = found && (inst.ActorID == p.Session.ActorID || anyAllowed([]string{"session:" + sessionLabel(inst), "session:" + inst.ActorID}, globs))
+			id = ident.ID(inst.ActorID)
+		default:
+			return nil, ErrSendDenied
+		}
+		switch {
+		case allowed:
+			members = append(members, id)
+		case !found && anyAllowed([]string{kind + ":" + ref}, globs):
+			missing = true
+		default:
+			return nil, ErrSendDenied
+		}
 	}
-	home, err := ic.HomeChannel(*p.Session)
-	if err != nil || home.Kind != SourceSession || !ic.isMemberOf(home, u.ID) {
-		return Channel{}, false
+	if missing {
+		return nil, ErrSendUnresolved
 	}
-	return home, true
+	return members, nil
+}
+
+// userAllowed reports whether the poster may address person u: its
+// addressing allows them, or they started the poster's personal session.
+func (ic *Intercom) userAllowed(p Poster, u User, globs []string) bool {
+	if starter, ok := ic.starter(*p.Session); ok && starter == u.ID {
+		return true
+	}
+	return anyAllowed([]string{"user:" + u.Name, "user:" + string(u.ID)}, globs)
 }
 
 // memberUser is the live user ref names (a name or a usr_ id) who is a
@@ -693,25 +961,40 @@ func (ic *Intercom) memberUser(project Project, ref string) (User, bool) {
 	return u, true
 }
 
-// chat is the live chat of exactly members in project, created (members
-// joined from the log tail) when there is none.
-func (ic *Intercom) chat(project Project, members []ident.ID) (Channel, error) {
+// chatKey is the key and kind of the dm or group of exactly members, and
+// the members sorted and without repeats.
+func chatKey(members []ident.ID) (string, SourceKind, []ident.ID) {
 	members = slices.Clone(members)
 	slices.Sort(members)
 	members = slices.Compact(members)
 	parts := make([]string, len(members))
-	labels := make([]string, len(members))
 	for i, m := range members {
 		parts[i] = string(m)
+	}
+	return strings.Join(parts, ","), chatKind(len(members)), members
+}
+
+// existingChat is the live dm or group of exactly members in project, if
+// there is one (creating none).
+func (ic *Intercom) existingChat(project Project, members []ident.ID) (Channel, bool) {
+	key, kind, _ := chatKey(members)
+	return ic.store.ChannelByKey(project.ID, kind, key)
+}
+
+// chat is the live dm (two members) or group (more) of exactly members in
+// project, created (members joined from the log tail) when there is none.
+func (ic *Intercom) chat(project Project, members []ident.ID) (Channel, error) {
+	key, kind, members := chatKey(members)
+	labels := make([]string, len(members))
+	for i, m := range members {
 		labels[i] = ic.label(m)
 	}
-	key := strings.Join(parts, ",")
-	ch, ok := ic.store.ChannelByKey(project.ID, SourceChat, key)
+	ch, ok := ic.store.ChannelByKey(project.ID, kind, key)
 	if !ok {
 		var err error
-		ch, err = ic.store.CreateChannel(Channel{ProjectID: project.ID, Kind: SourceChat, Key: key, Label: strings.Join(labels, ", ")})
+		ch, err = ic.store.CreateChannel(Channel{ProjectID: project.ID, Kind: kind, Key: key, Label: strings.Join(labels, ", ")})
 		if errors.Is(err, ErrChannelExists) { // created meanwhile
-			ch, ok = ic.store.ChannelByKey(project.ID, SourceChat, key)
+			ch, ok = ic.store.ChannelByKey(project.ID, kind, key)
 			if !ok {
 				return Channel{}, err
 			}
@@ -756,7 +1039,7 @@ func (ic *Intercom) resolveRoom(project Project, name string, globs []string) (C
 	return ch, nil
 }
 
-// resolveTicket finds a ticket's channel: "<key>" on the tracker connection,
+// resolveTicket finds a unit of work's log: "<key>" on the tracker connection,
 // or "<connection name|id>/<key>". A GitHub key (owner/repo#<n>) is itself
 // split by '/', so it is matched whole first, and is authorized and looked
 // up in its canonical spelling only. A session's own ticket needs no addressing; any other
@@ -813,28 +1096,50 @@ func (ic *Intercom) resolveTicket(p Poster, project Project, ref string, globs [
 	case !isKey:
 		return Channel{}, fmt.Errorf("%w: %w", ErrSendUnresolved, ticketkey.ErrGitHub)
 	}
-	ch, ok := ic.store.ChannelByKey(project.ID, SourceTicket, string(connID)+"/"+canon)
+	ch, ok := ic.store.ChannelByKey(project.ID, SourceWork, string(connID)+"/"+canon)
 	if !ok {
-		return Channel{}, ErrSendUnresolved
+		return Channel{}, errNoLog
 	}
 	return ch, nil
 }
 
+// errNoLog is resolveTicket's unit with no work log yet.
+var errNoLog = fmt.Errorf("%w: no work log", ErrSendUnresolved)
+
+// resolveWorker finds the dm between the poster and the current worker of
+// the unit ref names (authorized as its log is, by ticket: addressing).
+// ErrNoWorker when the unit has no live worker (or no log yet);
+// ErrSendUnresolved when the poster is the worker.
+func (ic *Intercom) resolveWorker(p Poster, project Project, ref string, globs []string) (Channel, error) {
+	log, err := ic.resolveTicket(p, project, ref, globs)
+	switch {
+	case errors.Is(err, errNoLog):
+		return Channel{}, ErrNoWorker
+	case err != nil:
+		return Channel{}, err
+	case log.Worker == "" || !ic.sessionLive(log.Worker):
+		return Channel{}, ErrNoWorker
+	case log.Worker == p.ID:
+		return Channel{}, ErrSendUnresolved
+	}
+	return ic.chat(project, []ident.ID{p.ID, log.Worker})
+}
+
 // resolveSession finds the live session of project that ref names (its id,
-// else its unique label) and returns its home channel. One's own session
-// needs no addressing; any other needs session:<glob>, checked before the
-// session is looked up beyond its address (403 before 404).
+// else its unique label) and returns the dm between the poster and it. It
+// needs session:<glob>, checked before the session is looked up beyond its
+// address (403 before 404). One's own session is no conversation
+// (ErrSendUnresolved).
 func (ic *Intercom) resolveSession(p Poster, project Project, ref string, globs []string) (Channel, error) {
 	if ref == "" {
 		return Channel{}, ErrSendDenied
 	}
 	target, found := ic.sessionNamed(project, ref)
-	own := found && target.ActorID == p.Session.ActorID
 	switch {
-	case own:
-		return ic.HomeChannel(target)
+	case found && target.ActorID == p.Session.ActorID:
+		return Channel{}, ErrSendUnresolved
 	case found && anyAllowed([]string{"session:" + sessionLabel(target), "session:" + target.ActorID}, globs):
-		return ic.HomeChannel(target)
+		return ic.chat(project, []ident.ID{p.ID, ident.ID(target.ActorID)})
 	case anyAllowed([]string{"session:" + ref}, globs):
 		return Channel{}, ErrSendUnresolved
 	}
@@ -864,10 +1169,13 @@ func (ic *Intercom) sessionNamed(project Project, ref string) (Instance, bool) {
 
 // ---- the sources ----
 
-// chatSource: a chat is its fixed member set; only they post and see.
-type chatSource struct{ ic *Intercom }
+// chatSource: a dm or a group is its fixed member set; only they post and see.
+type chatSource struct {
+	ic   *Intercom
+	kind SourceKind
+}
 
-func (chatSource) Kind() SourceKind { return SourceChat }
+func (s chatSource) Kind() SourceKind { return s.kind }
 func (s chatSource) CanPost(p Poster, ch Channel, _ bool) bool {
 	return s.ic.isMemberOf(ch, p.ID)
 }
@@ -878,7 +1186,7 @@ func (s chatSource) CanSee(p ident.ID, ch Channel) bool { return s.ic.isMemberOf
 // see; a session whose addressing allows the ticket may post without joining.
 type ticketSource struct{ ic *Intercom }
 
-func (ticketSource) Kind() SourceKind { return SourceTicket }
+func (ticketSource) Kind() SourceKind { return SourceWork }
 func (s ticketSource) CanPost(p Poster, ch Channel, allowed bool) bool {
 	return allowed || s.CanSee(p.ID, ch)
 }
@@ -886,8 +1194,9 @@ func (s ticketSource) CanSee(p ident.ID, ch Channel) bool {
 	return s.ic.isMemberOf(ch, p) || s.ic.projectUser(ch.ProjectID, p)
 }
 
-// roomSource: a room is open to its project's members; a session posts to it
-// when its addressing allows (rooms are post-only for sessions).
+// roomSource: a room is open to its project's members and its own (sessions
+// its role lists or that were called in); any other session posts to it when
+// its addressing allows.
 type roomSource struct{ ic *Intercom }
 
 func (roomSource) Kind() SourceKind { return SourceRoom }
@@ -898,20 +1207,12 @@ func (s roomSource) CanSee(p ident.ID, ch Channel) bool {
 	return s.ic.isMemberOf(ch, p) || s.ic.projectUser(ch.ProjectID, p)
 }
 
-// sessionSource: a session's own channel. The session and those called in or
-// who joined post and see; a standing or manual session's channel is open to
-// its project's members, a personal session's only to its members (people
-// join it by invitation). A session whose addressing allows it may post.
+// sessionSource: a session channel an older Jam made, archived at serve
+// start (Reconcile). Its members still read its history; nobody posts in it.
 type sessionSource struct{ ic *Intercom }
 
-func (sessionSource) Kind() SourceKind { return SourceSession }
-func (s sessionSource) CanPost(p Poster, ch Channel, allowed bool) bool {
-	return allowed || s.CanSee(p.ID, ch)
-}
+func (sessionSource) Kind() SourceKind                   { return SourceSession }
+func (sessionSource) CanPost(Poster, Channel, bool) bool { return false }
 func (s sessionSource) CanSee(p ident.ID, ch Channel) bool {
-	if s.ic.isMemberOf(ch, p) {
-		return true
-	}
-	inst, ok := s.ic.store.GetInstance(ch.Key)
-	return ok && !isPersonal(inst) && s.ic.projectUser(ch.ProjectID, p)
+	return s.ic.isMemberOf(ch, p)
 }

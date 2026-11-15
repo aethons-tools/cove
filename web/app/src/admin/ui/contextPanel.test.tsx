@@ -147,11 +147,11 @@ describe("ContextPanel", () => {
     expect(when).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText("1 problem to fix before saving")).toBeInTheDocument();
     expect(save()).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Remove row 1" }));
+    await user.click(screen.getByRole("button", { name: "Remove resource 1" }));
     await user.click(screen.getByRole("button", { name: "+ new resource…" }));
     expect(screen.getByText("3 problems to fix before saving")).toBeInTheDocument();
     await user.type(when, "you release");
-    await user.click(screen.getByRole("button", { name: "Remove row 2" }));
+    await user.click(screen.getByRole("button", { name: "Remove resource 2" }));
     expect(screen.getByText("Ready to save")).toBeInTheDocument();
     expect(save()).toBeEnabled();
   });

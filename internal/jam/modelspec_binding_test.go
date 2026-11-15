@@ -212,7 +212,7 @@ func TestEnsureDefaultModelSpec(t *testing.T) {
 
 	// No pool: the anthropic destination's credential.
 	st = NewMemStore()
-	_ = st.AddDestination(Destination{Name: "anthropic", Route: "/anthropic/", CredName: "anthropic-key"})
+	_ = st.AddDestination(Destination{Name: "anthropic", Endpoints: []Endpoint{{Name: "anthropic", Route: "/anthropic/"}}, CredName: "anthropic-key"})
 	if _, err := EnsureDefaultModelSpec(st, false); err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestEnsureDefaultModelSpec(t *testing.T) {
 
 	// Found by route when not named anthropic.
 	st = NewMemStore()
-	_ = st.AddDestination(Destination{Name: "claude", Route: "/anthropic/", CredName: "k2"})
+	_ = st.AddDestination(Destination{Name: "claude", Endpoints: []Endpoint{{Name: "claude", Route: "/anthropic/"}}, CredName: "k2"})
 	if _, err := EnsureDefaultModelSpec(st, false); err != nil {
 		t.Fatal(err)
 	}

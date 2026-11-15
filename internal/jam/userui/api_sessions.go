@@ -11,6 +11,7 @@ import (
 
 func (h *handler) sessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /app/user/api/sessions/{id}", h.apiSessionHead)
+	mux.HandleFunc("GET /app/user/api/sessions/{id}/activity", h.apiSessionActivity)
 	mux.HandleFunc("GET /app/user/api/sessions/{id}/pane/{tab}", h.apiSessionPane)
 	mux.HandleFunc("POST /app/user/api/sessions/{id}/frame", h.apiFrame) // more specific than {action}
 	mux.HandleFunc("POST /app/user/api/sessions/{id}/{action}", h.apiSessionAction)
@@ -24,33 +25,34 @@ func noSession(w http.ResponseWriter) {
 	writeAPIError(w, http.StatusNotFound, "not_found", "no such session")
 }
 
-// openSession is the request's participant and the session {id}, with its
-// home channel, or it has answered (403 / 404).
+// openSession is the request's participant and the live session {id}, with
+// its conversation for them, when they may open its view, or it has answered (403 /
+// 404).
 func (h *handler) openSession(w http.ResponseWriter, r *http.Request) (jam.Participant, jam.Instance, string, bool) {
 	p, ok := jam.ParticipantFrom(r)
 	if !ok {
 		writeAPIError(w, http.StatusForbidden, "forbidden", "sign in as a project member")
 		return p, jam.Instance{}, "", false
 	}
-	inst, home, ok := h.sessionFor(p, r.PathValue("id"))
+	inst, conv, ok := h.sessionFor(r, p, r.PathValue("id"))
 	if !ok {
 		noSession(w)
 		return p, jam.Instance{}, "", false
 	}
-	return p, inst, home, true
+	return p, inst, conv, true
 }
 
 func (h *handler) apiSessionHead(w http.ResponseWriter, r *http.Request) {
-	p, inst, home, ok := h.openSession(w, r)
+	p, inst, conv, ok := h.openSession(w, r)
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, h.sessionHead(r, p, inst, home))
+	writeJSON(w, http.StatusOK, h.sessionHead(r, p, inst, conv))
 }
 
 func (h *handler) apiSessionPane(w http.ResponseWriter, r *http.Request) {
 	tab := r.PathValue("tab")
-	p, inst, home, ok := h.openSession(w, r)
+	p, inst, conv, ok := h.openSession(w, r)
 	if !ok {
 		return
 	}
@@ -58,7 +60,7 @@ func (h *handler) apiSessionPane(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "no such tab")
 		return
 	}
-	writeJSON(w, http.StatusOK, paneLists(h.buildPane(r, p, inst, home, tab)))
+	writeJSON(w, http.StatusOK, paneLists(h.buildPane(r, p, inst, conv, tab)))
 }
 
 // apiSessionAction runs a session action (see sessionOutcome); the app
@@ -84,11 +86,19 @@ func (h *handler) apiSessionAction(w http.ResponseWriter, r *http.Request) {
 	writeAPIError(w, status, code, msg)
 }
 
-// openThinking is openSession for the Thinking routes: 404 when this jam
-// records no session events, else the session and the request's ?stream=.
+// openThinking resolves the session for the Thinking page and raw routes,
+// live or ended (an ended session's activity still opens its turns): 404
+// when the viewer may not open its view or this jam records no session
+// events, else the session and the request's ?stream=.
 func (h *handler) openThinking(w http.ResponseWriter, r *http.Request) (jam.Instance, string, bool) {
-	_, inst, _, ok := h.openSession(w, r)
+	p, ok := jam.ParticipantFrom(r)
 	if !ok {
+		writeAPIError(w, http.StatusForbidden, "forbidden", "sign in as a project member")
+		return jam.Instance{}, "", false
+	}
+	inst, ok := h.viewedSession(r, p, r.PathValue("id"))
+	if !ok {
+		noSession(w)
 		return inst, "", false
 	}
 	if h.d.Events == nil {
@@ -114,7 +124,8 @@ func positive(w http.ResponseWriter, r *http.Request, name string) (uint64, bool
 }
 
 // apiThinkingPage is a page of a session's events below ?before= (the
-// Thinking tab's Load earlier).
+// Thinking tab's Load earlier), above ?after= when given (a turn's fold in
+// the activity).
 func (h *handler) apiThinkingPage(w http.ResponseWriter, r *http.Request) {
 	inst, stream, ok := h.openThinking(w, r)
 	if !ok {
@@ -124,7 +135,16 @@ func (h *handler) apiThinkingPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	evs, below, err := h.thinkingPageOf(inst.ActorID, stream, before)
+	var after uint64
+	if v := r.URL.Query().Get("after"); v != "" {
+		n, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "bad_request", "after: not a number")
+			return
+		}
+		after = n
+	}
+	evs, below, err := h.thinkingPageOf(inst.ActorID, stream, after, before)
 	if err != nil {
 		h.lg.Error("api thinking page: listing events failed", "session", inst.ActorID, "error", err.Error())
 		writeAPIError(w, http.StatusInternalServerError, "internal", "listing events failed")

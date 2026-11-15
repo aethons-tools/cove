@@ -1,0 +1,22 @@
+= VS Code notifications and the badge
+:summary: How the Jam VS Code extension notifies — one window per event (the lock file), the rate limit, Open, OS notifications on macOS (`terminal-notifier`) and Linux (`notify-send`), the needs-you badge, and what happens when VS Code is closed or you are signed out.
+:read_when: You want VS Code or OS notifications from Jam, two windows both notified (or none did), no banners show on macOS or Linux, or you want to know when the extension notifies instead of the phone.
+:owns: the extension's notifications — the startup trigger, the per-event window choice and lock file, the rate rule, the OS notifiers and their fallbacks, the badge's place, and the closed/signed-out cases
+:prereqs: vscode.adoc for installing and signing in; push.adoc for what notifies; vscode-hub.adoc for the rail and the hub
+:tier: leaf
+:updated: 2026-11-13
+
+The extension starts with VS Code (`onStartupFinished`), in every window, and every signed-in window holds one live stream.
+What notifies is the phone's rule (xref:usage/jam/push.adoc#what-notifies[What notifies]), not restated here.
+
+* *One window per event, usually the focused one.* The focused window gets a 250 ms head start, so a lagging stream can let an unfocused window win; it then also shows an OS banner while VS Code is focused. Windows agree through a lock file in the extension's global storage, so a second VS Code profile, and VS Code Insiders, each notify separately. If the lock can't be written (e.g. read-only storage), every window notifies and the Jam output channel says why, once per window.
+* *Rate:* at most one message notification per conversation per 5 s; asks, call-ins and escalations always notify. An ask shows as a warning, a message as information. Link syntax in a message (`+[text](command:…)+`, `+https:+`, `+file:+`) shows as text, never as a clickable link.
+* *Open*, and the OS notification (`+vscode://aethons.jam/go/<chn>?session=<id>+`), xref:usage/jam/vscode-hub.adoc#the-hub[go to the conversation]: the session's studio window if open, else its hub tab.
+* *OS notifications* show only while the winning window isn't focused:
+** macOS uses the bundled `terminal-notifier` 3.0.0 (vendored from node-notifier, ad-hoc signed, not notarized, shipped whole with Apple's ``Terminal.icns``; the .vsix is private). It is listed as _terminal-notifier_ in System Settings → Notifications, where you allow or mute it. The first notification waits up to 120 s for the permission prompt; if it times out, only that note falls back to `osascript`. A declined permission shows nothing and does not fall back. If the notifier can't run it falls back to `osascript`, whose banners can't open a session.
+** Linux uses `notify-send`, with a click only when it supports `+--action+` (libnotify 0.7.10+); at most one waits per conversation and 8 overall. Without `notify-send` you get toasts only, and one line in the Jam output channel.
+** Other platforms get VS Code notifications only.
+* *Closed VS Code:* nothing is queued (the phone still gets Web Push); a user with both gets both.
+* *Lock screen:* body visibility follows xref:usage/jam/push.adoc#privacy-and-previews[`preview`] and the OS's settings.
+* *The badge:* the rail's needs-you count (xref:usage/jam/vscode-hub.adoc#the-rail[The rail]).
+* *Signed out:* no notifications, no badge. A revoked token shows "sign-in expired" at startup.

@@ -286,6 +286,90 @@ func TestPostgresRoomsMigration(t *testing.T) {
 	}
 }
 
+// TestPostgresConversationKindsMigration: a store from before the
+// conversation kinds — chats and ticket channels, memberships with no wake
+// mode — loads with dm, group and work kinds (migration 0026) and every
+// membership waking on named; wake modes and workers survive a reload.
+func TestPostgresConversationKindsMigration(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.GetProject("acme")
+	conn, err := s.CreateConnection(jam.Connection{Kind: "linear", Name: "linear"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u1, u2, u3 := ident.New(ident.User), ident.New(ident.User), ident.New(ident.User)
+	mk := func(kind jam.SourceKind, key string) jam.Channel {
+		t.Helper()
+		c, err := s.CreateChannel(jam.Channel{ProjectID: p.ID, Kind: kind, Key: key, Label: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	dm := mk(jam.SourceDM, string(u1)+","+string(u2))
+	group := mk(jam.SourceGroup, string(u1)+","+string(u2)+","+string(u3))
+	work := mk(jam.SourceWork, string(conn.ID)+"/ACME-7")
+	if err := s.JoinChannel(dm.ID, u1, 1); err != nil {
+		t.Fatal(err)
+	}
+	// Put the database back the way an older Jam left it.
+	for _, stmt := range []string{
+		`UPDATE channels SET kind = 'chat' WHERE kind IN ('dm', 'group')`,
+		`UPDATE channels SET kind = 'ticket' WHERE kind = 'work'`,
+		`UPDATE channels SET doc = jsonb_set(doc, '{kind}', to_jsonb(kind))`,
+		`ALTER TABLE channel_members DROP COLUMN wake`,
+		`DELETE FROM schema_migrations WHERE version = 26`,
+	} {
+		if _, err := s.Pool().Exec(ctx, stmt); err != nil {
+			t.Fatalf("seed %q: %v", stmt, err)
+		}
+	}
+
+	m := open()
+	for c, want := range map[ident.ID]jam.SourceKind{dm.ID: jam.SourceDM, group.ID: jam.SourceGroup, work.ID: jam.SourceWork} {
+		if got, ok := m.GetChannel(c); !ok || got.Kind != want {
+			t.Errorf("channel %s = %+v, want kind %s", c, got, want)
+		}
+	}
+	if got := m.ChannelMembers(dm.ID); len(got) != 1 || got[0].Wake != jam.WakeNamed {
+		t.Fatalf("members = %+v, want wake named", got)
+	}
+	if err := m.SetChannelWake(dm.ID, u1, jam.WakeAll); err != nil {
+		t.Fatal(err)
+	}
+	w := ident.New(ident.Session)
+	if err := m.SetChannelWorker(work.ID, w); err != nil {
+		t.Fatal(err)
+	}
+	again := open()
+	if got := again.ChannelMembers(dm.ID); len(got) != 1 || got[0].Wake != jam.WakeAll {
+		t.Fatalf("reload: members = %+v, want wake all", got)
+	}
+	if got, _ := again.GetChannel(work.ID); got.Worker != w {
+		t.Fatalf("reload: worker = %q, want %q", got.Worker, w)
+	}
+}
+
 // TestPostgresProjectRefsMigration: a store from before 1b-2a — roles keyed
 // by project name, grants and instances naming projects by name — loads with
 // roles keyed by project id (migration 0013) and grants and instances naming
