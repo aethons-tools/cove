@@ -13,35 +13,69 @@ image::channels-inbox.png["The Inbox, with the ops room open",800]
 
 == The rail
 
-The rail shows every conversation you are in or got messages in,
-across all your projects:
-DMs, group DMs, rooms, and work logs.
-It puts them in groups by how much they need you:
-
-Needs you::
-An agent in the conversation asked for a person or is blocked,
-or the conversation has an open ask you can answer.
-Agents::
-DMs and group DMs with an agent that is live, starting, or paused.
-Conversations::
-All the others: rooms, work logs, DMs with people, and DMs with agents that ended.
-
-In each group, the channel with the newest message is first.
+The rail has three sections:
+*Me*, *Work*, and *Agents*.
 If your Jam was upgraded from the old message log,
-a last group, *History (before the upgrade)*, shows those old conversations.
+*History (before the upgrade)* below them shows those old conversations.
 You can only read them.
+It looks the same in the Jam app and in VS Code.
 
-image::channels-rail.png["The rail: Needs you, Agents and Conversations",300]
+image::channels-rail-sections.png["The rail: Me, Work, and Agents",340]
 
-A DM with an agent shows as the agent's status card:
-its name, what it is doing, its mission, and its open asks.
-Click the name to open its session view
+ifdef::internal[]
+Try the rail in the xref:attachment$channels-rail-prototype.html[prototype].
+endif::[]
+
+=== Me
+
+*Me* lists the conversations you take part in that are alive:
+your DMs and group DMs,
+the rooms you're in,
+and the work logs you follow.
+Each is one compact row:
+
+* its name;
+* for a DM with an agent, the agent's status, such as *working* or *idle*;
+otherwise, its kind;
+* a dot when it needs you:
+an agent in it asked for a person or is blocked,
+or it has an open ask you can answer;
+* the number of unread messages.
+
+Drag a row to put it where you want it.
+The toggle at the top of *Me* shows *All* your conversations,
+or only those that are *Unread* or need you.
+
+A DM with an agent leaves *Me* when the agent ends.
+Finished conversations are kept;
+to read them, look them up.
+
+=== Work
+
+*Work* lists the units of work in your projects
+that an agent is working on now
+(xref:concepts/work.adoc[Units of work]):
+the ticket's key and title,
+its worker and the worker's status,
+and the number of unread entries.
+Click the row to open the work log,
+or the worker to open its session view.
+
+=== Agents
+
+*Agents* lists the active sessions whose session view you can open,
+as status cards:
+the name, what it's doing, its mission, and its open asks.
+Click a card to open the session's view
 (xref:inbox/session.adoc[Watching a session]).
-Another row shows the conversation's name and, if one agent in it is live, that agent's mission.
-A DM or group DM is named after the others in it.
-A number on the right is the count of unread messages.
+Drag a card to put it where you want it;
+a new session joins at the bottom.
 
-The rail plays a sound when a channel starts to need you
+Your order of *Me* and *Agents* is saved for you,
+so the Jam app and VS Code show the same order,
+on any device.
+
+The rail plays a sound when a conversation starts to need you
 or gets new messages.
 You can change the sounds under *Sounds…* in your account menu.
 
@@ -106,6 +140,11 @@ You also join a room or a work log when you post in it.
 ifdef::internal[]
 == Notes for the team
 
+* Goal: the rail's Me, Work, and Agents sections (agreed with the user 2026-11-15);
+their interface is `docs/modules/ROOT/pages/usage/jam/inbox-rail.adoc`.
+Looking up ended sessions and finished logs is COV-362.
+The rail image is the prototype's (`attachments/channels-rail-prototype.html`).
+The prototype runs only on the team site: Jam serves the manual with a CSP that allows no scripts or inline styles, so the link is internal.
 * The Inbox is the web app under `/app/user/` (`web/app/src/rail`, `conversation`).
 A conversation is `/app/user/c/<channel>`.
 The old Inbox's `?c=` links redirect.

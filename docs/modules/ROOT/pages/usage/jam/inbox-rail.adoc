@@ -1,0 +1,106 @@
+= The Inbox rail: Me, Work, and Agents
+:summary: The goal Inbox rail, shared by the Jam app and the VS Code rail: three sections (Me, Work, Agents), what each lists, its rows and cards, the needs-you flag, the Me filter, and the per-user order saved on the server.
+:read_when: You are building or reviewing the rail's sections, its API (`GET /app/user/api/rail`), or the saved rail order, in the web app or the VS Code extension.
+:owns: the goal rail sections and their membership, the rail response shape, the needs-you flag, the Me filter, and the rail-order API and its storage. Does NOT own the status card's contents (session-card.adoc), session-view access (conversations-sessions.adoc), or the rest of the user area (intercom-ui.adoc).
+:prereqs: intercom-ui.adoc for today's rail and live refresh; conversations.adoc for conversation kinds and units of work; conversations-sessions.adoc for who may open a session view; session-card.adoc for the card
+:tier: leaf
+:updated: 2026-11-15
+
+This page is the goal for the rail.
+Where it disagrees with xref:usage/jam/intercom-ui.adoc[intercom-ui]
+or xref:usage/jam/session-card.adoc[session-card], it wins.
+The product view is the manual's goal page `inbox/channels.adoc`,
+with its prototype `attachments/channels-rail-prototype.html`.
+The VS Code rail renders the same response (xref:usage/jam/vscode-hub.adoc#the-rail[vscode-hub]).
+
+[#sections]
+== Sections
+
+The rail has three sections, in this order,
+and the pre-upgrade history below them.
+The *Needs you*, *Agents*, and *Conversations* groups go.
+
+[%header,cols="1,3,2"]
+|===
+|Section |Lists |Each item
+
+|`me`
+|The live conversations the person is a member of:
+`dm`s and `group`s with at least one person or live session besides the viewer,
+`room`s, and the `work` logs they follow.
+A `dm` with a session leaves when the session ends.
+|A `ChannelRow`, as today.
+The client shows the label, the kind or the session's state, `needsYou`, and `unread`.
+
+|`work`
+|Every unit of work in the person's projects with a current worker.
+|A `WorkRow`: key, title, the log's channel id,
+the worker (session id, label, state), and `unread`.
+
+|`agents`
+|Every active session (live, starting, or paused) whose view the person may open
+(xref:usage/jam/conversations-sessions.adoc#session-view[conversations-sessions]).
+|An `AgentItem`: the session id, `ssh`, and its status card (xref:usage/jam/session-card.adoc[session-card]).
+
+|`history`
+|Today's *History (before the upgrade)*: the frozen legacy log's conversations, read-only.
+Empty on a Jam that was never upgraded from it; the client then shows nothing.
+|A `ChannelRow`, as today, collapsed under one heading.
+|===
+
+*Needs you* is the existing `needsYou` flag on a `me` row,
+set as today's *Needs you* group is:
+a session in it asked for a person or is blocked,
+or it has an open ask the person may answer.
+It doesn't move the row.
+
+[#api]
+== The rail API
+
+`GET /app/user/api/rail` returns:
+
+[source,json]
+----
+{"me":      [ChannelRow, …],
+ "work":    [{"key": "ACME-42", "title": "Fix the flaky login test", "log": "chn_…",
+              "worker": {"id": "ses_…", "label": "acme-42", "state": "waiting"},
+              "unread": 1}],
+ "agents":  [{"session": "ses_…", "ssh": true, "card": SessionCard}],
+ "history": [ChannelRow, …],
+ "unreadTotal": 3}
+----
+
+`groups` goes; every other field today's clients read stays:
+
+* `ChannelRow` keeps all of today's fields, `session`, `ssh`, `selected`, and `card` included,
+so the VS Code rail's double-click and ▣ marker work on `me` rows as today.
+`agents` items carry `session` and `ssh` for the same use on cards.
+* `unreadTotal` still drives the app badge: the sum of `unread` over `me` and `history`.
+* The VS Code badge counts the `me` rows with `needsYou`, which are the rows today's *Needs you* group held.
+* `?c=` keeps marking the open conversation `selected` and read, as today.
+* A `work` row's `unread` counts the log's unread entries only when the person follows the log;
+for a log they don't follow it is absent, and the row shows no count.
+* `me` and `agents` come in the person's saved order (<<order>>); `work` is ordered by key.
+* The *All*/*Unread* filter on `me` is client-side:
+*Unread* keeps rows with `unread > 0` or `needsYou`.
+* The live `/app/user/events` refresh and the 30-second poll stay as they are.
+
+[#order]
+== The saved order
+
+Each person has one saved order per section, `me` and `agents`:
+a list of conversation ids or session ids.
+
+* `PUT /app/user/api/rail/order` with `+{"section": "me"|"agents", "ids": [...]}+` replaces it (`204`; `400` for another section).
+* Ids that no longer appear in the section are dropped when the order is next saved.
+An item not in the saved order goes last:
+in `me`, newest message first among them;
+in `agents`, by start time, so a new session joins at the bottom.
+* The order is stored per user in Jam's store, not in the browser,
+so the app and the VS Code rail share it on every device.
+
+[#building]
+== Building it
+
+One issue changes the API and the store (the sections, the order endpoint, and its table);
+the web app and the VS Code rail then build against this page in parallel.
