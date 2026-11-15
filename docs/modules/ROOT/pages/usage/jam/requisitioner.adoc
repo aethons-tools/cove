@@ -35,7 +35,7 @@ Jam restart.
 . *Claim* — transition the issue READY → IN PROGRESS _before_ raising, so a
 crash between claim and raise leaves the ticket claimed (recoverable), never
 double-raised. The transition also drops it from the next `ListReady`.
-. *Raise* — set the session's starting xref:usage/jam/intercom.adoc#what-the-tools-do[mission] to the issue's title, then build the prompt (the issue brief + the turn-end protocol: own the
+. *Raise* — set the session's starting xref:usage/jam/intercom.adoc#what-the-tools-do[mission] and its `UnitTitle` (the rail's xref:usage/jam/rail-api.adoc#sections[Work] row) to the issue's title, then build the prompt (the issue brief + the turn-end protocol: own the
 branch and PR through merge, keep the ticket current with `report`, `end` only
 once the work has landed, and wait for people rather than exit when stuck —
 see xref:usage/jam/turn-end.adoc#reporting-a-ticket[Reporting a ticket]) and call the supervisor's raise

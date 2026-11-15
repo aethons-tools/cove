@@ -118,7 +118,7 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 		}
 		if isSessionID(m.ParticipantID) {
 			v.Sessions = append(v.Sessions, string(m.ParticipantID))
-			if inst, ok := store.GetInstance(string(m.ParticipantID)); ok && instanceActive(inst) {
+			if inst, ok := store.GetInstance(string(m.ParticipantID)); ok && InstanceActive(inst) {
 				if v.Phase == "" || NeedsPerson(inst) {
 					v.Phase, v.NeedsYou = string(inst.Phase), v.NeedsYou || NeedsPerson(inst)
 				}

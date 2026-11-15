@@ -65,6 +65,9 @@ type memState struct {
 	// sessionColors is each session id's color (session_colors.go); never
 	// dropped, so an ended session's messages keep it.
 	sessionColors map[string]string
+	// railOrders is each person's saved rail order per section
+	// (rail_orders.go).
+	railOrders map[ident.ID]map[RailSection][]string
 	// managers is the Studio Manager registry by name (managers_store.go).
 	managers map[string]ManagerRecord
 	// setup is the per-instance setup snapshots: actor id → part → snapshot
@@ -114,6 +117,7 @@ func newMemState() *memState {
 		appTokens:       map[ident.ID]AppToken{},
 		appTokenByHash:  map[string]ident.ID{},
 		sessionColors:   map[string]string{},
+		railOrders:      map[ident.ID]map[RailSection][]string{},
 		managers:        map[string]ManagerRecord{},
 		setup:           map[string]map[string]SetupSnapshot{},
 		channels:        map[ident.ID]Channel{},

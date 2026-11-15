@@ -329,10 +329,10 @@ func NeedsPerson(i Instance) bool {
 	return i.Activity == ActivityBlocked || i.Activity == ActivityWaiting && AskedForPerson(i)
 }
 
-// instanceActive reports whether a session is currently reachable: running,
+// InstanceActive reports whether a session is currently reachable: running,
 // raising, paused, or recovering (its messages wait for its re-raise).
 // Gone/Lost/Terminating instances are not offered as recipients.
-func instanceActive(i Instance) bool {
+func InstanceActive(i Instance) bool {
 	switch i.Phase {
 	case PhaseLive, PhaseRaising, PhaseIdled, PhaseRecovering:
 		return true

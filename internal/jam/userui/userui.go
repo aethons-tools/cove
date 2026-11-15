@@ -177,30 +177,11 @@ func viewKind(ch jam.ChannelView) string {
 func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
 	byBucket := map[jam.AttentionBucket][]ChannelRow{}
 	for _, ch := range chs {
-		if ch.ID == selectedID {
-			// The open conversation is being read: the app commits its
-			// cursor only after it loads (POST api/conversations/{c}/read), so the stored
-			// count would otherwise linger in the rail and app badge.
-			ch.Unread = 0
-		}
 		b := ch.Bucket()
 		if strings.HasPrefix(ch.ID, legacyPrefix) {
 			b = bucketHistory
 		}
-		byBucket[b] = append(byBucket[b], ChannelRow{
-			ID:          ch.ID,
-			Label:       ch.Label,
-			Project:     ch.Project,
-			Kind:        viewKind(ch),
-			NeedsYou:    ch.NeedsYou,
-			Phase:       ch.Phase,
-			Unread:      ch.Unread,
-			OpenAsks:    ch.OpenAsks,
-			LastSeq:     ch.LastSeq,
-			Selected:    ch.ID == selectedID,
-			Mission:     ch.Mission,
-			cardSession: ch.CardSession,
-		})
+		byBucket[b] = append(byBucket[b], channelRow(ch, selectedID))
 	}
 	var groups []RailGroup
 	for _, b := range append(bucketOrder, bucketHistory) {
@@ -226,12 +207,36 @@ func Rail(p jam.Participant, d Deps, selectedID string) []RailGroup {
 	return groupRail(append(chs, legacyChannels(p, d)...), selectedID)
 }
 
-// unreadTotal is the rail's total unread (History rows are always read), the
-// same sum as jam.UnreadTotal.
-func unreadTotal(groups []RailGroup) int {
+// channelRow is ch's rail row; selectedID is the open conversation.
+func channelRow(ch jam.ChannelView, selectedID string) ChannelRow {
+	if ch.ID == selectedID {
+		// The open conversation is being read: the app commits its
+		// cursor only after it loads (POST api/conversations/{c}/read), so the stored
+		// count would otherwise linger in the rail and app badge.
+		ch.Unread = 0
+	}
+	return ChannelRow{
+		ID:          ch.ID,
+		Label:       ch.Label,
+		Project:     ch.Project,
+		Kind:        viewKind(ch),
+		NeedsYou:    ch.NeedsYou,
+		Phase:       ch.Phase,
+		Unread:      ch.Unread,
+		OpenAsks:    ch.OpenAsks,
+		LastSeq:     ch.LastSeq,
+		Selected:    ch.ID == selectedID,
+		Mission:     ch.Mission,
+		cardSession: ch.CardSession,
+	}
+}
+
+// unreadTotal is the sum of Unread over sections (History rows are always
+// read).
+func unreadTotal(sections ...[]ChannelRow) int {
 	n := 0
-	for _, g := range groups {
-		for _, r := range g.Rows {
+	for _, rows := range sections {
+		for _, r := range rows {
 			n += r.Unread
 		}
 	}

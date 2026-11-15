@@ -37,6 +37,8 @@ type RaiseSpec struct {
 	Project string
 	Role    string
 	Unit    string
+	// UnitTitle is the unit's issue title, as the Requisitioner read it (normalised on Raise); "" = none.
+	UnitTitle string
 	// Mission is the session's initial mission, its end goal (normalised on Raise); "" = none.
 	Mission string
 	Prompt  string // workload prompt for the raised cove's agent; consumed by the launcher, not persisted
@@ -571,7 +573,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	}
 	now := s.now()
 	inst := Instance{
-		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit,
+		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit, UnitTitle: NormalizeStatusLine(spec.UnitTitle),
 		Owner: spec.Owner, OwnerID: spec.OwnerID, Name: spec.Name, SessionKind: spec.SessionKind,
 		Mission:     NormalizeStatusLine(spec.Mission),
 		Recoverable: true, RaisePrompt: spec.Prompt,

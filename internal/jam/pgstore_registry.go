@@ -483,6 +483,9 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 	if err := s.loadAppTokens(ctx); err != nil {
 		return err
 	}
+	if err := s.loadRailOrders(ctx); err != nil {
+		return err
+	}
 	if err := s.loadSessionColors(ctx); err != nil {
 		return err
 	}
