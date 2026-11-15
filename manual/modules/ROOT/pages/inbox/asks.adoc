@@ -13,7 +13,7 @@ and you can answer them in any order.
 An ask stays open until a person answers it
 or the session withdraws it.
 While a session has an open ask,
-its channel shows under *Needs you* in the rail
+its conversation shows a needs-you dot in *Me*
 (xref:inbox/channels.adoc[Reading and replying]).
 If nobody answers for a while,
 Jam can call people in
