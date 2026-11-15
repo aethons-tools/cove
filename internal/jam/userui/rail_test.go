@@ -123,7 +123,7 @@ func TestRailSections(t *testing.T) {
 }
 
 // Me leaves out archived conversations, and the rail's unread total counts
-// only Me and History.
+// only Me and History, as a push's badge does.
 func TestRailMeSkipsArchived(t *testing.T) {
 	e, p := fixture()
 	inst, _, own := ticketSession(t, e, p)
@@ -145,8 +145,11 @@ func TestRailMeSkipsArchived(t *testing.T) {
 	if r.UnreadTotal != sum {
 		t.Errorf("unreadTotal = %d, want Me's %d", r.UnreadTotal, sum)
 	}
-	if all := jam.UnreadTotal(e.st, e.Intercom, e.lg, p.UserID); all <= sum {
-		t.Errorf("unread across every channel = %d, want more than Me's %d (the archived channel's message)", all, sum)
+	if row, _, ok := rowByID(r, string(own)); !ok || row.Unread != 1 {
+		t.Errorf("groups row of the archived channel = %+v (present %v), want its 1 unread", row, ok)
+	}
+	if push := jam.UnreadTotal(e.st, e.Intercom, e.lg, p.UserID); push != r.UnreadTotal {
+		t.Errorf("a push's badge = %d, the Inbox's = %d: they must agree", push, r.UnreadTotal)
 	}
 }
 

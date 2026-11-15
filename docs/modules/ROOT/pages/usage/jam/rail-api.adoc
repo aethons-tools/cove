@@ -39,6 +39,9 @@ A `dm` with a session leaves when the session ends; archived conversations never
 
 |`unreadTotal`
 |The sum of `unread` over `me` and `history`: the app badge.
+A push sets the badge to the same sum (`jam.UnreadTotal`, which counts the conversations `jam.InMe` keeps),
+so the two never disagree.
+A `groups` row outside `me`, such as a `dm` whose session ended, still shows its own count but isn't in the badge.
 |===
 
 `?c=` marks the open conversation `selected` and read in `me`, `history`, and `groups`,

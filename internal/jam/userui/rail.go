@@ -41,41 +41,15 @@ func (h *handler) railSections(req *http.Request, p jam.Participant, chs, legacy
 	return r
 }
 
-// meChannels keeps the channels of chs that are in p's Me: the live
-// conversations p is a member of, where a dm or a group has a person or an
-// active session besides p (so a dm with a session leaves when it ends).
+// meChannels keeps the channels of chs that are in p's Me (jam.InMe).
 func (h *handler) meChannels(p jam.Participant, chs []jam.ChannelView) []jam.ChannelView {
-	member := map[string]bool{}
-	for _, id := range h.d.Store.ChannelsOf(p.UserID) {
-		member[string(id)] = true
-	}
 	var out []jam.ChannelView
 	for _, ch := range chs {
-		c, ok := h.d.Store.GetChannel(ident.ID(ch.ID))
-		if !ok || !member[ch.ID] || c.Status != jam.StatusLive || c.Kind == jam.SourceSession {
-			continue
+		if c, ok := h.d.Store.GetChannel(ident.ID(ch.ID)); ok && jam.InMe(h.d.Store, p.UserID, c) {
+			out = append(out, ch)
 		}
-		if jam.IsChat(c.Kind) && !h.hasOthers(c.ID, p.UserID) {
-			continue
-		}
-		out = append(out, ch)
 	}
 	return out
-}
-
-// hasOthers reports whether conversation ch has a member besides viewer
-// that is a person or an active session.
-func (h *handler) hasOthers(ch, viewer ident.ID) bool {
-	for _, m := range h.d.Store.ChannelMembers(ch) {
-		if m.ParticipantID == viewer {
-			continue
-		}
-		inst, isSession := h.d.Store.GetInstance(string(m.ParticipantID))
-		if isSession && jam.InstanceActive(inst) || !isSession && m.ParticipantID.Kind() != ident.Session {
-			return true
-		}
-	}
-	return false
 }
 
 // workRows is every unit of work in p's projects, that p may see, with a
