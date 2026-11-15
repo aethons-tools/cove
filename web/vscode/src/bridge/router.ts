@@ -64,7 +64,7 @@ export type RouterDeps = {
 // LOG_EVERY_MS is how often the same log line may repeat.
 const LOG_EVERY_MS = 10_000;
 
-const METHODS = new Set(["GET", "POST", "DELETE"]);
+const METHODS = new Set(["GET", "POST", "PUT", "DELETE"]);
 
 export class Router {
   private inflight = new Map<number, AbortController>();

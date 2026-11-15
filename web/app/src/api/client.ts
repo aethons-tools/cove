@@ -96,6 +96,7 @@ export function apiAt(base: string, headers?: () => Record<string, string>, onRa
   return {
     get: <T>(path: string) => request<T>(base, "GET", path, undefined, headers, onRaw),
     post: <T = void>(path: string, body: unknown) => request<T>(base, "POST", path, body, headers, onRaw),
+    put: <T = void>(path: string, body: unknown) => request<T>(base, "PUT", path, body, headers, onRaw),
     del: <T = void>(path: string, body?: unknown) => request<T>(base, "DELETE", path, body, headers, onRaw),
     postForm: <T = void>(path: string, form: FormData) => request<T>(base, "POST", path, form, headers, onRaw),
   };
@@ -104,6 +105,7 @@ export function apiAt(base: string, headers?: () => Record<string, string>, onRa
 const user = apiAt(API);
 export const apiGet = user.get;
 export const apiPost = user.post;
+export const apiPut = user.put;
 
 // POLL_MS is the live queries' fallback refresh (the old Inbox's 30 s poll),
 // for when the event stream is down or absent.

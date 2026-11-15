@@ -89,9 +89,17 @@ describe("Router", () => {
     expect(t.f.mock.calls[0]![0]).toBe(`${JAM}/app/user/api/x`);
   });
 
-  it("method PUT is refused", async () => {
+  it("method PUT is forwarded (the rail's saved order)", async () => {
+    const t = setup(async () => new Response(null, { status: 204 }));
+    t.router.handle({ type: "request", id: 1, req: { method: "PUT", path: "/app/user/api/rail/order", json: { section: "me", ids: [] } } }, t.reply);
+    await t.settle();
+    expect(t.f.mock.calls[0]![1].method).toBe("PUT");
+    expect(t.f.mock.calls[0]![1].body).toBe(JSON.stringify({ section: "me", ids: [] }));
+  });
+
+  it("method PATCH is refused", async () => {
     const t = setup(async () => json({}));
-    t.router.handle({ type: "request", id: 1, req: { method: "PUT" as "GET", path: "/app/user/api/x" } }, t.reply);
+    t.router.handle({ type: "request", id: 1, req: { method: "PATCH" as "GET", path: "/app/user/api/x" } }, t.reply);
     await t.settle();
     expect(t.f).not.toHaveBeenCalled();
     expect(t.sent[0]).toMatchObject({ type: "response", id: 1, res: { kind: "refused" } });
