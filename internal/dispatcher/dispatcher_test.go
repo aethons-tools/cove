@@ -113,8 +113,8 @@ func TestTickClaimsAndRaises(t *testing.T) {
 	if !strings.HasPrefix(s.ActorID, "ses_") || s.Role != "worker" || s.Project != "acme" || s.Unit != "AET-1" {
 		t.Fatalf("raise spec = %+v", s)
 	}
-	if s.Mission != "do a thing" {
-		t.Fatalf("raise spec Mission = %q, want the issue title", s.Mission)
+	if s.Mission != "do a thing" || s.UnitTitle != "do a thing" {
+		t.Fatalf("raise spec Mission, UnitTitle = %q, %q, want the issue title", s.Mission, s.UnitTitle)
 	}
 	if !strings.Contains(s.Prompt, "do a thing") || strings.Contains(s.Prompt, "worker-result") ||
 		!strings.Contains(s.Prompt, "`report`") || !strings.Contains(s.Prompt, "`end`") || !strings.Contains(s.Prompt, "gh pr create") {

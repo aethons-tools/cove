@@ -1,0 +1,59 @@
+= The rail API: sections and saved order
+:summary: What `GET /app/user/api/rail` returns beside today's attention groups: the goal rail's sections (`me`, `work`, `agents`, `history`) and `unreadTotal`, and each person's saved order of `me` and `agents` (`PUT /app/user/api/rail/order`, the `rail_orders` table).
+:read_when: You are building a client on the rail's sections or its saved order, or changing `userui.railSections`, `apiRailOrder`, `jam.RailOrderStore`, or the `rail_orders` table.
+:owns: the rail response's sections and `unreadTotal`, the rail-order API, and its storage. Does NOT own the attention groups or the rest of the user area (intercom-ui.adoc), the status card (session-card.adoc), or who may open a session view (session-view.adoc).
+:prereqs: intercom-ui.adoc for the rail and its groups; session-card.adoc for the card
+:tier: leaf
+:updated: 2026-11-15
+
+`GET /app/user/api/rail` (`userui.RailResponse`) serves the rail two ways.
+`groups` is the attention grouping of xref:usage/jam/intercom-ui.adoc[intercom-ui], which the app and the VS Code rail show today.
+Beside it are the sections of the goal rail
+(the goal page `usage/jam/inbox-rail.adoc` on the `goal` branch),
+which the clients don't read yet;
+`groups` goes once both read them.
+
+[#sections]
+== Sections
+
+[%header,cols="1,4"]
+|===
+|Field |Holds
+
+|`me`
+|The live conversations the person is a member of, as `ChannelRow`s:
+rooms, the work logs they follow, and the `dm`s and `group`s with a person or an active session besides them.
+A `dm` with a session leaves when the session ends; archived conversations never show.
+
+|`work`
+|A `WorkRow` for every unit of work in the person's projects with a current worker, by key:
+`key`, `title` (the issue title the Requisitioner raised the worker with, `Instance.UnitTitle`; empty for a manual raise), `log`, and `worker` (`id`, `label`, and its status card's `state`).
+`unread` is present only when the person follows the log.
+
+|`agents`
+|An `AgentItem` (`session`, `ssh`, `card`) for every live, starting, paused, or recovering session whose view the person may open
+(xref:usage/jam/session-view.adoc[session-view]).
+
+|`history`
+|The legacy log's conversations, read-only, newest first.
+
+|`unreadTotal`
+|The sum of `unread` over `me` and `history`: the app badge.
+A push sets the badge to the same sum (`jam.UnreadTotal`, which counts the conversations `jam.InMe` keeps),
+so the two never disagree.
+A `groups` row outside `me`, such as a `dm` whose session ended, still shows its own count but isn't in the badge.
+|===
+
+`?c=` marks the open conversation `selected` and read in `me`, `history`, and `groups`,
+and zeroes its `work` row's count.
+
+[#order]
+== The saved order
+
+`me` and `agents` come in the person's saved order;
+what isn't in it goes last, `me` newest message first and `agents` by start time.
+`PUT /app/user/api/rail/order` with `+{"section": "me"|"agents", "ids": [...]}+` replaces the order (`204`; `400` for another section).
+It keeps only the ids now in that section, once each, so ids that left it are dropped when the person next saves.
+The order is stored per user in the store's `+rail_orders+` table (migration `0027`; `jam.RailOrderStore`),
+so every client and device shares it.
+It is kept when the person is removed, as their read cursors are.

@@ -54,10 +54,58 @@ type NavTab struct {
 	BadgeTitle string `json:"badgeTitle"`
 }
 
-// RailResponse is GET /app/user/api/rail.
+// RailResponse is GET /app/user/api/rail: its sections
+// (docs/modules/ROOT/pages/usage/jam/inbox-rail.adoc#api).
 type RailResponse struct {
-	Groups      []RailGroup `json:"groups"`
-	UnreadTotal int         `json:"unreadTotal"`
+	// Groups is the attention-grouped rail of before the sections, served
+	// until the app and the VS Code rail read Me, Work, Agents, and History.
+	Groups []RailGroup `json:"groups"`
+	// Me is the live conversations the viewer is a member of, in their saved
+	// order, then newest message first.
+	Me []ChannelRow `json:"me"`
+	// Work is every unit of work in the viewer's projects with a current
+	// worker, by key.
+	Work []WorkRow `json:"work"`
+	// Agents is every active session whose view the viewer may open, in
+	// their saved order, then by start time.
+	Agents []AgentItem `json:"agents"`
+	// History is the legacy log's conversations, read-only.
+	History []ChannelRow `json:"history"`
+	// UnreadTotal is the sum of Unread over Me and History (the app badge).
+	UnreadTotal int `json:"unreadTotal"`
+}
+
+// WorkRow is one unit of work in the rail's Work section.
+type WorkRow struct {
+	Key    string     `json:"key"`   // the issue key
+	Title  string     `json:"title"` // the issue title; "" = not known (a manual raise)
+	Log    string     `json:"log"`   // the work log's channel id
+	Worker WorkWorker `json:"worker"`
+	// Unread is the log's unread entries when the viewer follows it; absent
+	// otherwise.
+	Unread *int `json:"unread,omitempty"`
+}
+
+// WorkWorker is a unit's current worker.
+type WorkWorker struct {
+	ID    string    `json:"id"`    // session id
+	Label string    `json:"label"` // its name, else its id
+	State CardState `json:"state"` // its status card's state
+}
+
+// AgentItem is one session in the rail's Agents section.
+type AgentItem struct {
+	Session string `json:"session"`
+	// SSH reports whether the viewer may SSH into the session's studio.
+	SSH  bool        `json:"ssh"`
+	Card SessionCard `json:"card"`
+}
+
+// RailOrderRequest is PUT /app/user/api/rail/order: the viewer's order of
+// a section, "me" (conversation ids) or "agents" (session ids).
+type RailOrderRequest struct {
+	Section string   `json:"section"`
+	IDs     []string `json:"ids"`
 }
 
 // ChannelRow is one channel in the left rail, from the viewer's perspective.
