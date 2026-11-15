@@ -5,8 +5,8 @@ import { ApiError, apiAt, apiGet, apiPost, interpret, setTransport, shouldRetry,
 
 describe("apiGet", () => {
   it("returns the JSON body", async () => {
-    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ groups: [], unreadTotal: 0 })));
-    await expect(apiGet("rail")).resolves.toEqual({ groups: [], unreadTotal: 0 });
+    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0 })));
+    await expect(apiGet("rail")).resolves.toEqual({ unreadTotal: 0 });
   });
 
   it("throws the API's error envelope", async () => {

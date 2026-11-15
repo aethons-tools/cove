@@ -1,0 +1,9 @@
+/* The rail's sections (RailSections.tsx). */
+.rail-grip { color: var(--mantine-color-dimmed); cursor: grab; font-size: 12px; letter-spacing: -2px; user-select: none; }
+.rail-grip:focus-visible { outline: 2px solid var(--mantine-primary-color-filled); border-radius: 2px; }
+.rail-item[data-over] { box-shadow: inset 0 2px 0 var(--mantine-primary-color-filled); }
+.rail-needs { color: var(--mantine-color-orange-6); font-size: 12px; }
+.rail-worker:hover span, .rail-worker:focus-visible span { text-decoration: underline; }
+.rail-list { list-style: none; margin: 0; padding: 0; }
+.rail-card { border-radius: var(--mantine-radius-sm); }
+.rail-card[data-active] { background: var(--mantine-primary-color-light); }

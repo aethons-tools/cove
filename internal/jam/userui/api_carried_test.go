@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -28,16 +29,14 @@ func railJSON(t *testing.T, h http.Handler, p jam.Participant) RailResponse {
 	return r
 }
 
-// rowLabeled is the rail row labelled label, and its group's bucket.
-func rowLabeled(r RailResponse, label string) (ChannelRow, jam.AttentionBucket, bool) {
-	for _, g := range r.Groups {
-		for _, row := range g.Rows {
-			if row.Label == label {
-				return row, g.Bucket, true
-			}
+// rowLabeled is the rail row labelled label, in Me or History.
+func rowLabeled(r RailResponse, label string) (ChannelRow, bool) {
+	for _, row := range append(slices.Clone(r.Me), r.History...) {
+		if row.Label == label {
+			return row, true
 		}
 	}
-	return ChannelRow{}, "", false
+	return ChannelRow{}, false
 }
 
 // The rail counts each conversation's unread and lists the viewer's History.
@@ -64,22 +63,17 @@ func TestAPIRailUnreadAndHistory(t *testing.T) {
 	h := Handler(e.Deps, nil)
 
 	r := railJSON(t, h, p)
-	if row, _, ok := rowLabeled(r, "bob"); !ok || row.Unread != 1 {
+	if row, ok := rowLabeled(r, "bob"); !ok || row.Unread != 1 {
 		t.Errorf("bob's chat = %+v %v, want 1 unread", row, ok)
 	}
-	var history *ChannelRow
-	for _, g := range r.Groups {
-		if g.Title == "History (before the upgrade)" && len(g.Rows) > 0 {
-			history = &g.Rows[0]
-		}
+	if len(r.History) == 0 || !strings.HasPrefix(r.History[0].ID, "legacy:") {
+		t.Fatalf("no History row in %+v", r.History)
 	}
-	if history == nil || !strings.HasPrefix(history.ID, "legacy:") {
-		t.Fatalf("no History group in %+v", r.Groups)
-	}
+	history := r.History[0]
 	if err := e.st.CommitChannelRead(p.UserID, m.Channel, m.Seq); err != nil {
 		t.Fatal(err)
 	}
-	if row, _, _ := rowLabeled(railJSON(t, h, p), "bob"); row.Unread != 0 {
+	if row, _ := rowLabeled(railJSON(t, h, p), "bob"); row.Unread != 0 {
 		t.Errorf("read chat still unread: %+v", row)
 	}
 	// A History conversation reads but takes no reply.
@@ -92,10 +86,10 @@ func TestAPIRailUnreadAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := railJSON(t, h, p)
-	if _, _, ok := rowLabeled(after, "eng"); ok {
+	if _, ok := rowLabeled(after, "eng"); ok {
 		t.Errorf("eng on the rail after leaving the project: %+v", after)
 	}
-	if _, _, ok := rowLabeled(after, "bob"); ok {
+	if _, ok := rowLabeled(after, "bob"); ok {
 		t.Errorf("bob on the rail after leaving the project: %+v", after)
 	}
 }
@@ -110,10 +104,8 @@ func TestAPIHistoryIsTheViewersNameOnly(t *testing.T) {
 	}
 	e.Legacy = legacy
 	p.Name = "alice-proj" // as the clash renamed them
-	for _, g := range railJSON(t, Handler(e.Deps, nil), p).Groups {
-		if g.Title == "History (before the upgrade)" {
-			t.Errorf("a renamed viewer sees human:alice's history: %+v", g)
-		}
+	if h := railJSON(t, Handler(e.Deps, nil), p).History; len(h) != 0 {
+		t.Errorf("a renamed viewer sees human:alice's history: %+v", h)
 	}
 }
 
@@ -375,12 +367,11 @@ func TestAPIAskForOthers(t *testing.T) {
 		t.Errorf("an ask for carol = %+v, want read-only, for carol", c.OpenAsks)
 	}
 	h := Handler(e.Deps, nil)
-	if r := railJSON(t, h, p); len(r.Groups) > 0 && r.Groups[0].Bucket == jam.BucketNeedsYou {
-		t.Fatalf("an ask for carol put the room in Needs you: %+v", r.Groups)
+	if row, ok := meRow(railJSON(t, h, p), engID); !ok || row.NeedsYou {
+		t.Fatalf("an ask for carol put the room in Needs you: %+v (present %v)", row, ok)
 	}
 	e.ask(intercom.AskEvent{Question: "Anyone?", Options: yesNoOpts})
-	r := railJSON(t, h, p)
-	if r.Groups[0].Bucket != jam.BucketNeedsYou || r.Groups[0].Rows[0].OpenAsks != 2 {
-		t.Fatalf("rail = %+v, want the room in Needs you with 2 open asks", r.Groups)
+	if row, ok := meRow(railJSON(t, h, p), engID); !ok || !row.NeedsYou || row.OpenAsks != 2 {
+		t.Fatalf("room row = %+v (present %v), want it needing you with 2 open asks", row, ok)
 	}
 }

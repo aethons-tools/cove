@@ -73,10 +73,8 @@ func TestAPIRailShowsOnlyTheViewersChannels(t *testing.T) {
 		t.Fatal(err)
 	}
 	labels := map[string]int{}
-	for _, g := range got.Groups {
-		for _, r := range g.Rows {
-			labels[r.Label] = r.Unread
-		}
+	for _, r := range got.Me {
+		labels[r.Label] = r.Unread
 	}
 	if _, ok := labels["eng"]; !ok {
 		t.Errorf("rail lacks eng: %s", rec.Body)
@@ -105,8 +103,8 @@ func TestAPIRailEmptyIsAList(t *testing.T) {
 	ic := jam.NewIntercom(st, func() (ident.ID, bool) { return "", false }, lg, nil, nil)
 	p := jam.Participant{UserID: dana, Projects: []string{"proj"}, Name: "dana"}
 	rec := apiGet(t, Handler(Deps{Store: st, Intercom: ic, Log: lg}, nil), &p, "/app/user/api/rail")
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"groups":[]`) {
-		t.Errorf("empty rail = %d %s, want groups:[]", rec.Code, rec.Body)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"me":[],"work":[],"agents":[],"history":[]`) {
+		t.Errorf("empty rail = %d %s, want empty lists", rec.Code, rec.Body)
 	}
 }
 

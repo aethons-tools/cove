@@ -69,12 +69,11 @@ func newConvEnv(t *testing.T) *convEnv {
 	return c
 }
 
-// The rail groups Needs you, Agents (dms and groups with a live agent), and
-// Conversations (rooms, work logs, dms with people). A dm with an agent is
-// its status card, whose name opens the session view for those who may
-// open it (spider is a standing session: operators); every row says its
-// conversation kind.
-func TestRailConversationGroups(t *testing.T) {
+// The rail's Me lists the viewer's dms with agents and people, rooms, and
+// followed work logs. A dm with an agent is its status card, whose name
+// opens the session view for those who may open it (spider is a standing
+// session: operators); every row says its conversation kind.
+func TestRailConversationKinds(t *testing.T) {
 	c := newConvEnv(t)
 	if _, err := c.Intercom.PostTrusted(c.work, intercom.Squawk{From: ident.ID(c.spider.ActorID), Body: "progress"}); err != nil {
 		t.Fatal(err)
@@ -83,63 +82,45 @@ func TestRailConversationGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := railJSON(t, Handler(c.Deps, nil), c.p)
-	var titles []string
-	for _, g := range r.Groups {
-		titles = append(titles, g.Title)
-	}
-	if !slices.Equal(titles, []string{"Agents", "Conversations"}) {
-		t.Fatalf("groups = %q", titles)
-	}
 	spiderHome := string(c.agentDM) // spider's conversation for alice: it has no unit
 	for _, tc := range []struct {
-		id, title, kind string
-		card            bool
-		sessionView     string
+		id, kind    string
+		card        bool
+		sessionView string
 	}{
-		{string(c.agentDM), "Agents", "dm", true, ""},
-		{string(c.bobDM), "Conversations", "dm", false, ""},
-		{string(c.work.ID), "Conversations", "work", false, ""},
-		{engID, "Conversations", "room", false, ""},
+		{string(c.agentDM), "dm", true, ""},
+		{string(c.bobDM), "dm", false, ""},
+		{string(c.work.ID), "work", false, ""},
+		{engID, "room", false, ""},
 	} {
-		row, bucket, ok := rowByID(r, tc.id)
+		row, ok := meRow(r, tc.id)
 		if !ok {
-			t.Fatalf("%s (%s) not in the rail", tc.id, tc.kind)
+			t.Fatalf("%s (%s) not in Me: %q", tc.id, tc.kind, rowIDs(r.Me))
 		}
-		if bucketTitle[bucket] != tc.title || row.Kind != tc.kind || (row.Card != nil) != tc.card || row.SessionView != tc.sessionView {
-			t.Errorf("%s row: in %q, kind %q, card %v, sessionView %q; want %q, %q, %v, %q",
-				row.Label, bucketTitle[bucket], row.Kind, row.Card != nil, row.SessionView, tc.title, tc.kind, tc.card, tc.sessionView)
+		if row.Kind != tc.kind || (row.Card != nil) != tc.card || row.SessionView != tc.sessionView {
+			t.Errorf("%s row: kind %q, card %v, sessionView %q; want %q, %v, %q",
+				row.Label, row.Kind, row.Card != nil, row.SessionView, tc.kind, tc.card, tc.sessionView)
 		}
 	}
-	if row, _, _ := rowByID(r, string(c.agentDM)); row.Card == nil || row.Card.Session != c.spider.ActorID {
+	if row, _ := meRow(r, string(c.agentDM)); row.Card == nil || row.Card.Session != c.spider.ActorID {
 		t.Errorf("agent dm card = %+v, want spider's", row.Card)
 	}
 	rec := httptest.NewRecorder()
 	Handler(c.Deps, nil).ServeHTTP(rec, asPrincipal(httptest.NewRequest("GET", "/app/user/api/rail", nil), c.p, true))
 	op := decodeAs[RailResponse](t, rec)
-	if row, _, _ := rowByID(op, string(c.agentDM)); row.SessionView != spiderHome {
+	if row, _ := meRow(op, string(c.agentDM)); row.SessionView != spiderHome {
 		t.Errorf("operator's %s row: sessionView %q, want %q", row.Label, row.SessionView, spiderHome)
 	}
 
-	// Once the agent ends, its dm is an ordinary conversation.
+	// Once the agent ends, its dm leaves Me (jam.InMe).
 	c.spider.Phase = jam.PhaseGone
 	if err := c.st.PutInstance(c.spider); err != nil {
 		t.Fatal(err)
 	}
 	r = railJSON(t, Handler(c.Deps, nil), c.p)
-	if row, bucket, ok := rowByID(r, string(c.agentDM)); !ok || bucketTitle[bucket] != "Conversations" || row.Card != nil {
-		t.Errorf("dm with an ended agent: in %q, card %v", bucketTitle[bucket], row.Card)
+	if row, ok := meRow(r, string(c.agentDM)); ok {
+		t.Errorf("dm with an ended agent still in Me: %+v", row)
 	}
-}
-
-func rowByID(r RailResponse, id string) (ChannelRow, jam.AttentionBucket, bool) {
-	for _, g := range r.Groups {
-		for _, row := range g.Rows {
-			if row.ID == id {
-				return row, g.Bucket, true
-			}
-		}
-	}
-	return ChannelRow{}, "", false
 }
 
 // The header's kind and controls: Join and Leave on rooms and work logs;
