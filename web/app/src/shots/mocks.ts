@@ -10,7 +10,7 @@ import { dest, destFields, endpoint, spec, specFields } from "../admin/specs/fix
 import type { AgentDetail, AgentListRow, AgentsResponse, CoveRow } from "../admin/api/types";
 import { agents as projectAgents, role } from "../admin/roles/fixtures";
 import { emptyContext } from "../admin/projects/fixtures";
-import type { AppTokensResponse, AskCard, Bootstrap, ChannelRow, Conversation, MessageRow, SessionActivity, SessionHead, SessionPane, ThinkingEvent } from "../api/types";
+import type { AppTokensResponse, AskCard, Bootstrap, ChannelRow, RailResponse, Conversation, MessageRow, SessionActivity, SessionHead, SessionPane, ThinkingEvent } from "../api/types";
 import type { EventStream } from "../../build/mockApi";
 import { card } from "../test/card";
 import { draftPage, draftView, kit, kitView } from "../admin/kits/fixtures";
@@ -209,15 +209,38 @@ const row = (over: Partial<ChannelRow>): ChannelRow => ({
   id: "", label: "", project: "acme", kind: "work", needsYou: false, phase: "", unread: 0, openAsks: 0,
   lastSeq: 0, selected: false, mission: "", session: "", ssh: false, sessionView: "", ...over,
 });
-const rail = {
+const helperDM = row({ id: "chn_helperdm", label: "helper", kind: "dm", phase: "live", lastSeq: 88, sessionView: "chn_helper",
+  card: card({ session: "ses_helper", name: "helper", mission: "Draft the 1.14 release notes", focus: "Reading the changelog" }) });
+const acme42Card = card({ session: "ses_acme42", name: "acme-42", state: "waiting", pill: "needs you", tool: "", mission: "Fix the flaky login test",
+  focus: "Which test runner?", counts: { asks: 1, alarms: 0, previews: 0, processes: 0, subagents: 0 } });
+const acme51Card = card({ session: "ses_acme51", name: "acme-51", tool: "Edit", mission: "Add the release checklist", focus: "Writing the steps" });
+const rail: RailResponse = {
   unreadTotal: 3,
+  // The sections the app shows (ROOT/inbox/channels).
+  me: [
+    helperDM,
+    row({ id: "chn_ops", label: "ops", kind: "room", lastSeq: 86, selected: true }),
+    row({ id: "chn_bob", label: "bob", kind: "dm", unread: 2, lastSeq: 84 }),
+    row({ id: "chn_acme42", label: "ACME-42", needsYou: true, phase: "live", openAsks: 1, unread: 1, lastSeq: 90, mission: "Fix the flaky login test" }),
+    row({ id: "chn_bobcoder", label: "bob, coder", kind: "group", phase: "live", lastSeq: 80, mission: "Review open pull requests" }),
+  ],
+  work: [
+    { key: "ACME-42", title: "Fix the flaky login test", log: "chn_acme42", worker: { id: "ses_acme42", label: "acme-42", state: "waiting" }, unread: 1 },
+    { key: "ACME-51", title: "Add the release checklist", log: "chn_acme51", worker: { id: "ses_acme51", label: "acme-51", state: "working" } },
+  ],
+  agents: [
+    { session: "ses_helper", ssh: true, card: helperDM.card! },
+    { session: "ses_acme42", ssh: false, card: acme42Card },
+    { session: "ses_acme51", ssh: false, card: acme51Card },
+  ],
+  history: [],
+  // The attention groups the VS Code rail still shows.
   groups: [
     { bucket: "needs-you", title: "Needs you", rows: [
       row({ id: "chn_acme42", label: "ACME-42", needsYou: true, phase: "live", openAsks: 1, unread: 1, lastSeq: 90, mission: "Fix the flaky login test" }),
     ] },
     { bucket: "active", title: "Agents", rows: [
-      row({ id: "chn_helperdm", label: "helper", kind: "dm", phase: "live", lastSeq: 88, sessionView: "chn_helper",
-        card: card({ session: "ses_helper", name: "helper", mission: "Draft the 1.14 release notes", focus: "Reading the changelog" }) }),
+      helperDM,
       row({ id: "chn_bobcoder", label: "bob, coder", kind: "group", phase: "live", lastSeq: 80, mission: "Review open pull requests" }),
     ] },
     { bucket: "channels", title: "Conversations", rows: [

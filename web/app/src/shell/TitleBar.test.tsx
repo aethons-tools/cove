@@ -14,7 +14,7 @@ vi.mock("../push/push", async (orig) => {
   return { ...real, realEnv: () => env, syncOnLoad: (...a: unknown[]) => syncOnLoad(...(a as [])), turnOn: (...a: unknown[]) => turnOn(...(a as [])), signOutDevice: (...a: unknown[]) => signOutDevice(...(a as [])) };
 });
 
-const rail = () => server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [] })));
+const rail = () => server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })));
 
 describe("the principal menu", () => {
   it("offers Notifications when Web Push is on, and turns it on", async () => {

@@ -1,7 +1,7 @@
 = The user area (`/app/user`)
-:summary: The user area under `/app/user` — the Jam app, a single-page web app where a person reads and replies to their intercom channels (and their legacy History), grouped by attention (Needs you → Agents → Conversations), with New message, asks, attachments, whiteboards, per-(participant,channel) unread and a live status strip for the sessions in each conversation. It reads the user area's JSON API (`/app/user/api/`) and refreshes live over an SSE signal stream (`GET /app/user/events`), with a 30 s poll as fallback.
+:summary: The user area under `/app/user` — the Jam app, a single-page web app where a person reads and replies to their intercom channels (and their legacy History), in a rail of Me, Work, and Agents, with New message, asks, attachments, whiteboards, per-(participant,channel) unread and a live status strip for the sessions in each conversation. It reads the user area's JSON API (`/app/user/api/`) and refreshes live over an SSE signal stream (`GET /app/user/events`), with a 30 s poll as fallback.
 :read_when: You want a project member to read/reply to their studios and channels in a browser (not via the Discord/tracker relays), or you're operating the `/app/user` area — what it shows, its URLs, asks and copy controls, unread, membership, the live refresh, or the session status strip. The composer is in intercom-composer.adoc.
-:owns: what the `/app/user` user area shows and does — the rail attention grouping, the conversation view, New message, New session, asks in a conversation, copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
+:owns: what the `/app/user` user area shows and does — the attention grouping the VS Code rail reads, the conversation view, New message, New session, asks in a conversation, copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
 :prereqs: web-app.md for how the app is built and served; session-events.adoc for the event stream the status strip derives from; ui.adoc for the `/app` login and who counts as a user; intercom.adoc for the squawk Log + wake-on; coves.adoc for the session phases and activity the "Needs you" treatment reflects; escalation.adoc for asking for a person
 :tier: leaf
 :updated: 2026-11-15
@@ -37,32 +37,17 @@ link back.
 The page carries the shared app title bar (logo, `+{display name} Jam+`, tabs,
 principal menu; see xref:usage/jam/ui.adoc[ui.adoc]) with *Inbox* current.
 
-* *Left rail — conversations grouped by attention:* `Needs you` (a conversation
-with a session that *asked for a person* — a `needs-input` report or the
-`escalate` tool, see xref:usage/jam/escalation.adoc[escalation] — or is blocked, live or
-paused while it waits, or with an open ask you may answer), then `Agents`
-(a `dm` or `group` with a live, starting, or paused session, idle included),
-then `Conversations`: the rest —
-rooms, work logs, `dm`s with people, and `dm`s with sessions that ended.
-The rail holds every
-xref:usage/jam/intercom.adoc#enabling-it[channel] the person is in or has messages in, that
-they may see, across their projects;
-a `dm` or `group` is labelled with the others in it
-(`jam.ChannelView.Bucket`, `userui.groupRail`).
-The rail API also serves the goal rail's sections and saved order (xref:usage/jam/rail-api.adoc[rail-api]).
-Each row carries its conversation kind (`kind`: `dm`, `group`, `room`, `work`, or `session`). Leaving a project takes its channels away at once.
-Each row shows the label, a presence pin, its open asks and an *unread*
-badge. Last, *History (before the upgrade)*: the conversations of the
-frozen legacy log, read-only. *New message* (and *New session*) sit in the rail's header.
-** *Mission:* a row may show a session's xref:usage/jam/intercom.adoc#what-the-tools-do[mission]
-as a muted second line. A
-work log shows the most recently raised active session's; a dm or group only when
-exactly one session in it is active; rooms never.
-** *Status card:* a `dm` with an active session shows as that session's
-xref:usage/jam/session-card.adoc[status card];
-work logs, groups, rooms, and `dm`s with people show their name.
-The card's name opens the session's view
-(`/app/user/s/<session>`, offered when the person may open it, with `sessionView` the session's conversation for the person, which the VS Code rail opens; clicking the rest of the row opens the `dm`).
+* *Left rail — Me, Work, and Agents*, then *History (before the upgrade)* collapsed,
+with *New message* (and *New session*) in its header:
+what each row shows, the *All*/*Unread* filter, and reordering are in
+xref:usage/jam/rail-api.adoc#app[rail-api].
+The API also still serves `groups`, the attention grouping
+(`Needs you`, then `Agents`, then `Conversations`;
+`jam.ChannelView.Bucket`, `userui.groupRail`),
+which only the xref:usage/jam/vscode-hub.adoc[VS Code rail] shows.
+Each row carries its conversation kind (`kind`: `dm`, `group`, `room`, `work`, or `session`);
+a `dm` or `group` is labelled with the others in it.
+Leaving a project takes its channels away at once.
 * *The open conversation:* a header with its name, its project, and its kind
 (*DM*, *group*, *room*, or *work*; an archived session channel an older Jam made reads *agent*),
 then its messages (the viewer's own on one side) with

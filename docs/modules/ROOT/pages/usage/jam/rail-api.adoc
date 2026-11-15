@@ -1,17 +1,15 @@
-= The rail API: sections and saved order
-:summary: What `GET /app/user/api/rail` returns beside today's attention groups: the goal rail's sections (`me`, `work`, `agents`, `history`) and `unreadTotal`, and each person's saved order of `me` and `agents` (`PUT /app/user/api/rail/order`, the `rail_orders` table).
-:read_when: You are building a client on the rail's sections or its saved order, or changing `userui.railSections`, `apiRailOrder`, `jam.RailOrderStore`, or the `rail_orders` table.
-:owns: the rail response's sections and `unreadTotal`, the rail-order API, and its storage. Does NOT own the attention groups or the rest of the user area (intercom-ui.adoc), the status card (session-card.adoc), or who may open a session view (session-view.adoc).
+= The rail: sections and saved order
+:summary: What `GET /app/user/api/rail` returns: the rail's sections (`me`, `work`, `agents`, `history`) and `unreadTotal`, and each person's saved order of `me` and `agents` (`PUT /app/user/api/rail/order`, the `rail_orders` table).
+:read_when: You are building a client on the rail's sections or its saved order, changing the Jam app's rail (`web/app/src/rail`), or changing `userui.railSections`, `apiRailOrder`, `jam.RailOrderStore`, or the `rail_orders` table.
+:owns: the rail response's sections and `unreadTotal`, how the Jam app shows them (the Me filter, reordering), the rail-order API, and its storage. Does NOT own the attention groups or the rest of the user area (intercom-ui.adoc), the status card (session-card.adoc), or who may open a session view (session-view.adoc).
 :prereqs: intercom-ui.adoc for the rail and its groups; session-card.adoc for the card
 :tier: leaf
 :updated: 2026-11-15
 
 `GET /app/user/api/rail` (`userui.RailResponse`) serves the rail two ways.
-`groups` is the attention grouping of xref:usage/jam/intercom-ui.adoc[intercom-ui], which the app and the VS Code rail show today.
-Beside it are the sections of the goal rail
-(the goal page `usage/jam/inbox-rail.adoc` on the `goal` branch),
-which the clients don't read yet;
-`groups` goes once both read them.
+Its sections (below) are the rail the Jam app shows (<<app>>).
+`groups` is the older attention grouping, which only the VS Code rail still shows;
+`groups` goes once it reads the sections too.
 
 [#sections]
 == Sections
@@ -46,6 +44,41 @@ A `groups` row outside `me`, such as a `dm` whose session ended, still shows its
 
 `?c=` marks the open conversation `selected` and read in `me`, `history`, and `groups`,
 and zeroes its `work` row's count.
+
+[#app]
+== The Jam app's rail
+
+`web/app/src/rail/RailSections.tsx` shows the sections, in order:
+
+* *Me:* one compact row per conversation:
+its label;
+for a `dm` with an active session, that session's status-card pill (such as *working* or *needs you*),
+otherwise its kind (*DM*, *group*, *room*, *work*, or *agent*);
+an orange dot when `needsYou` is set;
+and an *unread* badge.
+The *All*/*Unread* toggle in the heading filters on the client:
+*Unread* keeps the rows with unread or `needsYou`.
+* *Work:* the key and title, then the worker's label and state.
+The row opens the work log;
+the worker opens its session view (`/app/user/s/<session>`).
+An *unread* badge shows when the row has `unread`.
+* *Agents:* each session's xref:usage/jam/session-card.adoc[status card];
+the card opens the session view.
+* *History (before the upgrade):* collapsed under its heading at the bottom.
+
+Work, Agents, and History show only when they have rows;
+with none of the four, the rail says "No conversations yet."
+The chimes (xref:usage/jam/push.adoc#sounds[push]) follow the `me` and `history` rows,
+the ones `unreadTotal` counts.
+
+A Me row or an Agents card is dragged by its grip (⋮⋮),
+or moved one place with the grip's arrow keys.
+The rail takes the new order at once (`useRailOrder`),
+saves the section's whole order with `PUT api/rail/order`,
+and refetches when the save settles,
+so a refused save goes back to the saved order.
+While *Unread* hides rows, a move goes to a shown neighbor's place,
+and the hidden rows keep theirs.
 
 [#order]
 == The saved order

@@ -10,7 +10,7 @@ vi.mock("./BoardEditor", () => ({ default: ({ id, readOnly }: { id: string; read
 
 const serve = (status: number, readOnly = false) =>
   server.use(
-    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [] })),
+    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })),
     http.get("/app/user/api/boards/:id", ({ params }) => status === 200
       ? HttpResponse.json({ id: params.id, title: "Plan", channel: "chn_a", readOnly })
       : HttpResponse.json({ error: "no such board", code: "not_found" }, { status })),

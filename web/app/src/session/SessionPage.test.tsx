@@ -46,7 +46,7 @@ const thought = (seq: number, text: string): ThinkingEvent => ({
 function serve(a: SessionActivity, h: SessionHead | null = head) {
   const seen = { thinking: [] as string[], sent: [] as unknown[], resumed: [] as string[] };
   server.use(
-    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [] })),
+    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })),
     http.get("/app/user/api/sessions/:id", () =>
       h ? HttpResponse.json(h) : HttpResponse.json({ error: "no such session", code: "not_found" }, { status: 404 })),
     http.get("/app/user/api/sessions/:id/activity", () => HttpResponse.json(a)),
@@ -117,15 +117,13 @@ describe("the session view", () => {
     await waitFor(() => expect(seen.resumed).toEqual(["chn_eng"]));
   });
 
-  it("opens from an agent's name in the rail", async () => {
+  it("opens from an agent's card in the rail", async () => {
     serve(activity());
-    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [{ bucket: "agents", title: "Agents", rows: [{
-      id: "chn_dm", label: "pair", project: "test", kind: "dm", needsYou: false, phase: "live", unread: 0, openAsks: 0, lastSeq: 3, selected: false,
-      mission: "", session: "", ssh: false, sessionView: "chn_home", card: card({ session: "ses_1", name: "pair" }),
-    }] }] })));
+    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], history: [],
+      agents: [{ session: "ses_1", ssh: false, card: card({ session: "ses_1", name: "pair" }) }] })));
     const user = userEvent.setup();
     const { router } = renderApp(boot, "/app/user/");
-    await user.click(await screen.findByRole("button", { name: "Open pair's session view" }));
+    await user.click(await screen.findByRole("link", { name: /pair/ }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/app/user/s/ses_1"));
     expect(await screen.findByRole("log", { name: "Activity" })).toBeInTheDocument();
   });
