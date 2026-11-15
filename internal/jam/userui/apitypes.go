@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/aethons-tools/cove/internal/intercom"
-	"github.com/aethons-tools/cove/internal/jam"
 )
 
 // This file holds every type the /app/user/api JSON carries. tygo reads only
@@ -57,9 +56,6 @@ type NavTab struct {
 // RailResponse is GET /app/user/api/rail: its sections
 // (docs/modules/ROOT/pages/usage/jam/inbox-rail.adoc#api).
 type RailResponse struct {
-	// Groups is the attention-grouped rail of before the sections, served
-	// until the app and the VS Code rail read Me, Work, Agents, and History.
-	Groups []RailGroup `json:"groups"`
 	// Me is the live conversations the viewer is a member of, in their saved
 	// order, then newest message first.
 	Me []ChannelRow `json:"me"`
@@ -108,7 +104,8 @@ type RailOrderRequest struct {
 	IDs     []string `json:"ids"`
 }
 
-// ChannelRow is one channel in the left rail, from the viewer's perspective.
+// ChannelRow is one conversation in the rail's Me or History section, from
+// the viewer's perspective.
 type ChannelRow struct {
 	ID       string `json:"id"`
 	Label    string `json:"label"`
@@ -184,14 +181,6 @@ type CardCounts struct {
 type CardContext struct {
 	Used   int64 `json:"used"`
 	Window int64 `json:"window"`
-}
-
-// RailGroup is one attention section of the rail (Needs you / Sessions /
-// Channels / History), non-empty.
-type RailGroup struct {
-	Bucket jam.AttentionBucket `json:"bucket"`
-	Title  string              `json:"title"`
-	Rows   []ChannelRow        `json:"rows"`
 }
 
 // MessageRow is one squawk in the conversation pane, from the viewer's side.

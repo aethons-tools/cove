@@ -89,9 +89,6 @@ func TestRailSections(t *testing.T) {
 	if r.History == nil || len(r.History) != 0 {
 		t.Errorf("history = %#v, want an empty list", r.History)
 	}
-	if len(r.Groups) == 0 {
-		t.Error("groups went before the clients moved to the sections")
-	}
 
 	// Following the log puts it in Me and gives its work row a count.
 	if err := c.st.JoinChannel(c.work.ID, c.p.UserID, 0); err != nil {
@@ -144,9 +141,6 @@ func TestRailMeSkipsArchived(t *testing.T) {
 	}
 	if r.UnreadTotal != sum {
 		t.Errorf("unreadTotal = %d, want Me's %d", r.UnreadTotal, sum)
-	}
-	if row, _, ok := rowByID(r, string(own)); !ok || row.Unread != 1 {
-		t.Errorf("groups row of the archived channel = %+v (present %v), want its 1 unread", row, ok)
 	}
 	if push := jam.UnreadTotal(e.st, e.Intercom, e.lg, p.UserID); push != r.UnreadTotal {
 		t.Errorf("a push's badge = %d, the Inbox's = %d: they must agree", push, r.UnreadTotal)

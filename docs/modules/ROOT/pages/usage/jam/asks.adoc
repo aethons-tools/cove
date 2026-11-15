@@ -59,6 +59,6 @@ asks panel.
 == Asking for a person
 
 While a session has an open ask in a live channel it counts as *asking for a
-person*, like `needs-input` or ``escalate``: `/app/user` shows it under *Needs you*,
+person*, like `needs-input` or ``escalate``: the channel's `me` row in the rail has `needsYou` (xref:usage/jam/rail-api.adoc[rail-api]),
 and if it waits, xref:usage/jam/escalation.adoc[escalation] calls people in. That lasts until
 its last open ask closes, not until it is next woken.

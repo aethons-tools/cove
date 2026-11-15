@@ -20,7 +20,7 @@ Above it, *New message* picks whom to write to and opens a small composer; once 
 The *All*/*Unread* toggle filters them client-side: *Unread* keeps the rows with unread messages or needing you.
 * *Work* rows show the key and title and, under them, the worker's label and state; Work comes by key.
 * *Agents* items are the sessions' xref:usage/jam/session-card.adoc[status cards].
-* *Drag* a Me row or an Agents card onto another to put it in that one's place.
+* *Drag* a Me row or an Agents card onto another to put it in that one's place, or move it with its grip's arrow keys (xref:usage/jam/rail-api.adoc#clients[rail-api]).
 The rail shows the new order at once and saves it with `PUT /app/user/api/rail/order` (the webview bridge forwards `PUT`); a refusal shows a notification, and the next fetch brings back the saved order.
 * *Click* a Me or History row: its conversation's tab in the hub, even when its session's studio window is open (in a studio window, its own session's row opens its own tab). From another window, this goes through the hub's pending request (see <<the-hub,the hub>>).
 A Work row opens its log's tab.

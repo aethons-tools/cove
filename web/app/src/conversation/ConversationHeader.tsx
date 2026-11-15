@@ -9,7 +9,7 @@ import { NewBoard } from "../boards/NewBoard";
 
 // kindLabel is how the header names a conversation's kind (a session's own
 // channel reads "agent").
-const kindLabel: Record<string, string> = { dm: "DM", group: "group", room: "room", work: "work", session: "agent" };
+export const kindLabel: Record<string, string> = { dm: "DM", group: "group", room: "room", work: "work", session: "agent" };
 
 // ConversationHeader: title, project · kind, Needs you, and the membership
 // controls (Join / Leave / Call in), which refetch the conversation and rail.

@@ -30,7 +30,7 @@ const conv: Conversation = {
 function serve(h: SessionHead | null | (() => SessionHead | null), panes: Record<string, SessionPane> = {}) {
   const posts: string[] = [];
   server.use(
-    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [] })),
+    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })),
     http.get("/app/user/api/conversations/:c", () => HttpResponse.json(conv)),
     http.get("/app/user/api/conversations/:c/presence", () => HttpResponse.json({ sessions: [] })),
     http.post("/app/user/api/conversations/:c/read", () => new HttpResponse(null, { status: 204 })),

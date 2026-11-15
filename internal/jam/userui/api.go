@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -109,17 +108,7 @@ func (h *handler) apiRail(w http.ResponseWriter, r *http.Request) {
 	sel := r.URL.Query().Get("c")
 	chs := jam.UserChannels(h.d.Store, h.d.Intercom, h.d.Log, p.UserID)
 	legacy := legacyChannels(p, h.d)
-	resp := h.railSections(r, p, chs, legacy, sel)
-	groups := groupRail(append(slices.Clone(chs), legacy...), sel)
-	for _, g := range groups {
-		h.railSessions(r, p, g.Rows)
-		h.attachCards(r, p, g.Rows)
-	}
-	if groups == nil {
-		groups = []RailGroup{}
-	}
-	resp.Groups = groups
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, h.railSections(r, p, chs, legacy, sel))
 }
 
 // railSessions fills each row's head session and the viewer's SSH access to it.

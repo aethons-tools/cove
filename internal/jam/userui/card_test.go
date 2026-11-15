@@ -91,10 +91,8 @@ func TestAPIRailCards(t *testing.T) {
 		t.Fatalf("rail = %d %s", rec.Code, rec.Body)
 	}
 	cards := map[string]*SessionCard{}
-	for _, g := range r.Groups {
-		for _, row := range g.Rows {
-			cards[row.ID] = row.Card
-		}
+	for _, row := range r.Me {
+		cards[row.ID] = row.Card
 	}
 	if c := cards[e.homeOf(t, standing)]; c == nil || c.State != CardWorking || c.Tool != "Bash" || c.Inits != 2 || c.Counts.Subagents != 3 {
 		t.Errorf("standing card = %+v", c)

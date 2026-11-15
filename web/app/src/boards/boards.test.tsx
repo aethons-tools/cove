@@ -17,7 +17,7 @@ const conv = (over: Partial<Conversation> = {}): Conversation => ({
 function serve(c: Conversation) {
   const created: unknown[] = [];
   server.use(
-    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [] })),
+    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })),
     http.get("/app/user/api/conversations/:c", () => HttpResponse.json(c)),
     http.get("/app/user/api/conversations/:c/presence", () => HttpResponse.json({ sessions: [] })),
     http.post("/app/user/api/conversations/:c/read", () => new HttpResponse(null, { status: 204 })),

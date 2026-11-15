@@ -35,7 +35,6 @@ const rail = {
     { session: SES_C, ssh: false, card: card({ session: SES_C, name: "carl", mission: "Review PRs" }) },
   ],
   history: [row(LEGACY, "old thread", { kind: "dm" })],
-  groups: [],
   unreadTotal: 2,
 };
 // meRow is the Me section's row named name.
@@ -109,7 +108,7 @@ describe("the rail pane", () => {
   });
 
   it("nothing in any section says how to start", async () => {
-    mount(undefined, { "GET /app/user/api/rail": json({ me: [], work: [], agents: [], history: [], groups: [], unreadTotal: 0 }) });
+    mount(undefined, { "GET /app/user/api/rail": json({ me: [], work: [], agents: [], history: [], unreadTotal: 0 }) });
     expect(await screen.findByText("No conversations yet. Start one with New message.")).toBeInTheDocument();
   });
 

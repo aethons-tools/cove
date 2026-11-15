@@ -1,20 +1,24 @@
 import { Badge, Group, NavLink, ScrollArea, SegmentedControl, Stack, Text, UnstyledButton } from "@mantine/core";
-import { notifications } from "@mantine/notifications";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState, type DragEvent, type ReactNode } from "react";
-import { apiPut, type ApiError } from "../api/client";
-import type { AgentItem, ChannelRow, RailOrderRequest, RailResponse, WorkRow } from "../api/types";
+import { useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import type { AgentItem, CardState, ChannelRow, RailResponse, WorkRow } from "../api/types";
+import { kindLabel } from "../conversation/ConversationHeader";
 import { SessionCard } from "../session/card/SessionCard";
+import { moveTo } from "./order";
+import { useRailOrder } from "./useRail";
+import "./rail.css";
 
 // RailSections is the rail's Me, Work, and Agents sections and the History
-// below them (docs/modules/ROOT/pages/usage/jam/inbox-rail.adoc). The
-// caller makes each item open something: rowProps a Me or History row,
-// workProps a work row (its log), cardProps an Agents card, and onWorker a
-// work row's worker; marker adds a cue to a session's row or card. Me rows
-// and Agents cards drag to reorder, saving the section's order.
-export function RailSections({ rail, active, rowProps, workProps, cardProps, onWorker, marker }: {
+// below them (docs/modules/ROOT/pages/usage/jam/rail-api.adoc#clients),
+// shared by the web app (router links) and the VS Code rail (click
+// handlers). The caller makes each item open something: rowProps a Me or
+// History row, workProps a work row (its log), cardProps an Agents card,
+// and onWorker a work row's worker; marker adds a cue to a session's row or
+// card. Me rows and Agents cards reorder by drag and drop, or with their
+// grip's arrow keys, saving the section's order.
+export function RailSections({ rail, active, activeSession, rowProps, workProps, cardProps, onWorker, marker }: {
   rail: RailResponse;
   active?: string;
+  activeSession?: string;
   rowProps: (r: ChannelRow) => Record<string, unknown>;
   workProps: (w: WorkRow) => Record<string, unknown>;
   cardProps: (a: AgentItem) => Record<string, unknown>;
@@ -23,24 +27,26 @@ export function RailSections({ rail, active, rowProps, workProps, cardProps, onW
 }) {
   const [filter, setFilter] = useState("all");
   const [historyOpen, setHistoryOpen] = useState(false);
-  const save = useSaveOrder();
-  const meIds = rail.me.map((r) => r.id);
-  const agentIds = rail.agents.map((a) => a.session);
-  const meDrag = useDrag(meIds, (ids) => save.mutate({ section: "me", ids }));
-  const agentDrag = useDrag(agentIds, (ids) => save.mutate({ section: "agents", ids }));
+  const save = useRailOrder();
   // Unread keeps the rows with unread or needing you (client-side).
   const me = filter === "unread" ? rail.me.filter((r) => r.unread > 0 || r.needsYou) : rail.me;
+  const meSort = useSortable(rail.me.map((r) => r.id), me.map((r) => r.id), (ids) => save.mutate({ section: "me", ids }));
+  const agentIds = rail.agents.map((a) => a.session);
+  const agentSort = useSortable(agentIds, agentIds, (ids) => save.mutate({ section: "agents", ids }));
   const row = (r: ChannelRow) => (
     <NavLink
       {...rowProps(r)}
       active={r.id === active}
       label={r.label}
+      py={4}
       rightSection={
-        <Group gap={4} wrap="nowrap">
-          {r.needsYou && <Text span size="xs" c="orange" title="Needs you" aria-label="Needs you">●</Text>}
+        <Group gap={6} wrap="nowrap">
+          {r.needsYou && <span className="rail-needs" role="img" title="Needs you" aria-label="Needs you">●</span>}
           {r.session && marker?.(r.session)}
-          <Badge size="xs" variant="outline" color="gray">{r.card ? r.card.state : r.kind}</Badge>
-          {r.unread > 0 && <Badge size="sm" circle aria-label={`${r.unread} unread`}>{r.unread}</Badge>}
+          {r.card
+            ? <Badge size="xs" variant="outline" tt="none" color={stateColor[r.card.state] ?? "gray"}>{r.card.state}</Badge>
+            : <Badge size="xs" variant="default" tt="none" radius="sm">{kindLabel[r.kind] ?? r.kind}</Badge>}
+          {unreadBadge(r.unread)}
         </Group>
       }
     />
@@ -49,13 +55,13 @@ export function RailSections({ rail, active, rowProps, workProps, cardProps, onW
     <ScrollArea>
       <Stack gap="xs" p="xs">
         <div>
-          <Group justify="space-between" px="sm" py={4}>
+          <Group justify="space-between" wrap="nowrap" pr="sm">
             <Heading>Me</Heading>
             <SegmentedControl size="xs" value={filter} onChange={setFilter} aria-label="Show"
               data={[{ value: "all", label: "All" }, { value: "unread", label: "Unread" }]} />
           </Group>
           <List label="Me">
-            {me.map((r) => <li key={r.id} {...meDrag(r.id)}>{row(r)}</li>)}
+            {me.map((r) => <li key={r.id} {...meSort.item(r.id)}>{meSort.grip(r.id, row(r))}</li>)}
           </List>
           {me.length === 0 && <Text c="dimmed" size="sm" px="sm">{filter === "unread" ? "Nothing unread." : "No conversations."}</Text>}
         </div>
@@ -68,11 +74,12 @@ export function RailSections({ rail, active, rowProps, workProps, cardProps, onW
                   <NavLink
                     {...workProps(w)}
                     active={w.log === active}
-                    label={<><b>{w.key}</b> {w.title}</>}
-                    rightSection={w.unread ? <Badge size="sm" circle aria-label={`${w.unread} unread`}>{w.unread}</Badge> : null}
+                    py={4}
+                    label={<Text size="sm" truncate><b>{w.key}</b> {w.title}</Text>}
+                    rightSection={unreadBadge(w.unread)}
                   />
-                  <UnstyledButton px="md" pb={4} onClick={() => onWorker(w)} aria-label={`Open ${w.worker.label}'s session view`}>
-                    <Text span size="xs" c="dimmed">{w.worker.label} · {w.worker.state}</Text>
+                  <UnstyledButton px="sm" pb={4} className="rail-worker" onClick={() => onWorker(w)} aria-label={`Open ${w.worker.label}'s session view`}>
+                    <Text span size="xs" c={stateColor[w.worker.state] ?? "dimmed"}>{w.worker.label} · {w.worker.state}</Text>
                   </UnstyledButton>
                 </li>
               ))}
@@ -84,13 +91,15 @@ export function RailSections({ rail, active, rowProps, workProps, cardProps, onW
             <Heading>Agents</Heading>
             <List label="Agents">
               {rail.agents.map((a) => (
-                <li key={a.session} {...agentDrag(a.session)}>
-                  <UnstyledButton {...cardProps(a)} w="100%" aria-label={a.card.name}>
-                    <Group gap={4} wrap="nowrap" align="flex-start">
-                      <div style={{ flex: 1, minWidth: 0 }}><SessionCard card={a.card} compact /></div>
-                      {marker?.(a.session)}
-                    </Group>
-                  </UnstyledButton>
+                <li key={a.session} {...agentSort.item(a.session)}>
+                  {agentSort.grip(a.session, (
+                    <UnstyledButton {...cardProps(a)} w="100%" aria-label={a.card.name} data-active={a.session === activeSession || undefined} className="rail-card">
+                      <Group gap={4} wrap="nowrap" align="flex-start">
+                        <div style={{ flex: 1, minWidth: 0 }}><SessionCard card={a.card} compact /></div>
+                        {marker?.(a.session)}
+                      </Group>
+                    </UnstyledButton>
+                  ))}
                 </li>
               ))}
             </List>
@@ -111,34 +120,38 @@ export function RailSections({ rail, active, rowProps, workProps, cardProps, onW
   );
 }
 
+// stateColor is a card state's colour (as the status card's pill).
+const stateColor: Record<CardState, string> = { thinking: "blue", working: "green", waiting: "yellow", idle: "gray", sleeping: "dark" };
+
+const unreadBadge = (n: number | undefined) => (n ? <Badge size="sm" circle aria-label={`${n} unread`}>{n}</Badge> : null);
+
 function Heading({ children }: { children: ReactNode }) {
-  return <Text component="h3" size="xs" fw={700} c="dimmed" tt="uppercase" px="sm" py={4} m={0}>{children}</Text>;
+  return <Text component="h3" size="xs" fw={700} c="dimmed" tt="uppercase" m={0} px="sm" py={4}>{children}</Text>;
 }
 
 function List({ label, children }: { label: string; children: ReactNode }) {
-  return <ul aria-label={label} style={{ listStyle: "none", margin: 0, padding: 0 }}>{children}</ul>;
+  return <ul aria-label={label} className="rail-list">{children}</ul>;
 }
 
-// moveTo is ids with from moved to to's place.
-export function moveTo(ids: string[], from: string, to: string): string[] {
-  const at = ids.indexOf(to);
-  if (from === to || at < 0 || !ids.includes(from)) return ids;
-  const out = ids.filter((id) => id !== from);
-  out.splice(at, 0, from);
-  return out;
-}
-
-// useDrag makes a section's items draggable onto each other: a drop moves
-// the dragged item to the target's place and hands the new order to onMove.
-function useDrag(ids: string[], onMove: (ids: string[]) => void) {
+// useSortable is a section's reordering. all is the section's ids, shown
+// the ones on screen (Me's filter hides some); a drop or an arrow key moves
+// an item to a shown item's place in all, so hidden ones keep theirs, and
+// hands the new order to onMove.
+function useSortable(all: string[], shown: string[], onMove: (ids: string[]) => void) {
   const dragged = useRef<string | undefined>(undefined);
   const [over, setOver] = useState<string>();
-  return (id: string) => ({
+  const move = (id: string, target: string | undefined) => {
+    if (target === undefined) return;
+    const next = moveTo(all, id, target);
+    if (next !== all) onMove(next);
+  };
+  const item = (id: string) => ({
     draggable: true,
-    "data-over": over === id || undefined,
-    style: over === id ? { boxShadow: "inset 0 2px 0 var(--mantine-primary-color-filled)" } : undefined,
+    className: "rail-item",
+    "data-over": (over === id && dragged.current !== id) || undefined,
     onDragStart: (e: DragEvent) => {
       dragged.current = id;
+      // Firefox drags only with data set; the drop reads the ref.
       e.dataTransfer?.setData("text/plain", id);
     },
     onDragOver: (e: DragEvent) => {
@@ -156,30 +169,22 @@ function useDrag(ids: string[], onMove: (ids: string[]) => void) {
       const from = dragged.current;
       dragged.current = undefined;
       setOver(undefined);
-      if (from === undefined) return;
-      const next = moveTo(ids, from, id);
-      if (next !== ids) onMove(next);
+      if (from !== undefined) move(from, id);
     },
   });
-}
-
-// useSaveOrder saves a section's order (PUT api/rail/order), showing it in
-// every cached rail at once; a refusal puts the server's order back.
-function useSaveOrder() {
-  const client = useQueryClient();
-  return useMutation<void, ApiError, RailOrderRequest>({
-    mutationFn: (o) => apiPut("rail/order", o),
-    onMutate: async (o) => {
-      await client.cancelQueries({ queryKey: ["rail"] }); // an older rail mustn't land on it
-      client.setQueriesData<RailResponse>({ queryKey: ["rail"] }, (r) => {
-        if (!r) return r;
-        const rank = (id: string) => o.ids.indexOf(id);
-        return o.section === "me"
-          ? { ...r, me: [...r.me].sort((a, b) => rank(a.id) - rank(b.id)) }
-          : { ...r, agents: [...r.agents].sort((a, b) => rank(a.session) - rank(b.session)) };
-      });
-    },
-    onError: (e) => notifications.show({ color: "red", message: `Couldn't save the order: ${e.message}` }),
-    onSettled: () => client.invalidateQueries({ queryKey: ["rail"] }),
-  });
+  // grip puts the item's handle before it: a drag cue, and arrow keys that
+  // move the item past its shown neighbour.
+  const grip = (id: string, body: ReactNode) => (
+    <Group gap={0} wrap="nowrap" align="center">
+      <span className="rail-grip" role="button" tabIndex={0} aria-label="Reorder" title="Drag, or press ↑ or ↓, to reorder"
+        onKeyDown={(e: KeyboardEvent) => {
+          const step = e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : 0;
+          if (!step) return;
+          e.preventDefault();
+          move(id, shown[shown.indexOf(id) + step]);
+        }}>⋮⋮</span>
+      <div style={{ flex: 1, minWidth: 0 }}>{body}</div>
+    </Group>
+  );
+  return { item, grip };
 }
