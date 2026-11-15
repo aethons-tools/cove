@@ -5,9 +5,9 @@ import type { NeedsYouDeps } from "../src/needsyou";
 import type { RailResponse } from "../../app/src/api/types.js" with { "resolution-mode": "import" };
 
 const row = (id: string, o: Record<string, unknown> = {}) =>
-  ({ id, label: `l-${id}`, project: "p", kind: "session", needsYou: true, phase: "", unread: 0, openAsks: 0, lastSeq: 0, selected: false, mission: "m", session: "", ssh: false, ...o }) as RailResponse["groups"][number]["rows"][number];
-const rail = (...groups: [string, ReturnType<typeof row>[]][]): RailResponse =>
-  ({ groups: groups.map(([bucket, rows]) => ({ bucket, title: bucket, rows })), unreadTotal: 0 }) as RailResponse;
+  ({ id, label: `l-${id}`, project: "p", kind: "dm", needsYou: true, phase: "", unread: 0, openAsks: 0, lastSeq: 0, selected: false, mission: "m", session: "", ssh: false, sessionView: "", ...o }) as RailResponse["me"][number];
+const rail = (me: ReturnType<typeof row>[] = [], history: ReturnType<typeof row>[] = []): RailResponse =>
+  ({ me, work: [], agents: [], history, unreadTotal: 0 }) as unknown as RailResponse;
 
 function setup(over: Partial<NeedsYouDeps> = {}, answers: (() => Promise<RailResponse>)[] = []) {
   const badges: unknown[] = [];
@@ -31,12 +31,9 @@ function setup(over: Partial<NeedsYouDeps> = {}, answers: (() => Promise<RailRes
 }
 
 describe("needsYouRows", () => {
-  it("takes the needs-you group's rows once each", () => {
-    const r = rail(
-      ["needs-you", [row("a"), row("b"), row("a")]],
-      ["active", [row("c", { needsYou: true }), row("a")]],
-    );
-    expect(needsYouRows(r).map((x) => x.id)).toEqual(["a", "b"]);
+  it("takes Me's rows that need you, not History's", () => {
+    const r = rail([row("a"), row("b", { needsYou: false }), row("c")], [row("h")]);
+    expect(needsYouRows(r).map((x) => x.id)).toEqual(["a", "c"]);
   });
 });
 
@@ -53,7 +50,7 @@ describe("NeedsYou", () => {
   afterEach(() => vi.useRealTimers());
 
   it("live events are debounced into one rail fetch", async () => {
-    const { n, fetches, badges } = setup({}, [async () => rail(["needs-you", [row("a")]])]);
+    const { n, fetches, badges } = setup({}, [async () => rail([row("a")])]);
     n.onLive({ event: "changed", data: "" });
     await vi.advanceTimersByTimeAsync(1000);
     for (let i = 0; i < 4; i++) n.onLive({ event: "changed", data: "" });
@@ -73,7 +70,7 @@ describe("NeedsYou", () => {
   });
 
   it("a 401 signs out with the token and clears the badge", async () => {
-    const { n, badges, signedOut } = setup({}, [async () => rail(["needs-you", [row("a")]]), async () => { throw new SignedOutError(); }]);
+    const { n, badges, signedOut } = setup({}, [async () => rail([row("a")]), async () => { throw new SignedOutError(); }]);
     await n.refresh();
     await n.refresh();
     expect(signedOut).toEqual(["tok"]);
@@ -81,7 +78,7 @@ describe("NeedsYou", () => {
   });
 
   it("a 500 keeps the last count", async () => {
-    const { n, badges } = setup({}, [async () => rail(["needs-you", [row("a"), row("b")]]), async () => { throw new Error("500"); }]);
+    const { n, badges } = setup({}, [async () => rail([row("a"), row("b")]), async () => { throw new Error("500"); }]);
     await n.refresh();
     await n.refresh();
     expect(badges).toEqual([{ value: 2, tooltip: "2 conversations need you" }]);
@@ -91,7 +88,7 @@ describe("NeedsYou", () => {
     let release!: (r: RailResponse) => void;
     const { n, fetches, badges } = setup({}, [
       () => new Promise<RailResponse>((r) => (release = r)),
-      async () => rail(["needs-you", [row("a")]]),
+      async () => rail([row("a")]),
     ]);
     const first = n.refresh();
     await vi.advanceTimersByTimeAsync(0);

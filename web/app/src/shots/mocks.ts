@@ -216,7 +216,6 @@ const acme42Card = card({ session: "ses_acme42", name: "acme-42", state: "waitin
 const acme51Card = card({ session: "ses_acme51", name: "acme-51", tool: "Edit", mission: "Add the release checklist", focus: "Writing the steps" });
 const rail: RailResponse = {
   unreadTotal: 3,
-  // The sections the app shows (ROOT/inbox/channels).
   me: [
     helperDM,
     row({ id: "chn_ops", label: "ops", kind: "room", lastSeq: 86, selected: true }),
@@ -234,21 +233,6 @@ const rail: RailResponse = {
     { session: "ses_acme51", ssh: false, card: acme51Card },
   ],
   history: [],
-  // The attention groups the VS Code rail still shows.
-  groups: [
-    { bucket: "needs-you", title: "Needs you", rows: [
-      row({ id: "chn_acme42", label: "ACME-42", needsYou: true, phase: "live", openAsks: 1, unread: 1, lastSeq: 90, mission: "Fix the flaky login test" }),
-    ] },
-    { bucket: "active", title: "Agents", rows: [
-      helperDM,
-      row({ id: "chn_bobcoder", label: "bob, coder", kind: "group", phase: "live", lastSeq: 80, mission: "Review open pull requests" }),
-    ] },
-    { bucket: "channels", title: "Conversations", rows: [
-      row({ id: "chn_ops", label: "ops", kind: "room", lastSeq: 86, selected: true }),
-      row({ id: "chn_bob", label: "bob", kind: "dm", unread: 2, lastSeq: 84 }),
-      row({ id: "chn_acme37", label: "ACME-37", lastSeq: 40 }),
-    ] },
-  ],
 };
 const msg = (over: Partial<MessageRow>): MessageRow => ({
   from: "", body: "", raw: "", plain: false, at: "", time: "", mine: false, seq: 0, system: false, sysText: "", card: "", ...over,

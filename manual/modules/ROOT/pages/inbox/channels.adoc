@@ -19,6 +19,7 @@ If your Jam was upgraded from the old message log,
 *History (before the upgrade)* below them shows those old conversations.
 You can only read them.
 Click its heading to show them.
+The rail looks the same in the Jam app and in VS Code.
 
 image::channels-rail-sections.png["The rail: Me, Work, and Agents",340]
 
@@ -38,7 +39,7 @@ an agent in it asked for a person or is blocked,
 or it has an open ask you can answer;
 * the number of unread messages.
 
-Drag a row by its handle to put it where you want it.
+Drag a row to put it where you want it.
 The toggle at the top of *Me* shows *All* your conversations,
 or only those that are *Unread* or need you.
 
@@ -66,7 +67,8 @@ Drag a card to put it where you want it;
 a new session joins at the bottom.
 
 Your order of *Me* and *Agents* is saved for you,
-so it's the same on any device.
+so the Jam app and VS Code show the same order,
+on any device.
 
 The rail plays a sound when a conversation starts to need you
 or gets new messages.
@@ -136,9 +138,8 @@ ifdef::internal[]
 * The Inbox is the web app under `/app/user/` (`web/app/src/rail`, `conversation`).
 A conversation is `/app/user/c/<channel>`.
 The old Inbox's `?c=` links redirect.
-* The rail is `GET /app/user/api/rail`'s sections (`web/app/src/rail/RailSections.tsx`, COV-365);
+* The rail is `GET /app/user/api/rail`'s sections (`web/app/src/rail/RailSections.tsx`, shared with the VS Code rail);
 the saved order is `PUT /app/user/api/rail/order`.
-The VS Code rail still shows the older groups (Needs you, Agents, Conversations).
 * The header shows the conversation kind (`dm`, `group`, `room`, `work`);
 an archived session channel an older Jam made reads *agent*.
 Jam archives them at serve start (`Intercom.Reconcile`): their members can still read them, and they take no posts.

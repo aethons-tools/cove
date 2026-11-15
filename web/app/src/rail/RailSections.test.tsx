@@ -1,8 +1,12 @@
 import type React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MantineProvider } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { http, HttpResponse } from "msw";
+import { server } from "../test/server";
 import type { AgentItem, ChannelRow, RailResponse, WorkRow } from "../api/types";
 import { card } from "../test/card";
 import { RailSections } from "./RailSections";
@@ -16,9 +20,9 @@ const work = (key: string, over: Partial<WorkRow> = {}): WorkRow => ({
 const agent = (session: string, name: string): AgentItem => ({ session, ssh: false, card: card({ session, name }) });
 
 const rail = (over: Partial<RailResponse> = {}): RailResponse => ({
-  groups: [], unreadTotal: 0, history: [],
+  unreadTotal: 0, history: [],
   me: [
-    row("chn_ed", "editor", { kind: "dm", card: card({ name: "editor", pill: "working", state: "working" }) }),
+    row("chn_ed", "editor", { kind: "dm", session: "ses_ed", card: card({ name: "editor", state: "working" }) }),
     row("chn_ops", "ops", { unread: 2 }),
     row("chn_bob", "bob", { kind: "dm" }),
     row("chn_42", "ACME-42", { kind: "work", needsYou: true }),
@@ -29,31 +33,51 @@ const rail = (over: Partial<RailResponse> = {}): RailResponse => ({
 });
 
 type Props = Partial<React.ComponentProps<typeof RailSections>>;
-const show = (r: RailResponse, p: Props = {}) => {
+// show renders the sections with buttons for items, and returns the
+// callbacks and the saved orders (PUT api/rail/order).
+const show = (r: RailResponse, p: Props = {}, status = 204) => {
+  const saved: unknown[] = [];
+  server.use(http.put("/app/user/api/rail/order", async ({ request }) => {
+    saved.push(await request.json());
+    return status === 204 ? new HttpResponse(null, { status }) : HttpResponse.json({ error: "no", code: "bad_request" }, { status });
+  }));
   const props = {
-    rowProps: (id: string) => ({ component: "button", "data-row": id }),
-    sessionProps: (s: string) => ({ component: "button", "data-card": s }),
-    openSession: vi.fn(), onReorder: vi.fn(), ...p,
+    rowProps: (c: ChannelRow) => ({ component: "button", "data-row": c.id }),
+    workProps: (w: WorkRow) => ({ component: "button", "data-row": w.log }),
+    cardProps: (a: AgentItem) => ({ "data-card": a.session }),
+    onWorker: vi.fn(), ...p,
   };
-  render(<MantineProvider env="test"><RailSections rail={r} {...props} /></MantineProvider>);
-  return props;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <MantineProvider env="test">
+      <Notifications />
+      <QueryClientProvider client={client}><RailSections rail={r} {...props} /></QueryClientProvider>
+    </MantineProvider>,
+  );
+  return { ...props, saved };
 };
-const section = (name: string) => screen.getByRole("region", { name });
-const at = (name: string, id: string) => section(name).querySelector<HTMLElement>(`[data-row="${id}"], [data-card="${id}"]`)!;
-const rowsOf = (name: string) => [...section(name).querySelectorAll("[data-row]")].map((e) => e.getAttribute("data-row"));
+const list = (name: string) => screen.getByRole("list", { name });
+const at = (name: string, id: string) => list(name).querySelector<HTMLElement>(`[data-row="${id}"], [data-card="${id}"]`)!;
+const ids = (name: string) => [...list(name).querySelectorAll("[data-row], [data-card]")].map((e) => e.getAttribute("data-row") ?? e.getAttribute("data-card"));
+const item = (name: string, id: string) => at(name, id).closest("li")!;
+const grip = (name: string, id: string) => within(item(name, id)).getByRole("button", { name: "Reorder" });
 
 describe("RailSections", () => {
+  it("shows the sections in order, History last", () => {
+    show(rail({ history: [row("chn_old", "old talk")] }));
+    expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Me", "Work", "Agents", "History (before the upgrade)"]);
+  });
+
   it("shows Me as compact rows: label, the kind or the agent's state, the needs-you dot, and unread", () => {
-    show(rail(), { active: "chn_ops" });
-    const me = section("Me");
-    expect(rowsOf("Me")).toEqual(["chn_ed", "chn_ops", "chn_bob", "chn_42"]);
-    const ed = at("Me", "chn_ed");
-    expect(within(ed).getByText("working")).toBeInTheDocument();
-    expect(ed.querySelector(".sc")).toBeNull(); // a compact row, not the card
+    show(rail(), { active: "chn_ops", marker: (s) => (s === "ses_ed" ? <span aria-label="mark">▣</span> : null) });
+    expect(ids("Me")).toEqual(["chn_ed", "chn_ops", "chn_bob", "chn_42"]);
+    expect(within(at("Me", "chn_ed")).getByText("working")).toBeInTheDocument();
+    expect(at("Me", "chn_ed").querySelector(".sc")).toBeNull(); // a compact row, not the card
+    expect(within(at("Me", "chn_ed")).getByLabelText("mark")).toBeInTheDocument();
     expect(within(at("Me", "chn_bob")).getByText("DM")).toBeInTheDocument();
     expect(within(at("Me", "chn_ops")).getByText("room")).toBeInTheDocument();
     expect(within(at("Me", "chn_42")).getByLabelText("Needs you")).toBeInTheDocument();
-    expect(within(me).getAllByLabelText("Needs you")).toHaveLength(1);
+    expect(within(list("Me")).getAllByLabelText("Needs you")).toHaveLength(1);
     expect(within(at("Me", "chn_ops")).getByLabelText("2 unread")).toBeInTheDocument();
     expect(at("Me", "chn_ops")).toHaveAttribute("data-active", "true");
     expect(at("Me", "chn_bob")).not.toHaveAttribute("data-active");
@@ -62,43 +86,42 @@ describe("RailSections", () => {
   it("filters Me to the rows with unread or needing you, and back", async () => {
     show(rail());
     await userEvent.click(screen.getByRole("radio", { name: "Unread" }));
-    expect(rowsOf("Me")).toEqual(["chn_ops", "chn_42"]);
+    expect(ids("Me")).toEqual(["chn_ops", "chn_42"]);
     await userEvent.click(screen.getByRole("radio", { name: "All" }));
-    expect(rowsOf("Me")).toHaveLength(4);
+    expect(ids("Me")).toHaveLength(4);
   });
 
   it("says so when Unread leaves nothing", async () => {
     show(rail({ me: [row("chn_bob", "bob")] }));
     await userEvent.click(screen.getByRole("radio", { name: "Unread" }));
-    expect(within(section("Me")).getByText("Nothing unread.")).toBeInTheDocument();
+    expect(screen.getByText("Nothing unread.")).toBeInTheDocument();
   });
 
   it("shows Work rows with key, title, the worker and its state, and unread when present", async () => {
     const p = show(rail());
-    expect(rowsOf("Work")).toEqual(["chn_ACME-42", "chn_ACME-51"]);
-    const r42 = at("Work", "chn_ACME-42");
-    expect(r42).toHaveTextContent("ACME-42");
-    expect(r42).toHaveTextContent("Title of ACME-42");
-    expect(within(r42).getByLabelText("1 unread")).toBeInTheDocument();
+    expect(ids("Work")).toEqual(["chn_ACME-42", "chn_ACME-51"]);
+    expect(at("Work", "chn_ACME-42")).toHaveTextContent("ACME-42 Title of ACME-42");
+    expect(within(at("Work", "chn_ACME-42")).getByLabelText("1 unread")).toBeInTheDocument();
     expect(within(at("Work", "chn_ACME-51")).queryByLabelText(/unread/)).toBeNull();
-    const worker = within(r42).getByRole("button", { name: "Open acme-42's session view" });
+    const worker = within(item("Work", "chn_ACME-42")).getByRole("button", { name: "Open acme-42's session view" });
     expect(worker).toHaveTextContent("acme-42 · waiting");
     await userEvent.click(worker);
-    expect(p.openSession).toHaveBeenCalledWith("ses_ACME-42");
+    expect(p.onWorker).toHaveBeenCalledWith(expect.objectContaining({ key: "ACME-42" }));
   });
 
-  it("shows Agents as status cards that open the session view", () => {
+  it("shows Agents as status cards, the open one marked", () => {
     show(rail(), { activeSession: "ses_rb" });
-    const cards = [...section("Agents").querySelectorAll("[data-card]")];
-    expect(cards.map((c) => c.getAttribute("data-card"))).toEqual(["ses_ed", "ses_rb"]);
-    expect(cards[0]!.querySelector(".sc")).not.toBeNull();
-    expect(cards[1]).toHaveAttribute("data-active", "true");
+    expect(ids("Agents")).toEqual(["ses_ed", "ses_rb"]);
+    expect(at("Agents", "ses_ed").querySelector(".sc")).not.toBeNull();
+    expect(at("Agents", "ses_ed")).toHaveAccessibleName("editor");
+    expect(at("Agents", "ses_rb")).toHaveAttribute("data-active");
+    expect(at("Agents", "ses_ed")).not.toHaveAttribute("data-active");
   });
 
   it("leaves out an empty Work or Agents, and History when it has no rows", () => {
     show(rail({ work: [], agents: [] }));
-    expect(screen.queryByRole("region", { name: "Work" })).toBeNull();
-    expect(screen.queryByRole("region", { name: "Agents" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Work" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Agents" })).toBeNull();
     expect(screen.queryByText(/History/)).toBeNull();
   });
 
@@ -109,40 +132,49 @@ describe("RailSections", () => {
     expect(screen.queryByText("old talk")).toBeNull();
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("old talk")).toBeInTheDocument();
+    expect(ids("History")).toEqual(["chn_old"]);
   });
 
-  it("reorders Me by drag and drop, saving the whole section's order", () => {
+  it("reorders Me by drag and drop, saving the whole section's order", async () => {
     const p = show(rail());
-    fireEvent.dragStart(at("Me", "chn_ed"));
-    fireEvent.dragOver(at("Me", "chn_bob"));
-    fireEvent.drop(at("Me", "chn_bob"));
-    expect(p.onReorder).toHaveBeenCalledWith("me", ["chn_ops", "chn_bob", "chn_ed", "chn_42"]);
+    fireEvent.dragStart(item("Me", "chn_ed"));
+    fireEvent.dragOver(item("Me", "chn_bob"));
+    fireEvent.drop(item("Me", "chn_bob"));
+    await waitFor(() => expect(p.saved).toEqual([{ section: "me", ids: ["chn_ops", "chn_bob", "chn_ed", "chn_42"] }]));
   });
 
   it("reorders within the whole section while filtered to Unread", async () => {
     const p = show(rail());
     await userEvent.click(screen.getByRole("radio", { name: "Unread" }));
-    fireEvent.dragStart(at("Me", "chn_42"));
-    fireEvent.drop(at("Me", "chn_ops"));
-    expect(p.onReorder).toHaveBeenCalledWith("me", ["chn_ed", "chn_42", "chn_ops", "chn_bob"]);
+    fireEvent.dragStart(item("Me", "chn_42"));
+    fireEvent.drop(item("Me", "chn_ops"));
+    await waitFor(() => expect(p.saved).toEqual([{ section: "me", ids: ["chn_ed", "chn_42", "chn_ops", "chn_bob"] }]));
   });
 
-  it("reorders Agents by drag and drop", () => {
+  it("ignores a drop from another section", async () => {
     const p = show(rail());
-    fireEvent.dragStart(at("Agents", "ses_rb"));
-    fireEvent.drop(at("Agents", "ses_ed"));
-    expect(p.onReorder).toHaveBeenCalledWith("agents", ["ses_rb", "ses_ed"]);
+    fireEvent.dragStart(item("Agents", "ses_rb"));
+    fireEvent.drop(item("Me", "chn_ed"));
+    fireEvent.drop(item("Agents", "ses_ed"));
+    await waitFor(() => expect(p.saved).toEqual([{ section: "agents", ids: ["ses_rb", "ses_ed"] }]));
   });
 
-  it("reorders from the keyboard with the grip's arrow keys", () => {
+  it("reorders from the keyboard with the grip's arrow keys", async () => {
     const p = show(rail());
-    fireEvent.keyDown(within(section("Me")).getByRole("button", { name: "Move ops" }), { key: "ArrowUp" });
-    expect(p.onReorder).toHaveBeenLastCalledWith("me", ["chn_ops", "chn_ed", "chn_bob", "chn_42"]);
-    fireEvent.keyDown(within(section("Agents")).getByRole("button", { name: "Move editor" }), { key: "ArrowDown" });
-    expect(p.onReorder).toHaveBeenLastCalledWith("agents", ["ses_rb", "ses_ed"]);
-    vi.mocked(p.onReorder).mockClear();
-    fireEvent.keyDown(within(section("Me")).getByRole("button", { name: "Move ACME-42" }), { key: "ArrowDown" }); // already last
-    expect(p.onReorder).not.toHaveBeenCalled();
+    fireEvent.keyDown(grip("Me", "chn_ops"), { key: "ArrowUp" });
+    await waitFor(() => expect(p.saved).toHaveLength(1));
+    fireEvent.keyDown(grip("Agents", "ses_ed"), { key: "ArrowDown" });
+    await waitFor(() => expect(p.saved).toHaveLength(2));
+    fireEvent.keyDown(grip("Me", "chn_42"), { key: "ArrowDown" }); // already last
+    expect(p.saved).toEqual([
+      { section: "me", ids: ["chn_ops", "chn_ed", "chn_bob", "chn_42"] },
+      { section: "agents", ids: ["ses_rb", "ses_ed"] },
+    ]);
+  });
+
+  it("says so when the order can't be saved", async () => {
+    show(rail(), {}, 400);
+    fireEvent.keyDown(grip("Me", "chn_ops"), { key: "ArrowUp" });
+    expect(await screen.findByText(/Couldn't save the order/)).toBeInTheDocument();
   });
 });

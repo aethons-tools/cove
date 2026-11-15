@@ -18,7 +18,7 @@ const recipients: RecipientsResponse = { options: [
 describe("New message", () => {
   it("picks a recipient, sends, and lands in the new conversation", async () => {
     server.use(
-      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })),
+      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })),
       http.get("/app/user/api/recipients", () => HttpResponse.json(recipients)),
       http.post("/app/user/api/messages", () => HttpResponse.json({ channel: "chn_new", seq: 1 }, { status: 201 })),
       http.get("/app/user/api/conversations/chn_new", () => HttpResponse.json({
@@ -44,7 +44,7 @@ describe("New message", () => {
   it("ticks several people for a group DM", async () => {
     let sent: unknown;
     server.use(
-      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })),
+      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })),
       http.get("/app/user/api/recipients", () => HttpResponse.json(recipients)),
       http.post("/app/user/api/messages", async ({ request }) => {
         sent = await request.json();
@@ -66,7 +66,7 @@ describe("New message", () => {
 
   it("offers a unit of work's log", async () => {
     server.use(
-      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })),
+      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })),
       http.get("/app/user/api/recipients", () => HttpResponse.json(recipients)),
     );
     const { router } = renderApp(boot);
@@ -79,7 +79,7 @@ describe("New message", () => {
 
   it("offers a DM with the worker while one works the unit", async () => {
     server.use(
-      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })),
+      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })),
       http.get("/app/user/api/recipients", () => HttpResponse.json(recipients)),
     );
     const { router } = renderApp(boot);

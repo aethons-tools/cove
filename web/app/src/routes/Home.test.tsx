@@ -10,7 +10,7 @@ vi.mock("../boards/BoardEditor", () => ({ default: () => <div data-testid="edito
 // the app.
 describe("old Inbox links", () => {
   const serve = () => server.use(
-    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })),
+    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })),
     http.get("/app/user/api/conversations/:c", ({ params }) => HttpResponse.json({ channelId: params.c, label: "eng", kind: "room", project: "p", phase: "", needsYou: false, sendTo: String(params.c),
       messages: [], lastSeq: 0, earlier: false, sessionIds: [], sessions: [], canJoin: false, canLeave: false, callIn: [], openAsks: [], session: "", newBoard: false })),
     http.get("/app/user/api/conversations/:c/presence", () => HttpResponse.json({ sessions: [] })),

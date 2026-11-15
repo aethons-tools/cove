@@ -475,16 +475,22 @@ const row = (id: string, kind: string, over: Record<string, unknown> = {}) => ({
 
 describe("pickSession", () => {
   const rail = {
-    groups: [
-      { bucket: "needs-you", title: "Needs you", rows: [row("chn_a", "work", { label: "A", needsYou: true }), row("chn_n", "room")] },
-      { bucket: "active", title: "Agents", rows: [row("chn_a", "work", { phase: "live" }), row("chn_b", "dm", { label: "B", phase: "live", card: { session: ID } }), row("chn_d", "dm", { phase: "live" }), row("chn_s", "session", { phase: "live" })] },
-      { bucket: "channels", title: "Conversations", rows: [row("chn_w", "work", { label: "W", phase: "idled" }), row("chn_e", "work", { label: "E", phase: "" })] },
-      { bucket: "history", title: "History", rows: [row("chn_h", "dm", { phase: "live", card: { session: ID } })] },
+    me: [
+      row("chn_b", "dm", { label: "B", phase: "live", card: { session: ID } }),
+      row("chn_n", "room"),
+      row("chn_a", "work", { label: "A", phase: "live", needsYou: true }),
+      row("chn_d", "dm", { phase: "live" }),
+      row("chn_s", "session", { phase: "live" }),
+      row("chn_w", "work", { label: "W", phase: "idled" }),
+      row("chn_e", "work", { label: "E", phase: "" }),
     ],
+    work: [],
+    agents: [],
+    history: [row("chn_h", "dm", { phase: "live", card: { session: ID } })],
     unreadTotal: 0,
   };
 
-  it("lists rows of dms with a live agent and work logs only, and opens the picked row's session", async () => {
+  it("lists Me's dms with a live agent and work logs, needs-you first, and opens the picked row's session", async () => {
     const f = fake({ rail, conv: { session: ID }, global: "always" });
     await pickSession(f.d);
     const items = f.ui.pick.mock.calls[0]![0] as { label: string; description: string; detail: string }[];

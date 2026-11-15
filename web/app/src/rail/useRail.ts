@@ -1,3 +1,4 @@
+import { notifications } from "@mantine/notifications";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPut, POLL_MS, type ApiError } from "../api/client";
 import type { RailOrderRequest, RailResponse } from "../api/types";
@@ -22,8 +23,9 @@ export function reordered(rail: RailResponse, section: RailSection, ids: string[
 }
 
 // useRailOrder saves the viewer's order of a section (PUT api/rail/order).
-// Every cached rail takes the order at once; the rails refetch when the
-// save settles, so a refused one goes back to the saved order.
+// Every cached rail takes the order at once (an older rail mustn't land on
+// it); the rails refetch when the save settles, so a refused one says so and
+// goes back to the saved order.
 export function useRailOrder() {
   const client = useQueryClient();
   return useMutation<void, ApiError, { section: RailSection; ids: string[] }>({
@@ -32,6 +34,7 @@ export function useRailOrder() {
       await client.cancelQueries({ queryKey: ["rail"] });
       client.setQueriesData<RailResponse>({ queryKey: ["rail"] }, (r) => (r ? reordered(r, section, ids) : r));
     },
+    onError: (e) => notifications.show({ color: "red", message: `Couldn't save the order: ${e.message}` }),
     onSettled: () => client.invalidateQueries({ queryKey: ["rail"] }),
   });
 }

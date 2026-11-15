@@ -31,7 +31,7 @@ describe("useChimes", () => {
     const play = vi.spyOn(sounds, "play").mockReturnValue(true);
     const { useChimes } = await import("./chimes");
     // The chimes follow Me (and History): the rows the app badge counts.
-    const rail = (u: number) => ({ unreadTotal: u, me: [row("c", u)], work: [], agents: [], history: [], groups: [] });
+    const rail = (u: number) => ({ unreadTotal: u, me: [row("c", u)], work: [], agents: [], history: [] });
     const { rerender } = renderHook(({ r, at }) => useChimes(r, at, undefined), { initialProps: { r: rail(0), at: 2 } });
     rerender({ r: rail(1), at: 3 }); // a new message: chime
     expect(play).toHaveBeenCalledTimes(1);

@@ -46,7 +46,7 @@ const thought = (seq: number, text: string): ThinkingEvent => ({
 function serve(a: SessionActivity, h: SessionHead | null = head) {
   const seen = { thinking: [] as string[], sent: [] as unknown[], resumed: [] as string[] };
   server.use(
-    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })),
+    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })),
     http.get("/app/user/api/sessions/:id", () =>
       h ? HttpResponse.json(h) : HttpResponse.json({ error: "no such session", code: "not_found" }, { status: 404 })),
     http.get("/app/user/api/sessions/:id/activity", () => HttpResponse.json(a)),
@@ -119,7 +119,7 @@ describe("the session view", () => {
 
   it("opens from an agent's card in the rail", async () => {
     serve(activity());
-    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], history: [],
+    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], history: [],
       agents: [{ session: "ses_1", ssh: false, card: card({ session: "ses_1", name: "pair" }) }] })));
     const user = userEvent.setup();
     const { router } = renderApp(boot, "/app/user/");

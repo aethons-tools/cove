@@ -1,5 +1,5 @@
-// The needs-you count: the rows of the web app's rail "needs-you" group,
-// shown as the badge on the rail view (and so the Jam activity-bar icon).
+// The needs-you count: the rail's Me rows with needsYou, shown as the badge
+// on the rail view (and so the Jam activity-bar icon).
 import { SignedOutError } from "./api";
 import type { JamApi } from "./api";
 import type { LiveEvent } from "./live";
@@ -8,20 +8,10 @@ import type { RailResponse } from "../../app/src/api/types.js" with { "resolutio
 
 export const NEEDS_YOU_DEBOUNCE_MS = 3000;
 
-// The rows of the group with bucket "needs-you" (the web app's Needs you group),
-// the first occurrence of each id.
+// The rows of Me that need you (inbox-rail.adoc: the rows the old Needs you
+// group held).
 export function needsYouRows(r: RailResponse): RailRow[] {
-  const seen = new Set<string>();
-  const out: RailRow[] = [];
-  for (const g of r.groups ?? []) {
-    if (g.bucket !== "needs-you") continue;
-    for (const row of g.rows ?? []) {
-      if (seen.has(row.id)) continue;
-      seen.add(row.id);
-      out.push(row);
-    }
-  }
-  return out;
+  return (r.me ?? []).filter((row) => row.needsYou);
 }
 
 export function badgeFor(n: number): { value: number; tooltip: string } | undefined {

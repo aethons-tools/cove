@@ -6,7 +6,7 @@ import { NewSession } from "../compose/NewSession";
 import { useBoot } from "../BootContext";
 import { useChimes } from "../sounds/chimes";
 import { NavLink as RouterLink, useLocation, useNavigate, useParams } from "react-router";
-import { useRail, useRailOrder } from "./useRail";
+import { useRail } from "./useRail";
 import { RailSections } from "./RailSections";
 import { useAppBadge } from "../push/useAppBadge";
 import { Problem } from "../Problem";
@@ -21,7 +21,6 @@ export function Rail() {
   const [starting, starter] = useDisclosure(false);
   const boot = useBoot();
   const nav = useNavigate();
-  const order = useRailOrder();
   useChimes(data, dataUpdatedAt, channel);
   // The New message (and New session) buttons head every state of the rail,
   // so a member with no conversations yet can start one.
@@ -43,9 +42,9 @@ export function Rail() {
   }
   return frame(
     <RailSections rail={data} active={channel} activeSession={session}
-      rowProps={(id) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(id)}` })}
-      sessionProps={(s) => ({ component: RouterLink, to: `${APP}s/${encodeURIComponent(s)}` })}
-      openSession={(s) => nav(`${APP}s/${encodeURIComponent(s)}`)}
-      onReorder={(section, ids) => order.mutate({ section, ids })} />,
+      rowProps={(r) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(r.id)}` })}
+      workProps={(w) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(w.log)}` })}
+      cardProps={(a) => ({ component: RouterLink, to: `${APP}s/${encodeURIComponent(a.session)}` })}
+      onWorker={(w) => nav(`${APP}s/${encodeURIComponent(w.worker.id)}`)} />,
   );
 }

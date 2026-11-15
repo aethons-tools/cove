@@ -13,7 +13,7 @@ const roles: SessionRolesResponse = { roles: [
 
 describe("New session", () => {
   it("is hidden when the viewer may not start sessions", async () => {
-    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })));
+    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })));
     renderApp(boot);
     expect(await screen.findByRole("button", { name: "New message" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
@@ -22,7 +22,7 @@ describe("New session", () => {
   it("picks a role, starts it with a first message, and lands in its conversation", async () => {
     let sent: StartSessionRequest | undefined;
     server.use(
-      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })),
+      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })),
       http.get("/app/user/api/session-roles", () => HttpResponse.json(roles)),
       http.post("/app/user/api/sessions", async ({ request }) => {
         sent = await request.json() as StartSessionRequest;
@@ -53,7 +53,7 @@ describe("New session", () => {
     const done = new Promise<void>((r) => { finish = r; });
     let asked = "";
     server.use(
-      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })),
+      http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })),
       http.get("/app/user/api/session-roles", () => HttpResponse.json(roles)),
       http.get("/app/user/api/sessions/start-progress", ({ request }) => {
         asked = new URL(request.url).search;

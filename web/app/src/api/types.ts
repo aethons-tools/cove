@@ -56,11 +56,6 @@ export interface NavTab {
  */
 export interface RailResponse {
   /**
-   * Groups is the attention-grouped rail of before the sections, served
-   * until the app and the VS Code rail read Me, Work, Agents, and History.
-   */
-  groups: RailGroup[];
-  /**
    * Me is the live conversations the viewer is a member of, in their saved
    * order, then newest message first.
    */
@@ -126,7 +121,8 @@ export interface RailOrderRequest {
   ids: string[];
 }
 /**
- * ChannelRow is one channel in the left rail, from the viewer's perspective.
+ * ChannelRow is one conversation in the rail's Me or History section, from
+ * the viewer's perspective.
  */
 export interface ChannelRow {
   id: string;
@@ -214,15 +210,6 @@ export interface CardCounts {
 export interface CardContext {
   used: number /* int64 */;
   window: number /* int64 */;
-}
-/**
- * RailGroup is one attention section of the rail (Needs you / Sessions /
- * Channels / History), non-empty.
- */
-export interface RailGroup {
-  bucket: string;
-  title: string;
-  rows: ChannelRow[];
 }
 /**
  * MessageRow is one squawk in the conversation pane, from the viewer's side.

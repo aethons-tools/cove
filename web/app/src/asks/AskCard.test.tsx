@@ -23,7 +23,7 @@ const conv = (cards: AskCard[]): Conversation => ({
 
 function serve(get: () => Conversation, answer?: (body: unknown) => Response) {
   server.use(
-    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] })),
+    http.get("/app/user/api/rail", () => HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] })),
     http.get("/app/user/api/conversations/:c", () => HttpResponse.json(get())),
     http.get("/app/user/api/conversations/:c/presence", () => HttpResponse.json({ sessions: [] })),
     http.post("/app/user/api/conversations/:c/read", () => new HttpResponse(null, { status: 204 })),
@@ -123,7 +123,7 @@ describe("ask cards", () => {
     serve(() => conv([card()]), () => { posts++; return new HttpResponse(null, { status: 204 }); });
     server.use(
       http.post("/app/user/api/asks/:id/answer", async () => { posts++; await gate; return new HttpResponse(null, { status: 204 }); }),
-      http.get("/app/user/api/rail", () => { railGets++; return HttpResponse.json({ unreadTotal: 0, groups: [], me: [], work: [], agents: [], history: [] }); }),
+      http.get("/app/user/api/rail", () => { railGets++; return HttpResponse.json({ unreadTotal: 0, me: [], work: [], agents: [], history: [] }); }),
     );
     renderApp(boot, "/app/user/c/chn_a");
     await userEvent.click(await screen.findByRole("button", { name: /Hold/ }));

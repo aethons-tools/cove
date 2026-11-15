@@ -11,7 +11,7 @@ const row = (over: Partial<ChannelRow>): ChannelRow => ({
   id: "", label: "", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 1, selected: false, mission: "", session: "", ssh: false, sessionView: "", ...over,
 });
 const rail: RailResponse = {
-  unreadTotal: 2, groups: [], history: [],
+  unreadTotal: 2, history: [],
   me: [
     row({ id: "chn_a", label: "intercom-spider", kind: "dm", needsYou: true, unread: 2, card: card({ session: "ses_spider", name: "intercom-spider", pill: "needs you", state: "idle" }) }),
     row({ id: "chn_b", label: "eng" }),
@@ -25,14 +25,14 @@ describe("the app shell", () => {
     server.use(http.get("/app/user/api/rail", () => HttpResponse.json(rail)));
     renderApp(boot);
     expect(screen.getByText("Acme Jam")).toBeInTheDocument();
-    const me = await screen.findByRole("region", { name: "Me" });
+    const me = await screen.findByRole("list", { name: "Me" });
     expect(within(me).getByRole("link", { name: /eng/ })).toHaveAttribute("href", "/app/user/c/chn_b");
     expect(within(me).getByRole("link", { name: /intercom-spider/ })).toHaveAttribute("href", "/app/user/c/chn_a");
     expect(within(me).getByLabelText("2 unread")).toBeInTheDocument();
-    expect(within(me).getByText("needs you")).toBeInTheDocument();
-    const work = screen.getByRole("region", { name: "Work" });
+    expect(within(me).getByText("idle")).toBeInTheDocument();
+    const work = screen.getByRole("list", { name: "Work" });
     expect(within(work).getByRole("link", { name: /TEST-7/ })).toHaveAttribute("href", "/app/user/c/chn_t7");
-    const agents = screen.getByRole("region", { name: "Agents" });
+    const agents = screen.getByRole("list", { name: "Agents" });
     expect(within(agents).getByRole("link", { name: /intercom-spider/ })).toHaveAttribute("href", "/app/user/s/ses_spider");
     expect(within(agents).getByText("SPA slice 1")).toBeInTheDocument();
   });
@@ -59,9 +59,9 @@ describe("the app shell", () => {
       }),
     );
     renderApp(boot);
-    const section = await screen.findByRole("region", { name: "Me" });
+    const section = await screen.findByRole("list", { name: "Me" });
     const hrefs = () => within(section).getAllByRole("link").map((a) => a.getAttribute("href"));
-    fireEvent.keyDown(within(section).getByRole("button", { name: "Move eng" }), { key: "ArrowUp" });
+    fireEvent.keyDown(within(within(section).getByRole("link", { name: /eng/ }).closest("li")!).getByRole("button", { name: "Reorder" }), { key: "ArrowUp" });
     await waitFor(() => expect(saved).toEqual([{ section: "me", ids: ["chn_b", "chn_a"] }]));
     expect(hrefs()).toEqual(["/app/user/c/chn_b", "/app/user/c/chn_a"]); // before the save answers
     release();
@@ -69,7 +69,7 @@ describe("the app shell", () => {
   });
 
   it("shows an empty state for a member with no channels", async () => {
-    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ groups: [], me: [], work: [], agents: [], history: [], unreadTotal: 0 })));
+    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ me: [], work: [], agents: [], history: [], unreadTotal: 0 })));
     renderApp(boot);
     expect(await screen.findByText(/No conversations yet/)).toBeInTheDocument();
   });
