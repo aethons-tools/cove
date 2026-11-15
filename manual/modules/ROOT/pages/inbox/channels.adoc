@@ -15,11 +15,16 @@ image::channels-inbox.png["The Inbox, with the ops room open",800]
 
 The rail has three sections:
 *Me*, *Work*, and *Agents*.
+If your Jam was upgraded from the old message log,
+*History (before the upgrade)* below them shows those old conversations.
+You can only read them.
 It looks the same in the Jam app and in VS Code.
 
 image::channels-rail-sections.png["The rail: Me, Work, and Agents",340]
 
+ifdef::internal[]
 Try the rail in the xref:attachment$channels-rail-prototype.html[prototype].
+endif::[]
 
 === Me
 
@@ -139,6 +144,7 @@ ifdef::internal[]
 their interface is `docs/modules/ROOT/pages/usage/jam/inbox-rail.adoc`.
 Looking up ended sessions and finished logs is COV-362.
 The rail image is the prototype's (`attachments/channels-rail-prototype.html`).
+The prototype runs only on the team site: Jam serves the manual with a CSP that allows no scripts or inline styles, so the link is internal.
 * The Inbox is the web app under `/app/user/` (`web/app/src/rail`, `conversation`).
 A conversation is `/app/user/c/<channel>`.
 The old Inbox's `?c=` links redirect.
