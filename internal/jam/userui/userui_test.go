@@ -73,7 +73,7 @@ func TestGroupRailSelectedIsRead(t *testing.T) {
 		{ID: "named:ops", Kind: jam.ChannelNamed, Unread: 2, LastSeq: 20},
 	}
 	groups := groupRail(chs, "named:eng")
-	if n := unreadTotal(groups); n != 2 {
+	if n := unreadTotal(groups[0].Rows); n != 2 {
 		t.Fatalf("unread total = %d, want 2 (the open conversation is read)", n)
 	}
 	if chs[0].Unread != 3 {

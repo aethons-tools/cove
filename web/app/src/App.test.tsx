@@ -7,7 +7,7 @@ import type { RailResponse } from "./api/types";
 import { card } from "./test/card";
 
 const rail: RailResponse = {
-  unreadTotal: 2,
+  unreadTotal: 2, me: [], work: [], agents: [], history: [],
   groups: [
     { bucket: "needs-you", title: "Needs you", rows: [{ id: "chn_a", label: "intercom-spider", project: "test", kind: "session", needsYou: true, phase: "waiting", unread: 2, openAsks: 1, lastSeq: 9, selected: false, mission: "SPA slice 1", session: "", ssh: false, sessionView: "" }] },
     { bucket: "channels", title: "Channels", rows: [{ id: "chn_b", label: "eng", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 3, selected: false, mission: "", session: "", ssh: false, sessionView: "" }] },

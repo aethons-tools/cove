@@ -150,6 +150,8 @@ A conversation is `/app/user/c/<channel>`.
 The old Inbox's `?c=` links redirect.
 * The rail is `GET /app/user/api/rail`; groups come from `jam.ChannelView.Bucket`
 (`internal/jam/channels.go`) and `userui.groupRail`.
+* The API also serves the goal rail's sections, Me, Work, and Agents, and each person's saved order of Me and Agents (`PUT /app/user/api/rail/order`), shared by every client (COV-364).
+The app and VS Code don't show them yet; the goal is `docs/modules/ROOT/pages/usage/jam/inbox-rail.adoc` on the `goal` branch.
 * The header shows the conversation kind (`dm`, `group`, `room`, `work`);
 an archived session channel an older Jam made reads *agent*.
 Jam archives them at serve start (`Intercom.Reconcile`): their members can still read them, and they take no posts.

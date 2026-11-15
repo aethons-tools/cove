@@ -150,7 +150,7 @@ func (s *Supervisor) recoverDue(ctx context.Context, inst Instance, now time.Tim
 // category.
 func (s *Supervisor) reraise(ctx context.Context, inst Instance) error {
 	spec := RaiseSpec{
-		ActorID: inst.ActorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit,
+		ActorID: inst.ActorID, Project: inst.Project, Role: inst.Role, Unit: inst.Unit, UnitTitle: inst.UnitTitle,
 		Mission: inst.Mission, Prompt: inst.RaisePrompt,
 		Owner: inst.Owner, OwnerID: inst.OwnerID, Name: inst.Name, SessionKind: inst.SessionKind,
 		recovering: true,
