@@ -23,7 +23,7 @@ config:
 
 On GitLab (gitlab.com or self-hosted) the same block is `config.gitlab`. A plain git repo, local or over SSH, is `config.git` (<<a-local-or-ssh-repo-configgit,below>>). Set exactly one (`+config: set one of config.github, config.gitlab and config.git+`). The kind decides how the branch editor opens a review: a GitHub pull request or a GitLab merge request. Its token is sent with the username `oauth2` and needs the `+write_repository+` and `api` scopes. A GitHub token needs contents write and pull requests.
 
-Design: https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-31-config-branch-editor-design.md[config in git, edited on branches] and https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-31-always-a-repo-design.md[always a repo].
+Design: https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-31-always-a-repo-design.md[always a repo] and https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-31-config-branch-editor-design.md[config in git, edited on branches].
 Sources elsewhere use the kit syntax, `+<repo>[//<dir>]@<ref>+`
 (xref:usage/jam/kits-git.adoc#the-source-repodirref[kits-git]), and the same fetcher;
 its `cred` is the credential for exactly its URL, and fetch errors name it as `config.github cred <name>` (or `config.gitlab`). The admin console
@@ -46,10 +46,10 @@ config:
       host.example ssh-ed25519 AAAA…
 ----
 
-* *URL.* An absolute path or `+file://+` (a local repo), or `+ssh://+` or the scp form `+user@host:path+`. Anything else is refused: ``+config.git.url: want a local path, file://, ssh:// or user@host:path (for https use config.github or config.gitlab)+``; an `+ssh://+` URL must not carry a password. `config.git.branch is required`.
+* *URL.* An absolute path or `+file://+` (a local repo), or `+ssh://+` or the `scp` form `+user@host:path+`. Anything else is refused: ``+config.git.url: want a local path, file://, ssh:// or user@host:path (for https use config.github or config.gitlab)+``; an `+ssh://+` URL must not carry a password. `config.git.branch is required`.
 * *Local.* Jam reads the repo in-process (no `git` binary) and changes only its refs and objects: never the working tree, the index or `HEAD`. `cred` and `host-keys` are refused for a local repo (`+… is only for ssh+`). A bare repo is easiest: no branch is checked out.
 * *Checked-out branches.* A branch editor save or Merge that would move a branch checked out in the repo, or in any of its worktrees, is refused (409) and moves nothing, as git refuses such a push: `<branch> is checked out in <dir>; check out another branch, or merge it yourself` (`<dir>` is the repo, or the worktree, holding it).
-* *SSH.* go-git's SSH client with the key from `cred`, which never reaches argv, logs or the store; no `ssh-agent`. `cred` and `host-keys` are required for ssh. Jam writes `host-keys` (public keys only) to `+<state-dir>/config-repo-known_hosts+` and never trusts a host on first sight. An unknown key fails with `+config.git: the host key of <host> is not in host-keys; if you trust it, add: <line>+`, a changed one with `+config.git: the host key of <host> does not match host-keys (it may have been rotated, or this may be an attack); verify it out of band before replacing the line with: <line>+`.
+* *SSH.* go-git's SSH client with the key from `cred`, which never reaches `argv`, logs, or the store; no `ssh-agent`. `cred` and `host-keys` are required for SSH. Jam writes `host-keys` (public keys only) to `+<state-dir>/config-repo-known_hosts+` and never trusts a host on first sight. An unknown key fails with `+config.git: the host key of <host> is not in host-keys; if you trust it, add: <line>+`, a changed one with `+config.git: the host key of <host> does not match host-keys (it may have been rotated, or this may be an attack); verify it out of band before replacing the line with: <line>+`.
 * *No PR and no branch links.* A plain repo has no hosting API or web pages: the branch bar has no *PR* button and no links; Merge, or a merge in git, lands a branch.
 * *Only here.* Local paths and SSH are allowed only in `config.git`, which only the operator edits. Kit sources (`kits/<n>.source.yml`, `kit import`) keep xref:usage/jam/kits-git.adoc[kits-git]'s rules, so a commit cannot point a kit at a file on the Jam host.
 
@@ -66,7 +66,7 @@ The *follower* checks the branch now and every minute (`ls-remote`) and:
 |===
 |State |When |Does
 
-|`awaiting-confirm` |No commit from this repo has been applied yet: a new Jam, or the repo setting changed to another repo, branch or dir. |Nothing. `config.follow` (info) asks for the confirm.
+|`awaiting-confirm` |No commit from this repo has been applied yet: a new Jam, or the repo setting changed to another repo, branch, or dir. |Nothing. `config.follow` (info) asks for the confirm.
 |`in-sync` |The head is the commit last applied. |Nothing; `config.follow` clears.
 |(applies) |A new head. |Applies it. The repo always wins: an object changed in Jam since (a kit from its own source that moved, say) is updated to the repo's copy.
 |`failed` |The check or the apply failed: a fetch or auth error, a refused plan. |Keeps the last good config. `config.follow` (warning) carries the error; the next check retries, even at the same head.
@@ -108,7 +108,7 @@ git: https://github.com/acme/kits//api@main
 ----
 
 * *Fetching.* Every diff and apply fetches the referenced kits before
-planning, `+--dir+` uploads included (with the serve's `kits.git` credentials).
+planning, `+--dir+` uploads included (with the `serve` config's `kits.git` credentials).
 Each distinct repo and ref is fetched once, so two kits from one repo and ref
 share a commit. A tree may name at most 16 distinct kit sources, and one
 run's fetches share a 4-minute limit, counted from when the run starts
@@ -141,8 +141,8 @@ never a delete.
 * ``+kits/<n>.source.yml: kit <a> is also <file>+``: two references load
 different kits under one name.
 * ``+kits/<n>.source.yml: kit <n>'s base.kit <ref> pins a version; …+``: versions are per-Jam.
-* `+config source: <dir> is not a directory in the repo+` (400): `//dir` is
-missing, a file or a symlink.
+* `+config source: <dir> is not a directory in the repo+` (400): `//dir` is missing,
+or it is a file or a symlink.
 * ``+kits: N kit sources (distinct repo and ref); at most 16 per config repo+``:
 too many kit references in one tree. A plan refusal (diff shows it, apply
 writes nothing), not a 502.
@@ -160,7 +160,7 @@ follower's applies); a failed follow logs `+config follow: failed+`.
 |Route |Does
 
 |`POST /admin/config/diff` |As in config-git.md; a `+{"source": "<src>"}+` JSON body (`""` = the followed repo) instead of a tar.
-|`POST /admin/config/sync?plan=<digest>` |Apply the followed repo (the first apply's confirm), then refresh the follower; body `+{}+` (any other Content-Type is 415).
+|`POST /admin/config/sync?plan=<digest>` |Apply the followed repo (the confirm of the first apply), then refresh the follower; body `+{}+` (any other Content-Type is 415).
 |`GET /admin/config/follow` |The follower's status: `+{state, source, head, applied, error, checkedAt}+`.
 |===
 

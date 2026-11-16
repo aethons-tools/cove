@@ -7,7 +7,7 @@
 :updated: 2026-11-13
 
 Jam can run as a container because Jam drives no Docker itself: remote xref:usage/jam/studio-managers.adoc[Studio Managers] next to Colima dial in and host the studios.
-The image is `ghcr.io/aethons-tools/jam`. It runs only `jam serve`, as a non-root user, with no docker, ssh or git binary.
+The image is `ghcr.io/aethons-tools/jam`. It runs only `jam serve`, as a non-root user, with no `docker`, `ssh`, or `git` binary.
 
 == The image
 
@@ -39,7 +39,7 @@ What is inside (`images/jam/Dockerfile`):
 * `+ENTRYPOINT ["jam"]+`, `+CMD ["serve","--config","/etc/jam/jam.yml"]+`.
 
 Why nothing else is needed: `jam serve` runs no external programs except two kinds of xref:usage/jam/credentials.adoc[credential] resolvers.
-`+command:+` entries are exec'd directly, with no shell. `+mint:+` entries run `jam mint`, which ships in the image.
+`+command:+` entries are executed directly, with no shell. `+mint:+` entries run `jam mint`, which ships in the image.
 Git fetches (kit and config sources) are in-process go-git. Jam never needs a docker socket, SSH key files, `host-gateway` or loopback access to studios. A local `config.git` repo must be mounted into the container, and `url` is its path there (xref:usage/jam/config-git-sources.adoc#a-local-or-ssh-repo-configgit[config-git-sources]).
 
 [#running-it-with-the-dev-compose]
@@ -63,10 +63,10 @@ The container config differs from a host config in these ways:
 
 Every path in it is inside the container.
 
-Jam runs as uid `10001`, and the mounts are read-only, so every mounted secret file must be readable by that uid.
+Jam runs as UID `10001`, and the mounts are read-only, so every mounted secret file must be readable by that UID.
 On Colima a `0600` host file is not, and serve exits at startup.
 Do not symlink a Let's Encrypt `live/` dir into the secrets directory: its files are relative symlinks into `../../archive` that do not resolve in the mount, and `privkey.pem` is `0600`.
-Copy the files dereferenced instead: `+cp -L .../fullchain.pem DIR/tls/cert.pem+` and `+cp -L .../privkey.pem DIR/tls/key.pem+`, then make `key.pem` readable by uid 10001 (dev: `chmod 644`, or `chown 10001`).
+Copy the files dereferenced instead: `+cp -L .../fullchain.pem DIR/tls/cert.pem+` and `+cp -L .../privkey.pem DIR/tls/key.pem+`, then make `key.pem` readable by UID 10001 (dev: `chmod 644`, or `chown 10001`).
 The same applies to a `0600` `credentials.yml`.
 
 == Ports
@@ -76,7 +76,7 @@ The same applies to a `0600` `credentials.yml`.
 |In the container |Published on the host |Why
 
 |`+listen: ":8443"+` |`+443:8443+` |The cove-facing TLS listener: the broker, Attach, and manager Connect. Jam runs non-root, so it listens on 8443 and compose publishes the standard 443.
-|`+admin-listen: ":8081"+` |`+127.0.0.1:8081:8081+` |The admin API, on jam's default admin port, so an in-container CLI needs no `+--admin-url+`. It is published only on host loopback.
+|`+admin-listen: ":8081"+` |`+127.0.0.1:8081:8081+` |The admin API, on jam's default admin port, so an in-container `jam` command needs no `+--admin-url+`. It is published only on host loopback.
 |===
 
 [#admin-access]
@@ -85,9 +85,9 @@ The same applies to a `0600` `credentials.yml`.
 `+admin-listen: ":8081"+` is not a loopback bind, so serve refuses to start without `admin-tls`/`tls` plus `operator-auth.oidc` (xref:usage/jam/serve.adoc#exposing-the-admin-api-fail-closed[the exposure rule]).
 Serve discovers the OIDC issuer at startup, so the issuer must be reachable from the container.
 
-* *From the host:* use OIDC, as for any remote admin (xref:usage/jam/operators.adoc[operators.adoc]), e.g. `+jam login --admin-url https://jam.local.aethons.tools:8081+`.
+* *From the host:* use OIDC, as for any remote admin (xref:usage/jam/operators.adoc[operators.adoc]), for example `+jam login --admin-url https://jam.local.aethons.tools:8081+`.
 A docker port-forward reaches Jam from the bridge gateway, not from loopback, so loopback trust never applies to the published port.
-* *Loopback CLI:* `just dev-jam <verb>` runs `docker compose exec jam jam <verb>`, for example `just dev-jam manager list`.
+* *Loopback command line:* `just dev-jam <verb>` runs `docker compose exec jam jam <verb>`, for example `just dev-jam manager list`.
 That runs in the container and reaches `+http://127.0.0.1:8081+` there.
 Arguments that name files must be paths inside the container.
 
@@ -109,7 +109,7 @@ A `pool.store` path must be inside `/var/lib/jam`. Anywhere else, it is lost whe
 
 == `+command:+` resolvers run in the container
 
-A credential `+command:+` runs inside the container, which has no docker, ssh, git or gh, and not on the host.
+A credential `+command:+` runs inside the container, which has no `docker`, `ssh`, `git`, or `gh`, and not on the host.
 Use `+value:+`, `+mint:+`, or a command over a mounted file, such as `+["cat", "/run/secrets/x"]+`.
 
 [#pointing-studio-managers-at-it]

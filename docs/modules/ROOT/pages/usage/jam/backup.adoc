@@ -1,5 +1,5 @@
 = Backing up and restoring Jam config
-:summary: Back up and restore a Jam's control-plane CONFIG (actors, roles, kits, destinations, model-specs, projects, Jam-wide session context) with `jam export` / `jam import` — a single file, excluding studio and intercom state.
+:summary: Back up and restore a Jam's control-plane CONFIG (actors, roles, kits, destinations, model-specs, projects, Jam-wide session context) with `jam export` / `jam import`—a single file, excluding studio and intercom state.
 :read_when: You are snapshotting a Jam's config for backup, or restoring it onto a fresh/rebuilt Jam.
 :owns: the `jam export` / `jam import` command surface and the backup file's scope + semantics
 :prereqs: operators.adoc for signing in (`--app`/`--token`); roster.adoc and kits.adoc for what the aggregates are
@@ -8,7 +8,7 @@
 
 For a reviewable, mergeable source of the same config in git, see xref:usage/jam/config-git.adoc[config-git].
 
-`jam export` and `jam import` snapshot and restore the Jam *config* — the
+`jam export` and `jam import` snapshot and restore the Jam *config*—the
 control-plane aggregates:
 
 * *actors* (identities, their *token hashes*, and grants)
@@ -17,8 +17,8 @@ control-plane aggregates:
 * *destinations*
 * *model-specs* (xref:usage/jam/model-specs.adoc[model-specs.adoc]; omitted from the file when there are none)
 * *projects* (escalation policy, chat service, session context and resources)
-* the *identity registry* — users (removed ones too: their ids back history),
-connections, accounts, project memberships and the legacy human aliases — with
+* the *identity registry*—users (removed ones too: their ids back history),
+connections, accounts, project memberships and the legacy human aliases—with
 their ids, so a restore keeps every reference valid
 * the *channel registry*: rooms (a project's channels, archived ones too)
 with their bindings and ids. Channel membership is
@@ -35,18 +35,18 @@ and a `+version: 1+` or `2` backup's project channels become rooms.
 A backup from before kit trees (version ≤ 4) still imports. Its kits are
 migrated to trees right after (xref:usage/jam/kits-directory.adoc#stored-as-trees[kits-directory]).
 
-Import requires an empty target, registry included — except connections, which
-a starting serve creates: a backup's connection of the same name takes over —
+Import requires an empty target, registry included—except connections, which
+a starting serve creates: a backup's connection of the same name takes over—
 and checks the registry is consistent (unique live names and identities,
 references that resolve). It
 applies the admin API's authoring rules to session context (layer budgets,
 leaf names, resources), destination notes, endpoint names
 (xref:usage/jam/destination-endpoints.adoc#validation[destination-endpoints]) and
 xref:usage/jam/header-specs.adoc[header specs], and model-spec structure (credential
-names are not checked — they are serve-config, not backup, state); a snapshot
+names are not checked—they are serve-config, not backup, state); a snapshot
 that breaks them is refused with 400 and nothing is written. Older Jams didn't
 check `+identity_in+`/`apply`, so a backup may hold a value this Jam doesn't
-know: the error names the destination and field — fix it in the file
+know: the error names the destination and field—fix it in the file
 (a preset, or `custom` plus a spec) and re-import.
 
 They deliberately *exclude* runtime/studio state (raised instances), the
@@ -68,7 +68,7 @@ jam export --format yaml - > backup.yaml
 ----
 
 ____
-*The backup contains token hashes* — it is authentication material. A restored
+*The backup contains token hashes*—it is authentication material. A restored
 Jam accepts every actor's existing token unchanged, which is the point, but it
 also means the file must be protected like a credential store. `export` writes
 files with `0600` permissions; keep them that way.
@@ -102,8 +102,8 @@ before.
 == Why server-side
 
 Only the Jam server can read and write the stored token hashes, so export/import
-are bulk admin endpoints (`GET`/`POST /admin/config`) that the CLI streams to and
-from — not a client-side replay over the per-aggregate endpoints (which would
+are bulk admin endpoints (`GET`/`POST /admin/config`) that the command-line tool streams to and
+from—not a client-side replay over the per-aggregate endpoints (which would
 re-mint every token). The wire is JSON; YAML exists only at the file boundary.
 
 == Upgrading a file-store Jam

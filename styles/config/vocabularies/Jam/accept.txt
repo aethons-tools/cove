@@ -18,6 +18,7 @@ idmapped
 IdP
 jsdom
 justfiles?
+Let's Encrypt
 libnotify
 lockdown
 lunr

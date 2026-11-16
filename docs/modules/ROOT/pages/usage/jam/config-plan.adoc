@@ -6,7 +6,7 @@
 :tier: leaf
 :updated: 2026-11-13
 
-`config diff` prints a *plan* — one action per object, from the config repo against the Jam — and each apply of the followed repo carries one out (xref:usage/jam/config-git.adoc[config-git]).
+`config diff` prints a *plan*—one action per object, from the config repo against the Jam—and each apply of the followed repo carries one out (xref:usage/jam/config-git.adoc[config-git]).
 
 A kit's plan entry compares its `kit.yml` and its file list (mode, size, sha256, path).
 Printed as `action  kind name`, then `forget  kind name  (mark only)` lines, `N unchanged`, `+unmanaged: …+`,
@@ -35,8 +35,8 @@ instance; a kit a role binds (`role app/ic binds it`) or another kit builds
 on; a model spec a role resolves to; a user who owns a live personal
 session, is named in a remaining escalation tier, or is a *member of any
 project* (managed or not); a project with live instances, unremoved
-members, unmanaged roles, standing sessions or grants; a connection with
-accounts, a binding or a chat service.
+members, unmanaged roles, standing sessions, or grants; a connection with
+accounts, a binding, or a chat service.
 
 Order: creates/updates run users, connections → destinations, model specs →
 kits (parents first) → projects → roles → Jam context; deletes the reverse.

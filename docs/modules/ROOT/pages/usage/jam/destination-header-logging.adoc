@@ -22,7 +22,7 @@ Both settings default to `none`. Leave them off except while debugging.
 | |`examined` |``broker headers in``: only the header the identity is read from (the destination's `+identity_in+` spec), or `missing`
 | |`all` |``broker headers in``: every request header, plus `+<identity header>: missing+` when it is absent
 |`+log_headers_out+` |`none` |nothing
-| |`changed` |``broker headers out``: the headers the broker set or changed (the applied credential, xref:usage/jam/model-spec-headers.adoc[principal header rules], the pool beta), and those it removed (`<removed>`, e.g. the studio's identity)
+| |`changed` |``broker headers out``: the headers the broker set or changed (the applied credential, xref:usage/jam/model-spec-headers.adoc[principal header rules], the pool beta), and those it removed (`<removed>`, for example the studio's identity)
 | |`all` |``broker headers out``: every header sent upstream
 |===
 
