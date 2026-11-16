@@ -83,6 +83,7 @@ How sessions join, and why they can't leave:
 xref:usage/jam/intercom.adoc#sessions-in-rooms[sessions in rooms].
 `role list` (the admin API's `rooms`) and the role page show them;
 only the config repo sets them.
+* `scope.observe: all` (goal) lets the role's sessions read every other session, read-only: xref:usage/jam/session-observe.adoc[session-observe].
 * `scope.ttl` is the default identity lifetime applied at enrollment (unset =
 no expiry). *A role with no `ttl` mints non-expiring tokens*—set one for
 ephemeral studios.

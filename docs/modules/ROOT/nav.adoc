@@ -87,6 +87,7 @@
 *** xref:usage/jam/session-context-authoring.adoc[]
 *** xref:usage/jam/session-context.adoc[]
 *** xref:usage/jam/session-events.adoc[]
+*** xref:usage/jam/session-observe.adoc[]
 *** xref:usage/jam/session-view.adoc[]
 *** xref:usage/jam/standing-sessions.adoc[]
 *** xref:usage/jam/standing-state.adoc[]
