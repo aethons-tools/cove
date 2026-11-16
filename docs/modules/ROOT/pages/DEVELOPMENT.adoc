@@ -4,7 +4,7 @@
 :owns: dev-sandbox toolchain settings (GOPROXY/GOSUMDB/GOPATH), build/test workarounds, and CI (the merge gate, the store integration job, the release pipeline)
 :prereqs: OVERVIEW.adoc
 :tier: leaf
-:updated: 2026-11-11
+:updated: 2026-11-16
 
 Operational notes for building and testing this repo,
 including the workarounds needed inside the egress-locked dev sandbox this repo is developed in.
@@ -130,7 +130,7 @@ to `main` or `release`, and on those branches themselves. Two legs run in parall
 * *``go``:* the app bundle (so the tests serve the real app), `+go test ./...+`, the installer and image-script tests, and
 https://github.com/aethons-tools/cove/blob/main/scripts/lint.sh[`scripts/lint.sh`]. These are the same scripts that `just test` and `just lint` run, so CI and the local
 loop cannot drift.
-* *``web``:* the Jam app's checks (`just app-check`) and the VS Code extension's (`scripts/vscode.sh`, which uploads the `jam-vscode` artifact), plus the user manual's extension tests (`just manual-check`).
+* *``web``:* the Jam app's checks (`just app-check`) and the VS Code extension's (`scripts/vscode.sh`, which uploads the `jam-vscode` artifact), plus the user manual's extension tests (`just manual-check`, hermetic: a fake `mmdc` renders their diagrams) and the customer manual build, with the pinned headless Chrome `scripts/manual-browser.sh` fetches for its diagrams (xref:manual-diagrams.adoc[]).
 https://github.com/aethons-tools/cove/blob/main/scripts/npm-ci.sh[`scripts/npm-ci.sh`] installs `web/app` once per job, though three steps use it: it skips `npm ci` when
 `+node_modules+` was installed from the same lockfile by the same Node.
 * The joining job is named *``gate``*, and that name is what branch protection lists as

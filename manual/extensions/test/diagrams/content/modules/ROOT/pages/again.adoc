@@ -1,0 +1,9 @@
+= Again
+
+The same diagram as on the index page, so one file serves both.
+
+[mermaid,alt="The same flow"]
+----
+graph LR
+  PUBLIC-DIAGRAM --> B
+----
