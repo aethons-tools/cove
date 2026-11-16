@@ -30,7 +30,7 @@ alerts() { # page
   { "$vale" --config "$tmp/.vale.ini" --output line "$root/testdata/vale/$1" 2>&1 || true; } |
     sed -E 's/^[^:]*:([0-9]+):[0-9]+:([A-Za-z.]+):.*/\1 \2/' | sort -n | paste -sd, -
 }
-expect "normative page: vague words are errors, items without a keyword are warnings" \
+expect "normative page: vague words are errors, items without a keyword are suggestions" \
   "7 Jam.Normative,7 Jam.NormativeKeyword,10 Jam.NormativeKeyword,12 Jam.Normative,12 Jam.NormativeKeyword,15 Jam.Normative" \
   "$(alerts normative.adoc)"
 expect "a page without :page-normative: is not checked" "" "$(alerts plain.adoc)"
