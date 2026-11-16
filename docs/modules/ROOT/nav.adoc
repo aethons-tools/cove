@@ -5,6 +5,7 @@
 ** xref:web-app.adoc[]
 ** xref:manual.adoc[]
 ** xref:manual-books.adoc[]
+** xref:manual-diagrams.adoc[]
 ** xref:docs-asciidoc.adoc[]
 ** xref:TODO.adoc[]
 * xref:usage/INDEX.adoc[]

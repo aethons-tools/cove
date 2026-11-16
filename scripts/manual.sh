@@ -24,6 +24,10 @@ out="$root/internal/jam/uiassets/manual"
 # build never leaves the embedded directory empty (go:embed needs .keep).
 rm -rf "$out.tmp" "$out.old"
 "$root/scripts/npm-ci.sh"
+# The headless Chrome diagrams render with. Without one the build still runs,
+# and fails only when it has a diagram to render (diagrams.js says so).
+JAM_BROWSER="$("$root/scripts/manual-browser.sh" || true)"
+export JAM_BROWSER
 npx antora antora-playbook.jam.yml
 # Jam's CSP allows no scripts on /app/manual/: search is for the team site only.
 if [ -e "$out.tmp/search-index.js" ]; then

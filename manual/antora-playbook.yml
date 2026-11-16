@@ -55,6 +55,10 @@ antora:
   # Full-text search (team builds only: the customer build is embedded in Jam,
   # whose CSP allows no scripts). Index includes internal content, like the site.
   - require: '@antora/lunr-extension'
+  # Mermaid diagrams (`[mermaid,alt="…"]` blocks) as SVG image files, rendered
+  # by mmdc with headless Chrome and cached in build/diagrams/. See
+  # docs/modules/ROOT/pages/manual-diagrams.adoc.
+  - require: ./extensions/diagrams.js
 asciidoc:
   attributes:
     # The team manual: keep (and mark) internal content. The customer build omits it.
