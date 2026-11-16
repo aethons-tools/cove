@@ -29,8 +29,8 @@ func TestCmdBoxTakesOnceAndCollapses(t *testing.T) {
 	if by, ok := b.takeInterrupt(); !ok || by != "Ann" {
 		t.Fatalf("takeInterrupt = %q, %v", by, ok)
 	}
-	if by, in, ok := b.takeCompact(); !ok || by != "Bob" || in != "keep b" {
-		t.Fatalf("takeCompact = %q, %q, %v", by, in, ok)
+	if c, ok := b.takeCompact(); !ok || c.by != "Bob" || c.instructions != "keep b" {
+		t.Fatalf("takeCompact = %+v, %v", c, ok)
 	}
 	if by, ok := b.takeClear(); !ok || by != "Cy" {
 		t.Fatalf("takeClear = %q, %v", by, ok)
@@ -38,7 +38,7 @@ func TestCmdBoxTakesOnceAndCollapses(t *testing.T) {
 	if _, ok := b.takeInterrupt(); ok {
 		t.Fatal("interrupt taken twice")
 	}
-	if _, _, ok := b.takeCompact(); ok {
+	if _, ok := b.takeCompact(); ok {
 		t.Fatal("compact taken twice")
 	}
 	if _, ok := b.takeClear(); ok {

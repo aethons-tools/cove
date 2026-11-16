@@ -52,7 +52,7 @@ The studio reads each turn's `result` event and then acts in this order. It fini
 ** *Not when it's returned,* nor after a failed post: the messages come back.
 . *Apply the turn's directives* (below).
 
-A turn that didn't end normally posts, commits, returns, and applies nothing: an interrupt, an error result, or a process that died. Its directives are dropped, as are those of a turn that never reached its end. A `/compact` turn (a press or `+turn_end+`) posts, commits, and returns nothing either.
+A turn that didn't end normally posts, commits, returns, and applies nothing: an interrupt, an error result, or a process that died. Its directives are dropped, as are those of a turn that never reached its end. A `/compact` turn (a press or `+turn_end+`) posts, commits, and returns nothing either. The compact runs before any wake that is pending at the turn's end, so that wake's turn resumes on the compacted conversation. A `resume` wake follows the turn-end rule like any other wake.
 
 [#the-turn-end-rule]
 == The turn-end rule
@@ -129,7 +129,9 @@ and a turn's first one is refused by both the MCP server and Jam
 |`+no_reply+` |false |true: no message is needed; the text stays thinking and the turn isn't returned
 |`post` |true |false: read as `+no_reply: true+`
 |`commit` |true |false (deny): the shown messages stay pending and come back with the next wake. Deny alone doesn't wake.
-|`next` |`wait` |`compact` (compact, then wait) or `end` (with ``reason``: the `end` tool's effect)
+|`next` |`wait` |`compact` (compact, then wait; with `resume`, compact, then carry on) or `end` (with ``reason``: the `end` tool's effect)
+|`+compact_instructions+` |— |with `next: compact`: passed to ``/compact <instructions>``, to say what the summary must keep
+|`resume` |— |with `next: compact`: a note the agent writes for itself. Once compacted, the session is woken at once with the reason `compacted`, and the note is the wake's prompt, shown with any messages still pending. If the compaction doesn't finish, the wake still comes, with the reason `compact-failed`. Without `resume`, the session waits.
 |`+wake_on_message+` |true |false: `PUT /mute`. New messages don't wake the session until it next runs. Alarms, the idle timeout, and kept processes still do, and an owner's keep/release reply to a nag still acts. The next turn end with the default lifts the mute.
 |`+wake_at+` |— |``+{at, note?, name?}+``: a one-shot alarm (`PUT /alarms/<name>`, default name `turn-end`)
 |`+idle_timeout+` |role's |as `+idle_timeout(…, scope: next)+`

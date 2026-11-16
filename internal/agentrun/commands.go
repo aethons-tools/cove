@@ -35,9 +35,8 @@ type cmdBox struct {
 	interrupt   bool
 	interruptBy string
 
-	compact      bool
-	compactBy    string
-	instructions string
+	compact    bool
+	compactReq compactReq
 
 	clear   bool
 	clearBy string
@@ -64,26 +63,29 @@ func (b *cmdBox) takeInterrupt() (by string, ok bool) {
 
 func (b *cmdBox) postCompact(by, instructions string) {
 	b.mu.Lock()
-	b.compact, b.compactBy, b.instructions = true, by, instructions
+	b.compact, b.compactReq = true, compactReq{by: by, instructions: instructions}
 	b.mu.Unlock()
 	b.repost()
 }
 
-func (b *cmdBox) takeCompact() (by, instructions string, ok bool) {
+func (b *cmdBox) takeCompact() (c compactReq, ok bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	by, instructions, ok = b.compactBy, b.instructions, b.compact
-	b.compact, b.compactBy, b.instructions = false, "", ""
-	return by, instructions, ok
+	c, ok = b.compactReq, b.compact
+	b.compact, b.compactReq = false, compactReq{}
+	return c, ok
 }
 
 // restoreCompact hands back a compact that was taken but never written (its
-// episode exited first), unless a newer one is already posted.
+// episode exited first), unless a newer one is already posted; that one
+// keeps c's resume note when it has none.
 func (b *cmdBox) restoreCompact(c compactReq) {
 	b.mu.Lock()
 	restored := !b.compact
 	if restored {
-		b.compact, b.compactBy, b.instructions = true, c.by, c.instructions
+		b.compact, b.compactReq = true, c
+	} else if b.compactReq.resume == "" {
+		b.compactReq.resume = c.resume
 	}
 	b.mu.Unlock()
 	if restored {
@@ -121,9 +123,10 @@ func (b *cmdBox) repost() {
 // so tests can shrink it.
 var compactTimeout = 10 * time.Minute
 
-// compactReq is a taken Compact: who pressed it and the instructions that
-// follow /compact.
-type compactReq struct{ by, instructions string }
+// compactReq is a taken Compact: who pressed it (or agentBy), the
+// instructions that follow /compact, and, for one asked for with turn_end,
+// the agent's resume note ("" = wait once compacted).
+type compactReq struct{ by, instructions, resume string }
 
 // compactText is the user message that runs Claude's native /compact.
 func compactText(instructions string) string {
