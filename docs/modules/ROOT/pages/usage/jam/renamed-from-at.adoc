@@ -84,7 +84,7 @@ namespace) is dropped from every connector, and the destination shows a
 `+destination.env:<name>+` condition, `+env key <K> is reserved (JAM_*); rename it+`.
 
 [#remote-studio-managers]
-== Remote Studio managers
+== Remote Studio Managers
 
 Nothing on a manager host migrates by itself, and a manager must run Jam's
 exact release (an old one is refused: its stream also uses the old gRPC name).
