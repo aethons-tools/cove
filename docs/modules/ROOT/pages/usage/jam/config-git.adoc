@@ -10,7 +10,7 @@ A Jam's configuration is a directory of small YAML files in a git repo, which
 you review and merge like code. *Config changes only by a commit* to the
 repo the Jam follows: by hand, or on a branch in the admin console
 (xref:usage/jam/config-branches.adoc[config-branches]). Nothing changes it live: no admin
-API or CLI verb writes config. Following the repo, and kits referenced by
+API or command-line verb writes config. Following the repo, and kits referenced by
 their own source: xref:usage/jam/config-git-sources.adoc[config-git-sources]. For a
 one-file snapshot instead, see xref:usage/jam/backup.adoc[backup].
 
@@ -32,8 +32,8 @@ directories anything else is refused (a `.yaml` extension: `use .yml`).
 
 Every non-kit file starts `+kind:+` (`destination`, `model-spec`, `user`,
 `connection`, `project`, `role`) and `+version: 1+`. Unknown fields are refused
-(`+users/bob.yml: unknown field "oidc"+`); a `+name:+` must equal the file name.
-Output of `config write` is deterministic (2-space yaml, sorted maps, members
+(`+users/bob.yml: unknown field "oidc"+`); a `+name:+` must equal the filename.
+Output of `config write` is deterministic (2-space YAML, sorted maps, members
 and rooms). Every kind (and jam.yml) may carry `+operator-notes:+`, markdown for
 operators only: xref:usage/jam/operator-notes.adoc[operator-notes.adoc].
 
@@ -91,7 +91,7 @@ that opens with `+---+` and has no leaves is written after empty front matter
 Inline kits are `kits/<n>/kit.yml`, with path parents across `kits/` (`+base: {kit: ../web-dev}+`) rewritten to `name@vN`
 on apply. An `@vN` is refused: in a role's `kit`, ``+<path>: kit <ref> pins a version; versions are per-Jam — name the kit+``;
 in a kit's `base.kit`, `+kits/<n>/kit.yml: base.kit <ref> pins a version; versions are per-Jam — name the kit or use a path parent+`. Versions written by `+--dir+` record provenance repo `local`, dir `kits/<name>` (from git: the config repo, dir, ref
-and commit). A kit is written as its directory: every file of its current version at its mode, with a parent that is also in the tree written `../<parent>` in `kit.yml` (apply re-pins it). A write mirrors ``kits/<n>/``: it removes every other file there that the directory's `.dockerignore` does not exclude (the exported one, else the dir's own: a regular file under 64 KiB, kept with what it excludes, or the dir is left alone); a `kits/<n>/` left beside `kits/<n>.source.yml` is refused as left over — remove it. A kit written as `kits/<n>.source.yml` loses its `kits/<n>/`, and back. A kit too big for the config upload limits is still written; apply it from a git source. A repo written by an older Jam (`base.context-dir` and `kits/<n>/context/`) is refused until a ``config write``: xref:usage/jam/kits-directory.adoc#stored-as-trees[the upgrade step]. Checkouts keep git's modes under any serve umask, so a tracked kit fetched before under
+and commit). A kit is written as its directory: every file of its current version at its mode, with a parent that is also in the tree written `../<parent>` in `kit.yml` (apply re-pins it). A write mirrors ``kits/<n>/``: it removes every other file there that the directory's `.dockerignore` does not exclude (the exported one, else the directory's own: a regular file under 64 KiB, kept with what it excludes, or the dir is left alone); a `kits/<n>/` left beside `kits/<n>.source.yml` is refused as left over—remove it. A kit written as `kits/<n>.source.yml` loses its `kits/<n>/`, and back. A kit too big for the config upload limits is still written; apply it from a git source. A repo written by an older Jam (`base.context-dir` and `kits/<n>/context/`) is refused until a ``config write``: xref:usage/jam/kits-directory.adoc#stored-as-trees[the upgrade step]. Checkouts keep Git's file modes under any serve umask, so a tracked kit fetched before under
 a non-022 umask gets one new version on its next sync.
 `config write` renders a kit's parent as a path parent only when its pin equals the parent's current version (apply
 re-pins to current). A kit the write includes (managed, or any with `+--all+`) pinned behind its in-tree parent fails the
@@ -102,7 +102,7 @@ membership, pool state, credential values, the legacy roster. The file types hav
 
 == The verbs
 
-All take `+--app+` (settings/token profile), `+--admin-url+` (overrides the app's settings) and `+--token+` (operator token; env `+JAM_ADMIN_TOKEN+`).
+All take `+--app+` (settings/token profile), `+--admin-url+` (overrides the app's settings) and `+--token+` (operator token; environment variable `+JAM_ADMIN_TOKEN+`).
 
 [%header]
 |===
@@ -144,7 +144,7 @@ repo's, otherwise updated.
 |Route |Does
 
 |`POST /admin/config/diff` |Plan an uploaded tree (`configtar` tar.gz body).
-|`GET /admin/config/export-tree?all=1` |Render the tree: `files`, `remove`, and `kits` (each `kits/<n>` dir's files: base64 `data`, ``mode``; the writer mirrors the dir to them, an empty list to nothing but what its `.dockerignore` excludes: see <<layout,the layout>>). A kit pinned behind its in-tree parent is 409.
+|`GET /admin/config/export-tree?all=1` |Render the tree: `files`, `remove`, and `kits` (each `kits/<n>` directory's files: base64 `data`, ``mode``; the writer mirrors the dir to them, an empty list to nothing but what its `.dockerignore` excludes: see <<layout,the layout>>). A kit pinned behind its in-tree parent is 409.
 |===
 
 Uploads: `+Content-Type: application/gzip+` (any other type is 415, so a
