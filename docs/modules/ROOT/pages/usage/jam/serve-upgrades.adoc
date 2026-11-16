@@ -25,9 +25,9 @@ column), so the only way back is restoring that backup.
 == Upgrading to the channel log
 
 The release with intercom slice 2b moves the intercom onto the channel log
-(intercompg migration `0004`, under an advisory lock, at first start). *Stop
-every older Jam first* — an older one would keep writing the renamed legacy
-tables — and don't roll back past it. The earlier log stays as read-only
+(`intercompg` migration `0004`, under an advisory lock, at first start). *Stop
+every older Jam first*—an older one would keep writing the renamed legacy
+tables—and don't roll back past it. The earlier log stays as read-only
 history; what this changes for agents, relays and `/app/user` is in
 xref:usage/jam/intercom.adoc#enabling-it[intercom].
 
@@ -36,13 +36,13 @@ xref:usage/jam/intercom.adoc#enabling-it[intercom].
 
 The relay files `relay-cursors.json`, `relay-markers.json`, and
 `relay-receipts.json` used to live in the directory of `+store:+` when it was set,
-otherwise in *serve's working directory* (e.g. the systemd
+otherwise in *the working directory of serve* (for example, the systemd
 `WorkingDirectory`). On upgrade, move them from there into `state-dir` (or point
 `state-dir` at that directory). If you do not:
 
 * Egress marks re-seed to the Log tail: nothing is redelivered, but squawks
 appended-but-undelivered at shutdown and pending retries are dropped.
-* Linear ingress starts from "now", so replies posted during the upgrade
+* Linear ingress starts from `now`, so replies posted during the upgrade
 downtime are never ingested.
 * Discord ingress re-reads recent messages (deduped).
 * Discord replies to posts made before the upgrade no longer route to their
