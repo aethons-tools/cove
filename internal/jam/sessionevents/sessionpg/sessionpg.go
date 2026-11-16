@@ -221,8 +221,8 @@ FROM session_events WHERE actor_id=$1 GROUP BY stream_id ORDER BY MIN(received_a
 }
 
 func (s *Store) ActiveActors(since, until time.Time) ([]string, error) {
-	rows, err := s.pool.Query(context.Background(), `SELECT DISTINCT actor_id FROM (SELECT actor_id FROM session_events
-GROUP BY actor_id, stream_id HAVING MIN(received_at) <= $2 AND MAX(received_at) >= $1) s ORDER BY actor_id COLLATE "C"`, since, until)
+	rows, err := s.pool.Query(context.Background(), `SELECT actor_id FROM (SELECT actor_id FROM session_events
+GROUP BY actor_id, stream_id HAVING MIN(received_at) <= $2 AND MAX(received_at) >= $1) s GROUP BY actor_id ORDER BY actor_id COLLATE "C"`, since, until)
 	if err != nil {
 		return nil, err
 	}
