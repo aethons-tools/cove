@@ -20,9 +20,10 @@ open only that doc, and stop when you have enough.
 |xref:manual.adoc[] |You are changing anything a Jam user can see (its manual page changes in the same PR), writing a manual page, taking or refreshing its screenshots, marking content team-only, proposing a change on the goal branch, or building the manual.
 |xref:manual-books.adoc[] |You are adding a book to the team site (Jam books) or changing how this one is published, building it with or without the process book from jam-config, setting up its deploy key, touching search or the book switcher, or changing or bumping the team site's UI bundle.
 |xref:manual-diagrams.adoc[] |You are drawing a diagram in a book, a build fails on a mermaid block, you are bumping mmdc, puppeteer or the pinned Chrome, or a books build can't find a headless Chrome.
+|xref:manual-vale.adoc[] |Vale fails the gate or reports on a page you changed, you are adding a term to the word list or changing a Jam rule, or you are bumping the Vale or Google pin.
 |xref:docs-asciidoc.adoc[] |You are converting a doc in docs/ to AsciiDoc, adding or moving a page of this book (the architecture book), auditing a docs tree that mixes .md and .adoc, or changing the converter or the checker's AsciiDoc handling.
 |xref:usage/INDEX.adoc[] |You are running one of the binaries (`jam`, `jam-colima`) and need its flags, config, or I/O contract.
 |xref:usage/jam/INDEX.adoc[usage/jam/] |You are running or administering a Jam (`jam serve`, operators, the roster, kits, studios, the intercom).
-|https://github.com/aethons-tools/cove/blob/main/docs/superpowers[superpowers/] |You need the design history — dated specs (`specs/`) and implementation plans (`plans/`) — behind a structural decision.
+|https://github.com/aethons-tools/cove/blob/main/docs/superpowers[superpowers/] |You need the design history (dated specs in `specs/` and implementation plans in `plans/`) behind a structural decision.
 |xref:TODO.adoc[] |You want the loose backlog of known follow-ups not yet filed as tickets.
 |===

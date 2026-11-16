@@ -1,0 +1,45 @@
+// Jam.Normative: on a page whose header (the lines before the first blank
+// line) sets :page-normative:, report each vague word outside code: inline
+// `code` and +passthrough+, listing, literal, passthrough and comment blocks,
+// comment lines and attribute entries. Vale hands this script the raw page
+// (scope: raw), so it skips those itself; normative-keyword.tengo skips the same.
+text := import("text")
+
+matches := []
+
+if text.re_match(`\A(?:[^\n]*\S[^\n]*\n)*:page-normative:`, scope) {
+  // The byte ranges to skip, as [begin, end] pairs.
+  skip := []
+  open := ""
+  offset := 0
+  for line in text.split(scope, "\n") {
+    end := offset + len(line)
+    if open != "" {
+      skip = append(skip, [offset, end])
+      if line == open { open = "" }
+    } else if text.re_match(`^(-{4,}|\.{4,}|\+{4,}|/{4,})\s*$`, line) {
+      skip = append(skip, [offset, end])
+      open = text.trim_space(line)
+    } else if text.re_match(`^(//|:[\w-]+!?:)`, line) {
+      skip = append(skip, [offset, end])
+    }
+    offset = end + 1
+  }
+  code := text.re_find("`[^`\n]+`|\\+[^+\n]+\\+", scope, -1)
+  if code != undefined {
+    for m in code { skip = append(skip, [m[0].begin, m[0].end]) }
+  }
+
+  found := text.re_find(`(?i)\b(usually|might|try\s+to|typically|should\s+try|ideally|as\s+needed)\b`, scope, -1)
+  if found != undefined {
+    for m in found {
+      b := m[0].begin
+      e := m[0].end
+      skipped := false
+      for r in skip {
+        if b < r[1] && e > r[0] { skipped = true }
+      }
+      if !skipped { matches = append(matches, {begin: b, end: e}) }
+    }
+  }
+}

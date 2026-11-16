@@ -1,0 +1,8 @@
+# On a page whose header sets :page-normative:, a vague word is an error
+# (process book, "Writing the books"). Vale can't scope a rule to a page
+# attribute, so this reads the raw page; normative.tengo explains the rest.
+extends: script
+message: "On a normative page, write a rule with an RFC 2119 keyword instead of '%s'."
+level: error
+scope: raw
+script: normative-vague.tengo
