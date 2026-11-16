@@ -68,7 +68,7 @@ and which messages there wake them:
 *wake named* (only messages that mention the agent) or *wake all* (every message).
 You set the rooms in the role's file in the config repo.
 *Observes sessions* shows when the role's agents may read every other session,
-read-only, as the optimizer's do.
+read-only, as the agents of the optimizer role do.
 You set it in the role's file too.
 *Edit scope* changes the destinations, addressing, TTL (such as `1h`), kit, and model spec.
 Egress::

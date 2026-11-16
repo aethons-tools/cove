@@ -64,7 +64,7 @@ Events keep jam-studio-agent's redaction; nothing more is removed.
 == Tools
 
 The studio's messaging server offers `observe_sessions`, `observe_activity`, and `observe_events`,
-mapping to the endpoints above,
+mapping to the preceding endpoints,
 only to a session whose role has `scope.observe`
 (the session context lists them then, as it does for previews).
 
