@@ -1,5 +1,5 @@
 = Linting the books' prose
-:summary: Vale on the books' pages: .vale.ini (styles Vale, Google and Jam), the Jam style's normative rules and word list in styles/, scripts/vale.sh with its pinned, sha256-verified Vale and Google package, `just vale`, `just test-vale`, and the gate step on the pages a pull request changes.
+:summary: Vale on the books' pages: .vale.ini (styles Vale, Google and Jam), the Jam style's normative rules and word list in styles/, scripts/vale.sh with its pinned, sha256-verified Vale and Google package, `just vale`, `just test-vale`, and the gate step on every page.
 :read_when: Vale fails the gate or reports on a page you changed, you are adding a term to the word list or changing a Jam rule, or you are bumping the Vale or Google pin.
 :owns: .vale.ini, styles/Jam, styles/config (the Jam scripts and word list), scripts/vale.sh and its pins, scripts/vale.test.sh and testdata/vale, and the gate's Vale step
 :prereqs: manual.adoc for the manual and its builds
@@ -29,15 +29,15 @@ A Vale rule has one level, so these are two rules.
 the terms the books use that the dictionary lacks.
 Vale also enforces each entry's case,
 so add a common noun as `+[Ss]parkline+`.
-* *Running it*: `just vale` checks every page, and `just vale <paths>` the pages among them.
-Errors fail it;
-warnings and suggestions are reported.
-The `gate` workflow runs it on the pages a pull request adds or changes,
-so a pull request that touches a page fixes that page's errors.
-It doesn't run into `release` (the release pull request, and the push when it merges):
-that diff is every page since the last release,
-each already checked on its way into `main`.
-`just test-vale` tests the `Jam` rules on `testdata/vale/` and the page selection.
+* *Running it*: `just vale` checks every page, `just vale <paths>` the pages among them,
+and `scripts/vale.sh --changed <ref>` the pages added or changed since `<ref>`.
+Errors and warnings fail it;
+suggestions are only reported.
+Vale itself exits non-zero only on an error,
+so `scripts/vale.sh` also fails when the summary line Vale prints counts a warning.
+The `gate` workflow runs it on every page,
+so a pull request fixes any error or warning on any page, not only on the pages it touches.
+`just test-vale` tests the `Jam` rules on `testdata/vale/`, the page selection, and which alert levels fail the run.
 * *Pins*: `scripts/vale.sh` uses the `vale` on `PATH` when it is the pinned version (as in the studio kit);
 otherwise it fetches the pinned Vale into `.vale/`.
 It always fetches the pinned `Google` package into `styles/Google/`.

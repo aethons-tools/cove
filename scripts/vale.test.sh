@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # vale.test.sh — test for the books' Vale setup: the Jam style's rules
-# (styles/Jam, on the pages in testdata/vale/) and the pages scripts/vale.sh
-# picks (a temp git repo). It installs the pinned vale and asciidoctor first
+# (styles/Jam, on the pages in testdata/vale/), the pages scripts/vale.sh
+# picks and the alert levels that fail it (a temp git repo). It installs the pinned vale and asciidoctor first
 # (scripts/vale.sh --which), so it runs on a fresh clone.
 # Run: bash scripts/vale.test.sh
 set -euo pipefail
@@ -63,4 +63,16 @@ expect "changed pages: added and modified, not deleted" \
 expect "given paths: only the pages among them" \
   "docs/modules/ROOT/pages/b.adoc" \
   "$(cd "$repo" && "$root/scripts/vale.sh" --list docs web/e.adoc | paste -sd, -)"
+
+# --- what fails the run: errors and warnings, not suggestions ---
+page="$repo/docs/modules/ROOT/pages"
+printf '= Page\n\nWe check this.\n' >"$page/warning.adoc"     # Google.We, a warning
+printf '= Page\n\nIt is checked.\n' >"$page/suggestion.adoc" # Google.Passive and more, suggestions
+printf '= Page\n\nIt checks this!\n' >"$page/error.adoc"     # Google.Exclamation, an error
+status() { # page
+  (cd "$repo" && "$root/scripts/vale.sh" "docs/modules/ROOT/pages/$1" >/dev/null 2>&1) && echo pass || echo fail
+}
+expect "a warning fails the run" fail "$(status warning.adoc)"
+expect "an error fails the run" fail "$(status error.adoc)"
+expect "a suggestion only is reported" pass "$(status suggestion.adoc)"
 [ "$fail" -eq 0 ]
