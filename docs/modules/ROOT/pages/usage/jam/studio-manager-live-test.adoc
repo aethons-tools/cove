@@ -28,7 +28,7 @@ The examples use the manager name `mac-1`, the role `acme/guest` and the kit `ap
 `just dev-jam-up`, then `just dev-jam-logs`.
 Expect: serve starts and logs `+Jam studio managers: accepting connections+` with `registered=0`, and no launcher line. `docker compose -f dev/docker-compose.yml ps` shows `jam` running.
 `just dev-jam manager list` prints nothing and exits 0.
-. *The host CLI reaches the admin API over OIDC.*
+. *The host's `jam` command-line tool reaches the admin API over OIDC.*
 `jam whoami`, then `jam manager list`.
 Expect: your operator identity, and the same empty list.
 The published `+127.0.0.1:8081+` is not treated as loopback, so a request with no token is refused.
@@ -48,18 +48,18 @@ Change a build-affecting field of the role's kit (`kits/app/` in the config repo
 Expect: the manager builds the new image, and the raise waits for it, then goes `live`.
 `jam role images acme/guest` shows a `mac-1` row with the new tag.
 . *Pause and unpause.* There is no pause verb: Jam pauses through the idle ladder (xref:usage/jam/wake-on.adoc[wake-on]).
-Leave `live-1` `waiting` past `runtime.wake.warm-timeout` (default 60s).
+Leave `live-1` `waiting` past `runtime.wake.warm-timeout` (default `60s`).
 Expect: `studio list` shows phase `idled`, and `docker ps` shows the container `(Paused)`.
 Then send the session a message in the Inbox (`/app/user`).
 Expect: Jam unpauses it, it reconnects, and it is woken: phase `live`, activity `running`.
 . *A draft build on the manager.* Retired: live kit drafts and their test builds were removed (xref:usage/jam/kits-drafts.adoc[kits-drafts]). The recorded run passed it; a new run skips it.
 . *Jam restarts and the manager reconnects.*
 `docker compose -f dev/docker-compose.yml restart jam`.
-Expect: the studios on the Mac keep running throughout. While the manager is reconnecting (its backoff is at most 30s), Probe answers Unknown, so nothing is reaped (xref:usage/jam/studio-managers.adoc#disconnect[disconnect]).
+Expect: the studios on the Mac keep running throughout. While the manager is reconnecting (its backoff is at most 30 seconds), Probe answers Unknown, so nothing is reaped (xref:usage/jam/studio-managers.adoc#disconnect[disconnect]).
 Afterwards, `manager list` shows `mac-1 connected=true` with the same `studios=` count and `strays=0`, and `studio list` shows the same studios still `live`.
 . *The manager restarts and leaves its studios running.*
 Stop `jam-colima run` (Ctrl-C).
-Expect: `docker ps` still shows its studios, and `manager list` shows `connected=false` within 30s.
+Expect: `docker ps` still shows its studios, and `manager list` shows `connected=false` within 30 seconds.
 Run it again.
 Expect: `connected=true`, the same `studios=` count, `strays=0`, and no studio marked lost (xref:usage/jam/studio-managers.adoc#reconnect[reconnect]).
 . *Teardown.*

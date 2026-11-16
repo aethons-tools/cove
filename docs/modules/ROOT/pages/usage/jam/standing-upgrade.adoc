@@ -1,15 +1,15 @@
 = Upgrading a standing session
-:summary: How `jam standing upgrade` (or the role page's Upgrade button) restarts a standing session on the current image while keeping its state — the queue, prepare-first on its pinned manager, the wait for idle, `--force`, `--wait`, and what is lost on a Jam restart.
+:summary: How `jam standing upgrade` (or the role page's Upgrade button) restarts a standing session on the current image while keeping its state—the queue, prepare-first on its pinned manager, the wait for idle, `--force`, `--wait`, and what is lost on a Jam restart.
 :read_when: A standing session shows `image=stale` and you want it on the current image, an upgrade stays `preparing` or `waiting-for-idle`, or `standing upgrade` answered 200, 202 or 409 and you want to know why.
-:owns: standing-session upgrade — the request and its answers, the prepare / wait-for-idle / restart passes, the `upgrade=<state>` display, `--wait`/`--wait-timeout`, and in-memory pending upgrades
+:owns: standing-session upgrade—the request and its answers, the prepare / wait-for-idle / restart passes, the `upgrade=<state>` display, `--wait`/`--wait-timeout`, and in-memory pending upgrades
 :prereqs: standing-sessions.adoc for standing sessions, reset and the reconciler; standing-state.adoc for the volumes a restart keeps; coves.adoc for `image` status and managers
 :tier: leaf
 :updated: 2026-11-13
 
 A standing studio keeps the image it was raised on. When `standing list` or the
-role page shows xref:usage/jam/coves.adoc#the-studio-verbs[`image=stale`] — after a new jam
-build, a build-changing kit edit, or a xref:usage/jam/model-specs.adoc[model-spec] change —
-queue an upgrade with `standing upgrade` (or the role page's *Upgrade* button,
+role page shows xref:usage/jam/coves.adoc#the-studio-verbs[`image=stale`]—after a new jam
+build, a build-changing kit edit, or a xref:usage/jam/model-specs.adoc[model-spec] change—queue
+an upgrade with `standing upgrade` (or the role page's *Upgrade* button,
 highlighted when stale). The request only records intent and answers at once:
 *202* `+{"pending":true,"state":"queued"}+`, or *200*
 `+{"pending":false,"reason":"already current"}+` when the studio's image is `ok`
@@ -22,11 +22,11 @@ meanwhile; a slow or failed build is no raise failure. While the build runs, the
 state carries the manager's reported step (``+preparing: building step 7/12+``;
 xref:usage/jam/studio-managers.adoc#activities[activities]).
 . *Wait for idle* (`+waiting-for-idle: <state>+`): right before the teardown
-it re-checks that the session is between episodes — `idled`, or live and
+it re-checks that the session is between episodes—`idled`, or live and
 `waiting`, `blocked` or `done`. `running`, `raising`, an unreported activity,
-and xref:usage/jam/turn-end.adoc#holding[`holding`] (background tasks a teardown would kill)
+and xref:usage/jam/turn-end.adoc#holding[`holding`] (background tasks a teardown would stop)
 are busy: the upgrade waits, it is never refused. `+--force+` skips the wait.
-. *Restart*: a plain teardown — *its volumes are kept* — then a raise of the same
+. *Restart*: a plain teardown—*its volumes are kept*—then a raise of the same
 session, which *resumes its conversation and workspace* like any restart (its Docker
 cache starts clean: it is the studio's). A failed teardown stays pending
 (`+teardown-failed: <reason>+`), retried every pass; a failed raise backs the name off as usual.

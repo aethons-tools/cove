@@ -16,7 +16,8 @@ config now come from the studio-kit registry: the `default` kit is seeded
 automatically at serve start; author others as `kits/<name>/` in the config
 repo and bind them with a role's `+kit:+` (xref:usage/jam/kits.adoc#role-to-kit-and-the-default-kit[kits]).
 
-== The registry is studio-only
+[#the-registry-is-studio-only]
+== The registry is only for studios
 
 Any pre-existing *full-kit* registry row (a whole `config.yml`, including the old
 auto-registered `managed` / `managed-<name>` kits) now fails `kit show` and

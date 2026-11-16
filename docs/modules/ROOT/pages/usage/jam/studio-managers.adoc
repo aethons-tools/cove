@@ -49,14 +49,14 @@ Managers must use the TLS :443 endpoint, because the dev listener carries the be
 * The `Hello` name must match the token's name, otherwise the stream is refused (`PermissionDenied`).
 * The `Hello` version must equal Jam's exactly, otherwise it is refused with `+version mismatch: jam <J>, manager <M>+`.
 * One stream per name: a new connection replaces the old one.
-* Heartbeats every 10s; a manager silent for 30s is dead and shown disconnected.
+* Heartbeats every 10 seconds; a manager silent for 30 seconds is dead and shown disconnected.
 
 [#status-reports]
 == Status reports
 
 A manager may send unsolicited *status reports* (op `status`, frame id 0): its host stats (memory and disk used/total, disk reclaimable as images, build cache and volumes, last cleanup) and its work in progress.
-It sends one right after Welcome (once its first measurement is in), every 30s, and (throttled to one a second) when its work in progress changes or it finishes a disk cleanup (xref:usage/jam-colima.adoc#disk-cleanup[jam-colima's]); a manager with nothing to measure sends none.
-Measuring runs apart from sending, so an on-demand report never waits on a measurement (it reuses the last host stats, or the manager's newer cached ones, such as a cleanup's); a measurement over 20s is cut off and reported as none.
+It sends one right after Welcome (once its first measurement is in), every 30 seconds, and (throttled to one a second) when its work in progress changes or it finishes a disk cleanup (xref:usage/jam-colima.adoc#disk-cleanup[jam-colima's]); a manager with nothing to measure sends none.
+Measuring runs apart from sending, so an on-demand report never waits on a measurement (it reuses the last host stats, or the manager's newer cached ones, such as a cleanup's); a measurement over 20 seconds is cut off and reported as none.
 How xref:usage/jam-colima.adoc#host-stats[jam-colima] measures its VM is on its page.
 
 Jam keeps the latest report per manager.
@@ -74,8 +74,8 @@ A kit prepare is a request Jam makes and waits on; its progress reaches Jam only
 
 Jam shows them:
 
-* the dashboard's Managers panel, *Activity* column: one line each, e.g. `+preparing kit web@v2: building step 7/12 (2m)+` (what, step, for how long);
-* a session raising or recovering while its manager (any manager, for one not yet placed) prepares exactly the kit its raise builds — the role's current kit (id, version and digest), else the kit it ran: `+is preparing its kit image — <step>+` on the xref:usage/jam/intercom-ui.adoc#session-status[status strip] and a `preparing kit` xref:usage/jam/session-card.adoc[card] pill;
+* the dashboard's Managers panel, *Activity* column: one line each, for example, `+preparing kit web@v2: building step 7/12 (2m)+` (what, step, for how long);
+* a session raising or recovering while its manager (any manager, for one not yet placed) prepares exactly the kit its raise builds—the role's current kit (id, version and digest), else the kit it ran: `+is preparing its kit image — <step>+` on the xref:usage/jam/intercom-ui.adoc#session-status[status strip] and a `preparing kit` xref:usage/jam/session-card.adoc[card] pill;
 * a standing upgrade's `preparing` state: `+preparing: <step>+` while its prepare runs (xref:usage/jam/standing-sessions.adoc[upgrades]);
 * ``jam manager list``'s ``activities=<n>``;
 * the New session dialog, while its Start waits: `+Preparing the kit image — <step> (<age>)+` (xref:usage/jam/personal-sessions.adoc#starting-one-from-the-inbox[personal sessions]).
@@ -114,7 +114,7 @@ Manager metrics are in xref:usage/jam/monitoring.adoc#metrics[`/metrics`].
 [#retiring-the-in-process-launcher]
 == Retiring the in-process launcher
 
-Jam used to run studios itself under `runtime.launcher` as the `local` manager; that block, the `local` manager and the `colima` verbs of the Jam CLI are gone.
+Jam used to run studios itself under `runtime.launcher` as the `local` manager; that block, the `local` manager, and the `colima` verbs of the `jam` command-line tool are gone.
 A serve config that still has `runtime.launcher` is refused at startup with a message pointing here.
 Remove the block, run xref:usage/jam-colima.adoc[jam-colima] next to Colima, set `+runtime.studio-managers: true+`, and register the manager (`jam manager add`).
 `colima setup-docker|check-docker` are now `+jam-colima colima ...+` (xref:usage/docker-in-sandbox.adoc[docker-in-sandbox]).

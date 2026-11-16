@@ -1,6 +1,6 @@
 = Admin UI entity pages
-:summary: The Jam admin console's per-entity pages outside a project — a user's page (/app/admin/config/users/<id>), an agent's page (/app/admin/agents/<id>: identity, grants, studio, access, session, squawks, setup), a destination's (/app/admin/config/destinations/<name>), a model-spec's (/app/admin/config/model-specs/<name>) and a kit's (/app/admin/config/kits/<name>, detailed in ui-kit-pages.adoc) — what each shows and how editing them works.
-:read_when: You are viewing or editing a user, agent, destination, model-spec or kit in the Jam admin UI — a user's logins, OIDC identities or accounts; an agent's grants, studio runtime, waiting/escalation state, who can reach its studio (the Access card, Unshare), session streams or squawks; a destination's client env/connector; or who uses any of them — or wondering why the list pages only create.
+:summary: The Jam admin console's per-entity pages outside a project—a user's page (/app/admin/config/users/<id>), an agent's page (/app/admin/agents/<id>: identity, grants, studio, access, session, squawks, setup), a destination's (/app/admin/config/destinations/<name>), a model-spec's (/app/admin/config/model-specs/<name>) and a kit's (/app/admin/config/kits/<name>, detailed in ui-kit-pages.adoc)—what each shows and how editing them works.
+:read_when: You are viewing or editing a user, agent, destination, model-spec or kit in the Jam admin UI—a user's logins, OIDC identities or accounts; an agent's grants, studio runtime, waiting/escalation state, who can reach its studio (the Access card, Unshare), session streams or squawks; a destination's client env/connector; or who uses any of them—or wondering why the list pages only create.
 :owns: the user, agent, destination and model-spec detail pages (what they show, their edit forms, the users list, create-only list forms, connector-conflict flags); the kit page is ui-kit-pages.adoc's
 :prereqs: ui-console.adoc for the Config tree and URLs; ui-editing.adoc for the gate/CSRF/audit rules; projects.adoc for the project lifecycle; roster.adoc for roles; connector.adoc for destination env/git; kits.adoc for the StudioKit schema and versioning
 :tier: leaf
@@ -9,14 +9,14 @@
 Entity names across the xref:usage/jam/ui-console.adoc[admin console] link to a page that shows the whole
 object and edits it in place. The list pages' forms only *create* (an
 existing name is refused with "edit it on its page") and then open the new
-object's page, where every field is pre-filled — so an edit can't silently drop
+object's page, where every field is pre-filled—so an edit can't silently drop
 a field the form didn't show.
 
 Config forms and buttons (create, edit, delete, push, pin) appear only on a
 branch of the config repo, where each save is a commit
 (xref:usage/jam/config-branches.adoc[config-branches]); elsewhere these pages are
 read-only. Live state stays editable anywhere: a user's OIDC identities,
-accounts and app tokens, an agent's grants, and a kit's import, track, sync and untrack.
+accounts and app tokens, an agent's grants, and a kit's import, track, sync, and untrack.
 
 == Project and role pages
 
@@ -28,9 +28,9 @@ xref:usage/jam/ui-projects.adoc[].
 
 `/app/admin/config/users` lists and (on a branch) creates users; `/app/admin/config/users/<id>` renames one, replaces its
 logins and removes it (on a branch; rename and
-remove are refused only while the user owns a live personal session — `RemoveUserChecked`;
+remove are refused only while the user owns a live personal session—`RemoveUserChecked`;
 a removal's other refusals (xref:usage/jam/project-members.adoc[project-members]) apply when the config repo's removal is applied, such as at Merge).
-It also replaces the user's OIDC identities and adds or unlinks accounts: live edits, not branch commits.
+It also replaces the user's OIDC identities and adds or removes linked accounts: live edits, not branch commits.
 The page lists the user's xref:usage/jam/app-tokens.adoc[app tokens] (label, created, last used, expiry,
 operator standing) and revokes one.
 
@@ -47,34 +47,34 @@ The UI splits the session kinds (ephemeral, standing, and personal) into five:
 (the xref:usage/jam/ui-console.adoc#session-timeline[session timeline]; shown when session capture is
 configured), *Teardown* (returns to the Agents list) when it has a
 studio and a runtime supervisor runs, and *Revoke* when it is enrolled.
-While it has a studio, its *Setup* section (last, read only when opened) shows what the agent is set up with — see xref:usage/jam/inspect.adoc#in-the-admin-ui[inspect].
+While it has a studio, its *Setup* section (last, read only when opened) shows what the agent is set up with—see xref:usage/jam/inspect.adoc#in-the-admin-ui[inspect].
 
-* *Identity* — its grants as `project/role` chips (× removes one; hover for
+* *Identity*—its grants as `project/role` chips (× removes one; hover for
 the effective destinations), *+ Grant*, and its token expiry; or "not
 enrolled" for a studio whose identity is gone.
-* *Runtime* — raised and last seen, lease holder, backend and location.
-* *Waiting & escalation* — whether it is waiting and since when (wake-on
+* *Runtime*—raised and last seen, lease holder, backend, and location.
+* *Waiting & escalation*—whether it is waiting and since when (wake-on
 resumes it on a reply past its wait seq), the open escalation (which tier was
 pinged, when, and on which chain), a personal session's owner nags, and how far
 its inbox is committed.
-* *Egress* — the fingerprint of the role egress policy it runs under, and
+* *Egress*—the fingerprint of the role egress policy it runs under, and
 consecutive re-apply failures, flagged (the supervisor tears the studio down
-at its limit — see xref:usage/jam/roster.adoc[]).
-* *Access* — who can reach the running studio and why: operators always;
+at its limit—see xref:usage/jam/roster.adoc[]).
+* *Access*—who can reach the running studio and why: operators always;
 a personal session's requester; project members as the role's collaboration
 policy says (`preview`/``ssh``: `members` or `none`); and each share grant
-(user, rights, expiry, granted by) with an *Unshare* button — a
+(user, rights, expiry, granted by) with an *Unshare* button—a
 CSRF-guarded write that removes the grant and closes that user's open SSH
 connections unless they still hold `ssh` another way. Below, the open
-connections (who, right — `ssh` or `preview` — since when) and the
+connections (who, right—`ssh` or `preview`—since when) and the
 *Previews* list: each exposed xref:usage/jam/previews.adoc[preview] as a link opening in a new tab
 (or "Previews are off on this Jam" without a xref:usage/jam/serve.adoc[`+previews:+`]
 domain). With neither SSH collaboration nor previews configured the card
 says so instead. Sharing itself is
 `jam studio share` (xref:usage/jam/collaboration-sharing.adoc[collaboration-sharing]).
-* *Session* — its captured event streams (start, last event, count), each
+* *Session*—its captured event streams (start, last event, count), each
 opening the timeline on that stream (xref:usage/jam/session-events.adoc[]).
-* *Squawks* — the newest 50 squawks in its conversations (and, from before
+* *Squawks*—the newest 50 squawks in its conversations (and, from before
 the channel log, to or from `+actor:<id>+`), rendered as on the Channel log,
 with a link to the Channel log filtered to its own posts.
 
@@ -100,9 +100,9 @@ studio's phase (Jam's) and the agent's reported activity into one axis:
 |terminating · lost · gone |being torn down · declared dead · torn down
 |===
 
-The Agents list's filters and the dashboard's tiles group them: *Running*
+The Agents list's filters and the dashboard's tiles group them as *Running*
 (running, holding), *Waiting* (waiting, blocked), *Setting up* (setting up,
-orienting), *Idled*, *Lost / terminating*. The API and CLI keep phase and
+orienting), *Idled*, and *Lost / terminating*. The API and the command-line tool keep phase and
 activity as separate fields.
 
 [#agent-context-cards]
@@ -112,8 +112,8 @@ The xref:usage/jam/ui-projects.adoc[role page, the project overview] and the das
 card for that layer (role, project, Jam-wide; the concept is xref:usage/jam/session-context.adoc[session
 context]). On screen the core is _Core instructions_ and
 the leaves _Progressive instructions_. The card is read-only until *Edit*
-(on a branch); then the whole card is editable — the core as markdown source,
-the leaves as collapsible rows, a project's resources as a `QuietGrid` — and
+(on a branch); then the whole card is editable—the core as markdown source,
+the leaves as collapsible rows, a project's resources as a `QuietGrid`—and
 *Save context* sends the structured save (core, leaves and, for a project,
 resources together). The card checks the limits as the server does and shows
 the server's `+errors[]+` at their fields; *View as YAML* shows the saved
@@ -127,40 +127,40 @@ layer in the xref:usage/jam/session-context-authoring.adoc[`jam context` format]
 Each destination name in the Destinations table (`/app/admin/config/destinations`) links to
 `/app/admin/config/destinations/<name>`. The table summarises its
 xref:usage/jam/destination-endpoints.adoc[endpoints] (each one's address, the distinct upstreams),
-the default credential, the studio-connector summary (env keys, `git`) and how many roles list it.
+the default credential, the studio-connector summary (environment keys, `git`) and how many roles list it.
 
 The page shows:
 
-* *Destination* — one card, read-only until *Edit* (on a branch); then the whole
+* *Destination*—one card, read-only until *Edit* (on a branch); then the whole
 card is editable and *Save destination* sends every field in one update
 (`specs/DestinationPage.tsx`, its model `specs/destDraft.ts`, ``ContextPanel``'s pattern).
 It holds the default credential and the note (the usage hint sessions see,
 xref:usage/jam/connector.adoc#notes-for-sessions[connector], with its 300-byte thermometer);
-the *Endpoints* `QuietGrid` — name, subdomain, route, upstream, identity in, apply as,
-allowed paths (space-separated), route git — with *+ new endpoint…* at the bottom and a
-thermometer for the 10-endpoint limit; and the *Agent connector* env grid
+the *Endpoints* `QuietGrid`—name, subdomain, route, upstream, identity in, apply as,
+allowed paths (space-separated), route git—with *+ new endpoint…* at the bottom and a
+thermometer for the 10-endpoint limit; and the *Agent connector* environment grid
 (variable, value with its placeholders). A row's ▸ expands it to what its identity-in
-and apply mean — a preset's xref:usage/jam/header-specs.adoc[header spec] read-only,
-an `expression` (the API's `custom`) editable, seeded from the preset it replaces —
-and its two header-logging selects; a row that logs shows a *logging* tag.
+and apply mean—the xref:usage/jam/header-specs.adoc[header spec] of a preset read-only,
+an `expression` (the API's `custom`) editable, seeded from the preset it replaces—and
+its two header-logging selects; a row that logs shows a *logging* tag.
 The card checks what it can as the server does (names, addresses, a template's
-`+{cred}+`, env keys and placeholders) and shows the server's `+errors[]+` at their
+`+{cred}+`, environment keys, and placeholders) and shows the server's `+errors[]+` at their
 fields (opening a row whose detail has one); the footer counts problems and
 *Save destination* stays off until there are none. A destination with no declared
-env shows its route's legacy default, labeled as implied (see
+environment shows its route's legacy default, labeled as implied (see
 xref:usage/jam/connector.adoc[connector]).
-* *Used by* — every role whose scope lists it, with the credential each
+* *Used by*—every role whose scope lists it, with the credential each
 injects there (the role's mapping or this default), linked to the role page.
-* *Connector conflicts* — flagged, never blocked: if a role using this
-destination also lists one that sets an env variable differently, or that
-also routes git, the page names the role and the other destination. Agents
+* *Connector conflicts*—flagged, never blocked: if a role using this
+destination also lists one that sets an environment variable differently, or that
+also routes git, the page names both the role and the other destination. Agents
 holding that role can't assemble a connector (Jam fails closed with 409)
 until one side changes. The check is over each role's own scope; a grant
 override can still differ.
 
 *New destination* on the list is a form for a destination with one endpoint
-(client env one `KEY=TEMPLATE` per line, empty = the route's legacy default);
-subdomains, more endpoints and expressions are set on its page.
+(client environment one `KEY=TEMPLATE` per line, empty = the route's legacy default);
+subdomains, more endpoints, and expressions are set on its page.
 *Delete* is on the page header.
 
 The user-facing description is the manual's `ROOT/configuration/destination` page.
@@ -173,17 +173,17 @@ xref:usage/jam/destination-api.adoc[destinations API].
 
 Each model-spec name in the table on the *Model-specs* page (`/app/admin/config/model-specs`) links to
 `/app/admin/config/model-specs/<name>`. The table shows type, version (with any constraint as a chip), principal,
-model, policy mode, provider and how many roles use it. The page shows the harness (type, version, constraint, principal
+model, policy mode, provider, and how many roles use it. The page shows the harness (type, version, constraint, principal
 credential _name_ and header rules, model, effort, note), the policy (mode, allow/deny rules), the
-roles that run it (*Used by* — for the default spec, also the roles bound to none) and the
-claude body (provider, provider-env keys, plugins, settings keys).
+roles that run it (*Used by*—for the default spec, also the roles bound to none) and the
+`claude` body (provider, provider-env keys, plugins, settings keys).
 
-*New model-spec* and *Edit model-spec* share one form: type and claude
+*New model-spec* and *Edit model-spec* share one form: type and `claude`
 provider are selects; principal is a select of the configured credential
 names, plus `pool` when a xref:usage/jam/pool.adoc[pool] is configured (a stored principal no
 longer configured stays selected); policy mode is a select (empty = harness
 default); version is the exact `X.Y.Z` the image installs, version-constraint the optional
-runtime check; allow, deny, plugins and xref:usage/jam/model-spec-headers.adoc#in-the-admin-ui[principal header rules]
+runtime check; allow, deny, plugins, and xref:usage/jam/model-spec-headers.adoc#in-the-admin-ui[principal header rules]
 take one entry per line; provider-env one `KEY=VALUE` per line; settings a JSON object. Writes go through the same
 validation as `jam model-spec` (xref:usage/jam/model-specs.adoc#validation[Validation]);
 a refusal shows in the form and stores nothing. *Delete* (on the
