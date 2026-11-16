@@ -51,7 +51,7 @@ If someone answered before you,
 Jam says who and what they chose,
 and your answer is not sent.
 
-You can answer only if you are in the channel.
+You can answer only if you are in the conversation.
 In a work log, any member of the project can answer.
 A session can name the people the ask is for.
 Then only they can answer,
