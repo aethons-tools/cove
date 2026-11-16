@@ -10,7 +10,8 @@ import { Pane, wirePane } from "./Pane";
 // The VS Code webview's entry (vite.vscode.config.ts): every byte goes
 // through the extension host. No service worker and no sounds. The
 // extension's HTML names the pane (data-pane), a board tab's board
-// (data-board) and Excalidraw's font directory (data-assets).
+// (data-board), a session tab's session (data-session) and Excalidraw's font
+// directory (data-assets).
 declare function acquireVsCodeApi(): VsApi;
 
 const root = document.getElementById("root")!;
@@ -20,9 +21,10 @@ const board = root.dataset.board;
 // Excalidraw's font faces) load. Not boards/assetPath.ts: that is the web app's.
 if (root.dataset.assets) window.EXCALIDRAW_ASSET_PATH = root.dataset.assets;
 const api = acquireVsCodeApi();
-// A tab's state is its board or channel, so a window reload restores the tab.
+// A tab's state is its board, channel or session, so a window reload restores the tab.
 if (name === "board") api.setState({ board });
 else if (root.dataset.channel) api.setState({ channel: root.dataset.channel });
+else if (root.dataset.session) api.setState({ session: root.dataset.session });
 const b = new Bridge(api, window);
 install(b, { signIn: () => b.post({ type: "signIn" }) });
 wirePane(b, document, name);

@@ -418,7 +418,7 @@ const helperActivity: SessionActivity = {
     { stream, turn: 2, start: at("10:05:02"), end: at("10:08:51"), after: 95, before: 201, events: 105 },
     { stream, turn: 3, start: at("10:12:04"), end: at("10:12:25"), after: 200, before: 211, events: 10 },
   ],
-  limited: [], sendTo: "session:ses_helper", ended: false, label: "helper", color: helperColor,
+  limited: [], sendTo: "session:ses_helper", dmChannel: "chn_helper", ended: false, label: "helper", color: helperColor,
 };
 const helperThinking: EventStream = { eventStream: [
   { event: "stream", data: stream },

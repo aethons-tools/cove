@@ -42,6 +42,12 @@ func (ic *Intercom) SessionConversation(inst Instance, viewer ident.ID) (Channel
 	if ch, ok := ic.TicketChannelOf(inst); ok {
 		return ch, true
 	}
+	return ic.SessionDM(inst, viewer)
+}
+
+// SessionDM is person viewer's dm with session inst, the one a post to
+// session:<id> goes into, without creating one (ok=false: none yet).
+func (ic *Intercom) SessionDM(inst Instance, viewer ident.ID) (Channel, bool) {
 	p, ok := ic.store.GetProject(orDefaultProject(inst.Project))
 	if !ok {
 		return Channel{}, false

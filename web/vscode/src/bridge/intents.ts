@@ -14,6 +14,7 @@ export type IntentAction =
   | { forwardPort: number; inBrowser: boolean; url: string }
   | { revealConversation: string | null }
   | { openSession: string }
+  | { openSessionTab: string }
   | { goTo: { channel: string; session: string } };
 
 const EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"]);
@@ -70,6 +71,9 @@ export function intentAction(i: OpenIntent, jamUrl: string, windowStudio?: strin
     case "session":
       if (typeof i.id !== "string" || !ID_RE.ses.test(i.id)) return new Error("Not a session id.");
       return { openSession: i.id };
+    case "sessionTab":
+      if (typeof i.id !== "string" || !ID_RE.ses.test(i.id)) return new Error("Not a session id.");
+      return { openSessionTab: i.id };
     default:
       return new Error("Unknown intent.");
   }

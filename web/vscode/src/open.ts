@@ -327,6 +327,12 @@ export function windowJam(
 // A pending hub request older than PENDING_MAX_MS is stale (its window gave up).
 export const PENDING_MAX_MS = 60_000;
 
+// Pending is what a pending hub request opens: a conversation's tab, or a
+// session's (vscode-hub.adoc#session-tabs).
+export type Pending = { channel: string } | { session: string };
+// PendingRequest is hub/pending-<host>.json: what to open, and when it was asked.
+export type PendingRequest = Pending & { at: number };
+
 export type GoDeps = {
   // windowJam is this window's Jam; isHub says this window is its hub.
   windowJam: string | undefined;
@@ -338,7 +344,9 @@ export type GoDeps = {
   // ownSession is a studio window's own session: going there reopens its tab.
   ownSession?: string;
   openTab(channel: string): void;
-  writePending(jam: string, p: { channel: string; at: number }): Promise<void>;
+  // openSessionTab opens a session's tab in this window, the hub.
+  openSessionTab(session: string): void;
+  writePending(jam: string, p: PendingRequest): Promise<void>;
   openHub(jam: string): Promise<void>;
   now(): number;
 };
@@ -357,8 +365,17 @@ export async function goTo(d: GoDeps, jam: string, channel: string, session: str
   await d.openHub(jam);
 }
 
-// readPending is a pending request's channel, if raw is a fresh, valid one.
-export function readPending(raw: string | undefined, now: number): string | undefined {
+// goToSession goes to a session's tab in jam's hub: from any other window, by
+// a pending request (as goTo's) and opening or focusing that hub. A
+// double-click, not this, opens the session's studio window.
+export async function goToSession(d: GoDeps, jam: string, session: string): Promise<void> {
+  if (jam === d.windowJam && d.isHub) return d.openSessionTab(session);
+  await d.writePending(jam, { session, at: d.now() });
+  await d.openHub(jam);
+}
+
+// readPending is what a pending request opens, if raw is a fresh, valid one.
+export function readPending(raw: string | undefined, now: number): Pending | undefined {
   if (!raw) return undefined;
   let o: unknown;
   try {
@@ -367,10 +384,11 @@ export function readPending(raw: string | undefined, now: number): string | unde
     return undefined;
   }
   if (!o || typeof o !== "object" || Array.isArray(o)) return undefined;
-  const { channel, at } = o as { channel?: unknown; at?: unknown };
-  if (typeof channel !== "string" || !(CHANNEL_RE.test(channel) || LEGACY_RE.test(channel))) return undefined;
+  const { channel, session, at } = o as { channel?: unknown; session?: unknown; at?: unknown };
   if (typeof at !== "number" || now - at > PENDING_MAX_MS || at - now > PENDING_MAX_MS) return undefined;
-  return channel;
+  if (typeof session === "string") return SESSION_ID_RE.test(session) ? { session } : undefined;
+  if (typeof channel !== "string" || !(CHANNEL_RE.test(channel) || LEGACY_RE.test(channel))) return undefined;
+  return { channel };
 }
 
 export type RailRow = RailResponse["me"][number];

@@ -1,5 +1,5 @@
 // The Jam API client: bearer auth, no redirects, and a 401 means signed out.
-import type { Conversation, RailResponse, SessionHead } from "../../app/src/api/types.js" with { "resolution-mode": "import" };
+import type { Conversation, RailResponse, SessionActivity, SessionHead } from "../../app/src/api/types.js" with { "resolution-mode": "import" };
 
 export class SignedOutError extends Error {
   constructor() {
@@ -30,6 +30,11 @@ export class JamApi {
 
   sessionHead(id: string): Promise<SessionHead> {
     return this.req("GET", `/app/user/api/sessions/${seg(id)}`);
+  }
+  // activity is the newest message of a session's activity: a 404 means the
+  // viewer may not open the session's view.
+  activity(id: string): Promise<SessionActivity> {
+    return this.req("GET", `/app/user/api/sessions/${seg(id)}/activity?limit=1`);
   }
   rail(): Promise<RailResponse> {
     return this.req("GET", "/app/user/api/rail");

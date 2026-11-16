@@ -39,7 +39,7 @@ let routerSeq = 0; // request ids are the pane's own; the shared Router gets uni
 const quietly = (t: unknown): void => void Promise.resolve(t).catch(() => undefined);
 
 // paneHtml sets the webview's options and renders the pane bundle for pane.
-export function paneHtml(w: vscode.Webview, extensionUri: vscode.Uri, pane: PaneName, extra?: { board?: string; channel?: string }): string {
+export function paneHtml(w: vscode.Webview, extensionUri: vscode.Uri, pane: PaneName, extra?: { board?: string; channel?: string; session?: string }): string {
   const root = vscode.Uri.joinPath(extensionUri, "dist", "webview");
   w.options = { enableScripts: true, enableCommandUris: false, localResourceRoots: [root] };
   return webviewHtml({
@@ -49,6 +49,7 @@ export function paneHtml(w: vscode.Webview, extensionUri: vscode.Uri, pane: Pane
     style: w.asWebviewUri(vscode.Uri.joinPath(root, "pane.css")).toString(),
     pane,
     ...(extra?.channel === undefined ? {} : { channel: extra.channel }),
+    ...(extra?.session === undefined ? {} : { session: extra.session }),
     // joinPath drops the trailing slash, and Excalidraw appends "fonts/…" to it
     ...(extra?.board === undefined ? {} : { board: extra.board, assets: `${w.asWebviewUri(vscode.Uri.joinPath(root, "excalidraw")).toString()}/` }),
   });

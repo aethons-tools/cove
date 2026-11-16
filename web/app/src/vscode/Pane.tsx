@@ -18,6 +18,7 @@ import { NavBridge } from "./NavBridge";
 import { SessionBody, SessionGate } from "./panes";
 import { useVscodeScheme } from "./scheme";
 import { RailPane } from "./RailPane";
+import { SessionTab } from "./SessionTab";
 import { vscodeCssVariables, vscodeTheme } from "./theme";
 
 // NOUN is what each session pane shows, in its copy.
@@ -27,13 +28,14 @@ export const NOUN: Record<SessionPaneName, string> = {
 
 // copyFor is a pane's copy for signed out, no session and a session gone.
 export function copyFor(name: PaneName): { signedOut: string; none: string; gone: string } {
-  const noun = name === "board" ? "whiteboard" : name === "rail" ? "conversations" : NOUN[name];
+  const noun = name === "board" ? "whiteboard" : name === "rail" ? "conversations" : name === "session" ? "session" : NOUN[name];
   return {
     signedOut: name === "board" ? "Sign in to Jam to see this whiteboard."
       : name === "rail" ? "Sign in to Jam to see your conversations."
       : name === "conversation" ? "Sign in to Jam to see this conversation."
+      : name === "session" ? "Sign in to Jam to see this session."
       : `Sign in to Jam to see this session's ${noun}.`,
-    none: name === "conversation" ? "That conversation is gone, or you can't see it." : `Open a session's conversation to see its ${noun}.`,
+    none: name === "conversation" ? "That conversation is gone, or you can't see it." : `Open a session to see its ${noun}.`,
     gone: "That session has ended, or you can't see it.",
   };
 }
@@ -66,7 +68,7 @@ export function wirePane(b: Bridge, doc: Document, name: PaneName): () => void {
   return () => { offState(); offLinks(); offScroll(); };
 }
 
-// Pane is one Jam view (or a board tab): the focused session's pane named
+// Pane is one Jam view (or a board or session tab): the focused session's pane named
 // name, or why there is none. gen counts sign-ins, so each starts with
 // fresh queries.
 export function Pane({ bridge, name, board }: { bridge: Bridge; name: PaneName; board?: string }): JSX.Element {
@@ -80,9 +82,14 @@ export function Pane({ bridge, name, board }: { bridge: Bridge; name: PaneName; 
   if (!view) body = null;
   else if (!view.s.signedIn) body = <Copy text={copy.signedOut} action="Sign in" onClick={signIn} />;
   else if (name === "rail") {
-    body = <Shell key={view.gen} signIn={signIn}><RailPane bridge={bridge} windows={view.s.windows ?? []} active={view.s.active} /></Shell>;
+    body = <Shell key={view.gen} signIn={signIn}><RailPane bridge={bridge} windows={view.s.windows ?? []} active={view.s.active} activeSession={view.s.activeSession} /></Shell>;
   } else if (name === "board") {
     body = <Shell key={view.gen} signIn={signIn}><BoardTab bridge={bridge} id={board ?? ""} /></Shell>;
+  } else if (name === "session") {
+    // The extension asked the session's activity: no target is gone too.
+    const t = view.s.target;
+    body = !t || "gone" in t ? <Copy text={copy.gone} />
+      : <Shell key={`${view.gen}:${t.session}`} signIn={signIn}><SessionTab bridge={bridge} session={t.session} /></Shell>;
   } else if (view.s.error !== undefined) body = <Copy text={`Couldn't load the focused session: ${view.s.error}`} action="Try again" onClick={retry} />;
   else if (!view.s.target) body = <Copy text={copy.none} />;
   else if ("gone" in view.s.target) body = <Copy text={copy.gone} />;
