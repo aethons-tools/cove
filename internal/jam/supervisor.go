@@ -2137,6 +2137,7 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 	in.Studio = studioFacts(s.store, s.trackerOf(), actor, spec.Owner, spec.Egress, kitEgress, haveKit, s.now())
 	if role, ok := s.store.GetRole(spec.Project, spec.Role); ok {
 		in.Role = role.Context
+		in.Session.Observe = role.Scope.Observes()
 	}
 	if p, ok := s.store.GetProject(orDefaultProject(spec.Project)); ok {
 		in.Project = sessionctx.ProjectLayer(p.Context, p.Resources)

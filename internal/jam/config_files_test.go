@@ -205,6 +205,38 @@ func TestParseKitSourceFileNeverEchoesSource(t *testing.T) {
 	}
 }
 
+// scope.observe: all round-trips; any other value is refused, and a role
+// without it observes nothing.
+func TestRoleFileObserve(t *testing.T) {
+	in := "kind: role\nversion: 1\nscope:\n  observe: all\n"
+	f, err := ParseRoleFile("projects/app/roles/opt.yml", "opt", []byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := f.role()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Scope.Observe != ObserveAll || !r.Scope.Observes() {
+		t.Fatalf("observe = %q", r.Scope.Observe)
+	}
+	canon := string(newConfigObject(f).Canon)
+	if !strings.Contains(canon, "observe: all") {
+		t.Fatalf("canon:\n%s", canon)
+	}
+	back := roleFileOf("app", "opt", r, func(ident.ID) (string, bool) { return "", false })
+	if a := string(newConfigObject(back).Canon); a != canon {
+		t.Fatalf("canon differs:\n%s\n---\n%s", canon, a)
+	}
+	if (Scope{}).Observes() {
+		t.Fatal("the zero scope observes")
+	}
+	want := `projects/app/roles/opt.yml: scope.observe: must be all, not "mine"`
+	if _, err := ParseRoleFile("projects/app/roles/opt.yml", "opt", []byte("kind: role\nversion: 1\nscope: {observe: mine}\n")); err == nil || err.Error() != want {
+		t.Fatalf("observe mine: %v, want %q", err, want)
+	}
+}
+
 // scope.rooms round-trips with wake named (the default) left out of the
 // canonical file; a bad wake, an empty name, and a room listed twice are
 // refused.

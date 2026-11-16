@@ -515,7 +515,8 @@ type RoleDetail struct {
 	TTL              string        `json:"ttl"`
 	Dests            []DestRow     `json:"dests"`
 	Addressing       []string      `json:"addressing"`
-	Rooms            []RoleRoomRow `json:"rooms"` // scope.rooms, set in the config repo
+	Rooms            []RoleRoomRow `json:"rooms"`    // scope.rooms, set in the config repo
+	Observes         bool          `json:"observes"` // scope.observe: all, set in the config repo
 	EgressManaged    bool          `json:"egressManaged"`
 	EgressDomains    []string      `json:"egressDomains"`
 	Allocation       []Setting     `json:"allocation"`

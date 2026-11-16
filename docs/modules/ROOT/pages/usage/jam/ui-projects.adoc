@@ -73,7 +73,8 @@ shown in the page head; the new-role form takes one too).
 The destinations field uses the `name=credential` syntax; a bare name uses
 the destination's default credential. Empty addressing means the role can't
 squawk anyone. The section also lists the role's `scope.rooms`, each with its wake mode
-(`RoleDetail.rooms`), which only the config repo sets.
+(`RoleDetail.rooms`), and whether it observes sessions (`scope.observe`, `RoleDetail.observes`;
+xref:usage/jam/session-observe.adoc[session-observe]), which only the config repo sets.
 * *Egress*—the role's domain list, or "kit default" when it sets none.
 Saving sets a policy (an empty list allows nothing beyond the sealed base and
 the kit's infra domains); *Reset to kit default* removes it. Running
