@@ -881,9 +881,11 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 				closeInput("compacted")
 				continue
 			}
-			if running.resume != "" {
-				w.resumeCompacted(running, true)
-				tr.Owe() // delivered now, at this turn boundary
+			w.resumeCompacted(running, true)
+			if w.wake.has() {
+				// Its resume note, or a wake whose signal raced the
+				// compaction's end: delivered now, at this turn boundary.
+				tr.Owe()
 			}
 			// Carry on with the usual turn-end action.
 		}
