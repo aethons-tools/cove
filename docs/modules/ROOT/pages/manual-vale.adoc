@@ -11,6 +11,8 @@ https://vale.sh[Vale] checks the prose of the pages under `manual/` and `docs/`
 
 * *Config*: `.vale.ini` at the repository root applies the styles `Vale`, `Google`, and `Jam`.
 `Google.OxfordComma` is an error;
+`Google.Colons` and `Google.Headings` are suggestions,
+because they can't tell a proper noun from a word that should be lowercase;
 `Vale.Spelling` checks American English.
 * *Style `Jam`* lives in `styles/Jam/`, with its scripts in `styles/config/scripts/`.
 On a page whose header sets `+:page-normative:+`,
@@ -18,7 +20,10 @@ On a page whose header sets `+:page-normative:+`,
 (`usually`, `might`, `try to`, `typically`, `should try`, `ideally`, `as needed`)
 outside code as an error,
 and `Jam.NormativeKeyword` reports a list item with no RFC 2119 keyword
-(MUST, MUST NOT, SHOULD, SHOULD NOT, MAY) as a warning.
+(MUST, MUST NOT, SHOULD, SHOULD NOT, MAY) as a suggestion:
+a rule needs one,
+but a step that only describes what happens needs none,
+and only the author can tell the two apart.
 A Vale rule has one level, so these are two rules.
 * *Word list*: `styles/config/vocabularies/Jam/accept.txt`,
 the terms the books use that the dictionary lacks.

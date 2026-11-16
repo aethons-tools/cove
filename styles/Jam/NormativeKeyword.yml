@@ -1,8 +1,9 @@
 # On a page whose header sets :page-normative:, a list item with no RFC 2119
-# keyword (MUST, MUST NOT, SHOULD, SHOULD NOT, MAY) is a warning: a rule
-# needs one, a step that only describes what happens needs none.
+# keyword (MUST, MUST NOT, SHOULD, SHOULD NOT, MAY) is a suggestion, not a
+# warning: a rule needs one, but a step that only describes what happens needs
+# none, and only the author can tell the two apart.
 extends: script
 message: "On a normative page, a rule in a list states MUST, MUST NOT, SHOULD, SHOULD NOT, or MAY."
-level: warning
+level: suggestion
 scope: raw
 script: normative-keyword.tengo
