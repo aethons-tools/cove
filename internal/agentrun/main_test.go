@@ -35,11 +35,12 @@ func TestMain(m *testing.M) {
 	// a stand-in (the guard's own test).
 	realSocket := cmp.Or(os.Getenv("JAM_TEST_REAL_AGENT_SOCKET"), AgentSocketPath)
 	checkSocket := guardSocket(realSocket)
-	if os.Getenv("JAM_TEST_KEEP_REAL_DEFAULTS") == "" {
-		defaultAgentSocket = filepath.Join(tmp, "agent.sock")
-		defaultKeepDir = filepath.Join(tmp, "keep")
-		defaultStreamLogPath = filepath.Join(tmp, "agent-stream.jsonl")
-	} else {
+	defaultKeepDir = filepath.Join(tmp, "keep")
+	defaultStreamLogPath = filepath.Join(tmp, "agent-stream.jsonl")
+	defaultAgentSocket = filepath.Join(tmp, "agent.sock")
+	if os.Getenv("JAM_TEST_KEEP_REAL_DEFAULTS") != "" {
+		// Only to show the guard catching the old default: aim it at a
+		// stand-in with JAM_TEST_REAL_AGENT_SOCKET, never the live socket.
 		defaultAgentSocket = realSocket
 	}
 	code := m.Run()
