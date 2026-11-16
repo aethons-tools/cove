@@ -11,6 +11,8 @@ https://vale.sh[Vale] checks the prose of the pages under `manual/` and `docs/`
 
 * *Config*: `.vale.ini` at the repository root applies the styles `Vale`, `Google`, and `Jam`.
 `Google.OxfordComma` is an error;
+`Google.Colons` and `Google.Headings` are suggestions,
+because they can't tell a proper noun from a word that should be lowercase;
 `Vale.Spelling` checks American English.
 * *Style `Jam`* lives in `styles/Jam/`, with its scripts in `styles/config/scripts/`.
 On a page whose header sets `+:page-normative:+`,
