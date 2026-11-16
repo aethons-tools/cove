@@ -156,7 +156,7 @@ manual-shot *ARGS:
     ./scripts/manual-shot.sh "$@"
 
 # lint the books' prose with Vale (.vale.ini: the Vale, Google and Jam styles), on
-# every page under manual/ and docs/, or on the pages among PATHS; errors fail it
+# every page under manual/ and docs/, or on the pages among PATHS; errors and warnings fail it
 # (docs/modules/ROOT/pages/manual-vale.adoc). e.g. `just vale docs/modules/ROOT/pages/manual.adoc`
 [positional-arguments]
 vale *PATHS:
