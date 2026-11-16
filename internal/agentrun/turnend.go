@@ -176,13 +176,13 @@ const postFailedText = "Your last reply could not be posted to %s (%v); the mess
 // "returned"); the returned turn ending that way too is committed and
 // recorded as unaddressed. Then the batch its prompt showed is committed
 // (only when r answers the prompt in flight), and the turn's directives
-// apply: what happens next (end, or compact — reported, for the caller to
+// apply: what happens next (end, or compact — returned, for the caller to
 // run before anything else is delivered) and what wakes the session. A turn
 // that didn't end normally (interrupted, an error) posts, commits, returns
 // and applies nothing. Every call is bounded; a failure is logged and the
 // run goes on. Callers run it before the next prompt is written, so a later
 // batch never re-shows what this one committed.
-func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) {
+func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact *compactReq) {
 	var meta turnMeta
 	if r.Gen != 0 && r.Gen == w.inflight.gen {
 		meta = w.inflight
@@ -194,11 +194,11 @@ func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) 
 	d := w.takeDirectives()
 	sent := w.takeSent()
 	if !meta.structured || meta.quiet {
-		return false
+		return nil
 	}
 	if !r.OK {
 		w.log.Info("agentrun: turn did not end normally; nothing posted, committed or applied")
-		return false
+		return nil
 	}
 	io := w.cfg.TurnIO
 	call := func(what string, f func(context.Context) error) error {
@@ -259,7 +259,24 @@ func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) 
 	if d.IdleTimeout != "" {
 		call("idle_timeout", func(c context.Context) error { return io.SetIdle(c, d.IdleTimeout) })
 	}
-	return d.Next == "compact"
+	if d.Next != "compact" {
+		return nil
+	}
+	return &compactReq{by: agentBy, instructions: d.CompactInstructions, resume: d.Resume}
+}
+
+// resumeCompacted wakes the session after the compaction c ran (ok) or
+// didn't finish, when it was asked for with a resume note: the note is the
+// wake's line (reason "compacted", or "compact-failed").
+func (w *Workload) resumeCompacted(c compactReq, ok bool) {
+	if c.resume == "" {
+		return
+	}
+	kind := "compacted"
+	if !ok {
+		kind = "compact-failed"
+	}
+	w.wake.post([]studioagent.WakeReason{{Kind: kind, Detail: c.resume}})
 }
 
 // returnTurn returns the turn meta describes, unless it is itself a returned

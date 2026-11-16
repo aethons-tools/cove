@@ -395,10 +395,13 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 			if w.interrupted {
 				r.OK = false
 			}
-			if ctx.Err() == nil && w.finishTurn(ctx, r) {
+			if ctx.Err() != nil {
+				continue
+			}
+			if c := w.finishTurn(ctx, r); c != nil {
 				// The last turn ended as the process exited; the compact it
 				// asked for runs as a maintenance episode before the next wake.
-				w.cmds.postCompact(agentBy, "")
+				w.cmds.restoreCompact(*c)
 			}
 		}
 		if tr.ResumeOwed() {
@@ -478,6 +481,7 @@ func (w *Workload) compactIdle(ctx context.Context, h studioagent.Handle, turn u
 			return ctx.Err()
 		}
 		w.log.Warn("agentrun: compact not run — the agent could not be started; waiting", "by", c.by, "err", err.Error())
+		w.resumeCompacted(c, false)
 		return nil
 	}
 	w.log.Info("agentrun: compacting the conversation in a maintenance episode", "by", c.by)
@@ -495,10 +499,13 @@ func (w *Workload) compactIdle(ctx context.Context, h studioagent.Handle, turn u
 		return ctx.Err()
 	case mctx.Err() != nil:
 		w.log.Warn("agentrun: compact timed out; maintenance episode stopped, waiting", "by", c.by, "timeout", compactTimeout.String())
+		w.resumeCompacted(c, false)
 	case waitErr != nil:
 		w.log.Warn("agentrun: compact FAILED — maintenance episode exited non-zero; waiting", "by", c.by, "exit", waitErr.Error())
+		w.resumeCompacted(c, false)
 	default:
 		w.log.Info("agentrun: compacted; waiting", "by", c.by)
+		w.resumeCompacted(c, true)
 	}
 	return nil
 }
@@ -716,9 +723,11 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 	// turn is written instead of the usual turn-end action.
 	ackBy := ""
 	// compact: a Compact taken but not yet written (at the next turn
-	// boundary); compacting: a written /compact's turn is in flight.
+	// boundary); compacting: a written /compact's turn is in flight, for
+	// running (zero in a maintenance episode: compactIdle answers its own).
 	var compact *compactReq
 	compacting := maintenance
+	var running compactReq
 	// finish runs the structured turn end of every turn that has ended. It
 	// runs before anything is written into the episode, so each prompt's
 	// batch starts past what the turns before it committed.
@@ -730,8 +739,12 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			if ackBy != "" {
 				r.OK = false // the interrupted turn: whatever claude called it
 			}
-			if w.finishTurn(ctx, r) && !compacting && compact == nil {
-				compact = &compactReq{by: agentBy}
+			if c := w.finishTurn(ctx, r); c != nil && !compacting {
+				if compact == nil {
+					compact = c
+				} else if compact.resume == "" {
+					compact.resume = c.resume // a pressed Compact runs, and the agent's note still wakes it
+				}
 			}
 			if w.returning {
 				tr.Owe() // the returned wake is delivered in this episode
@@ -755,6 +768,11 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			// The process exited before the turn boundary: the press is not lost.
 			w.cmds.restoreCompact(*compact)
 		}
+		if compacting && !maintenance {
+			// The process exited around the compaction: a resume note still
+			// wakes (compacted if its turn ended).
+			w.resumeCompacted(running, !tr.Busy())
+		}
 		w.interrupted = ackBy != ""
 	}()
 	for {
@@ -771,6 +789,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 		case <-ctx.Done():
 			return <-exited // CommandContext SIGTERM/SIGKILLs the process
 		case <-wake:
+			finish() // a turn that just ended may ask for a compact, which goes first
 			switch {
 			case !w.wake.has():
 				// A signal whose reasons an earlier prompt already took is stale.
@@ -778,6 +797,9 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 				// The acknowledge turn answers it: only record it as pending
 				// (so an exit before the ack keeps it owed), never deliver now.
 				tr.Wake()
+			case compact != nil:
+				// Delivered once compacted, so it resumes on the new context.
+				tr.Owe()
 			case tr.Wake():
 				// Marked before the write: a fast turn end must not be seen first.
 				tr.Wrote()
@@ -802,11 +824,14 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 					ackBy = by
 				}
 			}
-			if by, instructions, ok := w.cmds.takeCompact(); ok {
+			if c, ok := w.cmds.takeCompact(); ok {
 				if compacting {
-					w.ignoreCommand(h, turn, "compact", by, "already compacting")
+					w.ignoreCommand(h, turn, "compact", c.by, "already compacting")
 				} else {
-					compact = &compactReq{by: by, instructions: instructions} // the last press wins
+					if compact != nil && c.resume == "" {
+						c.resume = compact.resume // the agent's note still wakes it
+					}
+					compact = &c // the last press wins
 				}
 			}
 			if !maintenance {
@@ -856,6 +881,12 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 				closeInput("compacted")
 				continue
 			}
+			w.resumeCompacted(running, true)
+			if w.wake.has() {
+				// Its resume note, or a wake whose signal raced the
+				// compaction's end: delivered now, at this turn boundary.
+				tr.Owe()
+			}
 			// Carry on with the usual turn-end action.
 		}
 		if compact != nil && !tr.Busy() {
@@ -869,7 +900,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			w.newTurn(turnMeta{quiet: true})
 			tr.NoteWrite(w.inflight.gen)
 			write(compactText(compact.instructions))
-			compacting = true
+			compacting, running = true, *compact
 			w.emitCommand(h, turn, "compact", compact.by, "")
 			compact = nil
 			continue
@@ -907,6 +938,13 @@ func (w *Workload) awaitWake(ctx context.Context, h studioagent.Handle, turn uin
 	for {
 		select {
 		case <-w.wake.signal():
+			if c, ok := w.cmds.takeCompact(); ok {
+				// A compact goes first, so the wake resumes on the compacted
+				// conversation: the wake stays for the wait after it.
+				w.wake.repost()
+				w.takeClear(h, turn)
+				return nil, &c, true
+			}
 			if rs = w.wake.take(); len(rs) > 0 {
 				// A Clear pressed alongside still applies to the episode this
 				// Wake starts.
@@ -918,8 +956,8 @@ func (w *Workload) awaitWake(ctx context.Context, h studioagent.Handle, turn uin
 				w.ignoreCommand(h, turn, "interrupt", by, "no live episode")
 			}
 			w.takeClear(h, turn)
-			if by, instructions, ok := w.cmds.takeCompact(); ok {
-				return nil, &compactReq{by: by, instructions: instructions}, true
+			if c, ok := w.cmds.takeCompact(); ok {
+				return nil, &c, true
 			}
 		case <-ctx.Done():
 			return nil, nil, false

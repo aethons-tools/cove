@@ -106,11 +106,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-        with:
-          # The books' Vale step diffs HEAD against its first parent: on a
-          # pull request, HEAD is the merge into the base, so that is what
-          # the pull request changes; on a push, what the commit changed.
-          fetch-depth: 2
 
       # The API types check generates them from Go (tygo).
       - uses: actions/setup-go@v7
@@ -146,9 +141,9 @@ jobs:
           JAM_BROWSER="$(scripts/manual-browser.sh)"
           export JAM_BROWSER
           cd manual && npx antora antora-playbook.jam.yml --to-dir "$RUNNER_TEMP/manual"
-      # Mirrors `just vale`, on the pages under manual/ and docs/ this change
-      # touches: Vale with the Google and Jam styles (.vale.ini), pinned and
-      # sha256-verified by scripts/vale.sh. Errors fail it; warnings are
+      # Mirrors `just vale`, on every page under manual/ and docs/: Vale with
+      # the Google and Jam styles (.vale.ini), pinned and sha256-verified by
+      # scripts/vale.sh. Errors and warnings fail it; suggestions are
       # reported. Then the Jam style's own test.
       # The pinned Asciidoctor.js CLI Vale reads AsciiDoc through doesn't run
       # on Node 26 (its yargs loads as an ES module), so this step, the leg's
@@ -156,14 +151,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      # Not into release (the release PR, and the merge's push): its diff is
-      # every page since the last release, each already checked on its way
-      # into main, so it would re-lint pages main's cleanup hasn't reached.
       - name: books prose (Vale)
-        if: github.base_ref != 'release' && github.ref_name != 'release'
-        run: ./scripts/vale.sh --changed HEAD^1
-      # It installs the pinned Vale and asciidoctor itself, so it runs into
-      # release too, where the step above is skipped.
+        run: ./scripts/vale.sh
+      # It installs the pinned Vale and asciidoctor itself.
       - name: Jam Vale style test
         run: bash scripts/vale.test.sh
       - uses: actions/upload-artifact@v7

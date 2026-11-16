@@ -2,8 +2,8 @@
 # vale.sh — lint the books' pages with Vale (.vale.ini at the repo root: the
 # Vale, Google and Jam styles). The pages are the AsciiDoc files under
 # manual/modules/ and docs/modules/ (so not docs/superpowers/ or the
-# extensions' test fixtures). Errors fail the run; warnings and suggestions are
-# only reported. Uses the pinned Vale (sha256-verified, fetched once into
+# extensions' test fixtures). Errors and warnings fail the run; suggestions
+# are only reported. Uses the pinned Vale (sha256-verified, fetched once into
 # .vale/, git-ignored) unless the vale on PATH is that version, as in the
 # studio kit, and fetches the pinned Google package (sha256-verified) into
 # styles/Google/ (git-ignored). Vale reads AsciiDoc through asciidoctor: the
@@ -12,7 +12,7 @@
 #
 #   scripts/vale.sh                    # every page
 #   scripts/vale.sh docs manual/x.adoc # the pages among these paths
-#   scripts/vale.sh --changed REF      # the pages changed since REF (the gate)
+#   scripts/vale.sh --changed REF      # the pages changed since REF
 #   scripts/vale.sh --list ...         # print the pages instead of linting
 #   scripts/vale.sh --which            # print the vale binary to run (and install asciidoctor)
 set -euo pipefail
@@ -148,4 +148,14 @@ bin="$(vale_bin)"
 google
 need_asciidoctor
 echo "vale: checking ${#pages[@]} page(s)"
-"$bin" --config "$root/.vale.ini" "${pages[@]}"
+# Vale exits non-zero only on an error; a warning fails the run too, read from
+# the summary line the pinned Vale prints ("✖ 0 errors, 2 warnings and …").
+out="$(mktemp)"
+trap 'rm -f "$out"' EXIT
+status=0
+"$bin" --config "$root/.vale.ini" "${pages[@]}" | tee "$out" || status=$?
+if sed 's/\x1b\[[0-9;]*m//g' "$out" | grep -qE '[0-9]+ errors?, [1-9][0-9]* warnings? and '; then
+  echo "vale: warnings fail the run, as errors do" >&2
+  status=1
+fi
+exit "$status"
