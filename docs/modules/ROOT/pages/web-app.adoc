@@ -97,7 +97,7 @@ Rules:
 == Security
 
 * The app page's CSP allows only same-origin scripts. `style-src` permits inline styles for Mantine.
-* Its `frame-src` is the preview hosts (`+https://*.<previews domain>[:admin port]+`, `appFrameSrc`) when pane framing is on (previews and `ui-origins` set), else ``+'none'+``; the frame boundary itself is xref:usage/jam/previews.adoc[]'s.
+* Its `frame-src` is the preview hosts (`+https://*.<previews domain>[:admin port]+`, `appFrameSrc`) when pane framing is on (previews and `ui-origins` set), else ``+'none'+``; xref:usage/jam/previews.adoc[] owns the frame boundary itself.
 * The VS Code webview has its own CSP, in `web/vscode/src/panes/html.ts` (xref:usage/jam/vscode.adoc#panes[Panes]).
 * `dangerouslySetInnerHTML` is banned by ESLint except for the `squawkrender` message body.
 * A bearer request skips the same-origin check (no cookie, no CSRF), and the app never sees an app token: xref:usage/jam/app-tokens.adoc[app-tokens].
