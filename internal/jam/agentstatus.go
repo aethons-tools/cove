@@ -9,6 +9,7 @@ type AgentStatus string
 const (
 	StatusPending     AgentStatus = "pending"     // no studio: enrolled only, or never raised
 	StatusSettingUp   AgentStatus = "setting up"  // raising
+	StatusRecovering  AgentStatus = "recovering"  // its studio died; being re-raised under the same id
 	StatusOrienting   AgentStatus = "orienting"   // live, but the agent hasn't reported yet
 	StatusRunning     AgentStatus = "running"     // live, in a turn
 	StatusWaiting     AgentStatus = "waiting"     // live, turn over, waiting for its next message
@@ -30,6 +31,8 @@ func StatusOf(phase Phase, activity Activity, hasStudio bool) AgentStatus {
 	switch phase {
 	case PhaseRaising:
 		return StatusSettingUp
+	case PhaseRecovering:
+		return StatusRecovering
 	case PhaseIdled:
 		return StatusIdled
 	case PhaseTerminating:
