@@ -7,6 +7,7 @@ COV
 Esc
 ETag
 Excalidraw
+FIFOs
 gitconfig
 GitHub Issues
 gitignored
@@ -22,6 +23,7 @@ lockdown
 lunr
 Mantine
 mmdc
+mtime
 OAuth
 OKLab
 osascript
@@ -43,16 +45,21 @@ VS Code
 vsce
 VSCodium
 Xiaolai
+[Aa]ck
 [Aa]dmin
+[Bb]idi
 [Cc]olima
 [Cc]omms
+[Dd]edup
 [Hh]arbor
 [Ii]nviter
 [Jj]ams?(?!-)
 [Mm]ockups
+[Mm]ux
 [Pp]odman
 [Rr]econciler
 [Rr]equisitioner
+[Ss]eekable
 [Ss]parkline
 [Ss]ubagent
 [Uu]npause[sd]?

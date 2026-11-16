@@ -10,7 +10,7 @@ Every `jam` admin verb (`destination`, `role`, `grant`, `ungrant`, `actors`, `us
 `enroll`, `revoke`, `kit`, `studio`) is a client of a running Jam's admin API. This doc
 covers how that client authenticates and how one machine targets several Jams.
 
-By default the admin API is *loopback-only* — no login required; the verbs just
+By default the admin API is *loopback-only*—no login required; the verbs just
 work against `127.0.0.1`. Gate it with OIDC when the admin API is reachable beyond
 loopback (see the fail-closed rule in xref:usage/jam/serve.adoc[]).
 
@@ -38,7 +38,7 @@ against the token's space-delimited `scope` *or* its `+permissions[]+` array (th
 latter needs Auth0 RBAC "Add Permissions in the Access Token" + the permission
 assigned to the user).
 
-`device-client-id` gates the CLI *device flow* (this doc). `browser-client-id`
+`device-client-id` gates the command-line tool *device flow* (this doc). `browser-client-id`
 (a public SPA/Native client) gates *browser login for ``/app``* via
 Authorization Code + PKCE, reusing the same `issuer`/`audience`/`require-scope`
 (the login requests `require-scope` on top of `browser-scope`); the session's
@@ -46,7 +46,7 @@ access token is re-verified per request just like a bearer, and makes the
 viewer an admin. See xref:usage/jam/ui.adoc#signing-in-one-login-one-principal[Signing in: one login, one Principal].
 
 *Auth0 app type matters:* `login` uses the OAuth 2.0 *device flow*, which
-requires a *Native* application with the *Device Code* grant enabled — _not_ a
+requires a *Native* app with the *Device Code* grant enabled—_not_ a
 Machine-to-Machine app (an M2M app returns `403` on device authorization).
 
 == `login` / `logout` / `whoami`
@@ -67,7 +67,7 @@ user code to approve in a browser), and caches the resulting operator token at
 login-config endpoint returns 404 → "not OIDC-gated; no login required").
 
 `+login --participant+` signs a collaborator in as a participant instead, for
-studio SSH and sharing — see xref:usage/jam/collaboration.adoc[collaboration].
+studio SSH and sharing—see xref:usage/jam/collaboration.adoc[collaboration].
 
 == How the admin token is resolved
 
@@ -78,8 +78,8 @@ Each admin verb picks its operator token in this precedence:
 . the cached login session for the `+--app+` profile.
 
 A stale `+JAM_ADMIN_TOKEN+` in the environment *shadows* a fresh login
-session — if a verb unexpectedly ``401``s or ``403``s right after a successful
-`login`, check for a leftover env var (the CLI warns when the env shadows a cached
+session—if a verb unexpectedly ``401``s or ``403``s right after a successful
+`login`, check for a leftover environment variable (the command-line tool warns when the environment shadows a cached
 session).
 
 == App profiles (`settings.yml`, `+--app+`)

@@ -8,7 +8,7 @@
 
 A xref:usage/jam/model-specs.adoc[model-spec]'s principal may carry *header rules*: extra
 headers the xref:usage/jam/serve.adoc#the-broker-model[broker] applies to that principal's
-requests. Use them for headers an upstream needs from _this kind of principal_ —
+requests. Use them for headers an upstream needs from _this kind of principal_—
 for example a subscription token outside the xref:usage/jam/pool.adoc[pool] needs Anthropic's
 `oauth-2025-04-20` beta on every request.
 
@@ -36,9 +36,9 @@ Each rule has a `name` and *exactly one* action:
 [#where-rules-apply]
 == Where rules apply
 
-Rules apply only on the *destination serving the spec's provider API* — the
+Rules apply only on the *destination serving the spec's provider API*—the
 destination that matched the request. For `+type: claude+` with
-`+provider: anthropic+` that is any destination whose client env (what the
+`+provider: anthropic+` that is any destination whose client environment (what the
 xref:usage/jam/connector.adoc[connector] hands the cove) sets ``+ANTHROPIC_BASE_URL+``: the legacy
 `/anthropic/` route without `env`, or a destination whose `env` sets it,
 whatever its name. A more specific sub-route (say `/anthropic/files/`) is its
@@ -56,15 +56,16 @@ store's in-memory cache, so an edit applies to the next request. A spec without
 rules forwards exactly as before.
 
 *Order.* On the forwarded request the broker sets the credential, then
-applies the rules in order — so a later rule sees what an earlier one (or the
+applies the rules in order—so a later rule sees what an earlier one (or the
 cove) set, and an `ensure-list-item` after a `set` on the same header keeps its
 item.
 
-== The oauth beta
+[#the-oauth-beta]
+== The `oauth-2025-04-20` beta
 
 The subscription pool's `oauth-2025-04-20` beta needs *no* rule: the broker
-adds it for every pool credential, after the rules —
-xref:usage/jam/pool.adoc#the-oauth-beta[The oauth beta]. A subscription token outside the pool takes
+adds it for every pool credential, after the rules (see
+xref:usage/jam/pool.adoc#the-oauth-beta[the pool's beta]). A subscription token outside the pool takes
 it as an `ensure-list-item` rule on its spec (the legacy-flag scan writes it).
 
 [#validation]
@@ -74,7 +75,7 @@ At every write (a config plan of `model-specs/<name>.yml`, the admin UI on a bra
 each rule is checked; a refusal names `+principal.headers[i]+` and never
 echoes a value:
 
-* `name` is a valid HTTP header name the proxy can carry — not hop-by-hop
+* `name` is a valid HTTP header name the proxy can carry—not hop-by-hop
 (`Connection`, `Te`, `Upgrade`, …) and not ``Host``;
 * `name` is never `Authorization`, `X-Api-Key`, `Cookie` or any `+Proxy-*+`
 header (credentials, sessions and the proxy's own headers), and does not end
@@ -87,16 +88,16 @@ whitespace; an `ensure-list-item` is one item (no comma);
 At apply time the broker re-checks each rule and also *skips* one that names
 a header the destination's xref:usage/jam/header-specs.adoc[identity-in or apply spec] uses
 (so a rule can never overwrite the credential or leak the identity). A skipped
-rule logs a WARN naming the actor, destination, header and reason — never the
+rule logs a WARN naming the actor, destination, header and reason—never the
 value. Values are not secrets, but they are kept out of logs anyway. These
-WARNs (and the unresolvable-spec one) are rate-limited: once per actor and
+WARN messages (and the unresolvable-spec one) are rate-limited: once per actor and
 reason (per destination and header for a skip), again only when the reason
 changes or after an hour.
 
 [#in-the-admin-ui]
 == In the admin UI
 
-The model-spec form has a *Principal header rules* textarea, one rule per line:
+The model-spec form has a *Principal header rules* `textarea`, one rule per line:
 
 ----
 anthropic-beta += oauth-2025-04-20

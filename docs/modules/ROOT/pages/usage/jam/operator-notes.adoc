@@ -9,7 +9,7 @@
 Every config object can carry *operator notes*: free markdown of any length,
 written for the operators who run the Jam. Agents never see them, and they have
 no effect on anything Jam does. They are config like any other field: kept in
-the repo, applied, exported and backed up. An edit is an ordinary `update` in
+the repo, applied, exported, and backed up. An edit is an ordinary `update` in
 the plan.
 
 == Where they live
@@ -36,7 +36,7 @@ operator-notes: |
 |the Jam |`jam.yml` |the Dashboard (shown only)
 |destination, model spec, user, project, role |its `.yml` |its page; edit on a branch
 |connection |`connections/<n>.yml` |not shown (connections have no page)
-|kit |its own `kit.yml`, in the config repo or at its git source |its page (shown only)
+|kit |its own `kit.yml` (in the config repo or at its git source) |its page (shown only)
 |===
 
 The planner treats ``jam.yml``'s `operator-notes` as the Jam's own config object
@@ -70,8 +70,8 @@ Every console and admin API that returns the notes needs operator rights.
 
 == In the console
 
-Each page above opens with an *Operator notes* card: the markdown rendered as
-a message body is (no raw HTML), marked "for operators only". On a branch, the
+Each page listed earlier opens with an *Operator notes* card: the markdown rendered as
+a message body is (no raw HTML), marked `for operators only`. On a branch, the
 card has *Add notes* / *Edit*: a markdown text box whose *Save notes*
 commits to the branch. Off a branch, a page with no notes shows no card.
 
