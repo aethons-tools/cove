@@ -34,7 +34,9 @@ type Tracker interface {
 	// CommentFeed lists comments created after since (GitHub: at or after),
 	// oldest first, at most limit — the relay's ingress.
 	CommentFeed(ctx context.Context, since time.Time, limit int) ([]FeedComment, error)
-	// Viewer is the identity the token posts as (the relay's self-filter).
+	// Viewer is the identity the token posts as, in the form the relay's
+	// self-filter compares: Linear's user id (a comment's AuthorID), GitHub's
+	// login (a comment's Author).
 	Viewer(ctx context.Context) (string, error)
 }
 

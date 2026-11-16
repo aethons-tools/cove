@@ -28,7 +28,7 @@ type directory struct {
 	store        jam.Store
 	ic           *jam.Intercom
 	project      string
-	selfIdentity string                  // Jam's tracker identity (Linear displayName, GitHub login): the self-post filter
+	selfIdentity string                  // Jam's tracker identity (Linear user id, GitHub login): the self-post filter
 	tracker      func() (ident.ID, bool) // the tracker connection ticket bindings are on
 	trackerKind  string                  // the tracker's kind (relay service); "" = linear
 	discord      ident.ID                // the Discord connection (Jam's bot); "" without one
@@ -224,14 +224,15 @@ func (d *directory) trackerService() string { return cmp.Or(d.trackerKind, track
 // then maps the issue to the channel holding its binding: a ticket's, or a
 // room bound to it. A comment on an issue no channel holds is unroutable.
 // On GitHub it also drops any Bot account's comment, and an unknown viewer
-// (an App token's ErrNoViewer) drops nobody by name; Linear's self filter is
-// as it always was (an author equal to the viewer, even an empty one).
+// (an App token's ErrNoViewer) drops nobody by name. On Linear it drops an
+// author id equal to the viewer's, even an empty one: never a display name,
+// which another person may share (COV-359).
 func (d *directory) routeTracker(service string, e relay.Event) (relay.Routed, bool) {
 	if service == tracker.KindGitHub {
 		if e.AuthorBot || (d.selfIdentity != "" && e.Author == d.selfIdentity) {
 			return relay.Routed{}, false
 		}
-	} else if e.Author == d.selfIdentity {
+	} else if e.AuthorID == d.selfIdentity {
 		return relay.Routed{}, false
 	}
 	conn, ok := d.tracker()

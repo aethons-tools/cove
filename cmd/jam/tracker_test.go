@@ -179,16 +179,20 @@ func TestTrackerSurfaceDeliverWaitsOutRateLimit(t *testing.T) {
 	}
 }
 
-// F11: Linear's routing is as before — a comment whose author equals the
-// viewer (even an empty one) is dropped, and Linear has no bot filter.
+// F11: on Linear a comment whose author id equals the viewer's (even an
+// empty one) is dropped, and Linear has no bot filter. The display name plays
+// no part (COV-359).
 func TestRouteLinearSelfAndBotUnchanged(t *testing.T) {
 	k := newRelayKit(t)
 	if _, err := k.ticketChannel(); err != nil {
 		t.Fatal(err)
 	}
 	k.dir.selfIdentity = ""
-	if _, ok := k.dir.Route("linear", "acme", relay.Event{ForeignID: "c1", Surface: "ACME-7", AuthorID: "lin-9", Body: "hi"}); ok {
-		t.Fatal("linear: an empty author still equals an unknown viewer and is dropped")
+	if _, ok := k.dir.Route("linear", "acme", relay.Event{ForeignID: "c1", Surface: "ACME-7", Author: "x", Body: "hi"}); ok {
+		t.Fatal("linear: an empty author id still equals an unknown viewer and is dropped")
+	}
+	if _, ok := k.dir.Route("linear", "acme", relay.Event{ForeignID: "c3", Surface: "ACME-7", AuthorID: "lin-9", Body: "hi"}); !ok {
+		t.Fatal("linear: an empty display name no longer matches an unknown viewer")
 	}
 	if _, ok := k.dir.Route("linear", "acme", relay.Event{ForeignID: "c2", Surface: "ACME-7", Author: "Robo", AuthorID: "lin-8", AuthorBot: true, Body: "hi"}); !ok {
 		t.Fatal("linear: a bot-flagged comment is routed as before")
@@ -231,7 +235,11 @@ func TestRelayEndToEndBothTrackers(t *testing.T) {
 
 			now := time.Now().UTC().Truncate(time.Second)
 			c.Comment("brent", "please rebase", now.Add(-60*time.Second))
-			c.Comment(c.Self, "status from jam", now.Add(-50*time.Second))
+			c.Comment(c.SelfName, "status from jam", now.Add(-50*time.Second))
+			if c.Linear != nil {
+				// A person with Jam's display name is not Jam (COV-359).
+				c.Linear.AddComment(trackertest.LinComment{IssueID: "lin-1", Body: "namesake here", Author: c.SelfName, AuthorID: "u-namesake", CreatedAt: now.Add(-45 * time.Second)})
+			}
 			if c.GitHub != nil {
 				c.GitHub.AddComment(trackertest.GHComment{Issue: 1, Body: "ci passed", Login: "ci[bot]", UserID: 99, Bot: true, CreatedAt: now.Add(-40 * time.Second)})
 			}
@@ -256,6 +264,9 @@ func TestRelayEndToEndBothTrackers(t *testing.T) {
 			var bodies []string
 			for _, m := range lg.ChannelBefore(ch.ID, math.MaxInt64, 50) {
 				bodies = append(bodies, m.Body)
+			}
+			if c.Linear != nil && !slices.Contains(bodies, "namesake here") {
+				t.Fatalf("ticket channel = %q; want the namesake's comment", bodies)
 			}
 			if !slices.Contains(bodies, "please rebase") || slices.Contains(bodies, "status from jam") || slices.Contains(bodies, "ci passed") {
 				t.Fatalf("ticket channel = %q; want only the person's reply", bodies)
