@@ -33,7 +33,7 @@ const activity = (over: Partial<SessionActivity> = {}): SessionActivity => ({
     { stream: "s1", turn: 1, start: t0 + 30_000, end: t0 + 90_000, after: 0, before: 3, events: 2 },
     { stream: "s1", turn: 2, start: t0 + 6 * 60_000, end: t0 + 7 * 60_000, after: 2, before: 5, events: 2 },
   ],
-  limited: [], sendTo: "session:ses_1", ended: false, label: "pair", ...over,
+  limited: [], sendTo: "session:ses_1", dmChannel: "chn_dm", ended: false, label: "pair", ...over,
 });
 
 const thought = (seq: number, text: string): ThinkingEvent => ({

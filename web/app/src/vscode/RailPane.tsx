@@ -4,8 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { apiGet, type ApiError } from "../api/client";
-import { notifications } from "@mantine/notifications";
-import type { AgentItem, Bootstrap, ChannelRow, SessionHead, WorkRow } from "../api/types";
+import type { AgentItem, Bootstrap, ChannelRow, WorkRow } from "../api/types";
 import { BootContext } from "../BootContext";
 import { NewSession } from "../compose/NewSession";
 import { RecipientPicker } from "../compose/RecipientPicker";
@@ -24,9 +23,9 @@ export const DOUBLE_CLICK_MS = 250;
 // double-click on a Me row or an Agents card opens the session's studio
 // window or brings it to the front, under New message and New session, whose
 // new conversation opens in the hub (the go intent). A card or a work row's
-// worker opens the session's view: its conversation's tab. No chimes or app
-// badge.
-export function RailPane({ bridge, windows, active }: { bridge: Bridge; windows: string[]; active?: string }) {
+// worker opens the session's tab in the hub (the sessionTab intent), and
+// the active one's card is highlighted. No chimes or app badge.
+export function RailPane({ bridge, windows, active, activeSession }: { bridge: Bridge; windows: string[]; active?: string; activeSession?: string }) {
   const { data, error, isPending } = useRail();
   const boot = useQuery<Bootstrap, ApiError>({ queryKey: ["bootstrap"], queryFn: () => apiGet<Bootstrap>("bootstrap"), staleTime: Infinity });
   const [picking, picker] = useDisclosure(false);
@@ -77,11 +76,7 @@ export function RailPane({ bridge, windows, active }: { bridge: Bridge; windows:
     },
   });
   const openWindow = (session: string) => bridge.post({ type: "open", intent: { kind: "session", id: session } });
-  // goSession goes to a session's view: its conversation for the viewer.
-  const goSession = (session: string) => void apiGet<SessionHead>(`sessions/${encodeURIComponent(session)}`).then(
-    (h) => h.channel ? goChannel(h.channel, session) : notifications.show({ message: "That session has no conversation you can open." }),
-    (e: ApiError) => notifications.show({ color: "red", message: e.message }),
-  );
+  const goSession = (session: string) => bridge.post({ type: "open", intent: { kind: "sessionTab", id: session } });
   const rowProps = (r: ChannelRow) => {
     const go = () => goChannel(r.id, r.session);
     return clicks(go, r.session && r.ssh ? () => openWindow(r.session) : go);
@@ -99,6 +94,6 @@ export function RailPane({ bridge, windows, active }: { bridge: Bridge; windows:
   if (data.me.length + data.work.length + data.agents.length + data.history.length === 0) {
     return frame(<Text c="dimmed" size="sm" m="md">No conversations yet. Start one with New message.</Text>);
   }
-  return frame(<RailSections rail={data} active={active} rowProps={rowProps} workProps={workProps} cardProps={cardProps} marker={marker}
+  return frame(<RailSections rail={data} active={active} activeSession={activeSession} rowProps={rowProps} workProps={workProps} cardProps={cardProps} marker={marker}
     onWorker={(w) => { clearTimeout(timer.current); goSession(w.worker.id); }} />);
 }

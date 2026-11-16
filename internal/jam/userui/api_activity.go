@@ -97,6 +97,9 @@ func (h *handler) apiSessionActivity(w http.ResponseWriter, r *http.Request) {
 	if !a.Ended {
 		a.SendTo = "session:" + inst.ActorID
 	}
+	if dm, ok := h.d.Intercom.SessionDM(inst, p.UserID); ok {
+		a.DMChannel = string(dm.ID)
+	}
 	colors := map[ident.ID]string{}
 	convs := map[ident.ID]ConversationRef{}
 	var order []ident.ID

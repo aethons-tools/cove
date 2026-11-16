@@ -7,6 +7,7 @@ import {
   openSession,
   pickSession,
   goTo,
+  goToSession,
   PENDING_MAX_MS,
   readPending,
   remoteUri,
@@ -20,7 +21,7 @@ import {
   windowKind,
 } from "../src/open";
 import { hubFileFor } from "../src/jams";
-import type { OpenDeps, Ui } from "../src/open";
+import type { OpenDeps, PendingRequest, Ui } from "../src/open";
 import { editorFor } from "../src/editor";
 
 const ID = "ses_0abcdefghjkmnpqrstvwxyz012";
@@ -318,7 +319,9 @@ describe("goTo", () => {
         isHub: o.hub ?? false,
         ownSession: o.own,
         openTab: (c: string) => void calls.push(`openTab ${c}`),
-        writePending: async (jam: string, p: { channel: string; at: number }) => void calls.push(`pending ${jam} ${p.channel} ${p.at}`),
+        openSessionTab: (id: string) => void calls.push(`openSessionTab ${id}`),
+        writePending: async (jam: string, p: PendingRequest) =>
+          void calls.push(`pending ${jam} ${"channel" in p ? p.channel : `session ${p.session}`} ${p.at}`),
         openHub: async (jam: string) => void calls.push(`openHub ${jam}`),
         now: () => 5,
       },
@@ -370,15 +373,55 @@ describe("goTo", () => {
   });
 });
 
+describe("goToSession", () => {
+  const A = "https://a.example";
+  // The same deps as goTo's.
+  const deps = (hub: boolean) => {
+    const calls: string[] = [];
+    return {
+      calls,
+      d: {
+        windowJam: A,
+        isConnected: () => true,
+        openSession: async (id: string) => void calls.push(`openSession ${id}`),
+        focusStudio: async (id: string) => void calls.push(`focusStudio ${id}`),
+        isHub: hub,
+        ownSession: ID,
+        openTab: (c: string) => void calls.push(`openTab ${c}`),
+        openSessionTab: (id: string) => void calls.push(`openSessionTab ${id}`),
+        writePending: async (jam: string, p: PendingRequest) => void calls.push(`pending ${jam} ${JSON.stringify(p)}`),
+        openHub: async (jam: string) => void calls.push(`openHub ${jam}`),
+        now: () => 5,
+      },
+    };
+  };
+  it("in the hub: the session's tab, even with its window open", async () => {
+    const f = deps(true);
+    await goToSession(f.d, A, ID);
+    expect(f.calls).toEqual([`openSessionTab ${ID}`]);
+  });
+  it("in any other window (its own studio window too): a pending request with the session, then the hub", async () => {
+    const f = deps(false);
+    await goToSession(f.d, A, ID);
+    expect(f.calls).toEqual([`pending ${A} ${JSON.stringify({ session: ID, at: 5 })}`, `openHub ${A}`]);
+    const g = deps(true);
+    await goToSession(g.d, "https://b.example", ID);
+    expect(g.calls).toEqual([`pending https://b.example ${JSON.stringify({ session: ID, at: 5 })}`, "openHub https://b.example"]);
+  });
+});
+
 describe("readPending", () => {
   const CHN = "chn_0abcdefghjkmnpqrstvwxyz012";
-  it("a fresh, valid entry is its channel", () => {
-    expect(readPending(JSON.stringify({ channel: CHN, at: 1000 }), 1000 + PENDING_MAX_MS)).toBe(CHN);
-    expect(readPending(JSON.stringify({ channel: "legacy:dm:a", at: 1000 }), 1000)).toBe("legacy:dm:a");
+  it("a fresh, valid entry is its channel or session", () => {
+    expect(readPending(JSON.stringify({ channel: CHN, at: 1000 }), 1000 + PENDING_MAX_MS)).toEqual({ channel: CHN });
+    expect(readPending(JSON.stringify({ channel: "legacy:dm:a", at: 1000 }), 1000)).toEqual({ channel: "legacy:dm:a" });
+    expect(readPending(JSON.stringify({ session: ID, at: 1000 }), 1000)).toEqual({ session: ID });
   });
   it("stale, junk or bad entries are nothing", () => {
     expect(readPending(JSON.stringify({ channel: CHN, at: 1000 }), 1001 + PENDING_MAX_MS)).toBeUndefined();
-    for (const raw of [undefined, "", "{", "[]", JSON.stringify({ channel: "chn_x", at: 1 }), JSON.stringify({ channel: CHN }), JSON.stringify({ channel: CHN, at: "1" })]) {
+    expect(readPending(JSON.stringify({ session: ID, at: 1000 }), 1001 + PENDING_MAX_MS)).toBeUndefined();
+    for (const raw of [undefined, "", "{", "[]", JSON.stringify({ channel: "chn_x", at: 1 }), JSON.stringify({ channel: CHN }), JSON.stringify({ channel: CHN, at: "1" }),
+      JSON.stringify({ session: "ses_x", at: 1 }), JSON.stringify({ session: CHN, at: 1 }), JSON.stringify({ at: 1 })]) {
       expect(readPending(raw, 1)).toBeUndefined();
     }
   });

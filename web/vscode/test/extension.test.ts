@@ -45,6 +45,8 @@ function jamFetch(calls: Call[]) {
     if (auth === "Bearer t") return new Response("", { status: 401 });
     if (u.pathname === "/app/user/events") return new Response(null, { status: 204 });
     if (u.pathname === `/app/user/api/sessions/${SES}`) return Response.json({ label: "alpha", channel: CHN });
+    if (u.pathname === `/app/user/api/sessions/${SES}/activity`) return Response.json({ label: "alpha", sendTo: `session:${SES}`, dmChannel: CHN });
+    if (u.pathname.startsWith("/app/user/api/sessions/")) return Response.json({ error: "no such session", code: "not_found" }, { status: 404 });
     if (u.pathname === "/app/user/push/focus") return new Response(null, { status: 204 });
     if (u.pathname === "/app/user/api/rail") return Response.json({ me: [], work: [], agents: [], history: [], unreadTotal: 0 });
     if (u.pathname === `/app/user/api/conversations/${CHN}`) return Response.json({ session: SES, label: "alpha" });
@@ -1113,6 +1115,94 @@ describe("hub window", () => {
       mock.panels[0]!.setActive(false);
       mock.panels[1]!.setActive(true);
       await vi.waitFor(() => expect(lastState(status)).toEqual({ signedIn: true, target: null }));
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("in the hub, a card opens the session's tab once; the views and the rail's card follow it, and a conversation tab takes over", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const fetchSpy = jamFetch([]);
+    try {
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      hubWindow(ctx);
+      activate(ctx);
+      expect(mock.panelSerializers.has("jam.sessionTab")).toBe(true);
+      const status = openView();
+      status.receive({ type: "ready", pane: "status" });
+      const rail = openRail();
+      rail.receive({ type: "ready", pane: "rail" });
+      rail.receive({ type: "open", intent: { kind: "sessionTab", id: SES } });
+      await vi.waitFor(() => expect(mock.panels.map((p) => p.viewType)).toEqual(["jam.sessionTab"]));
+      rail.receive({ type: "open", intent: { kind: "sessionTab", id: SES } });
+      await settle();
+      expect(mock.panels).toHaveLength(1);
+      const tab = mock.panels[0]!;
+      tab.receive({ type: "ready", pane: "session" });
+      await vi.waitFor(() => expect(tab.title).toBe("alpha"));
+      tab.setActive(true);
+      await vi.waitFor(() => expect(lastState(status)).toEqual({ signedIn: true, target: { session: SES, label: "alpha", channel: CHN } }));
+      await vi.waitFor(() => expect(lastState(rail)).toMatchObject({ activeSession: SES }));
+      expect(lastState(rail)?.active).toBeUndefined();
+      rail.receive({ type: "open", intent: { kind: "go", channel: CHN, session: SES } });
+      await vi.waitFor(() => expect(mock.panels).toHaveLength(2));
+      tab.setActive(false);
+      mock.panels[1]!.setActive(true);
+      await vi.waitFor(() => expect(lastState(rail)).toMatchObject({ active: CHN }));
+      expect(lastState(rail)?.activeSession).toBeUndefined();
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a session tab whose activity 404s says the session is gone", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const OTHER = "ses_1abcdefghjkmnpqrstvwxyz012";
+    const fetchSpy = jamFetch([]);
+    try {
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      hubWindow(ctx);
+      activate(ctx);
+      openRail().receive({ type: "open", intent: { kind: "sessionTab", id: OTHER } });
+      await vi.waitFor(() => expect(mock.panels).toHaveLength(1));
+      const tab = mock.panels[0]!;
+      tab.receive({ type: "ready", pane: "session" });
+      await vi.waitFor(() => expect(lastState(tab as unknown as View)).toEqual({ signedIn: true, target: { session: OTHER, gone: true } }));
+    } finally {
+      fetchSpy.mockRestore();
+      deactivate();
+    }
+  });
+
+  it("a card in an ordinary window writes a pending session request and opens the hub, which opens the session's tab", async () => {
+    mock.reset();
+    mock.config["jam.url"] = JAM;
+    const fetchSpy = jamFetch([]);
+    try {
+      const ctx = fakeContext();
+      ctx.secretValues.set("jam.session", stored("t2"));
+      activate(ctx);
+      openRail().receive({ type: "open", intent: { kind: "sessionTab", id: SES } });
+      await vi.waitFor(() => expect(openFolderCalls()).toHaveLength(1));
+      expect(openFolderCalls()[0]![1]).toEqual(expect.objectContaining({ fsPath: hubPath(ctx) }));
+      const file = `${ctx.globalStorageUri.path}/hub/pending-jam.example.com.json`;
+      expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ session: SES, at: expect.any(Number) });
+      expect(mock.panels).toEqual([]);
+      deactivate();
+      mock.reset();
+      mock.config["jam.url"] = JAM;
+      // The hub: another window on the same global storage.
+      const hub = fakeContext(ctx.globalStorageUri.path);
+      hub.secretValues.set("jam.session", stored("t2"));
+      hubWindow(hub);
+      activate(hub);
+      await vi.waitFor(() => expect(mock.panels.map((p) => p.viewType)).toEqual(["jam.sessionTab"]));
     } finally {
       fetchSpy.mockRestore();
       deactivate();

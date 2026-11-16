@@ -4,7 +4,7 @@
 :owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session's studio window and the connected mark; conversation tabs, the four views, board tabs, its empty states and link rules; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; VSCodium and Open Remote - SSH; its troubleshooting
 :prereqs: collaboration.adoc for who may SSH and the ssh_config block the CLI writes; app-tokens.adoc for the sign-in token
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-16
 
 The extension opens a session's studio window in VS Code with one click, over Remote-SSH,
 with no `+jam login --participant+` or `jam ssh-config` step.
@@ -67,7 +67,7 @@ A repository you open can't point the extension at its own Jam or make it run it
 
 == Sign in and out
 
-_Jam: Sign In_ opens the browser to a consent page that names "VS Code on <host>".
+_Jam: Sign In_ opens the browser to a consent page that names the app `+VS Code on <host>+`.
 On approval the extension keeps the app token in VS Code's SecretStorage
 and in `+~/.config/jam/default-app-token.json+` (``+$XDG_CONFIG_HOME/jam/…+``; 0600), which the `jam` CLI reads.
 Opening a session rewrites that file from the stored sign-in if it is missing or stale.
@@ -101,7 +101,7 @@ If the studio isn't running, the cert step says so and nothing opens. Opening ne
 
 *Closing the studio window* closes the SSH connection, whose heartbeats would otherwise keep the studio from idling.
 
-*The connected mark.* A studio window marks its session in VS Code's global state (``jam.connected.<session>``: "a studio window for this session is open"). The mark is set when the window starts, refreshed every 30 s, and cleared when it closes. A mark not refreshed for 90 s counts as gone, e.g. after a crash or when VS Code quit before clearing it.
+*The connected mark.* A studio window marks its session in VS Code's global state (``jam.connected.<session>``: "a studio window for this session is open"). The mark is set when the window starts, refreshed every 30 s, and cleared when it closes. A mark not refreshed for 90 s counts as gone, for example after a crash or when VS Code quit before clearing it.
 
 == The rail and the hub
 
@@ -114,9 +114,9 @@ Operators also edit kits from the hub's Kits view: xref:usage/jam/vscode-kits.ad
 
 A *conversation tab* is the web app's conversation pane (composer, attachments and asks inline) running in a webview;
 the four session views, the hub's session tabs (xref:usage/jam/vscode-hub.adoc#session-tabs[vscode-hub]), and the board tabs follow the same rules.
-It asks the extension for everything; the webview never holds your token, the Jam URL or a cookie.
+It asks the extension for everything; the webview never holds your token, the Jam URL, or a cookie.
 
-* *Views:* *Thinking* (the panel's Jam Thinking container; it wants width), *Previews*, *Session Status* and *Artifacts* (Previews and Artifacts start collapsed), in the Jam container under the rail. All are draggable anywhere, to the panel or a sidebar.
+* *Views:* *Thinking* (the panel's Jam Thinking container; it wants width), *Previews*, *Session Status* and *Artifacts* (Previews and Artifacts start collapsed), in the Jam container under the rail. You can drag them anywhere, to the panel or a sidebar.
 * *One session per window:* the views show only in a studio window, where they always show its session, and in the hub (xref:usage/jam/vscode-hub.adoc#the-hub[The hub]). The window's remote comes from its workspace folder URI. Other windows show only the rail. A board tab shows its own board.
 * *The studio window's conversation tab* opens the first time the window opens; after that it comes back with the window, or stays closed if you closed it; a rail click on the window's own session opens it again. A studio window opens no other conversation's tab: those go to the hub.
 * *Thinking:* the web app's Thinking log. The window's Thinking views share one connection per (session, stream), at most 2 feeds per pane; a view opened later gets up to 2,000 replayed events; it resumes after a network drop. It counts toward your four server feeds, and a hidden view holds none.
@@ -124,7 +124,7 @@ It asks the extension for everything; the webview never holds your token, the Ja
 * *Session Status:* the session's xref:usage/jam/session-card.adoc[status card] (as on its rail row, full size), then the session header's facts and actions, then the Status rows. _Open in VS Code_ there focuses this window.
 * *Artifacts:* a file opens in the browser, a board thumb opens a board tab, and an ask reveals it in the session's conversation tab (opening the tab if needed).
 * *Board tabs:* one per board, several side by side, kept while hidden (`retainContextWhenHidden`) and restored after a reload. VS Code restores a background tab only when it is first shown, so a board opened again before then briefly has two tabs; showing the restored one closes it and reveals the other. The title is the board's, capped at 60 characters, "Whiteboard" if empty. _Open in the web app_ is in the tab. A stroke made in the last 300 ms before closing a tab may not be saved.
-* *Empty states:* "Sign in to Jam to see this conversation." (with Sign in); "Open a session to see its …" (a view in the hub with no session); "That conversation is gone, or you can't see it." (a tab); "That session has ended, or you can't see it.". Only Sign in (and Try again, below) has an action.
+* *Empty states:* "Sign in to Jam to see this conversation." (with Sign in); "Open a session to see its …" (a view in the hub with no session); "That conversation is gone, or you can't see it." (a tab); "That session has ended, or you can't see it." Only Sign in (and Try again, below) has an action.
 A failed lookup shows "Couldn't load the focused session: …" with Try again.
 * *Links:* the pane never navigates. `+https:+`, `+http:+` and `+mailto:+` links open in the browser; boards open as board tabs. `/app/user/c/<other>` opens the web app; `+#ask-…+` and own-conversation links scroll in place. `+vscode://aethons.jam/session/<id>+` (or `+vscode-insiders:+`) opens that session's window; `+javascript:+`, `+command:+`, `+file:+` and any other `+vscode:+` link do nothing.
 * *Push focus:* while a conversation tab is the active editor in a focused window, the extension reports its conversation as focused, so Web Push stays quiet for it. The suppression also applies to VS Code notifications, and works without Web Push configured.

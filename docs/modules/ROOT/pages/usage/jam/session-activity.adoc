@@ -4,7 +4,7 @@
 :owns: `GET /app/user/api/sessions/\{id}/activity`, the channel log's activity reads (`ActivitySince`, `ActivityBefore`), the session-event store's turn spans (`Turns`), the thinking folds, the Resume notice, and the session view's composer
 :prereqs: session-view.adoc for who may open a session view and its header and pane; comms-addressing.adoc for the `+session:+` target
 :tier: leaf
-:updated: 2026-11-14
+:updated: 2026-11-16
 
 The activity is the body of a xref:usage/jam/session-view.adoc[session view]
 (`internal/jam/userui/api_activity.go`; the app's `web/app/src/session/ActivityList.tsx`, `TurnFold.tsx`, and `SessionPage.tsx`).
@@ -27,7 +27,7 @@ Legacy squawks from before the cutover aren't part of it.
 
 The app shows each message under its conversation's name, a link to the conversation,
 and loads earlier pages with *Load earlier*.
-It refetches on the events stream's `changed`, and every 30s.
+It refetches on the events stream's `changed`, and every 30 seconds.
 
 == Thinking folds
 
@@ -35,11 +35,11 @@ A page also lists the session's turns whose thinking falls into it:
 those starting from its first message up to the next page's first
 (the oldest page from the beginning, the newest on to now),
 across all the session's streams, at most 500
-(`Turns` on `sessionevents.Store`: each turn's seqs, time span, and count).
+(`Turns` on `sessionevents.Store`: each turn's sequence numbers, time span, and count).
 The app places each turn between the messages by time,
 as one collapsed line ("Thinking · turn 3 · 10:12:04 · 10 events").
 Opening it fetches the turn's events from the Thinking page route
-with `+after=+` and `+before=+` around the turn's seqs,
+with `+after=+` and `+before=+` around the turn's sequence numbers,
 and shows them as narrative lines.
 Thinking is never part of a search.
 
@@ -54,5 +54,11 @@ which posts `+POST /app/user/api/conversations/{id}/resume+`
 
 == Composer
 
-The page's composer sends to `+session:<id>+`, the dm between the viewer and the session
+The page's composer sends to `+session:<id>+` (`sendTo`): the DM between the viewer and the session
 (xref:usage/jam/comms-addressing.adoc[comms-addressing]).
+Once the session ends, `sendTo` is empty and the composer is gone.
+`dmChannel` is that DM's channel ID, or empty while there is none yet
+(`Intercom.SessionDM`, which creates none).
+Never a ticket session's work log, even though that log is the session's conversation.
+VS Code's session tab reports it as the open conversation
+(xref:usage/jam/vscode-hub.adoc#session-tabs[vscode-hub]).
