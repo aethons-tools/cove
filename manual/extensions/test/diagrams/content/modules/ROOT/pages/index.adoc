@@ -1,0 +1,36 @@
+= Diagrams
+
+A public diagram, with a title, an id and a role.
+
+.The flow
+[mermaid#flow.wide,alt="Start <then> done"]
+----
+graph LR
+  PUBLIC-DIAGRAM --> B
+----
+
+An internal diagram.
+
+[mermaid.internal,alt="Secret flow"]
+----
+graph LR
+  SECRET-DIAGRAM --> B
+----
+
+// The no-alt test sets `noalt`: a diagram without alt text fails the build.
+ifdef::noalt[]
+[mermaid]
+----
+graph LR
+  A --> B
+----
+endif::[]
+
+// The broken test sets `broken`: a diagram mmdc can't render fails the build.
+ifdef::broken[]
+[mermaid,alt="Broken"]
+----
+graph LR
+  FAIL --> B
+----
+endif::[]

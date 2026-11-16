@@ -134,9 +134,13 @@ jobs:
       - name: manual extension tests
         run: cd manual && ../scripts/npm-ci.sh && npm test
       # The customer manual jam embeds: a leak of internal content, or any
-      # warning, fails it. Built outside the tree (not into internal/jam/uiassets).
+      # warning, fails it. Built outside the tree (not into internal/jam/uiassets),
+      # with the pinned headless Chrome its diagrams render with.
       - name: customer manual
-        run: cd manual && npx antora antora-playbook.jam.yml --to-dir "$RUNNER_TEMP/manual"
+        run: |
+          JAM_BROWSER="$(scripts/manual-browser.sh)"
+          export JAM_BROWSER
+          cd manual && npx antora antora-playbook.jam.yml --to-dir "$RUNNER_TEMP/manual"
       - uses: actions/upload-artifact@v7
         with:
           name: jam-vscode

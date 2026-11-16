@@ -85,12 +85,15 @@ jobs:
           cache-dependency-path: manual/package-lock.json
 
       # The UI bundle (antora-ui-spring), pinned and sha256-verified before
-      # Antora reads it (docs/modules/ROOT/pages/manual-books.adoc).
+      # Antora reads it (docs/modules/ROOT/pages/manual-books.adoc); and the
+      # pinned headless Chrome the diagrams render with (scripts/manual-browser.sh).
       - name: Build the team manual
         working-directory: manual
         run: |
           ../scripts/manual-ui.sh
           ../scripts/npm-ci.sh
+          JAM_BROWSER="$(../scripts/manual-browser.sh)"
+          export JAM_BROWSER
           npx antora antora-playbook.yml
 
       - name: Deploy to Cloudflare Pages

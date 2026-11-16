@@ -16,6 +16,10 @@ antora:
   extensions:
   # Internal modules are listed in antora.yml (ext.internal.modules).
   - require: ./extensions/internal.js
+  # Mermaid diagrams (`[mermaid,alt="…"]` blocks) as SVG image files, rendered
+  # by mmdc with headless Chrome and cached in build/diagrams/. See
+  # docs/modules/ROOT/pages/manual-diagrams.adoc.
+  - require: ./extensions/diagrams.js
 asciidoc:
   extensions:
   - ./extensions/internal-blocks.js

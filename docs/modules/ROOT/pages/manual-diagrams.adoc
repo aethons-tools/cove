@@ -1,0 +1,57 @@
+= Diagrams in the books
+:summary: Mermaid diagrams in the books — `[mermaid,alt="…"]` blocks rendered at build time to SVG image files by manual/extensions/diagrams.js with mmdc and headless Chrome (scripts/manual-browser.sh), cached in manual/build/diagrams/, and dropped from the customer manual when internal.
+:read_when: You are drawing a diagram in a book, a build fails on a mermaid block, you are bumping mmdc, puppeteer or the pinned Chrome, or a books build can't find a headless Chrome.
+:owns: manual/extensions/diagrams.js, its tests (manual/extensions/test/diagrams), the mmdc and puppeteer pins and manual/.puppeteerrc.cjs, scripts/manual-browser.sh and its Chrome pin, and the diagram cache (manual/build/diagrams)
+:prereqs: manual.adoc for the manual, its builds and marking content internal
+:tier: leaf
+:updated: 2026-11-16
+
+A diagram in any book is Mermaid source in its page.
+The build renders it to an SVG image file,
+so the page never carries inline SVG:
+Jam's content security policy for `/app/manual/` blocks inline styles,
+and Mermaid styles its SVG with one.
+
+[source,asciidoc]
+....
+.How a change lands
+[mermaid,alt="A pull request passes the gate, then the review, then merges"]
+----
+graph LR
+  PR --> gate --> review --> merge
+----
+....
+
+* *`alt` is required.*
+It becomes the image's alt text and the SVG's `<title>`.
+A block's id, role, and title carry over to the image,
+so `+[mermaid.internal,alt="…"]+` is an internal diagram.
+* *Failures fail the build*,
+naming the page and the line of the block's opening `+----+`:
+a block with no `alt`,
+and a block that `mmdc` can't render (its error follows).
+* *How*: `manual/extensions/diagrams.js`,
+an Antora extension that every playbook registers (the customer one too),
+adds an Asciidoctor block processor for `mermaid` listing blocks.
+It runs `mmdc` (`@mermaid-js/mermaid-cli`, pinned with `puppeteer` in `manual/package.json`)
+and adds the SVG to the page's module as the image `+_diagrams/<hash>.svg+`.
+`manual/.puppeteerrc.cjs` keeps `npm ci` from downloading a browser.
+* *Chrome*: `mmdc` runs with `+$JAM_BROWSER+`,
+else the kit's `/opt/chrome-headless-shell/chrome-headless-shell`.
+`scripts/manual-browser.sh` prints that path,
+or, on linux64 without either,
+fetches a pinned, sha256-verified chrome-headless-shell (Chrome for Testing) into `manual/build/chrome/`.
+Every build that renders the books runs it:
+`scripts/manual.sh` (so `just build` and the release),
+`just manual`, `just manual-site`,
+the gate's customer manual,
+and the team site workflow.
+Locally a missing Chrome fails the build only when it has a diagram to render.
+Bump its pin with `puppeteer`'s.
+* *Cache*: renders are kept in `manual/build/diagrams/` (git-ignored),
+keyed by the source and `mmdc`'s version,
+so an unchanged diagram never starts Chrome.
+No rendered diagram is committed: the source in the page is the only copy.
+* *Tests*: `just manual-check` builds a fixture (`manual/extensions/test/diagrams/`)
+with a fake `mmdc`, as customer and as team;
+one more test renders with the real `mmdc` and skips without a headless Chrome.
