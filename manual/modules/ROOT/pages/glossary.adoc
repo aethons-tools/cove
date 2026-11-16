@@ -1,0 +1,19 @@
+= Glossary
+:page-area: ROOT
+:page-id: ROOT/glossary
+:page-conventions: sentence-case
+
+// Being filled in a term at a time.
+// Idea waiting on it (Linear, label page:ROOT/glossary):
+// COV-305, each manual should include a glossary.
+
+The words this manual uses for Jam's parts,
+each with a one-line meaning
+and a link to the page that describes it.
+
+[glossary]
+Destination::
+An outside service, such as GitHub or Linear,
+that agents reach through Jam without holding its credential;
+a group of endpoints that share one default credential.
+See xref:concepts/destination.adoc[].
