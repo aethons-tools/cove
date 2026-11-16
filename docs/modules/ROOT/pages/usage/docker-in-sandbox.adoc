@@ -1,14 +1,14 @@
 = Docker inside the sandbox
-:summary: The operator guide to docker-in-sandbox — turning on `docker: true`, the one-time Sysbox VM prerequisite, registry allow-list recipes, how nested-container egress behaves, and the feature's limitations.
-:read_when: You are enabling Docker inside studios (workloads that run `docker build` / `docker compose up` / testcontainers) — setting `colima.docker` on a Studio Manager, installing Sysbox in the colima VM (`jam-colima colima setup-docker`), allow-listing a registry, or debugging a nested container that can't reach the network.
-:owns: the docker-in-sandbox usage story — the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations, and the `jam-colima colima setup-docker`/`check-docker` commands that automate it
+:summary: The operator guide to docker-in-sandbox—turning on `docker: true`, the one-time Sysbox VM prerequisite, registry allow-list recipes, how nested-container egress behaves, and the feature's limitations.
+:read_when: You are enabling Docker inside studios (workloads that run `docker build` / `docker compose up` / testcontainers)—setting `colima.docker` on a Studio Manager, installing Sysbox in the colima VM (`jam-colima colima setup-docker`), allow-listing a registry, or debugging a nested container that can't reach the network.
+:owns: the docker-in-sandbox usage story—the Sysbox VM prerequisite (install hook + colima `docker:` runtime registration), registry allow-list recipes, nested-container egress behavior, and docker-in-sandbox limitations, and the `jam-colima colima setup-docker`/`check-docker` commands that automate it
 :prereqs: OVERVIEW.adoc for the image + egress model; usage/jam-colima.adoc#config for the manager's `colima.docker` setting
 :tier: leaf
 :updated: 2026-11-11
 
 Set `+colima.docker: true+` in a Studio Manager's config and its studios get a *working Docker for testing
-workloads* — `docker build`, `docker compose up`, and *testcontainers* all run
-_inside_ the sandbox — with the egress lock and the rest of the hardening intact.
+workloads*—`docker build`, `docker compose up`, and *testcontainers* all run
+_inside_ the sandbox—with the egress lock and the rest of the hardening intact.
 It runs on the *Sysbox* runtime, which requires a *one-time install in the
 colima VM* (below); the manager's preflight fails fast and points you here if missing.
 
@@ -36,20 +36,20 @@ normal *rootful ``dockerd``* run inside an _unprivileged_ container;
 `/var/lib/docker`, so pulled layers and build cache last the studio's life;
 teardown removes it (xref:usage/jam/standing-state.adoc[]).
 
-A manager without the setting is *byte-for-byte unchanged* — no Sysbox runtime, no
+A manager without the setting is *byte-for-byte unchanged*—no Sysbox runtime, no
 cache volume, no systemd.
 
 [#prerequisite-install-sysbox-in-the-colima-vm-one-time]
 == Prerequisite: install Sysbox in the colima VM (one-time)
 
-Sysbox is a *VM-level runtime* — Jam _detects_ it but never installs it. Two
+Sysbox is a *VM-level runtime*—Jam _detects_ it but never installs it. Two
 things must hold, both surviving ``colima stop/start``: Sysbox installed in the colima
 VM, and Docker having the `sysbox-runc` runtime *registered*. Configure them
 separately, because *colima owns `/etc/docker/daemon.json` and regenerates it on
-every start* — a runtime entry written by the Sysbox `.deb` postinstall (or by
+every start*—a runtime entry written by the Sysbox `.deb` postinstall (or by
 hand) is wiped on the next boot, so register it through colima's own config.
 
-*The quick way — `jam-colima colima setup-docker`.* On the colima host (the xref:usage/jam-colima.adoc[manager host]), run:
+*The quick way—`jam-colima colima setup-docker`.* On the colima host (the xref:usage/jam-colima.adoc[manager host]), run:
 
 [source,console]
 ----
@@ -98,9 +98,9 @@ provision:
       apt-get install -y /tmp/sysbox.deb                   # installs sysbox-runc; starts sysbox{,-mgr,-fs}
 ----
 
-*2. Register the runtime* via colima's `+docker:+` config passthrough — colima merges
+*2. Register the runtime* via colima's `+docker:+` config passthrough—colima merges
 this into `daemon.json` on every start, which is the durable seam that survives the
-regeneration above. Add a top-level `+docker:+` block to the same config:
+preceding regeneration. Add a top-level `+docker:+` block to the same config:
 
 [source,yaml]
 ----
@@ -128,8 +128,8 @@ If `+docker: true+` and the runtime is absent, a raise *fails the preflight*
 
 ____
 The hook is idempotent on the binary, so it *won't upgrade* a VM that already
-has an older `sysbox-runc` — upgrade once by hand (`apt-get install` the newer
-``.deb``; `setup-docker` prints the command — stop running coves first, the install
+has an older `sysbox-runc`—upgrade once by hand (`apt-get install` the newer
+``.deb``; `setup-docker` prints the command—stop running coves first, the install
 restarts docker in the VM). A one-off `colima ssh` install (no hook) is lost on
 the next `colima stop/start`.
 ____
@@ -137,13 +137,12 @@ ____
 == Allow-listing registries
 
 Image pulls ride the sandbox's *squid proxy*, so each registry's domains must be
-in the studio kit's `+egress:+` list (xref:usage/jam/kits.adoc[kits])
-— the same additive allow-list every other egress uses
+in the studio kit's `+egress:+` list (xref:usage/jam/kits.adoc[kits])—the same additive allow-list every other egress uses
 (xref:OVERVIEW.adoc#egress-four-additive-allow-lists-and-a-ceiling[four additive allow-lists]).
 Both the daemon _and_ BuildKit route through squid, so this covers `docker build`
 too, not just `docker run` pulls.
 
-The registries need their *blob CDNs*, not just their API hosts — pulls fail
+The registries need their *blob CDNs*, not just their API hosts—pulls fail
 mid-layer otherwise:
 
 [source,yaml]
@@ -160,7 +159,7 @@ egress:
 ----
 
 Add only the registries a kit's studios actually pull from. When a pull is blocked, the
-denial surfaces as a squid `403` naming the host — add it here.
+denial surfaces as a squid `403` naming the host—add it here.
 
 == Nested-container egress
 
@@ -168,17 +167,17 @@ A nested container's traffic is masqueraded and *forwarded* out the uplink, so i
 would sidestep the agent's `output`-chain egress lock. An *always-on* `nftables`
 `forward`-chain drop closes that gap (accepting only established/related), so:
 
-* *Inter-container and localhost traffic just works* — same-network
+* *Inter-container and localhost traffic just works*—same-network
 container-to-container is L2-bridged and never traverses the `forward` hook, and
 loopback is unaffected. Typical single-network `docker compose` / testcontainers
 setups need nothing extra.
 * *The sandbox reaches its containers.* The `output` chain accepts traffic onto the
-sandbox's own docker bridges (`docker0`, `+br-*+`), so host-run code — a dev server,
-migrations, `psql`, testcontainers' published ports — connects to a nested container
+sandbox's own docker bridges (`docker0`, `+br-*+`), so host-run code—a dev server,
+migrations, `psql`, testcontainers' published ports—connects to a nested container
 by published port (`+127.0.0.1:5432+`) or container IP. That traffic never leaves the
 sandbox; a container's own onward traffic is still forwarded and dropped.
 * *A container that needs the _external_ network must go through the proxy.* Point
-standard proxy env at the sandbox's squid, reachable on the Docker bridge gateway
+standard proxy environment at the sandbox's squid, reachable on the Docker bridge gateway
 (`172.17.0.1` on the default bridge):
 +
 [source,console]
@@ -190,22 +189,22 @@ $ docker run --rm \
     curlimages/curl -fsS https://ghcr.io > /dev/null
 ----
 +
-The host must still be in the kit's `+egress:+` list — the _same_ allow-list, no bypass.
+The host must still be in the kit's `+egress:+` list—the _same_ allow-list, no bypass.
 
 The full egress model is in the
 https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#e-egress[design spec §E].
 
 == Limitations
 
-* *No `+--privileged+` containers* inside the sandbox — Sysbox provides isolation
+* *No `+--privileged+` containers* inside the sandbox—Sysbox provides isolation
 host-side; nested workloads run unprivileged.
 * *Cross-_network_ container routing is dropped.* The `forward` drop also blocks
 routing between two nested bridges (multi-network compose that routes between
 networks). Single-network setups are fine.
 * *The cache is bounded, not durable storage.* The `/var/lib/docker` volume is
-BuildKit-GC-capped — treat it as a cache for build layers and base images, not an
+BuildKit-GC-capped—treat it as a cache for build layers and base images, not an
 image archive.
-* *Requires Sysbox in the colima VM* (above); the preflight guides you if absent.
+* *Requires Sysbox in the colima VM* (see earlier); the preflight guides you if absent.
 
 See the https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-08-08-sysbox-docker-in-sandbox-design.md#j-limitations-document-up-front[design spec §J]
 for the reasoning behind each.

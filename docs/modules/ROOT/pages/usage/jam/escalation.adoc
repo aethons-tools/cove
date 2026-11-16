@@ -1,6 +1,6 @@
 = Escalation (human tiers)
-:summary: The escalation engine — a per-project, category-keyed ordered policy of human tiers + per-tier timeouts that messages people in a dm or group with a waiting session when it asks for a person, opt-in and independent of wake-on's reply/max-wait clock.
-:read_when: You want a waiting session that asked for a person to actively reach people instead of passively waiting — configuring ordered tiers of people to call in with per-tier timeouts, routing by block category, or operating/tuning the resident escalation engine.
+:summary: The escalation engine—a per-project, category-keyed ordered policy of human tiers + per-tier timeouts that messages people in a dm or group with a waiting session when it asks for a person, opt-in and independent of wake-on's reply/max-wait clock.
+:read_when: You want a waiting session that asked for a person to actively reach people instead of passively waiting—configuring ordered tiers of people to call in with per-tier timeouts, routing by block category, or operating/tuning the resident escalation engine.
 :owns: the per-project escalation policy (ordered human tiers + per-tier timeout, category-keyed via `EscalationByCategory`), when an escalation opens (needs-input or `escalate`), tiers as a dm or group, and the escalation notice with its work-log copy (immediate tier 0, advance-on-timeout, advance-on-empty-tier), the brokered `escalate(category)` tool, the `runtime.escalation-poll-interval` config, and where it is set (`escalation:` / `escalation-by-category:` in project.yml; `jam project escalation list`).
 :prereqs: intercom.adoc for the wake-on engine, the Waiting/suspend model, the dms, groups, and work logs escalation posts in, and the other brokered studio tools `escalate` sits alongside; comms-addressing.adoc for the Project members tiers resolve against
 :tier: leaf
@@ -13,10 +13,10 @@ people, each with a timeout. Each tier
 opens a `dm` between the session and the tier's one person,
 or a `group` of the session and the tier's people,
 and posts an escalation notice there. Tier 0 is called the moment the
-session starts waiting, the next tier if nobody answers in time. It is opt-in — a
+session starts waiting, the next tier if nobody answers in time. It is opt-in—a
 Project with no policy behaves exactly as before (see
 xref:usage/jam/wake-on.adoc[wake-on]). Every kind of session
-escalates: ticket, standing, personal and manual.
+escalates: ticket, standing, personal, and manual.
 
 == The policy: ordered tiers + per-tier timeout
 
@@ -32,30 +32,30 @@ waits after calling that tier in before moving to the next one.
 == Categories: routing by block kind
 
 A Project's escalation policy is *category-keyed*, additive over the single
-chain above. `Project.Escalation` (the policy described above) is specifically
+preceding chain. `Project.Escalation` (the policy described earlier) is specifically
 the *default/uncategorized* chain; `EscalationByCategory` maps a *free-form*
-category name (e.g. `infra`, `ticket-blocked`, `code-architecture`) to its own
+category name (for example `infra`, `ticket-blocked`, `code-architecture`) to its own
 ordered tier chain, same `+{Targets, Timeout}+` shape. An unset category, an
 unknown category, or a category with no configured chain all fall back to the
-default chain — a cove-supplied category can only ever select among
+default chain—a cove-supplied category can only ever select among
 operator-configured chains, never a recipient the operator didn't set up.
 
 A studio declares its current block's category with the brokered *``escalate``*
 tool (`escalate(category)`), one of the studio's xref:usage/jam/intercom.adoc#what-the-tools-do[brokered intercom
 tools]: Jam stamps
-`Instance.EscalationCategory` on the caller's _own_ instance — self-scoped, like
+`Instance.EscalationCategory` on the caller's _own_ instance—self-scoped, like
 ``read``; there's no actor/target parameter. The category *persists* until the
-studio re-declares it or the instance tears down — entering Waiting does not clear
+studio re-declares it or the instance tears down—entering Waiting does not clear
 it (only the per-tier state below resets there). Calling `escalate` also *asks for
 a person* until the session is next woken, which opens an escalation once it
 waits (below). A session typically calls `escalate` before ending its turn, so the
 category is set before Jam evaluates who to call in.
 
-A project sets a chain per category under `escalation-by-category` — see
+A project sets a chain per category under `escalation-by-category`—see
 <<setting-the-policy,Setting the policy>> below. Jam
-*auto-detecting* a category itself (e.g. stamping `infra` on an egress-wall
-denial or a `401`, without the studio calling `escalate`) is not implemented yet
-— see <<not-yet-deferred,Not yet>>.
+*auto-detecting* a category itself (for example stamping `infra` on an egress-wall
+denial or a `401`, without the studio calling `escalate`) is not implemented yet—
+see <<not-yet-deferred,Not yet>>.
 
 [#when-it-opens-waiting-and-asking-for-a-person]
 == When it opens: Waiting and asking for a person
@@ -69,15 +69,15 @@ a wake). A session that asked to `end`, or that is ending or gone, is never
 escalated. Then:
 
 . *Tier 0 is called in immediately*, with no grace period. If you want a delay
-before the first nudge, give tier 0 a longer timeout — there is no separate
+before the first nudge, give tier 0 a longer timeout—there is no separate
 pre-tier-0 wait.
 . If tier 0's timeout elapses with no reply, the engine calls in tier 1, and so on.
-. Once the *last* tier has been called in, the engine stops advancing — it does
+. Once the *last* tier has been called in, the engine stops advancing—it does
 not loop, re-call, or tear the session down. No session is torn down for
 waiting; ending one nobody answers is the role's idle timeout's or an
 operator's call.
 
-Each fresh Waiting-entry starts a new escalation from tier 0 — the engine's
+Each fresh Waiting-entry starts a new escalation from tier 0—the engine's
 per-cove tier state resets whenever a studio re-enters Waiting.
 
 == Two independent clocks
@@ -88,9 +88,9 @@ role's idle timeout) are *independent*, run by two separate engines:
 * *Escalation* only calls tiers in on a schedule; it never reads replies, never
 wakes a session, and never tears one down.
 * *Wake-on* (see xref:usage/jam/wake-on.adoc[wake-on]) owns
-reply-detection, waking, pausing and the idle timeout — unchanged by escalation.
+reply detection, waking, pausing, and the idle timeout—unchanged by escalation.
 
-A person's answer — in the dm or group, on any surface, at _any_ tier —
+A person's answer—in the dm or group, on any surface, at _any_ tier—
 wakes it like any other reply. Escalation has no reply handling of its own; the
 two engines share only the `Activity == Waiting` gate.
 
@@ -99,8 +99,8 @@ two engines share only the `Activity == Waiting` gate.
 A tier's `+user:+` targets and the session make up a `dm` (one person) or a `group` (more).
 Jam opens or reuses it,
 and the session posts an *escalation notice* there.
-For tier 0, it reads: "Needs input from
-worker-3 on ACME-7 — called in alice, bob (escalation tier 0, infra)."
+For tier 0, it reads: `+Needs input from
+worker-3 on ACME-7—called in alice, bob (escalation tier 0, infra)+`.
 The notice reaches each person like any `dm` or `group` message:
 on their Discord inbox when the project chats on Discord,
 by Jam push, and in xref:usage/jam/intercom-ui.adoc[`/app/user`].
@@ -118,12 +118,12 @@ so the issue gets one comment.
 
 Jam acts on the operator's policy here, so the comms access-graph
 (`Scope.Addressing`) is not consulted. The notice is for people: it never wakes
-another session. The engine needs no Requisitioner — it runs whenever Jam does.
+another session. The engine needs no Requisitioner—it runs whenever Jam does.
 
 == A mis-configured tier can't wedge a session
 
-A tier whose targets don't resolve to any known human (a typo'd name, a
-`+channel:+` target, an empty tier) posts nothing — but the engine still *advances
+A tier whose targets don't resolve to any known human (a mistyped name, a
+`+channel:+` target, an empty tier) posts nothing—but the engine still *advances
 the timer* as if it had called someone in, so escalation keeps moving to the next tier
 instead of getting stuck forever on a broken one.
 
@@ -160,34 +160,34 @@ escalation-by-category:           # a chain per category (see Categories above)
 ----
 
 * Each tier is a list of `+user:<name>+` targets and a positive
-`time.ParseDuration` timeout (e.g. `15m`, `1h`); a tier with no targets is
+`time.ParseDuration` timeout (for example `15m`, `1h`); a tier with no targets is
 refused. A chain left out reverts the Project to today's passive wait for it.
 * `jam project escalation list <project>` prints the default chain (labeled
 `default`), then each configured category's chain (labeled by category
 name), each tier's index, targets, and timeout. It takes the same
 admin-client flags (`+--app+`/`+--admin-url+`/`+--token+`) as every other `jam`
-verb — see xref:usage/jam/operators.adoc[operators.adoc].
+verb—see xref:usage/jam/operators.adoc[operators.adoc].
 
 [#not-yet-deferred]
 == Not yet (deferred)
 
-* *Jam auto-detection* — the _implicit_ setter: Jam stamping a
-category itself (e.g. `infra` on an egress-wall denial or a `401`) without
+* *Jam auto-detection*—the _implicit_ setter: Jam stamping a
+category itself (for example `infra` on an egress-wall denial or a `401`) without
 the studio calling `escalate`. Only the agent-declared setter (`escalate`,
-<<categories-routing-by-block-kind,above>>) has shipped so far. Likewise,
+<<categories-routing-by-block-kind,earlier>>) has shipped so far. Likewise,
 populating human tiers from CODEOWNERS or a tracker's owner/assignee field is
-not wired — tiers are set by hand today.
-* *Session and room tiers* — a tier that calls another session in (an on-call
+not wired—tiers are set by hand today.
+* *Session and room tiers*—a tier that calls another session in (an on-call
 agent) or posts into a room.
-* *The reserved Attach `TierChanged` control* — the session itself gets no signal
+* *The reserved Attach `TierChanged` control*—the session itself gets no signal
 about its escalation state; this is the hook for a future model where it reacts
 to its own escalation tier.
-* *Escalation observability* — surfacing a studio's current tier in
+* *Escalation observability*—surfacing a studio's current tier in
 `jam studio list` or the UI is a nice-to-have follow-up, not done yet.
 
 Design rationale lives in
 https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-09-14-harbor-escalation.md[`../../superpowers/specs/2026-09-14-harbor-escalation.md`]
 (the default-chain engine), for categories,
 https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-09-14-harbor-escalation-categories.md[`../../superpowers/specs/2026-09-14-harbor-escalation-categories.md`],
-and for the call-in that dms and groups replaced,
+and for the call-in that DMs and groups replaced,
 https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-07-intercom-slice4-escalation-call-in-design.md[`../../superpowers/specs/2026-10-07-intercom-slice4-escalation-call-in-design.md`].

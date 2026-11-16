@@ -41,7 +41,7 @@ On a branch, *New user* takes:
 
 == A user's page
 
-image::user-page.png[alice's page, on a branch,800]
+image::user-page.png[A user's page, on a branch,800]
 
 The heading shows the user's name and id.
 On a branch, *Remove user* removes them, after you confirm

@@ -228,7 +228,7 @@ image::session-previews.png["The Previews tab",400]
 * Click a name to open the preview in a new browser tab.
 You sign in there the first time.
 * Click *View here* to show the preview inside the pane.
-A bar above it has *← All previews*, which goes back to the list,
+A bar preceding it has *← All previews*, which goes back to the list,
 and *Open in new tab*.
 The pane shows one preview at a time.
 

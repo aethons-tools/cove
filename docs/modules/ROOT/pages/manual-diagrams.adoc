@@ -1,5 +1,5 @@
 = Diagrams in the books
-:summary: Mermaid diagrams in the books — `[mermaid,alt="…"]` blocks rendered at build time to SVG image files by manual/extensions/diagrams.js with mmdc and headless Chrome (scripts/manual-browser.sh), cached in manual/build/diagrams/, and dropped from the customer manual when internal.
+:summary: Mermaid diagrams in the books—`[mermaid,alt="…"]` blocks rendered at build time to SVG image files by manual/extensions/diagrams.js with mmdc and headless Chrome (scripts/manual-browser.sh), cached in manual/build/diagrams/, and dropped from the customer manual when internal.
 :read_when: You are drawing a diagram in a book, a build fails on a mermaid block, you are bumping mmdc, puppeteer or the pinned Chrome, or a books build can't find a headless Chrome.
 :owns: manual/extensions/diagrams.js, its tests (manual/extensions/test/diagrams), the mmdc and puppeteer pins and manual/.puppeteerrc.cjs, scripts/manual-browser.sh and its Chrome pin, and the diagram cache (manual/build/diagrams)
 :prereqs: manual.adoc for the manual, its builds and marking content internal

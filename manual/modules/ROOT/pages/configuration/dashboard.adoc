@@ -1,4 +1,4 @@
-= The dashboard, search and health
+= The dashboard, search, and health
 :page-area: ROOT
 :page-id: ROOT/configuration/dashboard
 :page-conventions: sentence-case
@@ -12,9 +12,9 @@ Dashboard::
 The Jam at a glance, and what needs attention.
 Config::
 Every configured thing, in a tree:
-projects, users, kits, destinations and model specs.
+projects, users, kits, destinations, and model specs.
 Agents::
-Every agent, running or not
+Every agent, whether it is running or not
 (xref:configuration/agents.adoc[An agent's page]).
 Health::
 Problems Jam found in itself,
@@ -37,7 +37,7 @@ The tree holds:
 * *Tracking*: the config repo the Jam follows
 (xref:configuration/config-branches.adoc[Editing on a branch and applying the config repo]).
 * *Projects*: each project,
-with its *Members*, *Agents* (its roles), *Intercom* and *Escalation*
+with its *Members*, *Agents* (its roles), *Intercom*, and *Escalation*
 (xref:configuration/projects.adoc[Configuring a project],
 xref:configuration/roles.adoc[Configuring roles and raising agents]).
 * *Users* (xref:configuration/users.adoc[Configuring users]).
@@ -45,7 +45,7 @@ xref:configuration/roles.adoc[Configuring roles and raising agents]).
 * *Destinations* (xref:configuration/destination.adoc[Configuring a destination]).
 * *Model Specs* (xref:configuration/model-specs.adoc[Configuring a model spec]).
 
-Type in *Filter* above the tree to show only the names that match.
+Type in *Filter*, preceding the tree, to show only the names that match.
 While you filter, every group is open.
 The tree refreshes every 3 seconds.
 
@@ -90,7 +90,7 @@ From top to bottom:
 * *Tiles* that count the agents by status:
 *Running*, *Waiting*, *Setting up*, *Lost / terminating* and *Idled*.
 Click one to open the *Agents* tab showing only those agents.
-Then come the counts of *Projects*, *Agents*, *Users* and *Specs*
+Then come the counts of *Projects*, *Agents*, *Users*, and *Specs*
 (kits, destinations and model specs together).
 All but *Projects* open their list.
 * *Needs attention*: problems with the Jam itself
@@ -128,7 +128,7 @@ rather than to one project:
 Each line says what is wrong,
 and links to the page where you fix it.
 Its tag says what kind of problem it is:
-*broken*, *warning* or *config*.
+*broken*, *warning*, or *config*.
 When there is nothing,
 the card says *Nothing needs attention.*
 
@@ -184,7 +184,7 @@ Each one shows:
 
 * its severity:
 *critical* (agents fail now),
-*warning* (something works badly, or soon will),
+*warning* (something works badly, or is about to),
 or *info* (shown here only),
 * what is wrong, and for how long,
 * how to fix it, in a box you can copy from,
@@ -199,7 +199,7 @@ and when it closed.
 Jam raises problems such as:
 
 * a credential it cannot get,
-* a pooled account whose token will not refresh,
+* a pooled account whose token can't refresh,
 * push notifications that keep failing,
 * a Studio Manager whose disk is nearly full,
 * a kit that could not be moved to the new format,
@@ -232,7 +232,7 @@ To narrow the list,
 fill in any of the filters and click *Filter*:
 
 * *Project*.
-* *Participant*: the id of a user, an agent, an account or a channel.
+* *Participant*: the id of a user, an agent, an account, or a channel.
 * *Body contains*: text in the message.
 * *Since* and *Until*: dates, taken as whole days in UTC.
 A date Jam cannot read is left out,

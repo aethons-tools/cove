@@ -1,5 +1,5 @@
 = Documentation index
-:summary: Root map of this repo's documentation — start here, route from here.
+:summary: Root map of this repo's documentation—start here, route from here.
 :read_when: You need information from the docs. Always start here; open only the rows that match your task.
 :owns: routing for all docs
 :prereqs: none
