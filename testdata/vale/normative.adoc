@@ -1,0 +1,19 @@
+= A normative page
+:page-normative:
+
+== Steps
+
+* The author MUST run the linter.
+* The author usually runs the linter.
+* A step that runs over
+two lines MAY say so on the second.
+* A step with no keyword at all.
+. A numbered step SHOULD NOT be vague.
+. A numbered step that might be vague.
+
+Words like `usually`, `might`, or `try to` in code are fine.
+Ideally, prose is plain.
+
+----
+* a listing that might hold anything
+----

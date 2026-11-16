@@ -6,6 +6,7 @@
 ** xref:manual.adoc[]
 ** xref:manual-books.adoc[]
 ** xref:manual-diagrams.adoc[]
+** xref:manual-vale.adoc[]
 ** xref:docs-asciidoc.adoc[]
 ** xref:TODO.adoc[]
 * xref:usage/INDEX.adoc[]
