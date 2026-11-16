@@ -98,7 +98,7 @@ Event numbers restart in each stream, so a reader walks the streams from `stream
 == Tools
 
 The studio's messaging server offers `observe_sessions`, `observe_activity`, `observe_streams`, and `observe_events`,
-mapping to the preceding endpoints (`session` names the `{id}`, `types` is a list),
+mapping to the preceding endpoints (`session` names the `+{id}+`, `types` is a list),
 only to a session whose role has `scope.observe`.
 Each answers Jam's JSON as text, and an answer over 8 MiB fails, asking for a smaller `limit` or a `types` filter.
 
