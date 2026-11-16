@@ -270,6 +270,24 @@ its cost and the cost of this turn,
 and when its last event was.
 (xref:concepts/model-spec.adoc[Model specs], xref:concepts/kit.adoc[Kits and studios].)
 
+== In VS Code
+
+In the Jam extension for VS Code,
+a session view opens as a tab in the hub window,
+next to your conversation tabs.
+Click a card in the rail's *Agents* section,
+or the worker of a row in *Work*, to open it.
+Double-click the card instead to open the session's studio window.
+
+The tab shows the session's header and activity,
+with the composer at the bottom for a DM to the session.
+The hub's *Thinking*, *Previews*, *Artifacts*, and *Status* views
+take the place of the pane:
+they show the session of the tab you last made active.
+Each session has one tab,
+titled with the session's name.
+Tabs come back when VS Code reloads.
+
 == Session colors
 
 Jam gives each session a color when the session starts,
@@ -291,6 +309,7 @@ A session started before Jam had colors has none.
 ifdef::internal[]
 == Notes for the team
 
+* Goal (COV-367): the session view as a hub tab in VS Code; the interface is `docs/modules/ROOT/pages/usage/jam/vscode-hub.adoc` on `goal`.
 * The session view is `/app/user/s/<session>` (`web/app/src/session/SessionPage.tsx`, `ActivityList`, `TurnFold`).
 The header and pane are `web/app/src/session/`
 (`SessionView`, `SessionHeader`, `PaneTabs`; Thinking in `thinking/`, View here in `frames/`).
