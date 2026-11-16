@@ -1,7 +1,7 @@
 = The Jam rail and hub in VS Code
 :summary: The Jam VS Code extension's rail (the Conversations view, in every window) and hub window (conversations as editor tabs, the session views following the active tab), and how going to a conversation picks a studio window or the hub.
 :read_when: You are using or changing the VS Code rail or hub, or using several Jams — a rail click or double-click, ▣, the needs-you badge, Jam: Open Hub, the Jam Hub launcher, conversation tabs, the hub's views, the pending handoff from another window — or a click went to the wrong window.
-:owns: the VS Code rail (jam.rail) and its clicks, ▣ and badge; the hub windows (Jam Hub (<host>).code-workspace), Jam: Open Hub, the Jam Hub launcher and the …/hub and …/go links; several Jams (each window's Jam, Switch Jam, Add a Jam, notifications from every Jam); going to a conversation and hub/pending-<host>.json; conversation tabs in the hub and the hub's views
+:owns: the VS Code rail (jam.rail) and its clicks, ▣ and badge; session tabs in the hub; the hub windows (Jam Hub (<host>).code-workspace), Jam: Open Hub, the Jam Hub launcher and the …/hub and …/go links; several Jams (each window's Jam, Switch Jam, Add a Jam, notifications from every Jam); going to a conversation and hub/pending-<host>.json; conversation tabs in the hub and the hub's views
 :prereqs: vscode.adoc for installing the extension, studio windows and the panes' shared rules
 :tier: leaf
 :updated: 2026-11-16
@@ -51,9 +51,17 @@ without its pane: the hub's views take its place.
 It follows the conversation tab's rules (xref:usage/jam/vscode.adoc[vscode]): the webview asks the extension for everything and never holds the token, the Jam URL, or a cookie, and links follow the same rules.
 
 * *One per session*, titled with the session's label, and restored after a reload (the same two-tab rule as conversation tabs).
-* *Opening it:* `GET /app/user/api/sessions/<id>` for the header, `+GET /app/user/api/sessions/<id>/activity+` for the activity (xref:usage/jam/conversations-sessions.adoc#session-view[conversations-sessions]).
-A session the person may not open gives "That session has ended, or you can't see it."
-* *The composer* posts a DM to the session (`+session:<label>+`), as in the web app.
+* *Opening it:* `+GET /app/user/api/sessions/<id>/activity+` decides whether the tab opens:
+a `404` there (the person may not open the session) gives "That session has ended, or you can't see it.".
+`GET /app/user/api/sessions/<id>` fills the header while the session runs;
+its `404` after the session ends only drops the header and its actions, and the tab stays
+(xref:usage/jam/conversations-sessions.adoc#session-view[conversations-sessions]).
+* *The composer* posts to the activity's `sendTo` (`+session:<id>+`), as in the web app;
+once the session ends, `sendTo` is empty and the composer is gone.
+* *Notifications:* while a session tab is the active tab and the window is focused,
+the extension reports the person's DM with the session as the open conversation (`POST /app/user/push/focus` with that channel, from the header's `channel`), as a conversation tab does, so that DM doesn't notify.
+An ended session's tab reports nothing.
+* *The rail* highlights the session's *Agents* card while its tab is active (`RailSections`'s `activeSession`), as it highlights a row for a conversation tab.
 * *Pending requests* from another window carry the session id instead of a channel: `hub/pending-<host>.json` gets a `session` field.
 * *Ended sessions* keep their tab, with the activity and without the header's actions, as in the web app.
 
