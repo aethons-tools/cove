@@ -22,7 +22,7 @@ A kit has at most one draft on a branch: a mutable copy of one version's files
 opened from _current_ or a version you choose (its *base*). You change
 files in the draft, then publish it, or discard it.
 
-* Every save is checked like a kit in the repo: the paths, modes and sizes in
+* Every save is checked like a kit in the repo: the paths, modes, and sizes in
 xref:usage/jam/kits-directory.adoc#limits[limits]. The draft's own
 xref:usage/jam/kits-directory.adoc#dockerignore[`.dockerignore`] applies too: a file it
 excludes is refused (`+draft <kit>: <path>: excluded by .dockerignore+`), and

@@ -6,28 +6,28 @@
 :tier: leaf
 :updated: 2026-10-05
 
-Jam owns the agent's permission policy; the claude harness renders `policy` as flags:
+Jam owns the agent's permission policy; the `claude` harness renders `policy` as flags:
 
 [%header]
 |===
-|`policy` |Argv
+|`policy` |`argv`
 
-|`mode` empty, or no spec delivered |`+--dangerously-skip-permissions+` (exactly the argv before model-specs)
-|`+mode: bypassPermissions+` (`claude-default`) |`+--dangerously-skip-permissions+` too — the same session mode as `+--permission-mode=bypassPermissions+`, kept byte-identical so existing roles launch unchanged
+|`mode` empty, or no spec delivered |`+--dangerously-skip-permissions+` (exactly the `argv` before model-specs)
+|`+mode: bypassPermissions+` (`claude-default`) |`+--dangerously-skip-permissions+` too—the same session mode as `+--permission-mode=bypassPermissions+`, kept byte-identical so existing roles launch unchanged
 |any other `mode` |`+--permission-mode=MODE+`, then the <<always-allowed-in-non-bypass-modes,always-allowed rules>>
 |each `allow` rule |`+--allowedTools=RULE+`
 |each `deny` rule |`+--disallowedTools=RULE+`
 |===
 
 Rules use Claude's syntax (`Bash`, `+Bash(git *)+`, `WebFetch`). Each rule is one
-`+--flag=RULE+` argv element, so a rule can never be read as a flag. Deny wins over
+`+--flag=RULE+` `argv` element, so a rule can never be read as a flag. Deny wins over
 allow and applies in every mode, `bypassPermissions` included. Allow only matters
-where claude would otherwise ask. Headless (`-p`) has nobody to answer, so a tool
+where `claude` would otherwise ask. Headless (`-p`) has nobody to answer, so a tool
 call that would prompt is denied.
 
 The rules are flags, not a `permissions` block in the `+--settings+` file. `policy`
 owns permissions (`claude.settings` may not set them), and the rules stay visible
-in the argv. The image's managed `+permissions.defaultMode: bypassPermissions+`
+in the `argv`. The image's managed `+permissions.defaultMode: bypassPermissions+`
 does not override `+--permission-mode+`. It only applies when no mode flag is
 passed, which never happens under the harness.
 

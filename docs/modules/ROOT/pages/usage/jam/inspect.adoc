@@ -17,7 +17,7 @@ session id or the label of a live manual session; an unknown role or studio is
 `unavailable` with a fixed reason and the rest renders.
 
 Routes (operator auth, like every `+/admin/*+` route; each call is logged
-`setup inspected` with operator, subject and sections — never the body):
+`setup inspected` with operator, subject and sections—never the body):
 
 * `+GET /admin/roles/{project}/{role}/setup?sections=a,b[&manager=M]+`
 * `+GET /admin/instances/{id}/setup?sections=a,b&diff=role+`
@@ -35,9 +35,9 @@ that manager is not connected or no longer registered, the image parts render
 A running studio's agent page and a role page end with a *Setup* section,
 read only when you open it (each read is an image read on the launcher host).
 It shows the sections below, one collapsible block each, headed with its
-source, `stale vs role` and the snapshot time. `context` lists each file at its real path, *raw* — never
+source, `stale vs role` and the snapshot time. `context` lists each file at its real path, *raw*—never
 rendered as markdown, so nothing in it is hidden or fetched. Text is escaped
-as in the CLI (a bidi override shows as `+\u202e+`). Opening it never holds up the
+as in the command-line tool (a bidi override shows as `+\u202e+`). Opening it never holds up the
 agent or role page, and a read is never retried or repeated on focus. Chips
 filter to one section (the API's `?sections=`). An image-manager selector
 shows when two or more managers are connected. On a studio, a `stale vs role`
@@ -55,19 +55,19 @@ In this order:
 
 |`identity` |project, role, session kind, studio id, phase, raised at (a role render is a would-be ephemeral session: no unit, no owner)
 |`context` |every xref:usage/jam/session-context.adoc[session-context] file at its real path under `/agent-data/context/`, sizes, each layer's core budget used, compile warnings
-|`egress` |the effective allow-list — the role's list (marked when outside the kit ceiling) or the kit default — then the sealed base rows
-|`destinations` |per destination in scope: route, upstream, identity-in/apply, credential *name*, git routing, allow-paths, env keys
-|`env` |the xref:usage/jam/connector.adoc[connector] env an agent spawn gets (redacted), then the image `ENV` and its `+JAM_SSHENV+` transfer set
+|`egress` |the effective allow-list—the role's list (marked when outside the kit ceiling) or the kit default—then the sealed base rows
+|`destinations` |per destination in scope: route, upstream, identity-in/apply, credential *name*, git routing, allow-paths, environment keys
+|`env` |the xref:usage/jam/connector.adoc[connector] environment an agent spawn gets (redacted), then the image `ENV` and its `+JAM_SSHENV+` transfer set
 |`model` |the resolved model-spec, as of now (never stale; not recorded at raise)
-|`kit` |kit ref, chain root first with provenance and each link's tree (``tree <12 hex>, N files``; ``1 file``; `not loadable` for a broken or unstored version), build args, image tag, image id and labels
+|`kit` |kit ref, chain root first with provenance and each link's tree (``tree <12 hex>, N files``; ``1 file``; `not loadable` for a broken version or one that isn't stored), build arguments, image tag, image id, and labels
 |`seed` |what the image seeds into ``/agent-data``: `CLAUDE.md` and its `@` imports, skills, `settings.json`, the `.refresh` list; other files by path and size only
-|`mcp` |the kit's MCP servers (no args, no header values) and the intercom tools
+|`mcp` |the kit's MCP servers (no arguments, no header values) and the intercom tools
 |`policy` |allocation, standing, turn-end, collaborate, escalation; for a studio its idle override and alarms (name, schedule, next fire, gate set or not)
 |===
 
 Each section is headed `+== <name> (<source>[, stale][, <at>])+`. A section with a `title` (JSON) is headed by it instead of its name. Sources:
 `snapshot` (what Jam recorded delivering), `recomputed` (a studio part with no
-snapshot — raised before recording; rendered from config now), `config` (as of
+snapshot—raised before recording; rendered from config now), `config` (as of
 now), `image`, `unavailable` (with a fixed reason). `stale` (studios only)
 marks a part whose delivered fingerprint differs from what the role would
 deliver now. In `context` the BYTES column is the size *after* redaction,
@@ -86,8 +86,8 @@ logged, never fatal.
 
 == Image facts
 
-Read on the manager's host (a studio's own manager; a legacy record with no manager means `local`) through that manager's docker context, as argv
-through the runner: `docker image inspect` (env, labels, id) and, for the seed,
+Read on the manager's host (a studio's own manager; a legacy record with no manager means `local`) through that manager's docker context, as `argv`
+through the runner: `docker image inspect` (environment, labels, id) and, for the seed,
 `+docker create --pull=never+` (never started), `+docker cp <ctr>:/home/agent/.init-agent-data -+`,
 `docker rm -f -v`. Only regular files; caps: 1 MiB total, 200 entries, text
 ≤ 64 KiB. Facts are cached per image id (16-image LRU); a docker error is not
@@ -110,14 +110,14 @@ placeholders. Credential-shaped text under any key is masked too (`+Bearer …+`
 `+Authorization:+` headers, `+--token x+` / `+--api.key=x+` style flags,
 `+NAME_TOKEN=…+` assignments, well-known token shapes such as `+ghp_…+`,
 `+sk-ant-…+`, a 36-character `+npm_…+`). The same rule covers image `ENV`, build
-args, label values, `settings.json` and each line of the seed's Markdown.
-Authored `context` prose — every line of the core, files and warnings — is
+arguments, label values, `settings.json` and each line of the seed's Markdown.
+Authored `context` prose—every line of the core, files and warnings—is
 masked for token shapes, `+NAME_TOKEN=…+` assignments and URLs, but not for flags or
 `+Authorization:+` mentions, so docs text stays readable. URLs lose
 their userinfo, and their query/fragment shows as `+?«masked»+`. A label that is
 not clean UTF-8 text reads `invalid`.
 
-*Known limits* (not detected): a password with an unencoded space or ``/``; a
+*Known limits* (not detected): a password with a space or ``/`` that isn't URL-encoded; a
 quoted secret value containing spaces; a secret under a Unicode lookalike key
 name; scheme-less `+user:pass@host+` values. Keep secrets out of those places.
 

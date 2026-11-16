@@ -18,7 +18,7 @@ xref:usage/jam/kits-drafts.adoc#concurrency[concurrency] rule holds in the brows
 * *Draft* card: base and current versions, the last save's operator and
 time, *Discard* (it asks first), and a notice when a newer version has
 landed since the draft was opened.
-* *Publish* card: the problems, if any (the button stays disabled, and a
+* *Publish* card: the problems, if any (the button stays unavailable, and a
 forged request is still refused 400); *Publish* asks first, and commits
 the kit's files to the branch. There is no Pin followers box
 (xref:usage/jam/kits-drafts.adoc#publish[kits-drafts]).
@@ -29,11 +29,11 @@ struck through. *Add file* takes a path and either an upload or nothing
 * *Changes* diffs each file against the base, and `kit.yml` gets its own
 line diff, with a packed context masked on both sides.
 * A file opens in a plain text editor when it is UTF-8 text of 1 MiB or
-less with no carriage returns; otherwise it shows a note, *Download* and
+less with no carriage returns; otherwise it shows a note, *Download*, and
 a mode toggle. A `kit.yml` holding a packed context is never shown: the
 note says to download it, remove the context, and replace it. Any file can
-be replaced by an upload (the upload's own file name is never used),
-renamed or deleted.
+be replaced by an upload (the uploaded file's own filename is never used),
+renamed, or deleted.
 * A save that lost a race (another tab saved first) is refused
 with your text still in the editor, unsaved, and *Reload* to re-read the
 draft.
@@ -44,5 +44,5 @@ it.
 The *Published* card shows the new version (linked) and any warning.
 
 UI writes log `ui kit draft opened|saved|discarded|published` with the
-kit, the operator and the tree's first 12 hex digits (a publish also the
-version and base), never content or a path.
+kit, the operator, and the tree's first 12 hex digits (a publish also the
+version and base), but never content or a path.
