@@ -114,7 +114,7 @@ func attention(store jam.Store, img jam.ImageResolver) []attnItem {
 		if !ok {
 			continue
 		}
-		known := knownTargets(jam.MembersOf(store, proj.ID), jam.ListRooms(store, proj))
+		known := knownTargets(jam.MembersOf(store, proj.ID))
 		chains := map[string][]jam.EscalationTier{"": proj.Escalation}
 		maps.Copy(chains, proj.EscalationByCategory)
 		for _, cat := range slices.Sorted(maps.Keys(chains)) {

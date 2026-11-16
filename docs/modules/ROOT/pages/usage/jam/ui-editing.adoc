@@ -35,7 +35,8 @@ are references, not secrets, so the UI shows them (a project's role list renders
 * Every field that names another entity is a *type-ahead*: projects, roles
 (of the project in the same form), kits, destinations and — after `=` in a
 destinations list — credentials, roster targets (`+user:+`/`+channel:+` in
-addressing and escalation tiers), Intercom participants, and chat services.
+addressing; only `+user:+` in escalation tiers, which name people only),
+Intercom participants, and chat services.
 In list fields it completes the entry under the cursor. ↑/↓ move, Enter or
 Tab accept, Esc closes. Suggestions guide but don't restrict: the server
 still validates, so a glob like `+user:*+` is fine and an unknown project is

@@ -45,17 +45,14 @@ func lines[T any](xs []T, f func(T) string) string {
 }
 
 // knownTargets is the set of escalation targets that name someone in a
-// project: user:<name|id> for each member (human: is the pre-registry alias),
-// channel:<name> for each room.
-func knownTargets(members []jam.Member, rooms []jam.RoomView) map[string]bool {
+// project: user:<name|id> for each member (human: is the pre-registry alias).
+// Tiers are people only — the engine skips a room — so a channel: is unknown.
+func knownTargets(members []jam.Member) map[string]bool {
 	known := map[string]bool{}
 	for _, m := range members {
 		for _, k := range []string{"user:", "human:"} {
 			known[k+m.User.Name], known[k+string(m.User.ID)] = true, true
 		}
-	}
-	for _, r := range rooms {
-		known["channel:"+r.Name] = true
 	}
 	return known
 }

@@ -9,7 +9,7 @@ import { TypeAhead } from "../ui/TypeAhead";
 import { ProjectGate } from "./ProjectPage";
 import { useProjectWrite } from "./useProject";
 
-const tiersHint = "one per line, user:alice,channel:eng@15m — first line is tier 0";
+const tiersHint = "one per line, user:alice,user:bob@15m — first line is tier 0";
 
 // EscalationPage is a project's Escalation: who is pinged, in order, when an
 // agent there is waiting — the default chain and per-category chains.
@@ -60,7 +60,7 @@ function Escalation({ d }: { d: ProjectDetail }) {
           <Card withBorder mt="xs">
             <EditForm submit="Add chain" resetOnSuccess={() => { setCategory(""); setTiers(""); }} onSubmit={() => put(category, tiers)}>
               <TextInput label="Category" required value={category} onChange={(e) => setCategory(e.currentTarget.value)} />
-              <TypeAhead label="Tiers" description={tiersHint} kind="targets" project={p} list multiline required value={tiers} onChange={setTiers} />
+              <TypeAhead label="Tiers" description={tiersHint} kind="tier-targets" project={p} list multiline required value={tiers} onChange={setTiers} />
             </EditForm>
           </Card>
         </details>
@@ -91,7 +91,7 @@ function ChainForm({ p, c, onSave, onClear }: {
   return (
     <Stack gap="xs">
       <EditForm submit="Save chain" onSubmit={() => onSave(tiers)}>
-        <TypeAhead label="Tiers" description={tiersHint} kind="targets" project={p} list multiline required value={tiers} onChange={setTiers} />
+        <TypeAhead label="Tiers" description={tiersHint} kind="tier-targets" project={p} list multiline required value={tiers} onChange={setTiers} />
       </EditForm>
       {c.tiers.length > 0 && <Group><ConfirmAction label="Clear" confirm={`Clear the ${c.category || "default"} chain?`} onConfirm={onClear} /></Group>}
     </Stack>
