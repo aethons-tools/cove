@@ -26,8 +26,8 @@ are now `jam` there too.
 |kit `config.yml` `+harbor:+` block |`+jam:+` |Removed with at-cove (jam-only slice 2): there is no kit `config.yml` any more.
 |serve config `runtime.launcher.harbor-host` |`runtime.launcher.jam-host`, now a Studio Manager's `colima.jam-host` |No. `runtime.launcher` itself is removed; see xref:usage/jam/studio-managers.adoc#retiring-the-in-process-launcher[Studio Managers].
 |serve config `runtime.dispatcher` (the resident dispatcher) |`runtime.requisitioner` (the Requisitioner) |Yes, with a warning. Setting both is an error.
-|`at-jam cove raise\|list\|status\|teardown` |`at-jam studio raise\|list\|status\|teardown` |Yes, with a warning. The entity is called a *Studio* on the command line, in the administration UI, and in the docs; ids, administration API routes (`+/admin/coves…+`), JSON fields, and `cove-master` keep `cove`.
-|administration UI cookies `+harbor_session+`, `+harbor_oauth_*+` |`+jam_session+`, `+jam_oauth_*+` |No. *Administration UI users log in again once* after upgrading; the old cookies are simply ignored.
+|`at-jam cove raise\|list\|status\|teardown` |`at-jam studio raise\|list\|status\|teardown` |Yes, with a warning. The entity is called a *Studio* on the command line, in the admin UI, and in the docs; ids, admin API routes (`+/admin/coves…+`), JSON fields, and `cove-master` keep `cove`.
+|admin UI cookies `+harbor_session+`, `+harbor_oauth_*+` |`+jam_session+`, `+jam_oauth_*+` |No. *Admin UI users log in again once* after upgrading; the old cookies are simply ignored.
 |broker basic-auth realm `harbor` |`jam` |No. Git picks its credential helper by URL, not realm, so coves are unaffected.
 |``+HARBOR_TEST_POSTGRES_DSN+``; CI and dev database/user/password `harbor` |``+JAM_TEST_POSTGRES_DSN+``; `jam` |No (test infrastructure). The dev compose project is now `jam-dev`, so an old `harbor-dev` volume is not reused—`just dev-up` starts fresh.
 |`just harbor`, `just integration-harbor`, `dev/harbor.dev.yml` |`just jam`, `just integration-jam`, `dev/jam.dev.yml` |No.

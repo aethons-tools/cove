@@ -32,7 +32,7 @@ credential's own scope (for example, a fine-grained PAT per project). Everything
 conflict, or a request outside scope is denied. A verb's missing `+--project+`
 defaults to the `default` project.
 
-All verbs below take the administration-client flags (`+--app+`/`+--admin-url+`/`+--token+`); see
+All verbs below take the admin-client flags (`+--app+`/`+--admin-url+`/`+--token+`); see
 xref:usage/jam/operators.adoc[].
 
 [#roles]
@@ -40,7 +40,7 @@ xref:usage/jam/operators.adoc[].
 
 A role is a file in the config repo, `projects/<project>/roles/<name>.yml`
 (xref:usage/jam/config-git.adoc#layout[config-git]), and changes only by a commit: by
-hand, or on a branch in the administration console (xref:usage/jam/config-branches.adoc[config-branches];
+hand, or on a branch in the admin console (xref:usage/jam/config-branches.adoc[config-branches];
 for the role page, see xref:usage/jam/ui-projects.adoc#role-pages[Role pages]). Editing a role
 re-scopes every actor granted it on the next request.
 
@@ -65,7 +65,7 @@ allocation: {max-ephemeral: 4, max-personal: 3, max-personal-per-owner: 1}
 * `scope.destinations` names destinations (each uses its default `cred-name`);
 `scope.credentials` maps a destination to another credential
 (`+{git: git-pat-acme}+`). `role list` and `actors` print them as
-`name` or `name=credential`. On the administration API a role's map is `credentials`
+`name` or `name=credential`. On the admin API a role's map is `credentials`
 on role list, on each roster grant, and on a grant/enroll `overrides`
 (which *replaces* the role's map). A mapping that names a destination the
 scope doesn't allow, or a credential the serve config doesn't declare, is refused.
@@ -81,7 +81,7 @@ so a project file can't drop a room a role still lists;
 a room listed twice or an unknown `wake` is refused.
 How sessions join, and why they can't leave:
 xref:usage/jam/intercom.adoc#sessions-in-rooms[sessions in rooms].
-`role list` (the administration API's `rooms`) and the role page show them;
+`role list` (the admin API's `rooms`) and the role page show them;
 only the config repo sets them.
 * `scope.ttl` is the default identity lifetime applied at enrollment (unset =
 no expiry). *A role with no `ttl` mints non-expiring tokens*—set one for
@@ -89,7 +89,7 @@ ephemeral studios.
 * `kit` binds a kit by name (xref:usage/jam/kits.adoc#binding-a-kit-to-a-role[kits]); `model-spec` binds a xref:usage/jam/model-specs.adoc#binding-a-role[model-spec] by name (must exist; unset = `claude-default`); `role list` shows `+model-spec=…+`.
 * `allocation.max-ephemeral` is the role's *allocation policy*: the cap on its
 concurrent ephemeral sessions—Requisitioner-raised and manual
-(`studio raise`, the administration UI) alike. Jam's Allocator reads it
+(`studio raise`, the admin UI) alike. Jam's Allocator reads it
 live on each grant, so an applied change counts on the next grant. Unset = the Requisitioner's `max-concurrent`
 (xref:usage/jam/requisitioner.adoc#config-runtimerequisitioner[Config (`runtime.requisitioner`)]).
 * `allocation.max-personal` caps the role's concurrent *personal sessions* across all

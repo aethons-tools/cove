@@ -53,7 +53,7 @@ jam pool add  --store /var/lib/jam/pool.json --name pool-a --from-file ./credent
 jam pool list --store /var/lib/jam/pool.json    # names + expiries, never tokens
 ----
 
-`pool add`/`list` write the host-side store file *directly* (not through the administration
+`pool add`/`list` write the host-side store file *directly* (not via the admin
 API); `+--from-file+` defaults to stdin. Then point the anthropic destination at the
 pool, by a commit to the config repo (xref:usage/jam/destinations.adoc[Destinations]):
 

@@ -14,8 +14,8 @@ commits it to the branch, and merging stays in the console.
 
 == Access
 
-Kit editing needs a sign-in that may use the administration API: an operator's, made
-after administration access existed (xref:usage/jam/app-tokens.adoc#operator-standing[app-tokens]).
+Kit editing needs a sign-in that may use the admin API: an operator's, made
+after admin access existed (xref:usage/jam/app-tokens.adoc#operator-standing[app-tokens]).
 Otherwise the Kits view shows *Kit editing needs an operator sign-in—sign in
 again*, which runs `Jam: Sign In`.
 

@@ -12,7 +12,7 @@ the top of the config tree: it owns its xref:usage/jam/comms-addressing.adoc[ros
 xref:usage/jam/escalation.adoc[escalation policy] and xref:usage/jam/discord.adoc[chat service], and every
 xref:usage/jam/roster.adoc[Role and Grant] is keyed by it. Each project has an id (`+prj_…+`):
 roles, grants, sessions and the allocation ledger refer to it by that id, so
-you name it by name everywhere you type it (the config repo, the command line, the administration API,
+you name it by name everywhere you type it (the config repo, the command line, the admin API,
 the UI), and those show names back.
 
 == Adding, listing, and removing
@@ -20,7 +20,7 @@ the UI), and those show names back.
 A project is a directory in the config repo, `projects/<name>/` with its
 `project.yml` (members, rooms, escalation, chat service), its `context.md` and
 its `roles/` (xref:usage/jam/config-git.adoc#layout[config-git]). It changes only by a
-commit: by hand, or on a branch in the administration console (Config › Projects,
+commit: by hand, or on a branch in the admin console (Config › Projects,
 *New project*, and each project's pages: xref:usage/jam/ui-projects.adoc[];
 xref:usage/jam/config-branches.adoc[config-branches]). A project's goals and resources for
 its sessions are its `context.md` (xref:usage/jam/session-context-authoring.adoc[]).
@@ -29,7 +29,7 @@ its sessions are its `context.md` (xref:usage/jam/session-context-authoring.adoc
 jam project list          # every project, one per line
 ----
 
-Its administration-client flags: xref:usage/jam/operators.adoc[].
+Its admin-client flags: xref:usage/jam/operators.adoc[].
 
 == Existence is enforced
 
@@ -56,13 +56,12 @@ nothing.
 
 *Rename.* A project's name is its directory: moving `projects/acme/` to
 `projects/apex/` is a delete of `acme` and a create of `apex`, a new project
-with a new id, under the preceding removal rules. The administration console's *Rename* on
+with a new id, under the preceding removal rules. The admin console's *Rename* on
 a branch commits the same move. *Update anything that names the project by
 name* too: a serve config's `runtime.requisitioner.project`, a
 ``dev-identity``'s deprecated `+{project, human}+` form, and scripts.
 
-[#admin-api]
-== Administration API
+== Admin API
 
 [%header]
 |===

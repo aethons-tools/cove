@@ -140,19 +140,19 @@ HTTP/2). `CONNECT` is refused (405).
 [#setting-up-previews-operator]
 == Setting up previews (operator)
 
-. Pick a `<domain>` on its own registrable domain, apart from the administration
+. Pick a `<domain>` on its own registrable domain, apart from the admin
 site: `jam-previews.example` beside `jam.example`, not
 `preview.jam.example`. Preview apps can set cookies on their registrable
-domain, which the administration site would then receive (cookie tossing; framing
+domain, which the admin site would then receive (cookie tossing; framing
 works either way). serve logs a warning when they share one. Point DNS `+*.<domain>+` at the Jam host.
 . Get a wildcard certificate for `+*.<domain>+`.
 . In the IdP, add `+https://jam.<domain>/__jam/auth/callback+` as a redirect
 URI of the `/app` browser client (xref:usage/jam/operators.adoc[]). Add
-`+:<port>+` when the administration listener is not on 443: previews are served on
-the administration listener, so preview URLs then carry its port (for example,
+`+:<port>+` when the admin listener is not on 443: previews are served on
+the admin listener, so preview URLs then carry its port (for example,
 `+https://app--…<domain>:8443/+`); `+:443+` is the cove-facing listener.
 . Add the xref:usage/jam/serve.adoc[`+previews:+` block] and restart `jam serve`. Its row
-lists the requirements. Keep the administration API and UI on a name outside
+lists the requirements. Keep the admin API and UI on a name outside
 `<domain>`.
 . Raise studios again (`jam standing upgrade` for a standing session).
 Older jam-studio-agents ignore the exposed ports, which gives a 504.
@@ -172,7 +172,7 @@ a shell. `ide` and 13337 are ordinary names and ports now.
 
 Jam must handle TLS itself, because the login callback's scheme
 comes from Jam's own connection. A TLS-terminating proxy in front breaks the
-login. A login only returns to the default port or the administration listener's own
+login. A login only returns to the default port or the admin listener's own
 port, so forwarding another external port (for example, 9443 → 8443) fails at login.
 Each viewer gets up to 6 connections per studio port, so many long-polls can
 queue. A studio's previews share its 16 tunnels with SSH but hold at most 12,

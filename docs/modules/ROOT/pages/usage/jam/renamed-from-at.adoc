@@ -191,7 +191,7 @@ not set ``+JAM_*+``: that namespace is Jam's.
 
 == Not renamed
 
-The administration API and UI routes (`+/admin/coves…+`), the JSON fields and ids that say
+The admin API and UI routes (`+/admin/coves…+`), the JSON fields and ids that say
 `cove`, the Go module and repository (`aethons-tools/cove`), the Postgres
 migration lock key, the `cove-ic` kit's name, and the files a standing session
 keeps in `/agent-data` (`.cove-conversation`). The earlier Harbor → Jam names

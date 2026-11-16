@@ -51,7 +51,7 @@ opened on it.
 
 == Turning it on for a device
 
-A *member* (not an administration-only login) sees *Notifications* in the principal
+A *member* (not an admin-only login) sees *Notifications* in the principal
 menu at the right of the xref:usage/jam/ui.adoc#the-title-bar-and-look[title bar]. It reflects
 this browser only:
 
@@ -115,7 +115,7 @@ stops suppressing within 60 s. Nothing about focus is stored. The suppression al
 conversation's notification instead of stacking another: it reads
 "_N_ new messages · latest: …" and buzzes again.
 * *Tapping it* opens the conversation—in an open Inbox window if there
-is one (focused and moved to it), else in a new one; an administration window is
+is one (focused and moved to it), else in a new one; an admin window is
 never navigated away.
 * *App badge.* Where the platform has one (the installed app on desktop
 Chrome/Edge, Android launchers that support it, iOS Home Screen), the icon

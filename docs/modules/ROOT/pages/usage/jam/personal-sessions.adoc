@@ -8,7 +8,7 @@
 
 A *personal session* is a long-lived managed studio that a person asks Jam
 for directly—with *New session* in the Inbox, or as an operator from the command line
-or the administration UI. Jam admits it against the role's personal caps, raises it *owned by
+or admin UI. Jam admits it against the role's personal caps, raises it *owned by
 that person*, and only the owner can list or release it. The owner talks to it in
 their `dm` with it (the xref:usage/jam/intercom-ui.adoc[Inbox], and Discord when set up), and it
 stays until the owner releases it. It needs `store-postgres`.
@@ -74,7 +74,7 @@ and shows _Preparing the kit image—building step 7/12 (2m)_.
 
 == Who owns it: link your login
 
-Jam finds the owner by matching the caller's *administration login* (the operator
+Jam finds the owner by matching the caller's *admin login* (the operator
 identity: your OIDC `sub`, which `jam whoami` shows, or `local` on a
 loopback-only Jam) against the *user* holding that login, who must be a
 member of the target project. Both are in the config repo:
@@ -116,7 +116,7 @@ without a Requisitioner.
 [#the-verbs]
 == The verbs
 
-All take the administration-client flags (`+--app+`/`+--admin-url+`/`+--token+`); see
+All take the admin-client flags (`+--app+`/`+--admin-url+`/`+--token+`); see
 xref:usage/jam/operators.adoc[]. `+--project+` defaults to `default`.
 
 ----
@@ -128,7 +128,7 @@ jam session release ses_01j9q3x8f2k7m4n6p0r2s5t8v1
 
 * *request* grants a slot, then raises the studio with you as its owner, and
 prints only the session id (a new `+ses_…+` id for each request). It is *named*
-`pair-01`, or the next `pair-NN` not taken by a live non-standing session (Jam-wide, like a `studio raise` label). The administration UI's role
+`pair-01`, or the next `pair-NN` not taken by a live non-standing session (Jam-wide, like a `studio raise` label). The admin UI's role
 *Request* action does the same from the browser (see
 xref:usage/jam/ui-editing.adoc#runtime-studios[Runtime (studios)]). The prompt file is
 read on the host and sent in the request body. It never goes on `argv`. Unlike
@@ -140,8 +140,7 @@ phase, activity, and when each was raised.
 the one other way it ends). The
 teardown records the reservation release, which frees your slot.
 
-[#the-admin-routes]
-== The administration routes
+== The admin routes
 
 [%header]
 |===

@@ -16,8 +16,8 @@ them on the connection of the tracker's kind (`linear`, or their login on
 `github` for a GitHub-tracked Jam, whatever handle they hold on the other);
 their Discord user id is the account on the `discord` connection. Their
 per-project *delivery* addresses (for example, a Discord inbox) live on the membership. A user's *logins* link them to
-their administration login (OIDC `sub`, or `local` on loopback), so Jam knows who is
-behind an administration request, for example to own a
+their admin login (OIDC `sub`, or `local` on loopback), so Jam knows who is
+behind an admin request, for example to own a
 xref:usage/jam/personal-sessions.adoc[personal session]. Their *OIDC identity bindings*
 `+{Issuer, Subject}+` are for a browser login, for example xref:usage/jam/intercom-ui.adoc[`/app/user`];
 they are opaque, never secrets, and both parts are non-empty.
@@ -47,7 +47,7 @@ messaged in a `dm` or `group` with a waiting session; see xref:usage/jam/escalat
 
 Users, connections, members and rooms are config: files in the config repo
 (xref:usage/jam/config-git.adoc#layout[config-git]), changed by a commit made by hand or on a
-branch in the administration console (xref:usage/jam/config-branches.adoc[config-branches]):
+branch in the admin console (xref:usage/jam/config-branches.adoc[config-branches]):
 
 [source,yaml]
 ----
@@ -75,7 +75,7 @@ jam room list <project>
 
 A `<user>` is a name (its filename) or a `+usr_+` id. Removing a user's file
 tombstones the user; the plan refuses it while the user owns a live personal
-session, is in an escalation tier or is a project member. The administration API
+session, is in an escalation tier or is a project member. The admin API
 behind the verbs is `/admin/users`, `+/admin/projects/{p}/members+`,
 `/admin/accounts`, `/admin/connections` and `+/admin/projects/{p}/rooms+`.
 
@@ -85,4 +85,4 @@ A room is named by its `key` (or a `+chn_+` id); renaming one changes only which
 a URL that itself contains colons, `user oidc` splits on the *final* colon: the
 subject is the text after it, the issuer everything before. `user list` shows
 each binding as `+oidc=<issuer>:<subject>+`. A malformed value (empty issuer or subject) exits `2`
-(the administration route answers `400`).
+(the admin route answers `400`).

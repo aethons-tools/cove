@@ -51,6 +51,6 @@ How it is applied in the box: xref:OVERVIEW.adoc#egress-four-additive-allow-list
 when in the raise: xref:usage/jam/coves-raise.adoc[coves-raise]; on a running
 studio: xref:usage/jam/coves-raise.adoc#egress-drift[coves-raise].
 
-Administration API: `+GET /admin/roles/{project}/{role}/egress+` answers *200*
+Admin API: `+GET /admin/roles/{project}/{role}/egress+` answers *200*
 `+{"managed":bool,"domains":[…]}+` (`+managed:false+` = kit default), *404* for an
 unknown role.
