@@ -4,7 +4,7 @@
 :owns: the Web Push setup steps (keygen → credential → config → egress hosts), the per-device Notifications toggle and its states, the iOS Home Screen rule, the notify rule as members see it, focus suppression as members see it, the on-device behaviour (one notification per conversation, tap-through, app badge, sounds, sign-out unsubscribing the device), the preview/privacy behaviour, and push troubleshooting. Does NOT own how the relay sends or the `/app/user/push/*` routes — see push-delivery.md; nor the `runtime.push` key reference — see serve.md; nor installing the app — see ui.md.
 :prereqs: ui.adoc (the Jam app, its login and installing it); credentials.adoc (supplying a credential); serve.adoc#the-serve-config (the `runtime.push` keys)
 :tier: leaf
-:updated: 2026-11-14
+:updated: 2026-11-15
 
 Jam uses standard *Web Push*: a member's browser subscribes with its own
 vendor's push service (Google, Mozilla, Apple, Microsoft) under Jam's *VAPID*
@@ -119,7 +119,8 @@ is one (focused and moved to it), else in a new one; an admin window is
 never navigated away.
 * *App badge.* Where the platform has one (the installed app on desktop
 Chrome/Edge, Android launchers that support it, iOS Home Screen), the icon
-shows your total unread: set by each push, and updated by the Inbox as you
+shows your total unread in your live conversations (the rail's `me`,
+xref:usage/jam/rail-api.adoc#sections[rail-api]; `jam.UnreadTotal`): set by each push, and updated by the Inbox as you
 read, so it clears once everything is read.
 * *Signing out* (principal menu → Sign out) first turns Notifications off
 for _this_ device — unsubscribing it and deleting its subscription — so the
@@ -127,6 +128,7 @@ next person on a shared device isn't buzzed with your messages. If that
 fails, sign-out goes ahead and the subscription moves to whoever signs in
 next (see above).
 
+[#sounds]
 == Sounds
 
 *Sounds…* in the principal menu (any member, push on or not) sets this

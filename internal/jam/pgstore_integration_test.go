@@ -933,3 +933,49 @@ func TestPostgresKitDraftSurvivesReopen(t *testing.T) {
 		}
 	}
 }
+
+// TestPostgresRailOrdersReload proves a saved rail order survives a reload,
+// and that saving again replaces it.
+func TestPostgresRailOrdersReload(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.CreateUser(jam.User{Name: "carol"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRailOrder(u.ID, jam.RailMe, []string{"chn_b", "chn_a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutRailOrder(u.ID, jam.RailAgents, []string{"ses_a"}); err != nil {
+		t.Fatal(err)
+	}
+	again := open()
+	if got := again.RailOrder(u.ID, jam.RailMe); !reflect.DeepEqual(got, []string{"chn_b", "chn_a"}) {
+		t.Fatalf("reload: me order = %q", got)
+	}
+	if got := again.RailOrder(u.ID, jam.RailAgents); !reflect.DeepEqual(got, []string{"ses_a"}) {
+		t.Fatalf("reload: agents order = %q", got)
+	}
+	if err := again.PutRailOrder(u.ID, jam.RailMe, []string{"chn_c"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := open().RailOrder(u.ID, jam.RailMe); !reflect.DeepEqual(got, []string{"chn_c"}) {
+		t.Fatalf("reload after replace: me order = %q", got)
+	}
+}

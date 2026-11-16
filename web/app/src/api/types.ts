@@ -51,14 +51,78 @@ export interface NavTab {
   badgeTitle: string;
 }
 /**
- * RailResponse is GET /app/user/api/rail.
+ * RailResponse is GET /app/user/api/rail: its sections
+ * (docs/modules/ROOT/pages/usage/jam/inbox-rail.adoc#api).
  */
 export interface RailResponse {
-  groups: RailGroup[];
+  /**
+   * Me is the live conversations the viewer is a member of, in their saved
+   * order, then newest message first.
+   */
+  me: ChannelRow[];
+  /**
+   * Work is every unit of work in the viewer's projects with a current
+   * worker, by key.
+   */
+  work: WorkRow[];
+  /**
+   * Agents is every active session whose view the viewer may open, in
+   * their saved order, then by start time.
+   */
+  agents: AgentItem[];
+  /**
+   * History is the legacy log's conversations, read-only.
+   */
+  history: ChannelRow[];
+  /**
+   * UnreadTotal is the sum of Unread over Me and History (the app badge).
+   */
   unreadTotal: number /* int */;
 }
 /**
- * ChannelRow is one channel in the left rail, from the viewer's perspective.
+ * WorkRow is one unit of work in the rail's Work section.
+ */
+export interface WorkRow {
+  key: string; // the issue key
+  title: string; // the issue title; "" = not known (a manual raise)
+  log: string; // the work log's channel id
+  worker: WorkWorker;
+  /**
+   * Unread is the log's unread entries when the viewer follows it; absent
+   * otherwise.
+   */
+  unread?: number /* int */;
+}
+/**
+ * WorkWorker is a unit's current worker.
+ */
+export interface WorkWorker {
+  id: string; // session id
+  label: string; // its name, else its id
+  state: CardState; // its status card's state
+}
+/**
+ * AgentItem is one session in the rail's Agents section.
+ */
+export interface AgentItem {
+  session: string;
+  /**
+   * SSH reports whether the viewer may SSH into the session's studio.
+   */
+  ssh: boolean;
+  card: SessionCard;
+}
+/**
+ * RailOrderRequest is PUT /app/user/api/rail/order: the viewer's order of
+ * a section, "me" (conversation ids) or "agents" (session ids).
+ */
+export interface RailOrderRequest {
+  section: string;
+  ids: string[];
+}
+/**
+ * ChannelRow is one conversation in the rail's Me or History section, from
+ * the viewer's perspective.
  */
 export interface ChannelRow {
   id: string;
@@ -146,15 +210,6 @@ export interface CardCounts {
 export interface CardContext {
   used: number /* int64 */;
   window: number /* int64 */;
-}
-/**
- * RailGroup is one attention section of the rail (Needs you / Sessions /
- * Channels / History), non-empty.
- */
-export interface RailGroup {
-  bucket: string;
-  title: string;
-  rows: ChannelRow[];
 }
 /**
  * MessageRow is one squawk in the conversation pane, from the viewer's side.

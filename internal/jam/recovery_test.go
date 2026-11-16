@@ -11,9 +11,12 @@ import (
 // raiseWorker raises a ticket session the way the Requisitioner does.
 func raiseWorker(t *testing.T, sup *Supervisor) Instance {
 	t.Helper()
-	inst, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Unit: "AET-1", Prompt: "do AET-1", Mission: "AET-1"})
+	inst, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Role: "guest", Unit: "AET-1", Prompt: "do AET-1", Mission: "AET-1", UnitTitle: "Fix AET"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if inst.UnitTitle != "Fix AET" {
+		t.Fatalf("UnitTitle = %q, want the raise spec's", inst.UnitTitle)
 	}
 	return inst
 }
@@ -94,7 +97,7 @@ func TestRecoveringSessionReraised(t *testing.T) {
 	if !ok || got.Phase != PhaseLive || got.Recovery != nil || !got.Recoverable {
 		t.Fatalf("instance = %+v, %v; want live again", got, ok)
 	}
-	if f.gotSpec.ActorID != "w1" || f.gotSpec.Prompt != "do AET-1" || f.gotSpec.Unit != "AET-1" || f.gotSpec.Mission != "AET-1" {
+	if f.gotSpec.ActorID != "w1" || f.gotSpec.Prompt != "do AET-1" || f.gotSpec.Unit != "AET-1" || f.gotSpec.Mission != "AET-1" || f.gotSpec.UnitTitle != "Fix AET" {
 		t.Fatalf("re-raise spec = %+v", f.gotSpec)
 	}
 	if got.CommitSeq != 42 || got.CommitCursor != "m42" || got.Focus != "fixing tests" || got.Report == nil || got.Report.State != ReportInReview {

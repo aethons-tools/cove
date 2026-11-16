@@ -1,0 +1,90 @@
+= The rail: sections and saved order
+:summary: What `GET /app/user/api/rail` returns: the rail's sections (`me`, `work`, `agents`, `history`) and `unreadTotal`, and each person's saved order of `me` and `agents` (`PUT /app/user/api/rail/order`, the `rail_orders` table).
+:read_when: You are building a client on the rail's sections or its saved order, changing the Jam app's rail (`web/app/src/rail`), or changing `userui.railSections`, `apiRailOrder`, `jam.RailOrderStore`, or the `rail_orders` table.
+:owns: the rail response's sections and `unreadTotal`, how the clients show them (`RailSections`: the Me filter, reordering), the rail-order API, and its storage. Does NOT own the rest of the user area (intercom-ui.adoc), the VS Code rail's clicks (vscode-hub.adoc), the status card (session-card.adoc), or who may open a session view (session-view.adoc).
+:prereqs: intercom-ui.adoc for the user area; session-card.adoc for the card
+:tier: leaf
+:updated: 2026-11-15
+
+`GET /app/user/api/rail` (`userui.RailResponse`) serves the rail.
+Its sections are the rail the Jam app and the VS Code rail show (<<clients>>).
+
+[#sections]
+== Sections
+
+[%header,cols="1,4"]
+|===
+|Field |Holds
+
+|`me`
+|The live conversations the person is a member of, as `ChannelRow`s:
+rooms, the work logs they follow, and the `dm`s and `group`s with a person or an active session besides them.
+A `dm` with a session leaves when the session ends; archived conversations never show.
+
+|`work`
+|A `WorkRow` for every unit of work in the person's projects with a current worker, by key:
+`key`, `title` (the issue title the Requisitioner raised the worker with, `Instance.UnitTitle`; empty for a manual raise), `log`, and `worker` (`id`, `label`, and its status card's `state`).
+`unread` is present only when the person follows the log.
+
+|`agents`
+|An `AgentItem` (`session`, `ssh`, `card`) for every live, starting, paused, or recovering session whose view the person may open
+(xref:usage/jam/session-view.adoc[session-view]).
+
+|`history`
+|The legacy log's conversations, read-only, newest first.
+
+|`unreadTotal`
+|The sum of `unread` over `me` and `history`: the app badge.
+A push sets the badge to the same sum (`jam.UnreadTotal`, which counts the conversations `jam.InMe` keeps),
+so the two never disagree.
+|===
+
+`?c=` marks the open conversation `selected` and read in `me` and `history`,
+and zeroes its `work` row's count.
+
+[#clients]
+== How the clients show it
+
+`web/app/src/rail/RailSections.tsx` shows the sections in the Jam app and in the VS Code rail
+(xref:usage/jam/vscode-hub.adoc#the-rail[vscode-hub], which owns that rail's clicks and ▣).
+The caller makes each item open something.
+In the Jam app, a Me or History row and a Work row are links to their conversation,
+and a card and a Work row's worker are links to the session view (`/app/user/s/<session>`).
+
+* *Me:* one compact row per conversation:
+its label;
+for a `dm` with an active session, that session's card state (such as *working* or *idle*),
+otherwise its kind (*DM*, *group*, *room*, *work*, or *agent*);
+an orange dot when `needsYou` is set;
+and an *unread* badge.
+The *All*/*Unread* toggle in the heading filters on the client:
+*Unread* keeps the rows with unread or `needsYou`.
+* *Work:* the key and title, then the worker's label and state,
+and an *unread* badge when the row has `unread`.
+* *Agents:* each session's xref:usage/jam/session-card.adoc[status card].
+* *History (before the upgrade):* collapsed under its heading at the bottom.
+
+Work, Agents, and History show only when they have rows;
+with none of the four, the rail says "No conversations yet."
+In the Jam app, the chimes (xref:usage/jam/push.adoc#sounds[push]) follow the `me` and `history` rows,
+the ones `unreadTotal` counts.
+
+A Me row or an Agents card is dragged onto another to take its place,
+or moved one place with its grip's (⋮⋮) arrow keys.
+The rail takes the new order at once (`useRailOrder`),
+saves the section's whole order with `PUT api/rail/order`,
+and refetches when the save settles;
+a refused save shows a notification and goes back to the saved order.
+While *Unread* hides rows, a move goes to a shown neighbor's place,
+and the hidden rows keep theirs.
+
+[#order]
+== The saved order
+
+`me` and `agents` come in the person's saved order;
+what isn't in it goes last, `me` newest message first and `agents` by start time.
+`PUT /app/user/api/rail/order` with `+{"section": "me"|"agents", "ids": [...]}+` replaces the order (`204`; `400` for another section).
+It keeps only the ids now in that section, once each, so ids that left it are dropped when the person next saves.
+The order is stored per user in the store's `+rail_orders+` table (migration `0027`; `jam.RailOrderStore`),
+so every client and device shares it.
+It is kept when the person is removed, as their read cursors are.

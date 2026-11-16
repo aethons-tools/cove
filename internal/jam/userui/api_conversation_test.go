@@ -205,11 +205,9 @@ func TestAPIConversationHistory(t *testing.T) {
 	}
 	e.Legacy = legacy
 	var id string
-	for _, g := range Rail(p, e.Deps, "") {
-		for _, r := range g.Rows {
-			if strings.HasPrefix(r.ID, legacyPrefix) {
-				id = r.ID
-			}
+	for _, r := range railJSON(t, Handler(e.Deps, nil), p).History {
+		if strings.HasPrefix(r.ID, legacyPrefix) {
+			id = r.ID
 		}
 	}
 	if id == "" {

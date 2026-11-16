@@ -20,7 +20,7 @@ const today = (h: number, m: number): Date => {
   d.setHours(h, m, 0, 0);
   return d;
 };
-const rail: RailResponse = { unreadTotal: 0, groups: [] };
+const rail: RailResponse = { unreadTotal: 0, me: [], work: [], agents: [], history: [] };
 const msg = (seq: number, over: Partial<MessageRow> = {}): MessageRow => ({
   from: "spider", body: `<p>m${seq}</p>`, raw: `m${seq}`, plain: false, at: "09:00", time: today(9, seq % 60).toISOString(),
   mine: false, seq, system: false, sysText: "", card: "", ...over,
@@ -245,10 +245,10 @@ describe("the conversation view", () => {
   it("keeps the rail on screen while switching conversations", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => { release = r; });
-    const railRows: RailResponse = { unreadTotal: 0, groups: [{ bucket: "channels", title: "Channels", rows: [
+    const railRows: RailResponse = { unreadTotal: 0, work: [], agents: [], history: [], me: [
       { id: "chn_a", label: "alpha", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "", session: "", ssh: false, sessionView: "" },
       { id: "chn_b", label: "beta", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 2, selected: false, mission: "", session: "", ssh: false, sessionView: "" },
-    ] }] };
+    ] };
     serve(conv());
     server.use(http.get("/app/user/api/rail", async ({ request }) => {
       if (new URL(request.url).searchParams.get("c") === "chn_b") await gate;

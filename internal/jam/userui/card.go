@@ -96,19 +96,17 @@ func (h *handler) card(inst jam.Instance) (SessionCard, bool) {
 // attachCards gives each rail row backed by a session (ChannelRow.cardSession)
 // that session's card, and its conversation for the viewer when they may open the
 // session's view.
-func (h *handler) attachCards(req *http.Request, p jam.Participant, groups []RailGroup) {
-	for gi := range groups {
-		for ri := range groups[gi].Rows {
-			r := &groups[gi].Rows[ri]
-			if r.cardSession == "" {
-				continue
-			}
-			if inst, ok := h.d.Store.GetInstance(r.cardSession); ok {
-				if c, ok := h.card(inst); ok {
-					r.Card = &c
-					if _, conv, ok := h.sessionFor(req, p, inst.ActorID); ok {
-						r.SessionView = conv
-					}
+func (h *handler) attachCards(req *http.Request, p jam.Participant, rows []ChannelRow) {
+	for ri := range rows {
+		r := &rows[ri]
+		if r.cardSession == "" {
+			continue
+		}
+		if inst, ok := h.d.Store.GetInstance(r.cardSession); ok {
+			if c, ok := h.card(inst); ok {
+				r.Card = &c
+				if _, conv, ok := h.sessionFor(req, p, inst.ActorID); ok {
+					r.SessionView = conv
 				}
 			}
 		}

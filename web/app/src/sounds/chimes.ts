@@ -30,7 +30,8 @@ export function useChimes(rail: RailResponse | undefined, updatedAt: number, ope
   useEffect(() => {
     if (!rail || updatedAt <= last.current) return;
     last.current = updatedAt;
-    const rows = rail.groups.flatMap((g) => g.rows);
+    // Me and History: the rows the app badge counts.
+    const rows = [...rail.me, ...rail.history];
     const looking = document.visibilityState === "visible" && document.hasFocus();
     const kind = chimeFor(prev.current, rows, open, looking);
     prev.current = snapshot(rows);

@@ -70,19 +70,42 @@ func unreadByChannel(store Store, lg intercom.Store, u ident.ID) map[ident.ID]in
 	return unread
 }
 
-// UnreadTotal is user u's unread across the channels they may see: the sum
-// of UserChannels' per-channel Unread (the app badge, a push's count).
+// UnreadTotal is user u's unread across their Me (InMe) that they may see:
+// the sum of the rail's Me unread (the app badge, a push's count; the legacy
+// History is always read).
 func UnreadTotal(store Store, ic *Intercom, lg intercom.Store, u ident.ID) int {
 	if lg == nil || u == "" {
 		return 0
 	}
 	total := 0
 	for id, n := range unreadByChannel(store, lg, u) {
-		if ch, ok := store.GetChannel(id); ok && ic.CanSee(u, ch) {
+		if ch, ok := store.GetChannel(id); ok && ic.CanSee(u, ch) && InMe(store, u, ch) {
 			total += n
 		}
 	}
 	return total
+}
+
+// InMe reports whether ch is in user u's Me, the rail's section of their
+// live conversations (docs/modules/ROOT/pages/usage/jam/rail-api.adoc): u
+// is a member of it, it is live, and a dm or a group has a person or an
+// active session besides u (so a dm with a session leaves when it ends).
+func InMe(store Store, u ident.ID, ch Channel) bool {
+	if ch.Status != StatusLive || ch.Kind == SourceSession {
+		return false
+	}
+	member, others := false, false
+	for _, m := range store.ChannelMembers(ch.ID) {
+		if m.ParticipantID == u {
+			member = true
+			continue
+		}
+		inst, isSession := store.GetInstance(string(m.ParticipantID))
+		if isSession && InstanceActive(inst) || !isSession && !isSessionID(m.ParticipantID) {
+			others = true
+		}
+	}
+	return member && (others || !IsChat(ch.Kind))
 }
 
 // UserChannel is one channel as user u sees it (ok=false: gone, or theirs
@@ -118,7 +141,7 @@ func userChannel(store Store, ic *Intercom, lg intercom.Store, u, id ident.ID, o
 		}
 		if isSessionID(m.ParticipantID) {
 			v.Sessions = append(v.Sessions, string(m.ParticipantID))
-			if inst, ok := store.GetInstance(string(m.ParticipantID)); ok && instanceActive(inst) {
+			if inst, ok := store.GetInstance(string(m.ParticipantID)); ok && InstanceActive(inst) {
 				if v.Phase == "" || NeedsPerson(inst) {
 					v.Phase, v.NeedsYou = string(inst.Phase), v.NeedsYou || NeedsPerson(inst)
 				}

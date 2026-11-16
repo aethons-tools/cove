@@ -248,3 +248,42 @@ func TestChannelBucketByKind(t *testing.T) {
 		})
 	}
 }
+
+// UnreadTotal counts only the rail's Me (InMe): not an archived channel, nor
+// a dm whose session ended, so a push sets the badge the Inbox sets.
+func TestUnreadTotalCountsMe(t *testing.T) {
+	f := newICFixture(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(f.store.JoinChannel(f.room.ID, f.alice.ID, 0))
+	must(f.store.JoinChannel(f.room.ID, f.bob.ID, 0))
+	_, err := f.ic.PostTrusted(f.room, intercom.Squawk{ID: "r1", From: f.bob.ID, Body: "live"})
+	must(err)
+	ses := Instance{ActorID: string(ident.New(ident.Session)), Project: "default", Phase: PhaseLive}
+	must(f.store.PutInstance(ses))
+	dm, err := f.store.CreateChannel(Channel{ProjectID: f.room.ProjectID, Kind: SourceDM, Key: "dm-ses", Label: "dm"})
+	must(err)
+	must(f.store.JoinChannel(dm.ID, f.alice.ID, 0))
+	must(f.store.JoinChannel(dm.ID, ident.ID(ses.ActorID), 0))
+	_, err = f.ic.PostTrusted(dm, intercom.Squawk{ID: "d1", From: ident.ID(ses.ActorID), Body: "hi"})
+	must(err)
+	old, err := f.store.CreateChannel(Channel{ProjectID: f.room.ProjectID, Kind: SourceRoom, Key: "old", Label: "old"})
+	must(err)
+	must(f.store.JoinChannel(old.ID, f.alice.ID, 0))
+	must(f.store.JoinChannel(old.ID, f.bob.ID, 0))
+	_, err = f.ic.PostTrusted(old, intercom.Squawk{ID: "o1", From: f.bob.ID, Body: "old"})
+	must(err)
+	if got := UnreadTotal(f.store, f.ic, f.log, f.alice.ID); got != 3 {
+		t.Fatalf("UnreadTotal = %d, want 3 before anything ends", got)
+	}
+	ses.Phase = PhaseGone
+	must(f.store.PutInstance(ses))
+	must(f.store.ArchiveChannel(old.ID))
+	if got := UnreadTotal(f.store, f.ic, f.log, f.alice.ID); got != 1 {
+		t.Fatalf("UnreadTotal = %d, want 1 (the room): not the ended session's dm or the archived room", got)
+	}
+}

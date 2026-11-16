@@ -415,10 +415,8 @@ func TestAPIRailRowSessionAndSSH(t *testing.T) {
 		return string(ch.ID)
 	}
 	rows := map[string]ChannelRow{}
-	for _, g := range rr.Groups {
-		for _, r := range g.Rows {
-			rows[r.ID] = r
-		}
+	for _, r := range rr.Me {
+		rows[r.ID] = r
 	}
 	mine, theirs := homeOf(personal), homeOf(standing)
 	if r, ok := rows[mine]; !ok || r.Session != personal.ActorID || !r.SSH {

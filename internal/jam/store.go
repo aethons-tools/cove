@@ -20,6 +20,7 @@ type Store interface {
 	PushSubscriptionStore
 	AppTokenStore
 	SessionColorStore
+	RailOrderStore
 	ManagerStore
 	SetupSnapshotStore
 

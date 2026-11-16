@@ -23,6 +23,7 @@ import (
 func (h *handler) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /app/user/api/bootstrap", h.apiBootstrap)
 	mux.HandleFunc("GET /app/user/api/rail", h.apiRail)
+	mux.HandleFunc("PUT /app/user/api/rail/order", h.apiRailOrder)
 	h.conversationRoutes(mux)
 	h.composeRoutes(mux)
 	h.askRoutes(mux)
@@ -104,28 +105,22 @@ func (h *handler) apiRail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// ?c= is the open conversation, counted as read (it is being read).
-	groups := Rail(p, h.d, r.URL.Query().Get("c"))
-	h.railSessions(r, p, groups)
-	h.attachCards(r, p, groups)
-	if groups == nil {
-		groups = []RailGroup{}
-	}
-	writeJSON(w, http.StatusOK, RailResponse{Groups: groups, UnreadTotal: unreadTotal(groups)})
+	sel := r.URL.Query().Get("c")
+	chs := jam.UserChannels(h.d.Store, h.d.Intercom, h.d.Log, p.UserID)
+	legacy := legacyChannels(p, h.d)
+	writeJSON(w, http.StatusOK, h.railSections(r, p, chs, legacy, sel))
 }
 
 // railSessions fills each row's head session and the viewer's SSH access to it.
-func (h *handler) railSessions(r *http.Request, p jam.Participant, groups []RailGroup) {
+func (h *handler) railSessions(r *http.Request, p jam.Participant, rows []ChannelRow) {
 	now, cp := time.Now(), collabPrincipal(r, p)
-	for gi := range groups {
-		rows := groups[gi].Rows
-		for i := range rows {
-			inst, ok := h.headSession(r, p, rows[i].ID)
-			if !ok {
-				continue
-			}
-			rows[i].Session = inst.ActorID
-			_, rows[i].SSH = collab.Decide(h.d.Store, now, cp, inst, collab.SSH)
+	for i := range rows {
+		inst, ok := h.headSession(r, p, rows[i].ID)
+		if !ok {
+			continue
 		}
+		rows[i].Session = inst.ActorID
+		_, rows[i].SSH = collab.Decide(h.d.Store, now, cp, inst, collab.SSH)
 	}
 }
 

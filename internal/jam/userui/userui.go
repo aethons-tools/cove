@@ -7,8 +7,6 @@ package userui
 
 import (
 	"context"
-	"sort"
-	"strings"
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
@@ -90,18 +88,6 @@ type Sender interface {
 // legacyPrefix marks a History channel id (the legacy projection's ids).
 const legacyPrefix = "legacy:"
 
-// bucketHistory groups the legacy log's conversations, read-only.
-const bucketHistory jam.AttentionBucket = "history"
-
-var bucketTitle = map[jam.AttentionBucket]string{
-	jam.BucketNeedsYou: "Needs you",
-	jam.BucketActive:   "Agents",
-	jam.BucketChannels: "Conversations",
-	bucketHistory:      "History (before the upgrade)",
-}
-
-var bucketOrder = []jam.AttentionBucket{jam.BucketNeedsYou, jam.BucketActive, jam.BucketChannels}
-
 // legacyNames is how the legacy log named the participant in each of their
 // projects: as their user name (the name the roster view gave them). Never a
 // pre-registry alias: the legacy projection is not project-scoped, so a name
@@ -171,67 +157,36 @@ func viewKind(ch jam.ChannelView) string {
 	return legacyKind[ch.Kind]
 }
 
-// groupRail groups channels into the attention-ordered rail (Needs you →
-// Agents → Conversations); within a group, most-recent first, then id. Empty groups
-// are dropped. selectedID marks the open channel.
-func groupRail(chs []jam.ChannelView, selectedID string) []RailGroup {
-	byBucket := map[jam.AttentionBucket][]ChannelRow{}
-	for _, ch := range chs {
-		if ch.ID == selectedID {
-			// The open conversation is being read: the app commits its
-			// cursor only after it loads (POST api/conversations/{c}/read), so the stored
-			// count would otherwise linger in the rail and app badge.
-			ch.Unread = 0
-		}
-		b := ch.Bucket()
-		if strings.HasPrefix(ch.ID, legacyPrefix) {
-			b = bucketHistory
-		}
-		byBucket[b] = append(byBucket[b], ChannelRow{
-			ID:          ch.ID,
-			Label:       ch.Label,
-			Project:     ch.Project,
-			Kind:        viewKind(ch),
-			NeedsYou:    ch.NeedsYou,
-			Phase:       ch.Phase,
-			Unread:      ch.Unread,
-			OpenAsks:    ch.OpenAsks,
-			LastSeq:     ch.LastSeq,
-			Selected:    ch.ID == selectedID,
-			Mission:     ch.Mission,
-			cardSession: ch.CardSession,
-		})
+// channelRow is ch's rail row; selectedID is the open conversation.
+func channelRow(ch jam.ChannelView, selectedID string) ChannelRow {
+	if ch.ID == selectedID {
+		// The open conversation is being read: the app commits its
+		// cursor only after it loads (POST api/conversations/{c}/read), so the stored
+		// count would otherwise linger in the rail and app badge.
+		ch.Unread = 0
 	}
-	var groups []RailGroup
-	for _, b := range append(bucketOrder, bucketHistory) {
-		rows := byBucket[b]
-		if len(rows) == 0 {
-			continue
-		}
-		sort.SliceStable(rows, func(i, j int) bool {
-			if rows[i].LastSeq != rows[j].LastSeq {
-				return rows[i].LastSeq > rows[j].LastSeq
-			}
-			return rows[i].ID < rows[j].ID
-		})
-		groups = append(groups, RailGroup{Bucket: b, Title: bucketTitle[b], Rows: rows})
+	return ChannelRow{
+		ID:          ch.ID,
+		Label:       ch.Label,
+		Project:     ch.Project,
+		Kind:        viewKind(ch),
+		NeedsYou:    ch.NeedsYou,
+		Phase:       ch.Phase,
+		Unread:      ch.Unread,
+		OpenAsks:    ch.OpenAsks,
+		LastSeq:     ch.LastSeq,
+		Selected:    ch.ID == selectedID,
+		Mission:     ch.Mission,
+		cardSession: ch.CardSession,
 	}
-	return groups
 }
 
-// Rail builds the participant's rail: their channels, grouped by attention,
-// then their History, with selectedID marked.
-func Rail(p jam.Participant, d Deps, selectedID string) []RailGroup {
-	chs := jam.UserChannels(d.Store, d.Intercom, d.Log, p.UserID)
-	return groupRail(append(chs, legacyChannels(p, d)...), selectedID)
-}
-
-// unreadTotal is the rail's total unread (History rows are always read), the
-// same sum as jam.UnreadTotal.
-func unreadTotal(groups []RailGroup) int {
+// unreadTotal is the sum of Unread over sections (History rows are always
+// read).
+func unreadTotal(sections ...[]ChannelRow) int {
 	n := 0
-	for _, g := range groups {
-		for _, r := range g.Rows {
+	for _, rows := range sections {
+		for _, r := range rows {
 			n += r.Unread
 		}
 	}

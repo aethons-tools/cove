@@ -7,13 +7,13 @@ import { useBoot } from "../BootContext";
 import { useChimes } from "../sounds/chimes";
 import { NavLink as RouterLink, useLocation, useNavigate, useParams } from "react-router";
 import { useRail } from "./useRail";
-import { RailList } from "./RailList";
+import { RailSections } from "./RailSections";
 import { useAppBadge } from "../push/useAppBadge";
 import { Problem } from "../Problem";
 import { APP } from "../paths";
 
 export function Rail() {
-  const { channel } = useParams();
+  const { channel, session } = useParams();
   const { data, error, isPending, dataUpdatedAt } = useRail(channel);
   useAppBadge(data?.unreadTotal);
   const here = useLocation();
@@ -37,9 +37,14 @@ export function Rail() {
   );
   if (isPending) return frame(<Loader m="md" size="sm" />);
   if (error) return frame(<Problem error={error} here={here.pathname + here.search} />);
-  if (data.groups.length === 0) return frame(<Text c="dimmed" size="sm" m="md">No conversations yet. Start one with New message.</Text>);
+  if (data.me.length + data.work.length + data.agents.length + data.history.length === 0) {
+    return frame(<Text c="dimmed" size="sm" m="md">No conversations yet. Start one with New message.</Text>);
+  }
   return frame(
-    <RailList groups={data.groups} active={channel} rowProps={(r) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(r.id)}` })}
-      openSession={(_, s) => nav(`${APP}s/${encodeURIComponent(s)}`)} />,
+    <RailSections rail={data} active={channel} activeSession={session}
+      rowProps={(r) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(r.id)}` })}
+      workProps={(w) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(w.log)}` })}
+      cardProps={(a) => ({ component: RouterLink, to: `${APP}s/${encodeURIComponent(a.session)}` })}
+      onWorker={(w) => nav(`${APP}s/${encodeURIComponent(w.worker.id)}`)} />,
   );
 }

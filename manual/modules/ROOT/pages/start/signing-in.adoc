@@ -126,10 +126,18 @@ Click *Allow*.
 VS Code then has an app token for you,
 which you can revoke later under *Connected apps…*.
 . The *Conversations* view in the Jam side bar
-lists your conversations, the same way as the Inbox's rail.
-Click one to open it as a tab in the *Jam hub*,
+lists your conversations in three sections.
+*Me* has the conversations you take part in,
+with a dot on the ones that need you;
+*All* and *Unread* at its top choose which show.
+*Work* has the units of work an agent is working on now.
+*Agents* has the status cards of the sessions you can watch.
+Click a conversation to open it as a tab in the *Jam hub*,
 a VS Code window just for conversations.
-Double-click a session to open its studio window.
+Click an agent's card, or a work row's agent, to open that agent's conversation.
+Double-click a conversation or a card of a session to open its studio window.
+Drag conversations and cards to put them in the order you want;
+Jam saves your order for you.
 
 To open a session's studio from the web app instead,
 use *Open in VS Code* in the session's header

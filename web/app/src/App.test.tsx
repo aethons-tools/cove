@@ -1,46 +1,75 @@
 import { describe, expect, it } from "vitest";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { server } from "./test/server";
 import { boot, renderApp } from "./test/render";
-import type { RailResponse } from "./api/types";
+import type { ChannelRow, RailResponse } from "./api/types";
 import { card } from "./test/card";
 
+const row = (over: Partial<ChannelRow>): ChannelRow => ({
+  id: "", label: "", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 1, selected: false, mission: "", session: "", ssh: false, sessionView: "", ...over,
+});
 const rail: RailResponse = {
-  unreadTotal: 2,
-  groups: [
-    { bucket: "needs-you", title: "Needs you", rows: [{ id: "chn_a", label: "intercom-spider", project: "test", kind: "session", needsYou: true, phase: "waiting", unread: 2, openAsks: 1, lastSeq: 9, selected: false, mission: "SPA slice 1", session: "", ssh: false, sessionView: "" }] },
-    { bucket: "channels", title: "Channels", rows: [{ id: "chn_b", label: "eng", project: "test", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 3, selected: false, mission: "", session: "", ssh: false, sessionView: "" }] },
+  unreadTotal: 2, history: [],
+  me: [
+    row({ id: "chn_a", label: "intercom-spider", kind: "dm", needsYou: true, unread: 2, card: card({ session: "ses_spider", name: "intercom-spider", pill: "needs you", state: "idle" }) }),
+    row({ id: "chn_b", label: "eng" }),
   ],
+  work: [{ key: "TEST-7", title: "Fix the login", log: "chn_t7", worker: { id: "ses_t7", label: "test-7", state: "working" } }],
+  agents: [{ session: "ses_spider", ssh: false, card: card({ session: "ses_spider", name: "intercom-spider", mission: "SPA slice 1" }) }],
 };
 
 describe("the app shell", () => {
-  it("shows the brand, the user and the rail's groups and unread", async () => {
+  it("shows the brand, the user and the rail's Me, Work, and Agents", async () => {
     server.use(http.get("/app/user/api/rail", () => HttpResponse.json(rail)));
     renderApp(boot);
     expect(screen.getByText("Acme Jam")).toBeInTheDocument();
-    expect(await screen.findByText("intercom-spider")).toBeInTheDocument();
-    expect(screen.getByText("Needs you")).toBeInTheDocument();
-    expect(screen.getByText("eng")).toBeInTheDocument();
-    expect(screen.getByText("SPA slice 1")).toBeInTheDocument();
-    expect(screen.getByLabelText("2 unread")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /eng/ })).toHaveAttribute("href", "/app/user/c/chn_b");
+    const me = await screen.findByRole("list", { name: "Me" });
+    expect(within(me).getByRole("link", { name: /eng/ })).toHaveAttribute("href", "/app/user/c/chn_b");
+    expect(within(me).getByRole("link", { name: /intercom-spider/ })).toHaveAttribute("href", "/app/user/c/chn_a");
+    expect(within(me).getByLabelText("2 unread")).toBeInTheDocument();
+    expect(within(me).getByText("idle")).toBeInTheDocument();
+    const work = screen.getByRole("list", { name: "Work" });
+    expect(within(work).getByRole("link", { name: /TEST-7/ })).toHaveAttribute("href", "/app/user/c/chn_t7");
+    const agents = screen.getByRole("list", { name: "Agents" });
+    expect(within(agents).getByRole("link", { name: /intercom-spider/ })).toHaveAttribute("href", "/app/user/s/ses_spider");
+    expect(within(agents).getByText("SPA slice 1")).toBeInTheDocument();
   });
 
-  it("shows an agent dm's row as its status card", async () => {
-    const withCard: RailResponse = { ...rail, groups: [{ ...rail.groups[0]!, rows: [{ ...rail.groups[0]!.rows[0]!,
-      card: card({ name: "intercom-spider", pill: "needs you", state: "idle", mission: "SPA slice 1", counts: { asks: 1, alarms: 0, previews: 0, processes: 0, subagents: 0 } }) }] }, rail.groups[1]!] };
-    server.use(http.get("/app/user/api/rail", () => HttpResponse.json(withCard)));
+  it("opens a Work row's worker in its session view", async () => {
+    server.use(http.get("/app/user/api/rail", () => HttpResponse.json(rail)));
+    const { router } = renderApp(boot);
+    await userEvent.click(await screen.findByRole("button", { name: "Open test-7's session view" }));
+    expect(router.state.location.pathname).toBe("/app/user/s/ses_t7");
+  });
+
+  it("saves a reordered Me and shows the new order at once", async () => {
+    const saved: unknown[] = [];
+    let release = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    let me = rail.me;
+    server.use(
+      http.get("/app/user/api/rail", () => HttpResponse.json({ ...rail, me })),
+      http.put("/app/user/api/rail/order", async ({ request }) => {
+        saved.push(await request.json());
+        await gate;
+        me = [rail.me[1]!, rail.me[0]!];
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
     renderApp(boot);
-    expect(await screen.findByText("needs you")).toBeInTheDocument();
-    expect(screen.getByTitle("1 open ask")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /intercom-spider/ })).toHaveAttribute("href", "/app/user/c/chn_a");
-    // A room keeps its plain row.
-    expect(screen.getByRole("link", { name: /eng/ }).querySelector(".sc")).toBeNull();
+    const section = await screen.findByRole("list", { name: "Me" });
+    const hrefs = () => within(section).getAllByRole("link").map((a) => a.getAttribute("href"));
+    fireEvent.keyDown(within(within(section).getByRole("link", { name: /eng/ }).closest("li")!).getByRole("button", { name: "Reorder" }), { key: "ArrowUp" });
+    await waitFor(() => expect(saved).toEqual([{ section: "me", ids: ["chn_b", "chn_a"] }]));
+    expect(hrefs()).toEqual(["/app/user/c/chn_b", "/app/user/c/chn_a"]); // before the save answers
+    release();
+    await waitFor(() => expect(hrefs()).toEqual(["/app/user/c/chn_b", "/app/user/c/chn_a"]));
   });
 
   it("shows an empty state for a member with no channels", async () => {
-    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ groups: [], unreadTotal: 0 })));
+    server.use(http.get("/app/user/api/rail", () => HttpResponse.json({ me: [], work: [], agents: [], history: [], unreadTotal: 0 })));
     renderApp(boot);
     expect(await screen.findByText(/No conversations yet/)).toBeInTheDocument();
   });
