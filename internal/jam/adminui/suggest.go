@@ -61,6 +61,17 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 			}
 			return out
 		},
+		// tier-targets: who an escalation tier can name — people only, as the
+		// engine skips a room.
+		"tier-targets": func(p string) []string {
+			out := []string{}
+			if pr, ok := store.GetProject(orDefaultProject(p)); ok {
+				for _, m := range jam.MembersOf(store, pr.ID) {
+					out = append(out, "user:"+m.User.Name)
+				}
+			}
+			return out
+		},
 		// participants: who a squawk can be from and where it can be — users,
 		// sessions and channels by id (the channel log), and the legacy log's
 		// kind:ref forms.

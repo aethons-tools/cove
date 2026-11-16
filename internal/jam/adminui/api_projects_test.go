@@ -112,8 +112,8 @@ func TestProjectSectionsAPI(t *testing.T) {
 	if len(d.DefaultChain.Tiers) != 1 || len(d.Escalation) != 1 {
 		t.Fatalf("chain = %+v", d.DefaultChain)
 	}
-	tg := d.DefaultChain.Tiers[0].Targets
-	if len(tg) != 1 || tg[0].Unknown || d.DefaultChain.Tiers[0].Timeout != "15m" {
+	tg := d.DefaultChain.Tiers[0].Targets // a room is no tier target: flagged unknown
+	if len(tg) != 1 || !tg[0].Unknown || d.DefaultChain.Tiers[0].Timeout != "15m" {
 		t.Errorf("targets = %+v", d.DefaultChain.Tiers[0])
 	}
 	if rec := apiDo(t, h, "DELETE", "/app/admin/api/projects/acme/escalation?category=", nil, &d); rec.Code != 200 {
