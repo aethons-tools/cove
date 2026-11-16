@@ -103,6 +103,11 @@ need_asciidoctor() {
       "@asciidoctor/cli@$asciidoctor_cli" "@asciidoctor/core@$asciidoctor_core" >&2
   fi
   PATH="$prefix/node_modules/.bin:$PATH"
+  # The CLI pins yargs 17.3.1, which a newer Node loads as an ES module and fails.
+  if ! command asciidoctor --version >/dev/null 2>&1; then
+    echo "vale: the pinned Asciidoctor.js CLI doesn't run on Node $(node --version); use Node 22 (the studio kit's) or put an asciidoctor on PATH" >&2
+    exit 1
+  fi
 }
 
 list=0 changed=""

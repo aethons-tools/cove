@@ -150,6 +150,12 @@ jobs:
       # touches: Vale with the Google and Jam styles (.vale.ini), pinned and
       # sha256-verified by scripts/vale.sh. Errors fail it; warnings are
       # reported. Then the Jam style's own test.
+      # The pinned Asciidoctor.js CLI Vale reads AsciiDoc through doesn't run
+      # on Node 26 (its yargs loads as an ES module), so this step, the leg's
+      # last, runs on Node 22, as the studio kit does.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
       - name: books prose (Vale)
         run: ./scripts/vale.sh --changed HEAD^1 && bash scripts/vale.test.sh
       - uses: actions/upload-artifact@v7

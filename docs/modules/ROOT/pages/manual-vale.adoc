@@ -36,6 +36,8 @@ It always fetches the pinned `Google` package into `styles/Google/`.
 Both are checked against a sha256 and are git-ignored.
 Vale reads AsciiDoc through `asciidoctor`:
 the one on `PATH`, else the pinned Asciidoctor.js, installed into `.vale/` with npm.
+Its CLI runs on Node 22 (the studio kit's), not on Node 26,
+so the gate's Vale step sets up Node 22.
 To bump a pin, change its version and checksums in `scripts/vale.sh`
 together with the studio kit's,
 so the kit and the build run the same Vale.
