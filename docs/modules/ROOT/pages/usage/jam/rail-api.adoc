@@ -1,7 +1,7 @@
 = The rail: sections and saved order
 :summary: What `GET /app/user/api/rail` returns: the rail's sections (`me`, `work`, `agents`, `history`) and `unreadTotal`, and each person's saved order of `me` and `agents` (`PUT /app/user/api/rail/order`, the `rail_orders` table).
 :read_when: You are building a client on the rail's sections or its saved order, changing the Jam app's rail (`web/app/src/rail`), or changing `userui.railSections`, `apiRailOrder`, `jam.RailOrderStore`, or the `rail_orders` table.
-:owns: the rail response's sections and `unreadTotal`, how the clients show them (`RailSections`: the Me filter, reordering), the rail-order API, and its storage. Does NOT own the rest of the user area (intercom-ui.adoc), the VS Code rail's clicks (vscode-hub.adoc), the status card (session-card.adoc), or who may open a session view (session-view.adoc).
+:owns: the rail response's sections and `unreadTotal`, how the clients show them (`RailSections`: the `Me` filter, reordering), the rail-order API, and its storage. Does NOT own the rest of the user area (intercom-ui.adoc), the VS Code rail's clicks (vscode-hub.adoc), the status card (session-card.adoc), or who may open a session view (session-view.adoc).
 :prereqs: intercom-ui.adoc for the user area; session-card.adoc for the card
 :tier: leaf
 :updated: 2026-11-15
@@ -48,16 +48,16 @@ and zeroes its `work` row's count.
 `web/app/src/rail/RailSections.tsx` shows the sections in the Jam app and in the VS Code rail
 (xref:usage/jam/vscode-hub.adoc#the-rail[vscode-hub], which owns that rail's clicks and ▣).
 The caller makes each item open something.
-In the Jam app, a Me or History row and a Work row are links to their conversation,
+In the Jam app, a `Me` or History row and a Work row are links to their conversation,
 and a card and a Work row's worker are links to the session view (`/app/user/s/<session>`).
 
-* *Me:* one compact row per conversation:
+* *`Me`:* one compact row per conversation:
 its label;
 for a `dm` with an active session, that session's card state (such as *working* or *idle*),
 otherwise its kind (*DM*, *group*, *room*, *work*, or *agent*);
 an orange dot when `needsYou` is set;
 and an *unread* badge.
-The *All*/*Unread* toggle in the heading filters on the client:
+The *All*/*Unread* toggle in the heading filters on the client;
 *Unread* keeps the rows with unread or `needsYou`.
 * *Work:* the key and title, then the worker's label and state,
 and an *unread* badge when the row has `unread`.
@@ -69,7 +69,7 @@ with none of the four, the rail says "No conversations yet."
 In the Jam app, the chimes (xref:usage/jam/push.adoc#sounds[push]) follow the `me` and `history` rows,
 the ones `unreadTotal` counts.
 
-A Me row or an Agents card is dragged onto another to take its place,
+A `Me` row or an Agents card is dragged onto another to take its place,
 or moved one place with its grip's (⋮⋮) arrow keys.
 The rail takes the new order at once (`useRailOrder`),
 saves the section's whole order with `PUT api/rail/order`,
