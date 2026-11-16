@@ -59,7 +59,9 @@ its `404` after the session ends only drops the header and its actions, and the 
 * *The composer* posts to the activity's `sendTo` (`+session:<id>+`), as in the web app;
 once the session ends, `sendTo` is empty and the composer is gone.
 * *Notifications:* while a session tab is the active tab and the window is focused,
-the extension reports the person's DM with the session as the open conversation (`POST /app/user/push/focus` with that channel, from the header's `channel`), as a conversation tab does, so that DM doesn't notify.
+the extension reports the person's DM with the session as the open conversation (`POST /app/user/push/focus`), as a conversation tab does, so that DM doesn't notify.
+The DM is the one the composer's `sendTo` posts into: the activity response gains `dmChannel`, that DM's channel id, or empty when there is none yet.
+Not the header's `channel`, which for a ticket session is its work log.
 An ended session's tab reports nothing.
 * *The rail* highlights the session's *Agents* card while its tab is active (`RailSections`'s `activeSession`), as it highlights a row for a conversation tab.
 * *Pending requests* from another window carry the session id instead of a channel: `hub/pending-<host>.json` gets a `session` field.
