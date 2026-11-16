@@ -135,14 +135,14 @@ type Config struct {
 	// prompt; the agent posts and commits itself.
 	TurnIO TurnIO
 	// AgentSocket is where the agent socket is served (with TurnIO set);
-	// empty defaults to AgentSocketPath.
+	// empty defaults to AgentSocketPath (defaultAgentSocket).
 	AgentSocket string
 	// KeepDir is where kept processes' logs and registry live; empty
 	// defaults to defaultKeepDir.
 	KeepDir string
 }
 
-const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
+var defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
 
 // defaultContextDir is where a session context is written when Config leaves
 // ContextDir empty. A var so tests can point it away from the real /agent-data.
@@ -311,7 +311,7 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 		defer w.keep.StopAll()
 		path := w.cfg.AgentSocket
 		if path == "" {
-			path = AgentSocketPath
+			path = defaultAgentSocket
 		}
 		if stop, err := serveAgentSocket(path, w.agentSocketHandler(), w.log); err != nil {
 			w.log.Warn("agentrun: agent socket not served; turn_end and keep are unavailable", "path", path, "err", err.Error())
