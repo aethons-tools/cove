@@ -11,11 +11,11 @@ import { setBranch } from "../branch/branch";
 
 const tree = () => server.use(
   http.get("/app/admin/api/tree", () => HttpResponse.json({ nodes: [] })),
-  http.get("/app/admin/suggest", () => HttpResponse.json(["user:alice", "channel:eng"])),
+  http.get("/app/admin/suggest", () => HttpResponse.json(["user:alice", "user:bob"])),
 );
 const at = ADMIN + "config/projects/acme/escalation";
 const def: ChainRow = { category: "", spec: "user:alice,user:ghost@15m", tiers: [{ timeout: "15m", targets: [{ text: "user:alice", unknown: false }, { text: "user:ghost", unknown: true }] }] };
-const ops: ChainRow = { category: "ops", spec: "channel:eng@1h", tiers: [{ timeout: "1h", targets: [{ text: "channel:eng", unknown: false }] }] };
+const ops: ChainRow = { category: "ops", spec: "user:bob@1h", tiers: [{ timeout: "1h", targets: [{ text: "user:bob", unknown: false }] }] };
 
 // The config edits show on a branch.
 beforeEach(() => setBranch("jam/test"));
@@ -96,8 +96,8 @@ describe("project escalation", () => {
     await user.click(await screen.findByText("Add category chain"));
     await user.type(screen.getByLabelText(/^Category/), "ops");
     const boxes = screen.getAllByLabelText(/^Tiers/);
-    await user.type(boxes[boxes.length - 1]!, "channel:eng@1h");
+    await user.type(boxes[boxes.length - 1]!, "user:bob@1h");
     await user.click(screen.getByRole("button", { name: "Add chain" }));
-    await waitFor(() => expect(sent).toEqual({ category: "ops", tiers: "channel:eng@1h" }));
+    await waitFor(() => expect(sent).toEqual({ category: "ops", tiers: "user:bob@1h" }));
   });
 });
