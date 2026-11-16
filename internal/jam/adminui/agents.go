@@ -34,7 +34,7 @@ func agentKind(inst jam.Instance, running bool) string {
 var statusGroups = map[string][]jam.AgentStatus{
 	"running":    {jam.StatusRunning, jam.StatusHolding},
 	"waiting":    {jam.StatusWaiting, jam.StatusBlocked},
-	"setting-up": {jam.StatusSettingUp, jam.StatusOrienting},
+	"setting-up": {jam.StatusSettingUp, jam.StatusRecovering, jam.StatusOrienting},
 	"idled":      {jam.StatusIdled},
 	"attention":  {jam.StatusLost, jam.StatusTerminating},
 }
