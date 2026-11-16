@@ -36,6 +36,9 @@ func TestRolesAPI(t *testing.T) {
 	if d.Dests == nil || d.Addressing == nil || d.Rooms == nil || d.Standing == nil || d.Holders == nil || d.Running == nil || d.Allocation == nil {
 		t.Errorf("nil lists: %+v", d)
 	}
+	if d.Observes {
+		t.Error("a new role observes sessions")
+	}
 	rec = apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/coder/scope", map[string]string{"kit": "nope"}, nil)
 	wantErr(t, rec, 400, "bad_request")
 	if !strings.Contains(rec.Body.String(), `kit \"nope\" does not exist`) {
@@ -170,4 +173,17 @@ func TestRoleStandingResetPending(t *testing.T) {
 		t.Errorf("pending reset = %d %+v", rec.Code, res.Message)
 	}
 	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/review/standing/nobody/reset", nil, nil), 404, "not_found")
+}
+
+// The role page shows scope.observe.
+func TestRoleObserves(t *testing.T) {
+	h, store := adminHandler(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", jam.Role{Name: "optimizer", Scope: jam.Scope{Observe: jam.ObserveAll}}); err != nil {
+		t.Fatal(err)
+	}
+	var d adminui.RoleDetail
+	if rec := apiDo(t, h, "GET", "/app/admin/api/projects/acme/roles/optimizer", nil, &d); rec.Code != 200 || !d.Observes {
+		t.Fatalf("get = %d %+v", rec.Code, d)
+	}
 }

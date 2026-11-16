@@ -755,6 +755,36 @@ func TestRunRefreshesContextPerEpisode(t *testing.T) {
 	}
 }
 
+// The bundle in effect decides JAM_OBSERVE, which has the messaging server
+// offer the observe tools: set while the role has scope.observe, gone after a
+// refresh that takes it away.
+func TestRunObserveEnvFollowsTheContext(t *testing.T) {
+	dir := t.TempDir()
+	f := &scriptedSpawner{dir: dir}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	one, two := compileRole("ONE"), compileRole("TWO")
+	one.Observe = true
+	w := New(Config{WorkDir: dir, Prompt: "p", MaxWait: time.Minute, Harness: testClaude(t, dir), Spawner: f,
+		Resident: true, SessionKind: "standing", ConversationMarker: filepath.Join(dir, ".cove-conversation"), Context: &one, ContextDir: filepath.Join(dir, "context"),
+		ContextSource: &seqContext{bundles: []sessionctx.Bundle{one, two}}}, nil)
+	h := &recordHandle{}
+	done := runAsync(ctx, w, h)
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 })
+	w.Control(studioagent.Control{Kind: studioagent.Wake})
+	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 2 })
+	cancel()
+	<-done
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if got := envMap(f.calls[0].env)[ObserveEnv]; got != "1" {
+		t.Fatalf("1st episode %s = %q, want 1", ObserveEnv, got)
+	}
+	if got, ok := envMap(f.calls[1].env)[ObserveEnv]; ok {
+		t.Fatalf("2nd episode %s = %q, want unset", ObserveEnv, got)
+	}
+}
+
 // A wake written into a live episode carries the live notice, once for a
 // burst of coalesced wakes.
 func TestRunWakeIntoLiveEpisodeCarriesNotice(t *testing.T) {

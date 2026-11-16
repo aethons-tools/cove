@@ -566,6 +566,13 @@ func (w *Workload) spawn(ctx context.Context, h studioagent.Handle, turn uint32,
 		return nil, nil, nil, err
 	}
 	bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec})
+	if w.observes() {
+		extra = maps.Clone(extra)
+		if extra == nil {
+			extra = map[string]string{}
+		}
+		extra[ObserveEnv] = "1"
+	}
 	env = w.overlayEnv(env, extra)
 	w.gateMu.Lock()
 	w.gateEnv = env // gates run with the agent's env
@@ -575,6 +582,23 @@ func (w *Workload) spawn(ctx context.Context, h studioagent.Handle, turn uint32,
 		return nil, nil, nil, fmt.Errorf("agentrun: start %s: %w", bin, err)
 	}
 	return proc, tr, split, nil
+}
+
+// ObserveEnv is set to 1 in the agent's environment while the session
+// context in effect grants scope.observe (sessionctx.Bundle.Observe): the
+// messaging server (jam-studio-agent mcp) offers the observe tools only then.
+// Jam enforces the grant on every request either way.
+const ObserveEnv = "JAM_OBSERVE"
+
+// observes reports whether the bundle in effect grants observing sessions.
+func (w *Workload) observes() bool {
+	switch {
+	case w.ctxr != nil:
+		return w.ctxr.last.Observe
+	case w.cfg.Context != nil:
+		return w.cfg.Context.Observe
+	}
+	return false
 }
 
 // markConversation records that this standing session has a conversation to

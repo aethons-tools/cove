@@ -238,6 +238,18 @@ func TestClientRosterAndAddressing(t *testing.T) {
 	if !reflect.DeepEqual(gotRooms, rooms) {
 		t.Fatalf("role rooms = %+v, want %+v", gotRooms, rooms)
 	}
+	// scope.observe round-trips via ListRoles too.
+	if err := store.PutRole("acme", jam.Role{Name: "optimizer", Scope: jam.Scope{Observe: jam.ObserveAll}}); err != nil {
+		t.Fatalf("PutRole: %v", err)
+	}
+	if roles, err = c.ListRoles("acme"); err != nil {
+		t.Fatalf("ListRoles: %v", err)
+	}
+	for _, r := range roles {
+		if want := r.Name == "optimizer"; r.Scope.Observes() != want {
+			t.Fatalf("role %s observes = %v, want %v", r.Name, r.Scope.Observes(), want)
+		}
+	}
 	// A role's Allocation round-trips via ListRoles.
 	if err := store.PutRole("acme", jam.Role{Name: "worker", Allocation: jam.RoleAllocation{MaxEphemeral: 4, MaxPersonal: 3, MaxPersonalPerOwner: 1, IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}}); err != nil {
 		t.Fatalf("PutRole: %v", err)

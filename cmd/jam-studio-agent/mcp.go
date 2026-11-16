@@ -356,6 +356,11 @@ func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, bod
 // doStatus performs the request and returns the (capped) body and status
 // without judging it; do and callers that surface Jam's reason build on it.
 func (c *messagingClient) doStatus(ctx context.Context, method, pathSuffix string, body []byte) ([]byte, int, error) {
+	return c.doStatusCap(ctx, method, pathSuffix, body, maxJamResponseBytes)
+}
+
+// doStatusCap is doStatus reading at most limit bytes of the response.
+func (c *messagingClient) doStatusCap(ctx context.Context, method, pathSuffix string, body []byte, limit int64) ([]byte, int, error) {
 	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewReader(body)
@@ -375,7 +380,7 @@ func (c *messagingClient) doStatus(ctx context.Context, method, pathSuffix strin
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxJamResponseBytes))
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
 	return respBody, resp.StatusCode, nil
 }
 
@@ -711,6 +716,9 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 	addBoardTools(s, client, cfgErr)
 	addTurnTools(s, getenv)
 	addKeepTools(s, getenv)
+	if getenv("JAM_OBSERVE") == "1" {
+		addObserveTools(s, client, cfgErr)
+	}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",

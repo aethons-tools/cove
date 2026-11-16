@@ -33,7 +33,7 @@ var covePaths = []struct {
 	{"/squawks/call-in", CoveSquawks}, {"/squawks/leave", CoveSquawks}, {"/squawks/ask", CoveSquawks},
 	{"/squawks/ask/amend", CoveSquawks}, {"/squawks/ask/withdraw", CoveSquawks}, {"/squawks/asks", CoveSquawks},
 	{"/squawks/uploads", CoveSquawks}, {"/squawks/boards", CoveSquawks}, {"/squawks/boards/", CoveSquawks},
-	{"/squawks/blobs/", CoveSquawks},
+	{"/squawks/blobs/", CoveSquawks}, {"/squawks/observe/", CoveSquawks},
 	{"/escalate", CoveEscalate},
 	{"/end", CoveTurnEnd}, {"/idle", CoveTurnEnd}, {"/mute", CoveTurnEnd}, {"/kept", CoveTurnEnd},
 	{"/report", CoveReport}, {"/mission", CoveMission}, {"/focus", CoveFocus},

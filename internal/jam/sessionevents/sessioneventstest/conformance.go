@@ -194,6 +194,29 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) sessionevents.Stor
 		}
 	})
 
+	t.Run("active actors overlap the window", func(t *testing.T) {
+		s := newStore(t)
+		// w1's stream spans the window without an event inside it; w2's
+		// ended before it; w3's starts inside it; w4's after it.
+		must(t, s.Append(ev("w1", streamA, 1, t0, `{}`)))
+		must(t, s.Append(ev("w1", streamA, 2, t0.Add(10*time.Hour), `{}`)))
+		must(t, s.Append(ev("w2", streamA, 1, t0, `{}`)))
+		must(t, s.Append(ev("w3", streamB, 1, t0.Add(5*time.Hour), `{}`)))
+		must(t, s.Append(ev("w3", streamA, 1, t0, `{}`)))
+		must(t, s.Append(ev("w4", streamA, 1, t0.Add(20*time.Hour), `{}`)))
+		got, err := s.ActiveActors(t0.Add(4*time.Hour), t0.Add(6*time.Hour))
+		must(t, err)
+		if !slices.Equal(got, []string{"w1", "w3"}) {
+			t.Fatalf("active = %v", got)
+		}
+		// The bounds are inclusive.
+		got, err = s.ActiveActors(t0.Add(-time.Hour), t0)
+		must(t, err)
+		if !slices.Equal(got, []string{"w1", "w2", "w3"}) {
+			t.Fatalf("active at t0 = %v", got)
+		}
+	})
+
 	t.Run("delete before", func(t *testing.T) {
 		s := newStore(t)
 		must(t, s.Append(ev("w1", streamA, 1, t0, `{}`)))

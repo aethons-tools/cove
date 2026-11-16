@@ -73,6 +73,9 @@ func Boilerplate(f SessionFacts) Layer {
 	if f.Previews {
 		lines = append(lines, "- Previews: `expose(port, name)` makes a port you serve reachable by your collaborators at a URL — post the link where you were asked; `unexpose`/`exposures` manage them. A studio restart clears them: expose again.")
 	}
+	if f.Observe {
+		lines = append(lines, "- Observing: your role reads other sessions, read-only: `observe_sessions` lists them, `observe_activity` pages one's messages, `observe_streams` and `observe_events` its captured events. You can't message, steer, or end them through these.")
+	}
 	core := strings.Join(lines, "\n")
 	return Layer{Core: core, Leaves: []Leaf{{
 		Name:     "changing-the-kit.md",

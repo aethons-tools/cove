@@ -77,6 +77,7 @@ type SessionFacts struct {
 	Unit     string // ephemeral work unit (ticket); "" = none, so no default recipient
 	Kit      string // KitRef.String(), "" = no kit
 	Previews bool   // studio previews are enabled on this Jam (expose/unexpose/exposures)
+	Observe  bool   // the role has scope.observe (the observe_* tools)
 	// TurnProtocol is the turn end the cove speaks: 0 = legacy (the agent
 	// `send`s and `commit`s), 2 = structured (messages arrive in the prompt,
 	// the final text is posted and what was shown committed for it), 3 = the
@@ -115,6 +116,9 @@ type Bundle struct {
 	// (SessionFacts.TurnProtocol; 0 = legacy), so a cove turns the structured
 	// turn end on only when Jam sent the matching guidance.
 	TurnProtocol int `json:"turn_protocol,omitempty"`
+	// Observe is SessionFacts.Observe: the cove offers the observe_* tools
+	// only when it is set.
+	Observe bool `json:"observe,omitempty"`
 }
 
 var leafNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*\.md$`)
@@ -146,7 +150,7 @@ func Compile(in Inputs) Bundle {
 		{LayerRole, titled("Role", in.Session.Role), in.Role, BudgetRole},
 		{LayerJam, "Jam", in.Jam, BudgetJam},
 	}
-	b := Bundle{Files: map[string]string{}, Layers: map[string]string{}, Budgets: map[string]LayerBudget{}, TurnProtocol: in.Session.TurnProtocol}
+	b := Bundle{Files: map[string]string{}, Layers: map[string]string{}, Budgets: map[string]LayerBudget{}, TurnProtocol: in.Session.TurnProtocol, Observe: in.Session.Observe}
 	var core strings.Builder
 	fmt.Fprintf(&core, "# Session context\n\n%s\n\nDetail lives in %s/ — open a file only when its \"read when\" matches your task. Map: %s/INDEX.md\n", Precedence, Dir, Dir)
 	type row struct{ path, when string }

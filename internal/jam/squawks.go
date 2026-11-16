@@ -11,6 +11,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/ident"
 	"github.com/aethons-tools/cove/internal/intercom"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 	"github.com/aethons-tools/cove/internal/ticketkey"
 )
 
@@ -54,6 +55,9 @@ type SquawksHandler struct {
 	now   func() time.Time
 	att   *Attachments // nil: attachments off
 	brd   *Boards      // nil: whiteboards off
+	// events and totals serve the observe routes (SetObserve); nil: off.
+	events sessionevents.Store
+	totals *sessionevents.TotalsCache
 }
 
 // SetBoards turns on the board routes.
@@ -99,6 +103,13 @@ func (h *SquawksHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	inst, ok := h.store.GetInstance(actor.ID)
 	if !ok {
 		http.Error(w, "no instance", http.StatusForbidden)
+		return
+	}
+
+	// The observe routes (GET /squawks/observe/...), for a role with
+	// scope.observe: read-only views of other sessions.
+	if rest, ok := strings.CutPrefix(r.URL.Path, "/squawks/observe"); ok {
+		h.observeRoute(w, r, inst, rest)
 		return
 	}
 
