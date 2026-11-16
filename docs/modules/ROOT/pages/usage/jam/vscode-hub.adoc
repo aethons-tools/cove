@@ -4,7 +4,7 @@
 :owns: the VS Code rail (jam.rail) and its clicks, ▣ and badge; the hub windows (Jam Hub (<host>).code-workspace), Jam: Open Hub, the Jam Hub launcher and the …/hub and …/go links; several Jams (each window's Jam, Switch Jam, Add a Jam, notifications from every Jam); going to a conversation and hub/pending-<host>.json; conversation tabs in the hub and the hub's views
 :prereqs: vscode.adoc for installing the extension, studio windows and the panes' shared rules
 :tier: leaf
-:updated: 2026-11-15
+:updated: 2026-11-16
 
 The rail shows every conversation in every window; the hub is the one window where conversations open as tabs.
 A rail click opens the conversation's hub tab; a double-click opens the session's studio window or brings it to the front.
@@ -24,7 +24,7 @@ The *All*/*Unread* toggle filters them client-side: *Unread* keeps the rows with
 The rail shows the new order at once and saves it with `PUT /app/user/api/rail/order` (the webview bridge forwards `PUT`); a refusal shows a notification, and the next fetch brings back the saved order.
 * *Click* a Me or History row: its conversation's tab in the hub, even when its session's studio window is open (in a studio window, its own session's row opens its own tab). From another window, this goes through the hub's pending request (see <<the-hub,the hub>>).
 A Work row opens its log's tab.
-A card, or a Work row's worker, opens the session's view: the rail fetches `GET /app/user/api/sessions/<id>` and opens the tab of its `channel`, the session's conversation for you (a notification when there's none).
+A card, or a Work row's worker, opens the session's *session tab* in the hub (<<session-tabs>>); from another window, through the hub's pending request.
 * *Double-click* a Me row or a card whose session you may SSH into (`session` and `ssh`): its studio window opens, or comes to the front (see xref:usage/jam/vscode.adoc#opening-a-session[Opening a session]). Any other row or card does the same as a click.
 * *▣* marks a Me row or a card whose session's studio window is open (its connected mark is fresh). It refreshes on live changes and every 30 s.
 * *The badge* on the Jam icon counts the Me rows with `needsYou`. It's refreshed at once on start-up, sign-in and sign-out, and after a 3 s debounce on live changes.
@@ -38,10 +38,24 @@ The hub is a window with no studio connected: _Jam: Open Hub_, or a `+vscode://a
 Each Jam has its own hub: the workspace `Jam Hub (<host>).code-workspace` (no folders) in the extension's global storage.
 
 * *Conversations are editor tabs:* one per conversation, titled with its label. Keep several open, split them, close them; they come back after a reload. VS Code revives a background tab only when it is first shown, so a conversation opened again before then briefly has two tabs; showing the restored one closes it and reveals the other (as with board tabs).
-* *The views* (Thinking, Status, Artifacts, Previews) show the session of the conversation tab you last made active; a chat or room tab, or none yet, shows "Open a session's conversation to see its …".
+* *The views* (Thinking, Status, Artifacts, Previews) show the session of the session tab or conversation tab you last made active; a chat or room tab, or none yet, shows "Open a session to see its …".
 * *Previews* open in the browser: the hub has no studio connection to forward through.
 * *Going to a conversation* (a notification, a `+…/go/<chn>+` link) works the same in every window: its session's studio window if one is open (its connected mark is fresh), otherwise its tab in the hub. A rail click skips the window: always the tab.
 From another window, the extension writes `hub/pending-<host>.json` (the channel and the time) in global storage and opens that Jam's hub; the hub opens the tab when it starts or next gains focus, and deletes the file. A request older than 60 s is dropped.
+
+[#session-tabs]
+== Session tabs
+
+A *session tab* is the web app's session view (`SessionPage`: the header, the activity, and the DM composer) in a webview in the hub,
+without its pane: the hub's views take its place.
+It follows the conversation tab's rules (xref:usage/jam/vscode.adoc[vscode]): the webview asks the extension for everything and never holds the token, the Jam URL, or a cookie, and links follow the same rules.
+
+* *One per session*, titled with the session's label, and restored after a reload (the same two-tab rule as conversation tabs).
+* *Opening it:* `GET /app/user/api/sessions/<id>` for the header, `+GET /app/user/api/sessions/<id>/activity+` for the activity (xref:usage/jam/conversations-sessions.adoc#session-view[conversations-sessions]).
+A session the person may not open gives "That session has ended, or you can't see it."
+* *The composer* posts a DM to the session (`+session:<label>+`), as in the web app.
+* *Pending requests* from another window carry the session id instead of a channel: `hub/pending-<host>.json` gets a `session` field.
+* *Ended sessions* keep their tab, with the activity and without the header's actions, as in the web app.
 
 [#the-launcher]
 == The launcher
