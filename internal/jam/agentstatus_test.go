@@ -23,6 +23,9 @@ func TestStatusOf(t *testing.T) {
 		{PhaseTerminating, ActivityDone, true, StatusTerminating},
 		{PhaseLost, ActivityRunning, true, StatusLost},
 		{PhaseGone, "", true, StatusGone},
+		{PhaseRecovering, "", true, StatusRecovering}, // recovery clears the activity
+		{PhaseRecovering, ActivityRunning, true, StatusRecovering},
+		{PhaseRecovering, ActivityDone, true, StatusRecovering},
 	} {
 		if got := StatusOf(c.phase, c.activity, c.hasStudio); got != c.want {
 			t.Errorf("StatusOf(%q, %q, %v) = %q, want %q", c.phase, c.activity, c.hasStudio, got, c.want)
