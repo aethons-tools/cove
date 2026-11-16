@@ -6,7 +6,7 @@
 :tier: leaf
 :updated: 2026-11-13
 
-The control plane lives in Postgres — the source of truth — while `serve`
+The control plane lives in Postgres—the source of truth—while `serve`
 keeps an in-memory read cache (so the broker's hot path never round-trips the
 DB) and writes through to Postgres transactionally. `serve` applies its schema
 migrations automatically at startup and *fails closed* if it can't connect,
@@ -39,13 +39,13 @@ store-postgres:
   password-cred: jam-db      # a name in `credentials:` — never an inline password
 ----
 
-No credential is ever inline — the DB password included: `password-cred` names a `+credentials:+`
+No credential is ever inline—the DB password included: `password-cred` names a `+credentials:+`
 entry (supplied by the xref:usage/jam/credentials.adoc[credentials file]), resolved on the host in memory when `serve` assembles the connection
-string — it is never written to disk, put on a command line, or logged (the
+string—it is never written to disk, put on a command line, or logged (the
 startup log names only the host and database).
 
 For a local Postgres to develop against (matching this schema and the CI
-integration setup), see https://github.com/aethons-tools/cove/blob/main/dev/README.md[`dev/`] — a `docker compose`
+integration setup), see https://github.com/aethons-tools/cove/blob/main/dev/README.md[`dev/`]—a `docker compose`
 that raises a `+postgres:18+` on `+localhost:15432+` with database/user `jam`,
 plus a sample dev serve config (`dev/examples/jam.dev.yml.example`, copied to `dev/jam.dev.yml`) wired to it.
 
@@ -53,10 +53,10 @@ plus a sample dev serve config (`dev/examples/jam.dev.yml.example`, copied to `d
 == The allocation ledger
 
 *The allocation event store is AUTHORITATIVE for the cap.* Jam always runs an
-Allocator (its capacity authority), with or without a Requisitioner. It admits each raise through an
+Allocator (its capacity authority), even without a Requisitioner. It admits each raise through an
 *atomic optimistic-concurrency grant* on an allocation event store on the same
 database and pool (its `+alloc_events+` table is auto-created): a single conditional
-append that writes a `+reservation_granted+` _iff_ the stream's outstanding count
+append that writes a `+reservation_granted+` _if and only if_ the stream's outstanding count
 (`+granted − released+`) is below budget, gated by `+UNIQUE(stream_id, stream_revision)+`. The grant happens *before* the raise (it reserves the slot,
 so admission cannot overshoot the budget under concurrency), and a
 `+reservation_released+` is written on teardown *and* as compensation if the
@@ -65,7 +65,7 @@ live instance count vs budget*.) A crash _between_ a grant and the raise leaves 
 `+reservation_granted+` (a leaked slot); a resident *reconcile sweep*
 reclaims it, so the ledger self-heals. Every minute the Allocator releases each
 outstanding reservation (net `+granted − released > 0+`) whose latest grant is older
-than a ~5-minute grace window *and* whose actor has no live instance — the grace
+than a ~5-minute grace window *and* whose actor has no live instance—the grace
 window keeps an in-flight raise (instance not yet in the registry) from being
 swept. The sweep is best-effort (a per-reservation release failure is logged and
 retried on the next tick) and needs the ledger. The cap stays

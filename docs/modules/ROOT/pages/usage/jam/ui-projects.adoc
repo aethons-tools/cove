@@ -25,36 +25,36 @@ roles, context) are offered only on a branch of the config repo, where each
 save is a commit (xref:usage/jam/config-branches.adoc[config-branches]); a standing
 reset or upgrade, and Request, stay live.
 
-* *Overview* (`+…/<name>+`) — counts (members, agents live of all, roles,
-rooms, escalation chains), each linking to its page; the *chat service* (none — tracker
-@-mentions only — or `discord`); the project's *Agent context* card
+* *Overview* (`+…/<name>+`)—counts (members, agents live of all, roles,
+rooms, escalation chains), each linking to its page; the *chat service* (`none — tracker
+@-mentions only` or `discord`); the project's *Agent context* card
 (xref:usage/jam/ui-pages.adoc#agent-context-cards[Agent context cards]). *Rename* (except
-`default`) renames the project and opens its new URL; *Delete* is disabled
+`default`) renames the project and opens its new URL; *Delete* is unavailable
 while a member, a role, a session not yet gone or an actor's grant still
-references the project, and names what does — the same rule as a project's
+references the project, and names what does—the same rule as a project's
 delete in the config repo (xref:usage/jam/projects.adoc[]).
-* *Members* (`+…/members+`) — the users agents here can address (with handle
+* *Members* (`+…/members+`)—the users agents here can address (with handle
 and delivery). *Add member* (a user, and delivery: one `+service:address+`
 per line); per member, *Edit* delivery and *Remove*. A member's page
 (`+…/members/<user>+`) shows their delivery here with *Remove from
-<project>*, above the user's own page (xref:usage/jam/ui-pages.adoc#user-pages[User pages]).
-* *Agents* (`+…/agents+`) — first the project's *Roles* (linked, with destinations, TTL and
+<project>*, followed by the user's own page (xref:usage/jam/ui-pages.adoc#user-pages[User pages]).
+* *Agents* (`+…/agents+`)—first the project's *Roles* (linked, with destinations, TTL and
 kit; with a runtime supervisor, a *Request* per role —
 xref:usage/jam/ui-editing.adoc#runtime-studios[Runtime (studios)]); *New role* creates one in
 this project and opens its page. Then one table of the project's agents: each
 running in it or holding a grant into it (one row per agent), with its kind,
 roles here, xref:usage/jam/ui-pages.adoc#agent-status[status], image and last seen; each opens its agent page.
-* *Intercom* (`+…/intercom+`) — the project's rooms (service, ref): *Add room* (name;
+* *Intercom* (`+…/intercom+`)—the project's rooms (service, ref), with *Add room* (name;
 connection: a connection name, or a service for its connection; ref; an
 existing name is rebound) and *Remove*. Below them, the project's newest 50
 messages from the channel log, with *Full log* opening the
 xref:usage/jam/ui-console.adoc#channel-log[Channel log] filtered to the project.
-* *Escalation* (`+…/escalation+`) — the default chain and each category's chain, as ordered
+* *Escalation* (`+…/escalation+`)—the default chain and each category's chain, as ordered
 tiers of targets with their wait (xref:usage/jam/escalation.adoc[escalation]). Edit a
-chain as one `targets@timeout` per line (the CLI's ``+--tier+``; the first line is
+chain as one `targets@timeout` per line (the command-line tool's ``+--tier+``; the first line is
 tier 0, the timeout a positive duration), add a category chain, or *Clear*
-one. A target that names nobody on this project's roster is flagged red —
-flagged, not blocked.
+one. A target that names nobody on this project's roster is flagged red—flagged,
+not blocked.
 
 [#role-pages]
 == Role pages
@@ -62,11 +62,11 @@ flagged, not blocked.
 Each role name (in the tree, on a project's Agents page, a grant chip, or a
 running-agent row) links to its page,
 `/app/admin/config/projects/<project>/agents/<name>`, which shows and edits the whole
-role, one section at a time — each with a pre-filled *Edit* form that saves
+role, one section at a time—each with a pre-filled *Edit* form that saves
 only that section:
 
-* *Operator notes* — the role's xref:usage/jam/operator-notes.adoc[operator notes], first on the page.
-* *Scope* — destinations with the credential the broker injects for each
+* *Operator notes*—the role's xref:usage/jam/operator-notes.adoc[operator notes], first on the page.
+* *Scope*—destinations with the credential the broker injects for each
 (the role's mapping, or the destination's default), addressing, TTL, kit and
 xref:usage/jam/model-specs.adoc#binding-a-role[model-spec] binding (blank = `claude-default`,
 shown in the page head; the new-role form takes one too).
@@ -74,19 +74,19 @@ The destinations field uses the `name=credential` syntax; a bare name uses
 the destination's default credential. Empty addressing means the role can't
 squawk anyone. The section also lists the role's `scope.rooms`, each with its wake mode
 (`RoleDetail.rooms`), which only the config repo sets.
-* *Egress* — the role's domain list, or "kit default" when it sets none.
+* *Egress*—the role's domain list, or "kit default" when it sets none.
 Saving sets a policy (an empty list allows nothing beyond the sealed base and
 the kit's infra domains); *Reset to kit default* removes it. Running
 agents pick up the change on the supervisor's next reconcile.
-* *Allocation* — session caps and the personal-session idle ladder.
+* *Allocation*—session caps and the personal-session idle ladder.
 Durations take `30m`/`1h30m` (or bare seconds); a blank field is unset, and
 the page says what applies when unset.
 The section also shows the role's xref:usage/jam/turn-end.adoc[turn-end] settings
 (*Idle timeout*, *On idle*, and *Alarm time zone*),
 which its *Edit* form can't change.
-* *Standing agents* (xref:usage/jam/standing-sessions.adoc[standing sessions]) — declare, xref:usage/jam/standing-upgrade.adoc[upgrade], xref:usage/jam/standing-sessions.adoc#reset[reset] and dismiss;
+* *Standing agents* (xref:usage/jam/standing-sessions.adoc[standing sessions])—declare, xref:usage/jam/standing-upgrade.adoc[upgrade], xref:usage/jam/standing-sessions.adoc#reset[reset] and dismiss;
 each shows its xref:usage/jam/ui-pages.adoc#agent-status[status], flagged *image stale* per xref:usage/jam/coves.adoc#the-studio-verbs[coves] (its Upgrade button highlighted) and any pending upgrade; a queued upgrade or pending reset flashes as accepted.
-* *Holders* and *Running* — the agents granted the role (linked; marked where the
+* *Holders* and *Running*—the agents granted the role (linked; marked where the
 grant overrides the scope; grants are managed on the agent's page) and the role's
 running agents.
 
@@ -94,5 +94,5 @@ running agents.
 
 The role's *Agent context* card is in
 xref:usage/jam/ui-pages.adoc#agent-context-cards[Agent context cards]. The page's *Setup* section, read
-only when opened, shows what a studio of the role raised now would get — see
+only when opened, shows what a studio of the role raised now would get—see
 xref:usage/jam/inspect.adoc#in-the-admin-ui[inspect].

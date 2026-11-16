@@ -22,7 +22,7 @@ A plain question and answer then costs one model call, not a `read` → answer �
 It is on per studio, and only when both sides speak it:
 
 * *The studio asks for it.* The studio's jam-studio-agent fetches its context with `GET /context?turn-protocol=3` (the turn-end rule).
-* *Jam confirms it.* A Jam that knows the protocol compiles the matching guidance and answers with `+"turn_protocol": 3+` in the bundle. It also records the protocol on the Instance, so setup inspection recompiles the same context, and so `send` knows to refuse a missing `to` (<<send-default,below>>).
+* *Jam confirms it.* A Jam that knows the protocol compiles the matching guidance and answers with `+"turn_protocol": 3+` in the bundle. It also records the protocol on the Instance, so setup inspection compiles the same context again, and so `send` knows to refuse a missing `to` (<<send-default,below>>).
 * *An older studio* asks for `2`, whose cove still posts its final text for it.
 Jam keeps answering `2` with that protocol's guidance
 ("End your turn with your reply"),
@@ -37,7 +37,7 @@ xref:usage/jam/intercom.adoc#default-conversation[default conversation].
 ** the batch is capped at *20 entries or 32 KiB* of rendered text.
 * *What an entry looks like.* Each entry is a header line, `+From <author> in <channel> (<kind>) at <time> — id <id> — reply: to=<reply_to>+`, followed by its body. The `to` is the entry's `+reply_to+` (xref:usage/jam/comms-addressing.adoc[comms-addressing]); an older Jam sends none, and the header ends at the id. Each attachment adds an `+[attachment <name> ref <ref>]+` line.
 * *Oversized entries.* An entry alone over the cap is cut, with a marker telling the agent to `read` that id for the rest. A cut entry isn't committed for the agent: it commits it itself once handled, and until then auto-commit doesn't pass it.
-* *The closing line* says either "Reply with `send` to a message's reply `to` … or end with `turn_end` and that `to`…" or, when entries were left out, "More messages are waiting — use `read`…".
+* *The closing line* says either `+Reply with `send` to a message's reply `to` … or end with `turn_end` and that `to`…+` or, when entries were left out, `+More messages are waiting — use `read`…+`.
 * *Fetched just before writing.* The batch is fetched (`GET /squawks`) just before the prompt is written into the episode. Because it starts from the commit cursor at that moment, it never re-shows messages the agent already read and committed itself.
 * *Fallback.* If the fetch fails, that wake gets the legacy read prompt.
 * *Interrupts and restarts.* The interrupt acknowledgement and a standing session's restart prompt carry the batch too.
@@ -95,7 +95,7 @@ its messages stay pending, and the next prompt opens with why.
 
 *How the studio knows what a turn sent.*
 After a successful `send`, `ask`, or `report`,
-the intercom MCP server tells the agent socket (`POST /turn/sent`, with a send's `to`).
+the intercom MCP server tells the agent socket (`POST /turn/sent`, with the `to` of the `send`).
 The record is cleared when the next prompt is written, and at each turn end.
 
 [#send-default]
@@ -109,7 +109,7 @@ Jam enforces the same rule for a session on protocol 3:
 Incoming messages never change the default.
 Asks and whiteboards follow the same rule:
 with no `to`, they go where the turn's last `send` went,
-and a turn's first one is refused, by the MCP server and by Jam
+and a turn's first one is refused by both the MCP server and Jam
 (xref:usage/jam/intercom.adoc#default-conversation[the default conversation]).
 
 *Auto-posts don't wake sessions.* A turn end's post carries the part `pass:c[application/vnd.jam.turn-end+json]`. Wake-on skips it when its author is a session (xref:usage/jam/wake-on.adoc[wake-on]), and it never counts toward the agent-to-agent limit. People are notified as usual. A session that wants another session to act uses `send`.
@@ -130,7 +130,7 @@ and a turn's first one is refused, by the MCP server and by Jam
 |`post` |true |false: read as `+no_reply: true+`
 |`commit` |true |false (deny): the shown messages stay pending and come back with the next wake. Deny alone doesn't wake.
 |`next` |`wait` |`compact` (compact, then wait) or `end` (with ``reason``: the `end` tool's effect)
-|`+wake_on_message+` |true |false: `PUT /mute`. New messages don't wake the session until it next runs. Alarms, the idle timeout and kept processes still do, and an owner's keep/release reply to a nag still acts. The next turn end with the default unmutes.
+|`+wake_on_message+` |true |false: `PUT /mute`. New messages don't wake the session until it next runs. Alarms, the idle timeout, and kept processes still do, and an owner's keep/release reply to a nag still acts. The next turn end with the default lifts the mute.
 |`+wake_at+` |— |``+{at, note?, name?}+``: a one-shot alarm (`PUT /alarms/<name>`, default name `turn-end`)
 |`+idle_timeout+` |role's |as `+idle_timeout(…, scope: next)+`
 |===
@@ -140,7 +140,7 @@ and a turn's first one is refused, by the MCP server and by Jam
 [#kept-processes]
 == Kept processes
 
-A background process the agent starts in a shell outlives its turn (claude exits at a quiet turn end, and the process is reparented to init), but it freezes while the studio is paused, and nothing watches or stops it. `+keep_start(name, command, workdir?)+` starts a process that keeps running while the session waits, owned by jam-studio-agent itself (the long-lived Workload), not by the agent CLI.
+A background process the agent starts in a shell outlives its turn (`claude` exits at a quiet turn end, and init adopts the process), but it freezes while the studio is paused, and nothing watches or stops it. `+keep_start(name, command, workdir?)+` starts a process that keeps running while the session waits, owned by jam-studio-agent itself (the long-lived Workload), not by the agent's command-line tool.
 
 * *How it runs.* It runs as `sh -c` in its own process group, with the agent's environment, and starts in the workspace unless `workdir` says otherwise.
 * *Output* goes to `/agent-data/keep/<name>.log`. The log is capped at 1 MiB, with one `.1` rotation.
@@ -149,17 +149,17 @@ A background process the agent starts in a shell outlives its turn (claude exits
 * *When it exits on its own,* the session is woken with the reason `process-exited`, rendered as `+Kept process `<name>` exited (status N); last lines:+` plus up to 20 log lines.
 * *They stop with the session* (teardown, `end`).
 * *When the shell exits,* whatever it left in its process group is killed with it.
-* *After a jam-studio-agent restart,* whatever its predecessor kept is stopped (found through `/agent-data/keep/registry.json`), and the first prompt names those processes. A process is stopped only when its boot id and start time match the registry, so a reused pid is never signalled.
+* *After a jam-studio-agent restart,* whatever its predecessor kept is stopped (found through `/agent-data/keep/registry.json`), and the first prompt names those processes. A process is stopped only when its boot id and start time match the registry, so a reused PID is never signalled.
 * *Not paused.* While any kept process runs, a waiting session isn't paused at `warm-timeout`, so its kept processes keep running. The studio reports the count to Jam (`+PUT /kept {"count": n}+`, recorded as the Instance's `+kept_processes+`). An older Jam ignores it, and the processes then freeze with the pause.
 
 The agent tends what it keeps: its guidance tells it to agree with the person how long a preview should run, and to set a `+wake_at+` to ask them then. Jam imposes no lifetime.
 
 == The agent socket
 
-`+turn_end+` and `+keep_*+` reach the Workload over a unix socket at `/dev/shm/jam-agent.sock` (mode 0600). It is served by jam-studio-agent and used by its MCP subcommand (`jam-studio-agent mcp`). Its routes are:
+`+turn_end+` and `+keep_*+` reach the Workload over a Unix socket at `/dev/shm/jam-agent.sock` (mode 0600). It is served by jam-studio-agent and used by its MCP subcommand (`jam-studio-agent mcp`). Its routes are:
 
 * ``PUT /turn-end``;
 * `POST /turn/sent` and `GET /turn` (what the turn sent, and its last `send`'s `to`);
 * `POST /keeps`, `+DELETE /keeps/{name}+` and `GET /keeps`.
 
-`+turn_end+` answers 409 while the structured turn end is off. Against a studio with no socket, either tool fails with "upgrade the studio".
+`+turn_end+` answers 409 while the structured turn end is off. Against a studio with no socket, either tool fails with `upgrade the studio`.

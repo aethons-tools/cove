@@ -16,14 +16,14 @@ design: https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2
 
 == What it shows
 
-* *Left border* — the session's color (xref:usage/jam/session-colors.adoc[]; none without one).
-* *Icon* — a grey box (VS Code's 2px corners, everywhere) with a robot silhouette until real icons arrive. The *context bar* sits just right of it: how full the main thread's context window is, green through
+* *Left border*—the session's color (xref:usage/jam/session-colors.adoc[]; none without one).
+* *Icon*—a grey box (VS Code's 2px corners, everywhere) with a robot silhouette until real icons arrive. The *context bar* sits just right of it: how full the main thread's context window is, green through
 yellow to red, pulsing from 85%. No bar until the window is reported.
 * *Name* and the *state pill* (the tool in progress in its tooltip).
 * *Count icons*, each hidden at 0: open asks (orange, pulsing), alarms,
 previews, kept processes, running subagents.
 * *Mission* (the end goal or standing order) and *focus* (what the
-session is on now, in green) — both set by the agent
+session is on now, in green)—both set by the agent
 (xref:usage/jam/intercom.adoc#what-the-tools-do[intercom]).
 * *Sparkline* of the last 10 minutes of states, high to low: thinking,
 working, waiting, idle, sleeping; a dashed mark at each `system/init`.
@@ -43,7 +43,7 @@ Instance's lifecycle winning over the event stream (as for the status strip):
 |starting or recovering while a manager builds its kit image (xref:usage/jam/studio-managers.adoc#activities[activities]) |thinking |preparing kit
 |asked for a person |idle |needs you
 |blocked |idle |blocked
-|turn over, background tasks out — or kept processes or alarms |waiting |waiting
+|turn over, background tasks out—or kept processes or alarms |waiting |waiting
 |turn over, nothing local |idle |idle (done when done)
 |in a tool |working |working
 |in a model call, or writing |thinking |thinking
@@ -53,9 +53,9 @@ Ending and gone sessions have no card.
 
 *Counts* come from the Instance (open asks, alarms, exposures, kept
 processes), except *subagents*: `sessionevents.Presence` derives them from
-the event stream, reading only ids, tool names and task types — `Agent`/`Task`
+the event stream, reading only ids, tool names and task types—`Agent`/`Task`
 calls awaiting their `+tool_result+` (cleared at each turn's `system/init` and
-`result`) plus the `+*_agent+` tasks in claude's latest `+background_tasks_changed+`
+`result`) plus the `+*_agent+` tasks in the latest `+background_tasks_changed+` from `claude`
 list. Presence also counts `system/init` events (`inits`). Both are in memory:
 after a Jam restart they start from 0.
 

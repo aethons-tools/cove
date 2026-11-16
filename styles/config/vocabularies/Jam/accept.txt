@@ -4,6 +4,7 @@ Asciidoctor
 buildx
 chromedp
 COV
+Esc
 ETag
 Excalidraw
 gitconfig
@@ -29,6 +30,7 @@ rootful
 shellcheck
 shiftfs
 sshd
+Studio Managers?
 Sysbox
 testcontainers
 tygo
@@ -38,9 +40,11 @@ unpausing
 vsce
 VSCodium
 Xiaolai
+[Aa]dmin
 [Cc]olima
 [Cc]omms
 [Ii]nviter
+[Jj]am(?!-)
 [Mm]ockups
 [Pp]odman
 [Rr]econciler
