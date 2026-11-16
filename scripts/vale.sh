@@ -127,9 +127,9 @@ done
 top="$(git rev-parse --show-toplevel)"
 cd "$top"
 if [ -n "$changed" ]; then
-  files="$(git diff --name-only --diff-filter=d "$changed" -- "${paths[@]}")"
+  files="$(git diff --name-only --diff-filter=d "$changed" -- ${paths[@]+"${paths[@]}"})"
 else
-  files="$(git ls-files --cached --others --exclude-standard -- "${paths[@]}")"
+  files="$(git ls-files --cached --others --exclude-standard -- ${paths[@]+"${paths[@]}"})"
 fi
 pages=()
 while IFS= read -r f; do
