@@ -1,0 +1,44 @@
+// Jam.NormativeKeyword: on a page whose header (the lines before the first
+// blank line) sets :page-normative:, report each list item (*, ., or -, over
+// as many lines as it runs) with no RFC 2119 keyword outside `code`. Items in
+// listing, literal, passthrough and comment blocks don't count; this skips
+// them as normative-vague.tengo does.
+text := import("text")
+
+matches := []
+
+keyword := func(item) {
+  return text.re_match(`\b(MUST|SHOULD|MAY)\b`, text.re_replace("`[^`]+`", item, ""))
+}
+
+if text.re_match(`\A(?:[^\n]*\S[^\n]*\n)*:page-normative:`, scope) {
+  open := ""
+  offset := 0
+  // The item being read: where its first line begins and ends, and its text.
+  item := undefined
+  done := func() {
+    if item != undefined && !keyword(item.text) {
+      matches = append(matches, {begin: item.begin, end: item.end})
+    }
+    item = undefined
+  }
+  for line in text.split(scope, "\n") {
+    end := offset + len(line)
+    if open != "" {
+      if line == open { open = "" }
+    } else if text.re_match(`^(-{4,}|\.{4,}|\+{4,}|/{4,})\s*$`, line) {
+      done()
+      open = text.trim_space(line)
+    } else if text.re_match(`^\s*(\*+|\.+|-)\s+\S`, line) {
+      done()
+      start := offset + len(text.re_find(`^\s*(\*+|\.+|-)\s+`, line)[0][0].text)
+      item = {begin: start, end: end, text: line}
+    } else if text.trim_space(line) == "" || text.trim_space(line) == "+" {
+      done()
+    } else if item != undefined && !text.has_prefix(line, "//") {
+      item.text += " " + line
+    }
+    offset = end + 1
+  }
+  done()
+}

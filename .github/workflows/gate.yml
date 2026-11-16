@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   # Two legs run side by side — Go (tests, installer, image script, lint) and
-  # web (the app's checks, the VS Code extension) — and `gate` joins them.
+  # web (the app's checks, the VS Code extension, the books) — and `gate` joins them.
   go:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -106,6 +106,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The books' Vale step diffs HEAD against its first parent: on a
+          # pull request, HEAD is the merge into the base, so that is what
+          # the pull request changes; on a push, what the commit changed.
+          fetch-depth: 2
 
       # The API types check generates them from Go (tygo).
       - uses: actions/setup-go@v7
@@ -141,6 +146,12 @@ jobs:
           JAM_BROWSER="$(scripts/manual-browser.sh)"
           export JAM_BROWSER
           cd manual && npx antora antora-playbook.jam.yml --to-dir "$RUNNER_TEMP/manual"
+      # Mirrors `just vale`, on the pages under manual/ and docs/ this change
+      # touches: Vale with the Google and Jam styles (.vale.ini), pinned and
+      # sha256-verified by scripts/vale.sh. Errors fail it; warnings are
+      # reported. Then the Jam style's own test.
+      - name: books prose (Vale)
+        run: ./scripts/vale.sh --changed HEAD^1 && bash scripts/vale.test.sh
       - uses: actions/upload-artifact@v7
         with:
           name: jam-vscode

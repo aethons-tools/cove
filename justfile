@@ -155,6 +155,17 @@ manual-site:
 manual-shot *ARGS:
     ./scripts/manual-shot.sh "$@"
 
+# lint the books' prose with Vale (.vale.ini: the Vale, Google and Jam styles), on
+# every page under manual/ and docs/, or on the pages among PATHS; errors fail it
+# (docs/modules/ROOT/pages/manual-vale.adoc). e.g. `just vale docs/modules/ROOT/pages/manual.adoc`
+[positional-arguments]
+vale *PATHS:
+    ./scripts/vale.sh "$@"
+
+# test the Jam Vale style's rules and the pages scripts/vale.sh picks
+test-vale:
+    bash scripts/vale.test.sh
+
 # test the manual's Antora extensions (internal content, diagrams: manual/extensions/test/)
 manual-check:
     cd manual && ../scripts/npm-ci.sh && npm test
