@@ -373,19 +373,21 @@ func (c *Client) CommentFeed(ctx context.Context, since time.Time, limit int) ([
 	return fs, nil
 }
 
-// Viewer returns the display name of the identity the Client's token
-// authenticates as (Jam's own Linear user) — for the ingress self-post filter.
+// Viewer returns the user id of the identity the Client's token
+// authenticates as (Jam's own Linear user) — for the ingress self-post
+// filter, which matches a comment's author id: a display name isn't unique,
+// and a person who shares Jam's must still be heard (COV-359).
 func (c *Client) Viewer(ctx context.Context) (string, error) {
-	const q = `query{viewer{displayName}}`
+	const q = `query{viewer{id}}`
 	var out struct {
 		Viewer struct {
-			DisplayName string `json:"displayName"`
+			ID string `json:"id"`
 		} `json:"viewer"`
 	}
 	if err := c.do(ctx, q, nil, &out); err != nil {
 		return "", err
 	}
-	return out.Viewer.DisplayName, nil
+	return out.Viewer.ID, nil
 }
 
 var _ tracker.Tracker = (*Client)(nil)
