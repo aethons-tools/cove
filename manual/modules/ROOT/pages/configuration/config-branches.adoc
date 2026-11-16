@@ -107,8 +107,8 @@ The *Source* card shows:
 
 Following::
 How the last check went, and when it ran:
-*in sync*, *waiting for you*, *failed* or *not checked yet*.
-Repo, Dir and Branch::
+*in sync*, *waiting for you*, *failed*, or *not checked yet*.
+Repo, Dir, and Branch::
 What the Jam follows.
 *Dir* shows only when the config is in a folder of the repo.
 Head::

@@ -5,7 +5,7 @@
 
 A *whiteboard* is a shared drawing in one channel.
 People and sessions use it to sketch together:
-diagrams, plans and freehand notes.
+diagrams, plans, and freehand notes.
 Everyone who can read the channel can open its boards.
 Everyone who can post in the channel can draw on them.
 
@@ -41,7 +41,7 @@ image::whiteboards-editor.png["A board open for drawing",800]
 
 The board is an Excalidraw canvas.
 You can draw rectangles, diamonds, ellipses, arrows, lines, freehand strokes and text,
-and move, resize, recolor and delete them.
+and move, resize, recolor, and delete them.
 You cannot add images.
 
 Your drawing saves while you draw.
@@ -57,9 +57,9 @@ When another person or a session changes it,
 you see the change without a reload.
 Two people can change different shapes at the same time.
 
-A session reads the board as a list of shapes, labels and arrows,
+A session reads the board as a list of shapes, labels, and arrows,
 and changes it with simple steps,
-such as "add a box" or "connect these two shapes".
+such as `add a box` or `connect these two shapes`.
 It can also look at a picture of the whole board.
 
 Changes to a board do not post a message

@@ -69,7 +69,7 @@ and gRPC stubs) is built from `internal/jam/attach/proto/attach.proto` by
 `buf`, then runs `buf generate`.
 
 * The real module proxy is required here—unlike the `GOPROXY=direct` used
-elsewhere in this sandbox (see above), `buf-gen` sets
+elsewhere in this sandbox (see earlier), `buf-gen` sets
 `+GOPROXY=https://proxy.golang.org+` (plus `GOTOOLCHAIN=local`, so a `go install` doesn't try to fetch a different toolchain version) because `buf`
 and the protoc-gen plugins are fetched as tagged modules, not resolved
 directly against `github.com`.
@@ -84,7 +84,7 @@ the diff it produces is reviewed and committed like any other source change.
 * `just test` (`+go test ./...+`) is *hermetic*—every test drives `internal/runner.Fake`,
 so no Docker, network, or live VM is required.
 Keep new tests this way.
-Tests also never touch a real cove path: agents run this suite _inside_ coves,
+Tests also never use a real cove path: agents run this suite _inside_ coves,
 so a test using a production path (for example the `agentrun` harness's `/dev/shm` files)
 clobbers the live agent. Give every harness test paths (`testClaude`);
 ``internal/agentrun``'s `TestMain` fails the run if a real harness file changed.
@@ -139,7 +139,7 @@ or `hadolint` is skipped with a note, so a fresh clone can lint before
 nothing, so `STRICT=1` turns a missing linter into a failure.
 * The gate runs on the *plain runner* and installs the linters per-run—it is
 deliberately _not_ run inside `jam-studio` (COV-35). A container gate would
-inherit the image's sandbox-tuned `GOPROXY=direct`/`GOSUMDB=off` (see above) and
+inherit the image's sandbox-tuned `GOPROXY=direct`/`GOSUMDB=off` (see earlier) and
 silently stop verifying module checksums, and would add a digest-pin to chase.
 Instead the drift the container would have solved is handled directly: the
 `hadolint` version is pinned in *three* places—this gate, ``jam-studio``'s
@@ -152,8 +152,8 @@ it is not version-pinned there.)
 justfile's header.
 * *Not* gated: `just integration` (real-ssh) and `just test-browser` (headless
 Chrome).
-* CI leaves `GOPROXY`/`GOSUMDB` at their defaults. The `direct`/`off` settings
-above are a workaround for _this sandbox's_ egress lock; a runner has open
+* CI leaves `GOPROXY`/`GOSUMDB` at their defaults. The earlier `direct`/`off` settings
+are a workaround for _this sandbox's_ egress lock; a runner has open
 egress and should verify module checksums against `go.sum`.
 * `scripts/lint.sh` runs `hadolint` on all three Dockerfiles—`images/jam-studio-base/Dockerfile`, `images/jam-studio/Dockerfile`, and
 `internal/assemble/hardening/Dockerfile`. `.hadolint.yaml` records the rules
@@ -171,7 +171,7 @@ against a Postgres *service container*, with `+JAM_TEST_POSTGRES_DSN+`
 pointing at it—the Postgres-backed `jam.Store` conformance suite and the
 Postgres squawk log (`intercompg`) conformance suite, both behind the
 `+//go:build integration+` tag. It is a *separate* workflow from `gate.yml` on
-purpose: the required check is `gate`, and this job must not touch it. This job
+purpose: the required check is `gate`, and this job must not change it. This job
 only reports—promoting it to a required check is a branch-protection
 setting, not a change here.
 
@@ -304,7 +304,7 @@ resolve its own path.
 
 === Adopting a new base
 
-Publishing is automatic (above), and so is adopting a routine base: the release's
+Publishing is automatic (see earlier), and so is adopting a routine base: the release's
 blessed-list snapshot makes the newest published base Jam's default. A *breaking*
 base change (one that shifts the OCI layer-diff-id prefix, or one the sealed
 hardening layer newly _depends on_) also needs the blessed watermark raised so older
@@ -353,9 +353,9 @@ Once, in this order:
 before its ruleset exists. It publishes nothing: on a new branch paths-filter diffs against
 the merge-base with `main`, which is empty. Until then `release-pr.yml` succeeds with a
 notice and does nothing.
-. Apply the `release` ruleset above, and the two repo settings.
+. Apply the preceding `release` ruleset, and the two repo settings.
 . Create the Cloudflare Pages project `aethons-tools-jam`, production branch `main`.
-. Add a Cloudflare Access application covering the production host
+. Add a Cloudflare Access app covering the production host
 `aethons-tools-jam.pages.dev` (not only preview deployments): the team manual carries
 internal content (xref:manual.adoc[]).
 . Add the repository secret `+CLOUDFLARE_API_TOKEN+` and the repository variable
