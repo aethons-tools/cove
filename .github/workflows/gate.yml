@@ -156,8 +156,14 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+      # Not into release (the release PR, and the merge's push): its diff is
+      # every page since the last release, each already checked on its way
+      # into main, so it would re-lint pages main's cleanup hasn't reached.
       - name: books prose (Vale)
-        run: ./scripts/vale.sh --changed HEAD^1 && bash scripts/vale.test.sh
+        if: github.base_ref != 'release' && github.ref_name != 'release'
+        run: ./scripts/vale.sh --changed HEAD^1
+      - name: Jam Vale style test
+        run: bash scripts/vale.test.sh
       - uses: actions/upload-artifact@v7
         with:
           name: jam-vscode
