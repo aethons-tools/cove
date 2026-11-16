@@ -116,6 +116,9 @@ for a turn that had just finished (benign).
 * *Compact.* Runs ``/compact <instructions>``: at the turn boundary when running, at once when
 holding, and, when waiting, in a *maintenance episode* (``+--continue+``; no `running`/`waiting`
 report; wakes stay buffered; bounded by a 10m timeout). Skipped when a clear is pending.
+It always runs before a pending wake's turn. The agent can ask for one too, with `+turn_end+`
+(`next: compact`); with a `resume` note, the session is woken once it's compacted
+(xref:usage/jam/structured-turn-end.adoc#turn_end[structured-turn-end.adoc]).
 * *Clear.* Applies only while waiting: dropped during a live agent episode; one pressed during an idle compaction applies once it finishes.
 A Clear that races a wake (for example, pressed on a paused session whose resume delivers a wake first)
 reaches a live episode and is dropped, shown as ignored. It writes

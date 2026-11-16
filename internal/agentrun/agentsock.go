@@ -25,6 +25,9 @@ const AgentSocketPath = "/dev/shm/jam-agent.sock"
 // maxEndReason bounds turn_end's end reason (as Jam's /end does).
 const maxEndReason = 2000
 
+// maxResume bounds turn_end's resume note and compact instructions.
+const maxResume = 8000
+
 // Directives are an agent's turn_end call: how the current turn ends, beyond
 // the defaults (the final text is thinking, what was shown is committed, wait,
 // wake on a message). The last call in a turn wins; they apply at that
@@ -41,9 +44,17 @@ type Directives struct {
 	// Commit false leaves the messages shown this turn pending (deny): they
 	// come back with the next wake.
 	Commit *bool `json:"commit,omitempty"`
-	// Next is "" or "wait" (the default), "compact" (then wait) or "end".
+	// Next is "" or "wait" (the default), "compact" (then wait, or with a
+	// Resume, wake) or "end".
 	Next   string `json:"next,omitempty"`
 	Reason string `json:"reason,omitempty"` // Next "end": why
+	// CompactInstructions follow /compact (Next "compact"): what the summary
+	// must keep.
+	CompactInstructions string `json:"compact_instructions,omitempty"`
+	// Resume (Next "compact") is the agent's note to itself: once compacted,
+	// the session is woken at once (reason "compacted") with it as the
+	// prompt. "" = compact, then wait.
+	Resume string `json:"resume,omitempty"`
 	// WakeOnMessage false: a new message doesn't wake the session until it
 	// next runs (alarms, the idle timeout and kept processes still do).
 	WakeOnMessage *bool   `json:"wake_on_message,omitempty"`
@@ -97,6 +108,12 @@ func (d Directives) Validate() error {
 		}
 	default:
 		return fmt.Errorf("next must be wait, compact or end")
+	}
+	if d.Next != "compact" && (d.Resume != "" || d.CompactInstructions != "") {
+		return fmt.Errorf("resume and compact_instructions need next compact")
+	}
+	if len(d.Resume) > maxResume || len(d.CompactInstructions) > maxResume {
+		return fmt.Errorf("resume and compact_instructions are at most %d bytes each", maxResume)
 	}
 	if d.WakeAt != nil {
 		if _, err := time.Parse(time.RFC3339, d.WakeAt.At); err != nil {

@@ -136,6 +136,10 @@ func wakeLine(r studioagent.WakeReason) (line string, ok bool) {
 		return "Idle timeout: no other wake arrived.", true
 	case "returned":
 		return r.Detail, true
+	case "compacted":
+		return "Your conversation was compacted, as you asked with `turn_end`. Your note to yourself:\n" + r.Detail, true
+	case "compact-failed":
+		return "The compaction you asked for with `turn_end` didn't finish; your conversation is as it was. Your note to yourself:\n" + r.Detail, true
 	case "process-exited":
 		status, tail, _ := strings.Cut(r.Detail, "\n")
 		return fmt.Sprintf("Kept process `%s` exited (%s); last lines:\n%s", r.Note, status, tail), true
