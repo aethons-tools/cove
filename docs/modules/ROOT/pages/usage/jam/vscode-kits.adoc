@@ -14,16 +14,16 @@ commits it to the branch, and merging stays in the console.
 
 == Access
 
-Kit editing needs a sign-in that may use the admin API: an operator's, made
-after admin access existed (xref:usage/jam/app-tokens.adoc#operator-standing[app-tokens]).
-Otherwise the Kits view shows *Kit editing needs an operator sign-in — sign in
-again*, which runs _Jam: Sign In_.
+Kit editing needs a sign-in that may use the administration API: an operator's, made
+after administration access existed (xref:usage/jam/app-tokens.adoc#operator-standing[app-tokens]).
+Otherwise the Kits view shows *Kit editing needs an operator sign-in—sign in
+again*, which runs `Jam: Sign In`.
 
-== The Kits view
+== The `Kits` view
 
 The *Kits* view is in the Jam sidebar of the hub (collapsed at first).
 
-* Its first row is the branch: *Branch: jam/ann* (click to switch, or
+* Its first row is the branch: *`Branch: jam/ann`* (click to switch, or
 create one), or *Create branch jam/ann* when your default branch doesn't
 exist yet. The choice is remembered per Jam. The followed branch is never
 offered: it is read-only (xref:usage/jam/config-branches.adoc[config-branches]).
@@ -48,11 +48,11 @@ reloads; xref:usage/jam/kits-drafts.adoc#file-api[kits-drafts]), so an edit to a
 file, in the console or another window, never refuses it.
 
 * *"… changed on the Jam since you opened it"*: someone changed that file.
-Nothing was overwritten. Run _File: Compare Active File with Saved_ to see
+Nothing was overwritten. Run `File: Compare Active File with Saved` to see
 the Jam's version, then save again (that overwrites it).
 * *"the draft is gone (discarded, or the Jam restarted)"*: the draft no
 longer exists; drafts live in memory. Your unsaved editors stay open. The
-kit reads *draft gone — reopen*: click it, then save again.
+kit reads *draft gone—reopen*: click it, then save again.
 * New folders exist only in VS Code until a file is saved in them.
 * VS Code has no executable bit: use *Toggle Executable* on a file in the
 explorer.
@@ -62,13 +62,14 @@ view, on the file they name or on `kit.yml`, after every save.
 
 == Build
 
-*Build* (_Jam Kits: Build Kit Draft_, or the kit's button) builds the
+*Build* (`Jam Kits: Build Kit Draft`, or the kit's button) builds the
 draft as saved; unsaved editors of the kit are saved first, if you agree. The
 log streams into the *Jam Kit Build* output, and a notification says
 whether it built. Cancel stops the build on the Jam. What a build is, and
 when one is reused, is in xref:usage/jam/kits-drafts.adoc#test-build[kits-drafts].
 
-== Publish and Discard
+[#publish-and-discard]
+== Publish and discard
 
 Both ask first, and act on the branch of the kit's folder (not the
 view's, if you switched since). Publish saves the kit's unsaved files

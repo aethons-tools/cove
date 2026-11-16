@@ -7,8 +7,8 @@
 :updated: 2026-11-14
 
 A *personal session* is a long-lived managed studio that a person asks Jam
-for directly — with *New session* in the Inbox, or as an operator from the CLI
-or admin UI. Jam admits it against the role's personal caps, raises it *owned by
+for directly—with *New session* in the Inbox, or as an operator from the command line
+or the administration UI. Jam admits it against the role's personal caps, raises it *owned by
 that person*, and only the owner can list or release it. The owner talks to it in
 their `dm` with it (the xref:usage/jam/intercom-ui.adoc[Inbox], and Discord when set up), and it
 stays until the owner releases it. It needs `store-postgres`.
@@ -32,12 +32,12 @@ A `dm` is private: it never takes new members,
 and nobody leaves it (xref:usage/jam/intercom.adoc#channel-membership[membership]).
 It may message *only* you: Jam enrolls it with an addressing
 override of exactly `+user:<owner's usr_id>+`.
-. Once its agent is idle — its turn over and no background task still running —
+. Once its agent is idle—its turn over and no background task still running—
 the studio waits for you (it is xref:usage/jam/studio-agent.adoc#jam-studio-agent-the-in-cove-client[resident];
 there is no time limit). While it waits past the `warm-timeout` it is paused
 (`idled`, ≈0 CPU). If it ended its turn with a background task running (say, a
 dev server), it stays `running` and keeps the agent live instead, for up to 30m.
-. *Reply to its Discord message* (Discord's reply-to-message feature) to
+. *Reply to its Discord message* (Discord's message reply feature) to
 continue. Jam routes the reply to the studio and wakes it. A waiting studio
 (unpaused first if needed) resumes with ``+claude --continue+``; a still-`running`
 one gets your reply written straight into its live agent. Either way it ``read``s
@@ -59,7 +59,7 @@ When a session waits on you, Jam pauses it, then nags you, and (only if the role
 == Starting one from the Inbox
 
 *New session*, beside New message in the xref:usage/jam/intercom-ui.adoc[Inbox] rail, offers
-every role with `max-personal` above 0 in each of your projects (a full one is
+every role with `max-personal` greater than 0 in each of your projects (a full one is
 shown greyed, with why). Pick one, optionally write a first message, and
 *Start*: Jam starts the session owned by you (the same admission as below; no
 login link needed, you are signed in), opens your `dm` with it,
@@ -68,13 +68,13 @@ is hidden when Jam runs no supervisor. Discord is optional: to also talk to it
 over Discord, set the project's chat service to `discord` and give yourself a
 Discord inbox (xref:usage/jam/discord.adoc[discord]). While Start waits on a manager's kit
 image build, the dialog (the VS Code rail's too) polls
-`GET /app/user/api/sessions/start-progress?project=&role=` every 2s (Start's
+`GET /app/user/api/sessions/start-progress?project=&role=` every 2 seconds (Start's
 membership check; the role's current kit as a raise resolves it; `+{step, detail, since, age}+` of any manager's xref:usage/jam/studio-managers.adoc#activities[build] of exactly it, else `+{}+`)
-and shows _Preparing the kit image — building step 7/12 (2m)_.
+and shows _Preparing the kit image—building step 7/12 (2m)_.
 
 == Who owns it: link your login
 
-Jam finds the owner by matching the caller's *admin login* (the operator
+Jam finds the owner by matching the caller's *administration login* (the operator
 identity: your OIDC `sub`, which `jam whoami` shows, or `local` on a
 loopback-only Jam) against the *user* holding that login, who must be a
 member of the target project. Both are in the config repo:
@@ -116,7 +116,7 @@ without a Requisitioner.
 [#the-verbs]
 == The verbs
 
-All take the admin-client flags (`+--app+`/`+--admin-url+`/`+--token+`); see
+All take the administration-client flags (`+--app+`/`+--admin-url+`/`+--token+`); see
 xref:usage/jam/operators.adoc[]. `+--project+` defaults to `default`.
 
 ----
@@ -128,10 +128,10 @@ jam session release ses_01j9q3x8f2k7m4n6p0r2s5t8v1
 
 * *request* grants a slot, then raises the studio with you as its owner, and
 prints only the session id (a new `+ses_…+` id for each request). It is *named*
-`pair-01`, or the next `pair-NN` not taken by a live non-standing session (Jam-wide, like a `studio raise` label). The admin UI's role
+`pair-01`, or the next `pair-NN` not taken by a live non-standing session (Jam-wide, like a `studio raise` label). The administration UI's role
 *Request* action does the same from the browser (see
 xref:usage/jam/ui-editing.adoc#runtime-studios[Runtime (studios)]). The prompt file is
-read on the host and sent in the request body. It never goes on argv. Unlike
+read on the host and sent in the request body. It never goes on `argv`. Unlike
 `studio raise`, no identity token or launch secret is returned.
 * *list* shows only *your* personal sessions in the project: id, role,
 phase, activity, and when each was raised.
@@ -140,7 +140,8 @@ phase, activity, and when each was raised.
 the one other way it ends). The
 teardown records the reservation release, which frees your slot.
 
-== The admin routes
+[#the-admin-routes]
+== The administration routes
 
 [%header]
 |===
