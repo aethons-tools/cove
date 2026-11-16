@@ -46,7 +46,7 @@ each save is a commit.
 == Names and ids
 
 You name a project by its name everywhere:
-in the admin console, the CLI and the config repo.
+in the admin console, the command-line tool, and the config repo.
 Inside, Jam keeps an id for each project.
 If you rename a project,
 Jam treats it as a new project under the new name,

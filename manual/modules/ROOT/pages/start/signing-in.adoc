@@ -119,7 +119,7 @@ and opens a session's studio over SSH in one click.
 
 . Install it with `jam vscode install`.
 Your Jam serves the extension that matches it.
-. Run *Jam: Sign In* in VS Code.
+. Run the *Jam: Sign In* command in VS Code.
 Your browser opens a page that asks *Connect VS Code on …?*.
 It names the person you act as.
 Click *Allow*.
@@ -127,7 +127,7 @@ VS Code then has an app token for you,
 which you can revoke later under *Connected apps…*.
 . The *Conversations* view in the Jam side bar
 lists your conversations in three sections.
-*Me* has the conversations you take part in,
+*`Me`* has the conversations you take part in,
 with a dot on the ones that need you;
 *All* and *Unread* at its top choose which show.
 *Work* has the units of work an agent is working on now.

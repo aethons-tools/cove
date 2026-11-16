@@ -40,7 +40,7 @@ A role can set its own list instead
 A studio can never reach `anthropic.com`, `claude.com` or `claude.ai` directly,
 even when the kit names them:
 it reaches the model only through Jam.
-Build args::
+`Build args`::
 Settings for the image build,
 such as a Go version.
 They are never secret.
@@ -86,8 +86,8 @@ because they would move with it.
 
 Two versions can build the same image.
 Jam builds an image only when something that goes into it changes:
-the base, the files of a kit with a `Dockerfile`, the egress, the build args or the MCP servers.
-A change to the prompt, the notes or the secret demands
+the base, the files of a kit with a `Dockerfile`, the egress, the build arguments, or the MCP servers.
+A change to the prompt, the notes, or the secret demands
 uses the image that is there already.
 
 [#when-it-takes-effect]
@@ -122,7 +122,7 @@ A role that uses `review-kit` gets both.
 
 The settings merge like this:
 
-* egress, secret demands and build args are added together;
+* egress, secret demands, and build arguments are added together;
 when both kits set the same one,
 the child's wins;
 * MCP servers and notes with the same name

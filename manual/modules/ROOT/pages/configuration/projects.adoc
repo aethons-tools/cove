@@ -6,7 +6,7 @@
 You see and change a xref:concepts/project.adoc[project] under *Config › Projects*.
 Each project has an overview page,
 and below it, in the tree,
-*Members*, *Agents*, *Intercom* and *Escalation*.
+*Members*, *Agents*, *Intercom*, and *Escalation*.
 To change a project you must be on a branch of the config repo
 (xref:configuration/config-branches.adoc[]);
 each save is a commit to that branch.
@@ -63,7 +63,7 @@ and its escalation chains.
 Click a tile to open that page.
 
 *Chat service* says where members get messages outside Jam:
-*none — tracker @-mentions only*,
+`none — tracker @-mentions only`,
 or a Discord connection.
 On a branch, pick one and click *Save*.
 
@@ -98,7 +98,7 @@ after you confirm.
 
 === A member's page
 
-image::project-member.png[alice's page under the acme project,800]
+image::project-member.png[A member's page under the acme project,800]
 
 The member's page shows *Member of _project_*,
 with their delivery in this project.

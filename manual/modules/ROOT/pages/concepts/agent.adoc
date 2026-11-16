@@ -1,4 +1,4 @@
-= Roles, agents and sessions
+= Roles, agents, and sessions
 :page-area: ROOT
 :page-id: ROOT/concepts/agent
 :page-conventions: sentence-case
@@ -79,7 +79,7 @@ and it stays until you release it.
 
 |*Manual*
 |Raised by an operator with *Raise agent*,
-with a label and an optional first prompt.
+which takes a label and an optional first prompt.
 |===
 
 == Studios

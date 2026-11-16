@@ -10,7 +10,7 @@ and what happens when you do.
 It comes in three versions.
 *Released* describes the product as the latest release works.
 *Next* describes what is merged but not released yet.
-*Goal* describes the product we are steering toward.
+*Goal* describes the product the team is steering toward.
 Where they differ, that difference is the work still to do.
 
 Pages are grouped by area.

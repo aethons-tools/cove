@@ -1,5 +1,5 @@
 = Converting docs to AsciiDoc
-:summary: The tools for converting docs/ to AsciiDoc for the architecture book — manual/tools/docs-to-adoc.js (Markdown → AsciiDoc, into a parameterised Antora layout) and the docs-audit checker's AsciiDoc and mixed-tree support — how to run them and what to review by hand.
+:summary: The tools for converting docs/ to AsciiDoc for the architecture book—manual/tools/docs-to-adoc.js (Markdown → AsciiDoc, into a parameterised Antora layout) and the docs-audit checker's AsciiDoc and mixed-tree support—how to run them and what to review by hand.
 :read_when: You are converting a doc in docs/ from Markdown to AsciiDoc, adding or moving a page of the architecture book, auditing a docs tree that mixes .md and .adoc, or changing the converter or the checker's AsciiDoc handling.
 :owns: the architecture book's layout (docs/antora.yml, the ROOT module, nav.adoc), manual/tools/docs-to-adoc.js (what it converts, its layout options, its warnings), how docs-audit is run on a mixed tree (--exclude, --repo-url), and their tests (just test-docs-audit, the manual's npm test)
 :prereqs: manual-books.adoc for the team site's books; the docs-audit skill (studio-image payload) for the checker itself
@@ -23,7 +23,7 @@ place in the book is its place in the tree. The map is `INDEX.adoc`
 (`start_page`); every page is in `modules/ROOT/nav.adoc`. A converted doc's
 `.md` is removed in the same change, and every link into it is fixed:
 from the remaining Markdown docs (a relative link to the `.adoc` file),
-`AGENTS.md`, `README.md`, code comments and messages that cite its path
+`AGENTS.md`, `README.md`, code comments, and messages that cite its path
 (grep for it), and the manual. Markdown outside the book (`superpowers/`) is
 reached from the pages by GitHub links. To convert one:
 
@@ -97,8 +97,8 @@ as a link, so those docs stay reachable from the new map.
 * `manual/tools/test/docs-to-adoc.test.js` (the manual's `npm test`, gate's
 web leg): converts `fixture/docs/sample.md` to the golden `fixture/sample.adoc`,
 renders it with Asciidoctor (`@asciidoctor/core`, pinned) expecting no
-warnings, checks the layouts and the CLI, and audits a converted tree with
+warnings, checks the layouts and the command-line tool, and audits a converted tree with
 `+docs_audit.py+`. After an intended change, regenerate the golden file with
-the command above the test's first case.
+the command preceding the test's first case.
 * `+images/jam-studio-base/docs_audit_test.py+` (`just test-docs-audit`, gate's
-go leg): the checker on Markdown, AsciiDoc and mixed Antora trees.
+go leg): the checker on Markdown, AsciiDoc, and mixed Antora trees.

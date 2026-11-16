@@ -16,7 +16,7 @@ The version comes from the *branch*, not the files: `manual/antora.yml` has
 no `version`, and the playbooks map branch to version on the content source
 (`release` is `released`, `main` is `next`, `goal` is ``goal``; any other
 branch builds under its own name). Manual files are identical on every
-branch, so merges never touch version names.
+branch, so merges never change version names.
 
 * *Released*: `manual/` on `release`. What the latest release does.
 The default version; no banner.
@@ -24,7 +24,7 @@ The default version; no banner.
 product as it works today and changes *in the same PR* as the code it
 describes. A page that no longer matches the app is a bug.
 * *Goal*: `manual/` on the long-lived *``goal``* branch. It describes the
-product we are steering toward. A feature is proposed as a PR *into
+product the team is steering toward. A feature is proposed as a PR *into
 ``goal``*, from a branch named `manual/goal-<topic>` (git can't nest
 branches under `goal/`); merging it means "agreed."
 * *The work to do* is ``+git diff origin/release origin/goal -- manual/+``;
@@ -176,7 +176,7 @@ release run it; it reads your working tree's `HEAD` but names the version
 
 Both need Node/npm (Antora is pinned in `manual/package.json`),
 and a headless Chrome for diagrams (xref:manual-diagrams.adoc[]). The customer
-manual's look is `manual/ui/` (layouts, two helpers, and a stylesheet; no
+manual's look is `manual/ui/` (layouts, two helpers, and a style sheet; no
 scripts), not Antora's default UI, which would be downloaded from gitlab.com
 at build time. The team site and `just manual` use a pinned, verified
 third-party UI instead (xref:manual-books.adoc[]).

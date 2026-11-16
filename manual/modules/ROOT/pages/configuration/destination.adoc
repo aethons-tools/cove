@@ -16,7 +16,7 @@ and how many roles list it.
 *New destination* there makes a destination with one endpoint;
 you add the rest on its page.
 
-image::destination-view.png[The github destination, viewing,800]
+image::destination-view.png[The GitHub destination, viewing,800]
 
 == Viewing and editing
 
@@ -26,7 +26,7 @@ Click *Edit* to make the whole card editable;
 *Cancel* drops your changes,
 *Save destination* keeps them.
 
-image::destination-edit.png[The github destination, editing,800]
+image::destination-edit.png[The GitHub destination, editing,800]
 
 The card shows the destination's *Default credential*,
 the secret Jam applies upstream unless a role maps the destination to another,

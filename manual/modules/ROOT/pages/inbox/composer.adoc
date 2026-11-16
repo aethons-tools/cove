@@ -46,7 +46,7 @@ Type your message and press *Ctrl+Enter* (*⌘↵* on a Mac),
 or click *Send*.
 Enter starts a new line.
 
-Messages are markdown, so `+**bold**+`, lists, links and code blocks show formatted.
+Messages are markdown, so `+**bold**+`, lists, links, and code blocks show formatted.
 To send text exactly as typed, such as a log,
 tick *Plain text* before you send.
 
