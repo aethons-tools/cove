@@ -162,10 +162,10 @@ jobs:
       - name: books prose (Vale)
         if: github.base_ref != 'release' && github.ref_name != 'release'
         run: ./scripts/vale.sh --changed HEAD^1
-      # The test needs the pinned Vale and asciidoctor, which the step above
-      # installs; into release it is skipped, so install them here (--which).
+      # It installs the pinned Vale and asciidoctor itself, so it runs into
+      # release too, where the step above is skipped.
       - name: Jam Vale style test
-        run: ./scripts/vale.sh --which >/dev/null && bash scripts/vale.test.sh
+        run: bash scripts/vale.test.sh
       - uses: actions/upload-artifact@v7
         with:
           name: jam-vscode
