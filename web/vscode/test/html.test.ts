@@ -46,6 +46,11 @@ describe("webviewHtml", () => {
     expect(h.match(/<script/g)).toHaveLength(1);
   });
 
+  it("a session tab's session attribute is escaped", () => {
+    expect(html({ pane: "session", session: 'ses_x"><b>' })).toContain(`<div id="root" data-pane="session" data-session="ses_x&quot;&gt;&lt;b&gt;"></div>`);
+    expect(html()).not.toContain("data-session");
+  });
+
   it("no board attribute for a view", () => {
     expect(html()).not.toContain("data-board");
     expect(html()).not.toContain("data-assets");

@@ -15,9 +15,10 @@ const border = "1px solid var(--mantine-color-default-border)";
 // (header, then messages) beside or above the session pane. Without a session, or once it's gone
 // (its head 404s), it is the plain conversation. Its shape never changes
 // with id, so the conversation (composer, reading place) stays mounted
-// when a session ends or appears.
-export function SessionView({ id, linked, onAsk, header, children }: {
-  id: string | null; linked: string | null; onAsk: (id: string) => void; header: ReactNode; children: ReactNode;
+// when a session ends or appears. withPane false leaves the pane (and the
+// header's tabs) out: VS Code's views show it instead.
+export function SessionView({ id, linked, onAsk, header, children, withPane = true }: {
+  id: string | null; linked: string | null; onAsk: (id: string) => void; header: ReactNode; children: ReactNode; withPane?: boolean;
 }) {
   const q = useSessionHead(id);
   // A failed refetch keeps the last data; a 404 means the session is gone.
@@ -25,7 +26,7 @@ export function SessionView({ id, linked, onAsk, header, children }: {
   const pane = usePaneLayout(id ?? "", { linked });
   const split = useRef<HTMLDivElement>(null);
   const right = pane.place === "right";
-  const tab = h ? pane.tab : null;
+  const tab = h && withPane ? pane.tab : null;
   const total = () => {
     const r = split.current!.getBoundingClientRect();
     return right ? r.width : r.height;
@@ -62,7 +63,7 @@ export function SessionView({ id, linked, onAsk, header, children }: {
     : { flex: `0 0 ${pane.size}px`, minHeight: MIN_PANE, maxHeight: `calc(100% - ${MIN_MAIN}px)` };
   return (
     <>
-      {h && <SessionHeader key={h.id} head={h} tab={tab} onTab={pane.toggle} linked={header != null} />}
+      {h && <SessionHeader key={h.id} head={h} tab={tab} onTab={withPane ? pane.toggle : undefined} linked={header != null} />}
       {header}
       <div ref={split} data-place={pane.place} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: right ? "row" : "column" }}>
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>{children}</div>

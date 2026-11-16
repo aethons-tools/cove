@@ -611,6 +611,12 @@ export interface SessionActivity {
   ended: boolean;
   label: string;
   color?: string;
+  /**
+   * DMChannel is the viewer's dm with the session, the conversation SendTo
+   * posts into ("" while there is none yet); VS Code reports it as the
+   * open conversation while the session's tab is active.
+   */
+  dmChannel: string;
 }
 /**
  * ActivityRow is one message of a session's activity: the message as a

@@ -35,6 +35,12 @@ describe("intentAction", () => {
     expect(intentAction({ kind: "go", channel: LEG, session: "ses_0abcdefghjkmnpqrstvwxyz012" }, JAM)).toBeInstanceOf(Error);
   });
 
+  it("sessionTab keeps a valid session id and refuses anything else", () => {
+    const SES = "ses_0abcdefghjkmnpqrstvwxyz012";
+    expect(intentAction({ kind: "sessionTab", id: SES }, JAM)).toEqual({ openSessionTab: SES });
+    for (const id of ["ses_x", CHN, "", 3]) expect(intentAction({ kind: "sessionTab", id } as unknown as OpenIntent, JAM)).toBeInstanceOf(Error);
+  });
+
   it("go keeps a valid channel and session (or none)", () => {
     const SES = "ses_0abcdefghjkmnpqrstvwxyz012";
     expect(intentAction({ kind: "go", channel: CHN, session: SES }, JAM)).toEqual({ goTo: { channel: CHN, session: SES } });

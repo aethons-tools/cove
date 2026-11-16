@@ -10,6 +10,7 @@ function deps(o: Partial<ActionDeps> = {}) {
     openBoard: vi.fn(),
     openSession: vi.fn(),
     goTo: vi.fn(),
+    openSessionTab: vi.fn(),
     revealConversation: vi.fn(),
     error: vi.fn(),
     ...o,
@@ -67,6 +68,11 @@ describe("perform", () => {
     const d = deps();
     await perform({ goTo: { channel: "c", session: "s" } }, d);
     expect(d.goTo).toHaveBeenCalledWith("c", "s");
+  });
+  it("openSessionTab reaches its dep", async () => {
+    const d = deps();
+    await perform({ openSessionTab: "ses_x" }, d);
+    expect(d.openSessionTab).toHaveBeenCalledWith("ses_x");
   });
   it("dep errors are caught and shown", async () => {
     const d = deps({ openBoard: vi.fn(() => { throw new Error("boom"); }) });

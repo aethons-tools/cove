@@ -510,6 +510,10 @@ type SessionActivity struct {
 	Ended  bool   `json:"ended"`
 	Label  string `json:"label"`
 	Color  string `json:"color,omitempty"`
+	// DMChannel is the viewer's dm with the session, the conversation SendTo
+	// posts into ("" while there is none yet); VS Code reports it as the
+	// open conversation while the session's tab is active.
+	DMChannel string `json:"dmChannel"`
 }
 
 // ActivityRow is one message of a session's activity: the message as a
