@@ -84,7 +84,7 @@ func newRelayKit(t *testing.T) *relayKit {
 	if err != nil {
 		t.Fatal(err)
 	}
-	k.dir = &directory{store: st, ic: k.ic, project: "acme", selfIdentity: "Jam", tracker: tracker, discord: k.discord.ID, receipts: receipts}
+	k.dir = &directory{store: st, ic: k.ic, project: "acme", selfIdentity: "lin-jam", tracker: tracker, discord: k.discord.ID, receipts: receipts}
 	return k
 }
 
@@ -255,8 +255,14 @@ func TestRouteLinear(t *testing.T) {
 	if r, _ := k.dir.Route("linear", "acme", ev); r.From != k.bob.ID {
 		t.Fatalf("linked author = %s", r.From)
 	}
+	// Jam's own comments are known by user id, not display name: a person who
+	// shares Jam's name still gets through (COV-359).
+	namesake := relay.Event{ForeignID: "c5", Surface: "ACME-7", Author: "Jam", AuthorID: "lin-other", Body: "same name"}
+	if _, ok := k.dir.Route("linear", "acme", namesake); !ok {
+		t.Error("a person named like Jam must route")
+	}
 	for name, e := range map[string]relay.Event{
-		"Jam's own":     {ForeignID: "c2", Surface: "ACME-7", Author: "Jam", AuthorID: "lin-jam"},
+		"Jam's own":     {ForeignID: "c2", Surface: "ACME-7", Author: "Jam (renamed)", AuthorID: "lin-jam"},
 		"another issue": {ForeignID: "c3", Surface: "ACME-99", Author: "x", AuthorID: "lin-1"},
 		"no author id":  {ForeignID: "c4", Surface: "ACME-7", Author: "x"},
 	} {
