@@ -162,11 +162,11 @@ func (l *Linear) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.Contains(q, "commentCreate"):
 		i := l.find(str("issueId"))
 		if i != nil {
-			l.addComment(LinComment{IssueID: i.ID, Body: str("body"), Author: l.Viewer, AuthorID: "u-self", CreatedAt: time.Now().UTC()})
+			l.addComment(LinComment{IssueID: i.ID, Body: str("body"), Author: l.Viewer, AuthorID: "u-" + l.Viewer, CreatedAt: time.Now().UTC()})
 		}
 		data = map[string]any{"commentCreate": map[string]bool{"success": i != nil}}
 	case strings.Contains(q, "viewer"):
-		data = map[string]any{"viewer": map[string]string{"displayName": l.Viewer}}
+		data = map[string]any{"viewer": map[string]string{"id": "u-" + l.Viewer, "displayName": l.Viewer}}
 	case strings.Contains(q, "comments(filter"):
 		since, _ := time.Parse(time.RFC3339Nano, str("since"))
 		first, _ := req.Variables["first"].(float64)
