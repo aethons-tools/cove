@@ -69,12 +69,17 @@ function site (dir) {
 // renders runs fn with $FAKE_MMDC_LOG set and returns what fake-mmdc.js rendered.
 async function renders (fn, env = {}) {
   const log = path.join(tmp(), 'mmdc.log')
-  const saved = { ...process.env }
-  Object.assign(process.env, { FAKE_MMDC_LOG: log }, env)
+  const set = { FAKE_MMDC_LOG: log, ...env }
+  const saved = Object.fromEntries(Object.keys(set).map((name) => [name, process.env[name]]))
+  Object.assign(process.env, set)
   try {
     await fn()
   } finally {
-    process.env = saved
+    // Key by key: a process.env replaced whole no longer reaches child processes.
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
   }
   if (!fs.existsSync(log)) return []
   return fs.readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
