@@ -22,6 +22,11 @@ import (
 // the turn end's directives and kept processes. tmpfs, like the MCP config.
 const AgentSocketPath = "/dev/shm/jam-agent.sock"
 
+// defaultAgentSocket is where Run serves when Config.AgentSocket is empty:
+// AgentSocketPath, except in tests (TestMain), whose workloads must never
+// replace a live agent's socket.
+var defaultAgentSocket = AgentSocketPath
+
 // maxEndReason bounds turn_end's end reason (as Jam's /end does).
 const maxEndReason = 2000
 
