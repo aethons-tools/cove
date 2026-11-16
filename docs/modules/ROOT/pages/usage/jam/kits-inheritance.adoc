@@ -8,8 +8,8 @@
 
 A studio kit can name another registered kit as its *parent*. Its image then
 builds on the parent's image, and its definition (egress, MCP servers, build
-args, secrets, prompt, notes) is merged on top of the parent's. A role bound to
-the child gets the whole chain — for example `+default → web-dev → my-app+`.
+arguments, secrets, prompt, notes) is merged on top of the parent's. A role bound to
+the child gets the whole chain—for example `+default → web-dev → my-app+`.
 
 [source,yaml]
 ----
@@ -25,7 +25,7 @@ prompt: "You work on my-app …"
 == The parent reference
 
 * *``+kit: <name>+``* follows the parent's _current_ version. It resolves to
-whatever is current when the version is stored, and at raise, build and staleness time.
+whatever is current when the version is stored, and at raise, build, and staleness time.
 * *``+kit: <name>@v<N>+``* pins version N (N ≥ 1). The parent's later versions
 don't affect the child. The config repo refuses a pin (versions are per-Jam:
 xref:usage/jam/config-git.adoc#layout[config-git]); a pin comes from a kit's own git
@@ -84,7 +84,7 @@ A parent whose prompt grows after a child was stored doesn't block the child's
 raise. The session context truncates the merged prompt with its usual warning
 (xref:usage/jam/session-context.adoc[session-context.adoc]).
 
-*Build args* reach the final image build (the harness and hardening layers)
+*Build arguments* reach the final image build (the harness and hardening layers)
 and the session's `kit/tools.md`, as for an unchained kit. They are *not*
 passed to any kit's own base-stage build, so a context Dockerfile can't read
 them as ``ARG``s.
@@ -153,14 +153,14 @@ files into `+body:+`). A chain
 that doesn't resolve prints `+# chain error: …+` and falls back to the kit's own
 YAML.
 * *``kit list``* adds `+parent=<name>[@vN]+` to a chained kit's row.
-* *The kit page* shows _Built on_, _Effective_ and child kits under _Used by_
+* *The kit page* shows _Built on_, _Effective_, and child kits under _Used by_
 (xref:usage/jam/ui-kit-pages.adoc[]).
 
 [#kits-from-git]
 == Kits from git
 
 A kit imported or tracked from git (xref:usage/jam/kits-git.adoc[kits-git]) may name a
-registry parent (`+kit: web-dev+`). The parent is resolved, and the checks above
+registry parent (`+kit: web-dev+`). The parent is resolved, and the preceding checks
 run, whenever an import or sync records the fetched kit (a sync that finds
 nothing new fetches nothing and checks nothing).
 

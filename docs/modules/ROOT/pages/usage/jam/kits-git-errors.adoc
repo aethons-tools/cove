@@ -8,11 +8,11 @@
 
 What a failed kit fetch from git (xref:usage/jam/kits-git.adoc[kits-git]) reports, and how to fix it.
 
-The CLI refuses a malformed source itself (exit 2); otherwise it exits 1
+The command-line tool refuses a malformed source itself (exit 2); otherwise it exits 1
 with the admin API's status and message. The API answers
 *400* for a bad source or an invalid kit, *404* for an unknown kit,
 *409* for `sync` of an untracked kit or a refused
-xref:usage/jam/kits-path-parents.adoc#refusals[set ancestor], *502* for a fetch, auth or limit
+xref:usage/jam/kits-path-parents.adoc#refusals[set ancestor], *502* for a fetch, auth, or limit
 failure (the message is already redacted), and *500* for a store failure.
 
 [%header]

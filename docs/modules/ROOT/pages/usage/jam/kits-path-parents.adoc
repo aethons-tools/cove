@@ -38,10 +38,10 @@ the config repo, where the apply re-pins them to the parent's current
 version (xref:usage/jam/config-git.adoc#layout[config-git]). Elsewhere a path parent is
 refused: `+path parents resolve only in a git import (kit import/track --git)+`.
 * A set's root may itself name a registry parent (`+kit: web-dev+`), so a set
-can sit on a kit owned elsewhere. The whole chain, set and registry
-ancestors together, is still capped at 4 kits.
+can sit on a kit owned elsewhere. The whole chain (set and registry
+ancestors together) is still capped at 4 kits.
 
-== Names, order and pinning
+== Names, order, and pinning
 
 * *Names:* the top kit is named as in any import
 (xref:usage/jam/kits-git.adoc#the-kit-in-the-repo[kits-git]). A path parent is named by
@@ -80,7 +80,7 @@ result is `app unchanged` with no ancestor lines, and the ancestors are not
 checked.
 * *``sync web-dev``* imports web-dev, with its own path parents, alone.
 * *``import``* of a set tracks nothing new. An ancestor that already tracks
-exactly this repo, dir and ref has its tracked commit moved along.
+exactly this repo, dir, and ref has its tracked commit moved along.
 
 [#refusals]
 == Refusals
@@ -106,9 +106,9 @@ API answers *409* for the first two and *400* for the rest.
 set through another ref (`+…//app@v2+`) adds versions from that ref to
 ancestors imported from `main`. An ancestor already tracking that repo and dir
 at a *different ref* keeps its tracked ref: a track or sync through another
-ref gives it a new version with its own provenance but does not retarget it.
+ref gives it a new version with its own provenance but does not change its tracked ref.
 
-A parent path and the dirs it reaches follow the source-dir rules: no space,
+A parent path and the directories it reaches follow the source-dir rules: no space,
 quote, control or non-printable character, or the path is refused with a fixed message.
 
 == Concurrency
@@ -126,7 +126,7 @@ it right.
 imported or checked with the kit (`name`, `version`, `unchanged`, `commit`),
 root first. It is absent for an unchained kit and for a sync that fetched
 nothing.
-* *CLI:* one indented line per ancestor, root first, before the kit's own
+* *Command-line tool:* one indented line per ancestor, root first, before the kit's own
 line: `pass:c[  web-dev v2 (with app)]`, or `pass:c[  web-dev unchanged (v1)]`.
 * *Kit page:* the track and sync flash ends with `+With: web-dev v2+` (adding
 `(unchanged)` per ancestor). The Source card notes `+Part of a set with web-dev — imported from the same repo.+` It lists the chain parents, of the

@@ -1,7 +1,7 @@
 = The user area (`/app/user`)
 :summary: The user area under `/app/user` — the Jam app, a single-page web app where a person reads and replies to their intercom channels (and their legacy History), in a rail of Me, Work, and Agents, with New message, asks, attachments, whiteboards, per-(participant,channel) unread and a live status strip for the sessions in each conversation. It reads the user area's JSON API (`/app/user/api/`) and refreshes live over an SSE signal stream (`GET /app/user/events`), with a 30 s poll as fallback.
 :read_when: You want a project member to read/reply to their studios and channels in a browser (not via the Discord/tracker relays), or you're operating the `/app/user` area — what it shows, its URLs, asks and copy controls, unread, membership, the live refresh, or the session status strip. The composer is in intercom-composer.adoc.
-:owns: what the `/app/user` user area shows and does — the rail's place in it (its sections are rail-api.adoc), the conversation view, New message, New session, asks in a conversation, copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
+:owns: what the `/app/user` user area shows and does—the rail's place in it (its sections are rail-api.adoc), the conversation view, New message, New session, asks in a conversation, copy controls, membership controls, unread and mark-read, the live refresh and fallback poll, its URLs and old-link redirects, and the session status strip and how it maps session state to a status
 :prereqs: web-app.md for how the app is built and served; session-events.adoc for the event stream the status strip derives from; ui.adoc for the `/app` login and who counts as a user; intercom.adoc for the squawk Log + wake-on; coves.adoc for the session phases and activity the "Needs you" treatment reflects; escalation.adoc for asking for a person
 :tier: leaf
 :updated: 2026-11-15
@@ -10,7 +10,7 @@ A *project member* reads and replies to their intercom channels in the *Jam
 app*, a single-page web app served under `/app/user`, rather than through the
 Discord/tracker relays. It is the human analog of a studio agent's `/squawks`
 tools: the same durable squawk Log, seen from the human's side. It sits behind
-the `/app` gate, which admits a roster member — see
+the `/app` gate, which admits a roster member—see
 xref:usage/jam/ui.adoc#signing-in-one-login-one-principal[ui.adoc]. How it's built, served and
 tested: xref:web-app.adoc[web-app].
 
@@ -22,7 +22,7 @@ tested: xref:web-app.adoc[web-app].
 
 |`/app/user/` |the rail, no conversation open
 |`/app/user/c/<channel>` |a conversation (a session's conversation adds its header and pane, xref:usage/jam/session-view.adoc[session-view.adoc])
-|`/app/user/s/<session>` |a xref:usage/jam/session-view.adoc[session view]: its activity in every conversation, with its header and pane
+|`/app/user/s/<session>` |a xref:usage/jam/session-view.adoc[session view]: its header, its pane, and its activity in every conversation
 |`/app/user/new` |New message
 |`/app/user/boards/<id>` |a xref:usage/jam/whiteboards.adoc[whiteboard]
 |===
@@ -37,7 +37,7 @@ link back.
 The page carries the shared app title bar (logo, `+{display name} Jam+`, tabs,
 principal menu; see xref:usage/jam/ui.adoc[ui.adoc]) with *Inbox* current.
 
-* *Left rail — Me, Work, and Agents*, then *History (before the upgrade)* collapsed,
+* *Left rail—`Me`, `Work`, and `Agents`*, then *History (before the upgrade)* collapsed,
 with *New message* (and *New session*) in its header:
 what each row shows, the *All*/*Unread* filter, and reordering are in
 xref:usage/jam/rail-api.adoc#clients[rail-api].
@@ -50,7 +50,7 @@ then its messages (the viewer's own on one side) with
 day dividers and *Load earlier* for older pages, a *"Needs you"* chip
 when a session in it asked for a person or is blocked, the *Open asks*
 panel, the session status strip, and a composer. Each message renders per
-its xref:usage/jam/intercom.adoc#content-type-markdown-or-plain-text[content type]: markdown
+its xref:usage/jam/intercom.adoc#content-type-markdown-or-plain-text[media type]: markdown
 as sanitized HTML, plain text as-is with its whitespace. A wide code block
 scrolls sideways inside its bubble. It opens at the latest message; a new
 message scrolls into view only if you were already at the bottom, and Send
@@ -73,7 +73,7 @@ of a role, with an optional first message, and land in its conversation.
 
 *Writes are same-origin only.* Every `/app/user` write is refused (`403`)
 unless its `Origin` (or `Referer`) is the page's own host or one of
-xref:usage/jam/serve.adoc[`ui-origins`] — the same check as `/app/admin` writes — so another
+xref:usage/jam/serve.adoc[`ui-origins`]—the same check as `/app/admin` writes—so another
 site, a sibling subdomain included, can't post as you.
 
 [#asks]
@@ -81,16 +81,16 @@ site, a sibling subdomain included, can't post as you.
 
 A session's xref:usage/jam/asks.adoc[ask] renders as a *card* where it was asked: the
 question, a button per option (with its detail), *Other…* and a comment box.
-An answer is `409` if the ask changed since the card loaded ("review the new
-version") or was already answered ("already answered by alice: …"), `403` if
-it isn't yours to answer. An answered card collapses to "✓ alice chose …", a
+An answer is `409` if the ask changed since the card loaded (`review the new
+version`) or was already answered (`already answered by alice: …`), `403` if
+it isn't yours to answer. An answered card collapses to `✓ alice chose …`, a
 withdrawn one says so, an amended one is marked _edited_, and an ask for
-someone else (`of`) is read-only, "for carol". Its later events are one-line
+someone else (`of`) is read-only, `for carol`. Its later events are one-line
 system notes. *Discuss* starts a reply about the ask: the reply carries
 `+reply_to+` and shows a *re:* chip linking the card. The *Open asks* panel
-above the messages lists the conversation's open asks.
+preceding the messages lists the conversation's open asks.
 
-The composer — sending, keys, saved reply, draft stack and attachments: xref:usage/jam/intercom-composer.adoc[intercom-composer].
+The composer—sending, keys, saved reply, draft stack and attachments: xref:usage/jam/intercom-composer.adoc[intercom-composer].
 
 [#membership-controls]
 == Membership controls
@@ -111,21 +111,21 @@ The rules are the intercom's
 
 * *Unread* is a per-(participant, channel) cursor. Showing a conversation
 marks it read up to its latest message (forward only); unread is the
-person's deliveries above it. The rail and the app badge count the open
+person's deliveries after it. The rail and the app badge count the open
 conversation as read from the moment it's shown.
 * *Refresh is live:* the app holds an SSE stream (`GET /app/user/events`).
-It carries payload-free signals — `changed` (the squawk Log grew),
+It carries payload-free signals—`changed` (the squawk Log grew),
 `presence` (a session's status changed, or what its status
 xref:usage/jam/session-card.adoc#freshness[card] shows; at
-most one per 250 ms, the last always sent; it refetches the rail too) and `board` (a whiteboard changed) — and one event with
+most one per 250 ms, the last always sent; it refetches the rail too) and `board` (a whiteboard changed)—and one event with
 content, ``+event: notify+``: the viewer's own notification, as a push would
 show it (xref:usage/jam/vscode-notifications.adoc[VS Code]); the web app
 ignores it. The app refetches what each names through the API, which checks access again. A
 reconnect refetches too, and a *30 s poll* covers state that appends
 nothing and a dropped stream. A half-typed reply is never touched.
-* The push is in-process: an `intercom.Notifier` wraps serve's one shared
-channel-log handle, so every writer (agent send, relay ingress, the user
-area, Jam's notices) fires it — correct while serve is the Log's sole writer.
+* The push is in-process: an `intercom.Notifier` wraps the one shared
+channel-log handle that serve holds, so every writer (agent send, relay ingress, the user
+area, Jam's notices) fires it—correct while serve is the Log's sole writer.
 With neither the Log nor presence configured, `/app/user/events` answers
 `204` and the app just polls.
 
@@ -135,7 +135,7 @@ With neither the Log nor presence configured, `/app/user/events` answers
 Each session that is a member of the open conversation gets one line:
 *``<name> is <status>``* (or *``<name> needs you``*). The name is the session's
 declared name, else its actor id. Busy states show animated dots; idle, paused
-and done are dimmed; needs you and blocked use the attention colour. A session
+and done are dimmed; needs you and blocked use the attention color. A session
 whose turn ended is *idle*: it needs you only once it asks.
 
 [%header]
@@ -143,11 +143,11 @@ whose turn ended is *idle*: it needs you only once it asks.
 |Status |When
 
 |starting / recovering |the session is raising / being re-raised after it was lost
-|preparing its kit image — _&#60;step&#62;_ |it is raising or recovering and its manager reports building exactly the kit image its raise builds (xref:usage/jam/studio-managers.adoc#activities[kit-prepare progress]), e.g. ``building step 7/12``; it wins over starting and recovering
+|preparing its kit image—_&#60;step&#62;_ |it is raising or recovering and its manager reports building exactly the kit image its raise builds (xref:usage/jam/studio-managers.adoc#activities[kit-prepare progress]), for example ``building step 7/12``; it wins over starting and recovering
 |paused |it is idled
 |needs you |it is waiting (live or paused) and asked for a person since it was last woken; this wins over paused
 |idle |it is waiting without having asked (its turn ended)
-|blocked / done |its reported activity says so (this and the two above win over its events)
+|blocked / done |its reported activity says so (this and the two preceding win over its events)
 |thinking |its latest event began a turn, was a thinking block, or was a tool result
 |running *&#60;Tool&#62;* |its latest event was a tool call
 |writing |its latest event was assistant text
@@ -155,7 +155,7 @@ whose turn ended is *idle*: it needs you only once it asks.
 |working |live, but no event seen since Jam started
 |===
 
-Terminating, lost and gone sessions are left out. The status comes from the
+Terminating, lost, and gone sessions are left out. The status comes from the
 session's phase and activity plus its xref:usage/jam/session-events.adoc[session events],
 summarized by an in-memory tracker every published event passes through
 (`sessionevents.Presence`, fed via `Hub.Observe`). The strip shows only the
@@ -165,7 +165,7 @@ in its Thinking tab (xref:usage/jam/session-events.adoc#sensitivity[Sensitivity]
 == Enabling it
 
 The user area is always mounted; reaching it takes a login that names a roster
-member (or a loopback xref:usage/jam/serve.adoc[`dev-identity`] — see
+member (or a loopback xref:usage/jam/serve.adoc[`dev-identity`]—see
 xref:usage/jam/ui.adoc#signing-in-one-login-one-principal[ui.adoc]). Its conversations come from
 the channel log, which is always available. A Jam built without the app bundle
 answers "not built" (xref:web-app.adoc[web-app]). Phone and desktop
