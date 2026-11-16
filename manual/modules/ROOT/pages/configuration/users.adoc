@@ -122,7 +122,6 @@ API under `/app/admin/api/users[/<user>[/…]]` (`internal/jam/adminui/api_users
 * A user is `users/<name>.yml` (`logins`, `oidc`).
 OIDC identities, accounts and app tokens are not in the repo:
 the console writes them live, also on a branch (`branchLive` in `internal/jam/adminui/branches.go`).
-* The *Name* card's hint names tiers as `human:<name>`; tiers today are written `user:<name>`.
 * Rename and remove are refused while the user owns a live personal session (`users_admin.go`).
 Applying a user's removal from the config repo is also refused while a project's escalation names them,
 or a project lists them as a member (`config_plan_delete.go`, `deleteUser`).

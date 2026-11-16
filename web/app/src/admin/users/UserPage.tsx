@@ -70,7 +70,7 @@ function UserBody({ d, refKey, byName }: { d: UserDetail; refKey: unknown[]; byN
         <Alert color="gray">This user was removed. Their id still labels history as {u.name} (removed); nothing here can be changed.</Alert>
       ) : (
         <SimpleGrid cols={{ base: 1, md: 2 }}>
-          {editable && <Section title="Name" sub="Jam-wide; escalation tiers still name people (human:<name>) — update them after a rename">
+          {editable && <Section title="Name" sub="Jam-wide; escalation tiers still name people (user:<name>) — update them after a rename">
             <EditForm submit="Rename" onSubmit={async () => {
               await write.mutateAsync({ path: `${base}/name`, body: { name } });
               // Opened by name: that name is gone now; the id's page stays.

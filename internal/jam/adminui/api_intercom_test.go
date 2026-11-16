@@ -40,6 +40,7 @@ func TestChannelLogAPILegacyFilters(t *testing.T) {
 		"?log=legacy&participant=channel:eng":               "deploy started",             // a recipient only
 		"?log=legacy&participant=actor:cove-1":              "please HOLD|deploy started", // its sent and received
 		"?log=legacy&participant=human:bob":                 "beta status",
+		"?log=legacy&participant=user:bob":                  "beta status", // human:'s successor
 		"?log=legacy&participant=human:nobody":              "",
 		"?log=legacy&project=acme&q=deploy":                 "deploy started",
 		"?log=legacy&since=2026-09-11&until=2026-09-11":     "please HOLD",
