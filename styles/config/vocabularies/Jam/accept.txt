@@ -8,6 +8,7 @@ Esc
 ETag
 Excalidraw
 gitconfig
+GitHub Issues
 gitignored
 goreleaser
 hadolint
@@ -21,6 +22,7 @@ lockdown
 lunr
 Mantine
 mmdc
+OAuth
 OKLab
 osascript
 pandoc
@@ -37,14 +39,16 @@ tygo
 typecheck
 umask
 unpausing
+VS Code
 vsce
 VSCodium
 Xiaolai
 [Aa]dmin
 [Cc]olima
 [Cc]omms
+[Hh]arbor
 [Ii]nviter
-[Jj]am(?!-)
+[Jj]ams?(?!-)
 [Mm]ockups
 [Pp]odman
 [Rr]econciler
