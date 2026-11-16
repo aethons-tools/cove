@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # vale.test.sh — test for the books' Vale setup: the Jam style's rules
 # (styles/Jam, on the pages in testdata/vale/) and the pages scripts/vale.sh
-# picks (a temp git repo). Needs vale and asciidoctor: run scripts/vale.sh
-# first, which installs the pinned ones (its asciidoctor in .vale/ is found).
+# picks (a temp git repo). It installs the pinned vale and asciidoctor first
+# (scripts/vale.sh --which), so it runs on a fresh clone.
 # Run: bash scripts/vale.test.sh
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Install the pinned Vale and asciidoctor first (a fresh clone has neither),
+# then put that asciidoctor on PATH: vale.sh's own PATH stays in its process.
+"$root/scripts/vale.sh" --which >/dev/null
 PATH="$PATH:$(echo "$root"/.vale/asciidoctor-*/node_modules/.bin | tr ' ' :)"
 fail=0
 expect() { # name expected actual

@@ -162,6 +162,8 @@ jobs:
       - name: books prose (Vale)
         if: github.base_ref != 'release' && github.ref_name != 'release'
         run: ./scripts/vale.sh --changed HEAD^1
+      # It installs the pinned Vale and asciidoctor itself, so it runs into
+      # release too, where the step above is skipped.
       - name: Jam Vale style test
         run: bash scripts/vale.test.sh
       - uses: actions/upload-artifact@v7
