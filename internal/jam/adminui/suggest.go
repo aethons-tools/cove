@@ -91,7 +91,7 @@ func suggestKinds(store jam.Store, credNames []string) map[string]func(project s
 					}
 				}
 				for _, m := range jam.MembersOf(store, p.ID) {
-					out = append(out, "human:"+m.User.Name)
+					out = append(out, "user:"+m.User.Name)
 				}
 				for _, c := range store.ListChannels(p.ID, jam.SourceRoom) {
 					out = append(out, "channel:"+c.Key)

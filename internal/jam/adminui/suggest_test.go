@@ -58,7 +58,7 @@ func TestSuggestKinds(t *testing.T) {
 	}
 	// participants: every roster human/channel plus the studios' actors
 	got := suggestions(t, h, "kind=participants")
-	for _, want := range []string{"human:alice", "channel:eng", "actor:studio-acme", "actor:studio-solo"} {
+	for _, want := range []string{"user:alice", "channel:eng", "actor:studio-acme", "actor:studio-solo"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("participants missing %q: %v", want, got)
 		}

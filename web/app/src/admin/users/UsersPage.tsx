@@ -40,7 +40,7 @@ export function UsersPage() {
         <summary style={{ cursor: "pointer" }}>New user</summary>
         <Card withBorder mt="xs">
           <EditForm submit="Create user" onSubmit={() => create.mutateAsync({ name, logins, oidc })}>
-            <TextInput label="Name" description="Jam-wide; addressed as human:<name>" required value={name} onChange={(e) => setName(e.currentTarget.value)} />
+            <TextInput label="Name" description="Jam-wide; addressed as user:<name>" required value={name} onChange={(e) => setName(e.currentTarget.value)} />
             <Textarea label="Logins" description="one per line — operator identities (OIDC sub, or local) this person signs in as" autosize minRows={2} value={logins} onChange={(e) => setLogins(e.currentTarget.value)} />
             <Textarea label="OIDC identities" description="one per line, issuer:subject" autosize minRows={2} value={oidc} onChange={(e) => setOidc(e.currentTarget.value)} />
           </EditForm>
