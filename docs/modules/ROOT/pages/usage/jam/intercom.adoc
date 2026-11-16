@@ -8,8 +8,7 @@
 
 A managed studio's agent gets *Jam-brokered* tools—`read`, `send`,
 `+list_targets+`, and `escalate`—over Jam's *channel log*: every squawk is in
-one channel (a unit of work's log, a `dm` or `group` with people and sessions, a room) and reaches
-that channel's members.
+one channel (a unit of work's log, a `dm` or `group` with people and sessions, a room) and reaches that channel's members.
 A session has no channel of its own. Jam holds the tracker token, does the platform I/O, and attributes the sender; the studio never holds a channel token, exactly as it is for the Anthropic and git connectors. This is the imperative foundation of the comms hub (slice A of A→B→C).
 
 [#what-the-tools-do]
@@ -24,6 +23,7 @@ A session has no channel of its own. Jam holds the tracker token, does the platf
 * *``+call_in(who, channel?)+``* and *``leave(channel)``*—membership (`POST /squawks/call-in` → `+200 {channel, member}+`, `POST /squawks/leave` → `204`); see <<channel-membership,Channel membership>>.
 * *``report(state, summary, pr?)``*, *``end(reason)``*, *``+idle_timeout(duration, scope)+``* and *``+alarm_set+`` / `+alarm_clear+` / ``+alarm_list+``*—report a ticket's state, end the session at turn end, tune how long it may sit idle after one, or set named alarms that wake it; see xref:usage/jam/turn-end.adoc[turn-end.adoc].
 * *``expose(port, name)``*, *``unexpose(name)``* and *``exposures()``*—publish a port the session serves as a named xref:usage/jam/previews.adoc[studio preview] and get its URL to post in the channel (`PUT`/`+DELETE /exposures/{name}+`, `GET /exposures`); answer 409 until the Jam has a preview domain configured. Listed in the session context only when previews are enabled; see xref:usage/jam/session-context.adoc[session-context.adoc].
+* *``+observe_sessions+``*, *``+observe_activity+``*, *``+observe_streams+``* and *``+observe_events+``*—read other sessions, read-only (`GET /squawks/observe/…`); offered only to a session whose role has `scope.observe`. See xref:usage/jam/session-observe.adoc[session-observe].
 * *``+send(…, attach?)+``* and *``fetch(ref, path?)``*—attach files from the studio to a message, and download one into it; see xref:usage/jam/attachments.adoc[attachments].
 * *``+board_create+``*, *``boards``*, *``+board_read+``*, *``+board_apply+``*, *``+board_snapshot+``*—sketch with people on a conversation's whiteboard; see xref:usage/jam/whiteboards.adoc[whiteboards.adoc].
 * *``ask(question, options, to?, of?)``*, *``amend``*, *``withdraw``* and *``asks``*—ask people a question with answers to pick from; the answer arrives through `read` as an entry carrying its ask part (`parts`). See xref:usage/jam/asks.adoc[asks].

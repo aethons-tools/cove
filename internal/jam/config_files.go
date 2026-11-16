@@ -671,6 +671,7 @@ type RoleScopeFile struct {
 	TTL          string            `yaml:"ttl,omitempty"`
 	Egress       *[]string         `yaml:"egress,omitempty"` // nil = the kit's default list
 	Rooms        []RoleRoomFile    `yaml:"rooms,omitempty"`
+	Observe      string            `yaml:"observe,omitempty"` // "" = none; else all
 }
 
 // RoleRoomFile is one room of a role's scope.rooms.
@@ -758,6 +759,10 @@ func (f RoleFile) role() (Role, error) {
 		Destinations: slices.Clone(f.Scope.Destinations), Credentials: maps.Clone(f.Scope.Credentials),
 		Addressing: slices.Clone(f.Scope.Addressing),
 	}
+	if o := f.Scope.Observe; o != "" && o != ObserveAll {
+		return r, fmt.Errorf("scope.observe: must be %s, not %q", ObserveAll, o)
+	}
+	r.Scope.Observe = f.Scope.Observe
 	var err error
 	if r.Scope.TTL, err = parseConfigDuration("scope.ttl", f.Scope.TTL); err != nil {
 		return r, err
@@ -835,7 +840,7 @@ func roleFileOf(project, name string, r Role, userName func(ident.ID) (string, b
 	}
 	f.Scope = RoleScopeFile{
 		Destinations: slices.Clone(r.Scope.Destinations), Credentials: maps.Clone(r.Scope.Credentials),
-		TTL: formatConfigDuration(r.Scope.TTL),
+		TTL: formatConfigDuration(r.Scope.TTL), Observe: r.Scope.Observe,
 	}
 	for _, a := range r.Scope.Addressing {
 		if rest, ok := strings.CutPrefix(a, "user:"); ok {

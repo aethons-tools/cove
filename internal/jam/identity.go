@@ -35,7 +35,17 @@ type Scope struct {
 	// when each is set up (Intercom.SetUp). Set by the role file's
 	// `scope.rooms` in the config repo.
 	Rooms []RoomMembership `json:"rooms,omitempty"`
+	// Observe is what the role's sessions may read of other sessions,
+	// read-only (session-observe.adoc): ObserveAll, or "" for nothing. Set by
+	// the role file's `scope.observe` in the config repo.
+	Observe string `json:"observe,omitempty"`
 }
+
+// ObserveAll is Scope.Observe granting every session of every project.
+const ObserveAll = "all"
+
+// Observes reports whether the scope grants reading other sessions.
+func (s Scope) Observes() bool { return s.Observe == ObserveAll }
 
 // RoomMembership is one room a role lists: its sessions join it with Wake
 // (WakeNamed or WakeAll, never "").

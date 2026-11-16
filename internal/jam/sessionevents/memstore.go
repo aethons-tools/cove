@@ -1,6 +1,8 @@
 package sessionevents
 
 import (
+	"maps"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -81,6 +83,18 @@ func (s *MemStore) Streams(actorID string) ([]StreamInfo, error) {
 		return out[i].StreamID < out[j].StreamID
 	})
 	return out, nil
+}
+
+func (s *MemStore) ActiveActors(since, until time.Time) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[string]bool{}
+	for k, evs := range s.streams {
+		if len(evs) > 0 && !evs[0].ReceivedAt.After(until) && !evs[len(evs)-1].ReceivedAt.Before(since) {
+			seen[k.actor] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(seen)), nil
 }
 
 func (s *MemStore) Turns(actorID, streamID string) ([]TurnSpan, error) {

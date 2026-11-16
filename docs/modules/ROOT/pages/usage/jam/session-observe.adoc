@@ -1,0 +1,111 @@
+= Observing sessions
+:summary: Letting a role's agents read other sessions, read-only: the `scope.observe` grant, the brokered `/squawks/observe` endpoints and the `observe_*` tools over session activity and events, what they return, and what they never allow.
+:read_when: You are building, configuring, or reviewing a role that reads other sessions (the optimizer), the `scope.observe` grant, or the `/squawks/observe` endpoints and tools.
+:owns: the `scope.observe` role grant, the `/squawks/observe` endpoints and their wire shapes, the `observe_sessions`, `observe_activity`, `observe_streams`, and `observe_events` tools, and their limits. Does NOT own how events are captured, redacted, or stored (session-events.adoc), or who may open a session view in the app (session-view.adoc).
+:prereqs: session-events.adoc for the event log and its fields; session-activity.adoc for a session's messages; roster.adoc for role scope; intercom.adoc for the brokered `/squawks` endpoints and the studio's tools
+:tier: leaf
+:updated: 2026-11-16
+:page-normative:
+
+Operators read other sessions in the admin timeline, the NDJSON export, and the session view.
+A role granted `scope.observe` lets its agents read them too, read-only,
+as the optimizer role (process book, *Optimizing the process*) does.
+
+[#grant]
+== The grant
+
+A role grants its sessions read access to other sessions with `scope.observe` in its file:
+
+[source,yaml]
+----
+scope:
+  observe: all     # every session of every project, live or ended
+----
+
+* `all` is the only value; the config repo MUST refuse any other.
+A role without `scope.observe` MUST get `403` from every endpoint below.
+Jam reads the grant on each request, so removing it takes effect at the next one.
+* It grants reading only.
+An observing session MUST NOT be able to message, steer, interrupt, or end the sessions it reads,
+and its reads MUST NOT be visible to them:
+every endpoint is a `GET`, and none moves a cursor or writes to the intercom.
+* It covers every session: standing, ticket, manual, and personal sessions, with their DMs.
+* `jam role list` prints `+observe=all+` or `+observe=none+`,
+the admin API's `GET /admin/roles` carries `observe`,
+and the admin console's role page shows *Observes sessions* (`RoleDetail.observes`).
+Only the config repo sets it.
+
+[#endpoints]
+== Endpoints
+
+Brokered like `/squawks` (xref:usage/jam/intercom.adoc[intercom]):
+the studio's identity token, resolved by Jam, never a parameter.
+The listing and the events come from the session-event store,
+which keeps a session's events after it ends
+(xref:usage/jam/session-events.adoc[session-events]);
+the store has no session record of its own once Jam tears a session down.
+
+[%header,cols="2,3"]
+|===
+|Request |Returns
+
+|`+GET /squawks/observe/sessions?since=<RFC 3339>&until=<RFC 3339>+`
+|`+{"sessions": [...]}+`: every session with a stream active in the window
+(default: the 24 hours before `until`, which defaults to now), most recently active first.
+A stream is active when its first and last event times (`StreamInfo.FirstAt`, `LastAt`) overlap the window.
+Each entry has `id`; `label`, from the session's intercom party, which outlives it;
+`kind`, `project`, `role`, `unit`, `owner`, and `+raised_at+`, from its newest event's stamp;
+`+first_at+` and `+last_at+`, its streams' first and last event times
+(a session that ended has no other end time);
+`live`, whether Jam still runs it;
+and its *lifetime* `totals` (`sessionevents.Totals`: `turns`, `episodes`, `+tool_calls+`, `errors`, `+input_tokens+`, `+output_tokens+`, `+cost_usd+`).
+Totals over the window alone aren't offered: the totals cover a session's whole life.
+
+|`+GET /squawks/observe/sessions/{id}/activity?anchor=&id=&dir=&limit=+`
+|The session's messages in and out, in every conversation,
+paged as the session view's activity is (xref:usage/jam/session-activity.adoc[session-activity]):
+`anchor` (`end`, the default, `start`, or `id`), `id`, `dir` (`forward`, the default, or `backward`),
+and `limit` (default 50, at most 500).
+`+{"messages", "page_first", "page_last", "earlier", "later"}+`;
+each message has the `read` entry's fields
+(`id`, `at`, `body`, `+content_type+`, `from`, `channel`, `parts`)
+and `out`, whether the session sent it.
+
+|`+GET /squawks/observe/sessions/{id}/streams+`
+|`+{"streams": [...]}+`: the session's streams, one for each agent process, oldest first:
+`+stream_id+`, `+first_at+`, `+last_at+`, `+last_seq+`, and `events`.
+
+|`+GET /squawks/observe/sessions/{id}/events?stream=&after_seq=&limit=&types=+`
+|One stream's captured events:
+`+{"stream_id", "events", "next_after_seq", "more"}+`,
+each event with the export API's fields (xref:usage/jam/session-events.adoc#_export_api[session-events]), `+stream_id+` among them.
+`stream` defaults to the newest stream, `+after_seq+` pages within it,
+and `limit` defaults to 500 and is at most 2000.
+`types` filters by the event's `type` field (for example `result,assistant`), not its `kind`,
+so a reader can take the turn results first
+and fetch the full events only for the turns it wants.
+`+next_after_seq+` is the `+after_seq+` that continues the page
+and `more` says whether the stream has events after it;
+a filtered page reads at most 20000 events, so it can come back short with `more` set.
+Event numbers restart in each stream, so a reader walks the streams from `streams` in order.
+|===
+
+* `404` for an unknown session (no events and no record in Jam) or stream; `400` for a bad parameter;
+`405` for any method but `GET`; `503` when the Jam records no session events.
+* Events keep jam-studio-agent's redaction; nothing more is removed.
+
+[#tools]
+== Tools
+
+The studio's messaging server offers `observe_sessions`, `observe_activity`, `observe_streams`, and `observe_events`,
+mapping to the preceding endpoints (`session` names the `{id}`, `types` is a list),
+only to a session whose role has `scope.observe`.
+Each answers Jam's JSON as text, and an answer over 8 MiB fails, asking for a smaller `limit` or a `types` filter.
+
+The compiled session context carries the grant
+(the boilerplate's *Observing* line, and the bundle's `observe` flag,
+xref:usage/jam/session-context.adoc[session-context]).
+While the bundle in effect has it, jam-studio-agent sets `+JAM_OBSERVE=1+` in the agent's environment
+for each episode, and the messaging server registers the tools only then;
+a refresh that drops the grant drops them at the next episode.
+`jam role inspect` and `jam studio inspect` list them under the intercom's tools, in the MCP section (`jam.ObserveTools`; xref:usage/jam/inspect.adoc[inspect]).

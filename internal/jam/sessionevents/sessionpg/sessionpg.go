@@ -220,6 +220,24 @@ FROM session_events WHERE actor_id=$1 GROUP BY stream_id ORDER BY MIN(received_a
 	return out, rows.Err()
 }
 
+func (s *Store) ActiveActors(since, until time.Time) ([]string, error) {
+	rows, err := s.pool.Query(context.Background(), `SELECT DISTINCT actor_id FROM (SELECT actor_id FROM session_events
+GROUP BY actor_id, stream_id HAVING MIN(received_at) <= $2 AND MAX(received_at) >= $1) s ORDER BY actor_id COLLATE "C"`, since, until)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) Turns(actorID, streamID string) ([]sessionevents.TurnSpan, error) {
 	rows, err := s.pool.Query(context.Background(), `SELECT turn, MIN(seq), MAX(seq), MIN(observed_at), MAX(observed_at), COUNT(*)
 FROM session_events WHERE actor_id=$1 AND stream_id=$2 GROUP BY turn ORDER BY MIN(seq)`, actorID, streamID)

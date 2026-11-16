@@ -85,6 +85,9 @@ type Store interface {
 	List(f Filter) ([]Event, error)
 	// Streams lists an actor's streams, newest (by FirstAt) first.
 	Streams(actorID string) ([]StreamInfo, error)
+	// ActiveActors lists, sorted, the actors with a stream whose first and
+	// last ReceivedAt overlap [since, until] (inclusive).
+	ActiveActors(since, until time.Time) ([]string, error)
 	// Turns lists a stream's turns, by first seq.
 	Turns(actorID, streamID string) ([]TurnSpan, error)
 	// DeleteBefore removes data last received before t; returns rows removed.
