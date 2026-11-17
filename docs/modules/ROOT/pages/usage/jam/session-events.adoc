@@ -4,7 +4,7 @@
 :owns: the session-event capture pipeline (cove side and Jam side), its storage backends + config keys, the raw/raw_text encoding guarantee, retention, the export API, and the sensitivity stance (operator-only storage and export; content visible to the people who may open a session's view, in the Thinking tab)
 :prereqs: coves.adoc for the Attach stream and managed studios; serve.adoc for the serve config and store-postgres; ui-console.adoc#session-timeline for the browser view
 :tier: leaf
-:updated: 2026-11-14
+:updated: 2026-11-17
 
 Jam records every `stream-json` stdout line of a managed studio's agent
 (`+claude -p --output-format stream-json --verbose+`) as an ordered, per-stream
@@ -13,12 +13,18 @@ events and `system`/`+thinking_tokens+` progress events. Storage and export are
 *operator-only*; the content is also shown to the people who may open the session's view
 (xref:usage/jam/session-view.adoc#access[session-view]), in the Thinking tab. It carries agent output by design (see <<sensitivity,Sensitivity>>).
 
+[#cove-side-jam-studio-agent]
 == Cove side (jam-studio-agent)
 
 * `internal/agentrun` writes the agent's stdout to the VM-local
 `/agent-data/agent-stream.jsonl` (append, 0600; never `jam-studio-agent.log`, which
 Jam reads on teardown) and to a line splitter; each line goes to `studioagent` as an event tagged with its
 *turn* (the episode—claude process—number, from 1; one episode can answer several prompts, see xref:usage/jam/coves.adoc[coves]).
+* *Wake events:* before it hands a Wake's resume prompt to the agent,
+`studioagent` records an event of its own, `+{"type":"cove","subtype":"wake","reasons":[...]}+`,
+carrying the Wake's reason kinds
+(xref:usage/jam/turn-end.adoc#wake-reasons[wake reasons]),
+so a turn can be told apart by what woke it.
 * *Cost is cumulative per `claude` session.* A `result` line's `+total_cost_usd+`
 (and `modelUsage`) is the running total of its `+session_id+`, carried across
 `+--continue+` episodes; `usage` is per result. New spend is a result's increase

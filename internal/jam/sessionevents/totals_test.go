@@ -100,7 +100,9 @@ func TestTotalsContext(t *testing.T) {
 		{rawEv(5, t0.Add(5*time.Second), `{"type":"cove","subtype":"command","command":"clear","by":"Bob","ignored":"live episode"}`), 34166, 1000000},
 		{rawEv(6, t0.Add(6*time.Second), `{"type":"cove","subtype":"command","command":"clear","by":"Bob"}`), 0, 1000000},
 		{main(7, 3, 20000, 0, 1), 20004, 1000000},
-		{rawEv(8, t0.Add(8*time.Second), `{"type":"system","subtype":"compact_boundary","compact_metadata":{"pre_tokens":20004}}`), 0, 1000000},
+		// a wake starts a turn on the same context
+		{rawEv(8, t0.Add(8*time.Second), `{"type":"cove","subtype":"wake","reasons":["squawk"]}`), 20004, 1000000},
+		{rawEv(9, t0.Add(9*time.Second), `{"type":"system","subtype":"compact_boundary","compact_metadata":{"pre_tokens":20004}}`), 0, 1000000},
 	}
 	for i, s := range steps {
 		tot.Add(s.ev)

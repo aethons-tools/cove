@@ -447,7 +447,7 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 				return ctx.Err()
 			}
 			if c == nil {
-				prompt, continued = w.deliverText(ctx, rs), true
+				prompt, continued = w.deliverText(ctx, h, turn+1, rs), true // the next episode
 				if fresh, ok := w.clearedStart(prompt); ok {
 					prompt, continued = fresh, false
 				}
@@ -780,7 +780,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 	// burst of coalesced wakes carries it once).
 	resume := func() string {
 		finish()
-		text := w.deliverText(ctx, w.wake.take())
+		text := w.deliverText(ctx, h, turn, w.wake.take())
 		tr.NoteWrite(w.inflight.gen)
 		if w.ctxr != nil {
 			text += contextNotice(w.ctxr.live(ctx), true)

@@ -30,6 +30,19 @@ func TestDeriveIndexResult(t *testing.T) {
 	}
 }
 
+// jam-studio-agent's own events index by type and subtype, as Claude's do, so
+// the observe tools' type filter (cove) and the session view find them.
+func TestDeriveIndexCoveEvents(t *testing.T) {
+	for _, c := range []struct{ raw, subtype string }{
+		{`{"type":"cove","subtype":"command","command":"clear","by":"Bob"}`, "command"},
+		{`{"type":"cove","subtype":"wake","reasons":["squawk","alarm"]}`, "wake"},
+	} {
+		if ix := DeriveIndex([]byte(c.raw)); ix != (Index{Type: "cove", Subtype: c.subtype}) {
+			t.Fatalf("%s: %+v", c.raw, ix)
+		}
+	}
+}
+
 func TestDeriveIndexGarbage(t *testing.T) {
 	if ix := DeriveIndex([]byte(`not json`)); ix != (Index{}) {
 		t.Fatalf("%+v", ix)
