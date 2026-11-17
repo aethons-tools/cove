@@ -129,7 +129,7 @@ func TestPostCommentSendsCommentCreate(t *testing.T) {
 
 func TestListReadyParsesIssuesAndClass(t *testing.T) {
 	const resp = `{"data":{"issues":{"nodes":[
-	 {"id":"i1","identifier":"AET-1","title":"T1","description":"D1","labels":{"nodes":[{"name":"class:implement"},{"name":"p1"}]}}
+	 {"id":"i1","identifier":"AET-1","title":"T1","url":"https://linear.app/aet/issue/AET-1","description":"D1","labels":{"nodes":[{"name":"class:implement"},{"name":"p1"}]}}
 	]}}}`
 	calls := 0
 	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
@@ -143,8 +143,8 @@ func TestListReadyParsesIssuesAndClass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListReady: %v", err)
 	}
-	if len(got) != 1 || got[0].Identifier != "AET-1" || got[0].Class != "implement" {
-		t.Fatalf("ListReady = %+v; want one AET-1 with class implement", got)
+	if len(got) != 1 || got[0].Identifier != "AET-1" || got[0].Class != "implement" || got[0].URL != "https://linear.app/aet/issue/AET-1" {
+		t.Fatalf("ListReady = %+v; want one AET-1 with class implement and its URL", got)
 	}
 }
 

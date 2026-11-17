@@ -39,6 +39,8 @@ type RaiseSpec struct {
 	Unit    string
 	// UnitTitle is the unit's issue title, as the Requisitioner read it (normalised on Raise); "" = none.
 	UnitTitle string
+	// UnitURL is the unit's issue URL, as the Requisitioner read it; "" = none.
+	UnitURL string
 	// Mission is the session's initial mission, its end goal (normalised on Raise); "" = none.
 	Mission string
 	Prompt  string // workload prompt for the raised cove's agent; consumed by the launcher, not persisted
@@ -346,10 +348,12 @@ func (s *Supervisor) SetTailReader(r tailReader) { s.tail = r }
 func (s *Supervisor) SetReleaser(r Releaser) { s.released = r }
 
 // SessionChannels follows sessions into and out of their channels: the
-// intercom joins a session set up on a ticket to the ticket's channel, and
-// takes it out when the session ends (teardown).
+// intercom joins a session set up on a ticket to the ticket's channel,
+// records its reports on the ticket's unit, and takes it out when the
+// session ends (teardown).
 type SessionChannels interface {
 	SetUp(inst Instance) error
+	Reported(inst Instance, r TicketReport) error
 	Ended(inst Instance) error
 }
 
@@ -573,7 +577,7 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	}
 	now := s.now()
 	inst := Instance{
-		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit, UnitTitle: NormalizeStatusLine(spec.UnitTitle),
+		ActorID: spec.ActorID, Project: orDefaultProject(spec.Project), Role: spec.Role, Unit: spec.Unit, UnitTitle: NormalizeStatusLine(spec.UnitTitle), UnitURL: spec.UnitURL,
 		Owner: spec.Owner, OwnerID: spec.OwnerID, Name: spec.Name, SessionKind: spec.SessionKind,
 		Mission:     NormalizeStatusLine(spec.Mission),
 		Recoverable: true, RaisePrompt: spec.Prompt,
@@ -1553,16 +1557,30 @@ func (s *Supervisor) ResolveGate(actorID, runID string, o GateOutcome) error {
 	return s.store.PutInstance(inst)
 }
 
-// SetReport stamps the session's last accepted ticket report.
+// SetReport stamps the session's last accepted ticket report, and records
+// it on its unit (best effort: a failure is logged).
 func (s *Supervisor) SetReport(actorID string, r TicketReport) error {
+	inst, err := s.setReport(actorID, r)
+	if err != nil {
+		return err
+	}
+	if s.channels != nil {
+		if err := s.channels.Reported(inst, r); err != nil && s.log != nil {
+			s.log.Warn("report: recording it on the unit failed (non-fatal)", "id", actorID, "err", err.Error())
+		}
+	}
+	return nil
+}
+
+func (s *Supervisor) setReport(actorID string, r TicketReport) (Instance, error) {
 	s.instMu.Lock()
 	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
-		return fmt.Errorf("no instance for actor %q", actorID)
+		return Instance{}, fmt.Errorf("no instance for actor %q", actorID)
 	}
 	inst.Report = &r
-	return s.store.PutInstance(inst)
+	return inst, s.store.PutInstance(inst)
 }
 
 // alarmZone is the cove's role time zone (UTC when the role is gone).

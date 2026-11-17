@@ -161,7 +161,7 @@ func (d *Dispatcher) tick(ctx context.Context) {
 			continue
 		}
 		if _, _, _, err := d.raiser.Raise(ctx, jam.RaiseSpec{
-			ActorID: actorID, Role: d.cfg.Role, Project: d.cfg.Project, Unit: iss.Identifier, UnitTitle: iss.Title, Mission: iss.Title, Prompt: prompt,
+			ActorID: actorID, Role: d.cfg.Role, Project: d.cfg.Project, Unit: iss.Identifier, UnitTitle: iss.Title, UnitURL: iss.URL, Mission: iss.Title, Prompt: prompt,
 		}); err != nil {
 			d.log.Warn("requisitioner: raise failed", "issue", iss.Identifier, "error", err.Error())
 			d.needsInput(ctx, iss)

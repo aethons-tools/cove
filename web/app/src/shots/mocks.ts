@@ -224,8 +224,8 @@ const rail: RailResponse = {
     row({ id: "chn_bobcoder", label: "bob, coder", kind: "group", phase: "live", lastSeq: 80, mission: "Review open pull requests" }),
   ],
   work: [
-    { key: "ACME-42", title: "Fix the flaky login test", log: "chn_acme42", worker: { id: "ses_acme42", label: "acme-42", state: "waiting" }, unread: 1 },
-    { key: "ACME-51", title: "Add the release checklist", log: "chn_acme51", worker: { id: "ses_acme51", label: "acme-51", state: "working" } },
+    { key: "ACME-42", title: "Fix the flaky login test", log: "chn_acme42", worker: { id: "ses_acme42", label: "acme-42", state: "waiting" }, state: "in-review", unread: 1 },
+    { key: "ACME-51", title: "Add the release checklist", log: "chn_acme51", worker: { id: "ses_acme51", label: "acme-51", state: "working" }, state: "in-progress" },
   ],
   agents: [
     { session: "ses_helper", ssh: true, card: helperDM.card! },

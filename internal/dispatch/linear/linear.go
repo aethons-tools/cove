@@ -154,6 +154,7 @@ type issueNode struct {
 	ID          string `json:"id"`
 	Identifier  string `json:"identifier"`
 	Title       string `json:"title"`
+	URL         string `json:"url"`
 	Description string `json:"description"`
 	Labels      struct {
 		Nodes []struct {
@@ -180,7 +181,7 @@ func (c *Client) toIssue(n issueNode) scheduler.Issue {
 	}
 	class, dispatchLabeled := scheduler.ClassifyLabels(names, c.prefix, c.dispatchPrefix)
 	return scheduler.Issue{
-		ID: n.ID, Identifier: n.Identifier, Title: n.Title,
+		ID: n.ID, Identifier: n.Identifier, Title: n.Title, URL: n.URL,
 		Description: n.Description, Class: class, DispatchLabeled: dispatchLabeled,
 	}
 }
@@ -199,7 +200,7 @@ func (c *Client) toIssue(n issueNode) scheduler.Issue {
 // sidestepping any issue/relatedIssue ambiguity in how Linear presents an
 // inverse relation.
 func (c *Client) ListReady(ctx context.Context) ([]scheduler.Issue, error) {
-	const q = `query($key:String!,$state:String!){issues(filter:{team:{key:{eq:$key}},state:{name:{eq:$state}}}){nodes{id identifier title description labels{nodes{name}} inverseRelations{nodes{type issue{id} relatedIssue{id}}}}}}`
+	const q = `query($key:String!,$state:String!){issues(filter:{team:{key:{eq:$key}},state:{name:{eq:$state}}}){nodes{id identifier title url description labels{nodes{name}} inverseRelations{nodes{type issue{id} relatedIssue{id}}}}}}`
 	var out struct {
 		Issues struct {
 			Nodes []issueNode `json:"nodes"`

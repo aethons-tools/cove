@@ -68,6 +68,8 @@ type memState struct {
 	// railOrders is each person's saved rail order per section
 	// (rail_orders.go).
 	railOrders map[ident.ID]map[RailSection][]string
+	// units is the units of work's records by work log id (work_units.go).
+	units map[ident.ID]WorkUnit
 	// managers is the Studio Manager registry by name (managers_store.go).
 	managers map[string]ManagerRecord
 	// setup is the per-instance setup snapshots: actor id → part → snapshot
@@ -118,6 +120,7 @@ func newMemState() *memState {
 		appTokenByHash:  map[string]ident.ID{},
 		sessionColors:   map[string]string{},
 		railOrders:      map[ident.ID]map[RailSection][]string{},
+		units:           map[ident.ID]WorkUnit{},
 		managers:        map[string]ManagerRecord{},
 		setup:           map[string]map[string]SetupSnapshot{},
 		channels:        map[ident.ID]Channel{},

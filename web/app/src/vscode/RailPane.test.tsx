@@ -29,7 +29,7 @@ const rail = {
     row(CHN_A, "Ada", { kind: "dm", session: SES_A, ssh: true, needsYou: true, unread: 2, card: card({ session: SES_A, name: "Ada", state: "idle" }) }),
     row(CHN_B, "#design"),
   ],
-  work: [{ key: "ACME-42", title: "Fix the flaky login test", log: CHN_LOG, worker: { id: SES_W, label: "acme-42", state: "waiting" }, unread: 1 }],
+  work: [{ key: "ACME-42", title: "Fix the flaky login test", log: CHN_LOG, worker: { id: SES_W, label: "acme-42", state: "waiting" }, state: "in-review", unread: 1 }],
   agents: [
     { session: SES_A, ssh: true, card: card({ session: SES_A, name: "Ada", mission: "Keep the books" }) },
     { session: SES_C, ssh: false, card: card({ session: SES_C, name: "carl", mission: "Review PRs" }) },

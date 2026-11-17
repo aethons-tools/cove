@@ -15,7 +15,7 @@ const row = (id: string, label: string, over: Partial<ChannelRow> = {}): Channel
   id, label, project: "p", kind: "room", needsYou: false, phase: "", unread: 0, openAsks: 0, lastSeq: 1, selected: false, mission: "", session: "", ssh: false, sessionView: "", ...over,
 });
 const work = (key: string, over: Partial<WorkRow> = {}): WorkRow => ({
-  key, title: `Title of ${key}`, log: `chn_${key}`, worker: { id: `ses_${key}`, label: key.toLowerCase(), state: "waiting" }, ...over,
+  key, title: `Title of ${key}`, log: `chn_${key}`, worker: { id: `ses_${key}`, label: key.toLowerCase(), state: "waiting" }, state: "in-progress", ...over,
 });
 const agent = (session: string, name: string): AgentItem => ({ session, ssh: false, card: card({ session, name }) });
 

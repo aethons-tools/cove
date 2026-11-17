@@ -979,3 +979,49 @@ func TestPostgresRailOrdersReload(t *testing.T) {
 		t.Fatalf("reload after replace: me order = %q", got)
 	}
 }
+
+// TestPostgresWorkUnitsReload proves a unit of work's record survives a
+// reload: its issue, workers (a current one and a stopped one), state and PRs.
+func TestPostgresWorkUnitsReload(t *testing.T) {
+	dsn := os.Getenv("JAM_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set JAM_TEST_POSTGRES_DSN to run the Postgres store integration tests")
+	}
+	ctx := context.Background()
+	open := func() *jam.PostgresStore {
+		t.Helper()
+		s, err := jam.NewPostgresStore(ctx, dsn, nil)
+		if err != nil {
+			t.Fatalf("NewPostgresStore: %v", err)
+		}
+		t.Cleanup(s.Close)
+		return s
+	}
+	s := open()
+	if err := s.TruncateAllForTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateProject("acme"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := s.GetProject("acme")
+	ch, err := s.CreateChannel(jam.Channel{ProjectID: p.ID, Kind: jam.SourceWork, Key: "con_x/ACME-1", Label: "ACME-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
+	issue := jam.UnitIssue{Title: "Fix it", URL: "https://linear.app/acme/issue/ACME-1"}
+	if err := s.StartUnitWorker(ch.ID, jam.UnitWorker{Session: "ses_a", Label: "ses_a", Started: t0}, issue); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StartUnitWorker(ch.ID, jam.UnitWorker{Session: "ses_b", Label: "bee", Started: t0.Add(time.Hour)}, jam.UnitIssue{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReportUnit(ch.ID, jam.ReportInReview, "https://github.com/acme/app/pull/7", t0.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := s.WorkUnit(ch.ID)
+	if got, ok := open().WorkUnit(ch.ID); !ok || !reflect.DeepEqual(got, want) {
+		t.Fatalf("reload: WorkUnit = %+v, %v\nwant %+v", got, ok, want)
+	}
+}

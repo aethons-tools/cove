@@ -52,6 +52,7 @@ type Instance struct {
 	Role             string    `json:"role"`
 	Unit             string    `json:"unit,omitempty"`
 	UnitTitle        string    `json:"unit_title,omitempty"`   // the unit's issue title, as the Requisitioner raised it with; "" = none (a manual raise)
+	UnitURL          string    `json:"unit_url,omitempty"`     // the unit's issue URL, as the Requisitioner raised it with; "" = none
 	Owner            string    `json:"owner,omitempty"`        // personal session: the owning user's name; "" otherwise
 	OwnerID          ident.ID  `json:"owner_id,omitempty"`     // personal session: the owning user; "" otherwise (or a pre-registry instance)
 	Name             string    `json:"name,omitempty"`         // standing session: its declared name; "" otherwise
