@@ -27,6 +27,10 @@ func (s *PostgresStore) ReportUnit(log ident.ID, state, pr string, at time.Time)
 	})
 }
 
+func (s *PostgresStore) SetUnitPR(log ident.ID, url string, st PRStatus) error {
+	return s.putWorkUnitWith("SetUnitPR", func() (WorkUnit, bool, error) { return s.prepareSetUnitPR(log, url, st) })
+}
+
 func (s *PostgresStore) putWorkUnitWith(op string, prepare func() (WorkUnit, bool, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -61,8 +65,8 @@ func putWorkUnitTx(ctx context.Context, tx pgx.Tx, u WorkUnit) error {
 		return err
 	}
 	for i, p := range u.PRs {
-		if _, err := tx.Exec(ctx, `INSERT INTO work_unit_prs (channel_id, ord, url, number, title, state, reported_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)`, u.Log, i, p.URL, p.Number, p.Title, p.State, p.ReportedAt); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO work_unit_prs (channel_id, ord, url, number, title, state, reported_at, last_review)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, u.Log, i, p.URL, p.Number, p.Title, p.State, p.ReportedAt, p.LastReview); err != nil {
 			return err
 		}
 	}
@@ -126,7 +130,7 @@ func (s *PostgresStore) loadWorkUnits(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	rows, err = s.pool.Query(ctx, `SELECT channel_id, url, number, title, state, reported_at FROM work_unit_prs ORDER BY channel_id, ord`)
+	rows, err = s.pool.Query(ctx, `SELECT channel_id, url, number, title, state, reported_at, last_review FROM work_unit_prs ORDER BY channel_id, ord`)
 	if err != nil {
 		return fmt.Errorf("pgstore: load work_unit_prs: %w", err)
 	}
@@ -134,7 +138,7 @@ func (s *PostgresStore) loadWorkUnits(ctx context.Context) error {
 	for rows.Next() {
 		var ch ident.ID
 		var p UnitPR
-		if err := rows.Scan(&ch, &p.URL, &p.Number, &p.Title, &p.State, &p.ReportedAt); err != nil {
+		if err := rows.Scan(&ch, &p.URL, &p.Number, &p.Title, &p.State, &p.ReportedAt, &p.LastReview); err != nil {
 			return err
 		}
 		p.ReportedAt = p.ReportedAt.UTC()

@@ -1,6 +1,7 @@
 package storetest
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -87,6 +88,37 @@ func runWorkUnitConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 		}}
 		if got, ok := s.WorkUnit(ch.ID); !ok || !reflect.DeepEqual(got, want) {
 			t.Fatalf("WorkUnit = %+v, %v\nwant %+v", got, ok, want)
+		}
+	})
+	t.Run("work_unit_pr_status", func(t *testing.T) {
+		s, ch := setup(t)
+		const pr = "https://github.com/acme/app/pull/42"
+		if err := s.ReportUnit(ch.ID, jam.ReportInReview, pr, t0); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetUnitPR(ch.ID, pr, jam.PRStatus{Title: "Fix it", State: jam.PRMerged, LastReview: 7}); err != nil {
+			t.Fatal(err)
+		}
+		want := jam.UnitPR{URL: pr, Number: 42, Title: "Fix it", State: jam.PRMerged, ReportedAt: t0, LastReview: 7}
+		if got, _ := s.WorkUnit(ch.ID); len(got.PRs) != 1 || got.PRs[0] != want {
+			t.Fatalf("PRs = %+v, want [%+v]", got.PRs, want)
+		}
+		// A report of the same PR keeps its status.
+		if err := s.ReportUnit(ch.ID, jam.ReportDone, pr, t1); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := s.WorkUnit(ch.ID); len(got.PRs) != 1 || got.PRs[0] != want {
+			t.Fatalf("after a report: PRs = %+v, want [%+v]", got.PRs, want)
+		}
+		if err := s.SetUnitPR(ch.ID, "https://github.com/acme/app/pull/9", jam.PRStatus{State: jam.PRClosed}); !errors.Is(err, jam.ErrNotFound) {
+			t.Fatalf("SetUnitPR of a PR the unit hasn't: %v, want ErrNotFound", err)
+		}
+		if err := s.SetUnitPR(ch.ID, pr, jam.PRStatus{State: "draft"}); err == nil {
+			t.Fatal("SetUnitPR with an unknown state: want an error")
+		}
+		units := s.ListWorkUnits()
+		if len(units) != 1 || units[0].Log != ch.ID || len(units[0].PRs) != 1 || units[0].PRs[0] != want {
+			t.Fatalf("ListWorkUnits = %+v, want the one unit", units)
 		}
 	})
 	t.Run("work_unit_needs_a_work_log", func(t *testing.T) {

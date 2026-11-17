@@ -38,6 +38,15 @@ earlier sessions' reports,
 and what people decided and answered.
 Only the session working on the unit now can read the log this way.
 
+The log holds the record of the work:
+
+* The session's progress reports and its state changes, such as *in review*.
+* Messages that people and sessions post to the work.
+* Review outcomes of the unit's pull requests:
+each review, and the merge or the close,
+once each,
+saying who reviewed it, the outcome, and a link to the review.
+
 The log is mirrored to the issue in the tracker, both ways.
 Each entry becomes a comment on the issue,
 and a comment written on the issue becomes an entry in the log.

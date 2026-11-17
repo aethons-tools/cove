@@ -1,7 +1,7 @@
 = Units of work: the record and its API
-:summary: The record Jam keeps for each unit of work—its issue, the sessions that have been its worker, the pull requests reported for it, and its last reported state—how worker swaps and reports write it, its tables (`work_units`, `work_unit_workers`, `work_unit_prs`) and backfill, and `GET /app/user/api/work/\{key}`.
-:read_when: You are reading or changing what Jam records about a unit of work (`jam.WorkUnitStore`, `Intercom.Reported`, the worker swap in `ownTicketChannel`), its tables or migration, the work API (`userui.apiWork`), or the rail's `WorkRow.state`.
-:owns: the unit of work's record (`jam.WorkUnit`), when it's written, its storage, and `GET /app/user/api/work/\{key}`. Does NOT own the work log and its current worker (intercom.adoc), the `report` tool (turn-end.adoc), the rail (rail-api.adoc), or who may open a session view (session-view.adoc).
+:summary: The record Jam keeps for each unit of work—its issue, the sessions that have been its worker, the pull requests reported for it, and its last reported state—how worker swaps, reports, and the PR watcher write it, its tables (`work_units`, `work_unit_workers`, `work_unit_prs`) and backfill, and `GET /app/user/api/work/\{key}`.
+:read_when: You are reading or changing what Jam records about a unit of work (`jam.WorkUnitStore`, `Intercom.Reported`, the worker swap in `ownTicketChannel`), its tables or migrations, the PR watcher that posts reviews, merges, and closes to the work log (`prWatcher`, `runtime.requisitioner.pull-requests`), the work API (`userui.apiWork`), or the rail's `WorkRow.state`.
+:owns: the unit of work's record (`jam.WorkUnit`), when it's written, the PR watcher, its storage, and `GET /app/user/api/work/\{key}`. Does NOT own the work log and its current worker (intercom.adoc), the `report` tool (turn-end.adoc), the rail (rail-api.adoc), or who may open a session view (session-view.adoc).
 :prereqs: intercom.adoc for the work log and its worker; turn-end.adoc for `report`
 :tier: leaf
 :updated: 2026-11-17
@@ -22,7 +22,7 @@ in the order first reported: URL, number, title, state (`open`, `merged`, or `cl
 * *State:* the unit's state as last reported
 (`in-progress`, `in-review`, `needs-input`, `blocked`, or `done`), and when.
 
-Nothing but the API below and the rail's `WorkRow.state` reads it yet.
+The API below, the rail's `WorkRow.state`, and the <<pr-watcher,PR watcher>> read it.
 
 [#writes]
 == Writes
@@ -39,9 +39,53 @@ its turn MUST stop now when it's the current worker.
 Jam MUST record the state, and the `pr` URL as a new `open` PR when the unit has no PR with that URL.
 The number is parsed from the URL's `/pull/<n>` (or `/merge_requests/<n>`); `0` when it has none.
 
+* *The PR watcher* (<<pr-watcher,below>>):
+it MUST record a PR's title, its state, and the id of the last review it posted (`last_review`).
+
 Every write is best effort: a failure is logged and MUST NOT fail the swap, the end, or the report.
 A record exists from its first write; every write needs the channel to be a `work` log.
-A PR's title and its `merged` or `closed` state have columns but no writer yet.
+
+[#pr-watcher]
+== The PR watcher
+
+The PR watcher (`cmd/jam/relay_prs.go`) is the GitHub relay's pull request side.
+It posts a unit's pull request reviews, merge, and close to the unit's work log.
+It runs with the Requisitioner and polls at the Requisitioner's `poll-interval` (a minute when unset).
+
+* *What it reads.*
+Each poll, it MUST read every `open` PR of every live work log
+whose URL is a github.com pull request:
+the pull request, then its reviews (`githubissues.Client.PullRequest`, `PullReviews`).
+A `merged` or `closed` PR MUST NOT be read again.
+A PR on another host, or one the token can't read, is skipped with one warning per serve.
+* *What it posts.*
+For each submitted review newer than `last_review` (approved, changes requested, commented, or dismissed; never pending),
+then for a merge or a close,
+it MUST post one entry to the work log:
+the outcome, and a markdown link to the review or the pull request,
+for example `approved pull request [#744: Title](…#pullrequestreview-1)`.
+The entry's author is the GitHub account that reviewed, merged, or closed it,
+recorded as the tracker relay records a comment's author (`directory.author`):
+the member linked to that account, else the account
+(GitHub's `ghost` when GitHub names nobody).
+* *Like any entry.*
+The entry has no origin,
+so the tracker relay MUST mirror it onto the issue (as `pass:c[<account>: ]`, a person's prefix),
+and it wakes the unit's worker as a person's post does (xref:usage/jam/wake-on.adoc[wake-on]).
+* *Once.*
+The entry's id names the event:
+`pr:<owner/repo>#<n>:review:<review id>`, `pr:<owner/repo>#<n>:merged`, or `pr:<owner/repo>#<n>:closed`.
+The channel log refuses an id it already holds (`intercom.ErrDuplicateID`),
+and the watcher MUST treat that as posted.
+After each entry it MUST record the PR's `last_review` or state,
+so a re-poll or a restart MUST NOT post an event twice,
+even when a restart comes between the post and the record.
+* *Its token.*
+`runtime.requisitioner.pull-requests` names a `github` connection to read with
+(xref:usage/jam/requisitioner.adoc[requisitioner]);
+unset, a GitHub Issues tracker reads with its own connection,
+and a Linear tracker has no PR watcher.
+A rate limit ends the poll, and the watcher makes no calls until GitHub's `Retry-After` has passed.
 
 [#storage]
 == Storage
@@ -60,7 +104,8 @@ Migration `0028_work_units.sql` adds three tables, each removed with its log's c
 A `NULL` time isn't known.
 
 |`work_unit_prs`
-|One row per PR, ordered by `ord`, unique by `url`: `number`, `title`, `state`, `reported_at`.
+|One row per PR, ordered by `ord`, unique by `url`: `number`, `title`, `state`, `reported_at`,
+and `last_review` (migration `0029_work_unit_pr_reviews.sql`; `0` = none).
 |===
 
 A write rewrites the unit's rows in one transaction (`putWorkUnitTx`).
