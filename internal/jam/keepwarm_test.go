@@ -152,3 +152,37 @@ func TestKeepWarmDue(t *testing.T) {
 		t.Errorf("unarmed Due = %q", got)
 	}
 }
+
+// A reply that lands during a keep-warm turn makes it an ordinary turn: the
+// cancel applies the turn-start resets the warm wake skipped (an escalate ask
+// is answered, the idle deadline disarmed), and its end starts a new wait.
+func TestReplyDuringKeepWarmTurnStartsOrdinaryTurn(t *testing.T) {
+	sup, store, now := raiseWithCache(t, CachePolicy{TTL: time.Hour, KeepWarm: 4 * time.Hour})
+	*now = time.Unix(2000, 0)
+	report(t, sup, ActivityWaiting)
+	inst, _ := store.GetInstance("w1")
+	inst.EscalationAsked, inst.MessagesMuted = true, true
+	if err := store.PutInstance(inst); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.MarkWarmWake("w1", WakeKeepWarm, 0); err != nil {
+		t.Fatal(err)
+	}
+	*now = time.Unix(5000, 0)
+	report(t, sup, ActivityRunning)
+	if err := sup.CancelWarm("w1"); err != nil { // the reply's wake, mid-turn
+		t.Fatal(err)
+	}
+	got, _ := store.GetInstance("w1")
+	if got.EscalationAsked || got.MessagesMuted || !got.IdleDeadline.IsZero() || got.Warm != (KeepWarm{}) {
+		t.Fatalf("after the reply: asked %v, muted %v, idle deadline %v, warm %+v",
+			got.EscalationAsked, got.MessagesMuted, got.IdleDeadline, got.Warm)
+	}
+	*now = time.Unix(5100, 0)
+	report(t, sup, ActivityWaiting)
+	got, _ = store.GetInstance("w1")
+	if !got.WaitingSince.Equal(time.Unix(5100, 0)) || !got.IdleDeadline.Equal(time.Unix(5100, 0).Add(30*time.Minute)) ||
+		!got.Warm.Until.Equal(time.Unix(5100, 0).Add(4*time.Hour)) {
+		t.Fatalf("turn end: waiting since %v, idle deadline %v, warm %+v", got.WaitingSince, got.IdleDeadline, got.Warm)
+	}
+}

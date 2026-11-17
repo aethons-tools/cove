@@ -117,6 +117,8 @@ its escalation tier (xref:usage/jam/escalation.adoc[escalation]),
 or a personal session's nags and reclaim
 (xref:usage/jam/personal-idle-ladder.adoc[personal idle ladder]).
 To everything but the cache, the session never stopped waiting.
+Another wake that arrives during one of these turns makes it an ordinary turn,
+as if that wake had started it.
 They resume a paused studio first, as the idle wake does
 (xref:usage/jam/turn-end.adoc#idle-timeout[Idle timeout]).
 
