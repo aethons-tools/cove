@@ -2251,6 +2251,10 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// paused, reclaimed or torn down for waiting.
 	eng.SetTunnels(tunnels)
 	eng.SetTickets(tickets /*TicketCloser*/, sup /*ReportRecorder*/)
+	// Keep a waiting session's prompt cache warm per its role's cache
+	// profile, then ask it to compact; compact it if it doesn't.
+	compactor := keepWarmCompactor{ops: sessionOps{store: st, sup: sup, res: sup, cmd: rsrv, lines: sup, log: log}}
+	eng.SetKeepWarm(contextSizes{totals: sessionevents.NewTotalsCache(sessStore)}, sup /*WarmState*/, compactor)
 	// Wake on signal, not only on the poll: every message-log append and every
 	// activity a cove reports (incl. its reconnect after an unpause) kicks a
 	// tick, so a reply wakes its session within the kick delay; the poll stays

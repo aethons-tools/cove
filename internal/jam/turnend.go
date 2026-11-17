@@ -87,6 +87,60 @@ func ValidateCache(p CachePolicy) error {
 	return nil
 }
 
+// CacheLead is how long before the prompt cache would expire a keep-warm wake
+// refreshes it, and before keep-warm runs out the compact-due wake is due.
+const CacheLead = time.Minute
+
+// KeepWarmEvery is how often a keep-warm wake is due: the cache's ttl (the
+// harness's default, 5m, when unset) less CacheLead.
+func (p CachePolicy) KeepWarmEvery() time.Duration {
+	ttl := p.TTL
+	if ttl == 0 {
+		ttl = CacheTTLShort
+	}
+	return ttl - CacheLead
+}
+
+// KeepWarm is a session's keep-warm schedule
+// (docs/modules/ROOT/pages/usage/jam/prompt-cache.adoc#keeping-it-warm): armed
+// from a turn's end when its role keeps the cache warm, cancelled by any other
+// wake. The wake-on engine sends its wakes; the supervisor marks the turns
+// they start, which leave the session's waiting state alone.
+type KeepWarm struct {
+	Until time.Time `json:"until,omitzero"` // keep-warm runs out; compact-due is due CacheLead before
+	Next  time.Time `json:"next,omitzero"`  // the next keep-warm wake
+	// Pending is the kind of a keep-warm or compact-due wake sent and not yet
+	// answered (re-sent every tick until the session runs).
+	Pending string `json:"pending,omitempty"`
+	// Turn is the kind of the wake whose turn is running, until the session
+	// waits again.
+	Turn string `json:"turn,omitempty"`
+	// Resets is how many compactions and Clears the session's events showed
+	// when its compact-due wake was sent.
+	Resets int `json:"resets,omitempty"`
+	// CompactCheck is when a compact-due turn ended: Jam compacts the
+	// session unless its events show a compaction since the wake (more
+	// resets than Resets).
+	CompactCheck time.Time `json:"compact_check,omitzero"`
+}
+
+// Armed reports whether a keep-warm schedule is running.
+func (k KeepWarm) Armed() bool { return !k.Until.IsZero() }
+
+// Due is the kind of wake due at now ("" = none): compact-due within
+// CacheLead of Until, else keep-warm once Next has passed.
+func (k KeepWarm) Due(now time.Time) string {
+	switch {
+	case !k.Armed():
+		return ""
+	case !now.Before(k.Until.Add(-CacheLead)):
+		return WakeCompactDue
+	case !now.Before(k.Next):
+		return WakeKeepWarm
+	}
+	return ""
+}
+
 // Idle-override scopes (IdleOverride.Scope).
 const (
 	IdleScopeNext   = "next"   // only the next turn end

@@ -82,3 +82,25 @@ func TestWakeBoxRestore(t *testing.T) {
 		t.Fatalf("restore after an empty take = %+v, want none", rs)
 	}
 }
+
+func TestWakeLineCacheReasons(t *testing.T) {
+	for kind, want := range map[string]string{
+		"keep-warm":   "Keep-warm: nothing to do. End the turn with no text.",
+		"compact-due": "Compact due: the cache expires soon. Put what you need next in compact_instructions or resume, and end with turn_end next: compact.",
+	} {
+		if got, ok := wakeLine(studioagent.WakeReason{Kind: kind}); !ok || got != want {
+			t.Errorf("%s: got %q, %v; want %q", kind, got, ok, want)
+		}
+	}
+}
+
+// A keep-warm wake alone asks for nothing else; beside another reason it adds
+// nothing to the prompt.
+func TestRenderWakeKeepWarm(t *testing.T) {
+	if got, want := renderWake(standingResumePrompt, []studioagent.WakeReason{{Kind: "keep-warm"}}), "Keep-warm: nothing to do. End the turn with no text."; got != want {
+		t.Fatalf("keep-warm alone = %q", got)
+	}
+	if got := renderWake(standingResumePrompt, []studioagent.WakeReason{{Kind: "keep-warm"}, {Kind: "squawk"}}); got != standingResumePrompt {
+		t.Fatalf("keep-warm with squawk = %q", got)
+	}
+}

@@ -193,8 +193,7 @@ A Wake carries a list of reasons; the agent's resume prompt names them.
 * Wakes that arrive mid-turn coalesce into one resume prompt that carries *every*
 distinct reason; none is dropped.
 * When no `squawk` is among the reasons, the prompt ends with `Continue.` instead of
-the read-your-inbox prompt.
-* A Wake with *no* reasons (from an older Jam) gets the session kind's usual prompt,
-unchanged.
+the read-your-inbox prompt; a `keep-warm` alone is the whole prompt.
+* A Wake with *no* reasons (from an older Jam) gets the session kind's usual prompt, unchanged.
 * `+turn_end+` sets a turn's ending in one call (recipient, no reply, deny, compact, end, mute, wake
 time, idle timeout)—see xref:usage/jam/structured-turn-end.adoc#turn_end[`+turn_end+`].

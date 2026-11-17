@@ -4,7 +4,7 @@
 :owns: the model-spec entity—its schema, the version / version-constraint split and its migration, version-constraint syntax, validation rules, the spec's harness-layer build inputs, role binding and the claude-default seed, delivery to the cove and the claude harness's use of it, its `model-specs/<name>.yml` file, the `jam model-spec` verb and the `/admin/model-specs` admin API
 :prereqs: serve.adoc for serve-config `credentials:` and `pool:`; operators.adoc for `--app`/`--token`
 :tier: leaf
-:updated: 2026-11-01
+:updated: 2026-11-17
 
 A *model-spec* is a named, stored description of _how a cove runs its agent_:
 which harness (and command-line tool version), which principal it authenticates as, which model,
@@ -150,7 +150,7 @@ binary, or a version outside the constraint
 |`model.effort` |`+--effort LEVEL+` (Claude Code's flag; `low`…`max`)
 |`claude.provider` |`vertex` → `+CLAUDE_CODE_USE_VERTEX=1+` (routed through a brokered vertex destination—xref:usage/jam/vertex.adoc[]); `bedrock` → ``+CLAUDE_CODE_USE_BEDROCK=1+``; `anthropic` → nothing
 |`claude.provider-env` |set in the agent env—never over a key the connector sets (routing and identity stay Jam's)
-|`claude.settings` + `claude.plugins` |written to `/dev/shm/jam-agent-settings.json`—the settings, plus `enabledPlugins` for each plugin and `extraKnownMarketplaces` for their marketplaces—passed as `+--settings+` (only when either is non-empty)
+|`claude.settings` + `claude.plugins` |written to `/dev/shm/jam-agent-settings.json`—the settings, plus `enabledPlugins` for each plugin and `extraKnownMarketplaces` for their marketplaces—passed as `+--settings+` (only when either is non-empty, or the role sets a xref:usage/jam/prompt-cache.adoc#cache-lifetime[cache lifetime], which the file carries over the spec's)
 |`policy` |permission flags—see xref:usage/jam/model-spec-policy.adoc[]
 |===
 

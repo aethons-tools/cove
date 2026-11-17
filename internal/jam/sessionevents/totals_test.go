@@ -91,29 +91,34 @@ func TestTotalsContext(t *testing.T) {
 	steps := []struct {
 		ev          Event
 		ctx, window int64
+		input       int64 // the last main-thread call's input
+		resets      int
 	}{
-		{main(1, 10, 34000, 0, 4), 34014, 0},
+		{main(1, 10, 34000, 0, 4), 34014, 0, 34010, 0},
 		// a subagent's message is not the main thread's context
-		{rawEv(2, t0.Add(2*time.Second), `{"type":"assistant","parent_tool_use_id":"toolu_1","message":{"model":"claude-y","usage":{"input_tokens":5,"cache_read_input_tokens":90000}}}`), 34014, 0},
-		{rawEv(3, t0.Add(3*time.Second), `{"type":"result","total_cost_usd":0.1,"usage":{"input_tokens":1},"modelUsage":{"claude-x[1m]":{"contextWindow":1000000},"claude-y":{"contextWindow":200000}}}`), 34014, 1000000},
-		{main(4, 2, 100, 34014, 50), 34166, 1000000},
-		{rawEv(5, t0.Add(5*time.Second), `{"type":"cove","subtype":"command","command":"clear","by":"Bob","ignored":"live episode"}`), 34166, 1000000},
-		{rawEv(6, t0.Add(6*time.Second), `{"type":"cove","subtype":"command","command":"clear","by":"Bob"}`), 0, 1000000},
-		{main(7, 3, 20000, 0, 1), 20004, 1000000},
+		{rawEv(2, t0.Add(2*time.Second), `{"type":"assistant","parent_tool_use_id":"toolu_1","message":{"model":"claude-y","usage":{"input_tokens":5,"cache_read_input_tokens":90000}}}`), 34014, 0, 34010, 0},
+		{rawEv(3, t0.Add(3*time.Second), `{"type":"result","total_cost_usd":0.1,"usage":{"input_tokens":1},"modelUsage":{"claude-x[1m]":{"contextWindow":1000000},"claude-y":{"contextWindow":200000}}}`), 34014, 1000000, 34010, 0},
+		{main(4, 2, 100, 34014, 50), 34166, 1000000, 34116, 0},
+		{rawEv(5, t0.Add(5*time.Second), `{"type":"cove","subtype":"command","command":"clear","by":"Bob","ignored":"live episode"}`), 34166, 1000000, 34116, 0},
+		{rawEv(6, t0.Add(6*time.Second), `{"type":"cove","subtype":"command","command":"clear","by":"Bob"}`), 0, 1000000, 0, 1},
+		{main(7, 3, 20000, 0, 1), 20004, 1000000, 20003, 1},
 		// a wake starts a turn on the same context
-		{rawEv(8, t0.Add(8*time.Second), `{"type":"cove","subtype":"wake","reasons":["squawk"]}`), 20004, 1000000},
-		{rawEv(9, t0.Add(9*time.Second), `{"type":"system","subtype":"compact_boundary","compact_metadata":{"pre_tokens":20004}}`), 0, 1000000},
+		{rawEv(8, t0.Add(8*time.Second), `{"type":"cove","subtype":"wake","reasons":["squawk"]}`), 20004, 1000000, 20003, 1},
+		{rawEv(9, t0.Add(9*time.Second), `{"type":"system","subtype":"compact_boundary","compact_metadata":{"pre_tokens":20004}}`), 0, 1000000, 0, 2},
 	}
 	for i, s := range steps {
 		tot.Add(s.ev)
 		if tot.Context != s.ctx || tot.ContextWindow != s.window {
 			t.Fatalf("step %d: context = %d / %d, want %d / %d", i, tot.Context, tot.ContextWindow, s.ctx, s.window)
 		}
+		if tot.LastInput != s.input || tot.Resets != s.resets {
+			t.Fatalf("step %d: last input %d, resets %d; want %d, %d", i, tot.LastInput, tot.Resets, s.input, s.resets)
+		}
 	}
 	// an older stream folded later doesn't override the latest context
 	tot.Add(Event{ActorID: "a", StreamID: "old", Seq: 1, Kind: KindEvent, ObservedAt: t0, Raw: main(1, 1, 1, 1, 1).Raw, Index: Index{Type: "assistant"}})
-	if tot.Context != 0 {
-		t.Fatalf("an older stream's message overrode the reset: %d", tot.Context)
+	if tot.Context != 0 || tot.LastInput != 0 {
+		t.Fatalf("an older stream's message overrode the reset: %d, %d", tot.Context, tot.LastInput)
 	}
 }
 

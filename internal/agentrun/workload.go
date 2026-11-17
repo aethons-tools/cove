@@ -178,6 +178,9 @@ type Workload struct {
 	// compared with each delivered spec to re-validate on a change.
 	spec    *modelspec.Spec
 	specKey string
+	// cacheTTL is the role's prompt-cache lifetime from the raise-time context
+	// (Episode.CacheTTL); "" = none. Set once at Run start.
+	cacheTTL string
 	// inflight is the prompt in flight (structured turn end); gen numbers
 	// prompts. Run's goroutine only.
 	inflight turnMeta
@@ -272,6 +275,7 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 	// Fail loud rather than launch a broken agent (e.g. a toolless one,
 	// COV-190, or the wrong CLI version for its model-spec). The raise-time
 	// connector carries the spec the first episode is checked against.
+	w.cacheTTL = cacheTTL(w.cfg.Context, w.log)
 	var initial *modelspec.Spec
 	if w.cfg.Connector != nil {
 		initial = w.cfg.Connector.Initial.ModelSpec
@@ -561,11 +565,11 @@ func (w *Workload) spawn(ctx context.Context, h studioagent.Handle, turn uint32,
 	// The files the argv names are rewritten every episode, not only on a
 	// spec change: the agent may have deleted them (a missing --settings
 	// file fails every later claude at startup).
-	if err := w.cfg.Harness.Prepare(w.spec); err != nil {
+	if err := w.cfg.Harness.Prepare(w.spec, w.cacheTTL); err != nil {
 		w.log.Error("agentrun: harness files could not be written — refusing to start the agent", "err", err.Error())
 		return nil, nil, nil, err
 	}
-	bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec})
+	bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec, CacheTTL: w.cacheTTL})
 	if w.observes() {
 		extra = maps.Clone(extra)
 		if extra == nil {
@@ -632,7 +636,7 @@ func (w *Workload) applySpec(spec *modelspec.Spec) error {
 	if w.specKey != "" && key == w.specKey {
 		return nil
 	}
-	if err := w.cfg.Harness.Validate(spec); err != nil {
+	if err := w.cfg.Harness.Validate(spec, w.cacheTTL); err != nil {
 		w.log.Error("agentrun: harness pre-flight failed — refusing to start the agent", "model_spec", specName(spec), "err", err.Error())
 		return err
 	}
@@ -641,6 +645,21 @@ func (w *Workload) applySpec(spec *modelspec.Spec) error {
 	}
 	w.spec, w.specKey = spec, key
 	return nil
+}
+
+// cacheTTL is the role's cache.ttl the raise-time context carries (only it:
+// a change applies to sessions raised after it). A value other than 5m or 1h
+// — Jam refuses one — is logged and ignored.
+func cacheTTL(b *sessionctx.Bundle, log *slog.Logger) string {
+	if b == nil {
+		return ""
+	}
+	switch b.CacheTTL {
+	case "", "5m", "1h":
+		return b.CacheTTL
+	}
+	log.Warn("agentrun: cache ttl ignored; the harness's default applies", "cache_ttl", b.CacheTTL)
+	return ""
 }
 
 // specKey identifies a spec's content (never empty, so "" means "none

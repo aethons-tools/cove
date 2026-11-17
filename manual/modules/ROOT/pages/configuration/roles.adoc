@@ -133,7 +133,7 @@ Leave a field blank to unset it.
 
 A role's *cache profile* keeps its agents' prompt cache warm while they wait,
 so a turn after a pause doesn't pay to load the whole conversation again.
-The role page shows it under *Cache*;
+The role page shows it under *Cache*, read-only;
 it is set in the role's file.
 
 *TTL*::
@@ -145,6 +145,7 @@ Jam wakes the agent to compact its conversation.
 *Threshold*::
 The conversation size, in tokens, below which Jam doesn't keep it warm.
 
+Jam applies the TTL to agents started after you set it.
 A role without a profile works as before.
 While Jam keeps an agent warm,
 its session view shows *keep-warm* wakes that do nothing,

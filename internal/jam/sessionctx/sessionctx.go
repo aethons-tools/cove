@@ -78,6 +78,7 @@ type SessionFacts struct {
 	Kit      string // KitRef.String(), "" = no kit
 	Previews bool   // studio previews are enabled on this Jam (expose/unexpose/exposures)
 	Observe  bool   // the role has scope.observe (the observe_* tools)
+	CacheTTL string // the role's cache.ttl ("5m" | "1h"); "" = the harness's default
 	// TurnProtocol is the turn end the cove speaks: 0 = legacy (the agent
 	// `send`s and `commit`s), 2 = structured (messages arrive in the prompt,
 	// the final text is posted and what was shown committed for it), 3 = the
@@ -119,6 +120,10 @@ type Bundle struct {
 	// Observe is SessionFacts.Observe: the cove offers the observe_* tools
 	// only when it is set.
 	Observe bool `json:"observe,omitempty"`
+	// CacheTTL is SessionFacts.CacheTTL: the prompt-cache lifetime the cove's
+	// harness sets in every episode. Read from the raise-time bundle only, so a
+	// change applies to sessions raised after it. Not part of the fingerprint.
+	CacheTTL string `json:"cache_ttl,omitempty"`
 }
 
 var leafNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*\.md$`)
@@ -150,7 +155,7 @@ func Compile(in Inputs) Bundle {
 		{LayerRole, titled("Role", in.Session.Role), in.Role, BudgetRole},
 		{LayerJam, "Jam", in.Jam, BudgetJam},
 	}
-	b := Bundle{Files: map[string]string{}, Layers: map[string]string{}, Budgets: map[string]LayerBudget{}, TurnProtocol: in.Session.TurnProtocol, Observe: in.Session.Observe}
+	b := Bundle{Files: map[string]string{}, Layers: map[string]string{}, Budgets: map[string]LayerBudget{}, TurnProtocol: in.Session.TurnProtocol, Observe: in.Session.Observe, CacheTTL: in.Session.CacheTTL}
 	var core strings.Builder
 	fmt.Fprintf(&core, "# Session context\n\n%s\n\nDetail lives in %s/ — open a file only when its \"read when\" matches your task. Map: %s/INDEX.md\n", Precedence, Dir, Dir)
 	type row struct{ path, when string }
