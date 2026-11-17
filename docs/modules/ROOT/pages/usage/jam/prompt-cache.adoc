@@ -1,7 +1,7 @@
 = Keeping the prompt cache warm
 :summary: A role's cache profile (`cache: {ttl, keep-warm, threshold}`): the prompt-cache lifetime Jam sets in its sessions, the `keep-warm` wakes that refresh the cache while a session waits, and the `compact-due` wake that asks it to compact before the cache goes cold.
 :read_when: You are building, configuring, or tuning a role's `cache` profile, the `keep-warm` or `compact-due` wakes, or why a waiting session was woken to compact.
-:owns: the role file's `cache` field and its validation, how Jam applies `cache.ttl` to a session, the keep-warm schedule, the `keep-warm` and `compact-due` wake reasons and their prompts, and what a session's context size is for the threshold. Does NOT own the compaction itself (studio-agent.adoc, structured-turn-end.adoc) or the idle timeout (turn-end.adoc).
+:owns: the role file's `cache` field, its validation, where it shows, how Jam applies `cache.ttl` to a session, the keep-warm schedule, the `keep-warm` and `compact-due` wake reasons and their prompts, and what a session's context size is for the threshold. Does NOT own the compaction itself (studio-agent.adoc, structured-turn-end.adoc) or the idle timeout (turn-end.adoc).
 :prereqs: roster.adoc for the role file; turn-end.adoc for wakes and the idle timeout; structured-turn-end.adoc for `turn_end next: compact`; session-events.adoc for the token fields
 :tier: leaf
 :updated: 2026-11-17
@@ -42,7 +42,7 @@ Unset leaves the harness's default.
 Unset or `0` means Jam doesn't keep it warm and doesn't ask the session to compact.
 
 |`threshold`
-|tokens, a whole number
+|tokens, a whole number, `0` or more
 |The context size below which Jam does neither.
 Unset is `0`: every session is kept warm.
 |===
@@ -54,9 +54,17 @@ costs more than letting the cache go cold;
 a role that waits longer SHOULD use a `1h` `ttl`.
 Jam MUST refuse other values, and an unknown field under `cache`,
 when the role file is planned.
-The API's names are `+cache_ttl+`, `+cache_keep_warm_seconds+`, and `+cache_threshold+`.
-`role list` and the role page show the profile;
-only the config repo sets it.
+A config that Jam exports and imports again MUST keep the profile unchanged.
+
+The API's names, on each `+GET /admin/roles+` item, are
+`+cache_ttl+` (`"5m"` or `"1h"`; absent for the harness's default),
+`+cache_keep_warm_seconds+`, and `+cache_threshold+`;
+a role without a profile carries none of them.
+`role list` shows the profile as `cache-ttl`, `cache-keep-warm`, and `cache-threshold`,
+and the role page shows it under *Cache*.
+Only the config repo sets it:
+neither the API nor the role page edits it,
+and a role edit there keeps it.
 
 == The cache lifetime
 
