@@ -270,3 +270,18 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 		}
 	}
 }
+
+// A role's cache.ttl rides in the bundle for the cove's harness, outside the
+// core and the fingerprint (it is no text the agent reads).
+func TestBundleCarriesCacheTTL(t *testing.T) {
+	f := SessionFacts{Kind: KindStanding, Name: "n", Project: "p", Role: "r", CacheTTL: "1h"}
+	on := Compile(Inputs{Session: f})
+	if on.CacheTTL != "1h" {
+		t.Errorf("bundle.CacheTTL = %q", on.CacheTTL)
+	}
+	f.CacheTTL = ""
+	off := Compile(Inputs{Session: f})
+	if off.CacheTTL != "" || off.Fingerprint != on.Fingerprint || off.Core != on.Core {
+		t.Errorf("unset: %q; fingerprint or core changed with the ttl", off.CacheTTL)
+	}
+}

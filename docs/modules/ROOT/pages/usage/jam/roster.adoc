@@ -4,7 +4,7 @@
 :owns: the operator-facing RBAC story—Project/Role/Actor/Grant in practice, the role file's fields (`scope`, `kit`, `model-spec`, the `allocation` policy and the personal idle-ladder fields, `turn-end`, `collaborate`), the grant/ungrant/actors/enroll/revoke verbs, the enrollment snippet, and the in-progress identity registry (project ids, users, memberships, connections, accounts)
 :prereqs: INDEX.adoc for the service overview; operators.adoc for the admin-client flags; destinations.adoc for destinations (what a role's scope points at); kits.adoc for binding a kit to a role
 :tier: leaf
-:updated: 2026-11-14
+:updated: 2026-11-17
 
 Jam authorizes every brokered request against a *role-based* model:
 
@@ -113,6 +113,7 @@ xref:usage/jam/collaboration.adoc[collaboration].
 `allocation.standing` (`+[{name, prompt}]+`); `jam standing list|reset|upgrade`
 operates them. See xref:usage/jam/standing-sessions.adoc[].
 * A role's *egress policy* is ``scope.egress``: see xref:usage/jam/role-egress.adoc[].
+* A role's *cache profile* is `+cache: {ttl, keep-warm, threshold}+`: xref:usage/jam/prompt-cache.adoc[].
 * A role's session context is its `+context:+` (xref:usage/jam/session-context-authoring.adoc[]).
 
 [#role-egress]

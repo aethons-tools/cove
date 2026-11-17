@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // NormalizeEgress lowercases, validates, dedupes, sorts, and drops an entry
@@ -123,12 +124,17 @@ func TestRoleEgressValidation(t *testing.T) {
 	}
 }
 
-// Re-putting a role keeps its egress policy: it is managed only by
-// SetRoleEgress/ClearRoleEgress.
+// Re-putting a role keeps its egress policy, managed only by
+// SetRoleEgress/ClearRoleEgress, and its cache profile, set only from the
+// config repo.
 func TestRolePutKeepsEgress(t *testing.T) {
 	_, store := newTestAdmin(t)
 	putStandingRole(t, store)
 	if _, err := SetRoleEgress(store, "acme", "reviewer", []string{"a.com"}); err != nil {
+		t.Fatal(err)
+	}
+	cache := CachePolicy{TTL: time.Hour, KeepWarm: time.Hour}
+	if err := UpdateRole(store, "acme", "reviewer", func(r *Role) error { r.Cache = cache; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if err := PutRoleKeeping(store, "acme", Role{Name: "reviewer", Allocation: RoleAllocation{MaxEphemeral: 5}}); err != nil {
@@ -137,6 +143,9 @@ func TestRolePutKeepsEgress(t *testing.T) {
 	got, _ := store.GetRole("acme", "reviewer")
 	if got.Allocation.MaxEphemeral != 5 || got.Scope.Egress == nil || !reflect.DeepEqual(got.Scope.Egress.Domains, []string{"a.com"}) {
 		t.Fatalf("role after re-put = %+v, want max-ephemeral 5 and egress kept", got)
+	}
+	if got.Cache != cache {
+		t.Fatalf("cache after re-put = %+v, want %+v (only the config repo sets it)", got.Cache, cache)
 	}
 }
 

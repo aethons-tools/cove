@@ -1165,35 +1165,36 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 	inst.Activity = a
 	inst.LastSeen = now
 	inst.Lease = Lease{Holder: s.holder, Expiry: now.Add(s.ttl)}
-	if enteringRunning {
-		// The wake-on baseline moves to the log tail when a run starts: the agent
-		// reads its inbox itself, so only later replies need a Wake. While Running,
-		// the wake-on engine wakes the cove on each later reply and advances the
-		// baseline past it (SetWaitSeq).
-		inst.WaitSeq = s.tailSeq()
-		// A wake (not a resume from Holding) answers an escalate ask.
-		inst.EscalationAsked = false
+	if turnStarted && inst.Warm.Pending != "" {
+		// A keep-warm or compact-due wake started it, and nothing else did
+		// (any other wake cancels the schedule): to everything but the cache,
+		// the session is still waiting.
+		inst.Warm.Turn, inst.Warm.Pending = inst.Warm.Pending, ""
+		if inst.Warm.Turn == WakeKeepWarm {
+			inst.Warm.Next = now.Add(s.cacheOf(inst).KeepWarmEvery())
+		}
+	}
+	if inst.Warm.Turn != "" {
+		if a == ActivityWaiting {
+			if inst.Warm.Turn == WakeCompactDue {
+				inst.Warm.CompactCheck = now
+			}
+			inst.Warm.Turn = ""
+		}
+		if a == ActivityDone {
+			inst.Warm = KeepWarm{}
+		} else {
+			return inst, s.store.PutInstance(inst)
+		}
 	}
 	if turnStarted {
-		// Whatever woke it answered this turn end, so the idle deadline is
-		// disarmed until the next one.
-		inst.IdleDeadline = time.Time{}
-		// A mute (PUT /mute) lasts only until the session next runs.
-		inst.MessagesMuted = false
-		// Fired alarms were answered too: retire one-shots, re-arm the rest.
-		var kept []Alarm
-		for _, al := range inst.Alarms {
-			if al.FiredAt.IsZero() {
-				kept = append(kept, al)
-			} else if !al.OneShot() {
-				al.FiredAt = time.Time{}
-				kept = append(kept, al)
-			}
-		}
-		inst.Alarms = kept
+		// Whatever woke it cancelled the keep-warm schedule.
+		inst.Warm = KeepWarm{}
 	}
+	s.startTurn(&inst, enteringRunning, turnStarted)
 	if turnEnded {
 		s.armIdleDeadline(&inst, now)
+		s.armKeepWarm(&inst, now)
 	}
 	if enteringWaiting {
 		// WaitSeq is deliberately kept: a reply that landed while the cove was
@@ -1248,6 +1249,93 @@ func (s *Supervisor) armIdleDeadline(inst *Instance, now time.Time) {
 	if d > 0 {
 		inst.IdleDeadline = now.Add(d)
 	}
+}
+
+// startTurn applies what a turn's start resets: entering Running from a wait
+// moves the wake-on baseline and answers an escalate ask; any turn start
+// disarms the idle deadline, ends a mute and retires answered alarms.
+func (s *Supervisor) startTurn(inst *Instance, enteringRunning, turnStarted bool) {
+	if enteringRunning {
+		// The wake-on baseline moves to the log tail when a run starts: the agent
+		// reads its inbox itself, so only later replies need a Wake. While Running,
+		// the wake-on engine wakes the cove on each later reply and advances the
+		// baseline past it (SetWaitSeq).
+		inst.WaitSeq = s.tailSeq()
+		// A wake (not a resume from Holding) answers an escalate ask.
+		inst.EscalationAsked = false
+	}
+	if turnStarted {
+		// Whatever woke it answered this turn end, so the idle deadline is
+		// disarmed until the next one.
+		inst.IdleDeadline = time.Time{}
+		// A mute (PUT /mute) lasts only until the session next runs.
+		inst.MessagesMuted = false
+		// Fired alarms were answered too: retire one-shots, re-arm the rest.
+		var kept []Alarm
+		for _, al := range inst.Alarms {
+			if al.FiredAt.IsZero() {
+				kept = append(kept, al)
+			} else if !al.OneShot() {
+				al.FiredAt = time.Time{}
+				kept = append(kept, al)
+			}
+		}
+		inst.Alarms = kept
+	}
+}
+
+// cacheOf is inst's role's cache profile (none when the role is gone).
+func (s *Supervisor) cacheOf(inst Instance) CachePolicy {
+	role, _ := s.store.GetRole(inst.Project, inst.Role)
+	return role.Cache
+}
+
+// armKeepWarm starts inst's keep-warm schedule from a turn's end when its
+// role keeps the cache warm (prompt-cache.adoc#keeping-it-warm). The wake-on
+// engine decides at each wake whether the session's context is large enough.
+func (s *Supervisor) armKeepWarm(inst *Instance, now time.Time) {
+	inst.Warm = KeepWarm{}
+	if c := s.cacheOf(*inst); c.KeepWarm > 0 {
+		inst.Warm = KeepWarm{Until: now.Add(c.KeepWarm), Next: now.Add(c.KeepWarmEvery())}
+	}
+}
+
+// MarkWarmWake records that the wake-on engine sent actorID a keep-warm or
+// compact-due wake (kind), when its events showed resets compactions and
+// Clears: the turn it starts is a warm turn.
+func (s *Supervisor) MarkWarmWake(actorID, kind string, resets int) error {
+	return s.patchWarm(actorID, func(inst *Instance) {
+		if inst.Warm.Armed() {
+			inst.Warm.Pending, inst.Warm.Resets = kind, resets
+		}
+	})
+}
+
+// CancelWarm ends actorID's keep-warm schedule: another wake was sent, the
+// session's context is too small to keep warm, or its compact-due turn was
+// answered.
+//
+// Cancelling a warm turn that is running (a reply woke it mid-turn) makes it
+// an ordinary turn: the turn-start resets its warm wake skipped apply now,
+// and its end is an ordinary turn end.
+func (s *Supervisor) CancelWarm(actorID string) error {
+	return s.patchWarm(actorID, func(inst *Instance) {
+		if inst.Warm.Turn != "" {
+			s.startTurn(inst, true, true)
+		}
+		inst.Warm = KeepWarm{}
+	})
+}
+
+func (s *Supervisor) patchWarm(actorID string, fn func(*Instance)) error {
+	s.instMu.Lock()
+	defer s.instMu.Unlock()
+	inst, ok := s.store.GetInstance(actorID)
+	if !ok {
+		return fmt.Errorf("no instance for actor %q", actorID)
+	}
+	fn(&inst)
+	return s.store.PutInstance(inst)
 }
 
 // SetEndRequested records that the cove asked to end (first request wins).
@@ -2138,6 +2226,7 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 	if role, ok := s.store.GetRole(spec.Project, spec.Role); ok {
 		in.Role = role.Context
 		in.Session.Observe = role.Scope.Observes()
+		in.Session.CacheTTL = formatConfigDuration(role.Cache.TTL)
 	}
 	if p, ok := s.store.GetProject(orDefaultProject(spec.Project)); ok {
 		in.Project = sessionctx.ProjectLayer(p.Context, p.Resources)

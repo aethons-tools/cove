@@ -710,6 +710,27 @@ type CollaborateFile struct {
 	SSH     string `yaml:"ssh,omitempty"`
 }
 
+// CacheFile is a role's prompt-cache profile (CachePolicy).
+type CacheFile struct {
+	TTL       string `yaml:"ttl,omitempty"`
+	KeepWarm  string `yaml:"keep-warm,omitempty"`
+	Threshold Tokens `yaml:"threshold,omitempty"`
+}
+
+// Tokens is a token count in a config file: a whole number, never a
+// fraction (which plain int decoding would truncate).
+type Tokens int
+
+// UnmarshalYAML refuses anything but a YAML integer.
+func (t *Tokens) UnmarshalYAML(n *yaml.Node) error {
+	var v int
+	if n.Kind != yaml.ScalarNode || n.ShortTag() != "!!int" || n.Decode(&v) != nil {
+		return errors.New("cache.threshold must be a whole number of tokens")
+	}
+	*t = Tokens(v)
+	return nil
+}
+
 // ContextFile is a role's inline session-context layer.
 type ContextFile struct {
 	Core   string            `yaml:"core,omitempty"`
@@ -729,6 +750,7 @@ type RoleFile struct {
 	Allocation  AllocationFile  `yaml:"allocation,omitempty"`
 	TurnEnd     TurnEndFile     `yaml:"turn-end,omitempty"`
 	Collaborate CollaborateFile `yaml:"collaborate,omitempty"`
+	Cache       CacheFile       `yaml:"cache,omitempty"`
 	Context     *ContextFile    `yaml:"context,omitempty"`
 	// OperatorNotes is for operators only; context: is what sessions read.
 	OperatorNotes string `yaml:"operator-notes,omitempty"`
@@ -805,6 +827,13 @@ func (f RoleFile) role() (Role, error) {
 	}
 	r.TurnEnd = t
 	r.Collaborate = CollaboratePolicy{Preview: f.Collaborate.Preview, SSH: f.Collaborate.SSH}
+	if r.Cache.TTL, err = parseConfigDuration("cache.ttl", f.Cache.TTL); err != nil {
+		return r, err
+	}
+	if r.Cache.KeepWarm, err = parseConfigDuration("cache.keep-warm", f.Cache.KeepWarm); err != nil {
+		return r, err
+	}
+	r.Cache.Threshold = int(f.Cache.Threshold)
 	if f.Context != nil {
 		r.Context = sessionctx.Layer{Core: f.Context.Core, Leaves: slices.Clone(f.Context.Leaves)}
 	}
@@ -877,6 +906,7 @@ func roleFileOf(project, name string, r Role, userName func(ident.ID) (string, b
 	}
 	f.TurnEnd = TurnEndFile{IdleTimeout: formatConfigDuration(r.TurnEnd.IdleTimeout), OnIdle: r.TurnEnd.OnIdle, TimeZone: r.TurnEnd.TimeZone}
 	f.Collaborate = CollaborateFile{Preview: r.Collaborate.Preview, SSH: r.Collaborate.SSH}
+	f.Cache = CacheFile{TTL: formatConfigDuration(r.Cache.TTL), KeepWarm: formatConfigDuration(r.Cache.KeepWarm), Threshold: Tokens(r.Cache.Threshold)}
 	if !r.Context.Empty() {
 		f.Context = &ContextFile{Core: r.Context.Core, Leaves: slices.Clone(r.Context.Leaves)}
 	}

@@ -105,6 +105,11 @@ function Role({ d }: { d: RoleDetail }) {
             {editable && edit("Edit allocation", <AllocationForm key={JSON.stringify(d.form)} d={d} onSave={(b) => post("allocation", b)} />)}
           </Stack>
         </Section>
+        <Section title="Cache" sub="the prompt-cache profile, set in the config repo">
+          <Stack gap="xs">
+            {d.cache.map((s) => <Group key={s.label} gap="md" wrap="nowrap"><Text size="sm" c="dimmed" w={170}>{s.label}</Text><Text size="sm" c={s.unset ? "dimmed" : undefined}>{s.value}</Text></Group>)}
+          </Stack>
+        </Section>
       </SimpleGrid>
       <ContextPanel key={d.context.yaml} panel={d.context} onSave={(body) => post("context", body)} onClear={() => del("context")} />
       <Section title="Standing agents" sub="kept running, one per name">

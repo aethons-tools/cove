@@ -520,6 +520,7 @@ type RoleDetail struct {
 	EgressManaged    bool          `json:"egressManaged"`
 	EgressDomains    []string      `json:"egressDomains"`
 	Allocation       []Setting     `json:"allocation"`
+	Cache            []Setting     `json:"cache"` // the cache profile, set in the config repo
 	Standing         []StandingRow `json:"standing"`
 	Holders          []HolderRow   `json:"holders"`
 	Running          []CoveRow     `json:"running"`
