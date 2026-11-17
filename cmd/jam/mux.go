@@ -12,6 +12,7 @@ import (
 
 	"github.com/aethons-tools/cove/internal/intercom"
 	"github.com/aethons-tools/cove/internal/jam"
+	"github.com/aethons-tools/cove/internal/jam/sessionevents"
 )
 
 // serveMux serves h (grpcMux's, perhaps behind destHostRouter) on one TLS
@@ -74,6 +75,8 @@ type messaging struct {
 	legacy jam.LegacyInbox
 	att    *jam.Attachments // nil: attachments off
 	boards *jam.Boards      // nil: whiteboards off
+	// events is the session-event store the observe routes read; nil: off.
+	events sessionevents.Store
 }
 
 func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg *messaging, requisitioner bool, tickets jam.TicketReporter, previewURL func(actorID, name string) (string, error), log *slog.Logger) http.Handler {
@@ -103,6 +106,9 @@ func coveHTTPHandler(broker http.Handler, st jam.Store, sup *jam.Supervisor, msg
 		squawksH = jam.NewSquawksHandler(st, msg.ic, msg.log, msg.legacy, log)
 		squawksH.SetAttachments(msg.att)
 		squawksH.SetBoards(msg.boards)
+		if msg.events != nil {
+			squawksH.SetObserve(msg.events)
+		}
 	}
 	escH := jam.NewEscalateHandler(st, sup, log)
 	log.Info("Jam messages: mounted", "path", "/squawks")

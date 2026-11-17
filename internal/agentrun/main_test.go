@@ -2,6 +2,7 @@ package agentrun
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -28,10 +29,26 @@ func TestMain(m *testing.M) {
 	defaultConversationMarker = filepath.Join(tmp, "no-such-dir", ".cove-conversation")
 	defaultClearMarker = filepath.Join(tmp, ".cove-clear-pending")
 	check := guardRealPaths(claudeSettingsPath, claudeMCPConfigPath)
+	// The live agent's socket: a workload Run with no Config.AgentSocket
+	// would replace it, then unlink its own, leaving the running agent with
+	// no turn_end (COV-384). JAM_TEST_REAL_AGENT_SOCKET points the guard at
+	// a stand-in (the guard's own test).
+	realSocket := cmp.Or(os.Getenv("JAM_TEST_REAL_AGENT_SOCKET"), AgentSocketPath)
+	checkSocket := guardSocket(realSocket)
+	defaultKeepDir = filepath.Join(tmp, "keep")
+	defaultStreamLogPath = filepath.Join(tmp, "agent-stream.jsonl")
+	defaultAgentSocket = filepath.Join(tmp, "agent.sock")
+	if os.Getenv("JAM_TEST_KEEP_REAL_DEFAULTS") != "" {
+		// Only to show the guard catching the old default: aim it at a
+		// stand-in with JAM_TEST_REAL_AGENT_SOCKET, never the live socket.
+		defaultAgentSocket = realSocket
+	}
 	code := m.Run()
-	if err := check(); err != nil {
-		fmt.Fprintln(os.Stderr, "FAIL:", err)
-		code = 1
+	for _, err := range []error{check(), checkSocket()} {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "FAIL:", err)
+			code = 1
+		}
 	}
 	_ = os.RemoveAll(tmp)
 	os.Exit(code)
@@ -68,5 +85,22 @@ func guardRealPaths(paths ...string) func() error {
 			}
 		}
 		return errors.Join(errs...)
+	}
+}
+
+// guardSocket snapshots the socket file at path (absent is fine) and returns a
+// check that reports a test that replaced or removed it.
+func guardSocket(path string) func() error {
+	before, err := os.Stat(path)
+	existed := err == nil
+	return func() error {
+		now, err := os.Stat(path)
+		switch {
+		case !existed && err != nil:
+			return nil
+		case existed && err == nil && os.SameFile(before, now):
+			return nil
+		}
+		return fmt.Errorf("a test replaced or removed the live agent socket %s (give the workload its own AgentSocket)", path)
 	}
 }

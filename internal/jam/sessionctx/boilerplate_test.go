@@ -134,6 +134,31 @@ func TestBoilerplatePreviewsLine(t *testing.T) {
 	}
 }
 
+// A session whose role has scope.observe is told about the observe tools,
+// and its bundle says so (the cove offers them only then).
+func TestBoilerplateObserveLine(t *testing.T) {
+	f := SessionFacts{Kind: KindStanding, Name: "n", Project: "p", Role: "r", Observe: true}
+	if on := Boilerplate(f).Core; !strings.Contains(on, "`observe_sessions`") || !strings.Contains(on, "read-only") {
+		t.Errorf("Observe on: line missing:\n%s", on)
+	}
+	if b := Compile(Inputs{Session: f}); !b.Observe {
+		t.Error("bundle.Observe false with the grant")
+	}
+	f.Observe = false
+	if off := Boilerplate(f).Core; strings.Contains(off, "observe_") {
+		t.Errorf("Observe off: line present:\n%s", off)
+	}
+	if b := Compile(Inputs{Session: f}); b.Observe {
+		t.Error("bundle.Observe true without the grant")
+	}
+	for _, k := range []string{KindEphemeral, KindPersonal, KindStanding} {
+		b := Compile(Inputs{Session: SessionFacts{Kind: k, Name: strings.Repeat("n", 64), Owner: strings.Repeat("o", 64), Project: strings.Repeat("p", 64), Role: strings.Repeat("r", 64), Previews: true, Observe: true}})
+		if len(b.Warnings) != 0 {
+			t.Errorf("%s: %v", k, b.Warnings)
+		}
+	}
+}
+
 // statusLine is the boilerplate's mission-and-focus line; legacyMissionLine
 // is the mission-only line it replaced (the legacy hashes still pin it).
 const (
@@ -243,5 +268,20 @@ func TestBoilerplateStructuredTurns(t *testing.T) {
 		if got := fmt.Sprintf("%x", sha256.Sum256([]byte(core))); got != c.hash {
 			t.Errorf("legacy case %d changed (hash %s):\n%s", i, got, Boilerplate(c.f).Core)
 		}
+	}
+}
+
+// A role's cache.ttl rides in the bundle for the cove's harness, outside the
+// core and the fingerprint (it is no text the agent reads).
+func TestBundleCarriesCacheTTL(t *testing.T) {
+	f := SessionFacts{Kind: KindStanding, Name: "n", Project: "p", Role: "r", CacheTTL: "1h"}
+	on := Compile(Inputs{Session: f})
+	if on.CacheTTL != "1h" {
+		t.Errorf("bundle.CacheTTL = %q", on.CacheTTL)
+	}
+	f.CacheTTL = ""
+	off := Compile(Inputs{Session: f})
+	if off.CacheTTL != "" || off.Fingerprint != on.Fingerprint || off.Core != on.Core {
+		t.Errorf("unset: %q; fingerprint or core changed with the ttl", off.CacheTTL)
 	}
 }

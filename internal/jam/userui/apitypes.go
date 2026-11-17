@@ -77,9 +77,51 @@ type WorkRow struct {
 	Title  string     `json:"title"` // the issue title; "" = not known (a manual raise)
 	Log    string     `json:"log"`   // the work log's channel id
 	Worker WorkWorker `json:"worker"`
+	// State is the unit's state as last reported: in-progress, in-review,
+	// needs-input, blocked or done; "" = none reported.
+	State string `json:"state"`
 	// Unread is the log's unread entries when the viewer follows it; absent
 	// otherwise.
 	Unread *int `json:"unread,omitempty"`
+}
+
+// WorkUnit is GET /app/user/api/work/{key}: a unit of work's record
+// (docs/modules/ROOT/pages/usage/jam/work-units.adoc).
+type WorkUnit struct {
+	Key   string `json:"key"`   // the issue key
+	Title string `json:"title"` // the issue title; "" = not known
+	URL   string `json:"url"`   // the issue's page on the tracker; "" = not known
+	Log   string `json:"log"`   // the work log's channel id
+	// State is the unit's state as last reported: in-progress, in-review,
+	// needs-input, blocked or done; "" = none reported.
+	State string `json:"state"`
+	// Workers is every session that has been its worker, in the order they
+	// started.
+	Workers []UnitWorker `json:"workers"`
+	// PullRequests is the pull requests reported for it, in the order first
+	// reported.
+	PullRequests []UnitPR `json:"pullRequests"`
+}
+
+// UnitWorker is one session's turn as a unit's worker.
+type UnitWorker struct {
+	Session string     `json:"session"`           // session id
+	Label   string     `json:"label"`             // its name, else its id
+	Started *time.Time `json:"started,omitempty"` // absent = not known
+	Stopped *time.Time `json:"stopped,omitempty"` // absent = current, or not known
+	Current bool       `json:"current"`           // it is the unit's worker now
+	// View is the session's view in the app, when the viewer may open it;
+	// "" = not theirs to open.
+	View string `json:"view"`
+}
+
+// UnitPR is a pull request reported for a unit.
+type UnitPR struct {
+	URL        string    `json:"url"`
+	Number     int       `json:"number"` // 0 = none in its URL
+	Title      string    `json:"title"`  // "" = not known
+	State      string    `json:"state"`  // open | merged | closed
+	ReportedAt time.Time `json:"reportedAt"`
 }
 
 // WorkWorker is a unit's current worker.
@@ -510,6 +552,10 @@ type SessionActivity struct {
 	Ended  bool   `json:"ended"`
 	Label  string `json:"label"`
 	Color  string `json:"color,omitempty"`
+	// DMChannel is the viewer's dm with the session, the conversation SendTo
+	// posts into ("" while there is none yet); VS Code reports it as the
+	// open conversation while the session's tab is active.
+	DMChannel string `json:"dmChannel"`
 }
 
 // ActivityRow is one message of a session's activity: the message as a

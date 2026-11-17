@@ -20,15 +20,17 @@ func agentSocket(getenv func(string) string) string {
 
 // turnEndIn is the "turn_end" tool's typed input.
 type turnEndIn struct {
-	To            string           `json:"to,omitempty" jsonschema:"post your final message here (same targets as send); without it, your final message is posted nowhere"`
-	NoReply       bool             `json:"no_reply,omitempty" jsonschema:"true = no message is needed: your final text stays as thinking, and the turn isn't returned to you"`
-	Post          *bool            `json:"post,omitempty" jsonschema:"older spelling: false reads as no_reply true"`
-	Commit        *bool            `json:"commit,omitempty" jsonschema:"false = the messages you were shown are NOT marked handled; they come back with your next wake"`
-	Next          string           `json:"next,omitempty" jsonschema:"what happens after this turn: wait (default), compact (shrink your conversation, then wait) or end (never wake again; needs reason)"`
-	Reason        string           `json:"reason,omitempty" jsonschema:"with next end: why the session is ending"`
-	WakeOnMessage *bool            `json:"wake_on_message,omitempty" jsonschema:"false = new messages don't wake you until you next run (alarms, idle timeout and kept processes still do)"`
-	WakeAt        *agentrun.WakeAt `json:"wake_at,omitempty" jsonschema:"wake me at this RFC 3339 time: {at, note?, name?} (a one-shot alarm)"`
-	IdleTimeout   string           `json:"idle_timeout,omitempty" jsonschema:"override the idle timeout for this turn end, e.g. 2h, or off"`
+	To                  string           `json:"to,omitempty" jsonschema:"post your final message here (same targets as send); without it, your final message is posted nowhere"`
+	NoReply             bool             `json:"no_reply,omitempty" jsonschema:"true = no message is needed: your final text stays as thinking, and the turn isn't returned to you"`
+	Post                *bool            `json:"post,omitempty" jsonschema:"older spelling: false reads as no_reply true"`
+	Commit              *bool            `json:"commit,omitempty" jsonschema:"false = the messages you were shown are NOT marked handled; they come back with your next wake"`
+	Next                string           `json:"next,omitempty" jsonschema:"what happens after this turn: wait (default), compact (shrink your conversation, then wait, or with resume carry on) or end (never wake again; needs reason)"`
+	Reason              string           `json:"reason,omitempty" jsonschema:"with next end: why the session is ending"`
+	CompactInstructions string           `json:"compact_instructions,omitempty" jsonschema:"with next compact: what the summary must keep (passed to /compact)"`
+	Resume              string           `json:"resume,omitempty" jsonschema:"with next compact: a note to yourself; once compacted you are woken at once with it as the prompt (without it you wait)"`
+	WakeOnMessage       *bool            `json:"wake_on_message,omitempty" jsonschema:"false = new messages don't wake you until you next run (alarms, idle timeout and kept processes still do)"`
+	WakeAt              *agentrun.WakeAt `json:"wake_at,omitempty" jsonschema:"wake me at this RFC 3339 time: {at, note?, name?} (a one-shot alarm)"`
+	IdleTimeout         string           `json:"idle_timeout,omitempty" jsonschema:"override the idle timeout for this turn end, e.g. 2h, or off"`
 }
 
 // addTurnTools registers turn_end, served by the agent socket.
@@ -38,10 +40,11 @@ func addTurnTools(s *mcp.Server, getenv func(string) string) {
 		Name: "turn_end",
 		Description: "Change how this turn ends; call it before your final message, only when the defaults don't fit. " +
 			"Defaults: your final message is thinking, posted nowhere (to posts it; a turn that ends with text and sent nothing is returned to you once, unless no_reply), the messages you were shown are marked handled, and you wait until a new message (or an alarm, the idle timeout, a kept process exiting) wakes you. " +
+			"To compact and carry on, set next compact with a resume note saying what to do next. " +
 			"The last call in a turn wins; it applies to this turn only.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in turnEndIn) (*mcp.CallToolResult, any, error) {
 		return nil, nil, ac.SetTurnEnd(ctx, agentrun.Directives{To: in.To, NoReply: in.NoReply, Post: in.Post, Commit: in.Commit, Next: in.Next,
-			Reason: in.Reason, WakeOnMessage: in.WakeOnMessage, WakeAt: in.WakeAt, IdleTimeout: in.IdleTimeout})
+			Reason: in.Reason, CompactInstructions: in.CompactInstructions, Resume: in.Resume, WakeOnMessage: in.WakeOnMessage, WakeAt: in.WakeAt, IdleTimeout: in.IdleTimeout})
 	})
 }
 

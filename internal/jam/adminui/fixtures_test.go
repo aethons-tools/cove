@@ -165,6 +165,7 @@ func seedRichRole(t *testing.T) jam.Store {
 			TTL:          90 * time.Minute,
 			Egress:       &jam.EgressPolicy{Domains: []string{"pypi.org"}},
 			Rooms:        []jam.RoomMembership{{Name: "eng", Wake: jam.WakeAll}},
+			Observe:      jam.ObserveAll,
 		},
 		Allocation: jam.RoleAllocation{
 			MaxPersonal: 2,

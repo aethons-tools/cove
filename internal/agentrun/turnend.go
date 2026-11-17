@@ -34,7 +34,8 @@ const restartStructured = "Your session was restarted (for example, Jam was upgr
 // idle tracker tags the turn answering it, so a result is never credited with
 // another prompt's batch), the batch it showed (upTo, the commit point; "" =
 // none), whether the structured turn end was on when it was built, and whether
-// it is a maintenance turn (a /compact) whose end posts and commits nothing,
+// it is a maintenance turn (a /compact, or a keep-warm wake) whose end posts
+// and commits nothing,
 // and whether it answers a returned turn (it is never returned again).
 // Run's goroutine only.
 type turnMeta struct {
@@ -103,8 +104,18 @@ func (w *Workload) takeNote() []string {
 
 // deliverText builds the prompt a delivery answering rs writes and makes it
 // the prompt in flight: with the structured turn end, the wake lines and the
-// batch; otherwise, or when the fetch fails, renderWake's read prompt.
-func (w *Workload) deliverText(ctx context.Context, rs []studioagent.WakeReason) string {
+// batch; otherwise, or when the fetch fails, renderWake's read prompt. It
+// first records a cove/wake event naming rs under turn, the episode the
+// prompt goes to.
+func (w *Workload) deliverText(ctx context.Context, h studioagent.Handle, turn uint32, rs []studioagent.WakeReason) string {
+	emitWake(h, turn, rs)
+	if keepWarmOnly(rs) {
+		// It only refreshes the prompt cache: no batch, and like a
+		// maintenance turn its end posts, returns and commits nothing.
+		w.newTurn(turnMeta{quiet: true})
+		return keepWarmText
+	}
+	rs = withoutKeepWarm(rs)
 	text, upTo, ok := w.batch(ctx)
 	w.newTurn(turnMeta{upTo: upTo, structured: ok})
 	if !ok {
@@ -132,7 +143,7 @@ func (w *Workload) ackText(ctx context.Context, by string, rs []studioagent.Wake
 		return interruptPrompt(by, rs)
 	}
 	lines := append([]string{strings.Replace(interruptAckStructured, "%s", by, 1)}, w.takeNote()...)
-	for _, r := range rs {
+	for _, r := range withoutKeepWarm(rs) {
 		if l, ok := wakeLine(r); ok {
 			lines = append(lines, l)
 		}
@@ -176,13 +187,13 @@ const postFailedText = "Your last reply could not be posted to %s (%v); the mess
 // "returned"); the returned turn ending that way too is committed and
 // recorded as unaddressed. Then the batch its prompt showed is committed
 // (only when r answers the prompt in flight), and the turn's directives
-// apply: what happens next (end, or compact — reported, for the caller to
+// apply: what happens next (end, or compact — returned, for the caller to
 // run before anything else is delivered) and what wakes the session. A turn
 // that didn't end normally (interrupted, an error) posts, commits, returns
 // and applies nothing. Every call is bounded; a failure is logged and the
 // run goes on. Callers run it before the next prompt is written, so a later
 // batch never re-shows what this one committed.
-func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) {
+func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact *compactReq) {
 	var meta turnMeta
 	if r.Gen != 0 && r.Gen == w.inflight.gen {
 		meta = w.inflight
@@ -194,11 +205,11 @@ func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) 
 	d := w.takeDirectives()
 	sent := w.takeSent()
 	if !meta.structured || meta.quiet {
-		return false
+		return nil
 	}
 	if !r.OK {
 		w.log.Info("agentrun: turn did not end normally; nothing posted, committed or applied")
-		return false
+		return nil
 	}
 	io := w.cfg.TurnIO
 	call := func(what string, f func(context.Context) error) error {
@@ -259,7 +270,24 @@ func (w *Workload) finishTurn(ctx context.Context, r TurnResult) (compact bool) 
 	if d.IdleTimeout != "" {
 		call("idle_timeout", func(c context.Context) error { return io.SetIdle(c, d.IdleTimeout) })
 	}
-	return d.Next == "compact"
+	if d.Next != "compact" {
+		return nil
+	}
+	return &compactReq{by: agentBy, instructions: d.CompactInstructions, resume: d.Resume}
+}
+
+// resumeCompacted wakes the session after the compaction c ran (ok) or
+// didn't finish, when it was asked for with a resume note: the note is the
+// wake's line (reason "compacted", or "compact-failed").
+func (w *Workload) resumeCompacted(c compactReq, ok bool) {
+	if c.resume == "" {
+		return
+	}
+	kind := "compacted"
+	if !ok {
+		kind = "compact-failed"
+	}
+	w.wake.post([]studioagent.WakeReason{{Kind: kind, Detail: c.resume}})
 }
 
 // returnTurn returns the turn meta describes, unless it is itself a returned
@@ -282,6 +310,22 @@ func emitTurn(h studioagent.Handle, turn uint32, outcome string) {
 		Subtype string `json:"subtype"`
 		Outcome string `json:"outcome"`
 	}{"cove", "turn", outcome})
+	h.Event(turn, line, 0)
+}
+
+// emitWake records a {"type":"cove","subtype":"wake"} event naming the reason
+// kinds of the Wake (coalesced Wakes included) a resume prompt answers, so a
+// turn can be told apart by what woke it.
+func emitWake(h studioagent.Handle, turn uint32, rs []studioagent.WakeReason) {
+	kinds := make([]string, 0, len(rs))
+	for _, r := range rs {
+		kinds = append(kinds, r.Kind)
+	}
+	line, _ := json.Marshal(struct {
+		Type    string   `json:"type"`
+		Subtype string   `json:"subtype"`
+		Reasons []string `json:"reasons"`
+	}{"cove", "wake", kinds})
 	h.Event(turn, line, 0)
 }
 

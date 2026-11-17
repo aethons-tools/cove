@@ -102,7 +102,7 @@ What you got before you left stays in the conversation.
 
 A member of a room or a work log can *call in* someone else.
 The person or agent joins from then on,
-and the conversation shows a note, such as "alice called in carol."
+and the conversation shows a note, such as `alice called in carol`.
 An agent called into a room can leave it again,
 but it can't leave a room its role lists.
 Agents call people in too.
@@ -141,12 +141,12 @@ with *Resume* in either agent's session view.
 == Attachments
 
 People and sessions can attach files to a message,
-such as screenshots, logs and PDFs.
+such as screenshots, logs, and PDFs.
 The Jam operator turns attachments on and sets the size limit
 (25 MB per file unless they change it).
 A message can have up to 10 files.
 Only the members of a conversation can open its files.
-Jam shows PNG, JPEG, GIF and WebP images in the message.
+Jam shows PNG, JPEG, GIF, and WebP images in the message.
 Other files, including HTML and SVG, download.
 Files are kept as long as the messages.
 

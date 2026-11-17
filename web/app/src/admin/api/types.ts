@@ -571,9 +571,11 @@ export interface RoleDetail {
   dests: DestRow[];
   addressing: string[];
   rooms: RoleRoomRow[]; // scope.rooms, set in the config repo
+  observes: boolean; // scope.observe: all, set in the config repo
   egressManaged: boolean;
   egressDomains: string[];
   allocation: Setting[];
+  cache: Setting[]; // the cache profile, set in the config repo
   standing: StandingRow[];
   holders: HolderRow[];
   running: CoveRow[];

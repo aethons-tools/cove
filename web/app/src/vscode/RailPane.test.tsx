@@ -29,7 +29,7 @@ const rail = {
     row(CHN_A, "Ada", { kind: "dm", session: SES_A, ssh: true, needsYou: true, unread: 2, card: card({ session: SES_A, name: "Ada", state: "idle" }) }),
     row(CHN_B, "#design"),
   ],
-  work: [{ key: "ACME-42", title: "Fix the flaky login test", log: CHN_LOG, worker: { id: SES_W, label: "acme-42", state: "waiting" }, unread: 1 }],
+  work: [{ key: "ACME-42", title: "Fix the flaky login test", log: CHN_LOG, worker: { id: SES_W, label: "acme-42", state: "waiting" }, state: "in-review", unread: 1 }],
   agents: [
     { session: SES_A, ssh: true, card: card({ session: SES_A, name: "Ada", mission: "Keep the books" }) },
     { session: SES_C, ssh: false, card: card({ session: SES_C, name: "carl", mission: "Review PRs" }) },
@@ -39,7 +39,6 @@ const rail = {
 };
 // meRow is the Me section's row named name.
 const meRow = async (name: RegExp) => within(await screen.findByRole("list", { name: "Me" })).getByRole("button", { name });
-const head = (id: string, channel: string) => json({ id, label: id, channel });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 afterEach(() => {
@@ -58,9 +57,6 @@ function mount(state: PaneState = { signedIn: true, target: null, windows: [] },
     "GET /app/user/api/session-roles": json(roles),
     "POST /app/user/api/messages": json({ channel: CHN_NEW, seq: 1 }, 201),
     "POST /app/user/api/sessions": json({ id: SES_NEW, name: "pair-01", channel: CHN_NEW }, 201),
-    [`GET /app/user/api/sessions/${SES_A}`]: head(SES_A, CHN_A),
-    [`GET /app/user/api/sessions/${SES_C}`]: head(SES_C, CHN_C),
-    [`GET /app/user/api/sessions/${SES_W}`]: head(SES_W, CHN_LOG),
     "PUT /app/user/api/rail/order": { kind: "http", status: 204, contentType: "" },
     "GET /app/user/api/rail": json(rail),
     ...routes,
@@ -112,36 +108,36 @@ describe("the rail pane", () => {
     expect(await screen.findByText("No conversations yet. Start one with New message.")).toBeInTheDocument();
   });
 
-  it("a work row opens its log; its worker opens the worker's session view", async () => {
+  it("a work row opens its log; its worker opens the worker's session tab", async () => {
     const { intents } = mount();
     await userEvent.click(await screen.findByRole("button", { name: /ACME-42/ }));
     await sleep(DOUBLE_CLICK_MS + 50);
     expect(intents()).toEqual([{ kind: "go", channel: CHN_LOG, session: SES_W }]);
     await userEvent.click(screen.getByRole("button", { name: "Open acme-42's session view" }));
     await vi.waitFor(() => expect(intents()).toHaveLength(2));
-    expect(intents()[1]).toEqual({ kind: "go", channel: CHN_LOG, session: SES_W });
+    expect(intents()[1]).toEqual({ kind: "sessionTab", id: SES_W });
     expect(within(screen.getByRole("list", { name: "Work" })).getByLabelText("1 unread")).toBeInTheDocument();
   });
 
-  it("a card's click opens its session's view; a double-click its studio window, when it may SSH", async () => {
+  it("a card's click opens its session's tab; a double-click its studio window, when it may SSH", async () => {
     const { intents } = mount();
     const agents = await screen.findByRole("list", { name: "Agents" });
     await userEvent.click(within(agents).getByRole("button", { name: /carl/ }));
-    await vi.waitFor(() => expect(intents()).toEqual([{ kind: "go", channel: CHN_C, session: SES_C }]));
+    await vi.waitFor(() => expect(intents()).toEqual([{ kind: "sessionTab", id: SES_C }]));
     await userEvent.dblClick(within(agents).getByRole("button", { name: /Ada/ }));
     await sleep(DOUBLE_CLICK_MS * 2);
     expect(intents()[1]).toEqual({ kind: "session", id: SES_A });
     expect(intents()).toHaveLength(2);
     await userEvent.dblClick(within(agents).getByRole("button", { name: /carl/ }));
     await vi.waitFor(() => expect(intents()).toHaveLength(3));
-    expect(intents()[2]).toEqual({ kind: "go", channel: CHN_C, session: SES_C });
+    expect(intents()[2]).toEqual({ kind: "sessionTab", id: SES_C });
   });
 
-  it("a session with no conversation for the viewer opens nothing", async () => {
-    const { intents } = mount(undefined, { [`GET /app/user/api/sessions/${SES_C}`]: head(SES_C, "") });
-    await userEvent.click(within(await screen.findByRole("list", { name: "Agents" })).getByRole("button", { name: /carl/ }));
-    await sleep(DOUBLE_CLICK_MS * 2);
-    expect(intents()).toEqual([]);
+  it("the active session tab's card is highlighted", async () => {
+    mount({ signedIn: true, target: null, windows: [], activeSession: SES_C });
+    const agents = await screen.findByRole("list", { name: "Agents" });
+    expect(within(agents).getByRole("button", { name: /carl/ })).toHaveAttribute("data-active", "true");
+    expect(within(agents).getByRole("button", { name: /Ada/ })).not.toHaveAttribute("data-active");
   });
 
   it("History is collapsed; opened, its row goes to the legacy conversation", async () => {

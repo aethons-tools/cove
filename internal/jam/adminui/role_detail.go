@@ -50,6 +50,7 @@ type roleDetail struct {
 	Dests                []destRow
 	EgressManaged        bool
 	Allocation           []setting
+	Cache                []setting // the cache profile, set in the config repo
 	Standing             []standingRow
 	Holders              []holderRow
 	Coves                []jam.CoveSummary
@@ -96,6 +97,13 @@ func buildRoleDetail(store jam.Store, img jam.ImageResolver, project, name strin
 		duration("Idle timeout", role.TurnEnd.IdleTimeout, "none"),
 		{Label: "On idle", Value: role.TurnEnd.Action()},
 		{Label: "Alarm time zone", Value: role.TurnEnd.Location().String()},
+	}
+
+	c := role.Cache
+	d.Cache = []setting{
+		duration("TTL", c.TTL, "harness default"),
+		duration("Keep warm", c.KeepWarm, "off"),
+		{Label: "Threshold", Value: strconv.Itoa(c.Threshold) + " tokens", Unset: c.Threshold == 0},
 	}
 
 	running := map[string]jam.CoveSummary{}

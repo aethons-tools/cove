@@ -1,10 +1,11 @@
 * xref:index.adoc[About this manual]
 * xref:start/signing-in.adoc[Signing in and finding your way]
+* xref:glossary.adoc[Glossary]
 
 .Concepts
 * xref:concepts/project.adoc[Projects]
-* xref:concepts/agent.adoc[Roles, agents and sessions]
-* xref:concepts/intercom.adoc[Intercom: channels, messages and asks]
+* xref:concepts/agent.adoc[Roles, agents, and sessions]
+* xref:concepts/intercom.adoc[Intercom: conversations, messages, and asks]
 * xref:concepts/work.adoc[Units of work]
 * xref:concepts/escalation.adoc[Escalation]
 * xref:concepts/destination.adoc[Destinations]
@@ -18,10 +19,10 @@
 * xref:inbox/asks.adoc[Answering asks]
 * xref:inbox/session.adoc[Watching a session]
 * xref:inbox/whiteboards.adoc[Whiteboards]
-* xref:inbox/account.adoc[Your account, app tokens and notifications]
+* xref:inbox/account.adoc[Your account, app tokens, and notifications]
 
 .Configuration
-* xref:configuration/dashboard.adoc[The dashboard, search and health]
+* xref:configuration/dashboard.adoc[The dashboard, search, and health]
 * xref:configuration/projects.adoc[Configuring a project]
 * xref:configuration/users.adoc[Configuring users]
 * xref:configuration/roles.adoc[Configuring roles and raising agents]

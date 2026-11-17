@@ -7,8 +7,8 @@
 :updated: 2026-11-13
 
 `+studio raise --prompt-file <f>+` on a Studio Manager runs the whole lifecycle end to end: Jam starts a
-Colima studio from the configured image, injects the agent connector — the client env
-and git routing declared by the role's destinations (xref:usage/jam/connector.adoc[connector]) — plus the jam-studio-agent env, your prompt and the compiled xref:usage/jam/session-context.adoc[session context] over SSH, and starts
+Colima studio from the configured image, injects the agent connector—the client environment
+and git routing declared by the role's destinations (xref:usage/jam/connector.adoc[connector])—plus the jam-studio-agent environment, your prompt and the compiled xref:usage/jam/session-context.adoc[session context] over SSH, and starts
 `jam-studio-agent`, which runs `claude -p` on the prompt. The studio reports
 `running` → `waiting` over the xref:usage/jam/studio-agent.adoc#the-attach-stream[Attach stream] after each turn,
 and the supervisor tears it down when Jam ends the session (xref:usage/jam/turn-end.adoc[turn-end.adoc]). The *role must grant the `anthropic` and `git`
@@ -37,7 +37,7 @@ default. A role with no policy skips the step and keeps the kit's list.
 [#the-studiokit-and-its-kit-prepare-protocol]
 == The StudioKit and its kit-prepare protocol
 
-The real launcher raises from a *xref:usage/jam/kits.adoc#the-studiokit[StudioKit]* — the
+The real launcher raises from a *xref:usage/jam/kits.adoc#the-studiokit[StudioKit]*—the
 role's named kit, or the seeded `default` (xref:usage/jam/kits.adoc#role-to-kit-and-the-default-kit[kits]).
 Its egress ceiling excludes Anthropic (COV-208). It is built on demand via a
 *light-reference / lazy-prepare* handshake that tolerates a remote-building
@@ -47,8 +47,8 @@ full kit from the xref:usage/jam/kits.adoc[registry], calls the launcher's `Prep
 *on the substrate backend* (the colima daemon, so the image lands where
 `RunEphemeral` runs it) and retries. The image is tagged by the kit's build-digest
 plus the Studio Manager's assembly fingerprint (xref:usage/jam/kits.adoc#the-studiokit[kits]),
-so a prompt-only edit reuses the cached image while a manager upgrade rebuilds it. An in-progress build does not block
-— the raise defers to the next reconcile tick. The build context is *data* (the
+so a prompt-only edit reuses the cached image while a manager upgrade rebuilds it. An in-progress build does not block—
+the raise defers to the next reconcile tick. The build context is *data* (the
 kit plus resources compiled into the manager's binary and its key), with
 *no source kit directory*, so the build can move to a remote substrate. The
 xref:usage/jam/session-context.adoc[session context] is compiled at raise, outside the image. A kit's own stage is built

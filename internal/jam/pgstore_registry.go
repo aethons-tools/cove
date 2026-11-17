@@ -492,7 +492,10 @@ func (s *PostgresStore) ensureProjectIDs(ctx context.Context) error {
 	if err := s.loadManagers(ctx); err != nil {
 		return err
 	}
-	return s.loadChannels(ctx)
+	if err := s.loadChannels(ctx); err != nil {
+		return err
+	}
+	return s.loadWorkUnits(ctx)
 }
 
 // loadLegacyAliases fills the frozen legacy_human_aliases map. load's part; no lock.

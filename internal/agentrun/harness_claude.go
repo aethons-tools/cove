@@ -109,12 +109,12 @@ func (c Claude) kitMCPServers() string {
 //     A missing kit file (a stale image built before COV-240), a kit entry named
 //     messaging, or a literal header value is refused too — re-checked here as
 //     defense in depth over kit validation;
-//   - spec's claude.settings and its plugins' enablement (claudeSettings),
-//     when either is non-empty, are written to the per-run settings file
-//     Command passes as --settings (removed otherwise).
+//   - spec's claude.settings, its plugins' enablement and the role's
+//     cacheTTL (claudeSettings), when any is set, are written to the per-run
+//     settings file Command passes as --settings (removed otherwise).
 //
 // The last two are Prepare, which Run repeats before every episode.
-func (c Claude) Validate(spec *modelspec.Spec) error {
+func (c Claude) Validate(spec *modelspec.Spec, cacheTTL string) error {
 	if spec != nil {
 		if spec.Type != modelspec.HarnessClaude {
 			return fmt.Errorf("agentrun: model-spec %q is for harness %q, not %q", spec.Name, spec.Type, modelspec.HarnessClaude)
@@ -126,15 +126,15 @@ func (c Claude) Validate(spec *modelspec.Spec) error {
 			return err
 		}
 	}
-	return c.Prepare(spec)
+	return c.Prepare(spec, cacheTTL)
 }
 
-// Prepare writes the run's MCP config and spec's settings file (see Validate).
-func (c Claude) Prepare(spec *modelspec.Spec) error {
+// Prepare writes the run's MCP config and settings file (see Validate).
+func (c Claude) Prepare(spec *modelspec.Spec, cacheTTL string) error {
 	if err := c.writeMCPConfig(); err != nil {
 		return err
 	}
-	return c.writeSettings(spec)
+	return c.writeSettings(spec, cacheTTL)
 }
 
 // checkVersion runs `claude --version` and matches it against the spec's
@@ -161,10 +161,10 @@ func (c Claude) checkVersion(spec *modelspec.Spec) error {
 	return nil
 }
 
-// writeSettings renders spec's claude.settings to the per-run settings file,
-// or removes a stale one when the spec sets none.
-func (c Claude) writeSettings(spec *modelspec.Spec) error {
-	settings := claudeSettings(spec)
+// writeSettings renders the per-run settings (claudeSettings) to its file, or
+// removes a stale one when there are none.
+func (c Claude) writeSettings(spec *modelspec.Spec, cacheTTL string) error {
+	settings := claudeSettings(spec, cacheTTL)
 	if len(settings) == 0 {
 		if err := os.Remove(c.settings()); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("agentrun: stale settings %q could not be removed: %w", c.settings(), err)
@@ -173,7 +173,7 @@ func (c Claude) writeSettings(spec *modelspec.Spec) error {
 	}
 	b, err := json.Marshal(settings)
 	if err != nil {
-		return fmt.Errorf("agentrun: model-spec %q settings: %w", spec.Name, err)
+		return fmt.Errorf("agentrun: model-spec %q settings: %w", specName(spec), err)
 	}
 	if err := writeFileAtomic(c.settings(), append(b, '\n')); err != nil {
 		return fmt.Errorf("agentrun: settings %q could not be written: %w", c.settings(), err)
@@ -181,13 +181,35 @@ func (c Claude) writeSettings(spec *modelspec.Spec) error {
 	return nil
 }
 
-// claudeSettings is the per-run settings for spec: its claude.settings, with
+// claudeCacheTTLKey is the Claude Code setting for the prompt-cache
+// lifetime ("5m" | "1h"). Checked by hand on 2.1.287: it switches the cache
+// writes to ephemeral_1h_input_tokens (see
+// docs/modules/ROOT/pages/usage/jam/prompt-cache.adoc).
+const claudeCacheTTLKey = "promptCacheTtl"
+
+// claudeSettings is the per-run settings: specSettings, with the role's
+// cacheTTL set over them as promptCacheTtl. Unset cacheTTL leaves them as
+// they are. nil when there is nothing to write.
+func claudeSettings(spec *modelspec.Spec, cacheTTL string) map[string]any {
+	settings := specSettings(spec)
+	if cacheTTL == "" {
+		return settings
+	}
+	out := maps.Clone(settings)
+	if out == nil {
+		out = map[string]any{}
+	}
+	out[claudeCacheTTLKey] = cacheTTL
+	return out
+}
+
+// specSettings is the per-run settings for spec: its claude.settings, with
 // plugin enablement merged over it — each claude.plugins id under
 // enabledPlugins and its marketplace under extraKnownMarketplaces. Enablement
 // follows the spec (the image's harness layer installed exactly these), not
 // the image's managed settings; a spec with no plugins enables none. nil when
 // there is nothing to write.
-func claudeSettings(spec *modelspec.Spec) map[string]any {
+func specSettings(spec *modelspec.Spec) map[string]any {
 	if spec == nil || spec.Claude == nil {
 		return nil
 	}
@@ -272,8 +294,8 @@ func writeFileAtomic(path string, data []byte) error {
 // Command builds claude's argv for one episode. ep.Continued prepends
 // --continue. The prompt is not in argv: it is the first stream-json message
 // on stdin. From ep.Spec it applies the permission policy (see claudePolicy),
-// model.id (--model), model.effort (--effort), non-empty settings or plugins
-// (--settings, the file Validate wrote) and the provider env (see claudeEnv).
+// model.id (--model), model.effort (--effort), non-empty settings or plugins,
+// or ep.CacheTTL (--settings, the file Prepare wrote) and the provider env (see claudeEnv).
 // The MCP config is not taken from the spec (yet): the generated --mcp-config
 // stays; claude.plugins are installed at image build by the harness layer
 // (internal/harnessinstall), not per episode.
@@ -287,10 +309,8 @@ func (c Claude) Command(ep Episode) (string, []string, map[string]string) {
 	args = append(args, claudePolicy(ep.Spec)...)
 	args = append(args, "--mcp-config", c.mcpConfig(), "--strict-mcp-config")
 	args = append(args, modelspec.ClaudeModelArgs(ep.Spec)...)
-	if spec := ep.Spec; spec != nil {
-		if len(claudeSettings(spec)) > 0 {
-			args = append(args, "--settings", c.settings())
-		}
+	if len(claudeSettings(ep.Spec, ep.CacheTTL)) > 0 {
+		args = append(args, "--settings", c.settings())
 	}
 	if ep.ContextCore != "" {
 		// snapshot off: the default replays the first turn's system prompt on

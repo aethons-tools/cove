@@ -19,6 +19,7 @@ import {
   openSession,
   pickSession,
   goTo,
+  goToSession,
   HUB_WORKSPACE,
   readPending,
   focusStudioUri,
@@ -54,6 +55,7 @@ import { SESSION_PANES, SessionPaneProvider } from "./panes/session";
 import { NeedsYou } from "./needsyou";
 import { RailViewProvider } from "./panes/rail";
 import { ConversationPanels } from "./panes/conversation";
+import { SessionPanels } from "./panes/sessiontab";
 import { AdminApi, NoAdminError } from "./admin/api";
 import { BranchState } from "./admin/branch";
 import { runBuild } from "./kits/build";
@@ -392,8 +394,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
   rep.windowFocused(vscode.window.state.focused);
   ctx.subscriptions.push(vscode.window.onDidChangeWindowState((s) => rep.windowFocused(s.focused)));
 
-  // hubActive is the hub's active conversation tab (its channel).
+  // hubActive is the hub's active conversation tab (its channel), or
+  // hubActiveSession its active session tab (its session).
   let hubActive: string | undefined;
+  let hubActiveSession: string | undefined;
   // The needs-you count is the badge on the rail view (the Jam activity-bar icon).
   let rail: RailViewProvider | undefined;
   let badge: Parameters<RailViewProvider["setBadge"]>[0];
@@ -430,6 +434,13 @@ export function activate(ctx: vscode.ExtensionContext): void {
     // A rail click: the conversation's tab, even when its session's studio
     // window is open (a double-click, the session intent, opens that).
     goTo: (channel, session) => goToConversation(channel, session, undefined, false),
+    // A card's click: the session's tab in the hub.
+    openSessionTab: (id) =>
+      guard(async () => {
+        const j = jamUrl();
+        if (j instanceof Error) throw j;
+        await goToSession(goDeps(), j, id);
+      })(),
     // An ask elsewhere: the window's conversation tab (opened if need be: the
     // hub or a studio window only), scrolled to it.
     revealConversation: (anchor) =>
@@ -477,13 +488,42 @@ export function activate(ctx: vscode.ExtensionContext): void {
     onActive: (t) => {
       if (kind?.kind !== "hub") return;
       model.setSession(t.session || undefined);
-      if (!("channel" in t) || t.channel === hubActive) return;
+      if (!("channel" in t) || (t.channel === hubActive && hubActiveSession === undefined)) return;
       hubActive = t.channel;
+      hubActiveSession = undefined;
       rail?.refresh();
     },
   });
   ctx.subscriptions.push(
     vscode.window.registerWebviewPanelSerializer(ConversationPanels.viewType, { deserializeWebviewPanel: async (p, s) => conversations.restore(p, s) }),
+  );
+  // Session tabs (the hub's): the activity decides whether one opens.
+  const sessionTabs = new SessionPanels({
+    ...portDeps,
+    extensionUri: ctx.extensionUri,
+    auth,
+    createPanel: (...a) => vscode.window.createWebviewPanel(...a),
+    resolve: async (session) => {
+      const a = await (await apiNow()).activity(session).catch((e: unknown) => {
+        if (e instanceof ApiError && e.status === 404) return undefined;
+        throw e;
+      });
+      return a ? { label: a.label } : "gone";
+    },
+    reporter: rep,
+    // The hub's views follow its active session tab, and its rail
+    // highlights the session's card.
+    onActive: (session) => {
+      if (kind?.kind !== "hub") return;
+      model.setSession(session);
+      if (session === hubActiveSession) return;
+      hubActiveSession = session;
+      hubActive = undefined;
+      rail?.refresh();
+    },
+  });
+  ctx.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer(SessionPanels.viewType, { deserializeWebviewPanel: async (p, s) => sessionTabs.restore(p, s) }),
   );
   // Going to a conversation: its studio window, else its hub tab (from
   // another window, by a pending request the hub reads; see readPending).
@@ -502,6 +542,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
       isHub: kind?.kind === "hub",
       ownSession: windowStudio,
       openTab: (c) => conversations.open(c),
+      openSessionTab: (id) => sessionTabs.open(id),
       writePending: async (jam, p) => {
         await fsp.mkdir(hubDir.fsPath, { recursive: true });
         await fsp.writeFile(vscode.Uri.joinPath(hubDir, pendingFileFor(jam)).fsPath, JSON.stringify(p));
@@ -524,8 +565,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
       const raw = await fsp.readFile(file, "utf8").catch(() => undefined);
       if (raw === undefined) return;
       await fsp.rm(file, { force: true });
-      const c = readPending(raw, Date.now());
-      if (c) conversations.open(c);
+      const p = readPending(raw, Date.now());
+      if (p && "session" in p) sessionTabs.open(p.session);
+      else if (p) conversations.open(p.channel);
     };
     void takePending().catch((e) => log(`hub: reading the pending request failed: ${e instanceof Error ? e.message : String(e)}`));
     ctx.subscriptions.push(
@@ -552,6 +594,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     auth,
     windows: connected.list,
     // The hub's active tab; a studio window's own conversation.
+    activeSession: () => (kind?.kind === "hub" ? hubActiveSession : undefined),
     active: async () => {
       if (kind?.kind === "hub") return hubActive;
       const t = kind?.kind === "session" ? await model.target() : null;

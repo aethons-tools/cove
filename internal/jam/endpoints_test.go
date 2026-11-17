@@ -94,7 +94,7 @@ func TestValidateDestinationReservedRoutes(t *testing.T) {
 // Every path the cove mux serves itself is one CoveHandlerFor names.
 func TestCoveHandlerFor(t *testing.T) {
 	for path, want := range map[string]CoveHandler{
-		"/connector": CoveConnector, "/squawks/ask/amend": CoveSquawks, "/squawks/boards/b1/ops": CoveSquawks,
+		"/connector": CoveConnector, "/squawks/ask/amend": CoveSquawks, "/squawks/boards/b1/ops": CoveSquawks, "/squawks/observe/sessions/s1/events": CoveSquawks,
 		"/alarms/x": CoveAlarms, "/kept": CoveTurnEnd, "/metrics": CoveMetrics,
 		"/squawks/other": "", "/anthropic/v1": "", "/connector/x": "",
 	} {

@@ -129,7 +129,7 @@ func TestPostCommentSendsCommentCreate(t *testing.T) {
 
 func TestListReadyParsesIssuesAndClass(t *testing.T) {
 	const resp = `{"data":{"issues":{"nodes":[
-	 {"id":"i1","identifier":"AET-1","title":"T1","description":"D1","labels":{"nodes":[{"name":"class:implement"},{"name":"p1"}]}}
+	 {"id":"i1","identifier":"AET-1","title":"T1","url":"https://linear.app/aet/issue/AET-1","description":"D1","labels":{"nodes":[{"name":"class:implement"},{"name":"p1"}]}}
 	]}}}`
 	calls := 0
 	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
@@ -143,8 +143,8 @@ func TestListReadyParsesIssuesAndClass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListReady: %v", err)
 	}
-	if len(got) != 1 || got[0].Identifier != "AET-1" || got[0].Class != "implement" {
-		t.Fatalf("ListReady = %+v; want one AET-1 with class implement", got)
+	if len(got) != 1 || got[0].Identifier != "AET-1" || got[0].Class != "implement" || got[0].URL != "https://linear.app/aet/issue/AET-1" {
+		t.Fatalf("ListReady = %+v; want one AET-1 with class implement and its URL", got)
 	}
 }
 
@@ -328,18 +328,18 @@ func TestCommentFeedParsesAndSendsVars(t *testing.T) {
 	}
 }
 
-func TestViewerParsesDisplayName(t *testing.T) {
+func TestViewerReturnsUserID(t *testing.T) {
 	calls := 0
 	c := newTestClient(t, func(r *http.Request) (*http.Response, error) {
 		calls++
 		if calls == 1 {
 			return jsonResp(statesResponse), nil // New's fetch
 		}
-		return jsonResp(`{"data":{"viewer":{"displayName":"jam-bot"}}}`), nil
+		return jsonResp(`{"data":{"viewer":{"id":"u-jam","displayName":"jam-bot"}}}`), nil
 	})
-	name, err := c.Viewer(context.Background())
-	if err != nil || name != "jam-bot" {
-		t.Fatalf("viewer=%q err=%v", name, err)
+	id, err := c.Viewer(context.Background())
+	if err != nil || id != "u-jam" {
+		t.Fatalf("viewer=%q err=%v; want the user id", id, err)
 	}
 }
 

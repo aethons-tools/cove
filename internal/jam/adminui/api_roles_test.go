@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,9 @@ func TestRolesAPI(t *testing.T) {
 	}
 	if d.Dests == nil || d.Addressing == nil || d.Rooms == nil || d.Standing == nil || d.Holders == nil || d.Running == nil || d.Allocation == nil {
 		t.Errorf("nil lists: %+v", d)
+	}
+	if d.Observes {
+		t.Error("a new role observes sessions")
 	}
 	rec = apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/coder/scope", map[string]string{"kit": "nope"}, nil)
 	wantErr(t, rec, 400, "bad_request")
@@ -170,4 +174,47 @@ func TestRoleStandingResetPending(t *testing.T) {
 		t.Errorf("pending reset = %d %+v", rec.Code, res.Message)
 	}
 	wantErr(t, apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/review/standing/nobody/reset", nil, nil), 404, "not_found")
+}
+
+// The role page shows scope.observe.
+func TestRoleObserves(t *testing.T) {
+	h, store := adminHandler(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", jam.Role{Name: "optimizer", Scope: jam.Scope{Observe: jam.ObserveAll}}); err != nil {
+		t.Fatal(err)
+	}
+	var d adminui.RoleDetail
+	if rec := apiDo(t, h, "GET", "/app/admin/api/projects/acme/roles/optimizer", nil, &d); rec.Code != 200 || !d.Observes {
+		t.Fatalf("get = %d %+v", rec.Code, d)
+	}
+}
+
+// The role page shows the cache profile, read-only; a role without one shows
+// the defaults, and a scope or allocation edit keeps it.
+func TestRoleCache(t *testing.T) {
+	seed := newStore(t)
+	mustCreateProject(t, seed, "acme")
+	cache := jam.CachePolicy{TTL: time.Hour, KeepWarm: 4 * time.Hour, Threshold: 30000}
+	for _, r := range []jam.Role{{Name: "editor", Cache: cache}, {Name: "plain"}} {
+		if err := seed.PutRole("acme", r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := editOn(t, editSetup{seed: seed})
+	h := e.H
+	for name, want := range map[string][]adminui.Setting{
+		"editor": {{Label: "TTL", Value: "1h"}, {Label: "Keep warm", Value: "4h"}, {Label: "Threshold", Value: "30000 tokens"}},
+		"plain": {{Label: "TTL", Value: "harness default", Unset: true}, {Label: "Keep warm", Value: "off", Unset: true},
+			{Label: "Threshold", Value: "0 tokens", Unset: true}},
+	} {
+		var d adminui.RoleDetail
+		if rec := apiDo(t, h, "GET", "/app/admin/api/projects/acme/roles/"+name, nil, &d); rec.Code != 200 || !reflect.DeepEqual(d.Cache, want) {
+			t.Errorf("%s: get = %d, cache %+v, want %+v", name, rec.Code, d.Cache, want)
+		}
+	}
+	apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/editor/scope", map[string]string{"ttl": "2h"}, nil)
+	apiDo(t, h, "POST", "/app/admin/api/projects/acme/roles/editor/allocation", map[string]string{"maxPersonal": "2"}, nil)
+	if r, _ := e.Store().GetRole("acme", "editor"); r.Cache != cache {
+		t.Errorf("an edit changed the cache: %+v", r.Cache)
+	}
 }

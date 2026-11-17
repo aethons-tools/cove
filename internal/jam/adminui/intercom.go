@@ -229,8 +229,12 @@ func parseSquawkQuery(q url.Values, data *squawksData) squawkFilter {
 }
 
 // matchesParticipant reports whether p is m's author or channel (a legacy
-// squawk: its author or one of its recipients, as kind:ref).
+// squawk: its author or one of its recipients, as kind:ref). A legacy squawk
+// names people human:<name>, so user:<name> matches that too.
 func matchesParticipant(m Logged, p string) bool {
+	if name, ok := strings.CutPrefix(p, "user:"); ok && matchesParticipant(m, "human:"+name) {
+		return true
+	}
 	if m.FromID == p || m.ChannelID == p {
 		return true
 	}

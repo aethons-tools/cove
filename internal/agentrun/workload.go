@@ -135,14 +135,14 @@ type Config struct {
 	// prompt; the agent posts and commits itself.
 	TurnIO TurnIO
 	// AgentSocket is where the agent socket is served (with TurnIO set);
-	// empty defaults to AgentSocketPath.
+	// empty defaults to AgentSocketPath (defaultAgentSocket).
 	AgentSocket string
 	// KeepDir is where kept processes' logs and registry live; empty
 	// defaults to defaultKeepDir.
 	KeepDir string
 }
 
-const defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
+var defaultStreamLogPath = "/agent-data/agent-stream.jsonl"
 
 // defaultContextDir is where a session context is written when Config leaves
 // ContextDir empty. A var so tests can point it away from the real /agent-data.
@@ -178,6 +178,9 @@ type Workload struct {
 	// compared with each delivered spec to re-validate on a change.
 	spec    *modelspec.Spec
 	specKey string
+	// cacheTTL is the role's prompt-cache lifetime from the raise-time context
+	// (Episode.CacheTTL); "" = none. Set once at Run start.
+	cacheTTL string
 	// inflight is the prompt in flight (structured turn end); gen numbers
 	// prompts. Run's goroutine only.
 	inflight turnMeta
@@ -272,6 +275,7 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 	// Fail loud rather than launch a broken agent (e.g. a toolless one,
 	// COV-190, or the wrong CLI version for its model-spec). The raise-time
 	// connector carries the spec the first episode is checked against.
+	w.cacheTTL = cacheTTL(w.cfg.Context, w.log)
 	var initial *modelspec.Spec
 	if w.cfg.Connector != nil {
 		initial = w.cfg.Connector.Initial.ModelSpec
@@ -311,7 +315,7 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 		defer w.keep.StopAll()
 		path := w.cfg.AgentSocket
 		if path == "" {
-			path = AgentSocketPath
+			path = defaultAgentSocket
 		}
 		if stop, err := serveAgentSocket(path, w.agentSocketHandler(), w.log); err != nil {
 			w.log.Warn("agentrun: agent socket not served; turn_end and keep are unavailable", "path", path, "err", err.Error())
@@ -395,10 +399,13 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 			if w.interrupted {
 				r.OK = false
 			}
-			if ctx.Err() == nil && w.finishTurn(ctx, r) {
+			if ctx.Err() != nil {
+				continue
+			}
+			if c := w.finishTurn(ctx, r); c != nil {
 				// The last turn ended as the process exited; the compact it
 				// asked for runs as a maintenance episode before the next wake.
-				w.cmds.postCompact(agentBy, "")
+				w.cmds.restoreCompact(*c)
 			}
 		}
 		if tr.ResumeOwed() {
@@ -444,7 +451,7 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 				return ctx.Err()
 			}
 			if c == nil {
-				prompt, continued = w.deliverText(ctx, rs), true
+				prompt, continued = w.deliverText(ctx, h, turn+1, rs), true // the next episode
 				if fresh, ok := w.clearedStart(prompt); ok {
 					prompt, continued = fresh, false
 				}
@@ -478,6 +485,7 @@ func (w *Workload) compactIdle(ctx context.Context, h studioagent.Handle, turn u
 			return ctx.Err()
 		}
 		w.log.Warn("agentrun: compact not run — the agent could not be started; waiting", "by", c.by, "err", err.Error())
+		w.resumeCompacted(c, false)
 		return nil
 	}
 	w.log.Info("agentrun: compacting the conversation in a maintenance episode", "by", c.by)
@@ -495,10 +503,13 @@ func (w *Workload) compactIdle(ctx context.Context, h studioagent.Handle, turn u
 		return ctx.Err()
 	case mctx.Err() != nil:
 		w.log.Warn("agentrun: compact timed out; maintenance episode stopped, waiting", "by", c.by, "timeout", compactTimeout.String())
+		w.resumeCompacted(c, false)
 	case waitErr != nil:
 		w.log.Warn("agentrun: compact FAILED — maintenance episode exited non-zero; waiting", "by", c.by, "exit", waitErr.Error())
+		w.resumeCompacted(c, false)
 	default:
 		w.log.Info("agentrun: compacted; waiting", "by", c.by)
+		w.resumeCompacted(c, true)
 	}
 	return nil
 }
@@ -554,11 +565,18 @@ func (w *Workload) spawn(ctx context.Context, h studioagent.Handle, turn uint32,
 	// The files the argv names are rewritten every episode, not only on a
 	// spec change: the agent may have deleted them (a missing --settings
 	// file fails every later claude at startup).
-	if err := w.cfg.Harness.Prepare(w.spec); err != nil {
+	if err := w.cfg.Harness.Prepare(w.spec, w.cacheTTL); err != nil {
 		w.log.Error("agentrun: harness files could not be written — refusing to start the agent", "err", err.Error())
 		return nil, nil, nil, err
 	}
-	bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec})
+	bin, args, extra := w.cfg.Harness.Command(Episode{Continued: continued, ContextCore: w.contextCore, Spec: w.spec, CacheTTL: w.cacheTTL})
+	if w.observes() {
+		extra = maps.Clone(extra)
+		if extra == nil {
+			extra = map[string]string{}
+		}
+		extra[ObserveEnv] = "1"
+	}
 	env = w.overlayEnv(env, extra)
 	w.gateMu.Lock()
 	w.gateEnv = env // gates run with the agent's env
@@ -568,6 +586,23 @@ func (w *Workload) spawn(ctx context.Context, h studioagent.Handle, turn uint32,
 		return nil, nil, nil, fmt.Errorf("agentrun: start %s: %w", bin, err)
 	}
 	return proc, tr, split, nil
+}
+
+// ObserveEnv is set to 1 in the agent's environment while the session
+// context in effect grants scope.observe (sessionctx.Bundle.Observe): the
+// messaging server (jam-studio-agent mcp) offers the observe tools only then.
+// Jam enforces the grant on every request either way.
+const ObserveEnv = "JAM_OBSERVE"
+
+// observes reports whether the bundle in effect grants observing sessions.
+func (w *Workload) observes() bool {
+	switch {
+	case w.ctxr != nil:
+		return w.ctxr.last.Observe
+	case w.cfg.Context != nil:
+		return w.cfg.Context.Observe
+	}
+	return false
 }
 
 // markConversation records that this standing session has a conversation to
@@ -601,7 +636,7 @@ func (w *Workload) applySpec(spec *modelspec.Spec) error {
 	if w.specKey != "" && key == w.specKey {
 		return nil
 	}
-	if err := w.cfg.Harness.Validate(spec); err != nil {
+	if err := w.cfg.Harness.Validate(spec, w.cacheTTL); err != nil {
 		w.log.Error("agentrun: harness pre-flight failed — refusing to start the agent", "model_spec", specName(spec), "err", err.Error())
 		return err
 	}
@@ -610,6 +645,21 @@ func (w *Workload) applySpec(spec *modelspec.Spec) error {
 	}
 	w.spec, w.specKey = spec, key
 	return nil
+}
+
+// cacheTTL is the role's cache.ttl the raise-time context carries (only it:
+// a change applies to sessions raised after it). A value other than 5m or 1h
+// — Jam refuses one — is logged and ignored.
+func cacheTTL(b *sessionctx.Bundle, log *slog.Logger) string {
+	if b == nil {
+		return ""
+	}
+	switch b.CacheTTL {
+	case "", "5m", "1h":
+		return b.CacheTTL
+	}
+	log.Warn("agentrun: cache ttl ignored; the harness's default applies", "cache_ttl", b.CacheTTL)
+	return ""
 }
 
 // specKey identifies a spec's content (never empty, so "" means "none
@@ -716,9 +766,11 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 	// turn is written instead of the usual turn-end action.
 	ackBy := ""
 	// compact: a Compact taken but not yet written (at the next turn
-	// boundary); compacting: a written /compact's turn is in flight.
+	// boundary); compacting: a written /compact's turn is in flight, for
+	// running (zero in a maintenance episode: compactIdle answers its own).
 	var compact *compactReq
 	compacting := maintenance
+	var running compactReq
 	// finish runs the structured turn end of every turn that has ended. It
 	// runs before anything is written into the episode, so each prompt's
 	// batch starts past what the turns before it committed.
@@ -730,8 +782,12 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			if ackBy != "" {
 				r.OK = false // the interrupted turn: whatever claude called it
 			}
-			if w.finishTurn(ctx, r) && !compacting && compact == nil {
-				compact = &compactReq{by: agentBy}
+			if c := w.finishTurn(ctx, r); c != nil && !compacting {
+				if compact == nil {
+					compact = c
+				} else if compact.resume == "" {
+					compact.resume = c.resume // a pressed Compact runs, and the agent's note still wakes it
+				}
 			}
 			if w.returning {
 				tr.Owe() // the returned wake is delivered in this episode
@@ -743,7 +799,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 	// burst of coalesced wakes carries it once).
 	resume := func() string {
 		finish()
-		text := w.deliverText(ctx, w.wake.take())
+		text := w.deliverText(ctx, h, turn, w.wake.take())
 		tr.NoteWrite(w.inflight.gen)
 		if w.ctxr != nil {
 			text += contextNotice(w.ctxr.live(ctx), true)
@@ -754,6 +810,11 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 		if compact != nil {
 			// The process exited before the turn boundary: the press is not lost.
 			w.cmds.restoreCompact(*compact)
+		}
+		if compacting && !maintenance {
+			// The process exited around the compaction: a resume note still
+			// wakes (compacted if its turn ended).
+			w.resumeCompacted(running, !tr.Busy())
 		}
 		w.interrupted = ackBy != ""
 	}()
@@ -771,6 +832,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 		case <-ctx.Done():
 			return <-exited // CommandContext SIGTERM/SIGKILLs the process
 		case <-wake:
+			finish() // a turn that just ended may ask for a compact, which goes first
 			switch {
 			case !w.wake.has():
 				// A signal whose reasons an earlier prompt already took is stale.
@@ -778,6 +840,9 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 				// The acknowledge turn answers it: only record it as pending
 				// (so an exit before the ack keeps it owed), never deliver now.
 				tr.Wake()
+			case compact != nil:
+				// Delivered once compacted, so it resumes on the new context.
+				tr.Owe()
 			case tr.Wake():
 				// Marked before the write: a fast turn end must not be seen first.
 				tr.Wrote()
@@ -802,11 +867,14 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 					ackBy = by
 				}
 			}
-			if by, instructions, ok := w.cmds.takeCompact(); ok {
+			if c, ok := w.cmds.takeCompact(); ok {
 				if compacting {
-					w.ignoreCommand(h, turn, "compact", by, "already compacting")
+					w.ignoreCommand(h, turn, "compact", c.by, "already compacting")
 				} else {
-					compact = &compactReq{by: by, instructions: instructions} // the last press wins
+					if compact != nil && c.resume == "" {
+						c.resume = compact.resume // the agent's note still wakes it
+					}
+					compact = &c // the last press wins
 				}
 			}
 			if !maintenance {
@@ -856,6 +924,12 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 				closeInput("compacted")
 				continue
 			}
+			w.resumeCompacted(running, true)
+			if w.wake.has() {
+				// Its resume note, or a wake whose signal raced the
+				// compaction's end: delivered now, at this turn boundary.
+				tr.Owe()
+			}
 			// Carry on with the usual turn-end action.
 		}
 		if compact != nil && !tr.Busy() {
@@ -869,7 +943,7 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			w.newTurn(turnMeta{quiet: true})
 			tr.NoteWrite(w.inflight.gen)
 			write(compactText(compact.instructions))
-			compacting = true
+			compacting, running = true, *compact
 			w.emitCommand(h, turn, "compact", compact.by, "")
 			compact = nil
 			continue
@@ -907,6 +981,13 @@ func (w *Workload) awaitWake(ctx context.Context, h studioagent.Handle, turn uin
 	for {
 		select {
 		case <-w.wake.signal():
+			if c, ok := w.cmds.takeCompact(); ok {
+				// A compact goes first, so the wake resumes on the compacted
+				// conversation: the wake stays for the wait after it.
+				w.wake.repost()
+				w.takeClear(h, turn)
+				return nil, &c, true
+			}
 			if rs = w.wake.take(); len(rs) > 0 {
 				// A Clear pressed alongside still applies to the episode this
 				// Wake starts.
@@ -918,8 +999,8 @@ func (w *Workload) awaitWake(ctx context.Context, h studioagent.Handle, turn uin
 				w.ignoreCommand(h, turn, "interrupt", by, "no live episode")
 			}
 			w.takeClear(h, turn)
-			if by, instructions, ok := w.cmds.takeCompact(); ok {
-				return nil, &compactReq{by: by, instructions: instructions}, true
+			if c, ok := w.cmds.takeCompact(); ok {
+				return nil, &c, true
 			}
 		case <-ctx.Done():
 			return nil, nil, false

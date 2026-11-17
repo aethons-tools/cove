@@ -9,9 +9,9 @@ see xref:concepts/kit.adoc[].
 You change kits on a branch of the config repo;
 each save is a commit to that branch
 (xref:configuration/config-branches.adoc[]).
-Importing, tracking and syncing a kit from git
+Importing, tracking, and syncing a kit from git
 are the exception:
-they change the Jam directly, with or without a branch.
+they change the Jam directly, whether or not there is a branch.
 
 == The list
 
@@ -39,7 +39,7 @@ Import from git::
 Give the source as `+<repo>[//<dir>]@<ref>+`,
 such as `+https://github.com/acme/kits//web@main+`:
 the repository, the folder that holds `kit.yml`,
-and a branch, a tag or a full commit id.
+and a branch, a tag, or a full commit id.
 *Kit name* is optional;
 without it, Jam uses the folder's name, or the repository's.
 With *Track this source* on,
@@ -85,7 +85,7 @@ the kits it is built on
 its egress,
 the egress ceiling
 (the egress without the domains no studio may reach),
-its build args and secret demands,
+its build arguments and secret demands,
 and its prompt.
 Effective::
 Only for a kit that builds on another kit.
@@ -110,8 +110,8 @@ or the repository, folder, ref and commit it was imported from.
 
 A diff shows the line changes to `kit.yml`.
 Its title line says whether the image changes:
-*build digest changed — a new image is built*,
-or *same build digest — the cached image is reused*.
+`build digest changed — a new image is built`,
+or `same build digest — the cached image is reused`.
 *close* returns to the version.
 
 image::kit-diff.png[The diff from v3 to v4,800]
@@ -186,7 +186,7 @@ is larger than 1 MiB,
 or has Windows line ends
 does not open in the editor;
 a note says why,
-and you can still download, replace, rename or delete it.
+and you can still download, replace, rename, or delete it.
 Files::
 The draft's files by folder,
 each marked *added*, *modified* or *mode* against the version it started from.

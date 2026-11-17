@@ -41,7 +41,7 @@ Like every admin verb they take `+--app+`/`+--admin-url+`/`+--token+`
 
 * *list* prints each declared name, its session id (`-` until first raised), and that
 studio's `phase` and xref:usage/jam/coves.adoc#the-studio-verbs[`image`] status (`-` when none runs,
-or — with a warning on stderr — when Jam can't list studios).
+or—with a warning on stderr—when Jam can't list studios).
 * *reset* keeps the name but deletes its studio and state, so Jam raises it
 fresh (see <<reset,Reset>>).
 * *upgrade* queues a restart on the current image, keeping its state
@@ -49,8 +49,8 @@ fresh (see <<reset,Reset>>).
 
 Each declaration *is a session* (Jam's standing-session map): its first raise
 starts one with a minted `+ses_…+` id (`standing list` shows it); every restart or
-upgrade sets that same session up in a new studio — same id, conversation and
-workspace — and a <<reset,reset>> ends it. Sessions from before session ids keep
+upgrade sets that same session up in a new studio—same id, conversation and
+workspace—and a <<reset,reset>> ends it. Sessions from before session ids keep
 their `standing-<project>-<role>-<name>` id. A name is refused if
 it is declared twice on the role or contains `/`.
 
@@ -71,7 +71,7 @@ confirm) on each standing session, and on a branch *Dismiss* (xref:usage/jam/ui-
 == What "kept alive" means
 
 Jam's *standing reconciler* runs whenever `jam serve` runs. It needs no
-Requisitioner and no config. Every 30s it walks every role's declarations. For each
+Requisitioner and no config. Every 30 seconds it walks every role's declarations. For each
 name:
 
 * *Its studio is live*: nothing to do.
@@ -85,7 +85,7 @@ raises the name again. The new studio *resumes* the old one's conversation
 and workspace (<<state-across-restarts,State across restarts>>).
 
 *Backoff.* If a raise fails, Jam releases the slot and waits before trying
-that name again: 30s, then doubling (1m, 2m, …) up to 30m. The backoff is per name,
+that name again: 30 seconds, then doubling (1 minute, 2 minutes, …) up to 30 minutes. The backoff is per name,
 so one failing name doesn't delay another. It resets once the name has a live
 studio, and it is kept in memory, so a Jam restart retries at once. A denied or
 failed _grant_ is logged and retried on the next pass, without backoff.
@@ -93,8 +93,8 @@ A role whose xref:usage/jam/role-egress.adoc[egress policy] asks for a domain ou
 kit's ceiling fails every raise this way, so its standing sessions back off (each
 failure logged, naming the domain) until the policy or the kit is fixed.
 
-If Jam stops partway through raising a standing session — after creating its
-identity but before recording the studio — the identity is left behind with no studio.
+If Jam stops partway through raising a standing session—after creating its
+identity but before recording the studio—the identity is left behind with no studio.
 The reconciler removes it on its next pass (standing ids are Jam's own) and
 raises the session normally, rather than failing "already exists" from then on.
 
@@ -111,8 +111,8 @@ xref:usage/jam/personal-idle-ladder.adoc[personal sessions] only.
 
 A standing studio keeps its conversation and workspace in named Docker volumes
 that outlive its container and re-attach when the name is raised again; a
-restarted session resumes with `+claude --continue+`. No teardown deletes them —
-only <<reset,Reset>> and <<dismissal,Dismissal>> do. The volumes, their labels
+restarted session resumes with `+claude --continue+`. No teardown deletes them—only
+<<reset,Reset>> and <<dismissal,Dismissal>> do. The volumes, their labels
 and the resume rules are in xref:usage/jam/standing-state.adoc[]. A standing session is pinned to its manager (xref:usage/jam/coves.adoc#managers-and-placement[Managers and placement]).
 
 [#reset]
@@ -124,8 +124,8 @@ starts a *new session* (a new id, so a new inbox too) with the declared prompt. 
 at a time) and clears the name's raise backoff. Use it when a session's
 conversation or workspace has gone bad. A name that is down has its volumes
 deleted all the same. If the teardown or the deletion fails (a volume still in
-use), the reset is *pending*: the name is held back from raising — it would
-re-attach the old state — and every pass retries until it completes. The pending
+use), the reset is *pending*: the name is held back from raising—it would
+re-attach the old state—and every pass retries until it completes. The pending
 mark is in memory: a Jam restart forgets it, and the name is raised on whatever
 state remains.
 
@@ -141,7 +141,7 @@ Once a name is no longer declared, or its role is removed, the next pass tears i
 studio down and *deletes its volumes* once no container uses them (retrying
 every pass until it can), so declaring the name again starts fresh. This also
 covers a name dismissed while its studio was down. Removing the name only changes
-the declaration, so the studio goes away within about one pass (30s) of the apply. The
+the declaration, so the studio goes away within about one pass (30 seconds) of the apply. The
 teardown releases the reservation like any other.
 
 To stop a standing session for good, remove its name. Tearing its studio down by

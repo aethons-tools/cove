@@ -7,7 +7,7 @@
 :updated: 2026-11-14
 
 The *Requisitioner* is an always-on loop inside `jam serve` that
-turns ready tracker tickets into managed-cove raises — the automatic counterpart
+turns ready tracker tickets into managed-cove raises—the automatic counterpart
 to `jam studio raise` (xref:usage/jam/coves.adoc[coves]). Enable it with a
 `runtime.requisitioner` block; the supervisor + Launcher own everything after the
 raise (run → report → teardown).
@@ -15,29 +15,29 @@ raise (run → report → teardown).
 [#the-flow-per-poll]
 == The flow (per poll)
 
-. *List ready* — poll the tracker for issues in its READY state (GitHub: open
+. *List ready*—poll the tracker for issues in its READY state (GitHub: open
 issues with the ready status label; pull requests never count).
-. *Gate on the dispatch label* — skip any issue that does _not_ carry a label
+. *Gate on the dispatch label*—skip any issue that does _not_ carry a label
 matching `dispatch-label-prefix` (default `+dispatch:+`). Only tickets
 explicitly tagged for dispatch are worked; an unlabeled READY backlog is left
-alone. Presence-only — the value after the prefix is unused.
-. *Dedup* — skip any issue that already has a live or recovering session on it (an Instance
+alone. Presence-only—the value after the prefix is unused.
+. *Dedup*—skip any issue that already has a live or recovering session on it (an Instance
 whose unit is the ticket), so a ticket is never raised twice. Each dispatch
 starts a new session (a minted `+ses_…+` id): a re-dispatch after the earlier
 one ended does not inherit its inbox.
-. *Cap* — ask Jam's Allocator for an ephemeral reservation; stop raising
+. *Cap*—ask Jam's Allocator for an ephemeral reservation; stop raising
 once it denies (the role's ephemeral cap is reached); the rest wait for the
 next poll. The cap is the role's roster `max-ephemeral`
 (xref:usage/jam/roster.adoc#roles[Roles]), falling back to `max-concurrent` when the role
 sets none. The count is durable (the Postgres allocation ledger, else the
-Instance registry — see xref:usage/jam/serve.adoc[]), so the cap holds across a
+Instance registry—see xref:usage/jam/serve.adoc[]), so the cap holds across a
 Jam restart.
-. *Claim* — transition the issue READY → IN PROGRESS _before_ raising, so a
+. *Claim*—transition the issue READY → IN PROGRESS _before_ raising, so a
 crash between claim and raise leaves the ticket claimed (recoverable), never
 double-raised. The transition also drops it from the next `ListReady`.
-. *Raise* — set the session's starting xref:usage/jam/intercom.adoc#what-the-tools-do[mission] and its `UnitTitle` (the rail's xref:usage/jam/rail-api.adoc#sections[Work] row) to the issue's title, then build the prompt (the issue brief + the turn-end protocol: own the
+. *Raise*—set the session's starting xref:usage/jam/intercom.adoc#what-the-tools-do[mission] and its `UnitTitle` (the rail's xref:usage/jam/rail-api.adoc#sections[Work] row) to the issue's title, and its `UnitURL` (the unit's xref:usage/jam/work-units.adoc[record]) to the issue's page, then build the prompt (the issue brief + the turn-end protocol: own the
 branch and PR through merge, keep the ticket current with `report`, `end` only
-once the work has landed, and wait for people rather than exit when stuck —
+once the work has landed, and wait for people rather than exit when stuck—
 see xref:usage/jam/turn-end.adoc#reporting-a-ticket[Reporting a ticket]) and call the supervisor's raise
 with `role`/`project` from config and `unit = <ticket key>` (``AET-42``; GitHub
 `+owner/repo#<n>+`). On a raise
@@ -45,11 +45,11 @@ failure the issue is moved to NEEDS INPUT (surfaced, not silently retried).
 
 == The model: elastic raise under a cap
 
-Studios are *ephemeral, one per ticket* — each raised studio works one ticket
-through merge and then ends itself — so there is no pool of idle actors to assign to; each ready ticket
+Studios are *ephemeral, one per ticket*—each raised studio works one ticket
+through merge and then ends itself—so there is no pool of idle actors to assign to; each ready ticket
 is a fresh raise, bounded by `max-concurrent`. The tracker's READY column is the
 durable queue; the Requisitioner is the bounded consumer. This is the middle ground
-between the old single-task dispatcher and raising unboundedly.
+between the old single-task dispatcher and raising without bound.
 
 [#config-runtimerequisitioner]
 == Config (`runtime.requisitioner`)
@@ -63,9 +63,9 @@ xref:usage/jam/studio-managers.adoc[Studio Manager] to raise real studios
 ----
 runtime:
   requisitioner:
-    role: worker              # required — role raised coves get (must grant anthropic + git)
+    role: worker              # required—role raised coves get (must grant anthropic + git)
     project: acme             # optional
-    max-concurrent: 5         # required, > 0 — the backpressure cap (fallback: the role's roster max-ephemeral wins when set)
+    max-concurrent: 5         # required, > 0—the backpressure cap (fallback: the role's roster max-ephemeral wins when set)
     poll-interval: 30s        # optional; defaults to 30s
     connection: linear-acme   # a connection of the tracker's kind, `linear` or `github` (`connections/linear-acme.yml` in the config repo: `service: linear`, `cred: linear-bot`); its credential is demanded in credentials.adoc, never inline here
     linear:                   # the Linear team + lifecycle-state map
@@ -83,7 +83,7 @@ not read).
 The block also accepts `wake-poll-interval`, `wait-max` (deprecated and ignored),
 and `warm-timeout` (the wake-on engine) and `escalation-poll-interval` (the escalation engine). These are now a
 *fallback*: the matching `runtime.wake` field, or `runtime.escalation-poll-interval`,
-wins when set — see xref:usage/jam/wake-on.adoc[wake-on] and
+wins when set—see xref:usage/jam/wake-on.adoc[wake-on] and
 xref:usage/jam/escalation.adoc[escalation]. The Requisitioner also brings the tracker relay (Linear or GitHub comments), which
 needs its tracker; the intercom itself (`/squawks`, wake-on, escalation, the Discord
 relay) runs without a Requisitioner.
@@ -120,19 +120,19 @@ The role must grant the `anthropic` and `git` destinations so the raised studio'
 agent can reach them (xref:usage/jam/roster.adoc[]).
 
 *Dispatch is opt-in per ticket.* Only issues in the READY state that _also_
-carry a label matching `dispatch-label-prefix` (default `+dispatch:+`) are raised —
-so pointing `states.ready` at a shared column (e.g. "Todo") does not sweep the
+carry a label matching `dispatch-label-prefix` (default `+dispatch:+`) are raised—
+so pointing `states.ready` at a shared column (for example, `Todo`) does not sweep the
 whole backlog into studios; tag the specific tickets with `+dispatch:*+`. The gate is
 presence-only (any `+dispatch:<anything>+` counts). It is distinct from
 `class-label-prefix`, which parses a handler _class_ but does not gate.
 
 == Not yet (deferred)
 
-* *Outcome → tracker writeback* — a ticket stays IN PROGRESS after its studio
+* *Outcome → tracker writeback*—a ticket stays IN PROGRESS after its studio
 finishes; writing Done/Needs-Input back (with a result comment) on completion is
 the next slice (it needs the studio's outcome propagated over the Attach stream).
-* *Webhook intake* — poll only for now.
-* *Multiple Jam instances* — the Requisitioner is single-instance today (the
-tracker-transition claim + registry dedup); multi-instance ticket-leasing is
+* *Webhook intake*—poll only for now.
+* *Multiple Jam instances*—the Requisitioner is single-instance today (the
+tracker-transition claim + registry deduplication); multi-instance ticket-leasing is
 deferred.
 * *Per-role/class caps.*

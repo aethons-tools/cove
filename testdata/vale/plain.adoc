@@ -1,0 +1,4 @@
+= A plain page
+
+* This step usually runs.
+* A step with no keyword at all.

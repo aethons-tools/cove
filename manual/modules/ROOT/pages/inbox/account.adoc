@@ -1,4 +1,4 @@
-= Your account, app tokens and notifications
+= Your account, app tokens, and notifications
 :page-area: ROOT
 :page-id: ROOT/inbox/account
 :page-conventions: sentence-case
@@ -65,7 +65,7 @@ it is your count of unread messages.
 The notification shows who wrote, the channel, and the start of the message,
 also on the lock screen.
 Your operator can hide the text.
-Then it says "New message".
+Then it says `New message`.
 
 When you sign out,
 Jam turns notifications off on this device first,
@@ -106,7 +106,7 @@ can use Jam as you, with an *app token*.
 An app token is a key that Jam gives to one app.
 
 To connect an app,
-sign in from the app, for example with *Jam: Sign In* in VS Code.
+sign in from the app, for example with the *Jam: Sign In* command in VS Code.
 Your browser opens a Jam page that asks if the app can use Jam as you.
 Click *Allow* or *Cancel*.
 The app can then see and do what you can in the Inbox,

@@ -25,7 +25,7 @@ A session asks for a person when:
 * it asks for a person with its `escalate` tool.
 
 This works for every kind of session:
-standing, ticket, personal and manual.
+standing, ticket, personal, and manual.
 A session that asked to end,
 or that is ending or gone,
 is never escalated.
@@ -42,7 +42,7 @@ user:alice,user:bob@15m
 user:carol@1h
 ----
 
-Here alice and bob are tier 0.
+Here `alice` and `bob` are tier 0.
 If nobody answers within 15 minutes,
 carol is tier 1.
 

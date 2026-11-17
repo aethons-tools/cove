@@ -9,7 +9,7 @@
 The extension starts with VS Code (`onStartupFinished`), in every window, and every signed-in window holds one live stream.
 What notifies is the phone's rule (xref:usage/jam/push.adoc#what-notifies[What notifies]), not restated here.
 
-* *One window per event, usually the focused one.* The focused window gets a 250 ms head start, so a lagging stream can let an unfocused window win; it then also shows an OS banner while VS Code is focused. Windows agree through a lock file in the extension's global storage, so a second VS Code profile, and VS Code Insiders, each notify separately. If the lock can't be written (e.g. read-only storage), every window notifies and the Jam output channel says why, once per window.
+* *One window per event, usually the focused one.* The focused window gets a 250 ms head start, so a lagging stream can let an unfocused window win; it then also shows an OS banner while VS Code is focused. Windows agree through a lock file in the extension's global storage, so a second VS Code profile, and VS Code Insiders, each notify separately. If the lock can't be written (for example, read-only storage), every window notifies and the Jam output channel says why, once per window.
 * *Rate:* at most one message notification per conversation per 5 s; asks, call-ins and escalations always notify. An ask shows as a warning, a message as information. Link syntax in a message (`+[text](command:…)+`, `+https:+`, `+file:+`) shows as text, never as a clickable link.
 * *Open*, and the OS notification (`+vscode://aethons.jam/go/<chn>?session=<id>+`), xref:usage/jam/vscode-hub.adoc#the-hub[go to the conversation]: the session's studio window if open, else its hub tab.
 * *OS notifications* show only while the winning window isn't focused:

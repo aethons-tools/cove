@@ -34,7 +34,7 @@ and you change it directly, with no branch:
 * sessions: the agents Jam raises, and their studios;
 * grants, and the agents you enroll by hand;
 * people's sign-ins, accounts and app tokens;
-* messages, channels and asks on the intercom.
+* messages, channels, and asks on the intercom.
 
 The repo names credentials,
 such as `github-pat`,
@@ -77,7 +77,7 @@ it waits for a person to confirm.
 You look at what would change,
 then apply it once.
 After that, Jam applies each new commit on its own.
-It waits again if the repo, branch or folder it follows changes.
+It waits again if the repo, branch, or folder it follows changes.
 
 If the Jam follows no repo,
 its config is read-only in the admin console.
@@ -99,8 +99,8 @@ Or you can open a pull request,
 so other people can review it first,
 and the Jam applies it within a minute of the merge.
 
-You can also change the repo without the console,
-with git and the editor you prefer.
+You can also change the repo with git and the editor you prefer,
+without the console.
 Jam applies those commits in the same way.
 
 ifdef::internal[]

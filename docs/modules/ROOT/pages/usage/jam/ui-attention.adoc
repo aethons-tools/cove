@@ -34,6 +34,6 @@ open conditions, and *Dashboard* everything. A tree node counts the config
 items at it or under it, so a project's node sums its roles' and its
 Escalation's.
 
-*Needs attention.* The Dashboard lists Jam's own items — open conditions,
-kits and destinations — each marked with a red or amber *⚠*, with why and a link to where to fix it, or says
+*Needs attention.* The Dashboard lists Jam's own items—open conditions,
+kits and destinations—each marked with a red or amber *⚠*, with why and a link to where to fix it, or says
 nothing needs attention. The *⚠* appears only on this card.

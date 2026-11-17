@@ -85,10 +85,11 @@ type sendIn struct {
 
 // readIn is the "read" tool's typed input: optional seek parameters.
 type readIn struct {
-	Anchor string `json:"anchor,omitempty" jsonschema:"where to read from: cursor (default; your commit position), start, end, or id"`
-	ID     string `json:"id,omitempty" jsonschema:"message id anchor, required when anchor=id"`
-	Dir    string `json:"dir,omitempty" jsonschema:"direction from the anchor: forward (default, oldest-first) or backward"`
-	Limit  int    `json:"limit,omitempty" jsonschema:"max messages to return (default 50)"`
+	Anchor  string `json:"anchor,omitempty" jsonschema:"where to read from: cursor (default; your commit position), start, end, or id"`
+	Channel string `json:"channel,omitempty" jsonschema:"optional: your unit's work log (work:<key>, or its channel id) to read its history instead of your inbox, from the start by default; only its current worker may"`
+	ID      string `json:"id,omitempty" jsonschema:"message id anchor, required when anchor=id"`
+	Dir     string `json:"dir,omitempty" jsonschema:"direction from the anchor: forward (default, oldest-first) or backward"`
+	Limit   int    `json:"limit,omitempty" jsonschema:"max messages to return (default 50)"`
 }
 
 // readOut is the "read" tool's typed output: the cove's inbox.
@@ -356,6 +357,11 @@ func (c *messagingClient) do(ctx context.Context, method, pathSuffix string, bod
 // doStatus performs the request and returns the (capped) body and status
 // without judging it; do and callers that surface Jam's reason build on it.
 func (c *messagingClient) doStatus(ctx context.Context, method, pathSuffix string, body []byte) ([]byte, int, error) {
+	return c.doStatusCap(ctx, method, pathSuffix, body, maxJamResponseBytes)
+}
+
+// doStatusCap is doStatus reading at most limit bytes of the response.
+func (c *messagingClient) doStatusCap(ctx context.Context, method, pathSuffix string, body []byte, limit int64) ([]byte, int, error) {
 	var reqBody io.Reader
 	if body != nil {
 		reqBody = bytes.NewReader(body)
@@ -375,7 +381,7 @@ func (c *messagingClient) doStatus(ctx context.Context, method, pathSuffix strin
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxJamResponseBytes))
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
 	return respBody, resp.StatusCode, nil
 }
 
@@ -416,11 +422,14 @@ func (c *messagingClient) send(ctx context.Context, in sendIn) (sendOut, error) 
 }
 
 // read fetches the cove's inbox via Jam, optionally seeking via in's
-// anchor/id/dir/limit (each forwarded as a query param only when non-empty).
+// anchor/channel/id/dir/limit (each forwarded as a query param only when non-empty).
 func (c *messagingClient) read(ctx context.Context, in readIn) (readOut, error) {
 	q := url.Values{}
 	if in.Anchor != "" {
 		q.Set("anchor", in.Anchor)
+	}
+	if in.Channel != "" {
+		q.Set("channel", in.Channel)
 	}
 	if in.ID != "" {
 		q.Set("id", in.ID)
@@ -711,6 +720,9 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 	addBoardTools(s, client, cfgErr)
 	addTurnTools(s, getenv)
 	addKeepTools(s, getenv)
+	if getenv("JAM_OBSERVE") == "1" {
+		addObserveTools(s, client, cfgErr)
+	}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "send",
@@ -734,7 +746,7 @@ func newMessagingServer(getenv func(string) string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "read",
-		Description: "Read your inbox as a queue: messages to you, each with the channel it's in and who sent it. Default: the next unprocessed messages after your commit cursor (oldest first). Use anchor/dir/limit to seek (start/end/id, forward/backward). Reading does NOT mark anything processed — call `commit` for that. If your context says new messages arrive in your prompt, use read only to page past them or catch up mid-turn: ending your turn marks the ones in your prompt handled.",
+		Description: "Read your inbox as a queue: messages to you, each with the channel it's in and who sent it. Default: the next unprocessed messages after your commit cursor (oldest first). Use anchor/dir/limit to seek (start/end/id, forward/backward). As your unit's worker, set channel to work:<key> to page its work log's history from the start (earlier sessions' reports, people's comments), including entries from before you joined. Reading does NOT mark anything processed — call `commit` for that. If your context says new messages arrive in your prompt, use read only to page past them or catch up mid-turn: ending your turn marks the ones in your prompt handled.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in readIn) (*mcp.CallToolResult, readOut, error) {
 		if cfgErr != nil {
 			return nil, readOut{}, cfgErr

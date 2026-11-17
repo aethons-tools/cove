@@ -671,6 +671,7 @@ type RoleScopeFile struct {
 	TTL          string            `yaml:"ttl,omitempty"`
 	Egress       *[]string         `yaml:"egress,omitempty"` // nil = the kit's default list
 	Rooms        []RoleRoomFile    `yaml:"rooms,omitempty"`
+	Observe      string            `yaml:"observe,omitempty"` // "" = none; else all
 }
 
 // RoleRoomFile is one room of a role's scope.rooms.
@@ -709,6 +710,27 @@ type CollaborateFile struct {
 	SSH     string `yaml:"ssh,omitempty"`
 }
 
+// CacheFile is a role's prompt-cache profile (CachePolicy).
+type CacheFile struct {
+	TTL       string `yaml:"ttl,omitempty"`
+	KeepWarm  string `yaml:"keep-warm,omitempty"`
+	Threshold Tokens `yaml:"threshold,omitempty"`
+}
+
+// Tokens is a token count in a config file: a whole number, never a
+// fraction (which plain int decoding would truncate).
+type Tokens int
+
+// UnmarshalYAML refuses anything but a YAML integer.
+func (t *Tokens) UnmarshalYAML(n *yaml.Node) error {
+	var v int
+	if n.Kind != yaml.ScalarNode || n.ShortTag() != "!!int" || n.Decode(&v) != nil {
+		return errors.New("cache.threshold must be a whole number of tokens")
+	}
+	*t = Tokens(v)
+	return nil
+}
+
 // ContextFile is a role's inline session-context layer.
 type ContextFile struct {
 	Core   string            `yaml:"core,omitempty"`
@@ -728,6 +750,7 @@ type RoleFile struct {
 	Allocation  AllocationFile  `yaml:"allocation,omitempty"`
 	TurnEnd     TurnEndFile     `yaml:"turn-end,omitempty"`
 	Collaborate CollaborateFile `yaml:"collaborate,omitempty"`
+	Cache       CacheFile       `yaml:"cache,omitempty"`
 	Context     *ContextFile    `yaml:"context,omitempty"`
 	// OperatorNotes is for operators only; context: is what sessions read.
 	OperatorNotes string `yaml:"operator-notes,omitempty"`
@@ -758,6 +781,10 @@ func (f RoleFile) role() (Role, error) {
 		Destinations: slices.Clone(f.Scope.Destinations), Credentials: maps.Clone(f.Scope.Credentials),
 		Addressing: slices.Clone(f.Scope.Addressing),
 	}
+	if o := f.Scope.Observe; o != "" && o != ObserveAll {
+		return r, fmt.Errorf("scope.observe: must be %s, not %q", ObserveAll, o)
+	}
+	r.Scope.Observe = f.Scope.Observe
 	var err error
 	if r.Scope.TTL, err = parseConfigDuration("scope.ttl", f.Scope.TTL); err != nil {
 		return r, err
@@ -800,6 +827,13 @@ func (f RoleFile) role() (Role, error) {
 	}
 	r.TurnEnd = t
 	r.Collaborate = CollaboratePolicy{Preview: f.Collaborate.Preview, SSH: f.Collaborate.SSH}
+	if r.Cache.TTL, err = parseConfigDuration("cache.ttl", f.Cache.TTL); err != nil {
+		return r, err
+	}
+	if r.Cache.KeepWarm, err = parseConfigDuration("cache.keep-warm", f.Cache.KeepWarm); err != nil {
+		return r, err
+	}
+	r.Cache.Threshold = int(f.Cache.Threshold)
 	if f.Context != nil {
 		r.Context = sessionctx.Layer{Core: f.Context.Core, Leaves: slices.Clone(f.Context.Leaves)}
 	}
@@ -835,7 +869,7 @@ func roleFileOf(project, name string, r Role, userName func(ident.ID) (string, b
 	}
 	f.Scope = RoleScopeFile{
 		Destinations: slices.Clone(r.Scope.Destinations), Credentials: maps.Clone(r.Scope.Credentials),
-		TTL: formatConfigDuration(r.Scope.TTL),
+		TTL: formatConfigDuration(r.Scope.TTL), Observe: r.Scope.Observe,
 	}
 	for _, a := range r.Scope.Addressing {
 		if rest, ok := strings.CutPrefix(a, "user:"); ok {
@@ -872,6 +906,7 @@ func roleFileOf(project, name string, r Role, userName func(ident.ID) (string, b
 	}
 	f.TurnEnd = TurnEndFile{IdleTimeout: formatConfigDuration(r.TurnEnd.IdleTimeout), OnIdle: r.TurnEnd.OnIdle, TimeZone: r.TurnEnd.TimeZone}
 	f.Collaborate = CollaborateFile{Preview: r.Collaborate.Preview, SSH: r.Collaborate.SSH}
+	f.Cache = CacheFile{TTL: formatConfigDuration(r.Cache.TTL), KeepWarm: formatConfigDuration(r.Cache.KeepWarm), Threshold: Tokens(r.Cache.Threshold)}
 	if !r.Context.Empty() {
 		f.Context = &ContextFile{Core: r.Context.Core, Leaves: slices.Clone(r.Context.Leaves)}
 	}

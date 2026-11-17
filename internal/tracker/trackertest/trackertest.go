@@ -51,9 +51,11 @@ type Case struct {
 	Kind    string          // tracker.KindLinear | tracker.KindGitHub
 	Tracker tracker.Tracker // the real client, against the fake
 	Key     string          // ticket key of the seeded dispatch-labeled ready issue
-	Self    string          // what Viewer returns
-	State   func() string   // the seeded issue's role: "ready", "in-progress", …, "done"
-	Posted  func() []string // bodies the client posted on the seeded issue
+	Self    string          // what Viewer returns (Linear: the user id; GitHub: the login)
+	// SelfName is the author name Jam's own comments carry (Comment's author).
+	SelfName string
+	State    func() string   // the seeded issue's role: "ready", "in-progress", …, "done"
+	Posted   func() []string // bodies the client posted on the seeded issue
 	// Comment adds a person's comment on the seeded issue, created at at.
 	Comment func(author, body string, at time.Time)
 	GitHub  *GitHub // set for the github case
@@ -77,7 +79,7 @@ func Both(t testing.TB) []Case {
 	gh.AddIssue(GHIssue{Number: 3, Title: "A pull request", Labels: []string{"status:ready", "dispatch:go"}, PullRequest: true})
 	linRole := map[string]string{"Ready": "ready", "In Progress": "in-progress", "In Review": "in-review", "Done": "done", "Needs Input": "needs-input", "Blocked": "blocked"}
 	return []Case{{
-		Kind: tracker.KindLinear, Tracker: lin.Client(t), Key: "ACME-1", Self: "Jam", Linear: lin,
+		Kind: tracker.KindLinear, Tracker: lin.Client(t), Key: "ACME-1", Self: "u-Jam", SelfName: "Jam", Linear: lin,
 		State: func() string { return linRole[lin.IssueState("lin-1")] },
 		Posted: func() []string {
 			var out []string
@@ -92,7 +94,7 @@ func Both(t testing.TB) []Case {
 			lin.AddComment(LinComment{IssueID: "lin-1", Body: body, Author: author, AuthorID: "u-" + author, CreatedAt: at})
 		},
 	}, {
-		Kind: tracker.KindGitHub, Tracker: gh.Client(t), Key: "acme/board#1", Self: "jam-bot", GitHub: gh,
+		Kind: tracker.KindGitHub, Tracker: gh.Client(t), Key: "acme/board#1", Self: "jam-bot", SelfName: "jam-bot", GitHub: gh,
 		State: func() string { return gh.State(1) },
 		Posted: func() []string {
 			var out []string

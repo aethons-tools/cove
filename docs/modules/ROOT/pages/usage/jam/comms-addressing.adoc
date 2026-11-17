@@ -11,8 +11,8 @@ a *person* or another *session* (a `dm`),
 a group of people and sessions (a `group`),
 a *room*,
 a unit of work's *log*,
-or the unit's current *worker* —
-each a channel of the xref:usage/jam/intercom.adoc#enabling-it[channel log] — gated by a *comms
+or the unit's current *worker*—
+each a channel of the xref:usage/jam/intercom.adoc#enabling-it[channel log]—gated by a *comms
 access-graph* that mirrors the broker's `Scope`/`Grant` model.
 
 == The target space
@@ -27,27 +27,27 @@ A target is *kind-prefixed*, and names a channel:
 |`+session:<label>+` / `+session:<ses_id>+` |the `dm` between the session and that session. A ticket session is reached like any other (no `+ticket:+` addressing needed); a label two live sessions share names neither, and a session naming itself names nothing (`404`).
 |`+chat:<member>,<member>…+` |the `dm` (one member) or `group` (more) of the session and exactly those members, each a `+user:+` or `+session:+` target
 |`+channel:<name>+` |the project's room of that name (post-only: the session doesn't join)
-|`+work:<key>+` / `+work:<connection>/<key>+` |that unit of work's log (its own is always allowed; another's is post-only); `+ticket:+` is an alias. A GitHub key is `+owner/repo#<n>+` (`+work:acme/board#7+`, or scoped `+work:<connection>/acme/board#7+`), any case or leading zeros naming one ticket; a malformed one is refused with "github ticket key must be owner/repo#<n>".
+|`+work:<key>+` / `+work:<connection>/<key>+` |that unit of work's log (its own is always allowed; another's is post-only); `+ticket:+` is an alias. A GitHub key is `+owner/repo#<n>+` (`+work:acme/board#7+`, or scoped `+work:<connection>/acme/board#7+`), any case or leading zeros naming one ticket; a malformed one is refused with `+github ticket key must be owner/repo#<n>+`.
 |`+worker:<key>+` |the `dm` between the session and the unit's current worker (xref:usage/jam/intercom.adoc#enabling-it[the channel log]). With no current worker (or no log yet), `409` with `+{"error": "no-worker"}+`; nothing is held for a later session. The worker addressing itself is `404`.
 |===
 
 A person must be a member of the session's project. The same members are the
-same `dm` or `group`, however they're listed, so `+worker:+` and `+chat:session:+` reach one `dm` per pair. `+human:<name>+` — the pre-registry form — is
+same `dm` or `group`, however they're listed, so `+worker:+` and `+chat:session:+` reach one `dm` per pair. `+human:<name>+`—the pre-registry form—is
 still accepted and read as `+user:+`. A bare name with no known prefix is
 *malformed* and always denied.
 
 Addressing allow-lists (`Scope.Addressing`, below) are *glob-capable*, matched
 with ``path.Match``: `+user:*+` (any member), `+channel:eng-*+`
 (channels by prefix), `+*+` (everything but sessions: `+session:+` needs its own glob). A person matches a glob by either form —
-`+user:<name>+` or `+user:<usr_id>+` — so policy can name someone by id (rename-proof;
-what Jam itself writes, e.g. a personal session's grant and migrated policy) or
-by name. An id is matched only by that exact id, `+user:*+` or `+*+` — a name
-pattern like `+user:a*+` never matches an id — so ids never widen a name glob. Globs match only within
+`+user:<name>+` or `+user:<usr_id>+`—so policy can name someone by id (rename-proof;
+what Jam itself writes, for example a personal session's grant and migrated policy) or
+by name. An id is matched only by that exact id, `+user:*+` or `+*+`—a name
+pattern like `+user:a*+` never matches an id—so ids never widen a name glob. Globs match only within
 their kind (`+user:+`, `+channel:+`, `+ticket:+`, `+session:+`); write each prefix you mean.
 `+work:+` and `+worker:+` have no globs of their own:
 they match a role's `+ticket:+` globs,
 so `+ticket:ACME-*+` allows `+work:ACME-7+` and `+worker:ACME-7+`.
-For a GitHub ticket key, `+*+` also crosses its ``/``: `+ticket:*+` and `+*+` reach every ticket, and `+ticket:x/*+` every ticket of owner ``x``'s repos _or_ every ticket scoped to a connection named `x` (`+ticket:x/<key>+`). A GitHub ticket is matched by its canonical key only, and a glob's GitHub-shaped parts are canonical too (lowercased, `+#<n>+` without leading zeros): `+ticket:Acme/*+` reaches `+acme/board#7+`, while `+ticket:acme/board#??+` does not reach `+acme/board#07+` (that is `+#7+`) — so the spelling never changes the answer, and `+ticket:+` and `+session:+` agree. A malformed key with no `+#+` (`+ticket:acme/board+`) is no GitHub form, so `+*+` does not cross its ``/``: it is denied (403) unless a glob covers it as written (`+ticket:acme/*+`), and only then refused as malformed (404).
+For a GitHub ticket key, `+*+` also crosses its ``/``: `+ticket:*+` and `+*+` reach every ticket, and `+ticket:x/*+` every ticket of owner ``x``'s repos _or_ every ticket scoped to a connection named `x` (`+ticket:x/<key>+`). A GitHub ticket is matched by its canonical key only, and a glob's GitHub-shaped parts are canonical too (lowercased, `+#<n>+` without leading zeros): `+ticket:Acme/*+` reaches `+acme/board#7+`, while `+ticket:acme/board#??+` does not reach `+acme/board#07+` (that is `+#7+`)—so the spelling never changes the answer, and `+ticket:+` and `+session:+` agree. A malformed key with no `+#+` (`+ticket:acme/board+`) is no GitHub form, so `+*+` does not cross its ``/``: it is denied (403) unless a glob covers it as written (`+ticket:acme/*+`), and only then refused as malformed (404).
 
 A Project's members and rooms, and the users behind them: xref:usage/jam/project-members.adoc[project-members].
 
@@ -60,9 +60,9 @@ xref:usage/jam/discord.adoc[discord].
 
 == The comms access-graph
 
-A ``Role``'s `Scope` gains `+Addressing []string+` — an allow-list of target globs,
+A ``Role``'s `Scope` gains `+Addressing []string+`—an allow-list of target globs,
 alongside `Destinations`. A ``Grant``'s `Override.Addressing`, when set,
-*replaces* the role's addressing (no merge — same semantics as `Override.Destinations`).
+*replaces* the role's addressing (no merge—same semantics as `Override.Destinations`).
 Set it in the role's file as `scope.addressing`, a list of globs beside
 `scope.destinations` (xref:usage/jam/roster.adoc#roles[roster.adoc]):
 
@@ -76,9 +76,9 @@ scope: {addressing: ["user:*", "channel:eng-help"]}
 *additive across the actor's grants in the session's project*. Everything is
 *fail-closed*: an unknown actor, an expired token, a role with no addressing, or
 a malformed target all deny. A `+chat:+` needs every member in it allowed; a unit of work
-other than the studio's own needs a `+ticket:<glob>+` (e.g. `+ticket:*+`). `+session:<glob>+` matches a label or id.
+other than the studio's own needs a `+ticket:<glob>+` (for example `+ticket:*+`). `+session:<glob>+` matches a label or id.
 
-Some sends never consult the access-graph — only the token's expiry:
+Some sends never consult the access-graph—only the token's expiry:
 
 * Its xref:usage/jam/intercom.adoc#default-conversation[default conversation] (`to` empty from a studio on an older turn protocol).
 * Its own unit's log (`+work:<its key>+`).
@@ -91,13 +91,13 @@ Each inbox entry carries `+reply_to+` (`Intercom.ReplyTo`), a target that replie
 `+channel:<room>+`, or `+work:<key>+`.
 An archived session channel an older Jam made has none.
 
-*Authz is checked before existence.* A target whose form no grant's addressing
-allows returns *403* — the send is denied without ever asking whether the target
+*Authorization is checked before existence.* A target whose form no grant's addressing
+allows returns *403*—the send is denied without ever asking whether the target
 exists. A target that _is_ authorized in form but isn't in the resolving grant's
-project (e.g. `+user:*+` is allowed but no member `bob` exists) returns *404*. This
+project (for example `+user:*+` is allowed but no member `bob` exists) returns *404*. This
 ordering means a 403 never reveals whether a target would otherwise exist.
 
-== `+send(text, to=…)+` — delivery and reply semantics
+== `+send(text, to=…)+`—delivery and reply semantics
 
 A squawk reaches its channel's members (in Jam: their inboxes, waking a waiting
 session) and is rendered onto the channel's surfaces by the relays
@@ -119,7 +119,7 @@ it and hears what follows; a person sees a project's work logs and rooms while t
 == Discovering targets: `GET /squawks/targets` / `+list_targets+`
 
 An agent doesn't need to know its addressing in advance. `GET /squawks/targets`
-(brokered, self-derived from the caller's identity — no parameters) returns the
+(brokered, self-derived from the caller's identity—no parameters) returns the
 actor's authorized-*and*-resolvable targets:
 
 [source,json]
@@ -136,7 +136,7 @@ Then come the people, rooms,
 other live sessions (`+session:<label>+`, or `+<ses_id>+` when the label is shared),
 units of work (`+work:<key>+`),
 and the current workers of those that have one (`+worker:<key>+`)
-that its addressing allows. Handles are deliberately omitted — the agent addresses by
+that its addressing allows. Handles are deliberately omitted—the agent addresses by
 `+user:<name>+`, not by handle. The `jam-studio-agent mcp` server exposes this as the `+list_targets+` tool,
 alongside ``send``'s now-optional `to` argument; see
 xref:usage/jam/intercom.adoc#what-the-tools-do[intercom] for the tool surface. The same list,

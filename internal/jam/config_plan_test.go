@@ -834,3 +834,58 @@ func TestPlanRoleRoomsMustExist(t *testing.T) {
 		t.Errorf("unchanged role over a dropped room: missing %q in %v", want, p.Refusals)
 	}
 }
+
+// A role's cache profile applies from the repo, is refused out of range at
+// plan time, and survives export and re-import; a role without one stores
+// the zero profile.
+func TestPlanRoleCache(t *testing.T) {
+	st := NewMemStore()
+	files := map[string]string{
+		"projects/app/project.yml":  "kind: project\nversion: 1\n",
+		"projects/app/roles/ed.yml": "kind: role\nversion: 1\ncache: {ttl: 1h, keep-warm: 4h, threshold: 30000}\n",
+		"projects/app/roles/ic.yml": "kind: role\nversion: 1\n",
+	}
+	applyPlan(t, st, planOn(t, st, treeOf(t, files)))
+	if r, _ := st.GetRole("app", "ed"); r.Cache != (CachePolicy{TTL: time.Hour, KeepWarm: 4 * time.Hour, Threshold: 30000}) {
+		t.Fatalf("cache = %+v", r.Cache)
+	}
+	if r, _ := st.GetRole("app", "ic"); r.Cache != (CachePolicy{}) {
+		t.Fatalf("no cache = %+v", r.Cache)
+	}
+	exp, err := ExportConfigTree(st.ExportConfig(), st.ListConfigMarks(), nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if y := exp.Files["projects/app/roles/ed.yml"]; !strings.Contains(y, "cache:\n  ttl: 1h\n  keep-warm: 4h\n  threshold: 30000\n") {
+		t.Fatalf("exported:\n%s", y)
+	}
+	if y := exp.Files["projects/app/roles/ic.yml"]; strings.Contains(y, "cache") {
+		t.Fatalf("exported a cache for a role without one:\n%s", y)
+	}
+	if p := planOn(t, st, exportTree(t, exp)); len(p.Refusals) > 0 || p.Counts()[ConfigUnchanged] != len(p.Ops) {
+		t.Fatalf("re-import is not a no-op: %+v", p)
+	}
+	for cache, want := range map[string]string{
+		"{ttl: 10m}":        "cache.ttl must be 5m or 1h",
+		"{keep-warm: 25h}":  "cache.keep-warm must be 0 to 24h",
+		"{threshold: -1}":   "cache.threshold must be >= 0",
+		"{ttl: 5m, x: 1}":   `unknown field "x"`,
+		"{keep-warm: soon}": "cache.keep-warm is not a duration (e.g. 90s, 30m, 4h)",
+	} {
+		files["projects/app/roles/ed.yml"] = "kind: role\nversion: 1\ncache: " + cache + "\n"
+		tr, err := LoadConfigTree(writeTree(t, files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		refusals := append(slices.Clone(tr.Refusals), planOn(t, st, tr).Refusals...)
+		if want := "projects/app/roles/ed.yml: " + want; !slices.Contains(refusals, want) {
+			t.Errorf("%s: missing %q in %v", cache, want, refusals)
+		}
+	}
+	for _, cache := range []string{"{ttl: 5m}", "{keep-warm: 0}", "{keep-warm: 24h}", "{threshold: 0}"} {
+		files["projects/app/roles/ed.yml"] = "kind: role\nversion: 1\ncache: " + cache + "\n"
+		if p := planOn(t, st, treeOf(t, files)); len(p.Refusals) > 0 {
+			t.Errorf("%s refused: %v", cache, p.Refusals)
+		}
+	}
+}

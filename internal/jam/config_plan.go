@@ -806,6 +806,9 @@ func validateConfigRole(store Store, r *Role, credExists func(string) bool) erro
 	if err := ValidateTurnEnd(r.TurnEnd); err != nil {
 		return err
 	}
+	if err := ValidateCache(r.Cache); err != nil {
+		return err
+	}
 	if r.Kit != "" {
 		if _, ok := store.GetKit(r.Kit); !ok {
 			return fmt.Errorf("kit %s not found (not in the repo or Jam)", r.Kit)

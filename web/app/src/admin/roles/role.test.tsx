@@ -59,6 +59,24 @@ describe("a role's page", () => {
     expect(screen.getByText("role mapping")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "ses_9" })).toHaveAttribute("href", ADMIN + "agents/ses_9");
     expect(screen.getByText("ops · wake all")).toBeInTheDocument();
+    expect(screen.getByText("No — its agents read only their own sessions.")).toBeInTheDocument();
+  });
+
+  it("shows when it observes sessions", async () => {
+    tree(); serve(role({ observes: true }));
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByText("Observes sessions")).toBeInTheDocument();
+    expect(screen.getByText("all, read-only")).toBeInTheDocument();
+  });
+
+  it("shows its cache profile, read-only", async () => {
+    tree(); serve(role({ cache: [{ label: "TTL", value: "1h", unset: false }, { label: "Keep warm", value: "4h", unset: false }, { label: "Threshold", value: "30000 tokens", unset: false }] }));
+    renderAdmin(adminBoot, at);
+    expect(await screen.findByText("Cache")).toBeInTheDocument();
+    expect(screen.getByText("Keep warm")).toBeInTheDocument();
+    expect(screen.getByText("4h")).toBeInTheDocument();
+    expect(screen.getByText("30000 tokens")).toBeInTheDocument();
+    expect(screen.queryByText("Edit cache")).not.toBeInTheDocument();
   });
 
   it("saves the scope from its prefilled form, and shows a refusal inline", async () => {

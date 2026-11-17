@@ -27,6 +27,7 @@ func RunConformance(t *testing.T, newStore func(t *testing.T) jam.Store) {
 	runAppTokenConformance(t, newStore)
 	runSessionColorConformance(t, newStore)
 	runRailOrderConformance(t, newStore)
+	runWorkUnitConformance(t, newStore)
 	runManagerConformance(t, newStore)
 	runSetupConformance(t, newStore)
 	runKitSourceConformance(t, newStore)

@@ -49,7 +49,7 @@ and a model spec (blank means `claude-default`).
 image::role-page.png[The reviewer role's page,800]
 
 The top line shows the role's project,
-kit, model spec and TTL.
+kit, model spec, and TTL.
 The sections below show the whole role.
 On a branch, each section has its own *Edit …* panel,
 already filled in,
@@ -67,7 +67,10 @@ with none, they cannot message anyone.
 and which messages there wake them:
 *wake named* (only messages that mention the agent) or *wake all* (every message).
 You set the rooms in the role's file in the config repo.
-*Edit scope* changes the destinations, addressing, TTL (such as `1h`), kit and model spec.
+*Observes sessions* shows when the role's agents may read every other session,
+read-only, as the agents of the optimizer role do.
+You set it in the role's file too.
+*Edit scope* changes the destinations, addressing, TTL (such as `1h`), kit, and model spec.
 Egress::
 The outside domains the role's studios may reach,
 within what the kit allows,
@@ -89,7 +92,7 @@ edited like a project's
 (xref:projects:agent-context.adoc[]),
 without resources.
 Standing agents::
-Each standing agent's name, prompt and status.
+Each standing agent's name, prompt, and status.
 Holders::
 Every agent that holds the role.
 *override* marks a grant that changes the role's destinations.
@@ -99,7 +102,7 @@ The role's running agents.
 Setup::
 Click it to see what a studio of this role would get if it were raised now.
 
-*Operator notes*, above the sections,
+*Operator notes*, preceding the sections,
 hold notes for operators only;
 agents never see them.
 They show when there are some, and on a branch,
@@ -118,13 +121,35 @@ When it is not set, the role has no personal agents.
 *Max personal per owner*::
 The limit for one person.
 *Idle after*, *Nag every*::
-When a waiting personal agent first reminds its owner (default 4h),
-and how often after that (default 24h).
+When a waiting personal agent first reminds its owner (default 4 hours),
+and how often after that (default 24 hours).
 *Reclaim after*::
 When Jam ends a personal agent that still waits (default never).
 
 Times take values such as `30m`, `1h30m` or `72h`.
 Leave a field blank to unset it.
+
+=== Prompt cache
+
+A role's *cache profile* keeps its agents' prompt cache warm while they wait,
+so a turn after a pause doesn't pay to load the whole conversation again.
+The role page shows it under *Cache*, read-only;
+it is set in the role's file.
+
+*TTL*::
+How long the cache lives after each turn: `5m` or `1h`.
+*Keep warm*::
+How long after a turn ends Jam keeps the cache from expiring.
+Shortly before that runs out,
+Jam wakes the agent to compact its conversation.
+*Threshold*::
+The conversation size, in tokens, below which Jam doesn't keep it warm.
+
+Jam applies the TTL to agents started after you set it.
+A role without a profile works as before.
+While Jam keeps an agent warm,
+its session view shows *keep-warm* wakes that do nothing,
+and then one *compact-due* wake.
 
 == Standing agents
 
@@ -157,7 +182,7 @@ Each action asks you to confirm.
 or *Request agent* on its page,
 raises a personal agent of that role for you.
 It starts with the prompt
-"Squawk me (user:_you_) and we will get to work.",
+`Squawk me (user:<you>) and we will get to work.`,
 so it opens a conversation with you in the Inbox.
 A message says that it was raised,
 or why it was not.
@@ -195,6 +220,8 @@ The allocation fields are `allocation.max-ephemeral`, `max-personal`, `max-perso
 an unset `max-ephemeral` falls back to the requisitioner's `max-concurrent`.
 The idle timeout is `turn-end`;
 the collaboration policy (`collaborate`) is not shown on the role page.
+* The cache profile is `+cache: {ttl, keep-warm, threshold}+`
+(`docs/modules/ROOT/pages/usage/jam/prompt-cache.adoc`).
 * The Request prompt is `requestPrompt` (`internal/jam/adminui/role_request.go`).
 * Depth: `docs/modules/ROOT/pages/usage/jam/ui-projects.adoc` (#role-pages),
 `roster.adoc`, `standing-sessions.adoc`, `personal-sessions.adoc`, `ui-editing.adoc`.

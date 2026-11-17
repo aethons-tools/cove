@@ -1,4 +1,4 @@
-= Old admin pages and the /ui, /me migration
+= Old admin pages and the `/ui`, `/me` migration
 :summary: Where the Jam admin console's old server-rendered page paths redirect (302, the old-to-new path table), and the steps for moving a Jam from the old `/ui` and `/me` logins to the one `/app` login.
 :read_when: You followed an old admin-console page link and want to know where it goes, or you are upgrading a Jam from the `/ui` and `/me` logins and need to know what to register at the IdP and what users will see.
 :owns: the old admin pages' 302 redirect table and the /ui·/me migration steps
@@ -35,7 +35,7 @@ gets its 403 and learns nothing. A write there gets a 405, never a page.
 
 
 [#migrating-from-ui-and-me]
-== Migrating from /ui and /me
+== Migrating from `/ui` and `/me`
 
 * *Before deploying*, register `+https://<jam-host>/app/auth/callback+` at the
 IdP. Keep the old `/ui/auth/callback` and `/me/auth/callback` until the

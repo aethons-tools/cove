@@ -95,6 +95,10 @@ func (b *wakeBox) restore() {
 // gets a line of its own ahead of it; context-changed is skipped because the
 // context notice is appended separately.
 func renderWake(base string, rs []studioagent.WakeReason) string {
+	if keepWarmOnly(rs) {
+		return keepWarmText
+	}
+	rs = withoutKeepWarm(rs)
 	var lines []string
 	squawk := len(rs) == 0
 	for _, r := range rs {
@@ -134,12 +138,35 @@ func wakeLine(r studioagent.WakeReason) (line string, ok bool) {
 		return l, true
 	case "idle":
 		return "Idle timeout: no other wake arrived.", true
+	case "keep-warm":
+		return keepWarmText, true
+	case "compact-due":
+		return "Compact due: the cache expires soon. Put what you need next in compact_instructions or resume, and end with turn_end next: compact.", true
 	case "returned":
 		return r.Detail, true
+	case "compacted":
+		return "Your conversation was compacted, as you asked with `turn_end`. Your note to yourself:\n" + r.Detail, true
+	case "compact-failed":
+		return "The compaction you asked for with `turn_end` didn't finish; your conversation is as it was. Your note to yourself:\n" + r.Detail, true
 	case "process-exited":
 		status, tail, _ := strings.Cut(r.Detail, "\n")
 		return fmt.Sprintf("Kept process `%s` exited (%s); last lines:\n%s", r.Note, status, tail), true
 	default:
 		return fmt.Sprintf("Woken (%s): %s", r.Kind, r.Detail), true
 	}
+}
+
+// keepWarmText is the whole prompt of a turn woken only by keep-warm
+// (prompt-cache.adoc#keeping-it-warm): it only refreshes the prompt cache.
+const keepWarmText = "Keep-warm: nothing to do. End the turn with no text."
+
+// keepWarmOnly reports whether every reason in rs is keep-warm.
+func keepWarmOnly(rs []studioagent.WakeReason) bool {
+	return len(rs) > 0 && !slices.ContainsFunc(rs, func(r studioagent.WakeReason) bool { return r.Kind != "keep-warm" })
+}
+
+// withoutKeepWarm drops keep-warm from rs: beside another reason it adds
+// nothing to the prompt.
+func withoutKeepWarm(rs []studioagent.WakeReason) []studioagent.WakeReason {
+	return slices.DeleteFunc(slices.Clone(rs), func(r studioagent.WakeReason) bool { return r.Kind == "keep-warm" })
 }

@@ -36,7 +36,7 @@ unsupported type. The first token is minted on the first request.
 
 *Your own login (ADC) works too, with a re-login now and then.* Use
 `+command: ["cat", "<home>/.config/gcloud/application_default_credentials.json"]+`.
-If your org enforces Google Cloud _session control_, that login's refresh token
+If your org enforces GCP _session control_, that login's refresh token
 lapses after the configured session length, wherever it is held. Once it lapses,
 the broker logs one WARN `GCP credential unavailable` (with Google's error code,
 typically `+invalid_grant+`) and vertex requests fail with 502. To recover, run
@@ -82,7 +82,7 @@ first pattern. See xref:usage/jam/destinations.adoc[Destinations] for the patter
 * The cove's `Authorization` carries its identity token, as on the anthropic
 route. The broker strips it and applies the GCP token, so the identity never
 reaches Google.
-* Add a second region as a second destination, with its own route, upstream and
+* Add a second region as a second destination, with its own route, upstream, and
 patterns. Grant a role *one* vertex destination: two would both set
 `+ANTHROPIC_VERTEX_BASE_URL+` to different values, which is a
 xref:usage/jam/connector.adoc#assembly-and-conflicts[connector conflict] (fail closed).
@@ -104,7 +104,7 @@ claude:
 Then grant the role the destination in its scope (xref:usage/jam/roster.adoc[]). The
 harness sets `+CLAUDE_CODE_USE_VERTEX=1+`
 (xref:usage/jam/model-specs.adoc#what-a-cove-applies[What a cove applies]). The connector supplies
-the routing env above, and `provider-env` can never override it. A spec's
+the preceding routing environment, and `provider-env` can never override it. A spec's
 `principal.headers` apply on the vertex destination
 (xref:usage/jam/model-spec-headers.adoc#where-rules-apply[Where rules apply]).
 

@@ -54,7 +54,7 @@ A role marked *no model-spec set* names no spec,
 so it runs `claude-default`.
 Claude::
 The provider,
-the names of the provider env variables,
+the names of the provider environment variables,
 the plugins,
 and the names of the settings.
 Values are not shown here;
@@ -109,7 +109,7 @@ A spec has up to 16 rules.
 Allow and Deny::
 One permission rule per line,
 such as `+Bash(go test *)+` or `WebFetch`.
-Provider env::
+`Provider env`::
 One `KEY=VALUE` per line.
 Do not put credentials here,
 and do not set variables that Jam sets itself.

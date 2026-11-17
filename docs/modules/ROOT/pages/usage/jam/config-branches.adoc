@@ -11,9 +11,9 @@ The design is in https://github.com/aethons-tools/cove/blob/main/docs/superpower
 
 == The branch bar
 
-Above every Config page:
+At the top of every Config page:
 
-* *On the followed branch:* "Viewing main: what's running (read-only). Edit on a branch, then Merge or open a PR.", with *Create branch* (default name `jam/<operator>`) and *Open branch* (the repo's other branches).
+* *On the followed branch:* `Viewing main: what's running (read-only). Edit on a branch, then Merge or open a PR.`, with *Create branch* (default name `jam/<operator>`) and *Open branch* (the repo's other branches).
 * *On a branch:* its name and head, a link to it (and to its PR, once open), *Merge*, *PR*, *Open branch*, and *Back to _followed branch_* (for example, *Back to main*). With `config.git` there is no PR button and no links.
 * *Open branch* shows only when the repo has a branch other than the followed one.
 * *No config repo:* a *Read-only* notice: `This Jam has no config repo. Set config.github, config.gitlab or config.git in the serve config to edit its config on branches.` No form or button that changes config is shown.
@@ -46,7 +46,7 @@ How: the branch is loaded into a *workspace*, a scratch store holding its config
 
 Nothing changes config live, whether or not a repo is set:
 
-* *The admin API and the `jam` CLI* have no config writes. Destinations, model specs, connections, users (name, logins, delete), projects (members, rooms, escalation, chat service), roles (egress, standing declarations), the Jam context and kits (push, pin, delete, drafts) are read-only there; `config write|diff|sync|status` remain. A snapshot import (`jam import`, `POST /admin/config`) on a Jam following a repo is 409 `+config is in git: edit it on a branch in the admin console, or in the repo+` (xref:usage/jam/backup.adoc[backup]).
+* *The admin API and the `jam` command-line tool* have no config writes. Destinations, model specs, connections, users (name, logins, delete), projects (members, rooms, escalation, chat service), roles (egress, standing declarations), the Jam context and kits (push, pin, delete, drafts) are read-only there; `config write|diff|sync|status` remain. A snapshot import (`jam import`, `POST /admin/config`) on a Jam following a repo is 409 `+config is in git: edit it on a branch in the admin console, or in the repo+` (xref:usage/jam/backup.adoc[backup]).
 * *The admin console* refuses a config write off a branch: 409 `+the config is in git: open a branch to edit it+`, or on the followed branch `the followed branch is read-only; create or open a branch`. With no config repo: 409 `+this Jam has no config repo, so its config is read-only: set config.github, config.gitlab or config.git in the serve config+`.
 * *Still live:* sessions and grants, accounts, users' OIDC identities and app tokens, enrollments, coves, personal sessions, Studio Managers, standing resets, upgrades and restarts, a role's Request, kits from their own git sources (`kit import|track|untrack|sync`), and `jam import` on a Jam with no repo.
 * *Kit drafts* are edited on a branch, where publishing is a commit (xref:usage/jam/kits-drafts.adoc[kits-drafts]). A xref:usage/jam/kits-drafts.adoc#test-build[test build] of a branch's draft commits nothing.
@@ -58,4 +58,4 @@ The header `+X-Jam-Config-Branch: <branch>+` (the console sends it while a branc
 Branch API (operator-only, audit-logged as `ui config branch created|merged|pr`): `GET|POST /app/admin/api/config/branches`, `+POST …/config/branches/merge+` `+{branch, head}+`, `+POST …/config/branches/pr+` `+{branch}+`, `+GET …/config/branches/pr?branch=+`.
 
 Jam keeps a bare clone of the repo at `<state-dir>/config-repo`, fetched before every operation.
-The clone is only a cache (every write is pushed at once): when a fetch finds it damaged — a ref file left empty by a crash or a full disk (`ref file is empty`) — Jam deletes it, clones afresh and fetches again. Deleting `<state-dir>/config-repo` by hand is always safe.
+The clone is only a cache (every write is pushed at once): when a fetch finds it damaged—a ref file left empty by a crash or a full disk (`ref file is empty`)—Jam deletes it, clones afresh, and fetches again. Deleting `<state-dir>/config-repo` by hand is always safe.

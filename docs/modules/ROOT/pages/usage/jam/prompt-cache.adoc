@@ -1,0 +1,167 @@
+= Keeping the prompt cache warm
+:summary: A role's cache profile (`cache: {ttl, keep-warm, threshold}`): the role file field, its validation, where `role list`, the API, and the role page show it, the prompt-cache lifetime Jam sets in the role's sessions, the `keep-warm` wakes that refresh the cache while a session waits, and the `compact-due` wake that asks it to compact before the cache goes cold.
+:read_when: You are building, configuring, or tuning a role's `cache` profile, checking why a session's cache writes are 5-minute or 1-hour writes, or why a waiting session was woken with `keep-warm` or `compact-due`, or compacted, before its cache went cold.
+:owns: the role file's `cache` field, its validation, where it shows, how Jam applies `cache.ttl` to a session, the keep-warm schedule, the `keep-warm` and `compact-due` wake reasons and their prompts, and what a session's context size is for the threshold. Does NOT own the role file as a whole (roster.adoc), the rest of the per-run settings file (model-specs.adoc), the compaction itself (studio-agent.adoc, structured-turn-end.adoc), or the idle timeout (turn-end.adoc).
+:prereqs: roster.adoc for the role file; model-specs.adoc for the per-run settings file; turn-end.adoc for wakes and the idle timeout; structured-turn-end.adoc for `turn_end next: compact`; session-events.adoc for the token fields
+:tier: leaf
+:updated: 2026-11-17
+:page-normative:
+
+Every turn sends the session's whole context to the model.
+The model's prompt cache makes a warm turn cheap:
+reading the cache costs a tenth of writing it.
+Once the cache expires, the next turn writes the whole context again.
+For a standing session with a large context,
+those cold wakes are most of what the session costs (Linear COV-389).
+
+A role's *cache profile* sets how long the cache lives,
+how long Jam keeps it from expiring while a session waits,
+and when Jam asks the session to compact before it goes cold.
+Jam reads, validates, and shows the profile,
+sets `ttl` in the role's sessions (<<cache-lifetime>>),
+and keeps them warm (<<keeping-it-warm>>).
+A role without a profile works as it does today.
+
+== The profile
+
+[source,yaml]
+----
+# projects/test/roles/editor.yml
+cache: {ttl: 1h, keep-warm: 4h, threshold: 30000}
+----
+
+[cols="1,1,3"]
+|===
+|Field |Values |Meaning
+
+|`ttl`
+|`5m` or `1h`
+|How long the prompt cache lives after each turn.
+Unset leaves the harness's default.
+
+|`keep-warm`
+|a duration, `0` to `24h`
+|How long after a turn ends Jam keeps the cache from expiring.
+Unset or `0` means Jam doesn't keep it warm and doesn't ask the session to compact.
+
+|`threshold`
+|tokens, a whole number, `0` or more
+|The context size below which Jam does neither.
+Unset is `0`: every session is kept warm.
+|===
+
+A `keep-warm` shorter than `ttl` refreshes nothing:
+the session is only asked to compact when it runs out.
+Each refresh costs a cache read, so with a `5m` `ttl`, a `keep-warm` past about 45 minutes
+costs more than letting the cache go cold;
+a role that waits longer SHOULD use a `1h` `ttl`.
+Jam MUST refuse other values, and an unknown field under `cache`,
+when the role file is planned.
+A config that Jam exports and imports again MUST keep the profile unchanged.
+
+The API's names, on each `+GET /admin/roles+` item, are
+`+cache_ttl+` (`"5m"` or `"1h"`; absent for the harness's default),
+`+cache_keep_warm_seconds+`, and `+cache_threshold+`;
+a role without a profile carries none of them.
+`role list` shows the profile as `cache-ttl`, `cache-keep-warm`, and `cache-threshold`,
+and the role page shows it under *Cache*.
+Only the config repo sets it:
+neither the API nor the role page edits it,
+and a role edit there keeps it.
+
+[#cache-lifetime]
+== The cache lifetime
+
+Jam MUST set `ttl` in every session of the role
+through the harness's own setting, over any value the model spec sets.
+A change applies to sessions raised after it.
+
+Jam carries the role's `ttl` in the session's context bundle (`+cache_ttl+`),
+and the cove reads it from the bundle it was raised with,
+never from a refreshed one.
+For Claude Code, the cove sets it as `promptCacheTtl` (`"5m"` or `"1h"`)
+in the per-run settings file
+(xref:usage/jam/model-specs.adoc#what-a-cove-applies[model-specs]),
+over the spec's `claude.settings`,
+and passes the file as `+--settings+` even when the spec sets nothing else.
+An unset `ttl` leaves the file exactly as the spec makes it.
+A value other than `5m` or `1h` that reaches the cove is logged and ignored.
+
+[#keeping-it-warm]
+== Keeping it warm
+
+When a turn ends and `keep-warm` is set,
+Jam starts the keep-warm schedule from the turn's end:
+
+. Every `ttl` minus one minute (`ttl` unset counts as `5m`),
+Jam wakes the session with the reason `keep-warm`.
+The wake reads the cache, which refreshes it.
+. One minute before `keep-warm` runs out,
+Jam wakes the session with the reason `compact-due` instead.
+. Any other wake cancels the schedule.
+The next turn's end starts it again.
+
+Before each of these wakes, Jam reads the session's *context size*:
+the input of the last model call of the turn that ended,
+cache reads and writes included,
+from the session's events.
+If it is below `threshold`, Jam sends no wake and the schedule ends.
+A turn that ended with `turn_end next: compact` starts no schedule:
+once compacted, the session is woken with `compacted` or waits small.
+
+The `keep-warm` and `compact-due` wakes don't count toward the agent-to-agent limit,
+don't disarm or re-arm the idle timeout,
+and leave the session's waiting state alone:
+the turns they start MUST NOT reset when the session began waiting,
+its escalation tier (xref:usage/jam/escalation.adoc[escalation]),
+or a personal session's nags and reclaim
+(xref:usage/jam/personal-idle-ladder.adoc[personal idle ladder]).
+To everything but the cache, the session never stopped waiting.
+Another wake that arrives during one of these turns makes it an ordinary turn,
+as if that wake had started it.
+They resume a paused studio first, as the idle wake does
+(xref:usage/jam/turn-end.adoc#idle-timeout[Idle timeout]).
+
+[cols="1,3"]
+|===
+|Reason |Rendered as
+
+|`keep-warm`
+|`+Keep-warm: nothing to do. End the turn with no text.+`
+A turn woken only by `keep-warm` MUST be told to send nothing;
+Jam MUST NOT post or return its text, and doesn't commit any messages for it.
+
+|`compact-due`
+|`+Compact due: the cache expires soon. Put what you need next in compact_instructions or resume, and end with turn_end next: compact.+`
+If that turn ends without compacting,
+Jam compacts the session itself, as the session view's *Compact* does
+(xref:usage/jam/studio-agent.adoc#session-controls-interrupt-compact-clear[session controls]),
+once the turn's events have had 15 seconds to arrive.
+|===
+
+Each of these turns starts with a wake event naming its reason
+(xref:usage/jam/session-events.adoc#cove-side-jam-studio-agent[session events]),
+so a review of the session's turns can count `keep-warm` turns apart from work.
+
+When Jam compacts a session after an ignored `compact-due`,
+no `compact_instructions` guide the summary,
+so only what the session keeps outside its conversation survives in full:
+its notes and memory.
+A role whose sessions go idle MUST keep its lasting state there before it ends a turn.
+
+A message that arrives with a `keep-warm` or `compact-due` wake is a `squawk` too:
+the session reads it as usual,
+and the keep-warm reason adds nothing to the prompt.
+
+ifdef::internal[]
+== Notes for the team
+
+* Checked by hand on Claude Code 2.1.287 (COV-398):
+`promptCacheTtl: "1h"` in a `+--settings+` file turns the `result` event's
+`+usage.cache_creation+` from `+ephemeral_5m_input_tokens+` to `+ephemeral_1h_input_tokens+`,
+in `+-p+` with JSON or stream-JSON output,
+and `promptCacheTtl: "5m"` keeps 5-minute writes.
+`+CLAUDE_CODE_PROMPT_CACHE_TTL=1h+` and `+ENABLE_PROMPT_CACHING_1H=1+` have the same effect;
+Jam uses the setting.
+Check it again when the harness's version changes.
+endif::[]

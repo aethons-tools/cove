@@ -4,7 +4,7 @@
 :owns: installing and using the Jam VS Code extension (`jam vscode install`, the `/me/vscode` routes, the update check); its settings (`jam.url`, `jam.cliPath`); Sign In/Out; opening a session's studio window and the connected mark; conversation tabs, the four views, board tabs, its empty states and link rules; what the extension writes (ssh_config block, key, cert, token file); `remote.SSH.localServerDownload`; VSCodium and Open Remote - SSH; its troubleshooting
 :prereqs: collaboration.adoc for who may SSH and the ssh_config block the CLI writes; app-tokens.adoc for the sign-in token
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-16
 
 The extension opens a session's studio window in VS Code with one click, over Remote-SSH,
 with no `+jam login --participant+` or `jam ssh-config` step.
@@ -23,14 +23,14 @@ jam vscode install            # or: --code code-insiders, --code /path/to/code
 It signs in as `jam ssh-config` does (the extension's token file, else `+jam login --participant+`, else the operator login),
 downloads the `.vsix` to `+~/.config/jam/vscode/+`, and runs `+code --install-extension <file> --force+`.
 Without `code` on `PATH` (on macOS it also tries the one inside _Visual Studio Code.app_) it keeps the file and says so:
-install it with _Extensions: Install from VSIX…_.
+install it with `Extensions: Install from VSIX…`.
 It also adds a *Jam Hub launcher* for that Jam and editor (`+--no-launcher+` skips it): see xref:usage/jam/vscode-hub.adoc#the-launcher[The launcher].
 A Jam built without the extension (a dev build), or one older than this, says so; use the release asset
 `+jam-vscode_<version>.vsix+` (or the CI artifact `jam-vscode`) instead.
 
 It needs:
 
-* the `jam` CLI from the same release or newer (the window's `ssh-proxy` is ``jam``'s),
+* the `jam` command-line tool from the same release or newer (the window's `ssh-proxy` is ``jam``'s),
 * Microsoft's Remote - SSH extension (the extension offers to install it);
 in VSCodium, Open Remote - SSH instead (see <<vscodium,VSCodium>>),
 * macOS or Linux (Windows is refused).
@@ -49,11 +49,11 @@ and a failed check only writes a line to the Jam output channel.
 
 The routes: `GET /me/vscode` answers `+{"available":true,"version":"0.<N>.0"}+` (`+{"available":false}+` when the Jam has none)
 and `GET /me/vscode/jam.vsix` the file. They take an app token or a `+jam login --participant+` ID token;
-operators also have `/admin/vscode` and `/admin/vscode/jam.vsix`. How the `.vsix` gets into ``jam``: xref:usage/jam/vscode-checklist.adoc#build[Build].
+operators also have `/admin/vscode` and `/admin/vscode/jam.vsix`. For how the `.vsix` gets into ``jam``, see xref:usage/jam/vscode-checklist.adoc#build[Build].
 
 == Settings
 
-All are *application-scoped*: only your user settings apply, never a workspace's.
+All have the *`application`* scope: only your user settings apply, never a workspace's.
 A repository you open can't point the extension at its own Jam or make it run its own binary.
 
 [%header]
@@ -61,18 +61,18 @@ A repository you open can't point the extension at its own Jam or make it run it
 |Setting |Meaning
 
 |`jam.url` |Your Jam's address, `+https:+` only (`+http:+` for localhost): the default Jam.
-|`jam.urls` |More Jams' addresses (same rules); each gets its own sign-in and hub (xref:usage/jam/vscode-hub.adoc#several-jams[Several Jams]). _Jam: Add a Jam…_ appends here.
+|`jam.urls` |More Jams' addresses (same rules); each gets its own sign-in and hub (xref:usage/jam/vscode-hub.adoc#several-jams[Several Jams]). `Jam: Add a Jam…` appends here.
 |`jam.cliPath` |Absolute path to ``jam``; empty searches `PATH`.
 |===
 
 == Sign in and out
 
-_Jam: Sign In_ opens the browser to a consent page that names "VS Code on <host>".
+`Jam: Sign In` opens the browser to a consent page that names the app `+VS Code on <host>+`.
 On approval the extension keeps the app token in VS Code's SecretStorage
-and in `+~/.config/jam/default-app-token.json+` (``+$XDG_CONFIG_HOME/jam/…+``; 0600), which the `jam` CLI reads.
+and in `+~/.config/jam/default-app-token.json+` (``+$XDG_CONFIG_HOME/jam/…+``; 0600), which the `jam` command-line tool reads.
 Opening a session rewrites that file from the stored sign-in if it is missing or stale.
-_Jam: Sign Out_ clears both.
-Each Jam has its own sign-in: _Jam: Sign In_ and _Sign Out_ act on the window's Jam (xref:usage/jam/vscode-hub.adoc#several-jams[Several Jams]);
+`Jam: Sign Out` clears both.
+Each Jam has its own sign-in: `Jam: Sign In` and _Sign Out_ act on the window's Jam (xref:usage/jam/vscode-hub.adoc#several-jams[Several Jams]);
 a Jam other than `jam.url` keeps its token under its own secret and in `vscode-<host>-app-token.json` (`<host>` with `+:+` as `-`).
 Revoke it from the web app's *Connected apps* (xref:usage/jam/app-tokens.adoc[app-tokens]);
 the next open then reports you signed out and offers Sign In.
@@ -85,11 +85,11 @@ Three ways in, all the same flow:
 * the *Open in VS Code* or *Open in VSCodium* button in the session header (xref:usage/jam/session-view.adoc[]),
 a `+vscode://aethons.jam/session/<id>+` (or `+vscodium://…+`) link;
 * the same link from anywhere (`+open vscode://aethons.jam/session/<id>+`);
-* _Jam: Open Session…_, which lists your live sessions.
+* `Jam: Open Session…`, which lists your live sessions.
 
 Each one signs you in if needed and checks the session exists. If it doesn't, it says so and links the web app. Then it opens the session's *studio window*, `pass:c[vscode-remote://ssh-remote+jam-<studio>/home/agent/workspace]`, over Remote-SSH, in a new window, from a local workspace file whose title bar is the session's color (xref:usage/jam/session-colors.adoc[]). The window is titled with the session's name (``window.title``: the active editor, the name, the app) and its Explorer root carries the name too, instead of ``jam-<studio> (Workspace)``; File › Open Recent still lists the file, `jam-<studio>`. A rename shows from the next open. If that window is already open, VS Code brings it to the front instead.
 
-*Workspace trust:* VS Code asks whether to trust each new studio window; an extension can't grant trust. The window needs two locations trusted: the studio's remote folder (new for every session, so asked once each) and its local workspace file. To be asked only about the first, trust the studios folder once: _Workspaces: Manage Workspace Trust_ → _Add Folder_ → `<globalStorage>/studios` (the folder named in <<what-it-writes,What it writes>>). Turning trust off (`security.workspace.trust.enabled`) also stops the prompt, but for every folder you open, so the extension never does it for you.
+*Workspace trust:* VS Code asks whether to trust each new studio window; an extension can't grant trust. The window needs two locations trusted: the studio's remote folder (new for every session, so asked once each) and its local workspace file. To be asked only about the first, trust the studios folder once: `Workspaces: Manage Workspace Trust` → _Add Folder_ → `<globalStorage>/studios` (the folder named in <<what-it-writes,What it writes>>). Turning trust off (`security.workspace.trust.enabled`) also stops the prompt, but for every folder you open, so the extension never does it for you.
 
 Before opening, it:
 
@@ -101,7 +101,7 @@ If the studio isn't running, the cert step says so and nothing opens. Opening ne
 
 *Closing the studio window* closes the SSH connection, whose heartbeats would otherwise keep the studio from idling.
 
-*The connected mark.* A studio window marks its session in VS Code's global state (``jam.connected.<session>``: "a studio window for this session is open"). The mark is set when the window starts, refreshed every 30 s, and cleared when it closes. A mark not refreshed for 90 s counts as gone, e.g. after a crash or when VS Code quit before clearing it.
+*The connected mark.* A studio window marks its session in VS Code's global state (``jam.connected.<session>``: "a studio window for this session is open"). The mark is set when the window starts, refreshed every 30 s, and cleared when it closes. A mark not refreshed for 90 s counts as gone, for example after a crash or when VS Code quit before clearing it.
 
 == The rail and the hub
 
@@ -113,18 +113,18 @@ Operators also edit kits from the hub's Kits view: xref:usage/jam/vscode-kits.ad
 == Panes
 
 A *conversation tab* is the web app's conversation pane (composer, attachments and asks inline) running in a webview;
-the four session views and the board tabs follow the same rules.
-It asks the extension for everything; the webview never holds your token, the Jam URL or a cookie.
+the four session views, the hub's session tabs (xref:usage/jam/vscode-hub.adoc#session-tabs[vscode-hub]), and the board tabs follow the same rules.
+It asks the extension for everything; the webview never holds your token, the Jam URL, or a cookie.
 
-* *Views:* *Thinking* (the panel's Jam Thinking container; it wants width), *Previews*, *Session Status* and *Artifacts* (Previews and Artifacts start collapsed), in the Jam container under the rail. All are draggable anywhere, to the panel or a sidebar.
+* *Views:* the *Thinking* view (the panel's Jam Thinking container; it wants width), *Previews*, *Session Status* and *Artifacts* (Previews and Artifacts start collapsed), in the Jam container under the rail. You can drag them anywhere, to the panel or a sidebar.
 * *One session per window:* the views show only in a studio window, where they always show its session, and in the hub (xref:usage/jam/vscode-hub.adoc#the-hub[The hub]). The window's remote comes from its workspace folder URI. Other windows show only the rail. A board tab shows its own board.
-* *The studio window's conversation tab* opens the first time the window opens; after that it comes back with the window, or stays closed if you closed it; a rail click on the window's own session opens it again. A studio window opens no other conversation's tab: those go to the hub.
+* *The studio window's conversation tab* opens the first time the window opens; after that it comes back with the window, or stays closed if you closed it; clicking the window's own session in the rail opens it again. A studio window opens no other conversation's tab: those go to the hub.
 * *Thinking:* the web app's Thinking log. The window's Thinking views share one connection per (session, stream), at most 2 feeds per pane; a view opened later gets up to 2,000 replayed events; it resumes after a network drop. It counts toward your four server feeds, and a hidden view holds none.
-* *Previews:* Open shows the app in the Simple Browser and Browser opens the system browser. Only the window's own studio is forwarded through Remote-SSH (`asExternalUri`); an unchanged `localhost` URI counts as forwarded, and only a throw falls back to the preview's web URL in the browser. Another session's preview opens its preview URL in the browser.
+* *Previews:* `Open` shows the app in the Simple Browser and `Browser` opens the system browser. Only the window's own studio is forwarded through Remote-SSH (`asExternalUri`); an unchanged `localhost` URI counts as forwarded, and only a throw falls back to the preview's web URL in the browser. Another session's preview opens its preview URL in the browser.
 * *Session Status:* the session's xref:usage/jam/session-card.adoc[status card] (as on its rail row, full size), then the session header's facts and actions, then the Status rows. _Open in VS Code_ there focuses this window.
 * *Artifacts:* a file opens in the browser, a board thumb opens a board tab, and an ask reveals it in the session's conversation tab (opening the tab if needed).
 * *Board tabs:* one per board, several side by side, kept while hidden (`retainContextWhenHidden`) and restored after a reload. VS Code restores a background tab only when it is first shown, so a board opened again before then briefly has two tabs; showing the restored one closes it and reveals the other. The title is the board's, capped at 60 characters, "Whiteboard" if empty. _Open in the web app_ is in the tab. A stroke made in the last 300 ms before closing a tab may not be saved.
-* *Empty states:* "Sign in to Jam to see this conversation." (with Sign in); "Open a session's conversation to see its …" (a view in the hub with no session); "That conversation is gone, or you can't see it." (a tab); "That session has ended, or you can't see it.". Only Sign in (and Try again, below) has an action.
+* *Empty states:* "Sign in to Jam to see this conversation." (with Sign in); "Open a session to see its …" (a view in the hub with no session); "That conversation is gone, or you can't see it." (a tab); "That session has ended, or you can't see it." Only Sign in (and Try again, below) has an action.
 A failed lookup shows "Couldn't load the focused session: …" with Try again.
 * *Links:* the pane never navigates. `+https:+`, `+http:+` and `+mailto:+` links open in the browser; boards open as board tabs. `/app/user/c/<other>` opens the web app; `+#ask-…+` and own-conversation links scroll in place. `+vscode://aethons.jam/session/<id>+` (or `+vscode-insiders:+`) opens that session's window; `+javascript:+`, `+command:+`, `+file:+` and any other `+vscode:+` link do nothing.
 * *Push focus:* while a conversation tab is the active editor in a focused window, the extension reports its conversation as focused, so Web Push stays quiet for it. The suppression also applies to VS Code notifications, and works without Web Push configured.
@@ -142,9 +142,9 @@ What notifies in VS Code and the OS, and the needs-you badge: xref:usage/jam/vsc
 with the marker line `+# managed by the Jam VS Code extension (aethons.jam)+` right after the begin marker.
 The block is the one `jam ssh-config` writes (xref:usage/jam/collaboration.adoc#the-ssh-commands[collaboration]), plus the marker; a rerun replaces it.
 A block `jam ssh-config` wrote (no marker), or a hand-written `Host jam-<studio>`, is *left alone*.
-* *``+~/.config/jam/ssh/id_ed25519+``* (the CLI's key, shared) and *``<studio>-cert.pub``* (an 8 h cert, renewed on open;
-the CLI's `ssh-proxy` renews it when a connection starts).
-* *The token file* above.
+* *``+~/.config/jam/ssh/id_ed25519+``* (the command-line tool's key, shared) and *``<studio>-cert.pub``* (an 8 h cert, renewed on open;
+the command-line tool's `ssh-proxy` renews it when a connection starts).
+* *The token file* (described earlier).
 * *``<globalStorage>/studios/jam-<studio>.code-workspace``:* a studio window's workspace file (its remote folder named for the session, the window title, and the title-bar colors), rewritten on each open (xref:usage/jam/session-colors.adoc[]).
 
 The ProxyCommand pins `+--participant+` (and, for a Jam other than `jam.url`, `+--app vscode-<host>+`, its token profile); `jam` uses the token file when it names the same Jam
@@ -178,12 +178,12 @@ A block written by an older `jam ssh-config` lacks the line: rerun `+jam ssh-con
 |===
 |Symptom |Fix
 
-|Remote-SSH: host identification changed (after a studio upgrade) |Run _Jam: Forget Host Key_ (in the window, or pick the studio), then open the session again.
-|"your participant sign-in is missing" from `ssh-proxy` |The `jam` CLI predates the extension. Install `jam` from the same release or newer.
-|"The jam CLI was not found" |Install `jam` or set `jam.cliPath` to its absolute path.
+|Remote-SSH: host identification changed (after a studio upgrade) |Run `Jam: Forget Host Key` (in the window, or pick the studio), then open the session again.
+|"your participant sign-in is missing" from `ssh-proxy` |The `jam` command-line tool predates the extension. Install `jam` from the same release or newer.
+|`The jam CLI was not found` |Install `jam` or set `jam.cliPath` to its absolute path.
 |"You can't SSH into …" |The session isn't shared with you; ask an operator (xref:usage/jam/collaboration.adoc#who-may-connect[collaboration]). The button opens the web app.
 |⌘C or _Copy_ in a pane focuses the composer and copies nothing |A VS Code 1.143 bug (https://github.com/microsoft/vscode/issues/343489[microsoft/vscode#343489]), fixed in 1.144; VSCodium 1.143 has it. The message list works around it; elsewhere, update.
 |No OS banners on macOS |System Settings → Notifications → _terminal-notifier_ must allow them. If the Jam output channel says the notifier was blocked (Gatekeeper, on a quarantined copy), run `xattr -dr com.apple.quarantine` on the extension's `dist/vendor`, or rely on the `osascript` fallback.
-|``jam vscode install``: "this Jam doesn't serve the VS Code extension" or "built without" |The Jam predates serving it, or is a dev build. Install the release asset with _Extensions: Install from VSIX…_.
-|Signed out after a revoke |Run _Jam: Sign In_. A revoked token also makes `ssh-proxy` fail with a "VS Code sign-in … was revoked" message.
+|``jam vscode install``: "this Jam doesn't serve the VS Code extension" or "built without" |The Jam predates serving it, or is a dev build. Install the release asset with `Extensions: Install from VSIX…`.
+|Signed out after a revoke |Run `Jam: Sign In`. A revoked token also makes `ssh-proxy` fail with a "VS Code sign-in … was revoked" message.
 |===

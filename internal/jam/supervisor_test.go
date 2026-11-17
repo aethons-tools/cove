@@ -1474,6 +1474,62 @@ func TestContextForTracksEdits(t *testing.T) {
 	}
 }
 
+// A role's scope.observe reaches the session's context — the observe line and
+// the bundle's flag — at a raise and, granted or taken away, at a refresh.
+func TestContextObserveFollowsTheRole(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	setObserve := func(o string) {
+		t.Helper()
+		r, _ := store.GetRole("default", "guest")
+		r.Scope.Observe = o
+		if err := store.PutRole("default", r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setObserve(ObserveAll)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Name: "bot", SessionKind: SessionKindStanding, Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	if c := fl.gotSpec.Context; c == nil || !c.Observe || !strings.Contains(c.Core, "`observe_sessions`") {
+		t.Fatalf("raised without observe: %+v", c)
+	}
+	setObserve("")
+	if got, err := sup.ContextFor("w1"); err != nil || got.Observe || strings.Contains(got.Core, "observe_") {
+		t.Fatalf("refresh kept observe: %v %+v", err, got)
+	}
+}
+
+// A role's cache.ttl reaches the session's context at a raise ("1h", "5m"),
+// and a role without one carries none.
+func TestContextCarriesRoleCacheTTL(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	setTTL := func(d time.Duration) {
+		t.Helper()
+		r, _ := store.GetRole("default", "guest")
+		r.Cache.TTL = d
+		if err := store.PutRole("default", r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setTTL(CacheTTLLong)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Name: "bot", SessionKind: SessionKindStanding, Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	if c := fl.gotSpec.Context; c == nil || c.CacheTTL != "1h" {
+		t.Fatalf("raised without the ttl: %+v", c)
+	}
+	setTTL(CacheTTLShort)
+	if got, err := sup.ContextFor("w1"); err != nil || got.CacheTTL != "5m" {
+		t.Fatalf("context = %v %q", err, got.CacheTTL)
+	}
+	setTTL(0)
+	if got, err := sup.ContextFor("w1"); err != nil || got.CacheTTL != "" {
+		t.Fatalf("context = %v %q", err, got.CacheTTL)
+	}
+}
+
 // A running session keeps the kit it was raised with: a newer kit version's
 // build-args and egress ceiling (the image doesn't have them) never reach its
 // refreshed context, while that version's prompt edits do.
@@ -2105,6 +2161,11 @@ type fakeSessionChannels struct{ calls []string }
 
 func (f *fakeSessionChannels) SetUp(inst Instance) error {
 	f.calls = append(f.calls, "setup "+inst.ActorID+" "+inst.Unit)
+	return nil
+}
+
+func (f *fakeSessionChannels) Reported(inst Instance, r TicketReport) error {
+	f.calls = append(f.calls, "reported "+inst.ActorID+" "+r.State+" "+r.PR)
 	return nil
 }
 

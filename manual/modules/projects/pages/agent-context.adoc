@@ -43,7 +43,7 @@ the budget includes the one line that points agents at them.
 A *progressive instruction* is detail an agent reads only when its *Read when* matches the task at hand,
 such as how to cut a release.
 
-* Each instruction is a row showing its name, *Read when* and size.
+* Each instruction is a row showing its name, *Read when*, and size.
 Click *▸* to expand it and *▾* to collapse it.
 * To add one, click *+ new instruction…* at the bottom of the list;
 it opens expanded.
@@ -62,7 +62,7 @@ click a cell to edit it,
 press Tab or Enter to move on,
 and Esc to leave the cell.
 To add one, click *+ new resource…* at the bottom of the grid.
-Each resource needs a unique name, a kind (repo, doc, tracker or url) and a ref;
+Each resource needs a unique name, a kind (`repo`, `doc`, `tracker`, or `url`) and a ref;
 the note is optional.
 A project can list up to 50.
 

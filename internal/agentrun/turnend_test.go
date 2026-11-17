@@ -137,12 +137,12 @@ func TestTurnEndReturnsUnsentText(t *testing.T) {
 	wantCalls(t, io.callList(), "Inbox", "Inbox", "Commit m1")
 	var outcomes []string
 	for _, e := range h.eventList() {
-		if strings.Contains(e.raw, `"type":"cove"`) {
+		if strings.Contains(e.raw, `"subtype":"turn"`) {
 			outcomes = append(outcomes, e.raw)
 		}
 	}
 	if len(outcomes) != 1 || outcomes[0] != `{"type":"cove","subtype":"turn","outcome":"unaddressed"}` {
-		t.Fatalf("cove events = %q", outcomes)
+		t.Fatalf("turn events = %q", outcomes)
 	}
 }
 
@@ -610,4 +610,193 @@ func TestResumeFailureDoesNotCommitRestartBatch(t *testing.T) {
 	}
 	// m1 was never shown to the fresh conversation: it stays pending.
 	wantCalls(t, io.callList(), "Inbox")
+}
+
+// compactTurn runs one woken turn (m1's batch) that calls turn_end with d
+// and ends with no text, up to the /compact written for it, which it
+// returns. A non-nil during runs inside the write of m1's batch, before the
+// turn starts.
+func compactTurn(t *testing.T, d Directives, during func(w *Workload, p *streamProc, sock string)) (w *Workload, p *streamProc, io *fakeTurnIO, compact string, done <-chan error) {
+	t.Helper()
+	s := newStreamSpawner()
+	io = &fakeTurnIO{pages: [][]InboxEntry{{entry("m1", "hello")}, {}}}
+	sock := shortSock(t)
+	w = streamWL(t, t.TempDir(), s, func(c *Config) { c.TurnIO, c.AgentSocket = io, sock; structuredContext(t, c) })
+	done = runAsyncEpisodes(w, &recordHandle{}, 1)
+	p = s.next(t)
+	p.in.next(t)
+	p.emit(lnInit)
+	if during != nil {
+		f := func(msg string) {
+			if strings.Contains(msg, "id m1") {
+				during(w, p, sock)
+			}
+		}
+		p.in.onWrite.Store(&f)
+	}
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
+	time.Sleep(10 * time.Millisecond)
+	p.emit(resultLine(""))
+	if got := p.in.next(t); !strings.Contains(got, "id m1") {
+		t.Fatalf("wake prompt = %q", got)
+	}
+	if during == nil {
+		p.emit(lnInit)
+		if err := DialAgentSocket(sock).SetTurnEnd(context.Background(), d); err != nil {
+			t.Fatal(err)
+		}
+		p.emit(resultLine(""))
+	}
+	return w, p, io, p.in.next(t), done
+}
+
+// turn_end next: compact with a resume note compacts, then wakes the session
+// at once: one /compact turn (with compact_instructions), then one turn whose
+// prompt holds the note.
+func TestTurnEndCompactResumes(t *testing.T) {
+	_, p, io, got, done := compactTurn(t, Directives{Next: "compact", NoReply: true,
+		CompactInstructions: "keep the plan", Resume: "carry on with X"}, nil)
+	if got != "/compact keep the plan" {
+		t.Fatalf("got %q, want /compact keep the plan", got)
+	}
+	p.emit(lnInit, resultLine("Compacted."))
+	resume := p.in.next(t)
+	if !strings.Contains(resume, "carry on with X") || !strings.Contains(resume, "compacted") {
+		t.Fatalf("resume prompt = %q", resume)
+	}
+	p.emit(lnInit, resultLine(""))
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	wantCalls(t, io.callList(), "Inbox", "Commit m1", "Inbox")
+}
+
+// Without a resume note the session compacts, then waits, as before.
+func TestTurnEndCompactWithoutResumeWaits(t *testing.T) {
+	_, p, _, got, done := compactTurn(t, Directives{Next: "compact", NoReply: true}, nil)
+	if got != "/compact" {
+		t.Fatalf("got %q, want /compact", got)
+	}
+	p.emit(lnInit, resultLine("Compacted."))
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A compact asked for with turn_end while a wake is pending runs before that
+// wake's turn, so the wake resumes on the compacted conversation. The turn's
+// end and the wake reach the episode loop together, in either order; it runs
+// several times to see both.
+func TestTurnEndCompactBeforePendingWake(t *testing.T) {
+	for i := range 20 {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			_, p, _, got, done := compactTurn(t, Directives{}, func(w *Workload, p *streamProc, sock string) {
+				if err := DialAgentSocket(sock).SetTurnEnd(context.Background(), Directives{Next: "compact", NoReply: true}); err != nil {
+					t.Error(err)
+				}
+				p.emit(lnInit, resultLine(""))
+				time.Sleep(10 * time.Millisecond) // the turn's end is seen
+				w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "alarm", Alarm: "a", Note: "ping"}}})
+			})
+			if got != "/compact" {
+				t.Fatalf("got %q, want /compact before the wake", got)
+			}
+			p.emit(lnInit, resultLine("Compacted."))
+			if got := p.in.next(t); !strings.Contains(got, `Alarm "a" fired`) {
+				t.Fatalf("after the compaction = %q", got)
+			}
+			p.emit(lnInit, resultLine(""))
+			p.in.waitClosed(t)
+			p.exit <- nil
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestDirectivesValidateCompactFields(t *testing.T) {
+	for _, d := range []Directives{{Resume: "x"}, {CompactInstructions: "x"}, {Next: "end", Reason: "r", Resume: "x"},
+		{Next: "compact", Resume: strings.Repeat("x", maxResume+1)}} {
+		if d.Validate() == nil {
+			t.Errorf("%+v validated", d)
+		}
+	}
+	if err := (Directives{Next: "compact", Resume: "x", CompactInstructions: "y"}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// wakeEvents is the cove/wake events h recorded, in order.
+func wakeEvents(h *recordHandle) []recordedEvent {
+	var out []recordedEvent
+	for _, e := range h.eventList() {
+		if strings.Contains(e.raw, `"subtype":"wake"`) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// A resume prompt written into a live episode is preceded by one wake event
+// naming every coalesced reason, tagged with that episode's turn.
+func TestWakeEventMidEpisodeCarriesCoalescedReasons(t *testing.T) {
+	s := newStreamSpawner()
+	io := &fakeTurnIO{pages: [][]InboxEntry{{entry("m1", "hello")}}}
+	w := turnWL(t, s, io)
+	h := &recordHandle{}
+	done := runAsyncEpisodes(w, h, 1)
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit)
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "alarm", Alarm: "ci"}}})
+	time.Sleep(10 * time.Millisecond)
+	if got := wakeEvents(h); len(got) != 0 {
+		t.Fatalf("wake events before the turn ended: %+v", got)
+	}
+	p.emit(resultLine(""))
+	p.in.next(t)
+	want := []recordedEvent{{1, `{"type":"cove","subtype":"wake","reasons":["squawk","alarm"]}`, 0}}
+	if got := wakeEvents(h); len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("wake events = %+v, want %+v", got, want)
+	}
+	p.emit(lnInit, resultLine(""))
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := wakeEvents(h); len(got) != 1 {
+		t.Fatalf("wake events = %+v, want one", got)
+	}
+}
+
+// A turn woken only by keep-warm shows no batch, and its end posts, returns
+// and commits nothing, whatever it says.
+func TestKeepWarmTurnPostsAndCommitsNothing(t *testing.T) {
+	s := newStreamSpawner()
+	io := &fakeTurnIO{pages: [][]InboxEntry{{entry("m1", "hello")}}}
+	w := turnWL(t, s, io)
+	done := runAsyncEpisodes(w, &recordHandle{}, 1)
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit)
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "keep-warm"}}})
+	time.Sleep(10 * time.Millisecond)
+	p.emit(resultLine("")) // the raise turn
+	if got, want := p.in.next(t), "Keep-warm: nothing to do. End the turn with no text."; got != want {
+		t.Fatalf("keep-warm prompt = %q, want %q", got, want)
+	}
+	p.emit(lnInit, resultLine("Nothing to do."))
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	wantCalls(t, io.callList())
 }
