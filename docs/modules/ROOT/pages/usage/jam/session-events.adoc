@@ -13,6 +13,7 @@ events and `system`/`+thinking_tokens+` progress events. Storage and export are
 *operator-only*; the content is also shown to the people who may open the session's view
 (xref:usage/jam/session-view.adoc#access[session-view]), in the Thinking tab. It carries agent output by design (see <<sensitivity,Sensitivity>>).
 
+[#cove-side-jam-studio-agent]
 == Cove side (jam-studio-agent)
 
 * `internal/agentrun` writes the agent's stdout to the VM-local
