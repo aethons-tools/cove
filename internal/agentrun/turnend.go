@@ -103,8 +103,11 @@ func (w *Workload) takeNote() []string {
 
 // deliverText builds the prompt a delivery answering rs writes and makes it
 // the prompt in flight: with the structured turn end, the wake lines and the
-// batch; otherwise, or when the fetch fails, renderWake's read prompt.
-func (w *Workload) deliverText(ctx context.Context, rs []studioagent.WakeReason) string {
+// batch; otherwise, or when the fetch fails, renderWake's read prompt. It
+// first records a cove/wake event naming rs under turn, the episode the
+// prompt goes to.
+func (w *Workload) deliverText(ctx context.Context, h studioagent.Handle, turn uint32, rs []studioagent.WakeReason) string {
+	emitWake(h, turn, rs)
 	text, upTo, ok := w.batch(ctx)
 	w.newTurn(turnMeta{upTo: upTo, structured: ok})
 	if !ok {
@@ -299,6 +302,22 @@ func emitTurn(h studioagent.Handle, turn uint32, outcome string) {
 		Subtype string `json:"subtype"`
 		Outcome string `json:"outcome"`
 	}{"cove", "turn", outcome})
+	h.Event(turn, line, 0)
+}
+
+// emitWake records a {"type":"cove","subtype":"wake"} event naming the reason
+// kinds of the Wake (coalesced Wakes included) a resume prompt answers, so a
+// turn can be told apart by what woke it.
+func emitWake(h studioagent.Handle, turn uint32, rs []studioagent.WakeReason) {
+	kinds := make([]string, 0, len(rs))
+	for _, r := range rs {
+		kinds = append(kinds, r.Kind)
+	}
+	line, _ := json.Marshal(struct {
+		Type    string   `json:"type"`
+		Subtype string   `json:"subtype"`
+		Reasons []string `json:"reasons"`
+	}{"cove", "wake", kinds})
 	h.Event(turn, line, 0)
 }
 
