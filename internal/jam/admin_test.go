@@ -483,6 +483,51 @@ func TestAdminRoleTurnEndRoundTrip(t *testing.T) {
 	}
 }
 
+// GET /admin/roles carries the cache profile; a role without one carries
+// none of its fields.
+func TestAdminRoleListCarriesCache(t *testing.T) {
+	h, store := newTestAdmin(t)
+	mustCreateProject(t, store, "acme")
+	if err := store.PutRole("acme", Role{Name: "ed", Cache: CachePolicy{TTL: time.Hour, KeepWarm: 4 * time.Hour, Threshold: 30000}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutRole("acme", Role{Name: "ic"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := doReq(t, h, "GET", "/admin/roles?project=acme", nil)
+	var roles []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &roles); err != nil || len(roles) != 2 {
+		t.Fatalf("roles = %s, %v", rec.Body, err)
+	}
+	for _, r := range roles {
+		switch r["name"] {
+		case "ed":
+			if r["cache_ttl"] != "1h" || r["cache_keep_warm_seconds"] != float64(14400) || r["cache_threshold"] != float64(30000) {
+				t.Errorf("ed = %v", r)
+			}
+		case "ic":
+			for _, k := range []string{"cache_ttl", "cache_keep_warm_seconds", "cache_threshold"} {
+				if _, ok := r[k]; ok {
+					t.Errorf("ic carries %s: %v", k, r)
+				}
+			}
+		}
+	}
+}
+
+func TestValidateCache(t *testing.T) {
+	for _, p := range []CachePolicy{{}, {TTL: 5 * time.Minute}, {TTL: time.Hour, KeepWarm: 24 * time.Hour, Threshold: 1}} {
+		if err := ValidateCache(p); err != nil {
+			t.Errorf("ValidateCache(%+v) = %v", p, err)
+		}
+	}
+	for _, p := range []CachePolicy{{TTL: 10 * time.Minute}, {KeepWarm: -time.Second}, {KeepWarm: 25 * time.Hour}, {Threshold: -1}} {
+		if err := ValidateCache(p); err == nil {
+			t.Errorf("ValidateCache(%+v) = nil, want an error", p)
+		}
+	}
+}
+
 // The turn-end policy a role is saved with is validated by ValidateTurnEnd.
 func TestValidateTurnEndRejectsBad(t *testing.T) {
 	for _, te := range []TurnEndPolicy{{IdleTimeout: -time.Second}, {OnIdle: "nap"}, {TimeZone: "Mars/Olympus"}} {

@@ -136,6 +136,9 @@ type Role struct {
 	// Collaborate is the role's studio-collaboration policy: which rights the
 	// project's members get on its studios. Zero = the defaults.
 	Collaborate CollaboratePolicy `json:"collaborate,omitzero"`
+	// Cache is the role's prompt-cache profile. Zero = none. Set only from
+	// the config repo.
+	Cache CachePolicy `json:"cache,omitzero"`
 	// OperatorNotes is free markdown for operators only: never part of the
 	// role's session context.
 	OperatorNotes string `json:"operator_notes,omitempty"`
