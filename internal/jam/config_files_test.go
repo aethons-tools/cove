@@ -272,3 +272,47 @@ func TestRoleFileRooms(t *testing.T) {
 		}
 	}
 }
+
+// cache: round-trips through the role (durations canonical, a 60m ttl reads
+// as 1h); a role without it renders no cache key; a malformed value is
+// refused at parse.
+func TestRoleFileCache(t *testing.T) {
+	in := "kind: role\nversion: 1\ncache: {ttl: 60m, keep-warm: 4h, threshold: 30000}\n"
+	f, err := ParseRoleFile("projects/app/roles/ed.yml", "ed", []byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := f.role()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (CachePolicy{TTL: time.Hour, KeepWarm: 4 * time.Hour, Threshold: 30000}); r.Cache != want {
+		t.Fatalf("cache = %+v, want %+v", r.Cache, want)
+	}
+	canon := string(newConfigObject(f).Canon)
+	if !strings.Contains(canon, "cache:\n  ttl: 1h\n  keep-warm: 4h\n  threshold: 30000\n") {
+		t.Fatalf("canon:\n%s", canon)
+	}
+	back := roleFileOf("app", "ed", r, func(ident.ID) (string, bool) { return "", false })
+	if a := string(newConfigObject(back).Canon); a != canon {
+		t.Fatalf("canon differs:\n%s\n---\n%s", canon, a)
+	}
+	none, err := ParseRoleFile("projects/app/roles/ed.yml", "ed", []byte("kind: role\nversion: 1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := none.role(); r.Cache != (CachePolicy{}) || strings.Contains(string(newConfigObject(none).Canon), "cache") {
+		t.Fatalf("a role without cache: %+v\n%s", r.Cache, newConfigObject(none).Canon)
+	}
+	for in, want := range map[string]string{
+		"cache: {ttl: 1h, size: 3}\n": `projects/app/roles/ed.yml: unknown field "size"`,
+		"cache: {keep-warm: soon}\n":  "projects/app/roles/ed.yml: cache.keep-warm is not a duration (e.g. 90s, 30m, 4h)",
+		"cache: {ttl: -5m}\n":         "projects/app/roles/ed.yml: cache.ttl is not a duration (e.g. 90s, 30m, 4h)",
+		"cache: {threshold: 1.5}\n":   "projects/app/roles/ed.yml: cache.threshold must be a whole number of tokens",
+		"cache: {threshold: lots}\n":  "projects/app/roles/ed.yml: cache.threshold must be a whole number of tokens",
+	} {
+		if _, err := ParseRoleFile("projects/app/roles/ed.yml", "ed", []byte("kind: role\nversion: 1\n"+in)); err == nil || err.Error() != want {
+			t.Errorf("%q: %v, want %q", in, err, want)
+		}
+	}
+}

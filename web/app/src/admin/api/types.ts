@@ -575,6 +575,7 @@ export interface RoleDetail {
   egressManaged: boolean;
   egressDomains: string[];
   allocation: Setting[];
+  cache: Setting[]; // the cache profile, set in the config repo
   standing: StandingRow[];
   holders: HolderRow[];
   running: CoveRow[];
