@@ -49,6 +49,9 @@ Unset is `0`: every session is kept warm.
 
 A `keep-warm` shorter than `ttl` refreshes nothing:
 the session is only asked to compact when it runs out.
+Each refresh costs a cache read, so with a `5m` `ttl`, a `keep-warm` past about 45 minutes
+costs more than letting the cache go cold;
+a role that waits longer SHOULD use a `1h` `ttl`.
 Jam MUST refuse other values, and an unknown field under `cache`,
 when the role file is planned.
 The API's names are `+cache_ttl+`, `+cache_keep_warm_seconds+`, and `+cache_threshold+`.
@@ -58,8 +61,8 @@ only the config repo sets it.
 == The cache lifetime
 
 Jam MUST set `ttl` in every session of the role
-through the harness's own setting (for Claude Code, `promptCacheTtl` in the session's settings),
-over any value the model spec sets.
+through the harness's own setting, over any value the model spec sets.
+For Claude Code, the build confirms which setting takes effect (see the team notes).
 A change applies to sessions raised after it.
 
 == Keeping it warm
@@ -84,7 +87,13 @@ once compacted, the session is woken with `compacted` or waits small.
 
 The `keep-warm` and `compact-due` wakes don't count toward the agent-to-agent limit,
 don't disarm or re-arm the idle timeout,
-and resume a paused studio first, as the idle wake does
+and leave the session's waiting state alone:
+the turns they start MUST NOT reset when the session began waiting,
+its escalation tier (xref:usage/jam/escalation.adoc[escalation]),
+or a personal session's nags and reclaim
+(xref:usage/jam/personal-idle-ladder.adoc[personal idle ladder]).
+To everything but the cache, the session never stopped waiting.
+They resume a paused studio first, as the idle wake does
 (xref:usage/jam/turn-end.adoc#idle-timeout[Idle timeout]).
 
 [cols="1,3"]
@@ -122,6 +131,8 @@ ifdef::internal[]
 
 * The starting profiles for the `test` project, and why, are in the process book's *Roles and their sessions*.
 The optimizer tunes them from its daily review.
-* Claude Code 2.1.287 also reads `CLAUDE_CODE_PROMPT_CACHE_TTL` and `ENABLE_PROMPT_CACHING_1H`;
-the build checks which one takes effect and uses the setting if it does.
+* Claude Code 2.1.287 reads `promptCacheTtl` in its settings,
+and also `CLAUDE_CODE_PROMPT_CACHE_TTL` and `ENABLE_PROMPT_CACHING_1H`;
+none is confirmed yet.
+The build checks which takes effect and prefers the setting if it does.
 endif::[]
