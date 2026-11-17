@@ -113,6 +113,7 @@ xref:usage/jam/collaboration.adoc[collaboration].
 `allocation.standing` (`+[{name, prompt}]+`); `jam standing list|reset|upgrade`
 operates them. See xref:usage/jam/standing-sessions.adoc[].
 * A role's *egress policy* is ``scope.egress``: see xref:usage/jam/role-egress.adoc[].
+* A role's *cache profile* is `+cache: {ttl, keep-warm, threshold}+`: xref:usage/jam/prompt-cache.adoc[].
 * A role's session context is its `+context:+` (xref:usage/jam/session-context-authoring.adoc[]).
 
 [#role-egress]

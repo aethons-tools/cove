@@ -1,0 +1,138 @@
+= Keeping the prompt cache warm
+:summary: A role's cache profile (`cache: {ttl, keep-warm, threshold}`): the prompt-cache lifetime Jam sets in its sessions, the `keep-warm` wakes that refresh the cache while a session waits, and the `compact-due` wake that asks it to compact before the cache goes cold.
+:read_when: You are building, configuring, or tuning a role's `cache` profile, the `keep-warm` or `compact-due` wakes, or why a waiting session was woken to compact.
+:owns: the role file's `cache` field and its validation, how Jam applies `cache.ttl` to a session, the keep-warm schedule, the `keep-warm` and `compact-due` wake reasons and their prompts, and what a session's context size is for the threshold. Does NOT own the compaction itself (studio-agent.adoc, structured-turn-end.adoc) or the idle timeout (turn-end.adoc).
+:prereqs: roster.adoc for the role file; turn-end.adoc for wakes and the idle timeout; structured-turn-end.adoc for `turn_end next: compact`; session-events.adoc for the token fields
+:tier: leaf
+:updated: 2026-11-17
+:page-normative:
+
+Every turn sends the session's whole context to the model.
+The model's prompt cache makes a warm turn cheap:
+reading the cache costs a tenth of writing it.
+Once the cache expires, the next turn writes the whole context again.
+For a standing session with a large context,
+those cold wakes are most of what the session costs (Linear COV-389).
+
+A role's *cache profile* sets how long the cache lives,
+how long Jam keeps it from expiring while a session waits,
+and when Jam asks the session to compact before it goes cold.
+A role without a profile works as it does today.
+
+== The profile
+
+[source,yaml]
+----
+# projects/test/roles/editor.yml
+cache: {ttl: 1h, keep-warm: 4h, threshold: 30000}
+----
+
+[cols="1,1,3"]
+|===
+|Field |Values |Meaning
+
+|`ttl`
+|`5m` or `1h`
+|How long the prompt cache lives after each turn.
+Unset leaves the harness's default.
+
+|`keep-warm`
+|a duration, `0` to `24h`
+|How long after a turn ends Jam keeps the cache from expiring.
+Unset or `0` means Jam doesn't keep it warm and doesn't ask the session to compact.
+
+|`threshold`
+|tokens, a whole number
+|The context size below which Jam does neither.
+Unset is `0`: every session is kept warm.
+|===
+
+A `keep-warm` shorter than `ttl` refreshes nothing:
+the session is only asked to compact when it runs out.
+Each refresh costs a cache read, so with a `5m` `ttl`, a `keep-warm` past about 45 minutes
+costs more than letting the cache go cold;
+a role that waits longer SHOULD use a `1h` `ttl`.
+Jam MUST refuse other values, and an unknown field under `cache`,
+when the role file is planned.
+The API's names are `+cache_ttl+`, `+cache_keep_warm_seconds+`, and `+cache_threshold+`.
+`role list` and the role page show the profile;
+only the config repo sets it.
+
+== The cache lifetime
+
+Jam MUST set `ttl` in every session of the role
+through the harness's own setting, over any value the model spec sets.
+For Claude Code, the build confirms which setting takes effect (see the team notes).
+A change applies to sessions raised after it.
+
+== Keeping it warm
+
+When a turn ends, Jam reads the session's *context size*:
+the input of the last model call of that turn,
+cache reads and writes included,
+from the session's events.
+If it is at least `threshold`, and `keep-warm` is set,
+Jam starts the keep-warm schedule from the turn's end:
+
+. Every `ttl` minus one minute,
+Jam wakes the session with the reason `keep-warm`.
+The wake reads the cache, which refreshes it.
+. One minute before `keep-warm` runs out,
+Jam wakes the session with the reason `compact-due` instead.
+. Any other wake cancels the schedule.
+The next turn's end starts it again.
+
+A turn that ended with `turn_end next: compact` starts no schedule:
+once compacted, the session is woken with `compacted` or waits small.
+
+The `keep-warm` and `compact-due` wakes don't count toward the agent-to-agent limit,
+don't disarm or re-arm the idle timeout,
+and leave the session's waiting state alone:
+the turns they start MUST NOT reset when the session began waiting,
+its escalation tier (xref:usage/jam/escalation.adoc[escalation]),
+or a personal session's nags and reclaim
+(xref:usage/jam/personal-idle-ladder.adoc[personal idle ladder]).
+To everything but the cache, the session never stopped waiting.
+They resume a paused studio first, as the idle wake does
+(xref:usage/jam/turn-end.adoc#idle-timeout[Idle timeout]).
+
+[cols="1,3"]
+|===
+|Reason |Rendered as
+
+|`keep-warm`
+|`+Keep-warm: nothing to do. End the turn with no text.+`
+A turn woken only by `keep-warm` MUST be told to send nothing;
+Jam MUST NOT post or return its text, and doesn't commit any messages for it.
+
+|`compact-due`
+|`+Compact due: the cache expires soon. Put what you need next in compact_instructions or resume, and end with turn_end next: compact.+`
+If that turn ends without compacting,
+Jam compacts the session itself, as the session view's *Compact* does
+(xref:usage/jam/studio-agent.adoc#session-controls-interrupt-compact-clear[session controls]).
+|===
+
+Each of these turns starts with a wake event naming its reason
+(xref:usage/jam/session-events.adoc#cove-side-jam-studio-agent[session events]),
+so a review of the session's turns can count `keep-warm` turns apart from work.
+
+When Jam compacts a session after an ignored `compact-due`,
+no `compact_instructions` guide the summary,
+so only what the session keeps outside its conversation survives in full:
+its notes and memory.
+A role whose sessions go idle MUST keep its lasting state there before it ends a turn.
+
+A message that arrives with a `keep-warm` or `compact-due` wake is a `squawk` too:
+the session reads it as usual,
+and the keep-warm reason adds nothing to the prompt.
+
+ifdef::internal[]
+== Notes for the team
+
+* The starting profiles for the `test` project, and why, are in the process book's *Roles and their sessions*.
+The optimizer tunes them from its daily review.
+* Claude Code 2.1.287 reads `promptCacheTtl` in its settings,
+and also `CLAUDE_CODE_PROMPT_CACHE_TTL` and `ENABLE_PROMPT_CACHING_1H`;
+none is confirmed yet.
+The build checks which takes effect and prefers the setting if it does.
+endif::[]

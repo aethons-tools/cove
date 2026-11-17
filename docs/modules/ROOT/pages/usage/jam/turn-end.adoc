@@ -185,6 +185,7 @@ A Wake carries a list of reasons; the agent's resume prompt names them.
 |`alarm` |`+Alarm "<name>" fired: <note>+` (plus the gate's output, when gated)
 |`gate-failed` |`+Alarm "<name>" gate could not run: <detail>+`
 |`idle` |`+Idle timeout: no other wake arrived.+`
+|`keep-warm`, `compact-due` |the role's cache profile (xref:usage/jam/prompt-cache.adoc[prompt-cache])
 |`context-changed` |nothing extra: the context-changed notice is appended separately
 |anything else |`+Woken (<kind>): <detail>+`
 |===
