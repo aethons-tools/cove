@@ -1500,6 +1500,36 @@ func TestContextObserveFollowsTheRole(t *testing.T) {
 	}
 }
 
+// A role's cache.ttl reaches the session's context at a raise ("1h", "5m"),
+// and a role without one carries none.
+func TestContextCarriesRoleCacheTTL(t *testing.T) {
+	fl := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, fl)
+	setTTL := func(d time.Duration) {
+		t.Helper()
+		r, _ := store.GetRole("default", "guest")
+		r.Cache.TTL = d
+		if err := store.PutRole("default", r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setTTL(CacheTTLLong)
+	if _, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Name: "bot", SessionKind: SessionKindStanding, Prompt: "P"}); err != nil {
+		t.Fatal(err)
+	}
+	if c := fl.gotSpec.Context; c == nil || c.CacheTTL != "1h" {
+		t.Fatalf("raised without the ttl: %+v", c)
+	}
+	setTTL(CacheTTLShort)
+	if got, err := sup.ContextFor("w1"); err != nil || got.CacheTTL != "5m" {
+		t.Fatalf("context = %v %q", err, got.CacheTTL)
+	}
+	setTTL(0)
+	if got, err := sup.ContextFor("w1"); err != nil || got.CacheTTL != "" {
+		t.Fatalf("context = %v %q", err, got.CacheTTL)
+	}
+}
+
 // A running session keeps the kit it was raised with: a newer kit version's
 // build-args and egress ceiling (the image doesn't have them) never reach its
 // refreshed context, while that version's prompt edits do.

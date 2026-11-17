@@ -12,13 +12,14 @@ type Harness interface {
 	// spawn with the raise-time spec, and again before any episode whose
 	// delivered spec changed. An error stops Run before that agent process
 	// starts. spec nil = none delivered (a Jam predating model-specs, or no
-	// default seeded): the harness's built-in defaults.
-	Validate(spec *modelspec.Spec) error
+	// default seeded): the harness's built-in defaults. cacheTTL is as Prepare's.
+	Validate(spec *modelspec.Spec, cacheTTL string) error
 	// Prepare (re)writes the per-run files Command's argv names for spec (the
-	// one in effect, already Validated). Run before every spawn: the agent
-	// shares the cove's filesystem and may have removed them since. An error
-	// stops Run before that agent process starts.
-	Prepare(spec *modelspec.Spec) error
+	// one in effect, already Validated) and the role's cacheTTL (Episode.CacheTTL).
+	// Run before every spawn: the agent shares the cove's filesystem and may
+	// have removed them since. An error stops Run before that agent process
+	// starts.
+	Prepare(spec *modelspec.Spec, cacheTTL string) error
 	// Command returns the binary, argv and the extra env (set over the spawn
 	// env; never over a key the connector owns) for one episode.
 	Command(ep Episode) (bin string, args []string, env map[string]string)
@@ -41,6 +42,9 @@ type Episode struct {
 	ContextCore string
 	// Spec is the model-spec in effect (already Validated); nil = none.
 	Spec *modelspec.Spec
+	// CacheTTL is the role's prompt-cache lifetime, "5m" or "1h", set over any
+	// value Spec sets; "" = Spec's (or the harness's default).
+	CacheTTL string
 }
 
 // EventKind classifies a normalized agent event.

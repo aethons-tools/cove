@@ -2138,6 +2138,7 @@ func (s *Supervisor) compileContext(spec RaiseSpec, actor Actor, promptKit KitRe
 	if role, ok := s.store.GetRole(spec.Project, spec.Role); ok {
 		in.Role = role.Context
 		in.Session.Observe = role.Scope.Observes()
+		in.Session.CacheTTL = formatConfigDuration(role.Cache.TTL)
 	}
 	if p, ok := s.store.GetProject(orDefaultProject(spec.Project)); ok {
 		in.Project = sessionctx.ProjectLayer(p.Context, p.Resources)
