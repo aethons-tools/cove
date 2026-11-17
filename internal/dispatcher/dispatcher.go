@@ -73,6 +73,11 @@ You own this ticket through merge:
 - Call ` + "`end`" + ` only once your work has landed (merged, reported done). Never end with work that is not pushed.
 If you need a person, ` + "`call_in`" + ` them into your channel (or ` + "`send`" + ` to them) and end your turn: their reply wakes you. If you are stuck, report needs-input or blocked and wait; escalation brings people to you.`
 
+// logHistory tells a ticket session its unit's work log holds the ticket's
+// history — an earlier session's reports, people's replies — and how to read
+// it (docs/modules/ROOT/pages/usage/jam/work-log-history.adoc). %s is the unit key.
+const logHistory = "If this ticket was worked before, its log `work:%[1]s` holds that history (earlier sessions' reports, people's replies): read it from the start with the intercom `read` tool and `channel: work:%[1]s`."
+
 type Dispatcher struct {
 	tracker  Tracker
 	raiser   Raiser
@@ -192,7 +197,7 @@ func (d *Dispatcher) buildPrompt(ctx context.Context, iss scheduler.Issue) (stri
 	if err != nil {
 		return "", fmt.Errorf("comments: %w", err)
 	}
-	return scheduler.AssembleBrief(iss, comments) + "\n\n" + turnEndProtocol, nil
+	return scheduler.AssembleBrief(iss, comments) + "\n\n" + fmt.Sprintf(logHistory, iss.Identifier) + "\n\n" + turnEndProtocol, nil
 }
 
 func (d *Dispatcher) needsInput(ctx context.Context, iss scheduler.Issue) {
