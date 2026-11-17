@@ -1,7 +1,7 @@
 = Units of work: the record and its API
-:summary: The record Jam keeps for each unit of work—its issue, the sessions that have been its worker, the pull requests reported for it, and its last reported state—how worker swaps and reports write it, its tables (`work_units`, `work_unit_workers`, `work_unit_prs`) and backfill, and `+GET /app/user/api/work/{key}+`.
+:summary: The record Jam keeps for each unit of work—its issue, the sessions that have been its worker, the pull requests reported for it, and its last reported state—how worker swaps and reports write it, its tables (`work_units`, `work_unit_workers`, `work_unit_prs`) and backfill, and `GET /app/user/api/work/\{key}`.
 :read_when: You are reading or changing what Jam records about a unit of work (`jam.WorkUnitStore`, `Intercom.Reported`, the worker swap in `ownTicketChannel`), its tables or migration, the work API (`userui.apiWork`), or the rail's `WorkRow.state`.
-:owns: the unit of work's record (`jam.WorkUnit`), when it's written, its storage, and `+GET /app/user/api/work/{key}+`. Does NOT own the work log and its current worker (intercom.adoc), the `report` tool (turn-end.adoc), the rail (rail-api.adoc), or who may open a session view (session-view.adoc).
+:owns: the unit of work's record (`jam.WorkUnit`), when it's written, its storage, and `GET /app/user/api/work/\{key}`. Does NOT own the work log and its current worker (intercom.adoc), the `report` tool (turn-end.adoc), the rail (rail-api.adoc), or who may open a session view (session-view.adoc).
 :prereqs: intercom.adoc for the work log and its worker; turn-end.adoc for `report`
 :tier: leaf
 :updated: 2026-11-17
