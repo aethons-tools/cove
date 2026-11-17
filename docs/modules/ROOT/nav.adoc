@@ -114,3 +114,4 @@
 *** xref:usage/jam/vscode.adoc[]
 *** xref:usage/jam/wake-on.adoc[]
 *** xref:usage/jam/whiteboards.adoc[]
+*** xref:usage/jam/work-log-history.adoc[]

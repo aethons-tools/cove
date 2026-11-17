@@ -25,6 +25,11 @@ So do the people who follow it:
 who posted in the log, or clicked *Join* on it.
 When a new session takes over the unit,
 Jam takes the old session out of the log and puts the new one in.
+The new session reads the log from its first entry,
+so it takes up the history of the work:
+earlier sessions' reports,
+and what people decided and answered.
+Only the session working on the unit now can read the log this way.
 
 The log is mirrored to the issue in the tracker, both ways.
 Each entry becomes a comment on the issue,
@@ -65,6 +70,9 @@ ifdef::internal[]
 `409 {"error": "no-worker"}` with no current worker).
 Both match a role's `ticket:` addressing globs.
 * The log is a channel of kind `work`; it records its current worker.
+* The current worker reads the log's history with the intercom's `read` and `channel: work:<key>`;
+the ticket brief tells it so.
+See `work-log-history.adoc`.
 * People post to a unit's log with *Log* in the Inbox's *New message*,
 and DM its worker with *Worker*:
 a recipient's `worker` field (`worker:<key>`), offered while the unit has a live worker they may reach.

@@ -572,3 +572,83 @@ func TestSquawksSendMentions(t *testing.T) {
 		}
 	}
 }
+
+// A unit's new worker reads its work log from the start — entries posted
+// before it joined — with read's channel; the old worker, and a session that
+// is no worker, can't. The read wakes no one and moves no cursor.
+func TestSquawksReadWorkLogHistory(t *testing.T) {
+	f := newSqFixture(t)
+	f.ticket.RaisedAt = time.Unix(1000, 0)
+	if err := f.ic.SetUp(f.ticket); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := f.send(f.ticket, `{"body":"first try: in review","to":"work:ACME-7"}`); code != http.StatusOK {
+		t.Fatal(code)
+	}
+	log := f.workLog()
+	if _, err := f.ic.PostTrusted(log, intercom.Squawk{From: f.alice.ID, Body: "please also fix the docs"}); err != nil {
+		t.Fatal(err)
+	}
+	next := f.ticket
+	next.ActorID = string(ident.New(ident.Session))
+	next.RaisedAt = time.Unix(2000, 0)
+	if err := f.store.PutInstance(next); err != nil {
+		t.Fatal(err)
+	}
+	a := f.actor
+	a.ID, a.TokenHash = next.ActorID, HashToken("tok-"+next.ActorID)
+	if err := f.store.AddActor(a); err != nil {
+		t.Fatal(err)
+	}
+	tail, _ := f.log.TailSeq()
+	f.tail = tail
+	if err := f.ic.SetUp(next); err != nil {
+		t.Fatal(err)
+	}
+	if got := bodiesOf(f.read(next, "").Squawks); len(got) != 0 {
+		t.Fatalf("new worker's inbox = %q, want empty (it joined at the tail)", got)
+	}
+	for q, want := range map[string]string{
+		"channel=" + string(log.ID) + "&anchor=start": "first try: in review,please also fix the docs",
+		"channel=work:ACME-7":                         "first try: in review,please also fix the docs", // from the start by default
+		"channel=work:ACME-7&anchor=end&limit=1":      "please also fix the docs",
+	} {
+		r := f.read(next, q)
+		if got := strings.Join(bodiesOf(r.Squawks), ","); got != want {
+			t.Fatalf("read %q = %q, want %q", q, got, want)
+		}
+		if r.Squawks[0].Channel == nil || r.Squawks[0].Channel.ID != log.ID {
+			t.Fatalf("read %q entry channel = %+v", q, r.Squawks[0].Channel)
+		}
+	}
+	first := f.read(next, "channel=work:ACME-7&anchor=start&limit=1").Squawks[0].ID
+	if got := bodiesOf(f.read(next, "channel=work:ACME-7&anchor=id&id="+first).Squawks); len(got) != 1 || got[0] != "please also fix the docs" {
+		t.Fatalf("paging by id = %q", got)
+	}
+	// Reading appended nothing (no wake) and moved no cursor.
+	if after, _ := f.log.TailSeq(); after != tail {
+		t.Fatalf("log tail moved %d → %d", tail, after)
+	}
+	for _, inst := range []Instance{f.ticket, next} {
+		if got, _ := f.store.GetInstance(inst.ActorID); got.CommitCursor != "" || got.CommitSeq != inst.CommitSeq {
+			t.Fatalf("%s's cursor moved: %q/%d", inst.ActorID, got.CommitCursor, got.CommitSeq)
+		}
+	}
+	// Only the unit's current worker may; other channels keep today's rules.
+	for _, c := range []struct {
+		inst Instance
+		q    string
+		want int
+	}{
+		{f.ticket, "channel=" + string(log.ID), http.StatusForbidden},   // the old worker
+		{f.standing, "channel=" + string(log.ID), http.StatusForbidden}, // no worker at all
+		{f.standing, "channel=work:ACME-7", http.StatusForbidden},
+		{next, "channel=" + string(f.room.ID) + "&anchor=start", http.StatusForbidden},
+		{next, "channel=work:ACME-8", http.StatusForbidden},
+		{next, "channel=work:ACME-7&anchor=cursor", http.StatusBadRequest},
+	} {
+		if rec := f.do(http.MethodGet, "/squawks?"+c.q, c.inst, ""); rec.Code != c.want {
+			t.Errorf("%s read %q = %d, want %d", c.inst.ActorID, c.q, rec.Code, c.want)
+		}
+	}
+}
