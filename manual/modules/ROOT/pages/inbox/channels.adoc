@@ -58,7 +58,9 @@ that an agent is working on now
 the ticket's key and title,
 its worker and the worker's status,
 and the number of unread entries.
-Click the row to open the work log,
+Click the row to open the unit's page,
+with its work log
+(xref:concepts/work.adoc#_seeing_the_work[Seeing the work]),
 or the worker to open its session view.
 
 === Agents
