@@ -171,11 +171,12 @@ func build(ev sessionevents.Event) EventView {
 		Message struct {
 			Content json.RawMessage `json:"content"`
 		} `json:"message"`
-		Result  string `json:"result"`
-		Command string `json:"command"`
-		By      string `json:"by"`
-		Ignored string `json:"ignored"`
-		Outcome string `json:"outcome"`
+		Result  string   `json:"result"`
+		Command string   `json:"command"`
+		By      string   `json:"by"`
+		Ignored string   `json:"ignored"`
+		Outcome string   `json:"outcome"`
+		Reasons []string `json:"reasons"`
 	}
 	if json.Unmarshal(ev.Raw, &env) != nil {
 		v.Label, v.Detail = "unparsed", string(ev.Raw)
@@ -245,6 +246,14 @@ func build(ev sessionevents.Event) EventView {
 		} else if env.Subtype == "turn" && env.Outcome == "unaddressed" {
 			// The turn-end rule gave up on a returned turn (agentrun).
 			text := "Unaddressed — the turn ended with text it sent nowhere, after being returned once"
+			v.Kind, v.Label = KindPrompt, "control"
+			v.Summary, v.Narrative = text, text
+		} else if env.Subtype == "wake" {
+			// What woke the turn that follows (agentrun): the Wake's reason kinds.
+			text := "Woken"
+			if len(env.Reasons) > 0 {
+				text += " — " + strings.Join(env.Reasons, ", ")
+			}
 			v.Kind, v.Label = KindPrompt, "control"
 			v.Summary, v.Narrative = text, text
 		} else {
