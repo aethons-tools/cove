@@ -103,6 +103,16 @@ Jam compacts the session itself, as the session view's *Compact* does
 (xref:usage/jam/studio-agent.adoc#session-controls-interrupt-compact-clear[session controls]).
 |===
 
+Each of these turns starts with a wake event naming its reason
+(xref:usage/jam/session-events.adoc#cove-side-jam-studio-agent[session events]),
+so a review of the session's turns can count `keep-warm` turns apart from work.
+
+When Jam compacts a session after an ignored `compact-due`,
+no `compact_instructions` guide the summary,
+so only what the session keeps outside its conversation survives in full:
+its notes and memory.
+A role whose sessions go idle MUST keep its lasting state there before it ends a turn.
+
 A message that arrives with a `keep-warm` or `compact-due` wake is a `squawk` too:
 the session reads it as usual,
 and the keep-warm reason adds nothing to the prompt.
