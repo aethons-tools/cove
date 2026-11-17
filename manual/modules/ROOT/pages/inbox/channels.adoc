@@ -48,7 +48,8 @@ or only those that are *Unread* or need you.
 
 A DM with an agent leaves *Me* when the agent ends.
 Finished conversations are kept;
-to read them, look them up.
+to read them, look them up
+(<<_looking_up,Looking up>>).
 
 === Work
 
@@ -78,6 +79,48 @@ on any device.
 The rail plays a sound when a conversation starts to need you
 or gets new messages.
 You can change the sounds under *Sounds…* in your account menu.
+
+=== Looking up
+
+The box at the top of the rail looks up
+the conversations that finished
+and the sessions that ended.
+Type a name, a ticket's key, or words from a message.
+While you type,
+the results take the place of the rail's sections;
+clear the box to get them back.
+
+image::channels-lookup.png["The rail looking up login, with ACME-42's finished work log open",800]
+
+ifdef::internal[]
+Try it in the xref:attachment$channels-lookup-prototype.html[prototype].
+endif::[]
+
+The results come in two groups:
+
+Finished conversations::
+DMs with an agent that ended,
+group DMs you left,
+rooms that were archived,
+and the work logs of units of work that are done.
+Each shows when it finished and why.
+Ended sessions::
+Sessions that ended whose session view you may open
+(xref:inbox/session.adoc[Watching a session]).
+
+Click *Conversations* or *Sessions* to narrow the results to one group,
+or *All* to show both.
+When a message matches,
+the result shows that message,
+with the words you typed highlighted.
+
+Click a finished conversation to read it.
+You can't post to it.
+Click an ended session to open its view.
+
+You find only what you may read:
+the conversations you took part in or may read,
+and the sessions whose view you may open.
 
 == Opening a channel
 
@@ -142,7 +185,10 @@ ifdef::internal[]
 
 * Goal: the rail's Me, Work, and Agents sections (agreed with the user 2026-11-15);
 their interface is `docs/modules/ROOT/pages/usage/jam/inbox-rail.adoc`.
-Looking up ended sessions and finished logs is COV-362.
+Looking up ended sessions and finished conversations is COV-362, built by COV-409
+(agreed with the user 2026-11-17);
+its interface is `inbox-rail.adoc#lookup`.
+The lookup image is its prototype's (`attachments/channels-lookup-prototype.html`).
 The rail image is the prototype's (`attachments/channels-rail-prototype.html`).
 The prototype runs only on the team site: Jam serves the manual with a CSP that allows no scripts or inline styles, so the link is internal.
 * The Inbox is the web app under `/app/user/` (`web/app/src/rail`, `conversation`).

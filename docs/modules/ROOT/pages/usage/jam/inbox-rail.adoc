@@ -1,10 +1,10 @@
 = The Inbox rail: Me, Work, and Agents
-:summary: The goal Inbox rail, shared by the Jam app and the VS Code rail: three sections (Me, Work, Agents), what each lists, its rows and cards, the needs-you flag, the Me filter, and the per-user order saved on the server.
-:read_when: You are building or reviewing the rail's sections, its API (`GET /app/user/api/rail`), or the saved rail order, in the web app or the VS Code extension.
-:owns: the goal rail sections and their membership, the rail response shape, the needs-you flag, the Me filter, and the rail-order API and its storage. Does NOT own the status card's contents (session-card.adoc), session-view access (conversations-sessions.adoc), or the rest of the user area (intercom-ui.adoc).
+:summary: The goal Inbox rail, shared by the Jam app and the VS Code rail: three sections (Me, Work, Agents), what each lists, its rows and cards, the needs-you flag, the Me filter, the per-user order saved on the server, and the lookup of finished conversations and ended sessions.
+:read_when: You are building or reviewing the rail's sections, its API (`GET /app/user/api/rail`), the saved rail order, or the rail's lookup (`GET /app/user/api/lookup`), in the web app or the VS Code extension.
+:owns: the goal rail sections and their membership, the rail response shape, the needs-you flag, the Me filter, and the rail-order API and its storage, and the lookup API. Does NOT own the status card's contents (session-card.adoc), session-view access (conversations-sessions.adoc), or the rest of the user area (intercom-ui.adoc).
 :prereqs: intercom-ui.adoc for today's rail and live refresh; conversations.adoc for conversation kinds and units of work; conversations-sessions.adoc for who may open a session view; session-card.adoc for the card
 :tier: leaf
-:updated: 2026-11-15
+:updated: 2026-11-17
 
 This page is the goal for the rail.
 Where it disagrees with xref:usage/jam/intercom-ui.adoc[intercom-ui]
@@ -98,6 +98,62 @@ in `me`, newest message first among them;
 in `agents`, by start time, so a new session joins at the bottom.
 * The order is stored per user in Jam's store, not in the browser,
 so the app and the VS Code rail share it on every device.
+
+[#lookup]
+== Looking up
+
+The box at the top of the rail looks up what the sections leave out:
+conversations that finished and sessions that ended.
+The product view is the manual's goal page `inbox/channels.adoc`, *Looking up*,
+with its prototype `attachments/channels-lookup-prototype.html`.
+
+`GET /app/user/api/lookup?q=<text>` returns:
+
+[source,json]
+----
+{"conversations": [{"row": ChannelRow,
+                    "finished": "2026-11-12T16:02:00Z",
+                    "why": "ended",
+                    "match": {"from": "acme-42", "text": "Is the login fix ready for review?"}}],
+ "sessions":      [{"session": "ses_…", "label": "acme-42", "kind": "ticket",
+                    "mission": "Fix the flaky login test",
+                    "ended": "2026-11-12T16:05:00Z",
+                    "match": null}]}
+----
+
+* *Finished conversations* are the conversations the person may read that no longer show in `me`:
+a `dm` whose session ended (`why`: `ended`),
+a `group` the person left (`left`),
+an archived `room` (`archived`),
+and the `work` log of a unit whose state is `done` (`done`).
+The person may read a `dm` or `group` they were a member of,
+a room they were in,
+and the work log of a unit in their projects.
+* *Ended sessions* are the ended sessions whose view the person may open
+(xref:usage/jam/conversations-sessions.adoc#session-view[conversations-sessions]).
+`kind` is the session's kind: `standing`, `personal`, `ticket`, or `session`.
+* `q` matches, case-insensitively, a conversation's label or ticket key and title,
+a session's label and mission,
+and the text of the messages in a conversation or a session's activity.
+It never matches thinking.
+`match` is the newest message that matched,
+or `null` when the name matched.
+An empty `q` returns two empty lists.
+* Each list is newest first (`finished`, `ended`) and holds at most 50 items.
+* Live conversations and active sessions are left out: the sections show them.
+* Access is the Inbox's, checked per item before matching,
+never the admin console's;
+an operator sees what any person sees, plus every ended session, as for session views.
+The lookup may reuse the admin search's matching (`internal/jam/adminui`, `search`).
+
+Opening a result uses today's routes:
+a conversation is `/app/user/c/<channel>`,
+a session `/app/user/s/<session>`.
+A finished conversation opens read-only:
+reading it works for the people above,
+and posting to it fails with `409` and says it's finished.
+The rail shows the results in place of its sections;
+the VS Code rail may follow later on the same API.
 
 [#building]
 == Building it
