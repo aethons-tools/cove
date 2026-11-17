@@ -775,3 +775,28 @@ func TestWakeEventMidEpisodeCarriesCoalescedReasons(t *testing.T) {
 		t.Fatalf("wake events = %+v, want one", got)
 	}
 }
+
+// A turn woken only by keep-warm shows no batch, and its end posts, returns
+// and commits nothing, whatever it says.
+func TestKeepWarmTurnPostsAndCommitsNothing(t *testing.T) {
+	s := newStreamSpawner()
+	io := &fakeTurnIO{pages: [][]InboxEntry{{entry("m1", "hello")}}}
+	w := turnWL(t, s, io)
+	done := runAsyncEpisodes(w, &recordHandle{}, 1)
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit)
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "keep-warm"}}})
+	time.Sleep(10 * time.Millisecond)
+	p.emit(resultLine("")) // the raise turn
+	if got, want := p.in.next(t), "Keep-warm: nothing to do. End the turn with no text."; got != want {
+		t.Fatalf("keep-warm prompt = %q, want %q", got, want)
+	}
+	p.emit(lnInit, resultLine("Nothing to do."))
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	wantCalls(t, io.callList())
+}

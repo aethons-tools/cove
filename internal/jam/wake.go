@@ -16,4 +16,9 @@ const (
 	WakeGateFailed     = "gate-failed"
 	WakeIdle           = "idle"
 	WakeContextChanged = "context-changed"
+	// The keep-warm schedule (prompt-cache.adoc#keeping-it-warm): a wake that
+	// only refreshes the prompt cache, and the one that asks the session to
+	// compact before keep-warm runs out.
+	WakeKeepWarm   = "keep-warm"
+	WakeCompactDue = "compact-due"
 )

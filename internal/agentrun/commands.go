@@ -143,6 +143,7 @@ func compactText(instructions string) string {
 // continue.
 func interruptPrompt(by string, rs []studioagent.WakeReason) string {
 	lines := []string{fmt.Sprintf(interruptAck, by)}
+	rs = withoutKeepWarm(rs)
 	if slices.ContainsFunc(rs, func(r studioagent.WakeReason) bool { return r.Kind != "context-changed" }) {
 		lines = append(lines, interruptPending)
 		for _, r := range rs {

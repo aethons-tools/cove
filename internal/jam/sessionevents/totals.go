@@ -23,6 +23,13 @@ type Totals struct {
 	// 0 = unknown (none yet, or reset by a compaction or Clear since).
 	Context      int64
 	ContextModel string // the model of that call
+	// LastInput is that call's input (cache reads and writes included):
+	// what keep-warm compares with a role's cache.threshold. 0 = unknown, as
+	// Context.
+	LastInput int64
+	// Resets counts the compactions and Clears seen, so a caller can tell
+	// whether one happened since it last looked.
+	Resets int
 	// ContextWindow is ContextModel's window, from the latest result that
 	// reported it; 0 = unknown.
 	ContextWindow int64
@@ -102,8 +109,11 @@ func (t *Totals) addContext(ev Event) {
 		}
 		t.windows[m] = w
 	}
+	if c.Reset {
+		t.Resets++
+	}
 	if (c.Tokens > 0 || c.Reset) && !ev.ObservedAt.Before(t.contextAt) {
-		t.contextAt, t.Context = ev.ObservedAt, c.Tokens
+		t.contextAt, t.Context, t.LastInput = ev.ObservedAt, c.Tokens, c.Input
 		if c.Tokens > 0 {
 			t.ContextModel = c.Model
 		}

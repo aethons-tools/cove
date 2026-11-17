@@ -70,6 +70,7 @@ func DeriveIndex(raw []byte) Index {
 // Clear/Compact press jam-studio-agent acted on).
 type contextLine struct {
 	Tokens  int64            // > 0: a main-thread assistant message's context size
+	Input   int64            // with Tokens: that message's input, cache reads and writes included
 	Model   string           // with Tokens: the model that answered
 	Windows map[string]int64 // a result's context window per model
 	Reset   bool
@@ -104,8 +105,9 @@ func deriveContext(ev Event) (contextLine, bool) {
 	switch {
 	case env.Type == "assistant" && env.ParentToolUseID == nil && env.Message != nil && env.Message.Usage != nil:
 		u := env.Message.Usage
-		if n := u.InputTokens + u.CacheCreation + u.CacheRead + u.OutputTokens; n > 0 {
-			return contextLine{Tokens: n, Model: env.Message.Model}, true
+		in := u.InputTokens + u.CacheCreation + u.CacheRead
+		if n := in + u.OutputTokens; n > 0 {
+			return contextLine{Tokens: n, Input: in, Model: env.Message.Model}, true
 		}
 	case env.Type == "result" && len(env.ModelUsage) > 0:
 		w := map[string]int64{}
