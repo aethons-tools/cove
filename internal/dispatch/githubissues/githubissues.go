@@ -162,6 +162,7 @@ func (c *Client) getJSONLink(ctx context.Context, u string, out any) (string, er
 type ghIssue struct {
 	Number      int       `json:"number"`
 	Title       string    `json:"title"`
+	HTMLURL     string    `json:"html_url"`
 	Body        string    `json:"body"`
 	State       string    `json:"state"`
 	PullRequest *struct{} `json:"pull_request"` // set on a pull request: GitHub lists PRs as issues
@@ -177,7 +178,7 @@ func (c *Client) toIssue(n ghIssue) scheduler.Issue {
 	}
 	class, dispatchLabeled := scheduler.ClassifyLabels(names, c.prefix, c.dispatchPrefix)
 	return scheduler.Issue{
-		ID: strconv.Itoa(n.Number), Identifier: c.key(n.Number), Title: n.Title,
+		ID: strconv.Itoa(n.Number), Identifier: c.key(n.Number), Title: n.Title, URL: n.HTMLURL,
 		Description: n.Body, Class: class, DispatchLabeled: dispatchLabeled,
 	}
 }

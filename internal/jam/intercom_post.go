@@ -60,6 +60,7 @@ type Intercom struct {
 	log     *slog.Logger
 	sources map[SourceKind]Source
 	onAsks  func(session ident.ID) // SetOnAsksChanged
+	now     func() time.Time       // when worker swaps are recorded (work_units.go)
 }
 
 // NewIntercom returns the intercom over store, appending to lg. tracker
@@ -69,7 +70,7 @@ func NewIntercom(store Store, tracker func() (ident.ID, bool), lg intercom.Store
 	if tail == nil {
 		tail = func() int64 { seq, _ := lg.TailSeq(); return seq }
 	}
-	ic := &Intercom{store: store, tracker: tracker, lg: lg, tail: tail, log: log}
+	ic := &Intercom{store: store, tracker: tracker, lg: lg, tail: tail, log: log, now: time.Now}
 	ic.sources = map[SourceKind]Source{}
 	for _, s := range []Source{chatSource{ic, SourceDM}, chatSource{ic, SourceGroup}, ticketSource{ic}, roomSource{ic}, sessionSource{ic}} {
 		ic.sources[s.Kind()] = s
@@ -271,14 +272,15 @@ func (ic *Intercom) Ended(inst Instance) error {
 			return err
 		}
 	}
+	ic.recordUnit("stopping the worker", ch, ic.store.StopUnitWorker(ch.ID, ident.ID(inst.ActorID), ic.now()))
 	return nil
 }
 
 // ownTicketChannel is the work log of inst's unit, created on demand, with
 // inst its worker: a new worker takes the old one's place in the members
-// (a no-op while inst is the worker). A live worker raised after inst keeps
-// the unit, and inst is no member. ok=false when inst has no ticket on the
-// tracker.
+// and in the unit's record (a no-op while inst is the worker). A live worker
+// raised after inst keeps the unit, and inst is no member. ok=false when
+// inst has no ticket on the tracker.
 func (ic *Intercom) ownTicketChannel(inst Instance) (Channel, bool, error) {
 	if inst.Unit == "" {
 		return Channel{}, false, nil
@@ -305,7 +307,30 @@ func (ic *Intercom) ownTicketChannel(inst Instance) (Channel, bool, error) {
 	if err := ic.store.JoinChannel(ch.ID, self, ic.tail()); err != nil {
 		return Channel{}, false, err
 	}
+	w := UnitWorker{Session: self, Label: sessionLabel(inst), Started: ic.now()}
+	ic.recordUnit("starting the worker", ch, ic.store.StartUnitWorker(ch.ID, w, UnitIssue{Title: inst.UnitTitle, URL: inst.UnitURL}))
 	return ch, true, nil
+}
+
+// recordUnit logs a failed write to a unit's record: the record is best
+// effort, so it never fails the swap that wrote it.
+func (ic *Intercom) recordUnit(what string, ch Channel, err error) {
+	if err != nil && ic.log != nil {
+		ic.log.Warn("intercom: recording the unit of work failed (non-fatal)", "what", what, "channel", string(ch.ID), "err", err.Error())
+	}
+}
+
+// Reported records a session's accepted report on its unit: its state and
+// its PR. A session with no unit's log records nothing.
+func (ic *Intercom) Reported(inst Instance, r TicketReport) error {
+	if inst.Unit == "" {
+		return nil
+	}
+	ch, ok, err := ic.ticketChannel(inst, false)
+	if err != nil || !ok {
+		return err
+	}
+	return ic.store.ReportUnit(ch.ID, r.State, r.PR, r.At)
 }
 
 // starter is the user who started a personal session (by id, or by name for

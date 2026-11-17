@@ -16,7 +16,7 @@ const rail: RailResponse = {
     row({ id: "chn_a", label: "intercom-spider", kind: "dm", needsYou: true, unread: 2, card: card({ session: "ses_spider", name: "intercom-spider", pill: "needs you", state: "idle" }) }),
     row({ id: "chn_b", label: "eng" }),
   ],
-  work: [{ key: "TEST-7", title: "Fix the login", log: "chn_t7", worker: { id: "ses_t7", label: "test-7", state: "working" } }],
+  work: [{ key: "TEST-7", title: "Fix the login", log: "chn_t7", worker: { id: "ses_t7", label: "test-7", state: "working" }, state: "in-progress" }],
   agents: [{ session: "ses_spider", ssh: false, card: card({ session: "ses_spider", name: "intercom-spider", mission: "SPA slice 1" }) }],
 };
 

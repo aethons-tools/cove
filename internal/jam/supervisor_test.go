@@ -2164,6 +2164,11 @@ func (f *fakeSessionChannels) SetUp(inst Instance) error {
 	return nil
 }
 
+func (f *fakeSessionChannels) Reported(inst Instance, r TicketReport) error {
+	f.calls = append(f.calls, "reported "+inst.ActorID+" "+r.State+" "+r.PR)
+	return nil
+}
+
 func (f *fakeSessionChannels) Ended(inst Instance) error {
 	f.calls = append(f.calls, "ended "+inst.ActorID+" "+inst.Unit)
 	return errors.New("best effort: a failure doesn't fail the teardown")

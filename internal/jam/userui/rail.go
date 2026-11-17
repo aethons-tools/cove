@@ -75,6 +75,9 @@ func (h *handler) workRows(p jam.Participant, followed map[string]int) []WorkRow
 			}
 			row := WorkRow{Key: workKey(ch), Title: inst.UnitTitle, Log: string(ch.ID),
 				Worker: WorkWorker{ID: inst.ActorID, Label: card.Name, State: card.State}}
+			if u, ok := h.d.Store.WorkUnit(ch.ID); ok {
+				row.State = u.State
+			}
 			if n, ok := followed[string(ch.ID)]; ok {
 				row.Unread = &n
 			}
