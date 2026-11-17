@@ -300,3 +300,14 @@ func TestTurnEndProtocolNoExitOnQuestion(t *testing.T) {
 		t.Error("turnEndProtocol still tells a stuck session to end its turn after a send")
 	}
 }
+
+// The brief tells a ticket session it can read its unit's log from the
+// start, and how.
+func TestPromptTellsTheWorkerToReadItsLog(t *testing.T) {
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}}}
+	r := &fakeRaiser{}
+	newTestDispatcher(tr, r, &fakeRegistry{}, 5).tick(context.Background())
+	if len(r.specs) != 1 || !strings.Contains(r.specs[0].Prompt, "`read` tool and `channel: work:AET-1`") {
+		t.Fatalf("prompt does not say how to read the log:\n%+v", r.specs)
+	}
+}

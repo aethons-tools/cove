@@ -408,7 +408,9 @@ const (
 // handleGet serves a seekable page of the session's inbox. anchor selects
 // where the page starts — "" or "cursor" (the durable CommitSeq, the
 // default), "start"/"end", or "id" (?id=, resolved to its seq in either log)
-// — and dir which way it reads: "" or "forward", or "backward". A read never
+// — and dir which way it reads: "" or "forward", or "backward". With
+// ?channel= (ownWorkLog) the page is that work log's entries instead, from
+// "start" by default: a unit's worker reads the history it joined after. A read never
 // advances the commit cursor; only POST /squawks/commit does. The wire stays
 // id-based (seq is internal, never returned).
 func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor Actor, inst Instance) {
@@ -429,11 +431,28 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 	}
 	limit = min(limit, maxReadLimit)
 	self := ident.ID(actor.ID)
+	since, before := func(seq int64) []intercom.Squawk { return h.inbox.Since(self, seq, limit) },
+		func(seq int64) []intercom.Squawk { return h.inbox.Before(self, seq, limit) }
+	if c := q.Get("channel"); c != "" {
+		log, ok := h.ownWorkLog(inst, c)
+		if !ok {
+			http.Error(w, "channel: only your own unit's work log, as its current worker", http.StatusForbidden)
+			return
+		}
+		if anchor == "" {
+			anchor = "start"
+		} else if anchor == "cursor" {
+			http.Error(w, "anchor=cursor reads your inbox; a channel reads from start, end, or id", http.StatusBadRequest)
+			return
+		}
+		since, before = func(seq int64) []intercom.Squawk { return h.inbox.Log.ChannelSince(log.ID, seq, limit) },
+			func(seq int64) []intercom.Squawk { return h.inbox.Log.ChannelBefore(log.ID, seq, limit) }
+	}
 	page := func(seq int64) []intercom.Squawk {
 		if dir == "backward" {
-			return h.inbox.Before(self, seq, limit)
+			return before(seq)
 		}
-		return h.inbox.Since(self, seq, limit)
+		return since(seq)
 	}
 
 	var msgs []intercom.Squawk
@@ -441,9 +460,9 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 	case "", "cursor":
 		msgs = page(inst.CommitSeq)
 	case "start":
-		msgs = h.inbox.Since(self, 0, limit)
+		msgs = since(0)
 	case "end":
-		msgs = h.inbox.Before(self, 0, limit)
+		msgs = before(0)
 	case "id":
 		id := q.Get("id")
 		if id == "" {
@@ -487,6 +506,29 @@ func (h *SquawksHandler) handleGet(w http.ResponseWriter, r *http.Request, actor
 	}{Squawks: out, CommittedCursor: inst.CommitCursor, PageFirst: pageFirst, PageLast: pageLast}); err != nil {
 		h.log.Error("intercom: encode response failed", "actor", actor.ID, "error", err.Error())
 	}
+}
+
+// ownWorkLog resolves read's channel — a channel id, or work:<key> — to the
+// work log of inst's own unit, when inst is that log's current worker: the
+// one channel a session may page beyond its inbox (its unit's history).
+func (h *SquawksHandler) ownWorkLog(inst Instance, channel string) (Channel, bool) {
+	log, ok := h.ic.TicketChannelOf(inst)
+	if !ok || log.Worker != ident.ID(inst.ActorID) {
+		return Channel{}, false
+	}
+	if channel == string(log.ID) {
+		return log, true
+	}
+	key, isWork := strings.CutPrefix(channel, "work:")
+	if !isWork {
+		return Channel{}, false
+	}
+	conn, ok := h.ic.tracker()
+	if !ok {
+		return Channel{}, false
+	}
+	unit, ok := TicketUnit(h.store, conn, key)
+	return log, ok && unit == log.Label
 }
 
 // handleCallIn calls someone into a channel the session is in (its home
