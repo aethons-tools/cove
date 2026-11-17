@@ -267,14 +267,12 @@ func (ic *Intercom) Ended(inst Instance) error {
 	if err := ic.store.LeaveChannel(ch.ID, ident.ID(inst.ActorID), ic.tail()); err != nil {
 		return err
 	}
-	if err := ic.store.StopUnitWorker(ch.ID, ident.ID(inst.ActorID), ic.now()); err != nil {
-		return err
-	}
 	if ch.Worker == ident.ID(inst.ActorID) {
 		if err := ic.store.SetChannelWorker(ch.ID, ""); err != nil && !errors.Is(err, ErrRemoved) {
 			return err
 		}
 	}
+	ic.recordUnit("stopping the worker", ch, ic.store.StopUnitWorker(ch.ID, ident.ID(inst.ActorID), ic.now()))
 	return nil
 }
 
@@ -310,10 +308,16 @@ func (ic *Intercom) ownTicketChannel(inst Instance) (Channel, bool, error) {
 		return Channel{}, false, err
 	}
 	w := UnitWorker{Session: self, Label: sessionLabel(inst), Started: ic.now()}
-	if err := ic.store.StartUnitWorker(ch.ID, w, UnitIssue{Title: inst.UnitTitle, URL: inst.UnitURL}); err != nil {
-		return Channel{}, false, err
-	}
+	ic.recordUnit("starting the worker", ch, ic.store.StartUnitWorker(ch.ID, w, UnitIssue{Title: inst.UnitTitle, URL: inst.UnitURL}))
 	return ch, true, nil
+}
+
+// recordUnit logs a failed write to a unit's record: the record is best
+// effort, so it never fails the swap that wrote it.
+func (ic *Intercom) recordUnit(what string, ch Channel, err error) {
+	if err != nil && ic.log != nil {
+		ic.log.Warn("intercom: recording the unit of work failed (non-fatal)", "what", what, "channel", string(ch.ID), "err", err.Error())
+	}
 }
 
 // Reported records a session's accepted report on its unit: its state and
