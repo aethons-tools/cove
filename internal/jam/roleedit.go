@@ -67,7 +67,8 @@ func CreateRole(store Store, project string, role Role) error {
 // standing declarations, egress policy, context and operator notes: those
 // have their own writers (AddStanding/RemoveStanding,
 // SetRoleEgress/ClearRoleEgress, SetRoleContext/ClearRoleContext,
-// SetOperatorNotes).
+// SetOperatorNotes). It keeps the cache profile too: only the config repo
+// sets it.
 func PutRoleKeeping(store Store, project string, role Role) error {
 	roleMu.Lock()
 	defer roleMu.Unlock()
@@ -79,6 +80,7 @@ func PutRoleKeeping(store Store, project string, role Role) error {
 		role.Scope.Egress = existing.Scope.Egress
 		role.Context = existing.Context
 		role.OperatorNotes = existing.OperatorNotes
+		role.Cache = existing.Cache
 		if role.Collaborate == (CollaboratePolicy{}) {
 			role.Collaborate = existing.Collaborate
 		}

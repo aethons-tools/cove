@@ -137,12 +137,12 @@ func TestTurnEndReturnsUnsentText(t *testing.T) {
 	wantCalls(t, io.callList(), "Inbox", "Inbox", "Commit m1")
 	var outcomes []string
 	for _, e := range h.eventList() {
-		if strings.Contains(e.raw, `"type":"cove"`) {
+		if strings.Contains(e.raw, `"subtype":"turn"`) {
 			outcomes = append(outcomes, e.raw)
 		}
 	}
 	if len(outcomes) != 1 || outcomes[0] != `{"type":"cove","subtype":"turn","outcome":"unaddressed"}` {
-		t.Fatalf("cove events = %q", outcomes)
+		t.Fatalf("turn events = %q", outcomes)
 	}
 }
 
@@ -728,5 +728,50 @@ func TestDirectivesValidateCompactFields(t *testing.T) {
 	}
 	if err := (Directives{Next: "compact", Resume: "x", CompactInstructions: "y"}).Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// wakeEvents is the cove/wake events h recorded, in order.
+func wakeEvents(h *recordHandle) []recordedEvent {
+	var out []recordedEvent
+	for _, e := range h.eventList() {
+		if strings.Contains(e.raw, `"subtype":"wake"`) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// A resume prompt written into a live episode is preceded by one wake event
+// naming every coalesced reason, tagged with that episode's turn.
+func TestWakeEventMidEpisodeCarriesCoalescedReasons(t *testing.T) {
+	s := newStreamSpawner()
+	io := &fakeTurnIO{pages: [][]InboxEntry{{entry("m1", "hello")}}}
+	w := turnWL(t, s, io)
+	h := &recordHandle{}
+	done := runAsyncEpisodes(w, h, 1)
+	p := s.next(t)
+	p.in.next(t)
+	p.emit(lnInit)
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}}})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "alarm", Alarm: "ci"}}})
+	time.Sleep(10 * time.Millisecond)
+	if got := wakeEvents(h); len(got) != 0 {
+		t.Fatalf("wake events before the turn ended: %+v", got)
+	}
+	p.emit(resultLine(""))
+	p.in.next(t)
+	want := []recordedEvent{{1, `{"type":"cove","subtype":"wake","reasons":["squawk","alarm"]}`, 0}}
+	if got := wakeEvents(h); len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("wake events = %+v, want %+v", got, want)
+	}
+	p.emit(lnInit, resultLine(""))
+	p.in.waitClosed(t)
+	p.exit <- nil
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := wakeEvents(h); len(got) != 1 {
+		t.Fatalf("wake events = %+v, want one", got)
 	}
 }

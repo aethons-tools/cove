@@ -236,6 +236,8 @@ func (c *Client) ListRoles(project string) ([]jam.Role, error) {
 		}, TurnEnd: jam.TurnEndPolicy{IdleTimeout: time.Duration(rs.IdleTimeoutSeconds) * time.Second, OnIdle: rs.OnIdle, TimeZone: rs.TimeZone},
 			Collaborate: jam.CollaboratePolicy{Preview: rs.CollaboratePreview, SSH: rs.CollaborateSSH}})
 		roles[len(roles)-1].Scope.Egress = rs.Egress
+		ttl, _ := time.ParseDuration(rs.CacheTTL) // "" = the harness's default (0)
+		roles[len(roles)-1].Cache = jam.CachePolicy{TTL: ttl, KeepWarm: time.Duration(rs.CacheKeepWarmSeconds) * time.Second, Threshold: rs.CacheThreshold}
 	}
 	return roles, nil
 }

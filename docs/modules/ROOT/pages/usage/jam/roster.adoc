@@ -4,7 +4,7 @@
 :owns: the operator-facing RBAC story—Project/Role/Actor/Grant in practice, the role file's fields (`scope`, `kit`, `model-spec`, the `allocation` policy and the personal idle-ladder fields, `turn-end`, `collaborate`), the grant/ungrant/actors/enroll/revoke verbs, the enrollment snippet, and the in-progress identity registry (project ids, users, memberships, connections, accounts)
 :prereqs: INDEX.adoc for the service overview; operators.adoc for the admin-client flags; destinations.adoc for destinations (what a role's scope points at); kits.adoc for binding a kit to a role
 :tier: leaf
-:updated: 2026-11-14
+:updated: 2026-11-17
 
 Jam authorizes every brokered request against a *role-based* model:
 

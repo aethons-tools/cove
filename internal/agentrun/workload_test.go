@@ -510,12 +510,14 @@ func TestRunForwardsStdoutLinesWithTurns(t *testing.T) {
 	h := &recordHandle{}
 	done := runAsyncEpisodes(w, h, 2)
 	waitFor(t, func() bool { return h.count(studioagent.Waiting) == 1 })
-	w.Control(studioagent.Control{Kind: studioagent.Wake})
+	w.Control(studioagent.Control{Kind: studioagent.Wake, Reasons: []studioagent.WakeReason{{Kind: "squawk"}, {Kind: "idle"}}})
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+	// The woken episode's events start with the wake event naming its reasons.
 	got := h.eventList()
-	want := []recordedEvent{{1, `{"type":"system"}`, 0}, {1, `{"type":"result"}`, 0}, {2, `{"type":"assistant"}`, 0}}
+	want := []recordedEvent{{1, `{"type":"system"}`, 0}, {1, `{"type":"result"}`, 0},
+		{2, `{"type":"cove","subtype":"wake","reasons":["squawk","idle"]}`, 0}, {2, `{"type":"assistant"}`, 0}}
 	if len(got) != len(want) {
 		t.Fatalf("events: %+v", got)
 	}

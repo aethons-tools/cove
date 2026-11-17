@@ -183,6 +183,8 @@ Each line has an icon and the time under it:
 * *▶* a tool call, such as *Bash* with its command.
 Under it, *✓* or *✗* shows how the call ended and how long it took.
 * A line across the list ends each episode and shows its cost and duration.
+* *Woken* opens each turn a wake started
+and names what woke it, such as a new message or an alarm.
 * *Unaddressed* marks a turn that ended with text the session sent nowhere,
 even after Jam returned the turn to it once
 (xref:concepts/intercom.adoc#_ending_a_turn[Ending a turn]).

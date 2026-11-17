@@ -98,6 +98,12 @@ type RoleSummary struct {
 	CollaborateSSH     string `json:"collaborate_ssh,omitempty"`
 	// Egress is the role's egress policy; nil = the kit's default list.
 	Egress *EgressPolicy `json:"egress,omitempty"`
+	// CacheTTL / CacheKeepWarmSeconds / CacheThreshold are the role's cache
+	// profile (Role.Cache): ttl "5m" or "1h", "" = the harness's default;
+	// 0 = not kept warm; 0 = every session.
+	CacheTTL             string `json:"cache_ttl,omitempty"`
+	CacheKeepWarmSeconds int64  `json:"cache_keep_warm_seconds,omitempty"`
+	CacheThreshold       int    `json:"cache_threshold,omitempty"`
 }
 
 // KitSummary is a GET /admin/kits item.
@@ -543,26 +549,29 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 		for _, ro := range store.ListRoles(project) {
 			out = append(out, RoleSummary{
 				Project: orDefaultProject(project), Name: ro.Name,
-				Destinations:        ro.Scope.Destinations,
-				Credentials:         ro.Scope.Credentials,
-				Addressing:          ro.Scope.Addressing,
-				Rooms:               ro.Scope.Rooms,
-				Observe:             ro.Scope.Observe,
-				TTLSeconds:          int64(ro.Scope.TTL / time.Second),
-				Kit:                 ro.Kit,
-				ModelSpec:           ro.ModelSpec,
-				MaxEphemeral:        ro.Allocation.MaxEphemeral,
-				MaxPersonal:         ro.Allocation.MaxPersonal,
-				MaxPersonalPerOwner: ro.Allocation.MaxPersonalPerOwner,
-				IdleAfterSeconds:    int64(ro.Allocation.IdleAfter / time.Second),
-				NagEverySeconds:     int64(ro.Allocation.NagEvery / time.Second),
-				ReclaimAfterSeconds: int64(ro.Allocation.ReclaimAfter / time.Second),
-				IdleTimeoutSeconds:  int64(ro.TurnEnd.IdleTimeout / time.Second),
-				OnIdle:              ro.TurnEnd.OnIdle,
-				TimeZone:            ro.TurnEnd.TimeZone,
-				CollaboratePreview:  ro.Collaborate.Preview,
-				CollaborateSSH:      ro.Collaborate.SSH,
-				Egress:              ro.Scope.Egress,
+				Destinations:         ro.Scope.Destinations,
+				Credentials:          ro.Scope.Credentials,
+				Addressing:           ro.Scope.Addressing,
+				Rooms:                ro.Scope.Rooms,
+				Observe:              ro.Scope.Observe,
+				TTLSeconds:           int64(ro.Scope.TTL / time.Second),
+				Kit:                  ro.Kit,
+				ModelSpec:            ro.ModelSpec,
+				MaxEphemeral:         ro.Allocation.MaxEphemeral,
+				MaxPersonal:          ro.Allocation.MaxPersonal,
+				MaxPersonalPerOwner:  ro.Allocation.MaxPersonalPerOwner,
+				IdleAfterSeconds:     int64(ro.Allocation.IdleAfter / time.Second),
+				NagEverySeconds:      int64(ro.Allocation.NagEvery / time.Second),
+				ReclaimAfterSeconds:  int64(ro.Allocation.ReclaimAfter / time.Second),
+				IdleTimeoutSeconds:   int64(ro.TurnEnd.IdleTimeout / time.Second),
+				OnIdle:               ro.TurnEnd.OnIdle,
+				TimeZone:             ro.TurnEnd.TimeZone,
+				CollaboratePreview:   ro.Collaborate.Preview,
+				CollaborateSSH:       ro.Collaborate.SSH,
+				Egress:               ro.Scope.Egress,
+				CacheTTL:             formatConfigDuration(ro.Cache.TTL),
+				CacheKeepWarmSeconds: int64(ro.Cache.KeepWarm / time.Second),
+				CacheThreshold:       ro.Cache.Threshold,
 			})
 		}
 		writeJSON(w, http.StatusOK, out)

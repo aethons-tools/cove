@@ -4,7 +4,7 @@
 :owns: who may open a session view, the session view page (`/app/user/s/<id>`) and its layout, the session header (`GET /app/user/api/sessions/\{id}`) and its actions (`POST /app/user/api/sessions/\{id}/release|restart|upgrade`), the session controls (Interrupt, Compact, Clear), the session pane (`GET /app/user/api/sessions/\{id}/pane/\{tab}`) and its tabs, a preview's View here (`POST /app/user/api/sessions/\{id}/frame`), the Thinking tab (`GET /app/user/session/\{id}/thinking/events`, `GET /app/user/api/sessions/\{id}/thinking[/raw]`) and its options, the pane layout and its localStorage memory, and the cost/count aggregates (`sessionevents.Totals`) the header shows
 :prereqs: intercom-ui.adoc for the user area this extends; session-events.adoc for the events the aggregates come from; previews.adoc for exposed ports; collaboration.adoc for who may SSH or open a preview; previews.adoc#framing-the-jam-pane for the frame tickets and cookie
 :tier: leaf
-:updated: 2026-11-14
+:updated: 2026-11-17
 
 A session's view is its own page in the xref:usage/jam/intercom-ui.adoc[Jam app], `/app/user/s/<id>`
 (`web/app/src/session/SessionPage.tsx`): the session's header, its activity
@@ -74,7 +74,7 @@ Each press is `+POST /app/user/api/sessions/{id}/interrupt|compact|clear+`. The 
 when the control isn't available in the session's state, and 502 when the cove can't be reached.
 A paused studio is resumed first, so a press may take up to about 30 seconds. The Thinking tab shows
 each press as `+<Command> — pressed by <name>+`, and a press jam-studio-agent dropped with its reason,
-for example, `+Clear — pressed by Bob (ignored: live episode)+`, and a returned turn that again sent nothing as `+Unaddressed — …+` (see xref:usage/jam/structured-turn-end.adoc#the-turn-end-rule[returned turns]).
+for example, `+Clear — pressed by Bob (ignored: live episode)+`, a returned turn that again sent nothing as `+Unaddressed — …+` (see xref:usage/jam/structured-turn-end.adoc#the-turn-end-rule[returned turns]), and what woke a turn as `+Woken — <reasons>+`, for example, `+Woken — squawk, alarm+` (see xref:usage/jam/session-events.adoc#cove-side-jam-studio-agent[wake events]).
 
 [#pane]
 == Pane

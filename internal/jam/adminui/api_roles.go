@@ -82,7 +82,7 @@ func roleDetailOf(store jam.Store, img jam.ImageResolver, items []attnItem, proj
 	out := RoleDetail{Project: d.Project, Name: name, Kit: r.Kit,
 		ModelSpec: r.ModelSpecName(), ModelSpecDefault: r.ModelSpec == "", TTL: ttlText(r.Scope.TTL), Dests: []DestRow{},
 		Addressing: append([]string{}, r.Scope.Addressing...), Rooms: []RoleRoomRow{}, Observes: r.Scope.Observes(), EgressManaged: d.EgressManaged, EgressDomains: []string{},
-		Allocation: []Setting{}, Standing: []StandingRow{}, Holders: []HolderRow{}, Running: coveRows(d.Coves, items),
+		Allocation: []Setting{}, Cache: []Setting{}, Standing: []StandingRow{}, Holders: []HolderRow{}, Running: coveRows(d.Coves, items),
 		Form: RoleForm{Destinations: d.Form.Destinations, Addressing: d.Form.Addressing, TTL: d.Form.TTL, Kit: r.Kit, ModelSpec: r.ModelSpec,
 			MaxEphemeral: d.Form.MaxEphemeral, MaxPersonal: d.Form.MaxPersonal, MaxPersonalPerOwner: d.Form.MaxPersonalPerOwner,
 			IdleAfter: d.Form.IdleAfter, NagEvery: d.Form.NagEvery, ReclaimAfter: d.Form.ReclaimAfter, Egress: d.Form.Egress},
@@ -99,6 +99,9 @@ func roleDetailOf(store jam.Store, img jam.ImageResolver, items []attnItem, proj
 	}
 	for _, s := range d.Allocation {
 		out.Allocation = append(out.Allocation, Setting{Label: s.Label, Value: s.Value, Unset: s.Unset})
+	}
+	for _, s := range d.Cache {
+		out.Cache = append(out.Cache, Setting{Label: s.Label, Value: s.Value, Unset: s.Unset})
 	}
 	for _, s := range d.Standing {
 		row := StandingRow{Name: s.Name, Prompt: s.Prompt, ActorID: s.ActorID, Image: s.Image, Upgrade: s.Upgrade}
