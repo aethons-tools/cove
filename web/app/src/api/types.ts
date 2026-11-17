@@ -88,10 +88,65 @@ export interface WorkRow {
   log: string; // the work log's channel id
   worker: WorkWorker;
   /**
+   * State is the unit's state as last reported: in-progress, in-review,
+   * needs-input, blocked or done; "" = none reported.
+   */
+  state: string;
+  /**
    * Unread is the log's unread entries when the viewer follows it; absent
    * otherwise.
    */
   unread?: number /* int */;
+}
+/**
+ * WorkUnit is GET /app/user/api/work/{key}: a unit of work's record
+ * (docs/modules/ROOT/pages/usage/jam/work-units.adoc).
+ */
+export interface WorkUnit {
+  key: string; // the issue key
+  title: string; // the issue title; "" = not known
+  url: string; // the issue's page on the tracker; "" = not known
+  log: string; // the work log's channel id
+  /**
+   * State is the unit's state as last reported: in-progress, in-review,
+   * needs-input, blocked or done; "" = none reported.
+   */
+  state: string;
+  /**
+   * Workers is every session that has been its worker, in the order they
+   * started.
+   */
+  workers: UnitWorker[];
+  /**
+   * PullRequests is the pull requests reported for it, in the order first
+   * reported.
+   */
+  pullRequests: UnitPR[];
+}
+/**
+ * UnitWorker is one session's turn as a unit's worker.
+ */
+export interface UnitWorker {
+  session: string; // session id
+  label: string; // its name, else its id
+  started?: string; // absent = not known
+  stopped?: string; // absent = current, or not known
+  current: boolean; // it is the unit's worker now
+  /**
+   * View is the session's view in the app, when the viewer may open it;
+   * "" = not theirs to open.
+   */
+  view: string;
+}
+/**
+ * UnitPR is a pull request reported for a unit.
+ */
+export interface UnitPR {
+  url: string;
+  number: number /* int */; // 0 = none in its URL
+  title: string; // "" = not known
+  state: string; // open | merged | closed
+  reportedAt: string;
 }
 /**
  * WorkWorker is a unit's current worker.

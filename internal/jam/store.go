@@ -21,6 +21,7 @@ type Store interface {
 	AppTokenStore
 	SessionColorStore
 	RailOrderStore
+	WorkUnitStore
 	ManagerStore
 	SetupSnapshotStore
 

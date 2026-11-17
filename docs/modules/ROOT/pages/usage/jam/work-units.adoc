@@ -1,0 +1,111 @@
+= Units of work: the record and its API
+:summary: The record Jam keeps for each unit of work—its issue, the sessions that have been its worker, the pull requests reported for it, and its last reported state—how worker swaps and reports write it, its tables (`work_units`, `work_unit_workers`, `work_unit_prs`) and backfill, and `GET /app/user/api/work/{key}`.
+:read_when: You are reading or changing what Jam records about a unit of work (`jam.WorkUnitStore`, `Intercom.Reported`, the worker swap in `ownTicketChannel`), its tables or migration, the work API (`userui.apiWork`), or the rail's `WorkRow.state`.
+:owns: the unit of work's record (`jam.WorkUnit`), when it's written, its storage, and `GET /app/user/api/work/{key}`. Does NOT own the work log and its current worker (intercom.adoc), the `report` tool (turn-end.adoc), the rail (rail-api.adoc), or who may open a session view (session-view.adoc).
+:prereqs: intercom.adoc for the work log and its worker; turn-end.adoc for `report`
+:tier: leaf
+:updated: 2026-11-17
+:page-normative:
+
+A unit of work is one tracker issue as Jam sees it
+(the Jam manual's *Units of work*).
+Its log is a `work` channel, and the channel holds only its current worker
+(xref:usage/jam/intercom.adoc[intercom]).
+The *record* keeps the rest, keyed by the log's channel id (`jam.WorkUnit`):
+
+* *The issue:* its title and URL, as the Requisitioner raised a worker with them
+(`Instance.UnitTitle`, `Instance.UnitURL`: the `url` of a Linear issue, the `html_url` of a GitHub one).
+* *Workers:* every session that has been the unit's worker,
+in the order they started, with its label, when it started, and when it stopped.
+* *Pull requests:* every PR reported for the unit,
+in the order first reported: URL, number, title, state (`open`, `merged`, or `closed`), and when it was first reported.
+* *State:* the unit's state as last reported
+(`in-progress`, `in-review`, `needs-input`, `blocked`, or `done`), and when.
+
+Nothing but the API below and the rail's `WorkRow.state` reads it yet.
+
+[#writes]
+== Writes
+
+* *A worker swap.*
+When a session becomes the unit's worker (`Intercom.ownTicketChannel`, at raise and at serve start),
+Jam MUST record a new worker starting now, stopping the previous worker at the same time.
+Recording the current worker again MUST be a no-op,
+so a restart doesn't add a turn.
+The session's issue title and URL, when set, replace the unit's.
+* *A session ends* (`Intercom.Ended`):
+its turn MUST stop now when it's the current worker.
+* *A report* (`Supervisor.SetReport`, from `report` or from wake-on's `blocked` for a session that ended without one):
+Jam MUST record the state, and the `pr` URL as a new `open` PR when the unit has no PR with that URL.
+The number is parsed from the URL's `/pull/<n>` (or `/merge_requests/<n>`); `0` when it has none.
+Recording is best effort: a failure is logged and MUST NOT fail the report.
+
+A record exists from its first write; every write needs the channel to be a `work` log.
+A PR's title and its `merged` or `closed` state have columns but no writer yet.
+
+[#storage]
+== Storage
+
+Migration `0028_work_units.sql` adds three tables, each removed with its log's channel:
+
+[%header,cols="1,3"]
+|===
+|Table |Holds
+
+|`work_units`
+|One row per unit: `channel_id`, the issue's `title` and `url`, `state` (`''` = none), `state_at`.
+
+|`work_unit_workers`
+|One row per worker's turn, ordered by `ord`: `session_id`, `label`, `started_at`, `stopped`, `stopped_at`.
+A `NULL` time isn't known.
+
+|`work_unit_prs`
+|One row per PR, ordered by `ord`, unique by `url`: `number`, `title`, `state`, `reported_at`.
+|===
+
+A write rewrites the unit's rows in one transaction (`putWorkUnitTx`).
+
+The migration backfills workers from each `work` log's session members (`channel_members`):
+a past member (`left_seq` set) as a stopped worker,
+the log's current worker as the current one.
+A member's start is its instance's `raised_at` while the instance still exists, otherwise unknown;
+its stop time is unknown.
+A session called into a log isn't told apart from a worker.
+
+[#api]
+== API
+
+`GET /app/user/api/work/{key}` (`userui.WorkUnit`) returns the live unit with issue key `{key}`
+(a Linear key, or a GitHub `owner/repo#<n>` with `#` escaped)
+in the caller's projects.
+
+* Access MUST follow the work log's:
+someone who may read the log (a project member, or a member of the log) may read the unit.
+Anyone else, and a key with no live log, MUST get `404` with `code: "not_found"`, the same answer.
+* A log with no record yet MUST return the unit with empty `workers` and `pullRequests`.
+
+[%header,cols="1,3"]
+|===
+|Field |Holds
+
+|`key`, `title`, `url`
+|The issue key, title, and page.
+`title` falls back to the current worker's `UnitTitle`; empty when not known.
+
+|`log`
+|The work log's channel id.
+
+|`state`
+|The last reported state; empty when none.
+
+|`workers`
+|Each turn: `session`, `label`, `started` and `stopped` (absent when not known, or `stopped` while current), `current`,
+and `view`: the session view's path (`/app/user/s/<session>`) when the caller may open it
+(xref:usage/jam/session-view.adoc[session-view]), else empty.
+
+|`pullRequests`
+|Each PR: `url`, `number`, `title`, `state`, `reportedAt`.
+|===
+
+The rail's `WorkRow` carries the same `state`
+(xref:usage/jam/rail-api.adoc#sections[rail-api]).

@@ -24,6 +24,7 @@ type Issue struct {
 	ID          string // tracker-internal id (for API calls)
 	Identifier  string // human key, e.g. "AET-42"
 	Title       string
+	URL         string // the issue's web page; "" if the tracker didn't give one
 	Description string
 	Class       string // parsed from the class label; "" if none
 	// DispatchLabeled is true when the issue carries a label matching the
