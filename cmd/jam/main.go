@@ -37,6 +37,7 @@ import (
 	"github.com/aethons-tools/cove/internal/blobstore"
 	"github.com/aethons-tools/cove/internal/cli"
 	"github.com/aethons-tools/cove/internal/discord"
+	"github.com/aethons-tools/cove/internal/dispatch/githubissues"
 	"github.com/aethons-tools/cove/internal/dispatcher"
 	"github.com/aethons-tools/cove/internal/escalate"
 	"github.com/aethons-tools/cove/internal/ident"
@@ -2430,6 +2431,31 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 		} else {
 			self, _ := trackerSelf(context.Background(), kind, trk.Viewer, log, sleepCtx)
 			startRelay(self)
+		}
+
+		// The PR watcher (relay_prs.go): units' pull request reviews, merges
+		// and closes into their work logs, read with a github tracker's own
+		// token or runtime.requisitioner.pull-requests' connection.
+		prs, ok, err := prReader(dc, trk, func(name string) (pullReader, error) {
+			_, cred, err := resolveServeConnection(st, "runtime.requisitioner.pull-requests", tracker.KindGitHub, name, "", cfg.Credentials)
+			if err != nil {
+				return nil, err
+			}
+			env, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cred]})
+			if err != nil {
+				return nil, fmt.Errorf("runtime.requisitioner.pull-requests credential: %w", err)
+			}
+			return githubissues.NewReader(env[cred], nil)
+		})
+		switch {
+		case err != nil:
+			fmt.Fprintln(stderr, "jam:", err)
+			return 1
+		case ok:
+			go (&prWatcher{store: st, dir: dir, ic: ic, gh: prs, poll: poll, log: log}).Run(context.Background())
+			log.Info("Jam relay (pull requests): resident")
+		default:
+			log.Info("Jam relay (pull requests): off (a Linear tracker without runtime.requisitioner.pull-requests)")
 		}
 
 	}

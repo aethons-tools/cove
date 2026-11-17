@@ -1,0 +1,29 @@
+= Reading the work log's history
+:summary: How a unit of work's current worker reads its work log from the start with the intercom `read` tool's `channel` (`GET /squawks?channel=`)—who may, what a page holds, its anchors, and that the read wakes no one and moves no cursor.
+:read_when: A re-dispatched ticket's session needs what earlier sessions and people said on the ticket, or you are changing `read`'s `channel`, its permission check, or the brief line that tells a ticket session about it.
+:owns: reading a work log's history—`read`'s `channel` and `GET /squawks?channel=`, who may, its anchors, and the ticket brief's line about it
+:prereqs: intercom.adoc for the `read` tool, the channel log and the inbox as a queue
+:tier: leaf
+:updated: 2026-11-17
+
+A session joins its unit's work log at the log's tail,
+so its inbox holds only what was posted after it joined
+(xref:usage/jam/intercom.adoc#channel-membership[intercom]).
+When a ticket is worked again,
+the new worker reads what came before—earlier sessions' reports, people's replies—from the log itself:
+`read` with `channel` set to `work:<key>` or the log's channel id (`GET /squawks?channel=`).
+
+* *Only the unit's current worker.* `channel` resolves only to the caller's own unit's log,
+and only while the log records the caller as its worker;
+anything else—another unit's log, a room, a dm, the old worker after a takeover—is `403`.
+Every other channel keeps the inbox rules (xref:usage/jam/intercom.adoc#the-inbox-as-a-durable-queue[intercom]).
+* *The log's entries, not the inbox's.* The page is every entry in the log,
+the caller's own posts included, with the same entry shape.
+`anchor` defaults to `start`, and takes `start`, `end`, or `id` with `dir` and `limit` as for the inbox;
+`anchor=cursor` is `400`, since the commit cursor is a position in the inbox, not in the log.
+The legacy log before the cutover isn't read.
+* *A read, nothing more.* It appends nothing, so it wakes no one,
+and it moves no cursor: not the reader's commit cursor, not anyone else's.
+The reader keeps its own place in the log by paging with `id`.
+
+The dispatcher's brief tells a ticket session this, naming its log.

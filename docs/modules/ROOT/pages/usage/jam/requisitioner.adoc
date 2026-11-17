@@ -4,7 +4,7 @@
 :owns: the operator-facing Requisitioner story — the poll→claim→raise flow, the `runtime.requisitioner` serve-config block, and the concurrency-cap model
 :prereqs: coves.adoc for what a raised managed studio does (the supervisor + Launcher own its lifecycle); studio-managers.adoc for the Studio Manager a raised studio needs; roster.adoc for the role tickets are raised for
 :tier: leaf
-:updated: 2026-11-14
+:updated: 2026-11-17
 
 The *Requisitioner* is an always-on loop inside `jam serve` that
 turns ready tracker tickets into managed-cove raises—the automatic counterpart
@@ -35,7 +35,7 @@ Jam restart.
 . *Claim*—transition the issue READY → IN PROGRESS _before_ raising, so a
 crash between claim and raise leaves the ticket claimed (recoverable), never
 double-raised. The transition also drops it from the next `ListReady`.
-. *Raise*—set the session's starting xref:usage/jam/intercom.adoc#what-the-tools-do[mission] and its `UnitTitle` (the rail's xref:usage/jam/rail-api.adoc#sections[Work] row) to the issue's title, then build the prompt (the issue brief + the turn-end protocol: own the
+. *Raise*—set the session's starting xref:usage/jam/intercom.adoc#what-the-tools-do[mission] and its `UnitTitle` (the rail's xref:usage/jam/rail-api.adoc#sections[Work] row) to the issue's title, and its `UnitURL` (the unit's xref:usage/jam/work-units.adoc[record]) to the issue's page, then build the prompt (the issue brief + the turn-end protocol: own the
 branch and PR through merge, keep the ticket current with `report`, `end` only
 once the work has landed, and wait for people rather than exit when stuck—
 see xref:usage/jam/turn-end.adoc#reporting-a-ticket[Reporting a ticket]) and call the supervisor's raise
@@ -68,6 +68,7 @@ runtime:
     max-concurrent: 5         # required, > 0—the backpressure cap (fallback: the role's roster max-ephemeral wins when set)
     poll-interval: 30s        # optional; defaults to 30s
     connection: linear-acme   # a connection of the tracker's kind, `linear` or `github` (`connections/linear-acme.yml` in the config repo: `service: linear`, `cred: linear-bot`); its credential is demanded in credentials.adoc, never inline here
+    pull-requests: gh-acme    # optional; a `github` connection the PR watcher reads units' pull requests with (unset: a GitHub tracker's own connection; a Linear tracker has no PR watcher)
     linear:                   # the Linear team + lifecycle-state map
       team: AET
       class-label-prefix: "class:"
@@ -87,6 +88,12 @@ wins when set—see xref:usage/jam/wake-on.adoc[wake-on] and
 xref:usage/jam/escalation.adoc[escalation]. The Requisitioner also brings the tracker relay (Linear or GitHub comments), which
 needs its tracker; the intercom itself (`/squawks`, wake-on, escalation, the Discord
 relay) runs without a Requisitioner.
+It also brings the PR watcher, which posts the reviews, merge, and close of a unit's pull requests to its work log
+(xref:usage/jam/work-units.adoc#pr-watcher[work-units]).
+Its token needs Pull requests read on the repos the units' pull requests are in.
+Each open PR costs two GitHub calls a poll,
+so many open PRs at a short `poll-interval` use a noticeable share of the token's hourly limit;
+with a GitHub tracker, that's the tracker's own token.
 
 === GitHub Issues (`+github:+`)
 

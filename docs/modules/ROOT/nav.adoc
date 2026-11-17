@@ -44,6 +44,7 @@
 *** xref:usage/jam/intercom-ui.adoc[]
 *** xref:usage/jam/prompt-cache.adoc[]
 *** xref:usage/jam/rail-api.adoc[]
+*** xref:usage/jam/work-units.adoc[]
 *** xref:usage/jam/intercom.adoc[]
 *** xref:usage/jam/kits-directory.adoc[]
 *** xref:usage/jam/kits-drafts-ui.adoc[]
@@ -114,3 +115,4 @@
 *** xref:usage/jam/vscode.adoc[]
 *** xref:usage/jam/wake-on.adoc[]
 *** xref:usage/jam/whiteboards.adoc[]
+*** xref:usage/jam/work-log-history.adoc[]

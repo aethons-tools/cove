@@ -7,6 +7,8 @@ A *unit of work* is one ticket from the project's tracker,
 seen from Jam:
 the issue,
 the session that works on it now,
+the sessions that worked on it before,
+the pull requests they reported,
 and its *work log*.
 It outlives the sessions that work on it.
 
@@ -15,6 +17,11 @@ Jam starts a ticket agent when a ticket is ready and marked for dispatch
 If the ticket is worked again later,
 the new session takes over the same unit of work.
 At most one session works on a unit at a time.
+
+Jam remembers each session that has worked on the unit,
+and when it started and stopped.
+When a session reports a pull request for the ticket,
+Jam keeps it with the unit too.
 
 == The work log
 
@@ -25,6 +32,20 @@ So do the people who follow it:
 who posted in the log, or clicked *Join* on it.
 When a new session takes over the unit,
 Jam takes the old session out of the log and puts the new one in.
+The new session reads the log from its first entry,
+so it takes up the history of the work:
+earlier sessions' reports,
+and what people decided and answered.
+Only the session working on the unit now can read the log this way.
+
+The log holds the record of the work:
+
+* The session's progress reports and its state changes, such as *in review*.
+* Messages that people and sessions post to the work.
+* Review outcomes of the unit's pull requests:
+each review, and the merge or the close,
+once each,
+saying who reviewed it, the outcome, and a link to the review.
 
 The log is mirrored to the issue in the tracker, both ways.
 Each entry becomes a comment on the issue,
@@ -65,11 +86,15 @@ ifdef::internal[]
 `409 {"error": "no-worker"}` with no current worker).
 Both match a role's `ticket:` addressing globs.
 * The log is a channel of kind `work`; it records its current worker.
+* The current worker reads the log's history with the intercom's `read` and `channel: work:<key>`;
+the ticket brief tells it so.
+See `work-log-history.adoc`.
 * People post to a unit's log with *Log* in the Inbox's *New message*,
 and DM its worker with *Worker*:
 a recipient's `worker` field (`worker:<key>`), offered while the unit has a live worker they may reach.
 From the Inbox, no worker is `409` with `code: "no-worker"`.
-A unit of work has no page of its own yet (COV-308).
+A unit of work has no page of its own yet (COV-308);
+`GET /app/user/api/work/<key>` returns its record (COV-405).
 * Architecture pages: `docs/modules/ROOT/pages/usage/jam/comms-addressing.adoc` (targets and addressing),
-`intercom.adoc` (the channel log).
+`intercom.adoc` (the channel log), `work-units.adoc` (the unit's record and its API).
 endif::[]

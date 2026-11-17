@@ -98,7 +98,7 @@ func newTestDispatcher(t *fakeTracker, r *fakeRaiser, reg *fakeRegistry, allow i
 }
 
 func TestTickClaimsAndRaises(t *testing.T) {
-	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", Title: "do a thing", Description: "the desc", DispatchLabeled: true}}}
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", Title: "do a thing", URL: "https://linear.app/aet/issue/AET-1", Description: "the desc", DispatchLabeled: true}}}
 	r := &fakeRaiser{}
 	d := newTestDispatcher(tr, r, &fakeRegistry{}, 5)
 	d.tick(context.Background())
@@ -112,6 +112,9 @@ func TestTickClaimsAndRaises(t *testing.T) {
 	s := r.specs[0]
 	if !strings.HasPrefix(s.ActorID, "ses_") || s.Role != "worker" || s.Project != "acme" || s.Unit != "AET-1" {
 		t.Fatalf("raise spec = %+v", s)
+	}
+	if s.UnitURL != "https://linear.app/aet/issue/AET-1" {
+		t.Fatalf("raise spec UnitURL = %q, want the issue URL", s.UnitURL)
 	}
 	if s.Mission != "do a thing" || s.UnitTitle != "do a thing" {
 		t.Fatalf("raise spec Mission, UnitTitle = %q, %q, want the issue title", s.Mission, s.UnitTitle)
@@ -298,5 +301,16 @@ func TestTurnEndProtocolNoExitOnQuestion(t *testing.T) {
 	}
 	if strings.Contains(turnEndProtocol, "ask with `send` and end your turn") {
 		t.Error("turnEndProtocol still tells a stuck session to end its turn after a send")
+	}
+}
+
+// The brief tells a ticket session it can read its unit's log from the
+// start, and how.
+func TestPromptTellsTheWorkerToReadItsLog(t *testing.T) {
+	tr := &fakeTracker{ready: []scheduler.Issue{{ID: "id1", Identifier: "AET-1", DispatchLabeled: true}}}
+	r := &fakeRaiser{}
+	newTestDispatcher(tr, r, &fakeRegistry{}, 5).tick(context.Background())
+	if len(r.specs) != 1 || !strings.Contains(r.specs[0].Prompt, "`read` tool and `channel: work:AET-1`") {
+		t.Fatalf("prompt does not say how to read the log:\n%+v", r.specs)
 	}
 }

@@ -386,6 +386,34 @@ func TestMCPReadWithIDAnchorSendsQuery(t *testing.T) {
 	}
 }
 
+func TestMCPReadWithChannelSendsQuery(t *testing.T) {
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"squawks":[]}`))
+	}))
+	defer srv.Close()
+	c, err := newMessagingClient(func(k string) string {
+		switch k {
+		case "JAM_RUNTIME_ADDR":
+			return srv.URL
+		case "JAM_IDENTITY_TOKEN":
+			return "tok"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.read(context.Background(), readIn{Channel: "work:ACME-7", Anchor: "start"}); err != nil {
+		t.Fatal(err)
+	}
+	if gotQuery.Get("channel") != "work:ACME-7" || gotQuery.Get("anchor") != "start" {
+		t.Fatalf("query=%v, want channel=work:ACME-7 anchor=start", gotQuery)
+	}
+}
+
 func TestMCPCommitPostsUpTo(t *testing.T) {
 	var gotPath, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

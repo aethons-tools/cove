@@ -94,7 +94,7 @@ func TestListReadyParsesClassAndIdentity(t *testing.T) {
 	c := newTestClient(t, rtFunc(func(r *http.Request) (*http.Response, error) {
 		sawQuery = r.URL.Query().Get("q")
 		return jsonResp(200, `{"items":[
-		 {"number":42,"title":"T1","body":"no markers here","labels":[{"name":"class:implementor"},{"name":"status:ready"},{"name":"dispatch:go"}]}
+		 {"number":42,"title":"T1","html_url":"https://github.com/acme/board/issues/42","body":"no markers here","labels":[{"name":"class:implementor"},{"name":"status:ready"},{"name":"dispatch:go"}]}
 		]}`), nil
 	}))
 	got, err := c.ListReady(context.Background())
@@ -107,8 +107,8 @@ func TestListReadyParsesClassAndIdentity(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("ListReady = %+v; want one issue", got)
 	}
-	if got[0].ID != "42" || got[0].Identifier != "acme/board#42" || got[0].Class != "implementor" {
-		t.Fatalf("issue = %+v; want ID=42 Identifier=acme/board#42 Class=implementor", got[0])
+	if got[0].ID != "42" || got[0].Identifier != "acme/board#42" || got[0].Class != "implementor" || got[0].URL != "https://github.com/acme/board/issues/42" {
+		t.Fatalf("issue = %+v; want ID=42 Identifier=acme/board#42 Class=implementor and its URL", got[0])
 	}
 }
 
