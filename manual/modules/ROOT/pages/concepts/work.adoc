@@ -90,7 +90,8 @@ with a box under it to post to the log.
 The panel::
 The panel beside the log lists the unit's agents and its pull requests.
 The agent working on it now comes first, with its status,
-then the agents that worked on it before, with the dates they worked.
+then the agents that worked on it before,
+with the dates they worked when Jam knows them.
 Click an agent to open its session view,
 if you may open it.
 Each pull request shows its number, its title,
@@ -111,7 +112,8 @@ ifdef::internal[]
 The interfaces are in `docs/modules/ROOT/pages/usage/jam/conversations.adoc`.
 * The unit of work's page is new (agreed with the user 2026-11-17, COV-408).
 It is `/app/user/w/<key>` in the web app,
-built on `GET /app/user/api/work/{key}`.
+built on `+GET /app/user/api/work/{key}+`;
+the current worker's status comes from the rail's `WorkWorker.state`, since `UnitWorker` has none.
 The page image is the prototype's (`attachments/work-prototype.html`).
 The prototype runs only on the team site: Jam serves the manual with a CSP that allows no scripts or inline styles, so the link is internal.
 endif::[]
