@@ -1,8 +1,8 @@
 = Keeping the prompt cache warm
-:summary: A role's cache profile (`cache: {ttl, keep-warm, threshold}`): the role file field, its validation, and where `role list`, the API, and the role page show it. Jam stores the profile but doesn't apply it to sessions yet.
-:read_when: You are building, configuring, or reviewing a role's `cache` profile, or reading it in `role list`, the roles API, or the role page.
-:owns: the role file's `cache` field, its validation, and where it shows. Does NOT own the role file as a whole (roster.adoc).
-:prereqs: roster.adoc for the role file
+:summary: A role's cache profile (`cache: {ttl, keep-warm, threshold}`): the role file field, its validation, where `role list`, the API, and the role page show it, and the prompt-cache lifetime Jam sets in the role's sessions. Jam doesn't apply `keep-warm` or `threshold` yet.
+:read_when: You are building, configuring, or reviewing a role's `cache` profile, reading it in `role list`, the roles API, or the role page, or checking why a session's cache writes are 5-minute or 1-hour writes.
+:owns: the role file's `cache` field, its validation, where it shows, and how Jam applies `cache.ttl` to a session. Does NOT own the role file as a whole (roster.adoc) or the rest of the per-run settings file (model-specs.adoc).
+:prereqs: roster.adoc for the role file; model-specs.adoc for the per-run settings file
 :tier: leaf
 :updated: 2026-11-17
 :page-normative:
@@ -17,9 +17,9 @@ those cold wakes are most of what the session costs (Linear COV-389).
 A role's *cache profile* sets how long the cache lives,
 how long Jam keeps it from expiring while a session waits,
 and when Jam asks the session to compact before it goes cold.
-Jam reads, validates, and shows the profile;
-it doesn't apply it to sessions yet,
-so a role works the same with a profile as without one.
+Jam reads, validates, and shows the profile,
+and sets `ttl` in the role's sessions (<<cache-lifetime>>).
+It doesn't apply `keep-warm` or `threshold` yet.
 
 == The profile
 
@@ -67,3 +67,34 @@ and the role page shows it under *Cache*.
 Only the config repo sets it:
 neither the API nor the role page edits it,
 and a role edit there keeps it.
+
+[#cache-lifetime]
+== The cache lifetime
+
+Jam MUST set `ttl` in every session of the role
+through the harness's own setting, over any value the model spec sets.
+A change applies to sessions raised after it.
+
+Jam carries the role's `ttl` in the session's context bundle (`+cache_ttl+`),
+and the cove reads it from the bundle it was raised with,
+never from a refreshed one.
+For Claude Code, the cove sets it as `promptCacheTtl` (`"5m"` or `"1h"`)
+in the per-run settings file
+(xref:usage/jam/model-specs.adoc#what-a-cove-applies[model-specs]),
+over the spec's `claude.settings`,
+and passes the file as `+--settings+` even when the spec sets nothing else.
+An unset `ttl` leaves the file exactly as the spec makes it.
+A value other than `5m` or `1h` that reaches the cove is logged and ignored.
+
+ifdef::internal[]
+== Notes for the team
+
+* Checked by hand on Claude Code 2.1.287 (COV-398):
+`promptCacheTtl: "1h"` in a `+--settings+` file turns the `result` event's
+`+usage.cache_creation+` from `+ephemeral_5m_input_tokens+` to `+ephemeral_1h_input_tokens+`,
+in `+-p+` with JSON or stream-JSON output,
+and `promptCacheTtl: "5m"` keeps 5-minute writes.
+`+CLAUDE_CODE_PROMPT_CACHE_TTL=1h+` and `+ENABLE_PROMPT_CACHING_1H=1+` have the same effect;
+Jam uses the setting.
+Check it again when the harness's version changes.
+endif::[]

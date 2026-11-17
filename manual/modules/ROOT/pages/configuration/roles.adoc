@@ -143,8 +143,8 @@ How long after a turn ends Jam keeps the cache from expiring.
 *Threshold*::
 The conversation size, in tokens, below which Jam doesn't keep it warm.
 
-Jam doesn't apply the profile yet:
-a role with one works as a role without one.
+Jam applies the TTL to agents started after you set it.
+It doesn't apply *Keep warm* or *Threshold* yet.
 
 == Standing agents
 

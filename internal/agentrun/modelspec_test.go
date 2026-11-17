@@ -123,7 +123,7 @@ func TestClaudeValidateVersion(t *testing.T) {
 	} {
 		dir := t.TempDir()
 		spec := specWith(func(s *modelspec.Spec) { s.Version = c.constraint })
-		err := specClaude(t, dir, c.have, nil).Validate(spec)
+		err := specClaude(t, dir, c.have, nil).Validate(spec, "")
 		if (err == nil) != c.ok {
 			t.Errorf("%q vs %s: err = %v, want ok=%v", c.constraint, c.have, err, c.ok)
 		}
@@ -142,18 +142,18 @@ func TestClaudeValidateVersionFailsLoud(t *testing.T) {
 	dir := t.TempDir()
 	c := testClaude(t, dir)
 	c.CLIVersion = func() (string, error) { return "", errors.New(`exec: "claude": executable file not found in $PATH`) }
-	if err := c.Validate(spec); err == nil || !strings.Contains(err.Error(), "claude --version") || !strings.Contains(err.Error(), "not found") {
+	if err := c.Validate(spec, ""); err == nil || !strings.Contains(err.Error(), "claude --version") || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("missing binary: err = %v", err)
 	}
 	c.CLIVersion = func() (string, error) { return "garbage\n", nil }
-	if err := c.Validate(spec); err == nil || !strings.Contains(err.Error(), "no version") {
+	if err := c.Validate(spec, ""); err == nil || !strings.Contains(err.Error(), "no version") {
 		t.Fatalf("unparseable: err = %v", err)
 	}
 	// No MCP config is written when the version check fails first.
 	if _, err := os.Stat(c.MCPConfigPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("MCP config written despite a failed pre-flight: %v", err)
 	}
-	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Type = "codex" })); err == nil {
+	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Type = "codex" }), ""); err == nil {
 		t.Fatal("a non-claude spec must be refused")
 	}
 }
@@ -162,10 +162,10 @@ func TestClaudeValidateSkipsVersionWithoutConstraint(t *testing.T) {
 	dir := t.TempDir()
 	calls := 0
 	c := specClaude(t, dir, modelspec.DefaultClaudeVersion, &calls)
-	if err := c.Validate(nil); err != nil {
+	if err := c.Validate(nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Version = "*" })); err != nil {
+	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Version = "*" }), ""); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 0 {
@@ -176,7 +176,7 @@ func TestClaudeValidateSkipsVersionWithoutConstraint(t *testing.T) {
 func TestClaudeValidateWritesAndClearsSettings(t *testing.T) {
 	dir := t.TempDir()
 	c := specClaude(t, dir, modelspec.DefaultClaudeVersion, nil)
-	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Claude.Settings = map[string]any{"theme": "dark"} })); err != nil {
+	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Claude.Settings = map[string]any{"theme": "dark"} }), ""); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(c.SettingsPath)
@@ -187,7 +187,7 @@ func TestClaudeValidateWritesAndClearsSettings(t *testing.T) {
 	if json.Unmarshal(b, &got) != nil || got["theme"] != "dark" {
 		t.Fatalf("settings file = %s", b)
 	}
-	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Claude.Plugins, s.Claude.Settings = nil, nil })); err != nil {
+	if err := c.Validate(specWith(func(s *modelspec.Spec) { s.Claude.Plugins, s.Claude.Settings = nil, nil }), ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(c.SettingsPath); !errors.Is(err, os.ErrNotExist) {
@@ -326,7 +326,7 @@ func TestClaudeValidateRejectsBadPolicyMode(t *testing.T) {
 	for mode, want := range map[string]string{"yolo": `"yolo"`, "plan": "never leave plan mode"} {
 		dir := t.TempDir()
 		c := specClaude(t, dir, modelspec.DefaultClaudeVersion, nil)
-		err := c.Validate(specWith(func(s *modelspec.Spec) { s.Name, s.Policy.Mode = "odd", mode }))
+		err := c.Validate(specWith(func(s *modelspec.Spec) { s.Name, s.Policy.Mode = "odd", mode }), "")
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), `"odd"`) {
 			t.Errorf("mode %q: err = %v, want one naming the spec and mentioning %q", mode, err, want)
 		}
@@ -336,7 +336,7 @@ func TestClaudeValidateRejectsBadPolicyMode(t *testing.T) {
 	}
 	for _, mode := range append(modelspec.PermissionModes(), "") {
 		dir := t.TempDir()
-		if err := specClaude(t, dir, modelspec.DefaultClaudeVersion, nil).Validate(specWith(func(s *modelspec.Spec) { s.Policy.Mode = mode })); err != nil {
+		if err := specClaude(t, dir, modelspec.DefaultClaudeVersion, nil).Validate(specWith(func(s *modelspec.Spec) { s.Policy.Mode = mode }), ""); err != nil {
 			t.Errorf("mode %q refused: %v", mode, err)
 		}
 	}
@@ -410,7 +410,7 @@ func TestClaudeValidateRuntimeConstraint(t *testing.T) {
 		{"2.1.287", "2.1.x", "2.2.0", false},
 	} {
 		spec := specWith(func(s *modelspec.Spec) { s.Version, s.VersionConstraint = c.version, c.constraint })
-		err := specClaude(t, t.TempDir(), c.have, nil).Validate(spec)
+		err := specClaude(t, t.TempDir(), c.have, nil).Validate(spec, "")
 		if (err == nil) != c.ok {
 			t.Errorf("version %s constraint %q vs %s: err = %v, want ok=%v", c.version, c.constraint, c.have, err, c.ok)
 		}
@@ -428,7 +428,7 @@ func TestClaudeSettingsEnableSpecPlugins(t *testing.T) {
 		s.Claude.Settings = map[string]any{"theme": "dark"}
 		s.Claude.Plugins = []string{"superpowers@claude-plugins-official"}
 	})
-	if err := c.Validate(spec); err != nil {
+	if err := c.Validate(spec, ""); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(c.SettingsPath)
@@ -457,7 +457,7 @@ func TestClaudeSettingsEnableSpecPlugins(t *testing.T) {
 	only := specWith(func(s *modelspec.Spec) {
 		s.Claude.Settings, s.Claude.Plugins = nil, []string{"superpowers@claude-plugins-official"}
 	})
-	if err := c.Validate(only); err != nil {
+	if err := c.Validate(only, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, args, _ := c.Command(Episode{Spec: only}); argAfter(args, "--settings") != c.SettingsPath {
@@ -465,7 +465,7 @@ func TestClaudeSettingsEnableSpecPlugins(t *testing.T) {
 	}
 	// Neither → no file, no flag: nothing enabled, nothing to auto-install.
 	none := specWith(func(s *modelspec.Spec) { s.Claude.Plugins, s.Claude.Settings = nil, nil })
-	if err := c.Validate(none); err != nil {
+	if err := c.Validate(none, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(c.SettingsPath); !errors.Is(err, os.ErrNotExist) {
@@ -484,7 +484,7 @@ func TestClaudeDefaultSettingsFile(t *testing.T) {
 	dir := t.TempDir()
 	c := specClaude(t, dir, modelspec.DefaultClaudeVersion, nil)
 	def := modelspec.Default("anthropic")
-	if err := c.Validate(&def); err != nil {
+	if err := c.Validate(&def, ""); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(c.SettingsPath)
