@@ -1,0 +1,51 @@
+= Linting the books' prose
+:summary: Vale on the books' pages: .vale.ini (styles Vale, Google and Jam), the Jam style's normative rules and word list in styles/, scripts/vale.sh with its pinned, sha256-verified Vale and Google package, `just vale`, `just test-vale`, and the gate step on every page.
+:read_when: Vale fails the gate or reports on a page you changed, you are adding a term to the word list or changing a Jam rule, or you are bumping the Vale or Google pin.
+:owns: .vale.ini, styles/Jam, styles/config (the Jam scripts and word list), scripts/vale.sh and its pins, scripts/vale.test.sh and testdata/vale, and the gate's Vale step
+:prereqs: manual.adoc for the manual and its builds
+:tier: leaf
+:updated: 2026-11-16
+
+https://vale.sh[Vale] checks the prose of the pages under `manual/` and `docs/`
+(the AsciiDoc in their `modules/`, so not `docs/superpowers/` or the extensions' test fixtures).
+
+* *Config*: `.vale.ini` at the repository root applies the styles `Vale`, `Google`, and `Jam`.
+`Google.OxfordComma` is an error;
+`Google.Colons` and `Google.Headings` are suggestions,
+because they can't tell a proper noun from a word that should be lowercase;
+`Vale.Spelling` checks American English.
+* *Style `Jam`* lives in `styles/Jam/`, with its scripts in `styles/config/scripts/`.
+On a page whose header sets `+:page-normative:+`,
+`Jam.Normative` reports a vague word
+(`usually`, `might`, `try to`, `typically`, `should try`, `ideally`, `as needed`)
+outside code as an error,
+and `Jam.NormativeKeyword` reports a list item with no RFC 2119 keyword
+(MUST, MUST NOT, SHOULD, SHOULD NOT, MAY) as a suggestion:
+a rule needs one,
+but a step that only describes what happens needs none,
+and only the author can tell the two apart.
+A Vale rule has one level, so these are two rules.
+* *Word list*: `styles/config/vocabularies/Jam/accept.txt`,
+the terms the books use that the dictionary lacks.
+Vale also enforces each entry's case,
+so add a common noun as `+[Ss]parkline+`.
+* *Running it*: `just vale` checks every page, `just vale <paths>` the pages among them,
+and `scripts/vale.sh --changed <ref>` the pages added or changed since `<ref>`.
+Errors and warnings fail it;
+suggestions are only reported.
+Vale itself exits non-zero only on an error,
+so `scripts/vale.sh` also fails when the summary line Vale prints counts a warning.
+The `gate` workflow runs it on every page,
+so a pull request fixes any error or warning on any page, not only on the pages it touches.
+`just test-vale` tests the `Jam` rules on `testdata/vale/`, the page selection, and which alert levels fail the run.
+* *Pins*: `scripts/vale.sh` uses the `vale` on `PATH` when it is the pinned version (as in the studio kit);
+otherwise it fetches the pinned Vale into `.vale/`.
+It always fetches the pinned `Google` package into `styles/Google/`.
+Both are checked against a sha256 and are git-ignored.
+Vale reads AsciiDoc through `asciidoctor`:
+the one on `PATH`, else the pinned Asciidoctor.js, installed into `.vale/` with npm.
+Its command-line tool runs on Node 22 (the studio kit's), not on Node 26,
+so the gate's Vale step sets up Node 22.
+To bump a pin, change its version and checksums in `scripts/vale.sh`
+together with the studio kit's,
+so the kit and the build run the same Vale.

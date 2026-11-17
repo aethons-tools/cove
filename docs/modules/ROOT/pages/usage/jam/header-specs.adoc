@@ -8,13 +8,13 @@
 
 Every destination endpoint (xref:usage/jam/destination-endpoints.adoc[]) has two header specs (header auth only):
 
-* *inbound* (`+identity_in+`) — where the studio presents its Jam identity
+* *inbound* (`+identity_in+`)—where the studio presents its Jam identity
 token: `+{header, prefixes, encoding}+`. Jam reads the header, cuts the first
 matching prefix (none listed ⇒ the bare value), or with `+encoding: basic+`
 takes the basic-auth password. This header is always stripped before
 forwarding (and so is `Authorization`), so an identity token never reaches
 the upstream.
-* *outbound* (`apply`) — how Jam sets the real credential:
+* *outbound* (`apply`)—how Jam sets the real credential:
 `+{header, template, encoding, basic_user}+`. `+{cred}+` in `template` is
 replaced by the credential; with `+encoding: basic+` the rendered value is the
 password and the header is `+Basic base64(basic_user:value)+`.
@@ -28,10 +28,10 @@ the UI select and every pre-existing destination use):
 |===
 |Preset |Inbound |Outbound
 
-|`bearer` |`Authorization`, prefixes `pass:c[Bearer ]`, `pass:c[token ]` (gh to a GHE host) |`+Authorization: Bearer {cred}+`
-|`basic-password` |`Authorization`, basic (password; 401 challenges with `+WWW-Authenticate: Basic+`) |basic: a `+user:token+` credential sends that user and token (e.g. Atlassian's `+email:api_token+`); a bare token goes as the password with user `x-access-token`
+|`bearer` |`Authorization`, prefixes `pass:c[Bearer ]`, `pass:c[token ]` (`gh` to a GHE host) |`+Authorization: Bearer {cred}+`
+|`basic-password` |`Authorization`, basic (password; 401 challenges with `+WWW-Authenticate: Basic+`) |basic: a `+user:token+` credential sends that user and token (for example Atlassian's `+email:api_token+`); a bare token goes as the password with user `x-access-token`
 |`x-api-key` |`X-Api-Key`, bare |`+X-Api-Key: {cred}+`
-|`raw` |`Authorization`, bare |`+Authorization: {cred}+` (e.g. Linear GraphQL personal API keys)
+|`raw` |`Authorization`, bare |`+Authorization: {cred}+` (for example Linear GraphQL personal API keys)
 |===
 
 == Custom specs
@@ -53,7 +53,7 @@ apply: custom
 apply_spec: {header: Private-Token, template: "{cred}"}
 ----
 
-Validated at write (the config plan, the UI on a branch, `import` of a backup — see
+Validated at write (the config plan, the UI on a branch, `import` of a backup—see
 xref:usage/jam/backup.adoc[backup]): header names are valid HTTP tokens, and not
 hop-by-hop (`Connection`, `Keep-Alive`, `+Proxy-*+`, `TE`, `Trailer`,
 `Transfer-Encoding`, `Upgrade`, …) or `Host`, which the proxy can't carry; `template` contains `+{cred}+` exactly once and is
@@ -68,7 +68,7 @@ Errors never echo a template or prefix, and neither is logged.
 The admin UI selects offer the presets; a destination already on `custom`
 shows its spec read-only in the Broker section, and saving the form with
 `custom` kept retains the stored spec (under the same write lock as the save).
-A custom `+identity_in+` gets no legacy client-env default — see
+A custom `+identity_in+` gets no legacy client-env default—see
 xref:usage/jam/connector.adoc[connector].
 
 *Storage.* `+identity_in+`/`apply` stay the preset strings they always were;

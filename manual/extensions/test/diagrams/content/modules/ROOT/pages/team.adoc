@@ -1,0 +1,8 @@
+= Team page
+:page-internal:
+
+[mermaid,alt="Team flow"]
+----
+graph LR
+  TEAM-DIAGRAM --> B
+----

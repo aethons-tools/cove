@@ -6,9 +6,10 @@ import "time"
 // therefore acked) and dropped, so coves never back up.
 type NopStore struct{}
 
-func (NopStore) Append(Event) error                       { return nil }
-func (NopStore) HighWater(string, string) (uint64, error) { return 0, nil }
-func (NopStore) List(Filter) ([]Event, error)             { return nil, nil }
-func (NopStore) Streams(string) ([]StreamInfo, error)     { return nil, nil }
-func (NopStore) Turns(string, string) ([]TurnSpan, error) { return nil, nil }
-func (NopStore) DeleteBefore(time.Time) (int, error)      { return 0, nil }
+func (NopStore) Append(Event) error                                  { return nil }
+func (NopStore) HighWater(string, string) (uint64, error)            { return 0, nil }
+func (NopStore) List(Filter) ([]Event, error)                        { return nil, nil }
+func (NopStore) Streams(string) ([]StreamInfo, error)                { return nil, nil }
+func (NopStore) ActiveActors(time.Time, time.Time) ([]string, error) { return nil, nil }
+func (NopStore) Turns(string, string) ([]TurnSpan, error)            { return nil, nil }
+func (NopStore) DeleteBefore(time.Time) (int, error)                 { return 0, nil }

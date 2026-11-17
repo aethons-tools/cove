@@ -42,14 +42,15 @@ func suggestFixture(t *testing.T) http.Handler {
 func TestSuggestKinds(t *testing.T) {
 	h := suggestFixture(t)
 	for query, want := range map[string][]string{
-		"kind=projects":             {"acme", "beta", "default"},
-		"kind=roles&project=acme":   {"dev", "ops"},
-		"kind=roles&project=":       {"solo"}, // blank = default
-		"kind=kits":                 {"web"},
-		"kind=destinations":         {"git"},
-		"kind=credentials":          {"anth-key", "gh-pat"},
-		"kind=targets&project=acme": {"channel:*", "channel:eng", "user:*", "user:alice"},
-		"kind=services":             {"discord"},
+		"kind=projects":                  {"acme", "beta", "default"},
+		"kind=roles&project=acme":        {"dev", "ops"},
+		"kind=roles&project=":            {"solo"}, // blank = default
+		"kind=kits":                      {"web"},
+		"kind=destinations":              {"git"},
+		"kind=credentials":               {"anth-key", "gh-pat"},
+		"kind=targets&project=acme":      {"channel:*", "channel:eng", "user:*", "user:alice"},
+		"kind=tier-targets&project=acme": {"user:alice"},
+		"kind=services":                  {"discord"},
 	} {
 		if got := suggestions(t, h, query); !slices.Equal(got, want) {
 			t.Errorf("%s = %v, want %v", query, got, want)
@@ -57,7 +58,7 @@ func TestSuggestKinds(t *testing.T) {
 	}
 	// participants: every roster human/channel plus the studios' actors
 	got := suggestions(t, h, "kind=participants")
-	for _, want := range []string{"human:alice", "channel:eng", "actor:studio-acme", "actor:studio-solo"} {
+	for _, want := range []string{"user:alice", "channel:eng", "actor:studio-acme", "actor:studio-solo"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("participants missing %q: %v", want, got)
 		}

@@ -1,4 +1,4 @@
-= Roles, agents and sessions
+= Roles, agents, and sessions
 :page-area: ROOT
 :page-id: ROOT/concepts/agent
 :page-conventions: sentence-case
@@ -79,7 +79,7 @@ and it stays until you release it.
 
 |*Manual*
 |Raised by an operator with *Raise agent*,
-with a label and an optional first prompt.
+which takes a label and an optional first prompt.
 |===
 
 == Studios
@@ -143,6 +143,7 @@ Every list and page gives an agent one *status*:
 
 |pending |No studio: enrolled only, or not raised yet.
 |setting up |Its studio is being raised.
+|recovering |Its studio died; Jam is raising it again, with its work kept.
 |orienting |Its studio is up, but the agent has not reported yet.
 |running |In a turn.
 |holding |Its turn is over, but background tasks still run.
@@ -182,8 +183,7 @@ the UI shows an ephemeral session with a unit as `ticket`, without one as `manua
 and an actor with no studio as `enrolled`
 (`internal/jam/adminui/agents.go`, `agentKind`).
 * Status is `jam.StatusOf` (`internal/jam/agentstatus.go`).
-A `recovering` phase has no status of its own:
-it shows by the agent's last activity.
+A `recovering` phase shows as `recovering`, whatever the agent's last activity.
 * The pause is the wake-on engine's `warm-timeout` (default 60s, `runtime.wake`).
 Reminders are the idle ladder (`idle-after`, `nag-every`, `reclaim-after`);
 the nags are posted in the owner's DM with the session through the intercom (`intercomNagger`, `Intercom.Notify`).

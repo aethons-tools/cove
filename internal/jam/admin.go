@@ -70,7 +70,8 @@ type RoleSummary struct {
 	Destinations []string          `json:"destinations"`
 	Credentials  map[string]string `json:"credentials,omitempty"`
 	Addressing   []string          `json:"addressing,omitempty"`
-	Rooms        []RoomMembership  `json:"rooms,omitempty"` // scope.rooms
+	Rooms        []RoomMembership  `json:"rooms,omitempty"`   // scope.rooms
+	Observe      string            `json:"observe,omitempty"` // scope.observe
 	TTLSeconds   int64             `json:"ttl_seconds"`
 	Kit          string            `json:"kit,omitempty"`
 	// ModelSpec is the role's model-spec binding as stored; "" = DefaultModelSpec.
@@ -546,6 +547,7 @@ func NewAdminHandler(store Store, sup *Supervisor, alloc SessionAllocator, auth 
 				Credentials:         ro.Scope.Credentials,
 				Addressing:          ro.Scope.Addressing,
 				Rooms:               ro.Scope.Rooms,
+				Observe:             ro.Scope.Observe,
 				TTLSeconds:          int64(ro.Scope.TTL / time.Second),
 				Kit:                 ro.Kit,
 				ModelSpec:           ro.ModelSpec,

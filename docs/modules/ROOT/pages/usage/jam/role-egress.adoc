@@ -36,14 +36,14 @@ policy it runs under; Jam's xref:usage/jam/coves-raise.adoc#egress-drift[reconci
 the role's current one when they differ (removing `+egress:+` restores the kit's list). A
 paused studio gets it when it resumes, before its agent is woken.
 * *Fails closed.* A re-apply that fails is retried on the next pass; the third
-consecutive failure — or a failed re-apply on resume — tears the studio down, so a
+consecutive failure—or a failed re-apply on resume—tears the studio down, so a
 studio never keeps running under a policy other than its role's. A standing session
 is then raised again under the new policy; an ephemeral or personal one ends.
 A policy outside the kit's ceiling fails every time, so it reaches that teardown
 (the log names the domain).
 * Domains follow the rule `pass:c[^\.?[a-z0-9\]([a-z0-9-\]*[a-z0-9\])?(\.[a-z0-9\]([a-z0-9-\]*[a-z0-9\])?)+$]`
-after lowercasing: at least two labels, no scheme, port, path, `+*+` or whitespace.
-* Grant overrides don't touch egress.
+after conversion to lowercase: at least two labels, no scheme, port, path, `+*+` or whitespace.
+* Grant overrides don't affect egress.
 * `role list` shows the state as `egress=kit`, `egress=none` or
 `egress=<a.com,.b.org>`.
 

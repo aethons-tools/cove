@@ -11,7 +11,7 @@
   "categories": ["Other"],
   "icon": "media/icon.png",
   "main": "./dist/extension.js",
-  "activationEvents": ["onUri", "onWebviewPanel:jam.board", "onWebviewPanel:jam.conversationTab", "onFileSystem:jamkit", "onStartupFinished"],
+  "activationEvents": ["onUri", "onWebviewPanel:jam.board", "onWebviewPanel:jam.conversationTab", "onWebviewPanel:jam.sessionTab", "onFileSystem:jamkit", "onStartupFinished"],
   "extensionKind": ["ui"],
   "capabilities": { "untrustedWorkspaces": { "supported": true } },
   "contributes": {

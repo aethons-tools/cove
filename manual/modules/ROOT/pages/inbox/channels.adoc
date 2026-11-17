@@ -14,18 +14,18 @@ image::channels-inbox.png["The Inbox, with the ops room open",800]
 == The rail
 
 The rail has three sections:
-*Me*, *Work*, and *Agents*.
+*`Me`*, *Work*, and *Agents*.
 If your Jam was upgraded from the old message log,
 *History (before the upgrade)* below them shows those old conversations.
 You can only read them.
 Click its heading to show them.
 The rail looks the same in the Jam app and in VS Code.
 
-image::channels-rail-sections.png["The rail: Me, Work, and Agents",340]
+image::channels-rail-sections.png["The rail and its three sections",340]
 
-=== Me
+=== `Me`
 
-*Me* lists the conversations you take part in that are alive:
+*`Me`* lists the conversations you take part in that are alive:
 your DMs and group DMs,
 the rooms you're in,
 and the work logs you follow.
@@ -40,10 +40,10 @@ or it has an open ask you can answer;
 * the number of unread messages.
 
 Drag a row to put it where you want it.
-The toggle at the top of *Me* shows *All* your conversations,
+The toggle at the top of *`Me`* shows *All* your conversations,
 or only those that are *Unread* or need you.
 
-A DM with an agent leaves *Me* when the agent ends.
+A DM with an agent leaves *`Me`* when the agent ends.
 
 === Work
 
@@ -66,7 +66,7 @@ Click a card to open the session's view
 Drag a card to put it where you want it;
 a new session joins at the bottom.
 
-Your order of *Me* and *Agents* is saved for you,
+Your order of *`Me`* and *Agents* is saved for you,
 so the Jam app and VS Code show the same order,
 on any device.
 
@@ -85,7 +85,7 @@ The page opens at the newest message.
 If older messages exist, *Load earlier* at the top shows them.
 Your own messages are on the right.
 A message from a session has the session's color on its left edge.
-Notes from Jam, such as "alice called in carol", are a short line in the middle.
+Notes from Jam, such as `alice called in carol`, are a short line in the middle.
 
 Point at a message to copy it:
 *Text* copies what you see,
@@ -95,12 +95,12 @@ A file in a message shows as a link that downloads it.
 An image shows small. Click it to open it full size.
 
 Below the messages, one line for each session in the channel says what it is doing,
-such as "spider is running *Bash*" or "spider needs you".
+such as `spider is running Bash` or `spider needs you`.
 The xref:inbox/composer.adoc[composer] is at the bottom.
 
 When a session in the channel needs you,
 the header shows *Needs you*.
-The open asks of the channel show above the messages
+The open asks of the channel show preceding the messages
 (xref:inbox/asks.adoc[Answering asks]).
 
 == Unread
@@ -113,7 +113,7 @@ If the browser tab is in the background, nothing is marked read until you come b
 The Inbox updates live.
 New messages, unread counts and session status change without a reload.
 
-== Joining, leaving and calling in
+== Joining, leaving, and calling in
 
 The header has the controls for who is in the conversation:
 

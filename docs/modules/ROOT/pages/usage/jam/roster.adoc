@@ -1,33 +1,33 @@
 = Roles, grants & enrollment (RBAC)
-:summary: The roster/RBAC operator guide — projects, roles, grants, and enrollment; a role's file in the config repo, the `role list`/`grant`/`ungrant`/`actors`/`enroll`/`revoke` verbs and how a Role's scope authorizes a studio at the broker.
-:read_when: You are deciding who can reach what on a Jam — adding or changing a role (its scope, kit, allocation, raw egress), granting roles to actors, enrolling a studio, viewing the roster, or revoking an identity.
-:owns: the operator-facing RBAC story — Project/Role/Actor/Grant in practice, the role file's fields (`scope`, `kit`, `model-spec`, the `allocation` policy and the personal idle-ladder fields, `turn-end`, `collaborate`), the grant/ungrant/actors/enroll/revoke verbs, the enrollment snippet, and the in-progress identity registry (project ids, users, memberships, connections, accounts)
+:summary: The roster/RBAC operator guide—projects, roles, grants, and enrollment; a role's file in the config repo, the `role list`/`grant`/`ungrant`/`actors`/`enroll`/`revoke` verbs and how a Role's scope authorizes a studio at the broker.
+:read_when: You are deciding who can reach what on a Jam—adding or changing a role (its scope, kit, allocation, raw egress), granting roles to actors, enrolling a studio, viewing the roster, or revoking an identity.
+:owns: the operator-facing RBAC story—Project/Role/Actor/Grant in practice, the role file's fields (`scope`, `kit`, `model-spec`, the `allocation` policy and the personal idle-ladder fields, `turn-end`, `collaborate`), the grant/ungrant/actors/enroll/revoke verbs, the enrollment snippet, and the in-progress identity registry (project ids, users, memberships, connections, accounts)
 :prereqs: INDEX.adoc for the service overview; operators.adoc for the admin-client flags; destinations.adoc for destinations (what a role's scope points at); kits.adoc for binding a kit to a role
 :tier: leaf
 :updated: 2026-11-14
 
 Jam authorizes every brokered request against a *role-based* model:
 
-* *Actor* — one enrolled identity (an `id` + a minted token). A studio or a
+* *Actor*—one enrolled identity (an `id` + a minted token). A studio or a
 standing teammate is an Actor. Jam stores only the token _hash_.
-* *Role* — a named, reusable security class within a *Project* (which must
-exist first, except `default` — see xref:usage/jam/projects.adoc[]).
+* *Role*—a named, reusable security class within a *Project* (which must
+exist first, except `default`—see xref:usage/jam/projects.adoc[]).
 A Role owns the *scope*: which `destinations` it may reach, the
 *credential* the broker injects for each (``credentials``; a destination
-without one uses its own default `cred-name` — see
+without one uses its own default `cred-name`—see
 xref:usage/jam/destinations.adoc[Destinations]), which comms `addressing` targets it may
-message (globs, e.g. ``+user:*+``; comms plane — see
+message (globs, for example ``+user:*+``; comms plane—see
 xref:usage/jam/comms-addressing.adoc[comms-addressing]), a default token `ttl`, and
 optionally a bound *kit* (see xref:usage/jam/kits.adoc[kits]).
-* *Grant* — assigns a Role (within a Project) to an Actor. An Actor may hold
-several grants (e.g. a human or a standing manager across projects).
+* *Grant*—assigns a Role (within a Project) to an Actor. An Actor may hold
+several grants (for example, a human or a standing manager across projects).
 
 At request time the broker resolves an Actor's scope *additively across its
-grants*: a request for a destination is allowed iff _some_ grant lists it, and
+grants*: a request for a destination is allowed if and only if _some_ grant lists it, and
 the injected credential is that grant's mapping. Two grants that allow the same
 destination but map it to *different* credentials deny the request rather than
 pick one. Jam does no per-repo policy: what a credential can reach is the
-credential's own scope (e.g. a fine-grained PAT per project). Everything is
+credential's own scope (for example, a fine-grained PAT per project). Everything is
 *fail-closed*: an unknown actor, a grant whose role was deleted, a credential
 conflict, or a request outside scope is denied. A verb's missing `+--project+`
 defaults to the `default` project.
@@ -41,7 +41,7 @@ xref:usage/jam/operators.adoc[].
 A role is a file in the config repo, `projects/<project>/roles/<name>.yml`
 (xref:usage/jam/config-git.adoc#layout[config-git]), and changes only by a commit: by
 hand, or on a branch in the admin console (xref:usage/jam/config-branches.adoc[config-branches];
-the role page: xref:usage/jam/ui-projects.adoc#role-pages[Role pages]). Editing a role
+for the role page, see xref:usage/jam/ui-projects.adoc#role-pages[Role pages]). Editing a role
 re-scopes every actor granted it on the next request.
 
 [source,yaml]
@@ -69,7 +69,7 @@ allocation: {max-ephemeral: 4, max-personal: 3, max-personal-per-owner: 1}
 on role list, on each roster grant, and on a grant/enroll `overrides`
 (which *replaces* the role's map). A mapping that names a destination the
 scope doesn't allow, or a credential the serve config doesn't declare, is refused.
-* `scope.addressing` (comms target globs, e.g. `+user:*+`, `+channel:eng-help+`)
+* `scope.addressing` (comms target globs, for example `+user:*+`, `+channel:eng-help+`)
 scopes which comms targets the role's actors may `+send(to=…)+`. This is a
 separate plane from ``destinations``; see
 xref:usage/jam/comms-addressing.adoc[comms-addressing] for the target space and the
@@ -83,12 +83,13 @@ How sessions join, and why they can't leave:
 xref:usage/jam/intercom.adoc#sessions-in-rooms[sessions in rooms].
 `role list` (the admin API's `rooms`) and the role page show them;
 only the config repo sets them.
+* `scope.observe: all` lets the role's sessions read every other session, read-only: xref:usage/jam/session-observe.adoc[session-observe].
 * `scope.ttl` is the default identity lifetime applied at enrollment (unset =
-no expiry). *A role with no `ttl` mints non-expiring tokens* — set one for
+no expiry). *A role with no `ttl` mints non-expiring tokens*—set one for
 ephemeral studios.
 * `kit` binds a kit by name (xref:usage/jam/kits.adoc#binding-a-kit-to-a-role[kits]); `model-spec` binds a xref:usage/jam/model-specs.adoc#binding-a-role[model-spec] by name (must exist; unset = `claude-default`); `role list` shows `+model-spec=…+`.
 * `allocation.max-ephemeral` is the role's *allocation policy*: the cap on its
-concurrent ephemeral sessions — Requisitioner-raised and manual
+concurrent ephemeral sessions—Requisitioner-raised and manual
 (`studio raise`, the admin UI) alike. Jam's Allocator reads it
 live on each grant, so an applied change counts on the next grant. Unset = the Requisitioner's `max-concurrent`
 (xref:usage/jam/requisitioner.adoc#config-runtimerequisitioner[Config (`runtime.requisitioner`)]).
@@ -97,12 +98,12 @@ owners (the pool); `max-personal-per-owner` caps one owner's share (unset =
 the pool cap only). An unset `max-personal` means the role
 admits no personal sessions. Both are read live, like `max-ephemeral`.
 What a personal session is: xref:usage/jam/personal-sessions.adoc[].
-* `allocation.idle-after`, `nag-every`, `reclaim-after` (durations, e.g. `4h`)
+* `allocation.idle-after`, `nag-every`, `reclaim-after` (durations, for example `4h`)
 set the role's personal-session *idle ladder*: nag the owner once a session
-has waited on them `idle-after` (unset = 4h), then every `nag-every`
-(unset = 24h), and reclaim it after `reclaim-after` (unset = never).
-Negative values are refused. API: `+idle_after_seconds+`/`+nag_every_seconds+`/`+reclaim_after_seconds+`. What the ladder
-does: xref:usage/jam/personal-idle-ladder.adoc[The idle ladder]. (Not to be confused with `+turn-end: {idle-timeout, on-idle: wake|teardown, time-zone}+`, API `+idle_timeout_seconds+`/`+on_idle+`/``+time_zone+``: the role's xref:usage/jam/turn-end.adoc#idle-timeout[turn-end policy].)
+has waited on them `idle-after` (unset = `4h`), then every `nag-every`
+(unset = `24h`), and reclaim it after `reclaim-after` (unset = never).
+Negative values are refused. API: `+idle_after_seconds+`/`+nag_every_seconds+`/`+reclaim_after_seconds+`. For what the ladder
+does, see xref:usage/jam/personal-idle-ladder.adoc[The idle ladder]. (Not to be confused with `+turn-end: {idle-timeout, on-idle: wake|teardown, time-zone}+`, API `+idle_timeout_seconds+`/`+on_idle+`/``+time_zone+``: the role's xref:usage/jam/turn-end.adoc#idle-timeout[turn-end policy].)
 * A role's *collaboration policy* says which rights the project's members get
 on its studios: `+collaborate: {preview: members|none, ssh: members|none}+`
 (defaults `members` and `none`); other values are refused. API: `+collaborate_preview+`/`+collaborate_ssh+`. Per-session share grants are
@@ -127,12 +128,12 @@ jam ungrant --id spider-18 --project beta --role reviewer
 ----
 
 Grants extend an existing Actor; the Actor's token stays stable as grants come and
-go — which is how a standing teammate or a human accretes access over time.
+go—which is how a standing teammate or a human accretes access over time.
 
 == Enrollment
 
 `enroll` creates an Actor with its first grant and mints its token once. Scope
-comes from the *role* (enrollment is role-required — there are no inline
+comes from the *role* (enrollment is role-required—there are no inline
 destination/ttl flags):
 
 ----
@@ -161,4 +162,4 @@ Lists every Actor with its grants and each grant's *effective* destinations
 (role scope, after any per-grant overrides). Never prints a token or hash.
 
 Design rationale (the one fault line, the additive/per-grant model) lives in
-https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-09-12-harbor-actor-roster.md[`../../superpowers/specs/2026-09-12-harbor-actor-roster.md`]. The roster is moving to a Jam-wide identity registry (surrogate ids for projects, users, connections and accounts, plus project memberships; removing a user is a tombstone); a project's people are its members — users with a membership (see xref:usage/jam/project-members.adoc[project-members]) — see https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md[`../../superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md`].
+https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-09-12-harbor-actor-roster.md[`../../superpowers/specs/2026-09-12-harbor-actor-roster.md`]. The roster is moving to a Jam-wide identity registry (surrogate ids for projects, users, connections and accounts, plus project memberships; removing a user is a tombstone); a project's people are its members—users with a membership (see xref:usage/jam/project-members.adoc[project-members])—see https://github.com/aethons-tools/cove/blob/main/docs/superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md[`../../superpowers/specs/2026-10-06-intercom-slice1-identity-registry-design.md`].

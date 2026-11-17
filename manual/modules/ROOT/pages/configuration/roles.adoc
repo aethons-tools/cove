@@ -49,7 +49,7 @@ and a model spec (blank means `claude-default`).
 image::role-page.png[The reviewer role's page,800]
 
 The top line shows the role's project,
-kit, model spec and TTL.
+kit, model spec, and TTL.
 The sections below show the whole role.
 On a branch, each section has its own *Edit …* panel,
 already filled in,
@@ -67,7 +67,10 @@ with none, they cannot message anyone.
 and which messages there wake them:
 *wake named* (only messages that mention the agent) or *wake all* (every message).
 You set the rooms in the role's file in the config repo.
-*Edit scope* changes the destinations, addressing, TTL (such as `1h`), kit and model spec.
+*Observes sessions* shows when the role's agents may read every other session,
+read-only, as the agents of the optimizer role do.
+You set it in the role's file too.
+*Edit scope* changes the destinations, addressing, TTL (such as `1h`), kit, and model spec.
 Egress::
 The outside domains the role's studios may reach,
 within what the kit allows,
@@ -89,7 +92,7 @@ edited like a project's
 (xref:projects:agent-context.adoc[]),
 without resources.
 Standing agents::
-Each standing agent's name, prompt and status.
+Each standing agent's name, prompt, and status.
 Holders::
 Every agent that holds the role.
 *override* marks a grant that changes the role's destinations.
@@ -99,7 +102,7 @@ The role's running agents.
 Setup::
 Click it to see what a studio of this role would get if it were raised now.
 
-*Operator notes*, above the sections,
+*Operator notes*, preceding the sections,
 hold notes for operators only;
 agents never see them.
 They show when there are some, and on a branch,
@@ -118,8 +121,8 @@ When it is not set, the role has no personal agents.
 *Max personal per owner*::
 The limit for one person.
 *Idle after*, *Nag every*::
-When a waiting personal agent first reminds its owner (default 4h),
-and how often after that (default 24h).
+When a waiting personal agent first reminds its owner (default 4 hours),
+and how often after that (default 24 hours).
 *Reclaim after*::
 When Jam ends a personal agent that still waits (default never).
 
@@ -157,7 +160,7 @@ Each action asks you to confirm.
 or *Request agent* on its page,
 raises a personal agent of that role for you.
 It starts with the prompt
-"Squawk me (user:_you_) and we will get to work.",
+`Squawk me (user:<you>) and we will get to work.`,
 so it opens a conversation with you in the Inbox.
 A message says that it was raised,
 or why it was not.

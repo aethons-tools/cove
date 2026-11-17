@@ -276,6 +276,7 @@ func TestProjectMemberAndRoomCommands(t *testing.T) {
 		{Name: "worker", Allocation: jam.RoleAllocation{MaxEphemeral: 4}},
 		{Name: "pair", Allocation: jam.RoleAllocation{MaxPersonal: 3, MaxPersonalPerOwner: 1}},
 		{Name: "idler", Allocation: jam.RoleAllocation{IdleAfter: time.Hour, NagEvery: 2 * time.Hour, ReclaimAfter: 72 * time.Hour}},
+		{Name: "optimizer", Scope: jam.Scope{Observe: jam.ObserveAll}},
 	} {
 		if err := store.PutRole("acme", r); err != nil {
 			t.Fatal(err)
@@ -291,6 +292,7 @@ func TestProjectMemberAndRoomCommands(t *testing.T) {
 		"max-ephemeral=4",
 		"max-personal=3\tmax-personal-per-owner=1",
 		"idle-after=1h0m0s\tnag-every=2h0m0s\treclaim-after=72h0m0s",
+		"impl\tdests=", "\tobserve=none\n", "optimizer\tdests=", "\tobserve=all\n",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("role list output missing %q:\n%s", want, out.String())

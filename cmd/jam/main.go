@@ -499,7 +499,7 @@ func cmdRole(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 			return 1
 		}
 		for _, r := range roles {
-			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tidle-timeout=%s\ton-idle=%s\ttime-zone=%s\tegress=%s\tcollaborate-preview=%s\tcollaborate-ssh=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, r.TurnEnd.IdleTimeout, r.TurnEnd.Action(), r.TurnEnd.Location(), egressState(r.Scope.Egress), collabLabel(r.Collaborate.Preview, "members"), collabLabel(r.Collaborate.SSH, "none"))
+			fmt.Fprintf(stdout, "%s\tdests=%s\tmodel-spec=%s\taddressing=%s\tttl=%s\tmax-ephemeral=%d\tmax-personal=%d\tmax-personal-per-owner=%d\tidle-after=%s\tnag-every=%s\treclaim-after=%s\tidle-timeout=%s\ton-idle=%s\ttime-zone=%s\tegress=%s\tcollaborate-preview=%s\tcollaborate-ssh=%s\tobserve=%s\n", r.Name, jam.FormatDestinations(r.Scope.Destinations, r.Scope.Credentials), r.ModelSpecName(), strings.Join(r.Scope.Addressing, ","), r.Scope.TTL, r.Allocation.MaxEphemeral, r.Allocation.MaxPersonal, r.Allocation.MaxPersonalPerOwner, r.Allocation.IdleAfter, r.Allocation.NagEvery, r.Allocation.ReclaimAfter, r.TurnEnd.IdleTimeout, r.TurnEnd.Action(), r.TurnEnd.Location(), egressState(r.Scope.Egress), collabLabel(r.Collaborate.Preview, "members"), collabLabel(r.Collaborate.SSH, "none"), cmp.Or(r.Scope.Observe, "none"))
 		}
 	case "images":
 		if len(pos) != 1 || pos[0] == "" {
@@ -2198,7 +2198,7 @@ func cmdServe(args []string, _ cli.Globals, stdout, stderr io.Writer) int {
 	// unfinished teardown); its tracker is set below with the Requisitioner's.
 	tickets := &ticketHolder{}
 	sup.SetTicketBlocker(tickets) // every teardown blocks an unfinished ticket
-	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml, att: att, boards: boards}, dc != nil, tickets, previewURL, log)
+	httpHandler := coveHTTPHandler(broker, st, sup, &messaging{ic: ic, log: chlog, legacy: ml, att: att, boards: boards, events: sessStore}, dc != nil, tickets, previewURL, log)
 	if cfg.Metrics != nil {
 		tok, err := secret.Resolve(runner.OS{}, nil, []secret.Spec{specs[cfg.Metrics.TokenCred]})
 		if err != nil {

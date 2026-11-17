@@ -15,8 +15,9 @@ import { entriesOf, limitedOf, useActivity } from "./useActivity";
 // SessionPage is a session's view (/app/user/s/<id>): its header, its
 // activity in every conversation with its thinking folded between, and a
 // composer that DMs it, beside the session pane. Once the session ends, its
-// header and pane go (its head 404s) and the activity stays.
-export function SessionPage({ id }: { id: string }) {
+// header and pane go (its head 404s) and the activity stays. withPane
+// false leaves the pane out (VS Code's session tab).
+export function SessionPage({ id, withPane = true }: { id: string; withPane?: boolean }) {
   const q = useActivity(id);
   const here = useLocation();
   const [search] = useSearchParams();
@@ -28,7 +29,7 @@ export function SessionPage({ id }: { id: string }) {
   const jumpToAsk = (ask: string) => document.getElementById(`ask-${ask}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   return (
     <Stack gap={0} h="calc(100dvh - var(--app-shell-header-height, 0px) - 2 * var(--app-shell-padding, 0px))">
-      <SessionView id={id} linked={search.get("tab")} onAsk={jumpToAsk} header={null}>
+      <SessionView id={id} linked={search.get("tab")} onAsk={jumpToAsk} header={null} withPane={withPane}>
         {q.error && <Problem error={q.error} here={here.pathname + here.search} />}
         <ActivityList id={id} entries={entriesOf(q.data.pages)} earlier={q.hasNextPage} loadingEarlier={q.isFetchingNextPage}
           onEarlier={() => void q.fetchNextPage()} stickToEnd={stick} />

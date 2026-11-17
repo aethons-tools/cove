@@ -1,4 +1,4 @@
-= The Tracking page
+= Tracking page
 :summary: The admin console's Tracking page (Config › Tracking, /app/admin/config/tracking) — the followed config repo, its last apply and the follower's state, the objects the repo manages, and Diff then Apply this plan.
 :read_when: You are using the admin console's Tracking page to review or apply the followed config repo, or to confirm its first apply.
 :owns: the Tracking page (source card, managed-objects table, the rendered plan, Apply's digest binding, the follower's state on the source card)
@@ -10,33 +10,33 @@ The *Tracking* page (`/app/admin/config/tracking`, the first node of the
 xref:usage/jam/ui-console.adoc#finding-a-page[Config tree] and where the *Config* tab opens) is the UI for
 a Jam's configuration in git (xref:usage/jam/config-git.adoc[config-git]). It works on the
 *followed repo* (`config.github`, `config.gitlab` or `config.git`, xref:usage/jam/config-git-sources.adoc[config-git-sources]);
-`+--git+` sources and `+--dir+` checkouts are planned from the CLI (`config diff`).
+`+--git+` sources and `+--dir+` checkouts are planned with the `jam` command-line tool (`config diff`).
 
 Changing config happens on a branch of the followed repo: xref:usage/jam/config-branches.adoc[config-branches].
 
 == The page
 
-* *Source* — the followed repo, dir and branch, and the commit and time of
-the last apply from it, linked on GitHub and GitLab. *Following* is the
-follower's state (`in sync`, `waiting for you`, `failed`, or `not checked yet` —
-state `off`, before the follower's first check) and when it last
-checked; *Head* is the branch head it saw. `waiting for you` is the first
-apply's confirm: *Diff*, review the plan, *Apply this plan*. A failed check shows its
+* *Source*—the followed repo, dir and branch, and the commit and time of
+the last apply from it (linked on GitHub and GitLab). *Following* is the
+follower's state (`in sync`, `waiting for you`, `failed`, or `not checked yet`—state
+`off`, before the follower's first check) and when it last
+checked; *Head* is the branch head it saw. `waiting for you` means the first
+apply awaits confirmation: open *Diff*, review the plan, then *Apply this plan*. A failed check shows its
 error; the Jam retries every minute. Without a config repo the card says
 to set `config.github`, `config.gitlab` or `config.git`. There is no Track or Untrack: the serve config names the repo.
-* *Managed objects* — every object the repo manages, linked to its page
+* *Managed objects*—every object the repo manages, linked to its page
 (a connection has none), with the commit it was applied from and when.
 
-== Diff and Apply
+== Diff and apply
 
 *Diff* plans the followed repo and renders the plan: each changing op
 with its file and what it overwrites (a line diff; a kit's version diff),
 kit sources and their commits, forgotten marks, unmanaged objects, the
 serve-config comparison, and any refusals. *Apply this plan* sends back
 the digest of the plan on screen: if Jam or the repo changed since, it
-answers 409 and writes nothing — Diff again. It is offered only when
+answers 409 and writes nothing—Diff again. It is offered only when
 nothing is refused. Without a git fetcher on the serve, Diff and Apply are
 not offered.
 
-Every write here obeys the UI's gate, CSRF origin check and audit logging
+Every write here obeys the UI's gate, CSRF origin check, and audit logging
 (xref:usage/jam/ui-editing.adoc[]).

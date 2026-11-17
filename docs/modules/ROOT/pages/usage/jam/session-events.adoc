@@ -18,8 +18,8 @@ events and `system`/`+thinking_tokens+` progress events. Storage and export are
 * `internal/agentrun` writes the agent's stdout to the VM-local
 `/agent-data/agent-stream.jsonl` (append, 0600; never `jam-studio-agent.log`, which
 Jam reads on teardown) and to a line splitter; each line goes to `studioagent` as an event tagged with its
-*turn* (the episode — claude process — number, from 1; one episode can answer several prompts, see xref:usage/jam/coves.adoc[coves]).
-* *Cost is cumulative per claude session.* A `result` line's `+total_cost_usd+`
+*turn* (the episode—claude process—number, from 1; one episode can answer several prompts, see xref:usage/jam/coves.adoc[coves]).
+* *Cost is cumulative per `claude` session.* A `result` line's `+total_cost_usd+`
 (and `modelUsage`) is the running total of its `+session_id+`, carried across
 `+--continue+` episodes; `usage` is per result. New spend is a result's increase
 over the previous result of the same `+session_id+` (a Clear starts a new one).
@@ -30,18 +30,18 @@ The full line stays in `/agent-data/agent-stream.jsonl`.
 secret become `+«redacted»+` before buffering. Edge case: a secret straddling
 the 1 MiB cut can leave a prefix behind. Redaction is exact-match, so it
 relies on the secrets being long and random (a hardening follow-up is deferred).
-* *Buffer:* in memory, 10 000 events or 64 MiB. Overflow drops the oldest;
+* *Buffer:* 10 000 events or 64 MiB, in memory. Overflow drops the oldest;
 Jam records a *gap row* ("⚠ N events lost"). After a reconnect the cove
-replays from the last ack.
+replays from the last acknowledgment.
 * *Stream id:* 32 lowercase hex, random per jam-studio-agent process; Jam drops
 events with an invalid one.
-* *Done* waits up to 5 s for the final ack. An old Jam never acks, so the cove
+* *Done* waits up to 5 s for the final acknowledgment. An old Jam never acknowledges, so the cove
 still reaches Done after the 5 s delay.
 
 == Jam side
 
 The Attach server dedupes replays, turns a reported gap into a gap row
-(`seq` = the gap's end), *persists, then publishes* to the live hub, and acks
+(`seq` = the gap's end), *persists, then publishes* to the live hub, and acknowledges
 per stream on a 250 ms tick, only after persistence. See
 xref:usage/jam/studio-agent.adoc#the-attach-stream[studio-agent] for the stream itself.
 
@@ -61,7 +61,7 @@ Session events are always stored in the Postgres table `+session_events+` (own m
 Each event stores `raw` (when the line is valid JSON) or `+raw_text+` (anything
 else). The guarantee is *content-equal, not byte-exact*: `jsonb` normalizes; `+raw_text+` is
 UTF-8-normalized (invalid bytes become U+FFFD) and, in Postgres, NUL becomes
-U+FFFD (the derived index text columns are sanitized the same way). Any Postgres data exception (SQLSTATE class 22, e.g. a `+\u0000+` escape,
+U+FFFD (the derived index text columns are sanitized the same way). Any Postgres data exception (SQLSTATE class 22, for example, a `+\u0000+` escape,
 lone surrogate, or invalid UTF-8) falls back to sanitized `+raw_text+`. Exact
 bytes remain in the cove's `/agent-data/agent-stream.jsonl`.
 
@@ -98,7 +98,7 @@ recorded before they existed), and the extracted `type`, `subtype`,
 The browser timeline lives at ``+/app/admin/agents/{id}/session+``; see
 xref:usage/jam/ui-console.adoc#session-timeline[Session timeline]. The studio's page lists its streams
 (xref:usage/jam/ui-pages.adoc#agent-pages[Agent pages]). `/app/user` shows a conversation's members the status strip of its sessions,
-and the people who may open a session's view its aggregates and the Thinking tab — see xref:usage/jam/intercom-ui.adoc#session-status[intercom-ui]
+and the people who may open a session's view its aggregates and the Thinking tab—see xref:usage/jam/intercom-ui.adoc#session-status[intercom-ui]
 and xref:usage/jam/session-view.adoc#thinking[Thinking].
 
 [#sensitivity]
@@ -108,6 +108,6 @@ Events carry tool inputs and outputs: file contents, command output, possibly
 secrets the agent read. Anyone who may open a session's view (its operators, and a
 personal session's starter) sees
 them in ``/app/user``'s Thinking tab (xref:usage/jam/session-view.adoc#thinking[Thinking]). The admin timeline and the
-NDJSON export stay operator-only. jam-studio-agent's redaction applies (exact match of the
+NDJSON export stay operator-only; a role granted `scope.observe` also reads events, read-only (xref:usage/jam/session-observe.adoc[session-observe]). jam-studio-agent's redaction applies (exact match of the
 cove's own secrets only). Raw agent output otherwise stays inside the
 studio; this audit channel is the deliberate exception.

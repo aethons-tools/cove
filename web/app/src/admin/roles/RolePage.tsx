@@ -83,6 +83,9 @@ function Role({ d }: { d: RoleDetail }) {
           <Group gap="xs"><Text size="sm" fw={600}>Rooms</Text>
             {d.rooms.length ? d.rooms.map((x) => <Badge key={x.name} size="sm" variant="light" color="gray" tt="none" title={x.wake === "all" ? "every message wakes its agents" : "only messages that mention an agent wake it"}>{x.name} · wake {x.wake}</Badge>) : <Text size="sm" c="dimmed">None — its agents join rooms only when called in.</Text>}
           </Group>
+          <Group gap="xs"><Text size="sm" fw={600}>Observes sessions</Text>
+            {d.observes ? <Badge size="sm" variant="light" color="gray" tt="none" title="its agents may read every other session's activity and events, read-only">all, read-only</Badge> : <Text size="sm" c="dimmed">No — its agents read only their own sessions.</Text>}
+          </Group>
           {editable && edit("Edit scope", <ScopeForm key={JSON.stringify(d.form)} d={d} onSave={(b) => post("scope", b)} />)}
         </Stack>
       </Section>
@@ -169,7 +172,7 @@ function ScopeForm({ d, onSave }: { d: RoleDetail; onSave: (b: unknown) => Promi
   return (
     <EditForm submit="Save scope" onSubmit={() => onSave(f)}>
       <TypeAhead label="Destinations" description="comma-separated; name=credential maps a credential, a bare name uses the destination's default" kind="destinations" list value={f.destinations} onChange={set("destinations")} />
-      <TypeAhead label="Addressing" description="comms target globs, e.g. human:*,channel:eng; empty = can't squawk anyone" kind="targets" project={d.project} list value={f.addressing} onChange={set("addressing")} />
+      <TypeAhead label="Addressing" description="comms target globs, e.g. user:*,channel:eng; empty = can't squawk anyone" kind="targets" project={d.project} list value={f.addressing} onChange={set("addressing")} />
       <TextInput label="TTL" description="e.g. 1h, 90m; blank = none" value={f.ttl} onChange={(e) => set("ttl")(e.currentTarget.value)} />
       <TypeAhead label="Kit" kind="kits" placeholder="blank = no kit (the default kit)" value={f.kit} onChange={set("kit")} />
       <TypeAhead label="Model-spec" description="how its coves run the agent; takes effect at each cove's next episode" kind="model-specs" placeholder="blank = claude-default" value={f.modelSpec} onChange={set("modelSpec")} />

@@ -329,3 +329,31 @@ func TestResume(t *testing.T) {
 		t.Errorf("no limit wired: status %d, want 503", rec.Code)
 	}
 }
+
+// DMChannel is the viewer's dm with the session, the one SendTo posts into:
+// never a ticket session's work log, and empty until that dm exists.
+func TestSessionActivityDMChannel(t *testing.T) {
+	e, p, personal, standing, _ := sessionEnv(t)
+	activity := func(inst jam.Instance, who jam.Participant, admin bool) SessionActivity {
+		t.Helper()
+		return decodeAs[SessionActivity](t, sessAPI(t, e, who, "GET", inst.ActorID+"/activity", "", admin))
+	}
+	if a := activity(personal, p, false); a.DMChannel != e.homeOf(t, personal) {
+		t.Errorf("personal dmChannel = %q, want alice's dm %q", a.DMChannel, e.homeOf(t, personal))
+	}
+	bob := jam.Participant{UserID: ident.New(ident.User), Name: "bob", Projects: []string{"proj"}}
+	if a := activity(standing, bob, true); a.DMChannel != "" {
+		t.Errorf("an operator with no dm: dmChannel = %q, want empty", a.DMChannel)
+	}
+	inst, ticket, _ := ticketSession(t, e, p)
+	if a := activity(inst, p, true); a.DMChannel != "" {
+		t.Errorf("ticket session, no dm yet: dmChannel = %q, want empty (not its log %s)", a.DMChannel, ticket)
+	}
+	dm := e.homeOf(t, inst)
+	if a := activity(inst, p, true); a.DMChannel != dm {
+		t.Errorf("ticket session dmChannel = %q, want the dm %q", a.DMChannel, dm)
+	}
+	if !strings.Contains(sessAPI(t, e, p, "GET", standing.ActorID+"/activity", "", true).Body.String(), `"dmChannel":`) {
+		t.Error("activity JSON lacks dmChannel")
+	}
+}

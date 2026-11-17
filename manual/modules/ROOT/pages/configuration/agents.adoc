@@ -4,7 +4,7 @@
 :page-conventions: sentence-case
 
 The *Agents* tab lists every xref:concepts/agent.adoc[agent] on the Jam,
-running or not.
+whether it is running or not.
 Click one to open its page:
 its identity and grants,
 its studio while it runs,
@@ -18,13 +18,13 @@ image::agents-list.png[The Agents tab,800]
 Each row shows the agent's name and id
 (and its ticket, for a ticket agent),
 its kind,
-its project and role
+which project and role it has
 (*+N* when it holds more grants),
 its status,
 whether its connector is set up,
 whether its image is *stale*,
 and when Jam last heard from it.
-The links above the table show only the agents with one status:
+The links preceding the table show only the agents with one status:
 *Running*, *Waiting*, *Setting up*, *Idled*,
 or *Lost / terminating*.
 The list refreshes every 3 seconds.
@@ -55,7 +55,7 @@ image::agent-page.png[A personal agent's page,800]
 The header shows the agent's id,
 its status,
 its kind (with its owner, for a personal agent, and its name),
-its project, role and ticket.
+its project, role, and ticket.
 On the right:
 
 * *Open live timeline* shows its session's events as they happen;
@@ -126,7 +126,7 @@ When the Jam has no SSH access or previews set up,
 the card says so.
 You share a studio with `jam studio share`.
 
-=== Session, squawks and setup
+=== Session, squawks, and setup
 
 *Session* lists the agent's recorded sessions.
 Click one to open it on the timeline.
@@ -136,7 +136,7 @@ Click one to open it on the timeline.
 
 *Setup*, at the end,
 shows what the studio was set up with when you click it:
-its kit, settings and image.
+its kit, settings, and image.
 
 ifdef::internal[]
 == Notes for the team

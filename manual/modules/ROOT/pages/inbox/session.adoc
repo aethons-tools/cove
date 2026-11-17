@@ -7,12 +7,12 @@ A *session view* shows one session:
 everything it says and hears in every conversation,
 and what it thinks between them.
 It isn't a conversation.
-Open it from the session's name anywhere in the Inbox:
-on its status card in the rail,
+Open it from the session's card in the rail's *Agents* section,
+from its worker in *Work*,
 or in its header, which also shows when you open the session's conversation:
 the work log of the ticket it works on,
 or else your DM with it.
-(A session is one run of an agent: xref:concepts/agent.adoc[Roles, agents and sessions].)
+(A session is one run of an agent: xref:concepts/agent.adoc[Roles, agents, and sessions].)
 
 A *session header* at the top says who the session is,
 what it does now, and what it costs.
@@ -56,12 +56,12 @@ From left to right, the header shows:
 
 Who it is::
 The session's name and its kind:
-*standing*, *personal*, *ticket* or *session*.
+*standing*, *personal*, *ticket*, or *session*.
 A ticket session also shows its ticket.
 Under the name are its role, its project and, for a personal session, whose it is.
 Under them is the session's mission, the goal it set for itself, if it has one.
 State::
-What the session does now, such as "is running *Bash*", "is idle" or "needs you",
+What the session does now, such as `is running Bash`, `is idle`, or `needs you`,
 and how long it has been in that state.
 A number with *?* is its count of open asks.
 Cost::
@@ -69,12 +69,12 @@ What the session has cost so far, and what its current or last turn cost.
 Point at the cost to see the input and output tokens.
 Context::
 How full the agent's context is,
-for example "ctx 84k / 200k · 42%".
+for example `ctx 84k / 200k · 42%`.
 Point at it to see the exact tokens and the model.
 After the agent compacts or clears its conversation,
-it shows "ctx —" until the agent next calls the model.
+it shows `ctx —` until the agent next calls the model.
 Uptime::
-How long ago the session started, such as "up 1h 12m".
+How long ago the session started, such as `up 1h 12m`.
 
 The header updates live, and at least every 30 seconds.
 
@@ -118,7 +118,7 @@ You can use it while the session runs, holds background work, or waits.
 |Everyone who sees the session
 |Starts the agent's next turn with an empty conversation.
 The agent keeps its files and memory,
-but forgets the conversation, its mission and its focus.
+but forgets the conversation, its mission, and its focus.
 You can use it only while the session waits.
 It asks you to confirm.
 
@@ -150,7 +150,7 @@ The *Thinking* tab shows each press and who pressed it.
 == The pane
 
 The pane is closed until you click one of its tabs in the header:
-*Thinking*, *Previews*, *Artifacts* or *Status*.
+*Thinking*, *Previews*, *Artifacts*, or *Status*.
 Click the open tab again, or *×*, to close it.
 The open tab updates live, and at least every 30 seconds.
 
@@ -182,7 +182,7 @@ Each line has an icon and the time under it:
 * *💬* what the agent wrote;
 * *▶* a tool call, such as *Bash* with its command.
 Under it, *✓* or *✗* shows how the call ended and how long it took.
-* A line across the list ends each episode, with its cost and its duration.
+* A line across the list ends each episode and shows its cost and duration.
 * *Unaddressed* marks a turn that ended with text the session sent nowhere,
 even after Jam returned the turn to it once
 (xref:concepts/intercom.adoc#_ending_a_turn[Ending a turn]).
@@ -220,15 +220,15 @@ the tab says so.
 
 An agent can serve a web app in its studio and _expose_ it as a *preview*,
 a web address that people can open.
-The *Previews* tab lists the session's previews,
-each with its name and port.
+The *Previews* tab lists the session's previews
+by name and port.
 
 image::session-previews.png["The Previews tab",400]
 
 * Click a name to open the preview in a new browser tab.
 You sign in there the first time.
 * Click *View here* to show the preview inside the pane.
-A bar above it has *← All previews*, which goes back to the list,
+A bar preceding it has *← All previews*, which goes back to the list,
 and *Open in new tab*.
 The pane shows one preview at a time.
 
@@ -248,11 +248,11 @@ The *Artifacts* tab collects what the session's conversation holds, newest first
 Click one to open it (xref:inbox/whiteboards.adoc[Whiteboards]).
 * *Files* attached to messages.
 Images show small. Click a file to download it.
-* *Asks*, each with its state: open, answered or withdrawn.
+* *Asks*, each with its state: open, answered, or withdrawn.
 Click one to go to it in the conversation
 (xref:inbox/asks.adoc[Answering asks]).
 * *Links* from the messages, each one once, up to 50.
-A GitHub pull request or issue shows as, for example, "app PR #61".
+A GitHub pull request or issue shows as, for example, `app PR #61`.
 
 image::session-artifacts.png["The Artifacts tab",400]
 
@@ -268,7 +268,25 @@ its tool calls and errors,
 its tokens, its context use,
 its cost and the cost of this turn,
 and when its last event was.
-(xref:concepts/model-spec.adoc[Model specs], xref:concepts/kit.adoc[Kits and studios].)
+(See xref:concepts/model-spec.adoc[Model specs] and xref:concepts/kit.adoc[Kits and studios].)
+
+== In VS Code
+
+In the Jam extension for VS Code,
+a session view opens as a tab in the hub window,
+next to your conversation tabs.
+Click a card in the rail's *Agents* section,
+or the worker of a row in *Work*, to open it.
+Double-click the card instead to open the session's studio window.
+
+The tab shows the session's header and activity,
+with the composer at the bottom for a DM to the session.
+The hub's *Thinking*, *Previews*, *Artifacts*, and *Status* views
+take the place of the pane:
+they show the session of the tab you last made active.
+Each session has one tab,
+titled with the session's name.
+Tabs come back when VS Code reloads.
 
 == Session colors
 
@@ -291,6 +309,7 @@ A session started before Jam had colors has none.
 ifdef::internal[]
 == Notes for the team
 
+* The VS Code session tab is `web/app/src/vscode/SessionTab.tsx` in the webview and `web/vscode/src/panes/sessiontab.ts` in the extension; its rules are in `docs/modules/ROOT/pages/usage/jam/vscode-hub.adoc` (_Session tabs_).
 * The session view is `/app/user/s/<session>` (`web/app/src/session/SessionPage.tsx`, `ActivityList`, `TurnFold`).
 The header and pane are `web/app/src/session/`
 (`SessionView`, `SessionHeader`, `PaneTabs`; Thinking in `thinking/`, View here in `frames/`).

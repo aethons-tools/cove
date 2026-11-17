@@ -22,6 +22,10 @@ var IntercomTools = []string{"alarm_clear", "alarm_list", "alarm_set", "amend", 
 	"idle_timeout", "keep_list", "keep_start", "keep_stop", "leave", "list_targets", "mission", "read", "report", "send", "turn_end",
 	"unexpose", "withdraw"}
 
+// ObserveTools are the tools the intercom MCP server adds for a session
+// whose role has scope.observe (TestObserveToolsMatchJam).
+var ObserveTools = []string{"observe_activity", "observe_events", "observe_sessions", "observe_streams"}
+
 // destinationsBody renders each destination in a's scopes: how it is reached
 // and authenticated, by credential NAME, and which env keys it sets.
 func destinationsBody(store Store, a Actor) string {
@@ -193,6 +197,7 @@ func mcpBody(servers map[string]kit.MCPServer, kitKnown bool) string {
 		writeTable(&sb, []string{"  NAME", "TYPE", "URL/COMMAND", "HEADERS"}, rows)
 	}
 	fmt.Fprintf(&sb, "intercom (jam-studio-agent mcp, always loaded): %s\n", strings.Join(IntercomTools, ", "))
+	fmt.Fprintf(&sb, "  with scope.observe: %s\n", strings.Join(ObserveTools, ", "))
 	return sb.String()
 }
 

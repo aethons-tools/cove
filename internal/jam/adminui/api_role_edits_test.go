@@ -35,6 +35,9 @@ func TestRoleAPIScopeEdit(t *testing.T) {
 	if !reflect.DeepEqual(r.Scope.Rooms, before.Scope.Rooms) {
 		t.Errorf("a scope edit changed the rooms: %+v", r.Scope.Rooms)
 	}
+	if r.Scope.Observe != before.Scope.Observe || !res.Role.Observes {
+		t.Errorf("a scope edit changed observe: %q", r.Scope.Observe)
+	}
 	if want := []adminui.RoleRoomRow{{Name: "eng", Wake: "all"}}; !reflect.DeepEqual(res.Role.Rooms, want) {
 		t.Errorf("answered rooms = %+v, want %+v", res.Role.Rooms, want)
 	}

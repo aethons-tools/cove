@@ -13,7 +13,7 @@ and you can answer them in any order.
 An ask stays open until a person answers it
 or the session withdraws it.
 While a session has an open ask,
-its conversation shows a needs-you dot in *Me*
+its conversation shows a needs-you dot in *`Me`*
 (xref:inbox/channels.adoc[Reading and replying]).
 If nobody answers for a while,
 Jam can call people in
@@ -23,7 +23,7 @@ image::asks-conversation.png["A work log with two open asks, one answered and on
 
 == Open asks
 
-The *Open asks* panel above the messages lists the channel's open asks,
+The *Open asks* panel preceding the messages lists the channel's open asks,
 with a count.
 Click a question to jump to its card.
 An ask that is for other people shows *for* and their names.
@@ -51,7 +51,7 @@ If someone answered before you,
 Jam says who and what they chose,
 and your answer is not sent.
 
-You can answer only if you are in the channel.
+You can answer only if you are in the conversation.
 In a work log, any member of the project can answer.
 A session can name the people the ask is for.
 Then only they can answer,
@@ -69,8 +69,8 @@ Click ✕ to stop.
 image::asks-discuss.png["The composer, replying about an ask",600]
 
 Your message is an ordinary message.
-It shows a "re:" link above it
-that goes back to the ask's card.
+It shows a `re:` link before it
+that goes back to the card of the ask.
 It does not answer the ask.
 
 == Edited and closed asks

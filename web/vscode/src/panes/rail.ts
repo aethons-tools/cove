@@ -15,6 +15,9 @@ export type RailDeps = PortDeps & {
   windows: () => string[];
   // active is the window's focused conversation (its channel), highlighted.
   active?: () => Promise<string | undefined>;
+  // activeSession is the hub's active session tab (its session), whose
+  // Agents card is highlighted.
+  activeSession?: () => string | undefined;
   // describe is the view's description (the window's Jam, with several).
   describe?: () => string;
 };
@@ -45,7 +48,8 @@ export class RailViewProvider implements vscode.WebviewViewProvider {
     const url = this.d.jamUrl();
     const signedIn = !(url instanceof Error) && (await this.d.auth.session(url).catch(() => undefined)) !== undefined;
     const active = signedIn ? await this.d.active?.().catch(() => undefined) : undefined;
-    return { signedIn, target: null, windows: this.d.windows(), ...(active ? { active } : {}) };
+    const activeSession = signedIn ? this.d.activeSession?.() : undefined;
+    return { signedIn, target: null, windows: this.d.windows(), ...(active ? { active } : {}), ...(activeSession ? { activeSession } : {}) };
   }
 
   resolveWebviewView(view: vscode.WebviewView, _context?: vscode.WebviewViewResolveContext, _token?: vscode.CancellationToken): void {

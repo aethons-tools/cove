@@ -1,5 +1,5 @@
 = jam-colima
-:summary: The `jam-colima` binary — the Studio Manager for a Colima host, a bare-metal process that dials Jam over TLS and hosts studios in a Colima VM; its install, upgrade from jam-studio-manager, config file and `colima.profile`, token, TLS, reconnect backoff, capacity, the host memory/disk and work in progress it reports, automatic disk cleanup, labels and image builds.
+:summary: The `jam-colima` binary—the Studio Manager for a Colima host, a bare-metal process that dials Jam over TLS and hosts studios in a Colima VM; its install, upgrade from jam-studio-manager, config file and `colima.profile`, token, TLS, reconnect backoff, capacity, the host memory/disk and work in progress it reports, automatic disk cleanup, labels and image builds.
 :read_when: You are setting up or running `jam-colima` on a host, upgrading a host from `jam-studio-manager`, editing its `config.yml` (which VM via `colima.profile`, `cleanup` thresholds), or debugging why it will not connect, declines raises (capacity, disk full), removed or rebuilds images, or reports odd memory/disk figures to Jam.
 :owns: the `jam-colima` binary's config file and dir (and their move from jam-studio-manager), `run` verb, `colima.profile`, `colima.destinations-domain`, TLS trust, reconnect backoff, capacity gate, how host stats are measured, the activities it reports (kit-prepare progress), the disk cleanup policy and disk-full gate, container/volume labels and per-host image builds
 :prereqs: jam/studio-managers.adoc for registering the manager and what Jam does with it
@@ -29,7 +29,7 @@ The token file is reread at each connect, so after `jam manager rotate` (xref:us
 The binary was ``jam-studio-manager``; the Studio Manager concept, Jam's `manager` verbs, labels, container names and the stream are unchanged. On each host, after Jam is upgraded:
 
 . *Install* with `jam update` or the one-command installer (xref:OVERVIEW.adoc#installing-the-binaries[updating in place]). An older `jam update` installs the new `jam`, then fails on the missing ``jam-studio-manager``; a second `jam update` (the new `jam`) completes it. `install.sh` (so `jam update` too) notices a leftover `jam-studio-manager` in the install directory; delete it after step 3.
-. *Edit ``config.yml``* (still in the old dir): replace `colima.docker-context` with `colima.profile` — a config that still has it is refused. `+docker-context: colima+` (or none) is the `default` profile; `+docker-context: colima-jam-b+` is `+profile: jam-b+`. Rewrite any `token-file`, `ca-file`, `identity-file` or `known-hosts-dir` that names the old dir.
+. *Edit ``config.yml``* (still in the old dir): replace `colima.docker-context` with `colima.profile`—a config that still has it is refused. `+docker-context: colima+` (or none) is the `default` profile; `+docker-context: colima-jam-b+` is `+profile: jam-b+`. Rewrite any `token-file`, `ca-file`, `identity-file` or `known-hosts-dir` that names the old dir.
 . *Point the service at ``jam-colima run``* and restart it. A `+--config+` into the old dir must become the same path under ``<parent>/jam-colima/``: until it does, `run` reads the moved file and says so on each start.
 
 The config dir moves by itself: at `run` or `colima setup-docker|check-docker`, if `<parent>/jam-colima` is missing and `<parent>/jam-studio-manager` exists, it is renamed (one stderr line). The identity key moves with it, so kit images and state are kept.
@@ -86,7 +86,7 @@ It logs and skips every other host (`destination host refused`).
 If you do not set it, the images and their tags do not change, and studios cannot reach subdomain endpoints.
 `profile` names the Colima VM studios run in, read as colima reads ``+--profile+``: `default` and `colima` are the default VM, and a `colima-` prefix is dropped (`colima-jam-b` is `jam-b`).
 Every docker call is pinned to its docker context, `colima` for `default`, else `colima-<profile>`.
-So `+colima start --profile jam-b+` and `+profile: jam-b+` place this manager's studios, kit images and volumes in that VM.
+So `+colima start --profile jam-b+` and `+profile: jam-b+` place this manager's studios, kit images, and volumes in that VM.
 For a Jam in a container, `jam-addr` is the host's published 443 (xref:usage/jam/container.adoc#pointing-studio-managers-at-it[pointing managers at it]).
 
 == TLS
@@ -96,9 +96,9 @@ Jam sends its SSH user CA in its Welcome, so the manager host needs no CA config
 
 == Reconnect
 
-The retry wait starts at 1s and doubles to 30s; it resets once Jam's Welcome arrives.
-A refusal (`Unauthenticated`, `PermissionDenied`, or `FailedPrecondition` such as a version mismatch) logs one Error and waits 30s.
-After a refusal the backoff stays at 30s until a connect succeeds.
+The retry wait starts at 1 second and doubles to 30 seconds; it resets once Jam's Welcome arrives.
+A refusal (`Unauthenticated`, `PermissionDenied`, or `FailedPrecondition` such as a version mismatch) logs one Error and waits 30 seconds.
+After a refusal the backoff stays at 30 seconds until a connect succeeds.
 
 == Capacity
 
@@ -108,14 +108,14 @@ At the limit a raise is declined with `at capacity (<n>/<cap> studios)` and Jam 
 [#host-stats]
 == Host stats
 
-Every 30s (and right after connecting) the manager reports its VM's memory and disk to Jam, which shows them and alerts on a full disk (xref:usage/jam/studio-managers.adoc#status-reports[status reports]).
+Every 30 seconds (and right after connecting) the manager reports its VM's memory and disk to Jam, which shows them and alerts on a full disk (xref:usage/jam/studio-managers.adoc#status-reports[status reports]).
 They are measured inside the `colima.profile` VM:
 
-* ``+colima ssh --profile <p> -- sh -c 'df -kP /var/lib/docker; cat /proc/meminfo'+``: memory used is ``+MemTotal − MemAvailable+``; disk is the filesystem holding docker's data dir (df's one data row, whatever its mount point; often `/`), with total = used + available, so the percentage matches df's `Capacity` (root-reserved blocks excluded).
-* ``+docker --context <ctx> system df --format '{{json .}}'+``: the Reclaimable of Images, Build Cache and Local Volumes (docker's decimal sizes, `1.2GB` = 1.2×10⁹ bytes). Containers are not counted; they go with their studios.
-It walks every layer, so it runs at most every 10 minutes; if it fails (docker fails it while containers write, e.g. `+failed to calculate image disk usage: lstat …: no such file or directory+`) or is unreadable, the last figure is kept and it is retried on the next sample.
+* ``+colima ssh --profile <p> -- sh -c 'df -kP /var/lib/docker; cat /proc/meminfo'+``: memory used is ``+MemTotal − MemAvailable+``; disk is the filesystem holding Docker's data dir (the one data row of `df`, whatever its mount point; often `/`), with total = used + available, so the percentage matches the `Capacity` of `df` (root-reserved blocks excluded).
+* ``+docker --context <ctx> system df --format '{{json .}}'+``: the Reclaimable of Images, Build Cache and Local Volumes (Docker's decimal sizes, `1.2GB` = 1.2×10⁹ bytes). Containers are not counted; they go with their studios.
+It walks every layer, so it runs at most every 10 minutes; if it fails (docker fails it while containers write, for example `+failed to calculate image disk usage: lstat …: no such file or directory+`) or is unreadable, the last figure is kept and it is retried on the next sample.
 
-If the VM measurement fails, or the measurement takes over 20s (a hung `colima ssh`), the report carries no host (one Warn in the manager's log until it recovers, then debug); Jam keeps the previous figures' condition as it was.
+If the VM measurement fails, or the measurement takes over 20 seconds (a hung `colima ssh`), the report carries no host (one Warn in the manager's log until it recovers, then debug); Jam keeps the previous figures' condition as it was.
 
 [#disk-cleanup]
 == Disk cleanup
@@ -124,7 +124,7 @@ Each host stats sample also drives the disk policy; `cleanup` sets its threshold
 A sample at or over `high` starts a cleanup in the background (one at a time) that runs these steps in order, re-measuring after each and stopping as soon as the disk is under ``low``:
 
 . unnamed images (dangling with repository `<none>`, each `docker image rm` without `-f`); not `docker image prune`, which would also remove the blessed `jam-studio-base` images, pulled by digest only, that every kit build uses;
-. unused kit images (`jam-kit`, `jam-kit-base`, `jam-kit-draft` tags only), oldest first, one at a time with `docker image rm <id>` (no `-f`), re-measuring after each. Skipped: images a container uses (running or stopped), images younger than 1h (just prepared, about to be raised), and images another repository also names;
+. unused kit images (`jam-kit`, `jam-kit-base`, `jam-kit-draft` tags only), oldest first, one at a time with `docker image rm <id>` (no `-f`), re-measuring after each. Skipped: images a container uses (running or stopped), images younger than 1 hour (just prepared, about to be raised), and images another repository also names;
 . unused anonymous volumes (`+docker volume prune -f --filter label=com.docker.volume.anonymous+`);
 . the build cache (`docker builder prune -f`).
 

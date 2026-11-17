@@ -236,7 +236,7 @@ func TestCoveHTTPHandlerMountsSquawksWithoutRequisitioner(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := coveHTTPHandler(broker, st, sup, tc.msg, tc.requisitioner, nil, nil, log)
-			for _, p := range []string{"/squawks", "/escalate", "/mission", "/focus"} {
+			for _, p := range []string{"/squawks", "/squawks/observe/sessions", "/escalate", "/mission", "/focus"} {
 				if got := get(h, p) != http.StatusTeapot; got != tc.mounted {
 					t.Fatalf("%s mounted = %v, want %v", p, got, tc.mounted)
 				}

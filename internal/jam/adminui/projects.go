@@ -121,7 +121,7 @@ func buildProjectDetail(store jam.Store, img jam.ImageResolver, msgs SquawkReade
 			Delivery: m.Delivery, DeliverySpec: lines(m.Delivery, jam.FormatDeliverySpec)})
 	}
 	d.Rooms = jam.ListRooms(store, p)
-	known := knownTargets(members, d.Rooms)
+	known := knownTargets(members)
 	d.DefaultChain = chain("", p.Escalation, known)
 	if len(p.Escalation) > 0 {
 		d.Escalation = append(d.Escalation, d.DefaultChain)

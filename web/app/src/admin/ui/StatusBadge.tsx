@@ -3,7 +3,7 @@ import { Badge } from "@mantine/core";
 // tone is an agent status's colour.
 const tone: Record<string, string> = {
   running: "green", waiting: "blue", holding: "blue", orienting: "blue",
-  "setting up": "yellow", blocked: "red", lost: "red",
+  "setting up": "yellow", recovering: "yellow", blocked: "red", lost: "red",
 };
 
 // StatusBadge is an agent's display status (jam.StatusOf).

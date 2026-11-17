@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   # Two legs run side by side — Go (tests, installer, image script, lint) and
-  # web (the app's checks, the VS Code extension) — and `gate` joins them.
+  # web (the app's checks, the VS Code extension, the books) — and `gate` joins them.
   go:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -134,9 +134,28 @@ jobs:
       - name: manual extension tests
         run: cd manual && ../scripts/npm-ci.sh && npm test
       # The customer manual jam embeds: a leak of internal content, or any
-      # warning, fails it. Built outside the tree (not into internal/jam/uiassets).
+      # warning, fails it. Built outside the tree (not into internal/jam/uiassets),
+      # with the pinned headless Chrome its diagrams render with.
       - name: customer manual
-        run: cd manual && npx antora antora-playbook.jam.yml --to-dir "$RUNNER_TEMP/manual"
+        run: |
+          JAM_BROWSER="$(scripts/manual-browser.sh)"
+          export JAM_BROWSER
+          cd manual && npx antora antora-playbook.jam.yml --to-dir "$RUNNER_TEMP/manual"
+      # Mirrors `just vale`, on every page under manual/ and docs/: Vale with
+      # the Google and Jam styles (.vale.ini), pinned and sha256-verified by
+      # scripts/vale.sh. Errors and warnings fail it; suggestions are
+      # reported. Then the Jam style's own test.
+      # The pinned Asciidoctor.js CLI Vale reads AsciiDoc through doesn't run
+      # on Node 26 (its yargs loads as an ES module), so this step, the leg's
+      # last, runs on Node 22, as the studio kit does.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: books prose (Vale)
+        run: ./scripts/vale.sh
+      # It installs the pinned Vale and asciidoctor itself.
+      - name: Jam Vale style test
+        run: bash scripts/vale.test.sh
       - uses: actions/upload-artifact@v7
         with:
           name: jam-vscode

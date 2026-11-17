@@ -1,0 +1,6 @@
+# The component the diagram tests build (extensions/test/diagrams.test.js).
+name: diagrams
+version: ~
+title: Diagrams
+nav:
+- modules/ROOT/nav.adoc

@@ -42,10 +42,10 @@ continue. If that resumed episode fails quickly without the agent replying (no
 conversation to continue), jam-studio-agent drops the marker and retries once, fresh,
 with its raise prompt. Without the marker it starts fresh.
 
-No teardown deletes the session's state — a dead or Lost studio, a Jam restart, a
+No teardown deletes the session's state—a dead or Lost studio, a Jam restart, a
 `standing upgrade`, an idle reap, a hand `studio teardown` all keep it. Only the
 standing reconciler's sweep does: every pass it removes the labeled volumes of
-any session that has no instance any more (ended — a recovering session keeps
+any session that has no instance any more (ended—a recovering session keeps
 its instance and so its state) and is no standing declaration's (see
 xref:usage/jam/standing-sessions.adoc#dismissal[Dismissal]), and xref:usage/jam/standing-sessions.adoc#reset[Reset]
 removes a declared one's. Every kind mounts the volumes: ephemeral (ticket) and
