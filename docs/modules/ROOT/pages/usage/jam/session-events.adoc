@@ -13,6 +13,7 @@ events and `system`/`+thinking_tokens+` progress events. Storage and export are
 *operator-only*; the content is also shown to the people who may open the session's view
 (xref:usage/jam/session-view.adoc#access[session-view]), in the Thinking tab. It carries agent output by design (see <<sensitivity,Sensitivity>>).
 
+[#cove-side-jam-studio-agent]
 == Cove side (jam-studio-agent)
 
 * `internal/agentrun` writes the agent's stdout to the VM-local
@@ -20,7 +21,9 @@ events and `system`/`+thinking_tokens+` progress events. Storage and export are
 Jam reads on teardown) and to a line splitter; each line goes to `studioagent` as an event tagged with its
 *turn* (the episode—claude process—number, from 1; one episode can answer several prompts, see xref:usage/jam/coves.adoc[coves]).
 * *Wake events:* before it hands a Wake's resume prompt to the agent,
-`studioagent` records an event of its own, `+{"type":"jam","subtype":"wake","reasons":[...]}+`,
+`studioagent` records an event of its own,
+`+{"type":"cove","subtype":"wake","reasons":[...]}+`,
+as it does for turns and commands,
 carrying the Wake's reason kinds
 (xref:usage/jam/turn-end.adoc#wake-reasons[wake reasons]),
 so a turn can be told apart by what woke it.
