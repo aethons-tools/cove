@@ -26,7 +26,11 @@ The work log is the record of the work:
 * The agent's progress reports and its state changes, such as *in review*.
 * Messages that people and agents post to the work.
 * Asks about the work, and their answers.
-* Review outcomes and decisions.
+* Review outcomes of the unit's pull requests:
+each review, and the merge or the close,
+once each,
+saying who reviewed it, the outcome, and a link to the review.
+* Decisions about the work.
 
 The agent working on the unit gets every entry.
 So do the people who follow it:
