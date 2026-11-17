@@ -131,7 +131,10 @@ a room they were in,
 and the work log of a unit in their projects.
 * *Ended sessions* are the ended sessions whose view the person may open
 (xref:usage/jam/conversations-sessions.adoc#session-view[conversations-sessions]).
-`kind` is the session's kind: `standing`, `personal`, `ticket`, or `session`.
+`kind` is the kind the session header shows:
+`standing` or `personal` for those sessions,
+`ticket` for an ephemeral session working a ticket,
+and `session` for any other ephemeral session.
 * `q` matches, case-insensitively, a conversation's label or ticket key and title,
 a session's label and mission,
 and the text of the messages in a conversation or a session's activity.
@@ -150,7 +153,7 @@ Opening a result uses today's routes:
 a conversation is `/app/user/c/<channel>`,
 a session `/app/user/s/<session>`.
 A finished conversation opens read-only:
-reading it works for the people above,
+anyone who may read it can open it,
 and posting to it fails with `409` and says it's finished.
 The rail shows the results in place of its sections;
 the VS Code rail may follow later on the same API.
