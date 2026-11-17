@@ -27,6 +27,10 @@ func (s *PostgresStore) ReportUnit(log ident.ID, state, pr string, at time.Time)
 	})
 }
 
+func (s *PostgresStore) SetUnitPR(log ident.ID, url string, st PRStatus) error {
+	return s.putWorkUnitWith("SetUnitPR", func() (WorkUnit, bool, error) { return s.prepareSetUnitPR(log, url, st) })
+}
+
 func (s *PostgresStore) putWorkUnitWith(op string, prepare func() (WorkUnit, bool, error)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

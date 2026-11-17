@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aethons-tools/cove/internal/ident"
@@ -53,6 +54,12 @@ type UnitPR struct {
 	ReportedAt time.Time `json:"reported_at"`
 }
 
+// PRStatus is what the PR watcher learns of a unit's pull request.
+type PRStatus struct {
+	Title string
+	State PRState
+}
+
 // WorkUnit is a unit of work's record. State is its last reported state
 // (a Report* constant; "" = none), at StateAt. Workers are in the order they
 // started, PRs in the order they were first reported.
@@ -90,6 +97,11 @@ type WorkUnitStore interface {
 	// ReportUnit records a report of log's unit: its state, and pr (a URL;
 	// "" = none), recorded open when it is new.
 	ReportUnit(log ident.ID, state, pr string, at time.Time) error
+	// ListWorkUnits lists every unit's record.
+	ListWorkUnits() []WorkUnit
+	// SetUnitPR sets the status of log's pull request with URL url
+	// (ErrNotFound: the unit has none).
+	SetUnitPR(log ident.ID, url string, st PRStatus) error
 }
 
 // prNumber matches a pull (or merge) request's number in its URL.
@@ -191,6 +203,41 @@ func (m *memState) prepareReportUnit(log ident.ID, state, pr string, at time.Tim
 	return u, nil
 }
 
+func (m *memState) ListWorkUnits() []WorkUnit {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]WorkUnit, 0, len(m.units))
+	for _, u := range m.units {
+		out = append(out, copyWorkUnit(u))
+	}
+	slices.SortFunc(out, func(a, b WorkUnit) int { return strings.Compare(string(a.Log), string(b.Log)) })
+	return out
+}
+
+// prepareSetUnitPR is the record after SetUnitPR; changed is false for a
+// no-op. Caller holds mu.
+func (m *memState) prepareSetUnitPR(log ident.ID, url string, st PRStatus) (u WorkUnit, changed bool, err error) {
+	switch st.State {
+	case PROpen, PRMerged, PRClosed:
+	default:
+		return WorkUnit{}, false, fmt.Errorf("work unit: unknown pull request state %q", st.State)
+	}
+	if u, err = m.unitFor(log); err != nil {
+		return WorkUnit{}, false, err
+	}
+	i := slices.IndexFunc(u.PRs, func(p UnitPR) bool { return p.URL == url })
+	if i < 0 {
+		return WorkUnit{}, false, fmt.Errorf("work unit %s: pull request %s: %w", log, url, ErrNotFound)
+	}
+	p := u.PRs[i]
+	p.Title, p.State = st.Title, st.State
+	if p == u.PRs[i] {
+		return u, false, nil
+	}
+	u.PRs[i] = p
+	return u, true, nil
+}
+
 func (m *memState) applyPutWorkUnit(u WorkUnit) { m.units[u.Log] = copyWorkUnit(u) }
 
 func (fs *MemStore) StartUnitWorker(log ident.ID, w UnitWorker, issue UnitIssue) error {
@@ -208,6 +255,17 @@ func (fs *MemStore) StopUnitWorker(log, session ident.ID, at time.Time) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	u, changed, err := fs.prepareStopUnitWorker(log, session, at)
+	if err != nil || !changed {
+		return err
+	}
+	fs.applyPutWorkUnit(u)
+	return nil
+}
+
+func (fs *MemStore) SetUnitPR(log ident.ID, url string, st PRStatus) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	u, changed, err := fs.prepareSetUnitPR(log, url, st)
 	if err != nil || !changed {
 		return err
 	}
