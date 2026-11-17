@@ -131,7 +131,7 @@ Leave a field blank to unset it.
 
 === Prompt cache
 
-A role's *cache profile* says how to keep its agents' prompt cache warm while they wait,
+A role's *cache profile* keeps its agents' prompt cache warm while they wait,
 so a turn after a pause doesn't pay to load the whole conversation again.
 The role page shows it under *Cache*, read-only;
 it is set in the role's file.
@@ -140,11 +140,16 @@ it is set in the role's file.
 How long the cache lives after each turn: `5m` or `1h`.
 *Keep warm*::
 How long after a turn ends Jam keeps the cache from expiring.
+Shortly before that runs out,
+Jam wakes the agent to compact its conversation.
 *Threshold*::
 The conversation size, in tokens, below which Jam doesn't keep it warm.
 
 Jam applies the TTL to agents started after you set it.
-It doesn't apply *Keep warm* or *Threshold* yet.
+A role without a profile works as before.
+While Jam keeps an agent warm,
+its session view shows *keep-warm* wakes that do nothing,
+and then one *compact-due* wake.
 
 == Standing agents
 

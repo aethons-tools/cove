@@ -34,7 +34,8 @@ const restartStructured = "Your session was restarted (for example, Jam was upgr
 // idle tracker tags the turn answering it, so a result is never credited with
 // another prompt's batch), the batch it showed (upTo, the commit point; "" =
 // none), whether the structured turn end was on when it was built, and whether
-// it is a maintenance turn (a /compact) whose end posts and commits nothing,
+// it is a maintenance turn (a /compact, or a keep-warm wake) whose end posts
+// and commits nothing,
 // and whether it answers a returned turn (it is never returned again).
 // Run's goroutine only.
 type turnMeta struct {
@@ -108,6 +109,13 @@ func (w *Workload) takeNote() []string {
 // prompt goes to.
 func (w *Workload) deliverText(ctx context.Context, h studioagent.Handle, turn uint32, rs []studioagent.WakeReason) string {
 	emitWake(h, turn, rs)
+	if keepWarmOnly(rs) {
+		// It only refreshes the prompt cache: no batch, and like a
+		// maintenance turn its end posts, returns and commits nothing.
+		w.newTurn(turnMeta{quiet: true})
+		return keepWarmText
+	}
+	rs = withoutKeepWarm(rs)
 	text, upTo, ok := w.batch(ctx)
 	w.newTurn(turnMeta{upTo: upTo, structured: ok})
 	if !ok {
@@ -135,7 +143,7 @@ func (w *Workload) ackText(ctx context.Context, by string, rs []studioagent.Wake
 		return interruptPrompt(by, rs)
 	}
 	lines := append([]string{strings.Replace(interruptAckStructured, "%s", by, 1)}, w.takeNote()...)
-	for _, r := range rs {
+	for _, r := range withoutKeepWarm(rs) {
 		if l, ok := wakeLine(r); ok {
 			lines = append(lines, l)
 		}

@@ -158,6 +158,36 @@ type ReportRecorder interface {
 	SetReport(actorID string, r jam.TicketReport) error
 }
 
+// ContextSize is what a session's events say about its context
+// (sessionevents.Totals): the input of its last model call, cache reads and
+// writes included (0 = unknown, or a compaction or Clear since), and how many
+// compactions and Clears they show.
+type ContextSize struct {
+	Tokens int64
+	Resets int
+}
+
+// ContextSizes reads a session's ContextSize from its events.
+type ContextSizes interface {
+	ContextSize(actorID string) (ContextSize, error)
+}
+
+// WarmState records the keep-warm schedule's progress on a session
+// (Supervisor.MarkWarmWake and CancelWarm).
+type WarmState interface {
+	MarkWarmWake(actorID, kind string, resets int) error
+	CancelWarm(actorID string) error
+}
+
+// Compactor compacts a session as the session view's Compact does.
+type Compactor interface {
+	Compact(ctx context.Context, inst jam.Instance) error
+}
+
+// compactCheckDelay is how long after a compact-due turn ends Jam waits for
+// its events (a compaction it ran) before compacting the session itself.
+const compactCheckDelay = 15 * time.Second
+
 // blockTimeout bounds the tracker call made before a teardown, so a stalled
 // tracker can't freeze the wake-on tick.
 const blockTimeout = 15 * time.Second
@@ -222,6 +252,11 @@ type Engine struct {
 	// The wake rules per conversation kind (SetConversations); nil: every
 	// delivery wakes.
 	convs Conversations
+
+	// The keep-warm schedule (SetKeepWarm); off while warm is nil.
+	sizes     ContextSizes
+	warm      WarmState
+	compactor Compactor
 
 	// kick holds one pending Kick; Run ticks kickDelay after it.
 	kick      chan struct{}
@@ -336,6 +371,17 @@ func (e *Engine) blockUnfinished(ctx context.Context, inst jam.Instance, reason 
 	}
 }
 
+// SetKeepWarm turns on the keep-warm schedule the supervisor arms at a
+// turn's end (prompt-cache.adoc#keeping-it-warm): while a session waits and
+// its context (sizes) is at least its role's threshold, a keep-warm wake every
+// ttl less a minute, then compact-due a minute before keep-warm runs out; a
+// compact-due turn that didn't compact is compacted by compactor. Any other
+// wake cancels the schedule (warm). Roles come from SetTurnEnd or
+// SetIdleLadder. Call before Run.
+func (e *Engine) SetKeepWarm(sizes ContextSizes, warm WarmState, compactor Compactor) {
+	e.sizes, e.warm, e.compactor = sizes, warm, compactor
+}
+
 func (e *Engine) SetTurnEnd(roles RoleLookup, ender Ender, alarms AlarmFirer) {
 	if roles != nil {
 		e.roles = roles
@@ -391,7 +437,7 @@ func (e *Engine) tick(ctx context.Context) {
 			if !e.wakeRunning(inst, alarms) && inst.Activity == jam.ActivityHolding && e.idleDue(inst) && e.idleAction(inst) == jam.OnIdleWake {
 				// A teardown action waits for Waiting: never end a cove mid-hold.
 				e.log.Info("wakeon: idle timeout, waking", "actor", inst.ActorID)
-				e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeIdle})
+				e.send(inst, jam.WakeReason{Kind: jam.WakeIdle})
 			}
 			continue
 		}
@@ -430,11 +476,14 @@ func (e *Engine) tick(ctx context.Context) {
 				continue
 			}
 			e.log.Info("wakeon: waking", "actor", inst.ActorID, "reasons", len(reasons))
-			e.wake.Wake(inst.ActorID, reasons...)
+			e.send(inst, reasons...)
 			continue
 		}
 		if e.idleDue(inst) {
 			e.fireIdle(ctx, inst)
+			continue
+		}
+		if e.keepWarm(ctx, inst) {
 			continue
 		}
 		// no reply. The idle ladder is personal-only: a standing session has no
@@ -472,7 +521,7 @@ func (e *Engine) wakeRunning(inst jam.Instance, extra []jam.WakeReason) bool {
 			return false
 		}
 		e.log.Info("wakeon: alarm for a holding cove, waking", "actor", inst.ActorID)
-		e.wake.Wake(inst.ActorID, extra...)
+		e.send(inst, extra...)
 		return true
 	}
 	last := inst.WaitSeq
@@ -480,7 +529,7 @@ func (e *Engine) wakeRunning(inst jam.Instance, extra []jam.WakeReason) bool {
 		last = max(last, m.Seq)
 	}
 	e.log.Info("wakeon: reply to a running cove, waking", "actor", inst.ActorID)
-	e.wake.Wake(inst.ActorID, append([]jam.WakeReason{{Kind: jam.WakeSquawk}}, extra...)...)
+	e.send(inst, append([]jam.WakeReason{{Kind: jam.WakeSquawk}}, extra...)...)
 	if err := e.cursor.SetWaitSeq(inst.ActorID, last); err != nil {
 		e.log.Warn("wakeon: advance wait baseline failed", "actor", inst.ActorID, "error", err.Error())
 	}
@@ -623,7 +672,92 @@ func (e *Engine) fireIdle(ctx context.Context, inst jam.Instance) {
 		return
 	}
 	e.log.Info("wakeon: idle timeout, waking", "actor", inst.ActorID)
-	e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: jam.WakeIdle})
+	e.send(inst, jam.WakeReason{Kind: jam.WakeIdle})
+}
+
+// send Wakes inst for reasons other than keep-warm's, which cancels its
+// keep-warm schedule first: the turn they start is an ordinary one.
+func (e *Engine) send(inst jam.Instance, reasons ...jam.WakeReason) {
+	if e.warm != nil && inst.Warm.Armed() {
+		if err := e.warm.CancelWarm(inst.ActorID); err != nil {
+			e.log.Warn("wakeon: cancel keep-warm failed", "actor", inst.ActorID, "error", err.Error())
+		}
+	}
+	e.wake.Wake(inst.ActorID, reasons...)
+}
+
+// keepWarm runs a Waiting session's keep-warm schedule and reports whether it
+// acted on it (the session must not be paused this tick). A keep-warm or
+// compact-due wake that is due is sent, and re-sent every tick until the
+// session runs, while the session's context is at least its role's
+// threshold; otherwise the schedule ends. A paused studio is resumed first,
+// as for the idle wake. Once a compact-due turn has ended and its events are
+// in, a session they show didn't compact is compacted.
+func (e *Engine) keepWarm(ctx context.Context, inst jam.Instance) bool {
+	k := inst.Warm
+	if e.warm == nil || e.sizes == nil || !k.Armed() {
+		return false
+	}
+	now := e.now()
+	if !k.CompactCheck.IsZero() {
+		if now.Sub(k.CompactCheck) < compactCheckDelay {
+			return true
+		}
+		e.cancelWarm(inst)
+		cs, err := e.sizes.ContextSize(inst.ActorID)
+		if err != nil {
+			e.log.Warn("wakeon: context size unknown; not compacting", "actor", inst.ActorID, "error", err.Error())
+			return false
+		}
+		if cs.Resets > k.Resets || e.compactor == nil {
+			return false // it compacted
+		}
+		e.log.Info("wakeon: compact-due ignored, compacting", "actor", inst.ActorID)
+		if err := e.compactor.Compact(ctx, inst); err != nil {
+			e.log.Warn("wakeon: compact failed", "actor", inst.ActorID, "error", err.Error())
+		}
+		return true
+	}
+	kind := k.Due(now)
+	if kind == "" {
+		return false
+	}
+	cs, err := e.sizes.ContextSize(inst.ActorID)
+	if err != nil || cs.Tokens == 0 || cs.Tokens < int64(e.cacheOf(inst).Threshold) {
+		// Too small to keep warm, or compacted (turn_end next: compact).
+		e.cancelWarm(inst)
+		return false
+	}
+	if inst.Phase == jam.PhaseIdled {
+		if err := e.idler.Resume(ctx, inst.ActorID); err != nil {
+			e.log.Warn("wakeon: resume failed", "actor", inst.ActorID, "error", err.Error())
+		} else {
+			e.Kick()
+		}
+		return true
+	}
+	if err := e.warm.MarkWarmWake(inst.ActorID, kind, cs.Resets); err != nil {
+		e.log.Warn("wakeon: mark keep-warm wake failed", "actor", inst.ActorID, "error", err.Error())
+		return true // sent on a later tick: unmarked, its turn would count as work
+	}
+	e.log.Info("wakeon: keeping warm", "actor", inst.ActorID, "reason", kind)
+	e.wake.Wake(inst.ActorID, jam.WakeReason{Kind: kind})
+	return true
+}
+
+func (e *Engine) cancelWarm(inst jam.Instance) {
+	if err := e.warm.CancelWarm(inst.ActorID); err != nil {
+		e.log.Warn("wakeon: cancel keep-warm failed", "actor", inst.ActorID, "error", err.Error())
+	}
+}
+
+// cacheOf is inst's role's cache profile (none when unknown).
+func (e *Engine) cacheOf(inst jam.Instance) jam.CachePolicy {
+	if e.roles == nil {
+		return jam.CachePolicy{}
+	}
+	r, _ := e.roles.GetRole(inst.Project, inst.Role)
+	return r.Cache
 }
 
 // endSession tears down a Waiting session that asked to end, then tells its
