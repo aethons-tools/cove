@@ -98,8 +98,8 @@ func TestPRWatcherPostsReviewsAndMergeOnce(t *testing.T) {
 	}
 	// A Jam note: mirrored to the issue as the reviewer.
 	wantSurfaces(t, "review entry", k.dir.Surfaces("linear", es[1]), map[string]string{"linear:ACME-7": "ann: "})
-	if p := k.pr(); p.Title != "Fix the thing" || p.State != jam.PROpen || p.LastReview == 0 {
-		t.Fatalf("PR = %+v, want its title and last review recorded", p)
+	if p := k.pr(); p.Title != "Fix the thing" || p.State != jam.PROpen {
+		t.Fatalf("PR = %+v, want its title recorded", p)
 	}
 
 	// A re-poll, and a restart, post nothing new.
@@ -124,8 +124,8 @@ func TestPRWatcherPostsReviewsAndMergeOnce(t *testing.T) {
 		t.Fatalf("PR = %+v, want merged", p)
 	}
 
-	// A crash after posting but before recording: the store still says open
-	// with no reviews seen. The log already holds each entry: no repeat.
+	// A crash after posting but before recording: the store still says open.
+	// The log already holds each entry: no repeat.
 	if err := k.st.SetUnitPR(k.log.ID, prURL, jam.PRStatus{Title: "Fix the thing", State: jam.PROpen}); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestPRWatcherPostsReviewsAndMergeOnce(t *testing.T) {
 	if n := len(k.entries()); n != 4 {
 		t.Fatalf("after a crash before recording: %d entries, want 4", n)
 	}
-	if p := k.pr(); p.State != jam.PRMerged || p.LastReview == 0 {
+	if p := k.pr(); p.State != jam.PRMerged {
 		t.Fatalf("PR = %+v, want it recorded again", p)
 	}
 }
@@ -189,3 +189,20 @@ func TestPRReaderChoice(t *testing.T) {
 
 // fakeLinearTracker is a tracker that reads no pull requests.
 type fakeLinearTracker struct{ tracker.Tracker }
+
+// A review keeps the id it got when it was started: one left pending while a
+// later review is posted, then submitted, is still posted (review-bot on #745).
+func TestPRWatcherPostsAReviewSubmittedLate(t *testing.T) {
+	k := newPRKit(t)
+	ann, bot := trackertest.GHUser{Login: "ann", ID: 7}, trackertest.GHUser{Login: "review-bot[bot]", ID: 9, Bot: true}
+	k.gh.AddReview(trackertest.GHReview{ID: 101, Pull: 5, State: "APPROVED", User: bot})
+	k.tick()
+	k.gh.AddReview(trackertest.GHReview{ID: 100, Pull: 5, State: "CHANGES_REQUESTED", User: ann})
+	k.tick()
+	k.w = k.watcher() // and across a restart, still once
+	k.tick()
+	es := k.entries()
+	if len(es) != 2 || es[0].ID != "pr:acme/app#5:review:101" || es[1].ID != "pr:acme/app#5:review:100" || !strings.HasPrefix(es[1].Body, "requested changes") {
+		t.Fatalf("entries = %+v, want 101's approval then 100's request for changes", es)
+	}
+}

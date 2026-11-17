@@ -91,6 +91,9 @@ relay) runs without a Requisitioner.
 It also brings the PR watcher, which posts the reviews, merge, and close of a unit's pull requests to its work log
 (xref:usage/jam/work-units.adoc#pr-watcher[work-units]).
 Its token needs Pull requests read on the repos the units' pull requests are in.
+Each open PR costs two GitHub calls a poll,
+so many open PRs at a short `poll-interval` use a noticeable share of the token's hourly limit;
+with a GitHub tracker, that's the tracker's own token.
 
 === GitHub Issues (`+github:+`)
 

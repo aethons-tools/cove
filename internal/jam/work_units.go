@@ -46,22 +46,18 @@ const (
 
 // UnitPR is a pull request reported for a unit: Number is parsed from the
 // URL (0 when it has none), Title is "" until something reads it.
-// LastReview is the id of the last review posted to the unit's log (0 =
-// none): the PR watcher's high-water mark.
 type UnitPR struct {
 	URL        string    `json:"url"`
 	Number     int       `json:"number,omitempty"`
 	Title      string    `json:"title,omitempty"`
 	State      PRState   `json:"state"`
 	ReportedAt time.Time `json:"reported_at"`
-	LastReview int64     `json:"last_review,omitempty"`
 }
 
 // PRStatus is what the PR watcher learns of a unit's pull request.
 type PRStatus struct {
-	Title      string
-	State      PRState
-	LastReview int64
+	Title string
+	State PRState
 }
 
 // WorkUnit is a unit of work's record. State is its last reported state
@@ -234,7 +230,7 @@ func (m *memState) prepareSetUnitPR(log ident.ID, url string, st PRStatus) (u Wo
 		return WorkUnit{}, false, fmt.Errorf("work unit %s: pull request %s: %w", log, url, ErrNotFound)
 	}
 	p := u.PRs[i]
-	p.Title, p.State, p.LastReview = st.Title, st.State, st.LastReview
+	p.Title, p.State = st.Title, st.State
 	if p == u.PRs[i] {
 		return u, false, nil
 	}

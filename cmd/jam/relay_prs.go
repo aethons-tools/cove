@@ -28,8 +28,11 @@ type pullReader interface {
 // reads every open pull request the units of work record, and posts one
 // entry to the unit's work log for each new review and for a merge or a
 // close, as the GitHub account that did it. The entry's id names the event,
-// so the log refuses it a second time (a re-poll, or a restart before the
-// store recorded it); the store keeps the PR's state and its last review.
+// so the log refuses it a second time. Every submitted review is offered
+// each poll, not those past a mark: a review keeps the id it got when it was
+// started, so one left pending can be submitted after a later one. posted
+// spares the log the repeats within a serve; after a restart the log's
+// refusal is what keeps each once. The store keeps the PR's title and state.
 type prWatcher struct {
 	store jam.Store
 	dir   *directory // who a GitHub account is in a log (directory.author)
@@ -39,8 +42,9 @@ type prWatcher struct {
 	log   *slog.Logger  // nil: no logging
 
 	mu        sync.Mutex
-	notBefore time.Time       // a rate limit's end
-	skipped   map[string]bool // PR URLs already warned unreadable
+	notBefore time.Time                  // a rate limit's end
+	skipped   map[string]bool            // PR URLs already warned unreadable
+	posted    map[string]map[string]bool // open PR URL → entry ids in its log
 }
 
 // Run polls until ctx ends.
@@ -142,20 +146,26 @@ func (w *prWatcher) watch(ctx context.Context, ch jam.Channel, p jam.UnitPR) err
 	if err != nil {
 		return err
 	}
-	st := jam.PRStatus{Title: pr.Title, State: jam.PROpen, LastReview: p.LastReview}
+	st := jam.PRStatus{Title: pr.Title, State: jam.PROpen}
 	what := fmt.Sprintf("pull request [#%d: %s]", n, linkText.Replace(pr.Title))
 	key := fmt.Sprintf("pr:%s#%d:", repo, n)
+	if w.posted == nil {
+		w.posted = map[string]map[string]bool{}
+	}
+	posted := w.posted[p.URL]
+	if posted == nil {
+		posted = map[string]bool{}
+		w.posted[p.URL] = posted
+	}
 	for _, r := range reviews {
-		if r.ID <= st.LastReview {
+		id := key + "review:" + strconv.FormatInt(r.ID, 10)
+		if posted[id] {
 			continue
 		}
-		if err := w.post(ch, key+"review:"+strconv.FormatInt(r.ID, 10), r.User, reviewed(r.State)+" "+what+"("+r.HTMLURL+")"); err != nil {
+		if err := w.post(ch, id, r.User, reviewed(r.State)+" "+what+"("+r.HTMLURL+")"); err != nil {
 			return err
 		}
-		st.LastReview = r.ID
-		if err := w.store.SetUnitPR(ch.ID, p.URL, st); err != nil {
-			return err
-		}
+		posted[id] = true
 	}
 	var body string
 	switch pr.State {
@@ -168,6 +178,9 @@ func (w *prWatcher) watch(ctx context.Context, ch jam.Channel, p jam.UnitPR) err
 		if err := w.post(ch, key+string(st.State), pr.By, body); err != nil {
 			return err
 		}
+	}
+	if st.State != jam.PROpen {
+		delete(w.posted, p.URL) // no longer read
 	}
 	return w.store.SetUnitPR(ch.ID, p.URL, st)
 }

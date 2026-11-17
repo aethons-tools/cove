@@ -40,7 +40,7 @@ Jam MUST record the state, and the `pr` URL as a new `open` PR when the unit has
 The number is parsed from the URL's `/pull/<n>` (or `/merge_requests/<n>`); `0` when it has none.
 
 * *The PR watcher* (<<pr-watcher,below>>):
-it MUST record a PR's title, its state, and the id of the last review it posted (`last_review`).
+it MUST record a PR's title and its state.
 
 Every write is best effort: a failure is logged and MUST NOT fail the swap, the end, or the report.
 A record exists from its first write; every write needs the channel to be a `work` log.
@@ -59,7 +59,7 @@ the pull request, then its reviews (`githubissues.Client.PullRequest`, `PullRevi
 A `merged` or `closed` PR MUST NOT be read again.
 A PR on another host, or one the token can't read, is skipped with one warning per serve.
 * *What it posts.*
-For each submitted review newer than `last_review` (approved, changes requested, commented, or dismissed; never pending),
+For each submitted review (approved, changes requested, commented, or dismissed; never pending),
 then for a merge or a close,
 it MUST post one entry to the work log:
 the outcome, and a markdown link to the review or the pull request,
@@ -76,16 +76,23 @@ and it wakes the unit's worker as a person's post does (xref:usage/jam/wake-on.a
 The entry's id names the event:
 `pr:<owner/repo>#<n>:review:<review id>`, `pr:<owner/repo>#<n>:merged`, or `pr:<owner/repo>#<n>:closed`.
 The channel log refuses an id it already holds (`intercom.ErrDuplicateID`),
-and the watcher MUST treat that as posted.
-After each entry it MUST record the PR's `last_review` or state,
+and the watcher MUST treat that as posted,
 so a re-poll or a restart MUST NOT post an event twice,
-even when a restart comes between the post and the record.
+even when a restart comes between the post and recording the PR's state.
+The watcher MUST offer every submitted review of an open PR,
+not only those past a mark:
+GitHub gives a review its id when it's started,
+so a review left pending can be submitted after a later one.
+It remembers the ids it posted while it runs,
+so only the first poll after a restart offers the log a review again.
 * *Its token.*
 `runtime.requisitioner.pull-requests` names a `github` connection to read with
 (xref:usage/jam/requisitioner.adoc[requisitioner]);
 unset, a GitHub Issues tracker reads with its own connection,
 and a Linear tracker has no PR watcher.
 A rate limit ends the poll, and the watcher makes no calls until GitHub's `Retry-After` has passed.
+Each open PR costs two calls a poll (three when it's closed) on that token's hourly budget,
+which a GitHub Issues tracker shares with its own polls.
 
 [#storage]
 == Storage
@@ -104,8 +111,7 @@ Migration `0028_work_units.sql` adds three tables, each removed with its log's c
 A `NULL` time isn't known.
 
 |`work_unit_prs`
-|One row per PR, ordered by `ord`, unique by `url`: `number`, `title`, `state`, `reported_at`,
-and `last_review` (migration `0029_work_unit_pr_reviews.sql`; `0` = none).
+|One row per PR, ordered by `ord`, unique by `url`: `number`, `title`, `state`, `reported_at`.
 |===
 
 A write rewrites the unit's rows in one transaction (`putWorkUnitTx`).

@@ -1020,7 +1020,7 @@ func TestPostgresWorkUnitsReload(t *testing.T) {
 	if err := s.ReportUnit(ch.ID, jam.ReportInReview, "https://github.com/acme/app/pull/7", t0.Add(2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetUnitPR(ch.ID, "https://github.com/acme/app/pull/7", jam.PRStatus{Title: "Fix it", State: jam.PRMerged, LastReview: 9}); err != nil {
+	if err := s.SetUnitPR(ch.ID, "https://github.com/acme/app/pull/7", jam.PRStatus{Title: "Fix it", State: jam.PRMerged}); err != nil {
 		t.Fatal(err)
 	}
 	want, _ := s.WorkUnit(ch.ID)

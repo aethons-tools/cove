@@ -96,10 +96,10 @@ func runWorkUnitConformance(t *testing.T, newStore func(t *testing.T) jam.Store)
 		if err := s.ReportUnit(ch.ID, jam.ReportInReview, pr, t0); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetUnitPR(ch.ID, pr, jam.PRStatus{Title: "Fix it", State: jam.PRMerged, LastReview: 7}); err != nil {
+		if err := s.SetUnitPR(ch.ID, pr, jam.PRStatus{Title: "Fix it", State: jam.PRMerged}); err != nil {
 			t.Fatal(err)
 		}
-		want := jam.UnitPR{URL: pr, Number: 42, Title: "Fix it", State: jam.PRMerged, ReportedAt: t0, LastReview: 7}
+		want := jam.UnitPR{URL: pr, Number: 42, Title: "Fix it", State: jam.PRMerged, ReportedAt: t0}
 		if got, _ := s.WorkUnit(ch.ID); len(got.PRs) != 1 || got.PRs[0] != want {
 			t.Fatalf("PRs = %+v, want [%+v]", got.PRs, want)
 		}
