@@ -799,6 +799,10 @@ type requisitionerConfig struct {
 	// which binds the implicit connection named "linear".
 	Connection       string `yaml:"connection"`
 	TrackerTokenCred string `yaml:"tracker-token-cred"`
+	// PullRequests names the github connection the PR watcher reads units'
+	// pull requests with (relay_prs.go). Unset: a github tracker's own
+	// connection; with a Linear tracker, no PR watcher.
+	PullRequests string `yaml:"pull-requests"`
 	// DeprecatedTrackerToken detects the removed inline form (see discordConfig).
 	DeprecatedTrackerToken *credSpec          `yaml:"tracker-token"`
 	Linear                 *kit.LinearTracker `yaml:"linear"`

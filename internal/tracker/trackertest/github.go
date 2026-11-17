@@ -39,6 +39,40 @@ type GHComment struct {
 	UpdatedAt time.Time // an edit's time; zero: never edited (CreatedAt)
 }
 
+// GHUser is a GitHub account in the fake.
+type GHUser struct {
+	Login string
+	ID    int64
+	Bot   bool // user type "Bot"
+}
+
+func (u GHUser) json() map[string]any {
+	typ := "User"
+	if u.Bot {
+		typ = "Bot"
+	}
+	return map[string]any{"login": u.Login, "id": u.ID, "type": typ}
+}
+
+// GHPull is one pull request in the fake repo: closed (and merged, by
+// MergedBy) or open. ClosedBy is who closed it (the issue's closed_by).
+type GHPull struct {
+	Number   int
+	Title    string
+	Closed   bool
+	Merged   bool
+	MergedBy GHUser
+	ClosedBy GHUser
+}
+
+// GHReview is one review of a pull request in the fake repo.
+type GHReview struct {
+	ID    int64 // 0: assigned
+	Pull  int
+	State string // APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED, PENDING
+	User  GHUser
+}
+
 // updated is c's updated_at: its edit, else its creation.
 func (c GHComment) updated() time.Time {
 	if c.UpdatedAt.IsZero() {
@@ -57,6 +91,8 @@ type GitHub struct {
 	mu       sync.Mutex
 	issues   map[int]*GHIssue
 	comments []GHComment
+	pulls    map[int]*GHPull
+	reviews  []GHReview
 	seq      int64
 }
 
@@ -67,7 +103,7 @@ func GitHubStates() kit.StateMap {
 }
 
 func NewGitHub(t testing.TB, repo, login string) *GitHub {
-	g := &GitHub{Repo: repo, Login: login, issues: map[int]*GHIssue{}, seq: 1000}
+	g := &GitHub{Repo: repo, Login: login, issues: map[int]*GHIssue{}, pulls: map[int]*GHPull{}, seq: 1000}
 	g.srv = httptest.NewServer(http.HandlerFunc(g.serve))
 	t.Cleanup(g.srv.Close)
 	return g
@@ -91,6 +127,24 @@ func (g *GitHub) AddIssue(i GHIssue) {
 	defer g.mu.Unlock()
 	i.Labels = slices.Clone(i.Labels)
 	g.issues[i.Number] = &i
+}
+
+// AddPull adds (or replaces) pull request p.
+func (g *GitHub) AddPull(p GHPull) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.pulls[p.Number] = &p
+}
+
+// AddReview adds a review, assigning its id when 0 (ids only grow).
+func (g *GitHub) AddReview(r GHReview) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if r.ID == 0 {
+		g.seq++
+		r.ID = g.seq
+	}
+	g.reviews = append(g.reviews, r)
 }
 
 func (g *GitHub) AddComment(c GHComment) {
@@ -151,6 +205,8 @@ func (g *GitHub) serve(w http.ResponseWriter, r *http.Request) {
 		g.search(w, r.URL.Query().Get("q"))
 	case r.Method == http.MethodGet && r.URL.Path == prefix+"/issues/comments":
 		g.feed(w, r)
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, prefix+"/pulls/"):
+		g.pull(w, r, strings.Split(strings.TrimPrefix(r.URL.Path, prefix+"/pulls/"), "/"))
 	case strings.HasPrefix(r.URL.Path, prefix+"/issues/"):
 		g.issue(w, r, strings.Split(strings.TrimPrefix(r.URL.Path, prefix+"/issues/"), "/"))
 	default:
@@ -210,8 +266,78 @@ func (g *GitHub) commentJSON(c GHComment) map[string]any {
 		"user":      map[string]any{"login": c.Login, "id": c.UserID, "type": typ}}
 }
 
+// pull serves GET /repos/{r}/pulls/{n} and its reviews (in id order, paged
+// like the feed).
+func (g *GitHub) pull(w http.ResponseWriter, r *http.Request, seg []string) {
+	n, err := strconv.Atoi(seg[0])
+	p, ok := g.pulls[n]
+	if err != nil || !ok {
+		writeJSON(w, http.StatusNotFound, msg("Not Found"))
+		return
+	}
+	switch {
+	case len(seg) == 1:
+		writeJSON(w, http.StatusOK, g.pullJSON(p))
+	case len(seg) == 2 && seg[1] == "reviews":
+		var all []GHReview
+		for _, rv := range g.reviews {
+			if rv.Pull == n {
+				all = append(all, rv)
+			}
+		}
+		slices.SortStableFunc(all, func(a, b GHReview) int { return int(a.ID - b.ID) })
+		q := r.URL.Query()
+		per, _ := strconv.Atoi(q.Get("per_page"))
+		if g.PerPage > 0 {
+			per = g.PerPage
+		}
+		if per <= 0 {
+			per = 30
+		}
+		page, _ := strconv.Atoi(q.Get("page"))
+		page = max(page, 1)
+		lo := min((page-1)*per, len(all))
+		hi := min(lo+per, len(all))
+		if hi < len(all) {
+			q.Set("page", strconv.Itoa(page+1))
+			w.Header().Set("Link", "<"+api+r.URL.Path+"?"+q.Encode()+`>; rel="next"`)
+		}
+		out := []map[string]any{}
+		for _, rv := range all[lo:hi] {
+			out = append(out, map[string]any{"id": rv.ID, "state": rv.State, "user": rv.User.json(),
+				"html_url": "https://github.com/" + g.Repo + "/pull/" + strconv.Itoa(n) + "#pullrequestreview-" + strconv.FormatInt(rv.ID, 10)})
+		}
+		writeJSON(w, http.StatusOK, out)
+	default:
+		writeJSON(w, http.StatusNotFound, msg("Not Found"))
+	}
+}
+
+func (g *GitHub) pullJSON(p *GHPull) map[string]any {
+	state := "open"
+	if p.Closed || p.Merged {
+		state = "closed"
+	}
+	out := map[string]any{"number": p.Number, "title": p.Title, "state": state, "merged": p.Merged,
+		"html_url": "https://github.com/" + g.Repo + "/pull/" + strconv.Itoa(p.Number), "merged_by": nil}
+	if p.Merged {
+		out["merged_by"] = p.MergedBy.json()
+	}
+	return out
+}
+
 func (g *GitHub) issue(w http.ResponseWriter, r *http.Request, seg []string) {
 	n, err := strconv.Atoi(seg[0])
+	if p, ok := g.pulls[n]; ok && len(seg) == 1 && r.Method == http.MethodGet {
+		out := g.pullJSON(p) // a pull request read as an issue: its closed_by
+		out["pull_request"] = map[string]string{"url": api + "/repos/" + g.Repo + "/pulls/" + strconv.Itoa(n)}
+		out["closed_by"] = nil
+		if p.Closed || p.Merged {
+			out["closed_by"] = p.ClosedBy.json()
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
 	i, ok := g.issues[n]
 	if err != nil || !ok {
 		writeJSON(w, http.StatusNotFound, msg("Not Found"))
