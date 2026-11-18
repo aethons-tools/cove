@@ -12,9 +12,6 @@ Sessions and people talk in *channels* of Jam's channel log. An agent uses the x
 |===
 |Doc |Read when
 
-|xref:usage/jam/conversations.adoc[conversations] |You are building or reviewing the move from session and ticket channels to DMs, rooms, and units of work (the goal model), or need the interface one part of it offers the others.
-|xref:usage/jam/conversations-sessions.adoc[conversations-sessions] |You are building or reviewing the goal's turn-end rule, session view, escalation as a DM, or the migration from session and ticket channels.
-|xref:usage/jam/inbox-rail.adoc[inbox-rail] |You are building or reviewing the goal Inbox rail (Me, Work, Agents), its API, or the saved rail order, in the app or VS Code.
 |xref:usage/jam/intercom.adoc[intercom] |You want a raised studio's agent to read/send comments on its own ticket (the brokered intercom MCP), or you're wiring the `/squawks` endpoint + its `jam-studio-agent mcp` delivery, wake-on (`runtime.wake`), or running the intercom without a Requisitioner.
 |xref:usage/jam/wake-on.adoc[wake-on] |You need to know why a waiting studio did or did not wake on a reply or was paused, you are tuning `runtime.wake`, or sessions stopped waking each other.
 |xref:usage/jam/work-log-history.adoc[work-log-history] |A re-dispatched ticket's session needs the history on its work log, or you are changing `read`'s `channel` (reading a unit's log from the start) or the brief line about it.
