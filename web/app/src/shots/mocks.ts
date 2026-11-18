@@ -10,7 +10,7 @@ import { dest, destFields, endpoint, spec, specFields } from "../admin/specs/fix
 import type { AgentDetail, AgentListRow, AgentsResponse, CoveRow } from "../admin/api/types";
 import { agents as projectAgents, role } from "../admin/roles/fixtures";
 import { emptyContext } from "../admin/projects/fixtures";
-import type { AppTokensResponse, AskCard, Bootstrap, ChannelRow, RailResponse, Conversation, MessageRow, SessionActivity, SessionHead, SessionPane, ThinkingEvent } from "../api/types";
+import type { AppTokensResponse, AskCard, Bootstrap, ChannelRow, RailResponse, Conversation, MessageRow, SessionActivity, SessionHead, SessionPane, ThinkingEvent, WorkUnit } from "../api/types";
 import type { EventStream } from "../../build/mockApi";
 import { card } from "../test/card";
 import { draftPage, draftView, kit, kitView } from "../admin/kits/fixtures";
@@ -495,6 +495,33 @@ const acme42: Conversation = {
   ],
 };
 
+// A unit of work's page (ROOT/concepts/work): ACME-51, worked by acme-51
+// after acme-51-a ended, with a closed pull request and an open one.
+const acme51Says = (seq: number, time: string, text: string) => msg({ seq, from: "acme-51", color: "#1971c2", time, body: `<p>${text}</p>`, raw: text });
+const acme51Log: Conversation = {
+  ...ops, channelId: "chn_acme51", label: "ACME-51", kind: "work", sendTo: "chn_acme51", lastSeq: 30, callIn: [],
+  messages: [
+    acme51Says(21, "2026-11-11T09:15:00Z", "Read the log. Picking up from #212 with a smaller change: the checklist only, no script."),
+    msg({ seq: 24, from: "bob", time: "2026-11-11T10:02:00Z", body: "<p>Keep the sign-off step at the end, please.</p>", raw: "Keep the sign-off step at the end, please." }),
+    acme51Says(26, "2026-11-11T11:40:00Z", "Opened #218 with the sign-off last. Moving to in review."),
+    msg({ seq: 28, from: "reviewer", time: "2026-11-11T12:10:00Z",
+      body: '<p>changes requested on pull request <a href="https://github.com/acme/app/pull/218#pullrequestreview-1">#218: Add the release checklist</a></p>',
+      raw: "changes requested on pull request [#218: Add the release checklist](https://github.com/acme/app/pull/218#pullrequestreview-1)" }),
+    acme51Says(30, "2026-11-11T12:32:00Z", "Fixed both comments and pushed. Asked for another review."),
+  ],
+};
+const acme51: WorkUnit = {
+  key: "ACME-51", title: "Add the release checklist", url: "https://linear.app/acme/issue/ACME-51", log: "chn_acme51", state: "in-review",
+  workers: [
+    { session: "ses_acme51a", label: "acme-51-a", started: "2026-11-10T10:00:00Z", stopped: "2026-11-10T18:30:00Z", current: false, view: "" },
+    { session: "ses_acme51", label: "acme-51", started: "2026-11-11T09:12:00Z", current: true, view: "/app/user/s/ses_acme51" },
+  ],
+  pullRequests: [
+    { url: "https://github.com/acme/app/pull/212", number: 212, title: "Add a release script and checklist", state: "closed", reportedAt: "2026-11-10T15:00:00Z" },
+    { url: "https://github.com/acme/app/pull/218", number: 218, title: "Add the release checklist", state: "open", reportedAt: "2026-11-11T11:40:00Z" },
+  ],
+};
+
 // Whiteboards (ROOT/inbox/whiteboards): alice's chat with bob and the coder
 // session, with the board coder started; its elements are what board_apply adds and its
 // thumbnail Jam's own render of them (both generated once with
@@ -646,4 +673,8 @@ export const mocks: Record<string, unknown> = {
   "GET /app/user/boards/brd_release/elements": { seq: 10, elements: boardRelease },
   "GET /app/user/boards/brd_release/thumb.png": boardReleaseThumb,
   "GET /app/user/api/app-tokens": appTokens,
+  "GET /app/user/api/work/ACME-51": acme51,
+  "GET /app/user/api/conversations/chn_acme51": acme51Log,
+  "GET /app/user/api/conversations/chn_acme51/presence": { sessions: [] },
+  "POST /app/user/api/conversations/chn_acme51/read": {},
 };

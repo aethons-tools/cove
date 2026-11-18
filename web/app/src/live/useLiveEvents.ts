@@ -28,6 +28,7 @@ export function useLiveEvents(): void {
       void client.invalidateQueries({ queryKey: ["conversation"] });
       void client.invalidateQueries({ queryKey: ["presence"] });
       void client.invalidateQueries({ queryKey: ["session"] });
+      void client.invalidateQueries({ queryKey: ["work"] });
     };
     // Signals sent while the stream was down are lost, so each reconnect
     // (every open after the first) catches up.

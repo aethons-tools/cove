@@ -31,7 +31,7 @@ describe("useLiveEvents", () => {
     const es = FakeEventSource.last!;
     expect(es.url).toBe("/app/user/events");
     es.emit("changed");
-    expect(spy.mock.calls.map((c) => c[0]?.queryKey)).toEqual([["rail"], ["conversation"], ["presence"], ["session"]]);
+    expect(spy.mock.calls.map((c) => c[0]?.queryKey)).toEqual([["rail"], ["conversation"], ["presence"], ["session"], ["work"]]);
     spy.mockClear();
     es.emit("presence");
     expect(spy.mock.calls.map((c) => c[0]?.queryKey)).toEqual([["rail"], ["presence"], ["session"]]);
@@ -46,7 +46,7 @@ describe("useLiveEvents", () => {
     es.emit("open");
     expect(spy).not.toHaveBeenCalled();
     es.emit("open");
-    expect(spy.mock.calls.map((c) => c[0]?.queryKey)).toEqual([["rail"], ["conversation"], ["presence"], ["session"]]);
+    expect(spy.mock.calls.map((c) => c[0]?.queryKey)).toEqual([["rail"], ["conversation"], ["presence"], ["session"], ["work"]]);
   });
 
   it("does nothing without EventSource (the 30 s poll covers it)", () => {
@@ -81,7 +81,7 @@ describe("useLiveEvents", () => {
     setLiveSource((on) => { emit = on; return unsub; });
     const { spy, unmount } = mount();
     const keys = () => spy.mock.calls.map((c) => c[0]?.queryKey);
-    const changedSet = [["rail"], ["conversation"], ["presence"], ["session"]];
+    const changedSet = [["rail"], ["conversation"], ["presence"], ["session"], ["work"]];
     emit("open", "");
     expect(spy).not.toHaveBeenCalled();
     emit("changed", "");

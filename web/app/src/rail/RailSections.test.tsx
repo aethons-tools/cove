@@ -109,6 +109,12 @@ describe("RailSections", () => {
     expect(p.onWorker).toHaveBeenCalledWith(expect.objectContaining({ key: "ACME-42" }));
   });
 
+  it("marks the Work row whose unit's page is open", () => {
+    show(rail(), { activeWork: "ACME-51" });
+    expect(at("Work", "chn_ACME-51")).toHaveAttribute("data-active");
+    expect(at("Work", "chn_ACME-42")).not.toHaveAttribute("data-active");
+  });
+
   it("shows Agents as status cards, the open one marked", () => {
     show(rail(), { activeSession: "ses_rb" });
     expect(ids("Agents")).toEqual(["ses_ed", "ses_rb"]);

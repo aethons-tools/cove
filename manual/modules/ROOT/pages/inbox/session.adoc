@@ -57,7 +57,8 @@ From left to right, the header shows:
 Who it is::
 The session's name and its kind:
 *standing*, *personal*, *ticket*, or *session*.
-A ticket session also shows its ticket.
+A ticket session also shows its ticket;
+click it to open the unit of work's page.
 Under the name are its role, its project and, for a personal session, whose it is.
 Under them is the session's mission, the goal it set for itself, if it has one.
 State::
