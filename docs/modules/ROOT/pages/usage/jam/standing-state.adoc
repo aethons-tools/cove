@@ -1,10 +1,10 @@
 = Session state
-:summary: A session's persisted state (every kind since uniform sessions; the file keeps its standing-era name) — the labeled Docker volumes (`-agent-data`, `-workspace`) that outlive its studio (the `-docker` cache is the studio's), how a restarted or recovered session resumes its conversation (`.cove-conversation`, `claude --continue`), and which operations delete the state (only the sweep, once the session is gone, and a standing reset).
+:summary: A session's persisted state (every kind since uniform sessions; the file keeps its standing-era name) — the labeled Docker volumes (`-agent-data`, `-workspace`) that outlive its studio (the `-docker` cache is the studio's), how a restarted or recovered session resumes its conversation (`.cove-conversation`, `claude --continue`), the session record a standing restart or upgrade carries over (inbox cursor, focus, alarms, escalation category), and which operations delete the state (only the sweep, once the session is gone, and a standing reset).
 :read_when: You need to know what survives a session's restart, recovery or upgrade, where its conversation and workspace live, why a restarted session did or didn't resume, or which volumes Jam may delete.
-:owns: a session's state volumes (names, mounts, labels, the per-Jam sweep scope), conversation resume on restart, and the rule that no teardown deletes state
+:owns: a session's state volumes (names, mounts, labels, the per-Jam sweep scope), conversation resume on restart, the session record carried across a standing restart or upgrade, and the rule that no teardown deletes state
 :prereqs: standing-sessions.adoc for declarations, reset and dismissal
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-18
 
 Every session's conversation and workspace live in named Docker volumes that
 outlive the container, so a restart (a standing session's re-raise or
@@ -41,6 +41,26 @@ workspace are intact, `read` the intercom for what arrived meanwhile, then
 continue. If that resumed episode fails quickly without the agent replying (no
 conversation to continue), jam-studio-agent drops the marker and retries once, fresh,
 with its raise prompt. Without the marker it starts fresh.
+
+[#session-record]
+== The session record across a restart
+
+A session's state is also its record in Jam:
+its inbox cursor, focus, ticket report, alarms, and escalation category.
+Recovery carries these over (xref:usage/jam/coves.adoc#recovery[coves]).
+A standing session's restart and its
+xref:usage/jam/standing-upgrade.adoc[upgrade] carry them over too:
+the reconciler's re-raise after its studio is torn down,
+by a hand `studio teardown`, a restart, or an upgrade,
+starts the session under the same id with the same record.
+So a restarted session's `read` returns what arrived while it was down,
+and its alarms fire on their schedule without being set again.
+xref:usage/jam/standing-sessions.adoc#reset[Reset] and
+xref:usage/jam/standing-sessions.adoc#dismissal[dismissal] don't:
+reset starts a new session with an empty record.
+
+[#deleting-state]
+== Deleting state
 
 No teardown deletes the session's state—a dead or Lost studio, a Jam restart, a
 `standing upgrade`, an idle reap, a hand `studio teardown` all keep it. Only the

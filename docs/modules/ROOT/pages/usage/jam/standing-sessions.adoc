@@ -111,7 +111,7 @@ xref:usage/jam/personal-idle-ladder.adoc[personal sessions] only.
 
 A standing studio keeps its conversation and workspace in named Docker volumes
 that outlive its container and re-attach when the name is raised again; a
-restarted session resumes with `+claude --continue+`. No teardown deletes them—only
+restarted session resumes with `+claude --continue+`, and keeps its inbox cursor, alarms, and the rest of its xref:usage/jam/standing-state.adoc#session-record[session record]. No teardown deletes them—only
 <<reset,Reset>> and <<dismissal,Dismissal>> do. The volumes, their labels
 and the resume rules are in xref:usage/jam/standing-state.adoc[]. A standing session is pinned to its manager (xref:usage/jam/coves.adoc#managers-and-placement[Managers and placement]).
 
