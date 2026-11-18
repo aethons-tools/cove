@@ -22,6 +22,7 @@ type fakeWorld struct {
 	raised    []jam.RaiseSpec
 	torn      []string
 	purged    []string        // successful PurgeState ids, in order
+	forgot    []string        // ForgetRecord ids, in order
 	state     map[string]bool // actor ids with persisted state (a standing raise creates it)
 	failPurge map[string]bool // PurgeState of these ids fails
 	failTear  map[string]bool // Teardown of these ids fails
@@ -201,6 +202,8 @@ func (w *fakeWorld) PurgeState(_ context.Context, id string) error {
 	return nil
 }
 
+func (w *fakeWorld) ForgetRecord(id string) { w.forgot = append(w.forgot, id) }
+
 func (w *fakeWorld) StateOwners(context.Context) ([]string, error) {
 	var out []string
 	for id := range w.state {
@@ -311,8 +314,8 @@ func TestTick_DeadRaisedAgainSameID(t *testing.T) {
 	if len(w.raised) != 2 || w.raised[1].ActorID != botID || len(g.grants) != 2 {
 		t.Fatalf("want a second raise under %s; raised=%+v grants=%d", botID, w.raised, len(g.grants))
 	}
-	if len(w.purged) != 0 || !w.state[botID] {
-		t.Fatalf("a restart must keep the session's state; purged %v", w.purged)
+	if len(w.purged) != 0 || !w.state[botID] || len(w.forgot) != 0 {
+		t.Fatalf("a restart must keep the session's state and record; purged %v, forgot %v", w.purged, w.forgot)
 	}
 }
 
@@ -329,6 +332,9 @@ func TestReset_PurgesAndReRaises(t *testing.T) {
 	}
 	if !slices.Equal(w.torn, []string{botID}) || !slices.Equal(w.purged, []string{botID}) {
 		t.Fatalf("torn=%v purged=%v; want both [%s]", w.torn, w.purged, botID)
+	}
+	if !slices.Equal(w.forgot, []string{botID}) {
+		t.Fatalf("forgot = %v; a reset starts from an empty record", w.forgot)
 	}
 	r.Tick(ctx)
 	if len(w.raised) != 2 || w.raised[1].ActorID == botID || !strings.HasPrefix(w.raised[1].ActorID, "ses_") {
@@ -576,6 +582,10 @@ func TestTick_DismissedTornDown(t *testing.T) {
 	if !slices.Equal(w.purged, w.torn) {
 		t.Fatalf("purged = %v, want every dismissed session %v", w.purged, w.torn)
 	}
+	// Its record goes too: a re-declared name starts from an empty one.
+	if slices.Sort(w.forgot); !slices.Equal(slices.Compact(w.forgot), w.torn) {
+		t.Fatalf("forgot = %v, want every dismissed session %v", w.forgot, w.torn)
+	}
 	if _, ok := w.insts["standing-acme-reviewer-bob-bot"]; !ok {
 		t.Fatal("a still-declared name was torn down")
 	}
@@ -742,8 +752,8 @@ func TestUpgrade_IdleCompletesOnTick(t *testing.T) {
 	if !slices.Equal(w.torn, []string{botID}) || len(w.raised) != 2 || len(g.grants) != 2 {
 		t.Fatalf("torn=%v raised=%d grants=%d; want one teardown and a re-raise", w.torn, len(w.raised), len(g.grants))
 	}
-	if len(w.purged) != 0 || !w.state[botID] {
-		t.Fatalf("upgrade must keep the state; purged %v", w.purged)
+	if len(w.purged) != 0 || !w.state[botID] || len(w.forgot) != 0 {
+		t.Fatalf("upgrade must keep the state and record; purged %v, forgot %v", w.purged, w.forgot)
 	}
 	if got := w.insts[botID].ImageTag; got != "img:new" {
 		t.Fatalf("re-raised on %q, want img:new", got)

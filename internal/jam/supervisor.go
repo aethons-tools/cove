@@ -304,6 +304,11 @@ type Supervisor struct {
 	// (RaiseManual's reserveLabel).
 	labelsMu      sync.Mutex
 	pendingLabels map[string]bool
+	// recordsMu guards keptRecords: the session records of torn-down
+	// standing sessions, by actor id, which the next raise of that id
+	// restores (see keepRecord). In memory only: a Jam restart drops them.
+	recordsMu   sync.Mutex
+	keptRecords map[string]sessionRecord
 }
 
 func NewSupervisor(store Store, launcher Launcher, holder string, ttl, reconcile time.Duration, now func() time.Time, log *slog.Logger) *Supervisor {
@@ -606,6 +611,10 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 	if draft != nil {
 		inst.KitDraft, inst.ImageTag, inst.KitDraftImage = &draft.ref, draft.image.Tag, draft.image.ID
 	}
+	rec, kept := s.keptRecord(spec)
+	if kept {
+		rec.restore(&inst)
+	}
 	if err := s.putRaised(inst, spec.recovering); err != nil {
 		if tdErr := s.launcher.Teardown(ctx, inst); tdErr != nil && s.log != nil {
 			s.log.Warn("raise rollback: failed to tear down launched cove", "id", spec.ActorID, "error", tdErr)
@@ -614,6 +623,9 @@ func (s *Supervisor) Raise(ctx context.Context, spec RaiseSpec) (Instance, strin
 			s.log.Warn("raise rollback: failed to revoke identity after PutInstance failure", "id", spec.ActorID, "error", rmErr)
 		}
 		return Instance{}, "", "", err
+	}
+	if kept {
+		s.ForgetRecord(spec.ActorID)
 	}
 	s.assignColor(spec.ActorID)
 	if draft != nil {
@@ -1834,6 +1846,7 @@ func (s *Supervisor) Teardown(ctx context.Context, actorID string) error {
 	if err := s.revokeActor(actorID); err != nil {
 		return fmt.Errorf("teardown revoke identity: %w", err)
 	}
+	s.keepRecord(actorID)
 	if err := s.store.RemoveInstance(actorID); err != nil {
 		return err
 	}
