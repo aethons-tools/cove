@@ -10,10 +10,10 @@ import { useRail } from "./useRail";
 import { RailSections } from "./RailSections";
 import { useAppBadge } from "../push/useAppBadge";
 import { Problem } from "../Problem";
-import { APP } from "../paths";
+import { APP, workPath } from "../paths";
 
 export function Rail() {
-  const { channel, session } = useParams();
+  const { channel, session, key } = useParams();
   const { data, error, isPending, dataUpdatedAt } = useRail(channel);
   useAppBadge(data?.unreadTotal);
   const here = useLocation();
@@ -41,9 +41,9 @@ export function Rail() {
     return frame(<Text c="dimmed" size="sm" m="md">No conversations yet. Start one with New message.</Text>);
   }
   return frame(
-    <RailSections rail={data} active={channel} activeSession={session}
+    <RailSections rail={data} active={channel} activeSession={session} activeWork={key}
       rowProps={(r) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(r.id)}` })}
-      workProps={(w) => ({ component: RouterLink, to: `${APP}c/${encodeURIComponent(w.log)}` })}
+      workProps={(w) => ({ component: RouterLink, to: workPath(w.key) })}
       cardProps={(a) => ({ component: RouterLink, to: `${APP}s/${encodeURIComponent(a.session)}` })}
       onWorker={(w) => nav(`${APP}s/${encodeURIComponent(w.worker.id)}`)} />,
   );

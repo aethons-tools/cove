@@ -31,7 +31,7 @@ describe("the app shell", () => {
     expect(within(me).getByLabelText("2 unread")).toBeInTheDocument();
     expect(within(me).getByText("idle")).toBeInTheDocument();
     const work = screen.getByRole("list", { name: "Work" });
-    expect(within(work).getByRole("link", { name: /TEST-7/ })).toHaveAttribute("href", "/app/user/c/chn_t7");
+    expect(within(work).getByRole("link", { name: /TEST-7/ })).toHaveAttribute("href", "/app/user/w/TEST-7");
     const agents = screen.getByRole("list", { name: "Agents" });
     expect(within(agents).getByRole("link", { name: /intercom-spider/ })).toHaveAttribute("href", "/app/user/s/ses_spider");
     expect(within(agents).getByText("SPA slice 1")).toBeInTheDocument();
