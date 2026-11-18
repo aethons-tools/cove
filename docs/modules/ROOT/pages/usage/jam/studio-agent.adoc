@@ -115,7 +115,8 @@ if it predates the episode. An interrupt racing the end of a turn may yield an a
 for a turn that had just finished (benign).
 * *Compact.* Runs ``/compact <instructions>``: at the turn boundary when running, at once when
 holding, and, when waiting, in a *maintenance episode* (``+--continue+``; no `running`/`waiting`
-report; wakes stay buffered; bounded by a 10m timeout). Skipped when a clear is pending.
+report; wakes stay buffered; bounded by a 10m timeout), or in the open episode when one is open
+(xref:usage/jam/open-episode.adoc#controls[open-episode]). Skipped when a clear is pending.
 It always runs before a pending wake's turn. The agent can ask for one too, with `+turn_end+`
 (`next: compact`); with a `resume` note, the session is woken once it's compacted
 (xref:usage/jam/structured-turn-end.adoc#turn_end[structured-turn-end.adoc]).
