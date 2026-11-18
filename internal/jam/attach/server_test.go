@@ -275,9 +275,7 @@ func TestReconnectReplaces(t *testing.T) {
 	if !eventually(func() bool { return srv.connected("w1") }) {
 		t.Fatal("first stream never registered")
 	}
-	if _, err := stream1.Recv(); err != nil { // its tunnel-ports seed
-		t.Fatal(err)
-	}
+	firstTunnelPorts(t, stream1) // its seed
 
 	// Snapshot the lease before the second Attach connects. Attach() calls
 	// register() (the channel swap) and then unconditionally renews the lease

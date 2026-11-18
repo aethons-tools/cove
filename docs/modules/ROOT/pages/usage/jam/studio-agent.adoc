@@ -30,7 +30,7 @@ For xref:usage/jam/collaboration.adoc#how-it-works[studio collaboration] Jam als
 same way), claiming the id, and piping it to `+127.0.0.1:<port>+`—only ports on
 its allow-list (`2222`, the studio's sshd, plus the studio's exposed
 xref:usage/jam/previews.adoc[previews], which Jam pushes as `+SetTunnelPorts{ports}+`
-first on every Attach stream and after each change; each push replaces the last).
+at the start of every Attach stream and after each change; each push replaces the last).
 An older jam-studio-agent ignores the push, so Jam's open times out (504).
 
 [#jam-studio-agent-the-in-cove-client]

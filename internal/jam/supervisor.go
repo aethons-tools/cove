@@ -294,6 +294,12 @@ type Supervisor struct {
 	// run (SetKitDraftBuilds); nil → both are unavailable (503).
 	draftBuilds *KitDraftBuilds
 	notifyMu    sync.Mutex // orders sink deliveries (see notifyExposures)
+	// idleSink hears a session's idle timeout and deadline change: the
+	// control sink, when it implements IdleSink (SetControlSink).
+	idleSink IdleSink
+	// idleMu orders idleSink deliveries: taken before instMu (never while
+	// holding it) around a change and its push (see notifyIdle).
+	idleMu sync.Mutex
 	// labelsMu guards pendingLabels: the labels of manual raises in flight
 	// (RaiseManual's reserveLabel).
 	labelsMu      sync.Mutex
@@ -317,7 +323,10 @@ func NewHolderID() string {
 
 // SetControlSink installs the control sink after construction (resolving the
 // supervisor↔Attach-server cycle). nil-safe throughout.
-func (s *Supervisor) SetControlSink(sink ControlSink) { s.sink = sink }
+func (s *Supervisor) SetControlSink(sink ControlSink) {
+	s.sink = sink
+	s.idleSink, _ = sink.(IdleSink)
+}
 
 // SetTunnelCloser installs the tunnel closer after construction. Like the
 // control sink it is set once at wiring time; nil-safe throughout.
@@ -1145,18 +1154,32 @@ func (s *Supervisor) Report(ctx context.Context, actorID string, a Activity) err
 	return nil
 }
 
-// recordActivity is Report's read-modify-write of the instance, under instMu.
+// recordActivity is Report's read-modify-write of the instance, then its idle
+// push (notifyIdle).
 func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error) {
+	s.idleMu.Lock()
+	defer s.idleMu.Unlock()
+	old, inst, err := s.putActivity(actorID, a)
+	if err == nil {
+		s.notifyIdle(old, inst)
+	}
+	return inst, err
+}
+
+// putActivity is recordActivity's read-modify-write, under instMu. It returns
+// the instance as it was and as it is stored.
+func (s *Supervisor) putActivity(actorID string, a Activity) (Instance, Instance, error) {
 	s.instMu.Lock()
 	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
-		return Instance{}, fmt.Errorf("no instance for actor %q", actorID)
+		return Instance{}, Instance{}, fmt.Errorf("no instance for actor %q", actorID)
 	}
 	if inst.Phase == PhaseGone || inst.Phase == PhaseRecovering {
 		// A recovering session's dead studio may still be reporting.
-		return Instance{}, fmt.Errorf("instance %q is %s", actorID, inst.Phase)
+		return Instance{}, Instance{}, fmt.Errorf("instance %q is %s", actorID, inst.Phase)
 	}
+	old := inst
 	now := s.now()
 	enteringWaiting := a == ActivityWaiting && inst.Activity != ActivityWaiting
 	// A turn ends when the cove leaves Running for Holding or Waiting (not
@@ -1188,7 +1211,7 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 		if a == ActivityDone {
 			inst.Warm = KeepWarm{}
 		} else {
-			return inst, s.store.PutInstance(inst)
+			return old, inst, s.store.PutInstance(inst)
 		}
 	}
 	if turnStarted {
@@ -1218,7 +1241,7 @@ func (s *Supervisor) recordActivity(actorID string, a Activity) (Instance, error
 			inst.Phase = PhaseTerminating
 		}
 	}
-	return inst, s.store.PutInstance(inst)
+	return old, inst, s.store.PutInstance(inst)
 }
 
 // SetWaitSeq persists a wake-on baseline (squawk log append Seq) on the
@@ -1240,15 +1263,9 @@ func (s *Supervisor) SetWaitSeq(actorID string, seq int64) error {
 func (s *Supervisor) armIdleDeadline(inst *Instance, now time.Time) {
 	inst.TurnEndedAt = now
 	inst.IdleDeadline = time.Time{}
-	var d time.Duration
-	if role, ok := s.store.GetRole(inst.Project, inst.Role); ok {
-		d = role.TurnEnd.IdleTimeout
-	}
-	if o := inst.IdleOverride; o != nil {
-		d = o.Duration
-		if o.Scope == IdleScopeNext {
-			inst.IdleOverride = nil
-		}
+	d := s.nextIdleTimeout(*inst)
+	if o := inst.IdleOverride; o != nil && o.Scope == IdleScopeNext {
+		inst.IdleOverride = nil
 	}
 	if d > 0 {
 		inst.IdleDeadline = now.Add(d)
@@ -1361,14 +1378,22 @@ func (s *Supervisor) SetEndRequested(actorID, reason string) error {
 // SetIdleOverride replaces the cove's idle-timeout override; it applies from
 // the next turn end (a next-scoped one only to that turn end).
 func (s *Supervisor) SetIdleOverride(actorID string, o IdleOverride) error {
+	s.idleMu.Lock()
+	defer s.idleMu.Unlock()
 	s.instMu.Lock()
-	defer s.instMu.Unlock()
 	inst, ok := s.store.GetInstance(actorID)
 	if !ok {
+		s.instMu.Unlock()
 		return fmt.Errorf("no instance for actor %q", actorID)
 	}
+	old := inst
 	inst.IdleOverride = &o
-	return s.store.PutInstance(inst)
+	err := s.store.PutInstance(inst)
+	s.instMu.Unlock()
+	if err == nil {
+		s.notifyIdle(old, inst)
+	}
+	return err
 }
 
 // SetMessagesMuted sets whether new messages wake the cove; the mute is
@@ -1983,6 +2008,7 @@ func (s *Supervisor) Reconcile(ctx context.Context) error {
 		}
 		// LivenessUnknown: leave for the next tick.
 	}
+	s.notifyIdleTimeouts()
 	return nil
 }
 

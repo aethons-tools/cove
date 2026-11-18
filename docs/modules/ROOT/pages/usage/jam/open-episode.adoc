@@ -37,6 +37,10 @@ Jam MUST NOT push the deadline it clears when a turn starts:
 jam-studio-agent drops its deadline itself when it starts a turn,
 so a late push can't close an episode that should stay open.
 
+Jam sees a role edit's new timeout on its next reconcile tick, and pushes it then.
+It pushes the deadline at every turn end, `0` included, so a studio never keeps one from an earlier turn,
+and a stream that attaches while a deadline is armed gets it right after its first messages.
+
 [#keeping-it-open]
 == Keeping it open
 
