@@ -1,10 +1,10 @@
 = The Attach stream and jam-studio-agent
-:summary: The managed studio's side of Jam—the Attach gRPC stream (its credentials, reports, control, `OpenTunnel` push and `Tunnel` RPC) and the in-cove `jam-studio-agent` client: its env, agent episodes, wakes, session controls, connector and context refresh, teardown post-mortem and resident mode.
+:summary: The managed studio's side of Jam—the Attach gRPC stream (its credentials, reports, control, `OpenTunnel` push and `Tunnel` RPC) and the in-cove `jam-studio-agent` client: its env, agent episodes (and open episodes between turns), wakes, session controls, connector and context refresh, teardown post-mortem and resident mode.
 :read_when: You are configuring or debugging `jam-studio-agent` in a studio, need to know how an agent episode is run, woken, interrupted, compacted or cleared, why a studio did not pick up a connector or model-spec change, or where a dead studio's reason was logged.
 :owns: the Attach stream (incl. its `OpenTunnel` push and the `Tunnel` RPC) and the `jam-studio-agent` client that dials it—its env, episodes, wake delivery, session controls, connector and context refresh, teardown post-mortem and resident mode
 :prereqs: coves.adoc for the Instance registry, its phases and the `studio` verbs
 :tier: leaf
-:updated: 2026-11-13
+:updated: 2026-11-18
 
 A managed studio talks to Jam over one stream, its *Attach* stream, and `jam-studio-agent` is the client in the studio that holds it and runs the agent.
 
@@ -30,7 +30,7 @@ For xref:usage/jam/collaboration.adoc#how-it-works[studio collaboration] Jam als
 same way), claiming the id, and piping it to `+127.0.0.1:<port>+`—only ports on
 its allow-list (`2222`, the studio's sshd, plus the studio's exposed
 xref:usage/jam/previews.adoc[previews], which Jam pushes as `+SetTunnelPorts{ports}+`
-first on every Attach stream and after each change; each push replaces the last).
+at the start of every Attach stream and after each change; each push replaces the last).
 An older jam-studio-agent ignores the push, so Jam's open times out (504).
 
 [#jam-studio-agent-the-in-cove-client]
@@ -77,7 +77,7 @@ when a xref:usage/jam/session-context.adoc[session context] is in effect); the p
 is its first stdin message. jam-studio-agent reports `running` and watches the
 stream-json output: it closes stdin only when the agent's turn has ended *and*
 no background task (`+run_in_background+` Bash, background subagents, Monitors) is
-outstanding, so background tasks work. A turn that ends with tasks still running
+outstanding, so background tasks work; with an idle deadline armed, it keeps stdin open until the deadline (an xref:usage/jam/open-episode.adoc[open episode]). A turn that ends with tasks still running
 holds stdin open for at most `BackgroundWait` (30m), then closes it and `claude`
 stops the stragglers (logged at WARN). When the process exits, its turn is over—no result file is read on the Jam path. Every
 episode also passes ``+--mcp-config /dev/shm/jam-agent-mcp.json --strict-mcp-config+``:
@@ -115,11 +115,12 @@ if it predates the episode. An interrupt racing the end of a turn may yield an a
 for a turn that had just finished (benign).
 * *Compact.* Runs ``/compact <instructions>``: at the turn boundary when running, at once when
 holding, and, when waiting, in a *maintenance episode* (``+--continue+``; no `running`/`waiting`
-report; wakes stay buffered; bounded by a 10m timeout). Skipped when a clear is pending.
+report; wakes stay buffered; bounded by a 10m timeout), or in the open episode when one is open
+(xref:usage/jam/open-episode.adoc#controls[open-episode]). Skipped when a clear is pending.
 It always runs before a pending wake's turn. The agent can ask for one too, with `+turn_end+`
 (`next: compact`); with a `resume` note, the session is woken once it's compacted
 (xref:usage/jam/structured-turn-end.adoc#turn_end[structured-turn-end.adoc]).
-* *Clear.* Applies only while waiting: dropped during a live agent episode; one pressed during an idle compaction applies once it finishes.
+* *Clear.* Applies only while waiting: dropped during a running or holding episode (an open episode is closed first, xref:usage/jam/open-episode.adoc#controls[open-episode]); one pressed during an idle compaction applies once it finishes.
 A Clear that races a wake (for example, pressed on a paused session whose resume delivers a wake first)
 reaches a live episode and is dropped, shown as ignored. It writes
 `/agent-data/.cove-clear-pending` (contents: who pressed). The next episode starts without
@@ -130,7 +131,7 @@ agent's first reply.
 *Connector refresh.* Before every episode (agent spawn)—the first, and each resume after the process exited—jam-studio-agent
 re-fetches its connector (`GET /connector`, xref:usage/jam/connector.adoc[connector])
 and starts that episode with the current environment and git routing, so a destination or grant
-edit reaches a running studio at its next episode (never within one: a wake delivered into a live episode runs under the environment that episode started with). If the fetch fails it
+edit reaches a running studio at its next episode (never within one: a wake delivered into a live episode runs under the environment that episode started with, and an open episode whose connector changed is closed and restarted instead, xref:usage/jam/open-episode.adoc#wakes[open-episode]). If the fetch fails it
 keeps the last connector it applied and logs a warning; a failed git-route rewrite is likewise logged and retried every episode until it lands. It reports the applied
 connector's fingerprint up the Attach stream; Jam compares it to the role's current
 connector for the `connector` column (xref:usage/jam/coves.adoc#the-studio-verbs[verbs]).

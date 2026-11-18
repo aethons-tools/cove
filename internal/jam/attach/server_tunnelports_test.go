@@ -11,9 +11,14 @@ import (
 	"github.com/aethons-tools/cove/internal/jam/attach/attachpb"
 )
 
+// firstTunnelPorts receives the next control message but IdleTimeout (each
+// stream starts with one) and requires it to be a TunnelPorts.
 func firstTunnelPorts(t *testing.T, stream attachpb.Runtime_AttachClient) []int32 {
 	t.Helper()
 	cd, err := stream.Recv()
+	for err == nil && cd.GetIdleTimeout() != nil {
+		cd, err = stream.Recv()
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,10 +98,13 @@ func TestEmptySetForgetsStoredPorts(t *testing.T) {
 	}
 }
 
-// recvSkippingSeed receives the next control message, discarding the tunnel
-// allow-list seed every Attach stream starts with.
+// recvSkippingSeed receives the next control message, discarding the
+// IdleTimeout and tunnel allow-list seed every Attach stream starts with.
 func recvSkippingSeed(stream attachpb.Runtime_AttachClient) (*attachpb.ControlDown, error) {
 	cd, err := stream.Recv()
+	if err == nil && cd.GetIdleTimeout() != nil {
+		cd, err = stream.Recv()
+	}
 	if err == nil && cd.GetTunnelPorts() != nil {
 		return stream.Recv()
 	}

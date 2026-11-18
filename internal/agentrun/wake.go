@@ -66,6 +66,13 @@ func (b *wakeBox) has() bool {
 	return len(b.pending) > 0
 }
 
+// hasKind reports whether a pending reason is of kind.
+func (b *wakeBox) hasKind(kind string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.ContainsFunc(b.pending, func(r studioagent.WakeReason) bool { return r.Kind == kind })
+}
+
 // take drains the pending reasons, remembering them as in flight until the
 // next take (or restore).
 func (b *wakeBox) take() []studioagent.WakeReason {
