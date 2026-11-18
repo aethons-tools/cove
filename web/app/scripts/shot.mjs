@@ -6,10 +6,13 @@
 // and fails (scripts/shot.test.mjs).
 //
 //   node scripts/shot.mjs <route> --out <file.png> [--selector <css>]
-//     [--click <css>]... [--pad 8] [--width 1280] [--height 800] [--scale 2]
+//     [--click <css>]... [--type <css>=<text>]... [--pad 8] [--width 1280]
+//     [--height 800] [--scale 2]
 //
 // --click clicks the first element matching css once the view is ready (say,
-// a card's Edit button), in order when repeated, before the shot.
+// a card's Edit button); --type types text into the first input matching css
+// (the css is up to the last "="). Both run in the order given, before the
+// shot.
 // route is an app path ("/app/admin/config/projects/acme", or without the
 // leading /app/). The browser is $JAM_BROWSER, else
 // /opt/chrome-headless-shell/chrome-headless-shell, else the first of the
@@ -23,12 +26,14 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { createServer } from "vite";
 
-const { values: opt, positionals } = parseArgs({
+const { values: opt, positionals, tokens } = parseArgs({
   allowPositionals: true,
+  tokens: true,
   options: {
     out: { type: "string" },
     selector: { type: "string" },
     click: { type: "string", multiple: true, default: [] },
+    type: { type: "string", multiple: true, default: [] },
     pad: { type: "string", default: "8" },
     width: { type: "string", default: "1280" },
     height: { type: "string", default: "800" },
@@ -36,9 +41,19 @@ const { values: opt, positionals } = parseArgs({
   },
 });
 if (positionals.length !== 1 || !opt.out) {
-  console.error("usage: shot.mjs <route> --out <file.png> [--selector <css>] [--click <css>]... [--pad 8] [--width 1280] [--height 800] [--scale 2]");
+  console.error("usage: shot.mjs <route> --out <file.png> [--selector <css>] [--click <css>]... [--type <css>=<text>]... [--pad 8] [--width 1280] [--height 800] [--scale 2]");
   process.exit(2);
 }
+// The --click and --type actions, in the order given.
+const actions = tokens.filter((t) => t.kind === "option" && (t.name === "click" || t.name === "type")).map((t) => {
+  if (t.name === "click") return { flag: `--click ${t.value}`, css: t.value };
+  const at = t.value.lastIndexOf("=");
+  if (at <= 0) {
+    console.error(`--type ${t.value}: want <css>=<text>`);
+    process.exit(2);
+  }
+  return { flag: `--type ${t.value}`, css: t.value.slice(0, at), text: t.value.slice(at + 1) };
+});
 const route = positionals[0].startsWith("/") ? positionals[0] : "/app/" + positionals[0];
 const out = resolve(process.env.SHOT_CWD ?? process.cwd(), opt.out);
 const width = Number(opt.width), height = Number(opt.height), scale = Number(opt.scale), pad = Number(opt.pad);
@@ -164,17 +179,22 @@ async function shoot(base, ws, mock) {
       if (found && inflight.size === 0 && Date.now() - quietSince > 500) break;
       await sleep(100);
     }
-    // Each --click in turn, then the page settles again.
-    for (const click of opt.click) {
-      const c = JSON.stringify(click);
-      if (!await evaluate(`(() => { const e = document.querySelector(${c}); if (!e) return false; e.click(); return true; })()`)) {
-        throw new Error(`--click ${click}: no such element on ${route}`);
+    // Each --click and --type in turn, then the page settles again.
+    for (const a of actions) {
+      const c = JSON.stringify(a.css);
+      const act = a.text === undefined ? "e.click()" : "e.focus()";
+      if (!await evaluate(`(() => { const e = document.querySelector(${c}); if (!e) return false; ${act}; return true; })()`)) {
+        throw new Error(`${a.flag}: no such element on ${route}`);
+      }
+      if (a.text !== undefined) {
+        await send("Input.insertText", { text: a.text });
+        await sleep(500); // a debounced input fetches after a pause
       }
       await evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))");
       const settle = Date.now() + 30_000;
       while (inflight.size > 0 || Date.now() - quietSince < 300) {
         unmocked();
-        if (Date.now() > settle) throw new Error(`--click ${click}: timed out waiting for the page to settle on ${route}`);
+        if (Date.now() > settle) throw new Error(`${a.flag}: timed out waiting for the page to settle on ${route}`);
         await sleep(50);
       }
     }

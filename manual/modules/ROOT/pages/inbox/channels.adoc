@@ -14,21 +14,18 @@ image::channels-inbox.png["The Inbox, with the ops room open",800]
 == The rail
 
 The rail has three sections:
-*Me*, *Work*, and *Agents*.
+*`Me`*, *Work*, and *Agents*.
 If your Jam was upgraded from the old message log,
 *History (before the upgrade)* below them shows those old conversations.
 You can only read them.
-It looks the same in the Jam app and in VS Code.
+Click its heading to show them.
+The rail looks the same in the Jam app and in VS Code.
 
-image::channels-rail-sections.png["The rail: Me, Work, and Agents",340]
+image::channels-rail-sections.png["The rail and its three sections",340]
 
-ifdef::internal[]
-Try the rail in the xref:attachment$channels-rail-prototype.html[prototype].
-endif::[]
+=== `Me`
 
-=== Me
-
-*Me* lists the conversations you take part in that are alive:
+*`Me`* lists the conversations you take part in that are alive:
 your DMs and group DMs,
 the rooms you're in,
 and the work logs you follow.
@@ -43,10 +40,10 @@ or it has an open ask you can answer;
 * the number of unread messages.
 
 Drag a row to put it where you want it.
-The toggle at the top of *Me* shows *All* your conversations,
+The toggle at the top of *`Me`* shows *All* your conversations,
 or only those that are *Unread* or need you.
 
-A DM with an agent leaves *Me* when the agent ends.
+A DM with an agent leaves *`Me`* when the agent ends.
 Finished conversations are kept;
 to read them, look them up
 (<<_looking_up,Looking up>>).
@@ -74,7 +71,7 @@ Click a card to open the session's view
 Drag a card to put it where you want it;
 a new session joins at the bottom.
 
-Your order of *Me* and *Agents* is saved for you,
+Your order of *`Me`* and *Agents* is saved for you,
 so the Jam app and VS Code show the same order,
 on any device.
 
@@ -92,11 +89,7 @@ While you type,
 the results take the place of the rail's sections;
 clear the box to get them back.
 
-image::channels-lookup.png["The rail looking up login, with ACME-42's finished work log open",800]
-
-ifdef::internal[]
-Try it in the xref:attachment$channels-lookup-prototype.html[prototype].
-endif::[]
+image::channels-lookup.png["The rail looking up login, with ACME-40's finished work log open",800]
 
 The results come in two groups:
 
@@ -135,7 +128,7 @@ The page opens at the newest message.
 If older messages exist, *Load earlier* at the top shows them.
 Your own messages are on the right.
 A message from a session has the session's color on its left edge.
-Notes from Jam, such as "alice called in carol", are a short line in the middle.
+Notes from Jam, such as `alice called in carol`, are a short line in the middle.
 
 Point at a message to copy it:
 *Text* copies what you see,
@@ -145,12 +138,12 @@ A file in a message shows as a link that downloads it.
 An image shows small. Click it to open it full size.
 
 Below the messages, one line for each session in the channel says what it is doing,
-such as "spider is running *Bash*" or "spider needs you".
+such as `spider is running Bash` or `spider needs you`.
 The xref:inbox/composer.adoc[composer] is at the bottom.
 
 When a session in the channel needs you,
 the header shows *Needs you*.
-The open asks of the channel show above the messages
+The open asks of the channel show preceding the messages
 (xref:inbox/asks.adoc[Answering asks]).
 
 == Unread
@@ -163,7 +156,7 @@ If the browser tab is in the background, nothing is marked read until you come b
 The Inbox updates live.
 New messages, unread counts and session status change without a reload.
 
-== Joining, leaving and calling in
+== Joining, leaving, and calling in
 
 The header has the controls for who is in the conversation:
 
@@ -185,21 +178,14 @@ You also join a room or a work log when you post in it.
 ifdef::internal[]
 == Notes for the team
 
-* Goal: the rail's Me, Work, and Agents sections (agreed with the user 2026-11-15);
-their interface is `docs/modules/ROOT/pages/usage/jam/inbox-rail.adoc`.
-Looking up ended sessions and finished conversations is COV-362, built by COV-409
-(agreed with the user 2026-11-17);
-its interface is `inbox-rail.adoc#lookup`.
-The lookup image is its prototype's (`attachments/channels-lookup-prototype.html`).
-The rail image is the prototype's (`attachments/channels-rail-prototype.html`).
-The prototype runs only on the team site: Jam serves the manual with a CSP that allows no scripts or inline styles, so the link is internal.
 * The Inbox is the web app under `/app/user/` (`web/app/src/rail`, `conversation`).
 A conversation is `/app/user/c/<channel>`.
 The old Inbox's `?c=` links redirect.
-* The rail is `GET /app/user/api/rail`; groups come from `jam.ChannelView.Bucket`
-(`internal/jam/channels.go`) and `userui.groupRail`.
-* The API also serves the goal rail's sections, Me, Work, and Agents, and each person's saved order of Me and Agents (`PUT /app/user/api/rail/order`), shared by every client (COV-364).
-The VS Code rail shows them (`docs/modules/ROOT/pages/usage/jam/vscode-hub.adoc`); the app doesn't yet. The goal is `docs/modules/ROOT/pages/usage/jam/inbox-rail.adoc` on the `goal` branch.
+* The rail is `GET /app/user/api/rail`'s sections (`web/app/src/rail/RailSections.tsx`, shared with the VS Code rail);
+the saved order is `PUT /app/user/api/rail/order`.
+* Looking up is `GET /app/user/api/lookup` (`web/app/src/rail/Lookup.tsx`; the app only, not yet the VS Code rail),
+built by COV-409; its interface is `docs/modules/ROOT/pages/usage/jam/rail-api.adoc#lookup`.
+A finished conversation's `Conversation.finished` says why; it has no composer, and a post to it is `409`.
 * The header shows the conversation kind (`dm`, `group`, `room`, `work`);
 an archived session channel an older Jam made reads *agent*.
 Jam archives them at serve start (`Intercom.Reconcile`): their members can still read them, and they take no posts.

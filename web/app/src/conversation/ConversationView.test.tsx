@@ -26,7 +26,7 @@ const msg = (seq: number, over: Partial<MessageRow> = {}): MessageRow => ({
   mine: false, seq, system: false, sysText: "", card: "", ...over,
 });
 const conv = (over: Partial<Conversation> = {}): Conversation => ({
-  channelId: "chn_a", label: "intercom-spider", kind: "session", project: "test", phase: "live", needsYou: false, sendTo: "chn_a",
+  channelId: "chn_a", label: "intercom-spider", kind: "session", project: "test", phase: "live", needsYou: false, sendTo: "chn_a", finished: "",
   messages: [msg(1), msg(2, { mine: true, raw: "**hi**", body: "<p><strong>hi</strong></p>" })], lastSeq: 2, earlier: false,
   sessionIds: ["ses_1"], sessions: [{ label: "intercom-spider", text: "is running", tool: "Bash", class: "busy" }],
   canJoin: false, canLeave: true, callIn: [{ to: "user:usr_2", label: "bob", kind: "person", project: "test" }], openAsks: [], session: "", newBoard: false, ...over,
@@ -79,7 +79,7 @@ describe("the conversation view", () => {
     const bubble = (seq: number) => container.querySelector(`[data-seq="${seq}"]`) as HTMLElement;
     expect(bubble(1).style.borderLeft).toBe("3px solid rgb(170, 63, 78)");
     expect(bubble(2).getAttribute("style") ?? "").not.toContain("border-left");
-    expect((screen.getByRole("textbox").closest("[data-composer]") as HTMLElement).style.borderLeft).toBe("3px solid rgb(170, 63, 78)");
+    expect((screen.getByRole("textbox", { name: /^Message / }).closest("[data-composer]") as HTMLElement).style.borderLeft).toBe("3px solid rgb(170, 63, 78)");
   });
 
   it("no session color: no borders", async () => {
@@ -87,7 +87,7 @@ describe("the conversation view", () => {
     const { container } = renderApp(boot, "/app/user/c/chn_a");
     await screen.findByText("m1");
     expect(container.querySelector('[data-seq="1"]')!.getAttribute("style") ?? "").not.toContain("border-left");
-    expect((screen.getByRole("textbox").closest("[data-composer]") as HTMLElement).style.borderLeft).toMatch(/^(0|0px)?$/);
+    expect((screen.getByRole("textbox", { name: /^Message / }).closest("[data-composer]") as HTMLElement).style.borderLeft).toMatch(/^(0|0px)?$/);
   });
 
   it("offers Leave and Call in to a member, Join to a non-member", async () => {

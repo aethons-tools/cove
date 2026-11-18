@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -88,24 +89,47 @@ func UnreadTotal(store Store, ic *Intercom, lg intercom.Store, u ident.ID) int {
 
 // InMe reports whether ch is in user u's Me, the rail's section of their
 // live conversations (docs/modules/ROOT/pages/usage/jam/rail-api.adoc): u
-// is a member of it, it is live, and a dm or a group has a person or an
-// active session besides u (so a dm with a session leaves when it ends).
+// is a member of it and it hasn't finished (Finished), so a dm with a
+// session leaves when the session ends, and a work log when its unit is done.
 func InMe(store Store, u ident.ID, ch Channel) bool {
-	if ch.Status != StatusLive || ch.Kind == SourceSession {
+	if ch.Kind == SourceSession {
 		return false
 	}
-	member, others := false, false
-	for _, m := range store.ChannelMembers(ch.ID) {
-		if m.ParticipantID == u {
-			member = true
-			continue
+	member := slices.ContainsFunc(store.ChannelMembers(ch.ID), func(m ChannelMember) bool { return m.ParticipantID == u })
+	return member && Finished(store, u, ch) == ""
+}
+
+// Why a conversation finished (rail-api.adoc#lookup).
+const (
+	FinishedEnded    = "ended"    // a dm or group whose sessions ended, with no other person
+	FinishedArchived = "archived" // an archived channel
+	FinishedDone     = "done"     // the log of a unit that is done
+)
+
+// Finished says why ch is a finished conversation for user u, "" while it
+// is live: it was archived; it is a dm or a group with no person or active
+// session besides u; or it is the log of a unit whose state is done.
+func Finished(store Store, u ident.ID, ch Channel) string {
+	switch {
+	case ch.Status != StatusLive:
+		return FinishedArchived
+	case IsChat(ch.Kind):
+		for _, m := range store.ChannelMembers(ch.ID) {
+			if m.ParticipantID == u {
+				continue
+			}
+			inst, isSession := store.GetInstance(string(m.ParticipantID))
+			if isSession && InstanceActive(inst) || !isSession && !isSessionID(m.ParticipantID) {
+				return ""
+			}
 		}
-		inst, isSession := store.GetInstance(string(m.ParticipantID))
-		if isSession && InstanceActive(inst) || !isSession && !isSessionID(m.ParticipantID) {
-			others = true
+		return FinishedEnded
+	case ch.Kind == SourceWork:
+		if unit, ok := store.WorkUnit(ch.ID); ok && unit.State == ReportDone {
+			return FinishedDone
 		}
 	}
-	return member && (others || !IsChat(ch.Kind))
+	return ""
 }
 
 // UserChannel is one channel as user u sees it (ok=false: gone, or theirs

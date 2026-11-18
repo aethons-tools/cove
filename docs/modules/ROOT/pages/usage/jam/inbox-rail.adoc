@@ -9,8 +9,7 @@
 This page is the goal for the rail.
 Where it disagrees with xref:usage/jam/intercom-ui.adoc[intercom-ui]
 or xref:usage/jam/session-card.adoc[session-card], it wins.
-The product view is the manual's goal page `inbox/channels.adoc`,
-with its prototype `attachments/channels-rail-prototype.html`.
+The product view is the manual's goal page `inbox/channels.adoc`.
 The VS Code rail renders the same response (xref:usage/jam/vscode-hub.adoc#the-rail[vscode-hub]).
 
 [#sections]
@@ -104,8 +103,7 @@ so the app and the VS Code rail share it on every device.
 
 The box at the top of the rail looks up what the sections leave out:
 conversations that finished and sessions that ended.
-The product view is the manual's goal page `inbox/channels.adoc`, *Looking up*,
-with its prototype `attachments/channels-lookup-prototype.html`.
+The product view is the manual's goal page `inbox/channels.adoc`, *Looking up*.
 
 `GET /app/user/api/lookup?q=<text>` returns:
 

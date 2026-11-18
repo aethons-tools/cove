@@ -128,11 +128,11 @@ const stateColor: Record<CardState, string> = { thinking: "blue", working: "gree
 
 const unreadBadge = (n: number | undefined) => (n ? <Badge size="sm" circle aria-label={`${n} unread`}>{n}</Badge> : null);
 
-function Heading({ children }: { children: ReactNode }) {
+export function Heading({ children }: { children: ReactNode }) {
   return <Text component="h3" size="xs" fw={700} c="dimmed" tt="uppercase" m={0} px="sm" py={4}>{children}</Text>;
 }
 
-function List({ label, children }: { label: string; children: ReactNode }) {
+export function List({ label, children }: { label: string; children: ReactNode }) {
   return <ul aria-label={label} className="rail-list">{children}</ul>;
 }
 

@@ -11,7 +11,7 @@ vi.mock("./BoardEditor", () => ({ default: () => <div data-testid="editor" /> })
 const card: MessageRow = { from: "alice", body: "", raw: "", plain: false, at: "09:00", time: new Date(2026, 9, 26, 9, 0).toISOString(), mine: false, seq: 4,
   system: false, sysText: "", card: "board", board: { id: "brd_1", title: "Plan" } };
 const conv = (over: Partial<Conversation> = {}): Conversation => ({
-  channelId: "chn_a", label: "eng", kind: "room", project: "test", phase: "", needsYou: false, sendTo: "chn_a", messages: [card], lastSeq: 4, earlier: false,
+  channelId: "chn_a", label: "eng", kind: "room", project: "test", phase: "", needsYou: false, sendTo: "chn_a", finished: "", messages: [card], lastSeq: 4, earlier: false,
   sessionIds: [], sessions: [], canJoin: false, canLeave: true, callIn: [], openAsks: [], session: "", newBoard: true, ...over,
 });
 function serve(c: Conversation) {

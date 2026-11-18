@@ -10,7 +10,7 @@ import { dest, destFields, endpoint, spec, specFields } from "../admin/specs/fix
 import type { AgentDetail, AgentListRow, AgentsResponse, CoveRow } from "../admin/api/types";
 import { agents as projectAgents, role } from "../admin/roles/fixtures";
 import { emptyContext } from "../admin/projects/fixtures";
-import type { AppTokensResponse, AskCard, Bootstrap, ChannelRow, RailResponse, Conversation, MessageRow, SessionActivity, SessionHead, SessionPane, ThinkingEvent, WorkUnit } from "../api/types";
+import type { AppTokensResponse, AskCard, Bootstrap, ChannelRow, LookupResponse, RailResponse, Conversation, MessageRow, SessionActivity, SessionHead, SessionPane, ThinkingEvent, WorkUnit } from "../api/types";
 import type { EventStream } from "../../build/mockApi";
 import { card } from "../test/card";
 import { draftPage, draftView, kit, kitView } from "../admin/kits/fixtures";
@@ -238,7 +238,7 @@ const msg = (over: Partial<MessageRow>): MessageRow => ({
   from: "", body: "", raw: "", plain: false, at: "", time: "", mine: false, seq: 0, system: false, sysText: "", card: "", ...over,
 });
 const ops: Conversation = {
-  channelId: "chn_ops", label: "ops", kind: "room", project: "acme", phase: "", needsYou: false, sendTo: "chn_ops",
+  channelId: "chn_ops", label: "ops", kind: "room", project: "acme", phase: "", needsYou: false, sendTo: "chn_ops", finished: "",
   lastSeq: 86, earlier: false, sessionIds: [], sessions: [], openAsks: [], newBoard: false, session: "",
   canJoin: false, canLeave: true,
   callIn: [{ to: "user:usr_3", label: "carol", kind: "person", project: "" }, { to: "user:usr_4", label: "dan", kind: "person", project: "" }],
@@ -257,6 +257,32 @@ const acme37: Conversation = {
   ...ops, channelId: "chn_acme37", label: "ACME-37", kind: "work", sendTo: "chn_acme37", lastSeq: 40,
   canJoin: true, canLeave: false, callIn: [],
   messages: [msg({ seq: 40, from: "reviewer", time: "2026-11-09T16:02:00Z", body: "<p>Merged: the retry fix for the webhook relay.</p>", raw: "Merged: the retry fix for the webhook relay." })],
+};
+// Looking up login (ROOT/inbox/channels, Looking up): ACME-40's finished
+// work log open, read-only.
+const lookupLogin: LookupResponse = {
+  conversations: [
+    { row: row({ id: "chn_acme40", label: "ACME-40", lastSeq: 52 }), title: "Fix the login redirect loop", finished: "2026-11-11T15:40:00Z", why: "done", match: null },
+    { row: row({ id: "chn_acme40dm", label: "acme-40", kind: "dm", lastSeq: 50 }), finished: "2026-11-11T15:31:00Z", why: "ended",
+      match: { from: "alice", text: "Is the login fix ready for review?" } },
+    { row: row({ id: "chn_release113", label: "release-1.13", kind: "room", lastSeq: 30 }), finished: "2026-11-02T17:05:00Z", why: "archived",
+      match: { from: "bob", text: "Release checklist is done; the login page is tagged." } },
+  ],
+  sessions: [
+    { session: "ses_acme40", label: "acme-40", kind: "ticket", mission: "Fix the login redirect loop", ended: "2026-11-11T15:31:00Z", match: null },
+  ],
+};
+const acme40: Conversation = {
+  ...ops, channelId: "chn_acme40", label: "ACME-40", kind: "work", sendTo: "", finished: "done", lastSeq: 52,
+  canJoin: false, canLeave: false, callIn: [],
+  messages: [
+    msg({ seq: 44, from: "acme-40", color: "#1971c2", time: "2026-11-11T14:02:00Z",
+      body: "<p>The login page redirects to itself when the session cookie has expired. Clearing it before the redirect fixes the loop.</p>",
+      raw: "The login page redirects to itself when the session cookie has expired. Clearing it before the redirect fixes the loop." }),
+    msg({ seq: 47, from: "bob", time: "2026-11-11T14:40:00Z", body: "<p>Add a test for the expired cookie, please.</p>", raw: "Add a test for the expired cookie, please." }),
+    msg({ seq: 50, from: "acme-40", color: "#1971c2", time: "2026-11-11T15:20:00Z", body: "<p>Added. #318 is open and green.</p>", raw: "Added. #318 is open and green." }),
+    msg({ seq: 52, system: true, sysText: "#318 merged by bob. State: done.", time: "2026-11-11T15:40:00Z" }),
+  ],
 };
 const recipients = {
   options: [
@@ -631,6 +657,9 @@ export const mocks: Record<string, unknown> = {
   "GET /app/user/api/conversations/chn_acme37": acme37,
   "GET /app/user/api/conversations/chn_acme37/presence": { sessions: [] },
   "POST /app/user/api/conversations/chn_acme37/read": {},
+  "GET /app/user/api/lookup?q=login": lookupLogin,
+  "GET /app/user/api/conversations/chn_acme40": acme40,
+  "GET /app/user/api/conversations/chn_acme40/presence": { sessions: [] },
   "GET /app/admin/api/kits": kitList,
   "GET /app/admin/api/kits/review-kit": reviewKit,
   "GET /app/admin/api/kits/review-kit?v=4&diff=3": reviewDiff,

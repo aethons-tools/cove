@@ -65,7 +65,9 @@ export function ConversationView({ id, withSession = true, frame }: {
       {c.sendTo
         ? <Composer ref={composer} key={c.sendTo} to={c.sendTo} label={c.label} attachMax={boot.attachMax} accent={c.color || undefined}
             onSent={() => setStick((n) => n + 1)} />
-        : <Text size="sm" c="dimmed" p="xs">From before the upgrade: read-only.</Text>}
+        : <Text size="sm" c="dimmed" p="xs">{c.finished
+          ? "This conversation has finished. You can read it but not post to it."
+          : "From before the upgrade: read-only."}</Text>}
     </>
   );
   if (frame) return frame(c, main);
