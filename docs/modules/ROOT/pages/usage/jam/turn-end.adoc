@@ -129,7 +129,7 @@ A role can give its sessions an idle timeout: `+turn-end: {idle-timeout: D, on-i
 * It is *armed when a turn ends* (the session leaves `running` for `holding` or
 `waiting`): the deadline is that moment plus the agent's override, or else the
 role's timeout. No timeout → nothing armed. A role edit applies from the next
-turn end.
+turn end. Jam tells the studio each deadline, which keeps its agent's process running until then (xref:usage/jam/open-episode.adoc[open-episode]).
 * The agent overrides it with `+idle_timeout(duration | "off", scope)+` (`PUT /idle`): `+scope: next+` applies to the next turn end only, `always` until the
 session ends. Durations go up to `720h`.
 * When the deadline passes with nothing else having woken the session:

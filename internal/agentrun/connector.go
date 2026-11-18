@@ -119,6 +119,19 @@ func (r *connectorRefresher) prepare(ctx context.Context) (env []string, fp stri
 	return env, fp, changed
 }
 
+// changed re-fetches the connector and reports whether it (or its model spec)
+// differs from the one the last spawn applied, so an open episode is restarted
+// on it (open-episode.adoc#wakes). Nothing is applied. A failed fetch is logged
+// and reports no change: the open episode is kept.
+func (r *connectorRefresher) changed(ctx context.Context) bool {
+	cur, err := r.cfg.Source.Fetch(ctx)
+	if err != nil {
+		r.log.Warn("agentrun: connector refresh failed; keeping the open episode", "err", err.Error())
+		return false
+	}
+	return snippet.Fingerprint(cur) != snippet.Fingerprint(r.last)
+}
+
 // spawnEnv is jam-studio-agent's env minus every key the raise-time (Initial) or
 // previous connector owned, or the current one sets (incl. the identity-token vars Expand re-emits with
 // the same value), plus the current connector expanded in memory — so a key a

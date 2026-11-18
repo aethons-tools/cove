@@ -108,6 +108,13 @@ func (b *cmdBox) takeClear() (by string, ok bool) {
 	return by, ok
 }
 
+// hasClear reports whether a Clear is posted, without taking it.
+func (b *cmdBox) hasClear() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.clear
+}
+
 func (b *cmdBox) signal() <-chan struct{} { return b.sig }
 
 // repost signals without posting (a command handed on to a later consumer).
