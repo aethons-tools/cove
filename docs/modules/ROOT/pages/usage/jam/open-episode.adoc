@@ -7,12 +7,12 @@
 :updated: 2026-11-18
 :page-normative:
 
-Today an episode ends as soon as its turn is over and no background task is outstanding:
-jam-studio-agent closes stdin, `claude` exits,
-and every wake starts a new process with `+claude --continue+`.
-Each new process starts its MCP servers and reloads the conversation before the agent can answer,
-and a `keep-warm` wake (xref:usage/jam/prompt-cache.adoc#keeping-it-warm[prompt cache]) pays that again every `ttl`.
-Nothing requires the process to stop before the session's idle timeout (Linear COV-368).
+An episode whose process stopped as soon as its turn was over
+would make every wake start a new process with `+claude --continue+`,
+which starts its MCP servers and reloads the conversation before the agent can answer;
+a `keep-warm` wake (xref:usage/jam/prompt-cache.adoc#keeping-it-warm[prompt cache]) would pay that again every `ttl`.
+Nothing requires the process to stop before the session's idle timeout (Linear COV-368),
+so jam-studio-agent keeps it running.
 An *open episode* is one whose process keeps running between turns, until the idle deadline.
 
 [#idle-deadline]
@@ -23,7 +23,8 @@ Jam tells jam-studio-agent about the session's idle timeout
 with two new `ControlDown` messages on the Attach stream.
 Each push of a message replaces that message's last push.
 A jam-studio-agent that predates them ignores them,
-so its episodes end at the turn's end as before.
+so its episodes end at the turn's end;
+so does any jam-studio-agent that has received no `IdleTimeout`.
 
 * `+IdleTimeout{ms}+`: the timeout that applies at the next turn end,
 in milliseconds, `0` for none.
@@ -48,12 +49,12 @@ When a turn ends with no background task outstanding,
 jam-studio-agent sets its deadline to the turn's end plus the last `IdleTimeout`,
 keeps stdin open while that deadline is in the future,
 and reports `waiting`.
-With an `IdleTimeout` of `0`, it closes stdin at once, as today.
+With an `IdleTimeout` of `0`, or none received, it closes stdin at once.
 Jam arms its own deadline only after it receives the report,
 so the agent's deadline is a little earlier than Jam's,
 and Jam's `IdleDeadline` push then replaces it.
 A xref:usage/jam/turn-end.adoc#holding[hold] whose tasks finish is kept open the same way;
-a hold whose `BackgroundWait` elapses closes stdin, as today.
+a hold whose `BackgroundWait` elapses closes stdin.
 
 jam-studio-agent MUST close an open episode's stdin when:
 
@@ -79,7 +80,7 @@ That wake needs a new episode (<<wakes>>).
 == Wakes into an open episode
 
 A wake that reaches an open episode MUST be written to its stdin as the resume prompt,
-as a wake between turns is today,
+as a wake is while holding,
 unless it needs a new episode.
 It needs one when:
 
@@ -96,7 +97,7 @@ For a wake that needs a new episode, jam-studio-agent closes stdin,
 waits for the process to exit,
 and starts the next episode with `+--continue+` and that wake,
 so the new episode picks up the current connector and model spec.
-A failed connector fetch keeps the open episode, as a failed fetch keeps the last connector today.
+A failed connector fetch keeps the open episode, as a failed fetch keeps the last connector before a spawn.
 
 `keep-warm` and `compact-due` wakes are written into an open episode like any other wake,
 so keeping the cache warm starts no process.
@@ -104,8 +105,8 @@ so keeping the cache warm starts no process.
 [#controls]
 == Session controls on an open episode
 
-* *Interrupt* is ignored as `not in a turn`, as it is between turns today.
-* *Compact* is written into the open episode at once, as it is while holding today;
+* *Interrupt* is ignored as `not in a turn`, as it is between turns.
+* *Compact* is written into the open episode at once, as it is while holding;
 no maintenance episode runs.
 The episode stays open afterward, until the deadline.
 * *Clear* closes the open episode, then applies as it does while waiting:
