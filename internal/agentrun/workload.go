@@ -212,8 +212,12 @@ type Workload struct {
 	// note is a line the next delivered prompt opens with (a reply that
 	// could not go where turn_end asked). Run's goroutine only.
 	note string
-	// idle is the latest IdleTimeout and IdleDeadline pushed by Jam.
-	idle idlePush
+	// idle is the latest IdleTimeout pushed by Jam and the idle deadline in
+	// effect (open-episode.adoc).
+	idle *idlePush
+	// parkedExit: the last episode exited parked (Waiting already reported).
+	// Run's goroutine only.
+	parkedExit bool
 }
 
 // New builds a Workload. A nil Spawner uses the real os/exec-backed spawner; a
@@ -248,7 +252,7 @@ func New(cfg Config, log *slog.Logger) *Workload {
 	if cfg.Connector != nil {
 		conn = newConnectorRefresher(*cfg.Connector, log)
 	}
-	return &Workload{cfg: cfg, log: log, spawner: sp, conn: conn, wake: newWakeBox(), cmds: newCmdBox()}
+	return &Workload{cfg: cfg, log: log, spawner: sp, conn: conn, wake: newWakeBox(), cmds: newCmdBox(), idle: newIdlePush()}
 }
 
 // resumeText is the prompt a Wake delivers.
@@ -266,7 +270,9 @@ func (w *Workload) resumeText() string {
 // process fed messages on stdin: the prompt first, then one coalesced
 // resume prompt per batch of Wakes. Stdin is closed only when the agent's turn
 // has ended and no background task is outstanding (or BackgroundWait elapsed),
-// so the agent's backgrounding works. After the process exits, Run reports
+// so the agent's backgrounding works; with an idle deadline armed it stays open
+// until the deadline (an open episode, which reports Waiting and takes Wakes
+// into the live process). After the process exits, Run reports
 // Waiting and blocks until a Wake resumes it (a new continued episode) or ctx
 // is cancelled (Jam tearing the session down: end, idle timeout, wait-max).
 // No result file is read.
@@ -446,7 +452,9 @@ func (w *Workload) Run(ctx context.Context, h studioagent.Handle) error {
 		// Wake (a reply, an alarm, the idle timeout). Jam decides when the
 		// session ends (end, idle teardown, wait-max); no result file is read.
 		w.logTurn(waitErr)
-		h.Report(studioagent.Waiting)
+		if !w.parkedExit { // an open episode reported it when it parked
+			h.Report(studioagent.Waiting)
+		}
 		for {
 			rs, c, ok := w.awaitWake(ctx, h, turn, nil)
 			if !ok {
@@ -719,6 +727,11 @@ func (w *Workload) overlayEnv(env []string, extra map[string]string) []string {
 // until the process exits. turn is the episode's event turn. It returns the
 // process's exit error.
 //
+// When a turn ends with nothing outstanding, the episode is parked (open) until
+// the idle deadline: the turn's end plus the last IdleTimeout, or Jam's
+// IdleDeadline push. A Wake that needs a new episode (newEpisodeWhy), the
+// deadline passing, or a Clear closes stdin instead.
+//
 // A maintenance episode's prompt is a /compact: it reads no Wakes (they stay
 // buffered), takes no Clear, and closes stdin once the compaction's turn ends.
 func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint32, proc Process, tr *idleTracker, prompt string, maintenance bool) error {
@@ -751,14 +764,33 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 		}
 	}
 	defer stopHold()
+	// parked: the agent is idle between turns and stdin is kept open until
+	// the idle deadline (an open episode, open-episode.adoc); Waiting was
+	// reported. ended: the current turn's end armed the deadline; the next
+	// turn to start drops it. idleT fires at the deadline (idleAt).
+	parked, ended := false, false
+	var idleT *time.Timer
+	var idleC <-chan time.Time
+	var idleAt time.Time
+	stopIdle := func() {
+		if idleT != nil {
+			idleT.Stop()
+			idleT, idleC = nil, nil
+		}
+	}
+	defer stopIdle()
+	if !maintenance {
+		w.idle.arm(time.Time{}) // the prompt starts a turn
+	}
 	// held: Holding was reported for the current hold; the next turn to start
 	// (a delivered Wake or a background task's self-started turn) reports
-	// Running again.
+	// Running again, as it does after parking.
 	held := false
 	unhold := func() {
-		if held {
+		if held || parked {
 			h.Report(studioagent.Running)
-			held = false
+			held, parked = false, false
+			stopIdle()
 		}
 	}
 
@@ -780,6 +812,11 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 		for _, r := range tr.TakeTurnEnds() {
 			if maintenance {
 				continue
+			}
+			if !compacting {
+				// A turn ended (however briefly it ran): its end arms the
+				// deadline anew.
+				ended = false
 			}
 			if ackBy != "" {
 				r.OK = false // the interrupted turn: whatever claude called it
@@ -819,12 +856,14 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			w.resumeCompacted(running, !tr.Busy())
 		}
 		w.interrupted = ackBy != ""
+		w.parkedExit = parked
 	}()
 	for {
-		var wake, cmds <-chan struct{}
+		var wake, cmds, pushed <-chan struct{}
 		if open {
 			if !maintenance {
 				wake = w.wake.signal() // once stdin is closed, Wakes stay buffered for the post-exit wait
+				pushed = w.idle.signal()
 			}
 			cmds = w.cmds.signal() // and commands for awaitWake
 		}
@@ -838,6 +877,9 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			switch {
 			case !w.wake.has():
 				// A signal whose reasons an earlier prompt already took is stale.
+			case parked:
+				// Written below, unless it needs a new episode.
+				tr.Owe()
 			case ackBy != "":
 				// The acknowledge turn answers it: only record it as pending
 				// (so an exit before the ack keeps it owed), never deliver now.
@@ -881,12 +923,19 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			}
 			if !maintenance {
 				// Clear is for a waiting session only; a maintenance episode
-				// leaves it for the wait after it.
-				if by, ok := w.cmds.takeClear(); ok {
+				// leaves it for the wait after it. It closes an open episode
+				// and the wait after the exit takes it.
+				if parked && w.cmds.hasClear() {
+					closeInput("clear")
+					w.cmds.repost()
+				} else if by, ok := w.cmds.takeClear(); ok {
 					w.ignoreCommand(h, turn, "clear", by, "live episode")
 				}
 			}
 		case <-tr.changed:
+		case <-pushed: // Jam replaced the deadline: checked below
+		case <-idleC: // the deadline passed: checked below
+			idleT, idleC = nil, nil
 		case <-holdC:
 			_, tasks := tr.Next()
 			w.log.Warn("agentrun: background-wait elapsed with tasks outstanding; closing stdin (the agent stops them)",
@@ -898,6 +947,11 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 		finish()
 		if !open {
 			continue
+		}
+		if ended && !compacting && tr.Busy() {
+			// A turn started: the deadline its predecessor armed is dropped.
+			ended = false
+			w.idle.arm(time.Time{})
 		}
 		if ackBy != "" && !tr.Busy() {
 			// The interrupted turn ended: one acknowledge turn, which also
@@ -950,12 +1004,25 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			compact = nil
 			continue
 		}
+		if parked && tr.PendingWake() {
+			if why := w.newEpisodeWhy(ctx); why != "" {
+				// The wait after the exit starts the next episode with it.
+				w.log.Info("agentrun: a wake needs a new episode; closing the open one", "why", why)
+				closeInput(why)
+				w.wake.repost()
+				continue
+			}
+		}
 		switch act, tasks := tr.Next(); act {
 		case actDeliverWake:
 			stopHold()
 			write(resume())
 			unhold()
 		case actHold:
+			if !ended && !maintenance {
+				ended = true
+				w.idle.armFrom(time.Now())
+			}
 			if hold == nil {
 				w.log.Info("agentrun: turn ended with background tasks outstanding; holding stdin open", "tasks", tasks)
 				hold = time.NewTimer(w.cfg.BackgroundWait)
@@ -967,12 +1034,59 @@ func (w *Workload) episode(ctx context.Context, h studioagent.Handle, turn uint3
 			}
 		case actClose:
 			stopHold()
-			closeInput("idle")
+			if maintenance {
+				closeInput("idle")
+				break
+			}
+			if !ended {
+				ended = true
+				w.idle.armFrom(time.Now())
+			}
+			_, dl := w.idle.get()
+			if !time.Now().Before(dl) {
+				// No deadline (no idle timeout, or Jam disarmed it), or it
+				// passed: the episode ends.
+				stopIdle()
+				if parked {
+					closeInput("idle deadline")
+				} else {
+					closeInput("idle")
+				}
+				break
+			}
+			if !parked {
+				w.log.Info("agentrun: turn ended; keeping the episode open until the idle deadline", "deadline", dl.Format(time.RFC3339))
+				h.Report(studioagent.Waiting)
+				parked, held = true, false
+			}
+			if idleT == nil || !idleAt.Equal(dl) {
+				stopIdle()
+				idleT, idleAt = time.NewTimer(time.Until(dl)), dl
+				idleC = idleT.C
+			}
 		case actWait:
 			stopHold()
 			unhold()
 		}
 	}
+}
+
+// newEpisodeWhy is why a wake reaching an open episode needs a new episode
+// (open-episode.adoc#wakes), "" when it is written in: the deadline passed
+// (an idle wake, or the deadline is past, e.g. after a pause), or the
+// connector or its model spec changed since the episode started. A failed
+// connector fetch keeps the open episode.
+func (w *Workload) newEpisodeWhy(ctx context.Context) string {
+	_, dl := w.idle.get()
+	switch {
+	case w.wake.hasKind("idle"):
+		return "idle wake"
+	case !time.Now().Before(dl):
+		return "idle deadline passed"
+	case w.conn != nil && w.conn.changed(ctx):
+		return "connector changed"
+	}
+	return ""
 }
 
 // awaitWake blocks until a Wake with reasons still to answer (rs) or a Compact
@@ -1036,7 +1150,8 @@ func (w *Workload) logTurn(waitErr error) {
 // Interrupt, Compact and Clear post to the command box the same way, never
 // blocking: the episode loop acts on them, or awaitWake does (a Compact runs
 // a maintenance episode, a Clear writes the clear marker, an Interrupt is
-// dropped).
+// dropped). IdleTimeout and IdleDeadline update the idle deadline an open
+// episode waits for.
 func (w *Workload) Control(c studioagent.Control) {
 	switch c.Kind {
 	case studioagent.Teardown:
