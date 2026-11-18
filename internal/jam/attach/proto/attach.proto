@@ -60,6 +60,8 @@ message ControlDown {
     Interrupt   interrupt = 9;
     Compact     compact   = 10;
     Clear       clear     = 11;
+    IdleTimeout  idle_timeout  = 12;
+    IdleDeadline idle_deadline = 13;
   }
 }
 
@@ -86,6 +88,13 @@ message WakeReason {
 message Interrupt { string by = 1; }
 message Compact   { string by = 1; string instructions = 2; }
 message Clear     { string by = 1; }
+// IdleTimeout is the idle timeout that applies at the session's next turn end,
+// in milliseconds; 0 = none. Sent first on every Attach stream and each time it
+// changes; each push replaces the last.
+message IdleTimeout { uint64 ms = 1; }
+// IdleDeadline is the armed idle deadline, a Unix time in milliseconds; 0 =
+// none. Each push replaces the last.
+message IdleDeadline { int64 at = 1; }
 message Teardown    { string reason = 1; }
 message TierChanged { int32 tier = 1; }
 message RotateToken { string token = 1; }

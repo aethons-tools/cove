@@ -40,6 +40,8 @@ const (
 	Interrupt
 	Compact
 	Clear
+	IdleTimeout  // the idle timeout at the next turn end; each push replaces the last
+	IdleDeadline // the armed idle deadline; each push replaces the last
 )
 
 // gateBuffer bounds gate results queued for the stream.
@@ -72,6 +74,9 @@ type Control struct {
 
 	By           string // Interrupt/Compact/Clear: who pressed the button
 	Instructions string // Compact only: the /compact focus text
+
+	IdleTimeout  time.Duration // IdleTimeout only: 0 = none
+	IdleDeadline time.Time     // IdleDeadline only: zero = none
 }
 
 // controlFromPB decodes a control message the workload reacts to (false for
@@ -96,6 +101,14 @@ func controlFromPB(cd *attachpb.ControlDown) (Control, bool) {
 		return Control{Kind: Compact, By: m.Compact.GetBy(), Instructions: m.Compact.GetInstructions()}, true
 	case *attachpb.ControlDown_Clear:
 		return Control{Kind: Clear, By: m.Clear.GetBy()}, true
+	case *attachpb.ControlDown_IdleTimeout:
+		return Control{Kind: IdleTimeout, IdleTimeout: time.Duration(m.IdleTimeout.GetMs()) * time.Millisecond}, true
+	case *attachpb.ControlDown_IdleDeadline:
+		var at time.Time
+		if ms := m.IdleDeadline.GetAt(); ms != 0 {
+			at = time.UnixMilli(ms)
+		}
+		return Control{Kind: IdleDeadline, IdleDeadline: at}, true
 	}
 	return Control{}, false
 }

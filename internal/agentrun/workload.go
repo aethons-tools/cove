@@ -212,6 +212,8 @@ type Workload struct {
 	// note is a line the next delivered prompt opens with (a reply that
 	// could not go where turn_end asked). Run's goroutine only.
 	note string
+	// idle is the latest IdleTimeout and IdleDeadline pushed by Jam.
+	idle idlePush
 }
 
 // New builds a Workload. A nil Spawner uses the real os/exec-backed spawner; a
@@ -1053,6 +1055,10 @@ func (w *Workload) Control(c studioagent.Control) {
 	case studioagent.Clear:
 		w.log.Info("agentrun: clear requested", "by", c.By)
 		w.cmds.postClear(c.By)
+	case studioagent.IdleTimeout:
+		w.idle.setTimeout(c.IdleTimeout)
+	case studioagent.IdleDeadline:
+		w.idle.setDeadline(c.IdleDeadline)
 	}
 }
 
