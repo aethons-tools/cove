@@ -1,6 +1,8 @@
 package sessionevents
 
 import (
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,12 +37,32 @@ type Totals struct {
 	ContextWindow int64
 	contextAt     time.Time
 	windows       map[string]int64
-	// sessionCost is the latest total_cost_usd per claude session. claude
-	// reports it cumulatively per session, carried across --continue, so
-	// only the growth since the previous result is new spend.
-	sessionCost map[string]float64
+	// sessionCost is each claude session's total_cost_usd per result, in
+	// ObservedAt order. claude reports it cumulatively per session, carried
+	// across --continue and into a resumed session's new stream, so only the
+	// growth since the previous result in time is new spend. Results can be
+	// folded out of time order (an older stream's late events), so each is
+	// placed between its neighbours rather than taken against the last one
+	// folded.
+	sessionCost map[string][]costPoint
 	episodes    map[episode]bool
 	lastResult  time.Time
+	lastKey     string // the claude session of the latest result
+}
+
+// costPoint is one result's cumulative cost.
+type costPoint struct {
+	at   time.Time
+	cost float64
+}
+
+// costStep is the new spend a result with cumulative cost reports after
+// one with prev.
+func costStep(prev, cost float64) float64 {
+	if cost < prev { // claude's total restarted (its saved state was lost)
+		return cost
+	}
+	return cost - prev
 }
 
 // episode is one claude process: a turn number within a stream.
@@ -79,20 +101,30 @@ func (t *Totals) Add(ev Event) {
 	t.InputTokens += ev.Index.InputTokens
 	t.OutputTokens += ev.Index.OutputTokens
 	if t.sessionCost == nil {
-		t.sessionCost = map[string]float64{}
+		t.sessionCost = map[string][]costPoint{}
 	}
 	key := ev.Index.ClaudeSessionID
 	if key == "" { // no session id: assume cumulative over the episode only
 		key = ep.stream + "/" + strconv.FormatUint(uint64(ep.turn), 10)
 	}
-	turn := ev.Index.CostUSD - t.sessionCost[key]
-	if turn < 0 { // claude's total restarted (its saved state was lost)
-		turn = ev.Index.CostUSD
+	pts := t.sessionCost[key]
+	i := sort.Search(len(pts), func(i int) bool { return pts[i].at.After(ev.ObservedAt) })
+	var prev float64
+	if i > 0 {
+		prev = pts[i-1].cost
 	}
+	turn := costStep(prev, ev.Index.CostUSD)
 	t.CostUSD += turn
-	t.sessionCost[key] = ev.Index.CostUSD
+	if i < len(pts) { // a late result: the next one's step is now from this one
+		next := costStep(ev.Index.CostUSD, pts[i].cost)
+		t.CostUSD += next - costStep(prev, pts[i].cost)
+		if i == len(pts)-1 && key == t.lastKey {
+			t.TurnCostUSD = next
+		}
+	}
+	t.sessionCost[key] = slices.Insert(pts, i, costPoint{ev.ObservedAt, ev.Index.CostUSD})
 	if !ev.ObservedAt.Before(t.lastResult) { // the latest turn
-		t.lastResult, t.TurnCostUSD = ev.ObservedAt, turn
+		t.lastResult, t.lastKey, t.TurnCostUSD = ev.ObservedAt, key, turn
 	}
 }
 
@@ -166,6 +198,9 @@ func (c *TotalsCache) Of(actorID string) (Totals, error) {
 	if err != nil {
 		return a.tot, err
 	}
+	// Oldest first, so a cold fold appends each result after the one before
+	// it in time.
+	slices.SortStableFunc(streams, func(x, y StreamInfo) int { return x.FirstAt.Compare(y.FirstAt) })
 	for _, st := range streams {
 		if st.LastSeq <= a.seen[st.StreamID] {
 			continue

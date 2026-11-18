@@ -76,6 +76,67 @@ func TestTotalsOfAcrossStreamsCached(t *testing.T) {
 	}
 }
 
+// A restart that resumes the same claude session in a new stream carries its
+// cumulative cost on: the older stream must not read as a restart of the count,
+// whether it is folded cold or its late events arrive after the newer stream's.
+func TestTotalsOfResumedSessionAcrossStreams(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	resumed := func(stream string, seq uint64, cost float64, m int) Event {
+		ev := res("a", stream, seq, 1, cost, 1, 1, false, at(m))
+		ev.ReceivedAt, ev.Index.ClaudeSessionID = at(m), "cs"
+		return ev
+	}
+	early := []Event{resumed("old", 1, 1.0, 0), resumed("old", 2, 2.0, 1)}
+	late := resumed("old", 3, 2.5, 2) // observed before the restart, stored after
+	newer := []Event{resumed("new", 1, 3.0, 3), resumed("new", 2, 3.5, 4)}
+	check := func(name string, tot Totals, cost, turn float64) {
+		t.Helper()
+		if d := tot.CostUSD - cost; d > 1e-9 || d < -1e-9 {
+			t.Fatalf("%s: cost = %v, want %v", name, tot.CostUSD, cost)
+		}
+		if d := tot.TurnCostUSD - turn; d > 1e-9 || d < -1e-9 {
+			t.Fatalf("%s: this turn = %v, want %v", name, tot.TurnCostUSD, turn)
+		}
+	}
+
+	cold := NewMemStore()
+	for _, ev := range append(append(early, late), newer...) {
+		if err := cold.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tot, err := NewTotalsCache(cold).Of("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("cold", tot, 3.5, 0.5)
+
+	s := NewMemStore()
+	for _, ev := range append(early, newer...) {
+		if err := s.Append(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := NewTotalsCache(s)
+	tot, _ = c.Of("a")
+	check("cached", tot, 3.5, 0.5)
+	if err := s.Append(late); err != nil {
+		t.Fatal(err)
+	}
+	tot, _ = c.Of("a")
+	check("late event in the older stream", tot, 3.5, 0.5)
+	if tot.Turns != 5 {
+		t.Fatalf("turns = %d, want 5", tot.Turns)
+	}
+
+	// A late result just before the latest one changes that turn's cost.
+	var fold Totals
+	fold.Add(resumed("new", 2, 3.5, 5))
+	fold.Add(resumed("new", 1, 3.25, 4))
+	check("result before the latest", fold, 3.5, 0.25)
+}
+
 func rawEv(seq uint64, at time.Time, raw string) Event {
 	return Event{ActorID: "a", StreamID: "s", Seq: seq, Kind: KindEvent, Turn: 1, ObservedAt: at, Raw: []byte(raw), Index: DeriveIndex([]byte(raw))}
 }

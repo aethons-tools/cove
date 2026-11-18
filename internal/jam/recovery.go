@@ -161,10 +161,7 @@ func (s *Supervisor) reraise(ctx context.Context, inst Instance) error {
 	if _, _, _, err := s.Raise(ctx, spec); err != nil {
 		return err
 	}
-	s.patchInstance(inst.ActorID, func(i *Instance) {
-		i.CommitSeq, i.CommitCursor = inst.CommitSeq, inst.CommitCursor
-		i.Focus, i.Report, i.Alarms, i.EscalationCategory = inst.Focus, inst.Report, inst.Alarms, inst.EscalationCategory
-	})
+	s.patchInstance(inst.ActorID, recordOf(inst).restore)
 	if s.log != nil {
 		s.log.Info("recovery: session re-raised", "id", inst.ActorID)
 	}

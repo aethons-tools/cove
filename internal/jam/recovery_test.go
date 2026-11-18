@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -106,6 +107,102 @@ func TestRecoveringSessionReraised(t *testing.T) {
 	if len(f.raised) != 2 {
 		t.Fatalf("raises = %v", f.raised)
 	}
+}
+
+// raiseBot raises the standing session w1, as the standing
+// reconciler's ensure does.
+func raiseBot(t *testing.T, sup *Supervisor) Instance {
+	t.Helper()
+	inst, _, _, err := sup.Raise(context.Background(), RaiseSpec{ActorID: "w1", Project: "default", Role: "guest", Name: "bot", SessionKind: SessionKindStanding, Prompt: "P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return inst
+}
+
+// A restarted standing session is raised again with its record: its inbox
+// cursor, focus, report, alarms and escalation category. An alarm that came
+// due while it was down fires once after the raise.
+func TestRestartedStandingSessionKeepsRecord(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, clk := supTestKit(t, f)
+	raiseBot(t, sup)
+	due := Alarm{Name: "check", Schedule: clk.Add(time.Minute).Format(time.RFC3339), Note: "look", NextAt: clk.Add(time.Minute)}
+	gated := Alarm{Name: "pr", Schedule: "*/5 * * * *", Gate: "true", Note: "pr", NextAt: clk.Add(5 * time.Minute)}
+	sup.patchInstance("w1", func(i *Instance) {
+		i.CommitSeq, i.CommitCursor, i.Focus = 42, "m42", "fixing tests"
+		i.Report = &TicketReport{State: ReportInReview, PR: "https://x/pr/1"}
+		i.Alarms = []Alarm{due, gated}
+		i.EscalationCategory = "infra"
+	})
+	if err := sup.Restart(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.GetInstance("w1"); ok {
+		t.Fatal("a standing restart tears the studio down for the reconciler to re-raise")
+	}
+	*clk = clk.Add(2 * time.Minute) // the one-shot comes due while it is down
+	raiseBot(t, sup)
+	got, _ := store.GetInstance("w1")
+	if got.CommitSeq != 42 || got.CommitCursor != "m42" || got.Focus != "fixing tests" || got.Report == nil || got.Report.State != ReportInReview || got.EscalationCategory != "infra" {
+		t.Fatalf("kept record = %+v", got)
+	}
+	if !reflect.DeepEqual(got.Alarms, []Alarm{due, gated}) {
+		t.Fatalf("alarms = %+v, want %+v", got.Alarms, []Alarm{due, gated})
+	}
+	sup.patchInstance("w1", func(i *Instance) { i.Activity = ActivityWaiting })
+	for range 2 {
+		if _, err := sup.FireAlarms("w1", *clk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ = store.GetInstance("w1")
+	if a := got.Alarms[0]; !a.FiredAt.Equal(*clk) || !a.NextAt.IsZero() {
+		t.Fatalf("due alarm = %+v, want fired once at %v", a, *clk)
+	}
+	// The next restart keeps the record as it is then.
+	sup.patchInstance("w1", func(i *Instance) { i.Focus = "reviewing" })
+	if err := sup.Teardown(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	raiseBot(t, sup)
+	if got, _ := store.GetInstance("w1"); got.Focus != "reviewing" || got.CommitSeq != 42 {
+		t.Fatalf("second restart record = %+v", got)
+	}
+}
+
+// A standing session whose record was forgotten (the standing reconciler's
+// reset or dismissal) is raised with an empty one; so is a ticket session
+// raised under a torn-down id.
+func TestForgottenStandingRecordStartsEmpty(t *testing.T) {
+	f := &fakeLauncher{liveness: LivenessAlive}
+	sup, store, _ := supTestKit(t, f)
+	raiseBot(t, sup)
+	sup.patchInstance("w1", func(i *Instance) {
+		i.CommitSeq, i.CommitCursor, i.Focus, i.EscalationCategory = 42, "m42", "fixing tests", "infra"
+		i.Report = &TicketReport{State: ReportInReview}
+		i.Alarms = []Alarm{{Name: "check", Schedule: "*/5 * * * *", NextAt: sup.now()}}
+	})
+	if err := sup.Teardown(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	sup.ForgetRecord("w1")
+	empty := func() {
+		t.Helper()
+		got, _ := store.GetInstance("w1")
+		if got.CommitCursor != "" || got.Focus != "" || got.Report != nil || got.Alarms != nil || got.EscalationCategory != "" || got.CommitSeq == 42 {
+			t.Fatalf("record = %+v, want empty", got)
+		}
+	}
+	raiseBot(t, sup)
+	empty()
+
+	sup.patchInstance("w1", func(i *Instance) { i.Focus, i.CommitSeq = "fixing tests", 42 })
+	if err := sup.Teardown(context.Background(), "w1"); err != nil {
+		t.Fatal(err)
+	}
+	raiseWorker(t, sup) // not standing: takes no kept record
+	empty()
 }
 
 // A re-raise that keeps failing backs off, then gives up: the session ends
