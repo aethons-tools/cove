@@ -73,7 +73,8 @@ func eventually(cond func() bool) bool {
 	return cond()
 }
 
-// blockWorkload reports one activity then blocks until ctx is cancelled.
+// blockWorkload reports one activity then blocks until ctx is cancelled. It
+// drops the idle pushes Jam starts every stream with.
 type blockWorkload struct {
 	first    Activity
 	controls chan Control
@@ -85,6 +86,9 @@ func (b *blockWorkload) Run(ctx context.Context, h Handle) error {
 	return ctx.Err()
 }
 func (b *blockWorkload) Control(c Control) {
+	if c.Kind == IdleTimeout || c.Kind == IdleDeadline {
+		return
+	}
 	select {
 	case b.controls <- c:
 	default:

@@ -43,14 +43,27 @@ type Server struct {
 	exposureSource func(actorID string) []int32
 	onStatus       func() // SetOnStatus; nil = none
 	// portsOwed marks connected actors whose stream has not yet been sent the
-	// current port set; portsNotify wakes that stream's send loop (buffer 1).
-	// Delivery is coalesced and lossless: the send loop sends the latest set
-	// before the next control message, so it precedes any later OpenTunnel.
-	portsOwed   map[string]bool
-	portsNotify map[string]chan struct{}
+	// current port set; owedNotify wakes that stream's send loop (buffer 1)
+	// for it or an owed idle push. Delivery is coalesced and lossless: the
+	// send loop sends what is owed before the next control message, so the
+	// set precedes any later OpenTunnel.
+	portsOwed  map[string]bool
+	owedNotify map[string]chan struct{}
+	// idle is each connected actor's IdleTimeout and IdleDeadline push
+	// (usage/jam/open-episode.adoc#idle-deadline), owed like the port set.
+	idle map[string]*idlePush
 
 	events  *sessionevents.Ingest
 	tunnels *TunnelBroker
+}
+
+// idlePush is the latest IdleTimeout and IdleDeadline for one stream, and
+// whether each is still owed to it.
+type idlePush struct {
+	timeout      time.Duration
+	timeoutOwed  bool
+	deadline     time.Time
+	deadlineOwed bool
 }
 
 // ackEvery is how often a connection flushes cumulative EventAcks.
@@ -97,9 +110,10 @@ func stampOf(store jam.Store, inst jam.Instance) sessionevents.Stamp {
 
 var _ jam.ControlSink = (*Server)(nil)
 var _ jam.ExposureSink = (*Server)(nil)
+var _ jam.IdleSink = (*Server)(nil)
 
 func NewServer(store jam.Store, sup *jam.Supervisor, log *slog.Logger) *Server {
-	return &Server{store: store, sup: sup, log: log, conns: map[string]chan *attachpb.ControlDown{}, ports: map[string][]int32{}, portsOwed: map[string]bool{}, portsNotify: map[string]chan struct{}{}}
+	return &Server{store: store, sup: sup, log: log, conns: map[string]chan *attachpb.ControlDown{}, ports: map[string][]int32{}, portsOwed: map[string]bool{}, owedNotify: map[string]chan struct{}{}, idle: map[string]*idlePush{}}
 }
 
 // authenticate resolves the actorID from stream metadata: bearer identity token
@@ -145,20 +159,23 @@ func (s *Server) Attach(stream attachpb.Runtime_AttachServer) error {
 			case <-stream.Context().Done():
 				return
 			case <-notify:
-				if !s.flushPorts(actorID, ch, stream) {
+				if !s.flushOwed(actorID, ch, stream) {
 					return
 				}
 			case cd, ok := <-ch:
 				if !ok {
 					return
 				}
-				if !s.flushPorts(actorID, ch, stream) { // the set precedes any later control (OpenTunnel)
+				if !s.flushOwed(actorID, ch, stream) { // the set precedes any later control (OpenTunnel)
 					return
 				}
 				if err := stream.Send(cd); err != nil {
 					return
 				}
 			case <-tick.C:
+				if !s.flushOwed(actorID, ch, stream) { // IdleTimeout is first on the stream
+					return
+				}
 				for id, seq := range acks.drain() {
 					if err := stream.Send(&attachpb.ControlDown{Msg: &attachpb.ControlDown_Ack{Ack: &attachpb.EventAck{StreamId: id, Seq: seq}}}); err != nil {
 						return
@@ -234,9 +251,17 @@ func (s *Server) register(actorID string) (chan *attachpb.ControlDown, chan stru
 			s.ports[actorID] = slices.Clone(ports)
 		}
 	}
+	// The stream starts with IdleTimeout, and the armed deadline if any.
+	push := &idlePush{timeoutOwed: true}
+	if s.sup != nil {
+		push.timeout, _ = s.sup.IdleTimeout(actorID)
+		push.deadline = s.sup.IdleDeadline(actorID)
+		push.deadlineOwed = !push.deadline.IsZero()
+	}
+	s.idle[actorID] = push
 	notify := make(chan struct{}, 1)
 	notify <- struct{}{}
-	s.portsNotify[actorID] = notify
+	s.owedNotify[actorID] = notify
 	s.portsOwed[actorID] = true
 	s.mu.Unlock()
 	if old != nil {
@@ -245,19 +270,37 @@ func (s *Server) register(actorID string) (chan *attachpb.ControlDown, chan stru
 	return ch, notify
 }
 
-// flushPorts sends actorID's current port set on stream if it is owed. Only
-// the stream that owns the registered channel may consume the debt, so a
-// superseded stream cannot swallow what its successor must be sent.
-func (s *Server) flushPorts(actorID string, ch chan *attachpb.ControlDown, stream attachpb.Runtime_AttachServer) bool {
+// flushOwed sends on stream what actorID is owed, in order: its IdleTimeout,
+// its port set, its IdleDeadline. Only the stream that owns the registered
+// channel may consume the debt, so a superseded stream cannot swallow what its
+// successor must be sent.
+func (s *Server) flushOwed(actorID string, ch chan *attachpb.ControlDown, stream attachpb.Runtime_AttachServer) bool {
 	s.mu.Lock()
-	if s.conns[actorID] != ch || !s.portsOwed[actorID] {
+	if s.conns[actorID] != ch {
 		s.mu.Unlock()
 		return true
 	}
-	s.portsOwed[actorID] = false
-	ports := slices.Clone(s.ports[actorID])
+	var out []*attachpb.ControlDown
+	push := s.idle[actorID]
+	if push != nil && push.timeoutOwed {
+		push.timeoutOwed = false
+		out = append(out, idleTimeoutMsg(push.timeout))
+	}
+	if s.portsOwed[actorID] {
+		s.portsOwed[actorID] = false
+		out = append(out, tunnelPortsMsg(slices.Clone(s.ports[actorID])))
+	}
+	if push != nil && push.deadlineOwed {
+		push.deadlineOwed = false
+		out = append(out, idleDeadlineMsg(push.deadline))
+	}
 	s.mu.Unlock()
-	return stream.Send(tunnelPortsMsg(ports)) == nil
+	for _, cd := range out {
+		if stream.Send(cd) != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) deregister(actorID string, ch chan *attachpb.ControlDown) {
@@ -266,7 +309,8 @@ func (s *Server) deregister(actorID string, ch chan *attachpb.ControlDown) {
 	if s.conns[actorID] == ch {
 		delete(s.conns, actorID)
 		delete(s.portsOwed, actorID)
-		delete(s.portsNotify, actorID)
+		delete(s.owedNotify, actorID)
+		delete(s.idle, actorID)
 		close(ch)
 	}
 }
@@ -409,8 +453,55 @@ func (s *Server) ExposuresChanged(actorID string, ports []int32) {
 	} else {
 		s.ports[actorID] = slices.Clone(ports)
 	}
-	if n, ok := s.portsNotify[actorID]; ok {
+	if _, ok := s.owedNotify[actorID]; ok {
 		s.portsOwed[actorID] = true
+		s.signalOwed(actorID)
+	}
+}
+
+func idleTimeoutMsg(d time.Duration) *attachpb.ControlDown {
+	return &attachpb.ControlDown{Msg: &attachpb.ControlDown_IdleTimeout{IdleTimeout: &attachpb.IdleTimeout{Ms: uint64(d.Milliseconds())}}}
+}
+
+func idleDeadlineMsg(at time.Time) *attachpb.ControlDown {
+	var ms int64
+	if !at.IsZero() {
+		ms = at.UnixMilli()
+	}
+	return &attachpb.ControlDown{Msg: &attachpb.ControlDown_IdleDeadline{IdleDeadline: &attachpb.IdleDeadline{At: ms}}}
+}
+
+// IdleTimeoutChanged implements jam.IdleSink: if actorID's studio is
+// connected and d is not the timeout its stream already has, owe it d and wake
+// the stream's send loop. Store and signal only, like ExposuresChanged.
+func (s *Server) IdleTimeoutChanged(actorID string, d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	push, ok := s.idle[actorID]
+	if !ok || push.timeout == d {
+		return
+	}
+	push.timeout, push.timeoutOwed = d, true
+	s.signalOwed(actorID)
+}
+
+// IdleDeadlineChanged implements jam.IdleSink: if actorID's studio is
+// connected, owe it at and wake the stream's send loop.
+func (s *Server) IdleDeadlineChanged(actorID string, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	push, ok := s.idle[actorID]
+	if !ok {
+		return
+	}
+	push.deadline, push.deadlineOwed = at, true
+	s.signalOwed(actorID)
+}
+
+// signalOwed wakes actorID's send loop to flush what it is owed. Call with mu
+// held.
+func (s *Server) signalOwed(actorID string) {
+	if n, ok := s.owedNotify[actorID]; ok {
 		select {
 		case n <- struct{}{}:
 		default:
