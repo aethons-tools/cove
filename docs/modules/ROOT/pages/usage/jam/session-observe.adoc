@@ -1,10 +1,10 @@
 = Observing sessions
-:summary: Letting a role's agents read other sessions, read-only: the `scope.observe` grant, the brokered `/squawks/observe` endpoints and the `observe_*` tools over session activity and events, what they return, and what they never allow.
+:summary: Letting a role's agents read other sessions, read-only: the `scope.observe` grant, the brokered `/squawks/observe` endpoints and the `observe_*` tools over session activity and events, what they return (window totals, time ranges, slim results, how a turn's cost is taken), and what they never allow.
 :read_when: You are building, configuring, or reviewing a role that reads other sessions (the optimizer), the `scope.observe` grant, or the `/squawks/observe` endpoints and tools.
 :owns: the `scope.observe` role grant, the `/squawks/observe` endpoints and their wire shapes, the `observe_sessions`, `observe_activity`, `observe_streams`, and `observe_events` tools, and their limits. Does NOT own how events are captured, redacted, or stored (session-events.adoc), or who may open a session view in the app (session-view.adoc).
 :prereqs: session-events.adoc for the event log and its fields; session-activity.adoc for a session's messages; roster.adoc for role scope; intercom.adoc for the brokered `/squawks` endpoints and the studio's tools
 :tier: leaf
-:updated: 2026-11-16
+:updated: 2026-11-18
 :page-normative:
 
 Operators read other sessions in the admin timeline, the NDJSON export, and the session view.
@@ -58,8 +58,9 @@ Each entry has `id`; `label`, from the session's intercom party, which outlives 
 `+first_at+` and `+last_at+`, its streams' first and last event times
 (a session that ended has no other end time);
 `live`, whether Jam still runs it;
-and its *lifetime* `totals` (`sessionevents.Totals`: `turns`, `episodes`, `+tool_calls+`, `errors`, `+input_tokens+`, `+output_tokens+`, `+cost_usd+`).
-Totals over the window alone aren't offered: the totals cover a session's whole life.
+its *lifetime* `totals` (`sessionevents.Totals`: `turns`, `episodes`, `+tool_calls+`, `errors`, `+input_tokens+`, `+output_tokens+`, `+cost_usd+`);
+and `+window_totals+`, the same fields over the events observed in the window alone.
+Both MUST count each turn's cost once (<<turn-cost,Turn cost>>).
 
 |`+GET /squawks/observe/sessions/{id}/activity?anchor=&id=&dir=&limit=+`
 |The session's messages in and out, in every conversation,
@@ -75,7 +76,7 @@ and `out`, whether the session sent it.
 |`+{"streams": [...]}+`: the session's streams, one for each agent process, oldest first:
 `+stream_id+`, `+first_at+`, `+last_at+`, `+last_seq+`, and `events`.
 
-|`+GET /squawks/observe/sessions/{id}/events?stream=&after_seq=&limit=&types=+`
+|`+GET /squawks/observe/sessions/{id}/events?stream=&after_seq=&since=&until=&limit=&types=&slim=+`
 |One stream's captured events:
 `+{"stream_id", "events", "next_after_seq", "more"}+`,
 each event with the export API's fields (xref:usage/jam/session-events.adoc#_export_api[session-events]), `+stream_id+` among them.
@@ -84,11 +85,33 @@ and `limit` defaults to 500 and is at most 2000.
 `types` filters by the event's `type` field (for example `result,assistant`), not its `kind`,
 so a reader can take the turn results first
 and fetch the full events only for the turns it wants.
+`since` and `until` (RFC 3339) keep only the events observed in that time range,
+so a reader can start at a time instead of guessing an event number.
+They combine with `+after_seq+`, which still pages.
+`+slim=true+` leaves out each event's `raw` and `+raw_text+`,
+and gives each `result` event a `turn` object:
+`+cost_usd+`, the turn's own cost (<<turn-cost,Turn cost>>),
+and `+input_tokens+`, `+output_tokens+`, `+cache_read_tokens+`,
+`+cache_creation_5m_tokens+`, and `+cache_creation_1h_tokens+`, from the event's `usage`.
+A slim `result` event MUST stay under 1 KiB.
 `+next_after_seq+` is the `+after_seq+` that continues the page
 and `more` says whether the stream has events after it;
 a filtered page reads at most 20000 events, so it can come back short with `more` set.
 Event numbers restart in each stream, so a reader walks the streams from `streams` in order.
 |===
+
+[#turn-cost]
+=== Turn cost
+
+Claude reports a `result` event's `+total_cost_usd+` as a running total
+for its Claude session, which can span several streams
+when a restart resumes the conversation.
+A turn's cost is the growth since the previous `result` in time of the same Claude session,
+in any stream and even before the window;
+when the running total drops, Claude has started counting again, and the turn's cost is the new total.
+Jam MUST take each turn's cost this way,
+in the order the events were observed, whatever order it reads the streams in,
+so no turn is counted twice.
 
 * `404` for an unknown session (no events and no record in Jam) or stream; `400` for a bad parameter;
 `405` for any method but `GET`; `503` when the Jam records no session events.
@@ -98,9 +121,9 @@ Event numbers restart in each stream, so a reader walks the streams from `stream
 == Tools
 
 The studio's messaging server offers `observe_sessions`, `observe_activity`, `observe_streams`, and `observe_events`,
-mapping to the preceding endpoints (`session` names the `+{id}+`, `types` is a list),
+mapping to the preceding endpoints (`session` names the `+{id}+`, `types` is a list, `slim` is a boolean),
 only to a session whose role has `scope.observe`.
-Each answers Jam's JSON as text, and an answer over 8 MiB fails, asking for a smaller `limit` or a `types` filter.
+Each answers Jam's JSON as text, and an answer over 8 MiB fails, asking for a smaller `limit`, a `types` filter, or `slim`.
 
 The compiled session context carries the grant
 (the boilerplate's *Observing* line, and the bundle's `observe` flag,
