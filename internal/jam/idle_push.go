@@ -3,7 +3,7 @@ package jam
 import "time"
 
 // IdleSink is told what jam-studio-agent must know of a session's idle timeout
-// and deadline (usage/jam/studio-agent.adoc#idle-push). The supervisor
+// and deadline (usage/jam/open-episode.adoc#idle-deadline). The supervisor
 // takes it from its ControlSink (SetControlSink) when that implements it. Like
 // ExposureSink it is called outside instMu, while holding idleMu, so
 // implementations MUST be fast and non-blocking (store and signal only) and

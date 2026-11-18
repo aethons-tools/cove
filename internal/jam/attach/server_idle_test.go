@@ -20,11 +20,19 @@ func idleHarness(t *testing.T, timeout time.Duration) (jam.Store, *jam.Superviso
 	}
 	cc := dial()
 	t.Cleanup(func() { cc.Close() })
-	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(boundedCtx(t, authCtx(tok, secret)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return store, sup, srv, stream
+}
+
+// boundedCtx bounds a test stream, so a push that never comes fails the test
+// instead of hanging it.
+func boundedCtx(t *testing.T, ctx context.Context) context.Context {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	t.Cleanup(cancel)
+	return ctx
 }
 
 // recvUntil receives control messages until want accepts one and returns the
@@ -97,7 +105,7 @@ func TestAttachSendsArmedDeadline(t *testing.T) {
 	inst, _ := store.GetInstance("w1")
 	cc := dial()
 	defer cc.Close()
-	stream, err := attachpb.NewRuntimeClient(cc).Attach(authCtx(tok, secret))
+	stream, err := attachpb.NewRuntimeClient(cc).Attach(boundedCtx(t, authCtx(tok, secret)))
 	if err != nil {
 		t.Fatal(err)
 	}

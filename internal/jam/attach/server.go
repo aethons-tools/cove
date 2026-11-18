@@ -50,7 +50,7 @@ type Server struct {
 	portsOwed  map[string]bool
 	owedNotify map[string]chan struct{}
 	// idle is each connected actor's IdleTimeout and IdleDeadline push
-	// (usage/jam/studio-agent.adoc#idle-push), owed like the port set.
+	// (usage/jam/open-episode.adoc#idle-deadline), owed like the port set.
 	idle map[string]*idlePush
 
 	events  *sessionevents.Ingest

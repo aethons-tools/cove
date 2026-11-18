@@ -1,7 +1,7 @@
 = The Attach stream and jam-studio-agent
 :summary: The managed studio's side of Jam—the Attach gRPC stream (its credentials, reports, control, `OpenTunnel` push and `Tunnel` RPC) and the in-cove `jam-studio-agent` client: its env, agent episodes (and open episodes between turns), wakes, session controls, connector and context refresh, teardown post-mortem and resident mode.
 :read_when: You are configuring or debugging `jam-studio-agent` in a studio, need to know how an agent episode is run, woken, interrupted, compacted or cleared, why a studio did not pick up a connector or model-spec change, or where a dead studio's reason was logged.
-:owns: the Attach stream (incl. its `OpenTunnel`, `IdleTimeout` and `IdleDeadline` pushes and the `Tunnel` RPC) and the `jam-studio-agent` client that dials it—its env, episodes, wake delivery, session controls, connector and context refresh, teardown post-mortem and resident mode
+:owns: the Attach stream (incl. its `OpenTunnel` push and the `Tunnel` RPC) and the `jam-studio-agent` client that dials it—its env, episodes, wake delivery, session controls, connector and context refresh, teardown post-mortem and resident mode
 :prereqs: coves.adoc for the Instance registry, its phases and the `studio` verbs
 :tier: leaf
 :updated: 2026-11-18
@@ -32,20 +32,6 @@ its allow-list (`2222`, the studio's sshd, plus the studio's exposed
 xref:usage/jam/previews.adoc[previews], which Jam pushes as `+SetTunnelPorts{ports}+`
 at the start of every Attach stream and after each change; each push replaces the last).
 An older jam-studio-agent ignores the push, so Jam's open times out (504).
-
-[#idle-push]
-Jam also pushes the session's xref:usage/jam/turn-end.adoc#idle-timeout[idle timeout]
-down the stream; each push replaces that message's last one:
-
-* `+IdleTimeout{ms}+`: the timeout that applies at the next turn end (`0` = none),
-the agent's `idle_timeout` override or else the role's.
-It is the first message on every Attach stream, and is pushed again when it changes:
-an override set, a turn end using up a `next`-scoped one,
-or a role edit (seen on Jam's next reconcile tick).
-* `+IdleDeadline{at}+`: the armed deadline, Unix milliseconds (`0` = none),
-pushed at each turn end and each change while the session is `holding` or `waiting`,
-and after the seed when a stream attaches with one armed.
-Jam never pushes the deadline a turn start clears: jam-studio-agent drops its own then.
 
 [#jam-studio-agent-the-in-cove-client]
 == `jam-studio-agent` (the in-cove client)

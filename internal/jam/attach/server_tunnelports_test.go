@@ -102,8 +102,11 @@ func TestEmptySetForgetsStoredPorts(t *testing.T) {
 // IdleTimeout and tunnel allow-list seed every Attach stream starts with.
 func recvSkippingSeed(stream attachpb.Runtime_AttachClient) (*attachpb.ControlDown, error) {
 	cd, err := stream.Recv()
-	for err == nil && (cd.GetIdleTimeout() != nil || cd.GetTunnelPorts() != nil) {
+	if err == nil && cd.GetIdleTimeout() != nil {
 		cd, err = stream.Recv()
+	}
+	if err == nil && cd.GetTunnelPorts() != nil {
+		return stream.Recv()
 	}
 	return cd, err
 }
