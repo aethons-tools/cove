@@ -26,8 +26,7 @@ and the page keeps only the activity, saying the session has ended in place of t
 
 One line, refreshed on push and every 30 seconds (`+GET /app/user/api/sessions/{id}+`):
 
-* *Identity:* the name (or actor id), kind (standing, personal, ticket, session), ticket,
-role, project, and owner. Under them, the session's xref:usage/jam/intercom.adoc#what-the-tools-do[mission] (one truncated line), when it has one.
+* *Identity:* the name (or actor id), kind (standing, personal, ticket, session), ticket (a link to its xref:usage/jam/work-units.adoc#page[unit of work's page]), role, project, and owner. Under them, the session's xref:usage/jam/intercom.adoc#what-the-tools-do[mission] (one truncated line), when it has one.
 * *State:* the same status as the xref:usage/jam/intercom-ui.adoc#session-status[status strip], how
 long it has been in that state, and open asks.
 * *Cost:* the total and the latest turn's cost. The tooltip shows input and output tokens.

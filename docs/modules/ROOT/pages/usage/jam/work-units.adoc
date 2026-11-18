@@ -1,7 +1,7 @@
-= Units of work: the record and its API
-:summary: The record Jam keeps for each unit of work—its issue, the sessions that have been its worker, the pull requests reported for it, and its last reported state—how worker swaps, reports, and the PR watcher write it, its tables (`work_units`, `work_unit_workers`, `work_unit_prs`) and backfill, and `GET /app/user/api/work/\{key}`.
-:read_when: You are reading or changing what Jam records about a unit of work (`jam.WorkUnitStore`, `Intercom.Reported`, the worker swap in `ownTicketChannel`), its tables or migrations, the PR watcher that posts reviews, merges, and closes to the work log (`prWatcher`, `runtime.requisitioner.pull-requests`), the work API (`userui.apiWork`), or the rail's `WorkRow.state`.
-:owns: the unit of work's record (`jam.WorkUnit`), when it's written, the PR watcher, its storage, and `GET /app/user/api/work/\{key}`. Does NOT own the work log and its current worker (intercom.adoc), the `report` tool (turn-end.adoc), the rail (rail-api.adoc), or who may open a session view (session-view.adoc).
+= Units of work: the record, its API, and its page
+:summary: The record Jam keeps for each unit of work—its issue, the sessions that have been its worker, the pull requests reported for it, and its last reported state—how worker swaps, reports, and the PR watcher write it, its tables (`work_units`, `work_unit_workers`, `work_unit_prs`) and backfill, `GET /app/user/api/work/\{key}`, and the unit's page in the Jam app (`/app/user/w/<key>`).
+:read_when: You are reading or changing what Jam records about a unit of work (`jam.WorkUnitStore`, `Intercom.Reported`, the worker swap in `ownTicketChannel`), its tables or migrations, the PR watcher that posts reviews, merges, and closes to the work log (`prWatcher`, `runtime.requisitioner.pull-requests`), the work API (`userui.apiWork`), the unit's page (`web/app/src/work/`), or the rail's `WorkRow.state`.
+:owns: the unit of work's record (`jam.WorkUnit`), when it's written, the PR watcher, its storage, `GET /app/user/api/work/\{key}`, and the unit's page in the Jam app (`/app/user/w/<key>`). Does NOT own the work log and its current worker (intercom.adoc), the `report` tool (turn-end.adoc), the rail (rail-api.adoc), or who may open a session view (session-view.adoc).
 :prereqs: intercom.adoc for the work log and its worker; turn-end.adoc for `report`
 :tier: leaf
 :updated: 2026-11-17
@@ -158,5 +158,31 @@ and `view`: the session view's path (`/app/user/s/<session>`) when the caller ma
 |Each PR: `url`, `number`, `title`, `state`, `reportedAt`.
 |===
 
+The <<page,unit's page>> reads it.
 The rail's `WorkRow` carries the same `state`
 (xref:usage/jam/rail-api.adoc#sections[rail-api]).
+
+[#page]
+== The page
+
+`/app/user/w/<key>` (`web/app/src/work/`) shows a unit of work
+from <<api,its API>>, in the xref:usage/jam/intercom-ui.adoc[Jam app].
+A Work row in the rail and a ticket session's ticket in the session header open it.
+
+* *Header:* the key and title, each linking to the issue's `url`;
+the state as a chip (`in-progress`, `in-review`, `needs-input`, `blocked`, `done`; none when empty);
+the tracker's name (*Linear*, *GitHub*, else the URL's host) linking to the issue;
+and the work log's *Needs you*, *Call in*, *Join*, and *Leave*, as a conversation header's.
+* *The log:* the work log as the conversation view shows it (`ConversationView` with a `frame`):
+its messages, open asks, status strip, and a composer posting to the log; it marks the log read.
+* *The panel* (`WorkPanel`), folded to a strip by *Hide* and back by its *⟨* (in the page only, not remembered):
+*Agents* lists the current worker first, then the past ones, newest first,
+each with when it worked as far as the record knows;
+the current worker's status is the rail's `WorkRow.worker.state` (a `UnitWorker` has none),
+shown when the rail's worker is that session.
+A worker links to its `view` when set, otherwise its label is plain text.
+*Pull requests* lists each with its `#<n>` (the URL when `0`) linking to it, its title, and its state as a chip.
+* *Narrow screens* (`(max-width: 900px)`, the session pane's breakpoint):
+the log and the panel are two tabs, *Log* and *Agents & pull requests*.
+* *Not found:* a `404` from the API (no such unit, or one the viewer may not read) MUST show the app's "Nothing here." page.
+The page refreshes with the `work` query on every `changed` signal and the 30 s poll.

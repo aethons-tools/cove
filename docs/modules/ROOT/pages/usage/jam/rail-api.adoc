@@ -49,7 +49,8 @@ and zeroes its `work` row's count.
 `web/app/src/rail/RailSections.tsx` shows the sections in the Jam app and in the VS Code rail
 (xref:usage/jam/vscode-hub.adoc#the-rail[vscode-hub], which owns that rail's clicks and ▣).
 The caller makes each item open something.
-In the Jam app, a `Me` or History row and a Work row are links to their conversation,
+In the Jam app, a `Me` or History row is a link to its conversation,
+a Work row to its unit of work's page (`/app/user/w/<key>`, xref:usage/jam/work-units.adoc#page[work-units]), marked while it's open,
 and a card and a Work row's worker are links to the session view (`/app/user/s/<session>`).
 
 * *`Me`:* one compact row per conversation:

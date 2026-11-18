@@ -6,7 +6,7 @@ import { Link } from "react-router";
 import { apiPost, type ApiError } from "../api/client";
 import type { SessionHead } from "../api/types";
 import { copyText } from "../conversation/copy";
-import { APP } from "../paths";
+import { APP, workPath } from "../paths";
 import { PANE_TABS, TAB_LABEL, type PaneTab } from "./layout";
 import { vscodeLink, vscodiumLink } from "./vscode";
 
@@ -29,8 +29,8 @@ const actionLabel = (a: Action) => a[0]!.toUpperCase() + a.slice(1);
 
 // SessionHeader is a session's header: who it is, what it's doing, what it
 // costs, its pane's tabs (when onTab is given), and its actions; linked makes
-// the name a link to the session view. The server re-checks every action; a
-// refusal shows its message.
+// the name a link to the session view, and a ticket opens its unit of work's
+// page. The server re-checks every action; a refusal shows its message.
 export function SessionHeader({ head: h, tab, onTab, linked }: { head: SessionHead; tab?: PaneTab | null; onTab?: (t: PaneTab) => void; linked?: boolean }) {
   const client = useQueryClient();
   const [asking, setAsking] = useState<Action | null>(null);
@@ -54,7 +54,8 @@ export function SessionHeader({ head: h, tab, onTab, linked }: { head: SessionHe
             ? <Anchor component={Link} to={`${APP}s/${encodeURIComponent(h.id)}`} fw={700} size="sm" c="inherit" underline="hover">{h.label}</Anchor>
             : <Text fw={700} size="sm">{h.label}</Text>}
           <Badge size="xs" variant="light">{h.kind}</Badge>
-          {h.ticket && <Badge size="xs" variant="outline">{h.ticket}</Badge>}
+          {h.ticket && <Badge component={Link} to={workPath(h.ticket)} size="xs" variant="outline" style={{ cursor: "pointer" }}
+            title="Open the unit of work's page">{h.ticket}</Badge>}
         </Group>
         <Text size="xs" c="dimmed">{h.role} · {h.project}{h.owner && ` · for ${h.owner}`}</Text>
         {h.mission && <Text size="xs" truncate="end" title={h.mission}>{h.mission}</Text>}

@@ -51,6 +51,13 @@ function serve(h: SessionHead | null | (() => SessionHead | null), panes: Record
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 
 describe("the session header", () => {
+  it("links a ticket session's ticket to its unit of work's page", async () => {
+    serve(head({ kind: "ticket", ticket: "acme/web#12" }));
+    renderApp(boot, "/app/user/c/chn_s");
+    const hd = await screen.findByRole("region", { name: "Session" });
+    expect(within(hd).getByRole("link", { name: "acme/web#12" })).toHaveAttribute("href", "/app/user/w/acme%2Fweb%2312");
+  });
+
   it("shows who, what it's doing, cost, context and uptime", async () => {
     serve(head());
     renderApp(boot, "/app/user/c/chn_s");
