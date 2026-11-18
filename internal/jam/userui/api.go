@@ -24,6 +24,7 @@ func (h *handler) apiRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /app/user/api/bootstrap", h.apiBootstrap)
 	mux.HandleFunc("GET /app/user/api/rail", h.apiRail)
 	mux.HandleFunc("PUT /app/user/api/rail/order", h.apiRailOrder)
+	mux.HandleFunc("GET /app/user/api/lookup", h.apiLookup)
 	h.conversationRoutes(mux)
 	h.composeRoutes(mux)
 	h.askRoutes(mux)

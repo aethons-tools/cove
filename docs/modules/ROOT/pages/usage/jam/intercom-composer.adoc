@@ -17,7 +17,9 @@ one of these:
 a unit of work's log id (its *Log*),
 or `+worker:<key>+` (its *Worker*: the `dm` with the unit's current worker; `409` with `+code: "no-worker"+` when it has no live worker).
 The intercom decides whether the person may
-post there and who hears it. A reply to a waiting studio *wakes it* exactly
+post there and who hears it.
+A finished conversation has no composer, and a post to it is `409`
+(xref:usage/jam/rail-api.adoc#lookup[rail-api]). A reply to a waiting studio *wakes it* exactly
 as a relayed reply does (xref:usage/jam/wake-on.adoc[wake-on]).
 Messages are markdown; tick *Plain text* to send one as `text/plain`. A
 message is trimmed at both ends.

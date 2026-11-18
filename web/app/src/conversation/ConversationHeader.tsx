@@ -46,6 +46,7 @@ export function ConversationActions({ c }: { c: Conversation }) {
   return (
     <Group gap="xs" wrap="nowrap">
       {c.needsYou && <Badge color="yellow">Needs you</Badge>}
+      {c.finished && <Badge variant="outline" color="gray" tt="none">Finished · read only</Badge>}
       {c.newBoard && boot.boards && <NewBoard channel={c.channelId} />}
       {c.callIn.length > 0 && (
         <Group gap={4} wrap="nowrap">

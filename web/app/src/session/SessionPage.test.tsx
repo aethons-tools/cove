@@ -133,7 +133,7 @@ describe("the session view", () => {
     renderApp(boot, "/app/user/s/ses_1");
     expect(await within(await screen.findByRole("log", { name: "Activity" })).findByText("hi alice")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Session" })).toBeNull();
-    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: /^Message / })).toBeNull();
     expect(screen.getByText(/This session has ended/)).toBeInTheDocument();
   });
 });

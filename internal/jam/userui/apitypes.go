@@ -146,6 +146,45 @@ type RailOrderRequest struct {
 	IDs     []string `json:"ids"`
 }
 
+// LookupResponse is GET /app/user/api/lookup?q=: the finished conversations
+// and ended sessions the viewer may read that match q, each newest first and
+// at most 50 (docs/modules/ROOT/pages/usage/jam/rail-api.adoc#lookup).
+type LookupResponse struct {
+	Conversations []LookupConversation `json:"conversations"`
+	Sessions      []LookupSession      `json:"sessions"`
+}
+
+// LookupConversation is a finished conversation: its rail row, when it
+// finished, and why (jam.Finished: ended, archived, or done).
+type LookupConversation struct {
+	Row      ChannelRow `json:"row"`
+	Title    string     `json:"title,omitempty"` // a work log's issue title
+	Finished time.Time  `json:"finished"`
+	Why      string     `json:"why"`
+	// Match is the newest message that matched; nil when the name did.
+	Match *LookupMatch `json:"match" tstype:"LookupMatch | null,required"`
+}
+
+// LookupSession is an ended session whose view the viewer may open. Kind is
+// the session header's: standing, personal, ticket, or session.
+type LookupSession struct {
+	Session string    `json:"session"`
+	Label   string    `json:"label"`
+	Kind    string    `json:"kind"`
+	Mission string    `json:"mission"`
+	Ended   time.Time `json:"ended"`
+	// Match is the newest message of its activity that matched; nil when
+	// its name or mission did.
+	Match *LookupMatch `json:"match" tstype:"LookupMatch | null,required"`
+}
+
+// LookupMatch is a matching message: who sent it, and its text (clipped
+// around the match).
+type LookupMatch struct {
+	From string `json:"from"`
+	Text string `json:"text"`
+}
+
 // ChannelRow is one conversation in the rail's Me or History section, from
 // the viewer's perspective.
 type ChannelRow struct {
@@ -270,15 +309,18 @@ type AskRef struct {
 
 // Conversation is the right-pane view of one open channel.
 type Conversation struct {
-	ChannelID string       `json:"channelId"`
-	Label     string       `json:"label"`
-	Kind      string       `json:"kind"` // as ChannelRow.Kind
-	Project   string       `json:"project"`
-	Phase     string       `json:"phase"`
-	NeedsYou  bool         `json:"needsYou"`
-	SendTo    string       `json:"sendTo"` // the composer's POST api/messages "to" ("" = read-only History)
-	Messages  []MessageRow `json:"messages"`
-	LastSeq   int64        `json:"lastSeq"`
+	ChannelID string `json:"channelId"`
+	Label     string `json:"label"`
+	Kind      string `json:"kind"` // as ChannelRow.Kind
+	Project   string `json:"project"`
+	Phase     string `json:"phase"`
+	NeedsYou  bool   `json:"needsYou"`
+	SendTo    string `json:"sendTo"` // the composer's POST api/messages "to" ("" = read-only: History, or finished)
+	// Finished says why the conversation finished (jam.Finished: ended,
+	// archived, or done; "" while it is live): it reads, but takes no posts.
+	Finished string       `json:"finished"`
+	Messages []MessageRow `json:"messages"`
+	LastSeq  int64        `json:"lastSeq"`
 	// Earlier: the API page has older messages before its first (GET
 	// api/conversations/{c}?before=<first seq>).
 	Earlier bool `json:"earlier"`

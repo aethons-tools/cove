@@ -121,6 +121,9 @@ func (h *ParticipantSendHandler) Send(p Participant, req SendRequest) (intercom.
 		return intercom.Squawk{}, sendErr(http.StatusServiceUnavailable, "unavailable", "messaging not configured")
 	}
 	pl, err := h.plan(p, req.To)
+	if errors.Is(err, ErrRemoved) && isChannelID(req.To) || err == nil && Finished(h.store, p.UserID, pl.Channel) != "" {
+		return intercom.Squawk{}, sendErr(http.StatusConflict, "finished", "this conversation is finished; nothing was sent")
+	}
 	switch {
 	case errors.Is(err, ErrSendDenied):
 		return intercom.Squawk{}, sendErr(http.StatusForbidden, "forbidden", "not allowed")
@@ -156,8 +159,8 @@ func (h *ParticipantSendHandler) plan(p Participant, to string) (Planned, error)
 	kind, ref, ok := strings.Cut(to, ":")
 	switch {
 	case !ok:
-		if id, err := ident.Parse(to); err == nil && id.Kind() == ident.Channel {
-			return h.ic.PlanChannel(Poster{ID: p.UserID}, id)
+		if isChannelID(to) {
+			return h.ic.PlanChannel(Poster{ID: p.UserID}, ident.ID(to))
 		}
 	case kind == "user" || kind == "human":
 		id, ok := h.user(ref)
@@ -190,4 +193,10 @@ func (h *ParticipantSendHandler) user(ref string) (ident.ID, bool) {
 		return id, true
 	}
 	return h.store.LookupName(ident.User, ref)
+}
+
+// isChannelID reports whether a send's to is a channel id.
+func isChannelID(to string) bool {
+	id, err := ident.Parse(to)
+	return err == nil && id.Kind() == ident.Channel
 }
