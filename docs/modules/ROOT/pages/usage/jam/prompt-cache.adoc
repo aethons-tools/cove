@@ -156,6 +156,8 @@ and the keep-warm reason adds nothing to the prompt.
 ifdef::internal[]
 == Notes for the team
 
+* The starting profiles for the `test` project, and why, are in the process book's *Roles and their sessions*.
+The optimizer tunes them from its daily review.
 * Checked by hand on Claude Code 2.1.287 (COV-398):
 `promptCacheTtl: "1h"` in a `+--settings+` file turns the `result` event's
 `+usage.cache_creation+` from `+ephemeral_5m_input_tokens+` to `+ephemeral_1h_input_tokens+`,
