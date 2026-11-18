@@ -27,7 +27,7 @@ it re-checks that the session is between episodes—`idled`, or live and
 and xref:usage/jam/turn-end.adoc#holding[`holding`] (background tasks a teardown would stop)
 are busy: the upgrade waits, it is never refused. `+--force+` skips the wait.
 . *Restart*: a plain teardown—*its volumes are kept*—then a raise of the same
-session, which *resumes its conversation and workspace* like any restart (its Docker
+session, which *resumes its conversation, workspace, and xref:usage/jam/standing-state.adoc#session-record[session record]* like any restart (its Docker
 cache starts clean: it is the studio's). A failed teardown stays pending
 (`+teardown-failed: <reason>+`), retried every pass; a failed raise backs the name off as usual.
 A name with no studio is just raised, its backoff cleared.
