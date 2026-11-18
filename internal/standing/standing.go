@@ -67,6 +67,9 @@ type Supervisor interface {
 	// PrepareImage makes that image ready; it may build for minutes, so the
 	// reconciler runs it off its lock.
 	PrepareImage(ctx context.Context, project, role, manager string) (jam.CurrentImage, jam.KitStatus, error)
+	// ForgetRecord drops the session record a standing teardown kept for the
+	// session's next raise, so a reset or dismissed session starts empty.
+	ForgetRecord(actorID string)
 }
 
 // Actors is the actor store, used to clear a leftover identity. A crash between
@@ -316,6 +319,7 @@ func (r *Reconciler) Tick(ctx context.Context) {
 			r.log.Warn("standing: teardown of dismissed session failed", "id", inst.ActorID, "err", err.Error())
 			continue
 		}
+		r.sup.ForgetRecord(inst.ActorID)
 		delete(r.backoff, inst.ActorID)
 		r.log.Info("standing: dismissed session torn down", "id", inst.ActorID, "project", inst.Project, "role", inst.Role, "name", inst.Name)
 	}
@@ -355,6 +359,7 @@ func (r *Reconciler) sweep(ctx context.Context, declaredIDs map[string]bool) {
 			r.log.Info("standing: undeclared session's state not purged yet; retrying next pass", "id", id, "err", err.Error())
 			continue
 		}
+		r.sup.ForgetRecord(id)
 		r.log.Info("standing: undeclared session's state purged", "id", id)
 	}
 }
@@ -627,6 +632,7 @@ func (r *Reconciler) finishReset(ctx context.Context, id string) error {
 	if err := r.sup.Teardown(ctx, id); err != nil {
 		return fmt.Errorf("teardown: %w", err)
 	}
+	r.sup.ForgetRecord(id) // a reset starts the session with an empty record
 	if err := r.sup.PurgeState(ctx, id); err != nil {
 		return fmt.Errorf("purge state: %w", err)
 	}
