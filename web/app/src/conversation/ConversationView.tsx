@@ -1,7 +1,8 @@
 import { Loader, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { apiPost } from "../api/client";
+import type { Conversation } from "../api/types";
 import { Problem } from "../Problem";
 import { ConversationHeader } from "./ConversationHeader";
 import { MessageList } from "./MessageList";
@@ -16,8 +17,12 @@ import { useFocusReport } from "../push/useFocusReport";
 
 // ConversationView is one open conversation: header, messages, presence. It
 // marks the conversation read up to its newest message while the page is
-// visible (History has no cursor: never).
-export function ConversationView({ id, withSession = true }: { id: string; withSession?: boolean }) {
+// visible (History has no cursor: never). frame, when given, lays out the
+// page itself around the log (its messages and composer), with no session
+// view: a unit of work's page.
+export function ConversationView({ id, withSession = true, frame }: {
+  id: string; withSession?: boolean; frame?: (c: Conversation, log: ReactNode) => ReactNode;
+}) {
   const q = useConversation(id);
   const client = useQueryClient();
   const here = useLocation();
@@ -60,9 +65,12 @@ export function ConversationView({ id, withSession = true }: { id: string; withS
       {c.sendTo
         ? <Composer ref={composer} key={c.sendTo} to={c.sendTo} label={c.label} attachMax={boot.attachMax} accent={c.color || undefined}
             onSent={() => setStick((n) => n + 1)} />
-        : <Text size="sm" c="dimmed" p="xs">From before the upgrade: read-only.</Text>}
+        : <Text size="sm" c="dimmed" p="xs">{c.finished
+          ? "This conversation has finished. You can read it but not post to it."
+          : "From before the upgrade: read-only."}</Text>}
     </>
   );
+  if (frame) return frame(c, main);
   return (
     <Stack gap={0} h="calc(100dvh - var(--app-shell-header-height, 0px) - 2 * var(--app-shell-padding, 0px))">
       {withSession

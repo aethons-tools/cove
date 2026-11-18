@@ -47,6 +47,9 @@ You see your DM in the activity and in your Inbox.
 When the session ends,
 the view keeps its activity,
 but its header and pane go.
+To open it after that,
+look the session up in the rail
+(xref:inbox/channels.adoc#_looking_up[Looking up]).
 
 == The header
 
@@ -57,7 +60,8 @@ From left to right, the header shows:
 Who it is::
 The session's name and its kind:
 *standing*, *personal*, *ticket*, or *session*.
-A ticket session also shows its ticket.
+A ticket session also shows its ticket;
+click it to open the unit of work's page.
 Under the name are its role, its project and, for a personal session, whose it is.
 Under them is the session's mission, the goal it set for itself, if it has one.
 State::

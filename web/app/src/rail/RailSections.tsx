@@ -11,14 +11,17 @@ import "./rail.css";
 // below them (docs/modules/ROOT/pages/usage/jam/rail-api.adoc#clients),
 // shared by the web app (router links) and the VS Code rail (click
 // handlers). The caller makes each item open something: rowProps a Me or
-// History row, workProps a work row (its log), cardProps an Agents card,
+// History row, workProps a work row (its unit's page, or its log),
+// cardProps an Agents card,
 // and onWorker a work row's worker; marker adds a cue to a session's row or
 // card. Me rows and Agents cards reorder by drag and drop, or with their
-// grip's arrow keys, saving the section's order.
-export function RailSections({ rail, active, activeSession, rowProps, workProps, cardProps, onWorker, marker }: {
+// grip's arrow keys, saving the section's order. active marks the open
+// conversation, activeSession the open session, activeWork the open unit.
+export function RailSections({ rail, active, activeSession, activeWork, rowProps, workProps, cardProps, onWorker, marker }: {
   rail: RailResponse;
   active?: string;
   activeSession?: string;
+  activeWork?: string;
   rowProps: (r: ChannelRow) => Record<string, unknown>;
   workProps: (w: WorkRow) => Record<string, unknown>;
   cardProps: (a: AgentItem) => Record<string, unknown>;
@@ -73,7 +76,7 @@ export function RailSections({ rail, active, activeSession, rowProps, workProps,
                 <li key={w.log}>
                   <NavLink
                     {...workProps(w)}
-                    active={w.log === active}
+                    active={w.log === active || w.key === activeWork}
                     py={4}
                     label={<Text size="sm" truncate><b>{w.key}</b> {w.title}</Text>}
                     rightSection={unreadBadge(w.unread)}
@@ -125,11 +128,11 @@ const stateColor: Record<CardState, string> = { thinking: "blue", working: "gree
 
 const unreadBadge = (n: number | undefined) => (n ? <Badge size="sm" circle aria-label={`${n} unread`}>{n}</Badge> : null);
 
-function Heading({ children }: { children: ReactNode }) {
+export function Heading({ children }: { children: ReactNode }) {
   return <Text component="h3" size="xs" fw={700} c="dimmed" tt="uppercase" m={0} px="sm" py={4}>{children}</Text>;
 }
 
-function List({ label, children }: { label: string; children: ReactNode }) {
+export function List({ label, children }: { label: string; children: ReactNode }) {
   return <ul aria-label={label} className="rail-list">{children}</ul>;
 }
 

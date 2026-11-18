@@ -25,7 +25,7 @@ const msg = (seq: number, over: Partial<MessageRow> = {}): MessageRow => ({
   mine: false, seq, system: false, sysText: "", card: "", ...over,
 });
 const conv = (channel: string, over: Partial<Conversation> = {}): Conversation => ({
-  channelId: channel, label: `conv ${channel}`, kind: "session", project: "test", phase: "live", needsYou: false, sendTo: channel,
+  channelId: channel, label: `conv ${channel}`, kind: "session", project: "test", phase: "live", needsYou: false, sendTo: channel, finished: "",
   messages: [msg(1, { body: `<p>hello from ${channel}</p>` })], lastSeq: 1, earlier: false,
   sessionIds: ["ses_1"], sessions: [], canJoin: false, canLeave: false, callIn: [], openAsks: [], session: "ses_1", newBoard: false, ...over,
 });

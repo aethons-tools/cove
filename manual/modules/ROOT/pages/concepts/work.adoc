@@ -79,6 +79,43 @@ An agent can always post to the log of its own ticket.
 To reach other work, its role's addressing must allow the ticket
 (xref:configuration/roles.adoc[Configuring roles and raising agents]).
 
+== Seeing the work
+
+A unit of work has its own page in the Inbox.
+To open it,
+click its row under *Work* in the rail,
+or the ticket in the header of its agent's session view.
+
+image::work-page.png["A unit of work's page: the work log, with its agents and pull requests beside it",800]
+
+The page has three parts:
+
+The header::
+The ticket's key and title,
+which link to the issue in the tracker,
+and the unit's state,
+such as *in review*.
+The log::
+The work log fills the middle of the page,
+with a box under it to post to the log.
+The panel::
+The panel beside the log lists the unit's agents and its pull requests.
+The agent working on it now comes first, with its status,
+then the agents that worked on it before,
+with the dates they worked when Jam knows them.
+Click an agent to open its session view,
+if you may open it.
+Each pull request shows its number, its title,
+and whether it's open, merged, or closed,
+and links to it.
+Click *Hide* to fold the panel away.
+
+On a narrow screen,
+the log and the panel are two tabs.
+
+If you may not read the unit's log,
+the page says it isn't found.
+
 ifdef::internal[]
 == Notes for the team
 
@@ -93,8 +130,11 @@ See `work-log-history.adoc`.
 and DM its worker with *Worker*:
 a recipient's `worker` field (`worker:<key>`), offered while the unit has a live worker they may reach.
 From the Inbox, no worker is `409` with `code: "no-worker"`.
-A unit of work has no page of its own yet (COV-308);
-`GET /app/user/api/work/<key>` returns its record (COV-405).
+* A unit of work's page is `/app/user/w/<key>` in the web app (COV-408),
+built on `+GET /app/user/api/work/{key}+` (COV-405);
+the current worker's status comes from the rail's `WorkWorker.state`, since `UnitWorker` has none.
+See `work-units.adoc#page`.
+In VS Code, a Work row still opens the work log.
 * Architecture pages: `docs/modules/ROOT/pages/usage/jam/comms-addressing.adoc` (targets and addressing),
-`intercom.adoc` (the channel log), `work-units.adoc` (the unit's record and its API).
+`intercom.adoc` (the channel log), `work-units.adoc` (the unit's record, its API, and its page).
 endif::[]

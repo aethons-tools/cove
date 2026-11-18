@@ -20,7 +20,7 @@ const pane = (tab: string, over: Partial<SessionPane> = {}): SessionPane => ({
   id: "ses_1", tab, previews: [], previewsOff: false, boards: [], files: [], asks: [], links: [], status: [], streams: [], eventsOff: false, ...over,
 });
 const conv: Conversation = {
-  channelId: "chn_s", label: "intercom-spider", kind: "session", project: "test", phase: "live", needsYou: false, sendTo: "chn_s",
+  channelId: "chn_s", label: "intercom-spider", kind: "session", project: "test", phase: "live", needsYou: false, sendTo: "chn_s", finished: "",
   messages: [], lastSeq: 0, earlier: false, sessionIds: ["ses_1"], sessions: [], canJoin: false, canLeave: false, callIn: [], openAsks: [],
   session: "ses_1", newBoard: false,
 };
@@ -51,6 +51,13 @@ function serve(h: SessionHead | null | (() => SessionHead | null), panes: Record
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 
 describe("the session header", () => {
+  it("links a ticket session's ticket to its unit of work's page", async () => {
+    serve(head({ kind: "ticket", ticket: "acme/web#12" }));
+    renderApp(boot, "/app/user/c/chn_s");
+    const hd = await screen.findByRole("region", { name: "Session" });
+    expect(within(hd).getByRole("link", { name: "acme/web#12" })).toHaveAttribute("href", "/app/user/w/acme%2Fweb%2312");
+  });
+
   it("shows who, what it's doing, cost, context and uptime", async () => {
     serve(head());
     renderApp(boot, "/app/user/c/chn_s");
@@ -334,12 +341,12 @@ describe("the session pane", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     renderApp(boot, "/app/user/c/chn_s", client);
     await screen.findByRole("region", { name: "Session" });
-    const box = screen.getByRole("textbox");
+    const box = screen.getByRole("textbox", { name: /^Message / });
     live = false;
     await client.invalidateQueries();
     await waitFor(() => expect(screen.queryByRole("region", { name: "Session" })).toBeNull());
     await waitFor(() => expect(client.getQueryState(["conversation", "chn_s"])?.fetchStatus).toBe("idle"));
-    expect(screen.getByRole("textbox")).toBe(box);
+    expect(screen.getByRole("textbox", { name: /^Message / })).toBe(box);
   });
 
   it("leaves the saved layouts alone in a conversation without a session", async () => {
