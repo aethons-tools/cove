@@ -64,6 +64,7 @@
 *** xref:usage/jam/model-spec-policy.adoc[]
 *** xref:usage/jam/model-specs.adoc[]
 *** xref:usage/jam/monitoring.adoc[]
+*** xref:usage/jam/open-episode.adoc[]
 *** xref:usage/jam/operator-notes.adoc[]
 *** xref:usage/jam/operators.adoc[]
 *** xref:usage/jam/personal-idle-ladder.adoc[]

@@ -1,0 +1,90 @@
+= Keeping an episode open until the idle deadline
+:summary: How jam-studio-agent keeps an agent episode's process running after a turn ends, until the session's idle deadline: the `IdleDeadline` Attach message, when an open episode closes, and how wakes, session controls, connector refresh, and pausing treat one.
+:read_when: You are building or debugging what a studio does between turns, need to know why a woken agent did or did not start a new `claude` process, or are changing the idle timeout or the Attach stream's control messages.
+:owns: the open episode (a live process between turns), the `IdleDeadline` control message, the rules that close an open episode, and how wakes, `Interrupt`, `Compact`, `Clear`, and connector refresh act on one. Does NOT own the idle timeout itself (turn-end.adoc), episodes, holds, and session controls in general (studio-agent.adoc), or pausing (wake-on.adoc).
+:prereqs: studio-agent.adoc for episodes and session controls; turn-end.adoc for the idle timeout and wake reasons
+:tier: leaf
+:updated: 2026-11-18
+:page-normative:
+
+Today an episode ends as soon as its turn is over and no background task is outstanding:
+jam-studio-agent closes stdin, `claude` exits,
+and every wake starts a new process with `+claude --continue+`.
+Each new process starts its MCP servers and reloads the conversation before the agent can answer,
+and a `keep-warm` wake (xref:usage/jam/prompt-cache.adoc#keeping-it-warm[prompt cache]) pays that again every `ttl`.
+Nothing requires the process to stop before the session's idle timeout (Linear COV-368).
+An *open episode* is one whose process keeps running between turns, until the idle deadline.
+
+[#idle-deadline]
+== The idle deadline
+
+Jam MUST send `+IdleDeadline{at}+` down the Attach stream
+(a new `ControlDown` message; `at` is a Unix time in milliseconds, `0` for none)
+each time it arms, changes, or disarms a session's idle deadline
+(xref:usage/jam/turn-end.adoc#idle-timeout[idle timeout]),
+and first on every Attach stream.
+Each push replaces the last.
+A jam-studio-agent that predates the message ignores it,
+so its episodes end at the turn's end as before.
+
+[#keeping-it-open]
+== Keeping it open
+
+When a turn ends with no background task outstanding,
+jam-studio-agent MUST keep stdin open while the last `IdleDeadline` is in the future,
+and reports `waiting`.
+With no deadline, or one already past, it closes stdin at once, as today.
+A xref:usage/jam/turn-end.adoc#holding[hold] whose tasks finish is kept open the same way;
+a hold whose `BackgroundWait` elapses closes stdin, as today.
+
+jam-studio-agent MUST close an open episode's stdin when:
+
+* the deadline passes;
+* Jam pushes a deadline of `0`, or one already past;
+* a wake needs a new episode (<<wakes>>);
+* someone presses *Clear* (<<controls>>).
+
+Closing ends the episode as any episode ends:
+the process exits, and the next wake starts a new one.
+A teardown cancels an open episode's run, as it cancels any run.
+A studio that restarts has no open episode; its next wake starts one with `+--continue+`.
+
+An open episode is `waiting`, so Jam pauses its studio at the `warm-timeout`
+as it pauses any waiting studio
+(xref:usage/jam/wake-on.adoc[wake-on]);
+`docker pause` freezes the idle process, and it carries on when the studio resumes.
+
+[#wakes]
+== Wakes into an open episode
+
+A wake that reaches an open episode MUST be written to its stdin as the resume prompt,
+as a wake between turns is today,
+unless it needs a new episode.
+It needs one when:
+
+* its reasons include `idle`: the deadline has passed, whichever side saw it first;
+* the connector or the model spec changed since the episode started.
+Before writing a wake into an open episode,
+jam-studio-agent re-fetches the connector (`GET /connector`),
+as it re-fetches the session context
+(xref:usage/jam/session-context.adoc#refresh[session-context]).
+
+For a wake that needs a new episode, jam-studio-agent closes stdin,
+waits for the process to exit,
+and starts the next episode with `+--continue+` and that wake,
+so the new episode picks up the current connector and model spec.
+A failed connector fetch keeps the open episode, as a failed fetch keeps the last connector today.
+
+`keep-warm` and `compact-due` wakes are written into an open episode like any other wake,
+so keeping the cache warm starts no process.
+
+[#controls]
+== Session controls on an open episode
+
+* *Interrupt* is ignored as `not in a turn`, as it is between turns today.
+* *Compact* is written into the open episode at once, as it is between turns today;
+no maintenance episode runs.
+The episode stays open afterward, until the deadline.
+* *Clear* closes the open episode, then applies as it does while waiting:
+the next episode starts without `+--continue+`
+(xref:usage/jam/studio-agent.adoc#session-controls-interrupt-compact-clear[session controls]).
