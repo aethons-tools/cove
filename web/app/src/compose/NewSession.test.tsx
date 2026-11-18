@@ -29,7 +29,7 @@ describe("New session", () => {
         return HttpResponse.json({ id: "ses_new", name: "pair-01", channel: "chn_ses" }, { status: 201 });
       }),
       http.get("/app/user/api/conversations/chn_ses", () => HttpResponse.json({
-        channelId: "chn_ses", label: "pair-01", kind: "session", project: "test", phase: "raising", needsYou: false, sendTo: "chn_ses",
+        channelId: "chn_ses", label: "pair-01", kind: "session", project: "test", phase: "raising", needsYou: false, sendTo: "chn_ses", finished: "",
         messages: [], lastSeq: 0, earlier: false, sessionIds: [], sessions: [], canJoin: false, canLeave: true, callIn: [], openAsks: [], session: "", newBoard: false,
       } satisfies Conversation)),
       http.get("/app/user/api/conversations/chn_ses/presence", () => HttpResponse.json({ sessions: [] })),

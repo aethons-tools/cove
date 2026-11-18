@@ -97,6 +97,12 @@ func conversation(p jam.Participant, d Deps, channelID string) (Conversation, bo
 		ChannelID: channelID, Label: v.Label, Kind: viewKind(v), Project: v.Project, Phase: v.Phase, NeedsYou: v.NeedsYou,
 		SendTo: channelID, LastSeq: v.LastSeq, SessionIDs: v.Sessions,
 	}
+	if ch, ok := d.Store.GetChannel(ident.ID(channelID)); ok {
+		// A finished conversation reads as before, with no composer.
+		if conv.Finished = jam.Finished(d.Store, p.UserID, ch); conv.Finished != "" {
+			conv.SendTo = ""
+		}
+	}
 	colors := map[ident.ID]string{}
 	for _, m := range d.Log.ChannelSince(ident.ID(channelID), 0, 0) {
 		conv.Messages = append(conv.Messages, shownRow(p, d, m, colors))

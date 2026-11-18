@@ -5,7 +5,7 @@
 # (JAM_BROWSER overrides). Paths are relative to the repo root.
 #
 #   scripts/manual-shot.sh <route> --out manual/modules/<area>/images/<name>.png \
-#     [--selector <css>] [--pad 8] [--width 1280] [--height 800] [--scale 2]
+#     [--selector <css>] [--click <css>]... [--type <css>=<text>]... [--pad 8] [--width 1280] [--height 800] [--scale 2]
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root/web/app"

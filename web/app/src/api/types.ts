@@ -176,6 +176,53 @@ export interface RailOrderRequest {
   ids: string[];
 }
 /**
+ * LookupResponse is GET /app/user/api/lookup?q=: the finished conversations
+ * and ended sessions the viewer may read that match q, each newest first and
+ * at most 50 (docs/modules/ROOT/pages/usage/jam/rail-api.adoc#lookup).
+ */
+export interface LookupResponse {
+  conversations: LookupConversation[];
+  sessions: LookupSession[];
+}
+/**
+ * LookupConversation is a finished conversation: its rail row, when it
+ * finished, and why (jam.Finished: ended, archived, or done).
+ */
+export interface LookupConversation {
+  row: ChannelRow;
+  title?: string; // a work log's issue title
+  finished: string;
+  why: string;
+  /**
+   * Match is the newest message that matched; nil when the name did.
+   */
+  match: LookupMatch | null;
+}
+/**
+ * LookupSession is an ended session whose view the viewer may open. Kind is
+ * the session header's: standing, personal, ticket, or session.
+ */
+export interface LookupSession {
+  session: string;
+  label: string;
+  kind: string;
+  mission: string;
+  ended: string;
+  /**
+   * Match is the newest message of its activity that matched; nil when
+   * its name or mission did.
+   */
+  match: LookupMatch | null;
+}
+/**
+ * LookupMatch is a matching message: who sent it, and its text (clipped
+ * around the match).
+ */
+export interface LookupMatch {
+  from: string;
+  text: string;
+}
+/**
  * ChannelRow is one conversation in the rail's Me or History section, from
  * the viewer's perspective.
  */
@@ -334,7 +381,12 @@ export interface Conversation {
   project: string;
   phase: string;
   needsYou: boolean;
-  sendTo: string; // the composer's POST api/messages "to" ("" = read-only History)
+  sendTo: string; // the composer's POST api/messages "to" ("" = read-only: History, or finished)
+  /**
+   * Finished says why the conversation finished (jam.Finished: ended,
+   * archived, or done; "" while it is live): it reads, but takes no posts.
+   */
+  finished: string;
   messages: MessageRow[];
   lastSeq: number /* int64 */;
   /**

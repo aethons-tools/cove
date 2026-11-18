@@ -28,7 +28,7 @@ const msg = (seq: number, raw: string): MessageRow => ({
   mine: false, seq, system: false, sysText: "", card: "",
 });
 const log: Conversation = {
-  channelId: "chn_acme42", label: "ACME-42", kind: "work", project: "acme", phase: "live", needsYou: false, sendTo: "chn_acme42",
+  channelId: "chn_acme42", label: "ACME-42", kind: "work", project: "acme", phase: "live", needsYou: false, sendTo: "chn_acme42", finished: "",
   messages: [msg(1, "Starting with the route.")], lastSeq: 1, earlier: false, sessionIds: [], sessions: [],
   canJoin: true, canLeave: false, callIn: [], openAsks: [], session: "", newBoard: false,
 };

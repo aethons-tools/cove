@@ -89,7 +89,9 @@ plus `+--pad+`, default 8 CSS pixels; without it, the whole page), `+--width+`
 (default 1280) and `+--height+` (800; grown to the page), `+--scale+` (device
 pixels per CSS pixel, default 2), `+--click <css>+` (click the first match
 once the view is ready, before the shot; repeat it to click in order, for
-example a card's Edit button, then a row's toggle).
+example a card's Edit button, then a row's toggle), and `+--type <css>=<text>+`
+(type text into the first input matching the CSS selector, which is everything before
+the last `=`, such as the rail's lookup box; clicks and types run in the order given).
 * Output is deterministic: light scheme, no animations or caret, fonts
 (the bundled IBM Plex) loaded, the network quiet. Rerunning on unchanged
 code and mocks, with the same Chrome, gives the same bytes.

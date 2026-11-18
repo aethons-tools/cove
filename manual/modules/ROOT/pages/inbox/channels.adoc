@@ -44,6 +44,9 @@ The toggle at the top of *`Me`* shows *All* your conversations,
 or only those that are *Unread* or need you.
 
 A DM with an agent leaves *`Me`* when the agent ends.
+Finished conversations are kept;
+to read them, look them up
+(<<_looking_up,Looking up>>).
 
 === Work
 
@@ -75,6 +78,44 @@ on any device.
 The rail plays a sound when a conversation starts to need you
 or gets new messages.
 You can change the sounds under *Sounds…* in your account menu.
+
+=== Looking up
+
+The box at the top of the rail looks up
+the conversations that finished
+and the sessions that ended.
+Type a name, a ticket's key, or words from a message.
+While you type,
+the results take the place of the rail's sections;
+clear the box to get them back.
+
+image::channels-lookup.png["The rail looking up login, with ACME-40's finished work log open",800]
+
+The results come in two groups:
+
+Finished conversations::
+DMs with an agent that ended,
+group DMs you left,
+rooms that were archived,
+and the work logs of units of work that are done.
+Each shows when it finished and why.
+Ended sessions::
+Sessions that ended whose session view you may open
+(xref:inbox/session.adoc[Watching a session]).
+
+Click *Conversations* or *Sessions* to narrow the results to one group,
+or *All* to show both.
+When a message matches,
+the result shows that message,
+with the words you typed highlighted.
+
+Click a finished conversation to read it.
+You can't post to it.
+Click an ended session to open its view.
+
+You find only what you may read:
+the conversations you took part in or may read,
+and the sessions whose view you may open.
 
 == Opening a channel
 
@@ -142,6 +183,9 @@ A conversation is `/app/user/c/<channel>`.
 The old Inbox's `?c=` links redirect.
 * The rail is `GET /app/user/api/rail`'s sections (`web/app/src/rail/RailSections.tsx`, shared with the VS Code rail);
 the saved order is `PUT /app/user/api/rail/order`.
+* Looking up is `GET /app/user/api/lookup` (`web/app/src/rail/Lookup.tsx`; the app only, not yet the VS Code rail),
+built by COV-409; its interface is `docs/modules/ROOT/pages/usage/jam/rail-api.adoc#lookup`.
+A finished conversation's `Conversation.finished` says why; it has no composer, and a post to it is `409`.
 * The header shows the conversation kind (`dm`, `group`, `room`, `work`);
 an archived session channel an older Jam made reads *agent*.
 Jam archives them at serve start (`Intercom.Reconcile`): their members can still read them, and they take no posts.
