@@ -4,7 +4,7 @@
   "description": "Builds the Jam manual with Antora; see docs/modules/ROOT/pages/manual.adoc.",
   "devDependencies": {
     "@antora/lunr-extension": "1.0.0-alpha.13",
-    "@asciidoctor/core": "2.2.9",
+    "@asciidoctor/core": "4.3.0",
     "@mermaid-js/mermaid-cli": "12.2.0",
     "antora": "3.2.2",
     "puppeteer": "25.17.0"
