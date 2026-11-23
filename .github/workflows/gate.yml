@@ -150,7 +150,7 @@ jobs:
       # last, runs on Node 22, as the studio kit does.
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 26
       - name: books prose (Vale)
         run: ./scripts/vale.sh
       # It installs the pinned Vale and asciidoctor itself.
