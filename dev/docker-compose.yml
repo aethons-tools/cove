@@ -23,7 +23,7 @@ name: jam-dev
 
 services:
   postgres:
-    image: postgres:18
+    image: postgres:19
     environment:
       POSTGRES_USER: jam
       POSTGRES_PASSWORD: jam
