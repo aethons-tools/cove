@@ -214,7 +214,7 @@ func CredentialEnvKey(key string) bool { return credentialEnvKeys[key] }
 // by committing model-specs/claude-default.yml to the config repo.
 //
 // renovate: datasource=npm depName=@anthropic-ai/claude-code
-const DefaultClaudeVersion = "2.1.322"
+const DefaultClaudeVersion = "2.1.332"
 
 // LegacyDefaultVersion is the version constraint claude-default was seeded with
 // before the version split (COV-242); MigrateLegacy keeps it as a migrated
