@@ -42,7 +42,7 @@ services:
   # first start it lays itself out and creates the dev key and bucket below
   # (idempotent on restarts). S3 API on host port 13900.
   garage:
-    image: dxflrs/garage:v2.5.0
+    image: dxflrs/garage:v2.6.0
     command: ["/garage", "server", "--single-node", "--default-bucket"]
     environment:
       GARAGE_RPC_SECRET: "6a616d2d6465762d6f6e6c792d7270632d7365637265742d6e6f742d73656372"

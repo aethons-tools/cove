@@ -7,7 +7,7 @@ ARG BASE_TAG=latest
 FROM jam-studio-base:${BASE_TAG}
 ARG TARGETARCH
 # Toolchain versions — pinned for reproducibility; Renovate keeps them current.
-ARG GO_VERSION=1.27.3
+ARG GO_VERSION=1.27.4
 ARG HADOLINT_VERSION=v2.15.1
 
 # hadolint (Dockerfile linter) — no apt package; fetch the release binary.
